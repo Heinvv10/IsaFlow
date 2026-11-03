@@ -11,10 +11,10 @@
  *     unmount). A change the edit page's autosave is HOLDING (a line or date it refuses, a stale-priced draft, a rate
  *     being typed, a removed time-entry line) would not be sent, so back and forward ask. Leave: it goes without them.
  *     Stay: by then the browser has moved and Next has not changed the route, so the move is undone with the
- *     Navigation API: `navigation.traverseTo(key)` back to this page's own entry. Firefox and Safari fall back to
- *     `history.go(delta)`, using the indexes carried by Next's history entries. Back, Forward or a jump of several
- *     entries keeps history's order (nothing is pushed). If neither an entry key nor indexes are known, the move
- *     cannot be undone exactly, and it is not asked: the page goes, as it did;
+ *     Navigation API: `navigation.traverseTo(key)` back to this page's own entry (its key read at mount and at each
+ *     route change). Back, Forward or a jump of several entries, history keeps its order (nothing is pushed). Where
+ *     the browser has no Navigation API, or this page's key is unknown, the move cannot be undone exactly, and it is
+ *     not asked: the page goes, as it did;
  *   - a push or replace (a link, a button): `routeChangeStart` throws, Next's only way to cancel one, and the router's
  *     push and replace are wrapped for this page's life so the cancellation resolves false instead of rejecting (no
  *     unhandled rejection: no Sentry event, no dev overlay). The route change a back/forward starts goes through
@@ -25,7 +25,6 @@
 import { useEffect, useRef } from 'react';
 import { useRouter, type NextRouter } from 'next/router';
 import { log } from '@/lib/logger';
-import { historyIndexOf } from '@/lib/historyIndex';
 import { useLocalInvoiceDraft, type LocalDraft, type LocalDraftOptions } from './useLocalInvoiceDraft';
 import { useServerInvoiceAutosave, type ServerAutosave, type ServerAutosaveOptions } from './useServerInvoiceAutosave';
 
@@ -84,10 +83,8 @@ function useLeaveGuard(guarded: Guarded): void {
     const events = router.events as NextRouter['events'] | undefined;
     let popping = false; // a back/forward under way: its route change goes through unasked
     let here = entryKey(); // this page's own history entry (Navigation API key)
-    let hereIndex = historyIndexOf(window.history.state);
-    const remember = () => { here = entryKey(); hereIndex = historyIndexOf(window.history.state); };
+    const remember = () => { here = entryKey(); };
     let restoring = false; // Stay's traverseTo is under way, back to `here`
-    let restoringIndex: number | null = null; // Stay's history.go fallback is returning to this index
     const question = () => (g.current.saveOut() ? `${LEAVE_MESSAGE} ${SAVE_FINISHING}` : LEAVE_MESSAGE);
 
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -104,34 +101,22 @@ function useLeaveGuard(guarded: Guarded): void {
       throw new NavigationCancelled();
     };
     const restoreNavigation = quietCancellations(router);
-    router.beforePopState?.((state) => {
+    router.beforePopState?.(() => {
       const now = entryKey(); // the entry the browser moved to
-      const toIndex = historyIndexOf(state);
       if (restoring) {
         restoring = false;
         if (now !== null && now === here) return false; // Stay's own move, home again: nothing to route
       }
-      if (restoringIndex !== null) {
-        const restored = toIndex === restoringIndex;
-        restoringIndex = null;
-        if (restored) return false;
-      }
       // Autosave would not send it: ask, as a link does. Only when the move can be undone exactly.
       const nav = navigationApi();
-      const canTraverse = here !== null && now !== null && now !== here && typeof nav?.traverseTo === 'function';
-      const historyDelta = hereIndex !== null && toIndex !== null && toIndex !== hereIndex ? hereIndex - toIndex : null;
-      if ((canTraverse || historyDelta !== null) && g.current.unsaved() && g.current.heldBack()) {
+      if (here !== null && now !== null && now !== here && typeof nav?.traverseTo === 'function'
+        && g.current.unsaved() && g.current.heldBack()) {
         if (!window.confirm(question())) {
-          if (canTraverse) {
-            restoring = true;
-            const undo = nav!.traverseTo!(here!); // back to this page's own entry: history keeps its order
-            const failed = (err: unknown) => { restoring = false; log.warn('Could not return to the invoice after Stay', { err }, 'useInvoiceAutosave'); };
-            undo.committed?.catch(failed);
-            undo.finished?.catch(failed);
-          } else {
-            restoringIndex = hereIndex;
-            window.history.go(historyDelta!);
-          }
+          restoring = true;
+          const undo = nav.traverseTo(here); // back to this page's own entry: history keeps its order
+          const failed = (err: unknown) => { restoring = false; log.warn('Could not return to the invoice after Stay', { err }, 'useInvoiceAutosave'); };
+          undo.committed?.catch(failed);
+          undo.finished?.catch(failed);
           return false; // Next has not changed the route
         }
         g.current.leaveWithout(); // "Leave without them"
