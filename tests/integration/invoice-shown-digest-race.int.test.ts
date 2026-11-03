@@ -3,7 +3,8 @@
  * change landing between the two leaves the page NEWER than its digest (the approve is refused, 409), never older (an
  * approve of a view nobody saw would pass). The window is opened deterministically: `sql` is wrapped, and right after
  * the digest loader's read a hook changes the customer's printed name through a separate pool.
- * Also: the model the digest loader reads has exactly the keys its interfaces name (nothing unprinted leaks in).
+ * Also: the model the digest loader reads has exactly the keys its interfaces name (nothing unprinted leaks in), and
+ * another company's customer or job, named by a drifted id, is never read into it.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -77,5 +78,19 @@ describe('the digest model', () => {
       'due_date', 'exchange_rate', 'invoice_date', 'invoice_number', 'notes', 'payment_terms', 'project_name', 'status',
       'subtotal', 'tax_amount', 'tax_rate', 'total_amount']);
     for (const line of model.items) expect(Object.keys(line).sort()).toEqual(['amount', 'description', 'quantity', 'tax_rate', 'unit_price']);
+  });
+
+  it('an invoice whose client and job ids name ANOTHER company\'s rows prints neither (each join carries company_id)', async () => {
+    const other = await invoiceCompany(pool, [[owner, 'owner']], companies);
+    const theirCustomer = crypto.randomUUID();
+    await pool.query('INSERT INTO customers(id, company_id, name) VALUES($1, $2, $3)', [theirCustomer, other, 'Their customer']);
+    const theirProject = (await pool.query(`INSERT INTO projects (company_id, project_number, name) VALUES ($1, 'P-THEIRS', 'Their job') RETURNING id`, [other])).rows[0].id;
+    const inv = await plantInvoice(pool, company, owner);
+    await pool.query('UPDATE customer_invoices SET client_id = $2, customer_id = $2, project_id = $3 WHERE id = $1', [inv.id, theirCustomer, theirProject]);
+    const model = (await loadInvoicePdfModel(company, inv.id, { forDigest: true }))!;
+    expect(model.invoice.client_name).toBeNull();
+    expect(model.invoice.project_name).toBeNull();
+    await pool.query('UPDATE customer_invoices SET project_id = NULL WHERE id = $1', [inv.id]);
+    await pool.query('DELETE FROM projects WHERE id = $1', [theirProject]);
   });
 });

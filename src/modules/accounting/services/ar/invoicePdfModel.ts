@@ -14,12 +14,14 @@
  *   - `draft`: the invoice row and its lines only, what a draft PUT's row lock covers. A customer or company record
  *     edited meanwhile does not refuse an open draft's autosave; it refuses its approve, if printed.
  * Read with `forDigest`, the company's logo comes back as its md5 (a logo can be megabytes); two statements in all.
- * Lines are ordered by created_at, id, and hashed as a set besides.
+ * Lines are ordered by created_at (the entry order: create and the draft PUT stamp clock_timestamp()), as the detail
+ * GET orders them, and hashed as a set besides (a legacy invoice's lines may tie).
  */
 import { createHash } from 'node:crypto';
 import { sql, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { getCompanyDetailsFromCompany, type PrintedCompany } from '../core/pdfShared';
+import { getCompanyDetailsFromCompany } from '../core/pdfShared';
+import type { PrintedCompany } from '../core/pdfPrintedCompany';
 
 /** The invoice row's own fields (all a draft PUT's lock covers), as printed or shown. */
 const INVOICE_FIELDS = ['invoice_number', 'invoice_date', 'due_date', 'status', 'payment_terms', 'subtotal', 'tax_rate',
@@ -67,7 +69,7 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
     SELECT cii.description, cii.quantity, cii.unit_price, cii.amount, cii.tax_rate
     FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id
     WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
-    ORDER BY cii.created_at, cii.id
+    ORDER BY cii.created_at -- the entry order (create and the draft PUT stamp clock_timestamp()); as the detail GET
   `) as InvoicePdfLine[];
   const invoice = { ...pick(r, INVOICE_FIELDS), ...pick(r, JOINED_FIELDS) };
   const company = r.company_found ? companyOf(r) : await settingsCompany(companyId, invoiceId, forDigest);

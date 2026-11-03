@@ -116,19 +116,27 @@ describe('one fingerprint, in SQL', () => {
     const unlisted = { rel: 'src/modules/accounting/services/ap/newFingerprint.ts', text: "createHash('sha256').update(row.bank_account_number)" };
     expect(bankHashers([unlisted]).filter((f) => !(f in BANK_HASH_EXCEPTIONS))).toEqual([unlisted.rel]);
     const listed = BANK_HASH_EXCEPTIONS['src/modules/accounting/services/ar/invoicePdfModel.ts']!;
-    const extraSite = "const fp = createHash('sha256').update(company.bankAccountNumber).digest('hex');";
-    expect(unpinnedHashSites(`${text('src/modules/accounting/services/ar/invoicePdfModel.ts')}\n${extraSite}`, listed.sites)).toEqual([extraSite]);
+    const model = text('src/modules/accounting/services/ar/invoicePdfModel.ts');
+    for (const extraSite of [
+      "const fp = createHash('sha256').update(company.bankAccountNumber).digest('hex');",
+      'const fp = sha([model.company.bankAccountNumber]);', // through the file's own wrapper
+      "const mac = createHmac('sha256', key).update(company.bankAccountNumber).digest('hex');",
+    ]) expect(unpinnedHashSites(`${model}\n${extraSite}`, listed.sites)).toEqual([extraSite]);
   });
 });
 
 /** A file that hashes AND names bank fields: in TypeScript, only the SQL function may fingerprint bank details. */
 function bankHashers(entries: { rel: string; text: string }[]): string[] {
-  return entries.filter((e) => /createHash|subtle\.digest|\bsha256\b/.test(e.text)
+  return entries.filter((e) => /createHash|createHmac|crypto\.hash\b|subtle\.digest|\bsha256\b/.test(e.text)
     && /bank_account_number|bankAccountNumber|accountNumber/.test(e.text)).map((e) => e.rel);
 }
-/** Each line that calls a hash, but those the exception pins. */
+/**
+ * Each line that calls a hash, but those the exception pins: node's createHash / createHmac / crypto.hash, WebCrypto's
+ * digest, and a call to a file's own `sha(` wrapper (so a new caller of the wrapper is a new site too).
+ */
 function unpinnedHashSites(source: string, sites: readonly RegExp[]): string[] {
-  return source.split('\n').map((l) => l.trim()).filter((l) => /createHash\(|subtle\.digest\(/.test(l) && !sites.some((re) => re.test(l)));
+  return source.split('\n').map((l) => l.trim())
+    .filter((l) => /createHash\(|createHmac\(|crypto\.hash\(|subtle\.digest\(|\bsha\(/.test(l) && !sites.some((re) => re.test(l)));
 }
 /**
  * Declared exceptions: files that hash AND name bank fields for a reason that is not a supplier bank-verification
@@ -139,7 +147,10 @@ const BANK_HASH_EXCEPTIONS: Record<string, { why: string; sites: readonly RegExp
     why: "hashes the issuer's own printed bank details to detect a stale view (the invoice's shown digest, PR S); not a supplier bank-verification fingerprint",
     sites: [
       /^const sha = \(v: unknown\): string => createHash\('sha256'\)\.update\(JSON\.stringify\(v\)\)\.digest\('hex'\);$/,
-      /^const logoData = d\.logoData && forDigest \? createHash\('md5'\)\.update\(d\.logoData\)\.digest\('hex'\) : d\.logoData;/,
+      /^const logoData = d\.logoData && forDigest \? createHash\('md5'\)\.update\(d\.logoData\)\.digest\('hex'\) : d\.logoData;(\s*\/\/.*)?$/,
+      // The wrapper's two callers: the shown digest (the whole model) and the draft digest (the invoice row and lines).
+      /^return sha\(\[approvalDigest, model\.company, model\.invoice, lineSet\(model\.items\)\]\);$/,
+      /^return sha\(\[approvalDigest, pick\(model\.invoice, INVOICE_FIELDS\), lineSet\(model\.items\)\]\);$/,
     ],
   },
 };

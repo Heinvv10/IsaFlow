@@ -266,12 +266,12 @@ export async function editDraftCustomerInvoice(
         await tx`
           INSERT INTO customer_invoice_items (
             invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-            gl_account_id, project_id, cc1_id, cc2_id, bu_id, time_entry_id
+            gl_account_id, project_id, cc1_id, cc2_id, bu_id, time_entry_id, created_at
           ) VALUES (
             ${id}::UUID, ${it.description}, ${it.unitPrice},
             ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency},
             ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
-            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID, ${it.timeEntryId ?? null}::UUID
+            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID, ${it.timeEntryId ?? null}::UUID, clock_timestamp() -- the entry order
           )
         `;
       }
