@@ -115,26 +115,34 @@ function clip(year: FiscalYearRecord, first: string, last: string): { first: str
 }
 
 /**
- * The registry years overlapping [startDate, endDate], each with its months inside the window. The
- * walk starts at the window's first DAY and steps to the day after each year ends, so a year that
- * starts mid-month keeps its first month (as the budgets page writes it). A month two years share
- * (one ends and the next starts inside it) counts once, in the earlier year of the window.
+ * The registry years overlapping [startDate, endDate], each with its months inside the window. A
+ * month two years share (one ends and the next starts inside it) counts once, in the year holding
+ * the month's FIRST DAY (the earlier one): the key a change of year end files a month under
+ * (`budgetYearRehome`, `fiscalYearForDate(month)`), whatever day the window starts (ledger LB-2(b)).
+ * So the month walk starts on the 1st of the window's first month and steps to the day after each
+ * year ends; a year that starts mid-month owns its months from the next one.
  *
- * `visited` is every registry year the walk touched by DATE, the year holding the first day always
- * first (even for an inverted window): one lookup per year, shared with the callers that need the
- * years themselves (`primaryVersionScopeAndYears`), so no read walks the registry twice. It is longer
- * than the parts when a year starts mid-month inside the window's last month and so owns no month.
+ * `visited` is every registry year the walk touched by DATE ([startDate, endDate]), the year holding
+ * the first day always first (even for an inverted window): one lookup per year, shared with the
+ * callers that need the years themselves (`primaryVersionScopeAndYears`), so no read walks the
+ * registry twice. It differs from the parts' years when a year starts mid-month inside the window's
+ * last month (it owns no month), or when the window starts mid-month in a year after the one holding
+ * that month's 1st (that earlier year owns the month and is not visited by date).
  */
 async function yearsInWindow(companyId: string, startDate: string, endDate: string) {
-  const bounds = budgetMonthBounds(startDate, endDate);
+  // An inverted window owns no month: its walk is the one lookup of its first day.
+  const bounds = endDate < startDate ? null : budgetMonthBounds(startDate, endDate);
   const parts: Array<{ year: FiscalYearRecord; first: string; last: string }> = [];
   const visited: FiscalYearRecord[] = [];
-  let day = startDate;
-  let first = bounds?.first ?? startDate;
-  while (visited.length === 0 || day <= endDate) {
-    if (visited.length >= MAX_YEARS_IN_WINDOW) throw new Error(`budget window ${startDate}..${endDate} spans too many years`);
+  let day = bounds?.first ?? startDate;
+  let first = day;
+  let walked = 0;
+  while (walked === 0 || day <= endDate) {
+    if (walked >= MAX_YEARS_IN_WINDOW) throw new Error(`budget window ${startDate}..${endDate} spans too many years`);
+    walked += 1;
     const year = await fiscalYearForDate(companyId, day);
-    visited.push(year);
+    // A year ending before the first day owns the first month (it holds its 1st) but is not touched by date.
+    if (year.endDate >= startDate) visited.push(year);
     const part = bounds && day <= endDate && first <= bounds.last ? clip(year, first, bounds.last) : null;
     if (part) {
       parts.push({ year, ...part });
