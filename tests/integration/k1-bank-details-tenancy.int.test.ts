@@ -129,14 +129,13 @@ describe('the service pool and the platform admin', () => {
   });
 });
 
-// What the payroll .claude.md says stays open. A fix turns this red: then correct it.
-describe('stated residual risk', () => {
-  it('duplicates can confirm a manager\'s guess: a first entry with the guessed number joins its group', async () => {
+describe('manager duplicate-account oracle', () => {
+  it('a permitted first entry cannot confirm a guessed number through duplicate groups', async () => {
     const c = await newCompany(pool, [[both, 'owner'], [m, 'manager']], companies);
     expect((await put(tokens[both]!, c, await employee(pool, c), ROW)).state.statusCode).toBe(200);
     expect((await put(tokens[m]!, c, await employee(pool, c), ROW)).state.statusCode).toBe(200);
     const res = await callRoute(duplicates, tokens[m]!, c, 'GET', undefined, '/api/payroll/duplicates');
-    expect(dataOf<DuplicateResult>(res).bankAccount.map((g) => g.employees.length)).toEqual([2]);
+    expect(dataOf<DuplicateResult>(res).bankAccount).toEqual([]);
   });
 });
 
@@ -194,10 +193,10 @@ describe('/api/payroll/duplicates', () => {
   const readAs = (token: string) => callRoute(duplicates, token, c, 'GET', undefined, '/api/payroll/duplicates');
   const read = (user: string) => readAs(tokens[user]!);
 
-  it('a manager sees the last four only; grouping still used the whole number', async () => {
+  it('a manager cannot see bank-account duplicate groups', async () => {
     const res = await read(m);
     const { bankAccount } = dataOf<DuplicateResult>(res);
-    expect(bankAccount.map((g) => [g.value, g.employees.length])).toEqual([['…9333', 2], ['…9333', 2]]);
+    expect(bankAccount).toEqual([]);
     expect(JSON.stringify(res.state.body)).not.toContain(same);
     expect(JSON.stringify(res.state.body)).not.toContain(twin);
   });

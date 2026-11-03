@@ -1,6 +1,6 @@
 // Wave 3 K1: a manager's bank-account duplicates arrive masked to the last four, so two different accounts can show
 // the same value. They are still two groups: `value` alone cannot be the React key.
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -10,10 +10,13 @@ vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock'
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: ReactNode }) => <a>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
+const company = vi.hoisted(() => ({ companyRole: 'admin' }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => company }));
 
 import DuplicatesPage from '../../../pages/payroll/duplicates';
 
 useApiJsonOverMock();
+beforeEach(() => { company.companyRole = 'admin'; });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const person = (id: string) => ({ id, employeeNumber: id, name: `Person ${id}`, status: 'active' });
@@ -36,5 +39,14 @@ describe('payroll duplicates, masked bank accounts', () => {
     expect(screen.getByText(/Person e4/)).toBeDefined();
     const keyErrors = consoleError.mock.calls.filter((c) => String(c[0]).includes('same key'));
     expect(keyErrors).toEqual([]);
+  });
+
+  it('does not show the bank-account duplicate group tab to a manager', async () => {
+    company.companyRole = 'manager';
+    serve(on('GET', '/api/payroll/duplicates', () => ok(RESULT)));
+    render(<DuplicatesPage />);
+    expect(await screen.findByText('2 conflict group(s)')).toBeDefined();
+    expect(screen.queryByRole('button', { name: /Bank Account/ })).toBeNull();
+    expect(screen.queryByText('…9333')).toBeNull();
   });
 });

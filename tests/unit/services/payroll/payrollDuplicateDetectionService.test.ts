@@ -147,6 +147,27 @@ describe('findDuplicates', () => {
     expect(full.bankAccount[0]?.value).toBe('1234567890');
   });
 
+  it('does not query or return bank-account groups when the caller cannot view them', async () => {
+    mockImpl = (strings) => {
+      const q = strings.join('?');
+      if (routeMatch(q, 'id_number')) {
+        return Promise.resolve([
+          { value: 'x', employees: [{ id: 'a' }, { id: 'b' }] },
+        ]);
+      }
+      if (routeMatch(q, 'bank_account')) {
+        throw new Error('bank-account query must not run');
+      }
+      return Promise.resolve([]);
+    };
+
+    const result = await findDuplicates(COMPANY_ID, { includeBankAccounts: false });
+
+    expect(result.bankAccount).toEqual([]);
+    expect(result.totals).toEqual({ totalConflicts: 1, affectedEmployees: 2 });
+    expect(sqlCalls.some((call) => routeMatch(call.sql, 'bank_account'))).toBe(false);
+  });
+
   it('returns a summary totals.totalConflicts', async () => {
     mockImpl = (strings) => {
       const q = strings.join('?');

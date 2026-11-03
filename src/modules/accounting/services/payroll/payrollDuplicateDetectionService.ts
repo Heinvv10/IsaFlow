@@ -5,8 +5,9 @@
  * bank account, or employee number.
  *
  * One SQL round-trip per field. NULL / empty strings are never considered
- * duplicates. Bank accounts group on the whole number here and leave it masked
- * to the last four unless the caller asks for `fullBankAccounts` (owner / admin).
+ * duplicates. Bank accounts are not queried unless the caller may view those
+ * groups. They group on the whole number and are masked to the last four unless
+ * the caller asks for `fullBankAccounts` (owner / admin in their own session).
  */
 
 import { sql } from '@/lib/neon';
@@ -41,6 +42,8 @@ export interface DuplicateResult {
 
 export interface FindDuplicatesOptions {
   includeTerminated?: boolean;
+  /** Owner / admin only. False avoids querying bank details at all. */
+  includeBankAccounts?: boolean;
   /** Owner / admin only. Default: bank account values masked to their last four. */
   fullBankAccounts?: boolean;
 }
@@ -145,8 +148,10 @@ export async function findDuplicates(
     scanEmployeeField(companyId, 'tax_number', includeTerminated),
     scanEmployeeField(companyId, 'passport_number', includeTerminated),
     scanEmployeeField(companyId, 'employee_number', includeTerminated),
-    scanBankAccount(companyId, includeTerminated).then((found) => (opts.fullBankAccounts === true
-      ? found : found.map((g) => ({ ...g, value: String(maskValue(g.value)) })))),
+    opts.includeBankAccounts === false
+      ? Promise.resolve([])
+      : scanBankAccount(companyId, includeTerminated).then((found) => (opts.fullBankAccounts === true
+        ? found : found.map((g) => ({ ...g, value: String(maskValue(g.value)) })))),
   ]);
 
   const groups = [idNumber, taxNumber, passportNumber, employeeNumber, bankAccount];
