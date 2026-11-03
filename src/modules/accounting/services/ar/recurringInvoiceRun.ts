@@ -14,6 +14,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { advanceDate } from '@/modules/accounting/services/gl/recurringSchedule';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { approveCustomerInvoice } from './customerInvoiceApprovalService';
