@@ -23,10 +23,11 @@ jobs:
   # the switch for when GitHub's runners are down. route itself, quality and
   # golden-lane follow the same variable. The output only picks between two
   # label sets written out in static's runs-on, so a wrong value cannot strand
-  # the job on a label no runner has.
+  # the job on a label no runner has. In velo mode ordinary PRs use only the
+  # pr-lane runners, leaving the unlabelled runner free for queue/master work.
   route:
     name: CI route
-    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.CI_HOSTED == 'off' && ((github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && fromJSON('["self-hosted","linux","velo"]') || fromJSON('["self-hosted","linux","velo","pr-lane"]')) || 'ubuntu-24.04' }}
     timeout-minutes: 5
     outputs:
       hosted: ${{ steps.route.outputs.hosted }}
@@ -51,7 +52,7 @@ jobs:
   static:
     name: Static gates
     needs: route
-    runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}
+    runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || ((github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && '["self-hosted","linux","velo"]' || '["self-hosted","linux","velo","pr-lane"]')) }}
     # Hosted: 40. Measured on ubuntu-24.04 (4 vCPU), PR #977 runs 41117290258
     # and 41124556128: 26 min including setup (re-measure and tighten). On velo,
     # the old bound for these steps: 58 min at load 150-250, plus install.
@@ -141,7 +142,7 @@ jobs:
   velo:
     name: Browser & integration
     needs: route
-    runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}
+    runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || ((github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && '["self-hosted","linux","velo"]' || '["self-hosted","linux","velo","pr-lane"]')) }}
     # Hosted (PR #977, 3 runs): setup ~4 min, browser-tests 2-3 min,
     # integration 18-24 min, ~35 min in all. On velo 2026-10-30: browser-tests
     # 2m15s, integration 18 min at load ~40.
@@ -220,7 +221,7 @@ jobs:
     name: Type Check, Lint & Test
     needs: [route, static, velo]
     if: ${{ always() }}
-    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.CI_HOSTED == 'off' && ((github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && fromJSON('["self-hosted","linux","velo"]') || fromJSON('["self-hosted","linux","velo","pr-lane"]')) || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - name: Both gate groups passed?
@@ -242,7 +243,7 @@ jobs:
   # behaviour. Not a required check.
   golden-lane:
     name: Golden Paths lane
-    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.CI_HOSTED == 'off' && ((github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && fromJSON('["self-hosted","linux","velo"]') || fromJSON('["self-hosted","linux","velo","pr-lane"]')) || 'ubuntu-24.04' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -291,7 +292,7 @@ jobs:
   # no velo database is involved.
   golden-paths:
     name: Golden Paths E2E (blocking)
-    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.CI_HOSTED == 'off' && ((github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && fromJSON('["self-hosted","linux","velo"]') || fromJSON('["self-hosted","linux","velo","pr-lane"]')) || 'ubuntu-24.04' }}
     # Green runs took 19-30 min of test time on 2026-10-29, and #952's green run
     # took 49 min wall-clock at load ~60 (00:23-01:12Z); 30 cancelled every
     # queue run (#938, #940, #917) and 45 would still have cut that one.

@@ -24,7 +24,7 @@ export const QUALITY_NAME = 'Type Check, Lint & Test';
  * GitHub-hosted unless it is `off`. Both label sets are written out, so no
  * value can strand them on a label no runner has.
  */
-export const LIGHT_RUNS_ON = `\${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}`;
+export const LIGHT_RUNS_ON = `\${{ vars.CI_HOSTED == 'off' && ((github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && fromJSON('["self-hosted","linux","velo"]') || fromJSON('["self-hosted","linux","velo","pr-lane"]')) || 'ubuntu-24.04' }}`;
 /** The read scopes mq-merge-already-tested.ts needs; a read scope cannot cancel, rerun or write. */
 export const JOB_PERMISSIONS = { contents: 'read', actions: 'read', 'pull-requests': 'read' };
 export const CHECKOUT = /^actions\/checkout@v\d+$/;
@@ -50,7 +50,7 @@ const MIN_VELO_TIMEOUT = 20;
 const MIN_QUALITY_TIMEOUT = 2;
 
 const HOSTED = "needs.route.outputs.hosted == 'true'";
-const STATIC_RUNS_ON = `\${{ fromJSON(${HOSTED} && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}`;
+const STATIC_RUNS_ON = `\${{ fromJSON(${HOSTED} && '"ubuntu-24.04"' || ((github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && '["self-hosted","linux","velo"]' || '["self-hosted","linux","velo","pr-lane"]')) }}`;
 const STATIC_TIMEOUT = `\${{ ${HOSTED} && 40 || 75 }}`;
 /**
  * route's one step. It may run on velo before static (which may run on velo
