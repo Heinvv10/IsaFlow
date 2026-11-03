@@ -30,8 +30,7 @@ import { useVarianceNotes } from '@/components/accounting/budgets/tracking/useVa
 import { VarianceNoteButton } from '@/components/accounting/budgets/tracking/VarianceNoteButton';
 import { useCompany } from '@/contexts/CompanyContext';
 import { varianceRowRef, type VarianceSlice } from '@/modules/accounting/services/commentary/varianceNoteTypes';
-import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
-import type { StatementColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
+import type { StatementColumns, StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { toBudgetTrackingRows } from '@/modules/accounting/services/reports/statementRows/budgetTrackingRows';
 
 const COLUMNS: StatementColumns = { prior: false, budget: true, variance: true, trend: false, projection: true };
@@ -58,7 +57,7 @@ export default function BudgetVsActualPage() {
     const slice: VarianceSlice = { glAccountId: line.accountId, cc1Id: report.filter.cc1?.id ?? null,
       cc2Id: report.filter.cc2?.id ?? null, buId: report.filter.bu?.id ?? null };
     return (
-      <VarianceNoteButton label={`${line.accountCode} ${line.accountName}`} slice={slice} role={companyRole}
+      <VarianceNoteButton label={`${line.accountCode} ${line.accountName}`} slice={slice} role={companyRole} writable={notes.ready}
         note={notes.notes.get(varianceRowRef(slice))} onSave={notes.save} onApprove={notes.approve} onReject={notes.reject} />
     );
   };

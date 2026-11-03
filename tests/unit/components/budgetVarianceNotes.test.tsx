@@ -4,12 +4,14 @@
  * loads the notes of the report's version for a ONE-month window only, keyed by account and filter.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok } from '../helpers/d2R3a5';
 import { trackingReport } from '../helpers/budgetTrackingReportFixture';
 import { VarianceNoteButton } from '@/components/accounting/budgets/tracking/VarianceNoteButton';
+import { useVarianceNotes } from '@/components/accounting/budgets/tracking/useVarianceNotes';
+import { MAX_UNBUDGETED_CHARS } from '@/modules/accounting/services/commentary/commentaryLimits';
 import type { VarianceNote, VarianceSlice } from '@/modules/accounting/services/commentary/varianceNoteTypes';
 
 const role = vi.hoisted(() => ({ current: 'viewer' }));
@@ -73,6 +75,68 @@ describe('VarianceNoteButton', () => {
     expect(fns.onApprove).toHaveBeenCalledWith('n1', 'Draft words'); // the text on screen, compared by the server
     fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
     await waitFor(() => expect(fns.onReject).toHaveBeenCalledWith('n1', 'Draft words'));
+  });
+});
+
+describe('VarianceNoteButton: approve what is in the editor (review r2)', () => {
+  it('an owner who edited the draft approves the edited text, with the shown draft as the stale check', async () => {
+    const fns = button('owner', note({}));
+    fireEvent.click(screen.getByRole('button', { name: /Draft variance note/ }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Owner wording.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(fns.onApprove).toHaveBeenCalledWith('n1', 'Draft words', 'Owner wording.'));
+  });
+  it('an owner who did not change the draft makes a plain approval', async () => {
+    const fns = button('owner', note({}));
+    fireEvent.click(screen.getByRole('button', { name: /Draft variance note/ }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '  Draft words \n' } }); // the same text once normalised
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(fns.onApprove).toHaveBeenCalledWith('n1', 'Draft words'));
+  });
+  it('the editor allows what the service stores (MAX_UNBUDGETED_CHARS), no less', () => {
+    button('owner', note({}));
+    fireEvent.click(screen.getByRole('button', { name: /Draft variance note/ }));
+    expect(screen.getByRole('textbox').getAttribute('maxlength')).toBe(String(MAX_UNBUDGETED_CHARS));
+  });
+  it('writes are not offered when the notes failed to load (writable false)', () => {
+    render(<VarianceNoteButton label="4000 Sales" slice={SLICE} note={undefined} role="owner" writable={false}
+      onSave={vi.fn()} onApprove={vi.fn()} onReject={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /Add a variance note/ })).toBeNull();
+  });
+});
+
+describe('useVarianceNotes (review r2)', () => {
+  const A = { versionId: 'v-1', month: '2026-10' };
+  const B = { versionId: 'v-1', month: '2026-11' };
+  it('a scope change clears the previous scope\'s notes and is not ready until its own load lands', async () => {
+    let release: () => void = () => undefined;
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
+      if (String(url).includes('month=2026-11')) await new Promise<void>((r) => { release = r; });
+      return ok({ notes: [note({ status: 'approved', approvedText: 'October', draftText: null })] });
+    });
+    const { result, rerender } = renderHook(({ s }) => useVarianceNotes(s), { initialProps: { s: A } });
+    await waitFor(() => expect(result.current.notes.size).toBe(1));
+    expect(result.current.ready).toBe(true);
+    rerender({ s: B });
+    await waitFor(() => expect(result.current.notes.size).toBe(0));
+    expect(result.current.ready).toBe(false);
+    release();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+  });
+  it('a failed load is not ready, so the page offers no write', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async () => new Response('', { status: 500 }));
+    const { result } = renderHook(() => useVarianceNotes(A));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.ready).toBe(false);
+  });
+  it('the page offers no "Add a variance note" after a failed notes load', async () => {
+    role.current = 'owner';
+    const REPORT = trackingReport([{ code: '4000', name: 'Sales', type: 'revenue', actual: 5, budget: 10 }]);
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
+      (String(url).includes('variance-notes') ? new Response('', { status: 500 }) : ok(REPORT)));
+    render(<BudgetVsActualPage />);
+    await screen.findByRole('alert');
+    expect(screen.queryByRole('button', { name: /Add a variance note/ })).toBeNull();
   });
 });
 

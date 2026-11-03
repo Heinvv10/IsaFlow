@@ -14,6 +14,7 @@ import { canReadSharingSurface } from '@/modules/accounting/services/reports/sha
 import {
   mayApproveVarianceNote, mayWriteVarianceNote, type VarianceNote, type VarianceSlice,
 } from '@/modules/accounting/services/commentary/varianceNoteTypes';
+import { MAX_UNBUDGETED_CHARS, normaliseEditedText } from '@/modules/accounting/services/commentary/commentaryLimits';
 import type { ActionResult } from './useVarianceNotes';
 
 export interface VarianceNoteButtonProps {
@@ -22,9 +23,12 @@ export interface VarianceNoteButtonProps {
   slice: VarianceSlice;
   note: VarianceNote | undefined;
   role: string | null;
+  /** False while the notes are not loaded for this view (or failed to): nothing may be written on a guess. */
+  writable?: boolean;
   onSave: (slice: VarianceSlice, text: string) => Promise<ActionResult>;
-  /** Called with the draft text on screen, which the server compares before approving. */
-  onApprove: (id: string, seenDraft: string) => Promise<ActionResult>;
+  /** Called with the draft text on screen, which the server compares before approving, and the editor's
+   *  text when the approver changed it (approve-with-edit). */
+  onApprove: (id: string, seenDraft: string, editedText?: string) => Promise<ActionResult>;
   /** As `onApprove`: called with the draft text on screen. */
   onReject: (id: string, seenDraft: string) => Promise<ActionResult>;
 }
@@ -36,10 +40,10 @@ const STATUS_COLOUR = {
   rejected: 'text-[var(--ff-text-tertiary)]',
 } as const;
 
-export function VarianceNoteButton({ label, slice, note, role, onSave, onApprove, onReject }: VarianceNoteButtonProps) {
+export function VarianceNoteButton({ label, slice, note, role, writable = true, onSave, onApprove, onReject }: VarianceNoteButtonProps) {
   const internal = canReadSharingSurface(role);
-  const writer = mayWriteVarianceNote(role, slice);
-  const approver = mayApproveVarianceNote(role);
+  const writer = writable && mayWriteVarianceNote(role, slice);
+  const approver = writable && mayApproveVarianceNote(role);
   const visible = note !== undefined && (note.status === 'approved' || internal);
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
@@ -63,6 +67,13 @@ export function VarianceNoteButton({ label, slice, note, role, onSave, onApprove
     } finally {
       setBusy(false);
     }
+  };
+  // The approver signs what the editor holds: their changes go as an approve-with-edit, checked against the
+  // draft they were shown; an unchanged editor is a plain approval of that draft.
+  const approve = (n: VarianceNote) => {
+    const shown = n.draftText ?? '';
+    const typed = normaliseEditedText(text);
+    return typed === shown ? onApprove(n.id, shown) : onApprove(n.id, shown, typed);
   };
   const name = status ? `${STATUS_LABEL[status]} variance note on ${label}` : `Add a variance note on ${label}`;
 
@@ -96,7 +107,7 @@ export function VarianceNoteButton({ label, slice, note, role, onSave, onApprove
                 <span className="text-xs text-[var(--ff-text-secondary)]">
                   {status === 'approved' ? 'Saving a new draft withdraws the approval until it is approved again.' : 'Your note (saved as a draft)'}
                 </span>
-                <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} maxLength={4000}
+                <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} maxLength={MAX_UNBUDGETED_CHARS}
                   className="mt-1 w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] p-2 text-sm text-[var(--ff-text-primary)]" />
               </label>
             )}
@@ -108,7 +119,7 @@ export function VarianceNoteButton({ label, slice, note, role, onSave, onApprove
             {approver && note?.status === 'draft' && (
               <>
                 <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => onReject(note.id, note.draftText ?? ''))}>Reject</Button>
-                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => onApprove(note.id, note.draftText ?? ''))}>Approve</Button>
+                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => approve(note))}>Approve</Button>
               </>
             )}
             {editable && (

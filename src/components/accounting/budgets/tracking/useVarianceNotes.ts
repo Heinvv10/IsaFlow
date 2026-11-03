@@ -19,9 +19,12 @@ export interface UseVarianceNotes {
   /** By `row_ref` (`varianceRowRef`). */
   notes: ReadonlyMap<string, VarianceNote>;
   error: string | null;
+  /** The notes on hand are this scope's and loaded without error: the only state a write may be offered in. */
+  ready: boolean;
   save: (slice: VarianceSlice, text: string) => Promise<ActionResult>;
-  /** `seenDraft`: the draft text on screen; a note changed since is refused (409) and the notes reload. */
-  approve: (id: string, seenDraft: string) => Promise<ActionResult>;
+  /** `seenDraft`: the draft text on screen; a note changed since is refused (409) and the notes reload.
+   *  `editedText`: the approver's own wording (approve-with-edit). */
+  approve: (id: string, seenDraft: string, editedText?: string) => Promise<ActionResult>;
   /** As `approve`: the draft on screen is compared; a refusal reloads the notes. */
   reject: (id: string, seenDraft: string) => Promise<ActionResult>;
 }
@@ -29,18 +32,23 @@ export interface UseVarianceNotes {
 export function useVarianceNotes(scope: VarianceNotesScope | null): UseVarianceNotes {
   const [notes, setNotes] = useState<ReadonlyMap<string, VarianceNote>>(new Map());
   const [error, setError] = useState<string | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const seq = useRef(0);
   const versionId = scope?.versionId ?? null;
   const month = scope?.month ?? null;
+  const key = versionId === null || month === null ? null : `${versionId}|${month}`;
   useEffect(() => () => { seq.current += 1; }, []);
+
+  // Another scope's notes are never shown under this one, nor written against while it loads.
+  useEffect(() => {
+    setNotes(new Map());
+    setLoadedKey(null);
+    setError(null);
+  }, [key]);
 
   const load = useCallback(async () => {
     const id = ++seq.current;
-    if (versionId === null || month === null) {
-      setNotes(new Map());
-      setError(null);
-      return;
-    }
+    if (versionId === null || month === null) return;
     try {
       const r = await apiJson(`/api/accounting/budgets/variance-notes?${new URLSearchParams({ versionId, month }).toString()}`, undefined,
         'Could not load the variance notes - try again');
@@ -48,9 +56,11 @@ export function useVarianceNotes(scope: VarianceNotesScope | null): UseVarianceN
       if (!('notes' in r)) throw new ApiEnvelopeError('The variance notes response did not contain any notes.');
       setNotes(new Map(r.notes.map((n) => [n.rowRef, n])));
       setError(null);
+      setLoadedKey(`${versionId}|${month}`);
     } catch (err) {
       if (seq.current !== id) return;
       setNotes(new Map());
+      setLoadedKey(null);
       setError(apiErrorMessage(err, 'Could not load the variance notes - try again'));
     }
   }, [versionId, month]);
@@ -71,8 +81,9 @@ export function useVarianceNotes(scope: VarianceNotesScope | null): UseVarianceN
     if (versionId === null || month === null) return Promise.resolve('Choose a single month to write a variance note.');
     return post({ action: 'save', versionId, month, ...slice, text }, 'Could not save the note - try again');
   }, [post, versionId, month]);
-  const approve = useCallback(async (id: string, seenDraft: string) => {
-    const reason = await post({ action: 'approve', id, draft: seenDraft }, 'Could not approve the note - try again');
+  const approve = useCallback(async (id: string, seenDraft: string, editedText?: string) => {
+    const reason = await post({ action: 'approve', id, draft: seenDraft, ...(editedText === undefined ? {} : { text: editedText }) },
+      'Could not approve the note - try again');
     // A refusal (most likely the note changed since it was shown) reloads, so the dialog shows the current text.
     if (reason !== null) await load();
     return reason;
@@ -83,5 +94,5 @@ export function useVarianceNotes(scope: VarianceNotesScope | null): UseVarianceN
     return reason;
   }, [post, load]);
 
-  return { notes, error, save, approve, reject };
+  return { notes, error, ready: key !== null && loadedKey === key && error === null, save, approve, reject };
 }
