@@ -14,6 +14,8 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { inputsFixture } from './payrun-period-inputs.helpers';
 import { approve, benefitFromJanuary } from './payrun-noncash-benefit.helpers';
+import setupComponents from '../../pages/api/payroll/loans/setup-components';
+import type { Route } from './w3-01-payroll.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -91,6 +93,45 @@ describe('labour by cost centre with a non-cash benefit', () => {
     const labour = await planLabour();
     expect(labour(ccA)).toBeCloseTo(41_000 + 177.12 + 420, 2);
     expect(labour(ccB)).toBeCloseTo(41_000 + 177.12, 2);
+    await approve(fx, state.nov, 'November');
+  });
+
+  it('a run of benefits alone (no cash gross, SDL due): each centre carries its own SDL, not one untagged line', async () => {
+    // Eleven earlier months of R100 000 make the employer SDL-liable. November pays no cash: A has
+    // a R5 000 benefit, B a R3 000 one, both interest-free loans with nothing due (no instalment),
+    // under the tax threshold so no PAYE. Labour is the SDL alone: A R50, B R30.
+    for (let back = 1; back <= 11; back += 1) {
+      const index = 2026 * 12 + 11 - back;
+      await pool.query(
+        `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross) VALUES ($1, $2, $3, 'approved', 100000)`,
+        [state.coA, ((index - 1) % 12) + 1, Math.floor((index - 1) / 12)]);
+    }
+    await pool.query('DELETE FROM payroll_employee_components WHERE employee_id = $1', [state.employee]);
+    const setup = await fx.call(setupComponents as Route, 'POST', '/api/payroll/loans/setup-components', undefined);
+    expect(setup.body.data).toMatchObject({ created: ['3801'] });
+    const b = await fx.addEmployee('NC-B');
+    // 8.5% x opening / 12 = the benefit; the schedule's opening balance decides it.
+    for (const [employeeId, opening] of [[state.employee, 705_882.35], [b, 423_529.41]] as const) {
+      const loan = crypto.randomUUID();
+      await pool.query(
+        `INSERT INTO payroll_loans (id, company_id, employee_id, loan_number, description, principal, annual_interest_rate, term_months,
+           method, start_date, first_deduction_period_year, first_deduction_period_month, status, outstanding_balance)
+         VALUES ($1, $2, $3, $4, 'Staff loan', $5, 0, 12, 'straight_line', '2026-10-01', 2026, 11, 'active', $5)`,
+        [loan, state.coA, employeeId, `NC-${employeeId.slice(0, 4)}`, opening]);
+      await pool.query(
+        `INSERT INTO payroll_loan_schedule (loan_id, sequence, due_period_year, due_period_month, opening_balance, interest, principal, installment, closing_balance, paid_flag)
+         VALUES ($1, 1, 2026, 11, $2::numeric, 0, 0, 0, $2::numeric, false)`, [loan, opening]);
+    }
+    const ccA = await centre('CC-A', state.employee);
+    const ccB = await centre('CC-B', b);
+
+    await recalculate(state.nov);
+    expect(await line(state.nov)).toMatchObject({ gross: 0, taxable: 5_000, paye: 0, sdl: 50 });
+    expect(await line(state.nov, b)).toMatchObject({ gross: 0, taxable: 3_000, paye: 0, sdl: 30 });
+
+    const labour = await planLabour();
+    expect(labour(ccA)).toBeCloseTo(50, 2);
+    expect(labour(ccB)).toBeCloseTo(30, 2);
     await approve(fx, state.nov, 'November');
   });
 });

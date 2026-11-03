@@ -18,6 +18,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import {
   buildIrp5File,
@@ -157,10 +158,23 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     });
     const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
     // The writer's rule (cents dropped, a nil field left out): no income code of R1 or more, no
-    // certificate. Skipped, as an employee with no pay always was, not refused for the whole company.
+    // certificate. Skipped, not refused for the whole company, unless PAYE was withheld: no
+    // certificate could carry it and 4102 would under-report, so the file is refused, naming it.
     const incomes = [split.grossSalary3601, split.annualPayments3605, ...employeeLumpSums.map(l => l.amount), ...fringeBenefits.map(f => f.amount)];
     if (!incomes.some(a => Math.floor(a) >= 1)) {
-      if (incomes.some(a => a > 0)) warnings.push(`${who}: income this tax year is under R1 on every income code, so no certificate is written.`);
+      const paye = Math.round((Number(agg.total_paye ?? 0) + standalone.paye) * 100) / 100;
+      if (paye !== 0) {
+        return apiResponse.error(res, 'VALIDATION_ERROR' as never, `${who}: ${formatMoney(paye)} of PAYE was withheld this tax year, `
+          + 'but no income code is R1 or more, so no certificate can carry it. Correct the payroll before exporting.');
+      }
+      const uif = Math.round((Number(agg.total_uif_emp ?? 0) + Number(agg.total_uif_empr ?? 0)) * 100) / 100;
+      const sdl = Math.round(Number(agg.total_sdl ?? 0) * 100) / 100;
+      if (uif !== 0 || sdl !== 0) {
+        warnings.push(`${who}: no certificate is written (no income code is R1 or more), but the runs carry UIF ${formatMoney(uif)} `
+          + `and SDL ${formatMoney(sdl)} for this employee. Check the payroll.`);
+      } else if (incomes.some(a => a > 0)) {
+        warnings.push(`${who}: income this tax year is under R1 on every income code, so no certificate is written.`);
+      }
       continue;
     }
     warnings.push(...employeeLumpSums.filter(l => l.issuedDateFallback).map(l => issuedDateWarning(who, l)));

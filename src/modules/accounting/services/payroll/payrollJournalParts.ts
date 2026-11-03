@@ -162,7 +162,7 @@ export async function buildLabourLines(
     advisory: null,
     bySource: [{ glAccountId: defaultAccountId, centreId: null, taggable: false, debit: labourDebit }],
   };
-  if (labourDebit === 0 || totalGross === 0) return fallback;
+  if (labourDebit === 0) return fallback;
 
   const lineRows = (await sql`
     SELECT prl.employee_id, prl.gross_pay, prl.eti, prl.sdl, e.cost_centre_id, COALESCE((SELECT SUM((item->>'amount')::numeric)
@@ -193,10 +193,12 @@ export async function buildLabourLines(
   // SDL is on remuneration, which a non-cash benefit (isNonCash items) is, outside gross: with one in the run each
   // line carries its own SDL. With none sdlPart is nil and the split is the gross-share one, unchanged.
   const totalNonCash = lineRows.reduce((s, r) => s + (Number(r.non_cash) || 0), 0);
+  // No cash gross: nothing to share by gross, so one line, unless benefits alone carry SDL (each line its own).
+  if (totalGross === 0 && totalNonCash === 0) return fallback;
   const sdlPart = totalNonCash > 0 ? lineRows.reduce((s, r) => s + (Number(r.sdl) || 0), 0) : 0;
   for (const r of lineRows) {
     const employeeId = String(r.employee_id);
-    const grossShare = (Number(r.gross_pay) || 0) / totalGross;
+    const grossShare = totalGross === 0 ? 0 : (Number(r.gross_pay) || 0) / totalGross;
     // No ETI on the lines (an imported or hand-edited header): fall back to gross.
     const etiShare = lineEti > 0 ? (Number(r.eti) || 0) / lineEti : grossShare;
     employeeCostCentre[employeeId] = r.cost_centre_id == null ? null : String(r.cost_centre_id);
