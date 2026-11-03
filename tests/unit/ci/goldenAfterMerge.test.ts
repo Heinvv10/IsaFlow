@@ -67,18 +67,23 @@ describe('Golden Paths smoke before merge and full suite after merge', () => {
   });
 
   it('reports an older failure while a newer suite is still running', () => {
-    const result = runReport('failure', 100, '');
+    const result = runReport('failure', 100, 'newer-running');
     expect(result.status).toBe(1);
     expect(result.calls).toContain('issue create');
   });
 
   it('does not let an older success close a newer recorded failure', () => {
-    const tracker = '12\tOPEN\tGolden red\\n<!-- golden-paths-run: 200/1 -->';
-    const result = runReport('success', 100, tracker);
+    const result = runReport('success', 100, 'newer-failure');
     expect(result.status).toBe(0);
     expect(result.calls).toContain('issue list');
-    expect(result.calls).not.toContain('issue edit');
     expect(result.calls).not.toContain('issue close');
+  });
+
+  it('closes a failure created while a newer green report is interleaved', () => {
+    const result = runReport('failure', 100, 'green-race');
+    expect(result.status).toBe(0);
+    expect(result.calls).toContain('issue create');
+    expect(result.calls).toContain('issue close 99');
   });
 
   it('names four existing specs in the smoke script', () => {
@@ -92,23 +97,34 @@ function reportCommand(): string {
   return job('golden-paths-report').steps[0]!.run!;
 }
 
-function runReport(result: string, runId: number, tracker: string): { status: number | null; calls: string } {
+function runReport(result: string, runId: number, mode: string): { status: number | null; calls: string } {
   const dir = mkdtempSync(join(tmpdir(), 'golden-report-'));
   const gh = join(dir, 'gh');
   const calls = join(dir, 'calls');
-  writeFileSync(gh, '#!/bin/bash\necho "$*" >> "$GH_FAKE_CALLS"\nif [ "$1 $2" = "issue list" ]; then printf "%s\\n" "$GH_FAKE_TRACKER"; fi\nif [ "$1 $2" = "issue create" ]; then echo "https://example.invalid/issues/99"; fi\n');
+  writeFileSync(gh, `#!/bin/bash
+echo "$*" >> "$GH_FAKE_CALLS"
+if [ "$1 $2" = "issue list" ] && [ "$GH_FAKE_MODE" = newer-failure ]; then printf '12\\tNewer red <!-- golden-paths-run: 200/1 -->\\n'; fi
+if [ "$1 $2" = "issue create" ]; then echo "https://example.invalid/issues/99"; fi
+if [ "$1" = api ] && [[ "$*" == *'/actions/workflows/ci.yml/runs?'* ]]; then echo 200; fi
+if [ "$1" = api ] && [[ "$*" == *'/actions/runs/200/jobs?'* ]]; then
+  count=0; [ -f "$GH_FAKE_COUNT" ] && count=$(cat "$GH_FAKE_COUNT"); count=$((count + 1)); echo "$count" > "$GH_FAKE_COUNT"
+  if [ "$GH_FAKE_MODE" = green-race ] && [ "$count" -gt 1 ]; then echo success; else echo in_progress; fi
+fi
+`);
   chmodSync(gh, 0o755);
   const execution = spawnSync('/bin/bash', ['-c', reportCommand()], {
     env: {
       ...process.env,
       PATH: `${dir}:${process.env.PATH}`,
       GH_FAKE_CALLS: calls,
-      GH_FAKE_TRACKER: tracker,
+      GH_FAKE_MODE: mode,
+      GH_FAKE_COUNT: join(dir, 'count'),
       GH_TOKEN: 'test',
       REPO: 'owner/repo',
       RESULT: result,
       RUN_ID: String(runId),
       RUN_ATTEMPT: '1',
+      DEFAULT_BRANCH: 'master',
       RUN_URL: `https://example.invalid/runs/${runId}`,
       COMMIT_URL: `https://example.invalid/commits/${runId}`,
       SUBJECT: 'test merge',

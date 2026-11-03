@@ -869,6 +869,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
           SUBJECT: ${{ github.event.head_commit.message }}
         run: |
@@ -886,32 +887,28 @@ jobs:
           echo "golden-paths: $RESULT -> $verdict"
           case "$verdict" in superseded|skipped) echo "nothing to report"; exit 0 ;; esac
 
-          # The issue body is the durable ordering record. Reports may finish
-          # out of order; only a newer run (or rerun attempt) may change state.
-          tracker=$(gh issue list -R "$REPO" --label "$label" --state all --limit 1 \
-            --json number,state,body --jq '.[0] | [.number, .state, .body] | @tsv')
-          IFS=$'\t' read -r number state existing_body <<< "$tracker"
-          seen=$(printf '%s' "${existing_body:-}" | sed -n 's/.*<!-- golden-paths-run: \([0-9]*\/[0-9]*\) -->.*/\1/p' | tail -1)
-          seen_id=${seen%/*}; seen_attempt=${seen#*/}
-          if [ -n "${seen_id:-}" ] && { [ "$RUN_ID" -lt "$seen_id" ] || { [ "$RUN_ID" -eq "$seen_id" ] && [ "$RUN_ATTEMPT" -le "$seen_attempt" ]; }; }; then
-            echo "run $RUN_ID/$RUN_ATTEMPT is older than recorded $seen_id/$seen_attempt; leaving issue state unchanged"
-            exit 0
-          fi
           marker="<!-- golden-paths-run: $RUN_ID/$RUN_ATTEMPT -->"
+          newer_green_exists() {
+            newer=$(gh api --paginate "repos/$REPO/actions/workflows/ci.yml/runs?branch=$DEFAULT_BRANCH&event=push&per_page=100" \
+              --jq ".workflow_runs[] | select(.id > $RUN_ID) | .id")
+            for id in $newer; do
+              result=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" \
+                --jq '[.jobs[] | select(.name == "Golden Paths E2E (post-merge)")][0].conclusion // ""')
+              if [ "$result" = success ]; then return 0; fi
+            done
+            return 1
+          }
           case "$verdict" in
             success)
-              body=$(printf 'Latest evaluated Golden Paths E2E (post-merge) run: **green**\n\n- Run: %s\n- Commit: %s\n\n%s\n' "$RUN_URL" "$COMMIT_URL" "$marker")
-              if [ -z "${number:-}" ]; then
-                gh label create "$label" -R "$REPO" --color B60205 --description "Golden Paths E2E (post-merge) is red on master" --force
-                created=$(gh issue create -R "$REPO" --label "$label" --title "Golden Paths red on master (post-merge)" --body "$body")
-                number=${created##*/}
-                state=OPEN
-              else
-                gh issue edit "$number" -R "$REPO" --body "$body"
-              fi
-              if [ "$state" = OPEN ]; then
-                gh issue close "$number" -R "$REPO" --comment "Green again: Golden Paths E2E (post-merge) passed at $COMMIT_URL ($RUN_URL)."
-              fi
+              # Each failure owns an issue, so reports never race on shared
+              # state. A green run closes only failures older than itself.
+              while IFS=$'\t' read -r number body; do
+                [ -n "${number:-}" ] || continue
+                seen=$(printf '%s' "$body" | sed -n 's/.*<!-- golden-paths-run: \([0-9]*\)\/[0-9]* -->.*/\1/p' | tail -1)
+                if [ -n "$seen" ] && [ "$seen" -lt "$RUN_ID" ]; then
+                  gh issue close "$number" -R "$REPO" --comment "Green again: Golden Paths E2E (post-merge) passed at $COMMIT_URL ($RUN_URL)."
+                fi
+              done < <(gh issue list -R "$REPO" --label "$label" --state open --limit 100 --json number,body --jq '.[] | [.number, .body] | @tsv')
               ;;
             *)
               # First line only, and no @mentions: a merge subject's @name would
@@ -920,14 +917,23 @@ jobs:
               subject=${subject//@/(at)}
               body=$(printf 'Golden Paths E2E (post-merge) on master: **%s**\n\n- Run: %s\n- Commit: %s\n- Subject: %s\n\nNothing was reverted. Read the run log, then fix forward or revert by PR.\n\n%s\n' \
                 "$verdict" "$RUN_URL" "$COMMIT_URL" "$subject" "$marker")
+              # If a newer full suite is already green, this failure has been
+              # superseded. Check both before and after issue creation so a
+              # concurrent green report cannot miss a late-created issue.
+              if newer_green_exists; then echo "superseded by a newer green full-suite run"; exit 0; fi
               gh label create "$label" -R "$REPO" --color B60205 \
                 --description "Golden Paths E2E (post-merge) is red on master" --force
-              if [ -n "${number:-}" ]; then
-                gh issue edit "$number" -R "$REPO" --body "$body"
-                if [ "$state" = CLOSED ]; then gh issue reopen "$number" -R "$REPO"; fi
-                gh issue comment "$number" -R "$REPO" --body "$body"
+              number=$(gh issue list -R "$REPO" --label "$label" --state all --limit 100 --json number,body \
+                --jq ".[] | select(.body | contains(\"$marker\")) | .number" | head -1)
+              if [ -n "$number" ]; then
+                echo "failure issue #$number already exists for run $RUN_ID/$RUN_ATTEMPT"
               else
-                gh issue create -R "$REPO" --label "$label" --title "Golden Paths red on master (post-merge)" --body "$body"
+                created=$(gh issue create -R "$REPO" --label "$label" --title "Golden Paths red on master (run $RUN_ID)" --body "$body")
+                number=${created##*/}
+              fi
+              if newer_green_exists; then
+                gh issue close "$number" -R "$REPO" --comment "Superseded by a newer green Golden Paths E2E (post-merge) run."
+                exit 0
               fi
               echo "::error::Golden Paths E2E (post-merge) $verdict at $COMMIT_URL; golden-paths-red issue updated"
               exit 1
