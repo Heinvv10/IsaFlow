@@ -14,7 +14,7 @@ import { applyBudgetComparator, applyTrend, hasBudgetData } from '@/modules/acco
 import { applyBudgetBands, withBudgetedLines } from '@/modules/accounting/services/reports/statementRows/budgetComparatorBands';
 import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
-import { BUDGET_NONE, comparatorNotices, type BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
+import { BUDGET_NONE, ComparatorNotices, comparatorNotices, type BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
 import type { Slide } from './presentSlides';
 
 const COLUMNS = { prior: false, budget: true, variance: true, trend: true } as const;
@@ -112,6 +112,13 @@ export function PresentSlide({
     return (
       <>
         <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{slide.title}</h2>
+        {/* The income statement page's own notices, from the same state: a failed or empty budget,
+            partial or above-filter budgets. Silent while the budget is in flight. */}
+        <div className="mb-3">
+          <ComparatorNotices
+            budgetState={budgetFailed ? 'failed' : budgetLoading ? 'unknown' : hasBudgetData(budgetedCount) ? 'available' : 'none'}
+            trendFailed={trendsFailed} budget={budgetInfo} />
+        </div>
         <StatementGrid rows={rows} columns={{ ...COLUMNS }} title="Statement of Comprehensive Income" budgetCells />
       </>
     );
