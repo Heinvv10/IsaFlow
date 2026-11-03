@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 /**
  * PR S round eleven: each history entry carries its position (src/lib/historyIndex.ts), so the invoice editor's Stay
  * can undo a back/forward exactly. A push is the current entry's index + 1; a replace keeps the current entry's index

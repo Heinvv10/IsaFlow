@@ -138,7 +138,7 @@ export function InvoiceLineItemsTable({
           {lines.map((l) => (
             <tr key={l.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
               <td className="px-3 py-2"><input name="description" aria-label="Description" value={l.description} onChange={(e) => onUpdate(l.key, 'description', e.target.value)} placeholder="Item description" className={inp} />
-                {billsTimeEntry?.(l.key) && <span className="mt-1 inline-block rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-900/50 dark:text-sky-100">Time entry</span>}</td>
+                {billsTimeEntry?.(l.key) && <span className="mt-1 inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/50 dark:text-sky-100">Time entry</span>}</td>
               {showIncomeType && <td className="px-3 py-2"><select name="incomeType" aria-label="Income type" value={l.incomeType} onChange={(e) => onUpdate(l.key, 'incomeType', e.target.value)} className={inp}>
                 <option value="activation">Activation</option><option value="bonus">Bonus</option><option value="adjustment">Adjustment</option><option value="other">Other</option>
               </select></td>}
