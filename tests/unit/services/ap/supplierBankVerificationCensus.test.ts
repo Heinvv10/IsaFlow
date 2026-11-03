@@ -103,11 +103,46 @@ describe('one fingerprint, in SQL', () => {
     ]);
   });
 
-  it('no source hashes bank details in TypeScript', () => {
-    const hashing = matching(/createHash|subtle\.digest|\bsha256\b/);
-    expect(hashing.filter((f) => /bank_account_number|bankAccountNumber|accountNumber/.test(text(f)))).toEqual([]);
+  it('no source hashes bank details in TypeScript, but the exceptions named here, each at its own hashing lines', () => {
+    const hashers = bankHashers(files.map((rel) => ({ rel, text: text(rel) })));
+    expect(hashers.filter((f) => !(f in BANK_HASH_EXCEPTIONS))).toEqual([]);
+    for (const [rel, exception] of Object.entries(BANK_HASH_EXCEPTIONS)) {
+      expect(hashers, `${rel} no longer hashes bank details: drop its exception`).toContain(rel);
+      expect(unpinnedHashSites(text(rel), exception.sites), `${rel}: a hashing site the exception does not name`).toEqual([]);
+    }
+  });
+
+  it('the rule still catches what it is for: an unlisted file hashing bank fields, or a new hashing site in a listed one', () => {
+    const unlisted = { rel: 'src/modules/accounting/services/ap/newFingerprint.ts', text: "createHash('sha256').update(row.bank_account_number)" };
+    expect(bankHashers([unlisted]).filter((f) => !(f in BANK_HASH_EXCEPTIONS))).toEqual([unlisted.rel]);
+    const listed = BANK_HASH_EXCEPTIONS['src/modules/accounting/services/ar/invoicePdfModel.ts']!;
+    const extraSite = "const fp = createHash('sha256').update(company.bankAccountNumber).digest('hex');";
+    expect(unpinnedHashSites(`${text('src/modules/accounting/services/ar/invoicePdfModel.ts')}\n${extraSite}`, listed.sites)).toEqual([extraSite]);
   });
 });
+
+/** A file that hashes AND names bank fields: in TypeScript, only the SQL function may fingerprint bank details. */
+function bankHashers(entries: { rel: string; text: string }[]): string[] {
+  return entries.filter((e) => /createHash|subtle\.digest|\bsha256\b/.test(e.text)
+    && /bank_account_number|bankAccountNumber|accountNumber/.test(e.text)).map((e) => e.rel);
+}
+/** Each line that calls a hash, but those the exception pins. */
+function unpinnedHashSites(source: string, sites: readonly RegExp[]): string[] {
+  return source.split('\n').map((l) => l.trim()).filter((l) => /createHash\(|subtle\.digest\(/.test(l) && !sites.some((re) => re.test(l)));
+}
+/**
+ * Declared exceptions: files that hash AND name bank fields for a reason that is not a supplier bank-verification
+ * fingerprint, each pinned to its own hashing lines (a new hashing site in the file fails until named here).
+ */
+const BANK_HASH_EXCEPTIONS: Record<string, { why: string; sites: readonly RegExp[] }> = {
+  'src/modules/accounting/services/ar/invoicePdfModel.ts': {
+    why: "hashes the issuer's own printed bank details to detect a stale view (the invoice's shown digest, PR S); not a supplier bank-verification fingerprint",
+    sites: [
+      /^const sha = \(v: unknown\): string => createHash\('sha256'\)\.update\(JSON\.stringify\(v\)\)\.digest\('hex'\);$/,
+      /^const logoData = d\.logoData && forDigest \? createHash\('md5'\)\.update\(d\.logoData\)\.digest\('hex'\) : d\.logoData;/,
+    ],
+  },
+};
 
 describe('the database guard ranks on the same ladder', () => {
   it("migration 876's verifier-floor role list is exactly the ladder's roles at or above the floor", () => {

@@ -16,7 +16,7 @@
  * Read with `forDigest`, the company's logo comes back as its md5 (a logo can be megabytes); two statements in all.
  * Lines are ordered by created_at, id, and hashed as a set besides.
  */
-import { md5Hex, sha256Json } from '@/lib/jsonDigest';
+import { createHash } from 'node:crypto';
 import { sql, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getCompanyDetailsFromCompany, type PrintedCompany } from '../core/pdfShared';
@@ -90,7 +90,7 @@ function companyOf(r: Row): PrintedCompany {
 async function settingsCompany(companyId: string, invoiceId: string, forDigest: boolean): Promise<PrintedCompany> {
   log.warn('Invoice PDF: no companies row, company details from app settings', { companyId, invoiceId }, 'invoicePdfModel');
   const d = await getCompanyDetailsFromCompany(companyId);
-  const logoData = d.logoData && forDigest ? md5Hex(d.logoData) : d.logoData;
+  const logoData = d.logoData && forDigest ? createHash('md5').update(d.logoData).digest('hex') : d.logoData; // as md5() in SQL
   return { name: d.name, address: d.address, phone: d.phone, email: d.email, vatNumber: d.vatNumber, bankName: d.bankName,
     bankAccountName: d.bankAccountName, bankAccountNumber: d.bankAccountNumber, bankBranchCode: d.bankBranchCode,
     logoData, primaryColor: d.primaryColor };
@@ -102,7 +102,8 @@ export async function loadInvoicePdfModel(companyId: string, invoiceId: string,
   return (await load(opts.q ?? sql, companyId, invoiceId, Boolean(opts.forDigest)))?.model ?? null;
 }
 
-const sha = sha256Json;
+// The digests' one hashing site (supplierBankVerificationCensus allowlists it: the issuer's printed bank details).
+const sha = (v: unknown): string => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const lineSet = (items: readonly InvoicePdfLine[]) => items.map((l) => JSON.stringify(l)).sort();
 
 /** The shown digest: every section of the model, and the approval digest. */
