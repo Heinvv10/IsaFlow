@@ -58,10 +58,3 @@ export function parseThresholds(text: string): { ok: true; values: number[] } | 
   if (unique.length > 5) return { ok: false, message: 'At most 5 thresholds.' };
   return { ok: true, values: unique };
 }
-
-/** 'Mon 3 Nov 2026, 05:30' in South African time. */
-export function sastDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-ZA', {
-    timeZone: 'Africa/Johannesburg', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
-}

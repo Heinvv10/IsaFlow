@@ -8,7 +8,9 @@ import Link from 'next/link';
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 import type { BudgetAlertItem } from '@/modules/accounting/services/budgets/budgetAlertList';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
-import { sastDateTime, type BudgetAlertList } from './controlsClient';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
+import type { BudgetAlertList } from './controlsClient';
 
 const PANEL = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4';
 const BTN = 'inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50';
@@ -16,7 +18,7 @@ const FIG = 'text-right whitespace-nowrap tabular-nums';
 /** The daily run is late when the last evaluation is older than this. */
 const STALE_MS = 36 * 3600 * 1000;
 
-const money = (n: number) => `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = formatMoney;
 const pct = (a: BudgetAlertItem) => (a.pct === null ? 'over a R0 budget' : `${Math.round(a.pct * 10) / 10}%`);
 
 function LastEvaluated({ last, now }: { last: BudgetAlertList['lastEvaluated']; now: number }) {
@@ -31,7 +33,7 @@ function LastEvaluated({ last, now }: { last: BudgetAlertList['lastEvaluated']; 
   return (
     <p className={`flex items-start gap-1.5 text-sm ${stale ? 'text-[var(--ff-unfav)]' : 'text-[var(--ff-text-secondary)]'}`} data-testid="alerts-last-evaluated">
       {stale && <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />}
-      Last evaluated {sastDateTime(last.at)} ({last.source === 'daily' ? 'daily run' : 'Evaluate now'}): {last.fired} new, {last.resolved} resolved.
+      Last evaluated {formatDisplayDateTime(last.at)} ({last.source === 'daily' ? 'daily run' : 'Evaluate now'}): {last.fired} new, {last.resolved} resolved.
       {stale && ' The daily run has not run since; check that it is installed.'}
     </p>
   );
@@ -61,7 +63,7 @@ function AlertRows({ items, resolved }: { items: BudgetAlertItem[]; resolved: bo
               <td className={`py-1.5 pr-2 ${FIG}`}>{money(a.actual + a.committed)}</td>
               <td className={`py-1.5 pr-2 ${FIG}`}>{money(a.budget)}</td>
               <td className={`py-1.5 ${FIG} font-medium`}>{pct(a)}</td>
-              <td className="py-1.5 pl-2 whitespace-nowrap text-xs text-[var(--ff-text-secondary)]">{sastDateTime((resolved ? a.resolvedAt : a.firedAt) ?? a.firedAt)}</td>
+              <td className="py-1.5 pl-2 whitespace-nowrap text-xs text-[var(--ff-text-secondary)]">{formatDisplayDateTime((resolved ? a.resolvedAt : a.firedAt) ?? a.firedAt)}</td>
             </tr>
           ))}
         </tbody>

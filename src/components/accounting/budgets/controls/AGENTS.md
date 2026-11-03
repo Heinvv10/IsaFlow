@@ -8,7 +8,7 @@
 ## Files
 - `BudgetControlsPage.tsx`: role gating from `useCompany().companyRole` (write roles read; owner/admin edit and see alerts; a viewer gets a sentence). The server re-checks every role.
 - `useBudgetControls.ts`: state + writes; a failed refresh keeps the last good data.
-- `controlsClient.ts`: fetchers through the registry-typed `call` (`ApiResult`, never throws), `parseThresholds` (1-5 whole % in 1-999, sorted, deduped), `sastDateTime`.
+- `controlsClient.ts`: fetchers through the registry-typed `call` (`ApiResult`, never throws), `parseThresholds` (1-5 whole % in 1-999, sorted, deduped). Money via `formatMoney`, times via `formatDisplayDateTime` (SAST), as the type-and-money census requires.
 - `PolicySettings.tsx`, `ThresholdOverrides.tsx`, `AlertsPanel.tsx` (table from md up, cards below for 390 px).
 
 ## Rules

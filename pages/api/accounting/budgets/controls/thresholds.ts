@@ -13,7 +13,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
-import { BUDGET_CONTROL_ADMIN_ROLES, respondBudgetControlsError } from '@/lib/budgetControlsResponse';
+import { respondBudgetControlsError } from '@/lib/budgetControlsResponse';
 import { deleteThresholdOverride, upsertThresholdOverride } from '@/modules/accounting/services/budgets/budgetControlSettings';
 import { ThresholdsSchema } from '@/modules/accounting/services/budgets/budgetControlSchemas';
 
@@ -48,4 +48,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: BUDGET_CONTROL_ADMIN_ROLES }))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));

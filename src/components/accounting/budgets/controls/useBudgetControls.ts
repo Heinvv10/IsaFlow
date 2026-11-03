@@ -69,9 +69,15 @@ export function useBudgetControls(canAdmin: boolean, enabled: boolean): BudgetCo
     return true;
   }, []);
 
+  /** Re-reads the view after a write; a failed read keeps the last good view and says so. */
   const refreshView = useCallback(async () => {
     const r = await fetchControls();
-    if (r.ok) setView(r.data);
+    if (!r.ok) {
+      setLoadError(failureText(r));
+      return;
+    }
+    setView(r.data);
+    setLoadError('');
   }, []);
 
   const addOverride = useCallback(async (draft: OverrideDraft) => {

@@ -10,6 +10,7 @@
  *   80 / 100 / 120.
  * - A threshold `t` is crossed when `t ≤ pct`.
  */
+import { formatMoney } from '@/lib/money/formatMoney';
 import { toCents } from './grid/cents';
 
 export const DEFAULT_THRESHOLDS: readonly number[] = [80, 100, 120];
@@ -109,11 +110,9 @@ export function monthName(month: string): string {
   return `${MONTHS[Number(month.slice(5, 7)) - 1] ?? month.slice(5, 7)} ${month.slice(0, 4)}`;
 }
 
-/** 'R 1 234.50' (a minus sign in front when negative). Deterministic: no Intl. */
+/** The app's one money format ('R 1 234.50', non-breaking spaces; `@/lib/money/formatMoney`), in cents. */
 export function rand(amount: number): string {
-  const cents = Math.abs(toCents(amount));
-  const whole = String(Math.floor(cents / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-  return `${amount < 0 && cents > 0 ? '-' : ''}R ${whole}.${String(cents % 100).padStart(2, '0')}`;
+  return formatMoney(toCents(amount) / 100);
 }
 
 /** '112.5%', or 'spent against a zero budget' for an infinite percentage. */

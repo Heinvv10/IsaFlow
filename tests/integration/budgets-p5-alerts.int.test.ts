@@ -14,6 +14,7 @@ import { Pool, type PoolClient } from 'pg';
 import { evaluateOverspend } from '@/modules/accounting/services/budgets/overspendAlerts';
 import { listBudgetAlerts } from '@/modules/accounting/services/budgets/budgetAlertList';
 import { notifyUsers } from '@/modules/accounting/services/notifications/userNotificationService';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { approvedPo, AS_OF, dropAlertFixture, inRequest, journal, seedAlertFixture, type AlertFixture } from './helpers/budgetAlertsFixture';
 
@@ -74,7 +75,8 @@ describe('evaluateOverspend: one alert and one notification per crossing', () =>
       expect(await asSuper((c) => notes(c, f.managerA))).toEqual([]);
       const n100 = (await notes(client, f.ownerA)).find((x) => x.dedupe_key === `budget_alert:${rows[1]!.id}`)!;
       expect(n100.title).toBe('P5A-6000 Office costs passed 100% of budget');
-      expect(n100.body).toContain('Apr 2026: actual R 1 050.00 + committed R 0.00 = R 1 050.00 against a budget of R 1 000.00 (105%)');
+      expect(n100.body).toContain(`Apr 2026: actual ${formatMoney(1050)} + committed ${formatMoney(0)} = ${formatMoney(1050)} against a budget of ${formatMoney(1000)} (105%)`);
+      expect(formatMoney(1050)).toBe('R\u00a01\u00a0050.00');
       expect(n100.href).toBe('/accounting/reports/budget-vs-actual?period=month&month=2026-04');
     }, (c) => opexSpend(c, 1050));
   });

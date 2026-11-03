@@ -13,7 +13,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, DEFAULT_WRITE_ROLES, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { BUDGET_CONTROL_ADMIN_ROLES, respondBudgetControlsError } from '@/lib/budgetControlsResponse';
+import { respondBudgetControlsError } from '@/lib/budgetControlsResponse';
 import { CHECK_POLICIES, saveControlSettings, type CheckPolicy } from '@/modules/accounting/services/budgets/budgetControlSettings';
 import { readControlsView } from '@/modules/accounting/services/budgets/budgetControlsApi';
 import { ThresholdsSchema } from '@/modules/accounting/services/budgets/budgetControlSchemas';
@@ -47,4 +47,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: BUDGET_CONTROL_ADMIN_ROLES }))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));

@@ -13,16 +13,14 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { BUDGET_CONTROL_ADMIN_ROLES, respondBudgetControlsError } from '@/lib/budgetControlsResponse';
+import { respondBudgetControlsError } from '@/lib/budgetControlsResponse';
 import { evaluateNow } from '@/modules/accounting/services/budgets/budgetControlsApi';
-
-const EVALUATE_LIMIT = { max: 10, windowSecs: 600 } as const;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   const { companyId } = req as CompanyAuthedRequest;
-  if (!(await checkRateLimit(`budget-alerts-evaluate:${companyId}`, EVALUATE_LIMIT))) {
-    res.setHeader('Retry-After', String(EVALUATE_LIMIT.windowSecs));
+  if (!(await checkRateLimit(`budget-alerts-evaluate:${companyId}`, { max: 10, windowSecs: 600 }))) {
+    res.setHeader('Retry-After', '600');
     return apiResponse.tooManyRequests(res, 'Budget alerts were evaluated several times just now; wait a few minutes and try again.');
   }
   try {
@@ -33,4 +31,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: BUDGET_CONTROL_ADMIN_ROLES }))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));
