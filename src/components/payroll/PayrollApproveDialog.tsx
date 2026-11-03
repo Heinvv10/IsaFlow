@@ -160,7 +160,10 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
             {warningCount > 0 && (
               <p className="flex gap-2 text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
-                {warningCount} warning{warningCount === 1 ? '' : 's'} on this run (listed on the page). They do not block approval.
+                {warningCount} warning{warningCount === 1 ? '' : 's'} on this run (listed on the page).{' '}
+                {blocker?.code === 'recurring_needs_pro_rata'
+                  ? 'A recurring component needing a pro-rata blocks approval (below); the others do not.'
+                  : 'They do not block approval.'}
               </p>
             )}
             {blocker && (

@@ -3,6 +3,8 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
 import { getEmployeeComponents } from './payrollComponentService';
+import { payrollRunReadDate } from './payrollRunReadDate';
+import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
@@ -134,6 +136,11 @@ export async function calculatePayrollRun(
   // deductions and before any line is built. UnsupportedTaxYearError is a
   // refusal with nothing written; the callers answer it as a 4xx.
   getTaxYearConfig(taxYear);
+  // Components are read as at the period's last day, a plain calendar string (payrollRunReadDate).
+  const readDate = payrollRunReadDate(period);
+  // Only for validateEti's ETI_TABLE_UNCONFIRMED warning, which reads its month through local getters. ETI itself
+  // (table, age, months employed) is worked out in calculatePayrollLine on its own local day-28 Date, not on this nor
+  // on readDate; getAge there compares days, so ETI age is still taken on the 28th.
   const periodDate = new Date(period.year, period.month - 1, 28);
 
   const employees = await listPayrollRunEmployees(companyId, period);
@@ -176,6 +183,8 @@ export async function calculatePayrollRun(
   // Earlier periods of the tax year, for the cumulative PAYE (PAYE 4a follow-ups G4).
   const ytdByEmployee = await loadPayeYearToDate(companyId, runId, period, population.map(p => p.employee.id));
   const laterApproved = await laterPeriodsWarnings(companyId, runId, period);
+  // Recurring rows the last-day read pays in full or drops: flagged on the line, refused at approval.
+  const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));
 
   for (const { employee, severanceOnly: onlySeverance } of population) {
     const terminationWarnings: ValidationResult[] = [];
@@ -184,7 +193,7 @@ export async function calculatePayrollRun(
       componentsWithLoans = await severanceOnlyComponents(companyId, runId, employee, period, terminationWarnings);
       if (componentsWithLoans.length === 0) continue;
     } else {
-      const components = await getEmployeeComponents(employee.id, companyId, periodDate);
+      const components = await getEmployeeComponents(employee.id, companyId, readDate);
       const componentsWithTermination = await appendTerminationIfEndingThisPeriod(
         companyId, runId, employee, components, period, terminationWarnings,
       );
@@ -236,6 +245,7 @@ export async function calculatePayrollRun(
         // Remuneration before taxable deductions feeds later months even when a deduction reduced this line to nil.
         ...((line.periodicRemuneration > 0 || line.annualPaymentRemuneration > 0) && laterApproved.has(employee.id)
           ? [laterApproved.get(employee.id)!] : []),
+        ...proRata.filter(r => r.employeeId === employee.id).map(proRataValidation),
       ]),
     });
 

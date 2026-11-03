@@ -80,8 +80,8 @@ export async function insertAnswerRecord(q: Queryable, rec: AnswerRecord): Promi
     `INSERT INTO audit_log (
        company_id, user_id, user_email, action,
        entity_type, entity_id, entity_ref,
-       changes, ip_address, user_agent, session_id
-     ) VALUES ($1::UUID, $2, NULL, 'create', $3, $4::UUID, $5, jsonb_build_object('metadata', $6::JSONB), NULL, NULL, NULL)`,
+       changes, ip_address, user_agent, session_id, created_at
+     ) VALUES ($1::UUID, $2, NULL, 'create', $3, $4::UUID, $5, jsonb_build_object('metadata', $6::JSONB), NULL, NULL, NULL, now())`,
     [rec.companyId, rec.userId, UNRECORDED_ANSWER_ENTITY, rec.submissionId, rec.entityRef, JSON.stringify(rec.metadata)]);
 }
 

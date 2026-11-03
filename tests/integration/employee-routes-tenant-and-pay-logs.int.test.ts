@@ -30,6 +30,7 @@ const AMOUNT = 31_415.92;
 let call: ReturnType<typeof routeCaller>;
 let staff = '';
 let mine = '';
+let logMine = '';
 let foreign = '';
 
 const ids = async (table: string, companyId: string, extra = '') =>
@@ -54,7 +55,14 @@ beforeAll(async () => {
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   call = routeCaller({ [owner]: token }, { user: owner, company });
   staff = (await ids('payroll_employees', company))[0]!.id;
-  mine = (await ids('payroll_components', company, "AND sars_source_code = '3601'"))[0]!.id;
+  mine = String((await pool.query(
+    "INSERT INTO payroll_components(company_id,name,sars_source_code,component_type) VALUES($1,'Route assignment','3602','earning') RETURNING id",
+    [company],
+  )).rows[0]!.id);
+  logMine = String((await pool.query(
+    "INSERT INTO payroll_components(company_id,name,sars_source_code,component_type) VALUES($1,'Route log assignment','3605','earning') RETURNING id",
+    [company],
+  )).rows[0]!.id);
   foreign = (await ids('payroll_components', other, "AND sars_source_code = '3601'"))[0]!.id;
 });
 
@@ -224,7 +232,7 @@ describe('the request log', () => {
 
   it('an assignment logs no amount beside the employee in the URL', async () => {
     const spy = vi.spyOn(apiLogger, 'info');
-    expect((await assign(mine)).statusCode).toBe(201);
+    expect((await assign(logMine)).statusCode).toBe(201);
     expect(logged(spy)).toContain(staff);
     expect(logged(spy)).toContain('"amount":"[omitted]"');
     expect(logged(spy)).not.toContain('31415.92');

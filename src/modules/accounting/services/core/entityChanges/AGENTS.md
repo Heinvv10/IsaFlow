@@ -17,6 +17,11 @@ capture to call and none to forget.
   they may see. Newest first; `nextCursor` is the last change's id (never the platform-wide `seq`).
 - `revealEntityChange(companyId, changeId, actor)` — owner / admin only (the ROUTE checks the role and a human
   session); writes `audit_log` (`export`, `entity_change`) in the same transaction when anything masked is revealed.
+- `payrollTermsChangedSinceCalculation(companyId, runId, employeeIds)` — for the payroll approval gate
+  (`payrollRunRecalcGate`): employees whose end date or termination details changed after the run was calculated
+  (compared in SQL; an end-date change only when the earlier of old and new, empty = no end, is on/before the run's
+  last day). Returns NULL when the caller may not read the history: no SELECT on the columns read (migration_admin has
+  none), or neither an RLS bypass nor app_user (member) acting as an owner / admin / manager in a request for this company. The gate fails closed.
 - `entityChangeTypes.ts` states 888's rules once (types, channels, who reads what); `entityChangeTypes.test.ts`
   binds it to the migration's SQL.
 

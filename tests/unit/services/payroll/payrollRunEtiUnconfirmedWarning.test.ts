@@ -41,6 +41,11 @@ vi.mock('@/modules/accounting/services/payroll/payrollComponentService', () => (
     amount: 3_000,
   }]),
 }));
+// No recurring row needs a pro-rata (payroll-run-pro-rata-guard.int covers the guard).
+vi.mock('@/modules/accounting/services/payroll/payrollRecurringProRata', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/payroll/payrollRecurringProRata')>()),
+  recurringRowsNeedingProRata: vi.fn(async () => []),
+}));
 vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
   estimateAnnualRemuneration: vi.fn(async () => 0),
   applySdlToLines: vi.fn(() => 0),

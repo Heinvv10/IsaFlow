@@ -13,10 +13,17 @@ const ORIGINAL_TZ = vi.hoisted(() => {
 
 let componentVisibleToSql = true;
 const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
-vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+// End goes through the guarded change (payrollComponentDateEdit): one transaction, the row and its siblings read
+// first. The mock answers those two reads with one open recurring row; everything else is as before.
+function sqlMock(strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> {
     const text = strings.join('?');
     sqlCalls.push({ sql: text, values });
+    if (text.includes('JOIN payroll_employees e ON e.id = pec.employee_id')) {
+      return Promise.resolve([{ id: ASSIGNMENT, employee_id: EMPLOYEE, component_id: COMPONENT }]);
+    }
+    if (text.includes('AS employee_end')) {
+      return Promise.resolve([{ id: ASSIGNMENT, effective_from: '2026-01-01', effective_to: null, is_recurring: true }]);
+    }
     if (text.includes('FROM payroll_employees') && text.includes('SELECT id')) return Promise.resolve([{ id: 'x' }]);
     if (text.includes('FROM payroll_components')) return Promise.resolve(componentVisibleToSql ? [{ id: 'x' }] : []);
     if (text.includes('INSERT INTO payroll_employee_components')) {
@@ -27,7 +34,10 @@ vi.mock('@/lib/neon', () => ({
       return Promise.resolve([{ id: EMPLOYEE, company_id: COMPANY, employee_number: 'E1', first_name: 'A', last_name: 'B', employment_type: 'permanent', start_date: '2026-03-01' }]);
     }
     return Promise.resolve([]);
-  },
+}
+vi.mock('@/lib/neon', () => ({
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => sqlMock(strings, ...values),
+  withTransaction: (fn: (tx: typeof sqlMock) => Promise<unknown>) => fn(sqlMock),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', async (orig) => ({
