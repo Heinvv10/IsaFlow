@@ -25,7 +25,7 @@ import { CUSTOMER_INVOICE_STATUS_COLORS } from '@/modules/accounting/types/custo
 import { InvoiceAdjacentNav, useAdjacentInvoices } from '@/components/invoices/InvoiceAdjacentNav';
 import { DocumentApprovalPanel } from '@/components/accounting/approvals/DocumentApprovalPanel';
 import { useInvoiceLinkActions } from '@/components/invoices/useInvoiceLinkActions';
-import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
+import { invoiceSavesSettled, takeUnsavedLeave } from '@/lib/pendingInvoiceSaves';
 import { approvalShown } from '@/components/accounting/customer-invoices/approveShown';
 import { openInvoiceLoads } from '@/components/invoices/openInvoiceLoads';
 import { rateText } from '@/modules/accounting/services/ar/customerInvoiceStaleView';
@@ -59,7 +59,8 @@ export default function CustomerInvoiceDetailPage() {
       const res = await apiFetch(`/api/accounting/customer-invoices-detail?id=${id}`);
       await assertOk(res, 'Could not load the invoice - try again');
       const json = await res.json();
-      if (current()) setInvoice(json.data || json);
+      const shown = json.data || json;
+      if (current()) { setInvoice(shown); const lost = takeUnsavedLeave(id, shown.invoice_number); if (lost) setError(lost.message); }
     } catch (err) {
       if (!current()) return;
       setInvoice(null); clearAdjacent();

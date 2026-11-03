@@ -152,15 +152,13 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     if (!shown || !shown.invoiceId || shown.json === discarded.current || latest.current.done || !shown.armed) return;
     if (shown.json === lastSaved.current || shown.json === sending.current) return;
     const prior = inFlight.current;
-    trackInvoiceSave(shown.invoiceId, (async () => {
-      try {
-        if (prior) await prior; // its reply moves this invoice's digest on: read it after
-        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: withDigest(shown.json, shown.invoiceId) });
-        await assertOk(res, SAVE_FAILED);
-      } catch (err) {
-        log.warn('The change typed as the invoice left the page was not saved', { err }, 'useServerInvoiceAutosave');
-      }
-    })());
+    const leaving = (async () => {
+      if (prior) await prior; // its reply moves this invoice's digest on: read it after
+      const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: withDigest(shown.json, shown.invoiceId) });
+      await assertOk(res, SAVE_FAILED);
+    })();
+    trackInvoiceSave(shown.invoiceId, leaving, { leaving: true }); // a failure is told by the next page to read the invoice
+    leaving.catch((err: unknown) => log.warn('The change typed as the invoice left the page was not saved', { err }, 'useServerInvoiceAutosave'));
   }, []);
 
   // Another invoice opened in place: the old one's waiting change goes first; then nothing the new one shows has been

@@ -28,7 +28,7 @@ import { autosaveProblem, invoicePutBody, saveProblem, type EditLine, type Store
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
 import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
-import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
+import { invoiceSavesSettled, takeUnsavedLeave } from '@/lib/pendingInvoiceSaves';
 import { linesFromStoredItems, type InvoiceDetail } from '@/components/accounting/customer-invoices/editInvoiceLoad';
 import { takeApproveRefusal, useApproveAndEmail } from '@/components/accounting/customer-invoices/useApproveAndEmail';
 
@@ -105,7 +105,7 @@ export default function EditCustomerInvoicePage() {
       setApprovalContentDigest(invoice.shown_digest);
       setStoredDates({ dueDate: Boolean(invoice.due_date), billingPeriodStart: Boolean(invoice.billing_period_start), billingPeriodEnd: Boolean(invoice.billing_period_end) });
       // Why this load: a STALE_VIEW here (carried in memory across the reload), or Approve & email on the new page.
-      const refusal = carried ? { message: carried, status: null } : takeApproveRefusal(id);
+      const refusal = carried ? { message: carried, status: null } : takeApproveRefusal(id) ?? takeUnsavedLeave(id, invoice.invoice_number);
       if (refusal) { setError(refusal.message); setErrorStays(refusal.status === 409); }
       // No VAT at rate 0 prices exactly as Excluding VAT at rate 0, and says what the invoice is. The form keeps the
       // standard rate behind it, as the new page does, so leaving No VAT does not leave a rate of 0.
