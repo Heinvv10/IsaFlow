@@ -57,6 +57,19 @@ describe('a stale-priced draft and autosave', () => {
     expect(bodyOf(puts()[0]!).items[0]).toMatchObject({ description: 'Time 1', timeEntryId: 'te-1' });
   });
 
+  it('every line carries the timeEntryId key, null when unlinked: a WIP invoice refuses a body without it', async () => {
+    serveInvoice(undefined, { ...WIP, total_amount: 114.99 });
+    render(<EditPage />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /add line/i }));
+    type(screen.getAllByPlaceholderText('Item description')[1]!, 'Travel');
+    type(screen.getAllByLabelText(/^Unit price/)[1]!, '50');
+    await advance(1_500);
+    const items = bodyOf(puts().at(-1)!).items as unknown as Record<string, unknown>[];
+    expect(items.map((i) => [i.description, i.timeEntryId])).toEqual([['Time 1', 'te-1'], ['Travel', null]]);
+    expect(items.every((i) => 'timeEntryId' in i)).toBe(true);
+  });
+
   it('a stale WIP draft: the card shows, without warning of lost links; the hold writes nothing, and Save Changes keeps the link', async () => {
     serveInvoice(undefined, WIP); // stored 115.00; 3 x 33.33 + 15% prices to 114.99
     render(<EditPage />);

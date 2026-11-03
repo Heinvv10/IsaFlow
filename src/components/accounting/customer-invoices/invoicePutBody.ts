@@ -16,7 +16,7 @@ export type EditLine = InvoiceLine & { cc1Id?: string | null; cc2AtLoad?: string
 export interface InvoicePutItem {
   description: string; quantity: number; unitPrice: number; taxRate: number; discount: number;
   glAccountId: string | null; projectId: string | null; cc2Id: string | null; buId: string | null; cc1Id: string | null;
-  timeEntryId?: string;
+  timeEntryId: string | null;
 }
 
 export interface InvoicePutBody {
@@ -56,8 +56,10 @@ export function invoicePutBody(id: string, { form, lines, taxMode }: Draft): Inv
       cc2Id: l.cc2Id || null,
       buId: l.buId || null,
       cc1Id: l.cc2Id === (l.cc2AtLoad ?? '') ? (l.cc1Id ?? null) : null,
-      // A WIP line's time entry goes back with it, so the PUT (which replaces every line) keeps the link.
-      ...(l.timeEntryId ? { timeEntryId: l.timeEntryId } : {}),
+      // A WIP line's time entry goes back with it, so the PUT (which replaces every line) keeps the link. Always sent,
+      // null on an unlinked line: on a WIP invoice the server refuses a body without it (it cannot tell a removed
+      // line from a client that does not know the links), and releases only links this body leaves out.
+      timeEntryId: l.timeEntryId || null,
     })),
   };
 }

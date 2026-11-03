@@ -5,7 +5,11 @@
  * - a notes-only PUT (lines re-sent unchanged, with their `timeEntryId`) keeps every link;
  * - a quantity edit keeps the edited line's link;
  * - a `timeEntryId` not already on one of this invoice's lines is refused (400) and nothing changes;
- * - a line sent without one (a new line) has none;
+ * - a line sent with `timeEntryId: null` (a new line) has none;
+ * - on an invoice whose lines link time entries, every line must carry the `timeEntryId` key (null: deliberately not
+ *   linked). A body that lacks it on any line comes from a client that does not know the links (an old tab, an API
+ *   or MCP client): releasing its "missing" links would make still-charged entries billable again (double billing),
+ *   so it is refused 409 INVOICE_WIP_CLIENT_STALE and nothing is written. An invoice with no links: unchanged;
  * - a link sent in upper case is the same link;
  * - one link on two lines is refused and nothing changes; a refusal carries its own code (INVOICE_WIP_LINK_REFUSED);
  * - a PUT whose lines leave a link out (a WIP line removed) releases that time entry: back to approved and unbilled,
@@ -82,12 +86,12 @@ describe('a draft PUT and its lines\' WIP links', () => {
     ]);
   });
 
-  it('a quantity edit keeps the edited line\'s link; a new line has none', async () => {
+  it('a quantity edit keeps the edited line\'s link; a new line (timeEntryId: null) has none', async () => {
     const { id, entries } = await wipDraft();
     const res = await put(body(id, [
       { description: 'Time A', quantity: 3, unitPrice: 300, taxRate: 15, timeEntryId: entries[0] },
       { description: 'Time B', quantity: 1, unitPrice: 400, taxRate: 15, timeEntryId: entries[1] },
-      { description: 'Travel', quantity: 1, unitPrice: 50, taxRate: 15 },
+      { description: 'Travel', quantity: 1, unitPrice: 50, taxRate: 15, timeEntryId: null },
     ]));
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect(await links(id)).toEqual([
@@ -188,6 +192,33 @@ describe('a draft PUT and its lines\' WIP links', () => {
     ]));
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect(await entry(odd)).toEqual(before);
+  });
+
+  it.each([
+    ['no line carries the key (a client that does not know the field)', (e: string[]) => [
+      { description: 'Time A', quantity: 2, unitPrice: 300, taxRate: 15 },
+      { description: 'Time B', quantity: 1, unitPrice: 400, taxRate: 15 },
+    ]],
+    ['one line lacks it', (e: string[]) => [
+      { description: 'Time A', quantity: 2, unitPrice: 300, taxRate: 15, timeEntryId: e[0] },
+      { description: 'Time B', quantity: 1, unitPrice: 400, taxRate: 15 },
+    ]],
+    ['a removed line, and the kept one lacks it', () => [{ description: 'Time A', quantity: 2, unitPrice: 300, taxRate: 15 }]],
+  ])('a WIP invoice, %s: 409 INVOICE_WIP_CLIENT_STALE; lines, notes and entries unchanged', async (_name, items) => {
+    const { id, entries } = await wipDraft();
+    const before = { lines: await links(id), entries: await Promise.all(entries.map(entry)) };
+    const res = await put(body(id, items(entries), { notes: 'From an old tab' }));
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+    expect(res.state.body).toMatchObject({ error: { details: { code: 'INVOICE_WIP_CLIENT_STALE' } } });
+    expect({ lines: await links(id), entries: await Promise.all(entries.map(entry)) }).toEqual(before);
+    expect((await pool.query('SELECT notes FROM customer_invoices WHERE id = $1', [id])).rows[0].notes).not.toBe('From an old tab');
+  });
+
+  it('an invoice with no WIP links takes a body without the key, as before', async () => {
+    const inv = await plantInvoice(pool, company, owner);
+    const res = await put(body(inv.id, [{ description: 'Plain work', quantity: 1, unitPrice: 100, taxRate: 15 }], { notes: 'No links here' }));
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect((await links(inv.id)).map((l) => l.description)).toEqual(['Plain work']);
   });
 
   it('read under another company, this invoice has no links to keep', async () => {

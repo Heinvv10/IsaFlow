@@ -14,16 +14,24 @@
  * company, billed by the WIP path (status 'billed') to this invoice: the timesheet path's 'invoiced' entries carry no
  * line link, and an entry billed elsewhere is not this invoice's to release. A grouped WIP invoice's lines carry no
  * link, so removing one releases nothing.
+ *
+ * Releasing what a body leaves out is only safe when the body KNOWS the links. On an invoice whose lines link time
+ * entries, every line must carry the `timeEntryId` key (null: deliberately not linked). A body lacking it on any line
+ * comes from a client that does not know the field (a tab on an older bundle, an API or MCP client): its "missing"
+ * links are lines still charged, and releasing them would make those entries billable twice. It is refused (409
+ * INVOICE_WIP_CLIENT_STALE) before any write. An invoice with no links takes any body, as before.
  */
 import type { TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-/** The refusal's code at the route: not a coding refusal (INVOICE_LINE_CODING_REFUSED). */
-export const WIP_LINK_REFUSED = 'INVOICE_WIP_LINK_REFUSED';
+/** The refusals' codes at the route: not a coding refusal (INVOICE_LINE_CODING_REFUSED). */
+export const WIP_LINK_REFUSED = 'INVOICE_WIP_LINK_REFUSED'; // 400: a link the lines may not carry
+export const WIP_CLIENT_STALE = 'INVOICE_WIP_CLIENT_STALE'; // 409: a body that does not carry the links at all
+const CLIENT_STALE = 'This invoice has time-entry lines; reload the page and save again';
 
 export interface WipLinkCheck {
-  /** Why the lines' links are refused, or null. */
-  refusal: string | null;
+  /** Why the lines' links are refused, and its code, or null. */
+  refusal: { code: typeof WIP_LINK_REFUSED | typeof WIP_CLIENT_STALE; message: string } | null;
   /** Time entries this invoice's lines link that the new lines do not: their lines were removed by the PUT. */
   dropped: string[];
 }
@@ -33,14 +41,17 @@ export async function wipLinks(
   tx: TxSql, companyId: string, invoiceId: string, items: readonly { timeEntryId?: string | null }[],
 ): Promise<WipLinkCheck> {
   const asked = items.map((it) => it.timeEntryId?.toLowerCase() ?? null).filter((t): t is string => t !== null);
-  if (new Set(asked).size !== asked.length) return { refusal: 'A time entry can be billed on one line only', dropped: [] };
+  const refuse = (message: string, code: typeof WIP_LINK_REFUSED | typeof WIP_CLIENT_STALE = WIP_LINK_REFUSED): WipLinkCheck =>
+    ({ refusal: { code, message }, dropped: [] });
+  if (new Set(asked).size !== asked.length) return refuse('A time entry can be billed on one line only');
   const rows = (await tx`
     SELECT cii.time_entry_id
       FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id
      WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId} AND cii.time_entry_id IS NOT NULL
   `) as { time_entry_id: string }[];
   const linked = new Set(rows.map((r) => String(r.time_entry_id).toLowerCase()));
-  if (!asked.every((t) => linked.has(t))) return { refusal: 'A line can keep the time entry it bills, not take another', dropped: [] };
+  if (linked.size > 0 && !items.every((it) => 'timeEntryId' in it)) return refuse(CLIENT_STALE, WIP_CLIENT_STALE);
+  if (!asked.every((t) => linked.has(t))) return refuse('A line can keep the time entry it bills, not take another');
   const kept = new Set(asked);
   return { refusal: null, dropped: [...linked].filter((t) => !kept.has(t)) };
 }

@@ -43,7 +43,7 @@ export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
 
 export type CustomerInvoiceDraftEditResult =
   | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' }
-  | { kind: 'bad_line'; message: string } | { kind: 'wip_link_refused'; message: string }
+  | { kind: 'bad_line'; message: string } | { kind: 'wip_link_refused'; message: string; code: string }
   | { kind: 'bad_amount'; message: string }
   | { kind: 'currency_refused'; message: string }
   | { kind: 'bad_dimensions'; message: string };
@@ -148,7 +148,7 @@ export async function editDraftCustomerInvoice(
       const resolved = resolveEditCodings(items, stored);
       if (typeof resolved === 'string') return { kind: 'bad_line' as const, message: resolved };
       wip = await wipLinks(tx, companyId, id, items); // a line keeps its WIP link; it cannot take another
-      if (wip.refusal) return { kind: 'wip_link_refused' as const, message: wip.refusal };
+      if (wip.refusal) return { kind: 'wip_link_refused' as const, ...wip.refusal };
       codings = resolved;
       const had = { glAccountId: new Set(stored.map((c) => c.glAccountId)), projectId: new Set(stored.map((c) => c.projectId)) };
       unchanged = (c) => ({ glAccountId: had.glAccountId.has(c.glAccountId) ? null : c.glAccountId,
