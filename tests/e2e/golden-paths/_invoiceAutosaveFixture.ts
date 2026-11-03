@@ -11,7 +11,7 @@ import { settle } from '../helpers/themeSpec';
 // Every write here goes to this sandbox company, never to Demo (Willie uses Demo for QA).
 const SANDBOX_NAME = '0GP Golden Invoice Form Sandbox';
 const SANDBOX_ONBOARDING_ID = 'd6630d3e-22b5-4c1f-b872-262d940a869a'; // y1's and z1's company: one sandbox for the invoice form
-const CUSTOMER = { name: '0GP-Golden-Autosave-Customer', email: 'golden-z2@example.invalid', payment_terms: 0, payment_terms_type: 'days', default_discount: 0, default_vat_type: 'standard' };
+export const CUSTOMER = { name: '0GP-Golden-Autosave-Customer', email: 'golden-z2@example.invalid', payment_terms: 0, payment_terms_type: 'days', default_discount: 0, default_vat_type: 'standard' };
 
 export async function sandbox(context: BrowserContext, baseURL: string): Promise<{ api: Api; customerId: string }> {
   const api = await Api.login(baseURL);

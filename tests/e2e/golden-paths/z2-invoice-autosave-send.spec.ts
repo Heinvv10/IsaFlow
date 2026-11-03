@@ -15,7 +15,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
-import { countPuts, draft, openEdit, sandbox } from './_invoiceAutosaveFixture';
+import { countPuts, CUSTOMER, draft, openEdit, sandbox } from './_invoiceAutosaveFixture';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
