@@ -68,8 +68,8 @@ describe('salaryPaidMonthText', () => {
 
   it('never advises starting in a month whose end date is before the 27th: that month pays nothing', () => {
     expect(salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-15')).toBe(
-      'February 2026 is already paid. The end date 2026-03-15 leaves no open month for the salary: '
-      + 'pay the February days as a once-off in an open month and create the employee without a salary.');
+      'February 2026 is already paid, so March 2026 cannot start the salary either. The end date 2026-03-15 leaves no open month for the salary: '
+      + 'pay the February and March days as once-offs in an open month and create the employee without a salary.');
     expect(salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-27')).toBe(
       'February 2026 is already paid. Set the salary to start 2026-03-01 and pay the February days as a once-off in an open month.');
   });
@@ -122,8 +122,33 @@ describe('salaryEndRefusal: a salary that ends before the employment does must e
   });
 
   it('the paid-month advice does not offer a month whose end date is not a month end either', () => {
-    expect(salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-28', false)).toContain('leaves no open month');
+    // The salary ends before the employment, on the 28th: March can carry it only if it ends on the 31st. One message: start and end.
+    const fold = salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-28', false)!;
+    expect(fold).toContain('Set the salary to start 2026-03-01 and pay the February days as a once-off in an open month.');
+    expect(fold).toContain('End the salary on 2026-03-31 to pay all of March.');
+    expect(fold).not.toContain('leaves no open month');
     expect(salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-28', true)).toContain('Set the salary to start 2026-03-01');
+  });
+});
+
+describe('a leap February, and an employment that ends in the month the salary would start', () => {
+  it('February 2028 has a 29th: the advice names 2028-02-29, in the end advice and in the paid-month fold', () => {
+    expect(salaryEndRefusal('2028-01-10', '2028-02-28', false, '2028-06-30')).toContain('End the salary on 2028-01-31 and pay the February days as a once-off in an open month, or on 2028-02-29 to pay all of February.');
+    const fold = salaryPaidMonthText(paid([2028, 1]), '2028-01-10', '2028-02-28', false, '2028-06-30')!;
+    expect(fold).toContain('Set the salary to start 2028-02-01');
+    expect(fold).toContain('End the salary on 2028-02-29 to pay all of February.');
+  });
+
+  it('the employment ends on the 20th of that month: no salary can be paid there, and the March days are named', () => {
+    expect(salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-10', false, '2026-03-20')).toBe(
+      'February 2026 is already paid, so March 2026 cannot start the salary either. The end date 2026-03-10 leaves no open month for the salary: '
+      + 'pay the February and March days as once-offs in an open month and create the employee without a salary.');
+  });
+
+  it('the employment ends on the 28th of that month: the salary ends with the employment, from the 1st', () => {
+    const text = salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-10', false, '2026-03-28')!;
+    expect(text).toContain('Set the salary to start 2026-03-01');
+    expect(text).toContain('End the salary with the employment on 2026-03-28 (or omit salary.effectiveTo).');
   });
 });
 

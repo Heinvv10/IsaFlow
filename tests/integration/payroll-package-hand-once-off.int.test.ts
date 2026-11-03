@@ -221,3 +221,83 @@ describe('own by provenance, not by shape', () => {
     await expect(applyPackageToEmployee(company, pkg, emp.legacy!, '2026-05-01', user)).resolves.toBeDefined();
   });
 });
+
+describe('the date a paid-month refusal names holds company-wide: following it is accepted', () => {
+  const pkgOnce = crypto.randomUUID(); // a package with only a once-off line: its apply lands in one month
+  const headers: Record<string, string> = {};
+
+  async function paidMonth(month: number, who: string[]) {
+    headers[month] = crypto.randomUUID();
+    await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,$3,2026,'approved')", [headers[month], company, month]);
+    await pool.query('UPDATE payroll_run_headers SET calculated_at = now() WHERE id=$1', [headers[month]]); // calculated by this release, so it read the last day
+    for (const key of who) {
+      await pool.query('INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,taxable_income,paye,net_pay) VALUES($1,$2,100,100,0,100)', [headers[month], emp[key]]);
+    }
+  }
+  const dateIn = (message: string) => /Apply the package from (\d{4}-\d\d-\d\d)/.exec(message)?.[1];
+  async function refusedWith(key: string, packageId: string): Promise<string> {
+    const err = await applyPackageToEmployee(company, packageId, emp[key]!, '2026-04-01', user).then(() => null, (e) => e as Error);
+    expect(err, `${key} is refused`).not.toBeNull();
+    return err!.message;
+  }
+
+  beforeAll(async () => {
+    await pool.query("INSERT INTO pay_packages(id,company_id,code,name) VALUES($1,$2,'PH-ONCE','Once-off only package')", [pkgOnce, company]);
+    await pool.query('INSERT INTO pay_package_components(package_id,component_id,amount,is_recurring) VALUES($1,$2,1200,false)', [pkgOnce, comp.bonus]);
+    for (const key of ['spans', 'back0', 'back1', 'back2', 'monthEnd', 'midMonth']) await employee(key);
+    await raw('spans', comp.bonus, 1500, '2026-04-10', '2026-05-05', false); // read in April only
+    await raw('back0', comp.salary, 777, '2026-04-10', '2026-04-30', false);
+    await raw('back1', comp.salary, 777, '2026-04-10', '2026-04-30', false);
+    await raw('back2', comp.salary, 777, '2026-04-10', '2026-04-30', false);
+    await raw('monthEnd', comp.bonus, 1500, '2026-04-10', '2026-04-30', false);
+    await raw('midMonth', comp.bonus, 1500, '2026-04-10', '2026-04-20', false);
+    await employee('bystander'); // on the June run only
+    await employee('bystander2'); // on the May run only
+    await paidMonth(4, ['spans', 'back0', 'back1', 'back2', 'monthEnd', 'midMonth']);
+  });
+
+  afterAll(async () => {
+    await pool.query('DELETE FROM payroll_run_lines WHERE run_id IN (SELECT id FROM payroll_run_headers WHERE company_id=$1)', [company]);
+    await pool.query('DELETE FROM payroll_run_headers WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM pay_package_components WHERE package_id=$1', [pkgOnce]);
+    await pool.query('DELETE FROM pay_packages WHERE id=$1', [pkgOnce]);
+  });
+
+  it('only April paid, a once-off package, a once-off ending 5 May: the day after (6 May) is named and accepted', async () => {
+    const day = dateIn(await refusedWith('spans', pkgOnce));
+    expect(day).toBe('2026-05-06');
+    await expect(applyPackageToEmployee(company, pkgOnce, emp.spans!, day!, user)).resolves.toBeDefined();
+  });
+
+  it('only April paid, a package with a recurring line: the month after the latest paid month (1 May)', async () => {
+    const day = dateIn(await refusedWith('back0', pkg));
+    expect(day).toBe('2026-05-01');
+    await expect(applyPackageToEmployee(company, pkg, emp.back0!, day!, user)).resolves.toBeDefined();
+  });
+
+  it('April and June paid with May open: the recurring package is pointed past the LATER paid month (1 July), not at 1 May', async () => {
+    await paidMonth(6, ['bystander']); // June is paid; May is still open
+    const day = dateIn(await refusedWith('back2', pkg));
+    expect(day).toBe('2026-07-01');
+    await expect(applyPackageToEmployee(company, pkg, emp.back2!, day!, user)).resolves.toBeDefined();
+  });
+  it('May then paid for someone else only: the recurring package is still pointed past the latest paid month (1 July)', async () => {
+    await paidMonth(5, ['bystander2']);
+    const day = dateIn(await refusedWith('back1', pkg));
+    expect(day).toBe('2026-07-01');
+    await expect(applyPackageToEmployee(company, pkg, emp.back1!, day!, user)).resolves.toBeDefined();
+  });
+
+  it('a once-off ending on the month end, the next months paid company-wide: skipped through them (1 July)', async () => {
+    const day = dateIn(await refusedWith('monthEnd', pkgOnce));
+    expect(day).toBe('2026-07-01');
+    await expect(applyPackageToEmployee(company, pkgOnce, emp.monthEnd!, day!, user)).resolves.toBeDefined();
+  });
+
+  it('a once-off ending mid-month in a paid month: skipped through the paid months (1 July)', async () => {
+    const day = dateIn(await refusedWith('midMonth', pkgOnce));
+    expect(day).toBe('2026-07-01');
+    await expect(applyPackageToEmployee(company, pkgOnce, emp.midMonth!, day!, user)).resolves.toBeDefined();
+  });
+
+});

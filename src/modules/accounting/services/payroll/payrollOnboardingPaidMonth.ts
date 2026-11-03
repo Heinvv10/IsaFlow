@@ -36,28 +36,40 @@ export function salaryPaidMonthText(
   const paidIdx = new Set(paid.map(indexOf));
   const latest = Math.max(-1, ...[...paidIdx].filter((i) => i <= end));
   if (latest < start) return null;
-  const all = Array.from({ length: latest - start + 1 }, (_, k) => start + k);
-  const gaps = all.filter((i) => !paidIdx.has(i));
-  const paidHere = all.filter((i) => paidIdx.has(i));
   const next = periodOf(latest + 1);
   const nextFirst = `${next.year}-${String(next.month).padStart(2, '0')}-01`;
-  const sameYear = all.every((i) => periodOf(i).year === periodOf(all[0]!).year);
-  const names = sameYear ? joined(all.map((i) => MONTHS[periodOf(i).month - 1]!)) : joined(all.map((i) => monthsText([i])));
-  const first = paidHere.length === 1 ? `${monthsText(paidHere)} is` : `${monthsText(paidHere)} are`;
-  const because = gaps.length ? `, so ${monthsText(gaps)} cannot start the salary either` : '';
-  const pay = all.length === 1 ? `the ${names} days as a once-off` : gaps.length ? `the ${names} days as once-offs` : 'those days as once-offs';
-  // A month whose end date is before the 27th pays a salary nothing: it is no open month for one.
-  if (to !== null && (nextFirst > to || (to.slice(0, 7) === nextFirst.slice(0, 7) && !paysItsLastMonth(to, endsWithEmployment)))) {
-    return `${first} already paid${because}. The end date ${to} leaves no open month for the salary: pay ${pay} in an open month and create the employee without a salary.`;
+
+  /** The months from the start through `through` as the sentence parts: which are paid, which cannot start a salary, what to pay as once-offs. */
+  const describe = (through: number) => {
+    const all = Array.from({ length: through - start + 1 }, (_, k) => start + k);
+    const gaps = all.filter((i) => !paidIdx.has(i));
+    const paidHere = all.filter((i) => paidIdx.has(i));
+    const sameYear = all.every((i) => periodOf(i).year === periodOf(all[0]!).year);
+    const names = sameYear ? joined(all.map((i) => MONTHS[periodOf(i).month - 1]!)) : joined(all.map((i) => monthsText([i])));
+    return {
+      first: paidHere.length === 1 ? `${monthsText(paidHere)} is` : `${monthsText(paidHere)} are`,
+      because: gaps.length ? `, so ${monthsText(gaps)} cannot start the salary either` : '',
+      pay: all.length === 1 ? `the ${names} days as a once-off` : gaps.length ? `the ${names} days as once-offs` : 'those days as once-offs',
+    };
+  };
+  const noRoom = (through: number) => {
+    const d = describe(through);
+    return `${d.first} already paid${d.because}. The end date ${to} leaves no open month for the salary: pay ${d.pay} in an open month and create the employee without a salary.`;
+  };
+
+  const d = describe(latest);
+  const startAdvice = `Set the salary to start ${nextFirst} and pay ${d.pay} in an open month.`;
+  if (to !== null && end >= latest + 1 && !paysItsLastMonth(to, endsWithEmployment)) {
+    // The salary would run on into a month it is not paid in. Give the end advice with the start advice, so following
+    // the one message is enough (otherwise the next try meets the early-end refusal) ...
+    const endAdvice = adviseEnd(nextFirst, to, endsWithEmployment, endDay);
+    if (!endAdvice.withoutSalary) return `${d.first} already paid${d.because}. ${startAdvice} Its end needs changing too: ${endAdvice.text}`;
+    // ... or, when the employment ends in that very month before the 27th, no salary can be paid there at all.
+    return noRoom(end);
   }
-  const startAdvice = `Set the salary to start ${nextFirst} and pay ${pay} in an open month.`;
-  // The salary would then run on past that month into one it is not paid in: give the end advice with the start advice,
-  // so following the one message is enough (otherwise the next try meets the early-end refusal).
-  if (to !== null && to.slice(0, 7) > nextFirst.slice(0, 7) && !paysItsLastMonth(to, endsWithEmployment)) {
-    const endAdvice = salaryEndRefusal(nextFirst, to, endsWithEmployment, endDay);
-    if (endAdvice) return `${first} already paid${because}. ${startAdvice} Its end needs changing too: ${endAdvice}`;
-  }
-  return `${first} already paid${because}. ${startAdvice}`;
+  // The salary ends inside the paid months: nothing left to start.
+  if (to !== null && nextFirst > to) return noRoom(latest);
+  return `${d.first} already paid${d.because}. ${startAdvice}`;
 }
 
 /**
@@ -71,32 +83,42 @@ function paysItsLastMonth(to: string, endsWithEmployment: boolean): boolean {
   return endsWithEmployment ? day >= 27 : to === payrollRunReadDate({ year: Number(to.slice(0, 4)), month: Number(to.slice(5, 7)) });
 }
 
-/** A salary closed where it pays nothing for its last month, with no flag: refused, with a followable way out. */
-export function salaryEndRefusal(
-  from: string, to: string | null, endsWithEmployment = true, endDay: string | null = null,
-): string | null {
-  if (to === null || paysItsLastMonth(to, endsWithEmployment)) return null;
+/** The advice for a salary closed where it pays nothing for its last month; `withoutSalary` when no end date can help. */
+function adviseEnd(from: string, to: string, endsWithEmployment: boolean, endDay: string | null): { text: string; withoutSalary: boolean } {
   const month = Number(to.slice(0, 4)) * 12 + Number(to.slice(5, 7)) - 1;
   const prevEnd = payrollRunReadDate(periodOf(month - 1));
   const ownEnd = payrollRunReadDate(periodOf(month));
   const name = MONTHS[periodOf(month).month - 1]!;
   const label = `${name} ${periodOf(month).year}`;
+  const days = `pay the ${name} days as a once-off in an open month`;
   if (!endsWithEmployment) {
     const why = `A salary that ends before the employment does must end on the last day of a month: a run reads pay components on that day, so a salary ending on ${to} `
       + `is not paid for ${label} and blocks its run.`;
-    const days = `pay the ${name} days as a once-off in an open month`;
     // The employment ends inside this month: the month end is out of reach, and the salary ends with the employment
     // (from the 27th, when it is read) or earlier on the previous month end.
     if (endDay !== null && endDay.slice(0, 7) === to.slice(0, 7)) {
-      if (Number(endDay.slice(8, 10)) >= 27) return `${why} End the salary with the employment on ${endDay} (or omit salary.effectiveTo).`;
-      return prevEnd >= from ? `${why} End the salary on ${prevEnd} and ${days}.` : `${why} Create the employee without a salary and ${days}.`;
+      if (Number(endDay.slice(8, 10)) >= 27) return { text: `${why} End the salary with the employment on ${endDay} (or omit salary.effectiveTo).`, withoutSalary: false };
+      return prevEnd >= from
+        ? { text: `${why} End the salary on ${prevEnd} and ${days}.`, withoutSalary: false }
+        : { text: `${why} Create the employee without a salary and ${days}.`, withoutSalary: true };
     }
-    return prevEnd >= from ? `${why} End the salary on ${prevEnd} and ${days}, or on ${ownEnd} to pay all of ${name}.` : `${why} End the salary on ${ownEnd} to pay all of ${name}.`;
+    return prevEnd >= from
+      ? { text: `${why} End the salary on ${prevEnd} and ${days}, or on ${ownEnd} to pay all of ${name}.`, withoutSalary: false }
+      : { text: `${why} End the salary on ${ownEnd} to pay all of ${name}.`, withoutSalary: false };
   }
   const why = `A salary ending on ${to} is paid nothing for ${label} (a run reads pay components on the last day of the month, so a salary that `
     + 'ends before the 27th is not paid that month).';
-  const days = `pay the ${name} days as a once-off in an open month`;
-  return prevEnd >= from ? `${why} End the salary on ${prevEnd} and ${days}.` : `${why} Create the employee without a salary and ${days}.`;
+  return prevEnd >= from
+    ? { text: `${why} End the salary on ${prevEnd} and ${days}.`, withoutSalary: false }
+    : { text: `${why} Create the employee without a salary and ${days}.`, withoutSalary: true };
+}
+
+/** A salary closed where it pays nothing for its last month, with no flag: refused, with a followable way out. */
+export function salaryEndRefusal(
+  from: string, to: string | null, endsWithEmployment = true, endDay: string | null = null,
+): string | null {
+  if (to === null || paysItsLastMonth(to, endsWithEmployment)) return null;
+  return adviseEnd(from, to, endsWithEmployment, endDay).text;
 }
 
 export async function salaryInPaidMonthRefusal(

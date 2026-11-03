@@ -56,10 +56,16 @@ export async function refuseOnceOffInPaidMonth(
 export async function refuseRecurringInPaidMonth(
   tx: TxSql, companyId: string, before: Window | null, after: Window, paid?: PaidPeriod[],
 ): Promise<void> {
-  const hit = await newPaidMonth(tx, companyId, before, after, paid);
+  const all = paid ?? await paidPeriodsOf(tx, companyId, null);
+  const hit = await newPaidMonth(tx, companyId, before, after, all);
   if (hit) {
+    // Where to date it from: the month after the latest paid month the row would reach, if the row still runs that far.
+    const latest = all.filter((p) => datedIn(after, p)).reduce((a, b) => (b.year * 12 + b.month > a.year * 12 + a.month ? b : a));
+    const next = latest.month === 12 ? { year: latest.year + 1, month: 1 } : { year: latest.year, month: latest.month + 1 };
+    const nextFirst = `${next.year}-${String(next.month).padStart(2, '0')}-01`;
+    const where = after.to !== null && nextFirst > after.to ? 'Date it in an open month' : `Date it from ${nextFirst}`;
     throw new EmployeeComponentRefused(
       `${periodLabel(hit)} is already paid ${paidNote(hit)}: a recurring row dated in it would never be paid for that month. `
-      + `Date it from an open month; or ${paidRemedyInline(hit)}, or capture the correction in an open period.`);
+      + `${where}; or ${paidRemedyInline(hit)}, or capture the correction in an open period.`);
   }
 }

@@ -10,7 +10,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { endOfMonthIso } from './leaveAccrualService';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
-import { paidNote, paidPeriodChanged, paidRemedy, paidRemedyInline, periodLabel, windowOf, type PaidPeriod } from './payrollComponentPaidMonths';
+import { paidNote, paidPeriodChanged, paidPeriodsOf, paidRemedy, paidRemedyInline, periodLabel, windowOf, type PaidPeriod } from './payrollComponentPaidMonths';
 import { legacyFlips, legacyLeaverSuccessorLost, type Sibling } from './payrollComponentLegacySupersede';
 
 const isoDate = (v: unknown): string => fmtDate(v);
@@ -47,14 +47,23 @@ async function ownOnceOffs(
 }
 
 /**
- * The date to apply the package from instead: the day after the once-off ends, or, when that falls in a paid month, the
- * first day of the next month that is not paid. Null for an open-ended once-off (no day after it).
+ * The date to apply the package from instead, judged on the COMPANY's paid months (the apply is refused by any of them,
+ * not only the employee's): with a recurring line, the first day of the month after the latest paid month on or after
+ * the once-off's month (the recurring row runs through every later paid month); without one, the day after the once-off
+ * ends, or, when that falls in a paid month, the first day of the next month that is not paid. Null for an open-ended
+ * once-off (no day after it).
  */
-function applyFromAfter(row: DbRow, paid: PaidPeriod[]): string | null {
+function applyFromAfter(row: DbRow, paid: PaidPeriod[], hasRecurringLine: boolean): string | null {
   if (row.effective_to == null) return null;
   const to = isoDate(row.effective_to);
   let year = Number(to.slice(0, 4));
   let month = Number(to.slice(5, 7));
+  const idx = (y: number, m: number) => y * 12 + m;
+  const reached = paid.filter((p) => idx(p.year, p.month) >= idx(year, month));
+  if (hasRecurringLine && reached.length > 0) {
+    const latest = reached.reduce((a, b) => (idx(b.year, b.month) > idx(a.year, a.month) ? b : a));
+    return latest.month === 12 ? `${latest.year + 1}-01-01` : `${latest.year}-${String(latest.month + 1).padStart(2, '0')}-01`;
+  }
   let day = to === endOfMonth(to) ? null : Number(to.slice(8, 10)) + 1;
   if (day === null || paid.some((p) => p.year === year && p.month === month)) {
     day = 1;
@@ -142,9 +151,12 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
     const changed = paidPeriodChanged(paid, windowOf(row), { ...windowOf(row), to: cutTo });
     if (changed) {
       if (foreignIds.has(String(row.id))) {
+        const companyPaid = await paidPeriodsOf(tx, companyId, null);
+        const recurringLine = (await tx`SELECT 1 FROM pay_package_components WHERE package_id = ${packageId}::uuid AND is_recurring = true LIMIT 1`) as DbRow[];
+        const applyFrom = applyFromAfter(row, companyPaid, recurringLine.length > 0);
         throw new EmployeeComponentRefused(
           `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cancel a once-off this package did not write `
-          + `(from ${isoDate(row.effective_from)}) that run paid. ${applyFromAfter(row, paid) ? `Apply the package from ${applyFromAfter(row, paid)}` : 'Apply the package from a later date'}; or, to keep this date, ${paidRemedyInline(changed)} and then end or move that once-off.`);
+          + `(from ${isoDate(row.effective_from)}) that run paid. ${applyFrom ? `Apply the package from ${applyFrom}` : 'Apply the package from a later date'}; or, to keep this date, ${paidRemedyInline(changed)} and then end or move that once-off.`);
       }
       throw new EmployeeComponentRefused(
         `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cut an `
