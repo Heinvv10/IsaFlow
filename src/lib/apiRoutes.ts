@@ -71,6 +71,9 @@ import type { GridCellsOnly, GridReadModel } from '@/modules/accounting/services
 import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
 import type { RemainingResult } from '@/modules/accounting/services/budgets/remainingBudgetCore';
 import type { NotificationFeed } from '@/modules/accounting/services/notifications/userNotificationService';
+import type { BudgetAlertList } from '@/modules/accounting/services/budgets/budgetAlertList';
+import type { ControlsView, EvaluateNowResult } from '@/modules/accounting/services/budgets/budgetControlsApi';
+import type { OverrideRow } from '@/modules/accounting/services/budgets/budgetControlSettings';
 import type { SaveCellsResult } from '@/modules/accounting/services/budgets/gridSave';
 import type { SeedResult } from '@/modules/accounting/services/budgets/seedVersion';
 import type { ImportPreview } from '@/modules/accounting/services/budgets/budgetImportDiff';
@@ -131,6 +134,11 @@ interface StaticRoutes {
   '/api/accounting/budgets/remaining': { lines: RemainingResult[] };
   '/api/accounting/notifications': NotificationFeed;
   '/api/accounting/notifications/read': { updated: number };
+  // Budgets P5-4: controls GET/PUT (one view), threshold overrides POST (the item) / DELETE, alerts list, Evaluate now.
+  '/api/accounting/budgets/controls': ControlsView;
+  '/api/accounting/budgets/controls/thresholds': { override: OverrideRow } | { deleted: true };
+  '/api/accounting/budgets/alerts': BudgetAlertList;
+  '/api/accounting/budgets/alerts/evaluate': EvaluateNowResult;
   '/api/accounting/budget-drivers/override': DriverOverrideResponse;
   '/api/accounting/budget-drivers/headcount': DriverHeadcountResponse;
   '/api/accounting/budget-drivers/planned-hires': PlannedHiresResponse;

@@ -71,6 +71,7 @@ export const accountingTab: Tab = {
         { label: 'Cost Centres', href: '/accounting/cost-centres' },
         { label: 'Business Units', href: '/accounting/business-units' },
         { label: 'Budgets', href: '/accounting/budgets' },
+        { label: 'Budget Controls', href: '/accounting/budgets/controls' },
       ],
     },
     {

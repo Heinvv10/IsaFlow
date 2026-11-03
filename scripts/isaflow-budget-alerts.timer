@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily trigger for the IsaFlow budget overspend alerts (budgets P5-4)
+
+[Timer]
+# 05:30 SAST every day, before the working day: the bell shows yesterday's postings
+# against budget when people log in. Randomised 0-300 s delay, as the sibling timers.
+OnCalendar=*-*-* 05:30:00 Africa/Johannesburg
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
