@@ -11,6 +11,7 @@
  */
 import type { TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { releaseBilledPracticeEntries } from '../practice/practiceTimeEntryWorkflow';
 
 /** The refusal's code at the route: not a coding refusal (INVOICE_LINE_CODING_REFUSED). */
 export const WIP_LINK_REFUSED = 'INVOICE_WIP_LINK_REFUSED';
@@ -47,11 +48,6 @@ export async function releaseDroppedWipLinks(
   tx: TxSql, companyId: string, invoiceId: string, check: WipLinkCheck | null,
 ): Promise<void> {
   if (!check || check.dropped <= 0) return;
-  await tx`
-    UPDATE time_entries
-       SET status = 'approved', invoice_id = NULL, billed_at = NULL, updated_at = NOW()
-     WHERE company_id = ${companyId}::UUID AND invoice_id = ${invoiceId}::UUID
-       AND id = ANY(${check.droppedIds}::UUID[]) AND status = 'billed'
-  `;
+  await releaseBilledPracticeEntries(tx, companyId, invoiceId, check.droppedIds);
   log.warn('Draft edit dropped WIP time-entry links', { invoiceId, dropped: check.dropped }, 'customerInvoiceWipLinks');
 }

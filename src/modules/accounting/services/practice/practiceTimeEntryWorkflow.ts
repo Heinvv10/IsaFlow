@@ -1,4 +1,4 @@
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql, withSavepoint, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { resolveRate } from './practiceStaffRateService';
@@ -265,6 +265,13 @@ export async function markEntriesBilled(
   `) as DbRow[];
   log.info('Marked time entries billed', { count: rows.length, invoiceId }, 'practice');
   return rows.length;
+}
+
+export async function releaseBilledPracticeEntries(tx: TxSql, companyId: string, invoiceId: string, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  await tx`UPDATE time_entries SET status = 'approved', invoice_id = NULL, billed_at = NULL, updated_at = NOW()
+    WHERE company_id = ${companyId}::UUID AND invoice_id = ${invoiceId}::UUID
+      AND id = ANY(${ids}::UUID[]) AND status = 'billed'`;
 }
 
 export async function writeOffEntries(
