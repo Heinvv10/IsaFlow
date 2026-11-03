@@ -13,7 +13,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { log } from '@/lib/logger';
-import { discountFromAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
+import { previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { InvoiceLineItemsTable } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
@@ -27,27 +27,13 @@ import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/us
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
 import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
 import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
+import { linesFromStoredItems, type InvoiceDetail } from '@/components/accounting/customer-invoices/editInvoiceLoad';
 import { stashApproveRefusal, takeApproveRefusal, useApproveAndEmail } from '@/components/accounting/customer-invoices/useApproveAndEmail';
 
 // CC2 / BU are edited here; CC1 follows its CC2 (invoicePutBody re-sends it only while the CC2 is the one it loaded with).
 type LineItem = EditLine;
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 const CUSTOMER_FAILED = "Could not load the customer's VAT type - check the VAT on this invoice by hand";
-type InvoiceItemRow = {
-  description?: string; unit_price?: number | string; quantity?: number | string;
-  amount?: number | string; tax_rate?: number | string;
-  gl_account_id?: string | null; project_id?: string | null; cc1_id?: string | null; cc2_id?: string | null; bu_id?: string | null;
-};
-type InvoiceDetail = {
-  id: string; status: string; invoice_number: string;
-  client_id?: string | null; customer_id?: string | null;
-  invoice_date: string; due_date?: string | null;
-  billing_period_start?: string | null; billing_period_end?: string | null;
-  tax_rate: number | string; notes?: string | null; total_amount?: number | string;
-  currency_code?: string | null; exchange_rate?: number | string | null; project_id?: string | null;
-  items?: InvoiceItemRow[];
-};
-
 export default function EditCustomerInvoicePage() {
   const router = useRouter();
   const { invoiceId } = router.query;
@@ -121,30 +107,7 @@ export default function EditCustomerInvoicePage() {
         exchangeRate: Number(invoice.exchange_rate ?? 1),
         projectId: invoice.project_id ?? '',
       });
-      const items = invoice.items || [];
-      // The schema has no `discount` column — it is folded into `amount`.
-      // Reverse-engineer percent discount from amount vs (qty × unitPrice) so a
-      // saved-then-reopened invoice round-trips without silently zeroing it —
-      // exactly, so an unchanged save re-prices to the stored amount.
-      setLines(items.length > 0 ? items.map((it, i) => {
-        const qty = Number(it.quantity || 1);
-        const unitPrice = Number(it.unit_price || 0);
-        const amount = Number(it.amount ?? qty * unitPrice);
-        const discount = discountFromAmount(qty, unitPrice, amount);
-        return {
-          key: String(i),
-          description: String(it.description || ''),
-          quantity: qty,
-          unitPrice,
-          discount,
-          glAccountId: it.gl_account_id ?? '',
-          projectId: it.project_id ?? '',
-          cc2Id: it.cc2_id ?? '',
-          buId: it.bu_id ?? '',
-          cc1Id: it.cc1_id ?? null,
-          cc2AtLoad: it.cc2_id ?? '',
-        };
-      }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId: invoice.project_id ?? '' }]);
+      setLines(linesFromStoredItems(invoice.items || [], invoice.project_id ?? ''));
       setLoading(false);
     }).catch((err: unknown) => {
       if (gone) return;
