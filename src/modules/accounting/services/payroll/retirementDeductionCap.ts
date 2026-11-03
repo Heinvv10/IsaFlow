@@ -58,5 +58,5 @@ export function cappedRetirementDeduction(
     Math.max(0, ytd.remuneration + fourthScheduleRemuneration) * 0.275,
     config.s11fAnnualCapRands * cumulativePeriods / periodsPerYear,
   );
-  return Math.min(retirementContributions, Math.max(0, cumulativeAllowable - previousAllowable));
+  return Math.max(0, cumulativeAllowable - previousAllowable);
 }

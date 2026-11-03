@@ -127,6 +127,26 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(r.sdl).toBe(1_000);
   });
 
+  it('uses later remuneration headroom for an earlier disallowed contribution', () => {
+    const r = calculatePayrollLine({
+      employee: {
+        id: 'emp-1', companyId: 'co-1', employeeNumber: 'E1', firstName: 'A', lastName: 'B',
+        idNumber: '9001015009087', taxNumber: '1234567890', employmentType: 'permanent',
+        startDate: new Date('2020-01-01'), dateOfBirth: new Date('1990-01-01'),
+        uifExcluded: false, medicalAidMainMember: false, medicalAidDependantsCount: 0,
+      },
+      components: [salary(20_000)],
+      period: { month: 4, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 1_000_000,
+      ytd: {
+        periods: 1, periodicTaxable: 12_000, annualPayments: 0, tablePaye: 0,
+        medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0,
+        sdlRemuneratedPeriods: 1, sdlRemuneration: 20_000, sdlRetirementContributions: 8_000,
+      },
+    });
+    expect(r.sdlLeviable).toBe(17_500);
+    expect(r.sdl).toBe(175);
+  });
+
   it('s11F cap — 2026 tax year (R350 000 annual cap): monthly cap ≈ R29 167', () => {
     // Sources: SARS PAYE-GEN-01-G20 (2026) s7.3.1; SDL-GEN-01-G01 Rev 5 s6.
     const r2026 = (components: EmployeeComponent[]): ReturnType<typeof calculatePayrollLine> => {
