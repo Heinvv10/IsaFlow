@@ -104,7 +104,11 @@ describe('buildPayrollJournalPlan — the employment cost the ledger never sees'
     expect(byCode['2150']!.credit).toBeCloseTo(2000, 2); // UIF, BOTH halves
     expect(byCode['2160']!.credit).toBeCloseTo(1000, 2); // SDL
     expect(byCode['1110']!.credit).toBeCloseTo(76000, 2); // net pay
-    expect(byCode['2175']!.credit).toBeCloseTo(3000, 2); // other deductions residual
+    expect(byCode['2175']).toMatchObject({
+      debit: 0,
+      credit: 3000,
+      description: 'Other employee deductions (medical aid, pension, RA, etc.)',
+    });
   });
 
   it('balances', async () => {
@@ -155,6 +159,15 @@ describe('buildPayrollJournalPlan — what would stop the post', () => {
 
   it('blocks when voluntary deductions exist but account 2175 does not', async () => {
     routeMock(standardRoutes({ accounts: ACCOUNTS.filter((a) => a.account_code !== '2175') }));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+    expect(plan!.blockers.map((b) => b.code)).toContain('missing_other_deductions_account');
+  });
+
+  it('also blocks when an other-deductions reversal needs missing account 2175', async () => {
+    routeMock(standardRoutes({
+      header: [{ ...HEADER, total_net: 80000 }],
+      accounts: ACCOUNTS.filter((a) => a.account_code !== '2175'),
+    }));
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
     expect(plan!.blockers.map((b) => b.code)).toContain('missing_other_deductions_account');
   });
