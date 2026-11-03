@@ -80,7 +80,7 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     await resolveBillLineDimensions(companyId, String(supplierId), safeItems, costCenterId);
     // P5-3 security review: each line's PO line must be this company's (and of purchaseOrderId when named), ahead
     // of the reservation too; the service checks again.
-    await assertBillPoLinks(companyId, purchaseOrderId, safeItems);
+    await assertBillPoLinks(companyId, purchaseOrderId, String(supplierId), safeItems);
 
     // Resolve the invoice number. If `useSequence` is true OR no invoiceNumber
     // was supplied, atomically reserve the next number from

@@ -91,7 +91,7 @@ export async function createSupplierInvoice(
     // supplier read below (the VAT number) yields NULL on a miss. Before any write.
     await assertSupplierInCompany(companyId, input.supplierId);
     // P5-3 security review: a line's po_item_id must be this company's PO line (of the bill's PO when named).
-    await assertBillPoLinks(companyId, input.purchaseOrderId, input.items || []);
+    await assertBillPoLinks(companyId, input.purchaseOrderId, input.supplierId, input.items || []);
 
     assertSupplierInvoiceLines(input.items || [], trustSourceTax);
     await assertBillLineAccounts(companyId, (input.items || []).map((i) => i.glAccountId));

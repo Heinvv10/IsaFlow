@@ -2,14 +2,16 @@
  * A bill line's `po_item_id` (budgets P5-3 security review). `supplier_invoice_items.po_item_id` has no FK and
  * po_items no company_id, and the line's PO link nets that PO line's budget commitment (`budgets/remainingCommitted`)
  * and drives the 3-way match: a bill naming ANOTHER company's PO line would release that company's commitment.
- * So every named `po_item_id` must be a line of one of this company's purchase orders and, when the bill names a
- * `purchase_order_id`, of that order. Reads only, before any write; refusal = 400. The REST create is the only writer
+ * So every named `po_item_id` must be a line of one of this company's purchase orders, of the bill's own supplier, in
+ * a status that commits spend (approved / partially_received / received: a draft, submitted or cancelled order has
+ * nothing to bill against) and, when the bill names a `purchase_order_id`, of that order. Reads only, before any write; refusal = 400. The REST create is the only writer
  * of the column (census 7): `createSupplierInvoice`, and the route ahead of its number reservation.
  * Named limit: the header `purchase_order_id` alone (no line naming a PO line) is not checked here.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
+import { COMMITTING_PO_STATUSES } from '../budgets/remainingCommitted';
 
 export class SupplierInvoicePoLinkRefusal extends Error {
   readonly code = 'SUPPLIER_INVOICE_PO_LINK_REFUSED';
@@ -20,7 +22,7 @@ export class SupplierInvoicePoLinkRefusal extends Error {
 }
 
 export async function assertBillPoLinks(
-  companyId: string, purchaseOrderId: unknown, items: ReadonlyArray<{ poItemId?: unknown }>,
+  companyId: string, purchaseOrderId: unknown, supplierId: string, items: ReadonlyArray<{ poItemId?: unknown }>,
 ): Promise<void> {
   const named = items.map((i) => i.poItemId).filter((v) => v !== undefined && v !== null && v !== '');
   if (named.length === 0) return;
@@ -31,7 +33,7 @@ export async function assertBillPoLinks(
   const order = typeof purchaseOrderId === 'string' && purchaseOrderId !== '' ? purchaseOrderId : null;
   if (order !== null && !UUID_RE.test(order)) throw new SupplierInvoicePoLinkRefusal('The bill names a purchase order that is not a valid id');
   const found = (await sql`
-    SELECT pi.id::TEXT AS id, pi.purchase_order_id::TEXT AS po
+    SELECT pi.id::TEXT AS id, pi.purchase_order_id::TEXT AS po, po.supplier_id::TEXT AS supplier, po.status
       FROM po_items pi JOIN purchase_orders po ON po.id = pi.purchase_order_id AND po.company_id = ${companyId}::UUID
      WHERE pi.id = ANY(${ids}::UUID[])
   `) as DbRow[];
@@ -41,5 +43,11 @@ export async function assertBillPoLinks(
   }
   if (order !== null && ids.some((i) => poOf.get(i) !== order.toLowerCase())) {
     throw new SupplierInvoicePoLinkRefusal('A bill line names a purchase order line of another purchase order than the bill\'s');
+  }
+  if (found.some((r) => String(r.supplier).toLowerCase() !== supplierId.toLowerCase())) {
+    throw new SupplierInvoicePoLinkRefusal('A bill line names a purchase order line of another supplier\'s purchase order');
+  }
+  if (found.some((r) => !(COMMITTING_PO_STATUSES as readonly string[]).includes(String(r.status)))) {
+    throw new SupplierInvoicePoLinkRefusal('A bill line names a purchase order line of an order that is not approved (draft, submitted or cancelled)');
   }
 }
