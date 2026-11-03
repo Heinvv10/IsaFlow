@@ -11,7 +11,9 @@
  *   in the approve path's line order (`SUPPLIER_INVOICE_LINE_ORDER_BY`). A bill whose lines are
  *   stored gross (Σ line_total ≈ total_amount) is scaled to its subtotal, the last line takes the
  *   rounding residual, and a sub-cent overshoot or a R0 line is folded/dropped there exactly as
- *   posted (census finding 3). Never the stored `line_total`, never `quantity_invoiced`.
+ *   posted (census finding 3). Never the stored `line_total`, never `quantity_invoiced`. Each posted
+ *   line carries its account, dims and the bill's month: it releases the PO line's commitment only
+ *   where it landed in the PO line's own slice (the core's `billedInSliceCents`, P5-3 security review).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -20,7 +22,7 @@ import { SUPPLIER_INVOICE_LINE_ORDER_BY } from '../ap/supplierInvoiceLineOrder';
 import { mapInvoiceRow } from '../ap/supplierInvoiceWorkflowRow';
 import type { SupplierInvoiceItem } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
-import type { CommitmentRow } from './remainingBudgetCore';
+import type { BilledPosting, CommitmentRow } from './remainingBudgetCore';
 
 /** PO statuses whose lines commit spend; bill statuses whose linked lines release it. */
 export const COMMITTING_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;
@@ -50,27 +52,16 @@ function itemOf(r: DbRow): SupplierInvoiceItem {
   };
 }
 
-/** One posted (ex-VAT) bill line linked to a PO line: where it landed and how much. */
-export interface BilledLine {
-  /** null: the line names no account (it posts to default_expense). */
-  glAccountId: string | null;
-  cc1Id: string | null;
-  cc2Id: string | null;
-  buId: string | null;
-  /** 'YYYY-MM' of the bill's invoice_date (the journal's month). */
-  month: string;
-  amount: number;
-}
-
 const NO_ACCOUNT = 'unused';
 
 /**
  * The posted ex-VAT lines of the bills that count as billed (`BILLED_STATUSES`, plus `own`), per linked PO line
  * (lower-case ids): account and CC1 / CC2 / BU as `buildExpenseLines` posts them, the bill's month. The PO approval
- * nets a PO line only by those that landed in its own budget slice (`ap/purchaseOrderBudget`, P5-3 security review).
+ * nets a PO line, and committed (`readCommitments`) releases it, only by those that landed in its own budget slice
+ * (`remainingBudgetCore.billedInSliceCents`, P5-3 security review).
  */
-export async function billedLinesByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, BilledLine[]>> {
-  const out = new Map<string, BilledLine[]>();
+export async function billedLinesByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, BilledPosting[]>> {
+  const out = new Map<string, BilledPosting[]>();
   if (poItemIds.length === 0) return out;
   const bills = (await sql`
     SELECT si.* FROM supplier_invoices si
@@ -102,14 +93,7 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
   return out;
 }
 
-/** Ex-VAT posted amount per PO line (P5-1's committed netting: wherever the linked bill posted). */
-async function billedByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
-  for (const [po, lines] of await billedLinesByPoItem(companyId, poItemIds, own)) {
-    out.set(po, Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100);
-  }
-  return out;
-}
+
 
 export async function readCommitments(
   companyId: string, accounts: string[], start: string, end: string, opts: CommittedOptions,
@@ -127,13 +111,13 @@ export async function readCommitments(
        AND NOT (pi.id = ANY(${exclude}::UUID[]))
   `) as DbRow[];
   const own = [opts.excludeInvoiceId, ...(opts.alsoBilledInvoiceIds ?? [])].filter((v): v is string => !!v).map((v) => v.toLowerCase());
-  const billed = await billedByPoItem(companyId, rows.map((r) => String(text(r.po_item_id))), own);
+  const billed = await billedLinesByPoItem(companyId, rows.map((r) => String(text(r.po_item_id))), own);
   return rows.map((r) => {
     const id = String(text(r.po_item_id));
     return {
       poItemId: id, glAccountId: String(text(r.gl_account_id)), month: String(r.month),
       cc1Id: text(r.cc1_id), cc2Id: text(r.cc2_id), buId: text(r.bu_id),
-      lineTotal: Number(r.line_total), billed: billed.get(id) ?? 0,
+      lineTotal: Number(r.line_total), billed: billed.get(id) ?? [],
     };
   });
 }

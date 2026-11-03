@@ -11,8 +11,11 @@
  *   never 0. A budgeted zero is 0 (D5).
  * - Actual: posted movement at the grain (rows from P3's `readTrackingActuals`, one read per
  *   grain level), picked by (account, month, member); the untagged member is the unassigned slice.
- * - Committed: per PO line, `line_total − billed` floored at 0, mapped onto the grain the same
- *   way, summed per slice.
+ * - Committed: per PO line, `line_total − billed IN ITS OWN SLICE` floored at 0, mapped onto the grain
+ *   the same way, summed per slice. Linked billing nets a PO line only where it posted into the PO
+ *   line's slice at that grain (same account, same month, same member: `billedInSliceCents`, the one
+ *   rule the PO approval check uses too); billing posted elsewhere is that slice's actual, not a release
+ *   of this commitment (P5-3 security review).
  * - No grain (the account holds no budget in the version, or there is no version): actual and
  *   committed are reported at company level, budget and remaining are null.
  *
@@ -67,6 +70,15 @@ export interface GrainActualRow {
   amount: number;
 }
 
+/** One posted (ex-VAT) bill line linked to a PO line: where it landed and how much. */
+export interface BilledPosting extends Dims {
+  /** null: the line names no account (it posts to default_expense). */
+  glAccountId: string | null;
+  /** 'YYYY-MM' of the bill's invoice_date (the journal's month). */
+  month: string;
+  amount: number;
+}
+
 export interface CommitmentRow extends Dims {
   poItemId: string;
   glAccountId: string;
@@ -74,8 +86,23 @@ export interface CommitmentRow extends Dims {
   month: string;
   /** Ex-VAT PO line amount. */
   lineTotal: number;
-  /** Ex-VAT bill line amounts linked to this PO line that count as billed. */
-  billed: number;
+  /** The posted bill lines linked to this PO line that count as billed. */
+  billed: readonly BilledPosting[];
+}
+
+/**
+ * Cents of `billed` that posted into the PO line's own budget slice at `grain`: same account, same month, same
+ * member at the grain (company grain: account and month). The one netting rule for committed and for the PO approval.
+ */
+export function billedInSliceCents(
+  line: Dims & { glAccountId: string; month: string }, billed: readonly BilledPosting[], grain: RemainingGrain,
+): number {
+  const member = memberOnGrain(line, grain).member;
+  let cents = 0;
+  for (const b of billed) {
+    if (b.glAccountId === line.glAccountId && b.month === line.month && memberOnGrain(b, grain).member === member) cents += toCents(b.amount);
+  }
+  return cents;
 }
 
 export interface RemainingInputs {
@@ -120,9 +147,10 @@ export function computeRemaining(keys: readonly RemainingKey[], inputs: Remainin
   const committedBy = new Map<string, number>();
   const grainsUsed = new Set<RemainingGrain>(['company', ...inputs.grains.values()]);
   for (const c of inputs.commitments) {
-    const cents = Math.max(0, toCents(c.lineTotal) - toCents(c.billed));
-    if (cents === 0) continue;
-    for (const g of grainsUsed) add(committedBy, `${g}|${cell(c.glAccountId, c.month, memberOnGrain(c, g).member)}`, cents);
+    for (const g of grainsUsed) {
+      const cents = Math.max(0, toCents(c.lineTotal) - billedInSliceCents(c, c.billed, g));
+      if (cents > 0) add(committedBy, `${g}|${cell(c.glAccountId, c.month, memberOnGrain(c, g).member)}`, cents);
+    }
   }
   const committedAt = (grain: RemainingGrain, account: string, month: string, member: string | null): number =>
     committedBy.get(`${grain}|${cell(account, month, member)}`) ?? 0;

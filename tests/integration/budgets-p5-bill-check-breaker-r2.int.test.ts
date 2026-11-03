@@ -107,9 +107,11 @@ describe('(a) the preview dates a provisional\'s reclass as the live claim does'
 });
 
 describe('(b) the bulk dry run counts a journal-carrying draft as billed against its PO line', () => {
-  it('a legacy draft with a journal, linked to a travel PO line, then a travel bill: dry run and live both post both', async () => {
+  // P5-3 security review: a linked bill releases a PO line only where it posted into the PO line's own slice, so the PO
+  // line here sits on the legacy bill's own slice (opex FT): 500 committed, 100 of it billed by the legacy draft.
+  it('a legacy draft with a journal, linked to an opex FT PO line, then an opex FT bill: dry run and live both post both', async () => {
     await setPolicy(pool, f, 'block');
-    const [poItem] = await seedPo(pool, f, '2026-09', [{ acct: f.acc.travel, amount: 500 }]);
+    const [poItem] = await seedPo(pool, f, '2026-09', [{ acct: f.acc.opex, amount: 500, cc1: f.cc.FT }]);
     const [legacy, later] = ordered();
     await makeBill(pool, f, [{ acct: f.acc.opex, amount: 100, cc1: f.cc.FT }], { date: '2026-09-15', id: legacy });
     await linkBillToPo(pool, legacy, poItem!);
@@ -125,7 +127,9 @@ describe('(b) the bulk dry run counts a journal-carrying draft as billed against
     } finally {
       c.release();
     }
-    await makeBill(pool, f, [{ acct: f.acc.travel, amount: 100 }], { date: '2026-09-15', id: later });
+    // FT 1 000 budget, 400 still committed once the legacy draft counts as billed: 600 fits exactly (500 would be left
+    // if the dry run did not count it).
+    await makeBill(pool, f, [{ acct: f.acc.opex, amount: 600, cc1: f.cc.FT }], { date: '2026-09-15', id: later });
     const dry = JSON.parse(text(await committed(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [legacy, later], dry_run: true, idempotency_key: `d-${legacy}` }, ctx()))));
     const live = JSON.parse(text(await committed(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [legacy, later], idempotency_key: `l-${legacy}` }, ctx()))));
     const liveIds = (live.invoices ?? []).map((r: { id: string }) => r.id).sort();

@@ -5,7 +5,8 @@
  *
  * - Lines: every `po_items` row, its account and CC1 / CC2 / BU, at its OPEN amount: ex-VAT `line_total` (qty × unit
  *   price on both writers) less what approved / paid bills linked by `po_item_id` posted INTO THE SAME BUDGET SLICE
- *   (account, month, member at the account's grain: `remainingBudget.budgetSliceIds`), floored at 0. That billed
+ *   (account, month, member at the account's grain: `remainingBudgetCore.billedInSliceCents`, the rule committed
+ *   uses too), floored at 0. That billed
  *   part is already in the slice's actuals; judging the gross refused approvals that never go over (review r2,
  *   BRK-1). A linked bill that posted to another account, month or slice nets nothing here (security review): its
  *   actual landed elsewhere, so the PO line counts in full. The posted lines are `remainingCommitted.billedLinesByPoItem`
@@ -21,7 +22,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { toCents } from '../budgets/grid/cents';
 import { billedLinesByPoItem } from '../budgets/remainingCommitted';
-import { budgetSliceIds } from '../budgets/remainingBudget';
+import { budgetGrains } from '../budgets/remainingBudget';
+import { billedInSliceCents } from '../budgets/remainingBudgetCore';
 import {
   checkDocumentBudget, evaluateDocumentLines, labelBudgetLines, readCheckPolicy,
 } from '../budgets/budgetCheck';
@@ -87,23 +89,18 @@ async function readPoBudgetLines(companyId: string, poId: string, month: string)
 }
 
 /**
- * Per PO line (with an account), the cents of linked billing that posted into its own budget slice. A line meeting
- * no budget nets nothing (it is "No budget" either way).
+ * Per PO line (with an account), the cents of linked billing that posted into its own budget slice at the account's
+ * grain (company grain when it has none: it is "No budget" then, and committed is reported at company level).
  */
 async function sameSliceBilledCents(companyId: string, rows: readonly DbRow[], month: string): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   const accounted = rows.filter((r) => r.gl_account_id != null);
   const billed = await billedLinesByPoItem(companyId, accounted.map((r) => String(id(r.id))), []);
   if (billed.size === 0) return out;
-  const pairs = accounted.flatMap((r) => (billed.get(String(id(r.id))) ?? []).filter((b) => b.glAccountId !== null)
-    .map((b) => ({ item: String(id(r.id)), po: { glAccountId: String(id(r.gl_account_id)), cc1Id: id(r.cc1_id), cc2Id: id(r.cc2_id), buId: id(r.bu_id), month },
-      bill: { glAccountId: b.glAccountId!, cc1Id: b.cc1Id, cc2Id: b.cc2Id, buId: b.buId, month: b.month }, cents: toCents(b.amount) })));
-  if (pairs.length === 0) return out;
-  const ids = await budgetSliceIds(companyId, pairs.flatMap((p) => [p.po, p.bill]));
-  pairs.forEach((p, i) => {
-    const [poSlice, billSlice] = [ids[2 * i], ids[2 * i + 1]];
-    if (poSlice != null && poSlice === billSlice) out.set(p.item, (out.get(p.item) ?? 0) + p.cents);
-  });
+  const linked = accounted.filter((r) => billed.has(String(id(r.id))))
+    .map((r) => ({ item: String(id(r.id)), glAccountId: String(id(r.gl_account_id)), cc1Id: id(r.cc1_id), cc2Id: id(r.cc2_id), buId: id(r.bu_id), month }));
+  const grains = await budgetGrains(companyId, linked);
+  linked.forEach((l, i) => out.set(l.item, billedInSliceCents(l, billed.get(l.item) ?? [], grains[i] ?? 'company')));
   return out;
 }
 
