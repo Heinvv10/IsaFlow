@@ -8,7 +8,9 @@
  * - a line sent without one (a new line) has none;
  * - a link sent in upper case is the same link;
  * - one link on two lines is refused and nothing changes; a refusal carries its own code (INVOICE_WIP_LINK_REFUSED);
- * - a PUT whose lines leave links out drops them (a WIP line removed) and logs it: never silently;
+ * - a PUT whose lines leave a link out (a WIP line removed) releases that time entry: back to approved and unbilled,
+ *   so it can be billed again; it is logged with the invoice and the counts. Only this company's entries, billed by the
+ *   WIP path to this invoice, are released; a kept line's entry stays billed;
  * - the check reads links through the invoice's own company: asked for under another company, none is "already linked".
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -16,6 +18,7 @@ import { Pool } from 'pg';
 import customerInvoicesDetail from '../../pages/api/accounting/customer-invoices-detail';
 import { withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { markEntriesBilled } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 import { wipLinks } from '@/modules/accounting/services/ar/customerInvoiceWipLinks';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
@@ -51,6 +54,9 @@ async function wipDraft(): Promise<{ id: string; entries: string[] }> {
 }
 const links = async (id: string) => (await pool.query(
   'SELECT description, quantity::TEXT AS quantity, time_entry_id FROM customer_invoice_items WHERE invoice_id = $1 ORDER BY description', [id])).rows;
+const RELEASED = 'Draft edit removed WIP lines: their time entries are unbilled again';
+const entry = async (id: string) => (await pool.query(
+  'SELECT status, invoice_id, billed_at IS NOT NULL AS billed FROM time_entries WHERE id = $1', [id])).rows[0] as { status: string; invoice_id: string | null; billed: boolean };
 const body = (id: string, items: Record<string, unknown>[], extra: Record<string, unknown> = {}) => ({
   id, invoiceDate: '2026-09-01', taxRate: 15, currencyCode: 'ZAR', exchangeRate: 1, items, ...extra,
 });
@@ -129,26 +135,59 @@ describe('a draft PUT and its lines\' WIP links', () => {
     expect((await links(id)).map((l) => l.time_entry_id)).toEqual(entries);
   });
 
-  it('a PUT that leaves links out drops them and warns, with the invoice and the count; one that keeps them does not', async () => {
-    const warn = vi.spyOn(log, 'warn');
+  it('a PUT that keeps every link leaves every entry billed to the invoice, and logs no release', async () => {
+    const info = vi.spyOn(log, 'info');
     try {
       const { id, entries } = await wipDraft();
-      const kept = await put(body(id, [
-        { description: 'Time A', quantity: 2, unitPrice: 300, taxRate: 15, timeEntryId: entries[0] },
+      const res = await put(body(id, [
+        { description: 'Time A', quantity: 3, unitPrice: 300, taxRate: 15, timeEntryId: entries[0] },
         { description: 'Time B', quantity: 1, unitPrice: 400, taxRate: 15, timeEntryId: entries[1] },
       ]));
-      expect(kept.state.statusCode).toBe(200);
-      expect(warn.mock.calls.filter((c) => c[0] === 'Draft edit dropped WIP time-entry links')).toHaveLength(0);
-      const res = await put(body(id, [
-        { description: 'Time A', quantity: 2, unitPrice: 300, taxRate: 15, timeEntryId: entries[0] },
-        { description: 'Time B', quantity: 1, unitPrice: 400, taxRate: 15 },
-      ]));
       expect(res.state.statusCode).toBe(200);
-      expect((await links(id)).map((l) => l.time_entry_id)).toEqual([entries[0], null]);
-      expect(warn).toHaveBeenCalledWith('Draft edit dropped WIP time-entry links', { invoiceId: id, dropped: 1 }, 'customerInvoiceWipLinks');
+      for (const e of entries) expect(await entry(e)).toMatchObject({ status: 'billed', invoice_id: id, billed: true });
+      expect(info.mock.calls.filter((c) => c[0] === RELEASED)).toHaveLength(0);
     } finally {
-      warn.mockRestore();
+      info.mockRestore();
     }
+  });
+
+  it('removing a WIP line releases its time entry: approved, unbilled, billable again; the kept line\'s stays billed', async () => {
+    const info = vi.spyOn(log, 'info');
+    try {
+      const { id, entries } = await wipDraft();
+      const res = await put(body(id, [{ description: 'Time A', quantity: 2, unitPrice: 300, taxRate: 15, timeEntryId: entries[0] }]));
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+      expect(await entry(entries[0]!)).toMatchObject({ status: 'billed', invoice_id: id, billed: true });
+      expect(await entry(entries[1]!)).toMatchObject({ status: 'approved', invoice_id: null, billed: false });
+      expect(info).toHaveBeenCalledWith(RELEASED, { invoiceId: id, dropped: 1, released: 1 }, 'customerInvoiceWipLinks');
+      const again = await plantInvoice(pool, company, owner);
+      expect(await withTransaction(() => markEntriesBilled(company, [entries[1]!], again.id))).toBe(1); // billable again
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it.each([
+    ['another company\'s entry', async (id: string) => timeEntry(otherCompany, id)],
+    ['an entry billed to another invoice', async () => timeEntry(company, (await plantInvoice(pool, company, owner)).id)],
+    ['an entry the timesheet path invoiced (status invoiced)', async (id: string) => {
+      const te = await timeEntry(company, id);
+      await pool.query(`UPDATE time_entries SET status = 'invoiced', invoiced = true, billed_at = NULL WHERE id = $1`, [te]);
+      return te;
+    }],
+  ])('a dropped link to %s is not released', async (_name, make) => {
+    const { id, entries } = await wipDraft();
+    const odd = await make(id);
+    await pool.query(
+      `INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, amount, tax_rate, currency_code, time_entry_id)
+       VALUES ($1, 'Time odd', 1, 100, 100, 15, 'ZAR', $2)`, [id, odd]);
+    const before = await entry(odd);
+    const res = await put(body(id, [
+      { description: 'Time A', quantity: 2, unitPrice: 300, taxRate: 15, timeEntryId: entries[0] },
+      { description: 'Time B', quantity: 1, unitPrice: 400, taxRate: 15, timeEntryId: entries[1] },
+    ]));
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(await entry(odd)).toEqual(before);
   });
 
   it('read under another company, this invoice has no links to keep', async () => {
