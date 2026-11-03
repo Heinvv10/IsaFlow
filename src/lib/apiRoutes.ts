@@ -70,6 +70,7 @@ import type { BudgetVersion } from '@/modules/accounting/services/budgets/budget
 import type { GridCellsOnly, GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
 import type { RemainingResult } from '@/modules/accounting/services/budgets/remainingBudgetCore';
+import type { SliceReview } from '@/modules/accounting/services/budgets/sliceReviewRead';
 import type { NotificationFeed } from '@/modules/accounting/services/notifications/userNotificationService';
 import type { SaveCellsResult } from '@/modules/accounting/services/budgets/gridSave';
 import type { SeedResult } from '@/modules/accounting/services/budgets/seedVersion';
@@ -131,6 +132,8 @@ interface StaticRoutes {
   '/api/accounting/budgets/remaining': { lines: RemainingResult[] };
   '/api/accounting/notifications': NotificationFeed;
   '/api/accounting/notifications/read': { updated: number };
+  // Budgets P5-6: GET the slices (owner/admin every one, others their own), POST assigns a holder and answers the slice.
+  '/api/accounting/budgets/holders': { slices: SliceReview[] } | SliceReview;
   '/api/accounting/budget-drivers/override': DriverOverrideResponse;
   '/api/accounting/budget-drivers/headcount': DriverHeadcountResponse;
   '/api/accounting/budget-drivers/planned-hires': PlannedHiresResponse;
@@ -221,6 +224,10 @@ interface DynamicRoutes {
   '/api/accounting/budget-versions/{}/copy': BudgetVersion;
   '/api/accounting/budget-versions/{}/primary': BudgetVersion;
   '/api/accounting/budget-versions/{}/reforecast': ReforecastResponse;
+  // Budgets P5-6: a slice's review moves (POST only), each answering the slice.
+  '/api/accounting/budgets/slices/{}/submit': SliceReview;
+  '/api/accounting/budgets/slices/{}/approve': SliceReview;
+  '/api/accounting/budgets/slices/{}/return': SliceReview;
 }
 
 /**

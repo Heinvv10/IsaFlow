@@ -34,6 +34,7 @@ import { auditBudgetWrite, holdYearRegistry } from './budgetVersionScope';
 import { BudgetVersionError, mapBudgetDbError } from './budgetVersionTypes';
 import { inputError } from './gridErrors';
 import { takeVersion } from './versionTake';
+import { assertSliceWrites, beginSliceReview, loadHolderScope } from './holderScope';
 import {
   cellsTypedOverDrivers, clearedDriverCells, deleteCells, firstClosedMonthCell, markOverrides, versionSum, writeCells,
 } from './gridSaveWrite';
@@ -115,6 +116,11 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
 
   const labels = await checkAccounts(companyId, versionId, input.cells, batch);
   await checkDimensions(companyId, input.cells);
+  // P5-6 budget holders (decision 9a): a holder's cells inside their slices of a draft, no one but a
+  // reviewer into a submitted or approved slice; an owner's or admin's save takes the reviewer path.
+  const holders = await loadHolderScope(companyId, versionId, userId);
+  assertSliceWrites(holders, version.status, input.cells, (a) => labels.get(a) ?? a);
+  await beginSliceReview(companyId, versionId, holders);
   const twoGrains = accountWithTwoGrains(batch.upserts);
   if (twoGrains) throw grainClash(labels.get(twoGrains)!);
   const cleared = await assertDriverCells(companyId, versionId, batch, labels, months);
