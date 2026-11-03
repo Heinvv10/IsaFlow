@@ -96,11 +96,15 @@ describe('SDL threshold: non-cash benefits in earlier months [SDL Act s4(b); Fou
   });
 
   it('ignores a cancelled run in the window and a draft before it, whatever benefit they carry', async () => {
-    // Approved 1..10 months back; a cancelled run 11 back and a draft 12 back, each R42 000 with a
-    // R1 000 benefit. Counted, they would add to the sum or move the first month (and the
-    // divisor): (10 x 42 000 + 42 000) / 11 x 12 = R504 000 only when both are ignored.
+    // Approved 1..10 months back; a cancelled run 11 back and a draft 12 back, each R41 000 cash
+    // with a benefit raised to R50 000. Counted, they would add to the sum or move the first month
+    // (and the divisor): (10 x 42 000 + 42 000) / 11 x 12 = R504 000 only when both are ignored.
     const months = [...ELEVEN.slice(0, 10), { back: 11, status: 'cancelled' }, { back: 12, status: 'draft' }];
     const company = await history(true, undefined, months);
+    await pool.query(
+      `UPDATE payroll_run_lines SET component_breakdown = (SELECT jsonb_agg(CASE WHEN item->>'isNonCash' = 'true'
+         THEN jsonb_set(item, '{amount}', '50000') ELSE item END) FROM jsonb_array_elements(component_breakdown) item)
+        WHERE run_id IN (SELECT id FROM payroll_run_headers WHERE company_id = $1 AND status IN ('cancelled', 'draft'))`, [company]);
     expect(await estimateAnnualRemuneration(company, PERIOD, 42_000, crypto.randomUUID())).toBe(504_000);
   });
 
