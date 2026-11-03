@@ -13,12 +13,13 @@ import {
   Clock, CheckCircle, Lock, ChevronRight, FileText,
   BarChart2, BookOpen, ShieldCheck, Download, Send,
 } from 'lucide-react';
-import type { AfsDocument, DocumentStatus } from '@/modules/accounting/services/afs/afsTypes';
+import type { AfsDocument, AfsSection, DocumentStatus } from '@/modules/accounting/services/afs/afsTypes';
 import { AfsOverviewTab } from '@/components/accounting/afs/AfsOverviewTab';
 import { AfsNotesTab } from '@/components/accounting/afs/AfsNotesTab';
 import { AfsStatementsTab } from '@/components/accounting/afs/AfsStatementsTab';
 import { AfsReviewTab } from '@/components/accounting/afs/AfsReviewTab';
 import { AfsExportTab } from '@/components/accounting/afs/AfsExportTab';
+import { ManagementPackViewer } from '@/components/accounting/afs/ManagementPackViewer';
 
 type TabId = 'overview' | 'notes' | 'statements' | 'review' | 'compliance' | 'export';
 
@@ -54,7 +55,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
 
 const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodEnd, periodMonths, periodError }) => {
   const router = useRouter();
-  const [doc, setDoc] = useState<AfsDocument | null>(null);
+  const [doc, setDoc] = useState<(AfsDocument & { sections?: AfsSection[] }) | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState('');
@@ -121,6 +122,8 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
 
   // Empty when the server could not state the period (a 403): nothing period-bound is shown then.
   const hasPeriod = periodStart !== '' && periodEnd !== '';
+  // A management pack is generated and delivered from the Management Packs page: it has no AFS tabs and no review workflow.
+  const isPack = doc?.documentType === 'management_pack';
   const title = doc
     ? `AFS ${doc.fiscalYear ?? periodStart.slice(0, 4)} | ISAFlow`
     : `AFS | ISAFlow`;
@@ -133,7 +136,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
         {/* Breadcrumb */}
         <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-3">
           <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Link href="/accounting/afs" className="hover:text-slate-300 transition-colors">AFS</Link>
+            <Link href={isPack ? '/accounting/afs/management-packs' : '/accounting/afs'} className="hover:text-slate-300 transition-colors">{isPack ? 'Management Packs' : 'AFS'}</Link>
             <ChevronRight className="w-3.5 h-3.5" />
             <span className="text-slate-800 dark:text-slate-200 font-medium">
               {doc ? (doc.documentType === 'afs' ? `AFS ${doc.fiscalYear ?? ''}` : `Pack ${doc.period ?? ''}`) : documentId}
@@ -146,7 +149,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
           <div className="max-w-6xl mx-auto flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-3">
-                <h1 className="text-xl font-bold text-slate-900 dark:text-white">Annual Financial Statements</h1>
+                <h1 className="text-xl font-bold text-slate-900 dark:text-white">{isPack ? 'Management Pack' : 'Annual Financial Statements'}</h1>
                 {doc && <StatusBadge status={doc.status} />}
               </div>
               <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -163,7 +166,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
                   Report templates for this period
                 </Link>
               )}
-              {doc?.status === 'draft' && (
+              {!isPack && doc?.status === 'draft' && (
                 <button
                   onClick={() => { void handleSubmitForReview(); }}
                   disabled={submitting}
@@ -173,7 +176,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
                   Submit for Review
                 </button>
               )}
-              {(doc?.status === 'in_review' || doc?.status === 'partner_review') && (
+              {!isPack && (doc?.status === 'in_review' || doc?.status === 'partner_review') && (
                 <button
                   onClick={() => { void handleSignOff(); }}
                   disabled={submitting}
@@ -193,7 +196,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
         </div>
 
         {/* Tab bar */}
-        <div className="bg-slate-100 dark:bg-slate-800 border-b border-slate-300 dark:border-slate-700 px-6">
+        {!isPack && <div className="bg-slate-100 dark:bg-slate-800 border-b border-slate-300 dark:border-slate-700 px-6">
           <div className="max-w-6xl mx-auto flex gap-0 overflow-x-auto">
             {TABS.map(tab => (
               <button
@@ -211,23 +214,24 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
               </button>
             ))}
           </div>
-        </div>
+        </div>}
 
         {/* Tab content */}
         <div className="max-w-6xl mx-auto px-6 py-8">
-          {hasPeriod && activeTab === 'overview' && (
+          {isPack && <ManagementPackViewer sections={doc?.sections ?? []} />}
+          {!isPack && hasPeriod && activeTab === 'overview' && (
             <AfsOverviewTab documentId={documentId} periodStart={periodStart} periodEnd={periodEnd} periodMonths={periodMonths} />
           )}
-          {hasPeriod && activeTab === 'notes' && (
+          {!isPack && hasPeriod && activeTab === 'notes' && (
             <AfsNotesTab fiscalYear={doc?.fiscalYear ?? Number(periodStart.slice(0, 4))} />
           )}
-          {hasPeriod && activeTab === 'statements' && (
+          {!isPack && hasPeriod && activeTab === 'statements' && (
             <AfsStatementsTab periodStart={periodStart} periodEnd={periodEnd} />
           )}
-          {activeTab === 'review' && (
+          {!isPack && activeTab === 'review' && (
             <AfsReviewTab documentId={documentId} doc={doc} onDocUpdate={setDoc} />
           )}
-          {hasPeriod && activeTab === 'export' && (
+          {!isPack && hasPeriod && activeTab === 'export' && (
             <AfsExportTab
               documentId={documentId}
               fiscalYear={doc?.fiscalYear ?? Number(periodStart.slice(0, 4))}
