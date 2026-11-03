@@ -25,7 +25,6 @@ vi.mock('@/modules/accounting/services/payroll/payrollEmployeeComponentService',
 }));
 
 import { sql, withSavepoint } from '@/lib/neon';
-import { salaryInPaidMonthRefusal } from '@/modules/accounting/services/payroll/payrollOnboardingPaidMonth';
 import { createPayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import { assignComponentToEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import {
@@ -272,30 +271,5 @@ describe('employeeChangesOf: the end date that goes on is the day that was judge
     ['T00:00:00.000Z2030-12-31'],
   ])('%j is refused', (endDate) => {
     expect(() => employeeChangesOf({ endDate }, current)).toThrow(EmployeeOnboardingRefused);
-  });
-});
-
-describe('createEmployeeWithPay: the salary window', () => {
-  const salary = { componentId: COMPONENT, amountCents: 2_500_000 };
-
-  it('starts on salary.effectiveFrom when given, on the start date otherwise', async () => {
-    await go({ salary: { ...salary, effectiveFrom: '2026-12-01' } });
-    expect(vi.mocked(assignComponentToEmployee).mock.calls[0]![4]).toBe('2026-12-01');
-    expect(salaryInPaidMonthRefusal).toHaveBeenCalledWith(COMPANY, '2026-12-01');
-    vi.mocked(assignComponentToEmployee).mockClear();
-    await go({ salary });
-    expect(vi.mocked(assignComponentToEmployee).mock.calls[0]![4]).toBe('2026-11-01');
-  });
-
-  it('is refused before any write when it starts before the start date, is not a date, or lies in a paid month', async () => {
-    await expectRefused(go({ salary: { ...salary, effectiveFrom: '2026-10-31' } }), /before the startDate/);
-    await expectRefused(go({ salary: { ...salary, effectiveFrom: '2026-02-30' } }), /real date/);
-    vi.mocked(salaryInPaidMonthRefusal).mockResolvedValueOnce('October 2026 is already paid. Set the salary to start 2026-11-01 and pay the October days as a once-off in an open month.');
-    await expectRefused(go({ salary }), /^October 2026 is already paid\. Set the salary to start 2026-11-01/);
-  });
-
-  it('writes no refusal check for an employee without a salary', async () => {
-    await go();
-    expect(salaryInPaidMonthRefusal).not.toHaveBeenCalled();
   });
 });

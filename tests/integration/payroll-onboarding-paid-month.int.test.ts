@@ -39,6 +39,9 @@ beforeAll(async () => {
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   call = routeCaller({ [owner]: token }, { user: owner, company });
   basic = (await pool.query<{ id: string }>("SELECT id FROM payroll_components WHERE company_id = $1 AND sars_source_code = '3601'", [company])).rows[0]!.id;
+  // January was paid by a run from before migration 953 (no calculation stamp).
+  await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,1,2026,'approved')", [crypto.randomUUID(), company]);
+  await pool.query('UPDATE payroll_run_headers SET calculated_at = NULL, calculation_version = NULL WHERE company_id=$1 AND period_month=1', [company]);
   const feb = await calculatedRun(call, 2);
   const plan = await call(journalPlan as Route, 'GET', `/api/payroll/runs/${feb}/journal-plan`, feb);
   const done = await call(approve as Route, 'POST', `/api/payroll/runs/${feb}/approve`, feb, { body: { expectedPlanHash: plan.body.data?.planHash } });
@@ -59,6 +62,13 @@ describe('a hire starting in the paid month', () => {
     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
     expect(out.body.error?.message).toBe('February 2026 is already paid. Set the salary to start 2026-03-01 and pay the February days as a once-off in an open month.');
     expect(await rowsOf('LH-1')).toHaveLength(0);
+  });
+
+  it('names every paid month the hire would miss, not only the first', async () => {
+    const out = await post(hire('LH-7', '2026-01-20', {}));
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toBe('January and February 2026 are already paid. Set the salary to start 2026-03-01 and pay those days as once-offs in an open month.');
+    expect(await rowsOf('LH-7')).toHaveLength(0);
   });
 
   it('is created when the salary starts in the next open month', async () => {

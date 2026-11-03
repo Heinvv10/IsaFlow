@@ -210,6 +210,7 @@ export async function createEmployeeWithPay(companyId: string, userId: string, b
   const salaryFrom = salary?.effectiveFrom ?? String(body.startDate);
   if (salary) {
     if (salaryFrom < String(body.startDate).slice(0, 10)) throw new EmployeeOnboardingRefused('salary.effectiveFrom cannot be before the startDate');
+    if (!isBlank(body.endDate) && salaryFrom > String(body.endDate).slice(0, 10)) throw new EmployeeOnboardingRefused('salary.effectiveFrom cannot be after the endDate');
     const paidMonth = await salaryInPaidMonthRefusal(companyId, salaryFrom);
     if (paidMonth) throw new EmployeeOnboardingRefused(paidMonth);
   }
