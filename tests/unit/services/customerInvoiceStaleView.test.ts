@@ -48,8 +48,8 @@ describe('assertShownIsStored and approval content', () => {
     }
     for (const key of ['customer_name', 'customer_address', 'customer_contact', 'customer_email', 'customer_phone',
       'customer_vat', 'company_name', 'company_address_line1', 'company_address_line2', 'company_city',
-      'company_province', 'company_postal_code', 'company_email', 'company_phone', 'company_vat', 'company_bank_name',
-      'company_bank_account_number', 'company_bank_branch_code', 'company_logo_data', 'company_primary_color'] as const) {
+      'company_province', 'company_postal_code', 'company_email', 'company_phone', 'company_vat', 'company_logo_data',
+      'company_primary_color'] as const) {
       expect(shownDigestOf({ ...row, [key]: `changed ${key}` })).not.toBe(shownDigestOf(row));
     }
   });

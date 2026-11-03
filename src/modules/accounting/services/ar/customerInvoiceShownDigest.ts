@@ -38,9 +38,6 @@ export interface ShownRow {
   company_email?: unknown;
   company_phone?: unknown;
   company_vat?: unknown;
-  company_bank_name?: unknown;
-  company_bank_account_number?: unknown;
-  company_bank_branch_code?: unknown;
   company_logo_data?: unknown;
   company_primary_color?: unknown;
 }
@@ -56,7 +53,6 @@ export function shownDigestOf(row: ShownRow): string {
     text(row.customer_email), text(row.customer_phone), text(row.customer_vat), text(row.company_name),
     text(row.company_address_line1), text(row.company_address_line2), text(row.company_city), text(row.company_province),
     text(row.company_postal_code), text(row.company_email), text(row.company_phone), text(row.company_vat),
-    text(row.company_bank_name), text(row.company_bank_account_number), text(row.company_bank_branch_code),
     text(row.company_logo_data), text(row.company_primary_color)];
   return createHash('sha256').update(JSON.stringify(shown)).digest('hex');
 }
@@ -74,9 +70,7 @@ export async function readShownDigest(q: TxSql, companyId: string, invoiceId: st
            co.name AS company_name, co.address_line1 AS company_address_line1, co.address_line2 AS company_address_line2,
            co.city AS company_city, co.province AS company_province, co.postal_code AS company_postal_code,
            co.email AS company_email, co.phone AS company_phone, co.vat_number AS company_vat,
-           co.bank_name AS company_bank_name, co.bank_account_number AS company_bank_account_number,
-           co.bank_branch_code AS company_bank_branch_code, co.logo_data AS company_logo_data,
-           co.primary_color AS company_primary_color
+           co.logo_data AS company_logo_data, co.primary_color AS company_primary_color
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       LEFT JOIN companies co ON co.id = ci.company_id

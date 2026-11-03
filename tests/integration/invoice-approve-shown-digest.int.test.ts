@@ -112,9 +112,6 @@ describe('what the invoice shows beyond the approval digest', () => {
     ['email', 'changed-issuer@example.test'],
     ['phone', '+27 11 555 0102'],
     ['vat_number', '4987654321'],
-    ['bank_name', 'Changed bank'],
-    ['bank_account_number', '1234567890'],
-    ['bank_branch_code', '123456'],
     ['logo_data', 'data:image/png;base64,Y2hhbmdlZA=='],
     ['primary_color', '#123456'],
   ])('the company %s changed after it was shown: 409 STALE_VIEW', async (column, value) => {

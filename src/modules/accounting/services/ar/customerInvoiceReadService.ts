@@ -228,9 +228,7 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
            co.name AS company_name, co.address_line1 AS company_address_line1, co.address_line2 AS company_address_line2,
            co.city AS company_city, co.province AS company_province, co.postal_code AS company_postal_code,
            co.email AS company_email, co.phone AS company_phone, co.vat_number AS company_vat,
-           co.bank_name AS company_bank_name, co.bank_account_number AS company_bank_account_number,
-           co.bank_branch_code AS company_bank_branch_code, co.logo_data AS company_logo_data,
-           co.primary_color AS company_primary_color,
+           co.logo_data AS company_logo_data, co.primary_color AS company_primary_color,
            (SELECT count(*)::INT FROM time_entries te
              WHERE te.invoice_id = ci.id AND te.company_id = ci.company_id
                AND NOT EXISTS (SELECT 1 FROM customer_invoice_items x WHERE x.invoice_id = ci.id AND x.time_entry_id = te.id)
@@ -248,8 +246,7 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
   for (const field of ['approval_content_digest', 'customer_name', 'customer_address', 'customer_contact',
     'customer_email', 'customer_phone', 'customer_vat', 'company_name', 'company_address_line1',
     'company_address_line2', 'company_city', 'company_province', 'company_postal_code', 'company_email',
-    'company_phone', 'company_vat', 'company_bank_name', 'company_bank_account_number', 'company_bank_branch_code',
-    'company_logo_data', 'company_primary_color']) delete rows[0]![field];
+    'company_phone', 'company_vat', 'company_logo_data', 'company_primary_color']) delete rows[0]![field];
 
   const items = (await sql`
     SELECT cii.*,
