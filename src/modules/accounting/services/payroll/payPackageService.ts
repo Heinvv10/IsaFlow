@@ -246,9 +246,10 @@ export async function applyPackageToEmployee(
   await assertPackageInCompany(companyId, packageId);
 
   const compRows = (await sql`
-    SELECT component_id, amount, is_recurring
-      FROM pay_package_components
-     WHERE package_id = ${packageId}::uuid
+    SELECT ppc.component_id, ppc.amount, ppc.is_recurring, pc.component_type
+      FROM pay_package_components ppc
+      JOIN payroll_components pc ON pc.id = ppc.component_id AND pc.company_id = ${companyId}::uuid
+     WHERE ppc.package_id = ${packageId}::uuid
   `) as DbRow[];
   if (compRows.length === 0) return { inserted: 0, ended: 0 };
 
@@ -275,7 +276,9 @@ export async function applyPackageToEmployee(
     let ended = 0;
     for (const r of compRows) {
       const componentId = String(r.component_id);
-      ended += await supersedeForPackage(tx, { companyId, packageId, employeeId, componentId, effectiveFrom, paid, actor });
+      ended += await supersedeForPackage(tx, {
+        companyId, packageId, employeeId, componentId, componentType: String(r.component_type), effectiveFrom, paid, actor,
+      });
 
       // A once-off package row must be paid once. Without an explicit
       // effective_to the row is open-ended, and the payroll reader

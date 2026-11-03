@@ -9,7 +9,9 @@ import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
-import { paidPeriodChanged, periodLabel, windowOf, type PaidPeriod } from './payrollComponentPaidMonths';
+import {
+  paidPeriodChanged, paidTerminationBaseChanged, periodLabel, windowOf, type PaidPeriod,
+} from './payrollComponentPaidMonths';
 import { legacyFlips, legacyLeaverSuccessorLost, type Sibling } from './payrollComponentLegacySupersede';
 
 const isoDate = (v: unknown): string => fmtDate(v);
@@ -25,6 +27,7 @@ export interface SupersedeInput {
   packageId: string;
   employeeId: string;
   componentId: string;
+  componentType: string;
   effectiveFrom: string;
   paid: PaidPeriod[];
   actor: ComponentChangeActor;
@@ -52,7 +55,7 @@ async function recordRevivedLegacyOnceOffs(
 
 /** The number of assignments cut. */
 export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Promise<number> {
-  const { companyId, packageId, employeeId, componentId, effectiveFrom, paid, actor } = input;
+  const { companyId, packageId, employeeId, componentId, componentType, effectiveFrom, paid, actor } = input;
   const cutTo = dayBefore(effectiveFrom);
   // Supersede every assignment this apply overlaps, not only the
   // open-ended ones. A once-off row is inserted already closed, so an
@@ -70,7 +73,10 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   const toCut = all.filter((row) => row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom);
   // Never cut what a paid run read: that run would no longer agree with the rows (security review, 2026-11-02).
   for (const row of toCut) {
-    const changed = paidPeriodChanged(paid, windowOf(row), { ...windowOf(row), to: cutTo });
+    const before = windowOf(row);
+    const after = { ...before, to: cutTo };
+    const changed = paidPeriodChanged(paid, before, after)
+      ?? (componentType === 'earning' ? paidTerminationBaseChanged(paid, before, after) : null);
     if (changed) {
       throw new EmployeeComponentRefused(
         `${periodLabel(changed)} is already paid (approved run), and applying this package from ${effectiveFrom} would cut an `
