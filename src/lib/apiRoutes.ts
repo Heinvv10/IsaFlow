@@ -54,7 +54,7 @@ import type { buildReportPack } from '@/modules/accounting/services/reports/repo
 import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
 import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
 import type { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
-import type { JournalPlanPreview } from '@/modules/accounting/services/payroll/payrollApprovalGate';
+import type { LabelledJournalPlanPreview } from '@/modules/accounting/services/payroll/payrollJournalPlanLabels';
 import type { getSetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
@@ -208,7 +208,7 @@ interface DynamicRoutes {
   '/api/accounting/annotations/{}/resolve': { resolved: true };
   // PAY-01. GET only / POST only respectively; the handlers are passthroughs.
   // plan.blockers is withheld from the response (the route strips it): the top-level `blocker` is the one answer.
-  '/api/payroll/runs/{}/journal-plan': JournalPlanPreview;
+  '/api/payroll/runs/{}/journal-plan': LabelledJournalPlanPreview;
   '/api/payroll/runs/{}/approve': Awaited<ReturnType<typeof approvePayrollRun>>;
   // Fleet records (mig 853): GET the list, POST the new record, DELETE `{ deleted, id }` — the list and the item of
   // one resource, so a union (see above). The bank-links read is GET only; null (404) never reaches the caller.

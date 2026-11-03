@@ -112,6 +112,7 @@ export async function getIrp5EmployeeTotals(
       e.id, e.employee_number, e.first_name, e.last_name, e.id_number, e.tax_number,
       SUM(prl.gross_pay)::NUMERIC      AS gross_pay,
       SUM(prl.taxable_income)::NUMERIC AS taxable_income,
+      SUM(COALESCE(prl.retirement_deduction, 0))::NUMERIC AS retirement_deduction,
       SUM(prl.paye)::NUMERIC           AS paye,
       SUM(prl.uif_employee)::NUMERIC   AS uif_employee,
       SUM(prl.uif_employer)::NUMERIC   AS uif_employer,
@@ -200,7 +201,9 @@ export async function getIrp5EmployeeTotals(
       taxNumber: maskTail(r.tax_number, reveal),
       identityNumbersMasked: !reveal,
       grossSalary: round2((Number(r.gross_pay) || 0) + t.gross),
-      taxableIncome: round2((Number(r.taxable_income) || 0) + t.gross),
+      taxableIncome: round2(
+        (Number(r.taxable_income) || 0) - (Number(r.retirement_deduction) || 0) + t.gross,
+      ),
       paye: round2((Number(r.paye) || 0) + t.paye),
       uifEmployee: Number(r.uif_employee) || 0,
       uifEmployer: Number(r.uif_employer) || 0,

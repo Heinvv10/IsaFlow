@@ -36,7 +36,7 @@ const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const EMPLOYEE = {
   id: 'e1', employee_number: 'EMP001', first_name: 'Thandi', last_name: 'Mokoena',
   id_number: '9001015800089', tax_number: '0123456789',
-  gross_pay: 480000, taxable_income: 470000, paye: 96000,
+  gross_pay: 480000, taxable_income: 470000, retirement_deduction: 2708.59, paye: 96000,
   uif_employee: 2124, uif_employer: 2124, sdl: 4800, eti: 0, net_pay: 381876,
   runs_included: 12, posted_through: '2026-02-28T10:00:00Z',
 };
@@ -114,6 +114,7 @@ describe('getIrp5EmployeeTotals — tenant scope and status vocabulary', () => {
     const ds = await getIrp5EmployeeTotals(COMPANY, 2026);
     const row = ds.rows[0]!;
     expect(row.grossSalary).toBe(480000);
+    expect(row.taxableIncome).toBe(467291.41);
     expect(row.paye).toBe(96000);
     expect(row.uifEmployee).toBe(2124);
     expect(row.uifEmployer).toBe(2124);
