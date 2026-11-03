@@ -20,7 +20,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import { lockCompanyPayrollForComponentChange, paidPeriodsOf } from './payrollComponentPaidMonths';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { supersedeForPackage } from './payPackageSupersede';
-import { refuseOnceOffInPaidMonth } from './payrollOnceOffGuard';
+import { refuseOnceOffInPaidMonth, refuseRecurringInPaidMonth } from './payrollOnceOffGuard';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { endOfMonthIso } from './leaveAccrualService';
@@ -284,7 +284,7 @@ export async function applyPackageToEmployee(
       // close rule as payrollBatchService and assignComponentToEmployee.
       const isRecurring = r.is_recurring === true;
       const effectiveTo = isRecurring ? null : endOfMonthIso(startYear, startMonth);
-      if (!isRecurring) await refuseOnceOffInPaidMonth(tx, companyId, effectiveFrom, effectiveTo);
+      await (isRecurring ? refuseRecurringInPaidMonth(tx, companyId, null, { from: effectiveFrom, to: effectiveTo }) : refuseOnceOffInPaidMonth(tx, companyId, effectiveFrom, effectiveTo));
       const inserted = (await tx`
         INSERT INTO payroll_employee_components
           (employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred)

@@ -17,7 +17,7 @@ import { endOfMonthIso } from './leaveAccrualService';
 import { assertComponentInCompany } from './payrollEmployeeComponentService';
 import { lockCompanyPayrollForComponentChange } from './payrollComponentPaidMonths';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
-import { refuseOnceOffInPaidMonth, refuseOnceOffSpan } from './payrollOnceOffGuard';
+import { refuseOnceOffInPaidMonth, refuseOnceOffSpan, refuseRecurringInPaidMonth } from './payrollOnceOffGuard';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
@@ -537,7 +537,9 @@ interface AssignmentInsert {
 async function insertAssignment(tx: TxSql, companyId: string, actor: ComponentChangeActor, opts: AssignmentInsert): Promise<void> {
   const from = toIso(opts.effectiveFrom);
   const to = opts.effectiveTo ? toIso(opts.effectiveTo) : null;
-  if (!opts.isRecurring) {
+  if (opts.isRecurring) {
+    await refuseRecurringInPaidMonth(tx, companyId, null, { from, to });
+  } else {
     refuseOnceOffSpan(from, to);
     await refuseOnceOffInPaidMonth(tx, companyId, from, to);
   }
