@@ -1,6 +1,8 @@
 /**
  * Purchase Order Detail / Edit Page
  * Route: /accounting/purchase-orders/[poId]
+ * Budgets P5-3: a draft or submitted PO is approved with the Approve button (budget check, approved_by / approved_at),
+ * never through the status select; lines carry CC1 / CC2 / BU.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -16,7 +18,6 @@ import {
   Save,
   X,
   Trash2,
-  Plus,
   Download,
   PackagePlus,
 } from 'lucide-react';
@@ -27,6 +28,8 @@ import { SupplierSelect } from '@/components/accounting/supplier-invoices/Suppli
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { PoLineItemsEditor, type PoEditField, type PoEditLine } from '@/components/accounting/purchase-orders/PoLineItemsEditor';
+import { PurchaseOrderApproveButton } from '@/components/accounting/purchase-orders/PurchaseOrderApproveButton';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -40,6 +43,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const EDITABLE_STATUSES = ['draft', 'submitted'];
+// The Approve action's statuses (ap/purchaseOrderBudget APPROVABLE_PO_STATUSES).
+const APPROVABLE_STATUSES = ['draft', 'submitted'];
 const GRN_ALLOWED_STATUSES = ['submitted', 'approved', 'partially_received'];
 
 interface PoItem {
@@ -53,7 +58,26 @@ interface PoItem {
   gl_account_id?: string | null;
   account_name?: string | null;
   product_id?: string | null;
+  cc1_id?: string | null;
+  cc2_id?: string | null;
+  bu_id?: string | null;
+  cc1_label?: string | null;
+  cc2_label?: string | null;
+  bu_label?: string | null;
 }
+
+/** "code name" of each dimension the PO's lines carry (labels a stored id the pickers do not offer). */
+function storedDimensionLabels(items: PoItem[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const i of items) {
+    for (const [idv, label] of [[i.cc1_id, i.cc1_label], [i.cc2_id, i.cc2_label], [i.bu_id, i.bu_label]] as const) {
+      if (idv && label) out[idv] = label;
+    }
+  }
+  return out;
+}
+
+const dimensionsText = (i: PoItem): string => [i.cc1_label, i.cc2_label, i.bu_label].filter(Boolean).join(' / ') || '—';
 
 interface PurchaseOrder {
   id: string;
@@ -83,15 +107,7 @@ interface EditForm {
   reference: string;
   notes: string;
   status: string;
-  items: Array<{
-    id?: string;
-    description: string;
-    quantity: string;
-    unit_price: string;
-    tax_rate: string;
-    gl_account_id: string;
-    product_id: string;
-  }>;
+  items: PoEditLine[];
 }
 
 export default function PurchaseOrderDetailPage() {
@@ -149,6 +165,9 @@ export default function PurchaseOrderDetailPage() {
         tax_rate: String(i.tax_rate ?? 15),
         gl_account_id: i.gl_account_id || '',
         product_id: i.product_id || '',
+        cc1_id: i.cc1_id || '',
+        cc2_id: i.cc2_id || '',
+        bu_id: i.bu_id || '',
       })),
     });
     setEditing(true);
@@ -159,14 +178,14 @@ export default function PurchaseOrderDetailPage() {
 
   const addItem = () => setForm(f => f ? {
     ...f,
-    items: [...f.items, { description: '', quantity: '1', unit_price: '0', tax_rate: '15', gl_account_id: '', product_id: '' }],
+    items: [...f.items, { description: '', quantity: '1', unit_price: '0', tax_rate: '15', gl_account_id: '', product_id: '', cc1_id: '', cc2_id: '', bu_id: '' }],
   } : f);
 
   const removeItem = (idx: number) => setForm(f => f ? {
     ...f, items: f.items.filter((_, i) => i !== idx),
   } : f);
 
-  const updateItem = (idx: number, field: string, value: string) =>
+  const updateItem = (idx: number, field: PoEditField, value: string) =>
     setForm(f => f ? {
       ...f, items: f.items.map((item, i) => i === idx ? { ...item, [field]: value } : item),
     } : f);
@@ -195,6 +214,9 @@ export default function PurchaseOrderDetailPage() {
             tax_rate: Number(i.tax_rate),
             gl_account_id: i.gl_account_id || null,
             product_id: i.product_id || null,
+            cc1_id: i.cc1_id || null,
+            cc2_id: i.cc2_id || null,
+            bu_id: i.bu_id || null,
             sort_order: idx,
           })),
         }),
@@ -260,6 +282,7 @@ export default function PurchaseOrderDetailPage() {
   }
 
   const canEdit = EDITABLE_STATUSES.includes(po.status);
+  const canApprove = APPROVABLE_STATUSES.includes(po.status);
   const canCreateGrn = GRN_ALLOWED_STATUSES.includes(po.status);
 
   return (
@@ -302,6 +325,9 @@ export default function PurchaseOrderDetailPage() {
                 >
                   <PackagePlus className="h-4 w-4" /> Create GRN
                 </Link>
+              )}
+              {canApprove && !editing && (
+                <PurchaseOrderApproveButton poId={po.id} onApproved={loadPO} onError={setSaveError} onReload={loadPO} />
               )}
               {canEdit && !editing && (
                 <>
@@ -382,6 +408,7 @@ export default function PurchaseOrderDetailPage() {
                         <th className="px-5 py-3 text-right">VAT %</th>
                         <th className="px-5 py-3 text-right">Line Total</th>
                         <th className="px-5 py-3">Account</th>
+                        <th className="px-5 py-3">Dimensions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -393,6 +420,7 @@ export default function PurchaseOrderDetailPage() {
                           <td className="px-5 py-3 text-right text-[var(--ff-text-secondary)]">{item.tax_rate}%</td>
                           <td className="px-5 py-3 text-right text-[var(--ff-text-primary)]">{fmt(Number(item.line_total ?? Number(item.quantity) * Number(item.unit_price)))}</td>
                           <td className="px-5 py-3 text-[var(--ff-text-tertiary)] text-xs">{item.account_name || '—'}</td>
+                          <td className="px-5 py-3 text-[var(--ff-text-tertiary)] text-xs">{dimensionsText(item)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -400,7 +428,7 @@ export default function PurchaseOrderDetailPage() {
                       <tr className="border-t border-[var(--ff-border-light)]">
                         <td colSpan={4} className="px-5 py-3 text-right text-sm text-[var(--ff-text-secondary)]">Total (incl. VAT)</td>
                         <td className="px-5 py-3 text-right font-bold text-teal-400">{fmt(Number(po.total))}</td>
-                        <td />
+                        <td colSpan={2} />
                       </tr>
                     </tfoot>
                   </table>
@@ -442,7 +470,6 @@ export default function PurchaseOrderDetailPage() {
                       className="ff-select w-full">
                       <option value="draft">Draft</option>
                       <option value="submitted">Submitted</option>
-                      <option value="approved">Approved</option>
                       <option value="cancelled">Cancelled</option>
                     </select>
                   </div>
@@ -456,79 +483,8 @@ export default function PurchaseOrderDetailPage() {
               </div>
 
               {/* Line Items */}
-              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Line Items</h2>
-                  <button type="button" onClick={addItem}
-                    className="inline-flex items-center gap-1 text-xs text-teal-400 hover:text-teal-300">
-                    <Plus className="h-3 w-3" /> Add Item
-                  </button>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-[var(--ff-text-secondary)] border-b border-[var(--ff-border-light)]">
-                        <th className="pb-2 pr-2">Description</th>
-                        <th className="pb-2 pr-2 w-24 text-right">Qty</th>
-                        <th className="pb-2 pr-2 w-32 text-right">Unit Price</th>
-                        <th className="pb-2 pr-2 w-20 text-right">VAT %</th>
-                        <th className="pb-2 pr-2 w-48">Account</th>
-                        <th className="pb-2 w-28 text-right">Total</th>
-                        <th className="pb-2 w-8" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {form.items.map((item, idx) => {
-                        const lineTotal = Number(item.quantity || 0) * Number(item.unit_price || 0);
-                        return (
-                          <tr key={idx} className="border-b border-[var(--ff-border-light)]">
-                            <td className="py-2 pr-2">
-                              <input type="text" required name="description" value={item.description}
-                                onChange={e => updateItem(idx, 'description', e.target.value)}
-                                className="ff-input w-full text-sm" placeholder="Item description" />
-                            </td>
-                            <td className="py-2 pr-2">
-                              <input type="number" required name="quantity" min="0.01" step="0.01" value={item.quantity}
-                                onChange={e => updateItem(idx, 'quantity', e.target.value)}
-                                className="ff-input w-full text-sm text-right" />
-                            </td>
-                            <td className="py-2 pr-2">
-                              <input type="number" required name="unitPrice" min="0" step="0.01" value={item.unit_price}
-                                onChange={e => updateItem(idx, 'unit_price', e.target.value)}
-                                className="ff-input w-full text-sm text-right" />
-                            </td>
-                            <td className="py-2 pr-2">
-                              <input type="number" name="taxRate" min="0" step="0.01" value={item.tax_rate}
-                                onChange={e => updateItem(idx, 'tax_rate', e.target.value)}
-                                className="ff-input w-full text-sm text-right" />
-                            </td>
-                            <td className="py-2 pr-2">
-                              <select name="glAccountId" value={item.gl_account_id}
-                                onChange={e => updateItem(idx, 'gl_account_id', e.target.value)}
-                                className="ff-select w-full text-sm">
-                                <option value="">No account</option>
-                                {accounts.map(a => (
-                                  <option key={a.id} value={a.id}>{a.code} – {a.name}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="py-2 pr-2 text-right text-[var(--ff-text-primary)]">
-                              {fmt(lineTotal)}
-                            </td>
-                            <td className="py-2">
-                              {form.items.length > 1 && (
-                                <button type="button" onClick={() => removeItem(idx)}
-                                  className="text-red-400 hover:text-red-300">
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+              <PoLineItemsEditor items={form.items} accounts={accounts} storedLabels={storedDimensionLabels(po.items || [])}
+                onAdd={addItem} onRemove={removeItem} onUpdate={updateItem}>
                 <div className="flex justify-end">
                   <div className="text-sm space-y-1 w-48">
                     <div className="flex justify-between">
@@ -545,7 +501,7 @@ export default function PurchaseOrderDetailPage() {
                     </div>
                   </div>
                 </div>
-              </div>
+              </PoLineItemsEditor>
             </>
           )}
         </div>

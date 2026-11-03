@@ -1,6 +1,6 @@
 /**
- * The approve dialog of a bill that meets a budget (budgets P5-2, spec §5). Shows the per-slice
- * remaining table; when a line is over:
+ * The approve dialog of a bill (budgets P5-2, spec §5) or a purchase order (P5-3, `noun: 'order'`) that meets a
+ * budget. Shows the per-slice remaining table; when a line is over:
  * - warn: a reason is required (the server answers 400 BUDGET_REASON_REQUIRED without one);
  * - block: approval is refused (409); an owner or admin may tick Override and give a reason.
  * The server decides again under its locks: the table is a preview. Render it only while open: it reads the
@@ -26,12 +26,14 @@ interface Props {
   busy: boolean;
   onCancel: () => void;
   onApprove: (choice: BudgetApproveChoice) => void;
+  /** What the document is called in the dialog's words (default 'bill'). */
+  noun?: 'bill' | 'order';
 }
 
 const OVERRIDE_ROLES = ['owner', 'admin'];
 const REASON_MAX = 2000;
 
-export function BudgetApproveDialog({ open, policy, lines, error, busy, onCancel, onApprove }: Props) {
+export function BudgetApproveDialog({ open, policy, lines, error, busy, onCancel, onApprove, noun = 'bill' }: Props) {
   const { companyRole } = useCompany();
   const [reason, setReason] = useState('');
   const [override, setOverride] = useState(false); // mounted only while open: a new dialog starts blank
@@ -47,9 +49,9 @@ export function BudgetApproveDialog({ open, policy, lines, error, busy, onCancel
     <Modal open={open} onClose={onCancel} title="Approve against the budget" size="xl">
       <Modal.Body className="space-y-4">
         <p className="text-sm text-[var(--ff-text-secondary)]">
-          Remaining budget for each slice this bill posts to (budget check: <strong>{policy}</strong>).
+          Remaining budget for each slice this {noun} {noun === 'bill' ? 'posts' : 'commits'} to (budget check: <strong>{policy}</strong>).
         </p>
-        <BudgetLinesTable lines={lines} />
+        <BudgetLinesTable lines={lines} documentNoun={noun === 'bill' ? 'This bill' : 'This order'} />
         {over > 0 && (
           <div id="budget-over-note" className="flex items-start gap-2 rounded-lg bg-red-500/10 p-3 text-sm text-red-500"
             role={blocked ? 'alert' : 'status'}>
@@ -66,7 +68,7 @@ export function BudgetApproveDialog({ open, policy, lines, error, busy, onCancel
         {blocked && mayOverride && (
           <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
             <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} disabled={busy} />
-            Override the budget for this bill
+            Override the budget for this {noun}
           </label>
         )}
         {needsReason && (
@@ -81,7 +83,7 @@ export function BudgetApproveDialog({ open, policy, lines, error, busy, onCancel
               aria-describedby="budget-over-note"
               disabled={busy}
               className="w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-3 py-2 text-sm"
-              placeholder="Why this bill should be approved over budget"
+              placeholder={`Why this ${noun} should be approved over budget`}
             />
           </label>
         )}

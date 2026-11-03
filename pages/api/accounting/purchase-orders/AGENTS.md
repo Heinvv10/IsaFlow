@@ -7,12 +7,13 @@ Sub-routes for single-PO operations + supplier-scoped unmatched-PO helper. Prima
 
 ## Endpoints
 - `GET /api/accounting/purchase-orders/[id]` — PO with line items (`{ ...po, items: po_items[] }`) + supplier contact
-- `PUT /api/accounting/purchase-orders/[id]` — update; allowed only when `status IN ('draft','submitted')`; replaces line items if `items[]` provided; recomputes totals
+- `PUT /api/accounting/purchase-orders/[id]` — update; allowed only when `status IN ('draft','submitted')`; replaces line items if `items[]` provided (each may carry `cc1_id` / `cc2_id` / `bu_id`); recomputes totals. Sets `status` only to draft / submitted / cancelled: `approved` is 400 pointing to the Approve action, the receipt statuses 400 (budgets P5-3)
+- `POST /api/accounting/purchase-orders/[id]/approve` — `{ budgetReason?, budgetOverride? }`: approves a draft/submitted PO under the budget check (`ap/purchaseOrderApprove.ts`; rules and lock order in `src/modules/accounting/services/ap/.claude.md`, P5-3 entry). 400 not approvable / reason required, 404, 409 `BUDGET_EXCEEDED`, 429 (120/min/user), 503 held
 - `DELETE /api/accounting/purchase-orders/[id]` — hard-delete; only when `status='draft'`
 - `GET /api/accounting/purchase-orders/unmatched` — `?supplierId=&purchaseOrderId=&include=pos|grns|both` — open POs + GRNs not yet fully invoiced
 
 ## Auth
-- `[id].ts`: `withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))))`
+- `[id].ts`, `[id]/approve.ts`: `withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))))` (approve: owner/admin/manager)
 - `unmatched.ts`: `withAuth(withErrorHandler(handler))` — read-only
 
 ## Business rules
@@ -30,6 +31,7 @@ Sub-routes for single-PO operations + supplier-scoped unmatched-PO helper. Prima
 - Schema: `po_items` table
 
 ## Recent changes
+- 2026-11-03: budgets P5-3 — `[id]/approve.ts` (the only way to approve; stamps `approved_by`/`approved_at`, budget check, audit), the PUT's status allow-list, line CC1/CC2/BU on the PUT and the flat POST, the GET's lines labelled (`cc1_label`/`cc2_label`/`bu_label`, masters joined on id AND company).
 - 2026-09-26: R-129 — `[id].ts` DELETE re-checks `status = 'draft'` in the DELETE's WHERE (same shape as R-126). Before, an order submitted between the status read and the DELETE was hard-deleted. The detail page (`pages/accounting/purchase-orders/[poId].tsx`) now shows the API's refusal message instead of swallowing it.
 - 2026-09-25: R-126 — `[id].ts` PUT re-checks the status in the UPDATE's WHERE (K-137 pattern). Before, an order approved between the status read and the UPDATE still took the edit.
 - 2026-09-24: `[id].ts` PUT checks each replacement item's `gl_account_id`, except that each account is exempt up to the number of lines the PO already had on it (the PUT replaces all lines, so an untouched line on a since-deactivated account must not block an unrelated edit, but an EXTRA line on that account is new and is refused) with `gl/documentLineAccountGuard.assertDocumentLineAccounts` before the `po_items` DELETE+INSERT — refuses an inactive or another company's account (400, nothing written). Closes the "Known limit" a GL account merge left open for PO lines (see `gl/.claude.md`).

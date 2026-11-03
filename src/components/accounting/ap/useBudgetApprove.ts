@@ -1,9 +1,9 @@
 /**
- * Approving one bill through the budget check (budgets P5-2). `start()` previews the bill's
- * budget (POST /api/accounting/budgets/remaining { supplierInvoiceId }); when a line meets a
- * budget the dialog opens, otherwise it approves at once. An approval the server refuses for the
- * budget (400 BUDGET_REASON_REQUIRED, 409 BUDGET_EXCEEDED) opens or keeps the dialog with the
- * server's words, so a stale preview never strands the user.
+ * Approving one bill (budgets P5-2) or one purchase order (P5-3, `kind: 'purchase_order'`) through the budget
+ * check. `start()` previews the document's budget (POST /api/accounting/budgets/remaining { supplierInvoiceId } or
+ * { purchaseOrderId }); when a line meets a budget the dialog opens, otherwise it approves at once. An approval
+ * the server refuses for the budget (400 BUDGET_REASON_REQUIRED, 409 BUDGET_EXCEEDED) opens or keeps the dialog
+ * with the server's words, so a stale preview never strands the user.
  */
 import { useCallback, useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
@@ -16,13 +16,24 @@ interface ErrorBody { error?: { message?: string; details?: { code?: string; lin
 
 const FALLBACK = 'Could not complete that action - try again';
 
+export type BudgetApproveKind = 'bill' | 'purchase_order';
+
+/** Where a document of each kind is approved and previewed, and what the dialog calls it. */
+function targetOf(kind: BudgetApproveKind, id: string) {
+  return kind === 'purchase_order'
+    ? { url: `/api/accounting/purchase-orders/${encodeURIComponent(id)}/approve`, body: {}, preview: { purchaseOrderId: id },
+      noun: 'order' as const, scope: 'purchase-orders', previewError: 'Could not read the budget for this order' }
+    : { url: '/api/accounting/supplier-invoices-action', body: { action: 'approve', invoiceId: id }, preview: { supplierInvoiceId: id },
+      noun: 'bill' as const, scope: 'supplier-invoices', previewError: 'Could not read the budget for this bill' };
+}
+
 /** A 400/409 body's text (read from a clone: assertOk reads the response itself); empty or non-JSON is no budget refusal. */
 function budgetErrorBody(text: string): ErrorBody {
   if (text.trim() === '') return {};
   try {
     return JSON.parse(text) as ErrorBody;
   } catch (err) {
-    log.debug('Approve refusal body is not JSON', { error: err }, 'supplier-invoices');
+    log.debug('Approve refusal body is not JSON', { error: err }, 'budget-approve');
     return {};
   }
 }
@@ -33,7 +44,7 @@ function budgetErrorBody(text: string): ErrorBody {
  */
 export function useBudgetApprove(
   invoiceId: string, onApproved: (json: unknown) => Promise<void> | void, onFailed: (message: string) => void,
-  onReload: () => Promise<void>,
+  onReload: () => Promise<void>, kind: BudgetApproveKind = 'bill',
 ) {
   const [open, setOpen] = useState(false);
   const [policy, setPolicy] = useState<BudgetPolicy>('warn');
@@ -46,10 +57,11 @@ export function useBudgetApprove(
     setError('');
     let toPage = !inDialog;
     try {
-      const res = await apiFetch('/api/accounting/supplier-invoices-action', {
+      const target = targetOf(kind, invoiceId);
+      const res = await apiFetch(target.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'approve', invoiceId, ...choice }),
+        body: JSON.stringify({ ...target.body, ...choice }),
       });
       if (res.status === 400 || res.status === 409) {
         const body = budgetErrorBody(await res.clone().text());
@@ -76,22 +88,23 @@ export function useBudgetApprove(
     } finally {
       setBusy(false);
     }
-  }, [invoiceId, onApproved, onFailed, onReload]);
+  }, [invoiceId, onApproved, onFailed, onReload, kind]);
 
   const start = useCallback(async () => {
     let preview: Preview | null = null;
+    const target = targetOf(kind, invoiceId);
     try {
       const res = await apiFetch('/api/accounting/budgets/remaining', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ supplierInvoiceId: invoiceId }),
+        body: JSON.stringify(target.preview),
       });
-      await assertOk(res, 'Could not read the budget for this bill');
+      await assertOk(res, target.previewError);
       const json = await res.json() as { data?: Preview } & Preview;
       preview = json.data ?? json;
     } catch (err) {
       // No preview is not a refusal: the approval below still runs the check, and a budget refusal opens the dialog.
-      log.warn('Budget preview failed; approving without it', { invoiceId, error: err }, 'supplier-invoices');
+      log.warn('Budget preview failed; approving without it', { id: invoiceId, error: err }, target.scope);
     }
     if (preview?.checks && preview.lines.some((l) => l.budget !== null)) {
       setPolicy(preview.policy);
@@ -101,13 +114,13 @@ export function useBudgetApprove(
       return;
     }
     await submit({}, false);
-  }, [invoiceId, submit]);
+  }, [invoiceId, submit, kind]);
 
   return {
     start,
     busy,
     dialog: {
-      open, policy, lines, error, busy,
+      open, policy, lines, error, busy, noun: targetOf(kind, invoiceId).noun,
       onCancel: () => { setOpen(false); setError(''); },
       onApprove: (choice: BudgetApproveChoice) => { void submit(choice, true); },
     },

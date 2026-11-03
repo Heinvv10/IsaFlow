@@ -1,5 +1,7 @@
 /**
  * Purchase Orders API — CRUD
+ * POST items[] may carry cc1Id / cc2Id / buId (budgets P5-3, the bill lines' rules: `ap/purchaseOrderLineDimensions`);
+ * lines are created with no GL account (census 7: the budget check treats them as "No budget").
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -12,6 +14,8 @@ import { validatePurchaseOrder, calculatePOTotals } from '@/modules/accounting/s
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { assertSupplierInCompany, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { isDimensionRefusal, type DimensionIds } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { resolvePoLineDimensions } from '@/modules/accounting/services/ap/purchaseOrderLineDimensions';
 
 type Row = Record<string, unknown>;
 
@@ -44,6 +48,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
+    // P5-3: the lines' CC1 / CC2 / BU, before the number reservation (a 400 after it would commit the consumed number).
+    let dims: DimensionIds[];
+    try {
+      dims = await resolvePoLineDimensions(companyId, (body.items as Array<Record<string, unknown>>).map((i) => ({
+        ...(i.cc1Id !== undefined ? { cc1Id: i.cc1Id as string | null } : {}),
+        ...(i.cc2Id !== undefined ? { cc2Id: i.cc2Id as string | null } : {}),
+        ...(i.buId !== undefined ? { buId: i.buId as string | null } : {}),
+      })), null);
+    } catch (err) {
+      if (isDimensionRefusal(err)) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
+
     const totals = calculatePOTotals(body.items);
 
     // The number comes from the company's `purchase_order` sequence. What this
@@ -67,7 +84,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const item = body.items[i];
       const lineTotal = Math.round(item.quantity * item.unitPrice * 100) / 100;
       const lineTax = Math.round(lineTotal * (item.taxRate || 15) / 100 * 100) / 100;
-      await sql`INSERT INTO po_items (purchase_order_id, product_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, sort_order) VALUES (${poId}, ${item.productId || null}, ${item.description}, ${item.quantity}, ${item.unitPrice}, ${item.taxRate || 15}, ${lineTotal}, ${lineTax}, ${i})`;
+      const d = dims[i] ?? {};
+      await sql`INSERT INTO po_items (purchase_order_id, product_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, sort_order, cc1_id, cc2_id, bu_id) VALUES (${poId}, ${item.productId || null}, ${item.description}, ${item.quantity}, ${item.unitPrice}, ${item.taxRate || 15}, ${lineTotal}, ${lineTax}, ${i}, ${d.cc1Id ?? null}::UUID, ${d.cc2Id ?? null}::UUID, ${d.buId ?? null}::UUID)`;
     }
 
     log.info('Purchase order created', { poNumber, supplier: body.supplierId, total: totals.total }, 'accounting');

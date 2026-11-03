@@ -12,6 +12,7 @@
  *
  * Budgets P5-2, the bill approve dialogs (no locks: a preview; the approval decides again under its own):
  * POST { supplierInvoiceId } or { supplierInvoiceIds: [≤50] }: `@/lib/budgetBillPreview` (charged one unit per bill).
+ * Budgets P5-3, the PO approve dialog: POST { purchaseOrderId }: `@/lib/budgetPoPreview` (one unit).
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -25,6 +26,7 @@ import { respondTrackingError } from '@/lib/budgetTrackingResponse';
 import { mapRegistryMiss } from '@/modules/accounting/services/budgets/tracking/trackingWindow';
 import { MAX_REMAINING_KEYS, remainingFor, remainingKeysProblem } from '@/modules/accounting/services/budgets/remainingBudget';
 import { billPreviewCost, MAX_BULK_BILL_PREVIEW, respondBillPreview } from '@/lib/budgetBillPreview';
+import { respondPoPreview } from '@/lib/budgetPoPreview';
 
 const RemainingSchema = z.object({
   lines: z.array(z.object({
@@ -52,6 +54,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.tooManyRequests(res, 'Too many budget previews; wait a minute and try again.');
   }
   if (await respondBillPreview(companyId, req.body, res)) return;
+  if (await respondPoPreview(companyId, req.body, res)) return;
   // The count first, before zod walks a long array (400, as every bound below).
   const raw = (req.body as { lines?: unknown } | undefined)?.lines;
   if (Array.isArray(raw) && raw.length > MAX_REMAINING_KEYS) {
