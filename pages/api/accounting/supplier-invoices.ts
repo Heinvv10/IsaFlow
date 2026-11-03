@@ -12,6 +12,7 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
+import { assertBillPoLinks } from '@/modules/accounting/services/ap/supplierInvoicePoLinks';
 import { log } from '@/lib/logger';
 import {
   getSupplierInvoices,
@@ -77,6 +78,9 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // The supplier's default CC/BU, the CC1 derivation and the tenant / slot / active checks refuse with a 400
     // (migration 890), so they run ahead of the reservation too; the service runs them again.
     await resolveBillLineDimensions(companyId, String(supplierId), safeItems, costCenterId);
+    // P5-3 security review: each line's PO line must be this company's (and of purchaseOrderId when named), ahead
+    // of the reservation too; the service checks again.
+    await assertBillPoLinks(companyId, purchaseOrderId, safeItems);
 
     // Resolve the invoice number. If `useSequence` is true OR no invoiceNumber
     // was supplied, atomically reserve the next number from

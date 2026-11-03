@@ -218,6 +218,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // raised BEFORE the journal posts, so there is nothing written to leak.
   'SUPPLIER_REFUND_REFUSED',
   'SUPPLIER_INVOICE_LOCK_TIMEOUT',
+  // P5-3 security review (ap/supplierInvoicePoLinks): a bill line's PO line not this company's / not the bill's PO; fixed wording, pre-write.
+  'SUPPLIER_INVOICE_PO_LINK_REFUSED',
   'SUPPLIER_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_PROCESSABLE',

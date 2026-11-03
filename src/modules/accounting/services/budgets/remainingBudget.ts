@@ -31,6 +31,7 @@ import { YEAR_MAX, YEAR_MIN } from './tracking/trackingWindow';
 import {
   computeRemaining,
   GRAIN_BY_DIM,
+  memberOnGrain,
   type BudgetAmountRow,
   type GrainActualRow,
   type RemainingGrain,
@@ -153,5 +154,33 @@ export async function remainingFor(
     budgets: await readBudgets(companyId, versions, accounts, monthDates),
     actuals,
     commitments: await readCommitments(companyId, accounts, start, end, opts),
+  });
+}
+
+/**
+ * The budget slice each key draws on — `version|account|month|member at the account's grain` — or null when it
+ * meets no budget grain (no primary version, no budget for the account in it, a month outside YEAR_MIN..YEAR_MAX)
+ * or is the unassigned slice. Two keys with the same non-null id draw on one budget (P5-3: a PO line is netted only
+ * by linked billing that landed in its own slice). Months may span any number of years.
+ */
+export async function budgetSliceIds(companyId: string, rawKeys: readonly RemainingKey[]): Promise<(string | null)[]> {
+  const keys = rawKeys.map(normalise);
+  const valid = keys.filter((k) => remainingKeysProblem([k.month]) === null);
+  if (valid.length === 0) return keys.map(() => null);
+  const months = [...new Set(valid.map((k) => k.month))].sort();
+  const { scope } = await primaryVersionScopeAndYears(companyId, monthKeyToDate(months[0]!), monthEnd(monthKeyToDate(months[months.length - 1]!)));
+  const versionOf = (month: string): string | null => {
+    const d = monthKeyToDate(month);
+    return scope.find((x) => x.first <= d && d <= x.last)?.versionId?.toLowerCase() ?? null;
+  };
+  const versions = [...new Set(months.map(versionOf).filter((v): v is string => v !== null))];
+  const grains = await readGrains(companyId, versions, [...new Set(valid.map((k) => k.glAccountId))]);
+  return keys.map((k) => {
+    if (remainingKeysProblem([k.month]) !== null) return null;
+    const v = versionOf(k.month);
+    const grain = v === null ? undefined : grains.get(`${v}|${k.glAccountId}`);
+    if (!grain) return null;
+    const { member, unassigned } = memberOnGrain(k, grain);
+    return unassigned ? null : `${v}|${k.glAccountId}|${k.month}|${member ?? ''}`;
   });
 }

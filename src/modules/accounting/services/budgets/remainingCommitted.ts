@@ -19,6 +19,7 @@ import { buildExpenseLines } from '../ap/supplierInvoiceExpenseLines';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from '../ap/supplierInvoiceLineOrder';
 import { mapInvoiceRow } from '../ap/supplierInvoiceWorkflowRow';
 import type { SupplierInvoiceItem } from '../../types/ap.types';
+import { fmtDate } from '@/lib/fmtDate';
 import type { CommitmentRow } from './remainingBudgetCore';
 
 /** PO statuses whose lines commit spend; bill statuses whose linked lines release it. */
@@ -45,16 +46,31 @@ function itemOf(r: DbRow): SupplierInvoiceItem {
     quantity: Number(r.quantity), unitPrice: Number(r.unit_price), taxRate: Number(r.tax_rate), taxAmount: Number(r.tax_amount),
     lineTotal: Number(r.line_total), glAccountId: r.gl_account_id ? String(r.gl_account_id) : undefined,
     createdAt: String(r.created_at),
+    ...(r.cc1_id ? { cc1Id: String(r.cc1_id) } : {}), ...(r.cc2_id ? { cc2Id: String(r.cc2_id) } : {}), ...(r.bu_id ? { buId: String(r.bu_id) } : {}),
   };
 }
 
+/** One posted (ex-VAT) bill line linked to a PO line: where it landed and how much. */
+export interface BilledLine {
+  /** null: the line names no account (it posts to default_expense). */
+  glAccountId: string | null;
+  cc1Id: string | null;
+  cc2Id: string | null;
+  buId: string | null;
+  /** 'YYYY-MM' of the bill's invoice_date (the journal's month). */
+  month: string;
+  amount: number;
+}
+
+const NO_ACCOUNT = 'unused';
+
 /**
- * Ex-VAT posted amount per PO line (lower-case ids), over the bills that count as billed (`BILLED_STATUSES`, plus
- * `own`). Also the PO approval's figure for a line's OPEN amount (`ap/purchaseOrderBudget`, P5-3 review r2): one
- * formula for what committed nets and what an approval adds.
+ * The posted ex-VAT lines of the bills that count as billed (`BILLED_STATUSES`, plus `own`), per linked PO line
+ * (lower-case ids): account and CC1 / CC2 / BU as `buildExpenseLines` posts them, the bill's month. The PO approval
+ * nets a PO line only by those that landed in its own budget slice (`ap/purchaseOrderBudget`, P5-3 security review).
  */
-export async function billedByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
+export async function billedLinesByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, BilledLine[]>> {
+  const out = new Map<string, BilledLine[]>();
   if (poItemIds.length === 0) return out;
   const bills = (await sql`
     SELECT si.* FROM supplier_invoices si
@@ -72,10 +88,25 @@ export async function billedByPoItem(companyId: string, poItemIds: string[], own
   for (const b of bills) {
     const billItems = items.filter((i) => String(i.supplier_invoice_id) === String(b.id));
     const poOf = new Map(billItems.map((i) => [String(i.id), text(i.po_item_id)]));
-    for (const line of buildExpenseLines({ ...mapInvoiceRow(b), items: billItems.map(itemOf) }, 'unused')) {
+    const invoice = mapInvoiceRow(b);
+    const month = fmtDate(invoice.invoiceDate).slice(0, 7);
+    for (const line of buildExpenseLines({ ...invoice, items: billItems.map(itemOf) }, NO_ACCOUNT)) {
       const po = poOf.get(String(line.description));
-      if (po && linked.has(po)) out.set(po, Math.round(((out.get(po) ?? 0) + line.debit) * 100) / 100);
+      if (!po || !linked.has(po)) continue;
+      out.set(po, [...(out.get(po) ?? []), {
+        glAccountId: line.glAccountId === NO_ACCOUNT ? null : text(line.glAccountId), cc1Id: text(line.cc1Id), cc2Id: text(line.cc2Id),
+        buId: text(line.buId), month, amount: line.debit,
+      }]);
     }
+  }
+  return out;
+}
+
+/** Ex-VAT posted amount per PO line (P5-1's committed netting: wherever the linked bill posted). */
+async function billedByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  for (const [po, lines] of await billedLinesByPoItem(companyId, poItemIds, own)) {
+    out.set(po, Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100);
   }
   return out;
 }
