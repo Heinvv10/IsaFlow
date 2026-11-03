@@ -14,6 +14,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { advanceDate } from '@/modules/accounting/services/gl/recurringSchedule';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { approveCustomerInvoice } from './customerInvoiceApprovalService';
@@ -22,7 +23,6 @@ import { lockRecurringTemplate } from './recurringInvoiceLock';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { evaluateApprovalGate } from '../gl/approvalGate';
 import { raiseUnattendedApproval } from '../gl/approvalUnattended';
-import { advanceDate } from '../gl/recurringSchedule';
 import { stampUpstreamAuthors } from './customerInvoiceUpstreamAuthors';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 

@@ -7,6 +7,13 @@
  * one is being replaced. No amount is derived
  * here. A blocker disables approval with its reason.
  *
+ * Labour lines carry the employee's cost centre (CC1), so one account can be
+ * listed once per centre: each such row names its centre (code · name, from
+ * the preview's company-scoped `costCentres`), whatever its amount, and an
+ * untagged DEBIT row on an account that also has a tagged row says "No cost
+ * centre" — a labour row; a credit row there (a recovery, a reversal) is not
+ * labour and is never marked.
+ *
  * The POST carries the planHash previewed; a run changed since answers 409.
  * Any 4xx is a refusal (nothing written), and the preview is refetched after
  * every one, so the dialog never keeps showing a plan the server just
@@ -89,6 +96,14 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
   const blocker = preview?.blocker ?? null;
   const shown = posted && !blocker ? posted : plan;
   const canApprove = !!preview && !blocker && !approving;
+  const taggedAccounts = new Set(shown?.lines.filter((l) => l.cc1Id).map((l) => l.glAccountId));
+  const centreOf = (l: { glAccountId: string | null; cc1Id: string | null; debit: number }): string | null => {
+    if (l.cc1Id) {
+      const c = preview?.costCentres[l.cc1Id];
+      return c ? `${c.code} · ${c.name}` : l.cc1Id;
+    }
+    return l.debit !== 0 && taggedAccounts.has(l.glAccountId) ? 'No cost centre' : null;
+  };
 
   return (
     <Modal open={open} onClose={onClose} title={`Approve payroll — ${period}`} size="lg">
@@ -119,13 +134,19 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
                 </tr>
               </thead>
               <tbody>
-                {shown.lines.map((l, i) => (
-                  <tr key={`${l.accountCode}-${i}`} className="border-t border-gray-200 dark:border-white/10">
-                    <td className="py-1"><span className="font-mono mr-2">{l.accountCode}</span>{l.accountName}</td>
-                    <td className="py-1 text-right tabular-nums">{money(l.debit)}</td>
-                    <td className="py-1 text-right tabular-nums">{money(l.credit)}</td>
-                  </tr>
-                ))}
+                {shown.lines.map((l, i) => {
+                  const centre = centreOf(l);
+                  return (
+                    <tr key={`${l.accountCode}-${l.cc1Id ?? ''}-${i}`} className="border-t border-gray-200 dark:border-white/10">
+                      <td className="py-1">
+                        <span className="font-mono mr-2">{l.accountCode}</span>{l.accountName}
+                        {centre && <span className="block text-xs text-ink-muted">{centre}</span>}
+                      </td>
+                      <td className="py-1 text-right tabular-nums">{money(l.debit)}</td>
+                      <td className="py-1 text-right tabular-nums">{money(l.credit)}</td>
+                    </tr>
+                  );
+                })}
                 <tr className="border-t-2 border-gray-300 dark:border-white/20 font-semibold">
                   <td className="py-1">Total</td>
                   <td className="py-1 text-right tabular-nums">{formatCurrency(shown.totalDebit)}</td>

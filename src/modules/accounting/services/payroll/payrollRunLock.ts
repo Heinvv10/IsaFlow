@@ -36,6 +36,7 @@ import {
 } from './payrollRunLoanApplication';
 import { lockJournalChain } from './payrollJournalChain';
 import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
+import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 
 export type PayrollRunStatus = 'draft' | 'calculated' | 'approved' | 'paid' | 'cancelled';
 
@@ -250,8 +251,11 @@ export async function reopenPayrollRun(opts: {
            -- Unknown stays unknown: a history with no set was reopened before the column existed.
            approved_taxed_employees = CASE WHEN h.approval_history IS NOT NULL AND h.approved_taxed_employees IS NULL THEN NULL
              ELSE ARRAY(SELECT DISTINCT u FROM unnest(COALESCE(h.approved_taxed_employees, '{}'::uuid[]) || ARRAY(
-               SELECT l.employee_id FROM payroll_run_lines l WHERE l.run_id = h.id
-                 AND COALESCE(l.periodic_taxable > 0 OR l.annual_taxable > 0, l.taxable_income > 0))) u ORDER BY u) END,
+               SELECT l.employee_id
+               FROM payroll_run_lines l
+               CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
+               WHERE l.run_id = h.id
+                 AND r.had_table_remuneration)) u ORDER BY u) END,
            updated_at = NOW()
       FROM (SELECT clock_timestamp() AS now) c
      WHERE h.id = ${opts.runId}::uuid AND h.company_id = ${opts.companyId}::uuid

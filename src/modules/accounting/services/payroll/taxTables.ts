@@ -20,6 +20,8 @@ export interface TaxYearConfig {
   medicalCreditAdditional: number;
   uifCeiling: number;
   sdlThresholdAnnual: number;
+  /** Section 11F(2)(a): the most retirement fund contributions an employee may deduct in the year (retirementFund.ts). */
+  retirementDeductionCap: number;
 }
 
 /** Thrown for a tax year with no registered tables; never answered with another year's figures. */
@@ -58,6 +60,8 @@ const TAX_2025: TaxYearConfig = {
   medicalCreditAdditional:   246,
   uifCeiling:      17_712,
   sdlThresholdAnnual: 500_000,
+  // R350 000 since the 1 March 2016 retirement reforms: SARS PAYE-GEN-01-G20 (2026 tax year) p. 5.
+  retirementDeductionCap: 350_000,
 };
 
 const TAX_2026: TaxYearConfig = {
@@ -95,6 +99,9 @@ const TAX_2027: TaxYearConfig = {
   // Same as 2026; SARS-checked 2026-10-19 (see above).
   uifCeiling:         TAX_2026.uifCeiling,
   sdlThresholdAnnual: TAX_2026.sdlThresholdAnnual,
+  // R430 000 from 1 March 2026: SARS PAYE-GEN-01-G21 (2027 tax year) Rev 1 p. 5 and p. 10
+  // (https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf).
+  retirementDeductionCap: 430_000,
 };
 
 const TAX_TABLE_REGISTRY: Record<number, TaxYearConfig> = {

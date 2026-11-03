@@ -38,6 +38,7 @@ import {
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
+import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -61,7 +62,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // follow-ups G1). The stand-alone payments are in no run line, so their
   // gross and PAYE are added to the run totals.
   const bounds = saTaxYearBounds(taxYear);
-  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee] = await Promise.all([
+  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee] = await Promise.all([
     sql`
       SELECT
         COALESCE(registered_name, name) AS trading_name,
@@ -101,6 +102,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     listCertificateLumpSums(companyId, bounds),
     listRunAnnualPayments(companyId, bounds),
     loadMedicalRecord(companyId, bounds),
+    loadRetirementContributions(companyId, bounds),
   ]);
 
   const company = companyRows[0];
@@ -184,6 +186,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       medical: medical && {
         fees: medical.fees, credit: medical.credit, additionalCredit: medical.additionalCredit, age65OrOlder: age != null && age >= 65, recorded: medical.recorded,
       },
+      // 4001 / 4003 / 4006 (PAYE 4c, easyFileRetirementFields).
+      retirementFund: retirementByEmployee.get(String(row.id)),
       uifEmployee: Number(agg.total_uif_emp ?? 0),
       uifEmployer: Number(agg.total_uif_empr ?? 0),
       sdl4142: Number(agg.total_sdl ?? 0),
