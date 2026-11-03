@@ -104,10 +104,11 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   useEffect(() => {
     if (!rebase.current || json === null) return;
     rebase.current = false;
-    comparableBaseline.current = comparableDraft(opts?.snapshot ?? null);
+    const opened: unknown = JSON.parse(json); // the snapshot this visit opened with, as this render's json carries it
+    comparableBaseline.current = comparableDraft(isLocalDraftData(opened) ? opened : null);
     written.current = json;
     setWrittenJson(json);
-  }, [json, opts?.snapshot]);
+  }, [json]);
 
   useEffect(() => { setOffer(key ? readInvoiceDraft(key, isLocalDraftData) : null); }, [key]);
 
