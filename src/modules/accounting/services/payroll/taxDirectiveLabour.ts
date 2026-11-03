@@ -40,6 +40,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
+import { claimUnderLockTimeout } from '@/modules/accounting/services/core/documentClaimLock';
 import { InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { readEmployeeLabourSplit, type EmployeeLabourSplit } from './payrollCostCentreTags';
 import { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
@@ -52,7 +53,8 @@ export async function lockDirectiveLabour(companyId: string, directiveId: string
   if (!dir) throw new Error(`Tax directive ${directiveId} not found`);
   if (String(dir.status) !== 'approved') throw new TaxDirectiveNotApprovedError(directiveId, String(dir.status));
   if (dir.employee_id == null) throw new TaxDirectiveWithoutEmployeeError(directiveId);
-  return (await readEmployeeLabourSplit(companyId, String(dir.employee_id)))!;
+  return (await claimUnderLockTimeout('tax directive', () =>
+    readEmployeeLabourSplit(companyId, String(dir.employee_id))))!;
 }
 
 export async function refreshDirectiveLabour(companyId: string, directiveId: string, first: EmployeeLabourSplit): Promise<EmployeeLabourSplit> {

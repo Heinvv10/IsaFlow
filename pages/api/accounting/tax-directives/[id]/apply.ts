@@ -12,6 +12,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
@@ -61,6 +62,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       user.id,
     ));
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
     // Raised before anything is written (taxDirectivePaymentService), so the
     // 409 withAuth commits leaves nothing half-applied.
     if (err instanceof TaxDirectiveAlreadyAppliedError) return apiResponse.conflict(res, err.message);
