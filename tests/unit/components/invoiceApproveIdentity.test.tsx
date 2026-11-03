@@ -93,6 +93,35 @@ describe('a STALE_VIEW sentence', () => {
     expect(description().value).toBe('Consulting');
     expect(screen.queryByText('Changed elsewhere')).toBeNull();
   });
+  it('is shown by the reload it caused only: opening A again later does not show it again', async () => {
+    serveInvoice((u, init) => {
+      if (u.includes('customer-invoices-detail') && init?.method === 'POST') return refused(409, 'Changed elsewhere', { reason: 'STALE_VIEW' });
+      if (u.includes('customer-invoices-detail?id=inv-2')) return ok({ ...DRAFT, id: 'inv-2', invoice_number: 'INV-B' });
+      return undefined;
+    });
+    const { rerender } = render(<EditPage />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /approve & email/i }));
+    await settle();
+    expect(screen.getByText('Changed elsewhere')).toBeTruthy(); // the reload landed and said why
+    for (const id of ['inv-2', 'inv-1']) { h.query = { invoiceId: id }; rerender(<EditPage />); await settle(); }
+    expect(description().value).toBe('Consulting');
+    expect(screen.queryByText('Changed elsewhere')).toBeNull();
+  });
+
+  it('about A, landing after B is already open (before the page caught up), is not shown on B', async () => {
+    serveInvoice((u, init) => {
+      if (u.includes('customer-invoices-detail') && init?.method === 'POST') { h.query = { invoiceId: 'inv-2' }; return refused(409, 'Changed elsewhere', { reason: 'STALE_VIEW' }); }
+      if (u.includes('customer-invoices-detail?id=inv-2')) return ok({ ...DRAFT, id: 'inv-2', invoice_number: 'INV-B' });
+      return undefined;
+    });
+    render(<EditPage />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /approve & email/i }));
+    await settle();
+    expect(calls('customer-invoices-detail?id=inv-2', 'GET').length).toBeGreaterThan(0); // B is what loaded
+    expect(screen.queryByText('Changed elsewhere')).toBeNull();
+  });
 });
 
 describe('a load for an invoice no longer open', () => {
