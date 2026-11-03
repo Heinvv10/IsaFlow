@@ -34,7 +34,7 @@ import { auditBudgetWrite, holdYearRegistry } from './budgetVersionScope';
 import { BudgetVersionError, mapBudgetDbError } from './budgetVersionTypes';
 import { inputError } from './gridErrors';
 import { takeVersion } from './versionTake';
-import { assertSliceWrites, beginSliceReview, loadHolderScope } from './holderScope';
+import { assertSliceWrites, beginSliceReview, driverSliceGuard, loadHolderScope } from './holderScope';
 import {
   cellsTypedOverDrivers, clearedDriverCells, deleteCells, firstClosedMonthCell, markOverrides, versionSum, writeCells,
 } from './gridSaveWrite';
@@ -132,7 +132,8 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
   const changed = await writeCells(companyId, versionId, userId, batch.upserts);
   const overrides = await markOverrides(companyId, versionId, typedOver);
   if (deleted === 0 && changed === 0 && overrides === 0) throw new NothingChanged();
-  const { changed: recomputed, warnings, headcountAsOf } = await recomputeDependents(companyId, versionId, userId, cleared.resetRows);
+  const { changed: recomputed, warnings, headcountAsOf } = await recomputeDependents(
+    companyId, versionId, userId, cleared.resetRows, driverSliceGuard(holders, version.status, true));
   const sumAfter = await versionSum(companyId, versionId);
 
   // `saved` and the audit count the rows the batch changed (updated or inserted), not the cells sent.

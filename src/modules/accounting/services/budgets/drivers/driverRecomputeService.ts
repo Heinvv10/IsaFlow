@@ -33,7 +33,7 @@ import { DriverRangeError, DriverRefError, type DriverWarningCode, type RowKey }
 import { BudgetDriverError } from './driverErrors';
 import { listDriverLines } from './driverRepository';
 import { versionHeadcount } from './driverHeadcount';
-import { breakLoops, labelKeys, loadVersionModel } from './driverModel';
+import { breakLoops, labelKeys, loadVersionModel, rowLabel } from './driverModel';
 
 /** An engine warning (REF_MISSING, SECTION_EMPTY, BASE_MISSING) or a skipped driver (DRIVER_SKIPPED); labelled. */
 export interface RecomputeWarning {
@@ -50,9 +50,16 @@ export interface RecomputeResult {
   headcountAsOf: string | null;
 }
 
+/**
+ * Called with the cells a recompute is about to write, before any is written (P5-6: the budget-holder
+ * slice rules, holderScope.driverSliceGuard); it throws to refuse. `label` names a driver row.
+ */
+export type DriverWriteGuard = (writes: ReadonlyArray<{ rowKey: RowKey; month: string }>, label: (rowKey: RowKey) => string) => void;
+
 export interface RecomputeOptions {
   /** per_head rows that compute this pass: 'all', or these rows; the rest keep their cells. Default none. */
   live?: 'all' | ReadonlySet<RowKey>;
+  guard?: DriverWriteGuard | null;
 }
 
 const NIL = NIL_UUID;
@@ -170,6 +177,7 @@ export async function recomputeVersion(
     ...loops.map((l) => ({ code: 'DRIVER_SKIPPED' as const, rowKey: l.path[0]!, message: l.message })),
     ...result.warnings.map((w) => ({ ...w, message: labelKeys(w.message, model.labels) })),
   ];
+  opts.guard?.(result.writes, (k) => rowLabel(k, model.labels));
   return { changed: await writeDriverCells(companyId, versionId, userId, result.writes), warnings, headcountAsOf };
 }
 
@@ -180,7 +188,7 @@ export async function recomputeVersion(
  * refuses the save (400 DRIVER_RANGE) and rolls all of it back.
  */
 export async function recomputeDependents(
-  companyId: string, versionId: string, userId: string, live: ReadonlySet<RowKey>,
+  companyId: string, versionId: string, userId: string, live: ReadonlySet<RowKey>, guard: DriverWriteGuard | null = null,
 ): Promise<RecomputeResult> {
-  return recomputeVersion(companyId, versionId, userId, { live });
+  return recomputeVersion(companyId, versionId, userId, { live, guard });
 }

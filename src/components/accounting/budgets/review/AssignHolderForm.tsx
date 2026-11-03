@@ -1,7 +1,7 @@
 /**
  * Assign a budget holder (budgets P5-6, owner/admin): a draft version (year, then version), a
- * member who is a manager, admin or owner, the slice (company level, or one CC1, CC2 or BU member)
- * and an optional due date. The server re-checks every rule (decision 9a; migration 955).
+ * member who is a manager, admin or owner, the slice (company level, or one CC1, CC2 or BU member),
+ * optionally the accounts it is limited to (none picked = every account of the slice) and a due date. The server re-checks every rule (decision 9a; migration 955).
  */
 import { useEffect, useId, useState } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -9,7 +9,7 @@ import { apiErrorMessage } from '@/lib/apiFetch';
 import { DateField } from '@/components/ui/DateField';
 import { yearOptionLabel, type BudgetYear } from '@/components/accounting/budgets/budgetClient';
 import {
-  assignHolder, fetchDraftVersions, fetchHolderCandidates, fetchSliceMembers, fetchYears, type MemberOption, type Option, type SliceReview,
+  assignHolder, fetchBudgetAccounts, fetchDraftVersions, fetchHolderCandidates, fetchSliceMembers, fetchYears, type MemberOption, type Option, type SliceReview,
 } from './reviewClient';
 
 type Kind = 'company' | 'cc1' | 'cc2' | 'bu';
@@ -27,6 +27,8 @@ export function AssignHolderForm({ onAssigned }: { onAssigned: (s: SliceReview) 
   const [kind, setKind] = useState<Kind>('cc1');
   const [sliceOptions, setSliceOptions] = useState<Option[]>([]);
   const [sliceMember, setSliceMember] = useState('');
+  const [accounts, setAccounts] = useState<Option[]>([]);
+  const [picked, setPicked] = useState<string[]>([]);
   const [due, setDue] = useState('');
   const [dueValid, setDueValid] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -36,6 +38,7 @@ export function AssignHolderForm({ onAssigned }: { onAssigned: (s: SliceReview) 
   useEffect(() => {
     void fetchYears().then(({ years: ys, current }) => { setYears(ys); setYear(current ?? ys[ys.length - 1]?.fiscalYear ?? null); }).catch((e: unknown) => fail(e, 'Could not load the financial years.'));
     void fetchHolderCandidates().then(setMembers).catch((e: unknown) => fail(e, 'Could not load the members.'));
+    void fetchBudgetAccounts().then(setAccounts).catch((e: unknown) => fail(e, 'Could not load the accounts.'));
   }, []);
   useEffect(() => {
     if (year === null) return undefined;
@@ -58,7 +61,7 @@ export function AssignHolderForm({ onAssigned }: { onAssigned: (s: SliceReview) 
     setMessage(null);
     try {
       const slice = await assignHolder({
-        versionId, userId, dueDate: due === '' ? null : due,
+        versionId, userId, dueDate: due === '' ? null : due, glAccountIds: picked.length === 0 ? null : picked,
         cc1Id: kind === 'cc1' ? sliceMember : null, cc2Id: kind === 'cc2' ? sliceMember : null, buId: kind === 'bu' ? sliceMember : null,
       });
       setMessage({ tone: 'ok', text: `Assigned: ${slice.label}.` });
@@ -102,6 +105,16 @@ export function AssignHolderForm({ onAssigned }: { onAssigned: (s: SliceReview) 
           </select>
         </label>
       )}
+      <div className="space-y-1 text-sm text-[var(--ff-text-secondary)] sm:col-span-2 lg:col-span-1">
+        <label htmlFor={`${id}-accounts`} className="block">Accounts (optional; none = every account)</label>
+        <select id={`${id}-accounts`} multiple size={5} className={FIELD} value={picked} data-testid="assign-holder-accounts"
+          aria-describedby={`${id}-accounts-hint`} onChange={(e) => setPicked(Array.from(e.target.selectedOptions, (o) => o.value))}>
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+        </select>
+        <p id={`${id}-accounts-hint`} className="text-xs">
+          {picked.length === 0 ? 'Every account of the slice' : `${picked.length} picked`} (Ctrl/Cmd-click to pick several)
+        </p>
+      </div>
       <DateField label="Due date (optional)" value={due === '' ? null : due}
         onChange={(iso, v) => { setDueValid(v.valid); setDue(v.valid ? iso ?? '' : ''); }} />
       <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-3">

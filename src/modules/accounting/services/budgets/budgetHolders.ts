@@ -6,10 +6,16 @@
  * and, when a due date is given, the slice's due date (its status stays). Migration 955 holds the
  * same rules in the database (budget_holders_rules, budget_slice_reviews_rules).
  * One audit row (entity 'budget', the version); the holder is told in the bell.
+ *
+ * Unassigning (`unassignHolder`, r2): owner/admin, a draft version, and never while the slice is with
+ * its reviewer (submitted or approved: 409). The last holder of an open or returned slice takes the
+ * slice review with them; another holder keeps it. Locks: the version FOR SHARE, then the slice review
+ * FOR UPDATE (the order every slice writer takes), so a racing submit is either seen or waits.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
+import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { notifyUsers } from '../notifications/userNotificationService';
 import { BudgetVersionError } from './budgetVersionTypes';
 import { getVersion } from './budgetVersions';
@@ -121,4 +127,55 @@ async function checkAccounts(companyId: string, ids: string[]): Promise<void> {
      LIMIT 1
   `) as DbRow[];
   if (bad[0]) throw inputError(`Account ${String(bad[0].id)} is not a revenue or expense account of this company`);
+}
+
+export async function unassignHolder(
+  companyId: string, actor: { userId: string; role: string }, holderId: string,
+): Promise<{ removed: true; sliceDeleted: boolean }> {
+  if (actor.role !== 'owner' && actor.role !== 'admin') {
+    throw new BudgetVersionError('BUDGET_SLICE_FORBIDDEN', 'Only an owner or admin can remove a budget holder');
+  }
+  const found = (await sql`
+    SELECT h.version_id::TEXT AS version_id, h.user_id, h.cc1_id::TEXT AS cc1_id, h.cc2_id::TEXT AS cc2_id, h.bu_id::TEXT AS bu_id
+      FROM budget_holders h WHERE h.id = ${holderId}::UUID AND h.company_id = ${companyId}::UUID
+  `) as DbRow[];
+  const h = found[0];
+  if (!h) throw new BudgetVersionError('BUDGET_SLICE_NOT_FOUND', 'Budget holder not found');
+  const versionId = String(h.version_id);
+  const version = (await withRowLockBudget(
+    () => sql`SELECT status, fiscal_year FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID FOR SHARE`,
+    () => new RowLockTimeoutError('This budget version'),
+  )) as DbRow[];
+  if (version[0]?.status !== 'draft') {
+    throw new BudgetVersionError('BUDGET_SLICE_STATE', `Budget holders are removed on a draft version only; this version is ${String(version[0]?.status ?? 'gone')}`);
+  }
+  const review = (await withRowLockBudget(
+    () => sql`
+      SELECT id::TEXT AS id, status FROM budget_slice_reviews
+       WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID AND cc1_id IS NOT DISTINCT FROM ${h.cc1_id}::UUID
+         AND cc2_id IS NOT DISTINCT FROM ${h.cc2_id}::UUID AND bu_id IS NOT DISTINCT FROM ${h.bu_id}::UUID
+       FOR UPDATE`,
+    () => new RowLockTimeoutError('This budget slice'),
+  )) as DbRow[];
+  const slice = review[0] ? await readSlice(companyId, String(review[0].id)) : null;
+  if (slice && (slice.status === 'submitted' || slice.status === 'approved')) {
+    throw new BudgetVersionError('BUDGET_SLICE_STATE',
+      `This slice is ${slice.status}${slice.status === 'submitted' ? ' for review: approve or return it' : ''} before removing its holder`);
+  }
+  await sql`DELETE FROM budget_holders WHERE id = ${holderId}::UUID AND company_id = ${companyId}::UUID`;
+  const left = slice ? slice.holders.filter((x) => x.id !== holderId).length : 0;
+  const sliceDeleted = slice !== null && left === 0;
+  if (sliceDeleted) await sql`DELETE FROM budget_slice_reviews WHERE id = ${slice.id}::UUID AND company_id = ${companyId}::UUID`;
+  await logAuditOrThrow({
+    companyId, userId: actor.userId, action: 'delete', entityType: 'budget', entityId: versionId,
+    entityRef: `Budget slice ${slice?.label ?? 'holder'}`,
+    changes: {
+      fields: [],
+      metadata: {
+        holderRemoved: String(h.user_id), fiscalYear: String(version[0]!.fiscal_year), sliceDeleted: String(sliceDeleted),
+        ...(slice ? { sliceId: slice.id, slice: slice.label, sliceStatus: slice.status } : {}),
+      },
+    },
+  });
+  return { removed: true, sliceDeleted };
 }

@@ -12,6 +12,8 @@ import { BudgetVersionError, type BudgetVersionStatus } from './budgetVersionTyp
 import type { SliceKey, SliceStatus } from './holderSlices';
 
 export interface SliceHolder {
+  /** The holder row's id (what unassigning takes). */
+  id: string;
   userId: string;
   name: string | null;
   /** null: every account of the slice. */
@@ -69,7 +71,7 @@ async function holdersOf(companyId: string, sliceIds: string[]): Promise<Map<str
   const out = new Map<string, SliceHolder[]>();
   if (sliceIds.length === 0) return out;
   const rows = (await sql`
-    SELECT r.id::TEXT AS slice_id, h.user_id, h.gl_account_ids::TEXT[] AS accounts,
+    SELECT r.id::TEXT AS slice_id, h.id::TEXT AS holder_id, h.user_id, h.gl_account_ids::TEXT[] AS accounts,
            public.approval_company_member_name(h.company_id, h.user_id) AS name
       FROM budget_slice_reviews r
       JOIN budget_holders h ON h.company_id = r.company_id AND h.version_id = r.version_id
@@ -79,7 +81,7 @@ async function holdersOf(companyId: string, sliceIds: string[]): Promise<Map<str
   `) as DbRow[];
   for (const r of rows) {
     const list = out.get(String(r.slice_id)) ?? [];
-    list.push({ userId: String(r.user_id), name: text(r.name), glAccountIds: Array.isArray(r.accounts) ? (r.accounts as unknown[]).map(String) : null });
+    list.push({ id: String(r.holder_id), userId: String(r.user_id), name: text(r.name), glAccountIds: Array.isArray(r.accounts) ? (r.accounts as unknown[]).map(String) : null });
     out.set(String(r.slice_id), list);
   }
   return out;

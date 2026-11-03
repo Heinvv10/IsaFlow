@@ -8,6 +8,8 @@
  *      creates the slice's review row ('open') or updates its due date. 400 a bad slice, account or
  *      member (a viewer, a non-member), 403 another role, 404 another company's version, 409 a
  *      version that is not a draft.
+ * DELETE ?id=<holder id> → { removed, sliceDeleted } (owner or admin): unassigns on a draft; 409 while
+ *      the slice is submitted or approved; the last holder of an open/returned slice takes its review.
  * Every id is checked against the session's company (RLS and the queries both). CSRF on POST.
  * 60 writes a minute per user (429 with Retry-After).
  */
@@ -21,7 +23,7 @@ import { UUID } from '@/lib/schemas/common';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isUuidParam } from '@/lib/validation';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
-import { assignHolder, MAX_HOLDER_ACCOUNTS } from '@/modules/accounting/services/budgets/budgetHolders';
+import { assignHolder, MAX_HOLDER_ACCOUNTS, unassignHolder } from '@/modules/accounting/services/budgets/budgetHolders';
 import { listSlices } from '@/modules/accounting/services/budgets/sliceReviewRead';
 
 /** A real calendar date 'YYYY-MM-DD' (Postgres would 500 on 2026-02-31). */
@@ -50,13 +52,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (versionId !== undefined && !isUuidParam(versionId)) return apiResponse.badRequest(res, 'versionId must be a version id');
       return apiResponse.success(res, { slices: await listSlices(companyId, actor, { versionId: versionId as string | undefined }) });
     }
-    if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
+    if (req.method !== 'POST' && req.method !== 'DELETE') return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'DELETE']);
     if (companyRole !== 'owner' && companyRole !== 'admin') {
       return apiResponse.forbidden(res, 'Only an owner or admin can assign budget holders');
     }
     if (!(await checkRateLimit(`budget-holders:${userId}`, { max: 60, windowSecs: 60 }))) {
       res.setHeader('Retry-After', '60');
       return apiResponse.tooManyRequests(res, 'Too many budget holder changes; wait a minute and try again.');
+    }
+    if (req.method === 'DELETE') {
+      const id = req.query.id;
+      if (!isUuidParam(id)) return apiResponse.badRequest(res, 'id must be a budget holder id');
+      return apiResponse.success(res, await unassignHolder(companyId, actor, id));
     }
     const parsed = AssignSchema.safeParse(req.body);
     if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);

@@ -19,6 +19,7 @@ import { auditBudgetWrite, holdYearRegistry } from '../budgetVersionScope';
 import { mapBudgetDbError } from '../budgetVersionTypes';
 import { inputError, isVersionToken } from '../gridErrors';
 import { takeVersion } from '../versionTake';
+import { driverSliceGuard, loadHolderScope } from '../holderScope';
 import type { RowKey } from './driverTypes';
 import { recomputeVersion, versionMonths, type RecomputeWarning } from './driverRecomputeService';
 
@@ -64,7 +65,10 @@ export async function runDriverWrite<T extends object>(
       const version = await takeVersion(companyId, versionId, target.expectedUpdatedAt);
       const months = await versionMonths(companyId, version.fiscalYear);
       const { value, audit, live } = await write({ versionId, fiscalYear: version.fiscalYear, months });
-      const recomputed = await recomputeVersion(companyId, versionId, userId, { live });
+      // P5-6: a recompute landing outside the writer's slices, or into a slice with its reviewer, is a
+      // 409 naming the driver before any cell is written (the driver routes take no reviewer path).
+      const guard = driverSliceGuard(await loadHolderScope(companyId, versionId, userId), version.status, false);
+      const recomputed = await recomputeVersion(companyId, versionId, userId, { live, guard });
       // Every write that read payroll audits when (a Refresh records its own time even with no per_head row).
       const headcountAsOf = recomputed.headcountAsOf ?? audit?.headcountAsOf ?? null;
       await auditBudgetWrite(companyId, userId, 'update', versionId, version.fiscalYear, {

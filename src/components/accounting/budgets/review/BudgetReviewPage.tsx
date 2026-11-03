@@ -96,7 +96,8 @@ export function BudgetReviewPage() {
                 <section key={status} className={`${PANEL} p-3`} aria-labelledby={`col-${status}`} data-testid={`review-column-${status}`}>
                   <h2 id={`col-${status}`} className="mb-2 text-sm font-semibold text-[var(--ff-text-primary)]">{COLUMN[status]} ({column.length})</h2>
                   <ul className="space-y-2">
-                    {column.map((s) => <SliceCard key={s.id} slice={s} userId={user?.id ?? null} reviewer={reviewer} today={today} onChanged={replace} />)}
+                    {column.map((s) => <SliceCard key={s.id} slice={s} userId={user?.id ?? null} reviewer={reviewer} today={today} onChanged={replace}
+                      onRemoved={() => { void load(); }} />)}
                   </ul>
                 </section>
               );

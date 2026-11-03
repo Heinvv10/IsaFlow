@@ -30,12 +30,20 @@ export async function moveSlice(id: string, action: SliceAction, note?: string):
 
 export interface AssignBody {
   versionId: string; userId: string; cc1Id: string | null; cc2Id: string | null; buId: string | null; dueDate: string | null;
+  /** null: every account of the slice. */
+  glAccountIds: string[] | null;
 }
 
 export async function assignHolder(body: AssignBody): Promise<SliceReview> {
   const data = await apiJson('/api/accounting/budgets/holders', post(body), 'Could not assign the budget holder.');
-  if ('slices' in data) throw new Error('unexpected answer');
+  if ('slices' in data || 'removed' in data) throw new Error('unexpected answer');
   return data;
+}
+
+/** Unassigns one holder (owner/admin, draft, slice not with its reviewer); `sliceDeleted` when it was the slice's last. */
+export async function unassignHolder(holderId: string): Promise<{ sliceDeleted: boolean }> {
+  const data = await apiJson(`/api/accounting/budgets/holders?id=${encodeURIComponent(holderId)}`, { method: 'DELETE' }, 'Could not remove the budget holder.');
+  return { sliceDeleted: 'removed' in data ? data.sliceDeleted : false };
 }
 
 export interface Option { id: string; label: string }
@@ -77,4 +85,12 @@ export async function fetchDraftVersions(fiscalYear: number): Promise<Option[]> 
   const data = await apiJson(`/api/accounting/budget-versions?fiscalYear=${fiscalYear}`, undefined, 'Could not load the budget versions.');
   const list = 'items' in data ? data.items : [];
   return list.filter((v) => v.status === 'draft').map((v) => ({ id: v.id, label: v.name }));
+}
+
+/** Active revenue and expense accounts (what a holder's account limit may name), from GET /api/accounting/chart-of-accounts. */
+export async function fetchBudgetAccounts(): Promise<Option[]> {
+  const data: unknown = await apiJson('/api/accounting/chart-of-accounts', undefined, 'Could not load the accounts.');
+  return (Array.isArray(data) ? data : []).filter(isObj)
+    .filter((a) => (a.accountType === 'revenue' || a.accountType === 'expense') && a.isActive !== false)
+    .map((a) => ({ id: str(a.id), label: `${str(a.accountCode)} ${str(a.accountName)}`.trim() })).filter((o) => o.id !== '');
 }

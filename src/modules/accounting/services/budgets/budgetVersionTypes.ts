@@ -48,7 +48,8 @@ export type BudgetVersionErrorCode =
   | 'BUDGET_SLICE_FORBIDDEN'
   | 'BUDGET_SLICE_STATE'
   | 'BUDGET_SLICE_NOT_FOUND'
-  | 'BUDGET_SLICES_PENDING';
+  | 'BUDGET_SLICES_PENDING'
+  | 'BUDGET_SLICE_DRIVER';
 
 const STATUS_OF: Record<BudgetVersionErrorCode, 400 | 403 | 404 | 409> = {
   BUDGET_VERSION_LOCKED: 409,
@@ -63,6 +64,7 @@ const STATUS_OF: Record<BudgetVersionErrorCode, 400 | 403 | 404 | 409> = {
   BUDGET_SLICE_STATE: 409,
   BUDGET_SLICE_NOT_FOUND: 404,
   BUDGET_SLICES_PENDING: 409,
+  BUDGET_SLICE_DRIVER: 409,
 };
 
 /** A refusal whose message is safe to show the caller; `status` is the HTTP answer. */

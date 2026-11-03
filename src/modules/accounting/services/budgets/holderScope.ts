@@ -15,6 +15,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { BudgetVersionError } from './budgetVersionTypes';
 import { isLockedStatus, sameSlice, sliceOf, type HolderSlice, type SliceKey, type SliceStatus } from './holderSlices';
+import { parseKey } from './grid/cellKey';
+import type { DriverWriteGuard } from './drivers/driverRecomputeService';
 
 export interface HolderScope {
   role: string | null;
@@ -95,4 +97,31 @@ export function assertSliceWrites(
 export async function beginSliceReview(companyId: string, versionId: string, scope: HolderScope): Promise<void> {
   if (!scope.reviewer || scope.reviews.length === 0) return;
   await sql`SELECT public.budget_slice_review_begin(${companyId}::UUID, ${versionId}::UUID)`;
+}
+
+/**
+ * The check a driver recompute runs on the cells it is about to write (r2), so a driver that would
+ * land outside the writer's reach is a 409 BUDGET_SLICE_DRIVER naming the driver, before any write,
+ * instead of migration 955's generic refusal mid-write: a holder's recompute outside their slices; a
+ * recompute into a submitted/approved slice of a draft by anyone not on the reviewer path (the driver
+ * routes never take it: `reviewerPath` false). Null when nothing can be refused.
+ */
+export function driverSliceGuard(scope: HolderScope, versionStatus: string, reviewerPath: boolean): DriverWriteGuard | null {
+  const holder = isHolder(scope);
+  const lockApplies = versionStatus === 'draft' && !(scope.reviewer && reviewerPath) && scope.reviews.some((r) => isLockedStatus(r.status));
+  if (!holder && !lockApplies) return null;
+  return (writes, label) => {
+    for (const w of writes) {
+      const cell = parseKey(`${w.rowKey}|${w.month}`);
+      if (holder && sliceOf(scope.slices, cell) === null) {
+        throw new BudgetVersionError('BUDGET_SLICE_DRIVER',
+          `This change makes the driver on ${label(w.rowKey)} recompute month ${w.month}, which is outside your budget slices; ask an owner or admin to change that driver or its inputs`);
+      }
+      const status = lockApplies ? scope.reviews.find((r) => sameSlice(r, cell))?.status ?? null : null;
+      if (isLockedStatus(status)) {
+        throw new BudgetVersionError('BUDGET_SLICE_DRIVER',
+          `This change makes the driver on ${label(w.rowKey)} recompute month ${w.month} of a slice ${status === 'submitted' ? 'submitted for review' : 'already approved'}; return the slice first, or make the change in the grid as its reviewer`);
+      }
+    }
+  };
 }

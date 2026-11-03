@@ -6,23 +6,23 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const moveSlice = vi.hoisted(() => vi.fn());
-vi.mock('@/components/accounting/budgets/review/reviewClient', () => ({ moveSlice }));
+const { moveSlice, unassignHolder } = vi.hoisted(() => ({ moveSlice: vi.fn(), unassignHolder: vi.fn() }));
+vi.mock('@/components/accounting/budgets/review/reviewClient', () => ({ moveSlice, unassignHolder }));
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: unknown; href: string }) => <a href={href}>{children as never}</a> }));
 
 import { SliceCard } from '@/components/accounting/budgets/review/SliceCard';
 import type { SliceReview } from '@/modules/accounting/services/budgets/sliceReviewRead';
 
 afterEach(cleanup);
-beforeEach(() => moveSlice.mockReset());
+beforeEach(() => { moveSlice.mockReset(); unassignHolder.mockReset(); });
 
 const slice = (over: Partial<SliceReview> = {}): SliceReview => ({
   id: 's1', versionId: 'v1', versionName: 'Original', fiscalYear: 2027, versionStatus: 'draft', cc1Id: 'c', cc2Id: null, buId: null,
   label: 'CC1 OPS Operations', status: 'open', dueDate: '2030-05-01', submittedBy: null, submittedAt: null, decidedBy: null, decidedAt: null,
-  decisionNote: null, holders: [{ userId: 'h1', name: 'Hanna', glAccountIds: null }], ...over,
+  decisionNote: null, holders: [{ id: 'bh1', userId: 'h1', name: 'Hanna', glAccountIds: null }], ...over,
 });
-const card = (s: SliceReview, userId: string, reviewer: boolean, onChanged = vi.fn()) =>
-  render(<ul><SliceCard slice={s} userId={userId} reviewer={reviewer} today="2030-05-10" onChanged={onChanged} /></ul>);
+const card = (s: SliceReview, userId: string, reviewer: boolean, onChanged = vi.fn(), onRemoved = vi.fn()) =>
+  render(<ul><SliceCard slice={s} userId={userId} reviewer={reviewer} today="2030-05-10" onChanged={onChanged} onRemoved={onRemoved} /></ul>);
 
 describe('SliceCard', () => {
   it('a holder submits an open slice; the overdue date is flagged', async () => {
@@ -55,5 +55,22 @@ describe('SliceCard', () => {
     fireEvent.click(confirm);
     expect(await screen.findByRole('alert')).toHaveTextContent('That did not work. Try again.');
     expect(moveSlice).toHaveBeenCalledWith('s1', 'return', 'Trim June');
+  });
+
+  it('a reviewer removes a holder of an open slice after confirming; not of a submitted slice, and never a holder', async () => {
+    const onRemoved = vi.fn();
+    unassignHolder.mockResolvedValueOnce({ sliceDeleted: true });
+    card(slice(), 'o1', true, vi.fn(), onRemoved);
+    fireEvent.click(screen.getByTestId('holder-remove-bh1'));
+    expect(unassignHolder).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('holder-remove-confirm-bh1'));
+    await waitFor(() => expect(onRemoved).toHaveBeenCalled());
+    expect(unassignHolder).toHaveBeenCalledWith('bh1');
+    cleanup();
+    card(slice({ status: 'submitted' }), 'o1', true);
+    expect(screen.queryByTestId('holder-remove-bh1')).toBeNull();
+    cleanup();
+    card(slice(), 'h1', false);
+    expect(screen.queryByTestId('holder-remove-bh1')).toBeNull();
   });
 });
