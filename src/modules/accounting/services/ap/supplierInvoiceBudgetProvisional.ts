@@ -10,6 +10,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
+import { findActiveVatLock, journalMovesVatFigure } from '../gl/journalVatLockGuard';
 import type { DocumentLine } from '../budgets/budgetCheckCore';
 import type { ProvisionalClaim } from './provisionalSettlementClaim';
 
@@ -27,12 +28,13 @@ export function provisionalReclassLines(claim: ProvisionalClaim | null | undefin
 
 /**
  * The same lines for a PREVIEW, read without the claim's locks or refusals: the standing, evidenced,
- * unsettled provisional behind the bill's slip, if any. The month is the bill's: the claim moves the
- * reclass to the provisional's date only when the bill's VAT period is filed (approve decides that).
+ * unsettled provisional behind the bill's slip, if any. Dated by the claim's own rule
+ * (`provisionalSettlementClaim`): the bill's date, or the provisional's when the bill's VAT period is filed
+ * and the reclass moves a VAT figure (review round 3, so preview and approval agree).
  */
-export async function peekProvisionalReclassLines(companyId: string, invoiceId: string, billMonth: string): Promise<DocumentLine[]> {
+export async function peekProvisionalReclassLines(companyId: string, invoiceId: string): Promise<DocumentLine[]> {
   const [je] = (await sql`
-    SELECT je.id, bt.bank_account_id
+    SELECT je.id, bt.bank_account_id, je.entry_date, si.invoice_date
       FROM supplier_invoices si
       JOIN gl_journal_entries je ON je.company_id = si.company_id AND je.source_document_id = si.source_document_id
       JOIN bank_transactions bt ON bt.provisional_je_id = je.id AND bt.company_id = je.company_id AND bt.status IN ('matched', 'reconciled')
@@ -45,12 +47,16 @@ export async function peekProvisionalReclassLines(companyId: string, invoiceId: 
   if (!je) return [];
   const rows = (await sql`
     SELECT gl_account_id::TEXT AS gl_account_id, cc1_id::TEXT AS cc1_id, cc2_id::TEXT AS cc2_id, bu_id::TEXT AS bu_id,
-           (debit - credit)::TEXT AS net
+           vat_type, (debit - credit)::TEXT AS net
       FROM gl_journal_lines
      WHERE journal_entry_id = ${String(je.id)}::UUID AND company_id = ${companyId}::UUID AND gl_account_id <> ${String(je.bank_account_id)}::UUID
   `) as DbRow[];
+  const invoiceDate = fmtDate(je.invoice_date as string | Date);
+  const filed = await findActiveVatLock(companyId, invoiceDate)
+    && await journalMovesVatFigure(companyId, rows.map((r) => ({ glAccountId: String(r.gl_account_id), vatType: r.vat_type ? String(r.vat_type) : null })));
+  const month = fmtDate((filed ? je.entry_date : je.invoice_date) as string | Date).slice(0, 7);
   return rows.map((r) => ({
     glAccountId: String(r.gl_account_id), cc1Id: r.cc1_id ? String(r.cc1_id) : null, cc2Id: r.cc2_id ? String(r.cc2_id) : null,
-    buId: r.bu_id ? String(r.bu_id) : null, amount: round2(-Number(r.net)), month: billMonth,
+    buId: r.bu_id ? String(r.bu_id) : null, amount: round2(-Number(r.net)), month,
   }));
 }

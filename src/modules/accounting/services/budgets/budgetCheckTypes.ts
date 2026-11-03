@@ -91,6 +91,8 @@ export interface BudgetRefusalEvent {
   reason: string | null;
   channel: BudgetChannel;
   actorId: string;
+  /** The actor asked to override (a UI single approve with override: true). Marked on the stored lines. */
+  overrideRequested?: boolean;
 }
 
 /** 409: the policy is `block` and at least one line is over its remaining budget. */

@@ -35,7 +35,10 @@ export async function billBudgetDryRun(
   const approved: string[] = [];
   for (const id of orderedIds) {
     const preview = await previewBillBudget(companyId, id, { policy, alsoBilledInvoiceIds: approved });
-    if (!preview?.checks) continue;
+    if (!preview) continue;
+    // No check, yet approved live: a draft already carrying a journal (the reused-journal branch). Its spend is in
+    // actuals already, but it becomes billed against its PO lines for the later bills (review round 3).
+    if (!preview.checks) { approved.push(id); continue; }
     const lines = applyPriorConsumption(preview.lines, consumed);
     const decision = decideBudgetOutcome({ policy, lines, channel, figures: opts.figures });
     if (decision.kind === 'refuse') {

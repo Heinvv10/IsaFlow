@@ -29,6 +29,7 @@ import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/servic
 import { billBudgetDryRun } from '@/modules/accounting/services/ap/supplierInvoiceBudgetDryRun';
 import { mayReadBudgetFigures } from './budgetFigures';
 import { BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
+import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import {
   type BulkApproveAdapter,
   type DocumentState,
@@ -86,6 +87,7 @@ export function racedReason(err: unknown): string | null {
   // Budgets P5-2 (block policy): refused before any write, inside the element's savepoint — a skip, so one
   // over-budget bill never unwinds the batch (census finding 5). The handler records its refused event.
   if (err instanceof BudgetExceededError) return `budget_exceeded: ${err.message}`;
+  if (err instanceof SupplierPaymentRefusal) return `payment_refused: ${err.message}`; // e.g. its slip's provisional already settles another bill
   if (!(err instanceof Error)) return null;
   const status = STATUS_REFUSAL.exec(err.message)?.[1];
   if (status) return `status became ${status} before it could be approved`;
@@ -256,11 +258,9 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
       .map((p) => ({ ...p, entryDate: states.get(p.id)?.entryDate }))
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     //
-    // Budgets P5-2 (spec §3c, census finding 6): the company budget lock (block policy) is taken ONCE,
-    // here, before the loop and outside every element savepoint; per element it would follow earlier
-    // elements' journal-number locks and deadlock against a single approve. Held → a typed retryable
-    // refusal before anything is posted. A BUDGET_EXCEEDED element is a skip (racedReason); its refused
-    // event is recorded after the loop, outside the element savepoint that rolled it back.
+    // Budgets P5-2 (spec §3c, census 6): the company budget lock (block) is taken ONCE, before the loop and outside every
+    // element savepoint (per element it would follow earlier journal-number locks: deadlock). Held → a typed retryable
+    // refusal before any write. A BUDGET_EXCEEDED element is a skip; its event is recorded after the loop.
     const gate = await openBudgetGate(ctx.companyId, 'take');
     const liveAdapter: BulkApproveAdapter<ApprovedRow> = { ...adapter, postOne: (c, id) => postWithGate(c, id, gate) };
     const budgetRefusals: BudgetExceededError[] = [];
@@ -280,10 +280,10 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
     const allSkipped = [...skipped, ...raced].sort((a, b) => a.index - b.index);
 
     if (rows.length === 0) {
-      // Every postable bill lost its race: nothing posted, so the key is left free, as for the dry run — unless
-      // budget refusals were recorded (P5-2 review R5): then the call wrote, and the key stays held.
+      // Nothing posted: the key is left free, as for the dry run and as the single tool's refusal leaves it, so the
+      // same call posts once the state changes (a budget raised). Refused events stay committed; the 60 s dedupe bounds retries.
       const nothing = ok({ posted: 0, invoices: [], skipped: allSkipped });
-      nothing.wroteNothing = budgetRefusals.length === 0;
+      nothing.wroteNothing = true;
       nothing.billable = false;
       return nothing;
     }

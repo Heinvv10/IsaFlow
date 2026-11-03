@@ -2,7 +2,7 @@
  * Budgets P5-2 review round 2, real PostgreSQL as app_user:
  *   - S1: an MCP token without read:reports gets budget refusals, warnings and dry-run verdicts
  *     naming the line (account, slice, month) and "over budget", never remaining or amounts;
- *   - R5: a bulk call whose every bill is budget-refused wrote refused events, so it keeps its key;
+ *   - a bulk call whose every bill is budget-refused frees its key (nothing posted); its refused events stay;
  *   - R2: the bulk tool holds the company budget lock BEFORE any lock on a bill's line accounts
  *     (probed: blocked on a held account row, it already holds the advisory lock);
  *   - R7: the bulk route's Post to GL under block refuses an over-budget bill per item.
@@ -80,13 +80,13 @@ describe('S1: no budget figures without read:reports', () => {
   });
 });
 
-describe('R5: an all-refused bulk call keeps its idempotency key', () => {
-  it('every bill budget-refused: refused events written, so the result is not "wrote nothing"', async () => {
+describe('an all-refused bulk call frees its idempotency key (review round 3, reverting R5)', () => {
+  it('every bill budget-refused: nothing posted, so "wrote nothing" (the key is free); the refused events stay', async () => {
     await setPolicy(pool, f, 'block');
     const id = await ftBill('2026-07', 5000);
     const res = await committed(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [id], idempotency_key: `r5-${id}` }, ctx()));
     expect(JSON.parse(text(res)).posted).toBe(0);
-    expect(res.wroteNothing).toBe(false);
+    expect(res.wroteNothing).toBe(true);
     expect((await eventsFor(pool, id)).map((e) => e.outcome)).toEqual(['refused']);
   });
 });

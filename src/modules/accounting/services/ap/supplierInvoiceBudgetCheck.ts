@@ -118,7 +118,7 @@ export async function previewBillBudget(
   const defaultExpense = await getSystemAccount('default_expense', companyId);
   const { lines } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpense.id), { storedPosting: true });
   const month = billMonth(invoice);
-  const docLines = [...documentLines(lines), ...await peekProvisionalReclassLines(companyId, invoice.id, month)];
+  const docLines = [...documentLines(lines), ...await peekProvisionalReclassLines(companyId, invoice.id)];
   const checked = await evaluateDocumentLines(companyId, docLines, month, {
     excludeInvoiceId: invoice.id, alsoBilledInvoiceIds: opts.alsoBilledInvoiceIds, labelAlways: true,
   });

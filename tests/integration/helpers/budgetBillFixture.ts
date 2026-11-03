@@ -171,7 +171,7 @@ export async function dropBillFixture(pool: Pool, f: BillFixture | undefined): P
     await c.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id = $1)', [f.co]);
     await c.query('DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = $1)', [f.co]);
     await c.query('DELETE FROM po_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE company_id = $1)', [f.co]);
-    for (const t of ['budget_check_events', 'audit_log', 'mcp_tool_calls', 'supplier_payments', 'bank_transactions', 'purchase_orders',
+    for (const t of ['budget_check_events', 'audit_log', 'mcp_tool_calls', 'supplier_payments', 'bank_transactions', 'purchase_orders', 'vat_period_locks',
       'recurring_transaction_templates', 'company_document_numbers', 'capture_events', 'captured_documents',
       'supplier_invoices', 'gl_journal_lines', 'gl_journal_entries',
       'budget_month_amounts', 'budget_versions', 'budget_control_settings', 'fiscal_periods', 'fiscal_years', 'suppliers', 'cost_centres',
@@ -187,4 +187,54 @@ export async function dropBillFixture(pool: Pool, f: BillFixture | undefined): P
   } finally {
     c.release();
   }
+}
+
+/** An approved PO dated `${month}-02` with one line per entry; returns the PO line ids. */
+export async function seedPo(pool: Pool, f: BillFixture, month: string, lines: Array<{ acct: string; amount: number; cc1?: string | null }>): Promise<string[]> {
+  const poId = id();
+  await pool.query(`INSERT INTO purchase_orders (id, company_id, po_number, supplier_id, order_date, status) VALUES ($1, $2, $3, $4, $5, 'approved')`,
+    [poId, f.co, `PO-${poId.slice(0, 6)}`, f.supplier, `${month}-02`]);
+  const ids: string[] = [];
+  for (const l of lines) {
+    const itemId = id();
+    await pool.query(`INSERT INTO po_items (id, purchase_order_id, description, quantity, unit_price, line_total, gl_account_id, cc1_id)
+                      VALUES ($1, $2, 'po', 1, $3, $3, $4, $5)`, [itemId, poId, l.amount, l.acct, l.cc1 ?? null]);
+    ids.push(itemId);
+  }
+  return ids;
+}
+
+export const linkBillToPo = (pool: Pool, bill: string, poItem: string) =>
+  pool.query('UPDATE supplier_invoice_items SET po_item_id = $2 WHERE supplier_invoice_id = $1', [bill, poItem]);
+
+/**
+ * A posted, evidenced bank-first provisional dated `provDate` (DR opex FT 800, DR VAT 120, CR bank 920) and its
+ * captured slip; the caller raises bills from the slip with `fromSlip`.
+ */
+export async function seedProvisional(pool: Pool, f: BillFixture, provDate: string): Promise<string> {
+  const bank = id();
+  await pool.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance, level, is_active)
+                    VALUES ($1, $2, $3, 'Bank', 'asset', 'bank', 'debit', 3, true)`, [bank, f.co, `BB-1${bank.slice(0, 4)}`]);
+  const doc = id();
+  await pool.query(`INSERT INTO captured_documents (id, company_id, file_name, file_type) VALUES ($1, $2, 'slip.pdf', 'application/pdf')`, [doc, f.co]);
+  const je = id();
+  await pool.query(`INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status, source, source_document_id, needs_evidence, created_by)
+                    VALUES ($1, $2, $3, $4, 'Bank-first provisional', 'posted', 'auto_bank_recon', $5, false, $6)`,
+  [je, f.co, `JE-PRV-${je.slice(0, 6)}`, provDate, doc, f.owner]);
+  for (const [acct, dr, cr, cc, vat] of [[f.acc.opex, 800, 0, f.cc.FT, null], [f.acc.vat, 120, 0, null, 'standard'], [bank, 0, 920, null, null]] as const) {
+    await pool.query(`INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit, description, cc1_id, vat_type)
+                      VALUES ($1, $2, $3, $4, $5, 'prov', $6, $7)`, [je, f.co, acct, dr, cr, cc, vat]);
+  }
+  await pool.query(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, status, provisional_je_id, description)
+                    VALUES ($1, $2, $3, -920, 'matched', $4, 'card')`, [f.co, bank, provDate, je]);
+  return doc;
+}
+
+export const fromSlip = (pool: Pool, bill: string, doc: string) =>
+  pool.query('UPDATE supplier_invoices SET source_document_id = $2 WHERE id = $1', [bill, doc]);
+
+/** Files the VAT period [start, end] for the fixture's company (vat_period_locks), as a filed VAT201 leaves it. */
+export async function fileVatPeriod(pool: Pool, f: BillFixture, start: string, end: string): Promise<void> {
+  await pool.query(`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax, net_vat, posted_through, locked_by, actor_type)
+                    VALUES ($1, $2, $3, 0, 0, 0, NOW(), $4, 'human')`, [f.co, start, end, f.owner]);
 }

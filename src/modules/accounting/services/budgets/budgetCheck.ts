@@ -183,7 +183,7 @@ export async function checkDocumentBudget(
   if (decision.kind === 'refuse') {
     throw new BudgetExceededError(decision.message, {
       companyId, documentType: doc.type, documentId: doc.id, documentRef: doc.ref, policy, lines,
-      reason: ctx.reason?.trim() || null, channel: ctx.channel, actorId,
+      reason: ctx.reason?.trim() || null, channel: ctx.channel, actorId, overrideRequested: ctx.override === true,
     }, decision.overrideRefused);
   }
   if (decision.event !== null) {
@@ -195,12 +195,19 @@ export async function checkDocumentBudget(
   return { policy, outcome: decision.event, lines, warnings: decision.warnings };
 }
 
+/**
+ * The event's `lines` as stored: an override the actor asked for (and was refused) is marked on every line
+ * (`overrideRequested: true`), so the record says so without a column of its own (review round 3).
+ */
+const storedLines = (e: BudgetRefusalEvent): string =>
+  JSON.stringify(e.overrideRequested ? e.lines.map((l) => ({ ...l, overrideRequested: true })) : e.lines);
+
 /** One `budget_check_events` row and its `audit_log` row (entity `budget`), on the current transaction. */
 export async function recordBudgetCheckEvent(e: BudgetRefusalEvent, outcome: BudgetOutcome): Promise<void> {
   await sql`
     INSERT INTO budget_check_events (company_id, document_type, document_id, policy, outcome, lines, reason, channel, decided_by)
     VALUES (${e.companyId}::UUID, ${e.documentType}, ${e.documentId}::UUID, ${e.policy}, ${outcome},
-            ${JSON.stringify(e.lines)}::JSONB, ${e.reason}, ${e.channel}, ${e.actorId})
+            ${storedLines(e)}::JSONB, ${e.reason}, ${e.channel}, ${e.actorId})
   `;
   const over = e.lines.filter((l) => l.over);
   await logAuditOrThrow({
@@ -212,12 +219,17 @@ export async function recordBudgetCheckEvent(e: BudgetRefusalEvent, outcome: Bud
         budgetCheck: outcome, policy: e.policy, channel: e.channel, documentType: e.documentType,
         overLines: String(over.length), checkedLines: String(e.lines.filter((l) => l.budget !== null).length),
         ...(e.reason ? { reason: e.reason } : {}),
+        ...(e.overrideRequested ? { overrideRequested: 'true' } : {}),
       },
     },
   });
 }
 
-/** Window in which a refusal identical to one already recorded (same document, actor, channel, policy, lines) is not written again. */
+/**
+ * Window in which a refusal identical to one already recorded is not written again: same document, actor,
+ * channel, policy, lines (the override flag included) and reason. A refused override attempt, or a new reason,
+ * is a different act and is recorded (review round 3, REPRO 4).
+ */
 export const REFUSAL_DEDUPE_SECONDS = 60;
 
 /**
@@ -231,7 +243,8 @@ export async function recordBudgetRefusal(err: BudgetExceededError): Promise<boo
     SELECT 1 FROM budget_check_events
      WHERE company_id = ${e.companyId}::UUID AND document_type = ${e.documentType} AND document_id = ${e.documentId}::UUID
        AND outcome = 'refused' AND policy = ${e.policy} AND channel = ${e.channel}
-       AND decided_by = COALESCE(auth.uid(), ${e.actorId}) AND lines = ${JSON.stringify(e.lines)}::JSONB
+       AND decided_by = COALESCE(auth.uid(), ${e.actorId}) AND lines = ${storedLines(e)}::JSONB
+       AND reason IS NOT DISTINCT FROM ${e.reason}
        AND decided_at > clock_timestamp() - make_interval(secs => ${REFUSAL_DEDUPE_SECONDS})
      LIMIT 1
   `) as DbRow[];
