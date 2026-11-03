@@ -8,7 +8,7 @@
  *      the slice's draft (an approved note: owner/admin only, withdrawing the approval).
  * POST { action: 'approve', id, draft, text? } → { note } — owner/admin; `draft` is the draft text the approver was
  *      shown (409 when the note changed since, nothing approved); `text` approves the approver's own wording.
- * POST { action: 'reject', id } → { note } — owner/admin.
+ * POST { action: 'reject', id, draft } → { note } — owner/admin; `draft` as for approve (409 when changed).
  *
  * Every id is the company's or the answer is 404 (another tenant's id reads as missing). 403 for a role,
  * 422 for a malformed body or query (zod), 400 for the text or a month outside the version's year, 409 for
@@ -35,7 +35,7 @@ const BodySchema = z.discriminatedUnion('action', [
   }).strict(),
   // `draft`: the draft text the approver was shown; a note changed since answers 409 and nothing is approved.
   z.object({ action: z.literal('approve'), id: UUID, draft: Text, text: Text.optional() }).strict(),
-  z.object({ action: z.literal('reject'), id: UUID }).strict(),
+  z.object({ action: z.literal('reject'), id: UUID, draft: Text }).strict(),
 ]);
 const QuerySchema = z.object({ versionId: UUID, month: z.string().max(7) });
 
@@ -74,7 +74,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     ? await saveVarianceNote(companyId, actor, body)
     : body.action === 'approve'
       ? await approveVarianceNote(companyId, actor, body.id, body.draft, body.text)
-      : await rejectVarianceNote(companyId, actor, body.id);
+      : await rejectVarianceNote(companyId, actor, body.id, body.draft);
   if (!out.ok) return fail(res, out.code, out.reason);
   return apiResponse.success(res, { note: out.note });
 }

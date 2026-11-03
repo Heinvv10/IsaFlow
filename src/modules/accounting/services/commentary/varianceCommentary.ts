@@ -163,11 +163,13 @@ export async function approveVarianceNote(
   return { ok: true, note };
 }
 
-/** Owner/admin only. The existing rejection (`rejectCommentary`), restricted to variance rows. */
-export async function rejectVarianceNote(companyId: string, actor: VarianceActor, id: string): Promise<VarianceResult> {
+/** Owner/admin only. The existing rejection (`rejectCommentary`), restricted to variance rows; `seenDraft` as for approve. */
+export async function rejectVarianceNote(
+  companyId: string, actor: VarianceActor, id: string, seenDraft: string,
+): Promise<VarianceResult> {
   if (!mayApproveVarianceNote(actor.role)) return forbidden('Only an owner or admin can reject a variance note.');
   if (!isValidUUID(id)) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
-  const r = await rejectCommentary(companyId, id, actor.userId, VARIANCE_REPORT_KIND);
+  const r = await rejectCommentary(companyId, id, actor.userId, VARIANCE_REPORT_KIND, seenDraft);
   if (!r.ok) return r;
   const note = noteOfRow(r.row);
   if (!note) throw new Error('rejected a variance note whose row_ref it cannot read');

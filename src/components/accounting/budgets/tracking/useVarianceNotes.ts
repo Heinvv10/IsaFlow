@@ -22,7 +22,8 @@ export interface UseVarianceNotes {
   save: (slice: VarianceSlice, text: string) => Promise<ActionResult>;
   /** `seenDraft`: the draft text on screen; a note changed since is refused (409) and the notes reload. */
   approve: (id: string, seenDraft: string) => Promise<ActionResult>;
-  reject: (id: string) => Promise<ActionResult>;
+  /** As `approve`: the draft on screen is compared; a refusal reloads the notes. */
+  reject: (id: string, seenDraft: string) => Promise<ActionResult>;
 }
 
 export function useVarianceNotes(scope: VarianceNotesScope | null): UseVarianceNotes {
@@ -76,7 +77,11 @@ export function useVarianceNotes(scope: VarianceNotesScope | null): UseVarianceN
     if (reason !== null) await load();
     return reason;
   }, [post, load]);
-  const reject = useCallback((id: string) => post({ action: 'reject', id }, 'Could not reject the note - try again'), [post]);
+  const reject = useCallback(async (id: string, seenDraft: string) => {
+    const reason = await post({ action: 'reject', id, draft: seenDraft }, 'Could not reject the note - try again');
+    if (reason !== null) await load();
+    return reason;
+  }, [post, load]);
 
   return { notes, error, save, approve, reject };
 }

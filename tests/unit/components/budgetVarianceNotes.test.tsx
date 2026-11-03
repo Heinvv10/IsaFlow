@@ -72,7 +72,7 @@ describe('VarianceNoteButton', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('Only an owner or admin');
     expect(fns.onApprove).toHaveBeenCalledWith('n1', 'Draft words'); // the text on screen, compared by the server
     fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
-    await waitFor(() => expect(fns.onReject).toHaveBeenCalledWith('n1'));
+    await waitFor(() => expect(fns.onReject).toHaveBeenCalledWith('n1', 'Draft words'));
   });
 });
 

@@ -71,7 +71,7 @@ describe('variance-notes route: roles', () => {
     expect((await list(m.manager)).body.data!.notes).toEqual([expect.objectContaining({ id, status: 'draft', draftText: 'Rent rose with the new lease.' })]);
 
     expect((await call(notesRoute, m.manager, 'POST', { action: 'approve', id, draft: 'Rent rose with the new lease.' })).status).toBe(403);
-    expect((await call(notesRoute, m.manager, 'POST', { action: 'reject', id })).status).toBe(403);
+    expect((await call(notesRoute, m.manager, 'POST', { action: 'reject', id, draft: 'Rent rose with the new lease.' })).status).toBe(403);
     expect(await statusOf(id)).toBe('draft');
     const approved = await call(notesRoute, m.owner, 'POST', { action: 'approve', id, draft: 'Rent rose with the new lease.', text: 'Rent rose: new lease from June.' });
     expect(approved.status).toBe(200);
@@ -96,6 +96,8 @@ describe('variance-notes route: the approver signs what they were shown', () => 
     expect((await save(m.manager, 'Changed afterwards.', { glAccountId: f.acc.cos, cc1Id: f.cc.FT })).status).toBe(200);
     expect((await call(notesRoute, m.owner, 'POST', { action: 'approve', id, draft: 'Seen by the owner.' })).status).toBe(409);
     expect((await call(notesRoute, m.owner, 'POST', { action: 'approve', id })).status).toBe(422);
+    expect((await call(notesRoute, m.owner, 'POST', { action: 'reject', id, draft: 'Seen by the owner.' })).status).toBe(409);
+    expect((await call(notesRoute, m.owner, 'POST', { action: 'reject', id })).status).toBe(422);
     expect(await statusOf(id)).toBe('draft');
   });
 });
@@ -111,7 +113,7 @@ describe('variance-notes route: company scoping', () => {
     expect((await save(m.owner, 'x', { cc1Id: f.cc.BX })).status).toBe(404);
     expect((await list(m.owner, f.v.b27)).status).toBe(404);
     expect((await call(notesRoute, m.owner, 'POST', { action: 'approve', id: theirs, draft: 'B SECRET' })).status).toBe(404);
-    expect((await call(notesRoute, m.owner, 'POST', { action: 'reject', id: theirs })).status).toBe(404);
+    expect((await call(notesRoute, m.owner, 'POST', { action: 'reject', id: theirs, draft: 'B SECRET' })).status).toBe(404);
     expect(await statusOf(theirs)).toBe('draft');
     expect((await pool.query("SELECT COUNT(*)::INT n FROM report_commentary WHERE company_id = $1 AND draft_text = 'x'", [f.a])).rows[0].n).toBe(0);
   });

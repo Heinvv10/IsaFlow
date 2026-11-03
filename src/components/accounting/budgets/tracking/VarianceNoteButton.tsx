@@ -25,7 +25,8 @@ export interface VarianceNoteButtonProps {
   onSave: (slice: VarianceSlice, text: string) => Promise<ActionResult>;
   /** Called with the draft text on screen, which the server compares before approving. */
   onApprove: (id: string, seenDraft: string) => Promise<ActionResult>;
-  onReject: (id: string) => Promise<ActionResult>;
+  /** As `onApprove`: called with the draft text on screen. */
+  onReject: (id: string, seenDraft: string) => Promise<ActionResult>;
 }
 
 const STATUS_LABEL = { draft: 'Draft', approved: 'Approved', rejected: 'Rejected' } as const;
@@ -106,7 +107,7 @@ export function VarianceNoteButton({ label, slice, note, role, onSave, onApprove
           <div className="flex flex-wrap justify-end gap-2">
             {approver && note?.status === 'draft' && (
               <>
-                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => onReject(note.id))}>Reject</Button>
+                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => onReject(note.id, note.draftText ?? ''))}>Reject</Button>
                 <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => onApprove(note.id, note.draftText ?? ''))}>Approve</Button>
               </>
             )}

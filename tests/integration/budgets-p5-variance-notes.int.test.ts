@@ -97,8 +97,8 @@ describe('roles: write, approve, reject', () => {
       expect(await saveVarianceNote(f.a, viewer, input('x'))).toMatchObject({ ok: false, code: 'forbidden' });
       const saved = await saveVarianceNote(f.a, manager, input('First draft.'));
       if (!saved.ok) throw new Error(saved.reason);
-      expect(await rejectVarianceNote(f.a, manager, saved.note.id)).toMatchObject({ ok: false, code: 'forbidden' });
-      expect(await rejectVarianceNote(f.a, admin, saved.note.id)).toMatchObject({ ok: true, note: { status: 'rejected' } });
+      expect(await rejectVarianceNote(f.a, manager, saved.note.id, 'First draft.')).toMatchObject({ ok: false, code: 'forbidden' });
+      expect(await rejectVarianceNote(f.a, admin, saved.note.id, 'First draft.')).toMatchObject({ ok: true, note: { status: 'rejected' } });
       expect(await listVarianceNotes(f.a, 'viewer', f.v.primary27, MONTH)).toEqual({ ok: true, notes: [] });
       expect(await saveVarianceNote(f.a, manager, input('Second draft.'))).toMatchObject({ ok: true, note: { id: saved.note.id, status: 'draft' } });
     });
@@ -139,6 +139,17 @@ describe('an approver signs only the text they were shown', () => {
       expect(await rowOf(saved.note.id)).toMatchObject({ status: 'draft', approved_text: null, draft_text: 'Swapped in after the owner opened it.' });
       expect(await approveVarianceNote(f.a, owner(), saved.note.id, 'Swapped in after the owner opened it.'))
         .toMatchObject({ ok: true, note: { approvedText: 'Swapped in after the owner opened it.' } });
+    });
+  });
+
+  it('a reject of a note re-drafted since it was shown is refused (409) too, and the note stays a draft', async () => {
+    await asA(async () => {
+      const saved = await saveVarianceNote(f.a, manager, input('Shown to the admin.'));
+      if (!saved.ok) throw new Error(saved.reason);
+      expect((await saveVarianceNote(f.a, manager, input('Rewritten after.'))).ok).toBe(true);
+      expect(await rejectVarianceNote(f.a, admin, saved.note.id, 'Shown to the admin.')).toMatchObject({ ok: false, code: 'invalid_state' });
+      expect(await rowOf(saved.note.id)).toMatchObject({ status: 'draft', draft_text: 'Rewritten after.' });
+      expect(await rejectVarianceNote(f.a, admin, saved.note.id, 'Rewritten after.')).toMatchObject({ ok: true, note: { status: 'rejected' } });
     });
   });
 });
@@ -182,7 +193,7 @@ describe('the generic pack commentary approve / reject cannot act on a variance 
     const pack = crypto.randomUUID();
     await asA(async () => {
       expect(await approveVarianceNote(f.a, owner(), pack, 'pack draft')).toMatchObject({ ok: false, code: 'not_found' });
-      expect(await rejectVarianceNote(f.a, owner(), pack)).toMatchObject({ ok: false, code: 'not_found' });
+      expect(await rejectVarianceNote(f.a, owner(), pack, 'pack draft')).toMatchObject({ ok: false, code: 'not_found' });
       expect((await rowOf(pack)).status).toBe('draft');
     }, (c) => c.query(`INSERT INTO report_commentary (id, company_id, report_kind, params_hash, period_start, period_end, section_ref,
       row_ref, draft_text, generated_by) VALUES ($1, $2, 'pack', 'p', '2026-06-01', '2026-06-30', 'income_statement', 'revenue', 'pack draft', 'u')`,
@@ -212,7 +223,7 @@ describe('every id is the company\'s', () => {
     const theirs = crypto.randomUUID();
     await asA(async () => {
       expect(await approveVarianceNote(f.a, owner(), theirs, 'B SECRET')).toMatchObject({ ok: false, code: 'not_found' });
-      expect(await rejectVarianceNote(f.a, owner(), theirs)).toMatchObject({ ok: false, code: 'not_found' });
+      expect(await rejectVarianceNote(f.a, owner(), theirs, 'B SECRET')).toMatchObject({ ok: false, code: 'not_found' });
       const listed = await listVarianceNotes(f.a, 'owner', f.v.primary27, MONTH);
       expect(listed).toEqual({ ok: true, notes: [] });
     }, (c) => c.query(`INSERT INTO report_commentary (id, company_id, report_kind, params_hash, period_start, period_end, section_ref,
