@@ -227,6 +227,16 @@ describe('a draft PUT and its lines\' WIP links', () => {
     expect((await links(inv.id)).map((l) => l.description)).toEqual(['Plain work']);
   });
 
+  it('the detail GET counts the billed time entries no line links (a grouped WIP or timesheet invoice)', async () => {
+    const get = async (id: string) => (await callRoute(customerInvoicesDetail, tokens[owner]!, company, 'GET', undefined,
+      '/api/accounting/customer-invoices-detail', { id })).state.body as { data: { unlinked_time_entries: number } };
+    const { id } = await wipDraft(); // both entries linked
+    expect((await get(id)).data.unlinked_time_entries).toBe(0);
+    await timeEntry(company, id); // billed to it, on no line
+    await timeEntry(otherCompany, id); // another company's: not counted
+    expect((await get(id)).data.unlinked_time_entries).toBe(1);
+  });
+
   it('read under another company, this invoice has no links to keep', async () => {
     const { id, entries } = await wipDraft();
     const asked = [{ timeEntryId: entries[0] }];
