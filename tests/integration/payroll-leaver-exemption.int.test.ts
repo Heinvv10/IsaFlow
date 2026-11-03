@@ -66,6 +66,10 @@ beforeAll(async () => {
   await employee('end10', '2020-01-01', '2026-03-10');
   await add('end10Salary', 'end10', salary, 21670, '2020-01-01', '2026-03-10', true);
   await add('end10ProRata', 'end10', bonus, 7000, '2026-03-01', '2026-03-10', false);
+  // A recurring row that March does not read, with no termination base. Moving its end within the pre-27th band
+  // therefore changes neither part of a paid March run.
+  await employee('earlyRow', '2020-01-01', null);
+  await add('earlyRowSalary', 'earlyRow', salary, 21670, '2020-01-01', '2026-03-10', true);
   await employee('end28', '2020-01-01', '2026-03-28');
   await add('end28Salary', 'end28', salary, 21670, '2020-01-01', '2026-03-28', true);
   await employee('superseded', '2020-01-01', '2026-03-28');
@@ -228,11 +232,11 @@ describe('4-6', () => {
 });
 
 describe('1: the paid-month rule uses the band too', () => {
-  it('March paid: ending the 10-March leaver\'s salary a day earlier changes nothing March read, so it is allowed', async () => {
+  it('March paid: ending a pre-27th row a day earlier changes nothing March read, so it is allowed', async () => {
     // As an approved March leaves it (the pro-rata flags above keep this fixture's run from approving through the gate).
     await pool.query("UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1", [march]);
-    const out = await call(components as Route, 'DELETE', `/api/payroll/employees/${emp.end10}/components?aid=${row.end10Salary}`, emp.end10,
-      { body: { effectiveTo: '2026-03-09' }, query: { aid: row.end10Salary! } });
+    const out = await call(components as Route, 'DELETE', `/api/payroll/employees/${emp.earlyRow}/components?aid=${row.earlyRowSalary}`, emp.earlyRow,
+      { body: { effectiveTo: '2026-03-09' }, query: { aid: row.earlyRowSalary! } });
     expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
   });
 });
