@@ -24,6 +24,7 @@ import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { evaluateApprovalGate } from '../gl/approvalGate';
 import { raiseUnattendedApproval } from '../gl/approvalUnattended';
 import { stampUpstreamAuthors } from './customerInvoiceUpstreamAuthors';
+import { advanceDate } from '../gl/recurringSchedule';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 
 type Row = DbRow;
