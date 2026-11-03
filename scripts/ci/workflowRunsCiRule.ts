@@ -107,7 +107,7 @@ const GOLDEN_SMOKE_CONCURRENCY = {
   group: "${{ vars.CI_HOSTED == 'off' && format('golden-paths-smoke-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-smoke-hosted-{0}', github.run_id) }}",
   'cancel-in-progress': false,
 };
-const GOLDEN_POST_CONCURRENCY = { group: 'golden-paths-post-merge', 'cancel-in-progress': false };
+const GOLDEN_POST_CONCURRENCY = { group: 'golden-paths-post-merge-${{ github.run_id }}', 'cancel-in-progress': false };
 /**
  * The token every job gets. With `actions: write` any job (golden-paths
  * included) could `gh run cancel` the run. Pinned at the top level. A job may

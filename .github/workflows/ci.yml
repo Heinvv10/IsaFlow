@@ -622,7 +622,10 @@ jobs:
     needs: golden-lane
     if: ${{ github.event_name == 'push' }}
     concurrency:
-      group: golden-paths-post-merge
+      # A fixed group drops older pending pushes when merges arrive in a burst.
+      # Each push must retain its own full run; runner exclusivity still keeps
+      # each velo database slot single-writer.
+      group: golden-paths-post-merge-${{ github.run_id }}
       cancel-in-progress: false
     # Read-only; for the merge check below (as in quality).
     permissions:
@@ -866,12 +869,19 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
+          COMMIT_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
           SUBJECT: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
           label=golden-paths-red
           verdict="$RESULT"
+          latest=$(gh api "repos/$REPO/commits/$DEFAULT_BRANCH" --jq .sha)
+          if [ "$COMMIT_SHA" != "$latest" ]; then
+            echo "superseded by $latest; leaving the current issue state unchanged"
+            exit 0
+          fi
           if [ "$RESULT" = "cancelled" ]; then
             # Superseded while pending (no steps) is not a signal; a run that
             # started and was then cancelled or hit its timeout is.

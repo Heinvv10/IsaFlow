@@ -47,7 +47,10 @@ describe('Golden Paths smoke before merge and full suite after merge', () => {
     const full = job('golden-paths-post-merge');
     expect(full.name).toBe('Golden Paths E2E (post-merge)');
     expect(full.if).toBe("${{ github.event_name == 'push' }}");
-    expect(full.concurrency).toEqual({ group: 'golden-paths-post-merge', 'cancel-in-progress': false });
+    expect(full.concurrency).toEqual({
+      group: 'golden-paths-post-merge-${{ github.run_id }}',
+      'cancel-in-progress': false,
+    });
     expect(full.steps.some((step) => step.id === 'mq' || step.if?.includes('steps.mq'))).toBe(false);
     expect(runText('golden-paths-post-merge')).toContain('bun run test:e2e:golden $SHARD');
     expect(runText('golden-paths-post-merge')).not.toContain('test:e2e:golden:smoke');
@@ -58,7 +61,17 @@ describe('Golden Paths smoke before merge and full suite after merge', () => {
     expect(report.needs).toBe('golden-paths-post-merge');
     expect(report.if).toBe("${{ always() && github.event_name == 'push' }}");
     expect(report.steps[0]!.env!.RESULT).toBe('${{ needs.golden-paths-post-merge.result }}');
+    expect(report.steps[0]!.env!.COMMIT_SHA).toBe('${{ github.sha }}');
+    expect(report.steps[0]!.env!.DEFAULT_BRANCH).toBe('${{ github.event.repository.default_branch }}');
     expect(report.steps[0]!.run).toContain('Golden Paths E2E (post-merge)');
+  });
+
+  it('leaves issue state unchanged when a delayed report is not for the current master commit', () => {
+    const command = reportCommand();
+    const guard = command.indexOf('if [ "$COMMIT_SHA" != "$latest" ]');
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(command.indexOf('gh issue list'));
+    expect(command.slice(guard, command.indexOf('if [ "$RESULT" = "cancelled" ]'))).toContain('exit 0');
   });
 
   it('names four existing specs in the smoke script', () => {
@@ -67,3 +80,7 @@ describe('Golden Paths smoke before merge and full suite after merge', () => {
     for (const spec of specs) expect(existsSync(spec), spec).toBe(true);
   });
 });
+
+function reportCommand(): string {
+  return job('golden-paths-report').steps[0]!.run!;
+}
