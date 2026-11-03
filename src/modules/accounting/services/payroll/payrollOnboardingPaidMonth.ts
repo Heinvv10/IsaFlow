@@ -63,7 +63,9 @@ function paysItsLastMonth(to: string, endsWithEmployment: boolean): boolean {
 }
 
 /** A salary closed where it pays nothing for its last month, with no flag: refused, with a followable way out. */
-export function salaryEndRefusal(from: string, to: string | null, endsWithEmployment = true): string | null {
+export function salaryEndRefusal(
+  from: string, to: string | null, endsWithEmployment = true, endDay: string | null = null,
+): string | null {
   if (to === null || paysItsLastMonth(to, endsWithEmployment)) return null;
   const month = Number(to.slice(0, 4)) * 12 + Number(to.slice(5, 7)) - 1;
   const prevEnd = payrollRunReadDate(periodOf(month - 1));
@@ -73,9 +75,14 @@ export function salaryEndRefusal(from: string, to: string | null, endsWithEmploy
   if (!endsWithEmployment) {
     const why = `A salary that ends before the employment does must end on the last day of a month: a run reads pay components on that day, so a salary ending on ${to} `
       + `is not paid for ${label} and blocks its run.`;
-    return prevEnd >= from
-      ? `${why} End the salary on ${prevEnd} and pay the ${name} days as a once-off in an open month, or on ${ownEnd} to pay all of ${name}.`
-      : `${why} End the salary on ${ownEnd} to pay all of ${name}.`;
+    const days = `pay the ${name} days as a once-off in an open month`;
+    // The employment ends inside this month: the month end is out of reach, and the salary ends with the employment
+    // (from the 27th, when it is read) or earlier on the previous month end.
+    if (endDay !== null && endDay.slice(0, 7) === to.slice(0, 7)) {
+      if (Number(endDay.slice(8, 10)) >= 27) return `${why} End the salary with the employment on ${endDay} (or omit salary.effectiveTo).`;
+      return prevEnd >= from ? `${why} End the salary on ${prevEnd} and ${days}.` : `${why} Create the employee without a salary and ${days}.`;
+    }
+    return prevEnd >= from ? `${why} End the salary on ${prevEnd} and ${days}, or on ${ownEnd} to pay all of ${name}.` : `${why} End the salary on ${ownEnd} to pay all of ${name}.`;
   }
   const why = `A salary ending on ${to} is paid nothing for ${label} (a run reads pay components on the last day of the month, so a salary that `
     + 'ends before the 27th is not paid that month).';

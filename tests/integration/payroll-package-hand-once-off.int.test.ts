@@ -120,6 +120,21 @@ describe('a once-off that is no longer live does not block the apply', () => {
   });
 });
 
+describe('a hand-entered once-off in a paid month gets the paid refusal, not the generic one', () => {
+  it('back-pay 5-31 May with May approved: the paid-month text and remedy', async () => {
+    await employee('paidBack');
+    await raw('paidBack', comp.salary, 777, '2026-05-05', '2026-05-31', false);
+    const run = crypto.randomUUID();
+    await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,5,2026,'approved')", [run, company]);
+    await pool.query('INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,taxable_income,paye,net_pay) VALUES($1,$2,777,777,0,777)', [run, emp.paidBack]);
+    const before = await rows('paidBack');
+    await expect(applyPackageToEmployee(company, pkg, emp.paidBack!, '2026-05-01', user)).rejects.toThrow(/2026-05 is already paid \(approved run\).*Reopen that run first/);
+    expect(await rows('paidBack')).toEqual(before);
+    await pool.query('DELETE FROM payroll_run_lines WHERE run_id=$1', [run]);
+    await pool.query('DELETE FROM payroll_run_headers WHERE id=$1', [run]);
+  });
+});
+
 describe('a hand-entered once-off that nobody pays does not block the apply either', () => {
   it('one that was cancelled (End voids it): accepted', async () => {
     await employee('voidedHand');

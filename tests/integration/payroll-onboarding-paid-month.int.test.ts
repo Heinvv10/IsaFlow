@@ -101,6 +101,10 @@ describe('a hire starting in the paid month', () => {
     const notLast = await post(hire('LH-13', '2026-03-05', { effectiveTo: '2026-04-28' }, '2026-05-15'));
     expect(notLast.statusCode, JSON.stringify(notLast.body)).toBe(400);
     expect(notLast.body.error?.message).toMatch(/must end on the last day of a month.*End the salary on 2026-03-31 and pay the April days as a once-off.*or on 2026-04-30 to pay all of April/);
+    const lateNotEnd = await post(hire('LH-15', '2026-03-05', { effectiveTo: '2026-11-28' }, '2026-12-31'));
+    expect(lateNotEnd.statusCode, JSON.stringify(lateNotEnd.body)).toBe(400);
+    expect(lateNotEnd.body.error?.message).toMatch(/must end on the last day of a month/);
+    expect(await rowsOf('LH-15')).toHaveLength(0);
     const sameMonth = await post(hire('LH-14', '2026-03-05', { effectiveTo: '2026-03-28' }, '2026-04-15'));
     expect(sameMonth.statusCode).toBe(400);
     expect(sameMonth.body.error?.message).toMatch(/End the salary on 2026-03-31 to pay all of March/);

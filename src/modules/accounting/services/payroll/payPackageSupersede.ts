@@ -109,6 +109,16 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
      ORDER BY id FOR UPDATE
   `) as DbRow[];
   const overlapped = all.filter((row) => row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom);
+  const toCut = overlapped;
+  // Never cut what a paid run read: that run would no longer agree with the rows (security review, 2026-11-02).
+  for (const row of toCut) {
+    const changed = paidPeriodChanged(paid, windowOf(row), { ...windowOf(row), to: cutTo });
+    if (changed) {
+      throw new EmployeeComponentRefused(
+        `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cut an `
+        + `assignment that run paid (from ${isoDate(row.effective_from)}). ${paidRemedy(changed)}, or apply the package from a later date.`);
+    }
+  }
   // A recurring row is the package's to replace. A once-off is only if the package wrote it (a re-apply); one entered
   // by hand (a back-pay) is not: the apply is refused, with nothing written, rather than cancel it silently.
   // Only live, un-superseded once-offs are judged: a voided one (cancelled, End refuses it) and one an earlier apply
@@ -122,16 +132,6 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
     throw new EmployeeComponentRefused(
       `Applying this package from ${effectiveFrom} would cancel ${foreign.length === 1 ? 'a once-off' : 'once-offs'} this package did not write `
       + `(entered by hand, posted by a batch, or written by another package) on this component: ${named.join(', ')}. End or move ${foreign.length === 1 ? 'it' : 'them'} first, or apply the package from a later date.`);
-  }
-  const toCut = overlapped;
-  // Never cut what a paid run read: that run would no longer agree with the rows (security review, 2026-11-02).
-  for (const row of toCut) {
-    const changed = paidPeriodChanged(paid, windowOf(row), { ...windowOf(row), to: cutTo });
-    if (changed) {
-      throw new EmployeeComponentRefused(
-        `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cut an `
-        + `assignment that run paid (from ${isoDate(row.effective_from)}). ${paidRemedy(changed)}, or apply the package from a later date.`);
-    }
   }
   const endResult = (await tx`
     UPDATE payroll_employee_components

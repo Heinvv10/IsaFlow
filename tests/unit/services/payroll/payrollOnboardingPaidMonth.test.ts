@@ -126,3 +126,44 @@ describe('salaryEndRefusal: a salary that ends before the employment does must e
     expect(salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-28', true)).toContain('Set the salary to start 2026-03-01');
   });
 });
+
+describe('salaryEndRefusal knows the employment end date (advice must be acceptable when followed)', () => {
+  const early = (from: string, to: string, endDay: string) => salaryEndRefusal(from, to, false, endDay);
+
+  it('the employment ends on the 20th of the salary end month: only the previous month end is offered', () => {
+    const text = early('2026-03-01', '2026-04-10', '2026-04-20')!;
+    expect(text).toContain('End the salary on 2026-03-31 and pay the April days as a once-off in an open month.');
+    expect(text).not.toContain('2026-04-30');
+  });
+
+  it('and with no month before it to end in: no salary, once-off', () => {
+    expect(early('2026-04-01', '2026-04-10', '2026-04-20')).toContain('Create the employee without a salary and pay the April days as a once-off in an open month.');
+  });
+
+  it('the employment ends on the 28th: end the salary with it, or omit salary.effectiveTo', () => {
+    expect(early('2026-03-01', '2026-04-10', '2026-04-28')).toContain('End the salary with the employment on 2026-04-28 (or omit salary.effectiveTo).');
+  });
+
+  // Every value an advice string names, fed back through the same check, is accepted.
+  it.each([
+    ['2026-03-05', '2026-04-28', '2026-05-15'],
+    ['2026-03-05', '2026-03-28', '2026-04-15'],
+    ['2026-03-01', '2026-04-10', '2026-04-20'],
+    ['2026-03-01', '2026-04-10', '2026-04-28'],
+    ['2026-03-01', '2026-04-10', '2026-04-27'],
+    ['2026-03-05', '2026-04-28', '2026-04-29'],
+    ['2026-03-05', '2026-04-20', '2026-04-20'],
+    ['2026-03-05', '2026-04-15', '2026-04-15'],
+  ])('from %s to %s, employment ends %s: each advised end date passes', (from, to, endDay) => {
+    const text = salaryEndRefusal(from, to, to === endDay, endDay)!;
+    expect(text).not.toBeNull();
+    const advised = [...text.matchAll(/(?:End the salary on|or on|with the employment on) (\d{4}-\d\d-\d\d)/g)].map((m) => m[1]!);
+    for (const day of advised) {
+      expect(day >= from, `${day} is not before the start`).toBe(true);
+      expect(day <= endDay, `${day} is not after the employment ends`).toBe(true);
+      expect(salaryEndRefusal(from, day, day === endDay, endDay), `${day} is accepted`).toBeNull();
+    }
+    if (advised.length === 0) expect(text).toContain('Create the employee without a salary');
+  });
+});
+
