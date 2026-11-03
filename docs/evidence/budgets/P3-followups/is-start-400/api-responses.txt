@@ -2,4 +2,4 @@
 400 ?period_start=2026-02-31&period_end=2026-04-30 -> {"success":false,"error":{"code":"BAD_REQUEST","message":"period_start must be a YYYY-MM-DD date"},"meta":{"timestamp":"2026-11-03T20:31:25.195Z"}}
 400 ?period_start=2026-04-30&period_end=2026-04-01 -> {"success":false,"error":{"code":"BAD_REQUEST","message":"period_start must not be after period_end"},"meta":{"timestamp":"2026-11-03T20:31:25.552Z"}}
 400 ?period_start=2026-04-01&period_end=2026-13-01 -> {"success":false,"error":{"code":"BAD_REQUEST","message":"period_end must be a YYYY-MM-DD date"},"meta":{"timestamp":"2026-11-03T20:31:25.787Z"}}
-200 ?period_start=2026-04-01&period_end=2026-04-30 -> {"success":true,"data":{"periodStart":"2026-04-01","periodEnd":"2026-04-30","revenue":[],"otherIncome":[],"costOfSales":[],"operatingExpenses":[],"otherExpenses":[],"totalRevenue":0,"totalOtherIncome":0,"totalCostOfSales":0,"totalOperatingExpenses":0,"totalOtherExpenses":0,"grossProfit":0,"operating
+200 ?period_start=2026-04-01&period_end=2026-04-30 -> {"success":true,"data":{"periodStart":"2026-04-01","periodEnd":"2026-04-30", ...} (body truncated here; the full 200 is in api-valid.png)
