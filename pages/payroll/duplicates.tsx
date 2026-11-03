@@ -8,6 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { AlertTriangle, Loader2, AlertCircle, UserCheck } from 'lucide-react';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { useCompany } from '@/contexts/CompanyContext';
+import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 
 interface DupEmployee {
   id: string;
@@ -37,6 +39,7 @@ const TABS: Array<{ key: keyof Omit<DupResult, 'totals'>; label: string }> = [
 ];
 
 export default function DuplicatesPage() {
+  const { companyRole } = useCompany();
   const [data, setData] = useState<DupResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -64,6 +67,9 @@ export default function DuplicatesPage() {
   useEffect(() => { void load(); }, [load]);
 
   const groups = data ? data[activeTab] : [];
+  const visibleTabs = isHistoryAdmin(companyRole ?? undefined)
+    ? TABS
+    : TABS.filter((tab) => tab.key !== 'bankAccount');
 
   return (
     <AppLayout>
@@ -108,7 +114,7 @@ export default function DuplicatesPage() {
               </div>
 
               <div className="flex gap-2 border-b border-[var(--ff-border-primary)]">
-                {TABS.map(t => {
+                {visibleTabs.map(t => {
                   const count = data[t.key].length;
                   return (
                     <button key={t.key} onClick={() => setActiveTab(t.key)}
@@ -125,7 +131,7 @@ export default function DuplicatesPage() {
               ) : (
                 <div className="space-y-3">
                   {groups.map(g => (
-                    <div key={g.value} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
+                    <div key={`${g.value}:${g.employees[0]?.id}`} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
                       <div className="text-sm text-[var(--ff-text-secondary)] mb-3">
                         Shared value: <span className="font-mono text-[var(--ff-text-primary)]">{g.value}</span>
                       </div>

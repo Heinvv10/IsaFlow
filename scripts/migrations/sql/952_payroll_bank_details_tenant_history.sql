@@ -1,0 +1,285 @@
+-- 952: Employee bank details get a tenant, a history and one active row
+-- (master plan wave 3, PR K1; Hein's decisions 5, 6 and 14). 380 made
+-- payroll_bank_details with no company_id and no writer; 888 left it untracked
+-- for that reason. payrollBankDetailsService.ts is now its writer, so:
+--
+--   1. company_id, backfilled from the employee, then a validated FK and NOT NULL.
+--   2. account_holder (nullable: legacy rows and bank files may not carry one).
+--   3. One active row per employee. Older duplicates are deactivated, never
+--      deleted. A change is a new row: the old one stays, inactive.
+--   4. RLS, enabled and forced: the active company, membership and a role. The
+--      roles of withPayrollDetailAccess (owner, admin, manager) read and insert,
+--      into a row that points at an employee of its own company. Only owner /
+--      admin update, and only is_active (a column grant): nobody can rewrite a
+--      stored number, so every change is a new row the history records. No
+--      request role may DELETE or empty the table. An employee's delete still
+--      removes their rows (the FK's cascade runs as the table owner, outside
+--      forced RLS). A manager's INSERT stays open for a first entry; that it is
+--      only a first entry, and (Hein's ruling on D1, 2026-11-02) only for an
+--      employee never in an approved, posted or paid run, are the service's
+--      rules (FIRST_ENTRY_REQUIRES_ADMIN). They are decided under the employee
+--      row lock, which serialises bank details writes for one employee (two
+--      first entries cannot both find none); run approval takes no employee
+--      lock, so an approval committing during an entry is ordered after it.
+--      RLS could state the run rule in this INSERT policy's WITH CHECK, but it
+--      would bind no one the service does not: the only writer that bypasses
+--      the service is injected SQL, whose forged claims name an owner. It is
+--      not added here.
+--      Nothing in the app reaches the table but those two request routes, so
+--      platform_admin holds nothing on it, and app_service has no mirror (915's
+--      list, as impersonation_sessions): it inherits app_user's grants, so a
+--      REVOKE from it would change nothing, and with no mirror those grants meet
+--      app_user's policies. This table gives the service pool no row without
+--      forged claims.
+--   5. 888's capture, ENABLE ALWAYS, as entity type payroll_bank_detail, with
+--      its own arm in entity_changes_read (owner, admin, manager, as
+--      payroll_employee) and its value in the entity_type CHECK. The history
+--      stores the account number in full (a reveal needs it); the API masks it
+--      (SENSITIVE_FIELDS). app_service's SELECT mirror on entity_changes is
+--      USING (true), so with no claims at all the service pool would read every
+--      tenant's numbers there. entity_changes joins 915's exclusion list (step
+--      4): app_service gets no mirror on it, and the sync drops the one it had.
+--      A per-row check could not do it: a mirror's USING (true) is fixed when a
+--      query is planned, so a cursor fetched, or a scan run, after SET ROLE
+--      app_user would pass it. Every reader of the history (the routes, MCP,
+--      audit snapshots and comparisons, runAuditTx) switches to app_user with
+--      the caller's claims first and reads through entity_changes_read.
+--      The capture function is unchanged, so 930's definer registry is too:
+--      entity_change_projection already keeps every column but id and created_at.
+--
+-- Prefix: 950 and 951 are claimed by open PRs #1009 and #1015.
+--
+-- Cross-tenant by design: the backfill and the deduplication run over every
+-- company, each row taking its own employee's company. No literal company_id
+-- applies: the join is the scope. Nothing in the app writes this table before
+-- this migration, so both are expected to touch nothing on production.
+--
+-- Locks: companies before entity_changes, the order a tracked write takes them,
+-- so the migration does not invert a request that writes a company and is then
+-- captured. entity_changes is held ACCESS EXCLUSIVE to COMMIT, with one scan
+-- for the CHECK: deploy after hours. A lock not granted within 5s aborts the
+-- migration, which has then changed nothing: re-run it. Both hold only under
+-- scripts/apply-migrations.ts, which runs the file in one transaction: outside
+-- one SET LOCAL does nothing, so psql -f neither bounds the wait nor undoes
+-- the steps before a failure.
+--
+-- Rollback: old code ignores the new columns and never writes the table, so
+-- reverting code alone is safe.
+
+SET LOCAL lock_timeout = '5s';
+
+-- ── 1, 2. Tenant and holder ───────────────────────────────────────────────
+ALTER TABLE payroll_bank_details ADD COLUMN IF NOT EXISTS company_id UUID;
+ALTER TABLE payroll_bank_details ADD COLUMN IF NOT EXISTS account_holder VARCHAR(100);
+
+UPDATE payroll_bank_details b
+   SET company_id = e.company_id
+  FROM payroll_employees e
+ WHERE e.id = b.employee_id AND b.company_id IS NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_constraint c
+    WHERE c.conrelid = 'public.payroll_bank_details'::pg_catalog.regclass
+      AND c.conname = 'payroll_bank_details_company_id_fkey'
+  ) THEN
+    ALTER TABLE payroll_bank_details
+      ADD CONSTRAINT payroll_bank_details_company_id_fkey
+      FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
+  END IF;
+END $$;
+ALTER TABLE payroll_bank_details VALIDATE CONSTRAINT payroll_bank_details_company_id_fkey;
+ALTER TABLE payroll_bank_details ALTER COLUMN company_id SET NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_payroll_bank_details_company
+  ON payroll_bank_details (company_id, employee_id);
+
+-- ── 3. One active row per employee ────────────────────────────────────────
+DO $$
+DECLARE v_count pg_catalog.int8;
+BEGIN
+  WITH ranked AS (
+    SELECT b.id, pg_catalog.row_number() OVER (
+             PARTITION BY b.employee_id ORDER BY b.effective_from DESC, b.created_at DESC, b.id DESC) AS rn
+    FROM payroll_bank_details b WHERE b.is_active
+  )
+  UPDATE payroll_bank_details b SET is_active = false
+    FROM ranked r WHERE r.id = b.id AND r.rn > 1;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RAISE NOTICE 'migration 952: deactivated % superseded active payroll_bank_details row(s)', v_count;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_bank_details_one_active
+  ON payroll_bank_details (employee_id) WHERE is_active;
+
+-- ── 4. RLS and grants ─────────────────────────────────────────────────────
+ALTER TABLE payroll_bank_details ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_bank_details FORCE ROW LEVEL SECURITY;
+-- payroll_detail_tenant: the single FOR ALL policy an earlier build of this file made.
+DROP POLICY IF EXISTS payroll_detail_tenant ON payroll_bank_details;
+DROP POLICY IF EXISTS payroll_detail_read ON payroll_bank_details;
+CREATE POLICY payroll_detail_read ON payroll_bank_details FOR SELECT TO app_user
+  USING (
+    company_id = app.current_company_id()
+    AND company_id IN (SELECT auth.user_companies())
+    AND COALESCE(public.company_member_actor_role(company_id) IN ('owner', 'admin', 'manager'), false));
+DROP POLICY IF EXISTS payroll_detail_insert ON payroll_bank_details;
+CREATE POLICY payroll_detail_insert ON payroll_bank_details FOR INSERT TO app_user
+  WITH CHECK (
+    company_id = app.current_company_id()
+    AND company_id IN (SELECT auth.user_companies())
+    AND COALESCE(public.company_member_actor_role(company_id) IN ('owner', 'admin', 'manager'), false)
+    AND employee_id IN (SELECT e.id FROM payroll_employees e WHERE e.company_id = payroll_bank_details.company_id));
+-- The WITH CHECK falls back to this USING: is_active is the only updatable column.
+DROP POLICY IF EXISTS payroll_detail_update ON payroll_bank_details;
+CREATE POLICY payroll_detail_update ON payroll_bank_details FOR UPDATE TO app_user
+  USING (
+    company_id = app.current_company_id()
+    AND company_id IN (SELECT auth.user_companies())
+    AND COALESCE(public.company_member_actor_role(company_id) IN ('owner', 'admin'), false));
+
+-- A table-level REVOKE also clears column grants, so UPDATE comes back as is_active alone.
+REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON payroll_bank_details FROM app_user, app_service, PUBLIC;
+REVOKE ALL ON payroll_bank_details FROM platform_admin;
+-- Whoever else holds them, seen or not: production's ACL is not read here. The
+-- owner and migration_admin (the seed's sweep) keep theirs. The abort below stays
+-- as the check.
+DO $$
+DECLARE
+  v_grantee pg_catalog.text;
+BEGIN
+  FOR v_grantee IN
+    SELECT DISTINCT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.quote_ident(pg_catalog.pg_get_userbyid(a.grantee)) END
+    FROM pg_catalog.pg_class c
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
+    WHERE c.oid = 'public.payroll_bank_details'::pg_catalog.regclass
+      AND a.privilege_type IN ('DELETE', 'TRUNCATE') AND a.grantee <> c.relowner
+      AND a.grantee IS DISTINCT FROM pg_catalog.to_regrole('migration_admin')::pg_catalog.oid
+  LOOP
+    EXECUTE pg_catalog.format('REVOKE DELETE, TRUNCATE ON public.payroll_bank_details FROM %s CASCADE', v_grantee);
+  END LOOP;
+END $$;
+GRANT SELECT, INSERT ON payroll_bank_details TO app_user;
+GRANT UPDATE (is_active) ON payroll_bank_details TO app_user;
+
+-- 915's function, with this table and entity_changes beside impersonation_sessions: no service path reads them.
+CREATE OR REPLACE FUNCTION public.app_service_wanted_policies()
+RETURNS TABLE (tbl regclass, cmd text)
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  WITH pol AS (
+    SELECT p.polrelid, p.polcmd,
+           coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false' AS using_false,
+           coalesce(pg_get_expr(p.polwithcheck, p.polrelid), pg_get_expr(p.polqual, p.polrelid), 'true') = 'false' AS check_false
+      FROM pg_policy p
+      JOIN pg_class c ON c.oid = p.polrelid
+      JOIN pg_namespace ns ON ns.oid = c.relnamespace
+     WHERE ns.nspname = 'public'
+       AND c.relname NOT IN ('impersonation_sessions', 'payroll_bank_details', 'entity_changes')
+       AND p.polpermissive
+       AND p.polname NOT LIKE 'app\_service\_%'
+       AND (p.polroles = '{0}'::oid[] OR 'app_user'::regrole = ANY (p.polroles))
+  ), admitted AS (
+    SELECT polrelid, 'select' AS cmd FROM pol WHERE polcmd IN ('r', '*') AND NOT using_false
+    UNION SELECT polrelid, 'delete' FROM pol WHERE polcmd IN ('d', '*') AND NOT using_false
+    UNION SELECT polrelid, 'insert' FROM pol WHERE polcmd IN ('a', '*') AND NOT check_false
+    UNION SELECT polrelid, 'update' FROM pol WHERE polcmd IN ('w', '*') AND NOT using_false AND NOT check_false
+  )
+  SELECT polrelid::regclass, cmd FROM admitted
+   WHERE CASE cmd WHEN 'delete' THEN has_table_privilege('app_user', polrelid, 'DELETE')
+                  ELSE has_any_column_privilege('app_user', polrelid, upper(cmd)) END
+$$;
+
+-- ── 5. The history ────────────────────────────────────────────────────────
+ALTER TABLE entity_changes DROP CONSTRAINT IF EXISTS entity_changes_entity_type_check;
+ALTER TABLE entity_changes ADD CONSTRAINT entity_changes_entity_type_check CHECK (entity_type IN (
+  'supplier', 'customer', 'gl_account', 'payroll_employee', 'company_user', 'company_invitation',
+  'company_user_permission', 'company', 'approval_rule', 'approval_enforcement', 'payroll_bank_detail'));
+
+DROP POLICY IF EXISTS entity_changes_read ON entity_changes;
+CREATE POLICY entity_changes_read ON entity_changes
+  FOR SELECT TO app_user
+  USING (
+    company_id = app.current_company_id()
+    AND company_id IN (SELECT auth.user_companies())
+    AND CASE
+      WHEN entity_type IN ('supplier', 'customer', 'gl_account') THEN true
+      WHEN entity_type = 'payroll_employee'
+        THEN COALESCE(public.company_member_actor_role(company_id) IN ('owner', 'admin', 'manager'), false)
+      WHEN entity_type = 'payroll_bank_detail'
+        THEN COALESCE(public.company_member_actor_role(company_id) IN ('owner', 'admin', 'manager'), false)
+      ELSE COALESCE(public.company_member_actor_role(company_id) IN ('owner', 'admin'), false)
+    END);
+
+-- The restrictive policy an earlier build of this file made: replaced by the exclusion in step 4.
+DROP POLICY IF EXISTS bank_history_off_service_pool ON entity_changes;
+
+-- After step 3, so the migration's own deactivations are not recorded as anyone's change.
+DROP TRIGGER IF EXISTS entity_change_capture ON payroll_bank_details;
+CREATE TRIGGER entity_change_capture AFTER INSERT OR UPDATE OR DELETE ON payroll_bank_details
+  FOR EACH ROW EXECUTE FUNCTION public.entity_change_capture('payroll_bank_detail');
+ALTER TABLE payroll_bank_details ENABLE ALWAYS TRIGGER entity_change_capture;
+
+-- app_service's mirrors follow app_user's privileges and policies (915), bar this table's.
+SELECT public.app_service_sync_policies();
+
+-- ── Refuse to ship it any other way ───────────────────────────────────────
+DO $$
+DECLARE
+  v_table CONSTANT pg_catalog.regclass := 'public.payroll_bank_details'::pg_catalog.regclass;
+  r RECORD;
+BEGIN
+  -- Every grantee, not a list of the ones known today. migration_admin's seed sweep keeps its DELETE.
+  FOR r IN
+    SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END AS grantee, a.privilege_type
+    FROM pg_catalog.pg_class c
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
+    WHERE c.oid = v_table AND a.privilege_type IN ('DELETE', 'TRUNCATE') AND a.grantee <> c.relowner
+      AND a.grantee IS DISTINCT FROM pg_catalog.to_regrole('migration_admin')::pg_catalog.oid
+  LOOP
+    RAISE EXCEPTION 'migration 952: % still holds % on payroll_bank_details', r.grantee, r.privilege_type;
+  END LOOP;
+  IF pg_catalog.has_any_column_privilege('platform_admin', v_table, 'SELECT, INSERT, UPDATE, REFERENCES')
+     OR pg_catalog.has_table_privilege('platform_admin', v_table, 'DELETE, TRUNCATE, TRIGGER') THEN
+    RAISE EXCEPTION 'migration 952: platform_admin still holds a privilege on payroll_bank_details';
+  END IF;
+  FOR r IN
+    SELECT a.attname FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = v_table AND a.attnum > 0 AND NOT a.attisdropped AND a.attname <> 'is_active'
+      AND pg_catalog.has_column_privilege('app_user', v_table, a.attnum, 'UPDATE')
+  LOOP
+    RAISE EXCEPTION 'migration 952: app_user may update %, not only is_active', r.attname;
+  END LOOP;
+  -- No mirror, nor any other policy naming app_service, on either table holding whole account numbers.
+  FOR r IN
+    SELECT c.relname FROM pg_catalog.pg_policy p JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
+    WHERE p.polrelid IN (v_table, 'public.entity_changes'::pg_catalog.regclass)
+      AND 'app_service'::pg_catalog.regrole = ANY (p.polroles)
+  LOOP
+    RAISE EXCEPTION 'migration 952: app_service has a policy on %', r.relname;
+  END LOOP;
+  -- Nor any other permissive policy, whatever role it names (a USING (true) TO PUBLIC or isaflow_service).
+  FOR r IN
+    SELECT c.relname, p.polname FROM pg_catalog.pg_policy p JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
+    WHERE p.polrelid IN (v_table, 'public.entity_changes'::pg_catalog.regclass) AND p.polpermissive
+      AND p.polname NOT IN ('entity_changes_read', 'payroll_detail_read', 'payroll_detail_insert', 'payroll_detail_update')
+  LOOP
+    RAISE EXCEPTION 'migration 952: % has a permissive policy % it did not write', r.relname, r.polname;
+  END LOOP;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class c
+    WHERE c.oid = 'public.payroll_bank_details'::pg_catalog.regclass AND c.relrowsecurity AND c.relforcerowsecurity
+  ) THEN
+    RAISE EXCEPTION 'migration 952: payroll_bank_details must have row level security enabled and forced';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_trigger t
+    WHERE t.tgrelid = 'public.payroll_bank_details'::pg_catalog.regclass AND t.tgname = 'entity_change_capture'
+      AND t.tgenabled = 'A' AND t.tgfoid = 'public.entity_change_capture()'::pg_catalog.regprocedure
+  ) THEN
+    RAISE EXCEPTION 'migration 952: payroll_bank_details has no ENABLE ALWAYS entity_change_capture trigger';
+  END IF;
+END $$;

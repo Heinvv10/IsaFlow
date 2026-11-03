@@ -35,6 +35,7 @@ vi.mock('@/lib/rateLimit', () => ({
 }));
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { apiLogger } from '@/lib/logger';
 import handler from '../../../pages/api/oauth/token';
 import { resetSqlMock, mockSqlOnce } from './helpers';
 
@@ -84,6 +85,22 @@ beforeEach(() => {
   resetSqlMock();
   adminQueryMock.mockReset();
   adminQueryMock.mockResolvedValue({ rows: [], rowCount: 0 });
+});
+
+describe('POST /api/oauth/token — the request log', () => {
+  const secrets = { code: 'oac_LOGGED', client_secret: 'cls_LOGGED', code_verifier: 'pkce_LOGGED', refresh_token: 'ort_LOGGED' };
+  const safe = { grant_type: 'authorization_code', client_id: 'client_dynamic123', redirect_uri: 'https://claude.ai/cb', resource: 'https://app/mcp' };
+
+  it.each(['application/json', 'application/x-www-form-urlencoded'])('%s: the allow-listed fields, never a code, secret or token', async (type) => {
+    vi.mocked(apiLogger.info).mockClear();
+    mockSqlOnce([]); // getOauthAppByClientId: an unknown client is enough, the line is written first
+    const req = makeReq({ ...safe, ...secrets });
+    req.headers['content-type'] = type;
+    await handler(req, makeRes());
+    const line = vi.mocked(apiLogger.info).mock.calls.map(([entry]) => entry as { type?: string; body?: unknown }).find((e) => e.type === 'request');
+    expect(line?.body).toEqual(safe);
+    expect(JSON.stringify(line)).not.toContain('LOGGED');
+  });
 });
 
 describe('POST /api/oauth/token — public (PKCE-only) clients', () => {
