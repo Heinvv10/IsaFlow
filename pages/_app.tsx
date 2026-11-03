@@ -15,9 +15,12 @@ import { TrackerScript } from '@/components/analytics/TrackerScript';
 import { isSharePath } from '@/lib/paths/isSharePath';
 import { ShellTitle } from '@/components/layout/ShellTitle';
 import { dmSans } from '@/lib/fonts';
+import { installHistoryIndex } from '@/lib/historyIndex';
 import '../styles/globals.css';
 import '../styles/themeContrast.css';
 import '../styles/print.css';
+
+installHistoryIndex();
 
 /**
  * Custom App component

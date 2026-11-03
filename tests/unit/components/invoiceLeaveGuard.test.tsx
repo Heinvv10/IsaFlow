@@ -14,7 +14,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { advance, bodyOf, description, puts, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
 
-type PopState = (s: { url: string; as: string; options: object }) => boolean;
+type PopState = (s: { url: string; as: string; options: object; __isaIdx?: number }) => boolean;
 /** The Navigation API as the guard reads it: the entry the browser is on, and traverseTo. */
 const nav = { currentEntry: { key: 'edit-entry' } as { key: string } | null, traverseTo: vi.fn() };
 /** The browser has moved to the entry `key` and fires popstate: Next calls beforePopState. */
@@ -147,11 +147,27 @@ describe('leaving with a change unsaved', () => {
   it.each([
     ['no Navigation API at all', () => Object.defineProperty(window, 'navigation', { value: undefined, configurable: true, writable: true })],
     ['no traverseTo', () => { (nav as { traverseTo?: unknown }).traverseTo = undefined; }],
-  ])('a change autosave is holding, but the browser has %s: not asked (the move could not be undone exactly)', async (_name, strip) => {
+  ])('a change autosave is holding, but the browser has %s and the entry is unindexed: not asked', async (_name, strip) => {
     await openHeld();
     strip();
     expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(true);
     expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['Back', 4, 1],
+    ['Forward', 6, -1],
+    ['a two-step jump back', 3, 2],
+  ])('without the Navigation API, a held change on %s asks and Stay restores the indexed entry', async (_name, to, delta) => {
+    Object.defineProperty(window, 'navigation', { value: undefined, configurable: true, writable: true });
+    window.history.replaceState({ key: 'edit-entry', __isaIdx: 5 }, '', '/accounting/customer-invoices/edit/inv-1');
+    await openHeld();
+    const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined);
+    expect(h.pop!({ url: '/x', as: '/x', options: {}, __isaIdx: to })).toBe(false);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(go).toHaveBeenCalledWith(delta);
+    expect(h.pop!({ url: '/edit', as: '/edit', options: {}, __isaIdx: 5 })).toBe(false);
+    expect(confirm).toHaveBeenCalledTimes(1);
   });
 
   it('a change autosave is holding: Back asks; Leave goes, sends nothing, and is not asked again', async () => {
