@@ -16,7 +16,8 @@
  * decided after the role, so a manager's PUT cannot test a guessed number.
  * /api/payroll/duplicates cannot either: it gives a manager no bank-account
  * groups (owner / admin only; masked in Login-as and token sessions).
- * The account number is masked for everyone but owner / admin.
+ * The account number (last four), branch code (last two) and holder (first
+ * letter) are masked for everyone but owner / admin; the bank name is not.
  * Sessions: the route refuses Login-as and tokens; MCP has no bank-details tool.
  *
  * Every refusal is raised before the first write (a 4xx commits the request).
@@ -73,9 +74,12 @@ export interface EmployeeBankDetails {
   bankName: string;
   /** In full for owner / admin, else `…1234`. */
   accountNumber: string;
+  /** True for anyone but owner / admin: number, branch code and holder are then masked. */
   masked: boolean;
   accountType: AccountType;
+  /** In full for owner / admin, else `…55` (last two digits). */
   branchCode: string;
+  /** In full for owner / admin, else its first letter and `…`. */
   accountHolder: string | null;
   effectiveFrom: string;
 }
@@ -99,6 +103,10 @@ interface BankRow {
   effective_from: string;
 }
 
+/** Branch code to its last two digits, holder to its first letter: with the number's last four, two employees on one account do not show it. */
+const maskBranch = (code: string) => `…${code.slice(-2)}`;
+const maskHolder = (holder: string | null) => (holder ? `${Array.from(holder)[0]}…` : holder);
+
 function toView(row: BankRow, role: string | undefined): EmployeeBankDetails {
   const full = isHistoryAdmin(role);
   return {
@@ -108,8 +116,8 @@ function toView(row: BankRow, role: string | undefined): EmployeeBankDetails {
     accountNumber: full ? row.account_number : String(maskValue(row.account_number)),
     masked: !full,
     accountType: row.account_type,
-    branchCode: row.branch_code,
-    accountHolder: row.account_holder,
+    branchCode: full ? row.branch_code : maskBranch(row.branch_code),
+    accountHolder: full ? row.account_holder : maskHolder(row.account_holder),
     effectiveFrom: row.effective_from,
   };
 }

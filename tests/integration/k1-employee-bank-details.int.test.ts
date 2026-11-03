@@ -32,7 +32,7 @@ afterAll(async () => {
 const company = () => newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer']], companies);
 const history = (user: string, c: string, query: Record<string, string>) =>
   callRoute(entityChanges, tokens[user]!, c, 'GET', undefined, '/api/accounting/entity-changes', query);
-type View = { id: string; accountNumber: string; masked: boolean; bankName: string; accountHolder: string | null; effectiveFrom: string };
+type View = { id: string; accountNumber: string; masked: boolean; bankName: string; branchCode: string; accountHolder: string | null; effectiveFrom: string };
 const view = (res: Awaited<ReturnType<typeof put>>) => dataOf<View>(res);
 
 async function entered(): Promise<{ c: string; e: string }> {
@@ -58,12 +58,16 @@ describe('the first entry', () => {
     const c = await company();
     const e = await employee(pool, c);
     const res = await put(tokens[m]!, c, e, ROW);
-    expect(view(res)).toMatchObject({ accountNumber: '…3456', masked: true, bankName: 'FNB', accountHolder: 'K One' });
+    expect(view(res)).toMatchObject({ accountNumber: '…3456', masked: true, bankName: 'FNB', branchCode: '…55', accountHolder: 'K…' });
     expect(JSON.stringify(res.state.body)).not.toContain(ROW.accountNumber);
     const read = await get(tokens[m]!, c, e);
-    expect(view(read)).toMatchObject({ accountNumber: '…3456', masked: true, effectiveFrom: todayInSast() });
-    expect(JSON.stringify(read.state.body)).not.toContain(ROW.accountNumber);
-    for (const user of [o, a]) expect(view(await get(tokens[user]!, c, e))).toMatchObject({ accountNumber: ROW.accountNumber, masked: false });
+    expect(view(read)).toMatchObject({ accountNumber: '…3456', masked: true, bankName: 'FNB', branchCode: '…55', accountHolder: 'K…', effectiveFrom: todayInSast() });
+    for (const leak of [ROW.accountNumber, ROW.branchCode, ROW.accountHolder]) expect(JSON.stringify(read.state.body)).not.toContain(leak);
+    for (const user of [o, a]) {
+      expect(view(await get(tokens[user]!, c, e))).toMatchObject({
+        accountNumber: ROW.accountNumber, branchCode: ROW.branchCode, accountHolder: ROW.accountHolder, masked: false,
+      });
+    }
   });
 
   it('an employee with no details answers null, not a 404', async () => {
