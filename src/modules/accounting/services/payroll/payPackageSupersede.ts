@@ -47,29 +47,25 @@ async function ownOnceOffs(
 }
 
 /**
- * The date to apply the package from instead, judged on the COMPANY's paid months (the apply is refused by any of them,
- * not only the employee's): with a recurring line, the first day of the month after the latest paid month on or after
- * the once-off's month (the recurring row runs through every later paid month); without one, the day after the once-off
- * ends, or, when that falls in a paid month, the first day of the next month that is not paid. Null for an open-ended
- * once-off (no day after it).
+ * The date to apply the package from instead, named only where it is provably followable: after EVERY once-off the apply
+ * would refuse (so none is cancelled), and after the latest company-paid month on or after the earliest of them (so no
+ * paid month is reached, whatever the package holds). That is the first day of the month after that paid month, or the
+ * day after the last of those once-offs ends if that is later (it then falls in an unpaid month, being after every
+ * paid one). Null when one is open-ended (no day after it).
  */
-function applyFromAfter(row: DbRow, paid: PaidPeriod[], hasRecurringLine: boolean): string | null {
-  if (row.effective_to == null) return null;
-  const to = isoDate(row.effective_to);
-  let year = Number(to.slice(0, 4));
-  let month = Number(to.slice(5, 7));
+function applyFromAfter(rows: DbRow[], paid: PaidPeriod[]): string | null {
+  if (rows.some((row) => row.effective_to == null)) return null;
   const idx = (y: number, m: number) => y * 12 + m;
-  const reached = paid.filter((p) => idx(p.year, p.month) >= idx(year, month));
-  if (hasRecurringLine && reached.length > 0) {
-    const latest = reached.reduce((a, b) => (idx(b.year, b.month) > idx(a.year, a.month) ? b : a));
-    return latest.month === 12 ? `${latest.year + 1}-01-01` : `${latest.year}-${String(latest.month + 1).padStart(2, '0')}-01`;
-  }
-  let day = to === endOfMonth(to) ? null : Number(to.slice(8, 10)) + 1;
-  if (day === null || paid.some((p) => p.year === year && p.month === month)) {
-    day = 1;
-    do { month += 1; if (month > 12) { month = 1; year += 1; } } while (paid.some((p) => p.year === year && p.month === month));
-  }
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const firstOfNext = (y: number, m: number) => (m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`);
+  const first = rows.map((row) => isoDate(row.effective_from)).sort()[0]!;
+  const reached = paid.filter((p) => idx(p.year, p.month) >= idx(Number(first.slice(0, 4)), Number(first.slice(5, 7))));
+  const latest = reached.length > 0 ? reached.reduce((a, b) => (idx(b.year, b.month) > idx(a.year, a.month) ? b : a)) : null;
+  const afterPaid = latest ? firstOfNext(latest.year, latest.month) : null;
+  const lastEnd = rows.map((row) => isoDate(row.effective_to)).sort().reverse()[0]!;
+  const dayAfterEnd = lastEnd === endOfMonth(lastEnd)
+    ? firstOfNext(Number(lastEnd.slice(0, 4)), Number(lastEnd.slice(5, 7)))
+    : `${lastEnd.slice(0, 8)}${String(Number(lastEnd.slice(8, 10)) + 1).padStart(2, '0')}`;
+  return afterPaid !== null && afterPaid > lastEnd ? afterPaid : dayAfterEnd;
 }
 
 /** The amounts of this package's once-off lines for the component: what its own earlier rows were written with. */
@@ -152,8 +148,7 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
     if (changed) {
       if (foreignIds.has(String(row.id))) {
         const companyPaid = await paidPeriodsOf(tx, companyId, null);
-        const recurringLine = (await tx`SELECT 1 FROM pay_package_components WHERE package_id = ${packageId}::uuid AND is_recurring = true LIMIT 1`) as DbRow[];
-        const applyFrom = applyFromAfter(row, companyPaid, recurringLine.length > 0);
+        const applyFrom = applyFromAfter(foreign, companyPaid);
         throw new EmployeeComponentRefused(
           `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cancel a once-off this package did not write `
           + `(from ${isoDate(row.effective_from)}) that run paid. ${applyFrom ? `Apply the package from ${applyFrom}` : 'Apply the package from a later date'}; or, to keep this date, ${paidRemedyInline(changed)} and then end or move that once-off.`);

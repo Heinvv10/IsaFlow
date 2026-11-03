@@ -37,6 +37,9 @@ async function newPaidMonth(
   return paid.find((p) => datedIn(after, p) && !(before && datedIn(before, p)));
 }
 
+/** "2026-02", "2026-02 and 2026-06", "2026-02, 2026-04 and 2026-06". */
+const joinedLabels = (parts: string[]): string => (parts.length < 2 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`);
+
 /** A once-off dated in a month a paid run already read: refused, since that run will never pay it. `before`: an edit. */
 export async function refuseOnceOffInPaidMonth(
   tx: TxSql, companyId: string, from: string, to: string | null, before: Window | null = null, paid?: PaidPeriod[],
@@ -58,14 +61,23 @@ export async function refuseRecurringInPaidMonth(
 ): Promise<void> {
   const all = paid ?? await paidPeriodsOf(tx, companyId, null);
   const hit = await newPaidMonth(tx, companyId, before, after, all);
-  if (hit) {
-    // Where to date it from: the month after the latest paid month the row would reach, if the row still runs that far.
-    const latest = all.filter((p) => datedIn(after, p)).reduce((a, b) => (b.year * 12 + b.month > a.year * 12 + a.month ? b : a));
-    const next = latest.month === 12 ? { year: latest.year + 1, month: 1 } : { year: latest.year, month: latest.month + 1 };
-    const nextFirst = `${next.year}-${String(next.month).padStart(2, '0')}-01`;
-    const where = after.to !== null && nextFirst > after.to ? 'Date it in an open month' : `Date it from ${nextFirst}`;
+  if (!hit) return;
+  const remedy = `${paidRemedyInline(hit)}, or capture the correction in an open period.`;
+  if (before !== null) {
+    // Edit dates: name the paid months the row GAINS, not a date. Whether a date is followable depends on the row's other
+    // end and its other rows, so none is promised; a month the row already touched is not named.
+    const gained = all.filter((p) => datedIn(after, p) && !datedIn(before, p));
+    const labels = joinedLabels(gained.map(periodLabel));
     throw new EmployeeComponentRefused(
-      `${periodLabel(hit)} is already paid ${paidNote(hit)}: a recurring row dated in it would never be paid for that month. `
-      + `${where}; or ${paidRemedyInline(hit)}, or capture the correction in an open period.`);
+      `${labels} ${gained.length === 1 ? 'is' : 'are'} already paid ${paidNote(hit)}: a recurring row dated in ${gained.length === 1 ? 'it' : 'them'} would never be paid for ${gained.length === 1 ? 'that month' : 'those months'}. `
+      + `Keep the row out of ${labels}; or ${remedy}`);
   }
+  // A new row (assign, batch post, package apply): its whole window is the caller's choice, so a date is followable: the
+  // month after the latest paid month the row would reach, if the row still runs that far.
+  const latest = all.filter((p) => datedIn(after, p)).reduce((a, b) => (b.year * 12 + b.month > a.year * 12 + a.month ? b : a));
+  const next = latest.month === 12 ? { year: latest.year + 1, month: 1 } : { year: latest.year, month: latest.month + 1 };
+  const nextFirst = `${next.year}-${String(next.month).padStart(2, '0')}-01`;
+  const where = after.to !== null && nextFirst > after.to ? 'Date it in an open month' : `Date it from ${nextFirst}`;
+  throw new EmployeeComponentRefused(
+    `${periodLabel(hit)} is already paid ${paidNote(hit)}: a recurring row dated in it would never be paid for that month. ${where}; or ${remedy}`);
 }
