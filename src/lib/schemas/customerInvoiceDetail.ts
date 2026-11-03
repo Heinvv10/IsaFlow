@@ -55,4 +55,5 @@ export const PostBodySchema = z.object({
   expectedTotal: z.number().finite().optional(),
   expectedCurrency: z.string().min(1).max(8).optional(),
   expectedExchangeRate: z.number().positive().finite().optional(),
+  expectedContentDigest: z.string().min(1).max(128).optional(),
 });

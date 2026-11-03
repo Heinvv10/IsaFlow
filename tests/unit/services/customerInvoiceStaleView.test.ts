@@ -25,3 +25,19 @@ describe('assertShownIsStored and money', () => {
     expect(() => assertShownIsStored({ expectedTotal: 1150 }, { total_amount: '1150.01', currency_code: 'ZAR', exchange_rate: 1 })).toThrow(InvoiceStaleViewError);
   });
 });
+
+describe('assertShownIsStored and approval content', () => {
+  it('refuses an unseen content change even when total, currency and rate are unchanged', () => {
+    expect(() => assertShownIsStored(
+      { expectedTotal: 1150, expectedCurrency: 'ZAR', expectedExchangeRate: 1, expectedContentDigest: 'screen-digest' },
+      { total_amount: '1150.00', currency_code: 'ZAR', exchange_rate: 1, approval_content_digest: 'changed-digest' },
+    )).toThrow(InvoiceStaleViewError);
+  });
+
+  it('accepts the exact approval digest the screen loaded', () => {
+    expect(() => assertShownIsStored(
+      { expectedContentDigest: 'screen-digest' },
+      { approval_content_digest: 'screen-digest' },
+    )).not.toThrow();
+  });
+});

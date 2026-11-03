@@ -42,9 +42,11 @@ export interface ServerAutosaveOptions {
   done?: boolean;
   /** The body the server just took (JSON). */
   onSaved?: (json: string) => void;
+  /** Canonical approval digest returned with the loaded invoice. */
+  approvalContentDigest?: string;
 }
 
-export type SaveResult = { ok: true } | { ok: false; message: string };
+export type SaveResult = { ok: true; approvalContentDigest?: string } | { ok: false; message: string };
 
 export interface ServerAutosave {
   /** What to show; null when there is nothing to say yet (nothing changed on this visit). */
@@ -64,6 +66,8 @@ export interface ServerAutosave {
   held: string | null;
   /** The newest body as sent, at the moment of asking (Approve & email compares it before and after). */
   currentBody: () => string | null;
+  /** The canonical approval digest returned by the load or latest successful PUT. */
+  contentDigest: () => string | undefined;
   /** The user chose to leave without the change: nothing is sent as the page closes. */
   leaveWithout: () => void;
 }
@@ -82,12 +86,15 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const [failure, setFailure] = useState<Failure | null>(null);
   const inFlight = useRef<Promise<SaveResult> | null>(null);
   const sending = useRef<string | null>(null); // the body of the PUT out now
+  const contentDigest = useRef<string | undefined>(opts?.approvalContentDigest);
   const discarded = useRef<string | null>(null); // the body "Leave without them" was about: only that one is not sent
   // The last body this page showed with its invoice, kept past the render that drops it (another invoice opened in
   // place shows no body while it loads), so the change it held can still be sent.
   const lastShown = useRef<{ invoiceId: string | null; json: string; armed: boolean } | null>(null);
   const again = useRef(false);
   const seq = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const request = useRef<AbortController | null>(null);
 
   const onSaved = useRef(opts?.onSaved);
   useCommitEffect(() => { onSaved.current = opts?.onSaved; });
@@ -136,6 +143,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     lastSaved.current = null;
     setSavedJson(null);
     setFailure(null);
+    contentDigest.current = opts?.approvalContentDigest;
   }, [loadKey]);
   const shownFor = useRef(invoiceId);
   useCommitEffect(() => {
@@ -153,8 +161,9 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   useCommitEffect(() => {
     if (json === null || lastSaved.current !== null) return;
     lastSaved.current = json;
+    contentDigest.current = opts?.approvalContentDigest;
     setSavedJson(json);
-  }, [json]);
+  }, [json, opts?.approvalContentDigest]);
   // Unmounted: every reply still out is stale from here.
   useEffect(() => () => { seq.current++; sendAsItLeaves(); }, [sendAsItLeaves]);
 
@@ -162,31 +171,40 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const send = useCallback(async (how: Send): Promise<SaveResult> => {
     const sent = latest.current.json;
     if (sent === null) return { ok: false, message: 'The invoice has not loaded yet' };
-    if (latest.current.done || (how !== 'always' && sent === lastSaved.current) || (how === 'auto' && !latest.current.armed)) return { ok: true };
+    if (latest.current.done || (how !== 'always' && sent === lastSaved.current) || (how === 'auto' && !latest.current.armed)) {
+      return { ok: true, ...(contentDigest.current ? { approvalContentDigest: contentDigest.current } : {}) };
+    }
     const mine = ++seq.current;
     setSaving(true);
     sending.current = sent;
+    const controller = new AbortController();
+    request.current = controller;
     try {
       const put = (async () => {
-        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: sent });
+        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: sent, signal: controller.signal });
         await assertOk(res, SAVE_FAILED);
+        const envelope = await res.json() as { data?: { approvalContentDigest?: unknown }; approvalContentDigest?: unknown };
+        const digest = envelope.data?.approvalContentDigest ?? envelope.approvalContentDigest;
+        return typeof digest === 'string' && digest ? digest : undefined;
       })();
       if (shownFor.current) trackInvoiceSave(shownFor.current, put);
-      await put;
+      const digest = await put;
       if (mine !== seq.current) return { ok: true };
+      contentDigest.current = digest ?? contentDigest.current;
       lastSaved.current = sent; // what this reply carried, never the newer body typed while it was out
       setSavedJson(sent);
       setSavedAt(Date.now());
       setSavedCount((n) => n + 1);
       setFailure(null);
       onSaved.current?.(sent);
-      return { ok: true };
+      return { ok: true, ...(contentDigest.current ? { approvalContentDigest: contentDigest.current } : {}) };
     } catch (err) {
       const message = apiErrorMessage(err, SAVE_FAILED);
       if (mine === seq.current) setFailure({ json: sent, message });
       return { ok: false, message };
     } finally {
       if (sending.current === sent) sending.current = null;
+      if (request.current === controller) request.current = null;
       if (mine === seq.current) setSaving(false);
     }
   }, []);
@@ -207,8 +225,8 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
 
   useEffect(() => {
     if (!armed || json === lastSaved.current) return undefined;
-    const timer = setTimeout(() => { void flush('auto'); }, SERVER_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    timer.current = setTimeout(() => { timer.current = null; void flush('auto'); }, SERVER_DEBOUNCE_MS);
+    return () => { if (timer.current) clearTimeout(timer.current); timer.current = null; };
   }, [armed, json, flush]);
 
   const saveNow = useCallback((always = false) => flush(always ? 'always' : 'changed'), [flush]);
@@ -216,12 +234,20 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     || (lastSaved.current !== null && latest.current.json !== lastSaved.current)), []);
 
   const currentBody = useCallback(() => latest.current.json, []);
-  const leaveWithout = useCallback(() => { discarded.current = latest.current.json; }, []);
+  const currentDigest = useCallback(() => contentDigest.current, []);
+  const leaveWithout = useCallback(() => {
+    discarded.current = latest.current.json;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    again.current = false;
+    seq.current++;
+    request.current?.abort();
+  }, []);
   const state: AutosaveState | null = !opts || json === null ? null
     : failed ? 'error'
       : saving ? 'saving'
         : savedJson !== null && json !== savedJson ? 'dirty'
           : savedAt !== null ? 'saved' : null;
   const held = state === 'dirty' && opts?.problem && !opts.paused ? opts.problem : null;
-  return { state, savedAt, error: failed?.message ?? null, savedCount, saveNow, unsaved, held, currentBody, leaveWithout };
+  return { state, savedAt, error: failed?.message ?? null, savedCount, saveNow, unsaved, held, currentBody, contentDigest: currentDigest, leaveWithout };
 }

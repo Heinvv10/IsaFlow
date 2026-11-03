@@ -27,6 +27,7 @@ const invoice = (total: number) => ({
   id: 'inv-1', invoice_number: 'INV-0001', client_name: 'Acme', project_name: '', status: 'draft',
   invoice_date: '2026-09-01', due_date: '2026-10-01', subtotal: total / 1.15, tax_rate: 15, tax_amount: total - total / 1.15,
   total_amount: total, amount_paid: 0, notes: '', gl_journal_entry_id: null, items: [{ id: 'l1', description: `Line at ${total}`, quantity: 1, unit_price: total, amount: total, tax_rate: 15 }],
+  approval_content_digest: `digest-${total}`,
   approval: { state: 'not_required', enforced: false, requiredRole: null, ruleName: null, requestId: null },
 });
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
@@ -55,7 +56,7 @@ describe('Approve on the invoice page', () => {
     await flush();
     await flush();
     const post = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')!;
-    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ id: 'inv-1', action: 'approve', expectedTotal: 1150, expectedCurrency: 'ZAR', expectedExchangeRate: 1 });
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ id: 'inv-1', action: 'approve', expectedTotal: 1150, expectedCurrency: 'ZAR', expectedExchangeRate: 1, expectedContentDigest: 'digest-1150' });
     expect(screen.getByText(STALE)).toBeTruthy();
     expect(screen.getByText('Line at 1265')).toBeTruthy(); // reloaded: what is stored now
   });

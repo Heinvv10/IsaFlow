@@ -2,10 +2,11 @@
  * What an Approve sends about the invoice on screen (PR S): its total, currency and exchange rate. The server refuses
  * the approval (409 STALE_VIEW) when anything stored differs (customerInvoiceStaleView.ts). Pure.
  */
-export interface ShownForApproval { total: number; currencyCode: string; exchangeRate: number }
+export interface ShownForApproval { total: number; currencyCode: string; exchangeRate: number; approvalContentDigest?: string }
 
-export const approvalShown = ({ total, currencyCode, exchangeRate }: ShownForApproval) => ({
+export const approvalShown = ({ total, currencyCode, exchangeRate, approvalContentDigest }: ShownForApproval) => ({
   expectedTotal: total,
   expectedCurrency: currencyCode || 'ZAR',
   expectedExchangeRate: Number(exchangeRate) > 0 ? Number(exchangeRate) : 1,
+  ...(approvalContentDigest ? { expectedContentDigest: approvalContentDigest } : {}),
 });

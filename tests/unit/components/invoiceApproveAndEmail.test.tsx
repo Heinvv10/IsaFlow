@@ -8,7 +8,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { advance, bodyOf, calls, description, pick, puts, refused, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
+import { advance, bodyOf, calls, description, DRAFT, json, ok, pick, puts, refused, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
 
 const h = vi.hoisted(() => ({ push: vi.fn(), query: {} as Record<string, string>, events: null as null | ReturnType<typeof import('../helpers/invoiceAutosaveHarness').routerEvents> }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -55,11 +55,13 @@ async function openEdit() {
 
 describe('Approve & email on a new invoice', () => {
   it('creates, approves, then opens the email form with the customer\'s address; nothing is sent until Send', async () => {
-    serveInvoice();
+    serveInvoice((u) => (u.includes('customer-invoices-create')
+      ? json(201, { success: true, data: { id: 'inv-1', invoiceNumber: 'INV-AUTO', approvalContentDigest: 'created-digest' } })
+      : undefined));
     await openNew();
     await approveAndEmail();
     expect(urlsInOrder()).toEqual(['POST /api/accounting/customer-invoices-create', 'POST /api/accounting/customer-invoices-detail']);
-    expect(bodyOf(approves()[0]!)).toEqual({ id: 'inv-1', action: 'approve', expectedTotal: 115, expectedCurrency: 'ZAR', expectedExchangeRate: 1 }); // the total on screen
+    expect(bodyOf(approves()[0]!)).toEqual({ id: 'inv-1', action: 'approve', expectedTotal: 115, expectedCurrency: 'ZAR', expectedExchangeRate: 1, expectedContentDigest: 'created-digest' });
     expect(dialog()).toBeTruthy();
     expect((screen.getByPlaceholderText('client@example.com') as HTMLInputElement).value).toBe('billing@client.example');
     await advance(30_000);
@@ -126,12 +128,14 @@ describe('Approve & email on a new invoice', () => {
 
 describe('Approve & email on the edit page', () => {
   it('an unchanged draft is approved without a PUT; a changed one is saved first, then approved', async () => {
-    serveInvoice();
+    serveInvoice((u, init) => (u.includes('customer-invoices-detail') && init?.method === 'PUT'
+      ? ok({ updated: true, approvalContentDigest: 'saved-digest' }) : undefined),
+    { ...DRAFT, approval_content_digest: 'loaded-digest' });
     await openEdit();
     await approveAndEmail();
     expect(puts()).toHaveLength(0);
     expect(urlsInOrder()).toEqual(['POST /api/accounting/customer-invoices-detail']);
-    expect(bodyOf(approves()[0]!)).toEqual({ id: 'inv-1', action: 'approve', expectedTotal: 115, expectedCurrency: 'ZAR', expectedExchangeRate: 1 });
+    expect(bodyOf(approves()[0]!)).toEqual({ id: 'inv-1', action: 'approve', expectedTotal: 115, expectedCurrency: 'ZAR', expectedExchangeRate: 1, expectedContentDigest: 'loaded-digest' });
     expect(dialog()).toBeTruthy();
     cleanup();
     vi.mocked(apiFetch).mockClear();
@@ -141,6 +145,7 @@ describe('Approve & email on the edit page', () => {
     await approveAndEmail();
     expect(urlsInOrder()).toEqual(['PUT /api/accounting/customer-invoices-detail', 'POST /api/accounting/customer-invoices-detail']);
     expect(bodyOf(puts()[0]!).items[0]!.description).toBe('Changed before approval');
+    expect(bodyOf(approves()[0]!).expectedContentDigest).toBe('saved-digest');
     await advance(30_000);
     expect(puts()).toHaveLength(1); // autosave does not follow the approval with a PUT on an approved invoice
   });

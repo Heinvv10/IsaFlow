@@ -114,7 +114,7 @@ export async function approveCustomerInvoice(
   userId: string,
   opts?: PostingActorOpts & ShownInvoice,
 ): Promise<ApproveCustomerInvoiceResult> {
-  const { expectedTotal, expectedCurrency, expectedExchangeRate, ...actor } = opts ?? {};
+  const { expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest, ...actor } = opts ?? {};
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // A COMPARE-AND-SWAP IS STRONGER THAN A LOCK AGAINST DOUBLE-POSTING, AND
   // WEAKER AGAINST HANGING. The guarded UPDATE below means two callers cannot
@@ -155,7 +155,9 @@ export async function approveCustomerInvoice(
   let locked: Row[];
   try {
     locked = (await sql`
-      SELECT status, currency_code, total_amount, exchange_rate FROM customer_invoices
+      SELECT status, currency_code, total_amount, exchange_rate,
+             approval_document_digest(company_id, 'customer_invoice', id) AS approval_content_digest
+      FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
         AND status = ANY(${APPROVABLE_STATUSES}::text[])
       FOR NO KEY UPDATE
@@ -165,7 +167,7 @@ export async function approveCustomerInvoice(
     throw err;
   }
   if (locked[0]) {
-    assertShownIsStored({ expectedTotal, expectedCurrency, expectedExchangeRate }, locked[0]);
+    assertShownIsStored({ expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest }, locked[0]);
     await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
     // FX PR0: under the lock and before the status write, like the approval check.
     await assertDocumentPostable(companyId, [locked[0].currency_code], 'invoice');

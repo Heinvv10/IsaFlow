@@ -11,9 +11,10 @@ export interface ShownInvoice {
   expectedTotal?: number;
   expectedCurrency?: string;
   expectedExchangeRate?: number;
+  expectedContentDigest?: string;
 }
 
-interface Stored { total_amount?: unknown; currency_code?: unknown; exchange_rate?: unknown }
+interface Stored { total_amount?: unknown; currency_code?: unknown; exchange_rate?: unknown; approval_content_digest?: unknown }
 
 const currencyOf = (code: unknown): string => (typeof code === 'string' && code.trim() ? code.trim().toUpperCase() : 'ZAR');
 const ONE = BigInt(1000000);
@@ -39,13 +40,14 @@ export class InvoiceStaleViewError extends Error {
   }
 }
 
-/** Throws when anything shown differs from the stored row (total to the cent, currency, rate to 6 places). */
+/** Throws when anything shown differs from the stored row, including the canonical approval-content digest. */
 export function assertShownIsStored(shown: ShownInvoice, stored: Stored): void {
   const total = Number(stored.total_amount ?? 0);
   const currency = currencyOf(stored.currency_code);
   const rate = rateOf(stored.exchange_rate);
   const stale = (shown.expectedTotal !== undefined && !sameCents(String(stored.total_amount ?? 0), shown.expectedTotal))
     || (shown.expectedCurrency !== undefined && currencyOf(shown.expectedCurrency) !== currency)
-    || (shown.expectedExchangeRate !== undefined && rateOf(shown.expectedExchangeRate) !== rate);
+    || (shown.expectedExchangeRate !== undefined && rateOf(shown.expectedExchangeRate) !== rate)
+    || (shown.expectedContentDigest !== undefined && shown.expectedContentDigest !== stored.approval_content_digest);
   if (stale) throw new InvoiceStaleViewError(describe(total, currency, rate));
 }

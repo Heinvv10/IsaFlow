@@ -166,11 +166,11 @@ export default function NewCustomerInvoicePage() {
     try {
       const res = await apiFetch('/api/accounting/customer-invoices-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, taxRate, items: validLines }) });
       await assertOk(res, 'Could not create the invoice - try again');
-      const json = await res.json() as { data?: { id?: string; invoiceNumber?: string }; id?: string; invoiceNumber?: string };
+      const json = await res.json() as { data?: { id?: string; invoiceNumber?: string; approvalContentDigest?: string }; id?: string; invoiceNumber?: string; approvalContentDigest?: string };
       const d = json.data || json;
       if (!d.id) throw new ApiEnvelopeError('The invoice could not be opened - check the invoice list before creating it again');
       draft.clear();
-      return { id: d.id, invoiceNumber: d.invoiceNumber ?? '' };
+      return { id: d.id, invoiceNumber: d.invoiceNumber ?? '', approvalContentDigest: d.approvalContentDigest };
     } catch (e) { setError(apiErrorMessage(e, 'Could not create the invoice - try again')); return null; }
   };
 

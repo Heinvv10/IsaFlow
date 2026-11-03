@@ -110,7 +110,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'bad_dimensions') return apiResponse.badRequest(res, result.message);
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
-    return apiResponse.success(res, { updated: true });
+    const digestRows = (await sql`
+      SELECT approval_document_digest(company_id, 'customer_invoice', id) AS digest
+      FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}
+    `) as Row[];
+    return apiResponse.success(res, { updated: true, approvalContentDigest: String(digestRows[0]?.digest ?? '') });
   }
 
   if (req.method === 'POST') {
@@ -118,7 +122,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!postParsed.success) {
       return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
     }
-    const { id, action, expectedTotal, expectedCurrency, expectedExchangeRate } = postParsed.data;
+    const { id, action, expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest } = postParsed.data;
     const userId = (req as CompanyAuthedRequest).user?.id || 'system';
 
     // Cancel reverses the approval GL journal and zeroes the outstanding
@@ -156,7 +160,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'approve') {
       try {
         const result = await withJournalDateRefusal(res, () =>
-          approveCustomerInvoice(companyId, id, userId, { expectedTotal, expectedCurrency, expectedExchangeRate }));
+          approveCustomerInvoice(companyId, id, userId, { expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest }));
         if (result === JOURNAL_DATE_REFUSED) return;
         log.info('Customer invoice action', { id, action, newStatus: result.status });
         return apiResponse.success(res, {

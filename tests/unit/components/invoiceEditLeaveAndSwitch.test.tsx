@@ -49,9 +49,30 @@ describe('leaving', () => {
     type(description(), 'Thrown away');
     await act(async () => { await router().push('/elsewhere'); });
     expect(confirm).toHaveBeenCalledTimes(1);
+    await advance(1_500); // navigation may be slow: the already-scheduled autosave stays cancelled
     cleanup();
     await settle();
     expect(puts()).toHaveLength(0);
+  });
+
+  it('aborts a PUT already in flight when "Leave without them?" is confirmed', async () => {
+    let signal: AbortSignal | null = null;
+    serveInvoice((u, init) => {
+      if (!u.includes('customer-invoices-detail') || init?.method !== 'PUT') return undefined;
+      signal = init.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+    await open();
+    type(description(), 'Do not persist');
+    await advance(1_500);
+    expect(puts()).toHaveLength(1);
+    await act(async () => { await router().push('/elsewhere'); });
+    expect(signal?.aborted).toBe(true);
+    cleanup();
+    await settle();
+    expect(puts()).toHaveLength(1);
   });
 
   it('a PUT already out with the body is not sent again as the page goes', async () => {

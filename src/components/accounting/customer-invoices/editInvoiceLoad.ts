@@ -20,6 +20,7 @@ export type InvoiceDetail = {
   billing_period_start?: string | null; billing_period_end?: string | null;
   tax_rate: number | string; notes?: string | null; total_amount?: number | string;
   currency_code?: string | null; exchange_rate?: number | string | null; project_id?: string | null;
+  approval_content_digest?: string;
   items?: InvoiceItemRow[];
 };
 

@@ -94,7 +94,7 @@ export default function CustomerInvoiceDetailPage() {
         // The invoice shown, never the URL's (another may be loading). Approve carries what is on screen: anything stored
         // differently is refused (409 STALE_VIEW) and reloaded below.
         body: JSON.stringify(action === 'approve'
-          ? { id: actedOn, action, ...approvalShown({ total: Number(invoice?.total_amount), currencyCode: invoice?.currency_code ?? 'ZAR', exchangeRate: Number(invoice?.exchange_rate ?? 1) }) }
+          ? { id: actedOn, action, ...approvalShown({ total: Number(invoice?.total_amount), currencyCode: invoice?.currency_code ?? 'ZAR', exchangeRate: Number(invoice?.exchange_rate ?? 1), approvalContentDigest: invoice.approval_content_digest }) }
           : { id: actedOn, action }),
       });
       // R-035: 409 is the approval gate — reload so the page offers Submit for approval — or STALE_VIEW: show what is stored.

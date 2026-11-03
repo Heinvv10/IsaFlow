@@ -51,6 +51,21 @@ describe('approve and the total the approver saw', () => {
     expect((await pool.query('SELECT * FROM customer_invoices WHERE id = $1', [inv.id])).rows[0]).toEqual(before);
   });
 
+  it('different approval content at the same total is 409 STALE_VIEW', async () => {
+    const inv = await plantInvoice(pool, company, owner);
+    const digest = (await pool.query(
+      "SELECT approval_document_digest($1, 'customer_invoice', $2) AS digest",
+      [company, inv.id],
+    )).rows[0].digest as string;
+    await pool.query('UPDATE customer_invoice_items SET description = $1 WHERE invoice_id = $2', ['Changed elsewhere', inv.id]);
+    const res = await approve({
+      id: inv.id, expectedTotal: 1150, expectedCurrency: 'ZAR', expectedExchangeRate: 1, expectedContentDigest: digest,
+    });
+    expect(res.state.statusCode).toBe(409);
+    expect(reasonOf(res)).toBe('STALE_VIEW');
+    expect((await invoiceState(pool, inv.id))).toMatchObject({ status: 'draft', gl_journal_entry_id: null, journals: 0 });
+  });
+
   it('within a cent is the same total (the column is 2 dp)', async () => {
     const inv = await plantInvoice(pool, company, owner);
     expect((await approve({ id: inv.id, expectedTotal: 1150.004 })).state.statusCode).toBe(200);

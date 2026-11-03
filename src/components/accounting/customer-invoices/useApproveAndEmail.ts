@@ -33,7 +33,7 @@ function noticeElsewhere(invoiceId: string, what: 'approved' | 'refused' | 'sent
   else notify.error(title);
 }
 
-export interface SavedInvoice { id: string; invoiceNumber: string }
+export interface SavedInvoice { id: string; invoiceNumber: string; approvalContentDigest?: string }
 
 interface Options {
   /** The page's save; null when it refused (the page has shown why). */
@@ -107,10 +107,10 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, shown
     setBusy(true);
     try {
       const approvedBody = bodyNow(); // before the save: a change typed while it is out is not on the approved invoice
-      const shownNow = approvalShown(shown);
       let reason: string | undefined;
       const saved = await save();
       if (!saved || !current()) return;
+      const shownNow = approvalShown({ ...shown, approvalContentDigest: saved.approvalContentDigest ?? shown.approvalContentDigest });
       try {
         const res = await apiFetch('/api/accounting/customer-invoices-detail', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: saved.id, action: 'approve', ...shownNow }),

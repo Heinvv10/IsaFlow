@@ -19,6 +19,7 @@ import {
   InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
+import { sql } from '@/lib/neon';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -38,7 +39,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
       taxRate, notes, items, currencyCode, exchangeRate, projectId,
     });
-    return apiResponse.created(res, { id: invoiceId, invoiceNumber });
+    const digestRows = await sql`
+      SELECT approval_document_digest(company_id, 'customer_invoice', id) AS digest
+      FROM customer_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
+    ` as Array<Record<string, unknown>>;
+    return apiResponse.created(res, { id: invoiceId, invoiceNumber, approvalContentDigest: String(digestRows[0]?.digest ?? '') });
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof InvoiceLineValidationError) return apiResponse.badRequest(res, err.message);

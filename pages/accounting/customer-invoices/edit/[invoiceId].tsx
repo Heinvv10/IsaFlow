@@ -64,6 +64,7 @@ export default function EditCustomerInvoicePage() {
   const setErrorStays = (v: boolean) => { errorStays.current = v; };
   // The total as stored: priced by older rules (a converted quote, WIP) it can differ from what the lines give now.
   const [storedTotal, setStoredTotal] = useState<number | null>(null);
+  const [approvalContentDigest, setApprovalContentDigest] = useState<string | undefined>();
   const [reloads, setReloads] = useState(0); // a STALE_VIEW refusal reloads what is stored
   const staleRefusal = useRef<string | null>(null); // its sentence, shown once the reload lands
   const staleFor = useRef(''); // the invoice it was about
@@ -98,6 +99,7 @@ export default function EditCustomerInvoicePage() {
       setInvoiceNumber(invoice.invoice_number);
       setLoadedFor(id); setLoadedKey(thisLoad);
       setStoredTotal(invoice.total_amount === undefined || invoice.total_amount === null ? null : Number(invoice.total_amount));
+      setApprovalContentDigest(invoice.approval_content_digest);
       setStoredDates({ dueDate: Boolean(invoice.due_date), billingPeriodStart: Boolean(invoice.billing_period_start), billingPeriodEnd: Boolean(invoice.billing_period_end) });
       // Why this load: a STALE_VIEW here (carried in memory across the reload), or Approve & email on the new page.
       const refusal = carried ? { message: carried, status: null } : takeApproveRefusal(id);
@@ -167,7 +169,7 @@ export default function EditCustomerInvoicePage() {
         setError(`Save to reprice at ${money(total)}, or approve ${money(storedTotal)} from the invoice page`);
         return null;
       }
-      return (await saveDraft(false)) ? { id, invoiceNumber } : null;
+      return (await saveDraft(false)) ? { id, invoiceNumber, approvalContentDigest: autosave.contentDigest() } : null;
     },
     onRefused: (_id, message, status, reason) => {
       if (reason === 'STALE_VIEW') { staleRefusal.current = message; staleFor.current = id; setReloads(n => n + 1); return; } // show what is stored, and why
@@ -192,6 +194,7 @@ export default function EditCustomerInvoicePage() {
     mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft) : null,
     // A stale-priced draft is held: an autosaved typo would reprice it (and drop WIP links, stale an approval).
     problem: stalePriced ? STALE_PRICED_HOLD : autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved, onSaved: keepStoredDates,
+    approvalContentDigest,
   });
 
   const saveDraft = async (always: boolean): Promise<boolean> => {
