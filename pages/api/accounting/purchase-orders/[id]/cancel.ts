@@ -21,7 +21,6 @@ import { isUuidParam } from '@/lib/validation';
 import { BUDGET_REASON_MAX } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import { PurchaseOrderChangedError, PurchaseOrderNotFoundError } from '@/modules/accounting/services/ap/purchaseOrderErrors';
 import { cancelApprovedPurchaseOrder, PurchaseOrderNotCancellableError } from '@/modules/accounting/services/ap/purchaseOrderCancel';
-import { PO_CANCEL_ROLES } from '@/lib/auth/writeRoles';
 
 const CancelSchema = z.object({ reason: z.string().trim().min(1).max(BUDGET_REASON_MAX) }).strict();
 
@@ -48,4 +47,5 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: [...PO_CANCEL_ROLES] }))));
+// The literal is `writeRoles.PO_CANCEL_ROLES` (the page's button reads that); the role-gate census reads literals.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));
