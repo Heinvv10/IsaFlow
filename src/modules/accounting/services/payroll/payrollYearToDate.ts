@@ -9,9 +9,12 @@
  * employee was paid and what EMP201 and the IRP5 declare, so the cumulative
  * deduction trues up to exactly those.
  *
- * - periods: lines with periodic pay (a severance-only line has none);
- * - retirementCapPeriods: lines with periodic pay or an annual payment, so
- *   each bonus-only period advances the pro-rated s11F cap;
+ * - periods: lines with positive taxable periodic earnings before deductions,
+ *   read separately from 3605 in the stored breakdown so an annual-payment
+ *   clawback cannot erase a salary period (a severance-only or
+ *   donation-correction-only line has none);
+ * - retirementCapPeriods: those lines or a line with a pre-deduction annual
+ *   payment, so each bonus-only period advances the pro-rated s11F cap;
  * - periodicTaxable / annualPayments: the line's periodic_taxable /
  *   annual_taxable (migration 913). A line written before 913 has NULLs, and
  *   its split is derived from the stored breakdown: annual payments = its
@@ -44,6 +47,7 @@ import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
 import { loadMedicalRecord } from './payrollMedicalRecord';
 import { loadRetirementRecord } from './payrollRetirementRecord';
+import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -62,9 +66,12 @@ export async function loadPayeYearToDate(
       SELECT l.id AS line_id, l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic,
+             r.periodic_before_deductions,
+             r.annual_before_deductions,
              b.annual_3605, b.original_taxable, b.donations
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
+      CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
       CROSS JOIN LATERAL (
         SELECT COALESCE(SUM((item->'directive'->>'paye')::numeric) FILTER (WHERE item->'directive' IS NOT NULL), 0) AS directive_paye,
                GREATEST(COALESCE(SUM((item->>'amount')::numeric) FILTER (
@@ -90,11 +97,14 @@ export async function loadPayeYearToDate(
         AND l.employee_id = ANY(${employeeIds}::uuid[])
     )
     SELECT employee_id,
-           -- Donations are inside periodic: add the full signed amount back to recover remuneration.
-           COUNT(*) FILTER (WHERE periodic + donations > 0)::int AS periods,
-           COUNT(*) FILTER (WHERE periodic + donations > 0 OR annual > 0)::int AS retirement_cap_periods,
+           COUNT(*) FILTER (WHERE periodic_before_deductions > 0)::int AS periods,
+           COUNT(*) FILTER (WHERE periodic_before_deductions > 0 OR annual_before_deductions > 0)::int AS retirement_cap_periods,
            -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
-           jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic <= 0) AS unpaid_lines,
+           jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic_before_deductions <= 0) AS unpaid_lines,
+           -- Only these lines may need the legacy restoration to add a cap period.
+           jsonb_object_agg(line_id::text, true) FILTER (
+             WHERE periodic_before_deductions <= 0 AND annual_before_deductions <= 0
+           ) AS uncounted_cap_lines,
            jsonb_object_agg(line_id::text, jsonb_build_object(
              'periodic', periodic, 'annual', annual, 'annualGross', annual_3605,
              'originalTaxable', original_taxable
@@ -119,6 +129,7 @@ export async function loadPayeYearToDate(
   return new Map(rows.map(r => {
     const fund = retirement.get(String(r.employee_id));
     const taxableSplits = (r.taxable_splits ?? {}) as Record<string, unknown>;
+    const uncountedCapLines = (r.uncounted_cap_lines ?? {}) as Record<string, unknown>;
     const legacyTaxableByLine = fund?.legacyTaxableByLine ?? {};
     const restored = restoreLegacyTaxableSplit(
       taxableSplits,
@@ -127,7 +138,8 @@ export async function loadPayeYearToDate(
     const restoredCapPeriods = Object.entries(legacyTaxableByLine).filter(([lineId, deduction]) => {
       const split = (taxableSplits[lineId] ?? {}) as Record<string, unknown>;
       const restorable = Math.min(deduction, Math.max(0, Number(split.originalTaxable)));
-      return restorable > 0 && Number(split.periodic) <= 0 && Number(split.annual) <= 0;
+      return Object.prototype.hasOwnProperty.call(uncountedCapLines, lineId)
+        && restorable > 0 && Number(split.periodic) <= 0 && Number(split.annual) <= 0;
     }).length;
     return [String(r.employee_id), {
       periods: yearToDatePeriods(Number(r.periods), (r.unpaid_lines ?? {}) as Record<string, unknown>, restored.periodicByLine),
@@ -181,7 +193,7 @@ export function yearToDatePeriods(
   unpaidLines: Record<string, unknown>,
   restoredPeriodicByLine: Record<string, number>,
 ): number {
-  const restored = Object.entries(unpaidLines).filter(([id, periodic]) => Number(periodic) + (restoredPeriodicByLine[id] ?? 0) > 0);
+  const restored = Object.keys(unpaidLines).filter(id => (restoredPeriodicByLine[id] ?? 0) > 0);
   return withPeriodicPay + restored.length;
 }
 

@@ -51,6 +51,13 @@ function line(components: EmployeeComponent[], beneficiaries = 0) {
   });
 }
 
+function lineWithYtd(components: EmployeeComponent[], ytd: Parameters<typeof calculatePayrollLine>[0]['ytd']) {
+  return calculatePayrollLine({
+    employee: employee(), components, period: { month: 7, year: 2026 }, taxYear: 2027,
+    annualPayrollEstimate: 'defer', ytd,
+  });
+}
+
 describe('P3: an annual payment (3605) is taxed by the SARS annual-payment method', () => {
   it("the guide's October bonus: salary tax 4 161.00 plus bonus tax 3 848.00", () => {
     const l = line([{ component: comp('3601'), amount: 28_000 }, { component: comp('3605'), amount: 14_800 }]);
@@ -94,6 +101,19 @@ describe('P3: an annual payment (3605) is taxed by the SARS annual-payment metho
     // 20 000 × 12 = 240 000 × 18% = 43 200 − 17 820 = 25 380 / 12 = 2 115.00.
     const l = line([{ component: comp('3601'), amount: 20_000 }]);
     expect(l.payeSplit).toEqual({ regular: 2115, annualPayment: 0, directive: 0 });
+  });
+
+  it('a negative 3605 cannot erase the salary period used by the next month', () => {
+    const june = line([{ component: comp('3601'), amount: 20_000 }, { component: comp('3605'), amount: -20_000 }]);
+    expect(june).toMatchObject({ periodicRemuneration: 20_000, periodicTaxable: 0, annualTaxable: 0 });
+
+    const july = lineWithYtd([{ component: comp('3601'), amount: 20_000 }], {
+      periods: 1, retirementCapPeriods: 1, periodicTaxable: 0, annualPayments: 0,
+      tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0,
+      retirementContributions: 0, retirementDeduction: 0, donations: 0,
+    });
+    // Two paid salary periods, R20 000 taxable in total: AE R120 000, tax R3 780 × 2/12 = R630.
+    expect(july.paye.monthlyPaye).toBe(630);
   });
 });
 

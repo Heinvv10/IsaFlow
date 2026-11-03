@@ -24,6 +24,7 @@ function year(months: Month[], taxYear = 2027) {
     const r = calculateCumulativePaye({
       taxYear, rebateAge: 40, monthlyMedicalBeneficiaries: 0, medicalSchemeFees: 0,
       regularTaxable: m.salary - (m.donation ?? 0), annualPayments: m.bonus ?? 0,
+      periodicRemuneration: m.salary, annualPaymentRemuneration: m.bonus ?? 0,
       retirementContributions: m.contribution, donations: m.donation ?? 0, ytd,
     });
     const total = r2(r.regular.monthlyPaye + r.annualPaymentPaye);

@@ -22,7 +22,7 @@ const base = { taxYear: 2027, rebateAge: 46, monthlyMedicalBeneficiaries: 0, med
 function year(salaries: number[], bonuses: number[] = salaries.map(() => 0)) {
   let ytd = NONE;
   return salaries.map((s, i) => {
-    const r = calculateCumulativePaye({ ...base, regularTaxable: s, annualPayments: bonuses[i]!, ytd });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: s, annualPayments: bonuses[i]!, periodicRemuneration: s, annualPaymentRemuneration: bonuses[i]!, ytd });
     const total = Math.round((r.regular.monthlyPaye + r.annualPaymentPaye) * 100) / 100;
     ytd = {
       periods: ytd.periods + (s > 0 ? 1 : 0), periodicTaxable: ytd.periodicTaxable + s,
@@ -39,10 +39,10 @@ describe('cumulative PAYE', () => {
       const p = { ageAtPeriodEnd: base.rebateAge, monthlyMedicalBeneficiaries: 0, taxYear: 2027 };
       const tax = (x: number) => annualTaxAfterCredits({ ...p, annualTaxableIncome: x }).annualTax;
       const x12 = [calculatePAYE({ ...p, annualTaxableIncome: salary * 12 }).monthlyPaye, Math.round((tax(salary * 12 + bonus) - tax(salary * 12)) * 100) / 100];
-      const now = calculateCumulativePaye({ ...base, regularTaxable: salary, annualPayments: bonus, ytd: NONE });
+      const now = calculateCumulativePaye({ ...base, regularTaxable: salary, annualPayments: bonus, periodicRemuneration: salary, annualPaymentRemuneration: bonus, ytd: NONE });
       expect([now.regular.monthlyPaye, now.annualPaymentPaye], `${salary}/${bonus}`).toEqual(x12);
     }
-    const m1 = calculateCumulativePaye({ ...base, regularTaxable: 28_000, annualPayments: 14_800, ytd: NONE });
+    const m1 = calculateCumulativePaye({ ...base, regularTaxable: 28_000, annualPayments: 14_800, periodicRemuneration: 28_000, annualPaymentRemuneration: 14_800, ytd: NONE });
     expect([m1.regular.monthlyPaye, m1.annualPaymentPaye]).toEqual([4_161, 3_848]);
   });
 
@@ -95,18 +95,18 @@ describe('cumulative PAYE', () => {
   });
 
   it('a period with no periodic pay and no annual payment deducts nothing from the tables', () => {
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 0, ytd: { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 } });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 0, periodicRemuneration: 0, annualPaymentRemuneration: 0, ytd: { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 } });
     expect([r.regular.monthlyPaye, r.annualPaymentPaye]).toEqual([0, 0]);
   });
 
   it('a bonus-only period does not count as a period worked: the annual equivalent stays on the periods with pay', () => {
     // n = 2, AE = 240 000: 25 380 × 2/12 + (tax(260 000) − tax(240 000)) − 4 230 = 4 792, all of it the bonus's.
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 20_000, ytd: { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 4_230, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 } });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 20_000, periodicRemuneration: 0, annualPaymentRemuneration: 20_000, ytd: { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 4_230, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 } });
     expect([r.regular.monthlyPaye, r.annualPaymentPaye, r.periods]).toEqual([0, 4_792, 2]);
   });
 
   it('a bonus with no periodic pay this year: the whole bonus on a nil annual equivalent (#752: 3 780)', () => {
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 120_000, ytd: NONE });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 120_000, periodicRemuneration: 0, annualPaymentRemuneration: 120_000, ytd: NONE });
     expect([r.regular.monthlyPaye, r.annualPaymentPaye]).toEqual([0, 3_780]);
   });
 });
