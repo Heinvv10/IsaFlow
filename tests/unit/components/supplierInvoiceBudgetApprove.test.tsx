@@ -55,7 +55,7 @@ describe('supplier invoice page — budget approve dialog', () => {
   it('warn: shows the remaining table, and approves only with a reason, which it sends', async () => {
     await openDialog('warn');
     expect(screen.getByText('6100 Opex')).toBeTruthy();
-    expect(screen.getByText('No budget')).toBeTruthy();
+    expect(screen.getAllByText('No budget').length).toBeGreaterThan(0); // the cards and the table (CSS shows one)
     expect(screen.getByText(/One line is over budget/)).toBeTruthy();
     const approve = screen.getByRole('button', { name: 'Approve' }) as HTMLButtonElement;
     expect(approve.disabled).toBe(true);

@@ -26,12 +26,6 @@ export function provisionalReclassLines(claim: ProvisionalClaim | null | undefin
   }));
 }
 
-/**
- * The same lines for a PREVIEW, read without the claim's locks or refusals: the standing, evidenced,
- * unsettled provisional behind the bill's slip, if any. Dated by the claim's own rule
- * (`provisionalSettlementClaim`): the bill's date, or the provisional's when the bill's VAT period is filed
- * and the reclass moves a VAT figure (review round 3, so preview and approval agree).
- */
 /** The standing, evidenced, unsettled provisional behind the bill's slip (unlocked read), or undefined. */
 async function standingProvisional(companyId: string, invoiceId: string): Promise<DbRow | undefined> {
   const [je] = (await sql`
@@ -57,6 +51,12 @@ export async function peekProvisionalJournalId(companyId: string, invoiceId: str
   return je ? String(je.id) : null;
 }
 
+/**
+ * The same lines for a PREVIEW, read without the claim's locks or refusals: the standing, evidenced,
+ * unsettled provisional behind the bill's slip, if any. Dated by the claim's own rule
+ * (`provisionalSettlementClaim`): the bill's date, or the provisional's when the bill's VAT period is filed
+ * and the reclass moves a VAT figure (review round 3, so preview and approval agree).
+ */
 export async function peekProvisionalReclassLines(companyId: string, invoiceId: string): Promise<DocumentLine[]> {
   const je = await standingProvisional(companyId, invoiceId);
   if (!je) return [];

@@ -36,6 +36,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { als } from '@/lib/als';
 import { sql, withSavepoint } from '@/lib/neon';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { UUID } from '@/lib/schemas/common';
 import {
   approveSupplierInvoice,
@@ -96,6 +97,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
+  }
+
+  // Budgets P5-2 (review round 5): each refused id writes an event and an audit row, and a new reason per call escapes
+  // the 60 s dedupe. Charged per id (as the budget preview is), BEFORE validation so a refused call still counts:
+  // 600 ids a minute per user, three full 200-id batches.
+  const rawIds = (req.body as { invoiceIds?: unknown } | undefined)?.invoiceIds;
+  const units = Array.isArray(rawIds) ? Math.max(1, Math.min(rawIds.length, 200)) : 1;
+  if (!(await checkRateLimit(`supplier-invoice-bulk:${req.user.id}`, { max: 600, windowSecs: 60, cost: units }))) {
+    res.setHeader('Retry-After', '60');
+    return apiResponse.tooManyRequests(res, 'Too many bulk invoice actions; wait a minute and try again.');
   }
 
   const parsed = Schema.safeParse(req.body);

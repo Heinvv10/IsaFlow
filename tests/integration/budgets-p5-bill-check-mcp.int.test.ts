@@ -5,7 +5,8 @@
  *   - a bulk call whose every bill is budget-refused frees its key (nothing posted); its refused events stay;
  *   - R2: the bulk tool holds the company budget lock BEFORE any lock on a bill's line accounts
  *     (probed: blocked on a held account row, it already holds the advisory lock);
- *   - R7: the bulk route's Post to GL under block refuses an over-budget bill per item.
+ *   - R7: the bulk route's Post to GL under block refuses an over-budget bill per item;
+ *   - round 5: the bulk route is rate-limited per user, charged per id.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -136,4 +137,24 @@ describe('R7: the bulk route, Post to GL under block', () => {
     expect((await billState(pool, fits)).gl_journal_entry_id).not.toBeNull();
     expect((await eventsFor(pool, over)).map((e) => [e.outcome, e.channel])).toEqual([['refused', 'bulk']]);
   });
+});
+
+describe('the bulk route is rate-limited per user, charged per id (review round 5)', () => {
+  it('600 ids a minute: three 200-id calls pass, the fourth is 429', async () => {
+    // Its own member: the limiter remembers a full key in memory for a few seconds, which no other case may meet.
+    const user = crypto.randomUUID();
+    await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)", [user, `${user}@test.local`]);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'manager')", [f.co, user]);
+    try {
+      // An unknown action is refused at validation (nothing written), so the burst is cheap; it is still charged per id.
+      const body = () => ({ action: 'demolish', invoiceIds: Array.from({ length: 200 }, () => crypto.randomUUID()) });
+      const call = () => callRoute(bulkRoute as never, f, user, '/api/accounting/supplier-invoices-bulk-action', body());
+      for (let i = 0; i < 3; i += 1) expect((await call()).statusCode).not.toBe(429);
+      expect((await call()).statusCode).toBe(429);
+    } finally {
+      await pool.query('DELETE FROM rate_limit_counters WHERE key = $1', [`supplier-invoice-bulk:${user}`]);
+      await pool.query('DELETE FROM company_users WHERE user_id = $1', [user]);
+      await pool.query('DELETE FROM users WHERE id = $1', [user]);
+    }
+  }, 60_000);
 });

@@ -72,6 +72,8 @@ vi.mock('@/modules/accounting/services/budgets/budgetCheck', () => ({
   recordBudgetRefusal: vi.fn(async () => undefined),
 }));
 const BUDGET = { channel: 'bulk', lock: 'held', gate: GATE, reason: null };
+// The route is rate-limited per user, charged per id (P5-2 round 5; pinned in budgets-p5-bill-check-mcp); admitted here.
+vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
 // The Login-as guard runs its own query; covered by its own suites. P5-2 R4: the route asks it before the gate.
 const { impersonationMock } = vi.hoisted(() => ({ impersonationMock: vi.fn(async () => undefined) }));
 vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
