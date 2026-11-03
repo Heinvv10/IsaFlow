@@ -490,3 +490,16 @@ it('restores lock_timeout after a successful lock, so it does not leak onto late
     client.release();
   }
 });
+
+it('a template due on 31 January advances to 28 February, not 3 March (#1106)', async () => {
+  // A fixed seed, so the month-end clamp is asserted on every day the suite runs. Last in the file because the run
+  // posts one more invoice into the shared company.
+  const t6 = crypto.randomUUID();
+  await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
+    VALUES($1,$2,'K013 month end',$3,'monthly','2026-01-31','Month end',$4::jsonb,100,15,15,115,$5,'active')`,
+    [t6, company, customer, JSON.stringify([{ description: 'Month end line', quantity: 1, unitPrice: 100 }]), user]);
+
+  await inTx(() => generateInvoiceFromRecurring(company, t6, user));
+  const ri = (await pool.query('SELECT next_run_date::text AS next FROM recurring_invoices WHERE id=$1', [t6])).rows[0];
+  expect(ri.next).toBe('2026-02-28');
+});
