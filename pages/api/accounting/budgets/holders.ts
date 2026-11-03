@@ -1,7 +1,8 @@
 /**
  * Budget holders and their slices (budgets P5 spec §3f, §4; P5-6).
  * GET  ?versionId=<uuid>   → { slices: SliceReview[] }: an owner's or admin's every slice (of that
- *      version, or of every version), anyone else's own slices only ("My budget slices").
+ *      version, or of every version), anyone else's own slices only ("My budget slices"; a viewer
+ *      holds none: holders are manager+, decision 9a). withWriteAccess gates the POST.
  * POST { versionId, userId, cc1Id?, cc2Id?, buId?, glAccountIds?, dueDate? } → the slice (owner or
  *      admin only): the member (a manager, admin or owner) holds that slice of a DRAFT version;
  *      creates the slice's review row ('open') or updates its due date. 400 a bad slice, account or
@@ -14,7 +15,7 @@ import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
+import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { checkRateLimit } from '@/lib/rateLimit';
@@ -66,4 +67,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

@@ -91,6 +91,8 @@ describe('POST/GET /api/accounting/budgets/holders', () => {
     expect(await list(w.u)).toEqual(['BU GS-BU Ops', 'CC1 GS-C1 GS-C1']);
     expect(await list(holder)).toEqual(['CC1 GS-C1 GS-C1']);
     expect(await list(viewer)).toEqual([]);
+    // withWriteAccess gates the write: a viewer cannot assign either.
+    expect((await assign(viewer, { versionId: v, userId: holder.userId, cc1Id: w.cc1 })).status).toBe(403);
   });
 });
 
