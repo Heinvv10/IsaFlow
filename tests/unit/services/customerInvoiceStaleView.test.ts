@@ -35,13 +35,22 @@ describe('assertShownIsStored and approval content', () => {
     )).toThrow(InvoiceStaleViewError);
   });
 
-  it('accepts the shown digest of the row the screen loaded (approval digest + notes, due date, billing period)', () => {
-    const row = { approval_content_digest: 'screen-digest', notes: 'Pay by EFT', due_date: '2026-10-01', billing_period_start: null, billing_period_end: null };
+  it('accepts the shown digest of the row the screen loaded (approval digest + invoice and party details)', () => {
+    const row = {
+      approval_content_digest: 'screen-digest', notes: 'Pay by EFT', due_date: '2026-10-01',
+      billing_period_start: null, billing_period_end: null, customer_name: 'Customer', company_name: 'Issuer',
+    };
     const stored = (r: typeof row) => ({ shown_digest: shownDigestOf(r) }); // as the approval computes it under the lock
     expect(() => assertShownIsStored({ expectedContentDigest: shownDigestOf(row) }, stored(row))).not.toThrow();
     expect(() => assertShownIsStored({ expectedContentDigest: shownDigestOf(row) }, stored({ ...row, notes: 'Changed' }))).toThrow(InvoiceStaleViewError);
     for (const key of ['due_date', 'billing_period_start', 'billing_period_end'] as const) {
       expect(shownDigestOf({ ...row, [key]: '2027-01-01' })).not.toBe(shownDigestOf(row));
+    }
+    for (const key of ['customer_name', 'customer_address', 'customer_contact', 'customer_email', 'customer_phone',
+      'customer_vat', 'company_name', 'company_address_line1', 'company_address_line2', 'company_city',
+      'company_province', 'company_postal_code', 'company_email', 'company_phone', 'company_vat', 'company_bank_name',
+      'company_bank_account_number', 'company_bank_branch_code', 'company_logo_data', 'company_primary_color'] as const) {
+      expect(shownDigestOf({ ...row, [key]: `changed ${key}` })).not.toBe(shownDigestOf(row));
     }
   });
 

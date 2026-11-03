@@ -85,6 +85,48 @@ describe('every reply that hands the page an invoice carries the digest Approve 
 });
 
 describe('what the invoice shows beyond the approval digest', () => {
+  it.each([
+    ['name', 'Changed customer'],
+    ['billing_address', 'Changed customer address'],
+    ['contact_person', 'Changed contact'],
+    ['email', 'changed-customer@example.test'],
+    ['phone', '+27 11 555 0101'],
+    ['vat_number', '4123456789'],
+  ])('the customer %s changed after it was shown: 409 STALE_VIEW', async (column, value) => {
+    const inv = await plantInvoice(pool, company, owner);
+    const digest = await seen(inv.id);
+    await pool.query(`UPDATE customers SET ${column} = $2 WHERE id = $1`, [inv.customerId, value]);
+    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedContentDigest: digest });
+    expect(res.state.statusCode).toBe(409);
+    expect(reasonOf(res)).toBe('STALE_VIEW');
+    expect(await invoiceState(pool, inv.id)).toMatchObject({ status: 'draft', journals: 0 });
+  });
+
+  it.each([
+    ['name', 'Changed issuer'],
+    ['address_line1', 'Changed issuer address'],
+    ['address_line2', 'Changed issuer address line 2'],
+    ['city', 'Changed city'],
+    ['province', 'Changed province'],
+    ['postal_code', '9999'],
+    ['email', 'changed-issuer@example.test'],
+    ['phone', '+27 11 555 0102'],
+    ['vat_number', '4987654321'],
+    ['bank_name', 'Changed bank'],
+    ['bank_account_number', '1234567890'],
+    ['bank_branch_code', '123456'],
+    ['logo_data', 'data:image/png;base64,Y2hhbmdlZA=='],
+    ['primary_color', '#123456'],
+  ])('the company %s changed after it was shown: 409 STALE_VIEW', async (column, value) => {
+    const inv = await plantInvoice(pool, company, owner);
+    const digest = await seen(inv.id);
+    await pool.query(`UPDATE companies SET ${column} = $2 WHERE id = $1`, [company, value]);
+    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedContentDigest: digest });
+    expect(res.state.statusCode).toBe(409);
+    expect(reasonOf(res)).toBe('STALE_VIEW');
+    expect(await invoiceState(pool, inv.id)).toMatchObject({ status: 'draft', journals: 0 });
+  });
+
   it('the job\'s name changed after it was shown (the PDF prints it): 409 STALE_VIEW', async () => {
     const inv = await plantInvoice(pool, company, owner);
     await everyShownField(inv.id);

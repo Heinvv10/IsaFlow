@@ -156,15 +156,26 @@ export async function approveCustomerInvoice(
   let locked: Row[];
   try {
     locked = (await sql`
-      SELECT status, currency_code, total_amount, exchange_rate,
-             approval_document_digest(company_id, 'customer_invoice', id) AS approval_content_digest, notes,
-             to_char(due_date, 'YYYY-MM-DD') AS due_date, to_char(billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
-             to_char(billing_period_end, 'YYYY-MM-DD') AS billing_period_end,
-             (SELECT p.name FROM projects p WHERE p.id = customer_invoices.project_id AND p.company_id = customer_invoices.company_id) AS project_name
-      FROM customer_invoices
-      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
-        AND status = ANY(${APPROVABLE_STATUSES}::text[])
-      FOR NO KEY UPDATE
+      SELECT ci.status, ci.currency_code, ci.total_amount, ci.exchange_rate,
+             approval_document_digest(ci.company_id, 'customer_invoice', ci.id) AS approval_content_digest, ci.notes,
+             to_char(ci.due_date, 'YYYY-MM-DD') AS due_date,
+             to_char(ci.billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
+             to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end,
+             (SELECT p.name FROM projects p WHERE p.id = ci.project_id AND p.company_id = ci.company_id) AS project_name,
+             c.name AS customer_name, c.billing_address AS customer_address, c.contact_person AS customer_contact,
+             c.email AS customer_email, c.phone AS customer_phone, c.vat_number AS customer_vat,
+             co.name AS company_name, co.address_line1 AS company_address_line1, co.address_line2 AS company_address_line2,
+             co.city AS company_city, co.province AS company_province, co.postal_code AS company_postal_code,
+             co.email AS company_email, co.phone AS company_phone, co.vat_number AS company_vat,
+             co.bank_name AS company_bank_name, co.bank_account_number AS company_bank_account_number,
+             co.bank_branch_code AS company_bank_branch_code, co.logo_data AS company_logo_data,
+             co.primary_color AS company_primary_color
+      FROM customer_invoices ci
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
+      LEFT JOIN companies co ON co.id = ci.company_id
+      WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId} AND ci.deleted_at IS NULL
+        AND ci.status = ANY(${APPROVABLE_STATUSES}::text[])
+      FOR NO KEY UPDATE OF ci
     `) as Row[];
   } catch (err) {
     if (isLockTimeout(err)) throw new CustomerInvoiceLockTimeoutError(`Customer invoice ${invoiceId}`);
