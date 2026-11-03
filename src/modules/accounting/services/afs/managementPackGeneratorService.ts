@@ -3,6 +3,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { rawSubtypesFor } from '../gl/accountSubtypes';
+import { orderedEnabledSections } from './managementPackConfigService';
 import { createAfsDocument } from './afsDocumentService';
 import { createAfsSection, updateAfsSection } from './afsSectionService';
 import { fetchBalanceSnapshot, getKpiScorecard } from './afsKpiService';
@@ -162,9 +163,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     throw new DuplicatePackError(`Management pack already generated for period ${period}`);
   }
 
-  const enabledSections = Object.entries(config.sectionsEnabled)
-    .filter(([, v]) => v)
-    .map(([k]) => k);
+  const enabledSections = orderedEnabledSections(config.sectionsEnabled);
 
   const plan = comparisonPlan(config.comparisonMode);
   // Before the document: a fault here must not leave a half-made pack that blocks the month's re-run.

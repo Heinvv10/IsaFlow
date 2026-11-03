@@ -25,6 +25,19 @@ const DEFAULT_SECTIONS_ENABLED: Record<string, boolean> = {
   cfo_narrative: false,
 };
 
+/** Canonical print order of pack sections: the key order above, never the stored jsonb's. */
+const PACK_SECTION_ORDER: readonly string[] = Object.keys(DEFAULT_SECTIONS_ENABLED);
+
+/** Enabled section keys in canonical order; unknown keys follow, in their stored order. */
+export function orderedEnabledSections(sectionsEnabled: Record<string, boolean>): string[] {
+  const enabled = Object.keys(sectionsEnabled).filter((k) => sectionsEnabled[k]);
+  const rank = (k: string) => {
+    const i = PACK_SECTION_ORDER.indexOf(k);
+    return i === -1 ? PACK_SECTION_ORDER.length : i;
+  };
+  return enabled.map((k, i) => ({ k, i })).sort((a, b) => rank(a.k) - rank(b.k) || a.i - b.i).map(({ k }) => k);
+}
+
 const DEFAULT_CONFIG: Omit<ManagementPackConfig, 'id' | 'companyId'> = {
   enabled: false,
   generationDay: 5,
