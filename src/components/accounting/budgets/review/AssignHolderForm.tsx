@@ -34,7 +34,7 @@ export function AssignHolderForm({ onAssigned }: { onAssigned: (s: SliceReview) 
   const fail = (err: unknown, fallback: string) => setMessage({ tone: 'error', text: apiErrorMessage(err, fallback) });
 
   useEffect(() => {
-    void fetchYears().then((ys) => { setYears(ys); setYear(ys[ys.length - 1]?.fiscalYear ?? null); }).catch((e: unknown) => fail(e, 'Could not load the financial years.'));
+    void fetchYears().then(({ years: ys, current }) => { setYears(ys); setYear(current ?? ys[ys.length - 1]?.fiscalYear ?? null); }).catch((e: unknown) => fail(e, 'Could not load the financial years.'));
     void fetchHolderCandidates().then(setMembers).catch((e: unknown) => fail(e, 'Could not load the members.'));
   }, []);
   useEffect(() => {

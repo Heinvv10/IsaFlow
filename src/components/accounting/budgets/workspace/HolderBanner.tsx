@@ -19,7 +19,7 @@ export function HolderBanner({ holder, dimensions, versionStatus }: { holder: Ho
     <div data-testid="holder-banner" role="status"
       className="flex flex-wrap items-start gap-3 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-3 text-sm text-[var(--ff-text-secondary)]">
       <Users className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ff-brand-eyebrow)]" aria-hidden="true" />
-      <div className="min-w-0 flex-1 space-y-1">
+      <div className="min-w-[14rem] flex-1 space-y-1">
         <p className="font-medium text-[var(--ff-text-primary)]">You are a budget holder on this version</p>
         <ul className="space-y-0.5">
           {holder.slices.map((s) => (

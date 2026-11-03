@@ -65,10 +65,11 @@ export async function fetchSliceMembers(kind: 'cc1' | 'cc2' | 'bu'): Promise<Opt
     .map((r) => ({ id: str(r.id), label: `${str(r.code)} ${str(r.name)}`.trim() })).filter((o) => o.id !== '');
 }
 
-/** The registry years (the legacy budgets route's years_only mode, as the workspace reads them). */
-export async function fetchYears(): Promise<BudgetYear[]> {
+/** The registry years (the legacy budgets route's years_only mode, as the workspace reads them) and the year holding today. */
+export async function fetchYears(): Promise<{ years: BudgetYear[]; current: number | null }> {
   const data: unknown = await apiJson('/api/accounting/budgets?years_only=1', undefined, 'Could not load the financial years.');
-  return isObj(data) && Array.isArray(data.years) ? (data.years as BudgetYear[]) : [];
+  if (!isObj(data)) return { years: [], current: null };
+  return { years: Array.isArray(data.years) ? (data.years as BudgetYear[]) : [], current: typeof data.fiscalYear === 'number' ? data.fiscalYear : null };
 }
 
 /** The DRAFT versions of a year (holders are assigned on drafts only). */
