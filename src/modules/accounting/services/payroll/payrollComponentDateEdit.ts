@@ -33,7 +33,8 @@ import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import type { PayrollPeriod } from './payrollTypes';
 import { legacyFlips, live, shiftDay, type Sibling } from './payrollComponentLegacySupersede';
 import {
-  assignmentReadInPeriod, lockCompanyPayrollForComponentChange, paidPeriodChanged, paidPeriodsOf, periodLabel, windowOf,
+  assignmentReadInPeriod, lockCompanyPayrollForComponentChange, paidPeriodChanged, paidPeriodsOf,
+  paidTerminationBaseChanged, periodLabel, windowOf,
   type AssignmentWindow,
 } from './payrollComponentPaidMonths';
 
@@ -99,9 +100,10 @@ export async function changeAssignmentDates(
   return withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
     const target = ((await tx`
-      SELECT pec.id, pec.employee_id, pec.component_id
+      SELECT pec.id, pec.employee_id, pec.component_id, pc.component_type
       FROM payroll_employee_components pec
       JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
+      JOIN payroll_components pc ON pc.id = pec.component_id AND pc.company_id = e.company_id
       WHERE pec.id = ${assignmentId}::uuid
     `) as DbRow[])[0];
     if (!target) return false;
@@ -124,7 +126,8 @@ export async function changeAssignmentDates(
           + 'both would be paid. Change or end that one first.');
       }
     }
-    const changed = paidPeriodChanged(paid, self, after);
+    const changed = paidPeriodChanged(paid, self, after)
+      ?? (target.component_type === 'earning' ? paidTerminationBaseChanged(paid, self, after) : null);
     if (changed) {
       refuse(`${periodLabel(changed)} is already paid (approved run) and this changes what it paid. `
         + 'Reopen that run first, or capture the correction in an open period.');

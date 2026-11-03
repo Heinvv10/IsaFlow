@@ -45,6 +45,13 @@ export function assignmentReadInPeriod(w: AssignmentWindow, period: PaidPeriod):
   return w.to === null || w.to >= last || (!w.recurring && !cutBefore && w.from >= first);
 }
 
+/** Whether a paid leaver line used this recurring earning in its termination base on the employee's exact end date. */
+export function assignmentReadInTerminationBase(w: AssignmentWindow, period: PaidPeriod): boolean {
+  const end = w.employeeEnd;
+  if (!w.recurring || end == null || end.slice(0, 7) !== periodLabel(period)) return false;
+  return w.from <= end && (w.to === null || w.to >= end) && (w.to === null || w.to >= w.from);
+}
+
 /**
  * The months of the employee's lines on runs that have paid: approved or paid, or reopened while the journal they
  * posted is still in force in the ledger (its reversal chain, payrollJournalChain). A reopened run whose journal was
@@ -78,6 +85,13 @@ export async function paidPeriodsOf(tx: TxSql, companyId: string, employeeId: st
 /** The paid month whose payment this change would alter, or null. */
 export function paidPeriodChanged(paid: PaidPeriod[], before: AssignmentWindow, after: AssignmentWindow): PaidPeriod | null {
   return paid.find((p) => assignmentReadInPeriod(before, p) !== assignmentReadInPeriod(after, p)) ?? null;
+}
+
+/** The paid leaver month whose termination base this recurring earning change would alter, or null. */
+export function paidTerminationBaseChanged(
+  paid: PaidPeriod[], before: AssignmentWindow, after: AssignmentWindow,
+): PaidPeriod | null {
+  return paid.find((p) => assignmentReadInTerminationBase(before, p) !== assignmentReadInTerminationBase(after, p)) ?? null;
 }
 
 export const periodLabel = (p: PayrollPeriod): string => `${p.year}-${String(p.month).padStart(2, '0')}`;

@@ -17,7 +17,9 @@ vi.mock('@/lib/neon', () => {
   const tx = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?');
     bound.push(values);
-    if (text.includes('JOIN payroll_employees e')) return [{ id: selfRow.id, employee_id: 'e-1', component_id: 'c-1' }];
+    if (text.includes('JOIN payroll_employees e')) {
+      return [{ id: selfRow.id, employee_id: 'e-1', component_id: 'c-1', component_type: selfRow.component_type ?? 'earning' }];
+    }
     if (text.includes('AS employee_end')) return [selfRow, ...(siblingRow ? [siblingRow] : [])];
     if (text.includes('FROM payroll_run_headers h')) return paidMonths;
     return [];
@@ -79,6 +81,24 @@ describe('no pay in logs, audit rows or refusals', () => {
     const refused = await changeAssignmentDates('co-1', ID, { kind: 'end', to: '2026-03-15' }, actor).catch((e: Error) => e.message);
     expect(refused).toMatch(/2026-03 .*already paid/);
     expect(String(refused)).not.toContain(String(AMOUNT));
+    expect(payTravelled()).toEqual([]);
+  });
+
+  it('refuses removing a pre-27th leaver salary from a paid termination base', async () => {
+    selfRow = {
+      id: ID, amount: AMOUNT, effective_from: '2026-01-01', effective_to: '2026-03-15',
+      is_recurring: true, employee_end: '2026-03-15', superseded_at: null,
+    };
+    paidMonths = [{
+      period_year: 2026, period_month: 3, status: 'approved', journal_entry_id: null,
+      calculated_at: '2026-03-31T12:00:00.000Z',
+    }];
+
+    const refused = await changeAssignmentDates(
+      'co-1', ID, { kind: 'edit', from: '2026-01-01', to: '2026-03-14' }, actor,
+    ).catch((e: Error) => e.message);
+
+    expect(refused).toMatch(/2026-03 .*already paid/);
     expect(payTravelled()).toEqual([]);
   });
 });
