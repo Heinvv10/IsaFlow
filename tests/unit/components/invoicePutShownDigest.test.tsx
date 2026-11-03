@@ -8,7 +8,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { advance, bodyOf, calls, DRAFT, ok, puts, refused, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
+import { advance, bodyOf, calls, DRAFT, json, ok, puts, refused, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
 
 const h = vi.hoisted(() => ({ events: null as null | ReturnType<typeof import('../helpers/invoiceAutosaveHarness').routerEvents> }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -60,5 +60,21 @@ describe('an autosave refused 409 STALE_VIEW (saved elsewhere since this page re
     expect(screen.getByText('Changed elsewhere: reload')).toBeTruthy();
     await advance(5_000);
     expect(puts()).toHaveLength(1);
+  });
+});
+
+describe('an autosave refused 409 for another reason', () => {
+  it('does not reload: the refusal is shown and what was typed stays', async () => {
+    serveInvoice((u, init) => (u.includes('customer-invoices-detail') && init?.method === 'PUT'
+      ? json(409, { success: false, error: { code: 'CONFLICT', message: 'Reload the page and save again', details: { code: 'INVOICE_WIP_CLIENT_STALE' } } })
+      : undefined));
+    render(<EditPage />);
+    for (let i = 0; i < 8; i++) await advance(0);
+    type(screen.getByLabelText('Notes'), 'Typed here');
+    await advance(1_500);
+    for (let i = 0; i < 8; i++) await advance(0);
+    expect(calls('customer-invoices-detail?id=', 'GET').length).toBe(1); // not reloaded
+    expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('Typed here');
+    expect(screen.getAllByText(/Reload the page and save again/).length).toBeGreaterThan(0);
   });
 });
