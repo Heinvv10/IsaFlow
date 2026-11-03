@@ -6,8 +6,10 @@
  *
  * While a change is unsaved, or a save is out, leaving asks first, and refusing is never an error:
  *   - closing or reloading the tab: `beforeunload`;
- *   - back and forward with any server change ask before leaving: an unmount PUT can fail after the editor is gone,
- *     so it is not treated as recovery. Leave: it goes without them.
+ *   - back and forward with a change that will be kept as the page goes are not asked: the page goes, and the work
+ *     is kept as it goes (the edit page PUTs the change being typed, the new page writes its draft; each hook, on
+ *     unmount). A change the edit page's autosave is HOLDING (a line or date it refuses, a stale-priced draft, a rate
+ *     being typed, a removed time-entry line) would not be sent, so back and forward ask. Leave: it goes without them.
  *     Stay: by then the browser has moved and Next has not changed the route, so the move is undone with the
  *     Navigation API: `navigation.traverseTo(key)` back to this page's own entry (its key read at mount and at each
  *     route change). Back, Forward or a jump of several entries, history keeps its order (nothing is pushed). Where
@@ -105,11 +107,10 @@ function useLeaveGuard(guarded: Guarded): void {
         restoring = false;
         if (now !== null && now === here) return false; // Stay's own move, home again: nothing to route
       }
-      // Ask for every unsaved server edit: a fire-and-forget unmount PUT can fail with no editor left to recover in.
-      // Only ask when the move can be undone exactly.
+      // Autosave would not send it: ask, as a link does. Only when the move can be undone exactly.
       const nav = navigationApi();
       if (here !== null && now !== null && now !== here && typeof nav?.traverseTo === 'function'
-        && g.current.unsaved()) {
+        && g.current.unsaved() && g.current.heldBack()) {
         if (!window.confirm(question())) {
           restoring = true;
           const undo = nav.traverseTo(here); // back to this page's own entry: history keeps its order
