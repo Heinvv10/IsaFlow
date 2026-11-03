@@ -21,6 +21,8 @@ export async function auditComponentChange(
   after: AssignmentWindow,
   kind: ComponentChangeKind,
   actor: ComponentChangeActor,
+  /** The package a package_assign row came from: what makes the once-off the package's own on a re-apply. */
+  extra: { packageId?: string } = {},
 ): Promise<void> {
   await logAuditOrThrow({
     companyId, userId: actor.userId, userEmail: actor.userEmail, action: before ? 'update' : 'create',
@@ -32,7 +34,7 @@ export async function auditComponentChange(
         { field: 'effective_from', old: before?.from ?? null, new: after.from, label: 'Effective from' },
         { field: 'effective_to', old: before?.to ?? null, new: after.to, label: 'Effective to' },
       ],
-      metadata: { kind, channel: actor.channel, recurring: String(after.recurring) },
+      metadata: { kind, channel: actor.channel, recurring: String(after.recurring), ...(extra.packageId ? { packageId: extra.packageId } : {}) },
     },
   }, tx);
 }

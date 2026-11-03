@@ -4,7 +4,7 @@
  * start the salary because a later month is paid), and the salary is moved to the month after the latest.
  */
 import { describe, expect, it } from 'vitest';
-import { salaryPaidMonthText } from '@/modules/accounting/services/payroll/payrollOnboardingPaidMonth';
+import { salaryEndRefusal, salaryPaidMonthText } from '@/modules/accounting/services/payroll/payrollOnboardingPaidMonth';
 
 const paid = (...ym: Array<[number, number]>) => ym.map(([year, month]) => ({ year, month }));
 
@@ -64,5 +64,39 @@ describe('salaryPaidMonthText', () => {
         'February 2026 is already paid. The end date 2026-02-28 leaves no open month for the salary: '
         + 'pay the February days as a once-off in an open month and create the employee without a salary.');
     });
+  });
+
+  it('never advises starting in a month whose end date is before the 27th: that month pays nothing', () => {
+    expect(salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-15')).toBe(
+      'February 2026 is already paid. The end date 2026-03-15 leaves no open month for the salary: '
+      + 'pay the February days as a once-off in an open month and create the employee without a salary.');
+    expect(salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-27')).toBe(
+      'February 2026 is already paid. Set the salary to start 2026-03-01 and pay the February days as a once-off in an open month.');
+  });
+});
+
+describe('salaryEndRefusal: a salary ending before the 27th pays nothing that month', () => {
+  it('is refused with the previous month end as the advice when the salary started before it', () => {
+    expect(salaryEndRefusal('2026-03-05', '2026-04-15')).toBe(
+      'A salary ending on 2026-04-15 is paid nothing for April 2026 (a run reads pay components on the last day of the month, so a salary that '
+      + 'ends before the 27th is not paid that month). End the salary on 2026-03-31 and pay the April days as a once-off in an open month.');
+  });
+
+  it('with no month before it to end in, the advice is no salary and a once-off', () => {
+    expect(salaryEndRefusal('2026-03-01', '2026-03-15')).toBe(
+      'A salary ending on 2026-03-15 is paid nothing for March 2026 (a run reads pay components on the last day of the month, so a salary that '
+      + 'ends before the 27th is not paid that month). Create the employee without a salary and pay the March days as a once-off in an open month.');
+  });
+
+  it('January looks back to December', () => {
+    expect(salaryEndRefusal('2025-11-01', '2026-01-10')).toContain('End the salary on 2025-12-31 and pay the January days');
+  });
+
+  it.each([['2026-03-27'], ['2026-03-31'], [null]])('%s is fine', (to) => {
+    expect(salaryEndRefusal('2026-03-01', to)).toBeNull();
+  });
+
+  it('the 26th is refused', () => {
+    expect(salaryEndRefusal('2026-03-01', '2026-03-26')).not.toBeNull();
   });
 });

@@ -88,6 +88,22 @@ describe('a hire starting in the paid month', () => {
     expect((await post(hire('LH-9', '2025-12-01', undefined, '2026-01-31'))).statusCode).toBe(201);
   });
 
+  it('a salary ending before the 27th is refused before any write, with advice that can be followed', async () => {
+    const part = await post(hire('LH-11', '2026-03-05', {}, '2026-04-15'));
+    expect(part.statusCode, JSON.stringify(part.body)).toBe(400);
+    expect(part.body.error?.message).toMatch(/paid nothing for April 2026.*End the salary on 2026-03-31 and pay the April days as a once-off/);
+    const same = await post(hire('LH-12', '2026-03-01', {}, '2026-03-15'));
+    expect(same.statusCode).toBe(400);
+    expect(same.body.error?.message).toMatch(/Create the employee without a salary and pay the March days as a once-off/);
+    expect(await rowsOf('LH-11')).toHaveLength(0);
+    expect(await rowsOf('LH-12')).toHaveLength(0);
+    // The advice, followed: the salary ends 31 March (salary.effectiveTo) while the employment runs to 15 April.
+    const followed = await post(hire('LH-11', '2026-03-05', { effectiveTo: '2026-03-31' }, '2026-04-15'));
+    expect(followed.statusCode, JSON.stringify(followed.body)).toBe(201);
+    const { rows } = await pool.query("SELECT to_char(effective_to,'YYYY-MM-DD') AS t FROM payroll_employee_components WHERE employee_id=$1", [(await rowsOf('LH-11'))[0]!.id]);
+    expect(rows).toEqual([{ t: '2026-03-31' }]);
+  });
+
   it('one whose contract runs in open months: created', async () => {
     expect((await post(hire('LH-10', '2026-03-01', {}, '2026-03-31'))).statusCode).toBe(201);
   });

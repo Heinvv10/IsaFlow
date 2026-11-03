@@ -112,6 +112,8 @@ describe('1. every writer is audited, and refuses a calculated run until it is r
   });
 
   it('a package apply audits every row it ends as well as those it inserts', async () => {
+    // The July once-off above was posted by a batch, not by this package: an apply over it would be refused. Void it first.
+    await pool.query("UPDATE payroll_employee_components SET effective_to = '2026-07-09' WHERE employee_id=$1 AND effective_from='2026-07-10'", [employee]);
     const out = await call(applyPackage as Route, 'POST', `/api/payroll/employees/${employee}/apply-package`, employee,
       { body: { packageId: pkg, effectiveFrom: '2026-06-20' } });
     expect(out.statusCode, JSON.stringify(out.body)).toBe(200);

@@ -18,6 +18,31 @@ const isoDate = (v: unknown): string => fmtDate(v);
 /** The last day of an ISO date's month: the close the package gives its own once-off rows. */
 const endOfMonth = (iso: string): string => endOfMonthIso(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)));
 
+/**
+ * The once-offs among `ids` the package wrote, by provenance: the audit entry that created the row says package_assign
+ * (and, since it records the package, this package's id). A different package's once-off, or one entered by hand
+ * (assign, batch), is not. A row with no audit entry (written before this release) falls back to its shape.
+ */
+async function ownOnceOffs(
+  tx: TxSql, companyId: string, packageId: string, componentId: string, rows: DbRow[],
+): Promise<Set<string>> {
+  const entries = (await tx`
+    SELECT entity_id::text AS id, changes->'metadata'->>'kind' AS kind, changes->'metadata'->>'packageId' AS package_id
+      FROM audit_log
+     WHERE company_id = ${companyId}::uuid AND entity_type = 'payroll_employee_component' AND action = 'create'
+       AND entity_id = ANY(${rows.map((r) => String(r.id))}::uuid[])
+  `) as DbRow[];
+  const byId = new Map(entries.map((e) => [String(e.id), e]));
+  const ownAmounts = await ownOnceOffAmounts(tx, packageId, componentId);
+  const own = new Set<string>();
+  for (const row of rows) {
+    const entry = byId.get(String(row.id));
+    const legacyShape = ownAmounts.has(Number(row.amount)) && isoDate(row.effective_to) === endOfMonth(isoDate(row.effective_from));
+    if (entry ? entry.kind === 'package_assign' && (!entry.package_id || entry.package_id === packageId) : legacyShape) own.add(String(row.id));
+  }
+  return own;
+}
+
 /** The amounts of this package's once-off lines for the component: what its own earlier rows were written with. */
 async function ownOnceOffAmounts(tx: TxSql, packageId: string, componentId: string): Promise<Set<number>> {
   const lines = (await tx`
@@ -83,14 +108,17 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   const overlapped = all.filter((row) => row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom);
   // A recurring row is the package's to replace. A once-off is only if the package wrote it (a re-apply); one entered
   // by hand (a back-pay) is not: the apply is refused, with nothing written, rather than cancel it silently.
-  const ownAmounts = await ownOnceOffAmounts(tx, packageId, componentId);
-  const isOwn = (row: DbRow) => ownAmounts.has(Number(row.amount)) && isoDate(row.effective_to) === endOfMonth(isoDate(row.effective_from));
-  const handEntered = overlapped.filter((row) => row.is_recurring === false && !isOwn(row));
-  if (handEntered.length > 0) {
-    const named = handEntered.map((row) => `${isoDate(row.effective_from)} to ${row.effective_to ? isoDate(row.effective_to) : 'open-ended'}, amount ${Number(row.amount).toFixed(2)}`);
+  // Only live, un-superseded once-offs are judged: a voided one (cancelled, End refuses it) and one an earlier apply
+  // already replaced are paid by nobody, so they cannot be cancelled again.
+  const liveOnceOffs = overlapped.filter((row) => row.is_recurring === false && row.superseded_at == null
+    && (row.effective_to == null || isoDate(row.effective_to) >= isoDate(row.effective_from)));
+  const own = await ownOnceOffs(tx, companyId, packageId, componentId, liveOnceOffs);
+  const foreign = liveOnceOffs.filter((row) => !own.has(String(row.id)));
+  if (foreign.length > 0) {
+    const named = foreign.map((row) => `${isoDate(row.effective_from)} to ${row.effective_to ? isoDate(row.effective_to) : 'open-ended'}, amount ${Number(row.amount).toFixed(2)}`);
     throw new EmployeeComponentRefused(
-      `Applying this package from ${effectiveFrom} would cancel ${handEntered.length === 1 ? 'a hand-entered once-off' : 'hand-entered once-offs'} `
-      + `of this component: ${named.join(', ')}. End or move ${handEntered.length === 1 ? 'it' : 'them'} first, or apply the package from a later date.`);
+      `Applying this package from ${effectiveFrom} would cancel ${foreign.length === 1 ? 'a once-off' : 'once-offs'} this package did not write `
+      + `(entered by hand, or by another package) on this component: ${named.join(', ')}. End or move ${foreign.length === 1 ? 'it' : 'them'} first, or apply the package from a later date.`);
   }
   const toCut = overlapped;
   // Never cut what a paid run read: that run would no longer agree with the rows (security review, 2026-11-02).

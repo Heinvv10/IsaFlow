@@ -293,7 +293,7 @@ export async function applyPackageToEmployee(
         RETURNING id
       `) as DbRow[];
       await auditComponentChange(tx, companyId, String(inserted[0]!.id), null,
-        { from: effectiveFrom, to: effectiveTo, recurring: isRecurring }, 'package_assign', actor);
+        { from: effectiveFrom, to: effectiveTo, recurring: isRecurring }, 'package_assign', actor, { packageId });
     }
     return { inserted: compRows.length, ended };
   });

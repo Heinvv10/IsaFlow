@@ -16,7 +16,7 @@ import { MAX_SALARY_CENTS, isValidSaIdNumber, isValidSarsTaxNumber } from './emp
 import { payeTreatment } from './payeAnnualPayment';
 import { assignComponentToEmployee } from './payrollEmployeeComponentService';
 import { createPayrollEmployee } from './payrollEmployeeService';
-import { salaryInPaidMonthRefusal } from './payrollOnboardingPaidMonth';
+import { salaryEndRefusal, salaryInPaidMonthRefusal } from './payrollOnboardingPaidMonth';
 import type { PayrollEmployee } from './payrollTypes';
 
 const EMPLOYMENT_TYPES: readonly string[] = ['permanent', 'contract', 'casual', 'director'];
@@ -31,7 +31,7 @@ export class EmployeeOnboardingRefused extends Error {
 
 type Body = Record<string, unknown>;
 type NewEmployee = Omit<PayrollEmployee, 'id' | 'companyId'>;
-interface Salary { componentId: string; cents: number; effectiveFrom: string | null }
+interface Salary { componentId: string; cents: number; effectiveFrom: string | null; effectiveTo: string | null }
 
 const isBlank = (v: unknown) => v === undefined || v === null || v === '';
 
@@ -106,7 +106,7 @@ function employeeOf(body: Body): NewEmployee {
 function salaryOf(raw: unknown): Salary | null {
   if (raw === undefined || raw === null) return null;
   if (typeof raw !== 'object' || Array.isArray(raw)) throw new EmployeeOnboardingRefused('salary must be { componentId, amountCents }');
-  const { componentId, amount, amountCents, effectiveFrom } = raw as Body;
+  const { componentId, amount, amountCents, effectiveFrom, effectiveTo } = raw as Body;
   // The components route's `amount` is rands: read as cents here, R25 000 would be stored as R250.
   if (amount !== undefined) throw new EmployeeOnboardingRefused('salary.amount is not accepted: send salary.amountCents, in whole cents');
   if (!isUuidParam(componentId)) throw new EmployeeOnboardingRefused('salary.componentId must be a pay component id');
@@ -116,7 +116,13 @@ function salaryOf(raw: unknown): Salary | null {
   if (!isBlank(effectiveFrom) && (typeof effectiveFrom !== 'string' || !isRealCalendarDate(effectiveFrom))) {
     throw new EmployeeOnboardingRefused('salary.effectiveFrom must be a real date (YYYY-MM-DD)');
   }
-  return { componentId, cents: amountCents, effectiveFrom: isBlank(effectiveFrom) ? null : String(effectiveFrom) };
+  if (!isBlank(effectiveTo) && (typeof effectiveTo !== 'string' || !isRealCalendarDate(effectiveTo))) {
+    throw new EmployeeOnboardingRefused('salary.effectiveTo must be a real date (YYYY-MM-DD)');
+  }
+  return {
+    componentId, cents: amountCents, effectiveFrom: isBlank(effectiveFrom) ? null : String(effectiveFrom),
+    effectiveTo: isBlank(effectiveTo) ? null : String(effectiveTo),
+  };
 }
 
 /** The same answer for another company's component as for one that does not exist. */
@@ -208,10 +214,15 @@ export async function createEmployeeWithPay(companyId: string, userId: string, b
   await assertEmployeeNumberFree(companyId, fields.employeeNumber);
   if (salary) await assertSalaryComponent(companyId, salary.componentId);
   const salaryFrom = salary?.effectiveFrom ?? String(body.startDate);
-  const salaryTo = isBlank(body.endDate) ? null : String(body.endDate).slice(0, 10); // the salary ends with the employment
+  const endDay = isBlank(body.endDate) ? null : String(body.endDate).slice(0, 10);
+  // The salary ends with the employment, or earlier when asked (salary.effectiveTo), never later.
+  const salaryTo = salary?.effectiveTo ?? endDay;
   if (salary) {
     if (salaryFrom < String(body.startDate).slice(0, 10)) throw new EmployeeOnboardingRefused('salary.effectiveFrom cannot be before the startDate');
-    if (salaryTo !== null && salaryFrom > salaryTo) throw new EmployeeOnboardingRefused('salary.effectiveFrom cannot be after the endDate');
+    if (salaryTo !== null && salaryFrom > salaryTo) throw new EmployeeOnboardingRefused('salary.effectiveFrom cannot be after the end of the salary (salary.effectiveTo or the endDate)');
+    if (salaryTo !== null && endDay !== null && salaryTo > endDay) throw new EmployeeOnboardingRefused('salary.effectiveTo cannot be after the endDate');
+    const endRefusal = salaryEndRefusal(salaryFrom, salaryTo);
+    if (endRefusal) throw new EmployeeOnboardingRefused(endRefusal);
     const paidMonth = await salaryInPaidMonthRefusal(companyId, salaryFrom, salaryTo);
     if (paidMonth) throw new EmployeeOnboardingRefused(paidMonth);
   }

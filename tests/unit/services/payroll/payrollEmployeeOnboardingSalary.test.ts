@@ -15,7 +15,10 @@ vi.mock('@/lib/neon', () => ({
   }),
   withSavepoint: vi.fn((_name: string, fn: () => Promise<unknown>) => fn()),
 }));
-vi.mock('@/modules/accounting/services/payroll/payrollOnboardingPaidMonth', () => ({ salaryInPaidMonthRefusal: vi.fn(async () => null) }));
+vi.mock('@/modules/accounting/services/payroll/payrollOnboardingPaidMonth', async (original) => ({
+  ...(await original<typeof import('@/modules/accounting/services/payroll/payrollOnboardingPaidMonth')>()), // salaryEndRefusal stays real
+  salaryInPaidMonthRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({ createPayrollEmployee: vi.fn(async () => ({ id: 'e1' })) }));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeComponentService', () => ({ assignComponentToEmployee: vi.fn(async () => ({ id: 'a1' })) }));
 
@@ -57,7 +60,7 @@ describe('createEmployeeWithPay: the salary window', () => {
   });
 
   it('is refused before any write when it starts after the end date', async () => {
-    await expectRefused(go({ endDate: '2026-11-30', salary: { ...salary, effectiveFrom: '2026-12-01' } }), /after the endDate/);
+    await expectRefused(go({ endDate: '2026-11-30', salary: { ...salary, effectiveFrom: '2026-12-01' } }), /cannot be after the end of the salary/);
     vi.mocked(assignComponentToEmployee).mockClear();
     await go({ endDate: '2026-11-30', salary: { ...salary, effectiveFrom: '2026-11-30' } });
     expect(assignComponentToEmployee).toHaveBeenCalledTimes(1);
@@ -67,6 +70,22 @@ describe('createEmployeeWithPay: the salary window', () => {
     await go({ endDate: '2026-12-31', salary });
     expect(salaryInPaidMonthRefusal).toHaveBeenCalledWith(COMPANY, '2026-11-01', '2026-12-31');
     expect(vi.mocked(assignComponentToEmployee).mock.calls[0]![5]).toBe('2026-12-31');
+  });
+
+  it('salary.effectiveTo ends the salary before the employment does, never after', async () => {
+    await go({ endDate: '2026-12-15', salary: { ...salary, effectiveTo: '2026-11-30' } });
+    expect(vi.mocked(assignComponentToEmployee).mock.calls[0]![5]).toBe('2026-11-30');
+    vi.mocked(assignComponentToEmployee).mockClear();
+    vi.mocked(createPayrollEmployee).mockClear();
+    await expectRefused(go({ endDate: '2026-12-31', salary: { ...salary, effectiveTo: '2027-01-31' } }), /effectiveTo cannot be after the endDate/);
+    await expectRefused(go({ salary: { ...salary, effectiveTo: '2026-02-30' } }), /effectiveTo must be a real date/);
+  });
+
+  it('is refused before any write when the salary ends before the 27th (it pays nothing that month); the 27th is accepted', async () => {
+    await expectRefused(go({ endDate: '2026-12-15', salary }), /paid nothing for December 2026.*End the salary on 2026-11-30/);
+    expect(salaryInPaidMonthRefusal).not.toHaveBeenCalled();
+    await go({ endDate: '2026-12-27', salary });
+    expect(assignComponentToEmployee).toHaveBeenCalledTimes(1);
   });
 
   it('is refused before any write when it lies in a paid month, with the text the check gives', async () => {

@@ -8,12 +8,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { applyPackageToEmployee } from '@/modules/accounting/services/payroll/payPackageService';
+import { assignComponentToEmployee, endEmployeeComponent } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const company = crypto.randomUUID();
 const user = crypto.randomUUID();
 const pkg = crypto.randomUUID();
+const pkg2 = crypto.randomUUID();
+const actor = { userId: user, channel: 'service' as const };
 const comp = { salary: crypto.randomUUID(), bonus: crypto.randomUUID() };
 const emp: Record<string, string> = {};
 
@@ -42,6 +45,8 @@ beforeAll(async () => {
   await pool.query("INSERT INTO pay_packages(id,company_id,code,name) VALUES($1,$2,'PH-PKG','Hand once-off package')", [pkg, company]);
   await pool.query(
     'INSERT INTO pay_package_components(package_id,component_id,amount,is_recurring) VALUES($1,$2,3000,true),($1,$3,1200,false)', [pkg, comp.salary, comp.bonus]);
+  await pool.query("INSERT INTO pay_packages(id,company_id,code,name) VALUES($1,$2,'PH-PKG2','Other package')", [pkg2, company]);
+  await pool.query('INSERT INTO pay_package_components(package_id,component_id,amount,is_recurring) VALUES($1,$2,1200,false)', [pkg2, comp.bonus]);
   await employee('back');
   await raw('back', comp.salary, 777, '2026-05-05', '2026-05-31', false);
   await employee('bonus');
@@ -56,8 +61,8 @@ afterAll(async () => {
   try {
     await pool.query('DELETE FROM audit_log WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM payroll_employee_components WHERE employee_id IN (SELECT id FROM payroll_employees WHERE company_id=$1)', [company]);
-    await pool.query('DELETE FROM pay_package_components WHERE package_id=$1', [pkg]);
-    await pool.query('DELETE FROM pay_packages WHERE id=$1', [pkg]);
+    await pool.query('DELETE FROM pay_package_components WHERE package_id = ANY($1::uuid[])', [[pkg, pkg2]]);
+    await pool.query('DELETE FROM pay_packages WHERE id = ANY($1::uuid[])', [[pkg, pkg2]]);
     await pool.query('DELETE FROM payroll_components WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM payroll_employees WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=$1', [company]);
@@ -69,18 +74,18 @@ describe('a hand-entered once-off the apply would cancel', () => {
   it('a back-pay once-off on the same component: refused, naming it, nothing written', async () => {
     const before = await rows('back');
     await expect(applyPackageToEmployee(company, pkg, emp.back!, '2026-05-01', user))
-      .rejects.toThrow(/would cancel.*hand-entered once-off.*2026-05-05 to 2026-05-31.*end or move.*later date/i);
+      .rejects.toThrow(/would cancel.*once-offs? this package did not write.*2026-05-05 to 2026-05-31.*end or move.*later date/i);
     expect(await rows('back')).toEqual(before);
   });
 
   it('a once-off of another amount on the package once-off component: refused as well', async () => {
     const before = await rows('bonus');
-    await expect(applyPackageToEmployee(company, pkg, emp.bonus!, '2026-05-01', user)).rejects.toThrow(/hand-entered once-off/i);
+    await expect(applyPackageToEmployee(company, pkg, emp.bonus!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
     expect(await rows('bonus')).toEqual(before);
   });
 
   it("a once-off with the package's amount that is not closed at its month end: not the package's own, refused", async () => {
-    await expect(applyPackageToEmployee(company, pkg, emp.shape!, '2026-05-01', user)).rejects.toThrow(/hand-entered once-off/i);
+    await expect(applyPackageToEmployee(company, pkg, emp.shape!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
   });
 
   it('applied from after the once-off ends, the apply goes through and leaves it alone', async () => {
@@ -98,5 +103,70 @@ describe("the package's own once-off, applied again", () => {
     const live = bonuses.filter((r) => r.t !== null && r.t >= r.f);
     expect(live).toHaveLength(1);
     expect(bonuses.find((r) => r.t! < r.f)).toMatchObject({ cut: true });
+  });
+});
+
+describe('a once-off that is no longer live does not block the apply', () => {
+  it('apply 1 Nov, re-apply 15 Nov, End the replacement once-off, re-apply from 1 Nov: accepted', async () => {
+    await employee('cycle');
+    await applyPackageToEmployee(company, pkg, emp.cycle!, '2026-11-01', user);
+    await applyPackageToEmployee(company, pkg, emp.cycle!, '2026-11-15', user);
+    const replacement = (await pool.query(
+      "SELECT id FROM payroll_employee_components WHERE employee_id=$1 AND component_id=$2 AND effective_from='2026-11-15'", [emp.cycle, comp.bonus])).rows[0]!.id;
+    await expect(endEmployeeComponent(company, String(replacement), '2026-11-20', actor)).resolves.toBe(true); // voids it: no run paid it
+    await expect(applyPackageToEmployee(company, pkg, emp.cycle!, '2026-11-01', user)).resolves.toMatchObject({ inserted: 2 });
+  });
+});
+
+describe('a hand-entered once-off that nobody pays does not block the apply either', () => {
+  it('one that was cancelled (End voids it): accepted', async () => {
+    await employee('voidedHand');
+    await assignComponentToEmployee(company, emp.voidedHand!, comp.bonus, 1500, '2026-05-10', undefined, false, actor);
+    const id = (await pool.query('SELECT id FROM payroll_employee_components WHERE employee_id=$1', [emp.voidedHand])).rows[0]!.id;
+    await expect(endEmployeeComponent(company, String(id), '2026-05-20', actor)).resolves.toBe(true);
+    await expect(applyPackageToEmployee(company, pkg, emp.voidedHand!, '2026-05-01', user)).resolves.toBeDefined();
+  });
+
+  it('one an earlier apply already replaced (superseded): accepted', async () => {
+    await employee('supersededHand');
+    await raw('supersededHand', comp.bonus, 1500, '2026-05-10', '2026-05-31', false);
+    await pool.query('UPDATE payroll_employee_components SET superseded_at = now() WHERE employee_id=$1', [emp.supersededHand]);
+    await expect(applyPackageToEmployee(company, pkg, emp.supersededHand!, '2026-05-01', user)).resolves.toBeDefined();
+  });
+});
+
+describe('own by provenance, not by shape', () => {
+  it("a hand-entered R1,200 once-off equal to the package's R1,200 line: refused, untouched", async () => {
+    await employee('equal');
+    await assignComponentToEmployee(company, emp.equal!, comp.bonus, 1200, '2026-05-10', undefined, false, actor); // closed at 31 May, as a package would
+    const before = await rows('equal');
+    await expect(applyPackageToEmployee(company, pkg, emp.equal!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
+    expect(await rows('equal')).toEqual(before);
+  });
+
+  it("another package's once-off is not this package's: refused", async () => {
+    await employee('other');
+    await applyPackageToEmployee(company, pkg2, emp.other!, '2026-05-01', user);
+    await expect(applyPackageToEmployee(company, pkg, emp.other!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
+  });
+
+  it("the same package re-applied after its once-off amount was edited: accepted, one payment", async () => {
+    await employee('edited');
+    await applyPackageToEmployee(company, pkg, emp.edited!, '2026-05-01', user);
+    await pool.query('UPDATE pay_package_components SET amount = 1300 WHERE package_id=$1 AND component_id=$2', [pkg, comp.bonus]);
+    try {
+      await applyPackageToEmployee(company, pkg, emp.edited!, '2026-05-01', user);
+    } finally {
+      await pool.query('UPDATE pay_package_components SET amount = 1200 WHERE package_id=$1 AND component_id=$2', [pkg, comp.bonus]);
+    }
+    const live = (await rows('edited')).filter((r) => r.component_id === comp.bonus && r.t !== null && r.t >= r.f);
+    expect(live).toHaveLength(1);
+    expect(live[0]!.amount).toBe(1300);
+  });
+
+  it('a once-off with no audit entry (written before this release) is judged by its shape: the package amount, closed at month end', async () => {
+    await employee('legacy');
+    await raw('legacy', comp.bonus, 1200, '2026-05-01', '2026-05-31', false);
+    await expect(applyPackageToEmployee(company, pkg, emp.legacy!, '2026-05-01', user)).resolves.toBeDefined();
   });
 });
