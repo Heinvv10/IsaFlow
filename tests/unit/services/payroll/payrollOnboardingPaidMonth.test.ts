@@ -144,26 +144,13 @@ describe('salaryEndRefusal knows the employment end date (advice must be accepta
     expect(early('2026-03-01', '2026-04-10', '2026-04-28')).toContain('End the salary with the employment on 2026-04-28 (or omit salary.effectiveTo).');
   });
 
-  // Every value an advice string names, fed back through the same check, is accepted.
-  it.each([
-    ['2026-03-05', '2026-04-28', '2026-05-15'],
-    ['2026-03-05', '2026-03-28', '2026-04-15'],
-    ['2026-03-01', '2026-04-10', '2026-04-20'],
-    ['2026-03-01', '2026-04-10', '2026-04-28'],
-    ['2026-03-01', '2026-04-10', '2026-04-27'],
-    ['2026-03-05', '2026-04-28', '2026-04-29'],
-    ['2026-03-05', '2026-04-20', '2026-04-20'],
-    ['2026-03-05', '2026-04-15', '2026-04-15'],
-  ])('from %s to %s, employment ends %s: each advised end date passes', (from, to, endDay) => {
-    const text = salaryEndRefusal(from, to, to === endDay, endDay)!;
-    expect(text).not.toBeNull();
-    const advised = [...text.matchAll(/(?:End the salary on|or on|with the employment on) (\d{4}-\d\d-\d\d)/g)].map((m) => m[1]!);
-    for (const day of advised) {
-      expect(day >= from, `${day} is not before the start`).toBe(true);
-      expect(day <= endDay, `${day} is not after the employment ends`).toBe(true);
-      expect(salaryEndRefusal(from, day, day === endDay, endDay), `${day} is accepted`).toBeNull();
-    }
-    if (advised.length === 0) expect(text).toContain('Create the employee without a salary');
+  it('the employment ends on the 27th: end it with the employment (the 27th is read)', () => {
+    expect(early('2026-03-01', '2026-04-10', '2026-04-27')).toContain('End the salary with the employment on 2026-04-27 (or omit salary.effectiveTo).');
+  });
+
+  it('the employment ends on the 26th: only the previous month end (the 26th pays nothing)', () => {
+    const text = early('2026-03-01', '2026-04-10', '2026-04-26')!;
+    expect(text).toContain('End the salary on 2026-03-31 and pay the April days as a once-off in an open month.');
+    expect(text).not.toContain('with the employment');
   });
 });
-

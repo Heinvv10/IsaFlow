@@ -83,7 +83,6 @@ describe('createEmployeeWithPay: the salary window', () => {
 
   it('is refused before any write when the salary ends before the 27th (it pays nothing that month); the 27th is accepted', async () => {
     await expectRefused(go({ endDate: '2026-12-15', salary }), /paid nothing for December 2026.*End the salary on 2026-11-30/);
-    expect(salaryInPaidMonthRefusal).not.toHaveBeenCalled();
     await go({ endDate: '2026-12-27', salary });
     expect(assignComponentToEmployee).toHaveBeenCalledTimes(1);
   });
@@ -96,6 +95,43 @@ describe('createEmployeeWithPay: the salary window', () => {
   it('writes no paid-month check for an employee without a salary', async () => {
     await go();
     expect(salaryInPaidMonthRefusal).not.toHaveBeenCalled();
+  });
+});
+
+describe('createEmployeeWithPay: every date a refusal advises is accepted when followed', () => {
+  const advisedDates = (text: string) =>
+    [...text.matchAll(/(?:End the salary on|or on|with the employment on) (\d{4}-\d\d-\d\d)/g)].map((m) => m[1]!);
+
+  // [start, salary.effectiveTo or undefined (the salary then ends with the employment), endDate]
+  it.each([
+    ['2026-03-05', '2026-04-28', '2026-05-15'],
+    ['2026-03-05', '2026-03-28', '2026-04-15'],
+    ['2026-03-01', '2026-04-10', '2026-04-20'],
+    ['2026-03-01', '2026-04-10', '2026-04-26'],
+    ['2026-03-01', '2026-04-10', '2026-04-27'],
+    ['2026-03-01', '2026-04-10', '2026-04-28'],
+    ['2026-03-05', '2026-04-28', '2026-04-29'],
+    ['2026-03-05', undefined, '2026-04-20'],
+    ['2026-03-05', undefined, '2026-04-15'],
+  ])('start %s, salary.effectiveTo %s, endDate %s', async (start, effectiveTo, endDate) => {
+    const refusal = await go({ startDate: start, endDate, salary: { ...salary, ...(effectiveTo ? { effectiveTo } : {}) } }).then(() => null, (e) => e as Error);
+    expect(refusal).toBeInstanceOf(EmployeeOnboardingRefused);
+    const advised = advisedDates(refusal!.message);
+    expect(advised.length, refusal!.message).toBeGreaterThan(0);
+    for (const day of advised) {
+      vi.mocked(createPayrollEmployee).mockClear();
+      await expect(go({ startDate: start, endDate, salary: { ...salary, effectiveTo: day } }), `effectiveTo ${day} is accepted`).resolves.toBeDefined();
+      expect(createPayrollEmployee).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('a salary.effectiveTo equal to the endDate ends with the employment: the 28th is read', async () => {
+    await expect(go({ startDate: '2026-03-01', endDate: '2026-04-28', salary: { ...salary, effectiveTo: '2026-04-28' } })).resolves.toBeDefined();
+  });
+
+  it('the paid-month refusal comes before the end refusal (its advice is the one to follow)', async () => {
+    vi.mocked(salaryInPaidMonthRefusal).mockResolvedValueOnce('March 2026 is already paid. (paid-month advice)');
+    await expectRefused(go({ startDate: '2026-03-05', endDate: '2026-04-15', salary }), /^March 2026 is already paid/);
   });
 });
 

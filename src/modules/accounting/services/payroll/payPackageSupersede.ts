@@ -109,16 +109,6 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
      ORDER BY id FOR UPDATE
   `) as DbRow[];
   const overlapped = all.filter((row) => row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom);
-  const toCut = overlapped;
-  // Never cut what a paid run read: that run would no longer agree with the rows (security review, 2026-11-02).
-  for (const row of toCut) {
-    const changed = paidPeriodChanged(paid, windowOf(row), { ...windowOf(row), to: cutTo });
-    if (changed) {
-      throw new EmployeeComponentRefused(
-        `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cut an `
-        + `assignment that run paid (from ${isoDate(row.effective_from)}). ${paidRemedy(changed)}, or apply the package from a later date.`);
-    }
-  }
   // A recurring row is the package's to replace. A once-off is only if the package wrote it (a re-apply); one entered
   // by hand (a back-pay) is not: the apply is refused, with nothing written, rather than cancel it silently.
   // Only live, un-superseded once-offs are judged: a voided one (cancelled, End refuses it) and one an earlier apply
@@ -127,6 +117,23 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
     && (row.effective_to == null || isoDate(row.effective_to) >= isoDate(row.effective_from)));
   const own = await ownOnceOffs(tx, companyId, packageId, componentId, liveOnceOffs);
   const foreign = liveOnceOffs.filter((row) => !own.has(String(row.id)));
+  const foreignIds = new Set(foreign.map((row) => String(row.id)));
+  const toCut = overlapped;
+  // Never cut what a paid run read: that run would no longer agree with the rows (security review, 2026-11-02). Checked
+  // first: a month already paid is the stronger reason, and its remedy leads.
+  for (const row of toCut) {
+    const changed = paidPeriodChanged(paid, windowOf(row), { ...windowOf(row), to: cutTo });
+    if (changed) {
+      if (foreignIds.has(String(row.id))) {
+        throw new EmployeeComponentRefused(
+          `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cancel a once-off this package did not write `
+          + `(from ${isoDate(row.effective_from)}) that run paid. Apply the package from a later date; or, to keep this date, ${paidRemedy(changed)} and then end or move that once-off.`);
+      }
+      throw new EmployeeComponentRefused(
+        `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cut an `
+        + `assignment that run paid (from ${isoDate(row.effective_from)}). ${paidRemedy(changed)}, or apply the package from a later date.`);
+    }
+  }
   if (foreign.length > 0) {
     const named = foreign.map((row) => `${isoDate(row.effective_from)} to ${row.effective_to ? isoDate(row.effective_to) : 'open-ended'}, amount ${Number(row.amount).toFixed(2)}`);
     throw new EmployeeComponentRefused(

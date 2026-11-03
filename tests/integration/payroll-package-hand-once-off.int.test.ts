@@ -128,7 +128,7 @@ describe('a hand-entered once-off in a paid month gets the paid refusal, not the
     await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,5,2026,'approved')", [run, company]);
     await pool.query('INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,taxable_income,paye,net_pay) VALUES($1,$2,777,777,0,777)', [run, emp.paidBack]);
     const before = await rows('paidBack');
-    await expect(applyPackageToEmployee(company, pkg, emp.paidBack!, '2026-05-01', user)).rejects.toThrow(/2026-05 is already paid \(approved run\).*Reopen that run first/);
+    await expect(applyPackageToEmployee(company, pkg, emp.paidBack!, '2026-05-01', user)).rejects.toThrow(/2026-05 is already paid \(approved run\).*did not write.*Apply the package from a later date.*Reopen that run and reverse its journal first/);
     expect(await rows('paidBack')).toEqual(before);
     await pool.query('DELETE FROM payroll_run_lines WHERE run_id=$1', [run]);
     await pool.query('DELETE FROM payroll_run_headers WHERE id=$1', [run]);

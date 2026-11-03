@@ -117,6 +117,14 @@ describe('a hire starting in the paid month', () => {
     expect(rows).toEqual([{ t: '2026-03-31' }]);
   });
 
+  it('paid month and early end together: the paid-month refusal leads, and following it works', async () => {
+    const out = await post(hire('LH-16', '2026-02-10', {}, '2026-03-15'));
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toMatch(/^February 2026 is already paid\. The end date 2026-03-15 leaves no open month.*create the employee without a salary/);
+    expect(await rowsOf('LH-16')).toHaveLength(0);
+    expect((await post(hire('LH-16', '2026-02-10', undefined, '2026-03-15'))).statusCode).toBe(201);
+  });
+
   it('one whose contract runs in open months: created', async () => {
     expect((await post(hire('LH-10', '2026-03-01', {}, '2026-03-31'))).statusCode).toBe(201);
   });

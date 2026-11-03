@@ -4,7 +4,7 @@ import { paidNote, paidRemedy } from '@/modules/accounting/services/payroll/payr
 describe('how a paid month is described and undone', () => {
   it('an approved run is reopened', () => {
     expect(paidNote({ year: 2026, month: 2 })).toBe('(approved run)');
-    expect(paidRemedy({ year: 2026, month: 2 })).toBe('Reopen that run first');
+    expect(paidRemedy({ year: 2026, month: 2 })).toBe('Reopen that run and reverse its journal first');
   });
 
   it('a reopened run whose journal is still posted has its journal reversed', () => {

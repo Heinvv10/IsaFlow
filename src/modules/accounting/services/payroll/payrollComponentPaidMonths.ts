@@ -25,8 +25,8 @@ export type PaidPeriod = PayrollPeriod & { calculatedAt?: number | null; reopene
 
 /** How a month was paid, for a refusal: an approved run, or a reopened one whose journal is still posted. */
 export const paidNote = (p: PaidPeriod): string => (p.reopened ? '(reopened, but its journal is still posted)' : '(approved run)');
-/** What undoes it: reopening an approved run, or reversing the journal of a reopened one. */
-export const paidRemedy = (p: PaidPeriod): string => (p.reopened ? 'Reverse its journal first' : 'Reopen that run first');
+/** What undoes it: a reopened run still counts while its journal stands, so an approved run is reopened AND its journal reversed. */
+export const paidRemedy = (p: PaidPeriod): string => (p.reopened ? 'Reverse its journal first' : 'Reopen that run and reverse its journal first');
 
 /**
  * Whether a run of `period` reads (or, for a paid run, READ) this assignment: getEmployeeComponents' rule, row by
