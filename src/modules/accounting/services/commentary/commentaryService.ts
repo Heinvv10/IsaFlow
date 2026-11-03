@@ -113,10 +113,13 @@ export async function generateDrafts(input: {
   return { written, skipped };
 }
 
-export async function rejectCommentary(companyId: string, id: string, userId: string): Promise<CommentaryResult> {
+/** `reportKind` as in `approveCommentary`: a row of another kind is `not_found` to this caller. */
+export async function rejectCommentary(
+  companyId: string, id: string, userId: string, reportKind = 'pack',
+): Promise<CommentaryResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const row = await currentRow(companyId, id);
-  if (!row) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
+  if (!row || row.reportKind !== reportKind) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
 
   const t = nextStatus(row.status, 'reject');
   if (!t.ok) return { ok: false, code: 'invalid_state', reason: t.reason };

@@ -12,7 +12,8 @@ import {
   budgetBandBlocks, budgetLineBlocks, budgetSnapshot, comparisonPlan, incomeStatementContent, isBudgetSection,
   loadPackBudget, narrativePrior, samePeriodLastYear, type ComparisonPlan, type PackBudget,
 } from './managementPackComparison';
-import type { ManagementPackConfig, NoteContent, KpiResult } from './afsTypes';
+import { loadPackVarianceNoteBlocks } from './managementPackVarianceNotes';
+import type { ManagementPackConfig, NoteContent, NoteContentBlock, KpiResult } from './afsTypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type Row = DbRow;
@@ -46,6 +47,8 @@ interface PackData {
   priorYearIncome: Record<string, unknown> | null;
   plan: ComparisonPlan;
   budget: PackBudget | null;
+  /** The approved variance notes printed under the budget_variance table (budgets P5). */
+  varianceNotes: NoteContentBlock[];
   enabledSections: string[];
 }
 
@@ -69,7 +72,7 @@ function renderSection(sectionType: string, data: PackData): NoteContent {
     case 'income_vs_budget':
       return { title: 'Income vs Budget', blocks: data.budget ? budgetBandBlocks(data.budget) : [] };
     case 'budget_variance':
-      return { title: 'Budget Variance', blocks: data.budget ? budgetLineBlocks(data.budget) : [] };
+      return { title: 'Budget Variance', blocks: data.budget ? budgetLineBlocks(data.budget, data.varianceNotes) : [] };
     default:
       return { title: sectionType, blocks: [] };
   }
@@ -169,6 +172,8 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const plan = comparisonPlan(config.comparisonMode);
   // Before the document: a fault here must not leave a half-made pack that blocks the month's re-run.
   const budget = plan.budget || enabledSections.some(isBudgetSection) ? await loadPackBudget(companyId, period) : null;
+  const varianceNotes = budget?.kind === 'report' && enabledSections.includes('budget_variance')
+    ? await loadPackVarianceNoteBlocks(companyId, budget.report) : [];
 
   const doc = await createAfsDocument({
     companyId, period, documentType: 'management_pack', reportingFramework: 'ifrs_smes',
@@ -203,7 +208,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     ]);
 
   const packData: PackData = {
-    kpis: kpiScorecard.kpis, income, balance, priorIncome, priorYearIncome, plan, budget, enabledSections,
+    kpis: kpiScorecard.kpis, income, balance, priorIncome, priorYearIncome, plan, budget, varianceNotes, enabledSections,
   };
   const narrative = narrativePrior(packData, plan);
 

@@ -18,9 +18,15 @@ import { budgetReason, lockAndReadPack, printsOnFixedPage } from './commentaryBu
  * approver's own trimmed wording becomes `approved_text` and `draft_text` stays
  * the machine draft, so the row shows what was drafted against what a named
  * person signed.
+ *
+ * `reportKind` is the kind the CALLER serves: the pack routes leave it 'pack',
+ * the variance-note service passes 'budget_variance'. A row of another kind
+ * answers `not_found`, so a variance note cannot be approved through the pack
+ * route (which does not apply the variance roles), nor a pack row through the
+ * variance service.
  */
 export async function approveCommentary(
-  companyId: string, id: string, userId: string, editedText?: string,
+  companyId: string, id: string, userId: string, editedText?: string, reportKind = 'pack',
 ): Promise<CommentaryResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const edited = editedText === undefined ? undefined : normaliseEditedText(editedText);
@@ -32,7 +38,7 @@ export async function approveCommentary(
     }
   }
   const row = await currentRow(companyId, id);
-  if (!row) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
+  if (!row || row.reportKind !== reportKind) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
   // An approval is a person putting their name to a sentence. There is no
   // sentence here, so there is nothing to put a name to — and the 611 CHECK
   // would happily store the blank. (An edit supplies its own sentence.)

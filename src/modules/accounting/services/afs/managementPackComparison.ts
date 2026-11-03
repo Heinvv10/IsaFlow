@@ -142,17 +142,20 @@ export function topVarianceLines(lines: readonly TrackingLine[]): TrackingLine[]
     .slice(0, TOP_LINES);
 }
 
-export function budgetLineBlocks(budget: PackBudget): NoteContentBlock[] {
+/** `varianceNotes`: the approved variance notes (budgets P5, `managementPackVarianceNotes.ts`), printed under the table. */
+export function budgetLineBlocks(budget: PackBudget, varianceNotes: readonly NoteContentBlock[] = []): NoteContentBlock[] {
   const sentence = noBudgetSentence(budget);
   if (sentence !== null || budget.kind !== 'report') return [{ type: 'paragraph', text: sentence ?? '' }];
   const top = topVarianceLines(budget.report.lines);
-  if (top.length === 0) return [{ type: 'paragraph', text: 'No budgeted account is off budget this month.' }, ...budgetNotes(budget.report)];
+  if (top.length === 0) {
+    return [{ type: 'paragraph', text: 'No budgeted account is off budget this month.' }, ...varianceNotes, ...budgetNotes(budget.report)];
+  }
   const table: NoteContentTable = {
     type: 'table',
     headers: ['Account', ...FIGURE_HEADERS],
     rows: top.map((l) => [`${l.accountCode} ${l.accountName}`, ...figureCells(l)]),
   };
-  return [table, ...budgetNotes(budget.report)];
+  return [table, ...varianceNotes, ...budgetNotes(budget.report)];
 }
 
 /** What the section's `data_snapshot` keeps: the engine's figures as printed. */

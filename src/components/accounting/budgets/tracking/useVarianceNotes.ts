@@ -1,0 +1,77 @@
+/**
+ * The variance notes of one (version, month) on the Budget vs Actual page (budgets P5 spec §3e, §5), and
+ * the save / approve / reject actions against `/api/accounting/budgets/variance-notes`. `scope` null (a
+ * window of more than one month, or no version) loads nothing and clears what was shown.
+ *
+ * A response for a scope the page has moved past is dropped (request counter). An action never edits
+ * `notes` itself: on success it reloads, on failure it leaves the last loaded state and returns the reason.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { apiJson, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import type { VarianceNote, VarianceSlice } from '@/modules/accounting/services/commentary/varianceNoteTypes';
+
+export interface VarianceNotesScope { versionId: string; month: string }
+
+/** null on success, else the reason to show. */
+export type ActionResult = string | null;
+
+export interface UseVarianceNotes {
+  /** By `row_ref` (`varianceRowRef`). */
+  notes: ReadonlyMap<string, VarianceNote>;
+  error: string | null;
+  save: (slice: VarianceSlice, text: string) => Promise<ActionResult>;
+  approve: (id: string, text?: string) => Promise<ActionResult>;
+  reject: (id: string) => Promise<ActionResult>;
+}
+
+export function useVarianceNotes(scope: VarianceNotesScope | null): UseVarianceNotes {
+  const [notes, setNotes] = useState<ReadonlyMap<string, VarianceNote>>(new Map());
+  const [error, setError] = useState<string | null>(null);
+  const seq = useRef(0);
+  const versionId = scope?.versionId ?? null;
+  const month = scope?.month ?? null;
+  useEffect(() => () => { seq.current += 1; }, []);
+
+  const load = useCallback(async () => {
+    const id = ++seq.current;
+    if (versionId === null || month === null) {
+      setNotes(new Map());
+      setError(null);
+      return;
+    }
+    try {
+      const r = await apiJson(`/api/accounting/budgets/variance-notes?${new URLSearchParams({ versionId, month }).toString()}`, undefined,
+        'Could not load the variance notes - try again');
+      if (seq.current !== id) return;
+      if (!('notes' in r)) throw new ApiEnvelopeError('The variance notes response did not contain any notes.');
+      setNotes(new Map(r.notes.map((n) => [n.rowRef, n])));
+      setError(null);
+    } catch (err) {
+      if (seq.current !== id) return;
+      setNotes(new Map());
+      setError(apiErrorMessage(err, 'Could not load the variance notes - try again'));
+    }
+  }, [versionId, month]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const post = useCallback(async (body: Record<string, unknown>, failure: string): Promise<ActionResult> => {
+    try {
+      await apiJson('/api/accounting/budgets/variance-notes', { method: 'POST', body: JSON.stringify(body) }, failure);
+      await load();
+      return null;
+    } catch (err) {
+      return apiErrorMessage(err, failure);
+    }
+  }, [load]);
+
+  const save = useCallback((slice: VarianceSlice, text: string) => {
+    if (versionId === null || month === null) return Promise.resolve('Choose a single month to write a variance note.');
+    return post({ action: 'save', versionId, month, ...slice, text }, 'Could not save the note - try again');
+  }, [post, versionId, month]);
+  const approve = useCallback((id: string, text?: string) =>
+    post({ action: 'approve', id, ...(text === undefined ? {} : { text }) }, 'Could not approve the note - try again'), [post]);
+  const reject = useCallback((id: string) => post({ action: 'reject', id }, 'Could not reject the note - try again'), [post]);
+
+  return { notes, error, save, approve, reject };
+}
