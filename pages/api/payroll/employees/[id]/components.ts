@@ -86,7 +86,8 @@ async function handler(
     }
     try {
       const changed = await updateEmployeeComponentDates(
-        companyId, aid, effectiveFrom, effectiveTo ? effectiveTo : null, { userId: req.user.id, userEmail: req.user.email, channel: 'rest' },
+        companyId, id, aid, effectiveFrom, effectiveTo ? effectiveTo : null,
+        { userId: req.user.id, userEmail: req.user.email, channel: 'rest' },
       );
       if (!changed) return apiResponse.notFound(res, 'Component assignment');
       return apiResponse.success(res, { updated: aid });

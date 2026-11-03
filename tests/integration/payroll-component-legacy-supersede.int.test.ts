@@ -112,8 +112,8 @@ describe(`pre-953 rows keep the inferred supersede (TZ=${process.env.TZ ?? 'unse
 
 describe('Edit dates and End do not revive a pre-953 superseded once-off', () => {
   it.each([
-    ['moving the successor start', () => updateEmployeeComponentDates(company, rows.newOnce!, '2026-09-16', '2026-09-30', actor)],
-    ["moving the old once-off's end", () => updateEmployeeComponentDates(company, rows.oldOnce!, '2026-09-01', '2026-09-13', actor)],
+    ['moving the successor start', () => updateEmployeeComponentDates(company, emp.legacyPair!, rows.newOnce!, '2026-09-16', '2026-09-30', actor)],
+    ["moving the old once-off's end", () => updateEmployeeComponentDates(company, emp.legacyPair!, rows.oldOnce!, '2026-09-01', '2026-09-13', actor)],
     ['cancelling the successor', () => endEmployeeComponent(company, rows.newOnce!, '2026-09-20', actor)],
   ])('%s: refused, nothing written', async (_n, change) => {
     const before = (await pool.query('SELECT effective_from, effective_to FROM payroll_employee_components WHERE employee_id=$1 ORDER BY id', [emp.legacyPair])).rows;

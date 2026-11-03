@@ -25,10 +25,15 @@ const company = crypto.randomUUID();
 const admin = crypto.randomUUID();
 let call: ReturnType<typeof routeCaller>;
 let employee = '';
+let otherEmployee = '';
 const row: Record<string, string> = {};
 
 const url = (aid: string) => `/api/payroll/employees/${employee}/components?aid=${aid}`;
-const patch = (aid: string, body: unknown) => call(components as Route, 'PATCH', url(aid), employee, { body, query: { aid } });
+const patchFor = (employeeId: string, aid: string, body: unknown) => call(
+  components as Route, 'PATCH', `/api/payroll/employees/${employeeId}/components?aid=${aid}`,
+  employeeId, { body, query: { aid } },
+);
+const patch = (aid: string, body: unknown) => patchFor(employee, aid, body);
 const end = (aid: string, effectiveTo: string) => call(components as Route, 'DELETE', url(aid), employee, { body: { effectiveTo }, query: { aid } });
 const datesOf = async (id: string) => (await pool.query(
   "SELECT to_char(effective_from,'YYYY-MM-DD') AS f, to_char(effective_to,'YYYY-MM-DD') AS t FROM payroll_employee_components WHERE id=$1", [id])).rows[0];
@@ -43,6 +48,9 @@ beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'Edit dates guards']);
   row.salary = await seedPayrollCompany(pool, company);
   employee = String((await pool.query('SELECT employee_id FROM payroll_employee_components WHERE id=$1', [row.salary])).rows[0]!.employee_id);
+  otherEmployee = String((await pool.query(
+    `INSERT INTO payroll_employees(company_id,employee_number,first_name,last_name,start_date,date_of_birth,tax_number,medical_aid_main_member)
+     VALUES($1,'W301-2','Other','Employee','2020-01-01','1981-01-01','9876543210',true) RETURNING id`, [company])).rows[0]!.id);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, admin]);
   const token = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
@@ -76,6 +84,13 @@ afterAll(async () => {
 });
 
 describe('refused, nothing written', () => {
+  it('an assignment belonging to another employee named in the URL', async () => {
+    const before = await datesOf(row.onceOff!);
+    const out = await patchFor(otherEmployee, row.onceOff!, { effectiveFrom: '2026-04-15', effectiveTo: '2026-04-30' });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(404);
+    expect(await datesOf(row.onceOff!)).toEqual(before);
+  });
+
   it.each([
     ['a once-off left open-ended', 'onceOff', { effectiveFrom: '2026-04-10', effectiveTo: null }, /once-off needs an end date/i],
     ['a once-off spanning two months', 'onceOff', { effectiveFrom: '2026-04-10', effectiveTo: '2026-05-05' }, /one month/i],

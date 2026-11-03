@@ -93,9 +93,12 @@ export async function changeAssignmentDates(
   assignmentId: string,
   change: DateChange,
   actor: ComponentChangeActor,
+  expectedEmployeeId?: string,
 ): Promise<boolean> {
   validateRequest(change);
   if (!isUuidParam(assignmentId)) return false;
+  if (expectedEmployeeId !== undefined && !isUuidParam(expectedEmployeeId)) return false;
+  const employeeId = expectedEmployeeId ?? null;
 
   return withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
@@ -105,6 +108,7 @@ export async function changeAssignmentDates(
       JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
       JOIN payroll_components pc ON pc.id = pec.component_id AND pc.company_id = e.company_id
       WHERE pec.id = ${assignmentId}::uuid
+        AND (${employeeId}::uuid IS NULL OR pec.employee_id = ${employeeId}::uuid)
     `) as DbRow[])[0];
     if (!target) return false;
     const rows = (await tx`
@@ -140,7 +144,7 @@ export async function changeAssignmentDates(
 
     await tx`
       UPDATE payroll_employee_components SET effective_from = ${after.from}::date, effective_to = ${after.to}::date
-      WHERE id = ${assignmentId}::uuid
+      WHERE id = ${assignmentId}::uuid AND employee_id = ${target.employee_id}::uuid
     `;
     await auditComponentChange(tx, companyId, assignmentId, windowOnly(self), windowOnly(after), kind, actor);
     log.info('Changed employee component dates', {
@@ -152,7 +156,10 @@ export async function changeAssignmentDates(
 
 /** Edit dates: both dates, on an open or ended row. */
 export function updateEmployeeComponentDates(
-  companyId: string, assignmentId: string, effectiveFrom: string, effectiveTo: string | null, actor: ComponentChangeActor,
+  companyId: string, employeeId: string, assignmentId: string, effectiveFrom: string, effectiveTo: string | null,
+  actor: ComponentChangeActor,
 ): Promise<boolean> {
-  return changeAssignmentDates(companyId, assignmentId, { kind: 'edit', from: effectiveFrom, to: effectiveTo }, actor);
+  return changeAssignmentDates(
+    companyId, assignmentId, { kind: 'edit', from: effectiveFrom, to: effectiveTo }, actor, employeeId,
+  );
 }
