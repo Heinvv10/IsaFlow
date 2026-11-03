@@ -16,3 +16,12 @@ describe('assertShownIsStored and exchange rates', () => {
     expect(() => assertShownIsStored({ expectedExchangeRate: 18.500001 }, { total_amount: '100.00', currency_code: 'USD', exchange_rate: '18.500000' })).toThrow(InvoiceStaleViewError);
   });
 });
+
+describe('assertShownIsStored and money', () => {
+  it('compares integer cents, half away from zero: 1.005 is 1.01 (Math.round(1.005 * 100) is 100)', () => {
+    expect(() => assertShownIsStored({ expectedTotal: 1.01 }, { total_amount: '1.005', currency_code: 'ZAR', exchange_rate: 1 })).not.toThrow();
+  });
+  it('a cent apart is another total', () => {
+    expect(() => assertShownIsStored({ expectedTotal: 1150 }, { total_amount: '1150.01', currency_code: 'ZAR', exchange_rate: 1 })).toThrow(InvoiceStaleViewError);
+  });
+});
