@@ -100,6 +100,17 @@ describe('A\'s page state does not survive onto B', () => {
     expect(screen.queryByDisplayValue('https://portal.example/a-token')).toBeNull();
   });
 
+  it('a portal link made on A is not shown under B', async () => {
+    serveAB((u) => (u.includes('/api/portal/invoice/generate') ? ok({ portalUrl: 'https://portal.example/a-token' }) : undefined));
+    const { rerender } = render(<ViewPage />);
+    await settle();
+    fireEvent.click(button('Copy Portal Link'));
+    await settle();
+    expect(screen.getByDisplayValue('https://portal.example/a-token')).toBeTruthy();
+    await moveToB(rerender);
+    expect(screen.queryByText('Portal link:')).toBeNull();
+  });
+
   it('A\'s pay-now checkout answering after the move opens nothing from B', async () => {
     serveAB();
     const { rerender } = render(<ViewPage />);
