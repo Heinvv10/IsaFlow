@@ -11,6 +11,7 @@ export type InvoiceItemRow = {
   description?: string; unit_price?: number | string; quantity?: number | string;
   amount?: number | string; tax_rate?: number | string;
   gl_account_id?: string | null; project_id?: string | null; cc1_id?: string | null; cc2_id?: string | null; bu_id?: string | null;
+  time_entry_id?: string | null;
 };
 export type InvoiceDetail = {
   id: string; status: string; invoice_number: string;

@@ -4,7 +4,7 @@
  * Actions grouped by workflow: Send / Collect / Accounting / More.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -27,6 +27,8 @@ import { DocumentApprovalPanel } from '@/components/accounting/approvals/Documen
 import { useInvoiceLinkActions } from '@/components/invoices/useInvoiceLinkActions';
 import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
 import { approvalShown } from '@/components/accounting/customer-invoices/approveShown';
+import { openInvoiceLoads } from '@/components/invoices/openInvoiceLoads';
+import { rateText } from '@/modules/accounting/services/ar/customerInvoiceStaleView';
 
 export default function CustomerInvoiceDetailPage() {
   const router = useRouter();
@@ -43,13 +45,13 @@ export default function CustomerInvoiceDetailPage() {
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const { prevId, nextId, loadAdjacent, clear: clearAdjacent } = useAdjacentInvoices();
 
-  // The invoice the URL opens now. A load is shown only if it is the newest AND for that invoice: an action's reload of
-  // A answering after the user moved on to B is dropped, so nothing (Email, Cancel…) is ever done to A from B's page.
-  const openId = useRef('');
-  const loads = useRef(0);
+  // The invoice the URL opens now (openInvoiceLoads): a load starts only for it, and is shown only if it is still open
+  // and nothing newer started, so nothing (Email, Cancel…) is ever done to A from B's page.
+  const [loads] = useState(openInvoiceLoads);
   const loadInvoice = useCallback(async (id: string) => {
-    const mine = ++loads.current;
-    const current = () => mine === loads.current && id === openId.current;
+    const mine = loads.begin(id);
+    if (mine === null) return; // no longer the invoice open
+    const current = () => loads.isCurrent(mine);
     setLoading(true);
     setError('');
     try {
@@ -65,15 +67,20 @@ export default function CustomerInvoiceDetailPage() {
     } finally {
       if (current()) setLoading(false);
     }
-  }, [clearAdjacent]);
-  const reloadOpen = useCallback(() => loadInvoice(openId.current), [loadInvoice]);
+  }, [loads, clearAdjacent]);
+  const reloadOpen = useCallback(() => (invoice ? loadInvoice(invoice.id) : Promise.resolve()), [invoice, loadInvoice]);
+  const { paymentLoading, linkCopied, portalUrl, portalLinkLoading, portalLinkCopied, handlePayNow, handleCopyPaymentLink, handleCopyPortalLink, reset: resetLinks } =
+    useInvoiceLinkActions({ invoice, loadInvoice: reloadOpen, setError, isOpen: loads.isOpen });
 
   useEffect(() => {
     if (!invoiceId) return;
-    openId.current = String(invoiceId);
+    loads.open(String(invoiceId));
+    // Another invoice opened in place: nothing of the last one's stays (its email form and address, its questions).
+    setShowEmailModal(false); setEmailTo(''); setEmailSuccess(''); setShowCancelConfirm(false); setShowRevokeConfirm(false); setActionLoading('');
+    resetLinks();
     void loadInvoice(String(invoiceId));
     void loadAdjacent(invoiceId as string);
-  }, [invoiceId, loadInvoice, loadAdjacent]);
+  }, [invoiceId, loads, loadInvoice, loadAdjacent, resetLinks]);
 
   const handleAction = useCallback(async (action: string) => {
     const actedOn = invoice?.id;
@@ -90,17 +97,16 @@ export default function CustomerInvoiceDetailPage() {
           ? { id: actedOn, action, ...approvalShown({ total: Number(invoice?.total_amount), currencyCode: invoice?.currency_code ?? 'ZAR', exchangeRate: Number(invoice?.exchange_rate ?? 1) }) }
           : { id: actedOn, action }),
       });
-      if (openId.current !== actedOn) return; // the user moved on: nothing about A belongs on this page now
       // R-035: 409 is the approval gate — reload so the page offers Submit for approval — or STALE_VIEW: show what is stored.
       if (res.status === 409) await loadInvoice(actedOn);
       await assertOk(res, 'Could not complete that action - try again');
       await loadInvoice(actedOn);
     } catch (e) {
-      if (openId.current === actedOn) setError(apiErrorMessage(e, 'Could not complete that action - try again'));
+      if (loads.isOpen(actedOn)) setError(apiErrorMessage(e, 'Could not complete that action - try again')); // not A's on B
     } finally {
-      setActionLoading('');
+      if (loads.isOpen(actedOn)) setActionLoading('');
     }
-  }, [invoice, loadInvoice]);
+  }, [invoice, loads, loadInvoice]);
 
   const handleSendEmail = async () => {
     const sentFor = invoice?.id;
@@ -115,15 +121,14 @@ export default function CustomerInvoiceDetailPage() {
       });
       await assertOk(res, 'Could not send the invoice email - try again');
       const json = await res.json();
+      if (!loads.isOpen(sentFor)) return;
       setEmailSuccess(json.data?.sent ? 'Invoice emailed successfully!' : (json.message || 'Email could not be sent.'));
-      if (json.data?.sent && openId.current === sentFor) await loadInvoice(sentFor);
+      if (json.data?.sent) await loadInvoice(sentFor);
     } catch (e) {
-      setError(apiErrorMessage(e, 'Could not send the invoice email - try again'));
-    } finally { setEmailSending(false); }
+      if (loads.isOpen(sentFor)) setError(apiErrorMessage(e, 'Could not send the invoice email - try again'));
+    } finally { if (loads.isOpen(sentFor)) setEmailSending(false); }
   };
 
-  const { paymentLoading, linkCopied, portalUrl, portalLinkLoading, portalLinkCopied, handlePayNow, handleCopyPaymentLink, handleCopyPortalLink } =
-    useInvoiceLinkActions({ invoice, loadInvoice: reloadOpen, setError });
 
   const { groups, overflowActions } = useCustomerInvoiceActions(
     invoice ? {
@@ -143,7 +148,7 @@ export default function CustomerInvoiceDetailPage() {
   if (!invoice) return <AppLayout><div className="flex items-center justify-center min-h-[60vh] flex-col"><AlertCircle className="h-8 w-8 text-red-400 mb-2" /><p className="text-[var(--ff-text-secondary)]">{error || 'Invoice not found'}</p></div></AppLayout>;
 
   const balance = Number(invoice.total_amount) - Number(invoice.amount_paid);
-  const shownCurrency = (i: CustomerInvoiceDetail) => { const code = i.currency_code || 'ZAR'; return code === 'ZAR' ? code : `${code} at ${Number(i.exchange_rate ?? 1)}`; };
+  const shownCurrency = (i: CustomerInvoiceDetail) => { const code = i.currency_code || 'ZAR'; return code === 'ZAR' ? code : `${code} at ${rateText(i.exchange_rate)}`; };
   const trail = buildInvoiceTrail('customer', router.query, invoice.client_name, invoice.invoice_number);
 
   return (
@@ -204,6 +209,7 @@ export default function CustomerInvoiceDetailPage() {
             balance={balance}
             notes={invoice.notes}
             items={invoice.items}
+            currencyCode={invoice.currency_code || 'ZAR'}
           />
           {/* GL Journal link — body anchor for discoverability, matching supplier page */}
           {invoice.gl_journal_entry_id && (

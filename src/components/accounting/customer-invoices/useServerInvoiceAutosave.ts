@@ -130,6 +130,8 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   useCommitEffect(() => {
     if (loadedAs.current === loadKey) return;
     loadedAs.current = loadKey; // reloaded in place: what the server holds now is the baseline; nothing is sent back
+    seq.current++; // and every reply still out is stale
+    setSaving(false);
     lastShown.current = null;
     lastSaved.current = null;
     setSavedJson(null);

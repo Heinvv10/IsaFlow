@@ -18,6 +18,7 @@ import { InvoiceLineItemsTable } from '@/components/accounting/customer-invoices
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
+import { sameCents } from '@/modules/accounting/services/shared/functionalAmounts';
 import { useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
@@ -28,11 +29,12 @@ import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices
 import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
 import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
 import { linesFromStoredItems, type InvoiceDetail } from '@/components/accounting/customer-invoices/editInvoiceLoad';
-import { stashApproveRefusal, takeApproveRefusal, useApproveAndEmail } from '@/components/accounting/customer-invoices/useApproveAndEmail';
+import { takeApproveRefusal, useApproveAndEmail } from '@/components/accounting/customer-invoices/useApproveAndEmail';
 
 // CC2 / BU are edited here; CC1 follows its CC2 (invoicePutBody re-sends it only while the CC2 is the one it loaded with).
 type LineItem = EditLine;
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
+const STALE_PRICED_HOLD = "this draft's stored total is not what its lines price to; Save Changes reprices it";
 const CUSTOMER_FAILED = "Could not load the customer's VAT type - check the VAT on this invoice by hand";
 export default function EditCustomerInvoicePage() {
   const router = useRouter();
@@ -63,6 +65,8 @@ export default function EditCustomerInvoicePage() {
   // The total as stored: priced by older rules (a converted quote, WIP) it can differ from what the lines give now.
   const [storedTotal, setStoredTotal] = useState<number | null>(null);
   const [reloads, setReloads] = useState(0); // a STALE_VIEW refusal reloads what is stored
+  const staleRefusal = useRef<string | null>(null); // its sentence, shown once the reload lands
+  const [wipLinked, setWipLinked] = useState(false); // lines carry WIP time-entry links, which a reprice drops
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -85,8 +89,11 @@ export default function EditCustomerInvoicePage() {
       setInvoiceNumber(invoice.invoice_number);
       setLoadedFor(id);
       setStoredTotal(invoice.total_amount === undefined || invoice.total_amount === null ? null : Number(invoice.total_amount));
+      setWipLinked((invoice.items ?? []).some((it) => Boolean(it.time_entry_id)));
       setStoredDates({ dueDate: Boolean(invoice.due_date), billingPeriodStart: Boolean(invoice.billing_period_start), billingPeriodEnd: Boolean(invoice.billing_period_end) });
-      const refusal = takeApproveRefusal(id); // Approve & email on the new page landed here: say why
+      // Why this load: a STALE_VIEW here (carried in memory across the reload), or Approve & email on the new page.
+      const refusal = staleRefusal.current ? { message: staleRefusal.current, status: null } : takeApproveRefusal(id);
+      staleRefusal.current = null;
       if (refusal) { setError(refusal.message); setErrorStays(refusal.status === 409); }
       // No VAT at rate 0 prices exactly as Excluding VAT at rate 0, and says what the invoice is. The form keeps the
       // standard rate behind it, as the new page does, so leaving No VAT does not leave a rate of 0.
@@ -138,18 +145,18 @@ export default function EditCustomerInvoicePage() {
   // A stored total the lines no longer price to (a quote converted at 0%, a WIP draft rounded per line): never re-saved
   // unasked (that reprices, drops WIP links, stales an approval and makes the clicker an author). Both figures show,
   // and Approve & email refuses until the user saves or approves the stored figure from the invoice page.
-  const stalePriced = storedTotal !== null && Math.round(storedTotal * 100) !== Math.round(total * 100);
+  const stalePriced = storedTotal !== null && !sameCents(storedTotal, total);
   const money = (n: number) => formatCurrencyAmount(n, form.currencyCode);
   const approve = useApproveAndEmail({
     save: async () => {
-      if (stalePriced && storedTotal !== null && !autosave.unsaved()) {
+      if (stalePriced && storedTotal !== null) { // only Save Changes reprices it
         setError(`Save to reprice at ${money(total)}, or approve ${money(storedTotal)} from the invoice page`);
         return null;
       }
       return (await saveDraft(false)) ? { id, invoiceNumber } : null;
     },
     onRefused: (_id, message, status, reason) => {
-      if (reason === 'STALE_VIEW') { stashApproveRefusal(id, message); setReloads(n => n + 1); return; } // show what is stored, and why
+      if (reason === 'STALE_VIEW') { staleRefusal.current = message; setReloads(n => n + 1); return; } // show what is stored, and why
       setError(message); setErrorStays(status === 409);
     },
     onApproved: () => setApproved(true),
@@ -169,7 +176,8 @@ export default function EditCustomerInvoicePage() {
   };
   const autosave = useInvoiceAutosave({
     mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft) : null,
-    problem: autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved, onSaved: keepStoredDates,
+    // A stale-priced draft is held: an autosaved typo would reprice it (and drop WIP links, stale an approval).
+    problem: stalePriced ? STALE_PRICED_HOLD : autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved, onSaved: keepStoredDates,
   });
 
   const saveDraft = async (always: boolean): Promise<boolean> => {
@@ -242,7 +250,7 @@ export default function EditCustomerInvoicePage() {
 
             <div className="lg:sticky lg:top-6 space-y-4">
               <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
-                {stalePriced && storedTotal !== null && <p className="mt-3 text-xs text-amber-800 dark:text-amber-300">Stored total {money(storedTotal)}; these lines price to {money(total)}. Saving reprices the invoice.</p>}
+                {stalePriced && storedTotal !== null && <p className="mt-3 text-xs text-amber-800 dark:text-amber-300">Stored total {money(storedTotal)}; these lines price to {money(total)}. Save Changes reprices the invoice{wipLinked ? ' and drops its links to time entries' : ''}.</p>}
                 <InvoiceAutosaveStatus where="server" state={autosave.state} savedAt={autosave.savedAt} error={autosave.error} held={autosave.held} />
                 <button onClick={handleSubmit} disabled={submitting || approve.busy || approved || (customer.pending && form.clientId !== loadedClient)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}
