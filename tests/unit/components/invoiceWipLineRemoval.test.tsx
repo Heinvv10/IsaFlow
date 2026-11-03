@@ -21,6 +21,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/components/accounting/customer-invoices/InvoicePdfPreview', () => ({ InvoicePdfPreview: () => null }));
 
 import EditPage from '../../../pages/accounting/customer-invoices/edit/[invoiceId]';
+import { invoicePutBody } from '@/components/accounting/customer-invoices/invoicePutBody';
 
 useApiJsonOverMock();
 let confirm: ReturnType<typeof vi.fn>;
@@ -95,6 +96,18 @@ describe('a line that bills a time entry', () => {
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
     await settle();
     expect(puts()).toHaveLength(0);
+  });
+});
+
+describe('the body', () => {
+  it('never drops a time-entry line, even blank (an unlinked blank line is left out quietly)', () => {
+    const blank = { description: '', quantity: 1, unitPrice: 0, discount: 0, glAccountId: '', projectId: '', cc2Id: '', buId: '' };
+    const body = invoicePutBody('inv-1', {
+      form: { clientId: 'c-1', invoiceDate: '2026-09-15', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' },
+      lines: [{ ...blank, key: 'a', timeEntryId: 'te-a' }, { ...blank, key: 'b' }],
+      taxMode: 'exclusive',
+    });
+    expect(body.items.map((i) => i.timeEntryId)).toEqual(['te-a']);
   });
 });
 

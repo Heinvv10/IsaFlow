@@ -3,7 +3,7 @@
  * can undo a back/forward exactly. A push is the current entry's index + 1; a replace keeps the current entry's index
  * (a popped entry's own); an entry with no object state (a hash change) gets none.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { historyIndexOf, installHistoryIndex } from '@/lib/historyIndex';
 
 describe('history entries carry their index', () => {
@@ -21,6 +21,19 @@ describe('history entries carry their index', () => {
     expect(historyIndexOf(window.history.state)).toBe(first! + 2); // wrapped once, not twice (that would add 2)
     window.history.replaceState(null, '', '/b#x');
     expect(historyIndexOf(window.history.state)).toBeNull();
+  });
+
+  it('a replace keeps the current entry\'s index even with entries ahead of it (a popped entry: not history.length - 1)', () => {
+    installHistoryIndex();
+    window.history.pushState({ key: 'here' }, '', '/here');
+    const here = historyIndexOf(window.history.state)!;
+    const ahead = vi.spyOn(window.history, 'length', 'get').mockReturnValue(here + 10); // forward entries exist
+    try {
+      window.history.replaceState({ key: 'here', url: '/here' }, '', '/here'); // as Next does on a pop
+      expect(historyIndexOf(window.history.state)).toBe(here);
+    } finally {
+      ahead.mockRestore();
+    }
   });
 
   it('reads only a whole, non-negative index', () => {
