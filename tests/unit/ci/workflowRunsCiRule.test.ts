@@ -23,10 +23,10 @@ function edit(from: string, to: string): string {
   return REAL.replace(from, to);
 }
 
-/** static, velo and golden-paths share their hosted setup steps: edit the nth (0 = static's, 1 = velo's) of exactly three (golden-paths' steps are not pinned by the rule). */
+/** static, velo, smoke and post-merge share hosted setup: edit the nth (0 = static, 1 = velo) of exactly four. */
 function editNth(from: string, to: string, nth: 0 | 1): string {
   const parts = REAL.split(from);
-  expect(parts.length - 1, `fixture anchor must occur three times: ${from}`).toBe(3);
+  expect(parts.length - 1, `fixture anchor must occur four times: ${from}`).toBe(4);
   return parts.reduce((acc, part, i) => (i === 0 ? part : acc + (i - 1 === nth ? to : from) + part), '');
 }
 
@@ -59,7 +59,8 @@ const VELO_HEADER = '  velo:\n    name: Browser & integration\n';
 const AGGREGATE = '          [ "$ROUTE" = "success" ] && [ "$STATIC" = "success" ] && [ "$VELO" = "success" ]\n';
 const LIGHT = `\${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}`;
 const STATIC_RUNS_ON = `\${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}`;
-const GOLDEN_GROUP = "      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}\n";
+const GOLDEN_GROUP = "      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-smoke-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-smoke-hosted-{0}', github.run_id) }}\n";
+const TOP_CONCURRENCY = "concurrency:\n  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}\n  cancel-in-progress: ${{ github.event_name != 'push' }}\n";
 
 describe('the committed workflow', () => {
   it('passes', () => {
@@ -152,21 +153,21 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['a cap just under the floor', 'timeout-minutes: 59'],
     ['no timeout at all (key removed)', null],
   ])('golden-paths with %s: every run is cut short and ends cancelled', (_label, line) => {
-    const from = '    timeout-minutes: 60\n    # Velo (CI_HOSTED=off): each runner owns';
-    const to = line === null ? '    # Velo (CI_HOSTED=off): each runner owns' : `    ${line}\n    # Velo (CI_HOSTED=off): each runner owns`;
-    expect(check(edit(from, to)).length).toBeGreaterThan(0);
+    const from = '    timeout-minutes: 60\n';
+    const to = line === null ? '' : `    ${line}\n`;
+    expect(check(REAL.replaceAll(from, to)).length).toBeGreaterThan(0);
   });
 
   it.each([
-    ['a concurrency group shared by every ref', '  group: ci-fixed\n  cancel-in-progress: true\n'],
-    ['cancel-in-progress switched off', '  group: ci-${{ github.ref }}\n  cancel-in-progress: false\n'],
-    ['an extra concurrency key', '  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n  queue: max\n'],
+    ['a concurrency group shared by every ref', 'concurrency:\n  group: ci-fixed\n  cancel-in-progress: ${{ github.event_name != \'push\' }}\n'],
+    ['pushes allowed to cancel each other', 'concurrency:\n  group: ci-${{ github.event_name == \'push\' && github.sha || github.ref }}\n  cancel-in-progress: true\n'],
+    ['an extra concurrency key', `${TOP_CONCURRENCY}  queue: max\n`],
   ])('%s', (_label, body) => {
-    expect(check(edit('  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n', body)).length).toBeGreaterThan(0);
+    expect(check(edit(TOP_CONCURRENCY, body)).length).toBeGreaterThan(0);
   });
 
   it('concurrency removed from the workflow', () => {
-    expect(check(edit('concurrency:\n  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n', '')).length).toBeGreaterThan(0);
+    expect(check(edit(TOP_CONCURRENCY, '')).length).toBeGreaterThan(0);
   });
 
   it('a second workflow file (concurrency groups are repo-wide, so it can take ci- and cancel quality)', () => {
@@ -192,8 +193,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['a label no runner has', 'ubuntu-latest-xl'],
     ['hosted only (CI_HOSTED=off no longer reaches velo)', 'ubuntu-24.04'],
   ])('golden-paths runs-on %s', (_label, runsOn) => {
-    const from = `    name: Golden Paths E2E (blocking)\n    runs-on: ${LIGHT}\n`;
-    expect(check(edit(from, `    name: Golden Paths E2E (blocking)\n    runs-on: ${runsOn}\n`)).length).toBeGreaterThan(0);
+    expect(check(REAL.replace(`    runs-on: ${LIGHT}\n`, `    runs-on: ${runsOn}\n`)).length).toBeGreaterThan(0);
   });
 
   it('golden-lane taking a concurrency group (the ci- one would cancel quality)', () => {
@@ -202,7 +202,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
 
   it('golden-paths concurrency removed or set to cancel', () => {
     expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}      cancel-in-progress: false\n`, '')).length).toBeGreaterThan(0);
-    expect(check(edit('      cancel-in-progress: false\n', '      cancel-in-progress: true\n')).length).toBeGreaterThan(0);
+    expect(check(REAL.replace('      cancel-in-progress: false\n', '      cancel-in-progress: true\n')).length).toBeGreaterThan(0);
   });
 
   it.each([
@@ -228,9 +228,9 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['static', QUALITY_PERMS],
     ['velo', VELO_PERMS],
   ])('%s widening its own token', (_job, from) => {
-    expect(check(edit(from, from.replace('actions: read', 'actions: write'))).length).toBeGreaterThan(0);
-    expect(check(edit(from, from.replace('      pull-requests: read\n', '      pull-requests: read\n      checks: write\n'))).length).toBeGreaterThan(0);
-    expect(check(edit(from, from.replace(JOB_PERMS, '    permissions: write-all\n'))).length).toBeGreaterThan(0);
+    expect(check(REAL.replace(from, from.replace('actions: read', 'actions: write'))).length).toBeGreaterThan(0);
+    expect(check(REAL.replace(from, from.replace('      pull-requests: read\n', '      pull-requests: read\n      checks: write\n'))).length).toBeGreaterThan(0);
+    expect(check(REAL.replace(from, from.replace(JOB_PERMS, '    permissions: write-all\n'))).length).toBeGreaterThan(0);
   });
 
   it('checkout given any input but fetch-depth: 0 and persist-credentials: false', () => {
@@ -243,9 +243,9 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['velo', VELO_CHECKOUT],
     ['golden-paths', GOLDEN_CHECKOUT],
   ])('%s leaving its read token in .git/config (persist-credentials dropped or true)', (_job, from) => {
-    expect(check(edit(from, from.replace('          persist-credentials: false\n', ''))).length).toBeGreaterThan(0);
-    expect(check(edit(from, from.replace('persist-credentials: false', 'persist-credentials: true'))).length).toBeGreaterThan(0);
-    expect(check(edit(from, from.replace('persist-credentials: false', "persist-credentials: 'false'"))).length).toBeGreaterThan(0);
+    expect(check(REAL.replace(from, from.replace('          persist-credentials: false\n', ''))).length).toBeGreaterThan(0);
+    expect(check(REAL.replace(from, from.replace('persist-credentials: false', 'persist-credentials: true'))).length).toBeGreaterThan(0);
+    expect(check(REAL.replace(from, from.replace('persist-credentials: false', "persist-credentials: 'false'"))).length).toBeGreaterThan(0);
   });
 
   it('CI_READ_TOKEN set to anything but the job token (the merge check trusts the API it reaches)', () => {
@@ -260,7 +260,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(edit(`${VELO_HEADER}    needs: route\n    runs-on: ${STATIC_RUNS_ON}\n`, `${VELO_HEADER}    needs: route\n    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
     expect(check(edit(`    needs: route\n    runs-on: ${STATIC_RUNS_ON}\n    # Hosted: 40`, `    needs: route\n    runs-on: [nonexistent-label]\n    # Hosted: 40`)).length).toBeGreaterThan(0);
     expect(check(edit(`  route:\n    name: CI route\n    runs-on: ${LIGHT}\n`, '  route:\n    name: CI route\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
-    expect(check(edit(`    if: \${{ always() }}\n    runs-on: ${LIGHT}\n`, '    if: ${{ always() }}\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
+    expect(check(REAL.replace(`    if: \${{ always() }}\n    runs-on: ${LIGHT}\n`, '    if: ${{ always() }}\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
   });
 
   it('the quality job removed or renamed', () => {
@@ -271,9 +271,9 @@ describe('refuses every way found to keep the job green while skipping gates', (
 
 describe('the required check passes only when both gate groups passed', () => {
   const cases: Array<[string, string]> = [
-    ['aggregator skipped when a group fails (if: success())', edit("    if: ${{ always() }}\n", '    if: ${{ success() }}\n')],
-    ['aggregator without if (skipped, which counts as passing)', edit("    if: ${{ always() }}\n", '')],
-    ['aggregator if: !cancelled() (a cancelled run skips the required check)', edit("    if: ${{ always() }}\n", '    if: ${{ !cancelled() }}\n')],
+    ['aggregator skipped when a group fails (if: success())', REAL.replace("    if: ${{ always() }}\n", '    if: ${{ success() }}\n')],
+    ['aggregator without if (skipped, which counts as passing)', REAL.replace("    if: ${{ always() }}\n", '')],
+    ['aggregator if: !cancelled() (a cancelled run skips the required check)', REAL.replace("    if: ${{ always() }}\n", '    if: ${{ !cancelled() }}\n')],
     ['aggregator stops waiting for velo', edit('    needs: [route, static, velo]\n', '    needs: [route, static]\n')],
     ['aggregator ignores the velo result', edit(AGGREGATE, AGGREGATE.replace(' && [ "$VELO" = "success" ]', ''))],
     ['aggregator accepts any static result', edit(AGGREGATE, AGGREGATE.replace(' && [ "$STATIC" = "success" ]', ''))],
@@ -289,7 +289,7 @@ describe('the required check passes only when both gate groups passed', () => {
     ['static timeout no longer pinned', edit("    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 40 || 75 }}\n", '    timeout-minutes: 1\n')],
     ['static no longer needs route (its runs-on reads route\'s output)', edit(`${STATIC_HEADER}    needs: route\n`, STATIC_HEADER)],
     ['velo no longer needs route', edit(`${VELO_HEADER}    needs: route\n`, VELO_HEADER)],
-    ['velo apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends postgresql-16", '      - run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends postgresql-16')],
+    ['velo apt step running on velo too', REAL.replace("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends postgresql-16", '      - run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends postgresql-16')],
     ['velo without its browser install (browser-tests cannot launch Chromium)', edit("      # As in static: Chromium for browser-tests.\n      - if: ${{ runner.environment == 'github-hosted' }}\n        run: bunx playwright install --with-deps chromium\n", '')],
     ['a hosted setup step that runs on velo too (static)', editNth("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n', 0)],
     ['a hosted setup step that runs on velo too (velo)', editNth("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n', 1)],

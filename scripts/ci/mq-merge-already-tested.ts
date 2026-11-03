@@ -48,7 +48,7 @@ import { readFileSync } from 'node:fs';
 
 export const SKIP_EXIT = 10;
 export const WORKFLOW_PATH = '.github/workflows/ci.yml';
-export const REQUIRED_JOBS = ['Type Check, Lint & Test', 'Golden Paths E2E (blocking)'];
+export const REQUIRED_JOBS = ['Type Check, Lint & Test', 'Golden Paths smoke (blocking)'];
 
 export type Verdict = { tested: boolean; reason: string };
 type Env = Record<string, string | undefined>;

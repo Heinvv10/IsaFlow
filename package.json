@@ -19,6 +19,7 @@
     "test:unit:watch": "node scripts/check-runtime.mjs && vitest",
     "test:e2e": "playwright test --config playwright-test.config.ts",
     "test:e2e:golden": "playwright test --config playwright-golden.config.ts",
+    "test:e2e:golden:smoke": "playwright test --config playwright-golden.config.ts tests/e2e/golden-paths/b-invoice-receipt-statement.spec.ts tests/e2e/golden-paths/f-bank-import-reconcile.spec.ts tests/e2e/golden-paths/g-journal-lifecycle.spec.ts tests/e2e/golden-paths/h-payroll-run.spec.ts",
     "test:components": "node scripts/check-runtime.mjs && vitest run --config vitest.components.config.ts",
     "test:print": "node scripts/check-runtime.mjs && vitest run --config vitest.print.config.ts",
     "test:integration": "node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts",

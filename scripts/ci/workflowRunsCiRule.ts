@@ -74,7 +74,10 @@ const ALLOWED_PREFIXED = new Set(['prepare']);
  * A concurrency group shared with other refs ends the check CANCELLED, never
  * red, and this repo has merged on cancelled checks. Pinned exactly.
  */
-const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true };
+const CONCURRENCY = {
+  group: "ci-${{ github.event_name == 'push' && github.sha || github.ref }}",
+  'cancel-in-progress': "${{ github.event_name != 'push' }}",
+};
 /**
  * Concurrency groups are repo-wide, across workflows: any other job or
  * workflow that takes the ci- group cancels the gate jobs. Scanning group
@@ -91,22 +94,27 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * running at once. It must stay clear of the `ci-` prefix and never cancel.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
-const JOBS = ['route', 'static', 'velo', QUALITY_JOB, 'golden-lane', 'golden-paths'];
+const JOBS = [
+  'route', 'static', 'velo', QUALITY_JOB, 'golden-lane', 'golden-paths-smoke',
+  'golden-paths-shim', 'golden-paths-post-merge', 'golden-paths-report',
+];
 /**
  * On velo (CI_HOSTED=off) the slot companies need the per-ref groups; on a
  * hosted runner the run has a database of its own and takes a group of its own
  * (the run id), so hosted runs neither wait for each other nor cancel each other.
  */
-const GOLDEN_PATHS_CONCURRENCY = {
-  group: "${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}",
+const GOLDEN_SMOKE_CONCURRENCY = {
+  group: "${{ vars.CI_HOSTED == 'off' && format('golden-paths-smoke-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-smoke-hosted-{0}', github.run_id) }}",
   'cancel-in-progress': false,
 };
+const GOLDEN_POST_CONCURRENCY = { group: 'golden-paths-post-merge', 'cancel-in-progress': false };
 /**
  * The token every job gets. With `actions: write` any job (golden-paths
  * included) could `gh run cancel` the run. Pinned at the top level. A job may
  * set exactly JOB_PERMISSIONS and nothing else.
  */
 const PERMISSIONS = { contents: 'read' };
+const REPORT_PERMISSIONS = { actions: 'read', issues: 'write' };
 /** Golden Paths: ~29 min of test time for 187 tests, so a 30 cap cancelled every run (run 40962446042). */
 const MIN_GOLDEN_TIMEOUT_MINUTES = 60;
 /**
@@ -122,7 +130,10 @@ const JOB_NAMES: Record<string, string> = {
   velo: 'Browser & integration',
   [QUALITY_JOB]: QUALITY_NAME,
   'golden-lane': 'Golden Paths lane',
-  'golden-paths': 'Golden Paths E2E (blocking)',
+  'golden-paths-smoke': 'Golden Paths smoke (blocking)',
+  'golden-paths-shim': 'Golden Paths E2E (blocking)',
+  'golden-paths-post-merge': 'Golden Paths E2E (post-merge)',
+  'golden-paths-report': 'Golden Paths post-merge report',
 };
 
 function checkTrigger(on: Obj, event: string, errors: string[]): void {
@@ -181,7 +192,8 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
       errors.push(`ci.yml jobs must be exactly ${JOBS.join(', ')}; another job can take the ci- concurrency group and cancel the gates`);
     }
     const widened = Object.entries(jobs)
-      .filter(([, j]) => isObj(j) && 'permissions' in j && !sameMap(j.permissions, JOB_PERMISSIONS))
+      .filter(([name, j]) => isObj(j) && 'permissions' in j
+        && !sameMap(j.permissions, name === 'golden-paths-report' ? REPORT_PERMISSIONS : JOB_PERMISSIONS))
       .map(([name]) => name);
     if (widened.length) errors.push(`jobs ${widened.join(', ')} set permissions other than exactly ${JSON.stringify(JOB_PERMISSIONS)}; a write scope lets a job cancel the run`);
     // A job with the wider read token must not leave it in .git/config, where
@@ -192,19 +204,28 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
         && !(isObj(s.with) && s.with['persist-credentials'] === false)))
       .map(([name]) => name);
     if (persisting.length) errors.push(`jobs ${persisting.join(', ')} set permissions but check out without \`persist-credentials: false\`; the token would sit in .git/config for every later step`);
-    const gp = jobs['golden-paths'];
-    const gpc = isObj(gp) ? gp.concurrency : undefined;
-    if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
-      || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
-      errors.push(`jobs.golden-paths.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
+    const groupedGolden = [
+      ['golden-paths-smoke', GOLDEN_SMOKE_CONCURRENCY],
+      ['golden-paths-post-merge', GOLDEN_POST_CONCURRENCY],
+    ] as const;
+    for (const [id, want] of groupedGolden) {
+      const job = jobs[id];
+      const concurrency = isObj(job) ? job.concurrency : undefined;
+      if (!isObj(concurrency) || extraKeys(concurrency, Object.keys(want)).length
+        || concurrency.group !== want.group || concurrency['cancel-in-progress'] !== want['cancel-in-progress']) {
+        errors.push(`jobs.${id}.concurrency must be exactly ${JSON.stringify(want)}; taking the workflow's own group deadlocks or cancels the run`);
+      }
     }
-    // Hosted unless CI_HOSTED=off, like golden-lane: a label set no runner has queues forever and never goes red.
-    if (!isObj(gp) || gp['runs-on'] !== LIGHT_RUNS_ON) {
-      errors.push(`jobs.golden-paths.runs-on must be exactly ${LIGHT_RUNS_ON}; any other label set can queue forever and never go red`);
+    for (const id of ['golden-paths-smoke', 'golden-paths-shim', 'golden-paths-post-merge', 'golden-paths-report']) {
+      const job = jobs[id];
+      if (!isObj(job) || job['runs-on'] !== LIGHT_RUNS_ON) {
+        errors.push(`jobs.${id}.runs-on must be exactly ${LIGHT_RUNS_ON}; any other label set can queue forever and never go red`);
+      }
     }
-    const gpt = isObj(gp) ? gp['timeout-minutes'] : undefined;
-    if (!Number.isInteger(gpt) || (gpt as number) < MIN_GOLDEN_TIMEOUT_MINUTES) {
-      errors.push(`jobs.golden-paths.timeout-minutes must be an integer >= ${MIN_GOLDEN_TIMEOUT_MINUTES}; the suite needs ~30 min of test time and the floor leaves 2x headroom; a job that cannot finish ends cancelled, never red`);
+    const full = jobs['golden-paths-post-merge'];
+    const fullTimeout = isObj(full) ? full['timeout-minutes'] : undefined;
+    if (!Number.isInteger(fullTimeout) || (fullTimeout as number) < MIN_GOLDEN_TIMEOUT_MINUTES) {
+      errors.push(`jobs.golden-paths-post-merge.timeout-minutes must be an integer >= ${MIN_GOLDEN_TIMEOUT_MINUTES}`);
     }
     for (const [id, j] of Object.entries(jobs)) {
       const want = JOB_NAMES[id];
@@ -212,8 +233,8 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
         errors.push(`jobs.${id}.name must be exactly "${want}"; required checks go by name`);
       }
     }
-    const grouped = Object.entries(jobs).filter(([name, j]) => name !== 'golden-paths' && isObj(j) && 'concurrency' in j).map(([name]) => name);
-    if (grouped.length) errors.push(`jobs ${grouped.join(', ')} set concurrency; only golden-paths may take a group (the ci- group would cancel the gates)`);
+    const grouped = Object.entries(jobs).filter(([name, j]) => !['golden-paths-smoke', 'golden-paths-post-merge'].includes(name) && isObj(j) && 'concurrency' in j).map(([name]) => name);
+    if (grouped.length) errors.push(`jobs ${grouped.join(', ')} set concurrency; only smoke and post-merge Golden Paths may take a group`);
   }
   if (!isObj(jobs)) return [...errors, 'ci.yml has no `jobs` mapping'];
   errors.push(...checkGateJobs(jobs));
