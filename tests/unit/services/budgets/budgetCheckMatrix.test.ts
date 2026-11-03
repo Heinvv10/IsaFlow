@@ -4,6 +4,7 @@
  * block branches turns the warn/block cells red.
  */
 import { describe, expect, it } from 'vitest';
+import { formatMoney as R } from '@/lib/money/formatMoney';
 import {
   decideBudgetOutcome, distinctKeys, mustRetryForLock, sliceLines, type DecisionInput, type DocumentLine,
 } from '@/modules/accounting/services/budgets/budgetCheckCore';
@@ -45,7 +46,7 @@ describe('policy warn, a line over', () => {
     for (const reason of [undefined, null, '', '   ']) {
       const d = decide({ policy: 'warn', lines: OVER, channel: 'ui', reason });
       expect(d.kind).toBe('reason_required');
-      if (d.kind === 'reason_required') expect(d.message).toContain('6100 Opex · 2026-06: remaining R100.00, this bill R150.00');
+      if (d.kind === 'reason_required') expect(d.message).toContain(`6100 Opex · 2026-06: remaining ${R(100)}, this bill ${R(150)}`);
     }
   });
   it('ui with a reason: proceeds, event warn carrying the trimmed reason', () => {
@@ -85,7 +86,7 @@ describe('policy block, a line over', () => {
   it('ui without override: refused, naming the line and the override remedy', () => {
     const d = decide({ policy: 'block', lines: OVER, channel: 'ui', reason: 'please' });
     expect(d).toMatchObject({ kind: 'refuse', overrideRefused: false });
-    if (d.kind === 'refuse') expect(d.message).toMatch(/remaining R100\.00, this bill R150\.00.*owner or admin can override/);
+    if (d.kind === 'refuse') expect(d.message).toContain(`remaining ${R(100)}, this bill ${R(150)}. An owner or admin can override it`);
   });
   for (const role of ['owner', 'admin']) {
     it(`ui, ${role} override with a reason: event override`, () => {

@@ -113,7 +113,7 @@ export default function SupplierInvoiceDetailPage() {
     notifyPostingWarnings(json as PostingWarningsBody);
     await loadInvoice();
   }, [loadInvoice]);
-  const budgetApprove = useBudgetApprove(invoiceId as string, onApproved, setError);
+  const budgetApprove = useBudgetApprove(invoiceId as string, onApproved, setError, loadInvoice);
 
   const handleSaveEdit = async () => {
     if (dates.blocked) { setError('Fix the date marked in red before saving.'); return; }
@@ -228,7 +228,7 @@ export default function SupplierInvoiceDetailPage() {
           />
         </div>
 
-        <BudgetApproveDialog {...budgetApprove.dialog} />
+        {budgetApprove.dialog.open && <BudgetApproveDialog {...budgetApprove.dialog} />}
 
         <ConfirmDialog
           open={showCancelConfirm}

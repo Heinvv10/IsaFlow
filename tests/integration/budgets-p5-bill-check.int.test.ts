@@ -5,6 +5,7 @@
  * so the cases are independent. Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { formatMoney as R } from '@/lib/money/formatMoney';
 import { Pool } from 'pg';
 import actionRoute from '../../pages/api/accounting/supplier-invoices-action';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -72,7 +73,7 @@ describe('block policy, UI channel', () => {
     const before = await billState(pool, bill);
     const r = await approve(f.manager, bill, { budgetReason: 'please' });
     expect(r.statusCode).toBe(409);
-    expect(r.body.error?.message).toContain('BB-6100 Opex · FT Fibertime · 2026-07: remaining R1,000.00, this bill R1,500.00');
+    expect(r.body.error?.message).toContain(`BB-6100 Opex · FT Fibertime · 2026-07: remaining ${R(1000)}, this bill ${R(1500)}`);
     expect(r.body.error?.details).toMatchObject({ code: 'BUDGET_EXCEEDED', overrideRefused: false });
     const after = await billState(pool, bill);
     expect(after).toEqual(before);
@@ -127,7 +128,7 @@ describe('block policy, UI channel', () => {
     const bill = await overBill('2026-10', 'HT', 0.01);
     const r = await approve(f.manager, bill);
     expect(r.statusCode).toBe(409);
-    expect(r.body.error?.message).toContain('HT Hometech · 2026-10: remaining R0.00, this bill R0.01');
+    expect(r.body.error?.message).toContain(`HT Hometech · 2026-10: remaining ${R(0)}, this bill ${R(0.01)}`);
   });
 
   it('two lines on one slice are judged together (each fits alone)', async () => {
@@ -136,7 +137,7 @@ describe('block policy, UI channel', () => {
       { date: '2026-11-15' });
     const r = await approve(f.manager, bill);
     expect(r.statusCode).toBe(409);
-    expect(r.body.error?.message).toContain('remaining R1,000.00, this bill R1,200.00');
+    expect(r.body.error?.message).toContain(`remaining ${R(1000)}, this bill ${R(1200)}`);
   });
 
   it('the reused-journal branch is not checked (its journal is already in actuals): approved, no event', async () => {

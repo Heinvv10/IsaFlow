@@ -3,9 +3,10 @@
  * remaining table; when a line is over:
  * - warn: a reason is required (the server answers 400 BUDGET_REASON_REQUIRED without one);
  * - block: approval is refused (409); an owner or admin may tick Override and give a reason.
- * The server decides again under its locks: the table is a preview.
+ * The server decides again under its locks: the table is a preview. Render it only while open: it reads the
+ * company role (`useCompany`) and starts with a blank reason each time it mounts.
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -33,10 +34,7 @@ const REASON_MAX = 2000;
 export function BudgetApproveDialog({ open, policy, lines, error, busy, onCancel, onApprove }: Props) {
   const { companyRole } = useCompany();
   const [reason, setReason] = useState('');
-  const [override, setOverride] = useState(false);
-  useEffect(() => {
-    if (open) { setReason(''); setOverride(false); }
-  }, [open]);
+  const [override, setOverride] = useState(false); // mounted only while open: a new dialog starts blank
 
   const over = lines.filter((l) => l.over).length;
   const mayOverride = OVERRIDE_ROLES.includes(companyRole ?? '');

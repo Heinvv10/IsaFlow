@@ -7,6 +7,7 @@
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { formatMoney as R } from '@/lib/money/formatMoney';
 import { Pool } from 'pg';
 import bulkRoute from '../../pages/api/accounting/supplier-invoices-bulk-action';
 import { approveSupplierInvoiceTool } from '@/lib/mcp/tools/writeSupplierInvoices';
@@ -61,7 +62,7 @@ describe('MCP approve_supplier_invoice', () => {
     const id = await bill('2026-05', 1500);
     const res = await committed(() => approveSupplierInvoiceTool.handler({ invoice_id: id, idempotency_key: `k-${id}` }, ctx()));
     expect(res.isError).toBeFalsy();
-    expect(JSON.parse(text(res)).budget_warnings).toEqual([expect.stringContaining('remaining R1,000.00, this bill R1,500.00')]);
+    expect(JSON.parse(text(res)).budget_warnings).toEqual([expect.stringContaining(`remaining ${R(1000)}, this bill ${R(1500)}`)]);
     expect(await eventsFor(pool, id)).toEqual([expect.objectContaining({ outcome: 'warn', channel: 'mcp', reason: null })]);
   });
 });
@@ -106,7 +107,7 @@ describe('the bulk route', () => {
     expect(r.statusCode).toBe(200);
     const data = r.body.data as { succeeded: number; results: Array<{ invoiceId: string; ok: boolean; reason?: string; error?: string }> };
     expect(data.succeeded).toBe(1);
-    expect(data.results.find((x) => x.invoiceId === over)).toMatchObject({ ok: false, reason: 'BUDGET_EXCEEDED', error: expect.stringContaining('this bill R5,000.00') });
+    expect(data.results.find((x) => x.invoiceId === over)).toMatchObject({ ok: false, reason: 'BUDGET_EXCEEDED', error: expect.stringContaining(`this bill ${R(5000)}`) });
     expect((await billState(pool, fits)).status).toBe('approved');
     expect((await billState(pool, over)).status).toBe('draft');
     expect((await eventsFor(pool, over)).map((e) => [e.outcome, e.channel, e.decided_by])).toEqual([['refused', 'bulk', f.manager]]);

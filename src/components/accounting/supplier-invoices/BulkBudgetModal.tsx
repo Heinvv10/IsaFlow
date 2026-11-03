@@ -5,7 +5,7 @@
  * rest approved (overriding is a single-bill act). Each bill is judged here on its own; the server
  * judges them in order, so bills in one batch drawing on one budget can be refused later in the run.
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import type { BudgetPolicy } from '@/modules/accounting/services/budgets/budgetCheckTypes';
@@ -23,8 +23,7 @@ interface Props {
 }
 
 export function BulkBudgetModal({ open, total, overBills, policy, verb, onCancel, onConfirm }: Props) {
-  const [reason, setReason] = useState('');
-  useEffect(() => { if (open) setReason(''); }, [open]);
+  const [reason, setReason] = useState(''); // mounted only while asked: a new modal starts blank
   const block = policy === 'block';
   return (
     <Modal open={open} onClose={onCancel} title={`${verb} ${total} invoice(s)?`} size="md">

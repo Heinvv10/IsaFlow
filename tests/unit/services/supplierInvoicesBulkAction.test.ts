@@ -64,6 +64,14 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () => ({
   postSupplierInvoiceToGL: postGlMock,
 }));
+// Budgets P5-2: the gate the route opens once before its loop (policy warn here: no lock). Its locking and the
+// refused events are pinned on real PostgreSQL (budgets-p5-bill-check-paths / -race); stubbed so sqlMock counts only the route's own read.
+const GATE = { policy: 'warn', locked: false, mode: 'take' } as const;
+vi.mock('@/modules/accounting/services/budgets/budgetCheck', () => ({
+  openBudgetGate: vi.fn(async () => GATE),
+  recordBudgetRefusal: vi.fn(async () => undefined),
+}));
+const BUDGET = { channel: 'bulk', lock: 'held', gate: GATE, reason: null };
 
 import handler from '../../../pages/api/accounting/supplier-invoices-bulk-action';
 import { als } from '@/lib/als';
@@ -148,7 +156,7 @@ describe('supplier-invoices-bulk-action', () => {
     );
     expect(approveMock).toHaveBeenCalledTimes(3);
     // A person's bulk approve opts in to the s16(3) late claim (gl/vatLateClaimPlan).
-    expect(approveMock).toHaveBeenNthCalledWith(1, COMPANY_ID, ID_A, USER_ID, { allowLateInputClaim: true });
+    expect(approveMock).toHaveBeenNthCalledWith(1, COMPANY_ID, ID_A, USER_ID, { allowLateInputClaim: true, budget: BUDGET });
     expect((result as { data: { succeeded: number; failed: number } }).data).toEqual(
       expect.objectContaining({ action: 'approve', total: 3, succeeded: 3, failed: 0 }),
     );
@@ -303,6 +311,6 @@ describe('supplier-invoices-bulk-action', () => {
     );
     expect(postGlMock).toHaveBeenCalledTimes(1);
     // Post to GL never claims late: its bill is already approved (gl/vatLateClaimPlan, review C2).
-    expect(postGlMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID);
+    expect(postGlMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID, { budget: BUDGET });
   });
 });

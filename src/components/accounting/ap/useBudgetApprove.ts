@@ -14,9 +14,28 @@ import type { BudgetApproveChoice } from './BudgetApproveDialog';
 interface Preview { policy: BudgetPolicy; checks: boolean; lines: BudgetCheckLine[] }
 interface ErrorBody { error?: { message?: string; details?: { code?: string; lines?: BudgetCheckLine[] } } }
 
-const FALLBACK = 'Could not approve the invoice - try again';
+const FALLBACK = 'Could not complete that action - try again';
 
-export function useBudgetApprove(invoiceId: string, onApproved: (json: unknown) => Promise<void> | void, onFailed: (message: string) => void) {
+/** The body of a 400/409, read from a clone (assertOk reads the response itself); an empty or non-JSON body is no budget refusal. */
+async function budgetErrorBody(res: Response): Promise<ErrorBody> {
+  const text = await res.clone().text();
+  if (text.trim() === '') return {};
+  try {
+    return JSON.parse(text) as ErrorBody;
+  } catch (err) {
+    log.debug('Approve refusal body is not JSON', { error: err }, 'supplier-invoices');
+    return {};
+  }
+}
+
+/**
+ * `onReload`: a 409 that is not the budget's (the R-035 approval gate) reloads the invoice first, so the page offers
+ * Submit for approval — as the page's own action handler does — then `onFailed` shows the refusal.
+ */
+export function useBudgetApprove(
+  invoiceId: string, onApproved: (json: unknown) => Promise<void> | void, onFailed: (message: string) => void,
+  onReload: () => Promise<void>,
+) {
   const [open, setOpen] = useState(false);
   const [policy, setPolicy] = useState<BudgetPolicy>('warn');
   const [lines, setLines] = useState<BudgetCheckLine[]>([]);
@@ -26,6 +45,7 @@ export function useBudgetApprove(invoiceId: string, onApproved: (json: unknown) 
   const submit = useCallback(async (choice: BudgetApproveChoice, inDialog: boolean) => {
     setBusy(true);
     setError('');
+    let toPage = !inDialog;
     try {
       const res = await apiFetch('/api/accounting/supplier-invoices-action', {
         method: 'POST',
@@ -33,7 +53,7 @@ export function useBudgetApprove(invoiceId: string, onApproved: (json: unknown) 
         body: JSON.stringify({ action: 'approve', invoiceId, ...choice }),
       });
       if (res.status === 400 || res.status === 409) {
-        const body = (await res.clone().json().catch(() => ({}))) as ErrorBody;
+        const body = await budgetErrorBody(res);
         const code = body.error?.details?.code;
         if (code === 'BUDGET_REASON_REQUIRED' || code === 'BUDGET_EXCEEDED') {
           if (!inDialog && body.error?.details?.lines) { setLines(body.error.details.lines); setPolicy(code === 'BUDGET_EXCEEDED' ? 'block' : 'warn'); }
@@ -41,18 +61,19 @@ export function useBudgetApprove(invoiceId: string, onApproved: (json: unknown) 
           setOpen(true);
           return;
         }
+        if (res.status === 409) { setOpen(false); toPage = true; await onReload(); }
       }
       await assertOk(res, FALLBACK);
       setOpen(false);
       await onApproved(await res.json());
     } catch (err) {
       const message = apiErrorMessage(err, FALLBACK);
-      if (inDialog) setError(message);
-      else onFailed(message);
+      if (toPage) onFailed(message);
+      else setError(message);
     } finally {
       setBusy(false);
     }
-  }, [invoiceId, onApproved, onFailed]);
+  }, [invoiceId, onApproved, onFailed, onReload]);
 
   const start = useCallback(async () => {
     let preview: Preview | null = null;
@@ -62,10 +83,9 @@ export function useBudgetApprove(invoiceId: string, onApproved: (json: unknown) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ supplierInvoiceId: invoiceId }),
       });
-      if (res.ok) {
-        const json = await res.json() as { data?: Preview } & Preview;
-        preview = json.data ?? json;
-      }
+      await assertOk(res, 'Could not read the budget for this bill');
+      const json = await res.json() as { data?: Preview } & Preview;
+      preview = json.data ?? json;
     } catch (err) {
       // No preview is not a refusal: the approval below still runs the check, and a budget refusal opens the dialog.
       log.warn('Budget preview failed; approving without it', { invoiceId, error: err }, 'supplier-invoices');

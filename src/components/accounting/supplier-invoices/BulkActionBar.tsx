@@ -47,7 +47,7 @@ const PLURAL: Record<BulkAction, string> = { approve: 'approves', post_gl: 'GL p
 async function budgetPreview(ids: string[]): Promise<{ policy: BudgetPolicy; overBills: number } | null> {
   try {
     const res = await apiFetch('/api/accounting/budgets/remaining', { method: 'POST', body: JSON.stringify({ supplierInvoiceIds: ids }) });
-    if (!res.ok) return null;
+    await assertOk(res, 'Could not read the budget for these bills');
     const json = await res.json();
     return (json.data || json) as { policy: BudgetPolicy; overBills: number };
   } catch (err) {

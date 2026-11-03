@@ -13,6 +13,7 @@
  *
  * Money is compared in integer cents.
  */
+import { formatMoney } from '@/lib/money/formatMoney';
 import { toCents } from './grid/cents';
 import type { RemainingKey, RemainingResult } from './remainingBudgetCore';
 import type { BudgetChannel, BudgetCheckLine, BudgetGate, BudgetOutcome, BudgetPolicy } from './budgetCheckTypes';
@@ -78,15 +79,10 @@ export function sliceLines(
   }));
 }
 
-export const money = (n: number): string => {
-  const [whole, cents] = Math.abs(n).toFixed(2).split('.') as [string, string];
-  return `${n < 0 ? '-' : ''}R${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${cents}`;
-};
-
-/** "6100 Opex · FT Fibertime · 2026-06: remaining R100.00, this bill R150.00". */
+/** "6100 Opex · FT Fibertime · 2026-06: remaining R 100.00, this bill R 150.00" (the one ZAR format, `formatMoney`). */
 export function describeOverLine(l: BudgetCheckLine, documentNoun = 'this bill'): string {
   const where = [l.accountLabel, l.sliceLabel, l.month].filter((s) => s !== '').join(' · ');
-  return `${where}: remaining ${money(l.remaining ?? 0)}, ${documentNoun} ${money(l.amount)}`;
+  return `${where}: remaining ${formatMoney(l.remaining ?? 0)}, ${documentNoun} ${formatMoney(l.amount)}`;
 }
 
 /** The roles that may override a block refusal (decision 8). */
