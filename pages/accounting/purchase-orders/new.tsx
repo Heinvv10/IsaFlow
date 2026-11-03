@@ -17,11 +17,12 @@ import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 import { useOverflowX } from '@/hooks/useOverflowX';
 import { PoDimensionCells, PoDimensionHeaders, usePoDimensionOptions, type PoLineDims } from '@/components/accounting/purchase-orders/PoLineDimensions';
+import { newPoLineKey } from '@/components/accounting/purchase-orders/poLineKey';
 
 interface LineItem { key: string; description: string; quantity: string; unitPrice: string; taxRate: string; dims: PoLineDims }
 
 const NO_DIMS: PoLineDims = { cc1: '', cc2: '', bu: '' };
-const newLine = (key: string): LineItem => ({ key, description: '', quantity: '1', unitPrice: '0', taxRate: '15', dims: NO_DIMS });
+const newLine = (key: string = newPoLineKey()): LineItem => ({ key, description: '', quantity: '1', unitPrice: '0', taxRate: '15', dims: NO_DIMS });
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
@@ -49,11 +50,11 @@ export default function NewPurchaseOrderPage() {
     supplierId: '', orderDate: localISODate(),
     expectedDeliveryDate: '', notes: '', reference: '',
   });
-  const [items, setItems] = useState<LineItem[]>([newLine('1')]);
+  const [items, setItems] = useState<LineItem[]>(() => [newLine()]);
   const [showDims, setShowDims] = useState(false);
   const dimOptions = usePoDimensionOptions(showDims);
 
-  const addItem = () => setItems(prev => [...prev, newLine(String(Date.now()))]);
+  const addItem = () => setItems(prev => [...prev, newLine()]);
   const removeItem = (key: string) => setItems(prev => prev.length > 1 ? prev.filter(i => i.key !== key) : prev);
   const updateItem = (key: string, field: string, value: string) =>
     setItems(prev => prev.map(i => i.key === key ? { ...i, [field]: value } : i));
@@ -84,7 +85,7 @@ export default function NewPurchaseOrderPage() {
       const json = await res.json();
       if (andNew) {
         setForm({ supplierId: '', orderDate: localISODate(), expectedDeliveryDate: '', notes: '', reference: '' });
-        setItems([newLine('1')]);
+        setItems([newLine()]);
         try { await router.push('/accounting/purchase-orders/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'purchase-orders-new'); }
       } else {
         try { await router.push(`/accounting/purchase-orders/${json.data?.id ?? ''}`); } catch (e) { log.warn('navigation failed', { error: e }, 'purchase-orders-new'); }

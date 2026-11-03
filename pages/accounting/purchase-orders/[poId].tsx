@@ -32,6 +32,7 @@ import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { PoLineItemsEditor, type PoEditField, type PoEditLine } from '@/components/accounting/purchase-orders/PoLineItemsEditor';
 import { PurchaseOrderApproveButton } from '@/components/accounting/purchase-orders/PurchaseOrderApproveButton';
 import { PurchaseOrderCancelButton } from '@/components/accounting/purchase-orders/PurchaseOrderCancelButton';
+import { newPoLineKey } from '@/components/accounting/purchase-orders/poLineKey';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -160,7 +161,7 @@ export default function PurchaseOrderDetailPage() {
       notes: po.notes || '',
       status: po.status,
       items: (po.items || []).map(i => ({
-        key: i.id ?? crypto.randomUUID(),
+        key: newPoLineKey(),
         id: i.id,
         description: i.description,
         quantity: String(i.quantity),
@@ -181,7 +182,7 @@ export default function PurchaseOrderDetailPage() {
 
   const addItem = () => setForm(f => f ? {
     ...f,
-    items: [...f.items, { key: crypto.randomUUID(), description: '', quantity: '1', unit_price: '0', tax_rate: '15', gl_account_id: '', product_id: '', cc1_id: '', cc2_id: '', bu_id: '' }],
+    items: [...f.items, { key: newPoLineKey(), description: '', quantity: '1', unit_price: '0', tax_rate: '15', gl_account_id: '', product_id: '', cc1_id: '', cc2_id: '', bu_id: '' }],
   } : f);
 
   const removeItem = (idx: number) => setForm(f => f ? {
