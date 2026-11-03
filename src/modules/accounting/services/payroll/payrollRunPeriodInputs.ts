@@ -36,12 +36,11 @@
  * row per write in the savepoint, before the recalculation stamps the run (payrollRunRecalcGate reads it).
  */
 import { sql, withTransaction } from '@/lib/neon';
-import type { DbRow, TxSql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { log } from '@/lib/logger';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { TransactionRefusal } from '@/lib/transactionRefusal';
-import { endOfMonthIso } from './leaveAccrualService';
 import { normaliseSarsCode } from './payeAnnualPayment';
 import { journalInForceOrNull } from './payrollJournalChain';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
@@ -51,7 +50,7 @@ import {
   calculatePayrollRun, getPayrollRun, getPayrollRunLines, type PayrollRunLine, type PayrollRunSummary,
 } from './payrollRunService';
 import { findOverdrawnLines } from './payrollRunLines';
-import { payrollRunReadDate } from './payrollRunReadDate';
+import { lockPaidRows, monthBounds, readAmounts, type RunPeriod } from './payrollRunPeriodInputsRead';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
@@ -116,14 +115,7 @@ export interface RunInputsState {
   inputs: { components: RunInputComponent[]; employeeIds: string[]; amounts: RunInputAmount[]; recurring: RunInputRecurring[] };
 }
 
-interface Period { year: number; month: number }
-
-const monthBounds = ({ year, month }: Period) => ({
-  from: `${year}-${String(month).padStart(2, '0')}-01`,
-  to: endOfMonthIso(year, month),
-});
-
-/** The date getEmployeeComponents reads a run's rows at: calculatePayrollRun's periodDate, as that reader turns it into a date. */
+type Period = RunPeriod;
 
 async function listEditableComponents(companyId: string): Promise<RunInputComponent[]> {
   const rows = (await sql`
@@ -144,29 +136,6 @@ async function listEditableComponents(companyId: string): Promise<RunInputCompon
     }));
 }
 
-async function readAmounts(companyId: string, period: Period, componentIds: string[]) {
-  const { from, to } = monthBounds(period);
-  const payDay = payrollRunReadDate(period); // the run's own read day: the grid edits what the run pays
-  const rows = (await sql`
-    SELECT pec.employee_id, pec.component_id,
-           COUNT(*) FILTER (WHERE NOT pec.is_recurring)::int AS matches,
-           COUNT(*) FILTER (WHERE NOT pec.is_recurring AND pec.effective_from = ${from}::date AND pec.effective_to = ${to}::date)::int AS on_key,
-           MIN(pec.amount) FILTER (WHERE NOT pec.is_recurring)::float8 AS amount,
-           COALESCE(SUM(pec.amount) FILTER (WHERE pec.is_recurring), 0)::float8 AS recurring
-    FROM payroll_employee_components pec
-    JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
-    WHERE pec.component_id = ANY(${componentIds}::uuid[])
-      AND pec.effective_from <= ${payDay}::date AND (pec.effective_to IS NULL OR pec.effective_to >= ${payDay}::date)
-    GROUP BY pec.employee_id, pec.component_id
-  `) as DbRow[];
-  const key = (r: DbRow) => ({ employeeId: String(r.employee_id), componentId: String(r.component_id) });
-  const amounts: RunInputAmount[] = rows.filter((r) => Number(r.matches) > 0).map((r) => {
-    const conflict = Number(r.matches) !== 1 || Number(r.on_key) !== 1;
-    return { ...key(r), amount: conflict ? null : Number(r.amount), conflict };
-  });
-  const recurring: RunInputRecurring[] = rows.filter((r) => Number(r.recurring) !== 0).map((r) => ({ ...key(r), amount: Number(r.recurring) }));
-  return { amounts, recurring };
-}
 
 /** The grid's state: the run with its lines, what it may edit, and what is captured for the run month. Null: not this company's. */
 export async function getRunInputs(companyId: string, runId: string): Promise<RunInputsState | null> {
@@ -177,7 +146,7 @@ export async function getRunInputs(companyId: string, runId: string): Promise<Ru
   const lines = await getPayrollRunLines(runId, companyId);
   const employees = await listPayrollRunEmployees(companyId, period);
   const components = await listEditableComponents(companyId);
-  const captured = await readAmounts(companyId, period, components.map((c) => c.id));
+  const captured = await readAmounts(companyId, period, components.map((c) => c.id), employees.map((e) => e.id));
   return { run: { ...run, lines }, inputs: { components, employeeIds: employees.map((e) => e.id), ...captured } };
 }
 
@@ -208,20 +177,6 @@ async function assertRunEditable(companyId: string, runId: string, run: DbRow, p
 
 const centsOf = (rand: number) => Math.round(rand * 100);
 
-/** The once-off rows this run pays for the cell, locked, with whether each sits exactly on the row key. */
-async function lockPaidRows(tx: TxSql, companyId: string, employeeId: string, componentId: string, period: Period): Promise<DbRow[]> {
-  const { from, to } = monthBounds(period);
-  const payDay = payrollRunReadDate(period); // the run's own read day: the grid edits what the run pays
-  return (await tx`
-    SELECT pec.id, pec.amount, (pec.effective_from = ${from}::date AND pec.effective_to = ${to}::date) AS on_key
-    FROM payroll_employee_components pec
-    JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
-    WHERE pec.employee_id = ${employeeId}::uuid AND pec.component_id = ${componentId}::uuid
-      AND pec.is_recurring = FALSE
-      AND pec.effective_from <= ${payDay}::date AND (pec.effective_to IS NULL OR pec.effective_to >= ${payDay}::date)
-    FOR UPDATE OF pec
-  `) as DbRow[];
-}
 
 const shortfallOf = async (companyId: string, runId: string, employeeId: string) =>
   (await findOverdrawnLines(companyId, runId)).find((l) => l.employeeId === employeeId)?.shortfall ?? 0;
