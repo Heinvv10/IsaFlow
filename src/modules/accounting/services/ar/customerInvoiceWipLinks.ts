@@ -56,17 +56,32 @@ export async function wipLinks(
   return { refusal: null, dropped: [...linked].filter((t) => !kept.has(t)) };
 }
 
-/** After the lines are replaced: the removed lines' time entries are unbilled again (see the header), and logged. */
+/**
+ * After the lines are replaced: the removed lines' time entries are unbilled again (see the header), each with an
+ * audit_log row in the same statement (who, when, the invoice, the entry), and logged.
+ */
 export async function releaseDroppedWipEntries(
-  tx: TxSql, companyId: string, invoiceId: string, check: WipLinkCheck | null,
+  tx: TxSql, companyId: string, invoiceId: string, check: WipLinkCheck | null, editedBy: string,
 ): Promise<void> {
   if (!check || check.dropped.length === 0) return;
+  const changes = JSON.stringify({
+    fields: [
+      { field: 'status', old: 'billed', new: 'approved', label: 'Status' },
+      { field: 'invoice_id', old: invoiceId, new: null, label: 'Invoice' },
+    ],
+    metadata: { invoiceId, reason: 'Its line was removed from the draft invoice' },
+  });
   const released = (await tx`
-    UPDATE time_entries SET status = 'approved', invoice_id = NULL, billed_at = NULL, updated_at = NOW()
-     WHERE company_id = ${companyId}::UUID AND id = ANY(${check.dropped}::UUID[])
-       AND invoice_id = ${invoiceId}::UUID AND status = 'billed'
-    RETURNING id
-  `) as { id: string }[];
+    WITH released AS (
+      UPDATE time_entries SET status = 'approved', invoice_id = NULL, billed_at = NULL, updated_at = NOW()
+       WHERE company_id = ${companyId}::UUID AND id = ANY(${check.dropped}::UUID[])
+         AND invoice_id = ${invoiceId}::UUID AND status = 'billed'
+      RETURNING id
+    )
+    INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, changes)
+    SELECT ${companyId}::UUID, ${editedBy}, 'update', 'time_entry', id, ${changes}::JSONB FROM released
+    RETURNING entity_id
+  `) as { entity_id: string }[];
   const counts = { invoiceId, dropped: check.dropped.length, released: released.length };
   log.info('Draft edit removed WIP lines: their time entries are unbilled again', counts, 'customerInvoiceWipLinks');
 }

@@ -290,7 +290,7 @@ export async function editDraftCustomerInvoice(
              IS DISTINCT FROM ${ownedRows[0]!.digest ?? null}::TEXT
     `;
 
-    await releaseDroppedWipEntries(tx, companyId, id, wip); // a removed WIP line's time entry can be billed again
+    await releaseDroppedWipEntries(tx, companyId, id, wip, editedBy); // a removed WIP line's time entry: billable again
     return { kind: 'ok' as const };
   });
 }

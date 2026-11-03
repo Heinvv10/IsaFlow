@@ -149,6 +149,7 @@ describe('a draft PUT and its lines\' WIP links', () => {
       ]));
       expect(res.state.statusCode).toBe(200);
       for (const e of entries) expect(await entry(e)).toMatchObject({ status: 'billed', invoice_id: id, billed: true });
+      expect((await pool.query(`SELECT 1 FROM audit_log WHERE entity_type = 'time_entry' AND entity_id = ANY($1)`, [entries])).rows).toHaveLength(0);
       expect(info.mock.calls.filter((c) => c[0] === RELEASED)).toHaveLength(0);
     } finally {
       info.mockRestore();
@@ -164,6 +165,11 @@ describe('a draft PUT and its lines\' WIP links', () => {
       expect(await entry(entries[0]!)).toMatchObject({ status: 'billed', invoice_id: id, billed: true });
       expect(await entry(entries[1]!)).toMatchObject({ status: 'approved', invoice_id: null, billed: false });
       expect(info).toHaveBeenCalledWith(RELEASED, { invoiceId: id, dropped: 1, released: 1 }, 'customerInvoiceWipLinks');
+      // One audit row per released entry, in the edit's transaction: who, when, which invoice, which entry.
+      const audit = (await pool.query(
+        `SELECT user_id, action, entity_id, changes->'metadata'->>'invoiceId' AS invoice_id, created_at IS NOT NULL AS dated
+           FROM audit_log WHERE company_id = $1 AND entity_type = 'time_entry' AND entity_id = ANY($2)`, [company, entries])).rows;
+      expect(audit).toEqual([{ user_id: owner, action: 'update', entity_id: entries[1], invoice_id: id, dated: true }]);
       const again = await plantInvoice(pool, company, owner);
       expect(await withTransaction(() => markEntriesBilled(company, [entries[1]!], again.id))).toBe(1); // billable again
     } finally {
