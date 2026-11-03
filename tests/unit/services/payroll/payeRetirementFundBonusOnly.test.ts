@@ -27,10 +27,10 @@ function year(months: Month[]) {
     });
     const totalPaye = r2(result.regular.monthlyPaye + result.annualPaymentPaye);
     const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
-      + (month.salary > 0 || (month.bonus ?? 0) > 0 ? 1 : 0);
+      + (result.periods > ytd.periods || (month.bonus ?? 0) > 0 ? 1 : 0);
     ytd = {
       ...ytd,
-      periods: ytd.periods + (month.salary > 0 ? 1 : 0),
+      periods: result.periods,
       retirementCapPeriods: capPeriods,
       periodicTaxable: ytd.periodicTaxable + month.salary - (month.donation ?? 0),
       annualPayments: ytd.annualPayments + (month.bonus ?? 0),
@@ -165,6 +165,29 @@ describe('PAYE 4c: salary, bonus-only periods and signed corrections', () => {
     expect([months[1]!.retirementDeduction, months[1]!.deductedToDate, months[1]!.totalPaye]).toEqual([
       5_500, 11_000, 1_305,
     ]);
+    expectLimits(months);
+  });
+
+  it('does not count a donation-only negative correction as a periodic-pay period', () => {
+    // March: taxable after donation = 19 000; s11F deduction = 5 500; PAYE = 945.
+    // April reverses only the donation, restoring R1 000 taxable income but no remuneration period.
+    // May: 40 000 taxable to date over two pay periods annualises to 240 000; s11F to date = 11 000.
+    // PAYE to date = 2 250, less March's 945 = 1 305.
+    const months = year([
+      { salary: 20_000, contribution: 8_000, donation: 1_000 },
+      { salary: 0, contribution: 0, donation: -1_000 },
+      { salary: 20_000, contribution: 8_000 },
+    ]);
+    expect([months[0]!.totalPaye, months[0]!.periods, months[0]!.capPeriods]).toEqual([945, 1, 1]);
+    expect([months[1]!.totalPaye, months[1]!.periods, months[1]!.capPeriods]).toEqual([0, 1, 1]);
+    expect([
+      months[2]!.annualEquivalent,
+      months[2]!.retirementDeduction,
+      months[2]!.deductedToDate,
+      months[2]!.totalPaye,
+      months[2]!.periods,
+      months[2]!.capPeriods,
+    ]).toEqual([240_000, 5_500, 11_000, 1_305, 2, 2]);
     expectLimits(months);
   });
 });

@@ -62,7 +62,7 @@ export async function loadPayeYearToDate(
       SELECT l.id AS line_id, l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic,
-             b.annual_3605, b.original_taxable
+             b.annual_3605, b.original_taxable, b.donations
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (
@@ -74,7 +74,11 @@ export async function loadPayeYearToDate(
                  WHERE (item->>'isTaxable')::boolean
                    AND (pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%')
                    AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') !~ '^39[0-9][0-9]$'
-               ), 0), 0) AS original_taxable
+               ), 0), 0) AS original_taxable,
+               COALESCE(SUM((item->>'amount')::numeric) FILTER (
+                 WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '4030'
+                   AND (item->>'isTaxable')::boolean AND pc.component_type = 'deduction'
+               ), 0) AS donations
         FROM jsonb_array_elements(l.component_breakdown) AS item
         LEFT JOIN payroll_components pc ON pc.id::text = item->>'componentId' AND pc.company_id = h.company_id
       ) b
@@ -86,8 +90,9 @@ export async function loadPayeYearToDate(
         AND l.employee_id = ANY(${employeeIds}::uuid[])
     )
     SELECT employee_id,
-           COUNT(*) FILTER (WHERE periodic > 0)::int AS periods,
-           COUNT(*) FILTER (WHERE periodic > 0 OR annual > 0)::int AS retirement_cap_periods,
+           -- A negative donation restores taxable income but is not periodic remuneration.
+           COUNT(*) FILTER (WHERE periodic + LEAST(donations, 0) > 0)::int AS periods,
+           COUNT(*) FILTER (WHERE periodic + LEAST(donations, 0) > 0 OR annual > 0)::int AS retirement_cap_periods,
            -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
            jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic <= 0) AS unpaid_lines,
            jsonb_object_agg(line_id::text, jsonb_build_object(
