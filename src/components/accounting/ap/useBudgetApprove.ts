@@ -16,9 +16,8 @@ interface ErrorBody { error?: { message?: string; details?: { code?: string; lin
 
 const FALLBACK = 'Could not complete that action - try again';
 
-/** The body of a 400/409, read from a clone (assertOk reads the response itself); an empty or non-JSON body is no budget refusal. */
-async function budgetErrorBody(res: Response): Promise<ErrorBody> {
-  const text = await res.clone().text();
+/** A 400/409 body's text (read from a clone: assertOk reads the response itself); empty or non-JSON is no budget refusal. */
+function budgetErrorBody(text: string): ErrorBody {
   if (text.trim() === '') return {};
   try {
     return JSON.parse(text) as ErrorBody;
@@ -53,7 +52,7 @@ export function useBudgetApprove(
         body: JSON.stringify({ action: 'approve', invoiceId, ...choice }),
       });
       if (res.status === 400 || res.status === 409) {
-        const body = await budgetErrorBody(res);
+        const body = budgetErrorBody(await res.clone().text());
         const code = body.error?.details?.code;
         if (code === 'BUDGET_REASON_REQUIRED' || code === 'BUDGET_EXCEEDED') {
           if (!inDialog && body.error?.details?.lines) { setLines(body.error.details.lines); setPolicy(code === 'BUDGET_EXCEEDED' ? 'block' : 'warn'); }
