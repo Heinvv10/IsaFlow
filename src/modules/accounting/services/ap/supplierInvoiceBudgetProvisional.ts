@@ -32,7 +32,8 @@ export function provisionalReclassLines(claim: ProvisionalClaim | null | undefin
  * (`provisionalSettlementClaim`): the bill's date, or the provisional's when the bill's VAT period is filed
  * and the reclass moves a VAT figure (review round 3, so preview and approval agree).
  */
-export async function peekProvisionalReclassLines(companyId: string, invoiceId: string): Promise<DocumentLine[]> {
+/** The standing, evidenced, unsettled provisional behind the bill's slip (unlocked read), or undefined. */
+async function standingProvisional(companyId: string, invoiceId: string): Promise<DbRow | undefined> {
   const [je] = (await sql`
     SELECT je.id, bt.bank_account_id, je.entry_date, si.invoice_date
       FROM supplier_invoices si
@@ -44,6 +45,20 @@ export async function peekProvisionalReclassLines(companyId: string, invoiceId: 
                         AND sp.settles_provisional_je_id = je.id AND sp.status <> 'cancelled')
      ORDER BY je.id LIMIT 1
   `) as DbRow[];
+  return je;
+}
+
+/**
+ * The provisional journal approving this bill would claim (unlocked), or null: a batch preview refuses a later
+ * bill whose provisional an earlier bill of the batch claims, as the live claim does (P5-2 review round 4).
+ */
+export async function peekProvisionalJournalId(companyId: string, invoiceId: string): Promise<string | null> {
+  const je = await standingProvisional(companyId, invoiceId);
+  return je ? String(je.id) : null;
+}
+
+export async function peekProvisionalReclassLines(companyId: string, invoiceId: string): Promise<DocumentLine[]> {
+  const je = await standingProvisional(companyId, invoiceId);
   if (!je) return [];
   const rows = (await sql`
     SELECT gl_account_id::TEXT AS gl_account_id, cc1_id::TEXT AS cc1_id, cc2_id::TEXT AS cc2_id, bu_id::TEXT AS bu_id,

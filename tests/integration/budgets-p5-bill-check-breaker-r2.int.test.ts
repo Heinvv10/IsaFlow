@@ -10,7 +10,8 @@
  *   (b) the bulk dry run counts a legacy draft that already carries a journal (approved without a check)
  *       as billed against its PO line for the later bills, as the live run does;
  *   (c) two bills from one bank-first slip in one bulk batch: the second's claim refusal is a skip, not an
- *       unwind of the first.
+ *       unwind of the first; the dry run predicts that skip (round 4), and a retry posts nothing more;
+ *   an identical override attempt retried is deduped (round 4).
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -151,5 +152,47 @@ describe('(c) two bills from one bank-first slip in one bulk batch', () => {
     expect(out.skipped).toEqual([expect.objectContaining({ document_id: b, reason: expect.stringMatching(/^payment_refused: /) })]);
     expect((await billState(pool, a)).status).not.toBe('draft');
     expect((await billState(pool, b)).status).toBe('draft');
+  });
+});
+
+describe('(c, round 4) two bills from one slip: the dry run predicts the live skip; retries post nothing more', () => {
+  it('dry run would post [a] only; live posts a and skips b; one settlement, one reclass, one bill journal', async () => {
+    await setPolicy(pool, f, 'block');
+    const doc = await seedProvisional(pool, f, '2026-12-10');
+    await pool.query(`UPDATE captured_documents SET extracted_data = '{"vatAmount": 120}'::JSONB WHERE id = $1`, [doc]);
+    const [a, b] = ordered();
+    for (const id of [a, b]) {
+      await makeBill(pool, f, [{ acct: f.acc.opex, amount: 800, cc1: f.cc.FT }], { date: '2026-12-10', id });
+      await fromSlip(pool, id, doc);
+    }
+    const reg = new McpRegistry();
+    reg.register(bulkApproveSupplierInvoicesTool);
+    const call = (args: Record<string, unknown>) => committed(() => reg.call('bulk_approve_supplier_invoices', args, ctx())).then((r) => JSON.parse(text(r)));
+    const dry = await call({ invoice_ids: [a, b], dry_run: true, idempotency_key: `d-${a}` });
+    expect(dry.would_post_ids).toEqual([a]);
+    expect(dry.skipped).toEqual([expect.objectContaining({ document_id: b, reason: expect.stringMatching(/^payment_refused: /) })]);
+    const args = { invoice_ids: [a, b], idempotency_key: `l-${a}` };
+    const live = await call(args);
+    expect(live.invoices.map((r: { id: string }) => r.id)).toEqual([a]);
+    expect((await call(args)).posted).toBe(1); // the stored success replayed, not a second post
+    expect((await call({ invoice_ids: [b], idempotency_key: `b-${b}` })).posted).toBe(0);
+    // This month only: (c) above settled another slip in 2026-11.
+    const counts = (await pool.query(
+      `SELECT (SELECT count(*)::INT FROM supplier_payments WHERE company_id = $1 AND settles_provisional_je_id IS NOT NULL AND payment_date = '2026-12-10') AS settlements,
+              (SELECT count(*)::INT FROM gl_journal_entries WHERE company_id = $1 AND description LIKE 'Provisional % becomes payment%' AND entry_date = '2026-12-10') AS reclasses,
+              (SELECT count(*)::INT FROM gl_journal_entries WHERE company_id = $1 AND source = 'auto_supplier_invoice' AND entry_date = '2026-12-10') AS bill_journals`,
+      [f.co])).rows[0];
+    expect(counts).toEqual({ settlements: 1, reclasses: 1, bill_journals: 1 });
+    expect((await billState(pool, b))).toMatchObject({ status: 'draft', gl_journal_entry_id: null });
+  });
+});
+
+describe('(round 4) an identical override attempt retried is deduped', () => {
+  it('three identical refused override attempts: one event', async () => {
+    await setPolicy(pool, f, 'block');
+    const bill = await makeBill(pool, f, [{ acct: f.acc.opex, amount: 1500, cc1: f.cc.FT }], { date: '2026-08-15' });
+    const body = { action: 'approve', invoiceId: bill, budgetOverride: true, budgetReason: 'x' };
+    for (let i = 0; i < 3; i += 1) expect((await callRoute(actionRoute as never, f, f.manager, ACTION, body)).statusCode).toBe(409);
+    expect(await eventsFor(pool, bill)).toHaveLength(1);
   });
 });

@@ -98,6 +98,8 @@ export interface BillBudgetPreview {
   checks: boolean;
   lines: BudgetCheckLine[];
   overCount: number;
+  /** The bill already carries a journal: approving reuses it (no check, no provisional claim). */
+  reusesJournal: boolean;
 }
 
 /**
@@ -113,7 +115,7 @@ export async function previewBillBudget(
   if (!invoice) return null;
   const policy = opts.policy ?? await readCheckPolicy(companyId);
   if (policy === 'off' || invoice.glJournalEntryId || invoice.status === 'cancelled') {
-    return { policy, checks: false, lines: [], overCount: 0 };
+    return { policy, checks: false, lines: [], overCount: 0, reusesJournal: !!invoice.glJournalEntryId };
   }
   const defaultExpense = await getSystemAccount('default_expense', companyId);
   const { lines } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpense.id), { storedPosting: true });
@@ -122,7 +124,7 @@ export async function previewBillBudget(
   const checked = await evaluateDocumentLines(companyId, docLines, month, {
     excludeInvoiceId: invoice.id, alsoBilledInvoiceIds: opts.alsoBilledInvoiceIds, labelAlways: true,
   });
-  return { policy, checks: true, lines: checked, overCount: checked.filter((l) => l.over).length };
+  return { policy, checks: true, lines: checked, overCount: checked.filter((l) => l.over).length, reusesJournal: false };
 }
 
 const BUDGET_REFUSALS = new Set(['BUDGET_EXCEEDED', 'BUDGET_REASON_REQUIRED', 'BUDGET_CHECK_LOCK_TIMEOUT']);

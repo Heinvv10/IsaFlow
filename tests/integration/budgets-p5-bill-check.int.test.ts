@@ -173,3 +173,22 @@ describe('block policy, UI channel', () => {
     expect(await eventsFor(pool, bill)).toHaveLength(0);
   });
 });
+
+describe('rate limit (review round 4)', () => {
+  it('the route is rate-limited per user (120 a minute, as the budget write routes): the 121st call is 429', async () => {
+    // Its own member: the limiter remembers a full key in memory for a few seconds, which no other case may meet.
+    const user = crypto.randomUUID();
+    await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)", [user, `${user}@test.local`]);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'manager')", [f.co, user]);
+    try {
+      // Refused at validation (nothing written), so the burst is cheap; it is still charged.
+      const bad = { action: 'approve', invoiceId: 'not-a-uuid' };
+      for (let i = 0; i < 120; i += 1) expect((await callRoute(actionRoute as never, f, user, URL, bad)).statusCode).not.toBe(429);
+      expect((await callRoute(actionRoute as never, f, user, URL, bad)).statusCode).toBe(429);
+    } finally {
+      await pool.query('DELETE FROM rate_limit_counters WHERE key = $1', [`supplier-invoice-action:${user}`]);
+      await pool.query('DELETE FROM company_users WHERE user_id = $1', [user]);
+      await pool.query('DELETE FROM users WHERE id = $1', [user]);
+    }
+  }, 60_000);
+});

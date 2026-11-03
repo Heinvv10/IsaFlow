@@ -23,6 +23,7 @@ import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { respondIfBudgetRefused } from '@/lib/budgetCheckResponse';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { BUDGET_REASON_MAX } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 // TODO(PRD-05): When a human-driven CREATE path is added to this handler
 // (or to pages/api/accounting/supplier-invoices.ts), call:
@@ -48,6 +49,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
+  }
+  // Budgets P5-2 (review round 4): each refused approval writes an event and an audit row, and a new reason each click
+  // escapes the 60 s dedupe. 120 a minute per user, as the budget write routes (budget-grid/save, budget-drivers).
+  if (!(await checkRateLimit(`supplier-invoice-action:${req.user.id}`, { max: 120, windowSecs: 60 }))) {
+    res.setHeader('Retry-After', '60');
+    return apiResponse.tooManyRequests(res, 'Too many invoice actions; wait a minute and try again.');
   }
 
   const parsed = SupplierInvoiceActionSchema.safeParse(req.body);

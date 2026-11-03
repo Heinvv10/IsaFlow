@@ -214,9 +214,9 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
       .sort((a, b) => a.index - b.index);
 
     if (args.dry_run === true) {
-      // Budgets P5-2: judged in the live loop's order (by id), each bill against what the earlier ones consume.
+      // Budgets P5-2: judged in the live loop's order (by id), each bill against what the earlier ones consume and claim.
       const budget = await billBudgetDryRun(ctx.companyId, postable.map((p) => p.id).sort(), 'mcp', { figures: mayReadBudgetFigures(ctx) });
-      const refused = (id: string) => budget.get(id)?.refusal !== undefined;
+      const refused = (id: string) => budget.get(id)?.skip !== undefined;
       const wouldPost = postable.filter((p) => !refused(p.id));
       const warned = wouldPost.filter((p) => budget.get(p.id)?.warnings)
         .map((p) => ({ index: p.index, document_id: p.id, warnings: budget.get(p.id)!.warnings! }));
@@ -226,7 +226,7 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
         would_post: wouldPost.length,
         would_post_ids: wouldPost.map((p) => p.id),
         skipped: [...skipped, ...postable.filter((p) => refused(p.id))
-          .map((p) => ({ index: p.index, document_id: p.id, reason: `budget_exceeded: ${budget.get(p.id)!.refusal!}` }))]
+          .map((p) => ({ index: p.index, document_id: p.id, reason: budget.get(p.id)!.skip! }))]
           .sort((a, b) => a.index - b.index),
         ...(warned.length > 0 ? { budget_warnings: warned } : {}),
       });
