@@ -57,8 +57,8 @@ const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
 const STATIC_HEADER = '  static:\n    name: Static gates\n';
 const VELO_HEADER = '  velo:\n    name: Browser & integration\n';
 const AGGREGATE = '          [ "$ROUTE" = "success" ] && [ "$STATIC" = "success" ] && [ "$VELO" = "success" ]\n';
-const LIGHT = `\${{ vars.CI_HOSTED == 'off' && ((github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && fromJSON('["self-hosted","linux","velo"]') || fromJSON('["self-hosted","linux","velo","pr-lane"]')) || 'ubuntu-24.04' }}`;
-const STATIC_RUNS_ON = `\${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || ((github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && '["self-hosted","linux","velo"]' || '["self-hosted","linux","velo","pr-lane"]')) }}`;
+const LIGHT = `\${{ vars.CI_HOSTED == 'off' && ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && fromJSON('["self-hosted","linux","velo"]') || fromJSON('["self-hosted","linux","velo","pr-lane"]')) || 'ubuntu-24.04' }}`;
+const STATIC_RUNS_ON = `\${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && '["self-hosted","linux","velo"]' || '["self-hosted","linux","velo","pr-lane"]')) }}`;
 const GOLDEN_GROUP = "      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}\n";
 
 describe('the committed workflow', () => {
@@ -265,6 +265,19 @@ describe('refuses every way found to keep the job green while skipping gates', (
 
   it('pins the velo fallback PR lane label', () => {
     expect(check(REAL.replaceAll('pr-lane', 'no-such-runner')).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['hosted ordinary PR', true, 'pull_request', false, 'ubuntu-24.04'],
+    ['velo ordinary PR', false, 'pull_request', false, 'pr-lane'],
+    ['velo queue-labelled PR', false, 'pull_request', true, 'any-velo'],
+    ['velo prefix-only PR', false, 'pull_request', false, 'pr-lane'],
+    ['velo master push', false, 'push', false, 'any-velo'],
+  ])('routes %s', (_case, hosted, event, queued, expected) => {
+    const selected = hosted ? 'ubuntu-24.04' : event !== 'pull_request' || queued ? 'any-velo' : 'pr-lane';
+    expect(selected).toBe(expected);
+    expect(LIGHT).not.toContain('github.head_ref');
+    expect(STATIC_RUNS_ON).not.toContain('github.head_ref');
   });
 
   it('the quality job removed or renamed', () => {
