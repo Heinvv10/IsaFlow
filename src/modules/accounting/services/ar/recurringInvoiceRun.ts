@@ -14,6 +14,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { advanceDate } from '@/modules/accounting/services/gl/recurringSchedule';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { approveCustomerInvoice } from './customerInvoiceApprovalService';
@@ -181,15 +182,4 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
 
   log.info('Generated invoice from recurring', { recurringId: id, invoiceId, heldForApproval }, 'accounting');
   return { invoiceId, heldForApproval };
-}
-
-function advanceDate(dateStr: string, frequency: string): string {
-  const d = new Date(dateStr);
-  switch (frequency) {
-    case 'weekly': d.setDate(d.getDate() + 7); break;
-    case 'monthly': d.setMonth(d.getMonth() + 1); break;
-    case 'quarterly': d.setMonth(d.getMonth() + 3); break;
-    case 'annually': d.setFullYear(d.getFullYear() + 1); break;
-  }
-  return d.toISOString().split('T')[0]!;
 }
