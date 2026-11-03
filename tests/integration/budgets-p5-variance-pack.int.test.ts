@@ -15,6 +15,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
+import { als } from '@/lib/als';
 import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 import { renderSectionContent } from '@/modules/accounting/services/afs/afsHtmlTableRenderer';
 import { VARIANCE_NOTES_HEADING } from '@/modules/accounting/services/afs/managementPackVarianceNotes';
@@ -104,6 +105,38 @@ describe('the management pack prints approved variance notes under the variance 
       const text = JSON.stringify(content);
       for (const secret of ['DRAFT SECRET', 'WITHDRAWN SECRET', 'AUGUST', 'REFORECAST', 'B SECRET', 'draft of']) expect(text, `${type}: ${secret}`).not.toContain(secret);
       if (type !== 'budget_variance') expect(text, type).not.toContain('Project 1 billed late');
+    }
+  });
+});
+
+describe('the scheduled pack (cron) reads the approved notes on the service pool', () => {
+  // scripts/isaflow-management-packs.timer → POST /api/accounting/afs/cron/management-packs (no withAuth) →
+  // packSchedulerService.runDailyScheduler → generateManagementPack(triggeredBy 'cron'): bare `sql` on the
+  // pool, which logs in as isaflow_service (inherits app_service; migration 915), with NO claims and no
+  // company GUC. app_service sees report_commentary through the app_service_<cmd> mirrors that
+  // app_service_sync_policies() keeps (every migration run). Here: one client, SET ROLE isaflow_service, no
+  // claims set, so every query the generator makes runs as the cron's role.
+  it('as isaflow_service with no claims, the budget_variance section prints the approved note', async () => {
+    const client: PoolClient = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await note(client, { hash: varianceParamsHash(f.v.primary27, '2026-09'), rowRef: `${f.acc.opex}|||`, text: 'CRON NOTE', approved: true });
+      await client.query('SET LOCAL ROLE isaflow_service');
+      expect((await client.query("SELECT current_setting('request.jwt.claims', true) AS c")).rows[0].c ?? '').toBe('');
+      const sections = await als.run({ client, userId: 'cron', claims: {} }, async () => {
+        const { documentId } = await generateManagementPack({ companyId: f.a, period: '2026-09', config: {
+          id: '', companyId: f.a, enabled: true, generationDay: 5, deliveryDay: 10, reviewRequired: true,
+          sectionsEnabled: { budget_variance: true }, recipients: [], packStyle: 'detailed', comparisonMode: 'budget', currencyDisplay: 'full',
+        }, triggeredBy: 'cron' });
+        return await sql`SELECT section_type, content FROM afs_sections WHERE document_id = ${documentId}::UUID AND company_id = ${f.a}::UUID` as
+          { section_type: string; content: NoteContent }[];
+      });
+      const variance = sections.find((r) => r.section_type === 'budget_variance')!.content;
+      expect(variance.blocks.some((b) => b.type === 'table')).toBe(true); // the budget itself was readable too
+      expect(variance.blocks).toContainEqual({ type: 'list', items: ['BT-6000 Opex: CRON NOTE'] });
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
     }
   });
 });
