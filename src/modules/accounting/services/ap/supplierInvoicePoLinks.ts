@@ -4,8 +4,9 @@
  * and drives the 3-way match: a bill naming ANOTHER company's PO line would release that company's commitment.
  * So every named `po_item_id` must be a line of one of this company's purchase orders, of the bill's own supplier, in
  * a status that commits spend (approved / partially_received / received: a draft, submitted or cancelled order has
- * nothing to bill against) and, when the bill names a `purchase_order_id`, of that order. Reads only, before any write; refusal = 400. The REST create is the only writer
- * of the column (census 7): `createSupplierInvoice`, and the route ahead of its number reservation.
+ * nothing to bill against) and, when the bill names a `purchase_order_id`, of that order. Reads only, before any
+ * write; refusal = 400. The REST create is the only writer of the column (census 7): `createSupplierInvoice`, and
+ * the route ahead of its number reservation.
  * Named limit: the header `purchase_order_id` alone (no line naming a PO line) is not checked here.
  */
 import { sql } from '@/lib/neon';
