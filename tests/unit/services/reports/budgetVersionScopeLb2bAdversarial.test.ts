@@ -108,12 +108,47 @@ describe('REPRO 3: consumers of visited vs parts disagree on the owning year', (
     const pick = (r: typeof before) => (r.ok ? { fiscalYear: r.value.fiscalYear, years: r.value.years, budgetAbsentYears: r.value.budgetAbsentYears, version: r.value.version?.id ?? null } : r);
     expect(pick(before)).toEqual({ fiscalYear: 2027, years: [2027], budgetAbsentYears: [], version: 'v27' });
     // FY2027 HAS a primary (v27); the month was read from v26. Expected: no year reported absent.
-    expect(pick(after)).toMatchObject({ budgetAbsentYears: [] }); // FAILS: budgetAbsentYears [2027], version null, years [2026]
+    // At 8bb78345e: { fiscalYear: 2027, years: [2026], budgetAbsentYears: [2027], version: null }. Now the owning
+    // year (FY2026, whose version the month is read from) is the window's year; P0's fiscalYear stays the first day's.
+    expect(pick(after)).toEqual({ fiscalYear: 2027, years: [2026], budgetAbsentYears: [], version: 'v26' });
   });
   it('naming the version the default read uses (v26) for that window is refused', async () => {
     twoYears();
     const r = await settle(() => getBudgetVariance(CO, '2026-03-20', '2026-03-31', { partialWindow: 'absent', versionId: 'v26' }));
-    expect(r.ok).toBe(true); // FAILS: 400 version v26 is FY2026; the window reaches FY2027
+    expect(r.ok).toBe(true); // was 400: version v26 is FY2026; the window reaches FY2027
+    // Naming FY2027's version now reaches FY2026, the month's owner: refused, as any version of another year.
+    const v27 = await settle(() => getBudgetVariance(CO, '2026-03-20', '2026-03-31', { partialWindow: 'absent', versionId: 'v27' }));
+    expect(v27).toMatchObject({ ok: false, error: 'version v27 is FY2027; the window reaches FY2026' });
+  });
+});
+
+describe('owner rule, template side: a template year ending mid-month hands its last month to the stored year', () => {
+  const setup = () => {
+    W.years = [
+      { fiscalYear: 2025, startDate: '2024-03-15', endDate: '2025-03-14', stored: false },
+      { fiscalYear: 2026, startDate: '2025-03-15', endDate: '2026-03-14' },
+    ];
+    W.versions = { 2026: 'v26' };
+    W.cells = [{ version: 'v26', account: SALES, month: '2025-03', amount: 500 }, { version: 'v26', account: SALES, month: '2025-04', amount: 1000 }];
+  };
+  it('a window from 1 March reads FY2026\'s March too (master gave it to the template year: 1000)', async () => {
+    setup();
+    const { before, after } = await both(() => getBudgetVariance(CO, '2025-03-01', '2025-04-30'));
+    expect([before.ok && budget(before.value, SALES), after.ok && budget(after.value, SALES)]).toEqual([1000, 1500]);
+    expect(after.ok && after.value.fiscalYear).toBe(2025);
+  });
+  it('a window inside the template year\'s part of March walks on to FY2026 for it (master: no budget)', async () => {
+    setup();
+    const { before, after } = await both(() => getBudgetVariance(CO, '2025-03-01', '2025-03-10'));
+    expect([before.ok && budget(before.value, SALES), after.ok && budget(after.value, SALES)]).toEqual([undefined, 500]);
+  });
+});
+
+describe('visited is never empty', () => {
+  it('an inverted window still reports the year holding its first day', async () => {
+    W.years = [{ fiscalYear: 2026, startDate: '2025-03-15', endDate: '2026-03-14' }, { fiscalYear: 2027, startDate: '2026-03-15', endDate: '2027-03-14' }];
+    const r = await buildRangeTracking(CO, '2026-03-20', '2026-03-05');
+    expect([r.startFiscalYear, r.years, r.months]).toEqual([2027, [], ['2026-03']]);
   });
 });
 
