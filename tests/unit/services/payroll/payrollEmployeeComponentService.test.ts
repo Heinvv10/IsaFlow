@@ -21,6 +21,7 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
+vi.mock('@/modules/accounting/services/payroll/payrollAssignmentWriteGuard', () => ({ refuseAssignmentWrite: vi.fn(async () => undefined) })); // covered by the integration suites
 import {
   assignComponentToEmployee,
   EmployeeComponentRefused,

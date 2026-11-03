@@ -22,6 +22,7 @@ vi.mock('@/lib/neon', () => {
   }),
   };
 });
+vi.mock('@/modules/accounting/services/payroll/payrollAssignmentWriteGuard', () => ({ refuseAssignmentWrite: vi.fn(async () => undefined) })); // covered by the integration suites
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 import {
