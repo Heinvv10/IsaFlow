@@ -143,7 +143,7 @@ export default function NewPurchaseOrderPage() {
                     Line Items
                   </h3>
                   <div className="flex flex-wrap items-center gap-2">
-                    <button type="button" aria-expanded={showDims} onClick={() => setShowDims(v => !v)} className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${showDims ? 'border-teal-400/60 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-amber-400/50 hover:text-amber-500'}`}>
+                    <button type="button" aria-expanded={showDims} onClick={() => setShowDims(v => !v)} className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${showDims ? 'border-teal-400/60 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-ink-muted hover:border-amber-400/50 hover:text-amber-500'}`}>
                       <Tags className="h-3 w-3" />{showDims ? 'Hide Dimensions' : 'Dimensions'}
                     </button>
                     <button type="button" onClick={addItem} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors">
@@ -165,7 +165,7 @@ export default function NewPurchaseOrderPage() {
                         <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">Qty</th>
                         <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">Unit Price</th>
                         <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">VAT %</th>
-                        {showDims && <PoDimensionHeaders className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 w-36" />}
+                        {showDims && <PoDimensionHeaders className="px-3 py-2.5 text-left text-xs font-semibold text-ink-muted w-36" />}
                         <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">Total</th>
                         <th className="w-9" />
                       </tr>
