@@ -156,7 +156,9 @@ export async function approveCustomerInvoice(
   try {
     locked = (await sql`
       SELECT status, currency_code, total_amount, exchange_rate,
-             approval_document_digest(company_id, 'customer_invoice', id) AS approval_content_digest
+             approval_document_digest(company_id, 'customer_invoice', id) AS approval_content_digest, notes,
+             to_char(due_date, 'YYYY-MM-DD') AS due_date, to_char(billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
+             to_char(billing_period_end, 'YYYY-MM-DD') AS billing_period_end
       FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
         AND status = ANY(${APPROVABLE_STATUSES}::text[])

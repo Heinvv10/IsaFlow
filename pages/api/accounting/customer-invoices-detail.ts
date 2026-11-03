@@ -36,6 +36,7 @@ import { getCustomerInvoiceDetail } from '@/modules/accounting/services/ar/custo
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
 import { WIP_CLIENT_STALE, WIP_LINK_REFUSED } from '@/modules/accounting/services/ar/customerInvoiceWipLinks';
+import { readShownDigest } from '@/modules/accounting/services/ar/customerInvoiceShownDigest';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
@@ -114,11 +115,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'bad_dimensions') return apiResponse.badRequest(res, result.message);
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
-    const digestRows = (await sql`
-      SELECT approval_document_digest(company_id, 'customer_invoice', id) AS digest
-      FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}
-    `) as Row[];
-    return apiResponse.success(res, { updated: true, approvalContentDigest: String(digestRows[0]?.digest ?? '') });
+    // What Approve sends back now (customerInvoiceShownDigest): the page's next Approve & email carries it.
+    return apiResponse.success(res, { updated: true, approvalContentDigest: await readShownDigest(sql, companyId, id) });
   }
 
   if (req.method === 'POST') {
@@ -162,6 +160,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'approve') {
+      // A screen that sends the total sends what it read with it: without the digest the content it showed is unknown.
+      if (expectedTotal !== undefined && expectedContentDigest === undefined) {
+        return apiResponse.conflict(res, 'This page is out of date: reload it, then approve again.', { code: 'INVOICE_APPROVE_VIEW_INCOMPLETE' });
+      }
       try {
         const result = await withJournalDateRefusal(res, () =>
           approveCustomerInvoice(companyId, id, userId, { expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest }));

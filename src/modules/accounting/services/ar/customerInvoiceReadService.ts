@@ -10,6 +10,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { shownDigestOf } from './customerInvoiceShownDigest';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 import { linkExpiredSql } from './portalLinkCharge';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
@@ -227,6 +228,8 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}
   `) as Row[];
   if (rows.length === 0) return null;
+  // What Approve sends back: the approval digest with notes, due date and billing period (customerInvoiceShownDigest).
+  rows[0]!.approval_content_digest = shownDigestOf(rows[0]!);
 
   const items = (await sql`
     SELECT cii.*,

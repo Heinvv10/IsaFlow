@@ -6,6 +6,8 @@
  * - a different total: 409 STALE_VIEW, the invoice still a draft, no journal;
  * - the same figure in another currency, or at another exchange rate: 409 STALE_VIEW, naming the invoice's currency;
  * - no `expectedTotal` (API clients, scripts; MCP calls the service, not this route): approved as before.
+ * Every approve that sends `expectedTotal` sends the digest the screen read too (required with it since round eleven:
+ * invoice-approve-shown-digest.int.test.ts); `seen` reads it as the page does, through the GET.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -24,6 +26,11 @@ let company = '';
 
 const approve = (body: Record<string, unknown>) =>
   callRoute(customerInvoicesDetail, tokens[owner]!, company, 'POST', { action: 'approve', ...body }, '/api/accounting/customer-invoices-detail');
+/** The digest the invoice page read with the invoice (GET customer-invoices-detail). */
+const seen = async (id: string): Promise<string> => {
+  const res = await callRoute(customerInvoicesDetail, tokens[owner]!, company, 'GET', undefined, '/api/accounting/customer-invoices-detail', { id });
+  return (res.state.body as { data: { approval_content_digest: string } }).data.approval_content_digest;
+};
 
 beforeAll(async () => {
   owner = await createUser(pool, tokens);
@@ -34,7 +41,7 @@ afterAll(async () => { await cleanupPr4(pool, companies, [owner]); });
 describe('approve and the total the approver saw', () => {
   it('the total shown is the total stored: approved', async () => {
     const inv = await plantInvoice(pool, company, owner); // R1 150
-    const res = await approve({ id: inv.id, expectedTotal: 1150 });
+    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedContentDigest: await seen(inv.id) });
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect((await invoiceState(pool, inv.id)).status).toBe('approved');
   });
@@ -42,7 +49,7 @@ describe('approve and the total the approver saw', () => {
   it('a different total: 409 STALE_VIEW naming the stored total, and nothing written', async () => {
     const inv = await plantInvoice(pool, company, owner);
     const before = (await pool.query('SELECT * FROM customer_invoices WHERE id = $1', [inv.id])).rows[0];
-    const res = await approve({ id: inv.id, expectedTotal: 1035 });
+    const res = await approve({ id: inv.id, expectedTotal: 1035, expectedContentDigest: await seen(inv.id) });
     expect(res.state.statusCode).toBe(409);
     expect(reasonOf(res)).toBe('STALE_VIEW');
     expect(messageOf(res)).toMatch(/changed after it was shown: its total is now R\s?1\s?150\.00\./);
@@ -53,10 +60,7 @@ describe('approve and the total the approver saw', () => {
 
   it('different approval content at the same total is 409 STALE_VIEW', async () => {
     const inv = await plantInvoice(pool, company, owner);
-    const digest = (await pool.query(
-      "SELECT approval_document_digest($1, 'customer_invoice', $2) AS digest",
-      [company, inv.id],
-    )).rows[0].digest as string;
+    const digest = await seen(inv.id);
     await pool.query('UPDATE customer_invoice_items SET description = $1 WHERE invoice_id = $2', ['Changed elsewhere', inv.id]);
     const res = await approve({
       id: inv.id, expectedTotal: 1150, expectedCurrency: 'ZAR', expectedExchangeRate: 1, expectedContentDigest: digest,
@@ -68,13 +72,13 @@ describe('approve and the total the approver saw', () => {
 
   it('within a cent is the same total (the column is 2 dp)', async () => {
     const inv = await plantInvoice(pool, company, owner);
-    expect((await approve({ id: inv.id, expectedTotal: 1150.004 })).state.statusCode).toBe(200);
+    expect((await approve({ id: inv.id, expectedTotal: 1150.004, expectedContentDigest: await seen(inv.id) })).state.statusCode).toBe(200);
   });
 
   it('the same figure in another currency is another total: 409 STALE_VIEW naming the invoice\'s own currency', async () => {
     await enableFxDocuments(pool, company);
     const inv = await plantInvoice(pool, company, owner, { currencyCode: 'USD', exchangeRate: 18.5, functionalTotal: 21275 });
-    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedCurrency: 'ZAR', expectedExchangeRate: 1 });
+    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedCurrency: 'ZAR', expectedExchangeRate: 1, expectedContentDigest: await seen(inv.id) });
     expect(res.state.statusCode).toBe(409);
     expect(reasonOf(res)).toBe('STALE_VIEW');
     expect(messageOf(res)).toMatch(/its total is now USD\s?1\s?150\.00 at 18\.5/);
@@ -84,7 +88,7 @@ describe('approve and the total the approver saw', () => {
   it('the same total and currency at another exchange rate: 409 STALE_VIEW', async () => {
     await enableFxDocuments(pool, company);
     const inv = await plantInvoice(pool, company, owner, { currencyCode: 'USD', exchangeRate: 18.5, functionalTotal: 21275 });
-    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedCurrency: 'USD', expectedExchangeRate: 17.25 });
+    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedCurrency: 'USD', expectedExchangeRate: 17.25, expectedContentDigest: await seen(inv.id) });
     expect(res.state.statusCode).toBe(409);
     expect(reasonOf(res)).toBe('STALE_VIEW');
     expect((await invoiceState(pool, inv.id)).status).toBe('draft');
@@ -93,7 +97,7 @@ describe('approve and the total the approver saw', () => {
   it('total, currency and rate all as stored: past the check (the currency case is the gate\'s)', async () => {
     await enableFxDocuments(pool, company);
     const inv = await plantInvoice(pool, company, owner, { currencyCode: 'USD', exchangeRate: 18.5, functionalTotal: 21275 });
-    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedCurrency: 'usd ', expectedExchangeRate: 18.5 });
+    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedCurrency: 'usd ', expectedExchangeRate: 18.5, expectedContentDigest: await seen(inv.id) });
     expect(reasonOf(res)).not.toBe('STALE_VIEW');
   });
 

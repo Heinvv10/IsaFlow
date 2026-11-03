@@ -2,6 +2,7 @@
  * PR S round six: the stale-view check compares exchange rates as decimals (micro-units, half away from zero), as
  * the numeric(…, 6) column stores them, never as floats: 4.0000005 stored as text is 4.000001 (as a float, 4.0000005 × 10⁶ rounds to 4000000).
  */
+import { shownDigestOf } from '@/modules/accounting/services/ar/customerInvoiceShownDigest';
 import { describe, expect, it } from 'vitest';
 import { assertShownIsStored, InvoiceStaleViewError } from '@/modules/accounting/services/ar/customerInvoiceStaleView';
 
@@ -34,10 +35,16 @@ describe('assertShownIsStored and approval content', () => {
     )).toThrow(InvoiceStaleViewError);
   });
 
-  it('accepts the exact approval digest the screen loaded', () => {
-    expect(() => assertShownIsStored(
-      { expectedContentDigest: 'screen-digest' },
-      { approval_content_digest: 'screen-digest' },
-    )).not.toThrow();
+  it('accepts the shown digest of the row the screen loaded (approval digest + notes, due date, billing period)', () => {
+    const row = { approval_content_digest: 'screen-digest', notes: 'Pay by EFT', due_date: '2026-10-01', billing_period_start: null, billing_period_end: null };
+    expect(() => assertShownIsStored({ expectedContentDigest: shownDigestOf(row) }, row)).not.toThrow();
+    expect(() => assertShownIsStored({ expectedContentDigest: shownDigestOf(row) }, { ...row, notes: 'Changed' })).toThrow(InvoiceStaleViewError);
+  });
+
+  it('says what changed: the total when it moved, the content (never the total) when only that did', () => {
+    const row = { total_amount: '1150.00', approval_content_digest: 'd', notes: '' };
+    expect(() => assertShownIsStored({ expectedTotal: 1000, expectedContentDigest: shownDigestOf(row) }, row)).toThrow(/its total is now/);
+    expect(() => assertShownIsStored({ expectedTotal: 1150, expectedContentDigest: 'other' }, row)).toThrow(/lines, customer, dates or notes/);
+    expect(() => assertShownIsStored({ expectedTotal: 1150, expectedContentDigest: 'other' }, row)).not.toThrow(/total/);
   });
 });

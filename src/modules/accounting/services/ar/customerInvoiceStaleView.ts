@@ -6,6 +6,7 @@
  */
 import { formatAmount, formatMoney } from '@/lib/money/formatMoney';
 import { sameCents, toScaledInteger } from '../shared/functionalAmounts';
+import { shownDigestOf, type ShownRow } from './customerInvoiceShownDigest';
 
 export interface ShownInvoice {
   expectedTotal?: number;
@@ -14,7 +15,7 @@ export interface ShownInvoice {
   expectedContentDigest?: string;
 }
 
-interface Stored { total_amount?: unknown; currency_code?: unknown; exchange_rate?: unknown; approval_content_digest?: unknown }
+interface Stored extends ShownRow { total_amount?: unknown; currency_code?: unknown; exchange_rate?: unknown }
 
 const currencyOf = (code: unknown): string => (typeof code === 'string' && code.trim() ? code.trim().toUpperCase() : 'ZAR');
 const ONE = BigInt(1000000);
@@ -33,21 +34,31 @@ function describe(total: number, currency: string, rate: bigint): string {
   return currency === 'ZAR' ? formatMoney(total) : `${currency} ${formatAmount(total)} at ${shownRate(rate)}`;
 }
 
+const CONTENT_CHANGED = 'This invoice changed after it was shown (its lines, customer, dates or notes). Check it, then approve again.';
+
 export class InvoiceStaleViewError extends Error {
-  constructor(shownNow: string) {
-    super(`This invoice changed after it was shown: its total is now ${shownNow}. Check it, then approve again.`);
+  /** `shownNow`: the stored total when the total, currency or rate moved; null when only the content did. */
+  constructor(shownNow: string | null) {
+    super(shownNow === null ? CONTENT_CHANGED
+      : `This invoice changed after it was shown: its total is now ${shownNow}. Check it, then approve again.`);
     this.name = 'InvoiceStaleViewError';
   }
 }
 
-/** Throws when anything shown differs from the stored row, including the canonical approval-content digest. */
+/**
+ * Throws when anything shown differs from the stored row: the total, currency and rate (the message names the stored
+ * total), else the shown digest (customerInvoiceShownDigest: lines, parties, dates, notes; the message says the
+ * content changed, never the total).
+ */
 export function assertShownIsStored(shown: ShownInvoice, stored: Stored): void {
   const total = Number(stored.total_amount ?? 0);
   const currency = currencyOf(stored.currency_code);
   const rate = rateOf(stored.exchange_rate);
-  const stale = (shown.expectedTotal !== undefined && !sameCents(String(stored.total_amount ?? 0), shown.expectedTotal))
+  const moved = (shown.expectedTotal !== undefined && !sameCents(String(stored.total_amount ?? 0), shown.expectedTotal))
     || (shown.expectedCurrency !== undefined && currencyOf(shown.expectedCurrency) !== currency)
-    || (shown.expectedExchangeRate !== undefined && rateOf(shown.expectedExchangeRate) !== rate)
-    || (shown.expectedContentDigest !== undefined && shown.expectedContentDigest !== stored.approval_content_digest);
-  if (stale) throw new InvoiceStaleViewError(describe(total, currency, rate));
+    || (shown.expectedExchangeRate !== undefined && rateOf(shown.expectedExchangeRate) !== rate);
+  if (moved) throw new InvoiceStaleViewError(describe(total, currency, rate));
+  if (shown.expectedContentDigest !== undefined && shown.expectedContentDigest !== shownDigestOf(stored)) {
+    throw new InvoiceStaleViewError(null);
+  }
 }

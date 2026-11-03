@@ -20,6 +20,7 @@ import {
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 import { sql } from '@/lib/neon';
+import { readShownDigest } from '@/modules/accounting/services/ar/customerInvoiceShownDigest';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -39,11 +40,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
       taxRate, notes, items, currencyCode, exchangeRate, projectId,
     });
-    const digestRows = await sql`
-      SELECT approval_document_digest(company_id, 'customer_invoice', id) AS digest
-      FROM customer_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
-    ` as Array<Record<string, unknown>>;
-    return apiResponse.created(res, { id: invoiceId, invoiceNumber, approvalContentDigest: String(digestRows[0]?.digest ?? '') });
+    // What Approve sends back for this invoice (customerInvoiceShownDigest).
+    const approvalContentDigest = await readShownDigest(sql, companyId, invoiceId);
+    return apiResponse.created(res, { id: invoiceId, invoiceNumber, approvalContentDigest });
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof InvoiceLineValidationError) return apiResponse.badRequest(res, err.message);
