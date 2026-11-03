@@ -8,13 +8,14 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sql, sendEmail } = vi.hoisted(() => ({
+const { sql, sendEmail, logEmailAttempt } = vi.hoisted(() => ({
+  logEmailAttempt: vi.fn(async () => undefined),
   sql: vi.fn(() => { throw new Error('no database read expected'); }),
   sendEmail: vi.fn(async () => ({ success: true })),
 }));
 vi.mock('@/lib/neon', () => ({ sql }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail }));
+vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail, logEmailAttempt }));
 
 import { renderBudgetDigestHtml, renderBudgetDigestSubject, type BudgetDigestPayload } from '@/lib/email-templates-budget-digest';
 import { planOverspendDigest, sendOverspendDigest } from '@/modules/accounting/services/budgets/overspendDigest';
@@ -83,10 +84,21 @@ describe('planOverspendDigest / sendOverspendDigest', () => {
     expect(sql).not.toHaveBeenCalled();
   });
 
-  it('a plan with emails sends each one and counts failures without throwing', async () => {
-    sendEmail.mockResolvedValueOnce({ success: true }).mockResolvedValueOnce({ success: false, error: 'smtp down' } as never);
-    const out = await sendOverspendDigest(CO, { skip: null, emails: [{ to: 'a@x', subject: 's', html: 'h' }, { to: 'b@x', subject: 's', html: 'h' }] });
-    expect(out).toEqual({ skipped: null, sent: 1, failed: 1 });
-    expect(sendEmail).toHaveBeenCalledTimes(2);
+  it('a plan with emails sends each one, counts each actual outcome (a throw is one failure), and logs each in the given context', async () => {
+    sendEmail.mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: false, error: 'smtp down' } as never)
+      .mockRejectedValueOnce(new Error('socket hang up'));
+    const contexts: string[] = [];
+    const inLog = vi.fn(async (write: () => Promise<void>) => { contexts.push('open'); await write(); });
+    const emails = ['a@x', 'b@x', 'c@x'].map((to) => ({ to, subject: 's', html: 'h' }));
+    const out = await sendOverspendDigest(CO, { skip: null, emails }, inLog);
+    expect(out).toEqual({ skipped: null, sent: 1, failed: 2 });
+    expect(sendEmail).toHaveBeenCalledTimes(3);
+    // sendEmail itself writes no log (no _log): the digest writes one row per email, in its own context.
+    expect(sendEmail.mock.calls.every(([o]) => !('_log' in (o as object)))).toBe(true);
+    expect(contexts).toHaveLength(3);
+    expect(logEmailAttempt.mock.calls.map(([p]) => [p.recipientEmail, p.status, p.errorMessage ?? null])).toEqual([
+      ['a@x', 'sent', null], ['b@x', 'failed', 'smtp down'], ['c@x', 'failed', 'socket hang up'],
+    ]);
   });
 });

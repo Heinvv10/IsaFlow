@@ -93,7 +93,9 @@ async function readExpenseKeys(companyId: string, versionId: string, first: stri
  * `overspendDigest.ts`). The cron (service pool, no session user) reads users through 915's mirror.
  * In a request users RLS shows a member only their own row, so the others come from 714's reviewed
  * `approval_company_other_members` (bound to the caller and the active company) and the caller's own
- * row is read directly.
+ * row is read directly. Its 42501 for a caller with no membership cannot be reached: withAuth refuses
+ * (403) a session with no active company_users row before any handler runs, and Login as authenticates
+ * as the target member, so the caller is always a member here.
  */
 async function recipients(companyId: string): Promise<string[]> {
   const uid = ((await sql`SELECT auth.uid() AS uid`) as DbRow[])[0]?.uid as string | null | undefined;

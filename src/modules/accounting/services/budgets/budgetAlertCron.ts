@@ -10,8 +10,8 @@
  *   `app.current_company_id` set to the company and statements bounded at 120 s: evaluate, record
  *   "last evaluated", plan the email digest; COMMIT. A failure (a lock held past its wait, a bad
  *   row, a timeout) rolls back that company only, is logged and counted, and the run goes on.
- * - After the commit, the digest is sent (in its own company-context transaction, so sendEmail's
- *   email_log row is written as the cron's role), only with the company flag AND
+ * - After the commit, the digest is sent outside any transaction, each email's email_log row then
+ *   written in a short company-context transaction as the cron's role; only with the company flag AND
  *   BUDGET_ALERT_EMAIL_ENABLED=1 (`overspendDigest.ts`); otherwise nothing is sent.
  * - `asOf` defaults to today in South Africa. Budget-holder reminders (P5-6) are not here.
  */
@@ -92,18 +92,10 @@ async function runCompany(companyId: string, asOf: string): Promise<CompanyAlert
     }, 'cron-budget-alerts');
     return { companyId, ok: false, fired: 0, resolved: 0, digest: null, error: 'evaluation failed; see logs' };
   }
-  // After the commit, in a short company-context transaction of its own (same pool and role, company
-  // GUC set): sendEmail's email_log write then runs as the cron's role in the company's context, in
-  // its own savepoint, never on a bare pool connection.
-  // A skipped plan sends nothing and needs no connection.
-  if (plan.skip !== null) return { companyId, ok: true, fired, resolved, digest: await sendOverspendDigest(companyId, plan) };
-  let digest: DigestOutcome;
-  try {
-    digest = await inServiceTx(companyId, () => sendOverspendDigest(companyId, plan));
-  } catch (err) {
-    log.error('budget alerts: digest send failed', { companyId, error: err instanceof Error ? err.message : String(err) }, 'cron-budget-alerts');
-    digest = { skipped: null, sent: 0, failed: plan.emails.length };
-  }
+  // After the commit: each email goes out with NO transaction open (a slow mail server holds no
+  // pooled connection); its email_log row is written in a short company-context transaction of its
+  // own (same pool and role, company GUC set). Never throws; counts each actual outcome.
+  const digest = await sendOverspendDigest(companyId, plan, (write) => inServiceTx(companyId, write));
   return { companyId, ok: true, fired, resolved, digest };
 }
 

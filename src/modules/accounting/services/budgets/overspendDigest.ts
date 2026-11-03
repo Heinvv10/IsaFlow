@@ -8,13 +8,14 @@
  * Two steps, so no email leaves for a run that rolled back:
  *   - `planOverspendDigest` (DB reads, inside the company's evaluation transaction): the gates,
  *     the recipients (active owners and admins with an email) and the rendered emails;
- *   - `sendOverspendDigest` (after that transaction committed): `sendEmail` per recipient.
+ *   - `sendOverspendDigest` (after that transaction committed): `sendEmail` per recipient, outside
+ *     any transaction, each email's `email_log` row written after it in a short transaction of its own.
  * Evaluate now (the button) sends no email: the digest belongs to the daily run.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { sendEmail } from '../core/emailService';
+import { logEmailAttempt, sendEmail, type EmailResult } from '../core/emailService';
 import {
   renderBudgetDigestHtml, renderBudgetDigestSubject, type BudgetDigestAlert,
 } from '@/lib/email-templates-budget-digest';
@@ -72,21 +73,37 @@ export async function planOverspendDigest(companyId: string, fired: readonly Fir
   };
 }
 
-export async function sendOverspendDigest(companyId: string, plan: DigestPlan): Promise<DigestOutcome> {
+/**
+ * Sends each planned email OUTSIDE any transaction (a slow mail server holds no pooled connection),
+ * then writes that email's `email_log` row through `inLogContext` (the cron: a short company-context
+ * transaction on its own pool and role). `sent`/`failed` count actual outcomes, one per email; a send
+ * that throws is one failure and the others still go.
+ */
+export async function sendOverspendDigest(
+  companyId: string, plan: DigestPlan, inLogContext: (write: () => Promise<void>) => Promise<void> = (write) => write(),
+): Promise<DigestOutcome> {
   if (plan.skip !== null) return { skipped: plan.skip, sent: 0, failed: 0 };
   let sent = 0;
   let failed = 0;
   for (const e of plan.emails) {
+    let r: EmailResult;
     try {
-      const r = await sendEmail({ to: e.to, subject: e.subject, html: e.html, _log: { companyId, emailType: 'other', sentBy: null } });
-      if (r.success) sent += 1;
-      else {
-        failed += 1;
-        log.warn('budget digest: send failed', { companyId, error: r.error ?? 'unknown' }, 'accounting');
-      }
+      r = await sendEmail({ to: e.to, subject: e.subject, html: e.html });
     } catch (err) {
+      r = { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    if (r.success) sent += 1;
+    else {
       failed += 1;
-      log.error('budget digest: send threw', { companyId, error: err instanceof Error ? err.message : String(err) }, 'accounting');
+      log.warn('budget digest: send failed', { companyId, error: r.error ?? 'unknown' }, 'accounting');
+    }
+    try {
+      await inLogContext(() => logEmailAttempt({
+        companyId, recipientEmail: e.to, subject: e.subject, emailType: 'other',
+        status: r.success ? 'sent' : 'failed', errorMessage: r.success ? undefined : r.error ?? 'unknown', sentBy: null,
+      }));
+    } catch (err) {
+      log.error('budget digest: email_log write failed', { companyId, error: err instanceof Error ? err.message : String(err) }, 'accounting');
     }
   }
   return { skipped: null, sent, failed };

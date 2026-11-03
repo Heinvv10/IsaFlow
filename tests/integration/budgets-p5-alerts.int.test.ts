@@ -191,6 +191,15 @@ describe('evaluateOverspend: recipients', () => {
       await opexSpend(c, 1050);
       await c.query('UPDATE users SET is_active = false WHERE id = $1', [f.ownerA]);
     });
+    // A SUSPENDED owner (Evaluate now by the admin, the request path): no bell alert for them.
+    await inRequest(pool, f.a, f.adminA, async ({ asSuper }) => {
+      expect((await run()).fired).toHaveLength(2);
+      expect(await asSuper((c) => notes(c, f.ownerA))).toEqual([]);
+      expect(await asSuper((c) => notes(c, f.adminA))).toHaveLength(1);
+    }, async (c) => {
+      await opexSpend(c, 1050);
+      await c.query(`UPDATE users SET status = 'suspended', suspended_at = now() WHERE id = $1`, [f.ownerA]);
+    });
   });
 });
 

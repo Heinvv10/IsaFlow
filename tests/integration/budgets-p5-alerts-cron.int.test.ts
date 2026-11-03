@@ -153,8 +153,9 @@ describe('the daily run, as isaflow_service', () => {
     await spend(f.a, f.acc.opex, f.acc.bank, f.ownerA, '2026-03-12', 200); // March 105%: crosses 100
     const taken = acquired;
     const both = await runBudgetAlertsFor([f.a], AS_OF);
-    // The evaluation's transaction, then the send's own company-context one: both on the cron's role.
-    expect(acquired - taken).toBe(2);
+    // The evaluation's transaction, then one short company-context transaction per email_log row
+    // (2 recipients), all on the cron's role; the SMTP sends themselves hold no connection.
+    expect(acquired - taken).toBe(3);
     expect(both.perCompany[0]).toMatchObject({ ok: true, fired: 1, digest: { skipped: null, sent: 2, failed: 0 } });
     expect(sent()).toHaveLength(2);
     const to = sent().map((o) => o.to).sort();
@@ -170,6 +171,29 @@ describe('the daily run, as isaflow_service', () => {
     expect(mail.html).toContain('/accounting/reports/budget-vs-actual?period=month&amp;month=2026-03');
   });
 
+  it('the digest sends outside any transaction; one failed send counts 1 failed, and each email has its own email_log row', async () => {
+    process.env.BUDGET_ALERT_EMAIL_ENABLED = '1';
+    const held: number[] = [];
+    let call = 0;
+    smtp.sendMail.mockImplementation(async () => {
+      held.push(cronPool.totalCount - cronPool.idleCount);
+      call += 1;
+      if (call === 1) throw new Error('550 mailbox unavailable');
+      return { messageId: 'stub' };
+    });
+    try {
+      await spend(f.a, f.acc.opex, f.acc.bank, f.ownerA, '2026-04-12', 200); // April opex 125%: crosses 120
+      const out = await runBudgetAlertsFor([f.a], AS_OF);
+      expect(out.perCompany[0]).toMatchObject({ ok: true, fired: 1, digest: { skipped: null, sent: 1, failed: 1 } });
+      expect(held).toEqual([0, 0]); // no pooled connection checked out while SMTP runs
+      const logged = await pool.query(`SELECT status, error_message FROM email_log WHERE company_id = $1 AND subject LIKE '%1 new overspend alert' ORDER BY sent_at DESC LIMIT 2`, [f.a]);
+      expect(logged.rows.map((r) => r.status).sort()).toEqual(['failed', 'sent']);
+      expect(logged.rows.find((r) => r.status === 'failed')!.error_message).toBe('550 mailbox unavailable');
+    } finally {
+      smtp.sendMail.mockImplementation(async () => ({ messageId: 'stub' }));
+    }
+  });
+
   it('a deactivated admin is not notified by the daily run', async () => {
     await pool.query('UPDATE users SET is_active = false WHERE id = $1', [f.adminA]);
     try {
@@ -181,6 +205,20 @@ describe('the daily run, as isaflow_service', () => {
       expect(await count(`SELECT COUNT(*)::INT n FROM user_notifications WHERE company_id = $1 AND user_id = $2 AND title LIKE 'P5A-6100%'`, [f.a, f.ownerA])).toBe(1);
     } finally {
       await pool.query('UPDATE users SET is_active = true WHERE id = $1', [f.adminA]);
+    }
+  });
+
+  it('a suspended owner gets no bell alert from the daily run; the admin does', async () => {
+    await pool.query(`UPDATE users SET status = 'suspended', suspended_at = now() WHERE id = $1`, [f.ownerA]);
+    try {
+      await committed((c) => journal(c, f.a, '2026-03-21', f.ownerA, [[f.acc.rent, 100, 0, { cc1: f.cc.FT }], [f.acc.bank, 0, 100]])); // rent FT March 110%: crosses 100
+      const per = async (u: string) => count(`SELECT COUNT(*)::INT n FROM user_notifications WHERE company_id = $1 AND user_id = $2`, [f.a, u]);
+      const [owner, admin] = [await per(f.ownerA), await per(f.adminA)];
+      const out = await runBudgetAlertsFor([f.a], AS_OF);
+      expect(out.perCompany[0]).toMatchObject({ ok: true, fired: 1 });
+      expect([await per(f.ownerA), await per(f.adminA)]).toEqual([owner, admin + 1]);
+    } finally {
+      await pool.query(`UPDATE users SET status = 'active', suspended_at = NULL WHERE id = $1`, [f.ownerA]);
     }
   });
 
