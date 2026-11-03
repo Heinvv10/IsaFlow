@@ -40,6 +40,8 @@ export class GridStoreCore {
   protected view: View = { kind: 'company' };
   protected locked = false;
   protected canWrite = false;
+  /** P5-6: a budget holder's per-row rule (outside their slices, with the reviewer); null otherwise. */
+  protected holderReason: ((accountId: string, view: View) => string | null) | null = null;
   protected values = new Map<string, Map<CellKey, number | null>>();
   protected original = new Map<CellKey, number | null>();
   protected dirty = new Set<CellKey>();
@@ -107,7 +109,7 @@ export class GridStoreCore {
 
   protected computeOwn(id: string): OwnPart {
     const cells = this.values.get(id) ?? new Map<CellKey, number | null>();
-    const row = resolveView({ accountIds: [id], months: this.layout.months, cells, locked: this.locked, canWrite: this.canWrite }, this.view).get(id);
+    const row = resolveView({ accountIds: [id], months: this.layout.months, cells, locked: this.locked, canWrite: this.canWrite, readReason: this.holderReason }, this.view).get(id);
     return { values: row?.values ?? [], editable: row?.editable ?? false, readReason: row?.readReason ?? null };
   }
 

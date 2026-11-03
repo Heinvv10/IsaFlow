@@ -258,7 +258,7 @@ export async function listVersions(fiscalYear: number): Promise<ApiResult<Budget
 export type VersionAction = 'approve' | 'lock' | 'unlock';
 
 export async function setVersionStatus(
-  id: string, action: VersionAction, opts: { reason?: string; expectedUpdatedAt?: string } = {},
+  id: string, action: VersionAction, opts: { reason?: string; expectedUpdatedAt?: string; force?: boolean } = {},
 ): Promise<ApiResult<BudgetVersion>> {
   return call(`/api/accounting/budget-versions/${encodeURIComponent(id)}/status`,
     post({ action, ...opts }), 'Could not change the budget status.');

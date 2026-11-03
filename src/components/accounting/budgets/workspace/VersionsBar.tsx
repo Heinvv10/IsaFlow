@@ -143,7 +143,7 @@ export function VersionsBar(props: VersionsBarProps) {
       )}
       {cleanNote && <span className="text-xs text-[var(--ff-text-secondary)]" data-testid="versions-clean-note">{cleanNote}</span>}
       {current && (
-        <VersionStatusDialogs pending={pending} version={current} onRun={onAction} onClose={() => setPending(null)} />
+        <VersionStatusDialogs pending={pending} version={current} onRun={onAction} onClose={() => setPending(null)} canForce={role === 'owner'} />
       )}
     </div>
   );
