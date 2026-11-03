@@ -24,9 +24,9 @@ import { getSupplierInvoiceById } from './supplierInvoiceService';
 import {
   checkDocumentBudget, evaluateDocumentLines, gateFor, readCheckPolicy,
 } from '../budgets/budgetCheck';
-import type { DocumentLine } from '../budgets/budgetCheckCore';
+import { decideBudgetOutcome, type DocumentLine } from '../budgets/budgetCheckCore';
 import type {
-  BudgetCheckContext, BudgetCheckLine, BudgetCheckResult, BudgetGate, BudgetPolicy,
+  BudgetChannel, BudgetCheckContext, BudgetCheckLine, BudgetCheckResult, BudgetGate, BudgetPolicy,
 } from '../budgets/budgetCheckTypes';
 
 /**
@@ -84,4 +84,23 @@ export async function previewBillBudget(companyId: string, invoiceId: string): P
   const { lines } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpense.id), { storedPosting: true });
   const checked = await evaluateDocumentLines(companyId, documentLines(lines), billMonth(invoice), { excludeInvoiceId: invoice.id, labelAlways: true });
   return { policy, checks: true, lines: checked, overCount: checked.filter((l) => l.over).length };
+}
+
+/**
+ * The refusal the live check would give each bill ON ITS OWN under the block policy (a dry run's
+ * skip reason; no lock), keyed by bill id. Empty unless the policy is block. Bills in one batch that
+ * draw on one slice can still be refused later in the live run: the live check is cumulative.
+ */
+export async function billBudgetRefusalPreviews(
+  companyId: string, invoiceIds: readonly string[], channel: BudgetChannel,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (invoiceIds.length === 0 || (await readCheckPolicy(companyId)) !== 'block') return out;
+  for (const id of invoiceIds) {
+    const preview = await previewBillBudget(companyId, id);
+    if (!preview || preview.policy !== 'block' || preview.overCount === 0) continue;
+    const decision = decideBudgetOutcome({ policy: 'block', lines: preview.lines, channel });
+    if (decision.kind === 'refuse') out.set(id, decision.message);
+  }
+  return out;
 }

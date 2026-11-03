@@ -145,7 +145,8 @@ export const approveSupplierInvoiceTool: McpTool = {
   name: 'approve_supplier_invoice',
   description:
     'Approve a DRAFT supplier invoice and POST it to the ledger — DR Expense (per line) + DR VAT Input / CR Accounts Payable. Irreversible except by a reversing entry. Requires the write:post permission. ' +
-    'The invoice must be in draft or pending_approval; anything else is refused with its current status.',
+    'The invoice must be in draft or pending_approval; anything else is refused with its current status. '
+    + 'Budget check: under the company\'s block policy a bill over its remaining budget is refused (BUDGET_EXCEEDED, naming each line; an agent cannot override); under warn it posts and the over-budget lines come back as budget_warnings.',
   scope: 'write:invoices',
   write: true,
   requiresPost: true,

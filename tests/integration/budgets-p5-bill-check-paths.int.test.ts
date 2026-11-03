@@ -82,6 +82,20 @@ describe('MCP bulk_approve_supplier_invoices', () => {
   });
 });
 
+describe('MCP bulk dry run (parity with the live skip)', () => {
+  it('block: a bill over budget on its own is listed as budget_exceeded, the others would post; nothing written', async () => {
+    await setPolicy(pool, f, 'block');
+    const fits = await bill('2026-06', 100, 'travel');
+    const over = await bill('2026-06', 5000);
+    const res = await committed(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [fits, over], dry_run: true, idempotency_key: `kd-${over}` }, ctx()));
+    const out = JSON.parse(text(res));
+    expect(out).toMatchObject({ dry_run: true, would_post: 1, would_post_ids: [fits] });
+    expect(out.skipped).toEqual([expect.objectContaining({ document_id: over, reason: expect.stringMatching(/^budget_exceeded: Over budget — approval refused: BB-6100/) })]);
+    expect((await billState(pool, over)).status).toBe('draft');
+    expect(await eventsFor(pool, over)).toHaveLength(0);
+  });
+});
+
 describe('the bulk route', () => {
   it('block: per-item BUDGET_EXCEEDED, the rest approved, the refused event recorded', async () => {
     await setPolicy(pool, f, 'block');

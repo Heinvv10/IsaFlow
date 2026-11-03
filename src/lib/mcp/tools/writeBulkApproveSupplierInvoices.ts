@@ -26,6 +26,7 @@ import { mcpPostingOpts } from '../mcpActor';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
 import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
+import { billBudgetRefusalPreviews } from '@/modules/accounting/services/ap/supplierInvoiceBudgetCheck';
 import { BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import {
   type BulkApproveAdapter,
@@ -147,6 +148,7 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
     'Approve and POST up to 100 DRAFT supplier invoices (bills) in ONE call — each posts DR Expense (per line) + DR VAT Input / CR Accounts Payable. Irreversible except by a reversing entry. Requires the write:post permission. '
     + 'Identify each bill by its invoice_id (from list_supplier_invoices or bulk_create_supplier_invoices). '
     + 'A bill that cannot be approved is SKIPPED, not a failure: not found, already approved, cancelled, or dated in a CLOSED fiscal period — each is listed in "skipped" with its reason and the rest of the batch still posts. '
+    + 'Budget check: under the company\'s block policy a bill over its remaining budget is skipped as "budget_exceeded" (an agent cannot override; a person can, on the bill in the app); under warn it posts and its over-budget lines come back as budget_warnings. '
     + 'ALL OR NOTHING for real faults: if a bill genuinely fails to post, the whole batch is rolled back, nothing is posted, and the error names the element. '
     + 'A repeated invoice_id is REFUSED (not skipped) — each bill may appear once. '
     + 'Every posting is attributed to the agent and visible in list_agent_postings. Use dry_run to see what would post and what would be skipped.',
@@ -209,12 +211,17 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
       .sort((a, b) => a.index - b.index);
 
     if (args.dry_run === true) {
+      // Budgets P5-2 (block policy): a bill over budget ON ITS OWN is listed as the live call would skip it.
+      const overBudget = await billBudgetRefusalPreviews(ctx.companyId, postable.map((p) => p.id), 'mcp');
+      const wouldPost = postable.filter((p) => !overBudget.has(p.id));
       const preview = ok({
         dry_run: true,
         posted: 0,
-        would_post: postable.length,
-        would_post_ids: postable.map((p) => p.id),
-        skipped,
+        would_post: wouldPost.length,
+        would_post_ids: wouldPost.map((p) => p.id),
+        skipped: [...skipped, ...postable.filter((p) => overBudget.has(p.id))
+          .map((p) => ({ index: p.index, document_id: p.id, reason: `budget_exceeded: ${overBudget.get(p.id)!}` }))]
+          .sort((a, b) => a.index - b.index),
       });
       // Wrote nothing, so it must not occupy the idempotency key: the real call
       // carries the same intent and would otherwise be served this preview
