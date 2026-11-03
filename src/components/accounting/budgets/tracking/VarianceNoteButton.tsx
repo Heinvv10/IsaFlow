@@ -6,7 +6,7 @@
  * note is changed by an owner or admin only (saving withdraws the approval), so a manager is told so.
  * The server is the authority on every role: these only decide what to offer.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MessageSquareText } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -36,7 +36,8 @@ export interface VarianceNoteButtonProps {
 const STATUS_LABEL = { draft: 'Draft', approved: 'Approved', rejected: 'Rejected' } as const;
 const STATUS_COLOUR = {
   draft: 'text-amber-600 dark:text-amber-400',
-  approved: 'text-[var(--ff-brand-500)]',
+  // Defined tokens only (styles/globals.css): an undefined one renders grey, like no note at all.
+  approved: 'text-[var(--ff-brand-dark)] dark:text-[var(--ff-brand-light)]',
   rejected: 'text-[var(--ff-text-tertiary)]',
 } as const;
 
@@ -49,21 +50,32 @@ export function VarianceNoteButton({ label, slice, note, role, writable = true, 
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // Whether the person has typed since the editor was last filled from the note. Until they do, the editor
+  // follows the note: after a refusal the hook reloads it, and the editor must hold the CURRENT draft, or a
+  // second Approve would send the old wording as an edit against the new draft and sign it.
+  const [typed, setTyped] = useState(false);
+  const seed = note ? (note.draftText ?? note.approvedText ?? '') : '';
+  useEffect(() => {
+    if (open && !typed) setText(seed);
+  }, [open, typed, seed]);
   if (!visible && !writer) return null;
 
   const status = visible ? note.status : null;
   const editable = writer && (status !== 'approved' || approver);
   const openDialog = () => {
-    setText(note ? (note.draftText ?? note.approvedText ?? '') : '');
+    setText(seed);
+    setTyped(false);
     setProblem(null);
     setOpen(true);
   };
-  const run = async (action: () => Promise<ActionResult>) => {
+  /** `decision`: an approve or reject, whose refusal reloads the note; a refused SAVE keeps what was typed. */
+  const run = async (action: () => Promise<ActionResult>, decision = false) => {
     setBusy(true);
     try {
       const reason = await action();
       setProblem(reason);
       if (reason === null) setOpen(false);
+      else if (decision) setTyped(false); // show the reloaded note, not the wording that was refused
     } finally {
       setBusy(false);
     }
@@ -80,7 +92,7 @@ export function VarianceNoteButton({ label, slice, note, role, writable = true, 
   return (
     <>
       <button type="button" onClick={openDialog} aria-label={name} title={name}
-        className={`inline-flex shrink-0 items-center rounded p-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)] ${
+        className={`inline-flex shrink-0 items-center rounded p-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand)] ${
           status ? STATUS_COLOUR[status] : 'text-[var(--ff-text-tertiary)] opacity-60 hover:opacity-100'}`}>
         <MessageSquareText className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
@@ -107,7 +119,7 @@ export function VarianceNoteButton({ label, slice, note, role, writable = true, 
                 <span className="text-xs text-[var(--ff-text-secondary)]">
                   {status === 'approved' ? 'Saving a new draft withdraws the approval until it is approved again.' : 'Your note (saved as a draft)'}
                 </span>
-                <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} maxLength={MAX_UNBUDGETED_CHARS}
+                <textarea value={text} onChange={(e) => { setText(e.target.value); setTyped(true); }} rows={4} maxLength={MAX_UNBUDGETED_CHARS}
                   className="mt-1 w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] p-2 text-sm text-[var(--ff-text-primary)]" />
               </label>
             )}
@@ -118,8 +130,8 @@ export function VarianceNoteButton({ label, slice, note, role, writable = true, 
           <div className="flex flex-wrap justify-end gap-2">
             {approver && note?.status === 'draft' && (
               <>
-                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => onReject(note.id, note.draftText ?? ''))}>Reject</Button>
-                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => approve(note))}>Approve</Button>
+                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => onReject(note.id, note.draftText ?? ''), true)}>Reject</Button>
+                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => approve(note), true)}>Approve</Button>
               </>
             )}
             {editable && (

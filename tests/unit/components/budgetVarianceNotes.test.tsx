@@ -4,7 +4,10 @@
  * loads the notes of the report's version for a ONE-month window only, keyed by account and filter.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { useState } from 'react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok } from '../helpers/d2R3a5';
@@ -102,6 +105,72 @@ describe('VarianceNoteButton: approve what is in the editor (review r2)', () => 
     render(<VarianceNoteButton label="4000 Sales" slice={SLICE} note={undefined} role="owner" writable={false}
       onSave={vi.fn()} onApprove={vi.fn()} onReject={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /Add a variance note/ })).toBeNull();
+  });
+});
+
+describe('VarianceNoteButton: the editor follows the reloaded note (browser proof r3)', () => {
+  /** The page's shape: the note comes from the hook, which reloads it after a refused approve. */
+  function Harness({ onApprove }: { onApprove: (id: string, shown: string, edited?: string) => Promise<string | null> }) {
+    const [n, setN] = useState(note({ draftText: 'Old words' }));
+    reload.current = (draftText: string) => setN(note({ draftText }));
+    return <VarianceNoteButton label="4000 Sales" slice={SLICE} note={n} role="owner" onSave={vi.fn()} onApprove={onApprove} onReject={vi.fn()} />;
+  }
+  const reload = { current: (_: string) => undefined as void };
+
+  it('a 409 reloads the note; the editor then holds the NEW draft, so a second Approve signs it (never the old wording)', async () => {
+    const onApprove = vi.fn(async (_id: string, _shown: string, _edited?: string): Promise<string | null> => null)
+      .mockImplementationOnce(async () => {
+        act(() => reload.current('New words')); // the hook reloads before it answers the refusal
+        return 'This note changed since you opened it, or is no longer a draft. Reload and review the new text.';
+      });
+    render(<Harness onApprove={onApprove} />);
+    fireEvent.click(screen.getByRole('button', { name: /Draft variance note/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await screen.findByRole('alert');
+    expect(onApprove).toHaveBeenNthCalledWith(1, 'n1', 'Old words');
+    await waitFor(() => expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('New words'));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(onApprove).toHaveBeenCalledTimes(2));
+    expect(onApprove).toHaveBeenNthCalledWith(2, 'n1', 'New words');
+  });
+
+  it('a draft reloaded while the dialog is open replaces an untouched editor, but never what the user typed', async () => {
+    render(<Harness onApprove={vi.fn(async () => null)} />);
+    fireEvent.click(screen.getByRole('button', { name: /Draft variance note/ }));
+    act(() => reload.current('Second draft'));
+    await waitFor(() => expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Second draft'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'My own edit' } });
+    act(() => reload.current('Third draft'));
+    await new Promise((r) => setTimeout(r, 20));
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('My own edit');
+  });
+});
+
+describe('VarianceNoteButton: a refused save keeps what was typed', () => {
+  it('the editor still holds the typed text after a save is refused', async () => {
+    button('manager', note({}), { onSave: vi.fn(async () => 'A variance note is limited to 4000 characters.') });
+    fireEvent.click(screen.getByRole('button', { name: /Draft variance note/ }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Typed, not yet saved' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await screen.findByRole('alert');
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Typed, not yet saved');
+  });
+});
+
+describe('VarianceNoteButton: status colours are defined tokens (browser proof r3)', () => {
+  const css = readFileSync(join(process.cwd(), 'styles/globals.css'), 'utf8');
+  it('approved is the brand teal, dark and light, from tokens globals.css defines; draft amber; none grey', () => {
+    button('viewer', note({ status: 'approved', approvedText: 'A', draftText: null }));
+    const approved = screen.getByRole('button', { name: /Approved variance note/ }).className;
+    expect(approved).toContain('text-[var(--ff-brand-dark)]');
+    expect(approved).toContain('dark:text-[var(--ff-brand-light)]');
+    for (const token of approved.match(/--ff-[a-z0-9-]+/g) ?? []) expect(css, `${token} is not defined`).toMatch(new RegExp(`${token}\\s*:`));
+    cleanup();
+    button('manager', note({}));
+    expect(screen.getByRole('button', { name: /Draft variance note/ }).className).toContain('text-amber-600');
+    cleanup();
+    button('manager', undefined);
+    expect(screen.getByRole('button', { name: /Add a variance note/ }).className).toContain('text-[var(--ff-text-tertiary)]');
   });
 });
 
