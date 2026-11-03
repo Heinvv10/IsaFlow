@@ -19,6 +19,10 @@ import type { PackChartSpec, PackFootnote, PackTable } from './packPageModel';
 import { budgetColumnFootnote } from './packStatementFootnotes';
 import { anchorColumn } from './packStatementTables';
 
+/** Printed on page 6 when the columns are left out: the pack says what it left off rather than only logging it. */
+export const BUDGET_COLUMNS_DROPPED_NOTE =
+  'The Budget and Variance columns are left out of this page because the figures are too wide to fit it.';
+
 const BUDGET_COLUMNS = new Set(['budget', 'variance']);
 
 /** The table without its Budget and Variance columns or cells (the figures stay issued, unprinted). */
@@ -56,5 +60,6 @@ export function incomeSheetWithBudget(
   }
   log.warn('board pack: page 6 cannot fit the Budget and Variance columns at these figures; printed without them',
     { period: set.currentWindow, diagnostic }, 'packs');
-  return buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, statementNotes);
+  const droppedNote: PackFootnote = { number: statementNotes.length + 1, text: BUDGET_COLUMNS_DROPPED_NOTE, required: true };
+  return buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote]);
 }

@@ -25,6 +25,8 @@ beforeAll(async () => {
 }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
+const incomeSheetOf = (p: PrintedPack): string => p.sheetText.find((t) => /Gross profit/.test(t) && /Net profit/.test(t))!.replace(/\s+/g, ' ');
+
 /** The sheet the income statement printed on: the one carrying its rows. */
 const incomeSheet = (): string => {
   const sheet = printed.sheetText.find((t) => /Gross profit/.test(t) && /Operating expenses/.test(t) && /Net profit/.test(t));
@@ -78,6 +80,34 @@ function scaled(k: number, negative: boolean, loss: boolean): BoardPackInput {
     operatingProfit: m(pr.operatingProfit ?? 0), netProfit: m(pr.netProfit), otherIncome: m(pr.otherIncome ?? 0), otherExpenses: m(pr.otherExpenses ?? 0) };
   return { ...demoInput, set: { ...demoSet, current: { ...current, operatingProfit: op, netProfit: op - current.otherExpenses }, prior, budget: { ...demoSet.budget!, bands } } };
 }
+
+const DROPPED_NOTE = 'The Budget and Variance columns are left out of this page because the figures are too wide to fit it.';
+const page6Notes = (document: ReturnType<typeof buildBoardPackPages>): string[] =>
+  document.pages.find((p) => p.navLabel === 'Income statement')!.footnotes.map((f) => f.text);
+
+describe('page 6 says so when it leaves the budget columns out', () => {
+  it.each([
+    ['fitting would remove their footnote', 1220, true],
+    ['no bridge rung fits with them', 3000, true],
+  ] as const)('prints the dropped-columns footnote when %s', (_name, k, negative) => {
+    expect(page6Notes(buildBoardPackPages(scaled(k, negative, false)))).toContain(DROPPED_NOTE);
+  });
+
+  it('prints the footnote in the PDF text layer, with nothing past the edge, and the pack still passes the gate', async () => {
+    const document = buildBoardPackPages(scaled(3000, true, false));
+    expect(() => assertPackIntegrity(document)).not.toThrow();
+    const out = await printBoardPack(document, browser);
+    // Page 3 already overflows at this figure (it did before the footnote); page 6 must not.
+    expect(out.overflow.filter((o) => o.id === 'pack-page-6')).toEqual([]);
+    expect(out.sheets).toBe(document.pages.length);
+    expect(incomeSheetOf(out)).toContain('Budget and Variance columns are left out');
+  }, 180_000);
+
+  it('does not print it when the columns fit', async () => {
+    expect(page6Notes(doc)).not.toContain(DROPPED_NOTE);
+    expect(incomeSheet()).not.toContain('left out of this page');
+  });
+});
 
 describe('page 6 with a budget at the figures that spilled it', () => {
   it('drops the budget columns when fitting them would remove their basis footnote', () => {
