@@ -19,6 +19,7 @@ import {
   createComponent,
 } from '@/modules/accounting/services/payroll/payrollComponentService';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
+import { paidOutsidePayrollRefusal } from '@/modules/accounting/services/payroll/retirementFund';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -32,7 +33,7 @@ async function handler(
   }
 
   if (req.method === 'POST') {
-    const { name, sarsSourceCode, componentType, isTaxable, isUifApplicable, isSdlApplicable } =
+    const { name, sarsSourceCode, componentType, isTaxable, isUifApplicable, isSdlApplicable, paidOutsidePayroll } =
       req.body as Record<string, unknown>;
 
     const code = normaliseSarsCode(sarsSourceCode == null ? '' : String(sarsSourceCode));
@@ -49,6 +50,11 @@ async function handler(
       return apiResponse.badRequest(res, "componentType must be 'earning' or 'deduction'");
     }
 
+    // A boolean or absent: "true" or 1 read as false would take a private contribution out of net pay.
+    if (paidOutsidePayroll !== undefined && typeof paidOutsidePayroll !== 'boolean') {
+      return apiResponse.badRequest(res, 'paidOutsidePayroll must be true or false');
+    }
+
     const data: Parameters<typeof createComponent>[1] = {
       name: String(name),
       // Normalised as PAYE classifies it (normaliseSarsCode), so the stored code is the one every reader sees.
@@ -57,7 +63,11 @@ async function handler(
       isTaxable: isTaxable !== false,
       isUifApplicable: isUifApplicable !== false,
       isSdlApplicable: isSdlApplicable !== false,
+      paidOutsidePayroll: paidOutsidePayroll === true,
     };
+    // A contribution the employee pays the fund directly (PAYE 4c): retirement fund deductions only.
+    const refused = data.paidOutsidePayroll ? paidOutsidePayrollRefusal(componentType, code) : null;
+    if (refused) return apiResponse.badRequest(res, refused);
 
     const component = await createComponent(companyId, data);
     return apiResponse.created(res, component);
