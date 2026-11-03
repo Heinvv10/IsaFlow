@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
+import { withTransaction } from '@/lib/neon';
+import { auditComponentChange } from '@/modules/accounting/services/payroll/payrollComponentAudit';
 import { applyPackageToEmployee } from '@/modules/accounting/services/payroll/payPackageService';
 import { assignComponentToEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { addBatchLines, createBatch, postBatch, validateBatch } from '@/modules/accounting/services/payroll/payrollBatchService';
@@ -109,14 +111,20 @@ describe('M4: a package re-applied by old code during the deploy window', () => 
   });
 });
 
-describe('a package re-applied from the 15th over an unaudited pre-953 replaced pair', () => {
-  it('refuses the ambiguous once-off and leaves both old rows untouched', async () => {
+describe('a package re-applied from the 15th over a pre-953 replaced pair', () => {
+  it('without a recorded origin the once-off is refused, saying it may be the package\'s, and both old rows stay untouched', async () => {
     await expect(applyPackageToEmployee(company, pkg, emp.reapply!, '2026-11-15', user))
-      .rejects.toThrow(/once-off this package did not write/i);
-    const a = await flag(row.reA!);
-    const b = await flag(row.reB!);
-    expect(a.superseded_at).toBeNull();
-    expect(b.superseded_at).toBeNull();
+      .rejects.toThrow(/no recorded origin and may be this package's own once-off/i);
+    expect((await flag(row.reA!)).superseded_at).toBeNull();
+    expect((await flag(row.reB!)).superseded_at).toBeNull();
+    expect(await bonuses('reapply')).toEqual([1200]);
+  });
+
+  it('with its origin recorded (package_assign, this package) it cuts B and marks A superseded: A is not paid, the once-off once', async () => {
+    await withTransaction((tx) => auditComponentChange(tx, company, row.reB!, null, { from: '2026-11-15', to: '2026-11-30', recurring: false },
+      'package_assign', actor, { packageId: pkg }));
+    await applyPackageToEmployee(company, pkg, emp.reapply!, '2026-11-15', user);
+    expect((await flag(row.reA!)).superseded_at).not.toBeNull();
     expect(await bonuses('reapply')).toEqual([1200]);
   });
 });

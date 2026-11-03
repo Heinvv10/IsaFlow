@@ -24,7 +24,7 @@ const endOfMonth = (iso: string): string => endOfMonthIso(Number(iso.slice(0, 4)
  * (assign, batch), is not. A row with no audit entry is ambiguous and therefore not owned.
  */
 async function ownOnceOffs(
-  tx: TxSql, companyId: string, packageId: string, componentId: string, rows: DbRow[],
+  tx: TxSql, companyId: string, packageId: string, componentId: string, rows: DbRow[], maybeOwn: Set<string> = new Set(),
 ): Promise<Set<string>> {
   // The row's FIRST entry is the one that created it; a later one (a forged package_assign) is not read.
   const entries = (await tx`
@@ -40,10 +40,28 @@ async function ownOnceOffs(
   for (const row of rows) {
     const entry = byId.get(String(row.id));
     const legacyShape = ownAmounts.has(Number(row.amount)) && isoDate(row.effective_to) === endOfMonth(isoDate(row.effective_from));
-    // An entry that records no package vouches for nothing about which one: only that audited row may use shape.
-    if (entry?.kind === 'package_assign' && (entry.package_id ? entry.package_id === packageId : legacyShape)) own.add(String(row.id));
+    // Own only by a recorded origin: this package's id on the creation entry. A row with no entry (written before the
+    // origin was recorded) is never taken as own (fail closed), but when its shape matches the package's line it is
+    // flagged as possibly its own, so the refusal can say so (maybeOwn).
+    if (entry?.kind === 'package_assign' && entry.package_id === packageId) own.add(String(row.id));
+    else if (!entry && legacyShape) maybeOwn.add(String(row.id));
   }
   return own;
+}
+
+/** "2026-09" of an ISO date. */
+const monthOf = (iso: string): string => iso.slice(0, 7);
+
+/**
+ * The advice when a refusing once-off has no recorded origin and matches the package's own line: it may be the package's
+ * once-off from an earlier apply (written before origins were recorded). Ending it and applying from the same date is
+ * right if it is; applying from the later date is right if it was entered by hand, and pays the package's once-off a
+ * second time if it was the package's.
+ */
+function unrecordedOriginAdvice(effectiveFrom: string, applyFrom: string | null): string {
+  const later = applyFrom ?? 'a later date';
+  return `It has no recorded origin and may be this package's own once-off from an earlier apply. If it is the package's: end it, then apply from ${effectiveFrom}. `
+    + `If it was entered by hand: apply from ${later}${applyFrom ? ` (applying from ${applyFrom} when it IS the package's pays its once-off again in ${monthOf(applyFrom)})` : ''}.`;
 }
 
 /**
@@ -133,8 +151,9 @@ export async function foreignOnceOffsOf(
     `) as DbRow[];
     const live = rows.filter((row) => (row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom)
       && (row.effective_to == null || isoDate(row.effective_to) >= isoDate(row.effective_from)));
-    const own = await ownOnceOffs(tx, companyId, packageId, componentId, live);
-    foreign.push(...live.filter((row) => !own.has(String(row.id))));
+    const maybe = new Set<string>();
+    const own = await ownOnceOffs(tx, companyId, packageId, componentId, live, maybe);
+    foreign.push(...live.filter((row) => !own.has(String(row.id))).map((row) => (maybe.has(String(row.id)) ? { ...row, maybe_own: true } : row)));
   }
   return foreign;
 }
@@ -163,8 +182,9 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   // already replaced are paid by nobody, so they cannot be cancelled again.
   const liveOnceOffs = overlapped.filter((row) => row.is_recurring === false && row.superseded_at == null
     && (row.effective_to == null || isoDate(row.effective_to) >= isoDate(row.effective_from)));
-  const own = await ownOnceOffs(tx, companyId, packageId, componentId, liveOnceOffs);
-  const foreign = liveOnceOffs.filter((row) => !own.has(String(row.id)));
+  const maybe = new Set<string>();
+  const own = await ownOnceOffs(tx, companyId, packageId, componentId, liveOnceOffs, maybe);
+  const foreign = liveOnceOffs.filter((row) => !own.has(String(row.id))).map((row) => (maybe.has(String(row.id)) ? { ...row, maybe_own: true } : row));
   const foreignIds = new Set(foreign.map((row) => String(row.id)));
   const toCut = overlapped;
   // Never cut what a paid run read: that run would no longer agree with the rows (security review, 2026-11-02). Checked
@@ -175,6 +195,11 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
       if (foreignIds.has(String(row.id))) {
         const companyPaid = await paidPeriodsOf(tx, companyId, null);
         const applyFrom = applyFromAfter(input.foreignAll ?? foreign, companyPaid);
+        if (foreign.find((f) => String(f.id) === String(row.id))?.maybe_own === true) {
+          throw new EmployeeComponentRefused(
+            `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cancel a once-off (from ${isoDate(row.effective_from)}) that run paid. `
+            + `${unrecordedOriginAdvice(effectiveFrom, applyFrom)} To keep this date instead, ${paidRemedyInline(changed)} first.`);
+        }
         throw new EmployeeComponentRefused(
           `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cancel a once-off this package did not write `
           + `(from ${isoDate(row.effective_from)}) that run paid. ${applyFrom ? `Apply the package from ${applyFrom}` : 'Apply the package from a later date'}; or, to keep this date, ${paidRemedyInline(changed)} and then end or move that once-off.`);
@@ -187,6 +212,11 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   if (foreign.length > 0) {
     const applyFrom = applyFromAfter(input.foreignAll ?? foreign, await paidPeriodsOf(tx, companyId, null));
     const named = foreign.map((row) => `${isoDate(row.effective_from)} to ${row.effective_to ? isoDate(row.effective_to) : 'open-ended'}, amount ${Number(row.amount).toFixed(2)}`);
+    if (foreign.some((row) => row.maybe_own === true)) {
+      throw new EmployeeComponentRefused(
+        `Applying this package from ${effectiveFrom} would cancel ${foreign.length === 1 ? 'a once-off' : 'once-offs'} on this component: ${named.join(', ')}. `
+        + unrecordedOriginAdvice(effectiveFrom, applyFrom));
+    }
     throw new EmployeeComponentRefused(
       `Applying this package from ${effectiveFrom} would cancel ${foreign.length === 1 ? 'a once-off' : 'once-offs'} this package did not write `
       + `(entered by hand, posted by a batch, or written by another package) on this component: ${named.join(', ')}. End or move ${foreign.length === 1 ? 'it' : 'them'} first, or apply the package from ${applyFrom ?? 'a later date'}.`);

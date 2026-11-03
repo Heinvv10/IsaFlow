@@ -196,11 +196,11 @@ describe('own by provenance, not by shape', () => {
     await expect(applyPackageToEmployee(company, pkg, emp.noPkgId!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
   });
 
-  it("a package_assign entry that records no package, with the package's own shape: accepted", async () => {
+  it("a package_assign entry that records no package is never the package's own, even with its shape: refused", async () => {
     await employee('noPkgIdShape');
     await raw('noPkgIdShape', comp.bonus, 1200, '2026-05-10', '2026-05-31', false);
     await auditedAs('noPkgIdShape', 'package_assign');
-    await expect(applyPackageToEmployee(company, pkg, emp.noPkgIdShape!, '2026-05-01', user)).resolves.toBeDefined();
+    await expect(applyPackageToEmployee(company, pkg, emp.noPkgIdShape!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
   });
 
   it('the first audit entry wins: a package_assign entry forged later on a hand-entered once-off changes nothing', async () => {
@@ -216,12 +216,66 @@ describe('own by provenance, not by shape', () => {
     await expect(applyPackageToEmployee(company, pkg, emp.failsafe!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
   });
 
-  it('a once-off with no audit entry is ambiguous even when it matches the package shape: refused, untouched', async () => {
+  const liveBonus = async (key: string) => (await rows(key)).filter((r) => r.component_id === comp.bonus && r.t !== null && r.t >= r.f);
+
+  it('no audit entry, the package\'s shape: refused, untouched, and the message says the origin is unrecorded and gives both ways out', async () => {
     await employee('legacy');
-    await raw('legacy', comp.bonus, 1200, '2026-05-01', '2026-05-31', false);
+    await raw('legacy', comp.bonus, 1200, '2026-05-10', '2026-05-31', false);
     const before = await rows('legacy');
-    await expect(applyPackageToEmployee(company, pkg, emp.legacy!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
+    const err = await applyPackageToEmployee(company, pkg, emp.legacy!, '2026-05-01', user).then(() => null, (e) => e as Error);
+    expect(err!.message).toMatch(/no recorded origin and may be this package's own once-off from an earlier apply/);
+    expect(err!.message).not.toMatch(/did not write/);
+    expect(err!.message).toMatch(/If it is the package's: end it, then apply from 2026-05-01\. If it was entered by hand: apply from \d{4}-\d\d-\d\d \(applying from \d{4}-\d\d-\d\d when it IS the package's pays its once-off again in \d{4}-\d\d\)/);
     expect(await rows('legacy')).toEqual(before);
+  });
+
+  it("the package's own legacy once-off: ending it, then applying from the same date, pays the once-off once", async () => {
+    await employee('legacyOwn');
+    await raw('legacyOwn', comp.bonus, 1200, '2026-05-10', '2026-05-31', false);
+    const id = String((await pool.query('SELECT id FROM payroll_employee_components WHERE employee_id=$1', [emp.legacyOwn])).rows[0]!.id);
+    await expect(applyPackageToEmployee(company, pkg, emp.legacyOwn!, '2026-05-01', user)).rejects.toThrow(/no recorded origin/);
+    await expect(endEmployeeComponent(company, id, '2026-05-31', actor)).resolves.toBe(true); // no run paid it: cancelled
+    await expect(applyPackageToEmployee(company, pkg, emp.legacyOwn!, '2026-05-01', user)).resolves.toBeDefined();
+    expect(await liveBonus('legacyOwn')).toHaveLength(1);
+  });
+
+  it('a hand-entered row that only looks like the package\'s: the date in the message is accepted', async () => {
+    await employee('legacyHand');
+    await raw('legacyHand', comp.bonus, 1200, '2026-05-10', '2026-05-31', false);
+    const err = await applyPackageToEmployee(company, pkg, emp.legacyHand!, '2026-05-01', user).then(() => null, (e) => e as Error);
+    const day = /entered by hand: apply from (\d{4}-\d\d-\d\d)/.exec(err!.message)?.[1];
+    expect(day, err!.message).toBeTruthy();
+    await expect(applyPackageToEmployee(company, pkg, emp.legacyHand!, day!, user)).resolves.toBeDefined();
+  });
+
+  it('applying from the date while the row IS the package\'s pays its once-off in both months (what the message warns of)', async () => {
+    await employee('legacyTwice');
+    await raw('legacyTwice', comp.bonus, 1200, '2026-05-10', '2026-05-31', false);
+    const err = await applyPackageToEmployee(company, pkg, emp.legacyTwice!, '2026-05-01', user).then(() => null, (e) => e as Error);
+    const day = /entered by hand: apply from (\d{4}-\d\d-\d\d)/.exec(err!.message)?.[1]!;
+    await applyPackageToEmployee(company, pkg, emp.legacyTwice!, day, user);
+    expect(await liveBonus('legacyTwice')).toHaveLength(2);
+  });
+
+  it('in a paid month the same advice leads: the unrecorded origin, both ways out, and the paid remedy', async () => {
+    await employee('legacyPaid');
+    const onlyOnce = crypto.randomUUID(); // a once-off-only package: its recurring line would be refused first in a paid month
+    await pool.query("INSERT INTO pay_packages(id,company_id,code,name) VALUES($1,$2,'PH-LP','Once only')", [onlyOnce, company]);
+    await pool.query('INSERT INTO pay_package_components(package_id,component_id,amount,is_recurring) VALUES($1,$2,1200,false)', [onlyOnce, comp.bonus]);
+    await raw('legacyPaid', comp.bonus, 1200, '2026-03-10', '2026-03-31', false);
+    const run = crypto.randomUUID();
+    await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,3,2026,'approved')", [run, company]);
+    await pool.query('UPDATE payroll_run_headers SET calculated_at = now() WHERE id=$1', [run]);
+    await pool.query('INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,taxable_income,paye,net_pay) VALUES($1,$2,100,100,0,100)', [run, emp.legacyPaid]);
+    try {
+      await expect(applyPackageToEmployee(company, onlyOnce, emp.legacyPaid!, '2026-03-01', user))
+        .rejects.toThrow(/2026-03 is already paid.*no recorded origin.*end it, then apply from 2026-03-01.*entered by hand: apply from/);
+    } finally {
+      await pool.query('DELETE FROM payroll_run_lines WHERE run_id=$1', [run]);
+      await pool.query('DELETE FROM payroll_run_headers WHERE id=$1', [run]);
+      await pool.query('DELETE FROM pay_package_components WHERE package_id=$1', [onlyOnce]);
+      await pool.query('DELETE FROM pay_packages WHERE id=$1', [onlyOnce]);
+    }
   });
 });
 

@@ -86,6 +86,15 @@ describe('POST /api/payroll/employees/:id/components', () => {
     expect(await assignments()).toEqual(before);
   });
 
+  it("a recurring 3601 over the seed's open-ended 3601: 400 with the overlap message, nothing written", async () => {
+    const salary = (await ids('payroll_components', company, "AND sars_source_code = '3601'"))[0]!.id;
+    const before = await assignments();
+    const out = await assign(salary);
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toMatch(/overlap the employee's other assignment of this component/i);
+    expect(await assignments()).toEqual(before);
+  });
+
   it('a component id that is not a uuid: 400, not a failed cast', async () => {
     const out = await assign('basic');
     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
