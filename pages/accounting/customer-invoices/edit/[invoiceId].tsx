@@ -21,6 +21,7 @@ import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCu
 import { sameCents } from '@/modules/accounting/services/shared/functionalAmounts';
 import { useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
+import { useWipLines } from '@/components/accounting/customer-invoices/useWipLines';
 import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
 import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { autosaveProblem, invoicePutBody, saveProblem, type EditLine, type StoredDates } from '@/components/accounting/customer-invoices/invoicePutBody';
@@ -73,6 +74,8 @@ export default function EditCustomerInvoicePage() {
   const loadSeq = useRef(0);
   const [loadedKey, setLoadedKey] = useState(0);
   const [pricedAtLoad, setPricedAtLoad] = useState<{ key: number; pricing: string; stale: boolean } | null>(null);
+  const wip = useWipLines(lines, setLines); // removing a time-entry line: asked, and saved by Save Changes only
+  const wipLoaded = wip.loaded;
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -123,7 +126,8 @@ export default function EditCustomerInvoicePage() {
         exchangeRate: Number(invoice.exchange_rate ?? 1),
         projectId: invoice.project_id ?? '',
       });
-      setLines(linesFromStoredItems(invoice.items || [], invoice.project_id ?? ''));
+      const stored = linesFromStoredItems(invoice.items || [], invoice.project_id ?? '');
+      setLines(stored); wipLoaded(stored, Number(invoice.unlinked_time_entries ?? 0));
       setLoading(false);
     }).catch((err: unknown) => {
       if (gone) return;
@@ -131,14 +135,13 @@ export default function EditCustomerInvoicePage() {
       setLoading(false);
     });
     return () => { gone = true; };
-  }, [invoiceId, clearDates, reloads]);
+  }, [invoiceId, clearDates, reloads, wipLoaded]);
 
   const updateLine = (key: string, field: keyof LineItem, value: string | number) =>
     setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
   // A new line starts on the invoice's project: a visible default the user can change, not a posting fallback.
   const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId: form.projectId }]);
   const codingOptions = useInvoiceLineCodingOptions([form.projectId, ...lines.map(l => l.projectId)]);
-  const removeLine = (key: string) => setLines(prev => prev.length > 1 ? prev.filter(l => l.key !== key) : prev);
 
   // Priced as the server stores it (invoiceLineAmount.ts); a half-typed field previews as 0, not a crash.
   const taxRate = effectiveTaxRate(taxMode, form.taxRate);
@@ -152,7 +155,7 @@ export default function EditCustomerInvoicePage() {
   // Approve & email first: autosave waits while it runs (the form is disabled then too). Its save reads `autosave`
   // only when clicked, after this render has made it.
   // A stored total the lines no longer price to (a quote converted at 0%, a WIP draft rounded per line): never re-saved
-  // unasked (that reprices, drops WIP links, stales an approval and makes the clicker an author). Both figures show,
+  // unasked (that reprices, stales an approval and makes the clicker an author). Both figures show,
   // and Approve & email refuses until the user saves or approves the stored figure from the invoice page.
   // Stale-priced: the stored total disagreed with the loaded lines AT LOAD, and nothing that prices them has changed
   // since (a user's own price edit is theirs to save, never "stale"). A save clears it (storedTotal null).
@@ -169,6 +172,7 @@ export default function EditCustomerInvoicePage() {
         setError(`Save to reprice at ${money(total)}, or approve ${money(storedTotal)} from the invoice page`);
         return null;
       }
+      if (wip.approveRefusal) { setError(wip.approveRefusal); return null; } // a removed time-entry line: Save Changes
       return (await saveDraft(false)) ? { id, invoiceNumber, approvalContentDigest: autosave.contentDigest() } : null;
     },
     onRefused: (_id, message, status, reason) => {
@@ -187,13 +191,14 @@ export default function EditCustomerInvoicePage() {
     // after it (Approve & email's approval, just after its save) stays. Not the gate's sticky 409.
     if (!errorStays.current) setError('');
     setStoredTotal(null); // the server just priced this body itself
+    wip.saved(json);
     const b = JSON.parse(json) as Partial<Record<keyof StoredDates, string>>;
     setStoredDates((d) => ({ dueDate: d.dueDate || Boolean(b.dueDate), billingPeriodStart: d.billingPeriodStart || Boolean(b.billingPeriodStart), billingPeriodEnd: d.billingPeriodEnd || Boolean(b.billingPeriodEnd) }));
   };
   const autosave = useInvoiceAutosave({
     mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft) : null,
-    // A stale-priced draft is held: an autosaved typo would reprice it (and drop WIP links, stale an approval).
-    problem: stalePriced ? STALE_PRICED_HOLD : autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved, onSaved: keepStoredDates,
+    // Held: a stale-priced draft (an autosaved typo would reprice it and stale an approval); a removed time-entry line.
+    problem: stalePriced ? STALE_PRICED_HOLD : wip.problem ?? autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved, onSaved: keepStoredDates,
     approvalContentDigest,
   });
 
@@ -257,7 +262,8 @@ export default function EditCustomerInvoicePage() {
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
-                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} pricesIncludeVat={taxMode === 'inclusive'} />
+                  onUpdate={updateLine} onAdd={addLine} onRemove={wip.remove} billsTimeEntry={(key) => lines.some(l => l.key === key && Boolean(l.timeEntryId))} options={codingOptions} pricesIncludeVat={taxMode === 'inclusive'} />
+                {wip.note && <p className="px-5 pb-3 text-xs text-amber-800 dark:text-amber-300">{wip.note}</p>}
               </div>
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Notes or payment instructions…" />

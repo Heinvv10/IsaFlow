@@ -21,6 +21,8 @@ export type InvoiceDetail = {
   tax_rate: number | string; notes?: string | null; total_amount?: number | string;
   currency_code?: string | null; exchange_rate?: number | string | null; project_id?: string | null;
   approval_content_digest?: string;
+  /** Billed time entries no line links (a grouped WIP or timesheet invoice): removing a line leaves them billed. */
+  unlinked_time_entries?: number | string;
   items?: InvoiceItemRow[];
 };
 

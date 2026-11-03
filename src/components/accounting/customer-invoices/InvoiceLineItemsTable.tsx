@@ -45,6 +45,8 @@ interface Props {
   onUpdate: (key: string, field: keyof InvoiceLine, value: string | number) => void;
   onAdd: () => void;
   onRemove: (key: string) => void;
+  /** A line that bills a time entry (the edit page's WIP lines): badged, so removing it is not a surprise. */
+  billsTimeEntry?: (key: string) => boolean;
   options: InvoiceLineCodingOptions;
   showIncomeType?: boolean;
   /** Inclusive mode: Unit Price holds the gross the user types, and Total the stored ex-VAT amount the subtotal adds up. */
@@ -82,7 +84,7 @@ export function CodingPicker({ value, options, all, empty, onChange, label, disa
 }
 
 export function InvoiceLineItemsTable({
-  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, pricesIncludeVat, discountHint,
+  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, pricesIncludeVat, discountHint, billsTimeEntry,
 }: Props) {
   const [discountToggled, setDiscountToggled] = useState<boolean | null>(null);
   // Open whenever a line carries a discount, and not hideable: a discount the user cannot see is one they did not give.
@@ -135,7 +137,8 @@ export function InvoiceLineItemsTable({
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
           {lines.map((l) => (
             <tr key={l.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-              <td className="px-3 py-2"><input name="description" aria-label="Description" value={l.description} onChange={(e) => onUpdate(l.key, 'description', e.target.value)} placeholder="Item description" className={inp} /></td>
+              <td className="px-3 py-2"><input name="description" aria-label="Description" value={l.description} onChange={(e) => onUpdate(l.key, 'description', e.target.value)} placeholder="Item description" className={inp} />
+                {billsTimeEntry?.(l.key) && <span className="mt-1 inline-block rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-900/50 dark:text-sky-100">Time entry</span>}</td>
               {showIncomeType && <td className="px-3 py-2"><select name="incomeType" aria-label="Income type" value={l.incomeType} onChange={(e) => onUpdate(l.key, 'incomeType', e.target.value)} className={inp}>
                 <option value="activation">Activation</option><option value="bonus">Bonus</option><option value="adjustment">Adjustment</option><option value="other">Other</option>
               </select></td>}

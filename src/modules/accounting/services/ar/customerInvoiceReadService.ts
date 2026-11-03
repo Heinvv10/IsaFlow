@@ -222,6 +222,10 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
            to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end,
            ci.created_at, ci.updated_at,
            approval_document_digest(ci.company_id, 'customer_invoice', ci.id) AS approval_content_digest,
+           (SELECT count(*)::INT FROM time_entries te
+             WHERE te.invoice_id = ci.id AND te.company_id = ci.company_id
+               AND NOT EXISTS (SELECT 1 FROM customer_invoice_items x WHERE x.invoice_id = ci.id AND x.time_entry_id = te.id)
+           ) AS unlinked_time_entries,
            c.name AS client_name, c.email AS client_email
     FROM customer_invoices ci
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id

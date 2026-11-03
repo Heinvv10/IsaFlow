@@ -31,7 +31,7 @@ interface Draft { form: InvoiceHeaderForm; lines: readonly EditLine[]; taxMode: 
  * differs from the server's and autosave says why it holds; such a body is never sent, since every send first refuses
  * on saveProblem or autosaveProblem, and without one this is exactly the lines the server stores.
  */
-const savedLines = (lines: readonly EditLine[]) => lines.filter((l) => l.description || l.unitPrice);
+const savedLines = (lines: readonly EditLine[]) => lines.filter((l) => l.timeEntryId || l.description || l.unitPrice); // a time-entry line is never dropped (its time would be unbilled)
 
 export function invoicePutBody(id: string, { form, lines, taxMode }: Draft): InvoicePutBody {
   const taxRate = effectiveTaxRate(taxMode, form.taxRate);
@@ -96,6 +96,7 @@ function clearedDateProblem(form: InvoiceHeaderForm, stored: StoredDates): strin
 /** Why the Save button (and Approve & email) refuses this draft, or null. Shown on screen. */
 export function saveProblem({ form, lines, taxMode }: Draft, refused: Refused, stored: StoredDates = {}): string | null {
   if (!form.clientId) return 'Select a client';
+  if (lines.some((l) => l.timeEntryId && !l.description && !l.unitPrice)) return 'A time-entry line is blank: describe and price it, or remove it';
   const rate = effectiveTaxRate(taxMode, form.taxRate);
   const tooSmall = lines.find((l) => l.description && pricesToNothing(taxMode, l.unitPrice, rate));
   if (tooSmall) return pricesToNothingMessage(tooSmall.description);
