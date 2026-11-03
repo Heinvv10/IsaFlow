@@ -1,12 +1,14 @@
 /**
- * PR S round eleven: the digest Approve sends back covers what the invoice shows beyond the approval digest (notes,
- * due date, billing period), every reply that hands the page an invoice carries it, and the route requires it with
- * `expectedTotal`. Through the real routes:
+ * PR S rounds eleven and twelve: the shown digest (`shown_digest`) covers what the invoice shows beyond the approval
+ * digest (notes, due date, billing period, the job's name), every reply that hands the page an invoice carries it, the
+ * route requires it with any `expected*` field, and a draft PUT that sends `expectedShownDigest` is refused (409
+ * STALE_VIEW, nothing written) when the invoice moved since that read. Through the real routes:
  * - create → approve with the digest the create returned: 200; the same after a draft PUT, and after a GET;
  * - notes, due date or billing period changed after it was shown: 409 STALE_VIEW saying the content changed (not the
  *   total), nothing written; a changed total still names the total;
- * - `expectedTotal` without `expectedContentDigest` (a page from before the digest): 409
- *   INVOICE_APPROVE_VIEW_INCOMPLETE, "reload", nothing written. No `expectedTotal` at all: approved as before.
+ * - any `expected*` without `expectedContentDigest` (a page from before the digest): 409
+ *   INVOICE_APPROVE_VIEW_INCOMPLETE, "reload", nothing written. None at all: approved as before;
+ * - tab A reads, tab B sets the due date, A's line edit (with A's digest): 409 STALE_VIEW, nothing written.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -29,14 +31,25 @@ const call = (method: string, body: unknown, query: Record<string, string> = {})
   callRoute(customerInvoicesDetail, tokens[owner]!, company, method, body, URL, query);
 const approve = (body: Record<string, unknown>) => call('POST', { action: 'approve', ...body });
 const dataOf = <T>(res: { state: { body: unknown } }) => (res.state.body as { data: T }).data;
-const seen = async (id: string) => dataOf<{ approval_content_digest: string }>(await call('GET', undefined, { id })).approval_content_digest;
+const seen = async (id: string) => dataOf<{ shown_digest: string }>(await call('GET', undefined, { id })).shown_digest;
+/** Every field the shown digest reads beyond the approval digest, set (non-null) on a planted invoice. */
+async function everyShownField(id: string): Promise<void> {
+  const project = (await pool.query(
+    `INSERT INTO projects (company_id, project_number, name) VALUES ($1, $2, 'Shown job') RETURNING id`, [company, `P-${id.slice(0, 8)}`])).rows[0].id;
+  await pool.query(`UPDATE customer_invoices SET notes = 'Pay by EFT', due_date = DATE '2026-10-15',
+    billing_period_start = DATE '2026-08-01', billing_period_end = DATE '2026-08-31', project_id = $2 WHERE id = $1`, [id, project]);
+}
 const codeOf = (res: { state: { body: unknown } }) => (res.state.body as { error?: { details?: { code?: string } } }).error?.details?.code;
 
 beforeAll(async () => {
   owner = await createUser(pool, tokens);
   company = await invoiceCompany(pool, [[owner, 'owner']], companies);
 }, 60_000);
-afterAll(async () => { await cleanupPr4(pool, companies, [owner]); });
+afterAll(async () => {
+  await pool.query('UPDATE customer_invoices SET project_id = NULL WHERE company_id = ANY($1)', [companies]);
+  await pool.query('DELETE FROM projects WHERE company_id = ANY($1)', [companies]);
+  await cleanupPr4(pool, companies, [owner]);
+});
 
 describe('every reply that hands the page an invoice carries the digest Approve sends back', () => {
   it('create, then approve with the digest the create returned: approved', async () => {
@@ -47,28 +60,41 @@ describe('every reply that hands the page an invoice carries the digest Approve 
       items: [{ description: 'Created', quantity: 1, unitPrice: 100 }],
     }, '/api/accounting/customer-invoices-create');
     expect(made.state.statusCode, JSON.stringify(made.state.body)).toBe(201);
-    const { id, approvalContentDigest } = dataOf<{ id: string; approvalContentDigest: string }>(made);
-    expect(approvalContentDigest).toMatch(/^[0-9a-f]{64}$/);
+    const { id, shownDigest } = dataOf<{ id: string; shownDigest: string }>(made);
+    expect(shownDigest).toMatch(/^[0-9a-f]{64}$/);
     const total = Number((await pool.query('SELECT total_amount FROM customer_invoices WHERE id = $1', [id])).rows[0].total_amount);
-    const res = await approve({ id, expectedTotal: total, expectedContentDigest: approvalContentDigest });
+    const res = await approve({ id, expectedTotal: total, expectedContentDigest: shownDigest });
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
   });
 
-  it('a draft PUT, then approve with the digest the PUT returned: approved', async () => {
+  it('every shown field set (notes, due date, both period dates, a job): a draft PUT, then approve with the digest it returned', async () => {
     const inv = await plantInvoice(pool, company, owner);
-    const put = await call('PUT', { id: inv.id, notes: 'Edited', items: [{ description: 'Line A', quantity: 2, unitPrice: 300, taxRate: 15 }] });
+    await everyShownField(inv.id);
+    const put = await call('PUT', { id: inv.id, notes: 'Edited', expectedShownDigest: await seen(inv.id),
+      items: [{ description: 'Line A', quantity: 2, unitPrice: 300, taxRate: 15 }] });
     expect(put.state.statusCode, JSON.stringify(put.state.body)).toBe(200);
-    const res = await approve({ id: inv.id, expectedTotal: 690, expectedContentDigest: dataOf<{ approvalContentDigest: string }>(put).approvalContentDigest });
+    const res = await approve({ id: inv.id, expectedTotal: 690, expectedContentDigest: dataOf<{ shownDigest: string }>(put).shownDigest });
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
   });
 
-  it('a GET, then approve with the digest it carried: approved', async () => {
+  it('every shown field set: a GET, then approve with the digest it carried', async () => {
     const inv = await plantInvoice(pool, company, owner);
+    await everyShownField(inv.id);
     expect((await approve({ id: inv.id, expectedTotal: 1150, expectedContentDigest: await seen(inv.id) })).state.statusCode).toBe(200);
   });
 });
 
 describe('what the invoice shows beyond the approval digest', () => {
+  it('the job\'s name changed after it was shown (the PDF prints it): 409 STALE_VIEW', async () => {
+    const inv = await plantInvoice(pool, company, owner);
+    await everyShownField(inv.id);
+    const digest = await seen(inv.id);
+    await pool.query(`UPDATE projects SET name = 'Renamed job' WHERE id = (SELECT project_id FROM customer_invoices WHERE id = $1)`, [inv.id]);
+    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedContentDigest: digest });
+    expect(res.state.statusCode).toBe(409);
+    expect(reasonOf(res)).toBe('STALE_VIEW');
+  });
+
   it.each([
     ['notes', 'notes = \'Changed after it was shown\''],
     ['the due date', 'due_date = DATE \'2026-12-31\''],
@@ -99,17 +125,54 @@ describe('what the invoice shows beyond the approval digest', () => {
 });
 
 describe('the route requires the digest with the total', () => {
-  it('expectedTotal without expectedContentDigest: 409 INVOICE_APPROVE_VIEW_INCOMPLETE, reload, nothing written', async () => {
+  it.each([
+    ['expectedTotal', { expectedTotal: 1150 }],
+    ['expectedCurrency', { expectedCurrency: 'ZAR' }],
+    ['expectedExchangeRate', { expectedExchangeRate: 1 }],
+  ])('%s without expectedContentDigest: 409 INVOICE_APPROVE_VIEW_INCOMPLETE, reload, nothing written', async (_name, expected) => {
     const inv = await plantInvoice(pool, company, owner);
-    const res = await approve({ id: inv.id, expectedTotal: 1150 });
+    const res = await approve({ id: inv.id, ...expected });
     expect(res.state.statusCode).toBe(409);
     expect(codeOf(res)).toBe('INVOICE_APPROVE_VIEW_INCOMPLETE');
     expect(messageOf(res)).toMatch(/reload/i);
     expect(await invoiceState(pool, inv.id)).toMatchObject({ status: 'draft', journals: 0 });
   });
 
-  it('no expectedTotal at all (an API client without a screen): approved as before', async () => {
+  it('no expected* at all (an API client without a screen): approved as before', async () => {
     const inv = await plantInvoice(pool, company, owner);
     expect((await approve({ id: inv.id })).state.statusCode).toBe(200);
+  });
+});
+
+describe('a draft PUT and the invoice it was edited from', () => {
+  it('tab A reads; tab B sets the due date; A\'s line edit with A\'s digest: 409 STALE_VIEW, nothing written', async () => {
+    const inv = await plantInvoice(pool, company, owner);
+    const a = await seen(inv.id);
+    const b = await call('PUT', { id: inv.id, dueDate: '2026-12-31', expectedShownDigest: await seen(inv.id) });
+    expect(b.state.statusCode, JSON.stringify(b.state.body)).toBe(200);
+    const before = {
+      invoice: (await pool.query('SELECT * FROM customer_invoices WHERE id = $1', [inv.id])).rows[0],
+      lines: (await pool.query('SELECT * FROM customer_invoice_items WHERE invoice_id = $1 ORDER BY id', [inv.id])).rows,
+    };
+    const res = await call('PUT', { id: inv.id, expectedShownDigest: a, items: [{ description: 'A\'s edit', quantity: 1, unitPrice: 100, taxRate: 15 }] });
+    expect(res.state.statusCode).toBe(409);
+    expect(reasonOf(res)).toBe('STALE_VIEW');
+    expect({
+      invoice: (await pool.query('SELECT * FROM customer_invoices WHERE id = $1', [inv.id])).rows[0],
+      lines: (await pool.query('SELECT * FROM customer_invoice_items WHERE invoice_id = $1 ORDER BY id', [inv.id])).rows,
+    }).toEqual(before);
+  });
+
+  it('a PUT with the current digest is taken, and its reply carries the next one', async () => {
+    const inv = await plantInvoice(pool, company, owner);
+    const first = await call('PUT', { id: inv.id, notes: 'One', expectedShownDigest: await seen(inv.id) });
+    expect(first.state.statusCode).toBe(200);
+    const second = await call('PUT', { id: inv.id, notes: 'Two', expectedShownDigest: dataOf<{ shownDigest: string }>(first).shownDigest });
+    expect(second.state.statusCode, JSON.stringify(second.state.body)).toBe(200);
+  });
+
+  it('a PUT without expectedShownDigest (an API client without a screen) is taken as before', async () => {
+    const inv = await plantInvoice(pool, company, owner);
+    expect((await call('PUT', { id: inv.id, notes: 'API' })).state.statusCode).toBe(200);
   });
 });

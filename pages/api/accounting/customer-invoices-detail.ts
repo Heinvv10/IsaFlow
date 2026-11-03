@@ -96,6 +96,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!items && (taxRate !== undefined || currencyCode !== undefined || exchangeRate !== undefined)) {
       return apiResponse.badRequest(res, 'taxRate, currencyCode and exchangeRate require items[] to recompute totals');
     }
+    if (!items && putParsed.data.releaseTimeEntryIds?.length) { // only a PUT that replaces the lines removes one
+      return apiResponse.badRequest(res, 'releaseTimeEntryIds requires items[]: it names the entries of removed lines', { code: WIP_LINK_REFUSED });
+    }
 
     // R-035 PR4: the editor is recorded as an author when the edit moves the approval content.
     const result = await editDraftCustomerInvoice(companyId, (req as CompanyAuthedRequest).user.id, putParsed.data);
@@ -105,6 +108,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'bad_client') return apiResponse.badRequest(res, 'clientId does not belong to this company');
     if (result.kind === 'rate_required') return apiResponse.badRequest(res, 'exchangeRate is required when currencyCode changes');
     if (result.kind === 'bad_line') return apiResponse.badRequest(res, result.message, { code: 'INVOICE_LINE_CODING_REFUSED' });
+    if (result.kind === 'stale_view') {
+      return apiResponse.conflict(res, 'This invoice changed after this page read it (saved elsewhere): reload it to see the change. This edit was not saved.', { reason: 'STALE_VIEW' });
+    }
     if (result.kind === 'wip_link_refused') {
       return result.code === WIP_CLIENT_STALE // a client that does not know the links: reload, nothing was written
         ? apiResponse.conflict(res, result.message, { code: WIP_CLIENT_STALE })
@@ -116,7 +122,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
     // What Approve sends back now (customerInvoiceShownDigest): the page's next Approve & email carries it.
-    return apiResponse.success(res, { updated: true, approvalContentDigest: await readShownDigest(sql, companyId, id) });
+    return apiResponse.success(res, { updated: true, shownDigest: await readShownDigest(sql, companyId, id) });
   }
 
   if (req.method === 'POST') {
@@ -160,8 +166,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'approve') {
-      // A screen that sends the total sends what it read with it: without the digest the content it showed is unknown.
-      if (expectedTotal !== undefined && expectedContentDigest === undefined) {
+      // A screen that sends what it showed sends the digest it read with it: without it the content shown is unknown.
+      if ((expectedTotal !== undefined || expectedCurrency !== undefined || expectedExchangeRate !== undefined) && expectedContentDigest === undefined) {
         return apiResponse.conflict(res, 'This page is out of date: reload it, then approve again.', { code: 'INVOICE_APPROVE_VIEW_INCOMPLETE' });
       }
       try {

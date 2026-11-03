@@ -27,6 +27,7 @@ import { checkDocumentCurrency, DocumentCurrencyError, loadCompanyCurrency } fro
 import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
 import type { InvoiceLineCoding } from './invoiceLineCoding';
 import { releaseDroppedWipEntries, wipLinks, type WipLinkCheck } from './customerInvoiceWipLinks';
+import { shownDigestMoved } from './customerInvoiceShownDigest';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveEditCodings } from './customerInvoiceDraftCoding';
 import { invoiceLineAmount, invoiceTotals } from './invoiceLineAmount';
@@ -43,7 +44,7 @@ export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
 
 export type CustomerInvoiceDraftEditResult =
   | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' }
-  | { kind: 'bad_line'; message: string } | { kind: 'wip_link_refused'; message: string; code: string }
+  | { kind: 'bad_line'; message: string } | { kind: 'wip_link_refused'; message: string; code: string } | { kind: 'stale_view' }
   | { kind: 'bad_amount'; message: string }
   | { kind: 'currency_refused'; message: string }
   | { kind: 'bad_dimensions'; message: string };
@@ -82,6 +83,7 @@ export async function editDraftCustomerInvoice(
     if (String(ownedRows[0]!.status) !== 'draft') {
       return { kind: 'not_draft' as const };
     }
+    if (await shownDigestMoved(tx, companyId, id, edit.expectedShownDigest)) return { kind: 'stale_view' as const }; // edited from an older read
     const existingRate = Number(ownedRows[0]!.exchange_rate ?? 1);
     // A currency change needs its rate: recomputing at the OLD one left a ZAR
     // invoice re-labelled USD with functional_total = the USD figure, which is
@@ -147,7 +149,7 @@ export async function editDraftCustomerInvoice(
       `) as Row[]).map((r) => ({ glAccountId: idOrNull(r.gl_account_id), projectId: idOrNull(r.project_id) }));
       const resolved = resolveEditCodings(items, stored);
       if (typeof resolved === 'string') return { kind: 'bad_line' as const, message: resolved };
-      wip = await wipLinks(tx, companyId, id, items); // a line keeps its WIP link; it cannot take another
+      wip = await wipLinks(tx, companyId, id, items, edit.releaseTimeEntryIds); // keep a link, or release it by name
       if (wip.refusal) return { kind: 'wip_link_refused' as const, ...wip.refusal };
       codings = resolved;
       const had = { glAccountId: new Set(stored.map((c) => c.glAccountId)), projectId: new Set(stored.map((c) => c.projectId)) };

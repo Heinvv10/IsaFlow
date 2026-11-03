@@ -36,9 +36,14 @@ export interface WipLinkCheck {
   dropped: string[];
 }
 
-/** Read under the caller's row lock, before any write; the links are read through the invoice's own company. */
+/**
+ * Read under the caller's row lock, before any write; the links are read through the invoice's own company. Every
+ * linked entry must be kept by a line or named in `release` (the entries whose lines the user removed, after the
+ * question): a link the body just leaves out is refused, never released (round twelve).
+ */
 export async function wipLinks(
   tx: TxSql, companyId: string, invoiceId: string, items: readonly { timeEntryId?: string | null }[],
+  release: readonly string[] = [],
 ): Promise<WipLinkCheck> {
   const asked = items.map((it) => it.timeEntryId?.toLowerCase() ?? null).filter((t): t is string => t !== null);
   const refuse = (message: string, code: typeof WIP_LINK_REFUSED | typeof WIP_CLIENT_STALE = WIP_LINK_REFUSED): WipLinkCheck =>
@@ -53,7 +58,12 @@ export async function wipLinks(
   if (linked.size > 0 && !items.every((it) => 'timeEntryId' in it)) return refuse(CLIENT_STALE, WIP_CLIENT_STALE);
   if (!asked.every((t) => linked.has(t))) return refuse('A line can keep the time entry it bills, not take another');
   const kept = new Set(asked);
-  return { refusal: null, dropped: [...linked].filter((t) => !kept.has(t)) };
+  const named = [...new Set(release.map((t) => t.toLowerCase()))];
+  if (!named.every((t) => linked.has(t) && !kept.has(t))) return refuse('Only a time entry this invoice bills, on no line now, can be released');
+  if (![...linked].every((t) => kept.has(t) || named.includes(t))) {
+    return refuse('A time-entry line came back without its link and without being released: reload the page and save again');
+  }
+  return { refusal: null, dropped: named };
 }
 
 /**

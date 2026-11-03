@@ -29,7 +29,7 @@ const approve = (body: Record<string, unknown>) =>
 /** The digest the invoice page read with the invoice (GET customer-invoices-detail). */
 const seen = async (id: string): Promise<string> => {
   const res = await callRoute(customerInvoicesDetail, tokens[owner]!, company, 'GET', undefined, '/api/accounting/customer-invoices-detail', { id });
-  return (res.state.body as { data: { approval_content_digest: string } }).data.approval_content_digest;
+  return (res.state.body as { data: { shown_digest: string } }).data.shown_digest;
 };
 
 beforeAll(async () => {

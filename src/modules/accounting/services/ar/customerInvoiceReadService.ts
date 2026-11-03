@@ -222,6 +222,7 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
            to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end,
            ci.created_at, ci.updated_at,
            approval_document_digest(ci.company_id, 'customer_invoice', ci.id) AS approval_content_digest,
+           (SELECT p.name FROM projects p WHERE p.id = ci.project_id AND p.company_id = ci.company_id) AS project_name,
            (SELECT count(*)::INT FROM time_entries te
              WHERE te.invoice_id = ci.id AND te.company_id = ci.company_id
                AND NOT EXISTS (SELECT 1 FROM customer_invoice_items x WHERE x.invoice_id = ci.id AND x.time_entry_id = te.id)
@@ -232,8 +233,10 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}
   `) as Row[];
   if (rows.length === 0) return null;
-  // What Approve sends back: the approval digest with notes, due date and billing period (customerInvoiceShownDigest).
-  rows[0]!.approval_content_digest = shownDigestOf(rows[0]!);
+  // What Approve (and a draft PUT) sends back: the shown digest (customerInvoiceShownDigest); the approval digest
+  // alone is not returned.
+  rows[0]!.shown_digest = shownDigestOf(rows[0]!);
+  delete rows[0]!.approval_content_digest;
 
   const items = (await sql`
     SELECT cii.*,

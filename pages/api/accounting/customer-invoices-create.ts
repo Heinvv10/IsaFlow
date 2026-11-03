@@ -41,8 +41,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       taxRate, notes, items, currencyCode, exchangeRate, projectId,
     });
     // What Approve sends back for this invoice (customerInvoiceShownDigest).
-    const approvalContentDigest = await readShownDigest(sql, companyId, invoiceId);
-    return apiResponse.created(res, { id: invoiceId, invoiceNumber, approvalContentDigest });
+    const shownDigest = await readShownDigest(sql, companyId, invoiceId);
+    return apiResponse.created(res, { id: invoiceId, invoiceNumber, shownDigest });
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof InvoiceLineValidationError) return apiResponse.badRequest(res, err.message);

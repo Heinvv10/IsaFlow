@@ -45,6 +45,10 @@ export const PutBodySchema = z.object({
   items: z.array(PutItemSchema).min(1).optional(),
   // The invoice's own project: display only (only line dimensions post). Absent keeps it, null clears it.
   projectId: UUID.nullable().optional(),
+  // The shown digest the page edited from (its last read or save): a moved invoice refuses the PUT (409 STALE_VIEW).
+  expectedShownDigest: z.string().min(1).max(128).optional(),
+  // Time entries whose lines the user removed (asked first): released. A linked line left unlinked unnamed is refused.
+  releaseTimeEntryIds: z.array(UUID).max(500).optional(),
 });
 
 export const PostBodySchema = z.object({
