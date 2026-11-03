@@ -16,7 +16,7 @@
  * Read with `forDigest`, the company's logo comes back as its md5 (a logo can be megabytes); two statements in all.
  * Lines are ordered by created_at, id, and hashed as a set besides.
  */
-import { createHash } from 'node:crypto';
+import { md5Hex, sha256Json } from '@/lib/jsonDigest';
 import { sql, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getCompanyDetailsFromCompany, type PrintedCompany } from '../core/pdfShared';
@@ -41,10 +41,12 @@ const pick = <K extends string>(r: Row, keys: readonly K[]) => Object.fromEntrie
 async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: boolean):
   Promise<{ model: InvoicePdfModel; approvalDigest: string } | null> {
   const rows = (await q`
-    SELECT ci.invoice_number, ci.invoice_date, ci.due_date, ci.status,
+    SELECT ci.invoice_number, to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date,
+           to_char(ci.due_date, 'YYYY-MM-DD') AS due_date, ci.status,
            NULL::TEXT AS payment_terms, -- customer_invoices has no terms column: the PDF prints its constant
            ci.subtotal, ci.tax_rate, ci.tax_amount, ci.total_amount, ci.amount_paid, ci.currency_code, ci.exchange_rate,
-           ci.notes, ci.billing_period_start, ci.billing_period_end, p.name AS project_name,
+           ci.notes, to_char(ci.billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
+           to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end, p.name AS project_name,
            c.name AS client_name, c.billing_address AS client_address, c.contact_person AS client_contact,
            c.email AS client_email, c.phone AS client_phone, c.vat_number AS client_vat,
            approval_document_digest(ci.company_id, 'customer_invoice', ci.id) AS approval_digest,
@@ -88,7 +90,7 @@ function companyOf(r: Row): PrintedCompany {
 async function settingsCompany(companyId: string, invoiceId: string, forDigest: boolean): Promise<PrintedCompany> {
   log.warn('Invoice PDF: no companies row, company details from app settings', { companyId, invoiceId }, 'invoicePdfModel');
   const d = await getCompanyDetailsFromCompany(companyId);
-  const logoData = d.logoData && forDigest ? createHash('md5').update(d.logoData).digest('hex') : d.logoData;
+  const logoData = d.logoData && forDigest ? md5Hex(d.logoData) : d.logoData;
   return { name: d.name, address: d.address, phone: d.phone, email: d.email, vatNumber: d.vatNumber, bankName: d.bankName,
     bankAccountName: d.bankAccountName, bankAccountNumber: d.bankAccountNumber, bankBranchCode: d.bankBranchCode,
     logoData, primaryColor: d.primaryColor };
@@ -100,7 +102,7 @@ export async function loadInvoicePdfModel(companyId: string, invoiceId: string,
   return (await load(opts.q ?? sql, companyId, invoiceId, Boolean(opts.forDigest)))?.model ?? null;
 }
 
-const sha = (v: unknown): string => createHash('sha256').update(JSON.stringify(v)).digest('hex');
+const sha = sha256Json;
 const lineSet = (items: readonly InvoicePdfLine[]) => items.map((l) => JSON.stringify(l)).sort();
 
 /** The shown digest: every section of the model, and the approval digest. */
