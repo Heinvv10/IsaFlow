@@ -7,7 +7,8 @@ import { changeAssignmentDates } from './payrollComponentDateEdit';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { lockCompanyPayrollForComponentChange } from './payrollComponentPaidMonths';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
-import { refuseOnceOffInPaidMonth, refuseOnceOffSpan, refuseRecurringInPaidMonth } from './payrollOnceOffGuard';
+import { refuseOnceOffSpan } from './payrollOnceOffGuard';
+import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
 
 type Row = DbRow;
 
@@ -110,8 +111,7 @@ export async function assignComponentToEmployee(
     await lockCompanyPayrollForComponentChange(tx, companyId);
     await assertEmployeeInCompany(employeeId, companyId);
     await assertComponentInCompany(componentId, companyId);
-    if (isRecurring) await refuseRecurringInPaidMonth(tx, companyId, null, { from: effectiveFromStr, to: effectiveToStr });
-    else await refuseOnceOffInPaidMonth(tx, companyId, effectiveFromStr, effectiveToStr);
+    await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, from: effectiveFromStr, to: effectiveToStr, recurring: isRecurring });
 
     log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
 

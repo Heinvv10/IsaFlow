@@ -15,9 +15,9 @@ import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { endOfMonthIso } from './leaveAccrualService';
 import { assertComponentInCompany } from './payrollEmployeeComponentService';
-import { lockCompanyPayrollForComponentChange } from './payrollComponentPaidMonths';
+import { lockCompanyPayrollForComponentChange, paidPeriodsOf, type PaidPeriod } from './payrollComponentPaidMonths';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
-import { refuseOnceOffInPaidMonth, refuseOnceOffSpan, refuseRecurringInPaidMonth } from './payrollOnceOffGuard';
+import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
@@ -417,7 +417,8 @@ export async function postBatch(
 
 async function postBatchLocked(tx: TxSql, companyId: string, batchId: string, userId: string): Promise<{ inserted: number }> {
   // Each assignment is written and audited in the post's transaction (payrollComponentAudit).
-  const write = (opts: AssignmentInsert) => insertAssignment(tx, companyId, { userId, channel: 'rest' }, opts);
+  const paid = await paidPeriodsOf(tx, companyId, null); // once per post, not per line
+  const write = (opts: AssignmentInsert) => insertAssignment(tx, companyId, { userId, channel: 'rest' }, opts, paid);
   const batch = await loadBatchForCompany(companyId, batchId);
   if (batch.status === 'posted' || batch.status === 'cancelled') {
     throw new BatchNotEditableError(batch.status);
@@ -534,15 +535,12 @@ interface AssignmentInsert {
   isRecurring: boolean;
 }
 
-async function insertAssignment(tx: TxSql, companyId: string, actor: ComponentChangeActor, opts: AssignmentInsert): Promise<void> {
+async function insertAssignment(
+  tx: TxSql, companyId: string, actor: ComponentChangeActor, opts: AssignmentInsert, paid: PaidPeriod[],
+): Promise<void> {
   const from = toIso(opts.effectiveFrom);
   const to = opts.effectiveTo ? toIso(opts.effectiveTo) : null;
-  if (opts.isRecurring) {
-    await refuseRecurringInPaidMonth(tx, companyId, null, { from, to });
-  } else {
-    refuseOnceOffSpan(from, to);
-    await refuseOnceOffInPaidMonth(tx, companyId, from, to);
-  }
+  await refuseAssignmentWrite(tx, companyId, { employeeId: opts.employeeId, componentId: opts.componentId, from, to, recurring: opts.isRecurring }, { paid, named: true });
   const rows = (await tx`
     INSERT INTO payroll_employee_components (
       employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred

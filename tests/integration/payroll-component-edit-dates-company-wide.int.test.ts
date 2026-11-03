@@ -20,6 +20,7 @@ import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import { assignComponentToEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { addBatchLines, createBatch, postBatch, validateBatch } from '@/modules/accounting/services/payroll/payrollBatchService';
 import { updateEmployeeComponentDates } from '@/modules/accounting/services/payroll/payrollComponentDateEdit';
+import { assignEmployeeComponentTool } from '@/lib/mcp/tools/writeEmployees';
 import { applyPackageToEmployee } from '@/modules/accounting/services/payroll/payPackageService';
 
 assertDisposable();
@@ -33,6 +34,7 @@ let call: ReturnType<typeof routeCaller>;
 let inRun = '';
 let outsider = '';
 let bonus = '';
+const comp: Record<string, string> = {};
 const row: Record<string, string> = {};
 
 const patch = (who: string, aid: string, body: unknown) =>
@@ -51,8 +53,8 @@ async function refused(key: string, body: unknown, message: RegExp, who = outsid
   expect(out.body.error?.message).toMatch(message);
   expect(await datesOf(row[key]!)).toEqual(before);
 }
-async function batch(from: string) {
-  const b = await createBatch({ companyId: company, batchType: 'component_values', componentId: bonus, description: `CW ${from}`,
+async function batch(from: string, component = comp.batchable!) {
+  const b = await createBatch({ companyId: company, batchType: 'component_values', componentId: component, description: `CW ${from}`,
     periodYear: 2026, periodMonth: Number(from.slice(5, 7)), isRecurring: true, userId: admin });
   await addBatchLines(company, b.id, [{ employeeId: outsider, value: 100, effectiveFrom: new Date(from) }]);
   expect((await validateBatch(company, b.id)).ok).toBe(true);
@@ -101,11 +103,17 @@ beforeAll(async () => {
   const rows = [
     ['onceOffMay', 'Perk', false, '2026-05-10', '2026-05-31'], ['recurringMay', 'Stipend', true, '2026-05-01', '2026-05-31'],
     ['bandEnd', 'Band', true, '2026-04-01', '2026-04-30'], ['preJan', 'Pre', true, '2026-04-01', '2026-04-30'],
+    ['onceOffJan', 'Late', false, '2026-04-10', '2026-04-30'], ['ended', 'Ended', true, '2025-10-01', '2025-12-31'],
+    ['held', 'Held', true, '2026-03-01', null],
   ] as const;
   for (const [key, name, recurring, from, to] of rows) {
-    const id = crypto.randomUUID();
-    await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,$3,'3605','earning')", [id, company, name]);
-    await add(key, outsider, id, from, to, recurring);
+    comp[key] = crypto.randomUUID();
+    await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,$3,'3605','earning')", [comp[key], company, name]);
+    await add(key, outsider, comp[key], from, to, recurring);
+  }
+  for (const name of ['assignable', 'batchable']) {
+    comp[name] = crypto.randomUUID();
+    await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,$3,'3605','earning')", [comp[name], company, name]);
   }
 });
 
@@ -128,6 +136,13 @@ describe('Edit dates, an employee who is not on the approved run', () => {
     () => refused('bandEnd', { effectiveFrom: '2026-02-01', effectiveTo: '2026-02-27' }, /2026-02 .*already paid/i));
   it('a paid month from before 953, which read the 27th: a row from the 28th is still dated in it',
     () => refused('preJan', { effectiveFrom: '2026-01-28', effectiveTo: '2026-01-31' }, /2026-01 .*already paid/i));
+});
+
+describe('Edit dates, more paid-month cases', () => {
+  it('a once-off moved into the pre-953 January, 28th to 31st', () =>
+    refused('onceOffJan', { effectiveFrom: '2026-01-28', effectiveTo: '2026-01-31' }, /2026-01 .*already paid/i));
+  it("an ended row's end extended into the paid months", () =>
+    refused('ended', { effectiveFrom: '2025-10-01', effectiveTo: '2026-02-15' }, /2026-0[12] .*already paid/i));
 });
 
 describe('Edit dates, what is left to the employee\'s own paid runs', () => {
@@ -158,8 +173,26 @@ describe("another company's paid months", () => {
 describe('the writers refuse a recurring row dated in a paid month, for an employee not on that run', () => {
   const paidMonth = /2026-02 .*already paid/i;
   it('assign', async () => {
-    await expect(assignComponentToEmployee(company, outsider, bonus, 100, '2026-02-01', undefined, true, actor)).rejects.toThrow(paidMonth);
-    await expect(assignComponentToEmployee(company, outsider, bonus, 100, '2026-03-01', undefined, true, actor)).resolves.toBeDefined();
+    const a = comp.assignable!;
+    await expect(assignComponentToEmployee(company, outsider, a, 100, '2026-02-01', undefined, true, actor)).rejects.toThrow(paidMonth);
+    await expect(assignComponentToEmployee(company, outsider, a, 100, '2026-03-01', undefined, true, actor)).resolves.toBeDefined();
+  });
+
+  it('assign, a second live recurring row of the same component overlapping the first: refused as Edit dates refuses it', async () => {
+    await expect(assignComponentToEmployee(company, outsider, comp.held!, 100, '2026-04-01', undefined, true, actor))
+      .rejects.toThrow(/overlap the employee's other assignment/i);
+  });
+
+  it('batch post, the same overlap, and the refusal names the employee', async () => {
+    await expect(batch('2026-04-01', comp.held)).rejects.toThrow(/OUT-1.*overlap the employee's other assignment/i);
+  });
+
+  it('MCP assign_employee_component answers the refusal as a tool error', async () => {
+    const out = await assignEmployeeComponentTool.handler({ employee_id: outsider, component_id: comp.assignable, amount: 100,
+      effective_from: '2026-02-01', idempotency_key: crypto.randomUUID() },
+    { companyId: company, userId: admin, scopes: ['write:payroll'], companyRole: 'owner', tokenJti: null, oauthAppId: null } as never);
+    expect(out.isError).toBe(true);
+    expect(out.content[0]!.text).toMatch(/2026-02 .*already paid/i);
   });
 
   it('batch post', async () => {

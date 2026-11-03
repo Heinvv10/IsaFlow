@@ -1,11 +1,14 @@
 /**
- * What every writer refuses of a once-off (final payroll breaker, 2026-11-02), as Edit dates does: a window that runs
- * past its own month (it is paid once, in that month), and a date in a month a paid run already read (that run would
- * never pay it), for a recurring row too. Used by assign, batch post, package apply and Edit dates, under the company lock, before any write.
+ * What every writer refuses of a row's dates (final payroll breaker, 2026-11-02/03): a once-off that runs past its own
+ * month (it is paid once, in that month), and a row, once-off or recurring, dated in a CALENDAR month the company's
+ * paid runs already paid (that run will never pay it, whoever it paid; a pre-953 run read the 27th, a post-953 one the
+ * last day, so the calendar decides). Edit dates passes the row as it stands and refuses only a month it gains.
+ * Used through payrollAssignmentWriteGuard (assign, batch post, package apply) and by Edit dates, under the company
+ * lock, before any write.
  */
 import type { TxSql } from '@/lib/neon';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
-import { paidPeriodsOf, periodLabel, type PaidPeriod } from './payrollComponentPaidMonths';
+import { paidNote, paidPeriodsOf, periodLabel, type PaidPeriod } from './payrollComponentPaidMonths';
 import { payrollRunReadDate } from './payrollRunReadDate';
 
 /** A once-off must start and end in one month. */
@@ -18,7 +21,7 @@ export function refuseOnceOffSpan(from: string, to: string | null): void {
 type Window = { from: string; to: string | null };
 
 /** Whether the window is dated in the period's calendar month (first to last day), whatever a run read of it. */
-function datedIn(w: Window, p: PaidPeriod): boolean {
+export function datedIn(w: Window, p: PaidPeriod): boolean {
   const last = payrollRunReadDate(p);
   return (w.to === null || w.to >= w.from) && w.from <= last && (w.to === null || w.to >= `${last.slice(0, 8)}01`);
 }
@@ -27,19 +30,21 @@ function datedIn(w: Window, p: PaidPeriod): boolean {
  * The first paid month of the COMPANY (not only of this employee: a back-dated row for someone not on the run) the
  * `after` window is dated in and `before` (the same row as it stands, null for a new one) was not.
  */
-async function newPaidMonth(tx: TxSql, companyId: string, before: Window | null, after: Window): Promise<PaidPeriod | undefined> {
-  const paid = await paidPeriodsOf(tx, companyId, null);
+async function newPaidMonth(
+  tx: TxSql, companyId: string, before: Window | null, after: Window, preloaded?: PaidPeriod[],
+): Promise<PaidPeriod | undefined> {
+  const paid = preloaded ?? await paidPeriodsOf(tx, companyId, null);
   return paid.find((p) => datedIn(after, p) && !(before && datedIn(before, p)));
 }
 
 /** A once-off dated in a month a paid run already read: refused, since that run will never pay it. `before`: an edit. */
 export async function refuseOnceOffInPaidMonth(
-  tx: TxSql, companyId: string, from: string, to: string | null, before: Window | null = null,
+  tx: TxSql, companyId: string, from: string, to: string | null, before: Window | null = null, paid?: PaidPeriod[],
 ): Promise<void> {
-  const hit = await newPaidMonth(tx, companyId, before, { from, to });
+  const hit = await newPaidMonth(tx, companyId, before, { from, to }, paid);
   if (hit) {
     throw new EmployeeComponentRefused(
-      `${periodLabel(hit)} is already paid (approved run): a once-off dated in it would never be paid. Date it in an open month.`);
+      `${periodLabel(hit)} is already paid ${paidNote(hit)}: a once-off dated in it would never be paid. Date it in an open month.`);
   }
 }
 
@@ -49,12 +54,12 @@ export async function refuseOnceOffInPaidMonth(
  * (read the last day) refuse the same dates. Shrinking is left to the employee's own paid runs (paidPeriodChanged).
  */
 export async function refuseRecurringInPaidMonth(
-  tx: TxSql, companyId: string, before: Window | null, after: Window,
+  tx: TxSql, companyId: string, before: Window | null, after: Window, paid?: PaidPeriod[],
 ): Promise<void> {
-  const hit = await newPaidMonth(tx, companyId, before, after);
+  const hit = await newPaidMonth(tx, companyId, before, after, paid);
   if (hit) {
     throw new EmployeeComponentRefused(
-      `${periodLabel(hit)} is already paid (approved run): a recurring row dated in it would never be paid for that month. `
+      `${periodLabel(hit)} is already paid ${paidNote(hit)}: a recurring row dated in it would never be paid for that month. `
       + 'Date it from an open month, or capture the correction in an open period.');
   }
 }

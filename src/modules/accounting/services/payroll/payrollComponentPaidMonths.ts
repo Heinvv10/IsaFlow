@@ -21,7 +21,12 @@ export interface AssignmentWindow {
 }
 
 /** A month a paid run read, with when that run was calculated (epoch ms; null before migration 953). */
-export type PaidPeriod = PayrollPeriod & { calculatedAt?: number | null };
+export type PaidPeriod = PayrollPeriod & { calculatedAt?: number | null; reopened?: boolean };
+
+/** How a month was paid, for a refusal: an approved run, or a reopened one whose journal is still posted. */
+export const paidNote = (p: PaidPeriod): string => (p.reopened ? '(reopened, but its journal is still posted)' : '(approved run)');
+/** What undoes it: reopening an approved run, or reversing the journal of a reopened one. */
+export const paidRemedy = (p: PaidPeriod): string => (p.reopened ? 'Reverse its journal first' : 'Reopen that run first');
 
 /**
  * Whether a run of `period` reads (or, for a paid run, READ) this assignment: getEmployeeComponents' rule, row by
@@ -68,7 +73,7 @@ export async function paidPeriodsOf(tx: TxSql, companyId: string, employeeId: st
     if (approved || await payrollJournalInForce(companyId, String(r.journal_entry_id), tx)) {
       paid.push({
         year: Number(r.period_year), month: Number(r.period_month),
-        calculatedAt: r.calculated_at == null ? null : new Date(r.calculated_at as string | Date).getTime(),
+        calculatedAt: r.calculated_at == null ? null : new Date(r.calculated_at as string | Date).getTime(), reopened: !approved,
       });
     }
   }

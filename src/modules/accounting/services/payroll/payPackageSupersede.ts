@@ -9,7 +9,7 @@ import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
-import { paidPeriodChanged, periodLabel, windowOf, type PaidPeriod } from './payrollComponentPaidMonths';
+import { paidNote, paidPeriodChanged, paidRemedy, periodLabel, windowOf, type PaidPeriod } from './payrollComponentPaidMonths';
 import { legacyFlips, legacyLeaverSuccessorLost, type Sibling } from './payrollComponentLegacySupersede';
 
 const isoDate = (v: unknown): string => fmtDate(v);
@@ -73,8 +73,8 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
     const changed = paidPeriodChanged(paid, windowOf(row), { ...windowOf(row), to: cutTo });
     if (changed) {
       throw new EmployeeComponentRefused(
-        `${periodLabel(changed)} is already paid (approved run), and applying this package from ${effectiveFrom} would cut an `
-        + `assignment that run paid (from ${isoDate(row.effective_from)}). Reopen that run first, or apply the package from a later date.`);
+        `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cut an `
+        + `assignment that run paid (from ${isoDate(row.effective_from)}). ${paidRemedy(changed)}, or apply the package from a later date.`);
     }
   }
   const endResult = (await tx`

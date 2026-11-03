@@ -16,6 +16,7 @@ import { MAX_SALARY_CENTS, isValidSaIdNumber, isValidSarsTaxNumber } from './emp
 import { payeTreatment } from './payeAnnualPayment';
 import { assignComponentToEmployee } from './payrollEmployeeComponentService';
 import { createPayrollEmployee } from './payrollEmployeeService';
+import { salaryInPaidMonthRefusal } from './payrollOnboardingPaidMonth';
 import type { PayrollEmployee } from './payrollTypes';
 
 const EMPLOYMENT_TYPES: readonly string[] = ['permanent', 'contract', 'casual', 'director'];
@@ -30,7 +31,7 @@ export class EmployeeOnboardingRefused extends Error {
 
 type Body = Record<string, unknown>;
 type NewEmployee = Omit<PayrollEmployee, 'id' | 'companyId'>;
-interface Salary { componentId: string; cents: number }
+interface Salary { componentId: string; cents: number; effectiveFrom: string | null }
 
 const isBlank = (v: unknown) => v === undefined || v === null || v === '';
 
@@ -105,14 +106,17 @@ function employeeOf(body: Body): NewEmployee {
 function salaryOf(raw: unknown): Salary | null {
   if (raw === undefined || raw === null) return null;
   if (typeof raw !== 'object' || Array.isArray(raw)) throw new EmployeeOnboardingRefused('salary must be { componentId, amountCents }');
-  const { componentId, amount, amountCents } = raw as Body;
+  const { componentId, amount, amountCents, effectiveFrom } = raw as Body;
   // The components route's `amount` is rands: read as cents here, R25 000 would be stored as R250.
   if (amount !== undefined) throw new EmployeeOnboardingRefused('salary.amount is not accepted: send salary.amountCents, in whole cents');
   if (!isUuidParam(componentId)) throw new EmployeeOnboardingRefused('salary.componentId must be a pay component id');
   if (typeof amountCents !== 'number' || !Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > MAX_SALARY_CENTS) {
     throw new EmployeeOnboardingRefused('salary.amountCents must be a positive number of whole cents');
   }
-  return { componentId, cents: amountCents };
+  if (!isBlank(effectiveFrom) && (typeof effectiveFrom !== 'string' || !isRealCalendarDate(effectiveFrom))) {
+    throw new EmployeeOnboardingRefused('salary.effectiveFrom must be a real date (YYYY-MM-DD)');
+  }
+  return { componentId, cents: amountCents, effectiveFrom: isBlank(effectiveFrom) ? null : String(effectiveFrom) };
 }
 
 /** The same answer for another company's component as for one that does not exist. */
@@ -203,11 +207,17 @@ export async function createEmployeeWithPay(companyId: string, userId: string, b
   const salary = salaryOf(body.salary);
   await assertEmployeeNumberFree(companyId, fields.employeeNumber);
   if (salary) await assertSalaryComponent(companyId, salary.componentId);
+  const salaryFrom = salary?.effectiveFrom ?? String(body.startDate);
+  if (salary) {
+    if (salaryFrom < String(body.startDate).slice(0, 10)) throw new EmployeeOnboardingRefused('salary.effectiveFrom cannot be before the startDate');
+    const paidMonth = await salaryInPaidMonthRefusal(companyId, salaryFrom);
+    if (paidMonth) throw new EmployeeOnboardingRefused(paidMonth);
+  }
 
   const employee = await insertEmployee(companyId, fields);
   if (salary) {
     await assignComponentToEmployee(
-      companyId, employee.id, salary.componentId, salary.cents / 100, String(body.startDate), undefined, true, { userId, channel: 'rest' },
+      companyId, employee.id, salary.componentId, salary.cents / 100, salaryFrom, undefined, true, { userId, channel: 'rest' },
     );
   }
   log.info('Employee onboarded', { companyId, employeeId: employee.id, userId, withSalary: salary !== null }, 'payrollEmployeeOnboarding');

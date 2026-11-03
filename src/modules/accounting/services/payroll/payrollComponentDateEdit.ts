@@ -36,7 +36,7 @@ import { refuseOnceOffInPaidMonth, refuseRecurringInPaidMonth } from './payrollO
 import type { PayrollPeriod } from './payrollTypes';
 import { legacyFlips, live, shiftDay, type Sibling } from './payrollComponentLegacySupersede';
 import {
-  assignmentReadInPeriod, lockCompanyPayrollForComponentChange, paidPeriodChanged, paidPeriodsOf, periodLabel, windowOf,
+  assignmentReadInPeriod, lockCompanyPayrollForComponentChange, paidNote, paidPeriodChanged, paidPeriodsOf, paidRemedy, periodLabel, windowOf,
   type AssignmentWindow,
 } from './payrollComponentPaidMonths';
 
@@ -78,7 +78,7 @@ function nextWindow(before: AssignmentWindow, change: DateChange, paidIn: Payrol
     return { after, kind: 'edit' };
   }
   if (change.cancel && paidIn) {
-    refuse(`This assignment was already paid in ${periodLabel(paidIn)} (approved run), so it cannot be cancelled; end it with a date instead.`);
+    refuse(`This assignment was already paid in ${periodLabel(paidIn)} ${paidNote(paidIn)}, so it cannot be cancelled; end it with a date instead.`);
   }
   if (!paidIn && (!before.recurring || change.cancel || change.to < before.from)) {
     return { after: { ...windowOnly(before), to: shiftDay(before.from, -1) }, kind: 'cancel' };
@@ -129,8 +129,8 @@ export async function changeAssignmentDates(
     }
     const changed = paidPeriodChanged(paid, self, after);
     if (changed) {
-      refuse(`${periodLabel(changed)} is already paid (approved run) and this changes what it paid. `
-        + 'Reopen that run first, or capture the correction in an open period.');
+      refuse(`${periodLabel(changed)} is already paid ${paidNote(changed)} and this changes what it paid. `
+        + `${paidRemedy(changed)}, or capture the correction in an open period.`);
     }
     if (kind === 'edit') {
       // After the employee's own paid months, judged company-wide: a run this employee is not on will never pay a
