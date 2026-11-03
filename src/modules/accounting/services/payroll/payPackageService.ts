@@ -19,7 +19,7 @@
 import { sql, withTransaction } from '@/lib/neon';
 import { lockCompanyPayrollForComponentChange, paidPeriodsOf } from './payrollComponentPaidMonths';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
-import { supersedeForPackage } from './payPackageSupersede';
+import { foreignOnceOffsOf, supersedeForPackage } from './payPackageSupersede';
 import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -260,7 +260,6 @@ export async function applyPackageToEmployee(
 
   const startYear = Number(effectiveFrom.slice(0, 4));
   const startMonth = Number(effectiveFrom.slice(5, 7));
-
   // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
   // the ALS request client (`neon/query.ts` LazyQuery.run), which is the transaction
   // `withAuth` opens for every request — so it commits the WHOLE request, makes
@@ -272,10 +271,11 @@ export async function applyPackageToEmployee(
     await lockCompanyPayrollForComponentChange(tx, companyId);
     const actor: ComponentChangeActor = { userId, channel: 'rest' };
     const paid = await paidPeriodsOf(tx, companyId, employeeId);
+    const foreignAll = await foreignOnceOffsOf(tx, companyId, packageId, employeeId, compRows.map((r) => String(r.component_id)), effectiveFrom); // every component's: a named date must clear them all
     let ended = 0;
     for (const r of compRows) {
       const componentId = String(r.component_id);
-      ended += await supersedeForPackage(tx, { companyId, packageId, employeeId, componentId, effectiveFrom, paid, actor });
+      ended += await supersedeForPackage(tx, { companyId, packageId, employeeId, componentId, effectiveFrom, paid, actor, foreignAll });
 
       // A once-off package row must be paid once. Without an explicit
       // effective_to the row is open-ended, and the payroll reader

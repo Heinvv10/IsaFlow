@@ -91,6 +91,8 @@ export interface SupersedeInput {
   effectiveFrom: string;
   paid: PaidPeriod[];
   actor: ComponentChangeActor;
+  /** The once-offs the apply would refuse across EVERY component of the package (foreignOnceOffsOf): the date it names must clear all of them. */
+  foreignAll?: DbRow[];
 }
 
 /**
@@ -111,6 +113,28 @@ async function recordRevivedLegacyOnceOffs(
     await tx`UPDATE payroll_employee_components SET superseded_at = clock_timestamp() WHERE id = ${row.id}::uuid AND superseded_at IS NULL`;
     await auditComponentChange(tx, companyId, row.id, row, row, 'package_supersede', actor);
   }
+}
+
+/**
+ * The live once-offs this package did not write, on any of its components, that an apply from `effectiveFrom` would
+ * overlap: what the date a refusal names has to clear, whichever component refuses first.
+ */
+export async function foreignOnceOffsOf(
+  tx: TxSql, companyId: string, packageId: string, employeeId: string, componentIds: string[], effectiveFrom: string,
+): Promise<DbRow[]> {
+  const foreign: DbRow[] = [];
+  for (const componentId of componentIds) {
+    const rows = (await tx`
+      SELECT id, amount, effective_from, effective_to, is_recurring, superseded_at
+        FROM payroll_employee_components
+       WHERE employee_id = ${employeeId}::uuid AND component_id = ${componentId}::uuid AND is_recurring = false AND superseded_at IS NULL
+    `) as DbRow[];
+    const live = rows.filter((row) => (row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom)
+      && (row.effective_to == null || isoDate(row.effective_to) >= isoDate(row.effective_from)));
+    const own = await ownOnceOffs(tx, companyId, packageId, componentId, live);
+    foreign.push(...live.filter((row) => !own.has(String(row.id))));
+  }
+  return foreign;
 }
 
 /** The number of assignments cut. */
@@ -148,7 +172,7 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
     if (changed) {
       if (foreignIds.has(String(row.id))) {
         const companyPaid = await paidPeriodsOf(tx, companyId, null);
-        const applyFrom = applyFromAfter(foreign, companyPaid);
+        const applyFrom = applyFromAfter(input.foreignAll ?? foreign, companyPaid);
         throw new EmployeeComponentRefused(
           `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cancel a once-off this package did not write `
           + `(from ${isoDate(row.effective_from)}) that run paid. ${applyFrom ? `Apply the package from ${applyFrom}` : 'Apply the package from a later date'}; or, to keep this date, ${paidRemedyInline(changed)} and then end or move that once-off.`);
@@ -159,10 +183,11 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
     }
   }
   if (foreign.length > 0) {
+    const applyFrom = applyFromAfter(input.foreignAll ?? foreign, await paidPeriodsOf(tx, companyId, null));
     const named = foreign.map((row) => `${isoDate(row.effective_from)} to ${row.effective_to ? isoDate(row.effective_to) : 'open-ended'}, amount ${Number(row.amount).toFixed(2)}`);
     throw new EmployeeComponentRefused(
       `Applying this package from ${effectiveFrom} would cancel ${foreign.length === 1 ? 'a once-off' : 'once-offs'} this package did not write `
-      + `(entered by hand, posted by a batch, or written by another package) on this component: ${named.join(', ')}. End or move ${foreign.length === 1 ? 'it' : 'them'} first, or apply the package from a later date.`);
+      + `(entered by hand, posted by a batch, or written by another package) on this component: ${named.join(', ')}. End or move ${foreign.length === 1 ? 'it' : 'them'} first, or apply the package from ${applyFrom ?? 'a later date'}.`);
   }
   const endResult = (await tx`
     UPDATE payroll_employee_components

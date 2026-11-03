@@ -55,3 +55,15 @@ describe('Date it from …', () => {
     await expect(assign('2026-04-01', '2026-04-30')).resolves.toBeDefined();
   });
 });
+
+describe('overlap is judged before the paid month, so a named date is not then refused for an overlap', () => {
+  it('a live recurring row from April to June, March and May paid: the overlap is the refusal, with no "Date it from"', async () => {
+    await pool.query(
+      `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring,supersede_inferred)
+       VALUES($1,$2,100,'2026-06-01','2026-06-30',TRUE,FALSE)`, [employee, component]);
+    const err = await assign('2026-03-10').then(() => null, (e) => e as Error);
+    expect(err?.message).toMatch(/overlap the employee's other assignment/i);
+    expect(err?.message).not.toMatch(/Date it from/);
+    await pool.query('DELETE FROM payroll_employee_components WHERE employee_id=$1', [employee]);
+  });
+});

@@ -68,9 +68,15 @@ export async function refuseRecurringInPaidMonth(
     // end and its other rows, so none is promised; a month the row already touched is not named.
     const gained = all.filter((p) => datedIn(after, p) && !datedIn(before, p));
     const labels = joinedLabels(gained.map(periodLabel));
+    if (gained.length > 1) {
+      // The months may have been paid differently (an approved run, a reopened run whose journal stands): no one note fits.
+      throw new EmployeeComponentRefused(
+        `${labels} are already paid: a recurring row dated in them would never be paid for those months. Keep the row out of ${labels}; `
+        + 'or undo those runs first (reopen an approved run and reverse its journal; for a reopened run, reverse its journal), or capture the correction in an open period.');
+    }
     throw new EmployeeComponentRefused(
-      `${labels} ${gained.length === 1 ? 'is' : 'are'} already paid ${paidNote(hit)}: a recurring row dated in ${gained.length === 1 ? 'it' : 'them'} would never be paid for ${gained.length === 1 ? 'that month' : 'those months'}. `
-      + `Keep the row out of ${labels}; or ${remedy}`);
+      `${labels} is already paid ${paidNote(gained[0]!)}: a recurring row dated in it would never be paid for that month. `
+      + `Keep the row out of ${labels}; or ${paidRemedyInline(gained[0]!)}, or capture the correction in an open period.`);
   }
   // A new row (assign, batch post, package apply): its whole window is the caller's choice, so a date is followable: the
   // month after the latest paid month the row would reach, if the row still runs that far.

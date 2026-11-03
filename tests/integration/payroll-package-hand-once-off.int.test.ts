@@ -2,7 +2,7 @@
  * A pay-package apply cuts the recurring rows it overlaps, and the once-off rows IT wrote before (the re-apply case:
  * same component, a once-off closed at its month end, the package line's amount). A once-off somebody entered by hand
  * (a back-pay on Basic Salary) is not the package's to cancel: the apply is refused (400), nothing is written, and the
- * message names the once-offs and says to end or move them, or to apply from a later date.
+ * message names the once-offs and says to end or move them, or to apply from a date it names (past every such once-off and every paid month).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -76,7 +76,7 @@ describe('a hand-entered once-off the apply would cancel', () => {
   it('a back-pay once-off on the same component: refused, naming it, nothing written', async () => {
     const before = await rows('back');
     await expect(applyPackageToEmployee(company, pkg, emp.back!, '2026-05-01', user))
-      .rejects.toThrow(/would cancel.*once-offs? this package did not write.*2026-05-05 to 2026-05-31.*end or move.*later date/i);
+      .rejects.toThrow(/would cancel.*once-offs? this package did not write.*2026-05-05 to 2026-05-31.*end or move.*apply the package from 2026-06-01\./i);
     expect(await rows('back')).toEqual(before);
   });
 
@@ -319,3 +319,26 @@ describe('the date a paid-month refusal names holds company-wide: following it i
   });
 
 });
+
+describe('the date holds for EVERY component of the package, not only the one that refused first', () => {
+  it('salary and bonus lines, a hand once-off on each (April paid, August open): the date is past the August one, and it is accepted', async () => {
+    await employee('multi');
+    await raw('multi', comp.salary, 777, '2026-04-10', '2026-04-30', false);
+    await raw('multi', comp.bonus, 1500, '2026-08-10', '2026-08-31', false);
+    const run = crypto.randomUUID();
+    await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,4,2026,'approved')", [run, company]);
+    await pool.query('UPDATE payroll_run_headers SET calculated_at = now() WHERE id=$1', [run]);
+    await pool.query('INSERT INTO payroll_run_lines(run_id,employee_id,gross_pay,taxable_income,paye,net_pay) VALUES($1,$2,100,100,0,100)', [run, emp.multi]);
+    try {
+      const err = await applyPackageToEmployee(company, pkg, emp.multi!, '2026-04-01', user).then(() => null, (e) => e as Error);
+      expect(err, 'refused').not.toBeNull();
+      const day = /pply the package from (\d{4}-\d\d-\d\d)/.exec(err!.message)?.[1];
+      expect(day, err!.message).toBe('2026-09-01');
+      await expect(applyPackageToEmployee(company, pkg, emp.multi!, day!, user)).resolves.toBeDefined();
+    } finally {
+      await pool.query('DELETE FROM payroll_run_lines WHERE run_id=$1', [run]);
+      await pool.query('DELETE FROM payroll_run_headers WHERE id=$1', [run]);
+    }
+  });
+});
+

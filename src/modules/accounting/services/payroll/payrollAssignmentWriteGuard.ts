@@ -43,8 +43,9 @@ export async function refuseAssignmentWrite(
       await refuseOnceOffInPaidMonth(tx, companyId, a.from, a.to, null, opts.paid);
       return;
     }
-    await refuseRecurringInPaidMonth(tx, companyId, null, { from: a.from, to: a.to }, opts.paid);
+    // Overlap first: the paid-month refusal names a date, and a date named there must not then be refused for an overlap.
     if (opts.overlap !== false) await refuseOverlap(tx, companyId, a);
+    await refuseRecurringInPaidMonth(tx, companyId, null, { from: a.from, to: a.to }, opts.paid);
   } catch (err) {
     if (!opts.named || !(err instanceof EmployeeComponentRefused)) throw err;
     const row = (await tx`

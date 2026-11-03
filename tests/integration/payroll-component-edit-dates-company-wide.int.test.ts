@@ -110,7 +110,7 @@ beforeAll(async () => {
     await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,$3,'3605','earning')", [comp[key], company, name]);
     await add(key, outsider, comp[key], from, to, recurring);
   }
-  for (const name of ['assignable', 'batchable', 'packaged']) {
+  for (const name of ['assignable', 'batchable', 'packaged', 'fresh']) {
     comp[name] = crypto.randomUUID();
     await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,$3,'3605','earning')", [comp[name], company, name]);
   }
@@ -189,7 +189,7 @@ describe('the writers refuse a recurring row dated in a paid month, for an emplo
   });
 
   it('MCP assign_employee_component answers the refusal as a tool error', async () => {
-    const out = await assignEmployeeComponentTool.handler({ employee_id: outsider, component_id: comp.assignable, amount: 100,
+    const out = await assignEmployeeComponentTool.handler({ employee_id: outsider, component_id: comp.fresh, amount: 100,
       effective_from: '2026-02-01', idempotency_key: crypto.randomUUID() },
     { companyId: company, userId: admin, scopes: ['write:payroll'], companyRole: 'owner', tokenJti: null, oauthAppId: null } as never);
     expect(out.isError).toBe(true);
@@ -197,7 +197,7 @@ describe('the writers refuse a recurring row dated in a paid month, for an emplo
   });
 
   it('the remedy says to reopen the run and reverse its journal', async () => {
-    await expect(assignComponentToEmployee(company, outsider, comp.assignable!, 100, '2026-02-01', undefined, true, actor))
+    await expect(assignComponentToEmployee(company, outsider, comp.fresh!, 100, '2026-02-01', undefined, true, actor))
       .rejects.toThrow(/Date it from 2026-03-01; or reopen that run and reverse its journal first, or capture the correction in an open period/);
   });
 
