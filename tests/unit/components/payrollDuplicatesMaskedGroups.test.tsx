@@ -66,6 +66,16 @@ describe('payroll duplicates, masked bank accounts', () => {
     render(<DuplicatesPage />);
     expect(await screen.findByText('No duplicates found')).toBeDefined();
     expect(screen.getByText(NOTE)).toBeDefined();
+    expect(screen.getByText('No duplicates in the fields you can see.')).toBeDefined();
+    expect(screen.queryByText('Employee master data is clean.')).toBeNull();
+  });
+
+  it('tells an admin with a clean result that the master data is clean', async () => {
+    const clean = { ...MANAGER_RESULT, idNumber: [], totals: { totalConflicts: 0, affectedEmployees: 0 } };
+    serve(on('GET', '/api/payroll/duplicates', () => ok(clean)));
+    render(<DuplicatesPage />);
+    expect(await screen.findByText('Employee master data is clean.')).toBeDefined();
+    expect(screen.queryByText('No duplicates in the fields you can see.')).toBeNull();
   });
 
   it('shows the Bank Account tab for groups the server sent while the role is still loading', async () => {

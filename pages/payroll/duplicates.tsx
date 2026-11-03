@@ -107,7 +107,9 @@ export default function DuplicatesPage() {
             <div className="text-center py-16">
               <UserCheck className="h-12 w-12 text-emerald-500 mx-auto mb-3" />
               <p className="text-[var(--ff-text-primary)] font-medium">No duplicates found</p>
-              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">Employee master data is clean.</p>
+              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
+                {showBankNote ? 'No duplicates in the fields you can see.' : 'Employee master data is clean.'}
+              </p>
             </div>
           ) : data ? (
             <>
