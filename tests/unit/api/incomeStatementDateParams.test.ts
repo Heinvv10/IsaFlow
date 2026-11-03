@@ -51,6 +51,11 @@ describe('reports-income-statement date parameters', () => {
     ['start 2026-13-01', { period_start: '2026-13-01' }, 'period_start must be a YYYY-MM-DD date'],
     ['start 2026-02-31', { period_start: '2026-02-31' }, 'period_start must be a YYYY-MM-DD date'],
     ['start repeated', { period_start: ['2026-04-01', '2026-04-02'] }, 'period_start must be a YYYY-MM-DD date'],
+    ['start year 0050', { period_start: '0050-01-01' }, 'period_start must be a YYYY-MM-DD date from 1900 on'],
+    ['compare_start year 0050', { compare_start: '0050-01-01', compare_end: '2026-03-31' }, 'compare_start must be a YYYY-MM-DD date from 1900 on'],
+    ['leap day in a non-leap year', { period_end: '2025-02-29' }, 'period_end must be a YYYY-MM-DD date'],
+    ['compare_start alone, malformed', { compare_start: 'abc' }, 'compare_start must be a YYYY-MM-DD date'],
+    ['compare_end alone, malformed', { compare_end: 'abc' }, 'compare_end must be a YYYY-MM-DD date'],
     ['end=abc', { period_end: 'abc' }, 'period_end must be a YYYY-MM-DD date'],
     ['end blank', { period_end: '' }, 'period_end'],
     ['end 2026-04-31', { period_end: '2026-04-31' }, 'period_end must be a YYYY-MM-DD date'],
@@ -84,4 +89,19 @@ describe('reports-income-statement date parameters', () => {
     expect(getIncomeStatement).toHaveBeenCalledWith(companyId, '2026-04-01', '2026-04-30', expect.any(Object),
       { start: '2026-03-01', end: '2026-03-31' });
   });
+
+  it('a leap day in a leap year is accepted', async () => {
+    const res = response();
+    await reportHandler(req({ period_start: '2024-02-29', period_end: '2024-02-29' }), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it.each([{ compare_start: '2026-03-01' }, { compare_end: '2026-03-31' }])(
+    'a valid lone %j is ignored, as before', async (cmp) => {
+      const res = response();
+      await reportHandler(req(cmp), res);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(getIncomeStatement).toHaveBeenCalledWith(companyId, '2026-04-01', '2026-04-30', expect.any(Object), undefined);
+    },
+  );
 });

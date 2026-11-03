@@ -22,13 +22,17 @@ import {
 import { isDimensionGroupBy } from '@/modules/accounting/services/reports/dimensionPnlColumns';
 import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
 
-const badDate = (name: string, v: unknown): string | null =>
-  typeof v !== 'string' || !isRealCalendarDate(v) ? `${name} must be a YYYY-MM-DD date` : null;
+// Same bounds as `reportWindowProblem` (real calendar date, 1900 on), but its messages do not name the parameter.
+const badDate = (name: string, v: unknown): string | null => {
+  if (typeof v !== 'string' || !isRealCalendarDate(v)) return `${name} must be a YYYY-MM-DD date`;
+  return v < '1900-01-01' ? `${name} must be a YYYY-MM-DD date from 1900 on` : null;
+};
 
 /** A shape check before any date math: why a window cannot be read, naming the parameter, or null. */
 function windowProblem(startName: string, start: unknown, endName: string, end: unknown): string | null {
   const bad = badDate(startName, start) ?? badDate(endName, end);
   if (bad) return bad;
+  // String comparison is the date order only because badDate has just proved both are YYYY-MM-DD.
   return String(start) > String(end) ? `${startName} must not be after ${endName}` : null;
 }
 
