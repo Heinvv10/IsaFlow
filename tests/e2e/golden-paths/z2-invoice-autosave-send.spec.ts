@@ -106,7 +106,7 @@ test('editing a draft autosaves after a change, never on load, and the change su
   }
 });
 
-test('Back from the edit page with a change still unsaved: not refused, history intact, the change saved as the page goes', async ({ page, context, baseURL }) => {
+test('Back from the edit page cannot discard a held invalid change without confirmation', async ({ page, context, baseURL }) => {
   const { api, customerId } = await sandbox(context, baseURL!);
   const id = await draft(api, customerId, `Z2 back ${Date.now().toString(36)}`);
   try {
@@ -120,20 +120,13 @@ test('Back from the edit page with a change still unsaved: not refused, history 
     await page.waitForURL(new RegExp(`/edit/${id}$`), { timeout: 60_000 });
     await page.waitForFunction(() => Boolean((window as unknown as { next?: { router?: { isReady?: boolean } } }).next?.router?.isReady), undefined, { timeout: 60_000 });
     await expect(page.getByPlaceholder('Item description').first()).not.toHaveValue('', { timeout: 60_000 });
-    let asked = 0;
-    page.on('dialog', async (d) => { asked++; await d.dismiss(); });
-    const changed = `Z2 kept on Back ${Date.now().toString(36)}`;
-    await page.getByPlaceholder('Item description').first().fill(changed);
-    await page.goBack(); // inside the 1.5 s autosave wait
-    await page.waitForURL(new RegExp(`/accounting/customer-invoices/${id}$`), { timeout: 30_000 });
-    expect(asked, 'Back is not refused').toBe(0);
-    // The invoice page waits for the save sent as the edit page went, then shows it: no polling.
-    await expect(page.getByText(changed)).toBeVisible({ timeout: 30_000 });
-    expect((await api.get<{ items: { description: string }[] }>(`/api/accounting/customer-invoices-detail?id=${id}`)).items[0]!.description).toBe(changed);
-    await page.goForward(); // the edit page's entry is still there
-    await page.waitForURL(new RegExp(`/edit/${id}$`), { timeout: 30_000 });
-    await page.goBack();
-    await page.waitForURL(new RegExp(`/accounting/customer-invoices/${id}$`), { timeout: 30_000 });
+    const asked: string[] = [];
+    page.once('dialog', async (d) => { asked.push(d.message()); await d.dismiss(); });
+    await page.getByPlaceholder('Item description').first().fill(''); // priced line without a description: autosave held
+    await page.goBack().catch(() => null);
+    await expect.poll(() => asked).toEqual(['This invoice has changes that are not saved yet. Leave without them?']);
+    expect(page.url()).toContain(`/edit/${id}`);
+    expect((await api.get<{ items: { description: string }[] }>(`/api/accounting/customer-invoices-detail?id=${id}`)).items[0]!.description).not.toBe('');
   } finally {
     await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
   }

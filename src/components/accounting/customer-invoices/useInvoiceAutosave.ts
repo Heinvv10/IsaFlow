@@ -6,9 +6,7 @@
  *
  * While a change is unsaved, or a save is out, leaving asks first, and refusing is never an error:
  *   - closing or reloading the tab: `beforeunload`;
- *   - back and forward are never refused: by then the browser has moved, and no refusal leaves history intact
- *     (replaceState overwrites the entry Back was going to; pushState adds one). The page goes, and the work is kept
- *     as it goes: the edit page PUTs the change being typed, the new page writes its draft (each hook, on unmount);
+ *   - back and forward are accepted or refused by `beforePopState`, before Next moves to the history entry;
  *   - a push or replace (a link, a button): `routeChangeStart` throws, Next's only way to cancel one, and the router's
  *     push and replace are wrapped for this page's life so the cancellation resolves false instead of rejecting (no
  *     unhandled rejection: no Sentry event, no dev overlay). The route change a back/forward starts goes through
@@ -55,7 +53,7 @@ function useLeaveGuard(unsaved: () => boolean, leaveWithout: () => void): void {
     if (!router) return undefined;
     // A router stub without events (unit tests of other behaviour) gets no route guard; Next's router always has them.
     const events = router.events as NextRouter['events'] | undefined;
-    let popping = false; // a back/forward under way: its route change goes through unasked
+    let popping = false; // a confirmed back/forward under way: its route change goes through unasked
 
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!check.current()) return;
@@ -71,7 +69,13 @@ function useLeaveGuard(unsaved: () => boolean, leaveWithout: () => void): void {
       throw new NavigationCancelled();
     };
     const restoreNavigation = quietCancellations(router);
-    router.beforePopState?.(() => { popping = true; return true; });
+    router.beforePopState?.(() => {
+      if (!check.current()) return true;
+      if (!window.confirm(LEAVE_MESSAGE)) return false;
+      giveUp.current();
+      popping = true;
+      return true;
+    });
     window.addEventListener('beforeunload', onBeforeUnload);
     events?.on('routeChangeStart', onRouteChange);
     events?.on('hashChangeStart', onHashChange);

@@ -26,7 +26,7 @@ import { withTransaction } from '@/lib/neon';
 import { checkDocumentCurrency, DocumentCurrencyError, loadCompanyCurrency } from '../shared/documentCurrency';
 import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
 import type { InvoiceLineCoding } from './invoiceLineCoding';
-import { noteDroppedWipLinks, wipLinks, type WipLinkCheck } from './customerInvoiceWipLinks';
+import { releaseDroppedWipLinks, wipLinks, type WipLinkCheck } from './customerInvoiceWipLinks';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveEditCodings } from './customerInvoiceDraftCoding';
 import { invoiceLineAmount, invoiceTotals } from './invoiceLineAmount';
@@ -290,7 +290,7 @@ export async function editDraftCustomerInvoice(
              IS DISTINCT FROM ${ownedRows[0]!.digest ?? null}::TEXT
     `;
 
-    noteDroppedWipLinks(id, wip);
+    await releaseDroppedWipLinks(tx, companyId, id, wip);
     return { kind: 'ok' as const };
   });
 }

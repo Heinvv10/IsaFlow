@@ -51,6 +51,8 @@ async function wipDraft(): Promise<{ id: string; entries: string[] }> {
 }
 const links = async (id: string) => (await pool.query(
   'SELECT description, quantity::TEXT AS quantity, time_entry_id FROM customer_invoice_items WHERE invoice_id = $1 ORDER BY description', [id])).rows;
+const entryState = async (id: string) => (await pool.query(
+  'SELECT status, invoice_id, billed_at FROM time_entries WHERE id = $1', [id])).rows[0];
 const body = (id: string, items: Record<string, unknown>[], extra: Record<string, unknown> = {}) => ({
   id, invoiceDate: '2026-09-01', taxRate: 15, currencyCode: 'ZAR', exchangeRate: 1, items, ...extra,
 });
@@ -129,7 +131,7 @@ describe('a draft PUT and its lines\' WIP links', () => {
     expect((await links(id)).map((l) => l.time_entry_id)).toEqual(entries);
   });
 
-  it('a PUT that leaves links out drops them and warns, with the invoice and the count; one that keeps them does not', async () => {
+  it('a PUT that leaves a link out makes its entry rebillable and warns; one that keeps links does not', async () => {
     const warn = vi.spyOn(log, 'warn');
     try {
       const { id, entries } = await wipDraft();
@@ -145,6 +147,8 @@ describe('a draft PUT and its lines\' WIP links', () => {
       ]));
       expect(res.state.statusCode).toBe(200);
       expect((await links(id)).map((l) => l.time_entry_id)).toEqual([entries[0], null]);
+      expect(await entryState(entries[1]!)).toEqual({ status: 'approved', invoice_id: null, billed_at: null });
+      expect(await entryState(entries[0]!)).toMatchObject({ status: 'billed', invoice_id: id });
       expect(warn).toHaveBeenCalledWith('Draft edit dropped WIP time-entry links', { invoiceId: id, dropped: 1 }, 'customerInvoiceWipLinks');
     } finally {
       warn.mockRestore();
