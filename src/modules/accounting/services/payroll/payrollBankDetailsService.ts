@@ -13,9 +13,9 @@
  * owner / admin is never refused by that rule, so takes no approval lock). The
  * employee lock makes bank-detail writes for one employee one order. The
  * details sent again unchanged write nothing, and that is
- * decided after the role, so a manager's PUT cannot test a guessed number. That
- * is this route only: /api/payroll/duplicates groups on the whole number, so a
- * first entry with the guess confirms it there.
+ * decided after the role, so a manager's PUT cannot test a guessed number.
+ * /api/payroll/duplicates cannot either: it gives a manager no bank-account
+ * groups (owner / admin only; masked in Login-as and token sessions).
  * The account number is masked for everyone but owner / admin.
  * Sessions: the route refuses Login-as and tokens; MCP has no bank-details tool.
  *
