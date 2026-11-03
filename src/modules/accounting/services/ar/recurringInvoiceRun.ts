@@ -183,13 +183,22 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
   return { invoiceId, heldForApproval };
 }
 
+/** Adds calendar months in UTC, clamping to the target month's last day (31 Oct + 1 month = 30 Nov, not 1 Dec). */
+function addMonthsClamped(d: Date, months: number): void {
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, lastDay));
+}
+
 function advanceDate(dateStr: string, frequency: string): string {
   const d = new Date(dateStr);
   switch (frequency) {
-    case 'weekly': d.setDate(d.getDate() + 7); break;
-    case 'monthly': d.setMonth(d.getMonth() + 1); break;
-    case 'quarterly': d.setMonth(d.getMonth() + 3); break;
-    case 'annually': d.setFullYear(d.getFullYear() + 1); break;
+    case 'weekly': d.setUTCDate(d.getUTCDate() + 7); break;
+    case 'monthly': addMonthsClamped(d, 1); break;
+    case 'quarterly': addMonthsClamped(d, 3); break;
+    case 'annually': addMonthsClamped(d, 12); break;
   }
   return d.toISOString().split('T')[0]!;
 }
