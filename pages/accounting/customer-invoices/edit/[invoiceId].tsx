@@ -68,13 +68,17 @@ export default function EditCustomerInvoicePage() {
   const staleRefusal = useRef<string | null>(null); // its sentence, shown once the reload lands
   const staleFor = useRef(''); // the invoice it was about
   // Decided once per load: did the stored total disagree with what the loaded lines price to, and at what pricing?
-  const [pricedAtLoad, setPricedAtLoad] = useState<{ key: string; pricing: string; stale: boolean } | null>(null);
+  // `loadSeq` numbers every load; `loadedKey` is the one whose answer is on screen, set with that answer.
+  const loadSeq = useRef(0);
+  const [loadedKey, setLoadedKey] = useState(0);
+  const [pricedAtLoad, setPricedAtLoad] = useState<{ key: number; pricing: string; stale: boolean } | null>(null);
 
   useEffect(() => {
     if (!invoiceId) return;
     const id = String(invoiceId);
     setLoading(true); setInvoiceNumber(''); setError(''); setErrorStays(false); setApproved(false); // another invoice opened in place starts again
     let gone = false; // another invoice opened (or a reload) since: this load's answer is not shown
+    const thisLoad = ++loadSeq.current;
     // A STALE_VIEW sentence belongs to this load of this invoice only: taken now, whatever the load's outcome.
     const carried = staleFor.current === id ? staleRefusal.current : null;
     staleRefusal.current = null;
@@ -92,7 +96,7 @@ export default function EditCustomerInvoicePage() {
         return;
       }
       setInvoiceNumber(invoice.invoice_number);
-      setLoadedFor(id);
+      setLoadedFor(id); setLoadedKey(thisLoad);
       setStoredTotal(invoice.total_amount === undefined || invoice.total_amount === null ? null : Number(invoice.total_amount));
       setStoredDates({ dueDate: Boolean(invoice.due_date), billingPeriodStart: Boolean(invoice.billing_period_start), billingPeriodEnd: Boolean(invoice.billing_period_end) });
       // Why this load: a STALE_VIEW here (carried in memory across the reload), or Approve & email on the new page.
@@ -151,12 +155,11 @@ export default function EditCustomerInvoicePage() {
   // Stale-priced: the stored total disagreed with the loaded lines AT LOAD, and nothing that prices them has changed
   // since (a user's own price edit is theirs to save, never "stale"). A save clears it (storedTotal null).
   const pricing = JSON.stringify([taxRate, taxMode, lines.map(l => [l.quantity, l.unitPrice, l.discount])]);
-  const loadKey = `${id}:${reloads}`;
-  useEffect(() => {
+  useEffect(() => { // stamped from the render that shows this load's answer, never from an earlier one's data
     if (loading || loadedFor !== id || !invoiceNumber) return;
-    setPricedAtLoad(p => (p?.key === loadKey ? p : { key: loadKey, pricing, stale: storedTotal !== null && !sameCents(storedTotal, total) }));
-  }, [loading, loadedFor, id, invoiceNumber, loadKey, pricing, storedTotal, total]);
-  const stalePriced = storedTotal !== null && pricedAtLoad?.key === loadKey && pricedAtLoad.stale && pricedAtLoad.pricing === pricing;
+    setPricedAtLoad(p => (p?.key === loadedKey ? p : { key: loadedKey, pricing, stale: storedTotal !== null && !sameCents(storedTotal, total) }));
+  }, [loading, loadedFor, id, invoiceNumber, loadedKey, pricing, storedTotal, total]);
+  const stalePriced = storedTotal !== null && pricedAtLoad?.key === loadedKey && pricedAtLoad.stale && pricedAtLoad.pricing === pricing;
   const money = (n: number) => formatCurrencyAmount(n, form.currencyCode);
   const approve = useApproveAndEmail({
     save: async () => {
