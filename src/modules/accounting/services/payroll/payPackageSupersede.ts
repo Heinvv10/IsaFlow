@@ -14,6 +14,21 @@ import { legacyFlips, legacyLeaverSuccessorLost, type Sibling } from './payrollC
 
 const isoDate = (v: unknown): string => fmtDate(v);
 
+/** The last day of an ISO date's month: the close the package gives its own once-off rows. */
+function endOfMonth(iso: string): string {
+  const [y, m] = iso.split('-').map(Number) as [number, number];
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+}
+
+/** The amounts of this package's once-off lines for the component: what its own earlier rows were written with. */
+async function ownOnceOffAmounts(tx: TxSql, packageId: string, componentId: string): Promise<Set<number>> {
+  const lines = (await tx`
+    SELECT amount FROM pay_package_components
+     WHERE package_id = ${packageId}::uuid AND component_id = ${componentId}::uuid AND is_recurring = false
+  `) as DbRow[];
+  return new Set(lines.map((l) => Number(l.amount)));
+}
+
 /** The calendar day before an ISO date, without a zone. */
 function dayBefore(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
@@ -60,14 +75,26 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   // row and leave two overlapping windows — getEmployeeComponents returns
   // both and the run pays the component twice.
   const all = (await tx`
-    SELECT id, effective_from, effective_to, is_recurring, superseded_at, supersede_inferred,
+    SELECT id, amount, effective_from, effective_to, is_recurring, superseded_at, supersede_inferred,
            (SELECT end_date FROM payroll_employees WHERE id = employee_id) AS employee_end
       FROM payroll_employee_components
      WHERE employee_id = ${employeeId}::uuid
        AND component_id = ${componentId}::uuid
      ORDER BY id FOR UPDATE
   `) as DbRow[];
-  const toCut = all.filter((row) => row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom);
+  const overlapped = all.filter((row) => row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom);
+  // A recurring row is the package's to replace. A once-off is only if the package wrote it (a re-apply); one entered
+  // by hand (a back-pay) is not: the apply is refused, with nothing written, rather than cancel it silently.
+  const ownAmounts = await ownOnceOffAmounts(tx, packageId, componentId);
+  const isOwn = (row: DbRow) => ownAmounts.has(Number(row.amount)) && isoDate(row.effective_to) === endOfMonth(isoDate(row.effective_from));
+  const handEntered = overlapped.filter((row) => row.is_recurring === false && !isOwn(row));
+  if (handEntered.length > 0) {
+    const named = handEntered.map((row) => `${isoDate(row.effective_from)} to ${row.effective_to ? isoDate(row.effective_to) : 'open-ended'} (R${Number(row.amount).toFixed(2)})`);
+    throw new EmployeeComponentRefused(
+      `Applying this package from ${effectiveFrom} would cancel ${handEntered.length === 1 ? 'a hand-entered once-off' : 'hand-entered once-offs'} `
+      + `of this component: ${named.join(', ')}. End or move ${handEntered.length === 1 ? 'it' : 'them'} first, or apply the package from a later date.`);
+  }
+  const toCut = overlapped;
   // Never cut what a paid run read: that run would no longer agree with the rows (security review, 2026-11-02).
   for (const row of toCut) {
     const changed = paidPeriodChanged(paid, windowOf(row), { ...windowOf(row), to: cutTo });

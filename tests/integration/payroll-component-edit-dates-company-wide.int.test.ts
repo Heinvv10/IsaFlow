@@ -81,7 +81,6 @@ beforeAll(async () => {
   const salaryComponent = String((await pool.query('SELECT component_id FROM payroll_employee_components WHERE id=$1', [salaryRow])).rows[0]!.component_id);
   await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,'Bonus','3605','earning')", [bonus, company]);
   await pool.query("INSERT INTO pay_packages(id,company_id,code,name) VALUES($1,$2,'CW-PKG','Company-wide package')", [pkg, company]);
-  await pool.query('INSERT INTO pay_package_components(package_id,component_id,amount,is_recurring) VALUES($1,$2,900,true)', [pkg, bonus]);
 
   await add('inRunOnceOff', inRun, bonus, '2026-02-10', '2026-02-28', false);
   // February is approved through the real routes; January is a paid month from before migration 953.
@@ -111,10 +110,12 @@ beforeAll(async () => {
     await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,$3,'3605','earning')", [comp[key], company, name]);
     await add(key, outsider, comp[key], from, to, recurring);
   }
-  for (const name of ['assignable', 'batchable']) {
+  for (const name of ['assignable', 'batchable', 'packaged']) {
     comp[name] = crypto.randomUUID();
     await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,$3,'3605','earning')", [comp[name], company, name]);
   }
+  // The package's component is one the hire holds nothing hand-entered of (a hand-entered once-off is not the apply's to cancel).
+  await pool.query('INSERT INTO pay_package_components(package_id,component_id,amount,is_recurring) VALUES($1,$2,900,true)', [pkg, comp.packaged]);
 });
 
 afterAll(async () => {

@@ -142,8 +142,9 @@ describe("the writers wait for the company's payroll-approval lock", () => {
     await waitsForLock(() => assignComponentToEmployee(company, emp.weekly!, comp.bonus, 50, '2026-12-03', undefined, false, actor()));
   });
 
+  // From after the hand-entered December once-off above: an apply never cancels one of those (it is refused).
   it('pay package apply', async () => {
-    await waitsForLock(() => applyPackageToEmployee(company, pkg, emp.weekly!, '2026-12-10', user));
+    await waitsForLock(() => applyPackageToEmployee(company, pkg, emp.weekly!, '2027-01-01', user));
   });
 
   it('batch post', async () => {
