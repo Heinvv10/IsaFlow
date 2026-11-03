@@ -132,4 +132,17 @@ describe('an approved slice is frozen to driver recomputes', () => {
     }));
     expect(out).toEqual({ intoA: 'ok', intoB: 'BV003' });
   });
+
+  it('REPRO 7: resetting a driver override inside a slice with its reviewer is 409 BUDGET_SLICE_LOCKED and writes nothing', async () => {
+    const { v } = await setup(false);
+    // The owner overrides COGS/CC2 month 0 (their own cell, the reviewer path opens CC2), then clears the override.
+    const o = await fx.call.save(w.u, v, [{ glAccountId: w.cogs, cc1Id: null, cc2Id: w.cc2, buId: null, month: w.months[0], amount: 999 }]);
+    expect(o.status, dump(o)).toBe(200);
+    const before = await fx.state(v);
+    const r = await fx.call.save(w.u, v, [{ glAccountId: w.cogs, cc1Id: null, cc2Id: w.cc2, buId: null, month: w.months[0], amount: null, clear: true }]);
+    expect([r.status, (r.body.error as { details?: { code?: string } })?.details?.code], dump(r)).toEqual([409, 'BUDGET_SLICE_LOCKED']);
+    expect(String(r.body.error?.message)).toMatch(/Return the slice first/);
+    expect(await fx.state(v)).toEqual(before);
+    expect(await at(v, w.cogs, { cc2: w.cc2 }, w.months[0]!)).toBe('999.00');
+  });
 });

@@ -21,6 +21,7 @@ import { dataOf, type RouteOut } from './helpers/budgetDriverRouteFixture';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 import sliceRoute from '../../pages/api/accounting/budgets/slices/[id]/[action]';
+import { runBudgetRolls } from '@/modules/accounting/services/budgets/drivers/budgetRollJob';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -117,6 +118,38 @@ describe('the forecast roll and slices', { timeout: 60000 }, () => {
     expect((await values(rf, w.sales))[0]).toBe('1200.00:actual');
     expect((await pool.query('SELECT slice_skipped, slice_skipped_slices FROM budget_rolling_forecasts WHERE version_id = $1', [rf])).rows[0])
       .toEqual({ slice_skipped: 0, slice_skipped_slices: [] });
+  });
+});
+
+describe('a holder\'s auto roll (their close set it off)', { timeout: 60000 }, () => {
+  it('counts the cells outside their slices apart from cells in slices under review, and keeps the month stale', async () => {
+    const w = await fx.world();
+    rollCos.push(w.u.homeCompanyId);
+    const m = w.months;
+    const source = await fx.version(w);
+    for (const month of m) await fx.amount(w, source, w.sales, month, 1000);
+    await fx.journal(w, `${m[0]}-15`, [[w.sales, 0, 1200]]);
+    const r = await fx.call.reforecast(w.u, source, 'POST', { name: 'Rolling', rolling: true });
+    expect(r.status, dump(r)).toBe(201);
+    const rf = dataOf<{ version: { id: string } }>(r).version.id;
+    const holder = await fx.member(w.u.homeCompanyId, 'manager');
+    // The holder holds CC1 only; the reforecast's cells are company level: not theirs.
+    await pool.query(`INSERT INTO budget_holders (company_id, version_id, user_id, cc1_id, created_by) VALUES ($1, $2, $3, $4, 'x')`, [w.u.homeCompanyId, rf, holder.userId, w.cc1]);
+    await pool.query(`INSERT INTO budget_slice_reviews (company_id, version_id, cc1_id, created_by) VALUES ($1, $2, $3, 'x')`, [w.u.homeCompanyId, rf, w.cc1]);
+    await pool.query(`UPDATE fiscal_periods SET status = 'closed' WHERE id = $1`, [w.periods.get(m[0]!)]);
+    const end = (await pool.query(`SELECT end_date::text e FROM fiscal_periods WHERE id = $1`, [w.periods.get(m[0]!)])).rows[0].e;
+    await runBudgetRolls({ userId: holder.userId, companyId: w.u.homeCompanyId, claims: { sub: holder.userId } }, [end]);
+    const row = (await pool.query(
+      'SELECT rolled_through_month, slice_skipped, slice_outside_skipped FROM budget_rolling_forecasts WHERE version_id = $1', [rf])).rows[0];
+    expect(row.rolled_through_month).toBeNull();
+    expect(row.slice_skipped).toBe(0);
+    expect(row.slice_outside_skipped).toBeGreaterThan(0);
+    const status = await fx.call.reforecast(w.u, rf, 'GET');
+    expect(dataOf(status), dump(status)).toMatchObject({ sliceSkipped: 0, outsideSkipped: row.slice_outside_skipped });
+    // The roll's role (app_user) and the service pool's (isaflow_service → app_service) can write the counts.
+    const grants = (await pool.query(`SELECT r, has_column_privilege(r, 'budget_rolling_forecasts', c, 'UPDATE') ok
+      FROM unnest(ARRAY['app_user', 'isaflow_service']) r, unnest(ARRAY['slice_skipped', 'slice_outside_skipped', 'slice_skipped_slices']) c`)).rows;
+    expect(grants.every((g) => g.ok), JSON.stringify(grants)).toBe(true);
   });
 });
 

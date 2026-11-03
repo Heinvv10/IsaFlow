@@ -59,12 +59,14 @@ export interface RollOutcome {
   /** P5-6: planned cells left as they are (a slice with its reviewer; outside a holder's slices), and those slices. */
   sliceSkipped?: number;
   sliceSkippedSlices?: string[];
+  /** P5-6: planned cells outside the slices of a holder whose close set the roll off (their roll is confined). */
+  outsideSkipped?: number;
 }
 
 export interface RollingRow {
   fiscalYear: number; rolledThrough: string | null; lastRolledAt: string | null; lastError: string | null;
-  /** P5-6: cells the last roll left (slices with their reviewer) and those slices; 0 / [] when none. */
-  sliceSkipped: number; sliceSkippedSlices: string[];
+  /** P5-6: cells the last roll left in slices with their reviewer (and those slices), and outside a holder roller's slices. */
+  sliceSkipped: number; sliceSkippedSlices: string[]; outsideSkipped: number;
 }
 
 const VERSION_LOCKED = 'version locked';
@@ -100,12 +102,14 @@ class NothingRolled extends Error {
  * (those months stay stale, so the next roll retries them; the rest re-rolls idempotently) and
  * records what it left.
  */
-async function markRolled(companyId: string, versionId: string, through: string | null, left: { cells: number; slices: string[] }): Promise<void> {
+async function markRolled(
+  companyId: string, versionId: string, through: string | null, left: { cells: number; outside: number; slices: string[] },
+): Promise<void> {
   await sql`
     UPDATE budget_rolling_forecasts
-       SET rolled_through_month = CASE WHEN ${left.cells}::INT > 0 THEN rolled_through_month
+       SET rolled_through_month = CASE WHEN ${left.cells + left.outside}::INT > 0 THEN rolled_through_month
                                        ELSE ${through === null ? null : monthKeyToDate(through)}::DATE END,
-           slice_skipped = ${left.cells}::INT, slice_skipped_slices = ${left.slices}::TEXT[],
+           slice_skipped = ${left.cells}::INT, slice_outside_skipped = ${left.outside}::INT, slice_skipped_slices = ${left.slices}::TEXT[],
            last_rolled_at = now(), last_error = NULL
      WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
   `;
@@ -122,7 +126,7 @@ const versionToken = async (companyId: string, versionId: string): Promise<strin
 
 export async function rollingRow(companyId: string, versionId: string): Promise<RollingRow | null> {
   const rows = (await sql`
-    SELECT fiscal_year, to_char(rolled_through_month, 'YYYY-MM') AS through, last_error, slice_skipped, slice_skipped_slices,
+    SELECT fiscal_year, to_char(rolled_through_month, 'YYYY-MM') AS through, last_error, slice_skipped, slice_outside_skipped, slice_skipped_slices,
            to_char(last_rolled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS rolled_at
       FROM budget_rolling_forecasts WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
   `) as DbRow[];
@@ -131,7 +135,7 @@ export async function rollingRow(companyId: string, versionId: string): Promise<
   const text = (v: unknown) => (v === null || v === undefined ? null : String(v));
   return {
     fiscalYear: Number(r.fiscal_year), rolledThrough: text(r.through), lastRolledAt: text(r.rolled_at), lastError: text(r.last_error),
-    sliceSkipped: Number(r.slice_skipped ?? 0), sliceSkippedSlices: Array.isArray(r.slice_skipped_slices) ? (r.slice_skipped_slices as unknown[]).map(String) : [],
+    sliceSkipped: Number(r.slice_skipped ?? 0), outsideSkipped: Number(r.slice_outside_skipped ?? 0), sliceSkippedSlices: Array.isArray(r.slice_skipped_slices) ? (r.slice_skipped_slices as unknown[]).map(String) : [],
   };
 }
 
@@ -179,19 +183,20 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       const status = String(((await sql`SELECT status FROM budget_versions WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[])[0]?.status);
       const rollable = rollableCells(plan.cells, scope, status);
       const changed = await writePlannedCells(companyId, id, userId, rollable.cells);
-      const left = { cells: rollable.skipped, slices: await sliceKeyLabels(companyId, rollable.slices) };
+      const left = { cells: rollable.locked, outside: rollable.outside, slices: await sliceKeyLabels(companyId, rollable.slices) };
       // Left cells keep the month stale (markRolled): the outcome names the month the row keeps.
       const through = rollable.skipped > 0 ? (row?.rolledThrough ?? null) : closed.length > 0 ? closed[closed.length - 1]! : null;
       const unplaced = describeUnplaced(plan, read);
       const outcome = {
         status: 'rolled' as const, changed, closedMonths: closed, rolledThroughMonth: through, unplaced, warnings, headcountAsOf,
-        sliceSkipped: left.cells, sliceSkippedSlices: left.slices,
+        sliceSkipped: left.cells, outsideSkipped: left.outside, sliceSkippedSlices: left.slices,
       };
       if (changed === 0) throw new NothingRolled(outcome);
       await markRolled(companyId, id, through, left);
       await auditBudgetWrite(companyId, userId, 'update', id, fy, {
         rolled: mode === 'auto' ? 'auto' : 'roll_now', closedMonths: closed.join(',') || 'none', cells: String(changed),
-        unplaced: unplacedSummary(unplaced), headcountAsOf: headcountAsOf ?? 'none', sliceSkipped: String(rollable.skipped),
+        unplaced: unplacedSummary(unplaced), headcountAsOf: headcountAsOf ?? 'none', sliceSkipped: String(rollable.locked),
+        outsideSkipped: String(rollable.outside),
       });
       log.info('Rolled budget forecast', { companyId, versionId: id, mode: mode === 'auto' ? 'auto' : 'roll_now', changed, through }, 'accounting');
       return { ...outcome, updatedAt: await versionToken(companyId, id) } satisfies RollOutcome;
@@ -203,7 +208,8 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
     }
     if (err instanceof NothingRolled) {
       // The savepoint (the version lock's token bump included) is rolled back: only the rolling row moves.
-      await markRolled(companyId, id, err.outcome.rolledThroughMonth, { cells: err.outcome.sliceSkipped ?? 0, slices: err.outcome.sliceSkippedSlices ?? [] });
+      await markRolled(companyId, id, err.outcome.rolledThroughMonth,
+        { cells: err.outcome.sliceSkipped ?? 0, outside: err.outcome.outsideSkipped ?? 0, slices: err.outcome.sliceSkippedSlices ?? [] });
       log.info('Rolled budget forecast: nothing changed', { companyId, versionId: id, mode: mode === 'auto' ? 'auto' : 'roll_now' }, 'accounting');
       // Roll now: the client's token, which the CAS proved current (the bump was rolled back), in P1's form.
       return { ...err.outcome, updatedAt: mode === 'auto' ? await versionToken(companyId, id) : await canonicalToken(mode.expectedUpdatedAt) };

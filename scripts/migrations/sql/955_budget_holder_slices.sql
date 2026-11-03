@@ -46,9 +46,11 @@
 --      forces it (budget_version_force_begin; the GUC re-checked by role here)
 --      (BV004 / BV006). An owner or admin approving slices and then the version
 --      themselves is allowed (self-approval is audited, not refused).
---   5. budget_rolling_forecasts += slice_skipped, slice_skipped_slices: what the
---      last roll left unrolled in slices with their reviewer (the roll does not
---      advance rolled_through_month then; rollingStatus shows them).
+--   5. budget_rolling_forecasts += slice_skipped, slice_outside_skipped,
+--      slice_skipped_slices: what the last roll left (slices with their reviewer;
+--      outside a holder's slices). The roll does not advance rolled_through_month
+--      then; rollingStatus shows them. A slice approved and staying approved keeps
+--      its months stale until the next roll after a period close (by design).
 --   With no session user (the service pool's cron, a migration, a QA purge) the
 --   role checks do not apply (the server code decides, as 954's stamps): BY DESIGN
 --   such a caller also passes the version gate (4) (no request ever lacks claims;
@@ -364,10 +366,16 @@ CREATE TRIGGER trg_budget_planned_hires_slice_guard BEFORE INSERT OR UPDATE OR D
 ALTER TABLE budget_planned_hires ENABLE ALWAYS TRIGGER trg_budget_planned_hires_slice_guard;
 
 -- ── 5. What a roll left unrolled in slices with their reviewer ──────────────
+-- slice_skipped: cells in slices with their reviewer; slice_outside_skipped: cells outside the slices of
+-- a holder whose close set the roll off (their auto roll is confined to their slices).
 ALTER TABLE budget_rolling_forecasts
   ADD COLUMN IF NOT EXISTS slice_skipped INT NOT NULL DEFAULT 0 CHECK (slice_skipped >= 0),
+  ADD COLUMN IF NOT EXISTS slice_outside_skipped INT NOT NULL DEFAULT 0 CHECK (slice_outside_skipped >= 0),
   ADD COLUMN IF NOT EXISTS slice_skipped_slices TEXT[] NOT NULL DEFAULT '{}';
-GRANT UPDATE (slice_skipped, slice_skipped_slices) ON budget_rolling_forecasts TO app_user;
+-- The roll runs as app_user with the closer's claims (budgetRollJob) or in the request (Roll now); there
+-- is no service-pool roll path. app_service already holds UPDATE on the whole table (348's default
+-- privileges), so the new columns are writable there too; budgets-p5-r3-writers pins both.
+GRANT UPDATE (slice_skipped, slice_outside_skipped, slice_skipped_slices) ON budget_rolling_forecasts TO app_user;
 
 -- ── 2. budget_holders: who assigns, who may hold ────────────────────────────
 CREATE OR REPLACE FUNCTION public.budget_holders_rules()

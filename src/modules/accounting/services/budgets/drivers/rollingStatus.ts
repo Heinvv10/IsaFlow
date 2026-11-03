@@ -37,6 +37,8 @@ export interface RollingStatus {
   /** P5-6: cells the last roll left because their slice is with its reviewer (0 when none), and those slices. */
   sliceSkipped: number;
   sliceSkippedSlices: string[];
+  /** P5-6: cells the last roll left outside the slices of the holder whose close set it off. */
+  outsideSkipped: number;
 }
 
 /** Another company's version is a 404. Sequential reads (withAuth binds one client). */
@@ -68,5 +70,6 @@ export async function rollingStatus(companyId: string, versionId: string): Promi
     lastError: row?.lastError ?? null,
     sliceSkipped: row?.sliceSkipped ?? 0,
     sliceSkippedSlices: row?.sliceSkippedSlices ?? [],
+    outsideSkipped: row?.outsideSkipped ?? 0,
   };
 }

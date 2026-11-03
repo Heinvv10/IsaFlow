@@ -34,7 +34,7 @@ import { auditBudgetWrite, holdYearRegistry } from './budgetVersionScope';
 import { BudgetVersionError, mapBudgetDbError } from './budgetVersionTypes';
 import { inputError } from './gridErrors';
 import { takeVersion } from './versionTake';
-import { assertSliceWrites, beginSliceReview, driverSliceGuard, loadHolderScope } from './holderScope';
+import { assertNoFrozenReset, assertSliceWrites, beginSliceReview, driverSliceGuard, loadHolderScope } from './holderScope';
 import {
   cellsTypedOverDrivers, clearedDriverCells, deleteCells, firstClosedMonthCell, markOverrides, versionSum, writeCells,
 } from './gridSaveWrite';
@@ -126,6 +126,7 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
   const twoGrains = accountWithTwoGrains(batch.upserts);
   if (twoGrains) throw grainClash(labels.get(twoGrains)!);
   const cleared = await assertDriverCells(companyId, versionId, batch, labels, months);
+  assertNoFrozenReset(holders, version.status, cleared.resetRows, (a) => labels.get(a) ?? a);
 
   const sumBefore = await versionSum(companyId, versionId);
   const deleted = await deleteCells(companyId, versionId, batch.deletes);

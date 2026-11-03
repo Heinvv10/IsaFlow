@@ -160,22 +160,23 @@ export function driverRowRefusal(scope: HolderScope, versionStatus: string, revi
  */
 export function rollableCells(
   cells: ReadonlyMap<RowKey, readonly Cell[]>, scope: HolderScope, versionStatus: string,
-): { cells: Map<RowKey, Cell[]>; skipped: number; slices: SliceKey[] } {
+): { cells: Map<RowKey, Cell[]>; skipped: number; locked: number; outside: number; slices: SliceKey[] } {
   const out = new Map<RowKey, Cell[]>();
   const slices: SliceKey[] = [];
-  let skipped = 0;
+  let locked = 0;
+  let outside = 0;
   for (const [key, list] of cells) {
     const slice = parseKey(`${key}|2000-01`);
-    const locked = versionStatus === 'draft' && isLockedStatus(scope.reviews.find((r) => sameSlice(r, slice))?.status ?? null);
-    const outside = isHolder(scope) && sliceOf(scope.slices, slice) === null;
-    if (locked || outside) {
-      skipped += list.length;
+    // Under review first (it is frozen whoever rolls); then, for a holder, not theirs.
+    if (versionStatus === 'draft' && isLockedStatus(scope.reviews.find((r) => sameSlice(r, slice))?.status ?? null)) {
+      locked += list.length;
       if (!slices.some((x) => sameSlice(x, slice))) slices.push({ cc1Id: slice.cc1Id, cc2Id: slice.cc2Id, buId: slice.buId });
       continue;
     }
+    if (isHolder(scope) && sliceOf(scope.slices, slice) === null) { outside += list.length; continue; }
     out.set(key, [...list]);
   }
-  return { cells: out, skipped, slices };
+  return { cells: out, skipped: locked + outside, locked, outside, slices };
 }
 
 /** "CC1 OPS Operations", "BU …", "Company level" for slices of the company (codes and names). */
@@ -205,4 +206,20 @@ export async function beginReviewForOwner(companyId: string, versionIds: readonl
                      AND cu.role IN ('owner', 'admin'))
   `) as DbRow[];
   for (const r of rows) await sql`SELECT public.budget_slice_review_begin(${companyId}::UUID, ${String(r.id)}::UUID)`;
+}
+
+/**
+ * A driver-override reset (a clear the recompute is meant to refill) in a slice with its reviewer
+ * would leave the cell EMPTY: the slice is frozen to recomputes (r5, breaker REPRO 7). Refused up
+ * front, for everyone: 409 BUDGET_SLICE_LOCKED, return the slice first.
+ */
+export function assertNoFrozenReset(scope: HolderScope, versionStatus: string, rows: Iterable<string>, label: (accountId: string) => string): void {
+  if (versionStatus !== 'draft') return;
+  for (const row of rows) {
+    const cell = parseKey(`${row}|2000-01`);
+    if (isLockedStatus(scope.reviews.find((r) => sameSlice(r, cell))?.status ?? null)) {
+      throw new BudgetVersionError('BUDGET_SLICE_LOCKED',
+        `Resetting the driver override on ${label(cell.glAccountId)} would leave it empty: its slice is under review and its drivers are frozen. Return the slice first`);
+    }
+  }
 }
