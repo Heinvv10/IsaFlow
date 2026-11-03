@@ -7,6 +7,7 @@
 import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
+import { endOfMonthIso } from './leaveAccrualService';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import { paidNote, paidPeriodChanged, paidRemedy, periodLabel, windowOf, type PaidPeriod } from './payrollComponentPaidMonths';
@@ -15,10 +16,7 @@ import { legacyFlips, legacyLeaverSuccessorLost, type Sibling } from './payrollC
 const isoDate = (v: unknown): string => fmtDate(v);
 
 /** The last day of an ISO date's month: the close the package gives its own once-off rows. */
-function endOfMonth(iso: string): string {
-  const [y, m] = iso.split('-').map(Number) as [number, number];
-  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-}
+const endOfMonth = (iso: string): string => endOfMonthIso(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)));
 
 /** The amounts of this package's once-off lines for the component: what its own earlier rows were written with. */
 async function ownOnceOffAmounts(tx: TxSql, packageId: string, componentId: string): Promise<Set<number>> {
@@ -89,7 +87,7 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   const isOwn = (row: DbRow) => ownAmounts.has(Number(row.amount)) && isoDate(row.effective_to) === endOfMonth(isoDate(row.effective_from));
   const handEntered = overlapped.filter((row) => row.is_recurring === false && !isOwn(row));
   if (handEntered.length > 0) {
-    const named = handEntered.map((row) => `${isoDate(row.effective_from)} to ${row.effective_to ? isoDate(row.effective_to) : 'open-ended'} (R${Number(row.amount).toFixed(2)})`);
+    const named = handEntered.map((row) => `${isoDate(row.effective_from)} to ${row.effective_to ? isoDate(row.effective_to) : 'open-ended'}, amount ${Number(row.amount).toFixed(2)}`);
     throw new EmployeeComponentRefused(
       `Applying this package from ${effectiveFrom} would cancel ${handEntered.length === 1 ? 'a hand-entered once-off' : 'hand-entered once-offs'} `
       + `of this component: ${named.join(', ')}. End or move ${handEntered.length === 1 ? 'it' : 'them'} first, or apply the package from a later date.`);
