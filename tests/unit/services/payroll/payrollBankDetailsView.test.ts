@@ -1,5 +1,6 @@
-// Wave 3 K1: GET bank details masks the account number, branch code and holder for anyone but owner / admin, so a
-// manager walking employees cannot match two of them to one account by the unmasked fields. Bank name stays.
+// Wave 3 K1: GET bank details masks the account number, branch code and holder for anyone but owner / admin. Bank name
+// stays. The masks make it harder, not impossible, for a manager walking employees to match two of them to one account
+// (bank name + last two can give a universal branch code; last four + bank + type + initial can still match).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 let rows: unknown[] = [];

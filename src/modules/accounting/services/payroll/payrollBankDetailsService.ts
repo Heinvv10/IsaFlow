@@ -18,6 +18,7 @@
  * groups (owner / admin only; masked in Login-as and token sessions).
  * The account number (last four), branch code (last two) and holder (first
  * letter) are masked for everyone but owner / admin; the bank name is not.
+ * The masks reduce, not prevent, matching two employees to one account.
  * Sessions: the route refuses Login-as and tokens; MCP has no bank-details tool.
  *
  * Every refusal is raised before the first write (a 4xx commits the request).
@@ -112,7 +113,9 @@ function toView(row: BankRow, role: string | undefined): EmployeeBankDetails {
     accountNumber: full ? row.account_number : String(maskValue(row.account_number)),
     masked: !full,
     accountType: row.account_type,
-    // Branch code to its last two, holder to its first letter: two employees on one account do not show it (as the history).
+    // Branch code to its last two, holder to its first letter (as the history). That reduces, not prevents, matching
+    // employees to one account: bank name + last two can give a universal branch code, and last four + bank + type +
+    // initial can still match.
     branchCode: full ? row.branch_code : String(maskLastTwo(row.branch_code)),
     accountHolder: full ? row.account_holder : (maskInitial(row.account_holder) as string | null),
     effectiveFrom: row.effective_from,

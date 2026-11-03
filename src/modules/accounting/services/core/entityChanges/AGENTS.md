@@ -37,7 +37,7 @@ capture to call and none to forget.
 - Reading: suppliers / customers / GL accounts any member; payroll employees and their bank details owner / admin /
   manager; everything else and the company-wide feed owner / admin. Masked for everyone (last four): bank account, ID / passport / tax /
   UIF / PAYE / SDL numbers (`SENSITIVE_FIELDS`); employee bank details also mask `branch_code` (last two) and
-  `account_holder` (first letter) (`FIELD_MASKS`), all revealed together; MCP never reveals, needs `read:payroll` for employees and bank details and
+  `account_holder` (first letter; two characters or fewer hidden) (`FIELD_MASKS`), all revealed together; this reduces, not prevents, matching employees to one account; MCP never reveals, needs `read:payroll` for employees and bank details and
   `read:contacts` for suppliers / customers (as their list tools).
 - Append-only for every role (grant: app_user SELECT only; triggers refuse UPDATE / DELETE / TRUNCATE and any
   direct INSERT). Retention: until the company is purged (the FK cascade, 877's recipe). A deleted entity keeps
