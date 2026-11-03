@@ -83,8 +83,8 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, shown
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState('');
   const [sent, setSent] = useState(false);
-  const sentNow = useRef(false);
-  const run = useRef(0); // each Approve & email; a dismissal moves it on, so an answer for the old one is ignored // read when a navigation fails, after the render that knew about the send
+  const sentNow = useRef(false); // read when a navigation fails, after the render that knew about the send
+  const run = useRef(0); // each Approve & email; a dismissal moves it on, so an answer for the old one is ignored
   const markSent = (v: boolean) => { sentNow.current = v; setSent(v); };
   const [drifted, setDrifted] = useState(false);
 

@@ -46,6 +46,7 @@ export function linesFromStoredItems(items: InvoiceItemRow[], projectId: string)
       buId: it.bu_id ?? '',
       cc1Id: it.cc1_id ?? null,
       cc2AtLoad: it.cc2_id ?? '',
+      timeEntryId: it.time_entry_id ?? null,
     };
   }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId }];
 }

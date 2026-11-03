@@ -66,13 +66,18 @@ export default function EditCustomerInvoicePage() {
   const [storedTotal, setStoredTotal] = useState<number | null>(null);
   const [reloads, setReloads] = useState(0); // a STALE_VIEW refusal reloads what is stored
   const staleRefusal = useRef<string | null>(null); // its sentence, shown once the reload lands
-  const [wipLinked, setWipLinked] = useState(false); // lines carry WIP time-entry links, which a reprice drops
+  const staleFor = useRef(''); // the invoice it was about
+  // Decided once per load: did the stored total disagree with what the loaded lines price to, and at what pricing?
+  const [pricedAtLoad, setPricedAtLoad] = useState<{ key: string; pricing: string; stale: boolean } | null>(null);
 
   useEffect(() => {
     if (!invoiceId) return;
     const id = String(invoiceId);
     setLoading(true); setInvoiceNumber(''); setError(''); setErrorStays(false); setApproved(false); // another invoice opened in place starts again
     let gone = false; // another invoice opened (or a reload) since: this load's answer is not shown
+    // A STALE_VIEW sentence belongs to this load of this invoice only: taken now, whatever the load's outcome.
+    const carried = staleFor.current === id ? staleRefusal.current : null;
+    staleRefusal.current = null;
     void invoiceSavesSettled(id).then(() => Promise.all([ // a save of this invoice still out (sent as a page closed) lands first
       apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load currencies - try again'); return r.json(); }),
       apiFetch(`/api/accounting/customer-invoices-detail?id=${id}`, { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load the invoice - try again'); return r.json(); }),
@@ -89,11 +94,9 @@ export default function EditCustomerInvoicePage() {
       setInvoiceNumber(invoice.invoice_number);
       setLoadedFor(id);
       setStoredTotal(invoice.total_amount === undefined || invoice.total_amount === null ? null : Number(invoice.total_amount));
-      setWipLinked((invoice.items ?? []).some((it) => Boolean(it.time_entry_id)));
       setStoredDates({ dueDate: Boolean(invoice.due_date), billingPeriodStart: Boolean(invoice.billing_period_start), billingPeriodEnd: Boolean(invoice.billing_period_end) });
       // Why this load: a STALE_VIEW here (carried in memory across the reload), or Approve & email on the new page.
-      const refusal = staleRefusal.current ? { message: staleRefusal.current, status: null } : takeApproveRefusal(id);
-      staleRefusal.current = null;
+      const refusal = carried ? { message: carried, status: null } : takeApproveRefusal(id);
       if (refusal) { setError(refusal.message); setErrorStays(refusal.status === 409); }
       // No VAT at rate 0 prices exactly as Excluding VAT at rate 0, and says what the invoice is. The form keeps the
       // standard rate behind it, as the new page does, so leaving No VAT does not leave a rate of 0.
@@ -145,7 +148,15 @@ export default function EditCustomerInvoicePage() {
   // A stored total the lines no longer price to (a quote converted at 0%, a WIP draft rounded per line): never re-saved
   // unasked (that reprices, drops WIP links, stales an approval and makes the clicker an author). Both figures show,
   // and Approve & email refuses until the user saves or approves the stored figure from the invoice page.
-  const stalePriced = storedTotal !== null && !sameCents(storedTotal, total);
+  // Stale-priced: the stored total disagreed with the loaded lines AT LOAD, and nothing that prices them has changed
+  // since (a user's own price edit is theirs to save, never "stale"). A save clears it (storedTotal null).
+  const pricing = JSON.stringify([taxRate, taxMode, lines.map(l => [l.quantity, l.unitPrice, l.discount])]);
+  const loadKey = `${id}:${reloads}`;
+  useEffect(() => {
+    if (loading || loadedFor !== id || !invoiceNumber) return;
+    setPricedAtLoad(p => (p?.key === loadKey ? p : { key: loadKey, pricing, stale: storedTotal !== null && !sameCents(storedTotal, total) }));
+  }, [loading, loadedFor, id, invoiceNumber, loadKey, pricing, storedTotal, total]);
+  const stalePriced = storedTotal !== null && pricedAtLoad?.key === loadKey && pricedAtLoad.stale && pricedAtLoad.pricing === pricing;
   const money = (n: number) => formatCurrencyAmount(n, form.currencyCode);
   const approve = useApproveAndEmail({
     save: async () => {
@@ -156,7 +167,7 @@ export default function EditCustomerInvoicePage() {
       return (await saveDraft(false)) ? { id, invoiceNumber } : null;
     },
     onRefused: (_id, message, status, reason) => {
-      if (reason === 'STALE_VIEW') { staleRefusal.current = message; setReloads(n => n + 1); return; } // show what is stored, and why
+      if (reason === 'STALE_VIEW') { staleRefusal.current = message; staleFor.current = id; setReloads(n => n + 1); return; } // show what is stored, and why
       setError(message); setErrorStays(status === 409);
     },
     onApproved: () => setApproved(true),
@@ -250,7 +261,7 @@ export default function EditCustomerInvoicePage() {
 
             <div className="lg:sticky lg:top-6 space-y-4">
               <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
-                {stalePriced && storedTotal !== null && <p className="mt-3 text-xs text-amber-800 dark:text-amber-300">Stored total {money(storedTotal)}; these lines price to {money(total)}. Save Changes reprices the invoice{wipLinked ? ' and drops its links to time entries' : ''}.</p>}
+                {stalePriced && storedTotal !== null && <p className="mt-3 text-xs text-amber-800 dark:text-amber-300">Stored total {money(storedTotal)}; these lines price to {money(total)}. Save Changes reprices the invoice.</p>}
                 <InvoiceAutosaveStatus where="server" state={autosave.state} savedAt={autosave.savedAt} error={autosave.error} held={autosave.held} />
                 <button onClick={handleSubmit} disabled={submitting || approve.busy || approved || (customer.pending && form.clientId !== loadedClient)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}

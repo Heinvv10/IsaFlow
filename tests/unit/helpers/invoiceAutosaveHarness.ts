@@ -22,7 +22,7 @@ export function routerEvents() {
 
 export const DRAFT = {
   id: 'inv-1', invoice_number: 'INV-AUTO', status: 'draft', client_id: 'c-1', invoice_date: '2026-09-15', due_date: '2026-10-15',
-  tax_rate: 15, notes: '', currency_code: 'ZAR', exchange_rate: 1, client_email: 'billing@client.example', approval: null,
+  tax_rate: 15, total_amount: 115, notes: '', currency_code: 'ZAR', exchange_rate: 1, client_email: 'billing@client.example', approval: null,
   items: [{ description: 'Consulting', quantity: 1, unit_price: 100, amount: 100 }],
 };
 

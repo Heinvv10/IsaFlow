@@ -76,11 +76,11 @@ export default function CustomerInvoiceDetailPage() {
     if (!invoiceId) return;
     loads.open(String(invoiceId));
     // Another invoice opened in place: nothing of the last one's stays (its email form and address, its questions).
-    setShowEmailModal(false); setEmailTo(''); setEmailSuccess(''); setShowCancelConfirm(false); setShowRevokeConfirm(false); setActionLoading('');
-    resetLinks();
+    setShowEmailModal(false); setEmailTo(''); setEmailSuccess(''); setEmailSending(false); setShowCancelConfirm(false); setShowRevokeConfirm(false); setActionLoading('');
+    resetLinks(); clearAdjacent();
     void loadInvoice(String(invoiceId));
-    void loadAdjacent(invoiceId as string);
-  }, [invoiceId, loads, loadInvoice, loadAdjacent, resetLinks]);
+    void loadAdjacent(String(invoiceId), loads.isOpen);
+  }, [invoiceId, loads, loadInvoice, loadAdjacent, resetLinks, clearAdjacent]);
 
   const handleAction = useCallback(async (action: string) => {
     const actedOn = invoice?.id;

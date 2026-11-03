@@ -28,7 +28,7 @@ useApiJsonOverMock();
 beforeEach(() => { vi.useFakeTimers(); h.events = routerEvents(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); h.push.mockReset(); vi.mocked(apiFetch).mockReset(); });
 
-const THOUSAND = { ...DRAFT, items: [{ description: 'Build', quantity: 1, unit_price: 1000, amount: 1000 }] };
+const THOUSAND = { ...DRAFT, total_amount: 1150, items: [{ description: 'Build', quantity: 1, unit_price: 1000, amount: 1000 }] };
 const price = (i = 0) => screen.getAllByLabelText(/^Unit price/)[i] as HTMLInputElement;
 const click = async (name: RegExp) => { fireEvent.click(screen.getByRole('button', { name })); for (let i = 0; i < 6; i++) await advance(0); };
 const statusText = () => screen.getAllByRole('status').map((e) => e.textContent).join(' | ');

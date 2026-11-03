@@ -74,6 +74,27 @@ describe('the edit page and a STALE_VIEW', () => {
   });
 });
 
+describe('a STALE_VIEW sentence', () => {
+  it('belongs to its own invoice: another opened in place before the reload lands does not show it', async () => {
+    let gets = 0;
+    serveInvoice((u, init) => {
+      if (u.includes('customer-invoices-detail') && init?.method === 'POST') return refused(409, 'Changed elsewhere', { reason: 'STALE_VIEW' });
+      if (u.includes('customer-invoices-detail?id=inv-1') && ++gets > 1) return new Promise<Response>(() => undefined); // the reload never lands
+      if (u.includes('customer-invoices-detail?id=inv-2')) return ok({ ...DRAFT, id: 'inv-2', invoice_number: 'INV-B' });
+      return undefined;
+    });
+    const { rerender } = render(<EditPage />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /approve & email/i }));
+    await settle();
+    h.query = { invoiceId: 'inv-2' };
+    rerender(<EditPage />);
+    await settle();
+    expect(description().value).toBe('Consulting');
+    expect(screen.queryByText('Changed elsewhere')).toBeNull();
+  });
+});
+
 describe('a load for an invoice no longer open', () => {
   it('the invoice page shows, approves and cancels the invoice it shows', async () => {
     let releaseA: (r: Response) => void = () => undefined;

@@ -47,11 +47,13 @@ export function useInvoiceLinkActions({ invoice, loadInvoice, setError, isOpen }
 
   const handleCopyPaymentLink = async () => {
     if (!invoice?.payment_url) return;
+    const forId = invoice.id;
     try {
       await navigator.clipboard.writeText(invoice.payment_url);
+      if (!isOpen(forId)) return;
       setLinkCopied(true);
       afterLinkCopied(() => setLinkCopied(false), 2000);
-    } catch { setError('Could not copy the link - copy it manually'); }
+    } catch { if (isOpen(forId)) setError('Could not copy the link - copy it manually'); }
   };
 
   const handleCopyPortalLink = async () => {
@@ -71,6 +73,7 @@ export function useInvoiceLinkActions({ invoice, loadInvoice, setError, isOpen }
       if (!json.data?.portalUrl) throw new Error('Could not generate the portal link - try again');
       setPortalUrl(json.data.portalUrl);
       await navigator.clipboard.writeText(json.data.portalUrl);
+      if (!isOpen(forId)) return;
       setPortalLinkCopied(true);
       afterPortalLinkCopied(() => setPortalLinkCopied(false), 3000);
     } catch (e) {
