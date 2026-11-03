@@ -30,7 +30,7 @@ vi.mock('@/modules/accounting/services/afs/packAiSummaryService', () => ({
 vi.mock('@/modules/accounting/services/afs/packDeliveryService', () => ({ deliverPack: vi.fn() }));
 
 import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
-import { orderedEnabledSections } from '@/modules/accounting/services/afs/managementPackConfigService';
+import { orderedEnabledSections, PACK_SECTION_ORDER } from '@/modules/accounting/services/afs/managementPackConfigService';
 import { config, report } from './managementPackFixtures';
 
 const CANONICAL = ['income_statement', 'income_vs_budget', 'balance_sheet', 'budget_variance', 'cash_flow_forecast'];
@@ -66,5 +66,12 @@ describe('pack section order', () => {
   it('unknown keys go last in stored order; disabled keys drop out', () => {
     expect(orderedEnabledSections({ zeta: true, budget_variance: true, alpha: true, cover: false, income_statement: true }))
       .toEqual(['income_statement', 'budget_variance', 'zeta', 'alpha']);
+  });
+});
+
+describe('settings screen order', () => {
+  it('SECTIONS_META lists the sections in the canonical print order', async () => {
+    const { SECTIONS_META } = await import('@/components/accounting/management-packs/ManagementPackConfigTab');
+    expect(SECTIONS_META.map(({ key }) => key)).toEqual([...PACK_SECTION_ORDER]);
   });
 });

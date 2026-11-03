@@ -4,7 +4,7 @@ import { Plus, Trash2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiErrorMessage } from '@/lib/apiFetch';
 import type { ManagementPackConfig, PackRecipient, PackStyle } from '@/modules/accounting/services/afs/afsTypes';
 
-const SECTIONS_META: Array<{ key: string; label: string }> = [
+export const SECTIONS_META: Array<{ key: string; label: string }> = [
   { key: 'cover', label: 'Cover Page' },
   { key: 'ai_executive_summary', label: 'AI Executive Summary' },
   { key: 'kpi_scorecard', label: 'KPI Scorecard' },
