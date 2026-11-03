@@ -5,7 +5,9 @@
  * full (entityChangeReveal.ts, audited). A changed value stays visibly
  * changed: …1234 → …9876. An employee's bank details also mask the branch
  * code (last two) and the holder (first letter), as their GET does for a
- * non-admin, so the history cannot match two employees to one account.
+ * non-admin. That reduces, not prevents, matching employees to one account:
+ * the last two digits with the bank name often give a bank's universal branch
+ * code, and the last four, bank, account type and initial can still match.
  */
 import type { EntityChangeField, EntityType } from './entityChangeTypes';
 
@@ -41,11 +43,12 @@ export function maskLastTwo(value: unknown): unknown {
   return `…${text.slice(-2)}`;
 }
 
-/** The first letter and an ellipsis (a name). */
+/** The first letter and an ellipsis (a name); two characters or fewer are hidden entirely. */
 export function maskInitial(value: unknown): unknown {
   if (value === null || value === undefined || value === '') return value;
-  const text = String(value).trim();
-  return text ? `${Array.from(text)[0]}…` : text;
+  const chars = Array.from(String(value).trim());
+  if (chars.length <= 2) return '••';
+  return `${chars[0]}…`;
 }
 
 /** Fields masked other than to their last four. */

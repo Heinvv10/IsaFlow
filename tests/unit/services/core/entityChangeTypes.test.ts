@@ -147,7 +147,9 @@ describe('masking', () => {
 
   it('the short masks pass empties through and hide values too short to mask', () => {
     expect([maskLastTwo(null), maskLastTwo(''), maskLastTwo('12'), maskLastTwo(' 250655 ')]).toEqual([null, '', '••', '…55']);
-    expect([maskInitial(null), maskInitial(''), maskInitial(' K One')]).toEqual([null, '', 'K…']);
+    expect([maskInitial(null), maskInitial(''), maskInitial(' K One'), maskInitial('Joe')]).toEqual([null, '', 'K…', 'J…']);
+    // Two characters or fewer would be the value itself (or most of it): hidden whole.
+    expect([maskInitial('K'), maskInitial('KO'), maskInitial(' É ')]).toEqual(['••', '••', '••']);
   });
 });
 
