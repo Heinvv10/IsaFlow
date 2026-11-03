@@ -205,10 +205,12 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
     ok(await approveRun(f, jan));
   });
 
-  it('February\'s lines from before cumulative PAYE (no periodic_taxable) read no year-to-date: January is approved', async () => {
+  it('February\'s pre-913 breakdown remuneration makes January stale', async () => {
     const { f, jan, feb } = await febMissedJan('R1 later month pre-cumulative');
     await pool.query('UPDATE payroll_run_lines SET periodic_taxable = NULL, annual_taxable = NULL WHERE run_id = $1', [feb]);
-    ok(await approveRun(f, jan));
+    const refused = await approveRun(f, jan);
+    expect(refused.statusCode).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/later month.*2027-02.*Recalculate the run/);
   });
 
   it('a pre-cumulative January line (no periodic_taxable, no warning) that a cumulative February missed: January is refused', async () => {

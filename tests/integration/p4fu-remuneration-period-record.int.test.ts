@@ -40,6 +40,30 @@ async function component(
 }
 
 describe('pre-deduction remuneration identity', () => {
+  it('does not count a deduction-only correction as a PAYE or s11F cap period', async () => {
+    const f = await seedRetrenchedEmployee(pool, '2026-12-31', 'remuneration: deduction correction');
+    fixtures.push(f);
+    await component(f, 'Donation correction', '4030', 'deduction', -1_000, '2026-03-01', '2026-03-31');
+
+    const march = await createRunFor(f, 3);
+    await calculateRun(f, march);
+    await pool.query("UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1", [march]);
+    await pool.query(
+      `UPDATE payroll_run_lines
+          SET taxable_income = 1000, periodic_taxable = 1000, annual_taxable = 0,
+              component_breakdown = (SELECT jsonb_agg(item)
+                FROM jsonb_array_elements(component_breakdown) item
+                WHERE item->>'sarsSourceCode' = '4030')
+        WHERE run_id = $1`, [march]);
+
+    const ytd = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 4 }, [f.employee]);
+    expect(ytd.get(f.employee)).toMatchObject({
+      periods: 0,
+      retirementCapPeriods: 0,
+      periodicTaxable: 1_000,
+    });
+  });
+
   it('counts salary despite an equal 3605 clawback, so the next salary month deducts R630', async () => {
     const f = await seedRetrenchedEmployee(pool, '2026-12-31', 'remuneration: negative 3605');
     fixtures.push(f);
@@ -100,13 +124,30 @@ describe('pre-deduction remuneration identity', () => {
     const medical = await loadMedicalRecord(f.company, { start: '2026-03-01', end: '2027-02-01' }, [f.employee]);
     expect(medical.get(f.employee)).toMatchObject({ credit: 630, recorded: true });
 
-    await pool.query(
-      'UPDATE payroll_run_lines SET periodic_taxable = 0, annual_taxable = 0 WHERE run_id = $1',
-      [april]);
     expect((await reopenRun(f, april)).statusCode).toBe(200);
     const taxed = (await pool.query(
       'SELECT approved_taxed_employees AS employees FROM payroll_run_headers WHERE id = $1', [april])).rows[0]!.employees as string[];
     expect(taxed).toContain(f.employee);
+  });
+
+  it('blocks a pre-913 fully donated salary that a later approved month missed', async () => {
+    const f = await seedRetrenchedEmployee(pool, '2026-12-31', 'remuneration: legacy stale gate');
+    fixtures.push(f);
+    await component(f, 'Section 18A donation', '4030', 'deduction', 20_000, '2026-04-01', '2026-04-30');
+
+    const april = await createRunFor(f, 4);
+    await calculateRun(f, april);
+    await pool.query(
+      'UPDATE payroll_run_lines SET periodic_taxable = NULL, annual_taxable = NULL WHERE run_id = $1',
+      [april]);
+
+    const may = await createRunFor(f, 5);
+    await calculateRun(f, may);
+    expect((await approveRun(f, may)).statusCode).toBe(200);
+
+    const approval = await approveRun(f, april);
+    expect(approval.statusCode).toBe(400);
+    expect(JSON.stringify(approval.body)).toMatch(/paye_year_to_date_stale|later month.*2026-05/);
   });
 
   it('caps a pre-948 restoration at remuneration net of a 3605 clawback', async () => {

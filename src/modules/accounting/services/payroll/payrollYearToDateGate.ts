@@ -46,20 +46,15 @@ export interface YearToDateJudgement {
  *   for the employees on the later month's lines at the time, listing the
  *   months, and only on a line with table remuneration before deductions
  *   (whom it never warns need not carry it: a recalculation always clears the
- *   refusal; breaker round 1). Current lines use periodic_taxable or
- *   annual_taxable > 0, plus taxable non-39xx earnings in component_breakdown
- *   when a deduction reduced both stored figures to nil. On this run's line,
- *   before migration 913 (NULLs), taxable_income > 0 (a pre-cumulative line
- *   carries no warning: refused until recalculated); on the later month's,
- *   NULL = calculated before cumulative PAYE, which read no year-to-date, so
- *   missed nothing. A warning
+ *   refusal; breaker round 1). Every line uses the shared pre-deduction
+ *   remuneration rule: its breakdown when present, otherwise its stored
+ *   periodic/annual split (or legacy taxable_income fallback). A warning
  *   without `periods` (#786's dev/test lines; none in production) or a
  *   non-array validation_results reads as no warning: a conservative refusal
  *   a recalculation clears. Matched by containment, never on the message.
  *   Stored periodic/annual taxable values can both be nil when a taxable
- *   deduction consumed the remuneration, so current lines also read their
- *   taxable non-39xx earnings from component_breakdown. Lines with NULL split
- *   columns remain pre-cumulative and keep the legacy rules below.
+ *   deduction consumed the remuneration, so the breakdown is authoritative
+ *   even for lines from before those columns existed.
  * - LATER month calculated from an EARLIER VERSION of this run (this run was
  *   approved then — only a closed approval in approval_history can cover it —
  *   and its lines were rewritten since) that pays someone from the tables
@@ -158,10 +153,8 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
             SELECT 1 FROM line_remuneration ml
             JOIN line_remuneration el ON el.run_id = e.id AND el.employee_id = ml.employee_id
             WHERE ml.run_id = me.id
-              AND (COALESCE(ml.periodic_taxable > 0 OR ml.annual_taxable > 0, ml.taxable_income > 0)
-                OR (ml.periodic_taxable IS NOT NULL AND ml.has_table_remuneration))
-              AND (COALESCE(el.periodic_taxable > 0 OR el.annual_taxable > 0, false)
-                OR (el.periodic_taxable IS NOT NULL AND el.has_table_remuneration))
+              AND ml.has_table_remuneration
+              AND el.has_table_remuneration
               AND NOT ml.validation_results @> jsonb_build_array(jsonb_build_object(
                 'code', 'PAYE_LATER_PERIODS_APPROVED', 'periods', jsonb_build_array(to_char(e.period, 'YYYY-MM')))))
       END AS recalc_here,
@@ -174,14 +167,12 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
         AND EXISTS (
           SELECT 1 FROM line_remuneration el
           WHERE el.run_id = e.id
-            AND (COALESCE(el.periodic_taxable > 0 OR el.annual_taxable > 0, false)
-              OR (el.periodic_taxable IS NOT NULL AND el.has_table_remuneration))
+            AND el.has_table_remuneration
             AND el.employee_id = ANY(COALESCE(me.approved_taxed_employees, ARRAY[el.employee_id]))
             AND NOT EXISTS (
               SELECT 1 FROM line_remuneration ml
               WHERE ml.run_id = me.id AND ml.employee_id = el.employee_id
-                AND (COALESCE(ml.periodic_taxable > 0 OR ml.annual_taxable > 0, ml.taxable_income > 0)
-                  OR (ml.periodic_taxable IS NOT NULL AND ml.has_table_remuneration))))
+                AND ml.has_table_remuneration))
       AS older_dropped, e.status AS e_status
     FROM runs e, me
     WHERE e.id <> me.id

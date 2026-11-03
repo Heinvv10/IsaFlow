@@ -66,15 +66,8 @@ export async function loadPayeYearToDate(
       SELECT l.id AS line_id, l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic,
-             CASE WHEN jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
-                    AND (r.periodic_before_deductions > 0 OR r.annual_before_deductions > 0)
-               THEN r.periodic_before_deductions
-               ELSE COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income))
-             END AS periodic_before_deductions,
-             CASE WHEN jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
-                    AND (r.periodic_before_deductions > 0 OR r.annual_before_deductions > 0)
-               THEN r.annual_before_deductions ELSE COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income))
-             END AS annual_before_deductions,
+             r.periodic_before_deductions,
+             r.annual_before_deductions,
              b.annual_3605, b.original_taxable, b.donations
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
@@ -200,7 +193,7 @@ export function yearToDatePeriods(
   unpaidLines: Record<string, unknown>,
   restoredPeriodicByLine: Record<string, number>,
 ): number {
-  const restored = Object.entries(unpaidLines).filter(([id, periodic]) => Number(periodic) + (restoredPeriodicByLine[id] ?? 0) > 0);
+  const restored = Object.keys(unpaidLines).filter(id => (restoredPeriodicByLine[id] ?? 0) > 0);
   return withPeriodicPay + restored.length;
 }
 

@@ -31,6 +31,9 @@ describe('yearToDatePeriods', () => {
     expect(yearToDatePeriods(1, { march: 0, april: 0 }, { march: 20_000 })).toBe(2);
     expect(yearToDatePeriods(2, { april: 0 }, {})).toBe(2);
   });
+  it('does not recover a deduction-only period from stored taxable income', () => {
+    expect(yearToDatePeriods(0, { correction: 1_000 }, {})).toBe(0);
+  });
 });
 
 describe('loadPayeYearToDate with a pre-948 line reduced to nil', () => {
