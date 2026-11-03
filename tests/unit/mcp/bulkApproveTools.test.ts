@@ -37,6 +37,11 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () => ({
   approveSupplierInvoice: vi.fn(),
 }));
+// Budgets P5-2: the dry run's budget verdicts (cumulative, in batch order) are pinned on real
+// PostgreSQL by tests/integration/budgets-p5-bill-check-paths.int.test.ts; no bill meets a budget here.
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceBudgetDryRun', () => ({
+  billBudgetDryRun: vi.fn(async () => new Map()),
+}));
 vi.mock('@/modules/accounting/services/ar/customerInvoiceApprovalService', () => ({
   approveCustomerInvoice: vi.fn(),
   InvoiceNotApprovableError: class extends Error {

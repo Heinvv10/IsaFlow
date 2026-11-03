@@ -66,10 +66,17 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
 // the sql queue below stays positional.
 // Budgets P5-2: the budget check is its own module, pinned on real PostgreSQL by the
 // budgets-p5-bill-check* integration suites; stubbed (policy off) so the sql queue stays positional.
-vi.mock('@/modules/accounting/services/ap/supplierInvoiceBudgetCheck', () => ({
-  openBillBudgetGate: vi.fn(async () => ({ policy: null, locked: false, mode: 'none' })),
-  checkBillBudget: vi.fn(async () => ({ policy: 'off', outcome: null, lines: [], warnings: [] })),
-}));
+// lockBillAfterBudgetGate keeps the row lock in the order the service takes it (the mocked helper below).
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceBudgetCheck', async () => {
+  const { lockSupplierInvoiceForUpdate } = await import('@/modules/accounting/services/ap/supplierInvoiceLock');
+  const gate = { policy: null, locked: false, mode: 'none' };
+  return {
+    lockBillAfterBudgetGate: vi.fn(async (companyId: string, id: string) => ((await lockSupplierInvoiceForUpdate(companyId, id)) ? gate : null)),
+    checkBillBudget: vi.fn(async () => ({ policy: 'off', outcome: null, lines: [], warnings: [] })),
+    placeCheckedBillLines: vi.fn(async () => { throw new Error('placeCheckedBillLines: not reached by these refusals'); }),
+    budgetWarningsOf: () => ({}),
+  };
+});
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceCancelPlan', () => ({
   planSupplierInvoiceCancel: vi.fn(async () => ({ journal: { id: 'dddddddd-0000-4000-8000-dddddddddddd' } })),
   SupplierInvoiceCancelRefusal: class SupplierInvoiceCancelRefusal extends Error {},

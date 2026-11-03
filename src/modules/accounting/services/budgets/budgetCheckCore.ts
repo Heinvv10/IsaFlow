@@ -85,6 +85,34 @@ export function describeOverLine(l: BudgetCheckLine, documentNoun = 'this bill')
   return `${where}: remaining ${formatMoney(l.remaining ?? 0)}, ${documentNoun} ${formatMoney(l.amount)}`;
 }
 
+/** A budget slice's identity across documents (account, month, grain, slice dims). */
+export const sliceKey = (l: Pick<BudgetCheckLine, 'glAccountId' | 'month' | 'grain' | 'cc1Id' | 'cc2Id' | 'buId'>): string =>
+  `${l.glAccountId}|${l.month}|${l.grain ?? '-'}|${l.cc1Id ?? ''}|${l.cc2Id ?? ''}|${l.buId ?? ''}`;
+
+/**
+ * A batch preview (MCP bulk dry run): `lines` with each budgeted slice's remaining reduced by what
+ * earlier documents of the same batch, judged approved, consume there (cents per `sliceKey`), and
+ * `over` decided again on the reduced figure — what the live run, in the same order under the
+ * lock, reads after posting those documents.
+ */
+export function applyPriorConsumption(lines: readonly BudgetCheckLine[], consumed: ReadonlyMap<string, number>): BudgetCheckLine[] {
+  return lines.map((l) => {
+    if (l.remaining === null) return l;
+    const remainingCents = toCents(l.remaining) - (consumed.get(sliceKey(l)) ?? 0);
+    const amountCents = toCents(l.amount);
+    return { ...l, remaining: remainingCents / 100, over: amountCents > 0 && amountCents > remainingCents };
+  });
+}
+
+/** Records what an approved document consumes per budgeted slice: its amount less the PO commitment it releases. */
+export function addConsumption(consumed: Map<string, number>, lines: readonly BudgetCheckLine[], released?: ReadonlyMap<string, number>): void {
+  for (const l of lines) {
+    if (l.remaining === null) continue;
+    const k = sliceKey(l);
+    consumed.set(k, (consumed.get(k) ?? 0) + toCents(l.amount) - toCents(released?.get(k) ?? 0));
+  }
+}
+
 /** The roles that may override a block refusal (decision 8). */
 export const OVERRIDE_ROLES: readonly string[] = ['owner', 'admin'];
 

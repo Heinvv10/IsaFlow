@@ -21,13 +21,20 @@ import { placeCostCentres } from '../gl/dimensions/costCentrePick';
 import { fmtDate } from '@/lib/fmtDate';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
 import { getSupplierInvoiceById } from './supplierInvoiceService';
+import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 import {
   checkDocumentBudget, evaluateDocumentLines, gateFor, readCheckPolicy,
 } from '../budgets/budgetCheck';
-import { decideBudgetOutcome, type DocumentLine } from '../budgets/budgetCheckCore';
+import { sliceKey, type DocumentLine } from '../budgets/budgetCheckCore';
 import type {
-  BudgetChannel, BudgetCheckContext, BudgetCheckLine, BudgetCheckResult, BudgetGate, BudgetPolicy,
+  BudgetCheckContext, BudgetCheckLine, BudgetCheckResult, BudgetGate, BudgetPolicy,
 } from '../budgets/budgetCheckTypes';
+
+/** `opts.budget` of approve / Post to GL: the caller's channel and lock mode. */
+export type BillBudgetOpts = { budget?: BudgetCheckContext };
+/** What approve / Post to GL add to their result: the over-budget lines a warn-mode approval went ahead with. */
+export type BudgetWarned = { budgetWarnings?: string[] };
+export const budgetWarningsOf = (r: BudgetCheckResult): BudgetWarned => (r.warnings.length > 0 ? { budgetWarnings: r.warnings } : {});
 
 /**
  * A caller that names no context: a system approval that holds no lock, so it takes the company
@@ -38,6 +45,16 @@ export const DEFAULT_BILL_BUDGET_CONTEXT: BudgetCheckContext = { channel: 'syste
 /** Opens (or adopts) the budget gate. Call it before `lockSupplierInvoiceForUpdate`. */
 export function openBillBudgetGate(companyId: string, ctx: BudgetCheckContext | undefined): Promise<BudgetGate> {
   return gateFor(companyId, ctx ?? DEFAULT_BILL_BUDGET_CONTEXT);
+}
+
+/**
+ * Approve's and Post to GL's first two locks, in the §3c order: the budget gate (the company lock
+ * when the policy is block and the caller locks), THEN the bill row. Null when the bill is not
+ * this company's (the row lock found nothing).
+ */
+export async function lockBillAfterBudgetGate(companyId: string, id: string, ctx: BudgetCheckContext | undefined): Promise<BudgetGate | null> {
+  const gate = await openBillBudgetGate(companyId, ctx);
+  return (await lockSupplierInvoiceForUpdate(companyId, id)) ? gate : null;
 }
 
 export const billMonth = (invoice: Pick<SupplierInvoice, 'invoiceDate'>): string => fmtDate(invoice.invoiceDate).slice(0, 7);
@@ -60,12 +77,25 @@ export function checkBillBudget(
   }, ctx ?? DEFAULT_BILL_BUDGET_CONTEXT, gate, actorId);
 }
 
+/** Post to GL's expense lines (the legacy pick placed, as approve) and the check on them, before its first write. */
+export async function placeCheckedBillLines(
+  companyId: string, invoice: SupplierInvoice, defaultExpenseId: string, gate: BudgetGate, ctx: BudgetCheckContext | undefined, actorId: string,
+) {
+  const placed = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseId), { storedPosting: true });
+  return { ...placed, budget: await checkBillBudget(companyId, invoice, placed.lines, gate, ctx, actorId) };
+}
+
 export interface BillBudgetPreview {
   policy: BudgetPolicy;
   /** False when approving would post nothing new (a bill already carrying a journal), so nothing is checked. */
   checks: boolean;
   lines: BudgetCheckLine[];
   overCount: number;
+  /**
+   * Per budget slice (`sliceKey`), the open PO commitment this bill releases once approved (its PO-linked
+   * lines count as billed): set only with `withRelease` and a bill that links a PO line.
+   */
+  released?: Map<string, number>;
 }
 
 /**
@@ -73,7 +103,9 @@ export interface BillBudgetPreview {
  * any lock (a preview; the approval decides again under its locks). Null when the bill is not this
  * company's.
  */
-export async function previewBillBudget(companyId: string, invoiceId: string): Promise<BillBudgetPreview | null> {
+export async function previewBillBudget(
+  companyId: string, invoiceId: string, opts: { withRelease?: boolean } = {},
+): Promise<BillBudgetPreview | null> {
   const invoice = await getSupplierInvoiceById(companyId, invoiceId);
   if (!invoice) return null;
   const policy = await readCheckPolicy(companyId);
@@ -82,25 +114,14 @@ export async function previewBillBudget(companyId: string, invoiceId: string): P
   }
   const defaultExpense = await getSystemAccount('default_expense', companyId);
   const { lines } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpense.id), { storedPosting: true });
-  const checked = await evaluateDocumentLines(companyId, documentLines(lines), billMonth(invoice), { excludeInvoiceId: invoice.id, labelAlways: true });
-  return { policy, checks: true, lines: checked, overCount: checked.filter((l) => l.over).length };
-}
-
-/**
- * The refusal the live check would give each bill ON ITS OWN under the block policy (a dry run's
- * skip reason; no lock), keyed by bill id. Empty unless the policy is block. Bills in one batch that
- * draw on one slice can still be refused later in the live run: the live check is cumulative.
- */
-export async function billBudgetRefusalPreviews(
-  companyId: string, invoiceIds: readonly string[], channel: BudgetChannel,
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  if (invoiceIds.length === 0 || (await readCheckPolicy(companyId)) !== 'block') return out;
-  for (const id of invoiceIds) {
-    const preview = await previewBillBudget(companyId, id);
-    if (!preview || preview.policy !== 'block' || preview.overCount === 0) continue;
-    const decision = decideBudgetOutcome({ policy: 'block', lines: preview.lines, channel });
-    if (decision.kind === 'refuse') out.set(id, decision.message);
+  const docLines = documentLines(lines);
+  const checked = await evaluateDocumentLines(companyId, docLines, billMonth(invoice), { excludeInvoiceId: invoice.id, labelAlways: true });
+  const preview: BillBudgetPreview = { policy, checks: true, lines: checked, overCount: checked.filter((l) => l.over).length };
+  if (opts.withRelease && (invoice.items ?? []).some((i) => i.poItemId)) {
+    // Read as if the bill were still unbilled: the difference in committed is what approving it releases.
+    const unbilled = await evaluateDocumentLines(companyId, docLines, billMonth(invoice));
+    const own = new Map(checked.map((l) => [sliceKey(l), l.committed]));
+    preview.released = new Map(unbilled.map((l) => [sliceKey(l), Math.max(0, l.committed - (own.get(sliceKey(l)) ?? l.committed))]));
   }
-  return out;
+  return preview;
 }

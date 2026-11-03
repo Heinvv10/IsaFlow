@@ -26,7 +26,7 @@ import { mcpPostingOpts } from '../mcpActor';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
 import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
-import { billBudgetRefusalPreviews } from '@/modules/accounting/services/ap/supplierInvoiceBudgetCheck';
+import { billBudgetDryRun } from '@/modules/accounting/services/ap/supplierInvoiceBudgetDryRun';
 import { BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import {
   type BulkApproveAdapter,
@@ -211,17 +211,21 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
       .sort((a, b) => a.index - b.index);
 
     if (args.dry_run === true) {
-      // Budgets P5-2 (block policy): a bill over budget ON ITS OWN is listed as the live call would skip it.
-      const overBudget = await billBudgetRefusalPreviews(ctx.companyId, postable.map((p) => p.id), 'mcp');
-      const wouldPost = postable.filter((p) => !overBudget.has(p.id));
+      // Budgets P5-2: judged in the live loop's order (by id), each bill against what the earlier ones consume.
+      const budget = await billBudgetDryRun(ctx.companyId, postable.map((p) => p.id).sort(), 'mcp');
+      const refused = (id: string) => budget.get(id)?.refusal !== undefined;
+      const wouldPost = postable.filter((p) => !refused(p.id));
+      const warned = wouldPost.filter((p) => budget.get(p.id)?.warnings)
+        .map((p) => ({ index: p.index, document_id: p.id, warnings: budget.get(p.id)!.warnings! }));
       const preview = ok({
         dry_run: true,
         posted: 0,
         would_post: wouldPost.length,
         would_post_ids: wouldPost.map((p) => p.id),
-        skipped: [...skipped, ...postable.filter((p) => overBudget.has(p.id))
-          .map((p) => ({ index: p.index, document_id: p.id, reason: `budget_exceeded: ${overBudget.get(p.id)!}` }))]
+        skipped: [...skipped, ...postable.filter((p) => refused(p.id))
+          .map((p) => ({ index: p.index, document_id: p.id, reason: `budget_exceeded: ${budget.get(p.id)!.refusal!}` }))]
           .sort((a, b) => a.index - b.index),
+        ...(warned.length > 0 ? { budget_warnings: warned } : {}),
       });
       // Wrote nothing, so it must not occupy the idempotency key: the real call
       // carries the same intent and would otherwise be served this preview

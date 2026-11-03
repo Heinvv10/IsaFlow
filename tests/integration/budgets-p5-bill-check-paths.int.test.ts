@@ -97,6 +97,38 @@ describe('MCP bulk dry run (parity with the live skip)', () => {
   });
 });
 
+describe('MCP bulk dry run, cumulative in batch order', () => {
+  /** Two FT bills of 600 against FT's 1 000: each fits alone, not together. Ids ordered so `first` posts first. */
+  async function pair(month: string) {
+    const [first, second] = [crypto.randomUUID(), crypto.randomUUID()].sort() as [string, string];
+    for (const id of [second, first]) await makeBill(pool, f, [{ acct: f.acc.opex, amount: 600, cc1: f.cc.FT }], { date: `${month}-15`, id });
+    return { first, second };
+  }
+  const dryRun = (ids: string[]) => committed(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: ids, dry_run: true, idempotency_key: `kc-${ids[0]}` }, ctx()));
+
+  it('block: the second bill is reported refused, as the live run under the lock refuses it', async () => {
+    await setPolicy(pool, f, 'block');
+    const { first, second } = await pair('2027-01');
+    const out = JSON.parse(text(await dryRun([second, first])));
+    expect(out).toMatchObject({ would_post: 1, would_post_ids: [first] });
+    expect(out.skipped).toEqual([expect.objectContaining({ document_id: second,
+      reason: expect.stringContaining(`remaining ${R(400)}, this bill ${R(600)}`) })]);
+    // The live call agrees.
+    const live = JSON.parse(text(await committed(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [second, first], idempotency_key: `kl-${first}` }, ctx()))));
+    expect(live.posted).toBe(1);
+    expect(live.skipped.map((x: { document_id: string }) => x.document_id)).toEqual([second]);
+  });
+
+  it('warn: both would post, the second reported with its budget warning', async () => {
+    await setPolicy(pool, f, 'warn');
+    const { first, second } = await pair('2027-02');
+    const out = JSON.parse(text(await dryRun([first, second])));
+    expect(out).toMatchObject({ would_post: 2, skipped: [] });
+    expect(out.budget_warnings).toEqual([expect.objectContaining({ document_id: second,
+      warnings: [expect.stringContaining(`remaining ${R(400)}, this bill ${R(600)}`)] })]);
+  });
+});
+
 describe('the bulk route', () => {
   it('block: per-item BUDGET_EXCEEDED, the rest approved, the refused event recorded', async () => {
     await setPolicy(pool, f, 'block');
