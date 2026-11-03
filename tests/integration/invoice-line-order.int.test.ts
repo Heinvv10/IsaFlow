@@ -60,4 +60,15 @@ describe('lines come back in the order they were entered', () => {
     const after = await orders(id);
     expect(after).toEqual({ detail: edited, model: edited, increasing: true });
   });
+
+  it('a legacy invoice whose lines tie on created_at (written in one statement): the PDF model and the GET agree', async () => {
+    const customer = crypto.randomUUID();
+    await pool.query('INSERT INTO customers(id, company_id, name) VALUES($1, $2, $3)', [customer, company, 'legacy order']);
+    const made = await callRoute(customerInvoicesCreate, tokens[owner]!, company, 'POST',
+      { clientId: customer, invoiceDate: '2026-09-01', items: lines() }, '/api/accounting/customer-invoices-create');
+    const id = (made.state.body as { data: { id: string } }).data.id;
+    await pool.query('UPDATE customer_invoice_items SET created_at = $2 WHERE invoice_id = $1', [id, '2026-09-01T10:00:00Z']); // one tie, as NOW() wrote it
+    const { detail, model } = await orders(id);
+    expect(model).toEqual(detail);
+  });
 });
