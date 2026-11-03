@@ -102,8 +102,9 @@ beforeAll(async () => {
   await add('se', 'startEnd', salary, 21670, '2026-03-28', '2026-03-30', true);
   // Mixed (review of 485fc14f2): the same pre-953 shape (S to 29 March, O 30-31 March), then after deploy the same
   // package is re-applied from the 30th: it voids O and inserts a new once-off N. S must not be paid beside N.
+  // O carries the package's amount: a once-off the package itself wrote (any other overlapping once-off refuses the apply).
   await employee('mixed953', '2020-01-01', '2026-03-29');
-  for (const [name, amount, from, to, recurring] of [['mxS', 21670, '2020-01-01', '2026-03-29', true], ['mxO', 2500, '2026-03-30', '2026-03-31', false]] as const) {
+  for (const [name, amount, from, to, recurring] of [['mxS', 21670, '2020-01-01', '2026-03-29', true], ['mxO', 2600, '2026-03-30', '2026-03-31', false]] as const) {
     row[name] = String((await pool.query(
       `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring,supersede_inferred)
        VALUES($1,$2,$3,$4::date,$5::date,$6,TRUE) RETURNING id`, [emp.mixed953, salary, amount, from, to, recurring])).rows[0]!.id);
