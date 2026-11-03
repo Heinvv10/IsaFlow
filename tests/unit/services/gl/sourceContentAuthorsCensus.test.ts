@@ -86,6 +86,7 @@ describe('writers of the content an invoice is converted from', () => {
   it('time entries', () => {
     expect(writers('time_entries')).toEqual([
       'pages/api/accounting/time-entries-invoice.ts', // billing claim: status + link
+      'src/modules/accounting/services/ar/customerInvoiceWipLinks.ts', // a draft edit removed its WIP line: unbilled again, status + link
       'src/modules/accounting/services/ar/customerMergeService.ts', // customer_id: not the price
       'src/modules/accounting/services/core/timeTrackingService.ts', // create (stamps a logger who types a rate); edit (stamped); submit/approve: status
       'src/modules/accounting/services/practice/practiceTimeEntryService.ts', // create; timesheet edit (stamped)
