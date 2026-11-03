@@ -72,6 +72,8 @@ export interface ServerAutosave {
   leaveWithout: () => void;
   /** Read at the moment of asking: a change on screen autosave is holding back, so it would not be sent as the page goes. */
   heldBack: () => boolean;
+  /** Read at the moment of asking: a PUT is out (it will finish whatever the user answers). */
+  saveOut: () => boolean;
 }
 
 interface Failure { json: string; message: string }
@@ -96,7 +98,6 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const again = useRef(false);
   const seq = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const request = useRef<AbortController | null>(null);
 
   const onSaved = useRef(opts?.onSaved);
   useCommitEffect(() => { onSaved.current = opts?.onSaved; });
@@ -108,6 +109,8 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   useCommitEffect(() => {
     latest.current = { json, armed, done: Boolean(opts?.done) };
     if (json !== null) lastShown.current = { invoiceId, json, armed };
+    // "Leave without them" was about that body only: typed on from it (the page stayed), the new change is kept.
+    if (discarded.current !== null && json !== null && json !== discarded.current) discarded.current = null;
   });
 
   /**
@@ -140,6 +143,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     if (loadedAs.current === loadKey) return;
     loadedAs.current = loadKey; // reloaded in place: what the server holds now is the baseline; nothing is sent back
     seq.current++; // and every reply still out is stale
+    discarded.current = null;
     setSaving(false);
     lastShown.current = null;
     lastSaved.current = null;
@@ -154,6 +158,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     lastShown.current = null;
     shownFor.current = invoiceId;
     seq.current++;
+    discarded.current = null; // another invoice: nothing on it was left without
     lastSaved.current = null;
     setSavedJson(null);
     setSavedAt(null);
@@ -179,11 +184,9 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     const mine = ++seq.current;
     setSaving(true);
     sending.current = sent;
-    const controller = new AbortController();
-    request.current = controller;
     try {
       const put = (async () => {
-        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: sent, signal: controller.signal });
+        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: sent });
         await assertOk(res, SAVE_FAILED);
         const envelope = await res.json() as { data?: { approvalContentDigest?: unknown }; approvalContentDigest?: unknown };
         const digest = envelope.data?.approvalContentDigest ?? envelope.approvalContentDigest;
@@ -206,7 +209,6 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
       return { ok: false, message };
     } finally {
       if (sending.current === sent) sending.current = null;
-      if (request.current === controller) request.current = null;
       if (mine === seq.current) setSaving(false);
     }
   }, []);
@@ -242,19 +244,21 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
       && now !== sending.current && now !== discarded.current;
   }, []);
   const currentDigest = useCallback(() => contentDigest.current, []);
+  // "Leave without them": the change not yet sent stays unsent (its timer, and any follow-up after the PUT out). A PUT
+  // already out is NOT cut off: the server may commit it (a release of time entries included), and the next page to
+  // read the invoice must wait for it (pendingInvoiceSaves), so it settles, tracked. The question says one is out.
   const leaveWithout = useCallback(() => {
     discarded.current = latest.current.json;
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
     again.current = false;
-    seq.current++;
-    request.current?.abort();
   }, []);
+  const saveOut = useCallback(() => inFlight.current !== null, []);
   const state: AutosaveState | null = !opts || json === null ? null
     : failed ? 'error'
       : saving ? 'saving'
         : savedJson !== null && json !== savedJson ? 'dirty'
           : savedAt !== null ? 'saved' : null;
   const held = state === 'dirty' && opts?.problem && !opts.paused ? opts.problem : null;
-  return { state, savedAt, error: failed?.message ?? null, savedCount, saveNow, unsaved, held, currentBody, contentDigest: currentDigest, leaveWithout, heldBack };
+  return { state, savedAt, error: failed?.message ?? null, savedCount, saveNow, unsaved, held, currentBody, contentDigest: currentDigest, leaveWithout, heldBack, saveOut };
 }

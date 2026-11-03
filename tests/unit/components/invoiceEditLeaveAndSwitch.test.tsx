@@ -12,6 +12,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { advance, bodyOf, description, DRAFT, ok, puts, refused, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
 import { stashApproveRefusal } from '@/components/accounting/customer-invoices/useApproveAndEmail';
+import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
 
 const h = vi.hoisted(() => ({ router: null as null | Record<string, unknown> }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -55,21 +56,38 @@ describe('leaving', () => {
     expect(puts()).toHaveLength(0);
   });
 
-  it('aborts a PUT already in flight when "Leave without them?" is confirmed', async () => {
-    let signal: AbortSignal | null = null;
-    serveInvoice((u, init) => {
-      if (!u.includes('customer-invoices-detail') || init?.method !== 'PUT') return undefined;
-      signal = init.signal as AbortSignal;
-      return new Promise<Response>((_resolve, reject) => {
-        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
-      });
-    });
+  it('"Leave without them" is about that body only: the page stayed, the user typed on and back to it; it is sent as the page goes', async () => {
+    serveInvoice();
     await open();
-    type(description(), 'Do not persist');
+    type(description(), 'Thrown away');
+    await act(async () => { await router().push('/elsewhere'); }); // confirmed, but the navigation went nowhere
+    type(description(), 'Thrown away, then more');
+    await advance(0);
+    type(description(), 'Thrown away'); // typed again: now it is wanted
+    await advance(0);
+    cleanup();
+    await settle();
+    expect(puts().map((c) => bodyOf(c).items[0]!.description)).toEqual(['Thrown away']);
+  });
+
+  it('a PUT already out when "Leave without them?" is confirmed is let finish (the server may commit it) and stays tracked; the question says so', async () => {
+    let land: (r: Response) => void = () => undefined;
+    serveInvoice((u, init) => (u.includes('customer-invoices-detail') && init?.method === 'PUT' ? new Promise<Response>((r) => { land = r; }) : undefined));
+    await open();
+    type(description(), 'Sent before leaving');
     await advance(1_500);
     expect(puts()).toHaveLength(1);
+    const init = vi.mocked(apiFetch).mock.calls.find(([, i]) => i?.method === 'PUT')![1]!;
+    expect(init.signal).toBeUndefined(); // nothing can cut it off
     await act(async () => { await router().push('/elsewhere'); });
-    expect(signal?.aborted).toBe(true);
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/A save is still finishing/));
+    let settled = false;
+    void invoiceSavesSettled('inv-1').then(() => { settled = true; });
+    await advance(0);
+    expect(settled).toBe(false); // the next page to read the invoice still waits for it
+    land(ok({ updated: true })); // the server commits it
+    await advance(0);
+    expect(settled).toBe(true);
     cleanup();
     await settle();
     expect(puts()).toHaveLength(1);
