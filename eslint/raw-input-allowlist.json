@@ -67,7 +67,7 @@
   "pages/accounting/practice/wip/index.tsx": 3,
   "pages/accounting/products/index.tsx": 1,
   "pages/accounting/products/new.tsx": 9,
-  "pages/accounting/purchase-orders/[poId].tsx": 6,
+  "pages/accounting/purchase-orders/[poId].tsx": 2,
   "pages/accounting/purchase-orders/index.tsx": 1,
   "pages/accounting/purchase-orders/new.tsx": 1,
   "pages/accounting/recurring-journals/index.tsx": 5,

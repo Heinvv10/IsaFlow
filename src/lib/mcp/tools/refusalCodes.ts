@@ -168,6 +168,11 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // CLOSED, that job's status); raised before any write.
   'PRACTICE_JOB_CLOSED',
   'PRACTICE_JOB_NOT_FOUND',
+  // Budgets P5-3 PO approve (ap/purchaseOrderApprove): fixed wording, at most the PO's own status; raised before any
+  // write. No MCP tool approves a PO today; listed so a future one surfaces them.
+  'PURCHASE_ORDER_LOCK_TIMEOUT',
+  'PURCHASE_ORDER_NOT_APPROVABLE',
+  'PURCHASE_ORDER_NOT_FOUND',
   // Another request is posting a document with the same content (R-088): one
   // fixed "retry" sentence naming no document, raised before any write.
   'RECEIPT_POST_BUSY',
