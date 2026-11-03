@@ -81,6 +81,8 @@
  * Retirement fund contributions (PAYE 4c, retirementFund.ts): the deduction
  * comes off the annual equivalent before the tables, rebates and credits. C =
  * contributions to date (deductions coded 4001/4003/4006, ytd included),
+ * with signed correction lines netted before the cumulative total is floored
+ * at zero (the same applies to donations),
  * annualised over the same n as the pay (C × 12 ÷ n; with n = 0, as they
  * stand); remuneration = AE + all annual payments to date, both BEFORE the
  * deduction (the s11F base); D = allowedRetirementDeduction(C × 12 ÷ n,
@@ -165,11 +167,11 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const annualNow = Math.max(0, input.annualPayments);
 
   // The retirement fund deduction, on annual figures before it (see the header).
-  const contributions = Math.max(0, ytd.retirementContributions ?? 0) + Math.max(0, input.retirementContributions ?? 0);
+  const contributions = Math.max(0, (ytd.retirementContributions ?? 0) + (input.retirementContributions ?? 0));
   const annualise = (toDate: number) => (periods > 0 ? (toDate * PERIODS_IN_YEAR) / periods : toDate);
   // The 27.5% base is taxable income "before allowing any deduction under ss11F, 6quat(1C) and 18A" (G21 (2027)
   // p. 10): donations (4030), deducted from regularTaxable, are added back to it.
-  const donations = Math.max(0, ytd.donations ?? 0) + Math.max(0, input.donations ?? 0);
+  const donations = Math.max(0, (ytd.donations ?? 0) + (input.donations ?? 0));
   const deduction = allowedRetirementDeduction(
     annualise(contributions), annualEquivalent + annualise(donations) + annualBefore + annualNow, input.taxYear);
   // The part off the annual equivalent is weighted n ÷ 12; the rest comes off the annual payments in full, but
