@@ -62,6 +62,8 @@ vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
+import { getEmployeeComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
+import { laterPeriodsWarnings } from '@/modules/accounting/services/payroll/payrollYearToDate';
 
 const codesWritten = (): string[] =>
   (JSON.parse(String(inserts[0]!.at(-1))) as Array<{ code: string }>).map((w) => w.code);
@@ -91,5 +93,31 @@ describe('calculatePayrollRun - unconfirmed ETI table warning', () => {
     expect(listPayrollRunEmployees).toHaveBeenLastCalledWith(
       '11111111-1111-4111-8111-111111111111', { month: 6, year: 2026 },
     );
+  });
+
+  it('warns a fully donated salary line when a later period is approved', async () => {
+    vi.mocked(getEmployeeComponents).mockResolvedValueOnce([
+      {
+        component: {
+          id: 'salary', name: 'Salary', sarsSourceCode: '3601', componentType: 'earning',
+          isTaxable: true, isUifApplicable: true, isSdlApplicable: true,
+        },
+        amount: 20_000,
+      },
+      {
+        component: {
+          id: 'donation', name: 'Donation', sarsSourceCode: '4030', componentType: 'deduction',
+          isTaxable: true, isUifApplicable: false, isSdlApplicable: false,
+        },
+        amount: 20_000,
+      },
+    ] as never);
+    vi.mocked(laterPeriodsWarnings).mockResolvedValueOnce(new Map([['e1', {
+      code: 'PAYE_LATER_PERIODS_APPROVED', severity: 'warning', periods: ['2027-02'], message: 'later',
+    }]]));
+
+    await calculate(1, 2027);
+
+    expect(codesWritten()).toContain('PAYE_LATER_PERIODS_APPROVED');
   });
 });

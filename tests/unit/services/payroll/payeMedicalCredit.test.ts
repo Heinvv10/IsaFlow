@@ -38,7 +38,7 @@ const employee = (beneficiaries: number, birthYear = 1985): PayrollEmployee => (
 function year(salaries: number[], beneficiaries: number) {
   let ytd = NONE;
   return salaries.map((s) => {
-    const r = calculateCumulativePaye({ ...base, regularTaxable: s, annualPayments: 0, ytd, monthlyMedicalBeneficiaries: beneficiaries });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: s, annualPayments: 0, periodicRemuneration: s, annualPaymentRemuneration: 0, ytd, monthlyMedicalBeneficiaries: beneficiaries });
     ytd = {
       periods: ytd.periods + 1, periodicTaxable: ytd.periodicTaxable + s, annualPayments: 0,
       tablePaye: ytd.tablePaye + r.regular.monthlyPaye, medicalCredit: ytd.medicalCredit + r.medicalCredit, additionalMedicalCredit: 0, medicalSchemeFees: 0,
@@ -50,26 +50,26 @@ function year(salaries: number[], beneficiaries: number) {
 describe('R3: the medical credit a line applied', () => {
   it('first period, credit fully used: the monthly credit (R20 000, member + 1: 752 = 2 x 376)', () => {
     // tax(240 000) = 43 200 - 17 820 = 25 380; credit 9 024 a year, all used; PAYE (25 380 - 9 024) / 12 = 1 363.
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 20_000, annualPayments: 0, ytd: NONE, monthlyMedicalBeneficiaries: 2 });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 20_000, annualPayments: 0, periodicRemuneration: 20_000, annualPaymentRemuneration: 0, ytd: NONE, monthlyMedicalBeneficiaries: 2 });
     expect(r.medicalCredit).toBe(752);
     expect(r.regular.monthlyPaye).toBe(1_363);
   });
 
   it('the credit wipes the tax: only what it took off is recorded (R10 000, member only: 315, PAYE nil)', () => {
     // tax(120 000) = 21 600 - 17 820 = 3 780 < the 4 512 credit: 3 780 used, 315 a month.
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 10_000, annualPayments: 0, ytd: NONE, monthlyMedicalBeneficiaries: 1 });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 10_000, annualPayments: 0, periodicRemuneration: 10_000, annualPaymentRemuneration: 0, ytd: NONE, monthlyMedicalBeneficiaries: 1 });
     expect(r.regular.monthlyPaye).toBe(0);
     expect(r.medicalCredit).toBe(315);
   });
 
   it('under the threshold, nothing to take a credit off: nil', () => {
     // tax(96 000) = 17 280 < the 17 820 rebate.
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 8_000, annualPayments: 0, ytd: NONE, monthlyMedicalBeneficiaries: 3 });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 8_000, annualPayments: 0, periodicRemuneration: 8_000, annualPaymentRemuneration: 0, ytd: NONE, monthlyMedicalBeneficiaries: 3 });
     expect(r.medicalCredit).toBe(0);
   });
 
   it('no medical aid: nil', () => {
-    expect(calculateCumulativePaye({ ...base, regularTaxable: 50_000, annualPayments: 0, ytd: NONE, monthlyMedicalBeneficiaries: 0 }).medicalCredit).toBe(0);
+    expect(calculateCumulativePaye({ ...base, regularTaxable: 50_000, annualPayments: 0, periodicRemuneration: 50_000, annualPaymentRemuneration: 0, ytd: NONE, monthlyMedicalBeneficiaries: 0 }).medicalCredit).toBe(0);
   });
 
   it('a year at the same pay: 752 every month, 9 024 for the year (member + 1, 2 x 376 x 12)', () => {
@@ -79,14 +79,14 @@ describe('R3: the medical credit a line applied', () => {
   });
 
   it('member + 3 dependants: 376 + 376 + 254 + 254 = 1 260 a month', () => {
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 30_000, annualPayments: 0, ytd: NONE, monthlyMedicalBeneficiaries: 4 });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 30_000, annualPayments: 0, periodicRemuneration: 30_000, annualPaymentRemuneration: 0, ytd: NONE, monthlyMedicalBeneficiaries: 4 });
     expect(r.medicalCredit).toBe(1_260);
   });
 
   it('an annual payment that lets more of the credit be used records that too (R10 000 + R20 000 bonus, member: 1 047)', () => {
     // AE 120 000: 3 780 used of 4 512 (315 for the month). AE + bonus 140 000: 25 200 - 17 820 = 7 380, all 4 512 used,
     // so the bonus used 732 more: 315 + 732 = 1 047. PAYE: regular nil, bonus 7 380 - 4 512 - 0 = 2 868.
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 10_000, annualPayments: 20_000, ytd: NONE, monthlyMedicalBeneficiaries: 1 });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 10_000, annualPayments: 20_000, periodicRemuneration: 10_000, annualPaymentRemuneration: 20_000, ytd: NONE, monthlyMedicalBeneficiaries: 1 });
     expect([r.regular.monthlyPaye, r.annualPaymentPaye]).toEqual([0, 2_868]);
     expect(r.medicalCredit).toBe(1_047);
   });
@@ -94,7 +94,7 @@ describe('R3: the medical credit a line applied', () => {
   it('earlier lines with no record (before migration 926) are carried by the first line that has one', () => {
     // Month 3 at R20 000, member + 1: the credit to date is 9 024 x 3/12 = 2 256, none recorded before.
     const ytd = { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 2_726, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 };
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 20_000, annualPayments: 0, ytd, monthlyMedicalBeneficiaries: 2 });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 20_000, annualPayments: 0, periodicRemuneration: 20_000, annualPaymentRemuneration: 0, ytd, monthlyMedicalBeneficiaries: 2 });
     expect(r.medicalCredit).toBe(2_256);
     expect(r.regular.monthlyPaye).toBe(1_363);
   });
@@ -102,13 +102,13 @@ describe('R3: the medical credit a line applied', () => {
   it('a credit the liability no longer holds (dependants removed mid-year) is a negative record, so the year still adds up', () => {
     // Months 1-2 recorded 752 each (member + 1). Month 3 member only: credit to date 4 512 x 3/12 = 1 128, less 1 504.
     const ytd = { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 2_726, medicalCredit: 1_504, additionalMedicalCredit: 0, medicalSchemeFees: 0 };
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 20_000, annualPayments: 0, ytd, monthlyMedicalBeneficiaries: 1 });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 20_000, annualPayments: 0, periodicRemuneration: 20_000, annualPaymentRemuneration: 0, ytd, monthlyMedicalBeneficiaries: 1 });
     expect(r.medicalCredit).toBe(-376);
   });
 
   it('65 and older: the credit is taken after the secondary rebate', () => {
     // Age 66, R14 000: tax(168 000) = 30 240 - 17 820 - 9 765 = 2 655 < 9 024: 2 655 used, 221.25 a month.
-    const r = calculateCumulativePaye({ taxYear: 2027, rebateAge: 66, medicalSchemeFees: 0, regularTaxable: 14_000, annualPayments: 0, ytd: NONE, monthlyMedicalBeneficiaries: 2 });
+    const r = calculateCumulativePaye({ taxYear: 2027, rebateAge: 66, medicalSchemeFees: 0, regularTaxable: 14_000, annualPayments: 0, periodicRemuneration: 14_000, annualPaymentRemuneration: 0, ytd: NONE, monthlyMedicalBeneficiaries: 2 });
     expect(r.regular.monthlyPaye).toBe(0);
     expect(r.medicalCredit).toBe(221.25);
   });

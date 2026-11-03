@@ -51,6 +51,7 @@ function year(months: Month[]) {
     const r = calculateCumulativePaye({
       ...base, monthlyMedicalBeneficiaries: m.beneficiaries ?? 0,
       regularTaxable: m.salary, annualPayments: m.bonus ?? 0, retirementContributions: m.contribution, ytd,
+      periodicRemuneration: m.salary, annualPaymentRemuneration: m.bonus ?? 0,
     });
     const total = r2(r.regular.monthlyPaye + r.annualPaymentPaye);
     ytd = {

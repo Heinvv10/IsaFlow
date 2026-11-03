@@ -213,6 +213,9 @@ export interface PayrollLineResult {
   /** Periodic and annual-payment remuneration BEFORE the retirement fund deduction (stored on the line for the next period's year-to-date). */
   periodicTaxable: number;
   annualTaxable: number;
+  /** Taxable table remuneration before taxable deductions; not stored, used by the run's later-period warning. */
+  periodicRemuneration: number;
+  annualPaymentRemuneration: number;
   /** The regular calculation's figures, except `monthlyPaye`, which is the line's whole PAYE (payeSplit summed). */
   paye: PayeResult;
   payeSplit: PayeSplit;
