@@ -5,11 +5,14 @@
  * bank account, or employee number.
  *
  * One SQL round-trip per field. NULL / empty strings are never considered
- * duplicates.
+ * duplicates. Bank accounts are not queried unless the caller may view those
+ * groups. They group on the whole number and are masked to the last four unless
+ * the caller asks for `fullBankAccounts` (owner / admin in their own session).
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { maskValue } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
 
 type Row = DbRow;
 
@@ -39,6 +42,10 @@ export interface DuplicateResult {
 
 export interface FindDuplicatesOptions {
   includeTerminated?: boolean;
+  /** Owner / admin only. False avoids querying bank details at all. */
+  includeBankAccounts?: boolean;
+  /** Owner / admin only. Default: bank account values masked to their last four. */
+  fullBankAccounts?: boolean;
 }
 
 function mapEmployee(e: Row): DuplicateEmployee {
@@ -115,6 +122,7 @@ async function scanBankAccount(companyId: string, includeTerminated: boolean): P
       FROM payroll_bank_details b
       JOIN payroll_employees e ON e.id = b.employee_id
      WHERE e.company_id = $1::uuid
+       AND b.company_id = $1::uuid
        AND b.account_number IS NOT NULL
        AND b.account_number <> ''
        AND b.is_active = true
@@ -140,7 +148,10 @@ export async function findDuplicates(
     scanEmployeeField(companyId, 'tax_number', includeTerminated),
     scanEmployeeField(companyId, 'passport_number', includeTerminated),
     scanEmployeeField(companyId, 'employee_number', includeTerminated),
-    scanBankAccount(companyId, includeTerminated),
+    opts.includeBankAccounts === false
+      ? Promise.resolve([])
+      : scanBankAccount(companyId, includeTerminated).then((found) => (opts.fullBankAccounts === true
+        ? found : found.map((g) => ({ ...g, value: String(maskValue(g.value)) })))),
   ]);
 
   const groups = [idNumber, taxNumber, passportNumber, employeeNumber, bankAccount];
