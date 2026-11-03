@@ -29,7 +29,10 @@
  * retry would fail the same way. The claim and the
  * draft journal are already written by then: the caller must run this inside a
  * savepoint that a throw rolls back — the apply route's withJournalDateRefusal
- * does (its only caller), so the 409 leaves nothing written (tested). Chosen
+ * does (its only caller), so the 409 leaves nothing written — the rollback is
+ * proven through the route by the split-grew 409, which also follows the
+ * claim; the decision itself, unreachable deterministically through the route,
+ * by tests/unit/services/payroll/taxDirectiveLabourPostOrRetry.test.ts. Chosen
  * over share-locking the mapped accounts: that adds a gl_accounts lock to this
  * path, to be censused against every poster and account edit, for a window of
  * moments.
