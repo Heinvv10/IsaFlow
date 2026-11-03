@@ -103,6 +103,10 @@ export async function loadPayeYearToDate(
            COUNT(*) FILTER (WHERE periodic_before_deductions > 0 OR annual_before_deductions > 0)::int AS retirement_cap_periods,
            -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
            jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic_before_deductions <= 0) AS unpaid_lines,
+           -- Only these lines may need the legacy restoration to add a cap period.
+           jsonb_object_agg(line_id::text, true) FILTER (
+             WHERE periodic_before_deductions <= 0 AND annual_before_deductions <= 0
+           ) AS uncounted_cap_lines,
            jsonb_object_agg(line_id::text, jsonb_build_object(
              'periodic', periodic, 'annual', annual, 'annualGross', annual_3605,
              'originalTaxable', original_taxable
@@ -127,6 +131,7 @@ export async function loadPayeYearToDate(
   return new Map(rows.map(r => {
     const fund = retirement.get(String(r.employee_id));
     const taxableSplits = (r.taxable_splits ?? {}) as Record<string, unknown>;
+    const uncountedCapLines = (r.uncounted_cap_lines ?? {}) as Record<string, unknown>;
     const legacyTaxableByLine = fund?.legacyTaxableByLine ?? {};
     const restored = restoreLegacyTaxableSplit(
       taxableSplits,
@@ -135,7 +140,8 @@ export async function loadPayeYearToDate(
     const restoredCapPeriods = Object.entries(legacyTaxableByLine).filter(([lineId, deduction]) => {
       const split = (taxableSplits[lineId] ?? {}) as Record<string, unknown>;
       const restorable = Math.min(deduction, Math.max(0, Number(split.originalTaxable)));
-      return restorable > 0 && Number(split.periodic) <= 0 && Number(split.annual) <= 0;
+      return Object.prototype.hasOwnProperty.call(uncountedCapLines, lineId)
+        && restorable > 0 && Number(split.periodic) <= 0 && Number(split.annual) <= 0;
     }).length;
     return [String(r.employee_id), {
       periods: yearToDatePeriods(Number(r.periods), (r.unpaid_lines ?? {}) as Record<string, unknown>, restored.periodicByLine),
