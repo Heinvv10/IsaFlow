@@ -128,7 +128,7 @@ describe('a non-cash 3801 benefit on the IRP5 data, e@syFile and EMP501', () => 
     expect(lines.filter((l) => /^3[6-9]\d\d,/.test(l))).toEqual(['3601,370000', '3801,8000']);
     expect(lines.filter((l) => l.startsWith('4102,'))).toEqual([`4102,${d.paye.toFixed(2)}`]);
     expect(lines.indexOf('3801,8000')).toBeLessThan(lines.findIndex((l) => l.startsWith('4102,')));
-    expect(easy.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/Wanda Test.*R.?1.?000\.00.*3601/)]));
+    expect(easy.warnings.at(-1)).toMatch(/3601.*1 employee: Wanda Test \(R.?1.?000\.00\)/);
 
     // EMP501: gross_income stays cash; fringe_3801 carries the benefit; together the remuneration.
     const emp501 = await exportText(emp501Export as never, '/api/payroll/emp501/export');

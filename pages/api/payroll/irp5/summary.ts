@@ -24,7 +24,9 @@ import {
   type ValidationSeverity,
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
-import { listRunNonCashBenefits, nonCashTotal } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
+import {
+  listRunNonCashBenefits, listRunUnflaggedFringe, nonCashTotal, unflaggedFringeWarning,
+} from '@/modules/accounting/services/payroll/payrollNonCashFiling';
 
 type Row = DbRow;
 
@@ -78,7 +80,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   // Employees, payroll aggregates, both component lookups, and severance-
   // directive presence all fan out in parallel.
-  const [empRows, aggRows, companyCompRows, empCompRows, directiveRows, fringeByEmployee] = await Promise.all([
+  const [empRows, aggRows, companyCompRows, empCompRows, directiveRows, fringeByEmployee, unflaggedFringe] = await Promise.all([
     sql`
       SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date
       FROM   payroll_employees
@@ -133,6 +135,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     ` as Promise<Row[]>,
 
     listRunNonCashBenefits(companyId, bounds),
+    listRunUnflaggedFringe(companyId, bounds),
   ]);
 
   const employeesWithSeveranceDirective = new Set(
@@ -179,6 +182,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       componentCodes: codesByEmployee.get(String(emp.id)) ?? [],
       hasApprovedSeveranceDirective: employeesWithSeveranceDirective.has(String(emp.id)),
     }, taxYear);
+    // 3801 items paid in cash (costed before the benefit was non-cash) are in 3601: the e@syFile export warns too.
+    const inCash = unflaggedFringe.get(String(emp.id));
+    if (inCash) {
+      messages.push({ severity: 'warning', code: 'IRP5_3801_PAID_IN_CASH', field: 'gross',
+        message: unflaggedFringeWarning(`${String(emp.first_name)} ${String(emp.last_name)}`.trim(), inCash) });
+    }
 
     return {
       employeeId: String(emp.id),

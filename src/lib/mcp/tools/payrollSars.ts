@@ -46,6 +46,7 @@ export const emp201StatusTool: McpTool = {
     'It counts only runs in a DECLARABLE status — approved or paid. A draft or calculated run is not a finalised payroll and must not be declared, and a cancelled one never counts. It reports the runs it used so you can check that against list_pay_runs; if a month you expected is missing, the run was almost certainly never approved. ' +
     'The UIF split is an approximation. payroll_run_headers stores a single combined employee-plus-employer total, so this halves it. Where the two halves genuinely differ — an employee over the UIF ceiling, or one excluded from UIF — the split will be wrong even though the combined total is right. ' +
     'It also declares SARS tax directives paid OUTSIDE payroll in the period, dated by their posted journal: their PAYE is in paye_withheld and their gross in taxable_remuneration, counted in directive_payments_count and directive_payments_paye. rows are the runs only, so with such payments the rows do not sum to paye_withheld. ' +
+    'taxable_remuneration includes non-cash fringe benefits (the low-interest loan benefit, taxed but not paid). A row\'s gross_pay is cash only, so with such a benefit the rows do not sum to taxable_remuneration either. ' +
     'It does not file anything, does not compute penalties or interest, and does not know what was actually paid over to SARS. It tells you what the payroll says is owed for the period, not what is outstanding.',
   scope: 'read:payroll',
   write: false,

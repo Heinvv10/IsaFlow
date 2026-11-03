@@ -45,18 +45,18 @@ const ELEVEN = Array.from({ length: 11 }, (_, i) => ({ back: i + 1, status: 'app
  * calculator. `nonCash` false is a line from before the benefit was non-cash: in gross, no flag.
  * `breakdown` overrides what the line stored (an unreadable one).
  */
-async function history(nonCash: boolean, breakdown?: unknown, months: Array<{ back: number; status: string }> = ELEVEN): Promise<string> {
+async function history(nonCash: boolean, breakdown?: unknown, months: Array<{ back: number; status: string; cash?: number }> = ELEVEN): Promise<string> {
   const company = crypto.randomUUID();
   companies.push(company);
   await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [company, 'SDL non-cash history']);
   const emp = (await pool.query(
     `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, status)
      VALUES ($1, 'SDL-NC', 'Test', 'Employee', '2020-01-01', 'active') RETURNING id`, [company])).rows[0]!.id as string;
-  for (const { back, status } of months) {
+  for (const { back, status, cash } of months) {
     const index = PERIOD.year * 12 + PERIOD.month - back;
     const period = { month: ((index - 1) % 12) + 1, year: Math.floor((index - 1) / 12) };
     const line = calculatePayrollLine({
-      employee: employee(emp, company), components: pay(41_000, 1_000, nonCash), period,
+      employee: employee(emp, company), components: pay(cash ?? 41_000, 1_000, nonCash), period,
       taxYear: period.month >= 3 ? period.year + 1 : period.year, annualPayrollEstimate: 'defer',
     });
     const run = (await pool.query(
@@ -115,6 +115,16 @@ describe('SDL threshold: non-cash benefits in earlier months [SDL Act s4(b); Fou
     await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [empty, 'SDL non-cash, no history']);
     // No history: this month alone, annualised (x 12 / 1).
     expect(await estimateAnnualRemuneration(empty, PERIOD, 42_000, crypto.randomUUID())).toBe(504_000);
+  });
+
+  it('reads no benefit from a run older than the window: a benefit-only run there does not start the history', async () => {
+    // Approved 1..3 months back (R42 000 each), and a run 15 back carrying only a R1 000 benefit
+    // (no cash). Its breakdown is not read (it is outside the window), so the history starts 3
+    // back: (3 x 42 000 + 42 000) / 4 x 12 = R504 000. Read, it would start 15 back and the
+    // divisor would be 12: R168 000, and the employer exempt.
+    const months = [...[1, 2, 3].map((back) => ({ back, status: 'approved' })), { back: 15, status: 'approved', cash: 0 }];
+    const company = await history(true, undefined, months);
+    expect(await estimateAnnualRemuneration(company, PERIOD, 42_000, crypto.randomUUID())).toBe(504_000);
   });
 
   it('reads a line whose breakdown is not an array as holding no benefit, without failing', async () => {

@@ -38,7 +38,7 @@ import {
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
 import {
-  listRunNonCashBenefits, listRunUnflaggedFringe, nonCashTotal, unflaggedFringeWarning,
+  listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeSummary,
 } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
 
@@ -142,6 +142,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   const employees: EmployeeInput[] = [];
   const warnings: string[] = [];
+  const paidInCash: Array<{ employee: string; amount: number }> = [];
   let seq = 0;
   for (const row of empRows) {
     const standalone = lumpSums.standaloneTotals.get(String(row.id)) ?? { gross: 0, paye: 0 };
@@ -149,21 +150,26 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     if (!agg) continue;
     const gross = Number(agg.total_gross ?? 0) + standalone.gross;
     const fringeBenefits = fringeByEmployee.get(String(row.id)) ?? [];
-    if (gross + nonCashTotal(fringeBenefits) <= 0) continue; // skip non-active employees
-
     const employeeLumpSums = lumpSums.byEmployee.get(String(row.id)) ?? [];
     const split = splitCertificateIncome({
       gross, paye: Number(agg.total_paye ?? 0) + standalone.paye,
       annualPayments: annualByEmployee.get(String(row.id)) ?? 0, lumpSums: employeeLumpSums,
     });
     const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
+    // The writer's rule (cents dropped, a nil field left out): no income code of R1 or more, no
+    // certificate. Skipped, as an employee with no pay always was, not refused for the whole company.
+    const incomes = [split.grossSalary3601, split.annualPayments3605, ...employeeLumpSums.map(l => l.amount), ...fringeBenefits.map(f => f.amount)];
+    if (!incomes.some(a => Math.floor(a) >= 1)) {
+      if (incomes.some(a => a > 0)) warnings.push(`${who}: income this tax year is under R1 on every income code, so no certificate is written.`);
+      continue;
+    }
     warnings.push(...employeeLumpSums.filter(l => l.issuedDateFallback).map(l => issuedDateWarning(who, l)));
     // 4005/4116/4120 (easyFileMedicalFields) and what the file cannot carry about them.
     const medical = medicalByEmployee.get(String(row.id));
     const age = ageAtYearEnd(taxYear, row.date_of_birth, row.id_number);
     warnings.push(...medicalCertificateWarnings(who, medical, { age, dateOfBirthMissing: !row.date_of_birth }));
     const inCash = unflaggedFringe.get(String(row.id));
-    if (inCash) warnings.push(unflaggedFringeWarning(who, inCash));
+    if (inCash) paidInCash.push({ employee: who, amount: inCash });
     seq += 1;
     const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
     const certEndDate = toCCYYMMDD(row.end_date);
@@ -238,6 +244,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // A payment on no certificate first: the cap below must never hide one.
     warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
       + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
+    // 3801 paid in cash: ONE bounded warning, last, so the cap drops it before any other.
+    if (paidInCash.length > 0) warnings.push(unflaggedFringeSummary(paidInCash));
     const warningsTotal = warnings.length;
     warnings.splice(0, warningsTotal, ...capWarningsForHeader(warnings));
     if (warnings.length > 0) {

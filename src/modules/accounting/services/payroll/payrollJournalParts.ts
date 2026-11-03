@@ -128,8 +128,8 @@ export async function resolveAccountsById(
  * where mappings exist. Lifted wholesale from the poster so both paths split
  * identically.
  *
- * K-079: each employee carries a gross-share (its SDL by remuneration share, with
- * a non-cash benefit in the run) of the cost BEFORE ETI
+ * K-079: each employee carries a gross-share (with a non-cash benefit in the run,
+ * the rest by gross share and its own line's SDL) of the cost BEFORE ETI
  * (labourDebit + etiUsed) less their own share of `etiUsed`, apportioned by
  * the ETI on their run line — ETI is earned by the low-wage staff, so spreading
  * it by gross moved cost between cost-centre accounts. The per-employee
@@ -190,22 +190,19 @@ export async function buildLabourLines(
   const runLines: RunLabourLine[] = [];
   const costBeforeEti = labourDebit + etiUsed;
   const lineEti = lineRows.reduce((s, r) => s + (Number(r.eti) || 0), 0);
-  // SDL is levied on remuneration, which a non-cash benefit (isNonCash items) is, outside gross: with one in the
-  // run the lines' SDL splits by remuneration share. With none sdlPart is nil: the gross-share split as before.
-  const remunerationOf = (r: Row) => (Number(r.gross_pay) || 0) + (Number(r.non_cash) || 0);
+  // SDL is on remuneration, which a non-cash benefit (isNonCash items) is, outside gross: with one in the run each
+  // line carries its own SDL. With none sdlPart is nil and the split is the gross-share one, unchanged.
   const totalNonCash = lineRows.reduce((s, r) => s + (Number(r.non_cash) || 0), 0);
-  const totalRemuneration = totalGross + totalNonCash;
   const sdlPart = totalNonCash > 0 ? lineRows.reduce((s, r) => s + (Number(r.sdl) || 0), 0) : 0;
   for (const r of lineRows) {
     const employeeId = String(r.employee_id);
     const grossShare = (Number(r.gross_pay) || 0) / totalGross;
-    const remunerationShare = sdlPart > 0 ? remunerationOf(r) / totalRemuneration : 0;
     // No ETI on the lines (an imported or hand-edited header): fall back to gross.
     const etiShare = lineEti > 0 ? (Number(r.eti) || 0) / lineEti : grossShare;
     employeeCostCentre[employeeId] = r.cost_centre_id == null ? null : String(r.cost_centre_id);
     runLines.push({
       employeeId,
-      labourAmount: round2(grossShare * (costBeforeEti - sdlPart) + remunerationShare * sdlPart - etiShare * etiUsed),
+      labourAmount: round2(grossShare * (costBeforeEti - sdlPart) + (sdlPart > 0 ? Number(r.sdl) || 0 : 0) - etiShare * etiUsed),
     });
   }
   // Both reads are ORDER BY'd (the allocation split puts its own residual on

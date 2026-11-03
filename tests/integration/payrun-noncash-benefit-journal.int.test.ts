@@ -39,30 +39,58 @@ async function centre(code: string, employeeId: string): Promise<string> {
   return id;
 }
 
+type PlanLine = { accountCode: string; cc1Id: string | null; debit: number; credit: number };
+
+/** Employee A (the benefit) and a second employee B on R41 000 from `salaryComponent`, each in their own CC1. */
+async function twoCentres(salaryComponent: string) {
+  await benefitFromJanuary(pool, fx); // employee A: R41 000 + the R1 000 benefit in November
+  const b = await fx.addEmployee('NC-B');
+  await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, 41000, '2020-01-01')`, [b, salaryComponent]);
+  return { b, ccA: await centre('CC-A', state.employee), ccB: await centre('CC-B', b) };
+}
+
+/** The plan's labour (5200) per CC1; and that the plan balances. */
+async function planLabour(): Promise<(cc: string) => number> {
+  const { plan, blocker } = (await preview(state.nov)).body.data!;
+  expect(blocker).toBeNull();
+  const lines = plan.lines as PlanLine[];
+  const debits = lines.reduce((s, l) => s + l.debit, 0);
+  const credits = lines.reduce((s, l) => s + l.credit, 0);
+  expect(Math.round(debits * 100)).toBe(Math.round(credits * 100));
+  return (cc: string) => lines.filter((l) => l.accountCode === '5200' && l.cc1Id === cc).reduce((s, l) => s + l.debit, 0);
+}
+
 describe('labour by cost centre with a non-cash benefit', () => {
   it('puts the SDL on the benefit on the employee who has it, and the journal balances and posts', async () => {
-    await benefitFromJanuary(pool, fx); // employee A: R41 000 + the R1 000 benefit in November
-    const b = await fx.addEmployee('NC-B');
     const salary = (await pool.query(
       `SELECT id FROM payroll_components WHERE company_id = $1 AND BTRIM(sars_source_code) = '3601' AND name = 'Basic Salary'`, [state.coA])).rows[0]!.id;
-    await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, 41000, '2020-01-01')`, [b, salary]);
-    const ccA = await centre('CC-A', state.employee);
-    const ccB = await centre('CC-B', b);
+    const { b, ccA, ccB } = await twoCentres(salary);
 
     await recalculate(state.nov);
     expect(await line(state.nov)).toMatchObject({ gross: 41_000, taxable: 42_000, sdl: 420 });
     expect(await line(state.nov, b)).toMatchObject({ gross: 41_000, sdl: 410 });
 
-    const { plan, blocker } = (await preview(state.nov)).body.data!;
-    expect(blocker).toBeNull();
-    type PlanLine = { accountCode: string; cc1Id: string | null; debit: number; credit: number };
-    const lines = plan.lines as PlanLine[];
-    const labour = (cc: string) => lines.filter((l) => l.accountCode === '5200' && l.cc1Id === cc).reduce((s, l) => s + l.debit, 0);
+    const labour = await planLabour();
     expect(labour(ccA)).toBeCloseTo(41_597.12, 2);
     expect(labour(ccB)).toBeCloseTo(41_587.12, 2);
-    const debits = lines.reduce((s, l) => s + l.debit, 0);
-    const credits = lines.reduce((s, l) => s + l.credit, 0);
-    expect(Math.round(debits * 100)).toBe(Math.round(credits * 100));
+    await approve(fx, state.nov, 'November');
+  });
+
+  it('gives each line its own SDL: a line with none (pay not SDL-applicable, or severance alone) carries none', async () => {
+    // B's pay carries no SDL (is_sdl_applicable off): B's line levies R0, A's R420. Split by share
+    // of remuneration, B would have carried R207.47 of A's levy.
+    const exempt = (await pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable, is_sdl_applicable)
+       VALUES ($1, 'Salary (no SDL)', '3601', 'earning', true, false) RETURNING id`, [state.coA])).rows[0]!.id;
+    const { b, ccA, ccB } = await twoCentres(exempt);
+
+    await recalculate(state.nov);
+    expect(await line(state.nov)).toMatchObject({ gross: 41_000, sdl: 420 });
+    expect(await line(state.nov, b)).toMatchObject({ gross: 41_000, sdl: 0 });
+
+    const labour = await planLabour();
+    expect(labour(ccA)).toBeCloseTo(41_000 + 177.12 + 420, 2);
+    expect(labour(ccB)).toBeCloseTo(41_000 + 177.12, 2);
     await approve(fx, state.nov, 'November');
   });
 });

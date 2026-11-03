@@ -104,6 +104,10 @@ describe('registration', () => {
 });
 
 describe('emp201_status', () => {
+  it('says taxable_remuneration includes non-cash benefits while a row\'s gross_pay is cash', () => {
+    expect(emp201StatusTool.description).toMatch(/taxable_remuneration includes non-cash fringe benefits[^.]*\. [^.]*gross_pay is cash/);
+  });
+
   it('reports PAYE withheld, the ETI offset, and PAYE actually payable as three numbers', async () => {
     const env = json(await emp201StatusTool.handler(
       { period_start: '2026-01-01', period_end: '2026-03-31' }, ctx,

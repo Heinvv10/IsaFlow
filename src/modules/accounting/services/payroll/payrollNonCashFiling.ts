@@ -100,6 +100,22 @@ export async function listRunUnflaggedFringe(
   return new Map(rows.map((r) => [String(r.employee_id), round2(Number(r.amount))] as const).filter(([, a]) => a !== 0));
 }
 
+const SUMMARY_NAMES = 10;
+
+/**
+ * ONE warning for every employee whose 3801 items were paid in cash (the e@syFile header): the
+ * first SUMMARY_NAMES named with their amounts, the rest counted, so it is bounded however many
+ * there are. The export pushes it after every other warning, so the header cap drops it first.
+ */
+export function unflaggedFringeSummary(entries: ReadonlyArray<{ employee: string; amount: number }>): string {
+  const named = entries.slice(0, SUMMARY_NAMES).map((e) => `${e.employee} (${formatMoney(e.amount)})`).join(', ');
+  const rest = entries.slice(SUMMARY_NAMES);
+  const more = rest.length > 0 ? ` and ${rest.length} more (${formatMoney(round2(rest.reduce((s, e) => s + e.amount, 0)))})` : '';
+  return 'Code 3801 items paid in cash inside gross pay (runs costed before the loan benefit was non-cash, or a 3801 component '
+    + `paid as cash) are certified in 3601, not 3801, for ${entries.length} employee${entries.length === 1 ? '' : 's'}: `
+    + `${named}${more}. Check those certificates before filing.`;
+}
+
 /** The warning for an employee whose 3801 items were paid in cash and so are certified in 3601. */
 export function unflaggedFringeWarning(employee: string, amount: number): string {
   return `${employee}: ${formatMoney(amount)} of code 3801 items this tax year was paid in cash inside gross pay `

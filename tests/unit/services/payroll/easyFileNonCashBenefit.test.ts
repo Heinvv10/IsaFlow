@@ -77,3 +77,18 @@ describe('e@syFile: the income check matches what the writer writes', () => {
       .toThrow(/At least one income code/);
   });
 });
+
+describe('the one warning for 3801 items paid in cash', () => {
+  it('names the first employees with their amounts, counts the rest, and stays bounded however many there are', async () => {
+    const { unflaggedFringeSummary } = await import('@/modules/accounting/services/payroll/payrollNonCashFiling');
+    const many = Array.from({ length: 200 }, (_, i) => ({ employee: `Employee ${i + 1}`, amount: 1_000 }));
+    const text = unflaggedFringeSummary(many);
+    expect(text).toMatch(/200 employees/);
+    expect(text).toMatch(/Employee 1 \(R.?1.?000\.00\)/);
+    expect(text).toMatch(/Employee 10 \(/);
+    expect(text).not.toMatch(/Employee 11 \(/);
+    expect(text).toMatch(/and 190 more \(R.?190.?000\.00\)/);
+    expect(text.length).toBeLessThan(800);
+    expect(unflaggedFringeSummary([{ employee: 'Thandi Molefe', amount: 250 }])).toMatch(/1 employee: Thandi Molefe \(R.?250\.00\)\./);
+  });
+});
