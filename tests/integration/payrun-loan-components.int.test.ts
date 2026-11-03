@@ -134,10 +134,16 @@ describe('a low-interest loan with no 3801 earning (Hein: collected, and blocks 
   });
 
   it('a 3801 earning coded with spaces is the 3801, and the loan is taken with its benefit', async () => {
+    const plain = await line(state.nov);
     const benefit = await fringe(' 3801 ');
     const loan = await lowInterest();
     await recalculate(state.nov);
     expect(await loanState(loan)).toMatchObject({ balance: 0, payments: 1 });
+    const withBenefit = await line(state.nov);
+    expect(withBenefit.gross).toBe(plain.gross);
+    expect(withBenefit.taxable).toBeCloseTo(plain.taxable + 7.08, 2);
+    expect(withBenefit.paye).toBeGreaterThan(plain.paye);
+    expect(withBenefit.net).toBeCloseTo(plain.net - 1000 - (withBenefit.paye - plain.paye), 2);
     const breakdown = (await pool.query('SELECT component_breakdown FROM payroll_run_lines WHERE run_id = $1', [state.nov])).rows[0]!.component_breakdown;
     expect(breakdown).toContainEqual(expect.objectContaining({ componentId: benefit, amount: 7.08 }));
     expect((await results()).map((r) => r.code)).toEqual([]);

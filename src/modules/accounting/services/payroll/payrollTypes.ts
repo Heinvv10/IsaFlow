@@ -40,6 +40,8 @@ export interface DirectiveFigures {
 export interface EmployeeComponent {
   component: PayrollComponent;
   amount: number;
+  /** Taxable remuneration reported on the payslip but not paid to the employee in cash. */
+  isNonCash?: boolean;
   /** Set on a lump-sum (39xx) component paid under a directive; see payrollCalculator. */
   directive?: DirectiveFigures;
 }

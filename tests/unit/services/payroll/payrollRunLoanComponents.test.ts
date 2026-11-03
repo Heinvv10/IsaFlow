@@ -26,7 +26,7 @@ const applied = (over: Partial<ApplyLoanResult>): ApplyLoanResult => ({
 describe('appendLoanComponents', () => {
   it('adds the repayment as the LOAN deduction and the benefit as the 3801 earning', () => {
     expect(appendLoanComponents([], [applied({ fringeBenefit: 7.08 })], { deduction, fringe })).toEqual([
-      { component: deduction, amount: 1000 }, { component: fringe, amount: 7.08 },
+      { component: deduction, amount: 1000 }, { component: fringe, amount: 7.08, isNonCash: true },
     ]);
   });
 

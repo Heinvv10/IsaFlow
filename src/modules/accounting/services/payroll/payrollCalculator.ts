@@ -47,7 +47,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
 
-  for (const { component, amount, directive } of components) {
+  for (const { component, amount, isNonCash, directive } of components) {
     breakdown.push({
       componentId: component.id,
       componentName: component.name,
@@ -60,7 +60,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     });
 
     if (component.componentType === 'earning') {
-      grossPay += amount;
+      if (!isNonCash) grossPay += amount;
       if (component.isUifApplicable) uifLeviable += amount;
       if (component.isSdlApplicable) sdlLeviable += amount;
       const treatment = payeTreatment(component.sarsSourceCode);

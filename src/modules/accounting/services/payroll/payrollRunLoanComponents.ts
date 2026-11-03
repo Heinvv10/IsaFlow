@@ -78,7 +78,7 @@ export function appendLoanComponents(
     }
     // No 3801 earning: the loan is collected and the line warns (fringeNotRecordedResults, Hein).
     if (app.fringeBenefit > 0 && loanComponents.fringe) {
-      injected.push({ component: loanComponents.fringe, amount: app.fringeBenefit });
+      injected.push({ component: loanComponents.fringe, amount: app.fringeBenefit, isNonCash: true });
     }
   }
   if (injected.length > 0) {

@@ -41,7 +41,8 @@ export function inputsFixture(pool: Pool) {
     get: (run: string) => call(inputs as Route, 'GET', url(run), run),
     recalculate: (run: string) => call(calculate as Route, 'POST', `/api/payroll/runs/${run}/calculate`, run),
     line: async (run: string, employeeId = state.employee) => (await pool.query(
-      `SELECT gross_pay::float8 AS gross, paye::float8 AS paye, uif_employee::float8 AS uif, sdl::float8 AS sdl, net_pay::float8 AS net, validation_results
+      `SELECT gross_pay::float8 AS gross, taxable_income::float8 AS taxable, paye::float8 AS paye,
+              uif_employee::float8 AS uif, sdl::float8 AS sdl, net_pay::float8 AS net, validation_results
          FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2`, [run, employeeId])).rows[0]!,
     header: async (run: string) => (await pool.query(
       `SELECT status, journal_entry_id, total_gross::float8 AS gross, total_net::float8 AS net FROM payroll_run_headers WHERE id = $1`, [run])).rows[0]!,
