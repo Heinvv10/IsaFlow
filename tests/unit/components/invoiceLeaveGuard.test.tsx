@@ -122,6 +122,26 @@ describe('leaving with a change unsaved', () => {
     expect(puts()).toHaveLength(0);
   });
 
+  it('Leave on Back is "Leave without them", as on a link: a PUT still out for an earlier change is let go too', async () => {
+    confirm.mockReturnValue(true);
+    let signal: AbortSignal | null = null;
+    serveInvoice((u, init) => {
+      if (!u.includes('customer-invoices-detail') || init?.method !== 'PUT') return undefined;
+      signal = init.signal as AbortSignal;
+      return new Promise<Response>((_r, reject) => { signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))); });
+    });
+    render(<EditPage />);
+    await advance(0);
+    await advance(0);
+    type(description(), 'Sent, still out');
+    await advance(1_500);
+    expect(puts()).toHaveLength(1);
+    type(screen.getAllByLabelText('Quantity')[0]!, '0'); // held
+    await advance(0);
+    expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(true);
+    expect(signal?.aborted).toBe(true);
+  });
+
   it('nothing unsaved: back is allowed unasked', async () => {
     serveInvoice();
     render(<EditPage />);
