@@ -153,9 +153,9 @@ const PERIODS_IN_YEAR = 12;
 
 export function calculateCumulativePaye(input: CumulativePayeInput): CumulativePayeResult {
   const { ytd } = input;
-  // A negative donation is a correction which restores taxable income; it is
-  // not periodic remuneration and therefore cannot create a pay period.
-  const hasPeriodic = input.regularTaxable + Math.min(0, input.donations ?? 0) > 0;
+  // Donations are already inside regularTaxable: add the full signed amount
+  // back to recover remuneration without making a correction-only line a period.
+  const hasPeriodic = input.regularTaxable + (input.donations ?? 0) > 0;
   const periods = ytd.periods + (hasPeriodic ? 1 : 0);
   const feesToDate = Math.max(0, ytd.medicalSchemeFees) + Math.max(0, input.medicalSchemeFees);
   const base = {

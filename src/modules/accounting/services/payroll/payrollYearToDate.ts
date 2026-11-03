@@ -90,9 +90,9 @@ export async function loadPayeYearToDate(
         AND l.employee_id = ANY(${employeeIds}::uuid[])
     )
     SELECT employee_id,
-           -- A negative donation restores taxable income but is not periodic remuneration.
-           COUNT(*) FILTER (WHERE periodic + LEAST(donations, 0) > 0)::int AS periods,
-           COUNT(*) FILTER (WHERE periodic + LEAST(donations, 0) > 0 OR annual > 0)::int AS retirement_cap_periods,
+           -- Donations are inside periodic: add the full signed amount back to recover remuneration.
+           COUNT(*) FILTER (WHERE periodic + donations > 0)::int AS periods,
+           COUNT(*) FILTER (WHERE periodic + donations > 0 OR annual > 0)::int AS retirement_cap_periods,
            -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
            jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic <= 0) AS unpaid_lines,
            jsonb_object_agg(line_id::text, jsonb_build_object(

@@ -190,4 +190,22 @@ describe('PAYE 4c: salary, bonus-only periods and signed corrections', () => {
     ]).toEqual([240_000, 5_500, 11_000, 1_305, 2, 2]);
     expectLimits(months);
   });
+
+  it('counts remuneration fully reduced by a donation as a paid period', () => {
+    // March's R100 000 remuneration is fully reduced by its donation, but it
+    // remains a paid period. April therefore annualises R100 000 taxable pay
+    // over two periods before allowing the R20 000 retirement contribution.
+    const months = year([
+      { salary: 100_000, contribution: 0, donation: 100_000 },
+      { salary: 100_000, contribution: 20_000 },
+    ]);
+    expect([months[0]!.periods, months[0]!.totalPaye]).toEqual([1, 0]);
+    expect([
+      months[1]!.periods,
+      months[1]!.annualEquivalent,
+      months[1]!.retirementDeduction,
+      months[1]!.totalPaye,
+    ]).toEqual([2, 600_000, 20_000, 15_369.50]);
+    expectLimits(months);
+  });
 });
