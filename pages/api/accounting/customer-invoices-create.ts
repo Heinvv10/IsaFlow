@@ -20,7 +20,7 @@ import {
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 import { sql } from '@/lib/neon';
-import { readShownDigest } from '@/modules/accounting/services/ar/customerInvoiceShownDigest';
+import { shownDigest as readShownDigest } from '@/modules/accounting/services/ar/invoicePdfModel';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -40,8 +40,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
       taxRate, notes, items, currencyCode, exchangeRate, projectId,
     });
-    // What Approve sends back for this invoice (customerInvoiceShownDigest).
-    const shownDigest = await readShownDigest(sql, companyId, invoiceId);
+    // What Approve sends back for this invoice: the hash of the model its PDF renders (invoicePdfModel).
+    const shownDigest = await readShownDigest(companyId, invoiceId);
     return apiResponse.created(res, { id: invoiceId, invoiceNumber, shownDigest });
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;

@@ -27,7 +27,7 @@ import { checkDocumentCurrency, DocumentCurrencyError, loadCompanyCurrency } fro
 import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
 import type { InvoiceLineCoding } from './invoiceLineCoding';
 import { releaseDroppedWipEntries, wipLinks, type WipLinkCheck } from './customerInvoiceWipLinks';
-import { shownDigestMoved } from './customerInvoiceShownDigest';
+import { shownDigestMoved } from './invoicePdfModel';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveEditCodings } from './customerInvoiceDraftCoding';
 import { invoiceLineAmount, invoiceTotals } from './invoiceLineAmount';
@@ -83,7 +83,7 @@ export async function editDraftCustomerInvoice(
     if (String(ownedRows[0]!.status) !== 'draft') {
       return { kind: 'not_draft' as const };
     }
-    if (await shownDigestMoved(tx, companyId, id, edit.expectedShownDigest)) return { kind: 'stale_view' as const }; // edited from an older read
+    if (await shownDigestMoved(companyId, id, edit.expectedShownDigest)) return { kind: 'stale_view' as const }; // edited from an older read
     const existingRate = Number(ownedRows[0]!.exchange_rate ?? 1);
     // A currency change needs its rate: recomputing at the OLD one left a ZAR
     // invoice re-labelled USD with functional_total = the USD figure, which is

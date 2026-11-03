@@ -1,6 +1,7 @@
 /**
- * PR S rounds eleven and twelve: the shown digest (`shown_digest`) covers what the invoice shows beyond the approval
- * digest (notes, due date, billing period, the job's name), every reply that hands the page an invoice carries it, the
+ * PR S rounds eleven to fourteen: the shown digest (`shown_digest`) is the hash of the model the PDF renders
+ * (invoicePdfModel: header, lines, the customer and the issuing company as printed, bank details, terms, totals,
+ * notes, dates, the job) with the approval digest, so anything printed is in it by construction; every reply that hands the page an invoice carries it, the
  * route requires it with any `expected*` field, and a draft PUT that sends `expectedShownDigest` is refused (409
  * STALE_VIEW, nothing written) when the invoice moved since that read. Through the real routes:
  * - create → approve with the digest the create returned: 200; the same after a draft PUT, and after a GET;
@@ -114,6 +115,9 @@ describe('what the invoice shows beyond the approval digest', () => {
     ['vat_number', '4987654321'],
     ['logo_data', 'data:image/png;base64,Y2hhbmdlZA=='],
     ['primary_color', '#123456'],
+    ['bank_name', 'Changed Bank'],
+    ['bank_account_number', '62000000001'],
+    ['bank_branch_code', '250655'],
   ])('the company %s changed after it was shown: 409 STALE_VIEW', async (column, value) => {
     const inv = await plantInvoice(pool, company, owner);
     const digest = await seen(inv.id);
@@ -122,6 +126,26 @@ describe('what the invoice shows beyond the approval digest', () => {
     expect(res.state.statusCode).toBe(409);
     expect(reasonOf(res)).toBe('STALE_VIEW');
     expect(await invoiceState(pool, inv.id)).toMatchObject({ status: 'draft', journals: 0 });
+  });
+
+  it.each([
+    ['a line\'s description', `UPDATE customer_invoice_items SET description = 'Changed line' WHERE invoice_id = $1 AND description = 'Line A'`],
+    ['the invoice number', `UPDATE customer_invoices SET invoice_number = invoice_number || '-X' WHERE id = $1`],
+  ])('%s changed after it was shown: 409 STALE_VIEW', async (_name, change) => {
+    const inv = await plantInvoice(pool, company, owner);
+    const digest = await seen(inv.id);
+    await pool.query(change, [inv.id]);
+    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedContentDigest: digest });
+    expect(res.state.statusCode).toBe(409);
+    expect(reasonOf(res)).toBe('STALE_VIEW');
+  });
+
+  it('nothing printed changed, but something not printed did (the invoice was viewed, emailed): approved', async () => {
+    const inv = await plantInvoice(pool, company, owner);
+    const digest = await seen(inv.id);
+    await pool.query(`UPDATE customer_invoices SET updated_at = NOW() + INTERVAL '1 minute', email_sent_at = NOW() WHERE id = $1`, [inv.id]);
+    const res = await approve({ id: inv.id, expectedTotal: 1150, expectedContentDigest: digest });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
   });
 
   it('the job\'s name changed after it was shown (the PDF prints it): 409 STALE_VIEW', async () => {

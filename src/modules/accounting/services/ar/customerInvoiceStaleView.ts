@@ -14,7 +14,7 @@ export interface ShownInvoice {
   expectedContentDigest?: string;
 }
 
-/** `shown_digest`: the stored row's shown digest (customerInvoiceShownDigest, computed by the server caller: it hashes). */
+/** `shown_digest`: the stored row's shown digest (invoicePdfModel.shownDigest, computed by the server caller: it hashes). */
 interface Stored { total_amount?: unknown; currency_code?: unknown; exchange_rate?: unknown; shown_digest?: string }
 
 const currencyOf = (code: unknown): string => (typeof code === 'string' && code.trim() ? code.trim().toUpperCase() : 'ZAR');
@@ -47,7 +47,7 @@ export class InvoiceStaleViewError extends Error {
 
 /**
  * Throws when anything shown differs from the stored row: the total, currency and rate (the message names the stored
- * total), else the shown digest (customerInvoiceShownDigest: lines, parties, dates, notes; the message says the
+ * total), else the shown digest (invoicePdfModel: everything the PDF prints, with the approval digest; the message says the
  * content changed, never the total).
  */
 export function assertShownIsStored(shown: ShownInvoice, stored: Stored): void {

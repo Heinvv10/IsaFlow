@@ -108,7 +108,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const [failure, setFailure] = useState<Failure | null>(null);
   const inFlight = useRef<Promise<SaveResult> | null>(null);
   const sending = useRef<string | null>(null); // the body of the PUT out now
-  // The shown digest each invoice was last read or saved at (customerInvoiceShownDigest). Each PUT sends it back as
+  // The shown digest each invoice was last read or saved at (invoicePdfModel). Each PUT sends it back as
   // `expectedShownDigest`, so the server refuses (409 STALE_VIEW) an edit made from a read another tab has since moved;
   // kept per invoice, so a change sent as one invoice leaves carries that invoice's own, whatever loads next.
   const digests = useRef(new Map<string, string>());

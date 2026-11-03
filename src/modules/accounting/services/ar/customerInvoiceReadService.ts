@@ -10,7 +10,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import { shownDigestOf } from './customerInvoiceShownDigest';
+import { shownDigest } from './invoicePdfModel';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 import { linkExpiredSql } from './portalLinkCharge';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
@@ -221,14 +221,7 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
            to_char(ci.billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
            to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end,
            ci.created_at, ci.updated_at,
-           approval_document_digest(ci.company_id, 'customer_invoice', ci.id) AS approval_content_digest,
            (SELECT p.name FROM projects p WHERE p.id = ci.project_id AND p.company_id = ci.company_id) AS project_name,
-           c.name AS customer_name, c.billing_address AS customer_address, c.contact_person AS customer_contact,
-           c.email AS customer_email, c.phone AS customer_phone, c.vat_number AS customer_vat,
-           co.name AS company_name, co.address_line1 AS company_address_line1, co.address_line2 AS company_address_line2,
-           co.city AS company_city, co.province AS company_province, co.postal_code AS company_postal_code,
-           co.email AS company_email, co.phone AS company_phone, co.vat_number AS company_vat,
-           co.logo_data AS company_logo_data, co.primary_color AS company_primary_color,
            (SELECT count(*)::INT FROM time_entries te
              WHERE te.invoice_id = ci.id AND te.company_id = ci.company_id
                AND NOT EXISTS (SELECT 1 FROM customer_invoice_items x WHERE x.invoice_id = ci.id AND x.time_entry_id = te.id)
@@ -236,17 +229,11 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
            c.name AS client_name, c.email AS client_email
     FROM customer_invoices ci
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
-    LEFT JOIN companies co ON co.id = ci.company_id
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}
   `) as Row[];
   if (rows.length === 0) return null;
-  // What Approve (and a draft PUT) sends back: the shown digest (customerInvoiceShownDigest); the approval digest
-  // alone is not returned.
-  rows[0]!.shown_digest = shownDigestOf(rows[0]!);
-  for (const field of ['approval_content_digest', 'customer_name', 'customer_address', 'customer_contact',
-    'customer_email', 'customer_phone', 'customer_vat', 'company_name', 'company_address_line1',
-    'company_address_line2', 'company_city', 'company_province', 'company_postal_code', 'company_email',
-    'company_phone', 'company_vat', 'company_logo_data', 'company_primary_color']) delete rows[0]![field];
+  // What Approve (and a draft PUT) sends back: the hash of the model the PDF renders (invoicePdfModel).
+  rows[0]!.shown_digest = await shownDigest(companyId, invoiceId);
 
   const items = (await sql`
     SELECT cii.*,

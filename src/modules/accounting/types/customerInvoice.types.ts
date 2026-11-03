@@ -39,7 +39,7 @@ export interface CustomerInvoiceDetail {
   /** The document currency and its rate to ZAR (FX PR0); Approve sends them back as shown (STALE_VIEW). */
   currency_code?: string | null;
   exchange_rate?: number | string | null;
-  /** The shown digest (customerInvoiceShownDigest): what this read showed; Approve and a draft PUT send it back. */
+  /** The shown digest (invoicePdfModel): what this read showed; Approve and a draft PUT send it back. */
   shown_digest?: string;
   client_name: string;
   project_name: string;

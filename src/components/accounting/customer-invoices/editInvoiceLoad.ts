@@ -20,7 +20,7 @@ export type InvoiceDetail = {
   billing_period_start?: string | null; billing_period_end?: string | null;
   tax_rate: number | string; notes?: string | null; total_amount?: number | string;
   currency_code?: string | null; exchange_rate?: number | string | null; project_id?: string | null;
-  shown_digest?: string; // customerInvoiceShownDigest: sent back by Approve and by each draft PUT
+  shown_digest?: string; // invoicePdfModel: sent back by Approve and by each draft PUT
   /** Billed time entries no line links (a grouped WIP or timesheet invoice): removing a line leaves them billed. */
   unlinked_time_entries?: number | string;
   items?: InvoiceItemRow[];

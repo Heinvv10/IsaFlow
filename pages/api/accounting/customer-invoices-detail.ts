@@ -36,7 +36,7 @@ import { getCustomerInvoiceDetail } from '@/modules/accounting/services/ar/custo
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
 import { WIP_CLIENT_STALE, WIP_LINK_REFUSED } from '@/modules/accounting/services/ar/customerInvoiceWipLinks';
-import { readShownDigest } from '@/modules/accounting/services/ar/customerInvoiceShownDigest';
+import { shownDigest } from '@/modules/accounting/services/ar/invoicePdfModel';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
@@ -121,8 +121,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'bad_dimensions') return apiResponse.badRequest(res, result.message);
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
-    // What Approve sends back now (customerInvoiceShownDigest): the page's next Approve & email carries it.
-    return apiResponse.success(res, { updated: true, shownDigest: await readShownDigest(sql, companyId, id) });
+    // What Approve sends back now (invoicePdfModel): the page's next Approve & email carries it.
+    return apiResponse.success(res, { updated: true, shownDigest: await shownDigest(companyId, id) });
   }
 
   if (req.method === 'POST') {
