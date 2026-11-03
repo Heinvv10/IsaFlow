@@ -176,6 +176,9 @@ function buildWatermark(text: string): string {
   return `<div class="watermark">${text}</div>`;
 }
 
+const AFS_TITLE = 'Annual Financial Statements';
+const PACK_TITLE = 'Management Pack';
+
 // ── Main orchestrator ─────────────────────────────────────────────────────────
 
 export function renderAfsToHtml(
@@ -184,10 +187,12 @@ export function renderAfsToHtml(
 ): string {
   const { document, sections, brandProfile, companyName, registrationNumber, coverPhotoUrl, entityType, charts, periodPhrase } = context;
 
-  // Entity-aware document title
-  const statementsTitle = entityType === 'trust'
-    ? 'Financial Statements'
-    : 'Annual Financial Statements';
+  // A management pack names itself; an AFS is entity-aware (trusts drop "Annual").
+  const isPack = document.documentType === 'management_pack';
+  const coverTitle = isPack ? PACK_TITLE : AFS_TITLE;
+  const statementsTitle = isPack
+    ? PACK_TITLE
+    : entityType === 'trust' ? 'Financial Statements' : AFS_TITLE;
 
   const css = buildCss(brandProfile);
   const periodEnd = resolvePeriodEnd(document);
@@ -196,10 +201,11 @@ export function renderAfsToHtml(
     primaryColour: brandProfile.primaryColour,
     secondaryColour: brandProfile.secondaryColour,
     logoUrl: brandProfile.logoUrl,
+    title: coverTitle,
     companyName,
     registrationNumber,
     periodEnd,
-    periodPhrase,
+    periodPhrase: periodPhrase ?? (isPack ? `month of ${periodEnd}` : undefined),
     coverPhotoUrl,
   });
 

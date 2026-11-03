@@ -86,14 +86,14 @@ async function coverPeriodText(doc: AfsDocument): Promise<string | null> {
   return doc.period;
 }
 
-function buildCoverChildren(periodText: string | null, companyName: string): DocxChild[] {
+function buildCoverChildren(periodText: string | null, companyName: string, title: string): DocxChild[] {
   return [
     spacer(),
     spacer(),
     spacer(),
     centeredParagraph(companyName, true, 48),
     spacer(),
-    centeredParagraph('Annual Financial Statements', true, 36),
+    centeredParagraph(title, true, 36),
     spacer(),
     periodText ? centeredParagraph(periodText, false, 28) : spacer(),
     spacer(),
@@ -208,7 +208,10 @@ export async function renderToDocx(
 
   const sorted = [...sections].sort((a, b) => a.sortOrder - b.sortOrder);
 
-  const coverChildren = buildCoverChildren(await coverPeriodText(document), companyName);
+  const documentTitle = document.documentType === 'management_pack'
+    ? 'Management Pack'
+    : 'Annual Financial Statements';
+  const coverChildren = buildCoverChildren(await coverPeriodText(document), companyName, documentTitle);
   const tocChildren = buildTocChildren();
 
   const sectionParts = sorted
@@ -223,7 +226,7 @@ export async function renderToDocx(
 
   const file = new File({
     creator: 'IsaFlow AFS',
-    title: `${companyName} — Annual Financial Statements`,
+    title: `${companyName} — ${documentTitle}`,
     description: `AFS for fiscal year ${document.fiscalYear ?? ''}`,
     styles: buildStyles(),
     sections: [
