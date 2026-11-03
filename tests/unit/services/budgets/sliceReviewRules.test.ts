@@ -19,14 +19,14 @@ const reviewer = { holder: false, reviewer: true };
 describe('nextSliceStatus', () => {
   it.each([
     ['open', 'submit', holder, 'submitted'], ['returned', 'submit', holder, 'submitted'],
-    ['submitted', 'approve', reviewer, 'approved'], ['submitted', 'return', reviewer, 'returned'],
+    ['submitted', 'approve', reviewer, 'approved'], ['submitted', 'return', reviewer, 'returned'], ['approved', 'return', reviewer, 'returned'],
   ] as const)('%s --%s--> %s', (from, action, who, to) => {
     expect(nextSliceStatus(from, action, who)).toEqual({ ok: true, next: to });
   });
 
   it.each([
     ['submitted', 'submit', holder], ['approved', 'submit', holder], ['open', 'approve', reviewer], ['returned', 'approve', reviewer],
-    ['approved', 'return', reviewer], ['open', 'return', reviewer],
+    ['open', 'return', reviewer], ['returned', 'return', reviewer],
   ] as const)('%s cannot be %s-ed (409 STATE)', (from, action, who) => {
     expect(nextSliceStatus(from, action, who)).toMatchObject({ ok: false, code: 'BUDGET_SLICE_STATE' });
   });

@@ -35,6 +35,7 @@
 --        open|returned -> submitted   a holder of that slice
 --        submitted -> approved        an owner or admin
 --        submitted -> returned        an owner or admin, with a non-blank note
+--        approved -> returned         an owner or admin, with a non-blank note (reopen)
 --      any other status move is BV005; a move changes nothing else (the slice, the
 --      due date; the note only on an approve or a return); it needs a draft
 --      version (taken FOR SHARE: a move and the version's approve serialise).
@@ -476,7 +477,8 @@ BEGIN
             AND h.bu_id IS NOT DISTINCT FROM NEW.bu_id) THEN
       RAISE EXCEPTION 'only a holder of this budget slice submits it' USING ERRCODE = 'BV004';
     END IF;
-  ELSIF NEW.status IN ('approved', 'returned') AND OLD.status = 'submitted' THEN
+  -- approved -> returned is the reviewer reopening an approved slice (r6): same rule as a return.
+  ELSIF (NEW.status IN ('approved', 'returned') AND OLD.status = 'submitted') OR (NEW.status = 'returned' AND OLD.status = 'approved') THEN
     IF auth.uid() IS NOT NULL AND NOT reviewer THEN
       RAISE EXCEPTION 'only an owner or admin approves or returns a budget slice' USING ERRCODE = 'BV004';
     END IF;

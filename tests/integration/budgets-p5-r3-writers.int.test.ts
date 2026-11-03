@@ -121,6 +121,30 @@ describe('the forecast roll and slices', { timeout: 60000 }, () => {
   });
 });
 
+describe('reopening an approved slice re-rolls what the roll left', { timeout: 60000 }, () => {
+  it('approved slice: the roll leaves its cells; the owner reopens it through the route and the re-roll rolls and advances', async () => {
+    const w = await fx.world();
+    rollCos.push(w.u.homeCompanyId);
+    const m = w.months;
+    const source = await fx.version(w);
+    for (const month of m) await fx.amount(w, source, w.sales, month, 1000);
+    await fx.journal(w, `${m[0]}-15`, [[w.sales, 0, 1200]]);
+    const r = await fx.call.reforecast(w.u, source, 'POST', { name: 'Rolling', rolling: true });
+    expect(r.status, dump(r)).toBe(201);
+    const rf = dataOf<{ version: { id: string } }>(r).version.id;
+    const holder = await fx.member(w.u.homeCompanyId, 'manager');
+    const id = await slice(w.u.homeCompanyId, rf, holder.userId, w.u.userId, 'approved');
+    await fx.close(w, [m[0]!]);
+    await fx.until(async () => (await pool.query('SELECT slice_skipped FROM budget_rolling_forecasts WHERE version_id = $1', [rf])).rows[0]?.slice_skipped > 0,
+      'the after-close roll');
+    expect(await fx.rollingRow(rf)).toMatchObject({ through: null });
+    const reopen = await sliceCall.call(w.u, 'POST', { note: 'Reopen for the actuals' }, { id, action: 'return' });
+    expect(reopen.status, dump(reopen)).toBe(200);
+    await fx.until(async () => (await fx.rollingRow(rf))?.through === m[0], 'the re-roll after the reopen');
+    expect([...(await fx.cellsOf(rf, w.sales)).values()][0]).toBe('1200.00:actual');
+  });
+});
+
 describe('a holder\'s auto roll (their close set it off)', { timeout: 60000 }, () => {
   it('counts the cells outside their slices apart from cells in slices under review, and keeps the month stale', async () => {
     const w = await fx.world();

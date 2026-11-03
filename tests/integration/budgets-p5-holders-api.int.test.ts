@@ -156,6 +156,33 @@ describe('the slice workflow through the routes', () => {
   });
 });
 
+describe('reopening an approved slice (r6)', () => {
+  it('the owner reopens (return, with a note): returned, the holder is told and edits again; a manager, no note, or a version not a draft are refused', async () => {
+    const v = await fx.version(w);
+    const slice = await fx.hold(w, v, holder.userId, { cc1: w.cc1 });
+    await fx.setStatus(slice, 'submitted', holder.userId);
+    await fx.setStatus(slice, 'approved', w.u.userId);
+    expect((await save(holder, v, [cell(w.rent, w.months[0]!, 1, { cc1Id: w.cc1 })])).status).toBe(409);
+    expect((await move(manager, slice, 'return', { note: 'x' })).status).toBe(403);
+    expect((await move(w.u, slice, 'return')).status).toBe(400);
+    const r = await move(w.u, slice, 'return', { note: 'Rework travel' });
+    expect([r.status, (r.body.data as { status: string; decisionNote: string })?.status], dump(r)).toEqual([200, 'returned']);
+    expect((await fx.notes(w.u.homeCompanyId, holder.userId)).some((n) => n.title.startsWith('Budget slice returned'))).toBe(true);
+    expect((await save(holder, v, [cell(w.rent, w.months[0]!, 1, { cc1Id: w.cc1 })])).status).toBe(200);
+    expect((await fx.audits(v)).filter((a) => a.changes.metadata?.sliceAction === 'return')).toHaveLength(1);
+
+    const v2 = await fx.version(w);
+    const s2 = await fx.hold(w, v2, holder.userId, { bu: w.bu });
+    await fx.setStatus(s2, 'submitted', holder.userId);
+    await fx.setStatus(s2, 'approved', w.u.userId);
+    await pool.query(`UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = now() WHERE id = $1`, [v2, w.u.userId]);
+    const late = await move(w.u, s2, 'return', { note: 'too late' });
+    expect([late.status, errCodeOf(late)], dump(late)).toEqual([409, 'BUDGET_SLICE_STATE']);
+    expect(await fx.asMember(w.u, (c) => c.query(`UPDATE budget_slice_reviews SET status = 'returned', decision_note = 'x' WHERE id = $1`, [s2]))
+      .then(() => 'ok', (e: { code?: string }) => e.code)).toBe('BV005');
+  });
+});
+
 describe('version approve and slices (decision 9a)', () => {
   it('refused while a slice is not approved; an admin cannot force; the owner forces with a reason (audited); all approved needs no force', async () => {
     const v = await fx.version(w);

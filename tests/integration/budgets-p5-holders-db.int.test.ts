@@ -158,7 +158,10 @@ describe('budget_holders_rules and budget_slice_reviews_rules as app_user', () =
     expect(await move(admin, mine, 'approved')).toBe('ok');
     await fx.setStatus(mine, 'approved', w.u.userId);
     expect(await move(owner(), mine, 'open')).toBe('BV005');
-    expect(await move(owner(), mine, 'returned', 'late')).toBe('BV005');
+    // Reopening an approved slice (r6): a reviewer, with a note.
+    expect(await move(owner(), mine, 'returned', '  ')).toBe('BV005');
+    expect(await move(manager, mine, 'returned', 'late')).toBe('BV004');
+    expect(await move(owner(), mine, 'returned', 'late')).toBe('ok');
     // Re-dating and removing a slice review are the reviewer's.
     expect(await code(fx.asMember(holder, (c) => c.query(`UPDATE budget_slice_reviews SET due_date = '2030-01-01' WHERE id = $1`, [mine])))).toBe('BV004');
     expect(await code(fx.asMember(holder, (c) => c.query('DELETE FROM budget_slice_reviews WHERE id = $1', [mine])))).toBe('BV004');

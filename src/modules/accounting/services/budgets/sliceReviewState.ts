@@ -5,8 +5,10 @@
  *   open | returned  --submit-->   submitted   a holder of that slice
  *   submitted        --approve-->  approved    an owner or admin
  *   submitted        --return-->   returned    an owner or admin, with a note (1-2 000 characters)
+ *   approved         --return-->   returned    the same: reopening an approved slice (r6)
  *
- * Only on a draft version. The UPDATE's WHERE repeats the from-state, so of two racing moves (two
+ * Only on a draft version. The UPDATE's WHERE repeats the from-state the actor saw (not any allowed
+ * one: a return racing an approve must not turn into a reopen), so of two racing moves (two
  * submits, an approve and a return) exactly one wins and the other is a 409 naming the status it
  * found. Order of locks: the version FOR SHARE (bounded wait), then the slice row: the grid save takes
  * the version first too, so a save and a submit of one slice serialise, and the version's approve
@@ -33,7 +35,8 @@ export const MAX_SLICE_NOTE = 2000;
 const MOVES: Record<SliceAction, { from: readonly SliceStatus[]; to: SliceStatus; audit: AuditAction }> = {
   submit: { from: ['open', 'returned'], to: 'submitted', audit: 'update' },
   approve: { from: ['submitted'], to: 'approved', audit: 'approve' },
-  return: { from: ['submitted'], to: 'returned', audit: 'reject' },
+  // An approved slice can be reopened (returned to its holder) too (r6): the frozen-slice refusals say "return the slice first".
+  return: { from: ['submitted', 'approved'], to: 'returned', audit: 'reject' },
 };
 
 export type SliceTransition =
@@ -96,7 +99,7 @@ export async function transitionSlice(
     () => sql`
       UPDATE budget_slice_reviews SET status = ${move.to},
              decision_note = CASE WHEN ${action} = 'submit' THEN decision_note ELSE ${note} END
-       WHERE id = ${sliceId}::UUID AND company_id = ${companyId}::UUID AND status = ANY(${move.from as string[]}::TEXT[])
+       WHERE id = ${sliceId}::UUID AND company_id = ${companyId}::UUID AND status = ${before.status}
       RETURNING to_char(COALESCE(CASE WHEN status = 'submitted' THEN submitted_at ELSE decided_at END, now()) AT TIME ZONE 'UTC',
                         'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at
     `,

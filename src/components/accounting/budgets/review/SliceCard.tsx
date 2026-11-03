@@ -38,6 +38,8 @@ export function SliceCard({ slice, userId, reviewer, today, onChanged, onRemoved
   const holder = userId !== null && slice.holders.some((h) => h.userId === userId);
   const canSubmit = draft && holder && (slice.status === 'open' || slice.status === 'returned');
   const canDecide = draft && reviewer && slice.status === 'submitted';
+  // r6: an approved slice can be reopened (returned to its holder, with a note) by the reviewer.
+  const canReopen = draft && reviewer && slice.status === 'approved';
   const canRemove = draft && reviewer && (slice.status === 'open' || slice.status === 'returned');
   const overdue = slice.dueDate !== null && slice.dueDate < today && slice.status !== 'approved' && slice.status !== 'submitted';
 
@@ -134,7 +136,10 @@ export function SliceCard({ slice, userId, reviewer, today, onChanged, onRemoved
             <button type="button" className={BTN_SECONDARY} disabled={busy !== null} onClick={() => setReturning(true)} data-testid="slice-return">Return…</button>
           </>
         )}
-        {canDecide && returning && (
+        {canReopen && !returning && (
+          <button type="button" className={BTN_SECONDARY} disabled={busy !== null} onClick={() => setReturning(true)} data-testid="slice-reopen">Reopen…</button>
+        )}
+        {(canDecide || canReopen) && returning && (
           <>
             <button type="button" className={BTN_PRIMARY} disabled={busy !== null || note.trim() === ''} data-testid="slice-return-confirm"
               onClick={() => { void run('return', note.trim()); }}>

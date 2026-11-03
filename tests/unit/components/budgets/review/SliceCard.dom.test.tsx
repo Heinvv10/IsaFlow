@@ -73,4 +73,19 @@ describe('SliceCard', () => {
     card(slice(), 'h1', false);
     expect(screen.queryByTestId('holder-remove-bh1')).toBeNull();
   });
+
+  it('a reviewer reopens an approved slice of a draft with a note (the return move); not on a version that is not a draft', async () => {
+    moveSlice.mockResolvedValueOnce(slice({ status: 'returned' }));
+    card(slice({ status: 'approved' }), 'o1', true);
+    fireEvent.click(screen.getByTestId('slice-reopen'));
+    fireEvent.change(screen.getByLabelText('What should change? (required)'), { target: { value: 'Rework' } });
+    fireEvent.click(screen.getByTestId('slice-return-confirm'));
+    await waitFor(() => expect(moveSlice).toHaveBeenCalledWith('s1', 'return', 'Rework'));
+    cleanup();
+    card(slice({ status: 'approved', versionStatus: 'approved' }), 'o1', true);
+    expect(screen.queryByTestId('slice-reopen')).toBeNull();
+    cleanup();
+    card(slice({ status: 'approved' }), 'h1', false);
+    expect(screen.queryByTestId('slice-reopen')).toBeNull();
+  });
 });

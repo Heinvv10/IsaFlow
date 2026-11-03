@@ -11,14 +11,24 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 
 type RawSql = ((s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>) & Record<string, unknown>;
-const gate = vi.hoisted(() => ({ armed: false, waiting: [] as Array<() => void>, arrived: 0 }));
+const gate = vi.hoisted(() => ({
+  armed: false, waiting: [] as Array<() => void>, arrived: 0,
+  /** r6: hold the return's status UPDATE until released (it has read the slice already). */
+  holdReturn: null as null | Promise<void>, returnHeld: null as null | (() => void),
+}));
 
 // Once armed, each statement that moves a slice's status waits until two have arrived (5 s at most).
 vi.mock('@/lib/neon', async (orig) => {
   const real = await orig<Record<string, unknown>>();
   const realSql = real.sql as RawSql;
   const sql = (strings: TemplateStringsArray, ...values: unknown[]) => {
-    if (!gate.armed || !/UPDATE budget_slice_reviews SET status/.test(strings.join('?'))) return realSql(strings, ...values);
+    const statusMove = /UPDATE budget_slice_reviews SET status/.test(strings.join('?'));
+    if (statusMove && gate.holdReturn && values.includes('returned')) {
+      const hold = gate.holdReturn;
+      gate.holdReturn = null;
+      return (async () => { gate.returnHeld?.(); await hold; return realSql(strings, ...values); })();
+    }
+    if (!gate.armed || !statusMove) return realSql(strings, ...values);
     return (async () => {
       gate.arrived += 1;
       if (gate.arrived >= 2) { for (const go of gate.waiting.splice(0)) go(); } else {
@@ -94,5 +104,22 @@ describe('racing slice moves: one wins', () => {
     expect(await fx.status(slice)).toBe('submitted');
     // The winner's notification only (one submit, one dedupe key per reviewer).
     expect((await fx.notes(w.u.homeCompanyId, w.u.userId)).filter((n) => n.dedupe_key.startsWith(`budget_slice:${slice}:submit:`))).toHaveLength(1);
+  });
+
+  it('a return that read the slice as submitted does not become a reopen when an approve lands first (r6: the WHERE is the state it saw)', async () => {
+    const v = await fx.version(w);
+    const slice = await fx.hold(w, v, holderA.userId, { cc2: w.cc2 });
+    await fx.setStatus(slice, 'submitted', holderA.userId);
+    let release!: () => void;
+    gate.holdReturn = new Promise<void>((r) => { release = r; });
+    const held = new Promise<void>((r) => { gate.returnHeld = r; });
+    const ret = move(admin, slice, 'return', { note: 'Redo' });
+    await held;
+    const ap = await move(w.u, slice, 'approve');
+    expect(ap.status, JSON.stringify(ap.body)).toBe(200);
+    release();
+    const r = await ret;
+    expect([r.status, String(r.body.error?.message)]).toEqual([409, 'This budget slice is now approved; it cannot be returned']);
+    expect(await fx.status(slice)).toBe('approved');
   });
 });

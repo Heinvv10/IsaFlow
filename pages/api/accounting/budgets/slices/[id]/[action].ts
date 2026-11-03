@@ -2,7 +2,7 @@
  * A budget slice's review move (budgets P5 spec §3f, §4; P5-6), through sliceReviewState only.
  * POST /api/accounting/budgets/slices/<id>/submit   — a holder of the slice: open|returned → submitted
  * POST /api/accounting/budgets/slices/<id>/approve  { note? } — owner or admin: submitted → approved
- * POST /api/accounting/budgets/slices/<id>/return   { note }  — owner or admin: submitted → returned
+ * POST /api/accounting/budgets/slices/<id>/return   { note }  — owner or admin: submitted | approved → returned (an approved one is reopened)
  * → the slice. 400 a missing/long note, 403 the wrong person, 404 another company's slice, 409 the
  * slice is no longer in the status the move starts from (a racing move won) or the version is not a
  * draft. Each move is audited (entity 'budget') and notifies (submit: owners/admins; approve/return:

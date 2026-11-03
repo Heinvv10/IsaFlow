@@ -7,7 +7,7 @@ The budget-holder slice board (budgets P5-6, spec §3f/§5, decision 9a). Page: 
 
 ## Files
 - `BudgetReviewPage.tsx`: owner/admin "Budget Review" (every slice in four columns: open, submitted, returned, approved; assign form) or anyone else's "My Budget Slices" (their own slices). `?version=<id>` narrows to one version (the bell's links).
-- `SliceCard.tsx`: one slice: label, version, holders, due date (overdue in error colour unless submitted/approved), the last decision note; Submit (a holder, open/returned, draft), Approve / Return… with a required note (owner/admin, submitted, draft); Remove → Confirm remove per holder (owner/admin, open/returned, draft; the board reloads: the last holder takes the slice). A refusal stays on the card.
+- `SliceCard.tsx`: one slice: label, version, holders, due date (overdue in error colour unless submitted/approved), the last decision note; Submit (a holder, open/returned, draft), Approve / Return… with a required note (owner/admin, submitted, draft); Reopen… with a required note on an approved slice of a draft (owner/admin; the return move); Remove → Confirm remove per holder (owner/admin, open/returned, draft; the board reloads: the last holder takes the slice). A refusal stays on the card.
 - `AssignHolderForm.tsx`: year → draft version → member (manager+, from `company-users`) → slice (company, CC1, CC2, BU member) → optional account limit (multi-select of active revenue/expense accounts from `chart-of-accounts`; none = every account) → optional due date.
 - `reviewClient.ts`: fetchers. Holders and slice moves are registry-typed (`src/lib/apiRoutes.ts`); company-users, cost-centres, business-units, chart-of-accounts and the years list are narrowed from `unknown`.
 
@@ -19,3 +19,4 @@ The budget-holder slice board (budgets P5-6, spec §3f/§5, decision 9a). Page: 
 ## Recent changes
 - 2026-11-03 (P5-6): directory created.
 - 2026-11-03 (P5-6 r2): remove a holder, account-limit multi-select.
+- 2026-11-04 (P5-6 r6): Reopen on approved cards.
