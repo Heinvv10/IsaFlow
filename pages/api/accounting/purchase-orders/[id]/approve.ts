@@ -6,7 +6,7 @@
  * lines (month = order date), approved_by / approved_at stamped, the budget event and the audit rows. The PUT
  * no longer takes `status: 'approved'`. Roles: owner, admin, manager (withWriteAccess defaults).
  * Answers: 200 { ...purchase order, budgetWarnings? }; 400 not approvable / BUDGET_REASON_REQUIRED / bad body;
- * 403 Login-as session; 404 not this company's; 409 BUDGET_EXCEEDED (its refused event recorded, outside the
+ * 403 Login-as session; 404 not this company's; 409 BUDGET_EXCEEDED or changed under the lock (its refused event recorded, outside the
  * approval's savepoint); 429 past 120 a minute per user; 503 + Retry-After when the budget lock or the PO row is held.
  */
 import { z } from 'zod';
@@ -22,7 +22,7 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { isUuidParam } from '@/lib/validation';
 import { BUDGET_REASON_MAX } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import {
-  approvePurchaseOrder, PurchaseOrderNotApprovableError, PurchaseOrderNotFoundError,
+  approvePurchaseOrder, PurchaseOrderChangedError, PurchaseOrderNotApprovableError, PurchaseOrderNotFoundError,
 } from '@/modules/accounting/services/ap/purchaseOrderApprove';
 
 const ApproveSchema = z.object({
@@ -53,6 +53,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   } catch (err) {
     if (err instanceof PurchaseOrderNotFoundError) return apiResponse.notFound(res, 'Purchase order');
     if (err instanceof PurchaseOrderNotApprovableError) return apiResponse.badRequest(res, err.message);
+    if (err instanceof PurchaseOrderChangedError) return apiResponse.conflict(res, err.message);
     if (respondIfImpersonationForbidden(res, err)) return;
     if (await respondIfBudgetRefused(res, err)) return;
     if (respondIfLockTimeout(res, err)) return;

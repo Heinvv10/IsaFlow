@@ -3,8 +3,10 @@
  * and 7). The document-agnostic check is `budgets/budgetCheck.ts`; this keys it on a PO (`purchase_orders` /
  * `po_items`, mig 246b + 954's line dimensions).
  *
- * - Lines: every `po_items` row, its account and CC1 / CC2 / BU, at its ex-VAT `line_total` (qty × unit price on
- *   both writers): the figure P5-1's committed counts for the same line once the PO is approved.
+ * - Lines: every `po_items` row, its account and CC1 / CC2 / BU, at its OPEN amount: ex-VAT `line_total` (qty × unit
+ *   price on both writers) less what approved / paid bills linked by `po_item_id` already posted against it
+ *   (`remainingCommitted.billedByPoItem`, the one formula), floored at 0 — exactly what approving adds to committed.
+ *   The billed part is already in actuals; judging the gross refused approvals that never go over (review r2, BRK-1).
  * - A line with NO account (every line the create route writes: census 7) cannot meet a budget: it is "No budget",
  *   never over, never refused. It is not checked and no account is invented for it; the preview lists it as
  *   "No account".
@@ -15,6 +17,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { toCents } from '../budgets/grid/cents';
+import { billedByPoItem } from '../budgets/remainingCommitted';
 import {
   checkDocumentBudget, evaluateDocumentLines, labelBudgetLines, readCheckPolicy,
 } from '../budgets/budgetCheck';
@@ -68,9 +71,12 @@ async function readPoBudgetLines(companyId: string, poId: string): Promise<PoBud
      ORDER BY pi.sort_order, pi.id
   `) as DbRow[];
   const out: PoBudgetLines = { lines: [], noAccount: [], itemIds: [] };
+  const billed = await billedByPoItem(companyId, rows.map((r) => String(id(r.id))), []);
   for (const r of rows) {
-    out.itemIds.push(String(r.id));
-    const line = { glAccountId: id(r.gl_account_id) ?? '', cc1Id: id(r.cc1_id), cc2Id: id(r.cc2_id), buId: id(r.bu_id), amount: Number(r.line_total) };
+    const item = String(id(r.id));
+    out.itemIds.push(item);
+    const open = Math.max(0, toCents(Number(r.line_total)) - toCents(billed.get(item) ?? 0)) / 100;
+    const line = { glAccountId: id(r.gl_account_id) ?? '', cc1Id: id(r.cc1_id), cc2Id: id(r.cc2_id), buId: id(r.bu_id), amount: open };
     (line.glAccountId === '' ? out.noAccount : out.lines).push(line);
   }
   return out;

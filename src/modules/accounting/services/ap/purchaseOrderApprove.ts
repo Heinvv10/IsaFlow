@@ -16,46 +16,16 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { logAuditOrThrow } from '../core/auditTrailService';
-import { withRowLockBudget } from '../core/rowLockBudget';
 import { gateFor } from '../budgets/budgetCheck';
 import type { BudgetCheckContext } from '../budgets/budgetCheckTypes';
-import { APPROVABLE_PO_STATUSES, checkPurchaseOrderBudget, poHeaderOf, type PoHeader } from './purchaseOrderBudget';
+import { APPROVABLE_PO_STATUSES, checkPurchaseOrderBudget } from './purchaseOrderBudget';
+import {
+  lockPurchaseOrder, PurchaseOrderChangedError, PurchaseOrderNotApprovableError, PurchaseOrderNotFoundError,
+} from './purchaseOrderErrors';
 
-/** 404: no such PO in this company. */
-export class PurchaseOrderNotFoundError extends Error {
-  readonly code = 'PURCHASE_ORDER_NOT_FOUND';
-  constructor() {
-    super('Purchase order not found');
-    this.name = 'PurchaseOrderNotFoundError';
-  }
-}
-
-/** 400: the PO's status does not take an approval. */
-export class PurchaseOrderNotApprovableError extends Error {
-  readonly code = 'PURCHASE_ORDER_NOT_APPROVABLE';
-  constructor(readonly status: string) {
-    super(`Only draft or submitted purchase orders can be approved (this one is ${status.replace(/_/g, ' ')})`);
-    this.name = 'PurchaseOrderNotApprovableError';
-  }
-}
-
-/** 503 + Retry-After (a `*_LOCK_TIMEOUT` code): another request held the PO row past the budget. */
-export class PurchaseOrderLockTimeoutError extends Error {
-  readonly code = 'PURCHASE_ORDER_LOCK_TIMEOUT';
-  constructor() {
-    super('This purchase order is being changed by another request — retry in a moment.');
-    this.name = 'PurchaseOrderLockTimeoutError';
-  }
-}
-
-async function lockPurchaseOrder(companyId: string, poId: string): Promise<PoHeader | null> {
-  const rows = await withRowLockBudget(async () => (await sql`
-    SELECT id, po_number, status, to_char(order_date, 'YYYY-MM') AS month
-      FROM purchase_orders WHERE id = ${poId}::UUID AND company_id = ${companyId}::UUID
-       FOR UPDATE
-  `) as DbRow[], () => new PurchaseOrderLockTimeoutError());
-  return rows[0] ? poHeaderOf(rows[0]) : null;
-}
+export {
+  PurchaseOrderChangedError, PurchaseOrderLockTimeoutError, PurchaseOrderNotApprovableError, PurchaseOrderNotFoundError,
+} from './purchaseOrderErrors';
 
 export interface ApprovedPurchaseOrder {
   purchaseOrder: DbRow;
@@ -87,7 +57,7 @@ export async function approvePurchaseOrder(
       RETURNING *
     `) as DbRow[];
     // The row is held FOR UPDATE since the status read, so the guard cannot miss; it is the K-137 belt all the same.
-    if (!updated[0]) throw new Error(`Purchase order ${poId} changed while it was being approved`);
+    if (!updated[0]) throw new PurchaseOrderChangedError();
     await logAuditOrThrow({
       companyId, userId, action: 'approve', entityType: 'purchase_order', entityId: poId, entityRef: po.poNumber.slice(0, 100),
       changes: {

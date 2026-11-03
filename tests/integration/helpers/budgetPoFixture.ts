@@ -6,6 +6,7 @@
  */
 import type { Pool } from 'pg';
 import approveRoute from '../../../pages/api/accounting/purchase-orders/[id]/approve';
+import cancelRoute from '../../../pages/api/accounting/purchase-orders/[id]/cancel';
 import poRoute from '../../../pages/api/accounting/purchase-orders/[id]';
 import { callRoute, type BillFixture } from './budgetBillFixture';
 
@@ -50,3 +51,6 @@ export const approvePo = (f: BillFixture, user: string, po: string, body: Record
 
 export const putPo = (f: BillFixture, user: string, po: string, body: Record<string, unknown>) =>
   callRoute(poRoute as never, f, user, `/api/accounting/purchase-orders/${po}`, body, { method: 'PUT', id: po });
+
+export const cancelPo = (f: BillFixture, user: string, po: string, body: Record<string, unknown> = {}) =>
+  callRoute(cancelRoute as never, f, user, `/api/accounting/purchase-orders/${po}/cancel`, body, { id: po });

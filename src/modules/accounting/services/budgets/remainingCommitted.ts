@@ -48,8 +48,12 @@ function itemOf(r: DbRow): SupplierInvoiceItem {
   };
 }
 
-/** Ex-VAT posted amount per PO line, over the bills that count as billed. */
-async function billedByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, number>> {
+/**
+ * Ex-VAT posted amount per PO line (lower-case ids), over the bills that count as billed (`BILLED_STATUSES`, plus
+ * `own`). Also the PO approval's figure for a line's OPEN amount (`ap/purchaseOrderBudget`, P5-3 review r2): one
+ * formula for what committed nets and what an approval adds.
+ */
+export async function billedByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (poItemIds.length === 0) return out;
   const bills = (await sql`
