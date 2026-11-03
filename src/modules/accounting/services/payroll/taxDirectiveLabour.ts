@@ -21,10 +21,12 @@
  * `postOrRetry` runs the claim, the journal and its link. A mapped labour
  * account deactivated after the re-read (the window a rival claim's wait
  * stretches, review round 2 N1) makes the GL refuse the post with
- * InactiveAccountError; when one of the split's MAPPED accounts is now inactive
- * it is answered as TaxDirectiveSplitChangedError (409, retryable): the retry's
- * read routes that labour to the default account. Any other refusal (the
- * default account, 2140, the bank) is rethrown as before. The claim and the
+ * InactiveAccountError; when EVERY refused account is one of the split's
+ * MAPPED labour accounts (used by no credit line) it is answered as
+ * TaxDirectiveSplitChangedError (409, retryable): the retry's read routes that
+ * labour to the default account. Any other refusal — the default account,
+ * 2140, the bank, or a mix with any of them — is rethrown as before, since the
+ * retry would fail the same way. The claim and the
  * draft journal are already written by then: the caller must run this inside a
  * savepoint that a throw rolls back — the apply route's withJournalDateRefusal
  * does (its only caller), so the 409 leaves nothing written (tested). Chosen
@@ -63,11 +65,16 @@ export async function postOrRetry<T>(
     return await write();
   } catch (err) {
     if (!(err instanceof InactiveAccountError)) throw err;
-    const mapped = [...new Set(lines.filter((l) => l.debit > 0 && l.glAccountId !== defaultAccountId).map((l) => l.glAccountId))];
-    const off = mapped.length === 0 ? [] : (await sql`
-      SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::uuid AND id = ANY(${mapped}::uuid[]) AND is_active = false
-    `) as DbRow[];
-    if (off.length === 0) throw err;
+    // Retryable only when EVERY refused account is a mapped labour account used by no other line (review round 3):
+    // the retry routes that labour to the default account and then posts. A refused default, 2140 or bank account — or
+    // labour mapped to an account a credit line also uses — would fail the retry the same way, so it is rethrown.
+    const credited = new Set(lines.filter((l) => l.credit > 0).map((l) => l.glAccountId));
+    const mapped = [...new Set(lines.filter((l) => l.debit > 0 && l.glAccountId !== defaultAccountId && !credited.has(l.glAccountId))
+      .map((l) => l.glAccountId))];
+    const codes = mapped.length === 0 ? [] : ((await sql`
+      SELECT account_code FROM gl_accounts WHERE company_id = ${companyId}::uuid AND id = ANY(${mapped}::uuid[])
+    `) as DbRow[]).map((r) => String(r.account_code));
+    if (err.accounts.length === 0 || !err.accounts.every((c) => codes.includes(c))) throw err;
     throw new TaxDirectiveSplitChangedError(directiveId);
   }
 }
