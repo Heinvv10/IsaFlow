@@ -134,6 +134,24 @@ describe('VarianceNoteButton: the editor follows the reloaded note (browser proo
     expect(onApprove).toHaveBeenNthCalledWith(2, 'n1', 'New words');
   });
 
+  it('an approver who EDITED and was refused (409) sees the reloaded draft, not their refused wording', async () => {
+    const onApprove = vi.fn(async (_id: string, _shown: string, _edited?: string): Promise<string | null> => null)
+      .mockImplementationOnce(async () => {
+        act(() => reload.current('New words'));
+        return 'This note changed since you opened it, or is no longer a draft. Reload and review the new text.';
+      });
+    render(<Harness onApprove={onApprove} />);
+    fireEvent.click(screen.getByRole('button', { name: /Draft variance note/ }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Owner edit of the old draft' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await screen.findByRole('alert');
+    expect(onApprove).toHaveBeenNthCalledWith(1, 'n1', 'Old words', 'Owner edit of the old draft');
+    await waitFor(() => expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('New words'));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(onApprove).toHaveBeenCalledTimes(2));
+    expect(onApprove).toHaveBeenNthCalledWith(2, 'n1', 'New words');
+  });
+
   it('a draft reloaded while the dialog is open replaces an untouched editor, but never what the user typed', async () => {
     render(<Harness onApprove={vi.fn(async () => null)} />);
     fireEvent.click(screen.getByRole('button', { name: /Draft variance note/ }));
