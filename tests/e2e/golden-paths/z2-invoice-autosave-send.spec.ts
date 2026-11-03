@@ -5,63 +5,23 @@
  * approves the draft and opens the email form with the customer's address; nothing is sent until Send, and Send is
  * answered HERE: /api/accounting/invoice-email is route-fulfilled and must be hit exactly once (dev's SMTP is live, and
  * the fixture customer's address is a .invalid one besides). Leaving with a change unsaved asks; refusing keeps the page
- * with no page error (no unhandled rejection). Back with a change autosave would send goes unasked and saves it; Back,
- * Forward and a jump with a change autosave is holding ask (Stay undoes the move, history order kept; Leave sends
- * nothing). axe reports nothing serious on new and edit, both themes, and on the
+ * with no page error (no unhandled rejection). Back with a change autosave would send goes unasked and saves it (a
+ * change autosave is holding: z2b-invoice-held-back). axe reports nothing serious on new and edit, both themes, and on the
  * open email form.
  * Evidence mode: INVOICE_EVIDENCE_DIR=<dir> writes screenshots.
  */
 // golden:dev-only
 // Dev only: it writes and approves invoices in a sandbox company, intercepts the email route and runs axe. The post-deploy run skips it by this marker.
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
-import { Api } from './_api';
-import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
+import { countPuts, draft, openEdit, sandbox } from './_invoiceAutosaveFixture';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
-import { todayInSast } from '../../../src/lib/saDateParser';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
 const NEW = '/accounting/customer-invoices/new';
 const EDIT_KEY = '/accounting/customer-invoices/edit/[invoiceId]';
 const EVIDENCE = process.env.INVOICE_EVIDENCE_DIR;
-// Every write here goes to this sandbox company, never to Demo (Willie uses Demo for QA).
-const SANDBOX_NAME = '0GP Golden Invoice Form Sandbox';
-const SANDBOX_ONBOARDING_ID = 'd6630d3e-22b5-4c1f-b872-262d940a869a'; // y1's and z1's company: one sandbox for the invoice form
-const CUSTOMER = { name: '0GP-Golden-Autosave-Customer', email: 'golden-z2@example.invalid', payment_terms: 0, payment_terms_type: 'days', default_discount: 0, default_vat_type: 'standard' };
-
-async function sandbox(context: BrowserContext, baseURL: string): Promise<{ api: Api; customerId: string }> {
-  const api = await Api.login(baseURL);
-  const id = await findOrCreateSandbox(api, { name: SANDBOX_NAME, onboardingId: SANDBOX_ONBOARDING_ID });
-  await switchApiCompany(api, id);
-  await switchBrowserCompany(context, id);
-  const found = await api.get<{ id: string; name: string }[]>(`/api/accounting/customers?q=${encodeURIComponent(CUSTOMER.name)}`);
-  const existing = found.find((c) => c.name === CUSTOMER.name);
-  const customerId = existing?.id ?? (await api.post<{ id: string }>('/api/accounting/customers', CUSTOMER)).id;
-  return { api, customerId };
-}
-
-async function draft(api: Api, customerId: string, description: string): Promise<string> {
-  const made = await api.post<{ id: string }>('/api/accounting/customer-invoices-create', {
-    clientId: customerId, invoiceDate: todayInSast(), taxRate: 15, currencyCode: 'ZAR', exchangeRate: 1,
-    items: [{ description, quantity: 1, unitPrice: 100 }],
-  });
-  return made.id;
-}
-
-async function openEdit(page: Page, id: string): Promise<void> {
-  await page.goto(`/accounting/customer-invoices/edit/${id}`, { waitUntil: 'domcontentloaded' });
-  await expect(page.getByPlaceholder('Item description').first()).not.toHaveValue('', { timeout: 60_000 });
-  await settle(page);
-}
-
-/** Every draft PUT the page sends from now on. */
-function countPuts(page: Page): () => number {
-  let n = 0;
-  page.on('request', (r) => { if (r.method() === 'PUT' && r.url().includes('/api/accounting/customer-invoices-detail')) n++; });
-  return () => n;
-}
-
 /** Answers /api/accounting/invoice-email here, before anything loads: the real route would send through dev's live SMTP. */
 async function interceptEmail(page: Page): Promise<unknown[]> {
   const sent: unknown[] = [];
@@ -136,54 +96,6 @@ test('Back from the edit page with a change still unsaved: not refused, history 
     await page.waitForURL(new RegExp(`/edit/${id}$`), { timeout: 30_000 });
     await page.goBack();
     await page.waitForURL(new RegExp(`/accounting/customer-invoices/${id}$`), { timeout: 30_000 });
-  } finally {
-    await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
-  }
-});
-
-test('a change autosave is holding: Forward, Back and a two-step jump ask; Stay undoes each with history order kept; Leave sends nothing', async ({ page, context, baseURL }) => {
-  const { api, customerId } = await sandbox(context, baseURL!);
-  const id = await draft(api, customerId, `Z2 held back ${Date.now().toString(36)}`);
-  const ready = () => page.waitForFunction(() => Boolean((window as unknown as { next?: { router?: { isReady?: boolean } } }).next?.router?.isReady), undefined, { timeout: 60_000 });
-  const push = (url: string) => page.evaluate((u) => (window as unknown as { next: { router: { push: (u: string) => Promise<boolean> } } }).next.router.push(u), url);
-  const view = (v: string) => `/accounting/customer-invoices/${id}?v=${v}`;
-  const edit = new RegExp(`/edit/${id}$`);
-  try {
-    await page.goto(view('0'), { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('link', { name: /^edit$/i })).toBeVisible({ timeout: 60_000 });
-    await settle(page);
-    await ready();
-    await push(view('1')); // client-side entries: back/forward between them are popstates
-    await push(`/accounting/customer-invoices/edit/${id}`);
-    await expect(page.getByPlaceholder('Item description').first()).not.toHaveValue('', { timeout: 60_000 });
-    await push(view('2')); // nothing unsaved: goes unasked; a forward entry for later
-    await page.goBack();
-    await page.waitForURL(edit, { timeout: 30_000 });
-    await expect(page.getByPlaceholder('Item description').first()).not.toHaveValue('', { timeout: 60_000 });
-    const puts = countPuts(page);
-    await page.getByLabel('Quantity').first().fill('0'); // a line autosave will not store: held
-    await expect(page.getByText(/Not saved:/)).toBeVisible({ timeout: 10_000 });
-    const answers = [false, false, false, true]; // Stay, Stay, Stay, Leave
-    const asked: string[] = [];
-    page.on('dialog', async (d) => { asked.push(d.message()); await (answers.shift() ? d.accept() : d.dismiss()); });
-    // The address moves before the question: wait for the question, then for Stay's history.go to bring it back.
-    const stay = async (n: number) => {
-      await expect.poll(() => asked.length, { timeout: 10_000 }).toBe(n);
-      await expect(page).toHaveURL(edit, { timeout: 10_000 });
-      await expect(page.getByLabel('Quantity').first()).toHaveValue('0');
-    };
-    await page.goForward(); await stay(1);
-    await page.goBack(); await stay(2);
-    await page.evaluate(() => window.history.go(-2)); await stay(3);
-    await page.goBack(); // Leave
-    await expect.poll(() => asked.length, { timeout: 10_000 }).toBe(4);
-    await page.waitForURL(new RegExp(`\\?v=1$`), { timeout: 30_000 }); // the entry before the edit page: order kept
-    expect(puts(), 'a held change is never sent').toBe(0);
-    expect((await api.get<{ items: { quantity: number | string }[] }>(`/api/accounting/customer-invoices-detail?id=${id}`)).items.map((i) => Number(i.quantity))).toEqual([1]);
-    await page.goForward();
-    await page.waitForURL(edit, { timeout: 30_000 });
-    await page.goForward(); // the forward entry is still there, after the edit page
-    await page.waitForURL(new RegExp(`\\?v=2$`), { timeout: 30_000 });
   } finally {
     await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
   }
