@@ -86,7 +86,7 @@ describe('leaving with a change unsaved', () => {
     const pushState = vi.spyOn(window.history, 'pushState');
     const replaceState = vi.spyOn(window.history, 'replaceState');
     await openDirty();
-    expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(true);
+    expect(popTo('previous-entry')).toBe(true); // the browser has moved: still not asked, the change will be sent
     expect(() => h.router!.events.emit('routeChangeStart', '/x')).not.toThrow();
     expect(confirm).not.toHaveBeenCalled();
     expect(pushState).not.toHaveBeenCalled();
@@ -103,7 +103,7 @@ describe('leaving with a change unsaved', () => {
 
   it('the change being typed when Back is pressed is saved as the page goes (autosave keeps the work)', async () => {
     await openDirty();
-    expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(true);
+    expect(popTo('previous-entry')).toBe(true);
     cleanup(); // Next unmounts the page
     await advance(0);
     expect(puts()).toHaveLength(1);
