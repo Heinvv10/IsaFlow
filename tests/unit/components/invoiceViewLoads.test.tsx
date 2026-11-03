@@ -108,6 +108,22 @@ describe('late answers for A on B\'s page', () => {
     expect((screen.getByTitle('Next invoice') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('A\'s neighbours, already shown, are not offered on B while B\'s are still out', async () => {
+    serveInvoice((u) => {
+      if (u.includes('adjacent?id=inv-1')) return ok({ prevId: 'inv-0', nextId: 'inv-9' });
+      if (u.includes('adjacent?id=inv-2')) return new Promise<Response>(() => undefined);
+      if (u.includes('customer-invoices-detail?id=inv-1')) return ok(VIEW('inv-1'));
+      if (u.includes('customer-invoices-detail?id=inv-2')) return ok(VIEW('inv-2'));
+      return undefined;
+    });
+    const { rerender } = render(<ViewPage />);
+    await settle();
+    expect((screen.getByTitle('Next invoice') as HTMLButtonElement).disabled).toBe(false); // A's were shown
+    await toB(rerender);
+    expect((screen.getByTitle('Previous invoice') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTitle('Next invoice') as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('an email send for A still out does not leave B\'s form "Sending…"', async () => {
     serveInvoice((u) => {
       if (u.includes('invoice-email')) return new Promise<Response>(() => undefined);
