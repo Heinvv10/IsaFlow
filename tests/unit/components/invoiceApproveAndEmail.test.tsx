@@ -129,8 +129,8 @@ describe('Approve & email on a new invoice', () => {
 describe('Approve & email on the edit page', () => {
   it('an unchanged draft is approved without a PUT; a changed one is saved first, then approved', async () => {
     serveInvoice((u, init) => (u.includes('customer-invoices-detail') && init?.method === 'PUT'
-      ? ok({ updated: true, shownDigest: 'saved-digest' }) : undefined),
-    { ...DRAFT, shown_digest: 'loaded-digest' });
+      ? ok({ updated: true, shownDigest: 'saved-digest', draftDigest: 'saved-draft' }) : undefined),
+    { ...DRAFT, shown_digest: 'loaded-digest', draft_digest: 'loaded-draft' });
     await openEdit();
     await approveAndEmail();
     expect(puts()).toHaveLength(0);

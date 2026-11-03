@@ -45,8 +45,9 @@ export const PutBodySchema = z.object({
   items: z.array(PutItemSchema).min(1).optional(),
   // The invoice's own project: display only (only line dimensions post). Absent keeps it, null clears it.
   projectId: UUID.nullable().optional(),
-  // The shown digest the page edited from (its last read or save): a moved invoice refuses the PUT (409 STALE_VIEW).
-  expectedShownDigest: z.string().min(1).max(128).optional(),
+  // The draft digest the page edited from (its last read or save; the invoice row and its lines only): a moved
+  // invoice refuses the PUT (409 STALE_VIEW). A customer or company record edited meanwhile does not.
+  expectedDraftDigest: z.string().min(1).max(128).optional(),
   // Time entries whose lines the user removed (asked first): released. A linked line left unlinked unnamed is refused.
   releaseTimeEntryIds: z.array(UUID).max(500).optional(),
 });

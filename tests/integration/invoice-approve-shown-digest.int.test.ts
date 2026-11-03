@@ -2,7 +2,8 @@
  * PR S rounds eleven to fourteen: the shown digest (`shown_digest`) is the hash of the model the PDF renders
  * (invoicePdfModel: header, lines, the customer and the issuing company as printed, bank details, terms, totals,
  * notes, dates, the job) with the approval digest, so anything printed is in it by construction; every reply that hands the page an invoice carries it, the
- * route requires it with any `expected*` field, and a draft PUT that sends `expectedShownDigest` is refused (409
+ * route requires it with any `expected*` field, and a draft PUT that sends `expectedDraftDigest` (the invoice row and
+ * its lines only: what the PUT's row lock covers) is refused (409
  * STALE_VIEW, nothing written) when the invoice moved since that read. Through the real routes:
  * - create → approve with the digest the create returned: 200; the same after a draft PUT, and after a GET;
  * - notes, due date or billing period changed after it was shown: 409 STALE_VIEW saying the content changed (not the
@@ -33,6 +34,8 @@ const call = (method: string, body: unknown, query: Record<string, string> = {})
 const approve = (body: Record<string, unknown>) => call('POST', { action: 'approve', ...body });
 const dataOf = <T>(res: { state: { body: unknown } }) => (res.state.body as { data: T }).data;
 const seen = async (id: string) => dataOf<{ shown_digest: string }>(await call('GET', undefined, { id })).shown_digest;
+/** The draft digest the edit page edits from (the invoice row and its lines only). */
+const drafted = async (id: string) => dataOf<{ draft_digest: string }>(await call('GET', undefined, { id })).draft_digest;
 /** Every field the shown digest reads beyond the approval digest, set (non-null) on a planted invoice. */
 async function everyShownField(id: string): Promise<void> {
   const project = (await pool.query(
@@ -71,7 +74,7 @@ describe('every reply that hands the page an invoice carries the digest Approve 
   it('every shown field set (notes, due date, both period dates, a job): a draft PUT, then approve with the digest it returned', async () => {
     const inv = await plantInvoice(pool, company, owner);
     await everyShownField(inv.id);
-    const put = await call('PUT', { id: inv.id, notes: 'Edited', expectedShownDigest: await seen(inv.id),
+    const put = await call('PUT', { id: inv.id, notes: 'Edited', expectedDraftDigest: await drafted(inv.id),
       items: [{ description: 'Line A', quantity: 2, unitPrice: 300, taxRate: 15 }] });
     expect(put.state.statusCode, JSON.stringify(put.state.body)).toBe(200);
     const res = await approve({ id: inv.id, expectedTotal: 690, expectedContentDigest: dataOf<{ shownDigest: string }>(put).shownDigest });
@@ -210,14 +213,14 @@ describe('the route requires the digest with the total', () => {
 describe('a draft PUT and the invoice it was edited from', () => {
   it('tab A reads; tab B sets the due date; A\'s line edit with A\'s digest: 409 STALE_VIEW, nothing written', async () => {
     const inv = await plantInvoice(pool, company, owner);
-    const a = await seen(inv.id);
-    const b = await call('PUT', { id: inv.id, dueDate: '2026-12-31', expectedShownDigest: await seen(inv.id) });
+    const a = await drafted(inv.id);
+    const b = await call('PUT', { id: inv.id, dueDate: '2026-12-31', expectedDraftDigest: await drafted(inv.id) });
     expect(b.state.statusCode, JSON.stringify(b.state.body)).toBe(200);
     const before = {
       invoice: (await pool.query('SELECT * FROM customer_invoices WHERE id = $1', [inv.id])).rows[0],
       lines: (await pool.query('SELECT * FROM customer_invoice_items WHERE invoice_id = $1 ORDER BY id', [inv.id])).rows,
     };
-    const res = await call('PUT', { id: inv.id, expectedShownDigest: a, items: [{ description: 'A\'s edit', quantity: 1, unitPrice: 100, taxRate: 15 }] });
+    const res = await call('PUT', { id: inv.id, expectedDraftDigest: a, items: [{ description: 'A\'s edit', quantity: 1, unitPrice: 100, taxRate: 15 }] });
     expect(res.state.statusCode).toBe(409);
     expect(reasonOf(res)).toBe('STALE_VIEW');
     expect({
@@ -228,14 +231,38 @@ describe('a draft PUT and the invoice it was edited from', () => {
 
   it('a PUT with the current digest is taken, and its reply carries the next one', async () => {
     const inv = await plantInvoice(pool, company, owner);
-    const first = await call('PUT', { id: inv.id, notes: 'One', expectedShownDigest: await seen(inv.id) });
+    const first = await call('PUT', { id: inv.id, notes: 'One', expectedDraftDigest: await drafted(inv.id) });
     expect(first.state.statusCode).toBe(200);
-    const second = await call('PUT', { id: inv.id, notes: 'Two', expectedShownDigest: dataOf<{ shownDigest: string }>(first).shownDigest });
+    const second = await call('PUT', { id: inv.id, notes: 'Two', expectedDraftDigest: dataOf<{ draftDigest: string }>(first).draftDigest });
     expect(second.state.statusCode, JSON.stringify(second.state.body)).toBe(200);
   });
 
-  it('a PUT without expectedShownDigest (an API client without a screen) is taken as before', async () => {
+  it('a PUT without expectedDraftDigest (an API client without a screen) is taken as before', async () => {
     const inv = await plantInvoice(pool, company, owner);
     expect((await call('PUT', { id: inv.id, notes: 'API' })).state.statusCode).toBe(200);
+  });
+});
+
+describe('the draft PUT compares only what its row lock covers; approve compares everything printed', () => {
+  const CHANGES: [string, string, number][] = [
+    ['the customer\'s phone (printed)', `UPDATE customers SET phone = '+27 11 555 0199' WHERE id = $1`, 409],
+    ['the company\'s quote layout (not on an invoice)', `UPDATE companies SET quote_layout = 'modern' WHERE id = $2`, 200],
+    ['the company\'s statement layout (not on an invoice)', `UPDATE companies SET statement_layout = 'modern' WHERE id = $2`, 200],
+  ];
+  const change = (sqlText: string, customerId: string) => pool.query(sqlText.replace('$2', '$1'), [sqlText.includes('$2') ? company : customerId]);
+
+  it.each(CHANGES)('%s changed while a draft is open: the draft\'s PUT is still taken', async (_name, sqlText) => {
+    const inv = await plantInvoice(pool, company, owner);
+    const draft = await drafted(inv.id);
+    await change(sqlText, inv.customerId);
+    const put = await call('PUT', { id: inv.id, notes: 'Typed while it changed', expectedDraftDigest: draft });
+    expect(put.state.statusCode, JSON.stringify(put.state.body)).toBe(200);
+  });
+
+  it.each(CHANGES)('%s changed after the page read the invoice: approve answers %s', async (_name, sqlText, status) => {
+    const inv = await plantInvoice(pool, company, owner);
+    const shown = await seen(inv.id);
+    await change(sqlText, inv.customerId);
+    expect((await approve({ id: inv.id, expectedTotal: 1150, expectedContentDigest: shown })).state.statusCode).toBe(status);
   });
 });

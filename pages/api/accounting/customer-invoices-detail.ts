@@ -36,7 +36,7 @@ import { getCustomerInvoiceDetail } from '@/modules/accounting/services/ar/custo
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
 import { WIP_CLIENT_STALE, WIP_LINK_REFUSED } from '@/modules/accounting/services/ar/customerInvoiceWipLinks';
-import { shownDigest } from '@/modules/accounting/services/ar/invoicePdfModel';
+import { invoiceDigests } from '@/modules/accounting/services/ar/invoicePdfModel';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
@@ -121,8 +121,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'bad_dimensions') return apiResponse.badRequest(res, result.message);
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
-    // What Approve sends back now (invoicePdfModel): the page's next Approve & email carries it.
-    return apiResponse.success(res, { updated: true, shownDigest: await shownDigest(companyId, id) });
+    // Read after the write, under its row lock: what the page's next Approve & email (shownDigest) and next PUT
+    // (draftDigest) send back. The page's PDF preview, which shows the printed parties, is fetched after this.
+    const digests = await invoiceDigests(companyId, id);
+    return apiResponse.success(res, { updated: true, shownDigest: digests?.shown ?? '', draftDigest: digests?.draft ?? '' });
   }
 
   if (req.method === 'POST') {

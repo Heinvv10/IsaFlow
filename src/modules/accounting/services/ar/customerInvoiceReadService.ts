@@ -10,7 +10,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import { shownDigest } from './invoicePdfModel';
+import { invoiceDigests } from './invoicePdfModel';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 import { linkExpiredSql } from './portalLinkCharge';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
@@ -204,6 +204,9 @@ export async function exportCustomerInvoices(
 }
 
 export async function getCustomerInvoiceDetail(companyId: string, invoiceId: string): Promise<Row | null> {
+  // The digests FIRST, then the invoice the page shows: a change landing between the two leaves the page newer than its
+  // digest (the approve is refused), never older (an approve of a view nobody saw).
+  const digests = await invoiceDigests(companyId, invoiceId);
   const rows = (await sql`
     SELECT ci.id, ci.invoice_number, ci.customer_id, ci.client_id,
            ci.subtotal, ci.tax_rate, ci.tax_amount, ci.total_amount,
@@ -232,8 +235,9 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}
   `) as Row[];
   if (rows.length === 0) return null;
-  // What Approve (and a draft PUT) sends back: the hash of the model the PDF renders (invoicePdfModel).
-  rows[0]!.shown_digest = await shownDigest(companyId, invoiceId);
+  // What Approve (shown_digest) and a draft PUT (draft_digest) send back (invoicePdfModel).
+  rows[0]!.shown_digest = digests?.shown ?? '';
+  rows[0]!.draft_digest = digests?.draft ?? '';
 
   const items = (await sql`
     SELECT cii.*,

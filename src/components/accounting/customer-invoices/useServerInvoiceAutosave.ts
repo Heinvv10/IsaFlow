@@ -49,8 +49,9 @@ export interface ServerAutosaveOptions {
   releaseTimeEntryIds?: readonly string[];
   /** A PUT refused 409 STALE_VIEW (saved elsewhere since this page read it): the page reloads, with this sentence. */
   onStale?: (message: string) => void;
-  /** Canonical approval digest returned with the loaded invoice. */
+  /** The loaded invoice's digests (invoicePdfModel): `shown` for Approve, `draft` sent back by each PUT. */
   approvalContentDigest?: string;
+  draftDigest?: string;
 }
 
 export type SaveResult = { ok: true; approvalContentDigest?: string } | { ok: false; message: string };
@@ -109,13 +110,15 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const inFlight = useRef<Promise<SaveResult> | null>(null);
   const sending = useRef<string | null>(null); // the body of the PUT out now
   // The shown digest each invoice was last read or saved at (invoicePdfModel). Each PUT sends it back as
-  // `expectedShownDigest`, so the server refuses (409 STALE_VIEW) an edit made from a read another tab has since moved;
+  // `expectedDraftDigest`, so the server refuses (409 STALE_VIEW) an edit made from a read another tab has since moved;
   // kept per invoice, so a change sent as one invoice leaves carries that invoice's own, whatever loads next.
-  const digests = useRef(new Map<string, string>());
-  const noteDigest = (forId: string | null, digest: string | undefined) => { if (forId && digest) digests.current.set(forId, digest); };
+  const digests = useRef(new Map<string, { shown?: string; draft?: string }>());
+  const noteDigest = (forId: string | null, shown: unknown, draft: unknown) => {
+    if (forId && typeof shown === 'string' && typeof draft === 'string') digests.current.set(forId, { shown, draft });
+  };
   const withDigest = (json: string, forId: string | null): string => {
-    const digest = forId ? digests.current.get(forId) : undefined;
-    return digest ? JSON.stringify({ ...(JSON.parse(json) as object), expectedShownDigest: digest }) : json;
+    const digest = forId ? digests.current.get(forId)?.draft : undefined;
+    return digest ? JSON.stringify({ ...(JSON.parse(json) as object), expectedDraftDigest: digest }) : json;
   };
   const discarded = useRef<string | null>(null); // the body "Leave without them" was about: only that one is not sent
   // The last body this page showed with its invoice, kept past the render that drops it (another invoice opened in
@@ -178,7 +181,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     if (invoiceId) digests.current.delete(invoiceId); // the reload's own digest comes with its body (below)
   }, [loadKey]);
   const shownFor = useRef(invoiceId);
-  const currentDigest = useCallback(() => (shownFor.current ? digests.current.get(shownFor.current) : undefined), []);
+  const currentDigest = useCallback(() => (shownFor.current ? digests.current.get(shownFor.current)?.shown : undefined), []);
   useCommitEffect(() => {
     if (shownFor.current === invoiceId) return;
     sendAsItLeaves();
@@ -195,9 +198,9 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   useCommitEffect(() => {
     if (json === null || lastSaved.current !== null) return;
     lastSaved.current = json;
-    noteDigest(invoiceId, opts?.approvalContentDigest);
+    noteDigest(invoiceId, opts?.approvalContentDigest, opts?.draftDigest);
     setSavedJson(json);
-  }, [json, opts?.approvalContentDigest]);
+  }, [json, opts?.approvalContentDigest, opts?.draftDigest]);
   // Unmounted: every reply still out is stale from here.
   useEffect(() => () => { seq.current++; sendAsItLeaves(); }, [sendAsItLeaves]);
 
@@ -220,9 +223,8 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
         const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: withDigest(body, forId) });
         if (res.status === 409) stale = await refusalReason(res) === 'STALE_VIEW';
         await assertOk(res, SAVE_FAILED);
-        const envelope = await res.json() as { data?: { shownDigest?: unknown }; shownDigest?: unknown };
-        const digest = envelope.data?.shownDigest ?? envelope.shownDigest;
-        noteDigest(forId, typeof digest === 'string' ? digest : undefined); // even if a newer save is out: the server's now
+        const envelope = await res.json() as { data?: { shownDigest?: unknown; draftDigest?: unknown } };
+        noteDigest(forId, envelope.data?.shownDigest, envelope.data?.draftDigest); // even if a newer save is out: the server's now
         return undefined;
       })();
       if (forId) trackInvoiceSave(forId, put);

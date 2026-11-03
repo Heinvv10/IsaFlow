@@ -1,6 +1,6 @@
 /**
- * PR S round twelve: each draft PUT sends the shown digest the page last had (`expectedShownDigest`): the one the load
- * carried (`shown_digest`), then each save's reply (`shownDigest`). The server refuses an edit made from a read that
+ * PR S rounds twelve and fifteen: each draft PUT sends the draft digest the page last had (`expectedDraftDigest`: the
+ * invoice row and its lines only): the one the load carried (`draft_digest`), then each save's reply (`draftDigest`). The server refuses an edit made from a read that
  * another tab has since moved (409 STALE_VIEW); the body autosave compares stays the same body (the digest is added
  * as it is sent, so a new digest is never itself a change to save).
  */
@@ -24,18 +24,18 @@ useApiJsonOverMock();
 beforeEach(() => { vi.useFakeTimers(); h.events = routerEvents(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.mocked(apiFetch).mockReset(); });
 
-describe('a draft PUT carries the shown digest it was edited from', () => {
+describe('a draft PUT carries the draft digest it was edited from', () => {
   it('the load\'s, then each reply\'s; a new digest alone is no change to save', async () => {
     let n = 0;
-    serveInvoice((u, init) => (u.includes('customer-invoices-detail') && init?.method === 'PUT' ? ok({ updated: true, shownDigest: `after-${++n}` }) : undefined),
-      { ...DRAFT, shown_digest: 'loaded' });
+    serveInvoice((u, init) => (u.includes('customer-invoices-detail') && init?.method === 'PUT' ? ok({ updated: true, shownDigest: `after-${++n}`, draftDigest: `draft-after-${n}` }) : undefined),
+      { ...DRAFT, shown_digest: 'loaded', draft_digest: 'draft-loaded' });
     render(<EditPage />);
     for (let i = 0; i < 8; i++) await advance(0);
     type(screen.getByLabelText('Notes'), 'One');
     await advance(1_500);
     type(screen.getByLabelText('Notes'), 'Two');
     await advance(1_500);
-    expect(puts().map((c) => bodyOf(c).expectedShownDigest)).toEqual(['loaded', 'after-1']);
+    expect(puts().map((c) => bodyOf(c).expectedDraftDigest)).toEqual(['draft-loaded', 'draft-after-1']);
     await advance(5_000);
     expect(puts()).toHaveLength(2);
   });
@@ -46,9 +46,9 @@ describe('an autosave refused 409 STALE_VIEW (saved elsewhere since this page re
     let gets = 0;
     serveInvoice((u, init) => {
       if (u.includes('customer-invoices-detail') && init?.method === 'PUT') return refused(409, 'Changed elsewhere: reload', { reason: 'STALE_VIEW' });
-      if (u.includes('customer-invoices-detail?id=') && ++gets > 1) return ok({ ...DRAFT, notes: 'Saved in the other tab', shown_digest: 'theirs' });
+      if (u.includes('customer-invoices-detail?id=') && ++gets > 1) return ok({ ...DRAFT, notes: 'Saved in the other tab', shown_digest: 'theirs', draft_digest: 'theirs-draft' });
       return undefined;
-    }, { ...DRAFT, shown_digest: 'mine' });
+    }, { ...DRAFT, shown_digest: 'mine', draft_digest: 'mine-draft' });
     render(<EditPage />);
     for (let i = 0; i < 8; i++) await advance(0);
     type(screen.getByLabelText('Notes'), 'Typed here');

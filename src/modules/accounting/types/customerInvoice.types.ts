@@ -41,6 +41,8 @@ export interface CustomerInvoiceDetail {
   exchange_rate?: number | string | null;
   /** The shown digest (invoicePdfModel): what this read showed; Approve and a draft PUT send it back. */
   shown_digest?: string;
+  /** The draft digest (invoicePdfModel: the invoice row and lines only): each draft PUT sends it back. */
+  draft_digest?: string;
   client_name: string;
   project_name: string;
   status: string;

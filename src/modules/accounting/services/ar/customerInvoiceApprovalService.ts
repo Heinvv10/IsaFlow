@@ -11,7 +11,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { shownDigest } from './invoicePdfModel';
+import { invoiceDigests } from './invoicePdfModel';
 import { assertShownIsStored, InvoiceStaleViewError, type ShownInvoice } from './customerInvoiceStaleView';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
@@ -168,7 +168,7 @@ export async function approveCustomerInvoice(
   if (locked[0]) {
     assertShownIsStored({ expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest },
       // The PDF model's digest, recomputed under the lock: only when the screen sent one to compare (MCP, recurring: none).
-      { ...locked[0], shown_digest: expectedContentDigest === undefined ? undefined : await shownDigest(companyId, invoiceId) });
+      { ...locked[0], shown_digest: expectedContentDigest === undefined ? undefined : (await invoiceDigests(companyId, invoiceId))?.shown });
     await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
     // FX PR0: under the lock and before the status write, like the approval check.
     await assertDocumentPostable(companyId, [locked[0].currency_code], 'invoice');

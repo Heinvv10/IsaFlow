@@ -188,11 +188,15 @@ function darken(color: { r: number; g: number; b: number }, factor = 0.6): [numb
 
 // ── Premium Document Header ────────────────────────────────────────────────────
 
+/** The company fields a document prints (header, FROM block, payment details): what invoicePdfModel reads. */
+export type PrintedCompany = Pick<CompanyDetails, 'name' | 'address' | 'phone' | 'email' | 'vatNumber' | 'bankName'
+  | 'bankAccountName' | 'bankAccountNumber' | 'bankBranchCode' | 'logoData' | 'primaryColor'>;
+
 export interface PremiumHeaderOptions {
   doc: JsPdfDoc;
   pageW: number;
   margin: number;
-  company: CompanyDetails;
+  company: PrintedCompany;
   accent: { r: number; g: number; b: number };
   docType: DocumentType;
   docTitle: string;       // e.g. "TAX INVOICE", "QUOTATION", "CREDIT NOTE"
@@ -571,7 +575,7 @@ export function renderPaymentDetails(
   pageW: number,
   margin: number,
   accent: { r: number; g: number; b: number },
-  company: CompanyDetails,
+  company: PrintedCompany,
   reference: string,
 ): number {
   // Section header
