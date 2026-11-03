@@ -4,10 +4,13 @@
  * the bills' approve dialog opens (`BudgetApproveDialog`, worded for an order: per-slice remaining, reason when over
  * in warn, owner/admin override in block), otherwise it approves at once
  * (POST /api/accounting/purchase-orders/[id]/approve). A line with no account is listed as "No account", no budget.
+ * Rendered only for a role that may approve (`canWrite`: owner, admin, manager — the route's gate).
  */
 import { CheckCircle, Loader2 } from 'lucide-react';
 import { BudgetApproveDialog } from '@/components/accounting/ap/BudgetApproveDialog';
 import { useBudgetApprove } from '@/components/accounting/ap/useBudgetApprove';
+import { useCompanyRoleOrNull } from '@/contexts/CompanyContext';
+import { canWrite } from '@/lib/auth/writeRoles';
 
 interface Props {
   poId: string;
@@ -19,7 +22,12 @@ interface Props {
   onReload: () => Promise<void>;
 }
 
-export function PurchaseOrderApproveButton({ poId, onApproved, onError, onReload }: Props) {
+export function PurchaseOrderApproveButton(props: Props) {
+  const companyRole = useCompanyRoleOrNull();
+  return canWrite(companyRole) ? <ApproveButton {...props} /> : null;
+}
+
+function ApproveButton({ poId, onApproved, onError, onReload }: Props) {
   const approve = useBudgetApprove(poId, onApproved, onError, onReload, 'purchase_order');
   return (
     <>

@@ -2,7 +2,8 @@
  * Purchase Order Detail / Edit Page
  * Route: /accounting/purchase-orders/[poId]
  * Budgets P5-3: a draft or submitted PO is approved with the Approve button (budget check, approved_by / approved_at),
- * never through the status select; lines carry CC1 / CC2 / BU.
+ * never through the status select; lines carry CC1 / CC2 / BU. An approved PO with no goods received can be cancelled
+ * (owner/admin, reason) to release its commitment.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -30,6 +31,7 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { PoLineItemsEditor, type PoEditField, type PoEditLine } from '@/components/accounting/purchase-orders/PoLineItemsEditor';
 import { PurchaseOrderApproveButton } from '@/components/accounting/purchase-orders/PurchaseOrderApproveButton';
+import { PurchaseOrderCancelButton } from '@/components/accounting/purchase-orders/PurchaseOrderCancelButton';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -158,6 +160,7 @@ export default function PurchaseOrderDetailPage() {
       notes: po.notes || '',
       status: po.status,
       items: (po.items || []).map(i => ({
+        key: i.id ?? crypto.randomUUID(),
         id: i.id,
         description: i.description,
         quantity: String(i.quantity),
@@ -178,7 +181,7 @@ export default function PurchaseOrderDetailPage() {
 
   const addItem = () => setForm(f => f ? {
     ...f,
-    items: [...f.items, { description: '', quantity: '1', unit_price: '0', tax_rate: '15', gl_account_id: '', product_id: '', cc1_id: '', cc2_id: '', bu_id: '' }],
+    items: [...f.items, { key: crypto.randomUUID(), description: '', quantity: '1', unit_price: '0', tax_rate: '15', gl_account_id: '', product_id: '', cc1_id: '', cc2_id: '', bu_id: '' }],
   } : f);
 
   const removeItem = (idx: number) => setForm(f => f ? {
@@ -329,6 +332,7 @@ export default function PurchaseOrderDetailPage() {
               {canApprove && !editing && (
                 <PurchaseOrderApproveButton poId={po.id} onApproved={loadPO} onError={setSaveError} onReload={loadPO} />
               )}
+              {po.status === 'approved' && <PurchaseOrderCancelButton poId={po.id} onCancelled={loadPO} />}
               {canEdit && !editing && (
                 <>
                   <button onClick={startEdit}

@@ -11,7 +11,9 @@ import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-li
 
 const role = vi.hoisted(() => ({ value: 'manager' }));
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...await orig<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: role.value, activeCompany: { id: 'c1' } }) }));
+vi.mock('@/contexts/CompanyContext', () => ({
+  useCompany: () => ({ companyRole: role.value, activeCompany: { id: 'c1' } }), useCompanyRoleOrNull: () => role.value,
+}));
 
 import { apiFetch } from '@/lib/apiFetch';
 import { PurchaseOrderApproveButton } from '@/components/accounting/purchase-orders/PurchaseOrderApproveButton';

@@ -9,6 +9,8 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { PoDimensionCells, PoDimensionHeaders, usePoDimensionOptions } from './PoLineDimensions';
 
 export interface PoEditLine {
+  /** Stable per-row React key, made when the row is (the stored id, or a new uuid): never the row's index. */
+  key: string;
   id?: string;
   description: string;
   quantity: string;
@@ -21,7 +23,7 @@ export interface PoEditLine {
   bu_id: string;
 }
 
-export type PoEditField = Exclude<keyof PoEditLine, 'id'>;
+export type PoEditField = Exclude<keyof PoEditLine, 'id' | 'key'>;
 
 interface Props {
   items: PoEditLine[];
@@ -76,7 +78,7 @@ export function PoLineItemsEditor({ items, accounts, storedLabels, onAdd, onRemo
           </thead>
           <tbody>
             {items.map((item, idx) => (
-              <tr key={idx} className="border-b border-[var(--ff-border-light)]">
+              <tr key={item.key} className="border-b border-[var(--ff-border-light)]">
                 <td className="py-2 pr-2">
                   <input type="text" required name="description" value={item.description} aria-label={`Line ${idx + 1} description`}
                     onChange={e => onUpdate(idx, 'description', e.target.value)} className="ff-input w-full text-sm" placeholder="Item description" />
