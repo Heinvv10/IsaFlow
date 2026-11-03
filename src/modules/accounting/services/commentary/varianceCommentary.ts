@@ -14,6 +14,7 @@
 import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isValidUUID } from '@/lib/validation';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { varianceMonthBounds, varianceParamsHash } from '@/modules/accounting/services/reports/varianceParamsHash';
 import { canReadSharingSurface } from '@/modules/accounting/services/reports/sharingAccess';
 import { approveCommentary } from './commentaryApprove';
@@ -105,6 +106,7 @@ export async function listVarianceNotes(
 export async function saveVarianceNote(
   companyId: string, actor: VarianceActor, input: SaveVarianceNoteInput,
 ): Promise<VarianceResult> {
+  await assertNotImpersonating(); // R-032 L5, as approve and reject: first, before any read or write
   const slice: VarianceSlice = { glAccountId: input.glAccountId, cc1Id: input.cc1Id, cc2Id: input.cc2Id, buId: input.buId };
   if (!mayWriteVarianceNote(actor.role, slice)) return forbidden('Only an owner, admin or manager can write a variance note.');
   const text = normaliseEditedText(input.text);

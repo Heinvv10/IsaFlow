@@ -130,12 +130,12 @@ export async function rejectCommentary(
   const rows = (expectedDraft === undefined ? await sql`
     UPDATE report_commentary
     SET status = 'rejected', updated_at = NOW()
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND report_kind = ${reportKind} AND status = 'draft'
     RETURNING *
   ` : await sql`
     UPDATE report_commentary
     SET status = 'rejected', updated_at = NOW()
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND status = 'draft' AND draft_text = ${expectedDraft}
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND report_kind = ${reportKind} AND status = 'draft' AND draft_text = ${expectedDraft}
     RETURNING *
   `) as DbRow[];
   if (!rows[0]) {

@@ -647,3 +647,23 @@ describe('generateDrafts', () => {
     expect(result.skipped.length).toBeGreaterThan(0);
   });
 });
+
+describe('the approve and reject UPDATEs repeat the report_kind they read (budgets P5-5 review r2, defence in depth)', () => {
+  const RESULT = dbRow({ status: 'approved', approved_text: 'x', approved_by: 'u', approved_at: new Date() });
+  it.each([
+    ['plain approve', () => approveCommentary(COMPANY, ID, 'u')],
+    ['approve with an edit', () => approveCommentary(COMPANY, ID, 'u', 'Edited.')],
+    ['approve with an edit and a shown draft', () => approveCommentary(COMPANY, ID, 'u', 'Edited.', 'budget_variance', 'Revenue increased by 25.0%.')],
+    ['reject', () => rejectCommentary(COMPANY, ID, 'u')],
+    ['reject with a shown draft', () => rejectCommentary(COMPANY, ID, 'u', 'budget_variance', 'Revenue increased by 25.0%.')],
+  ])('%s', async (name, run) => {
+    const kind = name.includes('shown') ? 'budget_variance' : 'pack';
+    // A management-pack hash: no page-4 budget, so the UPDATE is the second statement.
+    sqlMock.mockResolvedValueOnce([{ ...ROW_READ, report_kind: kind, params_hash: canonicalParamsHash({ ...PARAMS, type: 'management' }),
+      period_start: '2026-01-01', period_end: '2026-03-31' }]).mockResolvedValueOnce([RESULT]);
+    expect((await run()).ok).toBe(true);
+    const update = sqlMock.mock.calls.findIndex(([s]) => (s as string[]).join('').includes('UPDATE report_commentary'));
+    expect(text(update)).toMatch(/report_kind =\s+\?/);
+    expect(values(update)).toContain(kind);
+  });
+});

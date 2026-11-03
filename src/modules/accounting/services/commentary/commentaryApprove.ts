@@ -95,21 +95,21 @@ export async function approveCommentary(
     UPDATE report_commentary
     SET status = 'approved', approved_text = draft_text, approved_by = ${userId},
         approved_at = NOW(), updated_at = NOW()
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND report_kind = ${reportKind}
       AND status = 'draft' AND btrim(draft_text) <> '' AND draft_text = ${row.draftText}
     RETURNING *
   ` : expectedDraft !== undefined ? await sql`
     UPDATE report_commentary
     SET status = 'approved', approved_text = ${edited}, approved_by = ${userId},
         approved_at = NOW(), updated_at = NOW()
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND report_kind = ${reportKind}
       AND status = 'draft' AND btrim(${edited}) <> '' AND draft_text = ${expectedDraft}
     RETURNING *
   ` : await sql`
     UPDATE report_commentary
     SET status = 'approved', approved_text = ${edited}, approved_by = ${userId},
         approved_at = NOW(), updated_at = NOW()
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND report_kind = ${reportKind}
       AND status = 'draft' AND btrim(${edited}) <> ''
     RETURNING *
   `) as DbRow[];
