@@ -121,7 +121,11 @@ export function saveCells(versionId: string, expectedUpdatedAt: string, cells: r
 }
 
 /** What the saves' driver recomputes did (P4), summed over the chain; absent when no save answered one. */
-export interface ChainDrivers { recomputed: number; reset: number; warnings: NonNullable<SaveCellsResult['driverWarnings']> }
+export interface ChainDrivers {
+  recomputed: number; reset: number; warnings: NonNullable<SaveCellsResult['driverWarnings']>;
+  /** P5-6: driver cells not recalculated because their slice is with its reviewer (the last save's). */
+  frozen?: number;
+}
 
 export type ChainResult =
   | { ok: true; updatedAt: string; saved: number; deleted: number; chunks: number; drivers?: ChainDrivers }
@@ -187,9 +191,10 @@ export async function saveChained(versionId: string, cells: readonly SaveCell[],
     drivers.reset += r.data.reset ?? 0;
     // Each save recomputes the whole version: the last answer's warnings are the version's now.
     if (r.data.driverWarnings) { drivers.warnings = r.data.driverWarnings; answered = true; }
+    if (r.data.frozenDriverCells) drivers.frozen = r.data.frozenDriverCells.cells;
   }
   // Present whenever a save answered its recompute (even "no warnings": that clears the rows' old ones).
-  return answered || drivers.recomputed > 0 || drivers.reset > 0 ? { ok: true, updatedAt, saved, deleted, chunks, drivers } : { ok: true, updatedAt, saved, deleted, chunks };
+  return answered || drivers.recomputed > 0 || drivers.reset > 0 || (drivers.frozen ?? 0) > 0 ? { ok: true, updatedAt, saved, deleted, chunks, drivers } : { ok: true, updatedAt, saved, deleted, chunks };
 }
 
 export interface SeedRequest {

@@ -20,6 +20,7 @@ import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow, type AuditAction } from '../core/auditTrailService';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { notifyUsers } from '../notifications/userNotificationService';
+import { scheduleBudgetRoll } from './drivers/budgetRollQueue';
 import { BudgetVersionError } from './budgetVersionTypes';
 import type { SliceStatus } from './holderSlices';
 import { readSlice, sliceHolderIds, sliceReviewers, type SliceReview } from './sliceReviewRead';
@@ -127,5 +128,17 @@ export async function transitionSlice(
     // One per move: a resubmission after a return notifies again.
     dedupeKey: `budget_slice:${sliceId}:${action}:${at}`,
   });
+  // A returned slice is the holder's again: a rolling forecast that left its cells re-rolls after commit (P4's roll).
+  if (action === 'return') await rerollLeftCells(companyId, before.versionId);
   return readSlice(companyId, sliceId);
+}
+
+/** Queues the version's year roll (after commit) when its rolling row recorded cells left in locked slices. */
+async function rerollLeftCells(companyId: string, versionId: string): Promise<void> {
+  const rows = (await sql`
+    SELECT fy.end_date::TEXT AS end_date FROM budget_rolling_forecasts r
+      JOIN fiscal_years fy ON fy.company_id = r.company_id AND fy.fiscal_year = r.fiscal_year
+     WHERE r.company_id = ${companyId}::UUID AND r.version_id = ${versionId}::UUID AND r.slice_skipped > 0
+  `) as DbRow[];
+  if (rows[0]) scheduleBudgetRoll(companyId, String(rows[0].end_date));
 }

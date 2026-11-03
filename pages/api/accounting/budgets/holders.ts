@@ -7,7 +7,8 @@
  *      admin only): the member (a manager, admin or owner) holds that slice of a DRAFT version;
  *      creates the slice's review row ('open') or updates its due date. 400 a bad slice, account or
  *      member (a viewer, a non-member), 403 another role, 404 another company's version, 409 a
- *      version that is not a draft.
+ *      version that is not a draft, or a slice that is submitted or approved (refused even when the
+ *      accounts sent are the ones it already has).
  * DELETE ?id=<holder id> → { removed, sliceDeleted } (owner or admin): unassigns on a draft; 409 while
  *      the slice is submitted or approved; the last holder of an open/returned slice takes its review.
  * Every id is checked against the session's company (RLS and the queries both). CSRF on POST.

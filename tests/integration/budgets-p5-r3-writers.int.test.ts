@@ -19,10 +19,13 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetReforecastFixture, type ReforecastWorld } from './helpers/budgetReforecastFixture';
 import { dataOf, type RouteOut } from './helpers/budgetDriverRouteFixture';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
+import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
+import sliceRoute from '../../pages/api/accounting/budgets/slices/[id]/[action]';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
 const fx = budgetReforecastFixture(pool);
+const sliceCall = budgetsRouteFixture(pool, sliceRoute, '/api/accounting/budgets/slices/[id]/[action]');
 const dump = (r: RouteOut) => `${r.status} ${JSON.stringify(r.body).slice(0, 600)}`;
 const made: string[] = [];
 const users: string[] = [];
@@ -84,29 +87,36 @@ describe('the forecast roll and slices', { timeout: 60000 }, () => {
   const values = async (v: string, acct: string) => [...(await fx.cellsOf(v, acct)).values()];
   const rollNow = async (u: SetupUser, v: string) => fx.call.reforecast(u, v, 'POST', { action: 'roll', expectedUpdatedAt: await fx.token(v) });
 
-  it('auto-roll and Roll now skip a submitted slice (counted, no failure); a holder cannot Roll now; returned, it rolls', async () => {
+  it('auto-roll and Roll now skip a submitted slice (counted, no failure) and do NOT advance the month; a holder cannot Roll now; '
+    + 'returning the slice re-rolls it after commit and advances', async () => {
     const { w, m, rf } = await rollingWorld();
     const holder = await fx.member(w.u.homeCompanyId, 'manager');
     const id = await slice(w.u.homeCompanyId, rf, holder.userId, w.u.userId, 'submitted');
     const before = await values(rf, w.sales);
 
     await fx.close(w, [m[0]!]);
-    await fx.until(async () => (await fx.rollingRow(rf))?.through === m[0], 'the after-close roll');
-    expect(await fx.rollingRow(rf)).toMatchObject({ last_error: null });
+    await fx.until(async () => (await pool.query('SELECT slice_skipped FROM budget_rolling_forecasts WHERE version_id = $1', [rf])).rows[0]?.slice_skipped > 0,
+      'the after-close roll');
+    expect(await fx.rollingRow(rf)).toMatchObject({ last_error: null, through: null });
     expect(await values(rf, w.sales)).toEqual(before);
+    const status = await fx.call.reforecast(w.u, rf, 'GET');
+    expect(dataOf(status), dump(status)).toMatchObject({ rolledThroughMonth: null, staleMonths: [m[0]], sliceSkippedSlices: ['Company level'] });
+    expect(Number(dataOf<{ sliceSkipped: number }>(status).sliceSkipped)).toBeGreaterThan(0);
 
     const owner = await rollNow(w.u, rf);
     expect(owner.status, dump(owner)).toBe(200);
-    expect(dataOf(owner)).toMatchObject({ status: 'rolled', changed: 0 });
+    expect(dataOf(owner)).toMatchObject({ status: 'rolled', changed: 0, rolledThroughMonth: null });
     expect(Number(dataOf<{ sliceSkipped?: number }>(owner).sliceSkipped)).toBeGreaterThan(0);
     const mine = await rollNow(holder, rf);
     expect([mine.status, (mine.body.error as { details?: { code?: string } })?.details?.code], dump(mine)).toEqual([403, 'BUDGET_SLICE_FORBIDDEN']);
 
-    await move(id, 'returned', w.u.userId, 'Refresh it');
-    const after = await rollNow(w.u, rf);
-    expect(after.status, dump(after)).toBe(200);
-    expect(dataOf(after)).toMatchObject({ status: 'rolled', sliceSkipped: 0 });
+    // The owner returns the slice through the route: its after-commit re-roll rolls the left cells and advances.
+    const ret = await sliceCall.call(w.u, 'POST', { note: 'Refresh it' }, { id, action: 'return' });
+    expect(ret.status, dump(ret)).toBe(200);
+    await fx.until(async () => (await fx.rollingRow(rf))?.through === m[0], 'the re-roll after the return');
     expect((await values(rf, w.sales))[0]).toBe('1200.00:actual');
+    expect((await pool.query('SELECT slice_skipped, slice_skipped_slices FROM budget_rolling_forecasts WHERE version_id = $1', [rf])).rows[0])
+      .toEqual({ slice_skipped: 0, slice_skipped_slices: [] });
   });
 });
 

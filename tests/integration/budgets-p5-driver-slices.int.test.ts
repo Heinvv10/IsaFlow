@@ -4,7 +4,8 @@
  * naming the driver (BUDGET_SLICE_DRIVER), never the trigger's generic refusal:
  * - a holder's grid save whose driver recompute lands outside their slices;
  * - an owner's driver edit (the driver routes take no reviewer path) into a slice with its reviewer.
- * The owner's grid save (the reviewer path) still recomputes into it. Nothing changes on a refusal.
+ * The owner's grid save (the reviewer path) changes its own cells there, but a slice with its reviewer is
+ * frozen to driver recomputes (r4): its driver cells stay and are reported. Nothing changes on a refusal.
  *
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
@@ -65,7 +66,7 @@ describe('driver recomputes and holder slices', () => {
     expect(await fx.state(v)).toEqual(before);
   });
 
-  it('an owner\'s driver edit into a slice with its reviewer: 409 naming the driver and the slice; the owner\'s grid save (reviewer path) recomputes into it', async () => {
+  it('an owner\'s driver edit into a slice with its reviewer: 409 naming the driver; the owner\'s grid save (reviewer path) changes the cell, the driver cells stay frozen (r4)', async () => {
     const { v } = await fx.cogsOfSales(w);
     await submit(await companySlice(v, null));
     const before = await fx.state(v);
@@ -77,6 +78,8 @@ describe('driver recomputes and holder slices', () => {
     expect(await fx.state(v)).toEqual(before);
     const save = await fx.call.save(w.u, v, [cell(w.sales, w.months[0]!, 2000)]);
     expect(save.status, dump(save)).toBe(200);
-    expect((await fx.row(v, w.cogs)).get(w.months[0]!)?.amount).toBe('760.00');
+    expect((await fx.row(v, w.sales)).get(w.months[0]!)?.amount).toBe('2000.00');
+    expect((await fx.row(v, w.cogs)).get(w.months[0]!)?.amount).toBe('380.00');
+    expect((save.body.data as { frozenDriverCells?: { cells: number } }).frozenDriverCells?.cells).toBeGreaterThan(0);
   });
 });

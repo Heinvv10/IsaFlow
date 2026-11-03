@@ -91,39 +91,47 @@ export function assertSliceWrites(
 }
 
 /**
- * The reviewer path (migration 955): marks this transaction as an owner's or admin's review of
- * the version's slices, so the trigger lets them change a submitted or approved slice. Only when
- * the version has slice reviews (nothing to unlock otherwise).
+ * The reviewer path (migration 955): an owner's or admin's grid save opens ONLY the submitted or
+ * approved slices its own cells are in (budget_slice_review_begin_slice, one per slice), so the
+ * trigger lets them change those, and nothing else locked (r4: a driver recompute never writes into
+ * a locked slice, see driverSliceGuard).
  */
-export async function beginSliceReview(companyId: string, versionId: string, scope: HolderScope): Promise<void> {
-  if (!scope.reviewer || scope.reviews.length === 0) return;
-  await sql`SELECT public.budget_slice_review_begin(${companyId}::UUID, ${versionId}::UUID)`;
+export async function beginSliceReview(
+  companyId: string, versionId: string, scope: HolderScope, cells: readonly SliceKey[],
+): Promise<void> {
+  if (!scope.reviewer) return;
+  const open = scope.reviews.filter((r) => isLockedStatus(r.status) && cells.some((c) => sameSlice(r, c)));
+  for (const r of open) {
+    await sql`SELECT public.budget_slice_review_begin_slice(${companyId}::UUID, ${versionId}::UUID, ${r.cc1Id}::UUID, ${r.cc2Id}::UUID, ${r.buId}::UUID)`;
+  }
 }
 
 /**
- * The check a driver recompute runs on the cells it is about to write (r2), so a driver that would
- * land outside the writer's reach is a 409 BUDGET_SLICE_DRIVER naming the driver, before any write,
- * instead of migration 955's generic refusal mid-write: a holder's recompute outside their slices; a
- * recompute into a submitted/approved slice of a draft by anyone not on the reviewer path (the driver
- * routes never take it: `reviewerPath` false). Null when nothing can be refused.
+ * The filter a driver recompute runs on the cells it is about to write, before any write:
+ * - a submitted or approved slice of a draft is FROZEN (r4, coordinator's ruling): no recompute writes
+ *   into it, whoever saves and whatever input moved; those cells are left as they are and reported
+ *   (`frozen`), and recalculate once the slice is returned;
+ * - a holder's recompute that would land outside their (open) slices is a 409 BUDGET_SLICE_DRIVER
+ *   naming the driver (their save cannot change another holder's figures).
+ * Null when there is nothing to filter.
  */
-export function driverSliceGuard(scope: HolderScope, versionStatus: string, reviewerPath: boolean): DriverWriteGuard | null {
+export function driverSliceGuard(scope: HolderScope, versionStatus: string): DriverWriteGuard | null {
   const holder = isHolder(scope);
-  const lockApplies = versionStatus === 'draft' && !(scope.reviewer && reviewerPath) && scope.reviews.some((r) => isLockedStatus(r.status));
-  if (!holder && !lockApplies) return null;
+  const frozenApplies = versionStatus === 'draft' && scope.reviews.some((r) => isLockedStatus(r.status));
+  if (!holder && !frozenApplies) return null;
   return (writes, label) => {
+    const keep: typeof writes[number][] = [];
+    const frozen: typeof writes[number][] = [];
     for (const w of writes) {
       const cell = parseKey(`${w.rowKey}|${w.month}`);
+      if (frozenApplies && isLockedStatus(scope.reviews.find((r) => sameSlice(r, cell))?.status ?? null)) { frozen.push(w); continue; }
       if (holder && sliceOf(scope.slices, cell) === null) {
         throw new BudgetVersionError('BUDGET_SLICE_DRIVER',
           `This change makes the driver on ${label(w.rowKey)} recompute month ${w.month}, which is outside your budget slices; ask an owner or admin to change that driver or its inputs`);
       }
-      const status = lockApplies ? scope.reviews.find((r) => sameSlice(r, cell))?.status ?? null : null;
-      if (isLockedStatus(status)) {
-        throw new BudgetVersionError('BUDGET_SLICE_DRIVER',
-          `This change makes the driver on ${label(w.rowKey)} recompute month ${w.month} of a slice ${status === 'submitted' ? 'submitted for review' : 'already approved'}; return the slice first, or make the change in the grid as its reviewer`);
-      }
+      keep.push(w);
     }
+    return { keep, frozen };
   };
 }
 
@@ -152,17 +160,36 @@ export function driverRowRefusal(scope: HolderScope, versionStatus: string, revi
  */
 export function rollableCells(
   cells: ReadonlyMap<RowKey, readonly Cell[]>, scope: HolderScope, versionStatus: string,
-): { cells: Map<RowKey, Cell[]>; skipped: number } {
+): { cells: Map<RowKey, Cell[]>; skipped: number; slices: SliceKey[] } {
   const out = new Map<RowKey, Cell[]>();
+  const slices: SliceKey[] = [];
   let skipped = 0;
   for (const [key, list] of cells) {
     const slice = parseKey(`${key}|2000-01`);
     const locked = versionStatus === 'draft' && isLockedStatus(scope.reviews.find((r) => sameSlice(r, slice))?.status ?? null);
     const outside = isHolder(scope) && sliceOf(scope.slices, slice) === null;
-    if (locked || outside) { skipped += list.length; continue; }
+    if (locked || outside) {
+      skipped += list.length;
+      if (!slices.some((x) => sameSlice(x, slice))) slices.push({ cc1Id: slice.cc1Id, cc2Id: slice.cc2Id, buId: slice.buId });
+      continue;
+    }
     out.set(key, [...list]);
   }
-  return { cells: out, skipped };
+  return { cells: out, skipped, slices };
+}
+
+/** "CC1 OPS Operations", "BU …", "Company level" for slices of the company (codes and names). */
+export async function sliceKeyLabels(companyId: string, keys: readonly SliceKey[]): Promise<string[]> {
+  if (keys.length === 0) return [];
+  const ids = [...new Set(keys.flatMap((k) => [k.cc1Id, k.cc2Id, k.buId].filter((x): x is string => x !== null)))];
+  const rows = (await sql`
+    SELECT id::TEXT AS id, code || ' ' || name AS label FROM cost_centres WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
+    UNION ALL
+    SELECT id::TEXT, code || ' ' || name FROM business_units WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
+  `) as DbRow[];
+  const name = new Map(rows.map((r) => [String(r.id), String(r.label)]));
+  return keys.map((k) => (k.cc1Id ? `CC1 ${name.get(k.cc1Id) ?? k.cc1Id}` : k.cc2Id ? `CC2 ${name.get(k.cc2Id) ?? k.cc2Id}`
+    : k.buId ? `BU ${name.get(k.buId) ?? k.buId}` : 'Company level'));
 }
 
 /**

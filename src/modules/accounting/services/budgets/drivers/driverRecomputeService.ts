@@ -48,13 +48,20 @@ export interface RecomputeResult {
   warnings: RecomputeWarning[];
   /** When payroll was read for a live per_head row (UTC ISO); null when this pass read none. */
   headcountAsOf: string | null;
+  /** P5-6: cells not recalculated because their slice is with its reviewer; absent when none. */
+  frozen?: FrozenDriverCells;
 }
 
 /**
  * Called with the cells a recompute is about to write, before any is written (P5-6: the budget-holder
- * slice rules, holderScope.driverSliceGuard); it throws to refuse. `label` names a driver row.
+ * slice rules, holderScope.driverSliceGuard): it answers which to write and which to leave (`frozen`),
+ * or throws to refuse. `label` names a driver row.
  */
-export type DriverWriteGuard = (writes: ReadonlyArray<{ rowKey: RowKey; month: string }>, label: (rowKey: RowKey) => string) => void;
+export type DriverWriteGuard = <W extends { rowKey: RowKey; month: string }>(writes: readonly W[], label: (rowKey: RowKey) => string) =>
+  { keep: W[]; frozen: W[] };
+
+/** Driver cells a recompute left as they are (slices with their reviewer): how many, and the driver rows (labelled, at most 20). */
+export interface FrozenDriverCells { cells: number; rows: string[] }
 
 export interface RecomputeOptions {
   /** per_head rows that compute this pass: 'all', or these rows; the rest keep their cells. Default none. */
@@ -177,8 +184,11 @@ export async function recomputeVersion(
     ...loops.map((l) => ({ code: 'DRIVER_SKIPPED' as const, rowKey: l.path[0]!, message: l.message })),
     ...result.warnings.map((w) => ({ ...w, message: labelKeys(w.message, model.labels) })),
   ];
-  opts.guard?.(result.writes, (k) => rowLabel(k, model.labels));
-  return { changed: await writeDriverCells(companyId, versionId, userId, result.writes), warnings, headcountAsOf };
+  const label = (k: RowKey) => rowLabel(k, model.labels);
+  const { keep, frozen: left } = opts.guard ? opts.guard(result.writes, label) : { keep: result.writes, frozen: [] };
+  const changed = await writeDriverCells(companyId, versionId, userId, keep);
+  if (left.length === 0) return { changed, warnings, headcountAsOf };
+  return { changed, warnings, headcountAsOf, frozen: { cells: left.length, rows: [...new Set(left.map((w) => label(w.rowKey)))].slice(0, 20) } };
 }
 
 /**

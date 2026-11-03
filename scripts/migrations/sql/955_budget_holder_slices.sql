@@ -46,10 +46,18 @@
 --      forces it (budget_version_force_begin; the GUC re-checked by role here)
 --      (BV004 / BV006). An owner or admin approving slices and then the version
 --      themselves is allowed (self-approval is audited, not refused).
+--   5. budget_rolling_forecasts += slice_skipped, slice_skipped_slices: what the
+--      last roll left unrolled in slices with their reviewer (the roll does not
+--      advance rolled_through_month then; rollingStatus shows them).
 --   With no session user (the service pool's cron, a migration, a QA purge) the
---   role checks do not apply (the server code decides, as 954's stamps); the slice
---   lock (1a) still does (there is no reviewer). Rows of a company being deleted
---   (its row already gone in the cascade) are never refused.
+--   role checks do not apply (the server code decides, as 954's stamps): BY DESIGN
+--   such a caller also passes the version gate (4) (no request ever lacks claims;
+--   an app_user session without them is refused there). The slice lock (1a) still
+--   applies (there is no reviewer). Rows of a company being deleted (its row
+--   already gone in the cascade) are never refused.
+--   The reviewer path names a whole version (budget_slice_review_begin: the
+--   year-end rehome) or ONE slice (budget_slice_review_begin_slice: an owner's
+--   grid save opens only the locked slices its own cells are in).
 --
 -- WHY NO SECURITY DEFINER (spec §2 assumed one). The begin helpers only check the
 --   caller and set a transaction-local GUC; any session can also set that GUC with
@@ -71,6 +79,8 @@
 SET LOCAL lock_timeout = '5s';
 
 -- ── The session's facts ─────────────────────────────────────────────────────
+-- An earlier draft of this file had budget_guc_names(text, uuid, uuid); it is replaced below.
+DROP FUNCTION IF EXISTS public.budget_guc_names(text, uuid, uuid);
 -- An owner or admin of the company, from the session's own company_users row.
 CREATE OR REPLACE FUNCTION public.budget_session_is_reviewer(p_company uuid)
 RETURNS boolean
@@ -83,15 +93,30 @@ AS $$
     SELECT 1 FROM company_users cu WHERE cu.company_id = p_company AND cu.user_id = auth.uid() AND cu.role IN ('owner', 'admin'))
 $$;
 
--- Whether a comma-separated `company:version` list GUC (the begin helpers append) names this version.
-CREATE OR REPLACE FUNCTION public.budget_guc_names(p_guc text, p_company uuid, p_version uuid)
+-- Whether a comma-separated list GUC (the begin helpers append) holds `key`.
+CREATE OR REPLACE FUNCTION public.budget_guc_has(p_guc text, p_key text)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT position(',' || p_company::text || ':' || p_version::text || ',' IN ',' || COALESCE(current_setting(p_guc, true), '') || ',') > 0
+  SELECT position(',' || p_key || ',' IN ',' || COALESCE(current_setting(p_guc, true), '') || ',') > 0
+$$;
+
+-- Whether the list GUC names the version (`company:version`) or, with a slice, that slice
+-- (`company:version:cc1:cc2:bu`, '' for none).
+CREATE OR REPLACE FUNCTION public.budget_guc_names(p_guc text, p_company uuid, p_version uuid,
+  p_cc1 uuid DEFAULT NULL, p_cc2 uuid DEFAULT NULL, p_bu uuid DEFAULT NULL, p_slice boolean DEFAULT false)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT public.budget_guc_has(p_guc, p_company::text || ':' || p_version::text)
+      OR (p_slice AND public.budget_guc_has(p_guc, concat_ws(':', p_company::text, p_version::text,
+            COALESCE(p_cc1::text, ''), COALESCE(p_cc2::text, ''), COALESCE(p_bu::text, ''))))
 $$;
 
 -- ── The reviewer path and the owner's forced approve ────────────────────────
@@ -110,6 +135,27 @@ BEGIN
   IF NOT public.budget_guc_names('budgets.slice_reviewer', p_company, p_version) THEN
     PERFORM set_config('budgets.slice_reviewer',
       concat_ws(',', NULLIF(current_setting('budgets.slice_reviewer', true), ''), p_company::text || ':' || p_version::text), true);
+  END IF;
+END;
+$$;
+
+-- Marks this transaction as an owner's or admin's review of ONE slice of the version (a grid save
+-- opens only the locked slices its own cells are in).
+CREATE OR REPLACE FUNCTION public.budget_slice_review_begin_slice(p_company uuid, p_version uuid, p_cc1 uuid, p_cc2 uuid, p_bu uuid)
+RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  k text := concat_ws(':', p_company::text, p_version::text, COALESCE(p_cc1::text, ''), COALESCE(p_cc2::text, ''), COALESCE(p_bu::text, ''));
+BEGIN
+  IF app.current_company_id() IS DISTINCT FROM p_company OR NOT public.budget_session_is_reviewer(p_company) THEN
+    RAISE EXCEPTION 'only an owner or admin of company % may review budget slices', p_company USING ERRCODE = 'BV004';
+  END IF;
+  IF NOT public.budget_guc_has('budgets.slice_reviewer', k) THEN
+    PERFORM set_config('budgets.slice_reviewer', concat_ws(',', NULLIF(current_setting('budgets.slice_reviewer', true), ''), k), true);
   END IF;
 END;
 $$;
@@ -176,7 +222,7 @@ BEGIN
            WHERE h.company_id = tv.c AND h.version_id = tv.v AND h.user_id = uid
              AND h.cc1_id IS NOT DISTINCT FROM tv.c1 AND h.cc2_id IS NOT DISTINCT FROM tv.c2 AND h.bu_id IS NOT DISTINCT FROM tv.b
              AND (h.gl_account_ids IS NULL OR tv.a = ANY (h.gl_account_ids))) THEN 'outside'
-        WHEN tv.vstatus = 'draft' AND NOT (tv.reviewer AND public.budget_guc_names('budgets.slice_reviewer', tv.c, tv.v))
+        WHEN tv.vstatus = 'draft' AND NOT (tv.reviewer AND public.budget_guc_names('budgets.slice_reviewer', tv.c, tv.v, tv.c1, tv.c2, tv.b, true))
              AND EXISTS (SELECT 1 FROM budget_slice_reviews x
                           WHERE x.company_id = tv.c AND x.version_id = tv.v AND x.status IN ('submitted', 'approved')
                             AND x.cc1_id IS NOT DISTINCT FROM tv.c1 AND x.cc2_id IS NOT DISTINCT FROM tv.c2 AND x.bu_id IS NOT DISTINCT FROM tv.b)
@@ -316,6 +362,12 @@ DROP TRIGGER IF EXISTS trg_budget_planned_hires_slice_guard ON budget_planned_hi
 CREATE TRIGGER trg_budget_planned_hires_slice_guard BEFORE INSERT OR UPDATE OR DELETE ON budget_planned_hires
   FOR EACH ROW EXECUTE FUNCTION public.budget_planned_hires_slice_guard();
 ALTER TABLE budget_planned_hires ENABLE ALWAYS TRIGGER trg_budget_planned_hires_slice_guard;
+
+-- ── 5. What a roll left unrolled in slices with their reviewer ──────────────
+ALTER TABLE budget_rolling_forecasts
+  ADD COLUMN IF NOT EXISTS slice_skipped INT NOT NULL DEFAULT 0 CHECK (slice_skipped >= 0),
+  ADD COLUMN IF NOT EXISTS slice_skipped_slices TEXT[] NOT NULL DEFAULT '{}';
+GRANT UPDATE (slice_skipped, slice_skipped_slices) ON budget_rolling_forecasts TO app_user;
 
 -- ── 2. budget_holders: who assigns, who may hold ────────────────────────────
 CREATE OR REPLACE FUNCTION public.budget_holders_rules()
@@ -476,7 +528,9 @@ REVOKE ALL ON FUNCTION public.budget_slice_reviews_rules() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_versions_slice_gate() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_slice_review_begin(uuid, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_version_force_begin(uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_slice_review_begin_slice(uuid, uuid, uuid, uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.budget_slice_review_begin(uuid, uuid) TO app_user;
+GRANT EXECUTE ON FUNCTION public.budget_slice_review_begin_slice(uuid, uuid, uuid, uuid, uuid) TO app_user;
 GRANT EXECUTE ON FUNCTION public.budget_version_force_begin(uuid, uuid) TO app_user;
 
 -- The grants as intended (716/708's guard): the helpers are app_user's and not PUBLIC's, and no
@@ -485,7 +539,8 @@ DO $$
 DECLARE
   f text;
 BEGIN
-  FOREACH f IN ARRAY ARRAY['public.budget_slice_review_begin(uuid, uuid)', 'public.budget_version_force_begin(uuid, uuid)'] LOOP
+  FOREACH f IN ARRAY ARRAY['public.budget_slice_review_begin(uuid, uuid)', 'public.budget_version_force_begin(uuid, uuid)',
+                           'public.budget_slice_review_begin_slice(uuid, uuid, uuid, uuid, uuid)'] LOOP
     IF has_function_privilege('public', f, 'EXECUTE') THEN
       RAISE EXCEPTION 'migration 955: PUBLIC can still execute %', f;
     END IF;
@@ -495,7 +550,8 @@ BEGIN
   END LOOP;
   IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
               WHERE n.nspname = 'public' AND p.prosecdef
-                AND p.proname IN ('budget_session_is_reviewer', 'budget_guc_names', 'budget_slice_review_begin', 'budget_version_force_begin',
+                AND p.proname IN ('budget_session_is_reviewer', 'budget_guc_names', 'budget_guc_has', 'budget_slice_review_begin',
+                                  'budget_slice_review_begin_slice', 'budget_version_force_begin',
                                   'budget_slice_rows_check', 'budget_month_amounts_slice_guard', 'budget_driver_lines_slice_guard',
                                   'budget_planned_hires_slice_guard', 'budget_holders_rules', 'budget_slice_reviews_rules',
                                   'budget_versions_slice_gate')) THEN

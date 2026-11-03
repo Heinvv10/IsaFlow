@@ -21,7 +21,7 @@ import { inputError, isVersionToken } from '../gridErrors';
 import { takeVersion } from '../versionTake';
 import { driverRowRefusal, driverSliceGuard, loadHolderScope } from '../holderScope';
 import type { RowKey } from './driverTypes';
-import { recomputeVersion, versionMonths, type RecomputeWarning } from './driverRecomputeService';
+import { recomputeVersion, versionMonths, type FrozenDriverCells, type RecomputeWarning } from './driverRecomputeService';
 
 export interface DriverWriteTarget {
   versionId: string;
@@ -45,6 +45,8 @@ export interface DriverWriteOutcome {
   warnings: RecomputeWarning[];
   /** When payroll was read (a live per_head row, or a Refresh); null when this write read none. */
   headcountAsOf: string | null;
+  /** P5-6: driver cells left as they are because their slice is with its reviewer; absent when none. */
+  frozenDriverCells?: FrozenDriverCells;
 }
 
 export interface DriverWriteBody<T> {
@@ -74,15 +76,19 @@ export async function runDriverWrite<T extends object>(
       const { value, audit, live } = await write({ versionId, fiscalYear: version.fiscalYear, months, sliceCheck });
       // P5-6: a recompute landing outside the writer's slices, or into a slice with its reviewer, is a
       // 409 naming the driver before any cell is written (the driver routes take no reviewer path).
-      const guard = driverSliceGuard(scope, version.status, false);
+      const guard = driverSliceGuard(scope, version.status);
       const recomputed = await recomputeVersion(companyId, versionId, userId, { live, guard });
       // Every write that read payroll audits when (a Refresh records its own time even with no per_head row).
       const headcountAsOf = recomputed.headcountAsOf ?? audit?.headcountAsOf ?? null;
       await auditBudgetWrite(companyId, userId, 'update', versionId, version.fiscalYear, {
         driverAction: action, ...audit, recomputed: String(recomputed.changed), versionStatus: version.status,
+        ...(recomputed.frozen ? { frozenDriverCells: String(recomputed.frozen.cells) } : {}),
         ...(headcountAsOf === null ? {} : { headcountAsOf }),
       });
-      return { ...value, updatedAt: version.updatedAt, recomputed: recomputed.changed, warnings: recomputed.warnings, headcountAsOf };
+      return {
+        ...value, updatedAt: version.updatedAt, recomputed: recomputed.changed, warnings: recomputed.warnings, headcountAsOf,
+        ...(recomputed.frozen ? { frozenDriverCells: recomputed.frozen } : {}),
+      };
     });
   } catch (err) {
     return mapBudgetDbError(err);
