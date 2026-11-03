@@ -107,12 +107,24 @@ interface BudgetData {
   bands: BudgetVarianceTracked['bands'];
 }
 
-/** A refusal by a report limiter: the route's own (with Retry-After) or withAuth's shared one (without). */
-function refusal(err: unknown): { retryAfterSecs: number | null } | null {
+/** How a failed comparator fetch is told to the reader: the limiter's refusal (with its wait),
+ *  the server refusing the window itself (with its reason), or a plain failure. */
+export type BudgetFailure =
+  | { kind: 'limited'; retryAfterSecs: number | null }
+  | { kind: 'refused'; reason: string }
+  | { kind: 'failed' };
+
+/** One classifier for the statement pages and the presentation deck, so they cannot disagree. */
+export function classifyBudgetError(err: unknown): BudgetFailure {
+  // A refusal by a report limiter: the route's own (with Retry-After) or withAuth's shared one (without).
   const e = err as { status?: unknown; retryAfterSecs?: unknown } | null;
-  if (e?.status === 429) return { retryAfterSecs: typeof e.retryAfterSecs === 'number' ? e.retryAfterSecs : null };
-  // Any other failure is the caller's to report (it logs it and shows BUDGET_FAILED).
-  return null;
+  if (e?.status === 429) return { kind: 'limited', retryAfterSecs: typeof e.retryAfterSecs === 'number' ? e.retryAfterSecs : null };
+  // A 400 is the server refusing the window itself: its reason is shown, and reloading cannot help.
+  if (err instanceof ApiRequestError && err.status === 400) {
+    const reason = apiErrorMessage(err, 'The budget window was not accepted');
+    if (reason !== '') return { kind: 'refused', reason };
+  }
+  return { kind: 'failed' };
 }
 
 export function useStatementComparators(opts: StatementComparatorOptions): StatementComparators {
@@ -176,12 +188,9 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
         .catch((err) => {
           log.warn('Failed to load budget comparator', { error: err }, 'useStatementComparators');
           if (cancelled) return;
-          const limited = refusal(err);
-          // A 400 is the server refusing the window itself: its reason is shown, and reloading cannot help.
-          const reason = err instanceof ApiRequestError && err.status === 400
-            ? apiErrorMessage(err, 'The budget window was not accepted') : '';
-          if (limited) setBudgetLimited(limited);
-          else if (reason !== '') setBudgetRefused(reason);
+          const failure = classifyBudgetError(err);
+          if (failure.kind === 'limited') setBudgetLimited({ retryAfterSecs: failure.retryAfterSecs });
+          else if (failure.kind === 'refused') setBudgetRefused(failure.reason);
           else setBudgetFailed(true);
         })
         .finally(() => { if (!cancelled) setBudgetLoading(false); });

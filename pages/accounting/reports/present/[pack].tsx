@@ -14,6 +14,7 @@ import { PresentDeck } from '@/components/accounting/present/PresentDeck';
 import { buildSlides, type ReportPack, type Slide } from '@/components/accounting/present/presentSlides';
 import { PresentSlide } from '@/components/accounting/present/PresentSlide';
 import type { BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
+import { classifyBudgetError } from '@/components/accounting/reportControls/useStatementComparators';
 import type { BudgetVarianceTracked, TrackedLine } from '@/modules/accounting/services/reports/budgetVarianceTracked';
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
@@ -34,6 +35,7 @@ export default function PresentPackPage() {
   const [budgetedCount, setBudgetedCount] = useState(0);
   const [budgetInfo, setBudgetInfo] = useState<BudgetInfo | undefined>(undefined);
   const [budgetFailed, setBudgetFailed] = useState(false);
+  const [budgetRefusal, setBudgetRefusal] = useState<'limited' | 'refused' | undefined>(undefined);
   const [income, setIncome] = useState<IncomeStatementReport | null>(null);
   // One flag per fetch, not one for the batch. The deck renders as soon as
   // the PACK resolves, which is before any of these three have landed — so
@@ -59,6 +61,7 @@ export default function PresentPackPage() {
     let live = true;
     setTrendsFailed(false);
     setBudgetFailed(false);
+    setBudgetRefusal(undefined);
     // Set BEFORE the pack fetch, not after it: `setSlides` and these flags
     // land in the same render, so a deck can never appear with all three
     // reading "not loading, no data".
@@ -106,7 +109,16 @@ export default function PresentPackPage() {
             retryAfterSecs: null, rejection: null,
           });
         } else {
-          setBudgetFailed(true);
+          const failure = classifyBudgetError(budgetResult.reason);
+          if (failure.kind === 'failed') setBudgetFailed(true);
+          else {
+            setBudgetRefusal(failure.kind);
+            setBudgetInfo({
+              budgetAbsentYears: [], budgetOutsideFilterYears: [], unallocatedBudget: null, partialBudgetCount: 0, splitsMonth: false,
+              retryAfterSecs: failure.kind === 'limited' ? failure.retryAfterSecs : null,
+              rejection: failure.kind === 'refused' ? failure.reason : null,
+            });
+          }
           log.error('Budget comparator failed to load', { error: budgetResult.reason }, 'present');
         }
         setBudgetLoading(false);
@@ -140,12 +152,12 @@ export default function PresentPackPage() {
         slide={slide} income={income} incomeLoading={incomeLoading}
         trends={trends} trendsFailed={trendsFailed} trendsLoading={trendsLoading}
         budget={budget} budgetBands={budgetBands} budgetedCount={budgetedCount} budgetInfo={budgetInfo}
-        budgetFailed={budgetFailed} budgetLoading={budgetLoading}
+        budgetFailed={budgetFailed} budgetLoading={budgetLoading} budgetRefusal={budgetRefusal}
       />
     ),
     [
       income, incomeLoading, trends, trendsFailed, trendsLoading,
-      budget, budgetBands, budgetedCount, budgetInfo, budgetFailed, budgetLoading,
+      budget, budgetBands, budgetedCount, budgetInfo, budgetFailed, budgetLoading, budgetRefusal,
     ],
   );
 

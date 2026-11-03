@@ -15,6 +15,7 @@ import { applyBudgetBands, withBudgetedLines } from '@/modules/accounting/servic
 import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { BUDGET_NONE, ComparatorNotices, comparatorNotices, type BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
+import type { BudgetState } from '@/components/accounting/reportControls/useStatementComparators';
 import type { Slide } from './presentSlides';
 
 const COLUMNS = { prior: false, budget: true, variance: true, trend: true } as const;
@@ -51,7 +52,7 @@ function accountNames(income: IncomeStatementReport | null): Map<string, string>
 export function PresentSlide({
   slide, income, incomeLoading = false,
   trends, trendsFailed, trendsLoading = false,
-  budget, budgetBands, budgetedCount, budgetInfo, budgetFailed, budgetLoading = false,
+  budget, budgetBands, budgetedCount, budgetInfo, budgetFailed, budgetLoading = false, budgetRefusal,
 }: {
   slide: Slide;
   income: IncomeStatementReport | null;
@@ -81,6 +82,9 @@ export function PresentSlide({
   /** The budget-comparator fetch is in flight. Distinct from "no budget was
    *  captured", which is a fact about the tenant, not about the request. */
   budgetLoading?: boolean;
+  /** The comparator was refused rather than failed: the limiter (`limited`, with `budgetInfo.retryAfterSecs`)
+   *  or the server rejecting the window (`refused`, with `budgetInfo.rejection`). Same classifier as the statement pages. */
+  budgetRefusal?: Extract<BudgetState, 'limited' | 'refused'>;
 }) {
   if (slide.kind === 'cover') {
     return (
@@ -116,7 +120,7 @@ export function PresentSlide({
             partial or above-filter budgets. Silent while the budget is in flight. */}
         <div className="mb-3">
           <ComparatorNotices
-            budgetState={budgetFailed ? 'failed' : budgetLoading ? 'unknown' : hasBudgetData(budgetedCount) ? 'available' : 'none'}
+            budgetState={budgetRefusal ?? (budgetFailed ? 'failed' : budgetLoading ? 'unknown' : hasBudgetData(budgetedCount) ? 'available' : 'none')}
             trendFailed={trendsFailed} budget={budgetInfo} />
         </div>
         <StatementGrid rows={rows} columns={{ ...COLUMNS }} title="Statement of Comprehensive Income" budgetCells />
@@ -196,7 +200,7 @@ export function PresentSlide({
     // withholds a budget that exists (a window that splits a month, a year
     // with none, a partial or above-filter budget): the statement page's own
     // sentences say which, and "no budget was captured" only when none apply.
-    const reasons = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: budgetInfo })
+    const reasons = comparatorNotices({ budgetState: budgetRefusal ?? 'none', trendFailed: false, budget: budgetInfo })
       .map((n) => n.text)
       .filter((t) => t !== BUDGET_NONE);
     return (
