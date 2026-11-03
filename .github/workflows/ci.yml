@@ -890,12 +890,13 @@ jobs:
           marker="<!-- golden-paths-run: $RUN_ID/$RUN_ATTEMPT -->"
           newer_green_exists() {
             newer=$(gh api --paginate "repos/$REPO/actions/workflows/ci.yml/runs?branch=$DEFAULT_BRANCH&event=push&per_page=100" \
-              --jq ".workflow_runs[] | select(.id > $RUN_ID) | .id")
-            for id in $newer; do
+              --jq ".workflow_runs[] | select(.id > $RUN_ID or (.id == $RUN_ID and .run_attempt > $RUN_ATTEMPT)) | [.id, .run_attempt] | @tsv")
+            while IFS=$'\t' read -r id attempt; do
+              [ -n "${id:-}" ] || continue
               result=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" \
                 --jq '[.jobs[] | select(.name == "Golden Paths E2E (post-merge)")][0].conclusion // ""')
               if [ "$result" = success ]; then return 0; fi
-            done
+            done <<< "$newer"
             return 1
           }
           case "$verdict" in
@@ -904,8 +905,9 @@ jobs:
               # state. A green run closes only failures older than itself.
               while IFS=$'\t' read -r number body; do
                 [ -n "${number:-}" ] || continue
-                seen=$(printf '%s' "$body" | sed -n 's/.*<!-- golden-paths-run: \([0-9]*\)\/[0-9]* -->.*/\1/p' | tail -1)
-                if [ -n "$seen" ] && [ "$seen" -lt "$RUN_ID" ]; then
+                seen=$(printf '%s' "$body" | sed -n 's/.*<!-- golden-paths-run: \([0-9]*\/[0-9]*\) -->.*/\1/p' | tail -1)
+                seen_id=${seen%/*}; seen_attempt=${seen#*/}
+                if [ -n "$seen" ] && { [ "$seen_id" -lt "$RUN_ID" ] || { [ "$seen_id" -eq "$RUN_ID" ] && [ "$seen_attempt" -lt "$RUN_ATTEMPT" ]; }; }; then
                   gh issue close "$number" -R "$REPO" --comment "Green again: Golden Paths E2E (post-merge) passed at $COMMIT_URL ($RUN_URL)."
                 fi
               done < <(gh issue list -R "$REPO" --label "$label" --state open --limit 100 --json number,body --jq '.[] | [.number, .body] | @tsv')

@@ -86,6 +86,18 @@ describe('Golden Paths smoke before merge and full suite after merge', () => {
     expect(result.calls).toContain('issue close 99');
   });
 
+  it('lets a successful rerun close its earlier failed attempt', () => {
+    const result = runReport('success', 100, 'rerun-failure', 2);
+    expect(result.status).toBe(0);
+    expect(result.calls).toContain('issue close 12');
+  });
+
+  it('does not create a delayed failure after a successful rerun', () => {
+    const result = runReport('failure', 100, 'rerun-green', 1);
+    expect(result.status).toBe(0);
+    expect(result.calls).not.toContain('issue create');
+  });
+
   it('names four existing specs in the smoke script', () => {
     const specs = scripts['test:e2e:golden:smoke']!.split(/\s+/).filter((part) => part.endsWith('.spec.ts'));
     expect(specs).toHaveLength(4);
@@ -97,18 +109,21 @@ function reportCommand(): string {
   return job('golden-paths-report').steps[0]!.run!;
 }
 
-function runReport(result: string, runId: number, mode: string): { status: number | null; calls: string } {
+function runReport(result: string, runId: number, mode: string, runAttempt = 1): { status: number | null; calls: string } {
   const dir = mkdtempSync(join(tmpdir(), 'golden-report-'));
   const gh = join(dir, 'gh');
   const calls = join(dir, 'calls');
   writeFileSync(gh, `#!/bin/bash
 echo "$*" >> "$GH_FAKE_CALLS"
 if [ "$1 $2" = "issue list" ] && [ "$GH_FAKE_MODE" = newer-failure ]; then printf '12\\tNewer red <!-- golden-paths-run: 200/1 -->\\n'; fi
+if [ "$1 $2" = "issue list" ] && [ "$GH_FAKE_MODE" = rerun-failure ]; then printf '12\\tEarlier red <!-- golden-paths-run: 100/1 -->\\n'; fi
 if [ "$1 $2" = "issue create" ]; then echo "https://example.invalid/issues/99"; fi
-if [ "$1" = api ] && [[ "$*" == *'/actions/workflows/ci.yml/runs?'* ]]; then echo 200; fi
-if [ "$1" = api ] && [[ "$*" == *'/actions/runs/200/jobs?'* ]]; then
+if [ "$1" = api ] && [[ "$*" == *'/actions/workflows/ci.yml/runs?'* ]]; then
+  if [ "$GH_FAKE_MODE" = rerun-green ]; then printf '100\\t2\\n'; else printf '200\\t1\\n'; fi
+fi
+if [ "$1" = api ] && { [[ "$*" == *'/actions/runs/200/jobs?'* ]] || [[ "$*" == *'/actions/runs/100/jobs?'* ]]; }; then
   count=0; [ -f "$GH_FAKE_COUNT" ] && count=$(cat "$GH_FAKE_COUNT"); count=$((count + 1)); echo "$count" > "$GH_FAKE_COUNT"
-  if [ "$GH_FAKE_MODE" = green-race ] && [ "$count" -gt 1 ]; then echo success; else echo in_progress; fi
+  if { [ "$GH_FAKE_MODE" = green-race ] && [ "$count" -gt 1 ]; } || [ "$GH_FAKE_MODE" = rerun-green ]; then echo success; else echo in_progress; fi
 fi
 `);
   chmodSync(gh, 0o755);
@@ -123,7 +138,7 @@ fi
       REPO: 'owner/repo',
       RESULT: result,
       RUN_ID: String(runId),
-      RUN_ATTEMPT: '1',
+      RUN_ATTEMPT: String(runAttempt),
       DEFAULT_BRANCH: 'master',
       RUN_URL: `https://example.invalid/runs/${runId}`,
       COMMIT_URL: `https://example.invalid/commits/${runId}`,
