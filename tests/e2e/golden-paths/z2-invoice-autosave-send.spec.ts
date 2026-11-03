@@ -5,8 +5,9 @@
  * approves the draft and opens the email form with the customer's address; nothing is sent until Send, and Send is
  * answered HERE: /api/accounting/invoice-email is route-fulfilled and must be hit exactly once (dev's SMTP is live, and
  * the fixture customer's address is a .invalid one besides). Leaving with a change unsaved asks; refusing keeps the page
- * with no page error (no unhandled rejection). Back with a change autosave would send goes unasked and saves it; Back
- * with a change autosave is holding asks (Stay keeps the page and history, Leave sends nothing). axe reports nothing serious on new and edit, both themes, and on the
+ * with no page error (no unhandled rejection). Back with a change autosave would send goes unasked and saves it; Back,
+ * Forward and a jump with a change autosave is holding ask (Stay undoes the move, history order kept; Leave sends
+ * nothing). axe reports nothing serious on new and edit, both themes, and on the
  * open email form.
  * Evidence mode: INVOICE_EVIDENCE_DIR=<dir> writes screenshots.
  */
@@ -140,37 +141,49 @@ test('Back from the edit page with a change still unsaved: not refused, history 
   }
 });
 
-test('Back with a change autosave is holding asks: Stay keeps the page and the change, Leave goes without it', async ({ page, context, baseURL }) => {
+test('a change autosave is holding: Forward, Back and a two-step jump ask; Stay undoes each with history order kept; Leave sends nothing', async ({ page, context, baseURL }) => {
   const { api, customerId } = await sandbox(context, baseURL!);
   const id = await draft(api, customerId, `Z2 held back ${Date.now().toString(36)}`);
   const ready = () => page.waitForFunction(() => Boolean((window as unknown as { next?: { router?: { isReady?: boolean } } }).next?.router?.isReady), undefined, { timeout: 60_000 });
+  const push = (url: string) => page.evaluate((u) => (window as unknown as { next: { router: { push: (u: string) => Promise<boolean> } } }).next.router.push(u), url);
+  const view = (v: string) => `/accounting/customer-invoices/${id}?v=${v}`;
+  const edit = new RegExp(`/edit/${id}$`);
   try {
-    await page.goto(`/accounting/customer-invoices/${id}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(view('0'), { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('link', { name: /^edit$/i })).toBeVisible({ timeout: 60_000 });
     await settle(page);
     await ready();
-    await page.getByRole('link', { name: /^edit$/i }).click(); // client-side: Back is a popstate
-    await page.waitForURL(new RegExp(`/edit/${id}$`), { timeout: 60_000 });
-    await ready();
+    await push(view('1')); // client-side entries: back/forward between them are popstates
+    await push(`/accounting/customer-invoices/edit/${id}`);
+    await expect(page.getByPlaceholder('Item description').first()).not.toHaveValue('', { timeout: 60_000 });
+    await push(view('2')); // nothing unsaved: goes unasked; a forward entry for later
+    await page.goBack();
+    await page.waitForURL(edit, { timeout: 30_000 });
     await expect(page.getByPlaceholder('Item description').first()).not.toHaveValue('', { timeout: 60_000 });
     const puts = countPuts(page);
     await page.getByLabel('Quantity').first().fill('0'); // a line autosave will not store: held
     await expect(page.getByText(/Not saved:/)).toBeVisible({ timeout: 10_000 });
-    const answers = [false, true];
+    const answers = [false, false, false, true]; // Stay, Stay, Stay, Leave
     const asked: string[] = [];
     page.on('dialog', async (d) => { asked.push(d.message()); await (answers.shift() ? d.accept() : d.dismiss()); });
-    await page.goBack(); // Stay
-    await expect.poll(() => asked.length, { timeout: 10_000 }).toBe(1);
-    await expect(page).toHaveURL(new RegExp(`/edit/${id}$`));
-    await expect(page.getByLabel('Quantity').first()).toHaveValue('0');
-    await page.goBack(); // Leave (the address moves before the question: wait for the question, not the URL)
-    await expect.poll(() => asked.length, { timeout: 10_000 }).toBe(2);
-    await page.waitForURL(new RegExp(`/accounting/customer-invoices/${id}$`), { timeout: 30_000 });
-    await expect(page.getByRole('link', { name: /^edit$/i })).toBeVisible({ timeout: 30_000 }); // the invoice page itself
+    // The address moves before the question: wait for the question, then for Stay's history.go to bring it back.
+    const stay = async (n: number) => {
+      await expect.poll(() => asked.length, { timeout: 10_000 }).toBe(n);
+      await expect(page).toHaveURL(edit, { timeout: 10_000 });
+      await expect(page.getByLabel('Quantity').first()).toHaveValue('0');
+    };
+    await page.goForward(); await stay(1);
+    await page.goBack(); await stay(2);
+    await page.evaluate(() => window.history.go(-2)); await stay(3);
+    await page.goBack(); // Leave
+    await expect.poll(() => asked.length, { timeout: 10_000 }).toBe(4);
+    await page.waitForURL(new RegExp(`\\?v=1$`), { timeout: 30_000 }); // the entry before the edit page: order kept
     expect(puts(), 'a held change is never sent').toBe(0);
     expect((await api.get<{ items: { quantity: number | string }[] }>(`/api/accounting/customer-invoices-detail?id=${id}`)).items.map((i) => Number(i.quantity))).toEqual([1]);
-    await page.goForward(); // history intact: the edit page's entry is still there
-    await page.waitForURL(new RegExp(`/edit/${id}$`), { timeout: 30_000 });
+    await page.goForward();
+    await page.waitForURL(edit, { timeout: 30_000 });
+    await page.goForward(); // the forward entry is still there, after the edit page
+    await page.waitForURL(new RegExp(`\\?v=2$`), { timeout: 30_000 });
   } finally {
     await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
   }
