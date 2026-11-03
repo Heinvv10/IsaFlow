@@ -112,8 +112,15 @@ describe('1. every writer is audited, and refuses a calculated run until it is r
   });
 
   it('a package apply audits every row it ends as well as those it inserts', async () => {
-    // The July once-off above was posted by a batch, not by this package: an apply over it would be refused. Void it first.
-    await pool.query("UPDATE payroll_employee_components SET effective_to = '2026-07-09' WHERE employee_id=$1 AND effective_from='2026-07-10'", [employee]);
+    // The July once-off above was posted by a batch, not by this package: an apply over it is refused, saying to end it.
+    const july = String((await pool.query("SELECT id FROM payroll_employee_components WHERE employee_id=$1 AND effective_from='2026-07-10'", [employee])).rows[0]!.id);
+    const refused = await call(applyPackage as Route, 'POST', `/api/payroll/employees/${employee}/apply-package`, employee, { body: { packageId: pkg, effectiveFrom: '2026-06-20' } });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.body.error?.message).toMatch(/posted by a batch.*End or move/);
+    // The advice, followed through the End route: it is cancelled (no run paid it), and the apply goes through.
+    const ended = await call(components as Route, 'DELETE', `/api/payroll/employees/${employee}/components?aid=${july}`, employee,
+      { body: { effectiveTo: '2026-07-31' }, query: { aid: july } });
+    expect(ended.statusCode, JSON.stringify(ended.body)).toBe(200);
     const out = await call(applyPackage as Route, 'POST', `/api/payroll/employees/${employee}/apply-package`, employee,
       { body: { packageId: pkg, effectiveFrom: '2026-06-20' } });
     expect(out.statusCode, JSON.stringify(out.body)).toBe(200);

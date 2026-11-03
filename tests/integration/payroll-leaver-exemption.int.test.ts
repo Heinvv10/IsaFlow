@@ -104,8 +104,10 @@ beforeAll(async () => {
   await add('se', 'startEnd', salary, 21670, '2026-03-28', '2026-03-30', true);
   // Mixed (review of 485fc14f2): the same pre-953 shape (S to 29 March, O 30-31 March), then after deploy the same
   // package is re-applied from the 30th: it voids O and inserts a new once-off N. S must not be paid beside N.
-  // O was written by this package (its audit entry says so) when the package's line read 2500; the line has since been
-  // edited to 2600. The re-apply still takes O as the package's own (provenance, not amount): it is replaced, one payment.
+  // This models a re-apply AFTER this release, not a row from before it: O is a pre-953 shape (supersede_inferred) that
+  // carries the audit entry this release's package apply writes (package_assign, this package), from when the package's
+  // line read 2500; the line has since been edited to 2600. The re-apply takes O as the package's own (provenance, not
+  // amount): it is replaced, one payment. A row with no audit entry and a changed amount is refused (fail-safe).
   await employee('mixed953', '2020-01-01', '2026-03-29');
   for (const [name, amount, from, to, recurring] of [['mxS', 21670, '2020-01-01', '2026-03-29', true], ['mxO', 2500, '2026-03-30', '2026-03-31', false]] as const) {
     row[name] = String((await pool.query(

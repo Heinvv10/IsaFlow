@@ -26,11 +26,13 @@ const endOfMonth = (iso: string): string => endOfMonthIso(Number(iso.slice(0, 4)
 async function ownOnceOffs(
   tx: TxSql, companyId: string, packageId: string, componentId: string, rows: DbRow[],
 ): Promise<Set<string>> {
+  // The row's FIRST entry is the one that created it; a later one (a forged package_assign) is not read.
   const entries = (await tx`
-    SELECT entity_id::text AS id, changes->'metadata'->>'kind' AS kind, changes->'metadata'->>'packageId' AS package_id
+    SELECT DISTINCT ON (entity_id) entity_id::text AS id, changes->'metadata'->>'kind' AS kind, changes->'metadata'->>'packageId' AS package_id
       FROM audit_log
      WHERE company_id = ${companyId}::uuid AND entity_type = 'payroll_employee_component' AND action = 'create'
        AND entity_id = ANY(${rows.map((r) => String(r.id))}::uuid[])
+     ORDER BY entity_id, created_at, id
   `) as DbRow[];
   const byId = new Map(entries.map((e) => [String(e.id), e]));
   const ownAmounts = await ownOnceOffAmounts(tx, packageId, componentId);
@@ -38,7 +40,8 @@ async function ownOnceOffs(
   for (const row of rows) {
     const entry = byId.get(String(row.id));
     const legacyShape = ownAmounts.has(Number(row.amount)) && isoDate(row.effective_to) === endOfMonth(isoDate(row.effective_from));
-    if (entry ? entry.kind === 'package_assign' && (!entry.package_id || entry.package_id === packageId) : legacyShape) own.add(String(row.id));
+    // An entry that records no package vouches for nothing about which one: the shape decides, as for a row with no entry.
+    if (entry ? entry.kind === 'package_assign' && (entry.package_id ? entry.package_id === packageId : legacyShape) : legacyShape) own.add(String(row.id));
   }
   return own;
 }
@@ -118,7 +121,7 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
     const named = foreign.map((row) => `${isoDate(row.effective_from)} to ${row.effective_to ? isoDate(row.effective_to) : 'open-ended'}, amount ${Number(row.amount).toFixed(2)}`);
     throw new EmployeeComponentRefused(
       `Applying this package from ${effectiveFrom} would cancel ${foreign.length === 1 ? 'a once-off' : 'once-offs'} this package did not write `
-      + `(entered by hand, or by another package) on this component: ${named.join(', ')}. End or move ${foreign.length === 1 ? 'it' : 'them'} first, or apply the package from a later date.`);
+      + `(entered by hand, posted by a batch, or written by another package) on this component: ${named.join(', ')}. End or move ${foreign.length === 1 ? 'it' : 'them'} first, or apply the package from a later date.`);
   }
   const toCut = overlapped;
   // Never cut what a paid run read: that run would no longer agree with the rows (security review, 2026-11-02).

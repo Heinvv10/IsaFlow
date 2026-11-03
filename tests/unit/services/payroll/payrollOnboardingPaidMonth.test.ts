@@ -100,3 +100,29 @@ describe('salaryEndRefusal: a salary ending before the 27th pays nothing that mo
     expect(salaryEndRefusal('2026-03-01', '2026-03-26')).not.toBeNull();
   });
 });
+
+describe('salaryEndRefusal: a salary that ends before the employment does must end on a month\'s last day', () => {
+  const notWithEmployment = (from: string, to: string) => salaryEndRefusal(from, to, false);
+
+  it('refuses the 27th to the 30th, which a run does not read, and advises the previous month end or its own', () => {
+    expect(notWithEmployment('2026-03-05', '2026-04-28')).toBe(
+      'A salary that ends before the employment does must end on the last day of a month: a run reads pay components on that day, so a salary ending on '
+      + '2026-04-28 is not paid for April 2026 and blocks its run. End the salary on 2026-03-31 and pay the April days as a once-off in an open month, '
+      + 'or on 2026-04-30 to pay all of April.');
+  });
+
+  it('with no month before it to end in, only its own month end is offered', () => {
+    expect(notWithEmployment('2026-03-05', '2026-03-28')).toContain('End the salary on 2026-03-31 to pay all of March.');
+  });
+
+  it('a month end is fine, the 27th is not (it is only read when it ends with the employment)', () => {
+    expect(notWithEmployment('2026-03-05', '2026-04-30')).toBeNull();
+    expect(notWithEmployment('2026-03-01', '2026-03-27')).not.toBeNull();
+    expect(salaryEndRefusal('2026-03-01', '2026-03-27', true)).toBeNull();
+  });
+
+  it('the paid-month advice does not offer a month whose end date is not a month end either', () => {
+    expect(salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-28', false)).toContain('leaves no open month');
+    expect(salaryPaidMonthText(paid([2026, 2]), '2026-02-10', '2026-03-28', true)).toContain('Set the salary to start 2026-03-01');
+  });
+});

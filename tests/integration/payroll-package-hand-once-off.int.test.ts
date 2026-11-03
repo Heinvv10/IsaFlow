@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { applyPackageToEmployee } from '@/modules/accounting/services/payroll/payPackageService';
+import { withTransaction } from '@/lib/neon';
+import { auditComponentChange } from '@/modules/accounting/services/payroll/payrollComponentAudit';
 import { assignComponentToEmployee, endEmployeeComponent } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 
 assertDisposable();
@@ -162,6 +164,38 @@ describe('own by provenance, not by shape', () => {
     const live = (await rows('edited')).filter((r) => r.component_id === comp.bonus && r.t !== null && r.t >= r.f);
     expect(live).toHaveLength(1);
     expect(live[0]!.amount).toBe(1300);
+  });
+
+  async function auditedAs(key: string, kind: 'package_assign' | 'assign', extra: { packageId?: string } = {}) {
+    const id = String((await pool.query('SELECT id FROM payroll_employee_components WHERE employee_id=$1 ORDER BY effective_from LIMIT 1', [emp[key]])).rows[0]!.id);
+    await withTransaction((tx) => auditComponentChange(tx, company, id, null, { from: '2026-05-10', to: '2026-05-31', recurring: false }, kind, actor, extra));
+  }
+
+  it("a package_assign entry that records no package is not every package's: another amount is refused", async () => {
+    await employee('noPkgId');
+    await raw('noPkgId', comp.bonus, 1500, '2026-05-10', '2026-05-31', false);
+    await auditedAs('noPkgId', 'package_assign');
+    await expect(applyPackageToEmployee(company, pkg, emp.noPkgId!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
+  });
+
+  it("a package_assign entry that records no package, with the package's own shape: accepted", async () => {
+    await employee('noPkgIdShape');
+    await raw('noPkgIdShape', comp.bonus, 1200, '2026-05-10', '2026-05-31', false);
+    await auditedAs('noPkgIdShape', 'package_assign');
+    await expect(applyPackageToEmployee(company, pkg, emp.noPkgIdShape!, '2026-05-01', user)).resolves.toBeDefined();
+  });
+
+  it('the first audit entry wins: a package_assign entry forged later on a hand-entered once-off changes nothing', async () => {
+    await employee('forged');
+    await assignComponentToEmployee(company, emp.forged!, comp.bonus, 1500, '2026-05-10', undefined, false, actor);
+    await auditedAs('forged', 'package_assign', { packageId: pkg });
+    await expect(applyPackageToEmployee(company, pkg, emp.forged!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
+  });
+
+  it('no audit entry and a package amount edited since: refused (fail-safe, shape cannot vouch for it)', async () => {
+    await employee('failsafe');
+    await raw('failsafe', comp.bonus, 1100, '2026-05-01', '2026-05-31', false);
+    await expect(applyPackageToEmployee(company, pkg, emp.failsafe!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
   });
 
   it('a once-off with no audit entry (written before this release) is judged by its shape: the package amount, closed at month end', async () => {

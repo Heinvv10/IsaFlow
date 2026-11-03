@@ -97,6 +97,15 @@ describe('a hire starting in the paid month', () => {
     expect(same.body.error?.message).toMatch(/Create the employee without a salary and pay the March days as a once-off/);
     expect(await rowsOf('LH-11')).toHaveLength(0);
     expect(await rowsOf('LH-12')).toHaveLength(0);
+    // A salary that ends before the employment does must end on a month's last day: one ending the 28th is never read.
+    const notLast = await post(hire('LH-13', '2026-03-05', { effectiveTo: '2026-04-28' }, '2026-05-15'));
+    expect(notLast.statusCode, JSON.stringify(notLast.body)).toBe(400);
+    expect(notLast.body.error?.message).toMatch(/must end on the last day of a month.*End the salary on 2026-03-31 and pay the April days as a once-off.*or on 2026-04-30 to pay all of April/);
+    const sameMonth = await post(hire('LH-14', '2026-03-05', { effectiveTo: '2026-03-28' }, '2026-04-15'));
+    expect(sameMonth.statusCode).toBe(400);
+    expect(sameMonth.body.error?.message).toMatch(/End the salary on 2026-03-31 to pay all of March/);
+    expect(await rowsOf('LH-13')).toHaveLength(0);
+    expect(await rowsOf('LH-14')).toHaveLength(0);
     // The advice, followed: the salary ends 31 March (salary.effectiveTo) while the employment runs to 15 April.
     const followed = await post(hire('LH-11', '2026-03-05', { effectiveTo: '2026-03-31' }, '2026-04-15'));
     expect(followed.statusCode, JSON.stringify(followed.body)).toBe(201);
