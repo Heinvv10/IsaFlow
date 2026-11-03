@@ -49,6 +49,11 @@ describe('pre-deduction remuneration identity', () => {
     const june = await createRunFor(f, 6);
     await calculateRun(f, june);
     expect((await approveRun(f, june)).statusCode).toBe(200);
+    // A line written before migration 913 has no stored taxable split. Its
+    // breakdown still proves that salary was paid before the 3605 clawback.
+    await pool.query(
+      'UPDATE payroll_run_lines SET periodic_taxable = NULL, annual_taxable = NULL WHERE run_id = $1',
+      [june]);
     const ytd = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 7 }, [f.employee]);
     expect(ytd.get(f.employee)).toMatchObject({ periods: 1, periodicTaxable: 0 });
 
@@ -85,13 +90,53 @@ describe('pre-deduction remuneration identity', () => {
          FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2`, [april, f.employee])).rows[0]!;
     expect(aprilLine).toEqual({ taxable: 0, credit: 630 });
     expect((await approveRun(f, april)).statusCode).toBe(200);
+    await pool.query(
+      'UPDATE payroll_run_lines SET periodic_taxable = NULL, annual_taxable = NULL WHERE run_id = $1',
+      [april]);
+
+    const ytd = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 5 }, [f.employee]);
+    expect(ytd.get(f.employee)).toMatchObject({ periods: 2, periodicTaxable: 20_000 });
 
     const medical = await loadMedicalRecord(f.company, { start: '2026-03-01', end: '2027-02-01' }, [f.employee]);
     expect(medical.get(f.employee)).toMatchObject({ credit: 630, recorded: true });
 
+    await pool.query(
+      'UPDATE payroll_run_lines SET periodic_taxable = 0, annual_taxable = 0 WHERE run_id = $1',
+      [april]);
     expect((await reopenRun(f, april)).statusCode).toBe(200);
     const taxed = (await pool.query(
       'SELECT approved_taxed_employees AS employees FROM payroll_run_headers WHERE id = $1', [april])).rows[0]!.employees as string[];
     expect(taxed).toContain(f.employee);
+  });
+
+  it('caps a pre-948 restoration at remuneration net of a 3605 clawback', async () => {
+    const f = await seedRetrenchedEmployee(pool, '2026-12-31', 'remuneration: legacy retirement clawback');
+    fixtures.push(f);
+    await component(f, 'Bonus clawback', '3605', 'earning', -10_000, '2026-03-01', '2026-03-31');
+    await component(f, 'Non-taxable allowance', '3702', 'earning', 10_000, '2026-03-01', '2026-03-31', false);
+    await component(f, 'Retirement annuity', '4006', 'deduction', 15_000, '2026-03-01', '2026-03-31');
+
+    const march = await createRunFor(f, 3);
+    await calculateRun(f, march);
+    await pool.query("UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1", [march]);
+    // Before migration 948 the calculator treated the contribution as an
+    // uncapped taxable deduction: R20 000 salary - R10 000 clawback - R15 000,
+    // floored at nil. Restoration may add back only the R10 000 that existed.
+    await pool.query(
+      `UPDATE payroll_run_lines
+          SET retirement_contributions = NULL, retirement_deduction = NULL,
+              periodic_taxable = 0, annual_taxable = 0, taxable_income = 0,
+              component_breakdown = (SELECT jsonb_agg(item - 'retirementContribution')
+                FROM jsonb_array_elements(component_breakdown) item)
+        WHERE run_id = $1`, [march]);
+
+    const ytd = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 4 }, [f.employee]);
+    expect(ytd.get(f.employee)).toMatchObject({
+      periods: 1,
+      periodicTaxable: 10_000,
+      annualPayments: 0,
+      retirementContributions: 15_000,
+      retirementDeduction: 15_000,
+    });
   });
 });

@@ -66,16 +66,16 @@ export async function loadPayeYearToDate(
       SELECT l.id AS line_id, l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic,
-             CASE WHEN l.periodic_taxable IS NOT NULL
-                    AND jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
+             CASE WHEN jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
+                    AND (r.periodic_before_deductions > 0 OR r.annual_before_deductions > 0)
                THEN r.periodic_before_deductions
                ELSE COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income))
              END AS periodic_before_deductions,
-             CASE WHEN l.annual_taxable IS NOT NULL
-                    AND jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
+             CASE WHEN jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
+                    AND (r.periodic_before_deductions > 0 OR r.annual_before_deductions > 0)
                THEN r.annual_before_deductions ELSE COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income))
              END AS annual_before_deductions,
-             b.annual_3605, (r.periodic_before_deductions + r.annual_before_deductions) AS original_taxable, b.donations
+             b.annual_3605, b.original_taxable, b.donations
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
@@ -84,6 +84,11 @@ export async function loadPayeYearToDate(
                GREATEST(COALESCE(SUM((item->>'amount')::numeric) FILTER (
                  WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605'
                    AND (item->>'isTaxable')::boolean), 0), 0) AS annual_3605,
+               GREATEST(COALESCE(SUM((item->>'amount')::numeric) FILTER (
+                 WHERE (item->>'isTaxable')::boolean
+                   AND (pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%')
+                   AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') !~ '^39[0-9][0-9]$'
+               ), 0), 0) AS original_taxable,
                COALESCE(SUM((item->>'amount')::numeric) FILTER (
                  WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '4030'
                    AND (item->>'isTaxable')::boolean AND pc.component_type = 'deduction'
