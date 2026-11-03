@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import entityChanges from '../../pages/api/accounting/entity-changes';
+import entityChangesReveal from '../../pages/api/accounting/entity-changes-reveal';
 import { todayInSast } from '../../src/lib/saDateParser';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, reasonOf } from './r035-approval.helpers';
@@ -32,7 +33,7 @@ afterAll(async () => {
 const company = () => newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer']], companies);
 const history = (user: string, c: string, query: Record<string, string>) =>
   callRoute(entityChanges, tokens[user]!, c, 'GET', undefined, '/api/accounting/entity-changes', query);
-type View = { id: string; accountNumber: string; masked: boolean; bankName: string; accountHolder: string | null; effectiveFrom: string };
+type View = { id: string; accountNumber: string; masked: boolean; bankName: string; branchCode: string; accountHolder: string | null; effectiveFrom: string };
 const view = (res: Awaited<ReturnType<typeof put>>) => dataOf<View>(res);
 
 async function entered(): Promise<{ c: string; e: string }> {
@@ -58,12 +59,16 @@ describe('the first entry', () => {
     const c = await company();
     const e = await employee(pool, c);
     const res = await put(tokens[m]!, c, e, ROW);
-    expect(view(res)).toMatchObject({ accountNumber: '…3456', masked: true, bankName: 'FNB', accountHolder: 'K One' });
+    expect(view(res)).toMatchObject({ accountNumber: '…3456', masked: true, bankName: 'FNB', branchCode: '…55', accountHolder: 'K…' });
     expect(JSON.stringify(res.state.body)).not.toContain(ROW.accountNumber);
     const read = await get(tokens[m]!, c, e);
-    expect(view(read)).toMatchObject({ accountNumber: '…3456', masked: true, effectiveFrom: todayInSast() });
-    expect(JSON.stringify(read.state.body)).not.toContain(ROW.accountNumber);
-    for (const user of [o, a]) expect(view(await get(tokens[user]!, c, e))).toMatchObject({ accountNumber: ROW.accountNumber, masked: false });
+    expect(view(read)).toMatchObject({ accountNumber: '…3456', masked: true, bankName: 'FNB', branchCode: '…55', accountHolder: 'K…', effectiveFrom: todayInSast() });
+    for (const leak of [ROW.accountNumber, ROW.branchCode, ROW.accountHolder]) expect(JSON.stringify(read.state.body)).not.toContain(leak);
+    for (const user of [o, a]) {
+      expect(view(await get(tokens[user]!, c, e))).toMatchObject({
+        accountNumber: ROW.accountNumber, branchCode: ROW.branchCode, accountHolder: ROW.accountHolder, masked: false,
+      });
+    }
   });
 
   it('an employee with no details answers null, not a 404', async () => {
@@ -128,7 +133,7 @@ describe('a change to existing details', () => {
     expect((await changesOf(pool, old.id)).map((x) => [x.op, x.changed])).toEqual([['create', expect.any(Array)], ['update', ['is_active']]]);
   });
 
-  it('a manager reads that history with the account masked; a viewer may not read it at all', async () => {
+  it('a manager reads that history with account, branch and holder masked; a viewer may not read it at all', async () => {
     const { c, e } = await entered();
     await put(tokens[o]!, c, e, OTHER);
     const fresh = (await rowsOf(pool, e)).find((r) => r.is_active)!;
@@ -137,9 +142,31 @@ describe('a change to existing details', () => {
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     const { items } = dataOf<EntityChangePage>(res);
     expect(items).toHaveLength(1);
-    expect(items[0]!.fields.find((f) => f.key === 'account_number')).toEqual({ key: 'account_number', before: null, after: '…4680', masked: true });
-    expect(JSON.stringify(items)).not.toContain(OTHER.accountNumber);
+    const field = (key: string) => items[0]!.fields.find((f) => f.key === key);
+    expect(field('account_number')).toEqual({ key: 'account_number', before: null, after: '…4680', masked: true });
+    expect(field('branch_code')).toEqual({ key: 'branch_code', before: null, after: '…10', masked: true });
+    expect(field('account_holder')).toEqual({ key: 'account_holder', before: null, after: 'K…', masked: true });
+    for (const leak of [OTHER.accountNumber, OTHER.branchCode, OTHER.accountHolder]) expect(JSON.stringify(items)).not.toContain(leak);
     expect((await history(v, c, query)).state.statusCode).toBe(403);
+
+    // Owner / admin in their own session reveal all three, audited; a manager may not.
+    const reveal = (user: string) => callRoute(entityChangesReveal, tokens[user]!, c, 'POST', { changeId: items[0]!.id },
+      '/api/accounting/entity-changes-reveal');
+    expect((await reveal(m)).state.statusCode).toBe(403);
+    for (const user of [o, a]) {
+      const res = await reveal(user);
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+      const fields = dataOf<EntityChangePage['items'][number]>(res).fields;
+      expect(Object.fromEntries(fields.filter((f) => ['account_number', 'branch_code', 'account_holder'].includes(f.key))
+        .map((f) => [f.key, [f.after, f.masked]]))).toEqual({
+        account_number: [OTHER.accountNumber, false], branch_code: [OTHER.branchCode, false], account_holder: [OTHER.accountHolder, false],
+      });
+    }
+    const audits = await pool.query(
+      `SELECT changes->'metadata'->>'revealed' AS revealed FROM audit_log
+        WHERE company_id = $1 AND entity_type = 'entity_change' AND entity_id = $2`, [c, items[0]!.id]);
+    expect(audits.rows).toHaveLength(2);
+    for (const r of audits.rows) expect(String(r.revealed).split(',').sort()).toEqual(['account_holder', 'account_number', 'branch_code']);
   });
 
   it('a manager is refused 403 and nothing is written', async () => {
@@ -246,5 +273,7 @@ describe('who may reach the route', () => {
     expect(out.isError, out.content[0]!.text).toBeFalsy();
     expect(out.content[0]!.text).toContain('…3456');
     expect(out.content[0]!.text).not.toContain(ROW.accountNumber);
+    expect(out.content[0]!.text).not.toContain(ROW.branchCode);
+    expect(out.content[0]!.text).not.toContain(ROW.accountHolder);
   });
 });

@@ -138,11 +138,12 @@ describe('findDuplicates', () => {
       return Promise.resolve([]);
     };
 
-    const result = await findDuplicates(COMPANY_ID);
+    const result = await findDuplicates(COMPANY_ID, { includeBankAccounts: true });
     expect(result.bankAccount).toHaveLength(1);
     expect(result.bankAccount[0]?.employees).toHaveLength(2);
     // Masked unless the caller says otherwise; the other fields are untouched by that.
     expect(result.bankAccount[0]?.value).toBe('…7890');
+    // fullBankAccounts implies includeBankAccounts.
     const full = await findDuplicates(COMPANY_ID, { fullBankAccounts: true });
     expect(full.bankAccount[0]?.value).toBe('1234567890');
   });
@@ -165,6 +166,23 @@ describe('findDuplicates', () => {
 
     expect(result.bankAccount).toEqual([]);
     expect(result.totals).toEqual({ totalConflicts: 1, affectedEmployees: 2 });
+    expect(sqlCalls.some((call) => routeMatch(call.sql, 'bank_account'))).toBe(false);
+  });
+
+  it('fails closed: omitting includeBankAccounts neither queries nor returns bank-account groups', async () => {
+    mockImpl = (strings) => {
+      const q = strings.join('?');
+      if (routeMatch(q, 'bank_account')) {
+        throw new Error('bank-account query must not run');
+      }
+      return Promise.resolve([]);
+    };
+
+    const result = await findDuplicates(COMPANY_ID);
+    const withTerminated = await findDuplicates(COMPANY_ID, { includeTerminated: true });
+
+    expect(result.bankAccount).toEqual([]);
+    expect(withTerminated.bankAccount).toEqual([]);
     expect(sqlCalls.some((call) => routeMatch(call.sql, 'bank_account'))).toBe(false);
   });
 
