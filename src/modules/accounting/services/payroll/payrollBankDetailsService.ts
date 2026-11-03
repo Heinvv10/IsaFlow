@@ -27,7 +27,7 @@ import { z } from 'zod';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { todayInSast } from '@/lib/saDateParser';
-import { maskValue } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
+import { maskInitial, maskLastTwo, maskValue } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
 import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { ROW_LOCK_BUDGET_MS, RowLockTimeoutError, withRowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 import { payrollApprovalLockScope } from './payrollRunLock';
@@ -103,10 +103,6 @@ interface BankRow {
   effective_from: string;
 }
 
-/** Branch code to its last two digits, holder to its first letter: with the number's last four, two employees on one account do not show it. */
-const maskBranch = (code: string) => `…${code.slice(-2)}`;
-const maskHolder = (holder: string | null) => (holder ? `${Array.from(holder)[0]}…` : holder);
-
 function toView(row: BankRow, role: string | undefined): EmployeeBankDetails {
   const full = isHistoryAdmin(role);
   return {
@@ -116,8 +112,9 @@ function toView(row: BankRow, role: string | undefined): EmployeeBankDetails {
     accountNumber: full ? row.account_number : String(maskValue(row.account_number)),
     masked: !full,
     accountType: row.account_type,
-    branchCode: full ? row.branch_code : maskBranch(row.branch_code),
-    accountHolder: full ? row.account_holder : maskHolder(row.account_holder),
+    // Branch code to its last two, holder to its first letter: two employees on one account do not show it (as the history).
+    branchCode: full ? row.branch_code : String(maskLastTwo(row.branch_code)),
+    accountHolder: full ? row.account_holder : (maskInitial(row.account_holder) as string | null),
     effectiveFrom: row.effective_from,
   };
 }
