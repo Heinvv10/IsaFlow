@@ -6,9 +6,13 @@
  *
  * While a change is unsaved, or a save is out, leaving asks first, and refusing is never an error:
  *   - closing or reloading the tab: `beforeunload`;
- *   - back and forward are never refused: by then the browser has moved, and no refusal leaves history intact
- *     (replaceState overwrites the entry Back was going to; pushState adds one). The page goes, and the work is kept
- *     as it goes: the edit page PUTs the change being typed, the new page writes its draft (each hook, on unmount);
+ *   - back and forward with a change that will be kept as the page goes are not asked: the page goes, and the work
+ *     is kept as it goes (the edit page PUTs the change being typed, the new page writes its draft; each hook, on
+ *     unmount). A change the edit page's autosave is HOLDING (a line or date it refuses, a stale-priced draft, a rate
+ *     being typed) would not be sent, so back and forward ask. Leave: it goes without them. Stay: by then the browser
+ *     has moved, so this page's own history entry is pushed back (Next has not changed the route). After a one-step
+ *     Back, history is as it was; after Forward, or a jump of several entries, the entries past this page are gone
+ *     (a browser keeps no forward history past a push);
  *   - a push or replace (a link, a button): `routeChangeStart` throws, Next's only way to cancel one, and the router's
  *     push and replace are wrapped for this page's life so the cancellation resolves false instead of rejecting (no
  *     unhandled rejection: no Sentry event, no dev overlay). The route change a back/forward starts goes through
@@ -45,17 +49,21 @@ function quietCancellations(router: NextRouter): () => void {
   return () => { router.push = push; router.replace = replace; };
 }
 
-function useLeaveGuard(unsaved: () => boolean, leaveWithout: () => void): void {
+function useLeaveGuard(unsaved: () => boolean, leaveWithout: () => void, heldBack: () => boolean): void {
   const router = useRouter() as NextRouter | null;
   const check = useRef(unsaved);
   const giveUp = useRef(leaveWithout);
-  useEffect(() => { check.current = unsaved; giveUp.current = leaveWithout; });
+  const held = useRef(heldBack);
+  useEffect(() => { check.current = unsaved; giveUp.current = leaveWithout; held.current = heldBack; });
 
   useEffect(() => {
     if (!router) return undefined;
     // A router stub without events (unit tests of other behaviour) gets no route guard; Next's router always has them.
     const events = router.events as NextRouter['events'] | undefined;
     let popping = false; // a back/forward under way: its route change goes through unasked
+    // This page's history entry (Next has written it before the page renders), kept to put back when Stay is chosen.
+    let here = { state: window.history.state as unknown, url: window.location.href };
+    const remember = () => { here = { state: window.history.state as unknown, url: window.location.href }; };
 
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!check.current()) return;
@@ -71,11 +79,22 @@ function useLeaveGuard(unsaved: () => boolean, leaveWithout: () => void): void {
       throw new NavigationCancelled();
     };
     const restoreNavigation = quietCancellations(router);
-    router.beforePopState?.(() => { popping = true; return true; });
+    router.beforePopState?.(() => {
+      if (check.current() && held.current()) { // autosave would not send it: ask, as a link does
+        if (!window.confirm(LEAVE_MESSAGE)) { window.history.pushState(here.state, '', here.url); return false; }
+        giveUp.current(); // "Leave without them"
+      }
+      popping = true;
+      return true;
+    });
     window.addEventListener('beforeunload', onBeforeUnload);
     events?.on('routeChangeStart', onRouteChange);
     events?.on('hashChangeStart', onHashChange);
+    events?.on('routeChangeComplete', remember); // another invoice opened in place
+    events?.on('hashChangeComplete', remember);
     return () => {
+      events?.off('routeChangeComplete', remember);
+      events?.off('hashChangeComplete', remember);
       events?.off('hashChangeStart', onHashChange);
       window.removeEventListener('beforeunload', onBeforeUnload);
       events?.off('routeChangeStart', onRouteChange);
@@ -85,6 +104,9 @@ function useLeaveGuard(unsaved: () => boolean, leaveWithout: () => void): void {
   }, [router]);
 }
 
+/** The new page's draft is written as the page goes whatever autosave is waiting on (useLocalInvoiceDraft). */
+const neverHeld = () => false;
+
 export function useInvoiceAutosave(opts: LocalDraftOptions): LocalDraft;
 export function useInvoiceAutosave(opts: ServerAutosaveOptions): ServerAutosave;
 export function useInvoiceAutosave(opts: LocalDraftOptions | ServerAutosaveOptions): LocalDraft | ServerAutosave {
@@ -92,6 +114,6 @@ export function useInvoiceAutosave(opts: LocalDraftOptions | ServerAutosaveOptio
   const local = useLocalInvoiceDraft(opts.mode === 'local' ? opts : null);
   const server = useServerInvoiceAutosave(opts.mode === 'server' ? opts : null);
   const current = opts.mode === 'local' ? local : server;
-  useLeaveGuard(current.unsaved, current.leaveWithout);
+  useLeaveGuard(current.unsaved, current.leaveWithout, opts.mode === 'server' ? server.heldBack : neverHeld);
   return current;
 }

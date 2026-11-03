@@ -70,6 +70,8 @@ export interface ServerAutosave {
   contentDigest: () => string | undefined;
   /** The user chose to leave without the change: nothing is sent as the page closes. */
   leaveWithout: () => void;
+  /** Read at the moment of asking: a change on screen autosave is holding back, so it would not be sent as the page goes. */
+  heldBack: () => boolean;
 }
 
 interface Failure { json: string; message: string }
@@ -234,6 +236,11 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     || (lastSaved.current !== null && latest.current.json !== lastSaved.current)), []);
 
   const currentBody = useCallback(() => latest.current.json, []);
+  const heldBack = useCallback(() => {
+    const { json: now, armed: sendable, done: finished } = latest.current;
+    return !finished && !sendable && now !== null && lastSaved.current !== null && now !== lastSaved.current
+      && now !== sending.current && now !== discarded.current;
+  }, []);
   const currentDigest = useCallback(() => contentDigest.current, []);
   const leaveWithout = useCallback(() => {
     discarded.current = latest.current.json;
@@ -249,5 +256,5 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
         : savedJson !== null && json !== savedJson ? 'dirty'
           : savedAt !== null ? 'saved' : null;
   const held = state === 'dirty' && opts?.problem && !opts.paused ? opts.problem : null;
-  return { state, savedAt, error: failed?.message ?? null, savedCount, saveNow, unsaved, held, currentBody, contentDigest: currentDigest, leaveWithout };
+  return { state, savedAt, error: failed?.message ?? null, savedCount, saveNow, unsaved, held, currentBody, contentDigest: currentDigest, leaveWithout, heldBack };
 }
