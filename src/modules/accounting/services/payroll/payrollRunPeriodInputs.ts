@@ -31,9 +31,12 @@
  * calculation produced here. Anything else thrown after the write is NOT a
  * PayrollRunInputRefusedError, so the route lets it become a 500 and rolls back.
  *
- * AS EVERY WRITER of payroll_employee_components (#1117): the company lock, the run's read day (payrollRunReadDate),
- * refuseAssignmentWrite before an INSERT (a backstop: the month is unpaid while the run is editable), and an audit
- * row per write in the savepoint, before the recalculation stamps the run (payrollRunRecalcGate reads it).
+ * AS EVERY WRITER of payroll_employee_components (#1117): the company lock, the run's own reader (paidByRun), no
+ * write at all while the run's journal is in force (assertRunEditable: #1117 counts that month as paid, and an edit
+ * or removal would change what it was costed on), refuseAssignmentWrite before an INSERT (a backstop: with that
+ * refusal no paid month can reach it), INSERTs naming supersede_inferred = FALSE (mig 953), and an audit row per
+ * write in the savepoint, before the recalculation stamps the run (payrollRunRecalcGate reads it; a removal is a
+ * 'delete' naming the employee, since its row is gone).
  */
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -45,7 +48,6 @@ import { normaliseSarsCode } from './payeAnnualPayment';
 import { journalInForceOrNull } from './payrollJournalChain';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
-import { PayrollRunJournalPostedError, runHasLoanWork } from './payrollRunLoanApplication';
 import {
   calculatePayrollRun, getPayrollRun, getPayrollRunLines, type PayrollRunLine, type PayrollRunSummary,
 } from './payrollRunService';
@@ -167,11 +169,11 @@ async function assertRunEditable(companyId: string, runId: string, run: DbRow, p
     if (err instanceof UnsupportedTaxYearError) throw new PayrollRunInputRefusedError(400, err.message);
     throw err;
   }
-  // calculatePayrollRun's own refusal, judged before the write. Its loans are re-read under their lock there: a loan
-  // added in between surfaces as this error after the write, and the route answers that as a 500, which rolls back.
-  if (await journalInForceOrNull(companyId, run.journal_entry_id) != null
-    && await runHasLoanWork(companyId, runId, period.year, period.month)) {
-    throw new PayrollRunInputRefusedError(400, new PayrollRunJournalPostedError(runId).message);
+  // A reopened run whose journal is still in force: its month was costed (and paid) on these rows, so the grid
+  // changes none of them, an insert, an edit or a removal (#1117 treats the month as paid). Reverse it first.
+  if (await journalInForceOrNull(companyId, run.journal_entry_id) != null) {
+    throw new PayrollRunInputRefusedError(400, 'This run\'s journal is still posted, so the amounts its month was paid on cannot '
+      + 'be changed here. Reverse the payroll journal first, then edit the amounts and recalculate.');
   }
 }
 
@@ -222,7 +224,7 @@ export async function setRunPeriodAmount(
     const window = { from, to, recurring: false };
     if (rowId && amount === 0) {
       await tx`DELETE FROM payroll_employee_components WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;
-      await auditComponentChange(tx, companyId, rowId, window, window, 'run_input_remove', actor);
+      await auditComponentChange(tx, companyId, rowId, window, window, 'run_input_remove', actor, { removed: { employeeId } });
     } else if (rowId) {
       await tx`UPDATE payroll_employee_components SET amount = ${amount} WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;
       await auditComponentChange(tx, companyId, rowId, window, window, 'run_input', actor);
@@ -234,8 +236,8 @@ export async function setRunPeriodAmount(
         throw err;
       }
       const inserted = (await tx`
-        INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
-        VALUES (${employeeId}::uuid, ${componentId}::uuid, ${amount}, ${from}, ${to}, FALSE) RETURNING id
+        INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred)
+        VALUES (${employeeId}::uuid, ${componentId}::uuid, ${amount}, ${from}, ${to}, FALSE, FALSE) RETURNING id
       `) as DbRow[];
       await auditComponentChange(tx, companyId, String(inserted[0]!.id), null, window, 'run_input', actor);
     }

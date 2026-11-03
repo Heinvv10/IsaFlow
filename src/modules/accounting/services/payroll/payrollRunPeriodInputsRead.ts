@@ -44,8 +44,9 @@ export async function readAmounts(companyId: string, period: Period, componentId
   const paid = await paidByRun(companyId, employeeIds, period, componentIds);
   const onceIds = paid.filter((p) => !p.recurring).map((p) => p.id);
   const keyed = new Set(((await sql`
-    SELECT id FROM payroll_employee_components
-    WHERE id = ANY(${onceIds}::uuid[]) AND effective_from = ${from}::date AND effective_to = ${to}::date
+    SELECT pec.id FROM payroll_employee_components pec
+    JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
+    WHERE pec.id = ANY(${onceIds}::uuid[]) AND pec.effective_from = ${from}::date AND pec.effective_to = ${to}::date
   `) as DbRow[]).map((r) => String(r.id)));
   const cells = new Map<string, { employeeId: string; componentId: string; once: typeof paid; recurring: number }>();
   for (const p of paid) {

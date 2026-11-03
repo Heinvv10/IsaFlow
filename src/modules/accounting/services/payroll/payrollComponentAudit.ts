@@ -24,10 +24,13 @@ export async function auditComponentChange(
   kind: ComponentChangeKind,
   actor: ComponentChangeActor,
   /** The package a package_assign row came from: what makes the once-off the package's own on a re-apply. */
-  extra: { packageId?: string } = {},
+  extra: { packageId?: string; removed?: { employeeId: string } } = {},
 ): Promise<void> {
   await logAuditOrThrow({
-    companyId, userId: actor.userId, userEmail: actor.userEmail, action: before ? 'update' : 'create',
+    companyId, userId: actor.userId, userEmail: actor.userEmail,
+    // A removed row (the pay-run grid's nil amount) is a 'delete' naming its employee: the row is gone, and
+    // payrollRunRecalcGate finds the employee from here.
+    action: extra.removed ? 'delete' : before ? 'update' : 'create',
     entityType: 'payroll_employee_component', entityId: assignmentId,
     // After the company lock, so audit rows order with calculated_at as the lock orders the work (payrollRunRecalcGate).
     atClockTime: true,
@@ -36,7 +39,10 @@ export async function auditComponentChange(
         { field: 'effective_from', old: before?.from ?? null, new: after.from, label: 'Effective from' },
         { field: 'effective_to', old: before?.to ?? null, new: after.to, label: 'Effective to' },
       ],
-      metadata: { kind, channel: actor.channel, recurring: String(after.recurring), ...(extra.packageId ? { packageId: extra.packageId } : {}) },
+      metadata: {
+        kind, channel: actor.channel, recurring: String(after.recurring), ...(extra.packageId ? { packageId: extra.packageId } : {}),
+        ...(extra.removed ? { employeeId: extra.removed.employeeId } : {}),
+      },
     },
   }, tx);
 }

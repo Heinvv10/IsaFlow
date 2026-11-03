@@ -18,7 +18,8 @@
  *      chain exists:
  *        in force → the run is re-approved onto it, posting nothing, but only
  *                   while its figures match what the run would post now
- *                   (`sameFigures`), else `recalculated_after_posting`;
+ *                   (`sameFigures`), else `recalculated_after_posting`; step 3
+ *                   (pro-rata, the line refusals) is not judged: nothing new posts;
  *        out      → nothing of the run is in the ledger: approval unlinks the
  *                   journal and posts a FRESH one (`replaces`), dated by
  *                   `datedForReplacement`;
@@ -37,7 +38,6 @@
  * journal it would re-lock onto or replace. The caller sends the hash it previewed and
  * approval refuses (409) when the run no longer hashes the same.
  */
-import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
@@ -51,6 +51,7 @@ import { findFringeNotRecordedLines, findLoanPaymentsOffPayslip, findOverdrawnLi
 import { lineBlocker } from './payrollLineBlockers';
 import { runProRataBlocker } from './payrollRecurringProRata';
 import { recalculateRequiredRefusal, runLinesRefusal } from './payrollRunRecalcGate';
+import { hashOf } from './payrollApprovalHash';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -188,20 +189,6 @@ async function datedForReplacement(companyId: string, plan: PayrollJournalPlan, 
         + `${plan.entryDate.slice(0, 7)} keeps the figures it reported.`,
     }],
   };
-}
-
-function hashOf(plan: PayrollJournalPlan, posted: PostedPayrollJournal | null, replaces: PostedPayrollJournal | null): string {
-  return createHash('sha256').update(JSON.stringify({
-    run: plan.runId,
-    status: plan.status,
-    entryDate: plan.entryDate,
-    description: plan.description,
-    posted: posted?.journalEntryId ?? null,
-    replaces: replaces?.journalEntryId ?? null,
-    // CC1 is in it: it changes what posts, so a preview taken before a centre moved cannot approve the new split.
-    lines: plan.lines.map((l) => [l.glAccountId, l.accountCode, l.cc1Id, cents(l.debit), cents(l.credit)]),
-    totals: Object.entries(plan.totals).map(([k, v]) => [k, cents(v)]),
-  })).digest('hex');
 }
 
 /** Null when the run is not in this company. Read-only. */

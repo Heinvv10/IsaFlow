@@ -231,9 +231,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   ) / 100;
 
   // Reported, never corrected: the line below still floors net at nil, and every other figure stands.
-  // The approval gate refuses a run carrying DEDUCTIONS_EXCEED_PAY (findOverdrawnLines). A shortfall that
-  // would not exist without the loan instalment is only a warning: an instalment cannot be edited on a
-  // run, and refusing it would stop every employee's pay over one leaver's last month.
+  // The approval gate refuses a run carrying either code (findOverdrawnLines, payrollLineBlockers): a shortfall
+  // that would not exist without the loan instalment is LOAN_INSTALMENT_EXCEEDS_PAY, which blocks too (Hein) until
+  // the instalment is reduced or deferred, the loan closed, or final pay paid first.
   if (netPay < 0) {
     const fromLoan = round2(netPay + loanInstalments) >= 0;
     // A non-cash benefit is taxed but not paid: its PAYE comes out of the cash, which may be why.

@@ -93,7 +93,8 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
     WITH run_lines AS (
       SELECT prl.employee_id, pe.employee_number, prl.validation_results, prl.net_pay = 0 AS net_pay_nil,
         (SELECT COALESCE(array_agg(l.loan_number ORDER BY l.loan_number), '{}') FROM payroll_loan_payments p
-           JOIN payroll_loans l ON l.id = p.loan_id WHERE p.run_id = prl.run_id AND l.employee_id = prl.employee_id) AS loans,
+           JOIN payroll_loans l ON l.id = p.loan_id AND l.company_id = prh.company_id
+          WHERE p.run_id = prl.run_id AND l.employee_id = prl.employee_id) AS loans,
         (prl.validation_results @> '[{"code":"DEDUCTIONS_EXCEED_PAY"}]'::jsonb
           OR prl.validation_results @> '[{"code":"LOAN_INSTALMENT_EXCEEDS_PAY"}]'::jsonb) AS coded,
         -- CASE, not AND: jsonb_array_length raises on a non-array, and SQL does not promise to short-circuit.
@@ -103,7 +104,7 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
         ROUND(prl.gross_pay - prl.paye - prl.uif_employee - (stored.cash_total - prl.gross_pay) + stored.loan, 2) AS derived_without_loan
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
-      JOIN payroll_employees    pe  ON pe.id  = prl.employee_id
+      JOIN payroll_employees    pe  ON pe.id  = prl.employee_id AND pe.company_id = prh.company_id
       LEFT JOIN LATERAL (
         SELECT
           -- Cash only: not a non-cash benefit, nor a contribution the employee pays the fund directly (PAYE 4c).

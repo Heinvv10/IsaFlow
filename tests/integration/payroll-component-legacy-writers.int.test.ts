@@ -11,6 +11,7 @@ import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payro
 import { applyPackageToEmployee } from '@/modules/accounting/services/payroll/payPackageService';
 import { assignComponentToEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { addBatchLines, createBatch, postBatch, validateBatch } from '@/modules/accounting/services/payroll/payrollBatchService';
+import { setRunPeriodAmount } from '@/modules/accounting/services/payroll/payrollRunPeriodInputs';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -122,7 +123,7 @@ describe('a package re-applied from the 15th over an unaudited pre-953 replaced 
 });
 
 describe('every writer in this release writes supersede_inferred = FALSE', () => {
-  it('assign, package apply and batch post', async () => {
+  it('assign, package apply, batch post and the pay-run grid', async () => {
     const assigned = await assignComponentToEmployee(company, emp.writers!, bonus, 50, '2026-12-01', undefined, false, actor);
     await applyPackageToEmployee(company, pkg, emp.writers!, '2027-01-10', user);
     const batch = await createBatch({ companyId: company, batchType: 'component_values', componentId: salary, description: 'OC batch',
@@ -130,8 +131,10 @@ describe('every writer in this release writes supersede_inferred = FALSE', () =>
     await addBatchLines(company, batch.id, [{ employeeId: emp.writers!, value: 70, effectiveFrom: new Date('2027-02-05') }]);
     expect((await validateBatch(company, batch.id)).ok).toBe(true);
     await postBatch(company, batch.id, user);
+    // The grid's once-off for the November run (salary is 3601, a grid component).
+    await setRunPeriodAmount(company, run, emp.writers!, salary, 90, 0, actor);
     const { rows } = await pool.query('SELECT supersede_inferred FROM payroll_employee_components WHERE employee_id=$1', [emp.writers]);
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(rows.every(r => r.supersede_inferred === false)).toBe(true);
     expect((await flag(assigned.id)).supersede_inferred).toBe(false);
   });
