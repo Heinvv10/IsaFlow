@@ -74,7 +74,8 @@ export interface OverdrawnLine {
  * LOAN_INSTALMENT_EXCEEDS_PAY with its raw net, and that decides. A line with neither predates them (or is
  * not overdrawn): its raw net is rebuilt from what the line stored, never from the catalogue as it reads
  * today. Deductions are the breakdown's cash total less gross pay: newer non-cash earnings carry
- * `isNonCash`, while older breakdowns treated every earning as cash. The breakdown carries no component
+ * `isNonCash`, while older breakdowns treated every earning as cash; a retirement contribution paid
+ * outside payroll (`paidOutsidePayroll`, master's PAYE 4c) came off the tax, not the pay, so it is no deduction. The breakdown carries no component
  * type, and a type re-assigned since must not change what the line took (no employer_contribution
  * component can exist: the column holds 20 characters). The instalment is the
  * breakdown's items coded LOAN after the calculator's own trim (normaliseSarsCode), exact case. Both
@@ -105,8 +106,9 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
       JOIN payroll_employees    pe  ON pe.id  = prl.employee_id
       LEFT JOIN LATERAL (
         SELECT
-          COALESCE(SUM((item->>'amount')::numeric)
-            FILTER (WHERE item->>'isNonCash' IS DISTINCT FROM 'true'), 0) AS cash_total,
+          -- Cash only: not a non-cash benefit, nor a contribution the employee pays the fund directly (PAYE 4c).
+          COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE item->>'isNonCash' IS DISTINCT FROM 'true'
+            AND item->>'paidOutsidePayroll' IS DISTINCT FROM 'true'), 0) AS cash_total,
           COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE BTRIM(item->>'sarsSourceCode', E' \t\r\n') = 'LOAN'), 0) AS loan
         FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array' THEN prl.component_breakdown ELSE '[]'::jsonb END) item
       ) stored ON true

@@ -108,6 +108,21 @@ describe('a run from before the codes', () => {
     expect(await judged()).toEqual({ blocker: null, loan: undefined });
   });
 
+  it('does not reconstruct a retirement contribution paid outside payroll as a deduction', async () => {
+    // PAYE 4c (master, mig 948): the employee pays the fund directly, so it is off the tax, not off the pay.
+    await atNil();
+    await pool.query(
+      `UPDATE payroll_run_lines
+          SET component_breakdown = component_breakdown || $2::jsonb
+        WHERE run_id = $1`,
+      [state.nov, JSON.stringify([{
+        componentId: 'ra-direct', componentName: 'RA paid directly', sarsSourceCode: '4006',
+        amount: 100, isTaxable: true, isUifApplicable: false, retirementContribution: true, paidOutsidePayroll: true,
+      }])],
+    );
+    expect(await judged()).toEqual({ blocker: null, loan: undefined });
+  });
+
   it('a line with a code is judged by its raw net, not the stored figures', async () => {
     await addRow(comp.union!, 30000, '2026-01-01', null, true);
     await recalculate(state.nov);
