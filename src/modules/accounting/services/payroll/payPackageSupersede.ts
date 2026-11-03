@@ -52,16 +52,35 @@ async function ownOnceOffs(
 /** "2026-09" of an ISO date. */
 const monthOf = (iso: string): string => iso.slice(0, 7);
 
+/** A once-off the package would refuse that has no recorded origin and matches the package's line. */
+const isAmbiguous = (row: DbRow): boolean => row.maybe_own === true;
+
 /**
- * The advice when a refusing once-off has no recorded origin and matches the package's own line: it may be the package's
- * once-off from an earlier apply (written before origins were recorded). Ending it and applying from the same date is
- * right if it is; applying from the later date is right if it was entered by hand, and pays the package's once-off a
- * second time if it was the package's.
+ * The advice for once-offs with no recorded origin that match the package's own line: they may be the package's once-off
+ * from an earlier apply (written before origins were recorded). Only remedies that work step by step are offered:
+ *   - "end it, then apply from {effectiveFrom}" only when every such row can be ended (no pre-953 neighbour it would
+ *     revive, `end_ok`), {effectiveFrom}'s month is not paid company-wide, the refusal is not for a paid month, and every
+ *     refused row is of this kind (a recorded foreign row would still block);
+ *   - otherwise only the {applyFrom} route, whose warning is that it pays the package's once-off again if it IS the package's.
  */
-function unrecordedOriginAdvice(effectiveFrom: string, applyFrom: string | null): string {
+function unrecordedOriginAdvice(
+  set: DbRow[], effectiveFrom: string, applyFrom: string | null, effectiveFromPaid: boolean, inPaidMonth: boolean,
+): string {
+  const ambiguous = set.filter(isAmbiguous);
+  const mixed = set.some((row) => !isAmbiguous(row));
+  const warn = `${ambiguous.length === 1 ? 'A once-off has' : 'Once-offs have'} no recorded origin and may be this package's own once-off from an earlier apply`;
+  const again = applyFrom ? ` (applying from ${applyFrom} when it IS the package's pays its once-off again in ${monthOf(applyFrom)})` : '';
   const later = applyFrom ?? 'a later date';
-  return `It has no recorded origin and may be this package's own once-off from an earlier apply. If it is the package's: end it, then apply from ${effectiveFrom}. `
-    + `If it was entered by hand: apply from ${later}${applyFrom ? ` (applying from ${applyFrom} when it IS the package's pays its once-off again in ${monthOf(applyFrom)})` : ''}.`;
+  const canEnd = !mixed && !inPaidMonth && !effectiveFromPaid && ambiguous.every((row) => row.end_ok === true);
+  if (canEnd) {
+    return `${warn}. If it is the package's: end it, then apply from ${effectiveFrom}. If it was entered by hand: apply from ${later}${again}.`;
+  }
+  if (mixed) {
+    const list = (rows: DbRow[]) => rows.map((row) => `${isoDate(row.effective_from)} to ${row.effective_to ? isoDate(row.effective_to) : 'open-ended'}`).join(', ');
+    return `${warn}: ${list(ambiguous)}. Others on this package's components were not written by this package: ${list(set.filter((row) => !isAmbiguous(row)))}. `
+      + `Apply the package from ${later}${again}.`;
+  }
+  return `${warn}. Apply the package from ${later}${again}.`;
 }
 
 /**
@@ -143,17 +162,21 @@ export async function foreignOnceOffsOf(
   const { companyId, packageId, employeeId, effectiveFrom } = apply;
   const foreign: DbRow[] = [];
   for (const componentId of packageLines.map((line) => String(line.component_id))) {
-    const rows = (await tx`
-      SELECT c.id, c.amount, c.effective_from, c.effective_to, c.is_recurring, c.superseded_at
+    const componentRows = (await tx`
+      SELECT c.id, c.amount, c.effective_from, c.effective_to, c.is_recurring, c.superseded_at, c.supersede_inferred, e.end_date AS employee_end
         FROM payroll_employee_components c
         JOIN payroll_employees e ON e.id = c.employee_id AND e.company_id = ${companyId}::uuid
-       WHERE c.employee_id = ${employeeId}::uuid AND c.component_id = ${componentId}::uuid AND c.is_recurring = false AND c.superseded_at IS NULL
+       WHERE c.employee_id = ${employeeId}::uuid AND c.component_id = ${componentId}::uuid
     `) as DbRow[];
+    const rows = componentRows.filter((row) => row.is_recurring === false && row.superseded_at == null);
+    const siblings: Sibling[] = componentRows.map((row) => ({ ...windowOf(row), id: String(row.id) }));
+    // Ending (cancelling) a row must not revive a pre-953 once-off it replaced under the old neighbour rule: End refuses that.
+    const endOk = (row: DbRow) => legacyFlips(siblings, siblings.map((x) => (x.id === String(row.id) ? { ...x, to: dayBefore(isoDate(row.effective_from)) } : x))).length === 0;
     const live = rows.filter((row) => (row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom)
       && (row.effective_to == null || isoDate(row.effective_to) >= isoDate(row.effective_from)));
     const maybe = new Set<string>();
     const own = await ownOnceOffs(tx, companyId, packageId, componentId, live, maybe);
-    foreign.push(...live.filter((row) => !own.has(String(row.id))).map((row) => (maybe.has(String(row.id)) ? { ...row, maybe_own: true } : row)));
+    foreign.push(...live.filter((row) => !own.has(String(row.id))).map((row) => (maybe.has(String(row.id)) ? { ...row, maybe_own: true, end_ok: endOk(row) } : row)));
   }
   return foreign;
 }
@@ -196,9 +219,10 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
         const companyPaid = await paidPeriodsOf(tx, companyId, null);
         const applyFrom = applyFromAfter(input.foreignAll ?? foreign, companyPaid);
         if (foreign.find((f) => String(f.id) === String(row.id))?.maybe_own === true) {
+          // End refuses a once-off a paid run read, and a new one cannot be dated in a paid month: only the apply-from route.
           throw new EmployeeComponentRefused(
             `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cancel a once-off (from ${isoDate(row.effective_from)}) that run paid. `
-            + `${unrecordedOriginAdvice(effectiveFrom, applyFrom)} To keep this date instead, ${paidRemedyInline(changed)} first.`);
+            + `${unrecordedOriginAdvice(input.foreignAll ?? foreign, effectiveFrom, applyFrom, true, true)} To keep this date instead, ${paidRemedyInline(changed)} first.`);
         }
         throw new EmployeeComponentRefused(
           `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cancel a once-off this package did not write `
@@ -212,10 +236,12 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   if (foreign.length > 0) {
     const applyFrom = applyFromAfter(input.foreignAll ?? foreign, await paidPeriodsOf(tx, companyId, null));
     const named = foreign.map((row) => `${isoDate(row.effective_from)} to ${row.effective_to ? isoDate(row.effective_to) : 'open-ended'}, amount ${Number(row.amount).toFixed(2)}`);
-    if (foreign.some((row) => row.maybe_own === true)) {
+    if ((input.foreignAll ?? foreign).some(isAmbiguous)) {
+      const companyPaid = await paidPeriodsOf(tx, companyId, null);
+      const fromPaid = companyPaid.some((p) => p.year === Number(effectiveFrom.slice(0, 4)) && p.month === Number(effectiveFrom.slice(5, 7)));
       throw new EmployeeComponentRefused(
         `Applying this package from ${effectiveFrom} would cancel ${foreign.length === 1 ? 'a once-off' : 'once-offs'} on this component: ${named.join(', ')}. `
-        + unrecordedOriginAdvice(effectiveFrom, applyFrom));
+        + unrecordedOriginAdvice(input.foreignAll ?? foreign, effectiveFrom, applyFrom, fromPaid, false));
     }
     throw new EmployeeComponentRefused(
       `Applying this package from ${effectiveFrom} would cancel ${foreign.length === 1 ? 'a once-off' : 'once-offs'} this package did not write `

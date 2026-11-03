@@ -11,7 +11,7 @@ import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payro
 import { withTransaction } from '@/lib/neon';
 import { auditComponentChange } from '@/modules/accounting/services/payroll/payrollComponentAudit';
 import { applyPackageToEmployee } from '@/modules/accounting/services/payroll/payPackageService';
-import { assignComponentToEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
+import { assignComponentToEmployee, endEmployeeComponent } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { addBatchLines, createBatch, postBatch, validateBatch } from '@/modules/accounting/services/payroll/payrollBatchService';
 
 assertDisposable();
@@ -115,6 +115,12 @@ describe('a package re-applied from the 15th over a pre-953 replaced pair', () =
   it('without a recorded origin the once-off is refused, saying it may be the package\'s, and both old rows stay untouched', async () => {
     await expect(applyPackageToEmployee(company, pkg, emp.reapply!, '2026-11-15', user))
       .rejects.toThrow(/no recorded origin and may be this package's own once-off/i);
+    // Ending B would revive A (the old neighbour rule), which End refuses: so end-then-apply is not offered, only the date.
+    const err = await applyPackageToEmployee(company, pkg, emp.reapply!, '2026-11-15', user).then(() => null, (e) => e as Error);
+    expect(err!.message).not.toMatch(/end it, then apply/);
+    expect(err!.message).toMatch(/Apply the package from 2026-12-01/);
+    await expect(endEmployeeComponent(company, row.reB!, '2026-11-30', actor)).rejects.toThrow();
+    await expect(applyPackageToEmployee(company, pkg, emp.reapply!, '2026-12-01', user)).resolves.toBeDefined(); // the date offered works
     expect((await flag(row.reA!)).superseded_at).toBeNull();
     expect((await flag(row.reB!)).superseded_at).toBeNull();
     expect(await bonuses('reapply')).toEqual([1200]);
