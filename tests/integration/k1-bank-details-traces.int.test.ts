@@ -29,7 +29,7 @@ afterAll(async () => {
 const company = () => newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager']], companies);
 
 describe('the request log (journald: what the logger writes to stdout)', () => {
-  it('a PUT is logged with its body, and the account number is not in it, on success or on a refusal', async () => {
+  it('a PUT is logged with its body, and the account number, branch code and holder are not in it, on success or on a refusal', async () => {
     const c = await company();
     const e = await employee(pool, c);
     const written: string[] = [];
@@ -44,8 +44,12 @@ describe('the request log (journald: what the logger writes to stdout)', () => {
     const lines = written.join('');
     expect(lines.match(/API Request: PUT/g)).toHaveLength(3);
     expect(lines).toContain('"accountNumber":"[REDACTED]"');
-    expect(lines).not.toContain(ROW.accountNumber);
-    expect(lines).not.toContain(OTHER.accountNumber);
+    expect(lines.match(/"branchCode":"\[omitted: 6 chars\]"/g)).toHaveLength(3);
+    expect(lines.match(/"accountHolder":"\[omitted: 5 chars\]"/g)).toHaveLength(3);
+    expect(lines).toContain('"bankName":"Capitec"'); // the body is still logged: only the named keys are masked
+    for (const value of [ROW.accountNumber, OTHER.accountNumber, ROW.branchCode, OTHER.branchCode, ROW.accountHolder]) {
+      expect(lines).not.toContain(value);
+    }
   });
 
   const raw = JSON.stringify(ROW);
@@ -131,8 +135,9 @@ describe('the audit log: every full number read, and only those', () => {
     const rows = await audits(c);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ user_id: user(), action: 'export', entity_type: 'payroll_bank_detail', entity_id: row.id });
-    expect(rows[0]!.changes.metadata).toEqual({ revealed: 'account_number', employeeId: e });
-    expect(JSON.stringify(rows)).not.toContain(ROW.accountNumber);
+    // GET shows owner / admin the number, branch code and holder in full: the record names all three.
+    expect(rows[0]!.changes.metadata).toEqual({ revealed: 'account_number,branch_code,account_holder', employeeId: e });
+    for (const value of [ROW.accountNumber, ROW.branchCode, ROW.accountHolder]) expect(JSON.stringify(rows)).not.toContain(value);
   });
 
   it('a manager\'s masked read leaves none, nor does an employee with no details', async () => {
