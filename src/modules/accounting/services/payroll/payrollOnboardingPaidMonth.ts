@@ -22,30 +22,37 @@ function monthsText(indexes: number[]): string {
 }
 
 /**
- * The refusal for an open-ended salary starting `from`, or null when no paid month falls on or after it. Names every
- * month from the start through the latest paid month the hire would miss: the paid ones, and the open ones between
- * (a salary cannot start in an open month that a later paid month runs through). The salary moves to the month after.
+ * The refusal for a salary starting `from` (ending `to`, or open-ended), or null when no paid month falls in its
+ * window. Names every month from the start through the latest paid month in the window: the paid ones, and the open
+ * ones between (a salary cannot start in an open month that a later paid month runs through). The salary moves to
+ * the month after; when the end date leaves no such month, the advice is once-offs and no salary.
  */
-export function salaryPaidMonthText(paid: Period[], from: string): string | null {
+export function salaryPaidMonthText(paid: Period[], from: string, to: string | null = null): string | null {
   const start = Number(from.slice(0, 4)) * 12 + Number(from.slice(5, 7)) - 1;
+  const end = to === null ? Infinity : Number(to.slice(0, 4)) * 12 + Number(to.slice(5, 7)) - 1;
   const paidIdx = new Set(paid.map(indexOf));
-  const latest = Math.max(-1, ...paidIdx);
+  const latest = Math.max(-1, ...[...paidIdx].filter((i) => i <= end));
   if (latest < start) return null;
   const all = Array.from({ length: latest - start + 1 }, (_, k) => start + k);
   const gaps = all.filter((i) => !paidIdx.has(i));
   const paidHere = all.filter((i) => paidIdx.has(i));
   const next = periodOf(latest + 1);
-  const names = all.map((i) => MONTHS[periodOf(i).month - 1]!);
+  const nextFirst = `${next.year}-${String(next.month).padStart(2, '0')}-01`;
+  const sameYear = all.every((i) => periodOf(i).year === periodOf(all[0]!).year);
+  const names = sameYear ? joined(all.map((i) => MONTHS[periodOf(i).month - 1]!)) : joined(all.map((i) => monthsText([i])));
   const first = paidHere.length === 1 ? `${monthsText(paidHere)} is` : `${monthsText(paidHere)} are`;
   const because = gaps.length ? `, so ${monthsText(gaps)} cannot start the salary either` : '';
-  const pay = all.length === 1 ? `the ${names[0]} days as a once-off` : gaps.length ? `the ${joined(names)} days as once-offs` : 'those days as once-offs';
-  return `${first} already paid${because}. Set the salary to start ${next.year}-${String(next.month).padStart(2, '0')}-01 and pay ${pay} in an open month.`;
+  const pay = all.length === 1 ? `the ${names} days as a once-off` : gaps.length ? `the ${names} days as once-offs` : 'those days as once-offs';
+  if (to !== null && nextFirst > to) {
+    return `${first} already paid${because}. The end date ${to} leaves no open month for the salary: pay ${pay} in an open month and create the employee without a salary.`;
+  }
+  return `${first} already paid${because}. Set the salary to start ${nextFirst} and pay ${pay} in an open month.`;
 }
 
-export async function salaryInPaidMonthRefusal(companyId: string, from: string): Promise<string | null> {
+export async function salaryInPaidMonthRefusal(companyId: string, from: string, to: string | null = null): Promise<string | null> {
   const paid = await withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
     return paidPeriodsOf(tx, companyId, null);
   });
-  return salaryPaidMonthText(paid, from);
+  return salaryPaidMonthText(paid, from, to);
 }

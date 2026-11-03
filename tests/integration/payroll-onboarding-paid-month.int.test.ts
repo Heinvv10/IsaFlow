@@ -23,8 +23,8 @@ let call: ReturnType<typeof routeCaller>;
 let basic = '';
 
 const post = (body: Record<string, unknown>) => call(employees as Route, 'POST', '/api/payroll/employees', undefined, { body });
-const hire = (employeeNumber: string, startDate: string, salary?: Record<string, unknown>) => ({
-  firstName: 'Late', lastName: 'Hire', employeeNumber, employmentType: 'permanent', startDate,
+const hire = (employeeNumber: string, startDate: string, salary?: Record<string, unknown>, endDate?: string) => ({
+  firstName: 'Late', lastName: 'Hire', employeeNumber, employmentType: 'permanent', startDate, ...(endDate ? { endDate } : {}),
   ...(salary ? { salary: { componentId: basic, amountCents: 2_000_000, ...salary } } : {}),
 });
 const rowsOf = async (employeeNumber: string) => (await pool.query<{ id: string }>(
@@ -69,6 +69,27 @@ describe('a hire starting in the paid month', () => {
     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
     expect(out.body.error?.message).toBe('January and February 2026 are already paid. Set the salary to start 2026-03-01 and pay those days as once-offs in an open month.');
     expect(await rowsOf('LH-7')).toHaveLength(0);
+  });
+
+  it('a contract worker who ended before the paid months: paid months after the end do not count, and the salary ends with the contract', async () => {
+    const out = await post(hire('LH-8', '2025-12-01', {}, '2025-12-31'));
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(201);
+    const id = (await rowsOf('LH-8'))[0]!.id;
+    const { rows } = await pool.query("SELECT to_char(effective_from,'YYYY-MM-DD') AS f, to_char(effective_to,'YYYY-MM-DD') AS t FROM payroll_employee_components WHERE employee_id=$1", [id]);
+    expect(rows).toEqual([{ f: '2025-12-01', t: '2025-12-31' }]);
+  });
+
+  it('one who ended in a paid month: refused, and the advice is followable (no salary, once-offs in an open month)', async () => {
+    const out = await post(hire('LH-9', '2025-12-01', {}, '2026-01-31'));
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toBe('January 2026 is already paid, so December 2025 cannot start the salary either. The end date 2026-01-31 leaves no open month for the salary: '
+      + 'pay the December 2025 and January 2026 days as once-offs in an open month and create the employee without a salary.');
+    expect(await rowsOf('LH-9')).toHaveLength(0);
+    expect((await post(hire('LH-9', '2025-12-01', undefined, '2026-01-31'))).statusCode).toBe(201);
+  });
+
+  it('one whose contract runs in open months: created', async () => {
+    expect((await post(hire('LH-10', '2026-03-01', {}, '2026-03-31'))).statusCode).toBe(201);
   });
 
   it('is created when the salary starts in the next open month', async () => {

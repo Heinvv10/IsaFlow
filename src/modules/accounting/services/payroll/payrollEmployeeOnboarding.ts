@@ -208,17 +208,18 @@ export async function createEmployeeWithPay(companyId: string, userId: string, b
   await assertEmployeeNumberFree(companyId, fields.employeeNumber);
   if (salary) await assertSalaryComponent(companyId, salary.componentId);
   const salaryFrom = salary?.effectiveFrom ?? String(body.startDate);
+  const salaryTo = isBlank(body.endDate) ? null : String(body.endDate).slice(0, 10); // the salary ends with the employment
   if (salary) {
     if (salaryFrom < String(body.startDate).slice(0, 10)) throw new EmployeeOnboardingRefused('salary.effectiveFrom cannot be before the startDate');
-    if (!isBlank(body.endDate) && salaryFrom > String(body.endDate).slice(0, 10)) throw new EmployeeOnboardingRefused('salary.effectiveFrom cannot be after the endDate');
-    const paidMonth = await salaryInPaidMonthRefusal(companyId, salaryFrom);
+    if (salaryTo !== null && salaryFrom > salaryTo) throw new EmployeeOnboardingRefused('salary.effectiveFrom cannot be after the endDate');
+    const paidMonth = await salaryInPaidMonthRefusal(companyId, salaryFrom, salaryTo);
     if (paidMonth) throw new EmployeeOnboardingRefused(paidMonth);
   }
 
   const employee = await insertEmployee(companyId, fields);
   if (salary) {
     await assignComponentToEmployee(
-      companyId, employee.id, salary.componentId, salary.cents / 100, salaryFrom, undefined, true, { userId, channel: 'rest' },
+      companyId, employee.id, salary.componentId, salary.cents / 100, salaryFrom, salaryTo ?? undefined, true, { userId, channel: 'rest' },
     );
   }
   log.info('Employee onboarded', { companyId, employeeId: employee.id, userId, withSalary: salary !== null }, 'payrollEmployeeOnboarding');

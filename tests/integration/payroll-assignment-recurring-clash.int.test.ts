@@ -58,7 +58,7 @@ beforeAll(async () => {
   const token = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   call = routeCaller({ [admin]: token }, { user: admin, company });
-  for (const [key, name] of [['held', 'Held'], ['ended', 'Ended'], ['voided', 'Voided'], ['live', 'Live'], ['scoped', 'Scoped'], ['host', 'Host']]) await component(key, name);
+  for (const [key, name] of [['held', 'Held'], ['ended', 'Ended'], ['voided', 'Voided'], ['live', 'Live'], ['scoped', 'Scoped'], ['host', 'Host'], ['same', 'Same'], ['patch', 'Patch'], ['voidP', 'VoidP']]) await component(key, name);
 
   // February: the salary AND a once-off of the same component are read and paid.
   await add('salaryOnceOff', inRun, comp.salary!, '2026-02-10', '2026-02-28', false);
@@ -77,6 +77,11 @@ beforeAll(async () => {
   await add('liveRow', hire, comp.live!, '2026-04-01', '2026-04-30', true);
   await add('heldOnce', hire, comp.held!, '2026-06-05', '2026-06-20', false);
   await add('hostOnce', hire, comp.host!, '2026-04-10', '2026-04-30', false);
+  await add('sameSib', hire, comp.same!, '2026-03-01', '2026-03-31', true);
+  await add('patchSib', hire, comp.patch!, '2026-03-01', '2026-03-31', true);
+  await add('patchRow', hire, comp.patch!, '2026-04-10', '2026-04-30', true);
+  await add('voidPSib', hire, comp.voidP!, '2026-05-10', '2026-05-09', true);
+  await add('voidPRow', hire, comp.voidP!, '2026-05-01', '2026-05-04', true);
   await add('scopedRow', hire, comp.scoped!, '2026-03-01', null, true);
 });
 
@@ -121,8 +126,24 @@ describe('a recurring row clashes with a live recurring row only', () => {
   });
 
   it('a sibling that ended the day before the new start: accepted', async () => {
-    await pool.query("UPDATE payroll_employee_components SET effective_to='2026-03-31' WHERE id=$1", [row.endedRow]);
     await expect(assign('ended', '2026-04-01', undefined, true)).resolves.toBeDefined();
+  });
+
+  it('a sibling ending the very day the new row starts: refused', async () => {
+    await expect(assign('same', '2026-03-31', undefined, true)).rejects.toThrow(/overlap the employee's other assignment/i);
+  });
+
+  it('the same through Edit dates: a row moved to start on its sibling\'s last day is refused; the day after is accepted', async () => {
+    const clash = await route(hire, 'PATCH', row.patchRow!, { effectiveFrom: '2026-03-31', effectiveTo: '2026-04-30' });
+    expect(clash.statusCode).toBe(400);
+    expect(clash.body.error?.message).toMatch(/overlap the employee's other assignment/i);
+    const ok = await route(hire, 'PATCH', row.patchRow!, { effectiveFrom: '2026-04-01', effectiveTo: '2026-04-30' });
+    expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+  });
+
+  it('Edit dates over a voided sibling (ends before it starts): accepted', async () => {
+    const out = await route(hire, 'PATCH', row.voidPRow!, { effectiveFrom: '2026-05-05', effectiveTo: '2026-05-31' });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
   });
 
   it('a voided sibling (ends before it starts): accepted', async () => {
