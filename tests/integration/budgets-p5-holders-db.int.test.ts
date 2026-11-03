@@ -49,9 +49,9 @@ describe('budget_month_amounts_slice_guard as app_user', () => {
     await fx.hold(w, v, holder.userId, { cc1: w.cc1 }, { accounts: [w.rent] });
     await fx.asMember(holder, async (c) => {
       await put(c, v, w.rent, 10, { cc1: w.cc1 });
-      expect(await code(c.query('SAVEPOINT a').then(() => put(c, v, w.rent, 10, { cc2: w.cc2 })))).toBe('BV004');
+      expect(await code(c.query('SAVEPOINT a').then(() => put(c, v, w.sales, 10, { cc2: w.cc2 })))).toBe('BV004');
       await c.query('ROLLBACK TO SAVEPOINT a');
-      expect(await code(put(c, v, w.rent, 10))).toBe('BV004');
+      expect(await code(put(c, v, w.child2, 10))).toBe('BV004');
       await c.query('ROLLBACK TO SAVEPOINT a');
       expect(await code(put(c, v, w.child1, 10, { cc1: w.cc1 }))).toBe('BV004');
     });

@@ -52,7 +52,9 @@ export function budgetHoldersFixture(pool: Pool, saveRoute: unknown) {
     try {
       await c.query('BEGIN');
       await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: actor })]);
-      await c.query('UPDATE budget_slice_reviews SET status = $2, decision_note = $3 WHERE id = $1', [sliceId, status, note]);
+      // A submit carries no note (955: a status move changes nothing else; the stamp trigger clears it).
+      await c.query(`UPDATE budget_slice_reviews SET status = $2::TEXT,
+                            decision_note = CASE WHEN $2::TEXT = 'submitted' THEN decision_note ELSE $3 END WHERE id = $1`, [sliceId, status, note]);
       await c.query('COMMIT');
     } catch (err) {
       await c.query('ROLLBACK');
