@@ -19,7 +19,7 @@ import { auditBudgetWrite, holdYearRegistry } from '../budgetVersionScope';
 import { mapBudgetDbError } from '../budgetVersionTypes';
 import { inputError, isVersionToken } from '../gridErrors';
 import { takeVersion } from '../versionTake';
-import { driverSliceGuard, loadHolderScope } from '../holderScope';
+import { driverRowRefusal, driverSliceGuard, loadHolderScope } from '../holderScope';
 import type { RowKey } from './driverTypes';
 import { recomputeVersion, versionMonths, type RecomputeWarning } from './driverRecomputeService';
 
@@ -33,6 +33,8 @@ export interface DriverWriteContext {
   versionId: string;
   fiscalYear: number;
   months: string[];
+  /** P5-6: refuses (409 BUDGET_SLICE_DRIVER) a driver row outside the writer's slices or in a slice with its reviewer. */
+  sliceCheck: (rowKey: RowKey, label: string) => void;
 }
 
 export interface DriverWriteOutcome {
@@ -64,10 +66,15 @@ export async function runDriverWrite<T extends object>(
     return await withSavepoint('budget_driver_write', async () => {
       const version = await takeVersion(companyId, versionId, target.expectedUpdatedAt);
       const months = await versionMonths(companyId, version.fiscalYear);
-      const { value, audit, live } = await write({ versionId, fiscalYear: version.fiscalYear, months });
+      const scope = await loadHolderScope(companyId, versionId, userId);
+      const sliceCheck = (rowKey: RowKey, label: string) => {
+        const refusal = driverRowRefusal(scope, version.status, false, rowKey, label);
+        if (refusal) throw refusal;
+      };
+      const { value, audit, live } = await write({ versionId, fiscalYear: version.fiscalYear, months, sliceCheck });
       // P5-6: a recompute landing outside the writer's slices, or into a slice with its reviewer, is a
       // 409 naming the driver before any cell is written (the driver routes take no reviewer path).
-      const guard = driverSliceGuard(await loadHolderScope(companyId, versionId, userId), version.status, false);
+      const guard = driverSliceGuard(scope, version.status, false);
       const recomputed = await recomputeVersion(companyId, versionId, userId, { live, guard });
       // Every write that read payroll audits when (a Refresh records its own time even with no per_head row).
       const headcountAsOf = recomputed.headcountAsOf ?? audit?.headcountAsOf ?? null;

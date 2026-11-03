@@ -10,7 +10,9 @@
  * characters), which adds one audit row naming the reason and the slices still pending. The
  * version row is taken FOR NO KEY UPDATE before the slices are read: a slice move holds the version
  * FOR SHARE (sliceReviewState), so a move in flight finishes first and is seen, or waits and then
- * finds the version approved.
+ * finds the version approved. Self-approval is allowed: an owner or admin may approve slices and then
+ * the version themselves (each move is audited). Migration 955's budget_versions_slice_gate holds the
+ * same rule in the database (owner/admin session; the owner's force through budget_version_force_begin).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -54,6 +56,8 @@ export async function transitionVersion(
   const expected = input.expectedUpdatedAt ?? null;
   const stamp = actor.userId;
   const forced = input.action === 'approve' ? await assertSlicesApproved(companyId, versionId, input, actor) : null;
+  // The owner's force is the database's to accept too (955 budget_versions_slice_gate re-checks the role).
+  if (forced) await sql`SELECT public.budget_version_force_begin(${companyId}::UUID, ${versionId}::UUID)`;
   const rows = (await withRowLockBudget(
     () => sql`
       UPDATE budget_versions SET
@@ -75,7 +79,7 @@ export async function transitionVersion(
     if (forced) {
       await logAuditOrThrow({
         companyId, userId: actor.userId, action: 'approve', entityType: 'budget', entityId: versionId, entityRef: 'Budget version approved over open slices',
-        changes: { fields: [], metadata: { forcedApproval: 'true', reason: forced.reason, pendingSlices: String(forced.pending.length), slices: forced.pending.join('; ') } },
+        changes: { fields: [], metadata: { forcedApproval: 'true', reason: forced.reason, pendingSlices: String(forced.pending.length), slices: capped(forced.pending) } },
       });
     }
     return getVersion(companyId, versionId);
@@ -87,6 +91,11 @@ export async function transitionVersion(
   }
   // Same status, so only the updated_at predicate can have missed.
   throw new BudgetVersionError('BUDGET_VERSION_STALE', 'This budget version changed since you loaded it; reload and try again');
+}
+
+/** At most 40 slices named in an audit row (as the roll's unplacedSummary), then "+N more". */
+export function capped(list: readonly string[], max = 40): string {
+  return list.length > max ? `${list.slice(0, max).join('; ')}; +${list.length - max} more` : list.join('; ');
 }
 
 /**

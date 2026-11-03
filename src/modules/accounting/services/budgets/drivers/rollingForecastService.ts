@@ -29,6 +29,7 @@ import { auditBudgetWrite, holdYearRegistry, lockVersionForWrite } from '../budg
 import { BudgetVersionError, budgetDbRefusal } from '../budgetVersionTypes';
 import { inputError, isVersionToken, tokenSql } from '../gridErrors';
 import { takeVersion } from '../versionTake';
+import { isHolder, loadHolderScope, rollableCells } from '../holderScope';
 import { monthKeyToDate } from '../../reports/budgetPeriodWindow';
 import { loadVersionModel } from './driverModel';
 import type { RecomputeWarning } from './driverRecomputeService';
@@ -55,6 +56,8 @@ export interface RollOutcome {
   headcountAsOf: string | null;
   /** The version's token after the roll (null when not rolled). */
   updatedAt: string | null;
+  /** P5-6: planned cells left as they are (a slice with its reviewer; outside a holder's slices). */
+  sliceSkipped?: number;
 }
 
 export interface RollingRow { fiscalYear: number; rolledThrough: string | null; lastRolledAt: string | null; lastError: string | null }
@@ -151,15 +154,25 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       const read = await readClosedActuals(companyId, year, closed);
       const model = await loadVersionModel(companyId, id, months, await listDriverLines(companyId, id));
       const { plan, headcountAsOf, warnings } = await planOver(companyId, model, id, closed, read);
-      const changed = await writePlannedCells(companyId, id, userId, plan.cells);
+      // P5-6: budget slices. Roll now by a holder is refused; cells of a slice with its reviewer (and,
+      // for a holder's auto roll, outside their slices) are skipped and counted; the rest roll.
+      const scope = await loadHolderScope(companyId, id, userId);
+      if (mode !== 'auto' && isHolder(scope)) {
+        throw new BudgetVersionError('BUDGET_SLICE_FORBIDDEN', 'Budget holders cannot refresh a forecast from actuals; ask an owner or admin');
+      }
+      const status = String(((await sql`SELECT status FROM budget_versions WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[])[0]?.status);
+      const rollable = rollableCells(plan.cells, scope, status);
+      const changed = await writePlannedCells(companyId, id, userId, rollable.cells);
       const through = closed.length > 0 ? closed[closed.length - 1]! : null;
       const unplaced = describeUnplaced(plan, read);
-      const outcome = { status: 'rolled' as const, changed, closedMonths: closed, rolledThroughMonth: through, unplaced, warnings, headcountAsOf };
+      const outcome = {
+        status: 'rolled' as const, changed, closedMonths: closed, rolledThroughMonth: through, unplaced, warnings, headcountAsOf, sliceSkipped: rollable.skipped,
+      };
       if (changed === 0) throw new NothingRolled(outcome);
       await markRolled(companyId, id, through);
       await auditBudgetWrite(companyId, userId, 'update', id, fy, {
         rolled: mode === 'auto' ? 'auto' : 'roll_now', closedMonths: closed.join(',') || 'none', cells: String(changed),
-        unplaced: unplacedSummary(unplaced), headcountAsOf: headcountAsOf ?? 'none',
+        unplaced: unplacedSummary(unplaced), headcountAsOf: headcountAsOf ?? 'none', sliceSkipped: String(rollable.skipped),
       });
       log.info('Rolled budget forecast', { companyId, versionId: id, mode: mode === 'auto' ? 'auto' : 'roll_now', changed, through }, 'accounting');
       return { ...outcome, updatedAt: await versionToken(companyId, id) } satisfies RollOutcome;

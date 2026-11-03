@@ -1,7 +1,8 @@
 /**
- * Budgets P5-6 r2 (spec §3f "other slices are hidden"): a budget holder cannot read another slice's
- * budget figures, nor another slice's prior-year actuals, through the grid's side doors: the Excel
- * template, the import preview and prior actuals. Owners and admins see everything, as before.
+ * Budgets P5-6 r2 (spec §3f, the holder's work view): the grid's side doors (the Excel template, the
+ * import preview and prior actuals) are scoped to a holder's slices like the grid. A work scope, not
+ * access control (managers read every budget in reports); the import refusal is write integrity.
+ * Owners and admins see everything, as before.
  * World: the holder holds CC1 (Rent budgeted there, 10 a month; PY actual 1 234.56); Sales is budgeted
  * at company level (99 999, nobody's slice they hold) with a PY actual of 7 777.77 untagged.
  *

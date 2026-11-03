@@ -14,6 +14,7 @@ import type { DbRow } from '@/lib/neon';
 import { fiscalYearForDate } from '../gl/fiscalYearRegistry';
 import { auditBudgetWrite, lockVersionForWrite, resolvePrimaryVersion } from './budgetVersionScope';
 import { BudgetVersionError } from './budgetVersionTypes';
+import { beginReviewForOwner } from './holderScope';
 
 /**
  * Why a change whose months after `boundary` change year cannot carry the budget with it (empty:
@@ -106,6 +107,8 @@ async function rehome(companyId: string, boundary: string, actor: string): Promi
     const target = (await resolvePrimaryVersion(companyId, label, { create: true, actor }))!;
     // Lock order by id, as every multi-version writer must.
     for (const id of [source, target].sort()) await lockVersionForWrite(companyId, id);
+    // P5-6: an owner's or admin's change of year end moves slices' months on the reviewer path.
+    await beginReviewForOwner(companyId, [source, target], actor);
     const clash = (await sql`
       SELECT 1 FROM budget_month_amounts s
        WHERE s.company_id = ${companyId}::UUID AND s.version_id = ${source}::UUID AND s.month = ${String(m.month)}::DATE

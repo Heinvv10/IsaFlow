@@ -80,7 +80,7 @@ export class BudgetVersionError extends Error {
 /**
  * A database refusal of migration 947 as a BudgetVersionError (BV001 locked, BV002 an illegal
  * move, 23P01 on budget_month_amounts_one_grain a grain clash), or of migration 955 (BV003 a
- * submitted/approved slice, BV004 a holder or role refusal, BV005 a slice move not allowed), or
+ * submitted/approved slice, BV004 a holder or role refusal, BV005 a slice move not allowed, BV006 a version approved over slices not approved), or
  * null for any other error.
  * The services refuse these before writing; this maps the trigger/constraint backstop (a race
  * past the service check) onto the same contract codes instead of a 500.
@@ -92,6 +92,7 @@ export function budgetDbRefusal(err: unknown): BudgetVersionError | null {
   if (e?.code === 'BV003') return new BudgetVersionError('BUDGET_SLICE_LOCKED', 'This budget slice is with its reviewer; only an owner or admin reviewing it can change it');
   if (e?.code === 'BV004') return new BudgetVersionError('BUDGET_SLICE_FORBIDDEN', 'You can change only your own budget slices, on a draft version');
   if (e?.code === 'BV005') return new BudgetVersionError('BUDGET_SLICE_STATE', 'That change is not allowed for this budget slice');
+  if (e?.code === 'BV006') return new BudgetVersionError('BUDGET_SLICES_PENDING', 'This budget version has budget slices that are not approved yet');
   if (e?.code === '23P01' && e.constraint === 'budget_month_amounts_one_grain') {
     return new BudgetVersionError('BUDGET_GRAIN_CONFLICT', 'An account is budgeted at one level per version: company level or one dimension');
   }

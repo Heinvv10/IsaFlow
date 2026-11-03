@@ -172,8 +172,8 @@ export async function checkImportVersion(companyId: string, versionId: string): 
  */
 export async function buildImportPreview(companyId: string, versionId: string, file: Buffer, viewerId?: string): Promise<ImportPreview> {
   const wb = await readBudgetWorkbook(file);
-  // P5-6: a budget holder previews against their slices only; a file changing any other cell is
-  // refused whole (403), so no figure of another slice is echoed back (before, current, totals).
+  // P5-6: a budget holder previews against their slices (the work view, not access control), and a
+  // file changing any cell outside them is refused whole (403): they could not commit it anyway.
   const model = await loadGridReadModel(companyId, { versionId }, 'totals', viewerId);
   const preview = previewImport(model, versionId, wb);
   if (model.holder) {

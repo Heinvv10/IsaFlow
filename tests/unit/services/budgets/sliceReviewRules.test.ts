@@ -81,3 +81,14 @@ describe('holder slices', () => {
     expect(sliceLabel({ cc1Id: null, cc2Id: null, buId: null }, label)).toBe('Company level');
   });
 });
+
+describe('capped (forced-approval audit)', () => {
+  it('names at most 40 slices, then +N more', async () => {
+    const { capped } = await import('@/modules/accounting/services/budgets/budgetVersionStatus');
+    const list = Array.from({ length: 43 }, (_, i) => `S${i}`);
+    expect(capped(list.slice(0, 3))).toBe('S0; S1; S2');
+    const out = capped(list);
+    expect(out.split('; ')).toHaveLength(41);
+    expect(out.endsWith('; +3 more')).toBe(true);
+  });
+});

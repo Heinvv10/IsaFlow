@@ -1,5 +1,7 @@
 /**
- * The budget grid as a budget holder sees it (budgets P5-6, spec §3f): only the cells of their own
+ * The budget grid as a budget holder sees it (budgets P5-6, spec §3f). A WORK-SCOPE VIEW, NOT ACCESS
+ * CONTROL: managers can read every budget elsewhere (reports, other versions, the driver list), so this
+ * only focuses a holder on their slices; write integrity is migration 955's. Only the cells of their own
  * slices; every other slice's cells are left out, so the band totals and the company roll-ups the
  * grid computes cover their slices only. When every one of their holder rows names its accounts,
  * only those accounts (and the headers above them) are listed. Owners, admins and members who hold

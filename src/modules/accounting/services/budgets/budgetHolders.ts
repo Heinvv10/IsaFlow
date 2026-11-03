@@ -46,8 +46,24 @@ export async function assignHolder(
   const dims = [input.cc1Id, input.cc2Id, input.buId].filter((d) => d !== null).length;
   if (dims > 1) throw inputError('A budget slice is company level or ONE dimension (CC1, CC2 or BU)');
   const version = await getVersion(companyId, input.versionId);
-  if (version.status !== 'draft') {
-    throw new BudgetVersionError('BUDGET_SLICE_STATE', `Budget holders are assigned on a draft version only; this version is ${version.status}`);
+  // The version FOR SHARE (bounded), the order every slice writer takes: a racing approve waits, or is seen.
+  const held = (await withRowLockBudget(
+    () => sql`SELECT status FROM budget_versions WHERE id = ${input.versionId}::UUID AND company_id = ${companyId}::UUID FOR SHARE`,
+    () => new RowLockTimeoutError('This budget version'),
+  )) as DbRow[];
+  const status = String(held[0]?.status ?? version.status);
+  if (status !== 'draft') {
+    throw new BudgetVersionError('BUDGET_SLICE_STATE', `Budget holders are assigned on a draft version only; this version is ${status}`);
+  }
+  // A slice with its reviewer keeps its holders and their accounts (955 refuses it too).
+  const current = (await sql`
+    SELECT status FROM budget_slice_reviews
+     WHERE company_id = ${companyId}::UUID AND version_id = ${input.versionId}::UUID AND cc1_id IS NOT DISTINCT FROM ${input.cc1Id}::UUID
+       AND cc2_id IS NOT DISTINCT FROM ${input.cc2Id}::UUID AND bu_id IS NOT DISTINCT FROM ${input.buId}::UUID
+  `) as DbRow[];
+  if (current[0] && (current[0].status === 'submitted' || current[0].status === 'approved')) {
+    throw new BudgetVersionError('BUDGET_SLICE_STATE',
+      `This slice is ${String(current[0].status)}; return it before changing its holders or their accounts`);
   }
   await checkHolder(companyId, input.userId);
   await checkSliceMembers(companyId, input);

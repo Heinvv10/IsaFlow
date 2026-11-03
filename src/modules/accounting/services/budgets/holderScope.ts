@@ -17,6 +17,7 @@ import { BudgetVersionError } from './budgetVersionTypes';
 import { isLockedStatus, sameSlice, sliceOf, type HolderSlice, type SliceKey, type SliceStatus } from './holderSlices';
 import { parseKey } from './grid/cellKey';
 import type { DriverWriteGuard } from './drivers/driverRecomputeService';
+import type { Cell, RowKey } from './drivers/driverTypes';
 
 export interface HolderScope {
   role: string | null;
@@ -124,4 +125,57 @@ export function driverSliceGuard(scope: HolderScope, versionStatus: string, revi
       }
     }
   };
+}
+
+/**
+ * A driver line's own row (its account and slice) as the driver routes may write it (r3): a holder only
+ * inside their slices, nobody off the reviewer path into a submitted or approved slice of a draft. The
+ * 409 names the driver; migration 955's budget_driver_lines trigger is the backstop.
+ */
+export function driverRowRefusal(scope: HolderScope, versionStatus: string, reviewerPath: boolean, rowKey: string, label: string): BudgetVersionError | null {
+  const cell = parseKey(`${rowKey}|2000-01`);
+  if (isHolder(scope) && (versionStatus !== 'draft' || sliceOf(scope.slices, cell) === null)) {
+    return new BudgetVersionError('BUDGET_SLICE_DRIVER', `The driver on ${label} is outside your budget slices; ask an owner or admin to change it`);
+  }
+  if (versionStatus !== 'draft' || (scope.reviewer && reviewerPath)) return null;
+  const status = scope.reviews.find((r) => sameSlice(r, cell))?.status ?? null;
+  return isLockedStatus(status)
+    ? new BudgetVersionError('BUDGET_SLICE_DRIVER', `The driver on ${label} is in a slice ${status === 'submitted' ? 'submitted for review' : 'already approved'}; return the slice first`)
+    : null;
+}
+
+/**
+ * The forecast roll (P4 auto-roll and Roll now) on a version with budget slices (r3): cells of a
+ * submitted or approved slice of a draft are left as they are (counted in `skipped`), and a holder's
+ * roll (an auto roll their close set off) is confined to their slices. Owners and admins take no
+ * reviewer path here: a slice with its reviewer is not refreshed behind the reviewer's back.
+ */
+export function rollableCells(
+  cells: ReadonlyMap<RowKey, readonly Cell[]>, scope: HolderScope, versionStatus: string,
+): { cells: Map<RowKey, Cell[]>; skipped: number } {
+  const out = new Map<RowKey, Cell[]>();
+  let skipped = 0;
+  for (const [key, list] of cells) {
+    const slice = parseKey(`${key}|2000-01`);
+    const locked = versionStatus === 'draft' && isLockedStatus(scope.reviews.find((r) => sameSlice(r, slice))?.status ?? null);
+    const outside = isHolder(scope) && sliceOf(scope.slices, slice) === null;
+    if (locked || outside) { skipped += list.length; continue; }
+    out.set(key, [...list]);
+  }
+  return { cells: out, skipped };
+}
+
+/**
+ * Server writers acting for an owner or admin (the year-end rehome) take the reviewer path on each of
+ * `versionIds` that has slice reviews, so moving a slice's months is theirs to do (r3). Anyone else
+ * takes none, and migration 955 refuses their write into a slice with its reviewer.
+ */
+export async function beginReviewForOwner(companyId: string, versionIds: readonly string[], userId: string): Promise<void> {
+  const rows = (await sql`
+    SELECT v.id::TEXT AS id FROM unnest(${[...new Set(versionIds)]}::UUID[]) AS v(id)
+     WHERE EXISTS (SELECT 1 FROM budget_slice_reviews r WHERE r.company_id = ${companyId}::UUID AND r.version_id = v.id)
+       AND EXISTS (SELECT 1 FROM company_users cu WHERE cu.company_id = ${companyId}::UUID AND cu.user_id = ${userId}
+                     AND cu.role IN ('owner', 'admin'))
+  `) as DbRow[];
+  for (const r of rows) await sql`SELECT public.budget_slice_review_begin(${companyId}::UUID, ${String(r.id)}::UUID)`;
 }
