@@ -20,7 +20,17 @@ import {
   getIncomeStatementByDimension,
 } from '@/modules/accounting/services/reports/financialReportingService';
 import { isDimensionGroupBy } from '@/modules/accounting/services/reports/dimensionPnlColumns';
-import { isUuidParam } from '@/lib/validation';
+import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
+
+const badDate = (name: string, v: unknown): string | null =>
+  typeof v !== 'string' || !isRealCalendarDate(v) ? `${name} must be a YYYY-MM-DD date` : null;
+
+/** A shape check before any date math: why a window cannot be read, naming the parameter, or null. */
+function windowProblem(startName: string, start: unknown, endName: string, end: unknown): string | null {
+  const bad = badDate(startName, start) ?? badDate(endName, end);
+  if (bad) return bad;
+  return String(start) > String(end) ? `${startName} must not be after ${endName}` : null;
+}
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -34,6 +44,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!period_start || !period_end) {
       return apiResponse.badRequest(res, 'period_start and period_end are required');
     }
+    // A blank compare date is absent (the comparative runs only when both are given); a present one is checked.
+    const problem = windowProblem('period_start', period_start, 'period_end', period_end)
+      ?? (compare_start && compare_end ? windowProblem('compare_start', compare_start, 'compare_end', compare_end) : null)
+      ?? (compare_start ? badDate('compare_start', compare_start) : null)
+      ?? (compare_end ? badDate('compare_end', compare_end) : null);
+    if (problem) return apiResponse.badRequest(res, problem);
     if (cost_centre_id !== undefined && !isUuidParam(cost_centre_id)) {
       return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
     }
