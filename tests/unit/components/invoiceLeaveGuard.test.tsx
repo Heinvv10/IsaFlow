@@ -1,9 +1,8 @@
 /**
  * PR S review (breaker): refusing to leave never surfaces as an error. A push or replace the guard cancels resolves
- * false (no unhandled rejection, so no Sentry event and no dev overlay). Back and forward with a change autosave will
- * send are not asked: the page goes, and the change being typed is saved as it goes. With a change autosave is HOLDING
- * (a line or date it refuses, a stale-priced draft) nothing would be sent, so Back and forward ask (merge-queue gate,
- * round eleven): Leave drops it knowingly; Stay keeps the page and goes back to its own entry with the Navigation
+ * false (no unhandled rejection, so no Sentry event and no dev overlay). Back and forward with any unsaved server
+ * change ask: an unmount PUT can fail after the editor is gone. Leave drops it knowingly; Stay keeps the page and
+ * goes back to its own entry with the Navigation
  * API's traverseTo (round twelve: Back, Forward and jumps keep history's order; no Navigation API, no question). And
  * the edit page
  * opened on another invoice in place starts again: no PUT for the second invoice's load.
@@ -82,13 +81,13 @@ describe('leaving with a change unsaved', () => {
     expect(confirm).toHaveBeenCalledTimes(2);
   });
 
-  it('back or forward with a change autosave will send is not asked (history stays intact): nothing written to history, and its route change goes through', async () => {
+  it('back or forward with a sendable change asks; Stay restores this page without changing history', async () => {
     const pushState = vi.spyOn(window.history, 'pushState');
     const replaceState = vi.spyOn(window.history, 'replaceState');
     await openDirty();
-    expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(true);
-    expect(() => h.router!.events.emit('routeChangeStart', '/x')).not.toThrow();
-    expect(confirm).not.toHaveBeenCalled();
+    expect(popTo('previous-entry')).toBe(false);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(nav.traverseTo).toHaveBeenCalledWith('edit-entry');
     expect(pushState).not.toHaveBeenCalled();
     expect(replaceState).not.toHaveBeenCalled();
   });
@@ -101,13 +100,15 @@ describe('leaving with a change unsaved', () => {
     expect(confirm).toHaveBeenCalledTimes(1);
   });
 
-  it('the change being typed when Back is pressed is saved as the page goes (autosave keeps the work)', async () => {
+  it('confirming Leave on Back explicitly discards a sendable change instead of relying on an unobservable unmount PUT', async () => {
+    confirm.mockReturnValue(true);
     await openDirty();
-    expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(true);
+    expect(popTo('previous-entry')).toBe(true);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(() => h.router!.events.emit('routeChangeStart', '/x')).not.toThrow();
     cleanup(); // Next unmounts the page
     await advance(0);
-    expect(puts()).toHaveLength(1);
-    expect(bodyOf(puts()[0]!).items[0]!.description).toBe('Unsaved');
+    expect(puts()).toHaveLength(0);
   });
 
   it.each([

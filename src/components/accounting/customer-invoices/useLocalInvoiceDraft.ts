@@ -64,9 +64,11 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 export const isLocalDraftData = (v: unknown): v is LocalDraftData =>
   isRecord(v) && isRecord(v.form) && Array.isArray(v.lines) && v.lines.every(isRecord) && typeof v.taxMode === 'string' && MODES.includes(v.taxMode);
 
-/** Nothing typed that would be lost: no client, no notes, no line with a description or a price. */
-const isBlank = (d: LocalDraftData | null): boolean =>
-  !d || (!d.form.clientId && !d.form.notes && d.lines.every((l) => !l.description && !l.unitPrice));
+/** User-restorable state only: editing a line drops this internal default-tracking marker even when typed back blank. */
+const comparableDraft = (d: LocalDraftData | null): string | null => d && JSON.stringify({
+  ...d,
+  lines: d.lines.map(({ discountFromDefault: _defaultTracking, ...line }) => line),
+});
 
 /** The signed-in user and the active company, or nulls outside their providers. */
 export function useInvoiceDraftOwner(): { companyId: string | null; userId: string | null } {
@@ -82,7 +84,7 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   const key = opts?.companyId && opts.userId ? invoiceDraftKey(opts.companyId, opts.userId) : null;
   const json = opts ? JSON.stringify(opts.snapshot) : null;
   const latest = useRef<{ json: string | null; data: LocalDraftData | null }>({ json: null, data: null });
-  const baseline = useRef<string | null>(null);
+  const comparableBaseline = useRef<string | null>(null);
   const written = useRef<string | null>(null);
   const rebase = useRef(true);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,10 +104,10 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   useEffect(() => {
     if (!rebase.current || json === null) return;
     rebase.current = false;
-    baseline.current = json;
+    comparableBaseline.current = comparableDraft(opts?.snapshot ?? null);
     written.current = json;
     setWrittenJson(json);
-  }, [json]);
+  }, [json, opts?.snapshot]);
 
   useEffect(() => { setOffer(key ? readInvoiceDraft(key, isLocalDraftData) : null); }, [key]);
 
@@ -127,7 +129,9 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
     if (!k || now.json === null || now.data === null) return;
     const cleared = invoiceDraftsClearedSince(since.current);
     if (cleared !== 'none') { if (cleared === 'elsewhere') setClearedElsewhere(true); return; }
-    const blank = now.json === baseline.current || isBlank(now.data);
+    // Every restorable field in the snapshot counts. Only the form this visit opened with is blank; dates, rates,
+    // mode, quantities, discounts and coding can be the user's sole edit and must still be kept.
+    const blank = comparableDraft(now.data) === comparableBaseline.current;
     const kept = blank ? removeInvoiceDraft(k) : writeInvoiceDraft(k, { data: now.data, savedAt: Date.now() }, since.current);
     setFailed(!kept);
     if (!kept) return;
@@ -174,7 +178,7 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
     // Cleared here: this tab is signing out or switching, and leaving is the point. Elsewhere: the screen is the only
     // copy. A form back to how the page opened has nothing to lose.
     const json = latest.current.json;
-    if (json === baseline.current || isBlank(latest.current.data)) return false;
+    if (comparableDraft(latest.current.data) === comparableBaseline.current) return false;
     return cleared === 'elsewhere' || (cleared === 'none' && json !== written.current);
   }, [key]);
   const current = useCallback(() => latest.current.json, []);

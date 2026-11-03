@@ -5,8 +5,8 @@
  * approves the draft and opens the email form with the customer's address; nothing is sent until Send, and Send is
  * answered HERE: /api/accounting/invoice-email is route-fulfilled and must be hit exactly once (dev's SMTP is live, and
  * the fixture customer's address is a .invalid one besides). Leaving with a change unsaved asks; refusing keeps the page
- * with no page error (no unhandled rejection). Back with a change autosave would send goes unasked and saves it (a
- * change autosave is holding: z2b-invoice-held-back). axe reports nothing serious on new and edit, both themes, and on the
+ * with no page error (no unhandled rejection). Back with any unsaved change asks; Stay keeps the editor until autosave
+ * succeeds, then Back preserves history. A held change's Leave path is covered in z2b. Axe reports nothing serious on new and edit, both themes, and on the
  * open email form.
  * Evidence mode: INVOICE_EVIDENCE_DIR=<dir> writes screenshots.
  */
@@ -68,7 +68,7 @@ test('editing a draft autosaves after a change, never on load, and the change su
   }
 });
 
-test('Back from the edit page with a change still unsaved: not refused, history intact, the change saved as the page goes', async ({ page, context, baseURL }) => {
+test('Back from the edit page with a change still unsaved asks; Stay keeps it until saved, then history remains intact', async ({ page, context, baseURL }) => {
   const { api, customerId } = await sandbox(context, baseURL!);
   const id = await draft(api, customerId, `Z2 back ${Date.now().toString(36)}`);
   try {
@@ -87,9 +87,12 @@ test('Back from the edit page with a change still unsaved: not refused, history 
     const changed = `Z2 kept on Back ${Date.now().toString(36)}`;
     await page.getByPlaceholder('Item description').first().fill(changed);
     await page.goBack(); // inside the 1.5 s autosave wait
+    await expect.poll(() => asked, { timeout: 10_000 }).toBe(1);
+    await expect(page).toHaveURL(new RegExp(`/edit/${id}$`), { timeout: 10_000 });
+    await expect(page.getByRole('status').filter({ hasText: /^Saved/ })).toBeVisible({ timeout: 15_000 });
+    await page.goBack(); // now there is no at-risk edit
     await page.waitForURL(new RegExp(`/accounting/customer-invoices/${id}$`), { timeout: 30_000 });
-    expect(asked, 'Back is not refused').toBe(0);
-    // The invoice page waits for the save sent as the edit page went, then shows it: no polling.
+    expect(asked).toBe(1);
     await expect(page.getByText(changed)).toBeVisible({ timeout: 30_000 });
     expect((await api.get<{ items: { description: string }[] }>(`/api/accounting/customer-invoices-detail?id=${id}`)).items[0]!.description).toBe(changed);
     await page.goForward(); // the edit page's entry is still there

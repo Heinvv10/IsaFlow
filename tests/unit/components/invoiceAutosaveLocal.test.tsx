@@ -4,7 +4,7 @@
  * `isaflow:invoice-draft:<companyId>:<userId>`; a storage that throws never breaks the form; the next visit offers to
  * restore it; a successful create clears it. Nothing is written without a company and a user to key it by.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { AuthContext } from '@/contexts/AuthContext';
@@ -23,6 +23,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/components/accounting/ScanAndFillButton', () => ({ ScanAndFillButton: () => null }));
 
 import NewPage from '../../../pages/accounting/customer-invoices/new';
+import { useLocalInvoiceDraft, type LocalDraftData } from '@/components/accounting/customer-invoices/useLocalInvoiceDraft';
 
 const KEY = 'isaflow:invoice-draft:co-1:u-1';
 useApiJsonOverMock();
@@ -42,6 +43,42 @@ const stored = () => JSON.parse(localStorage.getItem(KEY) ?? 'null') as null | {
 const price = () => screen.getAllByLabelText(/^Unit price/)[0] as HTMLInputElement;
 
 describe('new invoice: the draft on this device', () => {
+  const blankDraft: LocalDraftData = {
+    form: {
+      clientId: '', invoiceDate: '2026-11-03', dueDate: '', billingPeriodStart: '2026-11-03',
+      billingPeriodEnd: '2026-11-03', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '',
+    },
+    lines: [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, glAccountId: '', projectId: '', cc2Id: '', buId: '' }],
+    taxMode: 'exclusive',
+  };
+
+  it.each([
+    ['invoice date', (d: LocalDraftData) => { d.form.invoiceDate = '2026-11-04'; }],
+    ['due date', (d: LocalDraftData) => { d.form.dueDate = '2026-12-03'; }],
+    ['billing period', (d: LocalDraftData) => { d.form.billingPeriodEnd = '2026-11-30'; }],
+    ['currency', (d: LocalDraftData) => { d.form.currencyCode = 'USD'; }],
+    ['exchange rate', (d: LocalDraftData) => { d.form.exchangeRate = 17.5; }],
+    ['VAT rate', (d: LocalDraftData) => { d.form.taxRate = 14; }],
+    ['VAT mode', (d: LocalDraftData) => { d.taxMode = 'inclusive'; }],
+    ['invoice project', (d: LocalDraftData) => { d.form.projectId = 'project-1'; }],
+    ['quantity', (d: LocalDraftData) => { d.lines[0]!.quantity = 2; }],
+    ['discount', (d: LocalDraftData) => { d.lines[0]!.discount = 10; }],
+    ['GL coding', (d: LocalDraftData) => { d.lines[0]!.glAccountId = 'account-1'; }],
+    ['dimension coding', (d: LocalDraftData) => { d.lines[0]!.cc2Id = 'cc2-1'; }],
+  ])('keeps a draft whose only edit is %s', async (_name, change) => {
+    const onRestore = vi.fn();
+    const { result, rerender } = renderHook(({ snapshot }: { snapshot: LocalDraftData }) => useLocalInvoiceDraft({
+      mode: 'local', companyId: 'co-1', userId: 'u-1', snapshot, paused: false, onRestore,
+    }), { initialProps: { snapshot: structuredClone(blankDraft) } });
+    await advance(0);
+    const changed = structuredClone(blankDraft);
+    change(changed);
+    rerender({ snapshot: changed });
+    expect(result.current.unsaved()).toBe(true);
+    await advance(800);
+    expect(stored()?.data).toEqual(changed);
+  });
+
   it('writes form, lines and VAT mode 800 ms after the last edit, and says so', async () => {
     await open();
     type(description(), 'Kept');
