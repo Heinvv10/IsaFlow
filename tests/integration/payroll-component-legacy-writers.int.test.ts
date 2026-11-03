@@ -2,8 +2,7 @@
  * Migration 953 review (2026-11-02): supersede_inferred defaults to TRUE, so a row inserted without the column (code
  * from before this release, during the deploy window or after a code-only rollback) is read with the old neighbour
  * rule and a once-off it replaced cannot be paid twice. Every writer in this release writes FALSE explicitly.
- * A package re-applied over a pre-953 replaced pair (A 1-14 replaced by B 15-30, re-applied from the 15th) cuts B, and
- * so marks A superseded in the same transaction: A is not paid, the package's once-off is paid once.
+ * A package re-applied over an unaudited pre-953 replaced pair fails closed: shape cannot prove ownership.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -110,11 +109,14 @@ describe('M4: a package re-applied by old code during the deploy window', () => 
   });
 });
 
-describe('a package re-applied from the 15th over a pre-953 replaced pair', () => {
-  it('cuts B and marks A superseded in the same apply: A is not paid, the new once-off once', async () => {
-    await applyPackageToEmployee(company, pkg, emp.reapply!, '2026-11-15', user);
+describe('a package re-applied from the 15th over an unaudited pre-953 replaced pair', () => {
+  it('refuses the ambiguous once-off and leaves both old rows untouched', async () => {
+    await expect(applyPackageToEmployee(company, pkg, emp.reapply!, '2026-11-15', user))
+      .rejects.toThrow(/once-off this package did not write/i);
     const a = await flag(row.reA!);
-    expect(a.superseded_at).not.toBeNull();
+    const b = await flag(row.reB!);
+    expect(a.superseded_at).toBeNull();
+    expect(b.superseded_at).toBeNull();
     expect(await bonuses('reapply')).toEqual([1200]);
   });
 });

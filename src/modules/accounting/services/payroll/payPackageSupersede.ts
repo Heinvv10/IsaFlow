@@ -21,7 +21,7 @@ const endOfMonth = (iso: string): string => endOfMonthIso(Number(iso.slice(0, 4)
 /**
  * The once-offs among `ids` the package wrote, by provenance: the audit entry that created the row says package_assign
  * (and, since it records the package, this package's id). A different package's once-off, or one entered by hand
- * (assign, batch), is not. A row with no audit entry (written before this release) falls back to its shape.
+ * (assign, batch), is not. A row with no audit entry is ambiguous and therefore not owned.
  */
 async function ownOnceOffs(
   tx: TxSql, companyId: string, packageId: string, componentId: string, rows: DbRow[],
@@ -40,8 +40,8 @@ async function ownOnceOffs(
   for (const row of rows) {
     const entry = byId.get(String(row.id));
     const legacyShape = ownAmounts.has(Number(row.amount)) && isoDate(row.effective_to) === endOfMonth(isoDate(row.effective_from));
-    // An entry that records no package vouches for nothing about which one: the shape decides, as for a row with no entry.
-    if (entry ? entry.kind === 'package_assign' && (entry.package_id ? entry.package_id === packageId : legacyShape) : legacyShape) own.add(String(row.id));
+    // An entry that records no package vouches for nothing about which one: only that audited row may use shape.
+    if (entry?.kind === 'package_assign' && (entry.package_id ? entry.package_id === packageId : legacyShape)) own.add(String(row.id));
   }
   return own;
 }

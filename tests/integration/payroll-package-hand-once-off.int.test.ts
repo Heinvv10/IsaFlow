@@ -216,10 +216,12 @@ describe('own by provenance, not by shape', () => {
     await expect(applyPackageToEmployee(company, pkg, emp.failsafe!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
   });
 
-  it('a once-off with no audit entry (written before this release) is judged by its shape: the package amount, closed at month end', async () => {
+  it('a once-off with no audit entry is ambiguous even when it matches the package shape: refused, untouched', async () => {
     await employee('legacy');
     await raw('legacy', comp.bonus, 1200, '2026-05-01', '2026-05-31', false);
-    await expect(applyPackageToEmployee(company, pkg, emp.legacy!, '2026-05-01', user)).resolves.toBeDefined();
+    const before = await rows('legacy');
+    await expect(applyPackageToEmployee(company, pkg, emp.legacy!, '2026-05-01', user)).rejects.toThrow(/once-offs? this package did not write/i);
+    expect(await rows('legacy')).toEqual(before);
   });
 });
 

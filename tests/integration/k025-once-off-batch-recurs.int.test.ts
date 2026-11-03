@@ -167,14 +167,15 @@ beforeAll(async () => {
     [boundaryEmployee, packageRecurring],
   );
   await applyPackageToEmployee(company, payPackage, boundaryEmployee, '2025-03-01', user);
-  // A row entirely in the FUTURE is cancelled by an earlier apply, not left to
-  // pay alongside it. Silent cancellation is what the warning covers.
+  // An unaudited row entirely in the FUTURE is ambiguous: matching a package
+  // shape cannot prove the package wrote it, so the apply fails closed.
   await pool.query(
     `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring)
      VALUES($1,$2,999,'2025-06-01','2025-06-30',false)`,
     [futureRowEmployee, packageRecurring],
   );
-  await applyPackageToEmployee(company, payPackage, futureRowEmployee, '2025-03-15', user);
+  await expect(applyPackageToEmployee(company, payPackage, futureRowEmployee, '2025-03-15', user))
+    .rejects.toThrow(/once-off this package did not write/i);
   // Second tenant, same shape — must be untouched by any of the above.
   await postOne(otherCompany, { batchType: 'component_values', componentId: otherComponent, isRecurring: false, month: 3 },
     { employeeId: otherEmployee, value: 400, effectiveFrom: new Date('2025-03-01') });
@@ -350,14 +351,12 @@ describe('supersede boundaries', () => {
       .toEqual([12000, 30000]);
   });
 
-  it('cancels a future-dated row rather than paying it alongside the new one', async () => {
+  it('leaves an ambiguous future-dated row untouched when the apply is refused', async () => {
     const rows = await assignments(futureRowEmployee);
-    const cancelledRow = rows.find(r => Number(r.amount) === 999);
-    // Voided by an effective_to before its own effective_from — the idiom this
-    // table already uses for a superseded row. The reader never selects it.
-    expect(new Date(cancelledRow!.effective_to) < new Date(cancelledRow!.effective_from)).toBe(true);
+    const untouchedRow = rows.find(r => Number(r.amount) === 999);
+    expect(new Date(untouchedRow!.effective_to).toISOString().slice(0, 10)).toBe('2025-06-30');
     expect((await getEmployeeComponents(futureRowEmployee, company, periodDate(2025, 6))).map(c => c.amount))
-      .toEqual([30000]);
+      .toEqual([999]);
   });
 });
 
