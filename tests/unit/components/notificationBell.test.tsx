@@ -18,6 +18,7 @@ vi.mock('@/lib/apiFetch', async () => ({
 }));
 
 import { NotificationBell } from '@/components/layout/NotificationBell';
+import { signalNotificationsChanged } from '@/lib/notificationsSignal';
 
 const note = (id: string, over: Record<string, unknown> = {}) => ({
   id, kind: 'budget_alert', refId: null, title: `Title ${id}`, body: `Body ${id}`, href: `/accounting/budgets/${id}`,
@@ -171,6 +172,32 @@ describe('NotificationBell', () => {
     h.fetch.mockImplementation(async () => feed([], 0));
     render(<NotificationBell />);
     expect(bell().parentElement?.className).toContain('w-8');
+  });
+
+  it('refetches when another part of the app signals new notifications (Evaluate now); none after unmount', async () => {
+    h.fetch.mockResolvedValueOnce(feed([], 0)).mockResolvedValueOnce(feed([note('a'), note('b')], 2));
+    const { unmount } = render(<NotificationBell />);
+    await waitFor(() => expect(h.fetch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('notification-badge')).toBeNull();
+    signalNotificationsChanged();
+    await waitFor(() => expect(screen.getByTestId('notification-badge').textContent).toBe('2'));
+    expect(h.fetch).toHaveBeenCalledTimes(2);
+    unmount();
+    signalNotificationsChanged();
+    expect(h.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('a signal\'s refetch respects the sequence: an older load landing after it is dropped', async () => {
+    let releaseFirst: (r: Response) => void = () => undefined;
+    h.fetch.mockImplementationOnce(() => new Promise<Response>((r) => { releaseFirst = r; }))
+      .mockResolvedValueOnce(feed([note('n')], 5));
+    render(<NotificationBell />);
+    await waitFor(() => expect(h.fetch).toHaveBeenCalledTimes(1));
+    signalNotificationsChanged();
+    await waitFor(() => expect(screen.getByTestId('notification-badge').textContent).toBe('5'));
+    releaseFirst(feed([], 0));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId('notification-badge').textContent).toBe('5');
   });
 
   it('a link that is not an in-app path is never followed', async () => {

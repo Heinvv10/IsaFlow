@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { failureText } from '@/components/accounting/budgets/workspace/failureText';
+import { signalNotificationsChanged } from '@/lib/notificationsSignal';
 import {
   deleteOverride, evaluateNow, fetchAlerts, fetchControls, saveOverride, saveSettings,
   type BudgetAlertList, type CheckPolicy, type ControlsView, type OverrideDraft,
@@ -101,6 +102,8 @@ export function useBudgetControls(canAdmin: boolean, enabled: boolean): BudgetCo
     setBusy('evaluate');
     const r = await evaluateNow();
     if (r.ok) {
+      // The evaluation may have written bell notifications: the header bell refetches its badge.
+      signalNotificationsChanged();
       await loadAlerts();
       await refreshView();
     }
