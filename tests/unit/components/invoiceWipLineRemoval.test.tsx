@@ -75,9 +75,11 @@ describe('a line that bills a time entry', () => {
     await settle();
     expect(puts()).toHaveLength(1);
     expect(bodyOf(puts()[0]!).items).toEqual([expect.objectContaining({ description: 'Travel', timeEntryId: null })]);
+    expect(bodyOf(puts()[0]!).releaseTimeEntryIds).toEqual(['te-a']); // named: the server releases only what is named
     type(screen.getByLabelText('Notes'), 'After the save');
     await advance(1_500);
     expect(puts()).toHaveLength(2); // saved: autosave runs again
+    expect(bodyOf(puts()[1]!).releaseTimeEntryIds).toBeUndefined(); // released: not named again
   });
 
   it('removing a line without a time entry does not ask', async () => {

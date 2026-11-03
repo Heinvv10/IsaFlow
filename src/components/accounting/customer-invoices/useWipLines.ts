@@ -4,7 +4,8 @@
  * take the link back. So removing such a line:
  *   - asks first, naming the time it unbills;
  *   - is never autosaved: `problem` holds autosave until Save Changes sends it, and Approve & email refuses until
- *     then (`approveRefusal`). A save the server took makes its links the new baseline.
+ *     then (`approveRefusal`). The PUT names those entries (`releasing`, `releaseTimeEntryIds`): the server releases
+ *     only entries named, never a link a body merely leaves out. A save the server took makes its links the baseline.
  * An invoice that bills time its lines do not link (a grouped WIP invoice, the timesheet path) cannot unbill it from
  * here: removing a line says that time stays billed to the invoice (`note`).
  */
@@ -46,10 +47,13 @@ export function useWipLines(lines: readonly EditLine[], setLines: Dispatch<SetSt
     setLines((prev) => prev.filter((l) => l.key !== key));
   };
 
-  const removedLinks = linked.some((id) => !lines.some((l) => l.timeEntryId === id));
+  // The entries whose lines were removed (each asked first): the PUT names them, and only them, for release.
+  const releasing = linked.filter((id) => !lines.some((l) => l.timeEntryId === id));
+  const removedLinks = releasing.length > 0;
   const entries = unlinkedBilled === 1 ? '1 time entry' : `${unlinkedBilled} time entries`;
   return {
     remove,
+    releasing,
     loaded,
     saved,
     /** Why autosave holds (a removed time-entry line), or null. */

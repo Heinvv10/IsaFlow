@@ -22,6 +22,7 @@ export interface InvoicePutItem {
 export interface InvoicePutBody {
   id: string; clientId: string; invoiceDate: string; dueDate?: string; billingPeriodStart?: string; billingPeriodEnd?: string;
   taxRate: number; notes?: string; currencyCode: string; exchangeRate: number; projectId: string | null; items: InvoicePutItem[];
+  releaseTimeEntryIds?: string[];
 }
 
 interface Draft { form: InvoiceHeaderForm; lines: readonly EditLine[]; taxMode: TaxMode }
@@ -33,7 +34,8 @@ interface Draft { form: InvoiceHeaderForm; lines: readonly EditLine[]; taxMode: 
  */
 const savedLines = (lines: readonly EditLine[]) => lines.filter((l) => l.timeEntryId || l.description || l.unitPrice); // a time-entry line is never dropped (its time would be unbilled)
 
-export function invoicePutBody(id: string, { form, lines, taxMode }: Draft): InvoicePutBody {
+/** `release`: the time entries whose lines the user removed (useWipLines); the server releases only those. */
+export function invoicePutBody(id: string, { form, lines, taxMode }: Draft, release: readonly string[] = []): InvoicePutBody {
   const taxRate = effectiveTaxRate(taxMode, form.taxRate);
   return {
     id,
@@ -58,9 +60,10 @@ export function invoicePutBody(id: string, { form, lines, taxMode }: Draft): Inv
       cc1Id: l.cc2Id === (l.cc2AtLoad ?? '') ? (l.cc1Id ?? null) : null,
       // A WIP line's time entry goes back with it, so the PUT (which replaces every line) keeps the link. Always sent,
       // null on an unlinked line: on a WIP invoice the server refuses a body without it (it cannot tell a removed
-      // line from a client that does not know the links), and releases only links this body leaves out.
+      // line from a client that does not know the links), and releases only the entries `release` names.
       timeEntryId: l.timeEntryId || null,
     })),
+    ...(release.length > 0 ? { releaseTimeEntryIds: [...release] } : {}),
   };
 }
 

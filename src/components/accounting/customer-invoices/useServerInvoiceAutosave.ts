@@ -90,7 +90,15 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const [failure, setFailure] = useState<Failure | null>(null);
   const inFlight = useRef<Promise<SaveResult> | null>(null);
   const sending = useRef<string | null>(null); // the body of the PUT out now
-  const contentDigest = useRef<string | undefined>(opts?.approvalContentDigest);
+  // The shown digest each invoice was last read or saved at (customerInvoiceShownDigest). Each PUT sends it back as
+  // `expectedShownDigest`, so the server refuses (409 STALE_VIEW) an edit made from a read another tab has since moved;
+  // kept per invoice, so a change sent as one invoice leaves carries that invoice's own, whatever loads next.
+  const digests = useRef(new Map<string, string>());
+  const noteDigest = (forId: string | null, digest: string | undefined) => { if (forId && digest) digests.current.set(forId, digest); };
+  const withDigest = (json: string, forId: string | null): string => {
+    const digest = forId ? digests.current.get(forId) : undefined;
+    return digest ? JSON.stringify({ ...(JSON.parse(json) as object), expectedShownDigest: digest }) : json;
+  };
   const discarded = useRef<string | null>(null); // the body "Leave without them" was about: only that one is not sent
   // The last body this page showed with its invoice, kept past the render that drops it (another invoice opened in
   // place shows no body while it loads), so the change it held can still be sent.
@@ -126,8 +134,8 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     const prior = inFlight.current;
     trackInvoiceSave(shown.invoiceId, (async () => {
       try {
-        if (prior) await prior;
-        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: shown.json });
+        if (prior) await prior; // its reply moves this invoice's digest on: read it after
+        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: withDigest(shown.json, shown.invoiceId) });
         await assertOk(res, SAVE_FAILED);
       } catch (err) {
         log.warn('The change typed as the invoice left the page was not saved', { err }, 'useServerInvoiceAutosave');
@@ -149,9 +157,10 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     lastSaved.current = null;
     setSavedJson(null);
     setFailure(null);
-    contentDigest.current = opts?.approvalContentDigest;
+    if (invoiceId) digests.current.delete(invoiceId); // the reload's own digest comes with its body (below)
   }, [loadKey]);
   const shownFor = useRef(invoiceId);
+  const currentDigest = useCallback(() => (shownFor.current ? digests.current.get(shownFor.current) : undefined), []);
   useCommitEffect(() => {
     if (shownFor.current === invoiceId) return;
     sendAsItLeaves();
@@ -168,7 +177,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   useCommitEffect(() => {
     if (json === null || lastSaved.current !== null) return;
     lastSaved.current = json;
-    contentDigest.current = opts?.approvalContentDigest;
+    noteDigest(invoiceId, opts?.approvalContentDigest);
     setSavedJson(json);
   }, [json, opts?.approvalContentDigest]);
   // Unmounted: every reply still out is stale from here.
@@ -179,30 +188,31 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     const sent = latest.current.json;
     if (sent === null) return { ok: false, message: 'The invoice has not loaded yet' };
     if (latest.current.done || (how !== 'always' && sent === lastSaved.current) || (how === 'auto' && !latest.current.armed)) {
-      return { ok: true, ...(contentDigest.current ? { approvalContentDigest: contentDigest.current } : {}) };
+      return { ok: true, approvalContentDigest: currentDigest() };
     }
     const mine = ++seq.current;
+    const forId = shownFor.current;
     setSaving(true);
     sending.current = sent;
     try {
       const put = (async () => {
-        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: sent });
+        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: withDigest(sent, forId) });
         await assertOk(res, SAVE_FAILED);
-        const envelope = await res.json() as { data?: { approvalContentDigest?: unknown }; approvalContentDigest?: unknown };
-        const digest = envelope.data?.approvalContentDigest ?? envelope.approvalContentDigest;
-        return typeof digest === 'string' && digest ? digest : undefined;
+        const envelope = await res.json() as { data?: { shownDigest?: unknown }; shownDigest?: unknown };
+        const digest = envelope.data?.shownDigest ?? envelope.shownDigest;
+        noteDigest(forId, typeof digest === 'string' ? digest : undefined); // even if a newer save is out: the server's now
+        return undefined;
       })();
-      if (shownFor.current) trackInvoiceSave(shownFor.current, put);
-      const digest = await put;
+      if (forId) trackInvoiceSave(forId, put);
+      await put;
       if (mine !== seq.current) return { ok: true };
-      contentDigest.current = digest ?? contentDigest.current;
       lastSaved.current = sent; // what this reply carried, never the newer body typed while it was out
       setSavedJson(sent);
       setSavedAt(Date.now());
       setSavedCount((n) => n + 1);
       setFailure(null);
       onSaved.current?.(sent);
-      return { ok: true, ...(contentDigest.current ? { approvalContentDigest: contentDigest.current } : {}) };
+      return { ok: true, approvalContentDigest: currentDigest() };
     } catch (err) {
       const message = apiErrorMessage(err, SAVE_FAILED);
       if (mine === seq.current) setFailure({ json: sent, message });
@@ -211,7 +221,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
       if (sending.current === sent) sending.current = null;
       if (mine === seq.current) setSaving(false);
     }
-  }, []);
+  }, [currentDigest]);
 
   const flush = useCallback(async (how: Send): Promise<SaveResult> => {
     while (inFlight.current) {
@@ -243,7 +253,6 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     return !finished && !sendable && now !== null && lastSaved.current !== null && now !== lastSaved.current
       && now !== sending.current && now !== discarded.current;
   }, []);
-  const currentDigest = useCallback(() => contentDigest.current, []);
   // "Leave without them": the change not yet sent stays unsent (its timer, and any follow-up after the PUT out). A PUT
   // already out is NOT cut off: the server may commit it (a release of time entries included), and the next page to
   // read the invoice must wait for it (pendingInvoiceSaves), so it settles, tracked. The question says one is out.

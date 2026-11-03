@@ -27,7 +27,7 @@ const invoice = (total: number) => ({
   id: 'inv-1', invoice_number: 'INV-0001', client_name: 'Acme', project_name: '', status: 'draft',
   invoice_date: '2026-09-01', due_date: '2026-10-01', subtotal: total / 1.15, tax_rate: 15, tax_amount: total - total / 1.15,
   total_amount: total, amount_paid: 0, notes: '', gl_journal_entry_id: null, items: [{ id: 'l1', description: `Line at ${total}`, quantity: 1, unit_price: total, amount: total, tax_rate: 15 }],
-  approval_content_digest: `digest-${total}`,
+  shown_digest: `digest-${total}`,
   approval: { state: 'not_required', enforced: false, requiredRole: null, ruleName: null, requestId: null },
 });
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });

@@ -102,7 +102,7 @@ export default function EditCustomerInvoicePage() {
       setInvoiceNumber(invoice.invoice_number);
       setLoadedFor(id); setLoadedKey(thisLoad);
       setStoredTotal(invoice.total_amount === undefined || invoice.total_amount === null ? null : Number(invoice.total_amount));
-      setApprovalContentDigest(invoice.approval_content_digest);
+      setApprovalContentDigest(invoice.shown_digest);
       setStoredDates({ dueDate: Boolean(invoice.due_date), billingPeriodStart: Boolean(invoice.billing_period_start), billingPeriodEnd: Boolean(invoice.billing_period_end) });
       // Why this load: a STALE_VIEW here (carried in memory across the reload), or Approve & email on the new page.
       const refusal = carried ? { message: carried, status: null } : takeApproveRefusal(id);
@@ -196,7 +196,7 @@ export default function EditCustomerInvoicePage() {
     setStoredDates((d) => ({ dueDate: d.dueDate || Boolean(b.dueDate), billingPeriodStart: d.billingPeriodStart || Boolean(b.billingPeriodStart), billingPeriodEnd: d.billingPeriodEnd || Boolean(b.billingPeriodEnd) }));
   };
   const autosave = useInvoiceAutosave({
-    mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft) : null,
+    mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft, wip.releasing) : null,
     // Held: a stale-priced draft (an autosaved typo would reprice it and stale an approval); a removed time-entry line.
     problem: stalePriced ? STALE_PRICED_HOLD : wip.problem ?? autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved, onSaved: keepStoredDates,
     approvalContentDigest,

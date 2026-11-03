@@ -56,7 +56,7 @@ async function openEdit() {
 describe('Approve & email on a new invoice', () => {
   it('creates, approves, then opens the email form with the customer\'s address; nothing is sent until Send', async () => {
     serveInvoice((u) => (u.includes('customer-invoices-create')
-      ? json(201, { success: true, data: { id: 'inv-1', invoiceNumber: 'INV-AUTO', approvalContentDigest: 'created-digest' } })
+      ? json(201, { success: true, data: { id: 'inv-1', invoiceNumber: 'INV-AUTO', shownDigest: 'created-digest' } })
       : undefined));
     await openNew();
     await approveAndEmail();
@@ -129,8 +129,8 @@ describe('Approve & email on a new invoice', () => {
 describe('Approve & email on the edit page', () => {
   it('an unchanged draft is approved without a PUT; a changed one is saved first, then approved', async () => {
     serveInvoice((u, init) => (u.includes('customer-invoices-detail') && init?.method === 'PUT'
-      ? ok({ updated: true, approvalContentDigest: 'saved-digest' }) : undefined),
-    { ...DRAFT, approval_content_digest: 'loaded-digest' });
+      ? ok({ updated: true, shownDigest: 'saved-digest' }) : undefined),
+    { ...DRAFT, shown_digest: 'loaded-digest' });
     await openEdit();
     await approveAndEmail();
     expect(puts()).toHaveLength(0);

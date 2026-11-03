@@ -117,7 +117,9 @@ export function InvoicePdfPreview({ invoiceId, version }: Props) {
             {failed ? '' : !doc ? 'Loading preview…' : doc.version !== version ? 'Updating preview…' : ''}
           </p>
           {doc && (
-            <iframe title="Invoice PDF preview" src={doc.url}
+            // A new iframe per document (key), never a new src on the same one: an iframe navigating adds a history
+            // entry, so each refresh would put one between the editor and Back (and spoil a Back the editor asks about).
+            <iframe key={doc.url} title="Invoice PDF preview" src={doc.url}
               className="h-[70vh] w-full rounded border border-[var(--ff-border-light)] bg-white" />
           )}
         </div>

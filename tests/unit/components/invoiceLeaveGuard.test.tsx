@@ -3,8 +3,9 @@
  * false (no unhandled rejection, so no Sentry event and no dev overlay). Back and forward with a change autosave will
  * send are not asked: the page goes, and the change being typed is saved as it goes. With a change autosave is HOLDING
  * (a line or date it refuses, a stale-priced draft) nothing would be sent, so Back and forward ask (merge-queue gate,
- * round eleven): Leave drops it knowingly; Stay keeps the page and undoes the move with history.go (round eleven,
- * ledger review: Back, Forward and jumps keep history's order; no index, no question). And the edit page
+ * round eleven): Leave drops it knowingly; Stay keeps the page and goes back to its own entry with the Navigation
+ * API's traverseTo (round twelve: Back, Forward and jumps keep history's order; no Navigation API, no question). And
+ * the edit page
  * opened on another invoice in place starts again: no PUT for the second invoice's load.
  */
 import { cleanup, render, screen } from '@testing-library/react';
@@ -13,9 +14,11 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { advance, bodyOf, description, puts, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
 
-type PopState = (s: { url: string; as: string; options: object; __isaIdx?: number }) => boolean;
-/** The state Next hands beforePopState for the entry at index `idx` (src/lib/historyIndex.ts). */
-const popTo = (idx: number) => ({ url: '/x', as: '/x', options: {}, __isaIdx: idx });
+type PopState = (s: { url: string; as: string; options: object }) => boolean;
+/** The Navigation API as the guard reads it: the entry the browser is on, and traverseTo. */
+const nav = { currentEntry: { key: 'edit-entry' } as { key: string } | null, traverseTo: vi.fn() };
+/** The browser has moved to the entry `key` and fires popstate: Next calls beforePopState. */
+const popTo = (key: string) => { nav.currentEntry = { key }; return h.pop!({ url: '/x', as: '/x', options: {} }); };
 const h = vi.hoisted(() => ({
   router: null as null | {
     query: Record<string, string>; pathname: string; asPath: string; isReady: boolean;
@@ -45,10 +48,12 @@ beforeEach(() => {
   h.router = { query: { invoiceId: 'inv-1' }, pathname: '/accounting/customer-invoices/edit/[invoiceId]', asPath: '/accounting/customer-invoices/edit/inv-1',
     isReady: true, events, push: navigate, replace: navigate, beforePopState: (cb) => { h.pop = cb; } };
   confirm = vi.fn(() => false);
-  window.history.replaceState({ key: 'edit-entry', __isaIdx: 5 }, '', '/accounting/customer-invoices/edit/inv-1'); // this page's entry
+  nav.currentEntry = { key: 'edit-entry' }; // this page's own entry
+  nav.traverseTo = vi.fn(() => ({ committed: Promise.resolve(), finished: Promise.resolve() }));
+  Object.defineProperty(window, 'navigation', { value: nav, configurable: true, writable: true });
   window.confirm = confirm as unknown as typeof window.confirm;
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); window.confirm = original; vi.mocked(apiFetch).mockReset(); vi.restoreAllMocks(); h.pop = null; });
+afterEach(() => { Object.defineProperty(window, 'navigation', { value: undefined, configurable: true, writable: true }); cleanup(); vi.useRealTimers(); window.confirm = original; vi.mocked(apiFetch).mockReset(); vi.restoreAllMocks(); h.pop = null; });
 
 async function openDirty() {
   serveInvoice();
@@ -105,39 +110,41 @@ describe('leaving with a change unsaved', () => {
   });
 
   it.each([
-    ['Back', 4, 1],
-    ['Forward', 6, -1],
-    ['a two-step jump back', 3, 2],
-  ])('a change autosave is holding: %s asks; Stay undoes the move with history.go (order kept, nothing pushed)', async (_name, to, delta) => {
-    await openHeld(); // this page's entry is index 5
+    ['Back', 'previous-entry'],
+    ['Forward', 'next-entry'],
+    ['a two-step jump back', 'two-back-entry'],
+  ])('a change autosave is holding: %s asks; Stay goes back to this page\'s own entry with navigation.traverseTo (order kept, nothing pushed)', async (_name, to) => {
+    await openHeld();
     const pushState = vi.spyOn(window.history, 'pushState');
-    const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined);
-    expect(h.pop!(popTo(to))).toBe(false); // Next does not change the route
+    const go = vi.spyOn(window.history, 'go');
+    expect(popTo(to)).toBe(false); // Next does not change the route
     expect(confirm).toHaveBeenCalledTimes(1);
-    expect(go).toHaveBeenCalledWith(delta);
+    expect(nav.traverseTo).toHaveBeenCalledWith('edit-entry');
     expect(pushState).not.toHaveBeenCalled();
-    expect(h.pop!(popTo(5))).toBe(false); // Stay's own move landing back here: not asked, nothing routed
+    expect(go).not.toHaveBeenCalled();
+    expect(popTo('edit-entry')).toBe(false); // Stay's own move landing back here: not asked, nothing routed
     expect(confirm).toHaveBeenCalledTimes(1);
     expect((screen.getAllByLabelText('Quantity')[0] as HTMLInputElement).value).toBe('0'); // nothing lost
-    expect(h.pop!(popTo(4))).toBe(false); // the next Back asks again
+    expect(popTo('previous-entry')).toBe(false); // the next Back asks again
     expect(confirm).toHaveBeenCalledTimes(2);
     expect(() => h.router!.events.emit('routeChangeStart', '/elsewhere')).toThrow(/unsaved/i); // no pass was left behind
   });
 
-  it('a change autosave is holding, but the entry Back lands on has no index: not asked (the move could not be undone exactly)', async () => {
+  it.each([
+    ['no Navigation API at all', () => Object.defineProperty(window, 'navigation', { value: undefined, configurable: true, writable: true })],
+    ['no traverseTo', () => { (nav as { traverseTo?: unknown }).traverseTo = undefined; }],
+  ])('a change autosave is holding, but the browser has %s: not asked (the move could not be undone exactly)', async (_name, strip) => {
     await openHeld();
-    const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined);
+    strip();
     expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(true);
     expect(confirm).not.toHaveBeenCalled();
-    expect(go).not.toHaveBeenCalled();
   });
 
   it('a change autosave is holding: Back asks; Leave goes, sends nothing, and is not asked again', async () => {
     confirm.mockReturnValue(true);
     await openHeld();
-    const go = vi.spyOn(window.history, 'go').mockImplementation(() => undefined);
-    expect(h.pop!(popTo(4))).toBe(true);
-    expect(go).not.toHaveBeenCalled();
+    expect(popTo('previous-entry')).toBe(true);
+    expect(nav.traverseTo).not.toHaveBeenCalled();
     expect(() => h.router!.events.emit('routeChangeStart', '/x')).not.toThrow();
     expect(confirm).toHaveBeenCalledTimes(1);
     cleanup();
@@ -157,7 +164,7 @@ describe('leaving with a change unsaved', () => {
     expect(puts()).toHaveLength(1);
     type(screen.getAllByLabelText('Quantity')[0]!, '0'); // held
     await advance(0);
-    expect(h.pop!(popTo(4))).toBe(true);
+    expect(popTo('previous-entry')).toBe(true);
     expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/A save is still finishing/));
     let settled = false;
     void invoiceSavesSettled('inv-1').then(() => { settled = true; });
