@@ -10,7 +10,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { endOfMonthIso } from './leaveAccrualService';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
-import { paidNote, paidPeriodChanged, paidRemedy, periodLabel, windowOf, type PaidPeriod } from './payrollComponentPaidMonths';
+import { paidNote, paidPeriodChanged, paidRemedy, paidRemedyInline, periodLabel, windowOf, type PaidPeriod } from './payrollComponentPaidMonths';
 import { legacyFlips, legacyLeaverSuccessorLost, type Sibling } from './payrollComponentLegacySupersede';
 
 const isoDate = (v: unknown): string => fmtDate(v);
@@ -44,6 +44,23 @@ async function ownOnceOffs(
     if (entry ? entry.kind === 'package_assign' && (entry.package_id ? entry.package_id === packageId : legacyShape) : legacyShape) own.add(String(row.id));
   }
   return own;
+}
+
+/**
+ * The date to apply the package from instead: the day after the once-off ends, or, when that falls in a paid month, the
+ * first day of the next month that is not paid. Null for an open-ended once-off (no day after it).
+ */
+function applyFromAfter(row: DbRow, paid: PaidPeriod[]): string | null {
+  if (row.effective_to == null) return null;
+  const to = isoDate(row.effective_to);
+  let year = Number(to.slice(0, 4));
+  let month = Number(to.slice(5, 7));
+  let day = to === endOfMonth(to) ? null : Number(to.slice(8, 10)) + 1;
+  if (day === null || paid.some((p) => p.year === year && p.month === month)) {
+    day = 1;
+    do { month += 1; if (month > 12) { month = 1; year += 1; } } while (paid.some((p) => p.year === year && p.month === month));
+  }
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 /** The amounts of this package's once-off lines for the component: what its own earlier rows were written with. */
@@ -127,7 +144,7 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
       if (foreignIds.has(String(row.id))) {
         throw new EmployeeComponentRefused(
           `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cancel a once-off this package did not write `
-          + `(from ${isoDate(row.effective_from)}) that run paid. Apply the package from a later date; or, to keep this date, ${paidRemedy(changed)} and then end or move that once-off.`);
+          + `(from ${isoDate(row.effective_from)}) that run paid. ${applyFromAfter(row, paid) ? `Apply the package from ${applyFromAfter(row, paid)}` : 'Apply the package from a later date'}; or, to keep this date, ${paidRemedyInline(changed)} and then end or move that once-off.`);
       }
       throw new EmployeeComponentRefused(
         `${periodLabel(changed)} is already paid ${paidNote(changed)}, and applying this package from ${effectiveFrom} would cut an `

@@ -8,7 +8,7 @@
  */
 import type { TxSql } from '@/lib/neon';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
-import { paidNote, paidPeriodsOf, periodLabel, type PaidPeriod } from './payrollComponentPaidMonths';
+import { paidNote, paidPeriodsOf, paidRemedyInline, periodLabel, type PaidPeriod } from './payrollComponentPaidMonths';
 import { payrollRunReadDate } from './payrollRunReadDate';
 
 /** A once-off must start and end in one month. */
@@ -60,6 +60,6 @@ export async function refuseRecurringInPaidMonth(
   if (hit) {
     throw new EmployeeComponentRefused(
       `${periodLabel(hit)} is already paid ${paidNote(hit)}: a recurring row dated in it would never be paid for that month. `
-      + 'Date it from an open month, or capture the correction in an open period.');
+      + `Date it from an open month; or ${paidRemedyInline(hit)}, or capture the correction in an open period.`);
   }
 }

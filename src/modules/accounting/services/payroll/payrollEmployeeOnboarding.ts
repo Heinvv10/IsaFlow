@@ -223,7 +223,7 @@ export async function createEmployeeWithPay(companyId: string, userId: string, b
     if (salaryTo !== null && endDay !== null && salaryTo > endDay) throw new EmployeeOnboardingRefused('salary.effectiveTo cannot be after the endDate');
     const endsWithEmployment = salaryTo !== null && salaryTo === endDay;
     // Paid months first: its advice (where to start) is the one to follow; the end check's advice could land in a paid month.
-    const paidMonth = await salaryInPaidMonthRefusal(companyId, salaryFrom, salaryTo, endsWithEmployment);
+    const paidMonth = await salaryInPaidMonthRefusal(companyId, salaryFrom, salaryTo, endsWithEmployment, endDay);
     if (paidMonth) throw new EmployeeOnboardingRefused(paidMonth);
     const endRefusal = salaryEndRefusal(salaryFrom, salaryTo, endsWithEmployment, endDay);
     if (endRefusal) throw new EmployeeOnboardingRefused(endRefusal);

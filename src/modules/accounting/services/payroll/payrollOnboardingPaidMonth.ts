@@ -28,7 +28,9 @@ function monthsText(indexes: number[]): string {
  * ones between (a salary cannot start in an open month that a later paid month runs through). The salary moves to
  * the month after; when the end date leaves no such month, the advice is once-offs and no salary.
  */
-export function salaryPaidMonthText(paid: Period[], from: string, to: string | null = null, endsWithEmployment = true): string | null {
+export function salaryPaidMonthText(
+  paid: Period[], from: string, to: string | null = null, endsWithEmployment = true, endDay: string | null = null,
+): string | null {
   const start = Number(from.slice(0, 4)) * 12 + Number(from.slice(5, 7)) - 1;
   const end = to === null ? Infinity : Number(to.slice(0, 4)) * 12 + Number(to.slice(5, 7)) - 1;
   const paidIdx = new Set(paid.map(indexOf));
@@ -48,7 +50,14 @@ export function salaryPaidMonthText(paid: Period[], from: string, to: string | n
   if (to !== null && (nextFirst > to || (to.slice(0, 7) === nextFirst.slice(0, 7) && !paysItsLastMonth(to, endsWithEmployment)))) {
     return `${first} already paid${because}. The end date ${to} leaves no open month for the salary: pay ${pay} in an open month and create the employee without a salary.`;
   }
-  return `${first} already paid${because}. Set the salary to start ${nextFirst} and pay ${pay} in an open month.`;
+  const startAdvice = `Set the salary to start ${nextFirst} and pay ${pay} in an open month.`;
+  // The salary would then run on past that month into one it is not paid in: give the end advice with the start advice,
+  // so following the one message is enough (otherwise the next try meets the early-end refusal).
+  if (to !== null && to.slice(0, 7) > nextFirst.slice(0, 7) && !paysItsLastMonth(to, endsWithEmployment)) {
+    const endAdvice = salaryEndRefusal(nextFirst, to, endsWithEmployment, endDay);
+    if (endAdvice) return `${first} already paid${because}. ${startAdvice} Its end needs changing too: ${endAdvice}`;
+  }
+  return `${first} already paid${because}. ${startAdvice}`;
 }
 
 /**
@@ -91,11 +100,11 @@ export function salaryEndRefusal(
 }
 
 export async function salaryInPaidMonthRefusal(
-  companyId: string, from: string, to: string | null = null, endsWithEmployment = true,
+  companyId: string, from: string, to: string | null = null, endsWithEmployment = true, endDay: string | null = null,
 ): Promise<string | null> {
   const paid = await withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
     return paidPeriodsOf(tx, companyId, null);
   });
-  return salaryPaidMonthText(paid, from, to, endsWithEmployment);
+  return salaryPaidMonthText(paid, from, to, endsWithEmployment, endDay);
 }

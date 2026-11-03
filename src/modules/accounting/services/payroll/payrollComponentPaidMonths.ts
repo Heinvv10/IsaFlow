@@ -28,6 +28,9 @@ export const paidNote = (p: PaidPeriod): string => (p.reopened ? '(reopened, but
 /** What undoes it: a reopened run still counts while its journal stands, so an approved run is reopened AND its journal reversed. */
 export const paidRemedy = (p: PaidPeriod): string => (p.reopened ? 'Reverse its journal first' : 'Reopen that run and reverse its journal first');
 
+/** The remedy inside a sentence ("..., or reopen that run ..."): the first letter lower-cased, at the call site. */
+export const paidRemedyInline = (p: PaidPeriod): string => paidRemedy(p).replace(/^./, (c) => c.toLowerCase());
+
 /**
  * Whether a run of `period` reads (or, for a paid run, READ) this assignment: getEmployeeComponents' rule, row by
  * row. A supersede counts only if it happened before the run was calculated: a row cut after a paid run read it was

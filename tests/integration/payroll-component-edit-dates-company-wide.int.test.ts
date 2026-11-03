@@ -196,6 +196,11 @@ describe('the writers refuse a recurring row dated in a paid month, for an emplo
     expect(out.content[0]!.text).toMatch(/2026-02 .*already paid/i);
   });
 
+  it('the remedy says to reopen the run and reverse its journal', async () => {
+    await expect(assignComponentToEmployee(company, outsider, comp.assignable!, 100, '2026-02-01', undefined, true, actor))
+      .rejects.toThrow(/Date it from an open month; or reopen that run and reverse its journal first, or capture the correction in an open period/);
+  });
+
   it('batch post', async () => {
     await expect(batch('2026-02-01')).rejects.toThrow(paidMonth);
     await expect(batch('2026-03-01')).resolves.toEqual({ inserted: 1 });
