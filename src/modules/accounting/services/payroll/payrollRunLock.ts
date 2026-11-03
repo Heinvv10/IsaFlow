@@ -12,7 +12,9 @@
  * LOCK ORDER, every payroll-run writer (all waits bounded at 5s, then a
  * retryable refusal):
  *   1. the company approval lock (lockCompanyPayrollApprovals): approve,
- *      calculate and reopen;
+ *      calculate and reopen; setEmployeeBankDetails takes the same key for a
+ *      non-owner / admin caller (payrollApprovalLockScope; RowLockTimeoutError),
+ *      then the employee row, and no run header;
  *   2. the run's header row (lockPayrollRunHeader): the same three;
  *   3. approval only: the linked journal and its reversal chain
  *      (lockRunJournalForApproval, payrollJournalChain), then the severance
@@ -109,6 +111,9 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
   `) as DbRow[])[0] ?? null);
 }
 
+/** Shared key for every write whose verdict depends on payroll approval state. */
+export const payrollApprovalLockScope = (companyId: string): string => `payroll_approval:${companyId}`;
+
 /**
  * Serialise this company's payroll approvals until the caller's transaction
  * ends (a transaction-scoped advisory lock, bounded like the row locks). The
@@ -117,7 +122,9 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
  * pay-outs, approved at once, would both pass it. Taken by approvePayrollRun,
  * since cumulative PAYE (PAYE 4a follow-ups G4) by calculatePayrollRun, and
  * since round 2 (R1) by reopenPayrollRun, all before the header lock, so they
- * cannot form a cycle; the generic reversal does not take it. A reopen waits
+ * cannot form a cycle; setEmployeeBankDetails (a manager's first entry reads
+ * the ever-approved verdict) takes it before the employee row, via
+ * payrollApprovalLockScope, and never a run header; the generic reversal does not take it. A reopen waits
  * for an in-flight calculation, so its reopened_at is either before the
  * calculation read the year-to-date or after its lines were written — the
  * stale year-to-date gate compares the two. Deliberately, a calculation holds it until its
@@ -132,7 +139,7 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
  */
 export async function lockCompanyPayrollApprovals(runId: string, companyId: string): Promise<void> {
   await withBoundedLockWait(runId, (tx) => tx`
-    SELECT pg_advisory_xact_lock(hashtextextended(${`payroll_approval:${companyId}`}, 0))
+    SELECT pg_advisory_xact_lock(hashtextextended(${payrollApprovalLockScope(companyId)}, 0))
   `);
 }
 
