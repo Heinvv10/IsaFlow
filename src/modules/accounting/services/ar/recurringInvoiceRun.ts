@@ -23,6 +23,7 @@ import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { evaluateApprovalGate } from '../gl/approvalGate';
 import { raiseUnattendedApproval } from '../gl/approvalUnattended';
 import { stampUpstreamAuthors } from './customerInvoiceUpstreamAuthors';
+import { advanceDate } from '../gl/recurringSchedule';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 
 type Row = DbRow;
@@ -181,15 +182,4 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
 
   log.info('Generated invoice from recurring', { recurringId: id, invoiceId, heldForApproval }, 'accounting');
   return { invoiceId, heldForApproval };
-}
-
-function advanceDate(dateStr: string, frequency: string): string {
-  const d = new Date(dateStr);
-  switch (frequency) {
-    case 'weekly': d.setDate(d.getDate() + 7); break;
-    case 'monthly': d.setMonth(d.getMonth() + 1); break;
-    case 'quarterly': d.setMonth(d.getMonth() + 3); break;
-    case 'annually': d.setFullYear(d.getFullYear() + 1); break;
-  }
-  return d.toISOString().split('T')[0]!;
 }
