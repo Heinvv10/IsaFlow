@@ -28,6 +28,15 @@ const arAcc = crypto.randomUUID(), revAcc = crypto.randomUUID(), vatAcc = crypto
 let generated = '';
 
 /**
+ * The templates' run date: the 1st of the current month, in SAST (the app's
+ * "today"). It is always due, and a monthly advance from the 1st is always the
+ * 1st of next month, so the expected next_run_date never depends on today.
+ * `CURRENT_DATE - 3 days` broke whenever that landed on the 29th-31st: Postgres
+ * clamps 31 Oct + 1 month to 30 Nov, the service's Date.setMonth gives 1 Dec.
+ */
+const RUN_DATE_SQL = "date_trunc('month', (NOW() AT TIME ZONE 'Africa/Johannesburg')::date)::date";
+
+/**
  * Run inside a real request transaction, exactly as withAuth does. The service
  * now takes FOR UPDATE on the template and refuses without one, because outside
  * a transaction that lock is released the instant the SELECT returns.
@@ -53,7 +62,9 @@ beforeAll(async () => {
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [customer, company, 'K013 customer']);
   await pool.query(
-    "INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,$2,'K013 year',1,2026,'2026-01-01','2026-12-31','open')",
+    `INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+     SELECT $1,$2,'K013 year',1,EXTRACT(YEAR FROM y)::int,y::date,(y + INTERVAL '1 year - 1 day')::date,'open'
+     FROM (SELECT date_trunc('year', CURRENT_DATE) AS y) t`,
     [period, company]);
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account) VALUES
@@ -62,11 +73,11 @@ beforeAll(async () => {
       ($3,$4,'K2200','VAT output','liability','vat_output','credit',true,true)`,
     [arAcc, revAcc, vatAcc, company]);
   await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
-    VALUES($1,$2,'K013 monthly retainer',$3,'monthly',CURRENT_DATE - INTERVAL '3 days','Monthly retainer',
+    VALUES($1,$2,'K013 monthly retainer',$3,'monthly',${RUN_DATE_SQL},'Monthly retainer',
       $4::jsonb,1000,15,150,1150,$5,'active')`,
     [template, company, customer, JSON.stringify([{ description: 'Monthly retainer', quantity: 1, unitPrice: 1000 }]), user]);
   await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
-    VALUES($1,$2,'K013 empty template',$3,'monthly',CURRENT_DATE - INTERVAL '3 days','Empty',
+    VALUES($1,$2,'K013 empty template',$3,'monthly',${RUN_DATE_SQL},'Empty',
       '[]'::jsonb,0,15,0,0,$4,'active')`,
     [emptyTemplate, company, customer, user]);
 });
@@ -125,7 +136,7 @@ it('generates an approved invoice that carries its lines and its GL journal', as
     'SELECT run_count, next_run_date::text AS next FROM recurring_invoices WHERE id=$1', [template])).rows[0];
   expect(Number(ri.run_count)).toBe(1);
   const expected = (await pool.query(
-    "SELECT to_char((CURRENT_DATE - INTERVAL '3 days' + INTERVAL '1 month')::date,'YYYY-MM-DD') AS d")).rows[0].d;
+    `SELECT to_char((${RUN_DATE_SQL} + INTERVAL '1 month')::date,'YYYY-MM-DD') AS d`)).rows[0].d;
   expect(ri.next).toBe(expected);
 });
 
@@ -153,7 +164,7 @@ it('rolls the header back inside the request transaction when approval cannot po
   // lines with it, so the surviving transaction holds nothing half-built.
   const t2 = crypto.randomUUID();
   await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
-    VALUES($1,$2,'K013 blocked',$3,'monthly',CURRENT_DATE - INTERVAL '3 days','Blocked',$4::jsonb,500,15,75,575,$5,'active')`,
+    VALUES($1,$2,'K013 blocked',$3,'monthly',${RUN_DATE_SQL},'Blocked',$4::jsonb,500,15,75,575,$5,'active')`,
     [t2, company, customer, JSON.stringify([{ description: 'Blocked line', quantity: 1, unitPrice: 500 }]), user]);
   await pool.query('UPDATE gl_accounts SET account_subtype=NULL WHERE id=$1', [revAcc]);
   clearSystemAccountCache(company);
@@ -214,7 +225,7 @@ it('serialises two concurrent runs of one template on the template row lock', as
   // than colliding by luck on the invoice-number unique index.
   const t3 = crypto.randomUUID();
   await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
-    VALUES($1,$2,'K013 race',$3,'monthly',CURRENT_DATE - INTERVAL '3 days','Race',$4::jsonb,200,15,30,230,$5,'active')`,
+    VALUES($1,$2,'K013 race',$3,'monthly',${RUN_DATE_SQL},'Race',$4::jsonb,200,15,30,230,$5,'active')`,
     [t3, company, customer, JSON.stringify([{ description: 'Race line', quantity: 1, unitPrice: 200 }]), user]);
 
   const a = await pool.connect(), b = await pool.connect();
@@ -250,7 +261,7 @@ it('refuses a template whose stored totals disagree with its lines', async () =>
   // not silently turned into an invoice whose detail does not foot.
   const t4 = crypto.randomUUID();
   await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
-    VALUES($1,$2,'K013 drifted',$3,'monthly',CURRENT_DATE - INTERVAL '3 days','Drifted',$4::jsonb,9000,15,1350,10350,$5,'active')`,
+    VALUES($1,$2,'K013 drifted',$3,'monthly',${RUN_DATE_SQL},'Drifted',$4::jsonb,9000,15,1350,10350,$5,'active')`,
     [t4, company, customer, JSON.stringify([{ description: 'Drifted line', quantity: 1, unitPrice: 100 }]), user]);
 
   await expect(inTx(() => generateInvoiceFromRecurring(company, t4, user)))
@@ -265,7 +276,7 @@ it('writes a header that foots against its own lines and its journal', async () 
   // equals total_amount equals the receivable debit, by construction.
   const t5 = crypto.randomUUID();
   await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
-    VALUES($1,$2,'K013 multi',$3,'monthly',CURRENT_DATE - INTERVAL '3 days','Multi',$4::jsonb,433.32,15,65,498.32,$5,'active')`,
+    VALUES($1,$2,'K013 multi',$3,'monthly',${RUN_DATE_SQL},'Multi',$4::jsonb,433.32,15,65,498.32,$5,'active')`,
     [t5, company, customer, JSON.stringify([
       { description: 'A', quantity: 3, unitPrice: 33.333 },
       { description: 'B', quantity: 1, unitPrice: 333.33 },
@@ -296,7 +307,7 @@ it('rolls back only the failing template when several run in one transaction', a
     [bad, 'SeqBad', []],
   ] as [string, string, unknown[]][]) {
     await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
-      VALUES($1,$2,$3,$4,'monthly',CURRENT_DATE - INTERVAL '3 days',$3,$5::jsonb,100,15,15,115,$6,'active')`,
+      VALUES($1,$2,$3,$4,'monthly',${RUN_DATE_SQL},$3,$5::jsonb,100,15,15,115,$6,'active')`,
       [id, company, name, customer, JSON.stringify(lines), user]);
   }
 
@@ -328,7 +339,7 @@ it('does not advance the schedule when the schedule UPDATE is rolled back with i
   // next_run_date in the surviving transaction.
   const t6 = crypto.randomUUID();
   await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
-    VALUES($1,$2,'K013 sched',$3,'monthly',CURRENT_DATE - INTERVAL '3 days','Sched',$4::jsonb,400,15,60,460,$5,'active')`,
+    VALUES($1,$2,'K013 sched',$3,'monthly',${RUN_DATE_SQL},'Sched',$4::jsonb,400,15,60,460,$5,'active')`,
     [t6, company, customer, JSON.stringify([{ description: 'Sched line', quantity: 1, unitPrice: 400 }]), user]);
   await pool.query('UPDATE gl_accounts SET account_subtype=NULL WHERE id=$1', [revAcc]);
   clearSystemAccountCache(company);
@@ -342,7 +353,7 @@ it('does not advance the schedule when the schedule UPDATE is rolled back with i
     'SELECT run_count, next_run_date::text AS next, last_run_date FROM recurring_invoices WHERE id=$1', [t6])).rows[0];
   expect(Number(ri.run_count)).toBe(0);
   const untouched = (await pool.query(
-    "SELECT to_char((CURRENT_DATE - INTERVAL '3 days')::date,'YYYY-MM-DD') AS d")).rows[0].d;
+    `SELECT to_char((${RUN_DATE_SQL})::date,'YYYY-MM-DD') AS d`)).rows[0].d;
   expect(ri.next).toBe(untouched);
   expect(ri.last_run_date).toBeNull();
 });
@@ -350,7 +361,7 @@ it('does not advance the schedule when the schedule UPDATE is rolled back with i
 it('refuses to run at all outside a request transaction, rather than locking nothing', async () => {
   const t7 = crypto.randomUUID();
   await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
-    VALUES($1,$2,'K013 notx',$3,'monthly',CURRENT_DATE - INTERVAL '3 days','NoTx',$4::jsonb,100,15,15,115,$5,'active')`,
+    VALUES($1,$2,'K013 notx',$3,'monthly',${RUN_DATE_SQL},'NoTx',$4::jsonb,100,15,15,115,$5,'active')`,
     [t7, company, customer, JSON.stringify([{ description: 'NoTx line', quantity: 1, unitPrice: 100 }]), user]);
   await expect(generateInvoiceFromRecurring(company, t7, user)).rejects.toThrow(/requires a request transaction/);
   const n = await pool.query(
@@ -366,7 +377,7 @@ it('rolls the invoice back when the schedule advance itself fails', async () => 
   // integer ceiling makes `run_count + 1` raise deterministically.
   const t8 = crypto.randomUUID();
   await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status,run_count)
-    VALUES($1,$2,'K013 overflow',$3,'monthly',CURRENT_DATE - INTERVAL '3 days','Overflow',$4::jsonb,300,15,45,345,$5,'active',2147483647)`,
+    VALUES($1,$2,'K013 overflow',$3,'monthly',${RUN_DATE_SQL},'Overflow',$4::jsonb,300,15,45,345,$5,'active',2147483647)`,
     [t8, company, customer, JSON.stringify([{ description: 'Overflow line', quantity: 1, unitPrice: 300 }]), user]);
 
   const client = await pool.connect();
@@ -401,7 +412,7 @@ it('survives a lock timeout: the contended template fails alone and its siblings
   const contended = crypto.randomUUID(), sibling = crypto.randomUUID();
   for (const [id, name] of [[contended, 'Contended'], [sibling, 'Sibling']] as [string, string][]) {
     await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
-      VALUES($1,$2,$3,$4,'monthly',CURRENT_DATE - INTERVAL '3 days',$3,$5::jsonb,100,15,15,115,$6,'active')`,
+      VALUES($1,$2,$3,$4,'monthly',${RUN_DATE_SQL},$3,$5::jsonb,100,15,15,115,$6,'active')`,
       [id, company, name, customer, JSON.stringify([{ description: `${name} line`, quantity: 1, unitPrice: 100 }]), user]);
   }
 
