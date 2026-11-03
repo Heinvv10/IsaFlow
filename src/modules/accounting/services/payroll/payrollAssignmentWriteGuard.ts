@@ -2,7 +2,7 @@
  * What a writer that INSERTs an assignment refuses before it writes (assign, batch post, package apply), under the
  * company's payroll-approval lock: a once-off spanning months; a row dated in a month the company's paid runs paid
  * (payrollOnceOffGuard); and, for a recurring row, a live row of the same employee and component it overlaps (both
- * would be paid), as Edit dates refuses it. The siblings are read FOR UPDATE. Batch post reads the paid months once
+ * would be paid; a once-off is additive and never clashes), as Edit dates refuses it. The siblings are read FOR UPDATE. Batch post reads the paid months once
  * and passes them in (`paid`), and names the employee in a refusal (`named`: a batch holds many).
  * Package apply cuts the overlapping rows first (payPackageSupersede), so it skips the overlap (`overlap: false`).
  */
@@ -15,11 +15,13 @@ import { refuseOnceOffInPaidMonth, refuseOnceOffSpan, refuseRecurringInPaidMonth
 export interface AssignmentWrite { employeeId: string; componentId: string; from: string; to: string | null; recurring: boolean }
 export interface WriteGuardOptions { paid?: PaidPeriod[]; named?: boolean; overlap?: boolean }
 
-async function refuseOverlap(tx: TxSql, a: AssignmentWrite): Promise<void> {
+async function refuseOverlap(tx: TxSql, companyId: string, a: AssignmentWrite): Promise<void> {
+  // Recurring siblings only: a once-off is additive (the reader pays it on top), so it never clashes.
   const siblings = (await tx`
-    SELECT effective_from, effective_to FROM payroll_employee_components
-     WHERE employee_id = ${a.employeeId}::uuid AND component_id = ${a.componentId}::uuid
-     ORDER BY id FOR UPDATE
+    SELECT c.effective_from, c.effective_to FROM payroll_employee_components c
+      JOIN payroll_employees e ON e.id = c.employee_id AND e.company_id = ${companyId}::uuid
+     WHERE c.employee_id = ${a.employeeId}::uuid AND c.component_id = ${a.componentId}::uuid AND c.is_recurring IS NOT FALSE
+     ORDER BY c.id FOR UPDATE OF c
   `) as DbRow[];
   for (const r of siblings) {
     const from = fmtDate(r.effective_from);
@@ -42,7 +44,7 @@ export async function refuseAssignmentWrite(
       return;
     }
     await refuseRecurringInPaidMonth(tx, companyId, null, { from: a.from, to: a.to }, opts.paid);
-    if (opts.overlap !== false) await refuseOverlap(tx, a);
+    if (opts.overlap !== false) await refuseOverlap(tx, companyId, a);
   } catch (err) {
     if (!opts.named || !(err instanceof EmployeeComponentRefused)) throw err;
     const row = (await tx`

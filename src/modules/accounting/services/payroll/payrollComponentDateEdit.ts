@@ -11,7 +11,7 @@
  *   - Edit: a non-date, an end before the start, a once-off open-ended or spanning more than one month;
  *   - End: an end before the start of a row a paid run read, or later than the current end (End only shortens;
  *     Edit dates extends); a cancel of a row a paid run read;
- *   - a window overlapping another live sibling (both would be paid);
+ *   - a recurring window overlapping another live recurring sibling (both would be paid; a once-off never clashes);
  *   - a change to what a paid run paid (payrollComponentPaidMonths);
  *   - Edit: a once-off or recurring row gaining a calendar month any approved run of the company paid (company-wide,
  *     not only the employee's own lines: that run will never pay it).
@@ -121,7 +121,10 @@ export async function changeAssignmentDates(
     const { after, kind } = nextWindow(self, change, paid.find((p) => assignmentReadInPeriod(self, p)) ?? null);
 
     if (kind !== 'cancel') {
-      const clash = siblings.find((y) => y.id !== self.id && live(y) && y.from <= (after.to ?? '9999-12-31') && (y.to === null || y.to >= after.from));
+      // Recurring against recurring only: a once-off is additive, the reader pays it on top of the recurring row.
+      const clash = after.recurring && siblings.find(
+        (y) => y.id !== self.id && y.recurring && live(y) && y.from <= (after.to ?? '9999-12-31') && (y.to === null || y.to >= after.from),
+      );
       if (clash) {
         refuse(`These dates overlap the employee's other assignment of this component (${clash.from} to ${clash.to ?? 'open-ended'}): `
           + 'both would be paid. Change or end that one first.');
