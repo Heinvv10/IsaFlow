@@ -13,13 +13,25 @@ import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { ApiRequestError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { notify } from '@/utils/toast';
 import { approvalShown, type ShownForApproval } from './approveShown';
 
 const APPROVE_FAILED = 'Could not approve the invoice - try again';
 const SEND_FAILED = 'Could not send the invoice email - try again';
+const SENT_ELSEWHERE_FAILED = 'email failed - check it on its page';
 const OPEN_FAILED = 'Could not open the invoice - it is approved; find it in the invoice list.';
 const APPROVED = 'Approved. Nothing is sent until you click Send Email.';
 const DRIFTED = 'The invoice changed while it was being approved: that change was not saved and is not on the approved invoice.';
+
+/**
+ * An answer for an invoice no longer open (another opened in place, or the page left): not shown on the form now
+ * open, but not lost either. The app's toast names the invoice it was about.
+ */
+function noticeElsewhere(invoiceId: string, what: 'approved' | 'refused' | 'sent' | 'not_sent', title: string): void {
+  log.info('Approve & email: an answer for an invoice no longer open', { invoiceId, what }, 'useApproveAndEmail');
+  if (what === 'approved' || what === 'sent') notify.success(title);
+  else notify.error(title);
+}
 
 export interface SavedInvoice { id: string; invoiceNumber: string }
 
@@ -106,17 +118,18 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, shown
         if (!res.ok) reason = await refusalReason(res);
         await assertOk(res, APPROVE_FAILED);
       } catch (err) {
-        if (!current()) return;
+        if (!current()) { noticeElsewhere(saved.id, 'refused', `Invoice ${saved.invoiceNumber}: ${apiErrorMessage(err, APPROVE_FAILED)}`); return; }
         onRefused(saved.id, apiErrorMessage(err, APPROVE_FAILED), err instanceof ApiRequestError ? err.status : undefined, reason);
         return;
       }
-      if (!current()) return;
+      if (!current()) { noticeElsewhere(saved.id, 'approved', `Invoice ${saved.invoiceNumber} approved`); return; }
       onApproved?.();
       setDrifted(bodyNow() !== approvedBody);
       setResult('');
       markSent(false);
       const form = await readEmailForm(saved);
       if (current()) setEmail(form);
+      else noticeElsewhere(saved.id, 'approved', `Invoice ${form.invoiceNumber} approved`); // approved here, then the page moved on
     } finally {
       if (current()) setBusy(false);
     }
@@ -135,11 +148,15 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, shown
       });
       await assertOk(res, SEND_FAILED);
       const json = await res.json() as { data?: { sent?: boolean }; message?: string };
-      if (!current()) return;
+      if (!current()) {
+        noticeElsewhere(email.invoiceId, json.data?.sent ? 'sent' : 'not_sent', json.data?.sent ? `Invoice ${email.invoiceNumber}: email sent` : `Invoice ${email.invoiceNumber}: ${SENT_ELSEWHERE_FAILED}`);
+        return;
+      }
       markSent(Boolean(json.data?.sent));
       setResult(json.data?.sent ? 'Invoice emailed successfully!' : (json.message || 'Email could not be sent.'));
     } catch (err) {
       if (current()) setResult(apiErrorMessage(err, SEND_FAILED));
+      else noticeElsewhere(email.invoiceId, 'not_sent', `Invoice ${email.invoiceNumber}: ${SENT_ELSEWHERE_FAILED}`);
     } finally {
       if (current()) setSending(false);
     }
