@@ -6,7 +6,6 @@
  */
 import { formatAmount, formatMoney } from '@/lib/money/formatMoney';
 import { sameCents, toScaledInteger } from '../shared/functionalAmounts';
-import { shownDigestOf, type ShownRow } from './customerInvoiceShownDigest';
 
 export interface ShownInvoice {
   expectedTotal?: number;
@@ -15,7 +14,8 @@ export interface ShownInvoice {
   expectedContentDigest?: string;
 }
 
-interface Stored extends ShownRow { total_amount?: unknown; currency_code?: unknown; exchange_rate?: unknown }
+/** `shown_digest`: the stored row's shown digest (customerInvoiceShownDigest, computed by the server caller: it hashes). */
+interface Stored { total_amount?: unknown; currency_code?: unknown; exchange_rate?: unknown; shown_digest?: string }
 
 const currencyOf = (code: unknown): string => (typeof code === 'string' && code.trim() ? code.trim().toUpperCase() : 'ZAR');
 const ONE = BigInt(1000000);
@@ -58,7 +58,7 @@ export function assertShownIsStored(shown: ShownInvoice, stored: Stored): void {
     || (shown.expectedCurrency !== undefined && currencyOf(shown.expectedCurrency) !== currency)
     || (shown.expectedExchangeRate !== undefined && rateOf(shown.expectedExchangeRate) !== rate);
   if (moved) throw new InvoiceStaleViewError(describe(total, currency, rate));
-  if (shown.expectedContentDigest !== undefined && shown.expectedContentDigest !== shownDigestOf(stored)) {
+  if (shown.expectedContentDigest !== undefined && shown.expectedContentDigest !== stored.shown_digest) {
     throw new InvoiceStaleViewError(null);
   }
 }

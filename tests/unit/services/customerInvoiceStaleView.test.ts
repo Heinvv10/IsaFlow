@@ -31,19 +31,23 @@ describe('assertShownIsStored and approval content', () => {
   it('refuses an unseen content change even when total, currency and rate are unchanged', () => {
     expect(() => assertShownIsStored(
       { expectedTotal: 1150, expectedCurrency: 'ZAR', expectedExchangeRate: 1, expectedContentDigest: 'screen-digest' },
-      { total_amount: '1150.00', currency_code: 'ZAR', exchange_rate: 1, approval_content_digest: 'changed-digest' },
+      { total_amount: '1150.00', currency_code: 'ZAR', exchange_rate: 1, shown_digest: 'changed-digest' },
     )).toThrow(InvoiceStaleViewError);
   });
 
   it('accepts the shown digest of the row the screen loaded (approval digest + notes, due date, billing period)', () => {
     const row = { approval_content_digest: 'screen-digest', notes: 'Pay by EFT', due_date: '2026-10-01', billing_period_start: null, billing_period_end: null };
-    expect(() => assertShownIsStored({ expectedContentDigest: shownDigestOf(row) }, row)).not.toThrow();
-    expect(() => assertShownIsStored({ expectedContentDigest: shownDigestOf(row) }, { ...row, notes: 'Changed' })).toThrow(InvoiceStaleViewError);
+    const stored = (r: typeof row) => ({ shown_digest: shownDigestOf(r) }); // as the approval computes it under the lock
+    expect(() => assertShownIsStored({ expectedContentDigest: shownDigestOf(row) }, stored(row))).not.toThrow();
+    expect(() => assertShownIsStored({ expectedContentDigest: shownDigestOf(row) }, stored({ ...row, notes: 'Changed' }))).toThrow(InvoiceStaleViewError);
+    for (const key of ['due_date', 'billing_period_start', 'billing_period_end'] as const) {
+      expect(shownDigestOf({ ...row, [key]: '2027-01-01' })).not.toBe(shownDigestOf(row));
+    }
   });
 
   it('says what changed: the total when it moved, the content (never the total) when only that did', () => {
-    const row = { total_amount: '1150.00', approval_content_digest: 'd', notes: '' };
-    expect(() => assertShownIsStored({ expectedTotal: 1000, expectedContentDigest: shownDigestOf(row) }, row)).toThrow(/its total is now/);
+    const row = { total_amount: '1150.00', shown_digest: 'd' };
+    expect(() => assertShownIsStored({ expectedTotal: 1000, expectedContentDigest: 'd' }, row)).toThrow(/its total is now/);
     expect(() => assertShownIsStored({ expectedTotal: 1150, expectedContentDigest: 'other' }, row)).toThrow(/lines, customer, dates or notes/);
     expect(() => assertShownIsStored({ expectedTotal: 1150, expectedContentDigest: 'other' }, row)).not.toThrow(/total/);
   });
