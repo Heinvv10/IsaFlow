@@ -10,6 +10,7 @@ import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
+import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 
 /** The blocker approval raises (null when current), and advisories it does not refuse for. */
 export interface YearToDateJudgement {
@@ -136,17 +137,10 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
     ),
     line_remuneration AS (
       SELECT l.*,
-             COALESCE((
-               SELECT SUM((item->>'amount')::numeric) FILTER (
-                 WHERE (item->>'isTaxable')::boolean
-                   AND (pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%')
-                   AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') !~ '^39[0-9][0-9]$'
-               )
-               FROM jsonb_array_elements(COALESCE(l.component_breakdown, '[]'::jsonb)) AS item
-               LEFT JOIN payroll_components pc ON pc.id::text = item->>'componentId' AND pc.company_id = h.company_id
-             ), 0) > 0 AS has_table_remuneration
+             r.had_table_remuneration AS has_table_remuneration
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
+      CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
       WHERE h.company_id = ${companyId}::uuid
     ),
     me AS (SELECT r.* FROM runs r WHERE r.id = ${runId}::uuid),

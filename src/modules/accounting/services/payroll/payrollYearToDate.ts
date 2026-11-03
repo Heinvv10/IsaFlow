@@ -9,9 +9,10 @@
  * employee was paid and what EMP201 and the IRP5 declare, so the cumulative
  * deduction trues up to exactly those.
  *
- * - periods: lines with taxable periodic earnings before deductions, from
- *   original_taxable less annual_3605 in the stored breakdown (a severance-only
- *   or donation-correction-only line has none);
+ * - periods: lines with positive taxable periodic earnings before deductions,
+ *   read separately from 3605 in the stored breakdown so an annual-payment
+ *   clawback cannot erase a salary period (a severance-only or
+ *   donation-correction-only line has none);
  * - retirementCapPeriods: those lines or a line with a pre-deduction annual
  *   payment, so each bonus-only period advances the pro-rated s11F cap;
  * - periodicTaxable / annualPayments: the line's periodic_taxable /
@@ -46,6 +47,7 @@ import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
 import { loadMedicalRecord } from './payrollMedicalRecord';
 import { loadRetirementRecord } from './payrollRetirementRecord';
+import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -64,26 +66,24 @@ export async function loadPayeYearToDate(
       SELECT l.id AS line_id, l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic,
-             CASE WHEN jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
-               THEN GREATEST(b.original_taxable - b.annual_3605, 0)
+             CASE WHEN l.periodic_taxable IS NOT NULL
+                    AND jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
+               THEN r.periodic_before_deductions
                ELSE COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income))
              END AS periodic_before_deductions,
-             CASE WHEN jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
-               THEN b.annual_3605 ELSE COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income))
+             CASE WHEN l.annual_taxable IS NOT NULL
+                    AND jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
+               THEN r.annual_before_deductions ELSE COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income))
              END AS annual_before_deductions,
-             b.annual_3605, b.original_taxable, b.donations
+             b.annual_3605, (r.periodic_before_deductions + r.annual_before_deductions) AS original_taxable, b.donations
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
+      CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
       CROSS JOIN LATERAL (
         SELECT COALESCE(SUM((item->'directive'->>'paye')::numeric) FILTER (WHERE item->'directive' IS NOT NULL), 0) AS directive_paye,
                GREATEST(COALESCE(SUM((item->>'amount')::numeric) FILTER (
                  WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605'
                    AND (item->>'isTaxable')::boolean), 0), 0) AS annual_3605,
-               GREATEST(COALESCE(SUM((item->>'amount')::numeric) FILTER (
-                 WHERE (item->>'isTaxable')::boolean
-                   AND (pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%')
-                   AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') !~ '^39[0-9][0-9]$'
-               ), 0), 0) AS original_taxable,
                COALESCE(SUM((item->>'amount')::numeric) FILTER (
                  WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '4030'
                    AND (item->>'isTaxable')::boolean AND pc.component_type = 'deduction'

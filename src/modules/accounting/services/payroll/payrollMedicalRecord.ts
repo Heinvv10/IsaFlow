@@ -10,8 +10,9 @@
  * - credit: 4116, the lines' medical_credit (payeCumulative: each line records
  *   the credit inside the liability to date less what earlier lines recorded,
  *   so the sum is the credit inside the latest line's liability);
- * - recorded: whether the employee's latest line taxed from the tables
- *   (taxable_income > 0) carries a record. If it does not (calculated before
+ * - recorded: whether the employee's latest line with pre-deduction table
+ *   remuneration or a medical-credit adjustment carries a record. If it does
+ *   not (calculated before
  *   926), the sum misses that line's credit and its fees' credit, so the
  *   certificate cannot state 4116 (see easyFileMedicalFields).
  *
@@ -26,6 +27,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 
 export interface MedicalRecord {
   fees: number;
@@ -59,9 +61,11 @@ export async function loadMedicalRecord(
            SUM(l.medical_credit)::numeric AS credit,
            SUM(l.additional_medical_credit)::numeric AS additional_credit,
            (array_agg(l.medical_credit IS NOT NULL ORDER BY h.period_year DESC, h.period_month DESC)
-              FILTER (WHERE l.taxable_income > 0))[1] AS latest_recorded
+              FILTER (WHERE r.had_table_remuneration
+                OR COALESCE(l.medical_credit, 0) <> 0 OR COALESCE(l.additional_medical_credit, 0) <> 0))[1] AS latest_recorded
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id
+    CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
     WHERE h.company_id = ${companyId}::uuid
       AND h.status = ANY(${declarable}::text[])
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date

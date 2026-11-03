@@ -5,6 +5,7 @@ import { employerContributionWarning, employerFundBenefitWarning, isEmployerFund
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
+import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -108,6 +109,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     }
   }
 
+  // A month counts as a periodic-remuneration period when periodic remuneration
+  // was paid. Capture that before an annual-payment clawback or a taxable
+  // deduction can reduce the amount taxed from the tables.
+  const remuneration = remunerationBeforeDeductions(periodicTaxable, annualPayments);
   // A net negative annual payment (a bonus clawback) reduces regular pay, as it
   // did before the split. Taxable deductions come off regular pay first, any
   // excess off the annual payments, so the taxed total is unchanged by the split.
@@ -115,8 +120,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     periodicTaxable += annualPayments;
     annualPayments = 0;
   }
-  const periodicRemuneration = Math.max(0, periodicTaxable);
-  const annualPaymentRemuneration = Math.max(0, annualPayments);
+  const periodicRemuneration = remuneration.periodic;
+  const annualPaymentRemuneration = remuneration.annualPayment;
   const regularTaxable = Math.max(0, periodicTaxable - taxableDeductions);
   const annualTaxable = Math.max(0, annualPayments - Math.max(0, taxableDeductions - periodicTaxable));
 

@@ -8,7 +8,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
+const { sqlMock, unsafeMock } = vi.hoisted(() => {
+  const unsafeMock = vi.fn((text: string) => text);
+  return { sqlMock: Object.assign(vi.fn(), { unsafe: unsafeMock }), unsafeMock };
+});
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/modules/accounting/services/payroll/payrollMedicalRecord', () => ({ loadMedicalRecord: vi.fn(async () => new Map()) }));
 
@@ -18,7 +21,7 @@ const EMP = '00000000-0000-0000-0000-0000000000e1';
 const COMPANY = '00000000-0000-0000-0000-0000000000c1';
 const RUN = '00000000-0000-0000-0000-0000000000a1';
 
-beforeEach(() => sqlMock.mockReset());
+beforeEach(() => { sqlMock.mockReset(); unsafeMock.mockClear(); });
 
 describe('yearToDatePeriods', () => {
   it('counts a line whose stored periodic pay its legacy deduction took to nil', () => {
@@ -35,7 +38,9 @@ describe('loadPayeYearToDate with a pre-948 line reduced to nil', () => {
     sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     await loadPayeYearToDate(COMPANY, RUN, { year: 2026, month: 4 }, [EMP]);
     const query = (sqlMock.mock.calls[0]![0] as TemplateStringsArray).join('?');
-    expect(query).toContain('GREATEST(b.original_taxable - b.annual_3605, 0)');
+    const remuneration = String(unsafeMock.mock.calls[0]![0]);
+    expect(remuneration).toContain("<> '3605'");
+    expect(remuneration).toContain("= '3605'");
     expect(query).toContain('COUNT(*) FILTER (WHERE periodic_before_deductions > 0)::int AS periods');
     expect(query).toContain('periodic_before_deductions > 0 OR annual_before_deductions > 0');
     expect(query).toContain('FILTER (WHERE periodic_before_deductions <= 0) AS unpaid_lines');
