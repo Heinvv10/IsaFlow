@@ -33,7 +33,8 @@ vi.mock('@/components/layout/ImpersonationBanner', () => ({ ImpersonationBanner:
 vi.mock('@/components/payroll/PayrollPeriodBar', () => ({ PayrollPeriodBar: () => <div data-testid="payroll-period-bar" /> }));
 vi.mock('@/components/layout/CompanySwitcher', () => ({ CompanySwitcher: () => null }));
 vi.mock('@/components/layout/CreateNewMenu', () => ({ CreateNewMenu: () => null }));
-vi.mock('@/components/layout/SettingsMenu', () => ({ SettingsMenu: () => null }));
+vi.mock('@/components/layout/SettingsMenu', () => ({ SettingsMenu: () => <span data-testid="settings-menu" /> }));
+vi.mock('@/components/layout/NotificationBell', () => ({ NotificationBell: () => <span data-testid="notification-bell" /> }));
 vi.mock('@/components/layout/ThemeToggle', () => ({ ThemeToggle: () => null }));
 vi.mock('@/components/ui/TableDensityToggle', () => ({ TableDensityToggle: () => null }));
 
@@ -132,6 +133,12 @@ describe('AppLayout', () => {
     go('/accounting/customer-invoices');
     rerender(page());
     expect(hamburger().getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('the notifications bell sits in the header right before the settings cog', () => {
+    render(page());
+    const bell = screen.getByTestId('notification-bell');
+    expect(bell.nextElementSibling).toBe(screen.getByTestId('settings-menu'));
   });
 
   it('Log out calls logout', () => {

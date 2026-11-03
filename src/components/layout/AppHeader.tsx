@@ -1,5 +1,5 @@
 /**
- * The app's header bar: hamburger, logo, company switcher, quick create, search, setup guide, settings, nav-mode
+ * The app's header bar: hamburger, logo, company switcher, quick create, search, setup guide, notifications, settings, nav-mode
  * and density toggles, theme, the user and log out. Below `lg` (where the hamburger drawer carries the nav) the
  * toggles, the user and Log out live in MobileHeaderMenu, so the bar fits at 768 and 1024; the user's name shows
  * from `xl`.
@@ -13,6 +13,7 @@ import { MobileHeaderMenu } from '@/components/layout/MobileHeaderMenu';
 import { CompanySwitcher } from '@/components/layout/CompanySwitcher';
 import { CreateNewMenu } from '@/components/layout/CreateNewMenu';
 import { SettingsMenu } from '@/components/layout/SettingsMenu';
+import { NotificationBell } from '@/components/layout/NotificationBell';
 import { TableDensityToggle } from '@/components/ui/TableDensityToggle';
 import { SetupGuideButton } from '@/components/onboarding/SetupGuideButton';
 import { SHELL_HEIGHTS } from '@/components/layout/shellHeights';
@@ -36,9 +37,13 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
   const showSidebar = navMode === 'side';
   // The desktop sidebar takes 256px of the width, so in sidebar mode the inline controls need one breakpoint more.
   const inline = showSidebar ? 'hidden xl:block' : 'hidden lg:block';
+  // The 152px search pill needs one breakpoint more than the inline controls, or the bar wraps with the
+  // notifications bell (PR #1066 measurement: 1024 in sidebar mode, and a long company name at 1024).
+  const searchPill = showSidebar ? 'hidden 2xl:flex' : 'hidden xl:flex';
+  const searchIcon = showSidebar ? '2xl:hidden' : 'xl:hidden';
 
   return (
-    <header className="flex flex-wrap items-center px-4 gap-x-3 gap-y-1 py-1 flex-shrink-0" style={{ minHeight: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
+    <header className="flex flex-wrap items-center px-4 gap-x-2 sm:gap-x-3 gap-y-1 py-1 flex-shrink-0" style={{ minHeight: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
       {/* Mobile hamburger */}
       <button
         ref={menuButtonRef}
@@ -70,7 +75,7 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
       <button
         data-tour="command-palette"
         onClick={onOpenCommandPalette}
-        className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] hover:border-teal-400 hover:text-[var(--ff-text-primary)] transition-colors"
+        className={`${searchPill} items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] hover:border-teal-400 hover:text-[var(--ff-text-primary)] transition-colors`}
         title="Search (Ctrl+K)"
       >
         <Search className="w-3.5 h-3.5" />
@@ -80,8 +85,8 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
         </kbd>
       </button>
 
-      {/* Mobile search icon */}
-      <button onClick={onOpenCommandPalette} className={`sm:hidden ${ICON_BUTTON}`} title="Search" aria-label="Open search">
+      {/* Search icon where the pill is hidden, so the bar stays one row with the notifications bell */}
+      <button onClick={onOpenCommandPalette} className={`${searchIcon} ${ICON_BUTTON}`} title="Search" aria-label="Open search">
         <Search className="w-4 h-4" />
       </button>
 
@@ -89,6 +94,10 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
           start so the search box beside it does not jump left when it appears. When the guide fails to load the slot
           stays as a blank 32px gap: a gap is the lesser evil next to a header that moves on every page load. */}
       {!isAdminHost && <div className="w-8 flex-shrink-0"><SetupGuideButton /></div>}
+
+      {/* Notifications bell (budgets P5; hidden on admin subdomain). Inline at every width, like the cog: its
+          unread badge must show on a phone too, so it is not folded into MobileHeaderMenu. */}
+      {!isAdminHost && <NotificationBell />}
 
       {/* Settings cog (hidden on admin subdomain) */}
       {!isAdminHost && <SettingsMenu />}
