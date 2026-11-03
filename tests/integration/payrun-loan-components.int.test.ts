@@ -39,7 +39,7 @@ const lowInterest = async (instalment = 1000) => {
   await pool.query('UPDATE payroll_loans SET annual_interest_rate = 0 WHERE id = $1', [loan]);
   return loan;
 };
-const fringe = (code = '3801', type = 'earning') => addComponent(state.coA, 'Low-interest loan benefit', code, type, true);
+const fringe = (code = '3801', type = 'earning', isTaxable = true) => addComponent(state.coA, 'Low-interest loan benefit', code, type, isTaxable);
 const loanComponents = async () => (await pool.query(
   `SELECT sars_source_code AS code, component_type AS type, is_active AS active FROM payroll_components
     WHERE company_id = $1 AND BTRIM(sars_source_code) IN ('LOAN', '3801') ORDER BY created_at, id`, [state.coA])).rows;
@@ -64,6 +64,17 @@ describe('setup-components counts only what the run can use', () => {
     expect((await setUp()).body.data).toMatchObject({ created: ['LOAN', '3801'], existing: [] });
     expect((await setUp()).body.data).toMatchObject({ created: [], existing: ['LOAN', '3801'] });
     expect((await loanComponents()).filter((c) => c.active && c.code.trim() === 'LOAN' && c.type === 'deduction')).toHaveLength(1);
+  });
+
+  it('a non-taxable 3801 earning is not present, so setup creates a taxable one', async () => {
+    await fringe('3801', 'earning', false);
+    expect((await setUp()).body.data).toMatchObject({ created: ['3801'], existing: ['LOAN'] });
+    expect((await pool.query(
+      `SELECT count(*) FROM payroll_components
+        WHERE company_id = $1 AND BTRIM(sars_source_code) = '3801'
+          AND component_type = 'earning' AND is_active = true AND is_taxable = true`,
+      [state.coA],
+    )).rows[0]!.count).toBe('1');
   });
 });
 
@@ -131,6 +142,16 @@ describe('a low-interest loan with no 3801 earning (Hein: collected, and blocks 
     expect(breakdown).toContainEqual(expect.objectContaining({ componentId: benefit, amount: 7.08 }));
     expect((await results()).map((r) => r.code)).toEqual([]);
     expect(await blocker()).toBeNull();
+  });
+
+  it('a non-taxable 3801 earning does not carry the benefit or allow approval', async () => {
+    const benefit = await fringe('3801', 'earning', false);
+    await lowInterest();
+    await recalculate(state.nov);
+    const breakdown = (await pool.query('SELECT component_breakdown FROM payroll_run_lines WHERE run_id = $1', [state.nov])).rows[0]!.component_breakdown;
+    expect(breakdown).not.toContainEqual(expect.objectContaining({ componentId: benefit }));
+    expect((await results()).map((r) => r.code)).toContain('LOAN_FRINGE_NOT_RECORDED');
+    expect(await blocker()).toMatchObject({ code: 'loan_fringe_not_recorded' });
   });
 
   it('with neither component the loan is withheld, and the line names both, each at its own amount', async () => {

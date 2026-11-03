@@ -5,7 +5,8 @@
  * '3801' fringe-benefit earning component if either is missing. "Present"
  * is what a run can use (payrollRunLoanComponents.loadLoanComponents): an
  * ACTIVE component of that TYPE whose code is that after the calculator's
- * trim. A LOAN-coded earning or an inactive deduction is not one. Without
+ * trim; the 3801 earning must also be taxable. A LOAN-coded earning, a non-taxable
+ * 3801 earning or an inactive deduction is not one. Without
  * them a run withholds the loans that need them and approval is refused.
  */
 
@@ -67,6 +68,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
          AND BTRIM(sars_source_code, E' \t\r\n') = ${spec.sarsSourceCode}
          AND component_type = ${spec.componentType}
          AND is_active = TRUE
+         AND (${spec.sarsSourceCode} <> '3801' OR is_taxable = TRUE)
        LIMIT 1
     `) as DbRow[];
     if (rows.length > 0) {

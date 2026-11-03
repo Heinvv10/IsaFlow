@@ -119,6 +119,14 @@ describe('a fringe benefit', () => {
     await refused();
   });
 
+  it('on a non-taxable 3801 earning: refused as off the payslip', async () => {
+    await addComponent(state.coA, 'Low-interest loan benefit', '3801', 'earning', true);
+    await lowInterest();
+    await recalculate(state.nov);
+    await rewrite('3801', `jsonb_set(i, '{isTaxable}', 'false')`);
+    await refused();
+  });
+
   it('on a 3801 item of another amount: not the benefit, so blocked as unrecorded', async () => {
     await addComponent(state.coA, 'Low-interest loan benefit', '3801', 'earning', true);
     await lowInterest();

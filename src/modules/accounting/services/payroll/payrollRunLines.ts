@@ -180,7 +180,7 @@ export interface LoanPaymentOnPayslip { employeeNumber: string; loanNumber: stri
  *  - `offPayslip`: refused until recalculated. A repayment with no item on the employee's line coded
  *    LOAN (as the line stored it) whose component (by componentId) is a deduction, costed as not
  *    taxable (the item's own isTaxable), of that amount; or a fringe benefit with a 3801 item of exactly
- *    that amount but none that is an earning (the old code took any 3801), unless the line warns
+ *    that amount but none that is a taxable earning (the old code took any 3801), unless the line warns
  *    LOAN_FRINGE_NOT_RECORDED for that loan. A run calculated before loans failed closed could do
  *    each of these. Zero amounts need no item.
  *  - `fringeNotRecorded`: a fringe benefit with no 3801 earning item of that amount. Collected without
@@ -196,10 +196,10 @@ export async function findLoanPaymentsOffPayslip(
           AND item.amount = ROUND(p.interest_charged + p.principal_paid, 2)), false))
       OR (p.fringe_benefit > 0 AND NOT bool_or(COALESCE(prl.validation_results, '[]'::jsonb) @> jsonb_build_array(
             jsonb_build_object('code', 'LOAN_FRINGE_NOT_RECORDED', 'loans', jsonb_build_array(l.loan_number))))
-        AND NOT COALESCE(bool_or(item.code = '3801' AND item.type = 'earning' AND item.amount = ROUND(p.fringe_benefit, 2)), false)
+        AND NOT COALESCE(bool_or(item.code = '3801' AND item.type = 'earning' AND item.taxed AND item.amount = ROUND(p.fringe_benefit, 2)), false)
         AND COALESCE(bool_or(item.code = '3801' AND item.amount = ROUND(p.fringe_benefit, 2)), false)) AS off_payslip,
       p.fringe_benefit > 0
-        AND NOT COALESCE(bool_or(item.code = '3801' AND item.type = 'earning' AND item.amount = ROUND(p.fringe_benefit, 2)), false) AS fringe_missing
+        AND NOT COALESCE(bool_or(item.code = '3801' AND item.type = 'earning' AND item.taxed AND item.amount = ROUND(p.fringe_benefit, 2)), false) AS fringe_missing
       FROM payroll_loan_payments p
       JOIN payroll_loans l ON l.id = p.loan_id AND l.company_id = ${companyId}::uuid
       JOIN payroll_employees pe ON pe.id = l.employee_id

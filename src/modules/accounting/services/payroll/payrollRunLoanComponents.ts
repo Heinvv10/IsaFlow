@@ -21,7 +21,7 @@ export interface LoanComponents {
 
 /**
  * The components a payslip shows a loan with: the instalment (principal + interest) on an active
- * DEDUCTION coded LOAN, the low-interest fringe benefit on an active EARNING coded 3801, each the
+ * DEDUCTION coded LOAN, the low-interest fringe benefit on an active taxable EARNING coded 3801, each the
  * first made (`ORDER BY created_at, id`), codes compared after the calculator's trim
  * (normaliseSarsCode). A LOAN-coded earning would add the instalment to gross pay. With no LOAN
  * deduction a loan is not taken at all (payrollLoanWithholding); it used to be recorded on the
@@ -36,7 +36,7 @@ export async function loadLoanComponents(companyId: string): Promise<LoanCompone
      WHERE company_id = ${companyId}::uuid
        AND is_active = true
        AND ((BTRIM(sars_source_code, E' \t\r\n') = 'LOAN' AND component_type = 'deduction')
-         OR (BTRIM(sars_source_code, E' \t\r\n') = '3801' AND component_type = 'earning'))
+         OR (BTRIM(sars_source_code, E' \t\r\n') = '3801' AND component_type = 'earning' AND is_taxable = true))
      ORDER BY created_at, id
   `) as Row[];
 
