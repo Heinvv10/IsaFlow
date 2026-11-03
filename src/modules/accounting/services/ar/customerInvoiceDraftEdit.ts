@@ -26,6 +26,7 @@ import { withTransaction } from '@/lib/neon';
 import { checkDocumentCurrency, DocumentCurrencyError, loadCompanyCurrency } from '../shared/documentCurrency';
 import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
 import type { InvoiceLineCoding } from './invoiceLineCoding';
+import { wipLinkRefusal } from './customerInvoiceWipLinks';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveEditCodings } from './customerInvoiceDraftCoding';
 import { invoiceLineAmount, invoiceTotals } from './invoiceLineAmount';
@@ -145,6 +146,8 @@ export async function editDraftCustomerInvoice(
       `) as Row[]).map((r) => ({ glAccountId: idOrNull(r.gl_account_id), projectId: idOrNull(r.project_id) }));
       const resolved = resolveEditCodings(items, stored);
       if (typeof resolved === 'string') return { kind: 'bad_line' as const, message: resolved };
+      const wipRefusal = await wipLinkRefusal(tx, id, items); // a line keeps its WIP link; it cannot take another
+      if (wipRefusal) return { kind: 'bad_line' as const, message: wipRefusal };
       codings = resolved;
       const had = { glAccountId: new Set(stored.map((c) => c.glAccountId)), projectId: new Set(stored.map((c) => c.projectId)) };
       unchanged = (c) => ({ glAccountId: had.glAccountId.has(c.glAccountId) ? null : c.glAccountId,
@@ -260,12 +263,12 @@ export async function editDraftCustomerInvoice(
         await tx`
           INSERT INTO customer_invoice_items (
             invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-            gl_account_id, project_id, cc1_id, cc2_id, bu_id
+            gl_account_id, project_id, cc1_id, cc2_id, bu_id, time_entry_id
           ) VALUES (
             ${id}::UUID, ${it.description}, ${it.unitPrice},
             ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency},
             ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
-            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID
+            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID, ${items?.[i]?.timeEntryId ?? null}::UUID
           )
         `;
       }

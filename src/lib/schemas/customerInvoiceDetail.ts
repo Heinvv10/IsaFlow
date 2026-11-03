@@ -25,6 +25,8 @@ export const PutItemSchema = z.object({
   cc1Id: UUID.nullable().optional(),
   cc2Id: UUID.nullable().optional(),
   buId: UUID.nullable().optional(),
+  // The WIP time entry the line bills, re-sent as loaded: only one this invoice's lines already carry (customerInvoiceWipLinks).
+  timeEntryId: UUID.nullable().optional(),
 });
 
 export const PutBodySchema = z.object({
