@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 /** Browser-neutral history positions used when Navigation API traversal is unavailable. */
 import { describe, expect, it } from 'vitest';
 import { historyIndexOf, installHistoryIndex } from '@/lib/historyIndex';
