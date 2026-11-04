@@ -118,10 +118,13 @@ describe('the draft write inherits; approve reads the stored lines', () => {
     expect({ code: r.statusCode, err: r.body.error?.message ?? null }).toEqual({ code: 200, err: null });
   });
 
-  it('breaker C: one FT 100 provisional line against blank lines of 800 and 50: nothing inherited', async () => {
+  it('breaker C: one FT 100 provisional line against blank lines of 800 and 50: nothing inherited, at the draft write or at approve', async () => {
     await setPolicy(pool, f, 'warn');
     const bill = await draft('2026-08-10', [{ amount: 100, cc1: f.cc.FT }], [800, 50]);
     expect(await billLineCc1(pool, bill)).toEqual([null, null]);
+    const r = await approve(bill, { budgetReason: 'r' });
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(200);
+    expect(await billLineCc1(pool, bill)).toEqual([null, null]); // approve inherits nothing either
   });
 
   it('breaker D: FT 400 + FT 400 against a blank 800: FT inherited; approve 200 in block', async () => {
