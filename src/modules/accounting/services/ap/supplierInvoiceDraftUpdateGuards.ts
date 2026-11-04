@@ -10,7 +10,7 @@ import type { DbRow } from '@/lib/neon';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import type { SupplierInvoiceItemInput } from '../../types/ap.types';
 import { billLineAccountRefusal } from './billLineAccountGuard';
-import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
+import { SUPPLIER_INVOICE_LINE_ORDER_BY, storedLineOrder } from './supplierInvoiceLineOrder';
 import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -40,8 +40,13 @@ async function slipBillLines(
     if (!(err instanceof MissingSystemAccountError)) throw err; // no role: a line with no account matches nothing
   }
   const header = { subtotal: computed.subtotal, totalAmount: computed.totalAmount, taxRate };
+  // Matched in the order the replaced lines will be read back for posting (breaker R6-1), as the apply writes them.
+  const order = await storedLineOrder(computed.items.map((i) => ({
+    description: i.description, glAccountId: i.glAccountId ?? null, quantity: i.quantity, unitPrice: i.unitPrice, taxRate: i.taxRate,
+    taxAmount: i.taxAmount, lineTotal: i.lineTotal, vatClassification: defaultVatClassification(i.taxRate),
+  })));
   const out = await inheritSlipDimensions(companyId, computed.items, header,
-    await provisionalDimLines(companyId, prov.jeId, prov.bankAccountId), defaultExpense);
+    await provisionalDimLines(companyId, prov.jeId, prov.bankAccountId), defaultExpense, undefined, order);
   const inherited = out.lines.flatMap((l, i) => (out.inherited[i]
     ? [{ line: i + 1, cc1Id: l.cc1Id ?? null, cc2Id: l.cc2Id ?? null, buId: l.buId ?? null, provisionalId: prov.jeId }] : []));
   return { items: out.lines, inherited };

@@ -36,6 +36,7 @@ import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
 import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { inheritSlipDimensions, provisionalDimLines } from '../ap/supplierInvoiceProvisionalDims';
+import { storedLineOrder } from '../ap/supplierInvoiceLineOrder';
 import { findAttachableProvisional } from './evidenceAttachmentService';
 import type { CaptureSlipPlan } from './captureSlipReplan';
 import {
@@ -45,6 +46,8 @@ import {
 } from '../ap/supplierInvoiceTotals';
 
 export interface CaptureBillLine {
+  /** Chosen at plan time and written as the row id, so the plan knows the stored lines' full posting order. */
+  id?: string;
   description: string;
   quantity: number;
   unitPrice: number;
@@ -124,6 +127,7 @@ export async function planCaptureBillLines(
 
   const accountRefusal = await billLineAccountRefusal(companyId, lines.map((l) => l.glAccountId));
   if (accountRefusal) return { refusal: accountRefusal };
+  lines = lines.map((l) => ({ ...l, id: crypto.randomUUID() }));
   try {
     // The supplier's defaults are resolved for EVERY line, the inheriting ones too, and kept only where nothing is
     // inherited: a default the dimension rules refuse is this plan's refusal (a 400 before any write), so the
@@ -143,8 +147,10 @@ async function slipLines(companyId: string, invoice: PipelineInvoiceInput, lines
   const prov = await findAttachableProvisional(companyId, invoice.supplierId || null, invoice.totalAmount, invoice.invoiceDate);
   if (!prov) return { lines: [...lines], inherited: lines.map(() => false) };
   const header = { subtotal: Math.round((invoice.totalAmount - invoice.taxAmount) * 100) / 100, totalAmount: invoice.totalAmount, taxRate: invoice.taxRate };
+  // Matched in the order the lines will be read back for posting (breaker R6-1), not extraction order.
+  const order = await storedLineOrder(lines.map((l) => ({ ...l, vatClassification: defaultVatClassification(l.taxRate) })));
   const out = await inheritSlipDimensions(companyId, lines, header, await provisionalDimLines(companyId, prov.jeId, prov.bankAccountId),
-    await companyDefaultExpense(companyId));
+    await companyDefaultExpense(companyId), undefined, order);
   return { inherited: out.inherited, lines: out.lines.map((l, i) => (out.inherited[i] ? { ...l, slipJeId: prov.jeId } : l)) };
 }
 
@@ -159,10 +165,10 @@ export async function insertCaptureBillLines(invoiceId: string, lines: readonly 
   for (const line of lines) {
     const [row] = (await sql`
       INSERT INTO supplier_invoice_items (
-        supplier_invoice_id, description, quantity, unit_price,
+        id, supplier_invoice_id, description, quantity, unit_price,
         tax_rate, tax_amount, line_total, gl_account_id, vat_classification, cc1_id, cc2_id, bu_id
       ) VALUES (
-        ${invoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice},
+        COALESCE(${line.id ?? null}::UUID, gen_random_uuid()), ${invoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice},
         ${line.taxRate}, ${line.taxAmount}, ${line.lineTotal}, ${line.glAccountId}::UUID,
         ${defaultVatClassification(line.taxRate)}, ${line.cc1Id ?? null}::UUID, ${line.cc2Id ?? null}::UUID, ${line.buId ?? null}::UUID
       )

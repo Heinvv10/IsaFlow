@@ -105,6 +105,24 @@ async function inheritable(companyId: string, sets: readonly Dims[]): Promise<Se
   return ok;
 }
 
+/**
+ * Each line's posted net exactly as `buildExpenseLines` allocates it (rounded, the residual on the LAST line POSTED),
+ * returned in the caller's order. `postingOrder`: the indices of `lines` in the order the stored lines will be read
+ * back for posting (`supplierInvoiceLineOrder.storedLineOrder`, breaker R6-1: lines written together post in
+ * description order, not extraction order); absent, the lines are already in posting order (a stored bill read with
+ * `SUPPLIER_INVOICE_LINE_ORDER_BY`).
+ */
+export function netsInPostingOrder(
+  lines: readonly { lineTotal: number }[], header: { subtotal: number; totalAmount: number; taxRate: number },
+  postingOrder?: readonly number[],
+): number[] {
+  if (!postingOrder) return expenseLineNets(lines, header);
+  const posted = expenseLineNets(postingOrder.map((i) => lines[i]!), header);
+  const out = lines.map(() => 0);
+  postingOrder.forEach((i, k) => { out[i] = posted[k]!; });
+  return out;
+}
+
 /** A draft line the writers hand over (capture plan, MCP update plan). */
 type DraftLine = DimensionIds & { glAccountId?: string | null; lineTotal: number; costCenterId?: string | null };
 
@@ -116,12 +134,11 @@ type DraftLine = DimensionIds & { glAccountId?: string | null; lineTotal: number
 export async function inheritSlipDimensions<T extends DraftLine>(
   companyId: string, lines: readonly T[], header: { subtotal: number; totalAmount: number; taxRate: number },
   provisional: readonly ProvisionalDimLine[], defaultExpenseId: string | null, eligible?: readonly boolean[],
+  postingOrder?: readonly number[],
 ): Promise<{ lines: T[]; inherited: boolean[] }> {
   const none = { lines: [...lines], inherited: lines.map(() => false) };
   if (provisional.length === 0 || lines.length === 0) return none;
-  // Each line's posted net exactly as `buildExpenseLines` allocates it (rounded, residual on the last line), in the
-  // order the caller hands the lines over: the posting order (`SUPPLIER_INVOICE_LINE_ORDER_BY`) for a stored bill.
-  const nets = expenseLineNets(lines, header);
+  const nets = netsInPostingOrder(lines, header, postingOrder);
   const matched = matchProvisionalDimensions(lines.map((l, i) => ({
     account: l.glAccountId || defaultExpenseId, net: nets[i] ?? 0,
     blank: (eligible ? eligible[i] === true : true) && !l.cc1Id && !l.cc2Id && !l.buId && !l.costCenterId,
