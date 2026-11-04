@@ -49,7 +49,7 @@
   "pages/accounting/practice/tasks/index.tsx": 3,
   "pages/accounting/products/index.tsx": 1,
   "pages/accounting/products/new.tsx": 4,
-  "pages/accounting/purchase-orders/[poId].tsx": 2,
+  "pages/accounting/purchase-orders/[poId].tsx": 1,
   "pages/accounting/purchase-orders/new.tsx": 1,
   "pages/accounting/reports/account-transactions.tsx": 1,
   "pages/accounting/reports/audit-trail.tsx": 2,

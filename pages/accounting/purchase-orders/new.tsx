@@ -1,10 +1,12 @@
 /**
  * New Purchase Order Page
  * Route: /accounting/purchase-orders/new
+ * Budgets P5-3: behind "Dimensions", each line may name its CC1 / CC2 / BU (`PoLineDimensions`, the detail editor's
+ * pickers); the POST validates them under the bill lines' rules.
  */
 import { useId, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Plus, Trash2, Loader2, Receipt, ShoppingCart } from 'lucide-react';
+import { Plus, Trash2, Loader2, Receipt, ShoppingCart, Tags } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -14,8 +16,13 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 import { useOverflowX } from '@/hooks/useOverflowX';
+import { PoDimensionCells, PoDimensionHeaders, usePoDimensionOptions, type PoLineDims } from '@/components/accounting/purchase-orders/PoLineDimensions';
+import { newPoLineKey } from '@/components/accounting/purchase-orders/poLineKey';
 
-interface LineItem { key: string; description: string; quantity: string; unitPrice: string; taxRate: string }
+interface LineItem { key: string; description: string; quantity: string; unitPrice: string; taxRate: string; dims: PoLineDims }
+
+const NO_DIMS: PoLineDims = { cc1: '', cc2: '', bu: '' };
+const newLine = (key: string = newPoLineKey()): LineItem => ({ key, description: '', quantity: '1', unitPrice: '0', taxRate: '15', dims: NO_DIMS });
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
@@ -43,14 +50,16 @@ export default function NewPurchaseOrderPage() {
     supplierId: '', orderDate: localISODate(),
     expectedDeliveryDate: '', notes: '', reference: '',
   });
-  const [items, setItems] = useState<LineItem[]>([
-    { key: '1', description: '', quantity: '1', unitPrice: '0', taxRate: '15' },
-  ]);
+  const [items, setItems] = useState<LineItem[]>(() => [newLine()]);
+  const [showDims, setShowDims] = useState(false);
+  const dimOptions = usePoDimensionOptions(showDims);
 
-  const addItem = () => setItems(prev => [...prev, { key: String(Date.now()), description: '', quantity: '1', unitPrice: '0', taxRate: '15' }]);
+  const addItem = () => setItems(prev => [...prev, newLine()]);
   const removeItem = (key: string) => setItems(prev => prev.length > 1 ? prev.filter(i => i.key !== key) : prev);
   const updateItem = (key: string, field: string, value: string) =>
     setItems(prev => prev.map(i => i.key === key ? { ...i, [field]: value } : i));
+  const updateDim = (key: string, slot: keyof PoLineDims, value: string) =>
+    setItems(prev => prev.map(i => i.key === key ? { ...i, dims: { ...i.dims, [slot]: value } } : i));
 
   const lineTotal = (i: LineItem) => Number(i.quantity || 0) * Number(i.unitPrice || 0);
   const subtotal = items.reduce((s, i) => s + lineTotal(i), 0);
@@ -66,14 +75,17 @@ export default function NewPurchaseOrderPage() {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
-          items: items.map(i => ({ ...i, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice), taxRate: Number(i.taxRate) })),
+          items: items.map(({ dims, ...i }) => ({
+            ...i, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice), taxRate: Number(i.taxRate),
+            cc1Id: dims.cc1 || null, cc2Id: dims.cc2 || null, buId: dims.bu || null,
+          })),
         }),
       });
       await assertOk(res, 'Could not create the purchase order - try again');
       const json = await res.json();
       if (andNew) {
         setForm({ supplierId: '', orderDate: localISODate(), expectedDeliveryDate: '', notes: '', reference: '' });
-        setItems([{ key: '1', description: '', quantity: '1', unitPrice: '0', taxRate: '15' }]);
+        setItems([newLine()]);
         try { await router.push('/accounting/purchase-orders/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'purchase-orders-new'); }
       } else {
         try { await router.push(`/accounting/purchase-orders/${json.data?.id ?? ''}`); } catch (e) { log.warn('navigation failed', { error: e }, 'purchase-orders-new'); }
@@ -131,10 +143,20 @@ export default function NewPurchaseOrderPage() {
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Line Items
                   </h3>
-                  <button type="button" onClick={addItem} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors">
-                    <Plus className="h-3 w-3" />Add Line
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" aria-expanded={showDims} onClick={() => setShowDims(v => !v)} className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${showDims ? 'border-teal-400/60 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-ink-muted hover:border-amber-400/50 hover:text-amber-500'}`}>
+                      <Tags className="h-3 w-3" />{showDims ? 'Hide Dimensions' : 'Dimensions'}
+                    </button>
+                    <button type="button" onClick={addItem} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors">
+                      <Plus className="h-3 w-3" />Add Line
+                    </button>
+                  </div>
                 </div>
+                {showDims && dimOptions.error && (
+                  <p className="px-5 pt-3 text-xs text-red-600 dark:text-red-400">{dimOptions.error}{' '}
+                    <button type="button" onClick={dimOptions.retry} className="underline font-medium">Retry</button>
+                  </p>
+                )}
                 {linesOverflow && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
                 <div ref={attachLines} className="overflow-x-auto" role="region" aria-label="Purchase order lines" tabIndex={0}>
                   <table className="w-full min-w-[720px] text-sm">
@@ -144,6 +166,7 @@ export default function NewPurchaseOrderPage() {
                         <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">Qty</th>
                         <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">Unit Price</th>
                         <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">VAT %</th>
+                        {showDims && <PoDimensionHeaders className="px-3 py-2.5 text-left text-xs font-semibold text-ink-muted w-36" />}
                         <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">Total</th>
                         <th className="w-9" />
                       </tr>
@@ -155,6 +178,10 @@ export default function NewPurchaseOrderPage() {
                           <td className="px-3 py-2"><input type="number" required name="quantity" aria-label={`Line ${index + 1} quantity`} min="0.01" step="0.01" value={item.quantity} onChange={e => updateItem(item.key, 'quantity', e.target.value)} className={`${inp} text-right`} /></td>
                           <td className="px-3 py-2"><input type="number" required name="unitPrice" aria-label={`Line ${index + 1} unit price`} min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(item.key, 'unitPrice', e.target.value)} className={`${inp} text-right`} /></td>
                           <td className="px-3 py-2"><input type="number" name="taxRate" aria-label={`Line ${index + 1} VAT %`} min="0" step="0.01" value={item.taxRate} onChange={e => updateItem(item.key, 'taxRate', e.target.value)} className={`${inp} text-right`} /></td>
+                          {showDims && (
+                            <PoDimensionCells index={index} value={item.dims} options={dimOptions} cellClassName="px-3 py-2"
+                              onChange={(slot, v) => updateDim(item.key, slot, v)} />
+                          )}
                           <td className="px-4 py-2 text-right tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">{fmt(lineTotal(item))}</td>
                           <td className="px-2 py-2">
                             <button type="button" aria-label={`Remove line ${index + 1}`} onClick={() => removeItem(item.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
