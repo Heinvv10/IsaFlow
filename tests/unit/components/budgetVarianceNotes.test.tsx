@@ -70,6 +70,14 @@ describe('VarianceNoteButton', () => {
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
+  it('an approved note seeds the owner editor from the signed wording, not its stale draft', async () => {
+    const fns = button('owner', note({ status: 'approved', draftText: 'Old draft', approvedText: 'Signed edit' }));
+    fireEvent.click(screen.getByRole('button', { name: /Approved variance note/ }));
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Signed edit');
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(fns.onSave).toHaveBeenCalledWith(SLICE, 'Signed edit'));
+  });
+
   it('an owner approves or rejects the draft; a refusal stays on screen', async () => {
     const fns = button('owner', note({}), { onApprove: vi.fn(async () => 'Only an owner or admin can approve a variance note.') });
     fireEvent.click(screen.getByRole('button', { name: /Draft variance note/ }));

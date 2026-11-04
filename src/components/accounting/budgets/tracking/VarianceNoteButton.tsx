@@ -54,7 +54,9 @@ export function VarianceNoteButton({ label, slice, note, role, writable = true, 
   // follows the note: after a refusal the hook reloads it, and the editor must hold the CURRENT draft, or a
   // second Approve would send the old wording as an edit against the new draft and sign it.
   const [typed, setTyped] = useState(false);
-  const seed = note ? (note.draftText ?? note.approvedText ?? '') : '';
+  const seed = note
+    ? (note.status === 'approved' ? note.approvedText ?? note.draftText ?? '' : note.draftText ?? note.approvedText ?? '')
+    : '';
   useEffect(() => {
     if (open && !typed) setText(seed);
   }, [open, typed, seed]);
