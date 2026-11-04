@@ -225,7 +225,7 @@ export async function evaluateOverspend(companyId: string, opts: { asOf: string 
     refired = await refireResolved(companyId, versionId, crossings);
     await refreshOpen(companyId, versionId, crossings);
   }
-  const resolved = await resolveUncrossed(companyId, versionId, crossings, first, last);
+  const resolved = await resolveUncrossed(companyId, fy.fiscalYear, versionId, crossings, first, last);
 
   const fired = await named(companyId, [...inserted, ...refired], new Set(refired.map((r) => r.id)));
   await announce(companyId, fired, opts.asOf);
