@@ -147,6 +147,56 @@ describe('capture, auto-approved, the plan read no provisional, the attach linke
   });
 });
 
+describe('R-035 guard on the capture re-plan (round 7): the bill must be unposted with no approval request bound', () => {
+  /** A capture bill on S0 (no default) whose plan read no provisional; `prepare` runs before the attach links one. */
+  async function capture(date: string, prepare: (bill: string) => Promise<void>) {
+    const doc = crypto.randomUUID();
+    await pool.query(`INSERT INTO captured_documents (id, company_id, file_name, file_type) VALUES ($1, $2, 'slip.pdf', 'application/pdf')`, [doc, f.co]);
+    const bill = await makeBill(pool, f, [], { date });
+    await pool.query('UPDATE supplier_invoices SET supplier_id = $2, subtotal = 800, tax_amount = 120, total_amount = 920, source_document_id = $3 WHERE id = $1', [bill, S0, doc]);
+    const slip = await asOwner(async () => {
+      const p = await planCaptureBillLines(f.co, { supplierId: S0, invoiceNumber: 'X', invoiceDate: date, totalAmount: 920, taxAmount: 120, taxRate: 15, items: [] } as never, 0, f.acc.opex, null);
+      if (!('lines' in p)) throw new Error(JSON.stringify(p));
+      return insertCaptureBillLines(bill, p.lines);
+    });
+    await seedUnevidencedProvisional(pool, f, date, [{ amount: 800, cc1: f.cc.FT }], S0);
+    await prepare(bill);
+    const before = await digest(bill);
+    const out = await asOwner(() => attachEvidenceAndSettleApproved({
+      companyId: f.co, userId: f.owner, documentId: doc, invoiceId: bill, invoiceStatus: 'draft',
+      supplierId: S0, totalAmount: 920, invoiceDate: date, postUnattached: true, slip,
+    }));
+    return { bill, out, before };
+  }
+
+  it('an approval request bound (pending): the attach links the provisional but no line moves, the digest unchanged', async () => {
+    const { bill, out, before } = await capture('2026-10-11', async (b) => {
+      await pool.query(`INSERT INTO approval_requests(company_id,document_type,document_id,status,requested_by,requested_at,document_digest,required_role)
+                        VALUES ($1,'supplier_invoice',$2,'pending',$3,now(),approval_document_digest($1,'supplier_invoice',$2),'owner')`, [f.co, b, f.manager]);
+    });
+    expect(out.attachedJeId).not.toBeNull();
+    expect(await billLineCc1(pool, bill)).toEqual([null]);
+    expect(await digest(bill)).toBe(before);
+  });
+
+  it('a bill that has already posted: no line moves', async () => {
+    const { bill, out } = await capture('2026-11-11', async (b) => {
+      const je = crypto.randomUUID();
+      const c = await pool.connect();
+      try {
+        await c.query('BEGIN');
+        await c.query('SET LOCAL session_replication_role = replica');
+        await c.query(`INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, status, created_by, description, source)
+                       VALUES ($1, $2, $3, '2026-11-11', 'posted', $4, 'posted bill', 'auto_supplier_invoice')`, [je, f.co, `R7-${je.slice(0, 6)}`, f.owner]);
+        await c.query('UPDATE supplier_invoices SET gl_journal_entry_id = $2 WHERE id = $1', [b, je]);
+        await c.query('COMMIT');
+      } finally { c.release(); }
+    });
+    expect(out.attachedJeId).not.toBeNull();
+    expect(await billLineCc1(pool, bill)).toEqual([null]);
+  });
+});
+
 describe('R3-2: a supplier default the dimension rules refuse is the plan\'s refusal, even when the line would inherit', () => {
   it('S3 with a provisional to inherit from: the same refusal as without one, before any write (the re-plan cannot meet it)', async () => {
     const plan = (date: string) => asOwner(() => planCaptureBillLines(f.co, { supplierId: S3, invoiceNumber: 'X', invoiceDate: date, totalAmount: 920, taxAmount: 120, taxRate: 15, items: [] } as never, 0, f.acc.opex, null));
