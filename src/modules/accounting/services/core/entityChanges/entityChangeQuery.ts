@@ -124,7 +124,7 @@ export async function selectEntityChanges(companyId: string, opts: {
       AND ec.entity_type = ANY(${[...opts.types]}::TEXT[])
       AND (${opts.entityType ?? null}::TEXT IS NULL OR ec.entity_type = ${opts.entityType ?? null}::TEXT)
       AND (${opts.entityId ?? null}::UUID IS NULL OR ec.entity_id = ${opts.entityId ?? null}::UUID)
-      AND (${opts.employeeId ?? null}::TEXT IS NULL OR COALESCE(ec.after, ec.before) ->> 'employee_id' = ${opts.employeeId ?? null}::TEXT)
+      AND (${opts.employeeId ?? null}::TEXT IS NULL OR lower(COALESCE(ec.after, ec.before) ->> 'employee_id') = lower(${opts.employeeId ?? null}::TEXT))
       AND (${opts.changeId ?? null}::UUID IS NULL OR ec.id = ${opts.changeId ?? null}::UUID)
       AND (${opts.since ?? null}::TIMESTAMPTZ IS NULL OR ec.recorded_at > ${opts.since ?? null}::TIMESTAMPTZ)
       AND (${opts.before ?? null}::UUID IS NULL OR (ec.recorded_at, ec.id) < (

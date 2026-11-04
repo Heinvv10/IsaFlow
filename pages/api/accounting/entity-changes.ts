@@ -13,6 +13,8 @@
  * Bank account and ID / tax numbers come back masked (…1234); employee bank
  * details also mask the branch code (…55) and holder (K…); owner / admin
  * reveal one change through POST /api/accounting/entity-changes-reveal.
+ * payroll_bank_detail history: a person in their own session only (Login-as 403 IMPERSONATION_FORBIDDEN, token 403
+ * AGENT_FORBIDDEN), as the bank-details route.
  * RLS (entity_changes_read) enforces the same reading rules underneath.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -22,6 +24,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
+import { assertHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import {
   EntityChangeCursorError, listEntityChanges, MAX_PAGE, type ListEntityChangesOptions,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
@@ -43,6 +47,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const parsed = Query.safeParse(req.query);
   if (!parsed.success) return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   const { entityType, entityId, employeeId, before, limit } = parsed.data;
+
+  // Employee bank-detail history is read only by a person in their own session, as the bank-details route itself:
+  // Login-as and tokens are refused. Other entity types are unchanged.
+  if (entityType === 'payroll_bank_detail') {
+    try {
+      await assertHumanSession('read employee bank details');
+    } catch (err) {
+      if (respondIfBankControlRefused(res, err)) return;
+      throw err;
+    }
+  }
 
   if (employeeId) {
     // An employee's bank-detail history across all their rows: same role rule and masking as one entity's.

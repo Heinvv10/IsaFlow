@@ -5,23 +5,26 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import entityChanges from '../../pages/api/accounting/entity-changes';
+import { SignJWT } from 'jose';
 import bankDetails from '../../pages/api/payroll/employees/[id]/bank-details';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { callRoute } from './r035-approval.helpers';
-import { dataOf } from './r035-pr2.helpers';
+import { callRoute, reasonOf } from './r035-approval.helpers';
+import { dataOf, impersonationToken } from './r035-pr2.helpers';
 import { cleanupEntityChanges, members, newCompany } from './entity-changes.helpers';
-import { employee, OTHER, put, ROW, url } from './k1-employee-bank-details.helpers';
+import { listEntityChanges } from '../../src/modules/accounting/services/core/entityChanges/entityChangeQuery';
+import { employee, OTHER, outsideRls, put, ROW, url } from './k1-employee-bank-details.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
-let o = '', a = '', m = '';
+let o = '', a = '', m = '', v = '', x = '';
 
-beforeAll(async () => { [o, a, m] = await members(pool, tokens, 3); });
+beforeAll(async () => { [o, a, m, v, x] = await members(pool, tokens, 5); });
 afterAll(async () => {
   await pool.query('DELETE FROM audit_log WHERE company_id = ANY($1::uuid[])', [companies]);
-  await cleanupEntityChanges(pool, companies, [o, a, m]);
+  await pool.query('DELETE FROM impersonation_sessions WHERE target_user_id = ANY($1::text[])', [[o, a, m, v, x]]);
+  await cleanupEntityChanges(pool, companies, [o, a, m, v, x]);
 });
 
 const masked = (user: string, c: string, e: string, view?: string) =>
@@ -33,7 +36,7 @@ const exportAudits = async (c: string, id: string) => (await pool.query(
 
 describe('GET ?view=masked', () => {
   it.each(['owner', 'admin'])('answers %s masked and leaves no audit row; without it the read is full and audited', async (role) => {
-    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager']], companies);
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'accountant']], companies);
     const e = await employee(pool, c);
     expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
     const user = role === 'owner' ? o : a;
@@ -51,7 +54,7 @@ describe('GET ?view=masked', () => {
   });
 
   it('a manager gets the same masked view, and no audit row, with or without it', async () => {
-    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager']], companies);
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'accountant']], companies);
     const e = await employee(pool, c);
     expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
     const [{ id }] = (await pool.query<{ id: string }>('SELECT id FROM payroll_bank_details WHERE employee_id = $1', [e])).rows as [{ id: string }];
@@ -62,7 +65,7 @@ describe('GET ?view=masked', () => {
   });
 
   it('any other view value is the ordinary read', async () => {
-    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager']], companies);
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'accountant']], companies);
     const e = await employee(pool, c);
     expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
     expect(dataOf(await masked(o, c, e, 'full'))).toMatchObject({ accountNumber: ROW.accountNumber, masked: false });
@@ -77,7 +80,7 @@ describe('GET /entity-changes?entityType=payroll_bank_detail&employeeId=', () =>
       .flatMap((i) => i.fields.filter((f) => f.key === key).map((f) => f.after));
 
   it('returns the old and the new account across the retired row, masked, and nothing of another employee', async () => {
-    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager']], companies);
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'accountant']], companies);
     const e = await employee(pool, c);
     const other = await employee(pool, c);
     expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
@@ -90,24 +93,65 @@ describe('GET /entity-changes?entityType=payroll_bank_detail&employeeId=', () =>
       const numbers = afterOf(res, 'account_number');
       expect(numbers).toEqual(expect.arrayContaining(['…3456', '…4680']));
       expect(numbers).not.toContain('…7766');
-      for (const leak of [ROW.accountNumber, OTHER.accountNumber, ROW.branchCode, OTHER.branchCode]) expect(JSON.stringify(res.state.body)).not.toContain(leak);
+      expect(afterOf(res, 'account_holder')).toEqual(expect.arrayContaining(['K…']));
+      for (const leak of [ROW.accountNumber, OTHER.accountNumber, ROW.branchCode, OTHER.branchCode, ROW.accountHolder]) expect(JSON.stringify(res.state.body)).not.toContain(leak);
+    }
+  });
+
+  it('an uppercase employee id finds the same history', async () => {
+    const c = await newCompany(pool, [[o, 'owner']], companies);
+    const e = await employee(pool, c);
+    expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
+    const res = await byEmployee(o, c, { entityType: 'payroll_bank_detail', employeeId: e.toUpperCase() });
+    expect(afterOf(res, 'account_number')).toEqual(['…3456']);
+  });
+
+  it.each([['viewer', () => v], ['accountant', () => x]])('a %s is refused 403 (by the role check, before any query)', async (_r, user) => {
+    const c = await newCompany(pool, [[o, 'owner'], [v, 'viewer'], [x, 'accountant']], companies);
+    const e = await employee(pool, c);
+    expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
+    const res = await byEmployee(user(), c, { entityType: 'payroll_bank_detail', employeeId: e });
+    expect(res.state.statusCode).toBe(403);
+    expect(JSON.stringify(res.state.body)).not.toContain('…3456');
+  });
+
+  it('Login-as and a token are refused on every payroll_bank_detail path, and other types are not', async () => {
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin']], companies);
+    const e = await employee(pool, c);
+    expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
+    const [{ id }] = (await pool.query<{ id: string }>('SELECT id FROM payroll_bank_details WHERE employee_id = $1', [e])).rows as [{ id: string }];
+    const login = await impersonationToken(pool, o, a);
+    const token = await new SignJWT({ sub: o, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    const paths = [{ entityType: 'payroll_bank_detail', employeeId: e }, { entityType: 'payroll_bank_detail', entityId: id }, { entityType: 'payroll_bank_detail' }];
+    for (const [t, reason] of [[login, 'IMPERSONATION_FORBIDDEN'], [token, 'AGENT_FORBIDDEN']] as const) {
+      for (const q of paths) {
+        const res = await callRoute(entityChanges, t, c, 'GET', undefined, '/api/accounting/entity-changes', q);
+        expect(res.state.statusCode).toBe(403);
+        expect(reasonOf(res)).toBe(reason);
+      }
+      const other = await callRoute(entityChanges, t, c, 'GET', undefined, '/api/accounting/entity-changes', { entityType: 'payroll_employee', entityId: e });
+      expect(reasonOf(other)).not.toBe(reason);
     }
   });
 
   it('is refused (400) without the bank-detail entity type, with another type, or with an entity id', async () => {
-    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager']], companies);
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'accountant']], companies);
     const e = await employee(pool, c);
     expect((await byEmployee(o, c, { employeeId: e })).state.statusCode).toBe(400);
     expect((await byEmployee(o, c, { entityType: 'payroll_employee', employeeId: e })).state.statusCode).toBe(400);
     expect((await byEmployee(o, c, { entityType: 'payroll_bank_detail', employeeId: e, entityId: e })).state.statusCode).toBe(400);
   });
 
-  it("never returns another company's changes for the same employee id", async () => {
+  it("never returns another company's changes for the same employee id, even where RLS does not apply", async () => {
     const c1 = await newCompany(pool, [[o, 'owner']], companies);
     const c2 = await newCompany(pool, [[o, 'owner']], companies);
     const e = await employee(pool, c1);
     expect((await put(tokens[o]!, c1, e, ROW)).state.statusCode).toBe(200);
-    const res = await byEmployee(o, c2, { entityType: 'payroll_bank_detail', employeeId: e });
-    expect(dataOf<{ items: unknown[] }>(res).items).toEqual([]);
+    // The route's RLS would hide it anyway: run the service as the fixture's login (no RLS) so only the query's own
+    // company predicate separates the companies.
+    const query = { types: ['payroll_bank_detail'] as const, entityType: 'payroll_bank_detail' as const, employeeId: e, limit: 50 };
+    expect((await outsideRls(pool, c1, () => listEntityChanges(c1, query))).items.length).toBeGreaterThan(0);
+    expect((await outsideRls(pool, c2, () => listEntityChanges(c2, query))).items).toEqual([]);
   });
 });
