@@ -41,7 +41,7 @@ export interface CapturePostFollowUpInput {
 }
 
 export interface CapturePostFollowUps {
-  provisionalAttach: { attachedJeId: string | null; bankTxId: string | null; settlementRefused?: string };
+  provisionalAttach: { attachedJeId: string | null; bankTxId: string | null; settlementRefused?: string; dimensionRefusal?: string };
   threeWayMatch: Awaited<ReturnType<typeof performThreeWayMatch>> | null;
 }
 
@@ -98,6 +98,8 @@ export async function runCapturePostFollowUps(input: CapturePostFollowUpInput): 
     postUnattached: true,
     slip: input.slip,
   });
+  // The re-plan refused a supplier default (P5-2b): the request is rollback-only and the route answers 400.
+  if (provisionalAttach.dimensionRefusal) return { provisionalAttach, threeWayMatch: null };
 
   // Best-effort alert resolution — non-blocking
   resolvePendingAlertForInvoice(

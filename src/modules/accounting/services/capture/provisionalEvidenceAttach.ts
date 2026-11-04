@@ -51,9 +51,10 @@ import {
 import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 import { brokenChainMessage, findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
 import { openStampOnly } from '@/modules/accounting/services/bank/reconciliationSessionLock';
+import { inheritOnAttach, type AttachInheritance } from './captureSlipReplan';
 
 export type ProvisionalAttachResult =
-  | { kind: 'attached'; bankTxId: string | null }
+  | { kind: 'attached'; bankTxId: string | null; slipInheritance: AttachInheritance[] }
   | { kind: 'not_found'; what: 'Journal entry' | 'Captured document'; id: string }
   | { kind: 'refused'; message: string }
   | { kind: 'reading'; message: string }
@@ -157,5 +158,15 @@ export async function attachDocumentToProvisional(
         extraction_confidence = COALESCE(${docConfidence}, extraction_confidence)
     WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID`;
 
-  return { kind: 'attached', bankTxId: bankRow ? String(bankRow.id) : null };
+  // (5) Budgets P5-2b (breaker R3-4): a bill already raised from this slip inherits the provisional's dimensions on
+  // its blank lines, while a draft with no approval request bound (`inheritOnAttach`); each takes its row lock last,
+  // after the bank line, the journal and the document (the order above).
+  const bills = (await sql`
+    SELECT id FROM supplier_invoices
+     WHERE company_id = ${companyId}::UUID AND source_document_id = ${documentId}::UUID AND deleted_at IS NULL
+     ORDER BY id`) as DbRow[];
+  const slipInheritance: AttachInheritance[] = [];
+  for (const b of bills) slipInheritance.push(await inheritOnAttach(companyId, String(b.id), jeId));
+
+  return { kind: 'attached', bankTxId: bankRow ? String(bankRow.id) : null, slipInheritance };
 }

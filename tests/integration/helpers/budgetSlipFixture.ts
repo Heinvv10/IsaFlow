@@ -57,10 +57,11 @@ export async function postedOpexBySlice(pool: Pool, f: BillFixture, month: strin
 
 /**
  * A posted provisional still WAITING for its evidence (needs_evidence, bank line 'provisional', predicted supplier
- * `supplierId`), as `attachEvidenceToProvisional` finds one for a capture of `total` near `date`. Returns its id.
+ * `supplierId`), as `attachEvidenceToProvisional` finds one for a capture of `total` near `date`. Its expense lines are
+ * on opex unless an entry names `acct`. Returns its id.
  */
 export async function seedUnevidencedProvisional(
-  pool: Pool, f: BillFixture, date: string, opex: Array<{ amount: number; cc1: string | null }>, supplierId: string, vat = 120,
+  pool: Pool, f: BillFixture, date: string, opex: Array<{ amount: number; cc1: string | null; acct?: string }>, supplierId: string, vat = 120,
 ): Promise<string> {
   const bank = crypto.randomUUID();
   await pool.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance, level, is_active)
@@ -70,7 +71,7 @@ export async function seedUnevidencedProvisional(
                     VALUES ($1, $2, $3, $4, 'Bank-first provisional', 'posted', 'auto_bank_recon', true, $5)`, [je, f.co, `JE-PRV-${je.slice(0, 6)}`, date, f.owner]);
   const total = Math.round((opex.reduce((s, l) => s + l.amount, 0) + vat) * 100) / 100;
   for (const [acct, dr, cr, cc1, vatType] of [
-    ...opex.map((l) => [f.acc.opex, l.amount, 0, l.cc1, null] as const),
+    ...opex.map((l) => [l.acct ?? f.acc.opex, l.amount, 0, l.cc1, null] as const),
     [f.acc.vat, vat, 0, null, 'standard'] as const, [bank, 0, total, null, null] as const,
   ]) {
     await pool.query(`INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit, description, cc1_id, vat_type)

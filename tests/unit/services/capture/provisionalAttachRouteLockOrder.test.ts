@@ -87,6 +87,8 @@ function answer(strings: TemplateStringsArray): unknown[] {
   if (/FROM captured_documents/.test(text)) { events.push('read evidence'); return [{ raw_bytes_sha256: 'h', confidence: '0.9' }]; }
   if (/UPDATE\s+bank_transactions/.test(text)) { events.push('update bank'); return [{ id: BANK_TX_ID }]; }
   if (/UPDATE\s+gl_journal_entries/.test(text)) { events.push('update journal'); return []; }
+  // Budgets P5-2b: the bills raised from the slip, read after the journal (none here: each would take its row lock last).
+  if (/SELECT id FROM supplier_invoices/.test(text)) { events.push('read slip bills'); return []; }
   throw new Error(`unexpected statement: ${text}`);
 }
 
@@ -100,7 +102,7 @@ describe('provisional evidence attach — canonical lock order', () => {
   it('locks bank line, then journal, then document; claims before the first write; updates bank before journal', async () => {
     const out = await attachDocumentToProvisional(COMPANY_ID, JE_ID, DOC_ID);
 
-    expect(out).toEqual({ kind: 'attached', bankTxId: BANK_TX_ID });
+    expect(out).toEqual({ kind: 'attached', bankTxId: BANK_TX_ID, slipInheritance: [] });
     expect(events).toEqual([
       'peek bank',
       `lock bank ${BANK_TX_ID}`,
@@ -112,6 +114,7 @@ describe('provisional evidence attach — canonical lock order', () => {
       'read evidence',
       'update bank',
       'update journal',
+      'read slip bills',
     ]);
   });
 });

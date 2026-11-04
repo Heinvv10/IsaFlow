@@ -148,6 +148,37 @@ describe('fail closed: the attach links another provisional than the plan read, 
     expect(await billLineCc1(pool, bill)).toEqual([f.cc.HT, c4]); // ordered by line_total: 300 keeps HT, 500 re-planned to C4
   });
 
+  it('a supplier with NO default: account X inherited, account Y did not; re-planned from another provisional, Y stays blank', async () => {
+    const S0 = crypto.randomUUID();
+    await pool.query("INSERT INTO suppliers (id, company_id, name, is_active) VALUES ($1, $2, 'S0 no default', true)", [S0, f.co]);
+    const c5 = crypto.randomUUID();
+    await pool.query("INSERT INTO cost_centres (id, company_id, code, name, cc_type) VALUES ($1, $2, 'C5', 'Fifth', 'cc1')", [c5, f.co]);
+    // Planned: opex FT 500 hands FT to the opex line; travel 300 carries no centre, so the travel line stays blank.
+    await seedUnevidencedProvisional(pool, f, '2026-12-10', [{ amount: 500, cc1: f.cc.FT }, { amount: 300, cc1: null, acct: f.acc.travel }], S0);
+    const doc = crypto.randomUUID();
+    await pool.query(`INSERT INTO captured_documents (id, company_id, file_name, file_type) VALUES ($1, $2, 'slip.pdf', 'application/pdf')`, [doc, f.co]);
+    const bill = await makeBill(pool, f, [], { date: '2026-12-11' });
+    await pool.query('UPDATE supplier_invoices SET supplier_id = $2, subtotal = 800, tax_amount = 120, total_amount = 920, source_document_id = $3 WHERE id = $1', [bill, S0, doc]);
+    const slip = await asOwner(async () => {
+      const p = await planCaptureBillLines(f.co, {
+        supplierId: S0, invoiceNumber: 'X', invoiceDate: '2026-12-11', totalAmount: 920, taxAmount: 120, taxRate: 15,
+        items: [{ description: 'x', quantity: 1, unitPrice: 500, taxRate: 15, glAccountId: f.acc.opex },
+          { description: 'y', quantity: 1, unitPrice: 300, taxRate: 15, glAccountId: f.acc.travel }],
+      } as never, 2, null, null);
+      if (!('lines' in p)) throw new Error(JSON.stringify(p));
+      expect(p.lines.map((l) => l.cc1Id ?? null)).toEqual([f.cc.FT, null]);
+      return insertCaptureBillLines(bill, p.lines);
+    });
+    // A later provisional, with a C5 candidate on BOTH accounts, is the one attached.
+    const later = await seedUnevidencedProvisional(pool, f, '2026-12-12', [{ amount: 500, cc1: c5 }, { amount: 300, cc1: c5, acct: f.acc.travel }], S0);
+    const out = await asOwner(() => attachEvidenceAndSettleApproved({
+      companyId: f.co, userId: f.owner, documentId: doc, invoiceId: bill, invoiceStatus: 'draft',
+      supplierId: S0, totalAmount: 920, invoiceDate: '2026-12-11', postUnattached: true, slip,
+    }));
+    expect(out.attachedJeId).toBe(later);
+    expect(await billLineCc1(pool, bill)).toEqual([null, c5]); // ordered by line_total: travel 300 stays NULL, opex 500 → C5
+  });
+
   it('the planned provisional attached: the inherited line is untouched', async () => {
     await seedUnevidencedProvisional(pool, f, '2026-10-10', [{ amount: 800, cc1: f.cc.FT }], S2);
     const { bill, out } = await captureDraft('2026-10-11', async () => undefined);
