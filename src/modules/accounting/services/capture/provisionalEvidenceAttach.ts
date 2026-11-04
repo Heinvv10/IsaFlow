@@ -51,7 +51,7 @@ import {
 import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 import { brokenChainMessage, findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
 import { openStampOnly } from '@/modules/accounting/services/bank/reconciliationSessionLock';
-import { inheritOnAttach, type AttachInheritance } from './captureSlipReplan';
+import { inheritOnAttach, lockSlipBillsOrBusy, type AttachInheritance } from './captureSlipReplan';
 
 export type ProvisionalAttachResult =
   | { kind: 'attached'; bankTxId: string | null; slipInheritance: AttachInheritance[] }
@@ -61,12 +61,14 @@ export type ProvisionalAttachResult =
   | { kind: 'contended'; message: string };
 
 const CONTENDED = 'This journal or document is being changed by another request — retry in a moment.';
+const BILL_CONTENDED = 'A bill raised from this document is being processed by another request — retry in a moment.';
 
 export async function attachDocumentToProvisional(
   companyId: string,
   jeId: string,
   documentId: string,
 ): Promise<ProvisionalAttachResult> {
+  let slipBills: string[] = [];
   try {
     // (1) The bank line(s) first. The peek is unlocked; the UPDATE below re-checks
     // provisional_je_id, so a line unlinked while this waited for its lock is skipped. (A line
@@ -95,6 +97,13 @@ export async function attachDocumentToProvisional(
     const doc = await lockCapturedDocumentForUpdate(companyId, documentId);
     if (!doc) return { kind: 'not_found', what: 'Captured document', id: documentId };
     if (isBeingRead(doc)) return { kind: 'reading', message: STILL_BEING_READ };
+
+    // (4) Budgets P5-2b: the bills raised from this slip, locked last and without waiting. A held bill is contended,
+    // decided HERE before any write: committing the attach and skipping the bill would leave it un-inheritable (a
+    // retry is refused as already evidenced) and on blank or wrong dimensions.
+    const locked = await lockSlipBillsOrBusy(companyId, documentId);
+    if (locked === 'busy') return { kind: 'contended', message: BILL_CONTENDED };
+    slipBills = locked;
   } catch (err) {
     if (err instanceof BankTransactionLockTimeoutError || err instanceof CaptureRowLockTimeoutError
       || isLockContention(err)) {
@@ -159,14 +168,10 @@ export async function attachDocumentToProvisional(
     WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID`;
 
   // (5) Budgets P5-2b (breaker R3-4): a bill already raised from this slip inherits the provisional's dimensions on
-  // its blank lines, while a draft with no approval request bound (`inheritOnAttach`); each takes its row lock last,
-  // after the bank line, the journal and the document (the order above).
-  const bills = (await sql`
-    SELECT id FROM supplier_invoices
-     WHERE company_id = ${companyId}::UUID AND source_document_id = ${documentId}::UUID AND deleted_at IS NULL
-     ORDER BY id`) as DbRow[];
+  // its blank lines, while a draft with no approval request bound (`inheritOnAttach`). Each bill is already locked
+  // by this transaction (step 4), so none is skipped as busy here.
   const slipInheritance: AttachInheritance[] = [];
-  for (const b of bills) slipInheritance.push(await inheritOnAttach(companyId, String(b.id), jeId));
+  for (const id of slipBills) slipInheritance.push(await inheritOnAttach(companyId, id, jeId));
 
   return { kind: 'attached', bankTxId: bankRow ? String(bankRow.id) : null, slipInheritance };
 }

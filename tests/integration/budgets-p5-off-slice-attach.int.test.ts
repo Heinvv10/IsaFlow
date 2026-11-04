@@ -124,8 +124,8 @@ describe('capture: the plan read no provisional, the attach linked one', () => {
   });
 });
 
-describe('capture, auto-approved, the plan read no provisional, the attach linked one (round 5, LOW 5)', () => {
-  it('not a draft: nothing inherited (logged); block then refuses the posting off-slice and withdraws the auto-approval', async () => {
+describe('capture, auto-approved, the plan read no provisional, the attach linked one (Codex review of 56405f167)', () => {
+  it('approved but not yet posted: its blank line inherits FT, so the posting and the reclass land on the same slice (block)', async () => {
     await setPolicy(pool, f, 'block');
     const doc = crypto.randomUUID();
     await pool.query(`INSERT INTO captured_documents (id, company_id, file_name, file_type) VALUES ($1, $2, 'slip.pdf', 'application/pdf')`, [doc, f.co]);
@@ -142,9 +142,8 @@ describe('capture, auto-approved, the plan read no provisional, the attach linke
       supplierId: S0, totalAmount: 920, invoiceDate: '2026-09-11', postUnattached: true, slip,
     }));
     expect(out.attachedJeId).toBe(je);
-    expect(await billLineCc1(pool, bill)).toEqual([null]);
-    expect(out.settlementRefused).toMatch(/not in a budgeted slice/);
-    expect((await billState(pool, bill)).status).toBe('draft');
+    expect(await billLineCc1(pool, bill)).toEqual([f.cc.FT]);
+    expect({ refused: out.settlementRefused ?? null, status: (await billState(pool, bill)).status }).toEqual({ refused: null, status: 'paid' });
   });
 });
 

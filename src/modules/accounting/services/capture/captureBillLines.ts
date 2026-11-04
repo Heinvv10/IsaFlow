@@ -57,6 +57,8 @@ export interface CaptureBillLine {
   buId?: string;
   /** The provisional journal this line's dimensions were inherited from (not stored; the attach re-checks it). */
   slipJeId?: string;
+  /** The line carried no dimensions before the supplier's defaults (not stored): the attach may still inherit onto it. */
+  slipBlank?: boolean;
 }
 
 export type CaptureBillLinesPlan = { lines: CaptureBillLine[] } | { refusal: string };
@@ -126,9 +128,10 @@ export async function planCaptureBillLines(
     // The supplier's defaults are resolved for EVERY line, the inheriting ones too, and kept only where nothing is
     // inherited: a default the dimension rules refuse is this plan's refusal (a 400 before any write), so the
     // attach's re-plan, which may fall back to those defaults, can never meet one (review round 5, MEDIUM).
+    const blank = lines.map((l) => !l.cc1Id && !l.cc2Id && !l.buId);
     const defaulted = await resolveBillLineDimensions(companyId, invoice.supplierId, lines);
     const slip = await slipLines(companyId, invoice, lines);
-    return { lines: slip.lines.map((l, i) => (slip.inherited[i] ? l : defaulted[i]!)) };
+    return { lines: slip.lines.map((l, i) => ({ ...(slip.inherited[i] ? l : defaulted[i]!), slipBlank: blank[i] })) };
   } catch (err) {
     if (err instanceof DimensionRefusal) return { refusal: err.message };
     throw err;
@@ -147,11 +150,12 @@ async function slipLines(companyId: string, invoice: PipelineInvoiceInput, lines
 
 /**
  * On the request transaction, straight after the invoice INSERT — the column list createSupplierInvoice writes.
- * Returns which written lines inherited a provisional's dimensions, and from which journal: the attach compares it
- * with the provisional it actually links and re-plans those lines when they differ (`captureSlipReplan`).
+ * Returns which written lines inherited a provisional's dimensions, and from which journal, and which were blank before
+ * the supplier's defaults: the attach compares it with the provisional it actually links and re-plans those lines when
+ * they differ (`captureSlipReplan`).
  */
 export async function insertCaptureBillLines(invoiceId: string, lines: readonly CaptureBillLine[]): Promise<CaptureSlipPlan> {
-  const slip: CaptureSlipPlan = { plannedJeId: null, inheritedItemIds: [] };
+  const slip: CaptureSlipPlan = { plannedJeId: null, inheritedItemIds: [], blankItemIds: [] };
   for (const line of lines) {
     const [row] = (await sql`
       INSERT INTO supplier_invoice_items (
@@ -168,6 +172,7 @@ export async function insertCaptureBillLines(invoiceId: string, lines: readonly 
       slip.plannedJeId = line.slipJeId;
       slip.inheritedItemIds.push(row.id);
     }
+    if (line.slipBlank && row) slip.blankItemIds.push(row.id);
   }
   return slip;
 }

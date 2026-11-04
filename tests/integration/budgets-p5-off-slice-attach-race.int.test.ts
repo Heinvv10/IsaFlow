@@ -3,8 +3,9 @@
  * work on the same draft bill, on real concurrent request transactions (app_user):
  *   - R4-2: a requestApproval raised while the attach is in flight waits for it (the raise takes the bill FOR SHARE,
  *     `approvalDocuments.raiseOnce`) and binds the digest of the INHERITED lines, never a digest the attach then moves;
- *   - R5-3: a bill row another transaction holds past the 5 s budget fails the WHOLE manual attach (503 + Retry-After,
- *     through the real withAuth route, nothing committed), so the retry attaches and inherits;
+ *   - R5-3: a bill row another transaction holds (a long bulk approve) fails the WHOLE manual attach at once (the slip's
+ *     bills are locked SKIP LOCKED in id order before any write: 503 + Retry-After through the real withAuth route,
+ *     nothing written), so the retry attaches and inherits;
  *   - LOW 4: the attaching user becomes a content author of the bill whose lines it changed, so segregation of duties
  *     refuses them as its approver.
  * Fixture: opex BB-6100 at CC1 FT 1 000 / HT 0 a month (FY2027). Fixture route: isaflow_schema_fixture. Never skips.
@@ -95,8 +96,8 @@ describe('R4-2: a requestApproval raised while the manual attach is in flight', 
   });
 });
 
-describe('R5-3 (coordinator\'s ruling): a bill row held past the 5 s budget fails the WHOLE attach, so a retry works', () => {
-  it('503 + Retry-After, the bank line and journal unchanged; released, the retried attach inherits', async () => {
+describe('R5-3: a held bill fails the WHOLE attach at once, nothing written, so a retry works', () => {
+  it('503 + Retry-After without waiting, the bank line, journal and slip unchanged; released, the retried attach inherits', async () => {
     await setPolicy(pool, f, 'block');
     const je = await seedUnevidencedProvisional(pool, f, '2026-07-10', [{ amount: 800, cc1: f.cc.FT }], S0);
     const { bill, doc } = await slipDraft('2026-07-12');
@@ -105,7 +106,9 @@ describe('R5-3 (coordinator\'s ruling): a bill row held past the 5 s budget fail
     try {
       await holder.query('BEGIN');
       await holder.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [bill]); // a long bulk approve
+      const t0 = Date.now();
       first = await attachRoute(je, doc);
+      expect(Date.now() - t0).toBeLessThan(4000); // never the 5 s row-lock budget
     } finally {
       await holder.query('ROLLBACK');
       holder.release();
