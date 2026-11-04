@@ -44,7 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const { file, fileName } = await loadBudgetTemplate(companyId, versionId, grain, members);
+    const { file, fileName } = await loadBudgetTemplate(companyId, versionId, grain, members, userId);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Length', file.byteLength);

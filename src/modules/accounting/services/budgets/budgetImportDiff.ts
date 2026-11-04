@@ -28,6 +28,7 @@ import type { BandTotals } from './grid/subtotals';
 import { inputError } from './gridErrors';
 import { BudgetVersionError } from './budgetVersionTypes';
 import { loadGridReadModel } from './gridReadModel';
+import { sliceOf } from './holderSlices';
 import { requireFiscalYear } from '../gl/fiscalYearRegistry';
 import { bandTotals, ownMonths } from './gridTotals';
 import { cellsInCents } from './budgetTemplateXlsx';
@@ -169,9 +170,19 @@ export async function checkImportVersion(companyId: string, versionId: string): 
  * model. Run checkImportVersion first (the route does, before it decodes the file), so a wrong
  * version or year never pays the parse.
  */
-export async function buildImportPreview(companyId: string, versionId: string, file: Buffer): Promise<ImportPreview> {
+export async function buildImportPreview(companyId: string, versionId: string, file: Buffer, viewerId?: string): Promise<ImportPreview> {
   const wb = await readBudgetWorkbook(file);
-  const preview = previewImport(await loadGridReadModel(companyId, { versionId }, 'totals'), versionId, wb);
+  // P5-6: a budget holder previews against their slices (the work view, not access control), and a
+  // file changing any cell outside them is refused whole (403): they could not commit it anyway.
+  const model = await loadGridReadModel(companyId, { versionId }, 'totals', viewerId);
+  const preview = previewImport(model, versionId, wb);
+  if (model.holder) {
+    const outside = preview.cells.find((c) => sliceOf(model.holder!.slices, c) === null);
+    if (outside) {
+      throw new BudgetVersionError('BUDGET_SLICE_FORBIDDEN',
+        `This file changes cells outside your budget slices (month ${outside.month}); import a template of your own slices`);
+    }
+  }
   const at = await changedAt(companyId, versionId, preview.changes);
   return { ...preview, changes: preview.changes.map((c) => ({ ...c, currentChangedAt: at.get(c.key) ?? null })) };
 }

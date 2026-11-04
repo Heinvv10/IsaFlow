@@ -1,0 +1,28 @@
+[Unit]
+Description=IsaFlow — daily budget-holder slice reminders (budgets P5-6)
+After=network-online.target isaflow.service
+Wants=network-online.target
+
+# Reminds budget holders in the bell (in-app only, no email) when a slice they hold
+# is due in three days, due today or overdue. The X-Cron-Secret header reaches curl
+# on stdin (-H @-), never its argv, which /proc/<pid>/cmdline shows every local
+# account (scripts/isaflow-management-packs.service). CRON_SECRET must never be
+# written here. Can be folded into the budget-alerts run (P5-4) later.
+[Service]
+Type=oneshot
+User=velo
+Group=velo
+EnvironmentFile=/home/velo/isaflow/.env.local
+ExecStart=/bin/sh -c 'printf "X-Cron-Secret: %%s\\n" "$$CRON_SECRET" | exec /usr/bin/curl --silent --show-error --fail \
+  --max-time 600 \
+  -X POST \
+  -H @- \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:3101/api/cron/budget-reminders'
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-budget-reminders
+
+NoNewPrivileges=true
+ProtectSystem=strict

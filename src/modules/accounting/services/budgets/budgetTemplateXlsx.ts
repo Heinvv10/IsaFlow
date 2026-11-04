@@ -28,6 +28,7 @@ import { fromCents, toCents } from './grid/cents';
 import { BAND_LABEL, BAND_ORDER } from './grid/subtotals';
 import { inputError } from './gridErrors';
 import { loadGridReadModel } from './gridReadModel';
+import { priorForHolder } from './gridHolderView';
 import { MAX_IMPORT_CELLS } from './gridSaveValidate';
 import { isBudgetLine } from './gridTotals';
 import { baseDigest, templateSignature, type SignedCell } from './budgetTemplateSignature';
@@ -219,9 +220,13 @@ export async function buildBudgetTemplate(model: GridReadModel, grain: TemplateG
 }
 
 /** The template for one of the company's versions; another tenant's id is BUDGET_VERSION_NOT_FOUND. */
-export async function loadBudgetTemplate(companyId: string, versionId: string, grain: TemplateGrain, members?: readonly string[]): Promise<{ file: Buffer; fileName: string }> {
-  const model = await loadGridReadModel(companyId, { versionId }, 'totals');
-  const prior = await loadPriorActuals(companyId, model.year.fiscalYear, grain);
+export async function loadBudgetTemplate(
+  companyId: string, versionId: string, grain: TemplateGrain, members?: readonly string[], viewerId?: string,
+): Promise<{ file: Buffer; fileName: string }> {
+  // P5-6: a budget holder's template carries only their slices (budget, base and prior actuals).
+  const model = await loadGridReadModel(companyId, { versionId }, 'totals', viewerId);
+  const loaded = await loadPriorActuals(companyId, model.year.fiscalYear, grain);
+  const prior = model.holder ? priorForHolder(loaded, model.holder.slices) : loaded;
   const name = (model.version?.name ?? 'budget').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'budget';
   return { file: await buildBudgetTemplate(model, grain, prior, members), fileName: `budget-FY${model.year.fiscalYear}-${name}-${grain}.xlsx` };
 }

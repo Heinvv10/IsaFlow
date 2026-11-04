@@ -20,6 +20,7 @@ import { committedPart, savedParts, toSaveCells } from './saveSnapshot';
 import { refreshVersion } from './gridRefresh';
 import type { GridStatus, SaveState, StaleState } from './types';
 import type { BudgetGridApi, MemberTotal, RowWarning } from './budgetGridApi';
+import { holderView } from './holderMode';
 
 export type { BudgetGridApi, MemberTotal, RowWarning } from './budgetGridApi';
 
@@ -76,7 +77,8 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
   /** Show `m` in the store (optionally with re-applied values), keeping the view when its member still exists. */
   const show = useCallback((m: GridReadModel, overlay?: { values: ReadonlyMap<string, number | null>; conflicts: string[] }) => {
     const v = live.current.view;
-    const keep = v.kind === 'company' || m.dimensions[v.kind].some(x => x.id === v.memberId) ? v : COMPANY;
+    // P5-6: a budget holder opens on their own slice (holderMode).
+    const keep = holderView(m, v.kind === 'company' || m.dimensions[v.kind].some(x => x.id === v.memberId) ? v : COMPANY);
     store.reset(m, { view: keep, canWrite: live.current.canWrite && m.version !== null, ...overlay });
     if (compareCells.current) store.setCompare(compareCells.current);
     live.current = { ...live.current, model: m, token: m.updatedAt, view: keep };

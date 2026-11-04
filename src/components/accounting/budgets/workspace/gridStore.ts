@@ -23,6 +23,7 @@ import { accountRowKey, buildLayout, rollupRowKey } from './gridLayout';
 import { GridStoreCore, type LineRow, METRICS, ROLLUP_REASON } from './gridStoreCore';
 import { byAccount, cellsInCents, sameSelection, selectionPart, touchedRows } from './gridStoreParts';
 import type { InvalidCellNotice } from './types';
+import { holderRule } from './holderMode';
 
 export { accountRowKey, rollupRowKey, ROLLUP_REASON };
 
@@ -64,6 +65,7 @@ export class GridStore extends GridStoreCore {
     this.conflicts = new Set(opts.conflicts ?? []);
     this.locked = opts.locked ?? model.version?.status === 'locked';
     this.canWrite = opts.canWrite;
+    this.holderReason = holderRule(model);
     this.view = opts.view;
     this.prior = null;
     this.compare = null;

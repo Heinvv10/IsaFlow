@@ -10,6 +10,7 @@ import {
 } from 'docx';
 import { log } from '@/lib/logger';
 import { findReportingPeriod } from './afsReportingPeriod';
+import { afsDocumentTitle, isPackPeriod, packPeriodLabel, packPeriodPhrase } from './afsDocumentTitle';
 import type { AfsDocument, AfsSection, NoteContentBlock, NoteContent } from './afsTypes';
 import { renderNoteTable } from './docxTableRenderer';
 
@@ -79,21 +80,24 @@ function renderBlock(block: NoteContentBlock): DocxChild[] {
  * own period label, and nothing for a document with neither.
  */
 async function coverPeriodText(doc: AfsDocument): Promise<string | null> {
+  const isPack = doc.documentType === 'management_pack';
+  // A pack is monthly: its valid month wins even when it also carries a fiscal year.
+  if (isPack && isPackPeriod(doc.period)) return `For the ${packPeriodPhrase(doc.period)}`;
   if (doc.fiscalYear) {
     const period = await findReportingPeriod(doc.companyId, Number(doc.fiscalYear), 'docxExportService');
     return period ? `For the ${period.current.phrase}` : null;
   }
-  return doc.period;
+  return isPack ? null : doc.period;
 }
 
-function buildCoverChildren(periodText: string | null, companyName: string): DocxChild[] {
+function buildCoverChildren(periodText: string | null, companyName: string, title: string): DocxChild[] {
   return [
     spacer(),
     spacer(),
     spacer(),
     centeredParagraph(companyName, true, 48),
     spacer(),
-    centeredParagraph('Annual Financial Statements', true, 36),
+    centeredParagraph(title, true, 36),
     spacer(),
     periodText ? centeredParagraph(periodText, false, 28) : spacer(),
     spacer(),
@@ -208,7 +212,8 @@ export async function renderToDocx(
 
   const sorted = [...sections].sort((a, b) => a.sortOrder - b.sortOrder);
 
-  const coverChildren = buildCoverChildren(await coverPeriodText(document), companyName);
+  const documentTitle = afsDocumentTitle(document.documentType);
+  const coverChildren = buildCoverChildren(await coverPeriodText(document), companyName, documentTitle);
   const tocChildren = buildTocChildren();
 
   const sectionParts = sorted
@@ -223,8 +228,10 @@ export async function renderToDocx(
 
   const file = new File({
     creator: 'IsaFlow AFS',
-    title: `${companyName} — Annual Financial Statements`,
-    description: `AFS for fiscal year ${document.fiscalYear ?? ''}`,
+    title: `${companyName} — ${documentTitle}`,
+    description: document.documentType === 'management_pack'
+      ? (isPackPeriod(document.period) ? `Management pack for ${packPeriodLabel(document.period)}` : 'Management pack')
+      : `AFS for fiscal year ${document.fiscalYear ?? ''}`,
     styles: buildStyles(),
     sections: [
       {

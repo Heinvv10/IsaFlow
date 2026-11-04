@@ -27,6 +27,7 @@ import { useUnsavedGuard } from './useUnsavedGuard';
 import { canWriteRole, VersionsBar } from './VersionsBar';
 import { useBudgetYears, useWorkspaceVersions } from './useWorkspaceVersions';
 import { WorkspaceEmptyState } from './WorkspaceEmptyState';
+import { HolderBanner } from './HolderBanner';
 import type { SourceChoice } from './wizardDraft';
 import { useDriverActions } from '@/components/accounting/budgets/drivers/useDriverActions';
 import { HeadcountPanel } from '@/components/accounting/budgets/drivers/HeadcountPanel';
@@ -181,6 +182,7 @@ export function BudgetWorkspace() {
         )}
         {status === 'ready' && model && version && model.accounts.length > 0 && (
           <>
+            {model.holder && <HolderBanner holder={model.holder} dimensions={model.dimensions} versionStatus={version.status} />}
             <GridToolbar view={grid.view} dimensions={model.dimensions} members={grid.members} onViewChange={grid.setView}
               roundingUnit={grid.roundingUnit} onRoundingUnitChange={grid.setRoundingUnit} density={density} onDensityChange={setDensity}
               showPy={showPy} onShowPyChange={setShowPy} onDownloadTemplate={() => setTemplateOpen(true)}
