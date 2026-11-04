@@ -65,6 +65,26 @@ describe("default mode: P0's rule", () => {
     expect(registry.lookups).toBe(1);
   });
 
+  it('LB-2(b): a month two registry years share reads ONE version whatever day the window starts', async () => {
+    // FY2026 ends 14 Mar, FY2027 starts 15 Mar: both versions hold March (the grid lets each year write it).
+    W.years = [{ fiscalYear: 2026, startDate: '2025-03-15', endDate: '2026-03-14' }, { fiscalYear: 2027, startDate: '2026-03-15', endDate: '2027-03-14' }];
+    W.versions = { 2026: 'v26', 2027: 'v27' };
+    W.cells = [
+      { version: 'v26', account: SALES, month: '2026-03', amount: 500 },
+      { version: 'v27', account: SALES, month: '2026-03', amount: 700 },
+      { version: 'v27', account: SALES, month: '2026-04', amount: 1000 },
+    ];
+    const fromFirst = await getBudgetVariance(CO, '2026-03-01', '2026-04-30');
+    const fromFifteenth = await getBudgetVariance(CO, '2026-03-15', '2026-04-30');
+    const fromTenth = await getBudgetVariance(CO, '2026-03-10', '2026-04-30');
+    // March is the year holding 1 March's (FY2026: rehome's and P1's month key), April FY2027's.
+    expect(line(fromFirst, SALES)?.budget_amount).toBe(1500);
+    expect(line(fromFifteenth, SALES)?.budget_amount).toBe(1500);
+    expect(line(fromTenth, SALES)?.budget_amount).toBe(1500);
+    // P0's fiscalYear stays the year holding the window's first DAY.
+    expect([fromFirst.fiscalYear, fromFifteenth.fiscalYear, fromTenth.fiscalYear]).toEqual([2026, 2027, 2026]);
+  });
+
   it('refuses a filter or a version: under P0\'s rule they would hide budget set above the filter', async () => {
     W.years = [FY27];
     const opts = { costCentreId: 'dddddddd-0000-4000-8000-000000000001' } as unknown as Parameters<typeof getBudgetVariance>[3];

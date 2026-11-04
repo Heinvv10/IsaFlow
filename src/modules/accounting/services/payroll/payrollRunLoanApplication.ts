@@ -36,6 +36,7 @@ import {
   type ReversibleLoanPayment,
 } from './payrollLoanReversal';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
+import { withholdingFor, type LoanComponentsPresent, type WithheldLoan } from './payrollLoanWithholding';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
 const LOCK_NOT_AVAILABLE = '55P03';
@@ -53,8 +54,9 @@ export class PayrollRunJournalPostedError extends Error {
 
 export class PayrollLoanLockTimeoutError extends Error {
   readonly code = 'PAYROLL_LOAN_LOCK_TIMEOUT';
-  constructor(runId: string) {
-    super(`Payroll run ${runId} is being calculated by another request — retry in a moment.`);
+  /** `runId` null: the wait was on the company's payroll, not one run. */
+  constructor(runId: string | null) {
+    super(`${runId ? `Payroll run ${runId}` : 'This company\'s payroll'} is being calculated by another request — retry in a moment.`);
     this.name = 'PayrollLoanLockTimeoutError';
   }
 }
@@ -143,6 +145,10 @@ export interface RunLoanInput {
   journalEntryId: string | null;
   /** The run's employees. A due instalment of anyone else is not taken. */
   employeeIds: ReadonlySet<string>;
+  /** Which loan components the payslip has. A loan needing a missing one is withheld (payrollLoanWithholding). */
+  components: LoanComponentsPresent;
+  /** Told of each withheld loan, so the run can mark its line. */
+  onWithheld?: (withheld: WithheldLoan) => void;
 }
 
 /**
@@ -221,21 +227,23 @@ export async function applyRunLoans(
 
     await reverseLoanApplicationsForRun(input.companyId, input.runId, work.reversible, tx);
 
-    const active = await listActiveLoansForRun(
-      input.companyId, input.periodYear, input.periodMonth, tx,
-    );
+    const active = await listActiveLoansForRun(input.companyId, input.periodYear, input.periodMonth, tx);
 
     const byEmployee = new Map<string, ApplyLoanResult[]>();
+    const withheld = new Map<string, WithheldLoan>();
     for (const row of active) {
       if (!input.employeeIds.has(row.employeeId)) continue;
-      const applied = await applyLoanToRun({
-        loanId: row.loanId,
-        companyId: input.companyId,
-        runId: input.runId,
-        periodYear: input.periodYear,
-        periodMonth: input.periodMonth,
-        officialRate: input.officialRate,
-      }, tx);
+      const loan = {
+        loanId: row.loanId, companyId: input.companyId, runId: input.runId,
+        periodYear: input.periodYear, periodMonth: input.periodMonth, officialRate: input.officialRate,
+      };
+      const held = await withholdingFor(loan, input.components, tx);
+      if (held) {
+        withheld.set(held.loanId, held);
+        input.onWithheld?.(held);
+        continue;
+      }
+      const applied = await applyLoanToRun(loan, tx);
       if (!applied) continue;
       const list = byEmployee.get(applied.employeeId) ?? [];
       list.push(applied);
@@ -265,12 +273,16 @@ export async function applyRunLoans(
     }
     const notReapplied = work.reversible.filter(p => !reapplied.has(p.loanId));
     if (notReapplied.length > 0) {
+      const why = (loanId: string) => {
+        const held = withheld.get(loanId);
+        return held ? 'no LOAN deduction' : 'loan no longer active for this period';
+      };
       log.warn(
-        'Loan payments reversed without re-application — loan no longer active for this period',
+        'Loan payments reversed without re-application',
         {
           companyId: input.companyId,
           runId: input.runId,
-          loanIds: notReapplied.map(p => p.loanId),
+          reasons: notReapplied.map(p => ({ loanId: p.loanId, reason: why(p.loanId) })),
         },
         'payrollRunLoanApplication',
       );

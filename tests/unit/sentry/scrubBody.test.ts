@@ -78,3 +78,23 @@ describe('selector and URL in one text', () => {
     expect(msg('fetch /share/[token]?x=1 failed')).toBe('fetch /share/[token]?x=[REDACTED] failed');
   });
 });
+
+describe('a key that may itself be data', () => {
+  const query = (query_string: unknown) => scrubEvent({ request: { query_string } } as Event)!.request!.query_string;
+
+  it('leaves the body, at any depth, and is counted', () => {
+    const out = body({ note: 'x', 62000123456: 'y', rows: [{ '{"accountNumber":"62000123456"}': '' }], ['k'.repeat(65)]: 1 });
+    expect(out).toEqual({ note: '[REDACTED]', rows: [{ '[omitted keys]': 1 }], '[omitted keys]': 2 });
+  });
+
+  it('leaves the query string, in each shape Sentry sends', () => {
+    expect(query('62000123456=1&page=2')).toBe('[REDACTED]&page=[REDACTED]');
+    expect(query([['62000123456', '1'], ['page', '2']])).toEqual([['[REDACTED]', '[REDACTED]'], ['page', '[REDACTED]']]);
+    expect(query({ 62000123456: '1', page: '2' })).toEqual({ '[REDACTED]': '[REDACTED]', page: '[REDACTED]' });
+  });
+
+  it('leaves a URL too', () => {
+    const url = (u: string) => scrubEvent({ request: { url: u } } as Event)!.request!.url;
+    expect(url('https://a.test/x?62000123456=1&page=2')).toBe('https://a.test/x?[REDACTED]&page=[REDACTED]');
+  });
+});

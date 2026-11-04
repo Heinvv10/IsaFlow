@@ -51,6 +51,13 @@ function line(components: EmployeeComponent[], beneficiaries = 0) {
   });
 }
 
+function lineWithYtd(components: EmployeeComponent[], ytd: Parameters<typeof calculatePayrollLine>[0]['ytd']) {
+  return calculatePayrollLine({
+    employee: employee(), components, period: { month: 7, year: 2026 }, taxYear: 2027,
+    annualPayrollEstimate: 'defer', ytd,
+  });
+}
+
 describe('P3: an annual payment (3605) is taxed by the SARS annual-payment method', () => {
   it("the guide's October bonus: salary tax 4 161.00 plus bonus tax 3 848.00", () => {
     const l = line([{ component: comp('3601'), amount: 28_000 }, { component: comp('3605'), amount: 14_800 }]);
@@ -95,6 +102,19 @@ describe('P3: an annual payment (3605) is taxed by the SARS annual-payment metho
     const l = line([{ component: comp('3601'), amount: 20_000 }]);
     expect(l.payeSplit).toEqual({ regular: 2115, annualPayment: 0, directive: 0 });
   });
+
+  it('a negative 3605 cannot erase the salary period used by the next month', () => {
+    const june = line([{ component: comp('3601'), amount: 20_000 }, { component: comp('3605'), amount: -20_000 }]);
+    expect(june).toMatchObject({ periodicRemuneration: 20_000, periodicTaxable: 0, annualTaxable: 0 });
+
+    const july = lineWithYtd([{ component: comp('3601'), amount: 20_000 }], {
+      periods: 1, retirementCapPeriods: 1, periodicTaxable: 0, annualPayments: 0,
+      tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0,
+      retirementContributions: 0, retirementDeduction: 0, donations: 0,
+    });
+    // Two paid salary periods, R20 000 taxable in total: AE R120 000, tax R3 780 × 2/12 = R630.
+    expect(july.paye.monthlyPaye).toBe(630);
+  });
 });
 
 describe('P3: a lump sum (39xx) is never taxed by the tables', () => {
@@ -129,10 +149,11 @@ describe('P3: a lump sum (39xx) is never taxed by the tables', () => {
 describe('P3: taxable deductions and the split', () => {
   it('a taxable deduction larger than regular pay comes off the annual payment', () => {
     // Regular 5 000 − 8 000 deduction → 0; the 3 000 excess comes off the 130 000 bonus.
-    // tax(127 000) = 22 860 − 17 820 = 5 040.
+    // tax(127 000) = 22 860 − 17 820 = 5 040. Not a retirement fund code: since PAYE 4c those
+    // (4001/4003/4006) are capped by section 11F instead (payrollCalculatorRetirement.test.ts).
     const l = line([
       { component: comp('3601'), amount: 5_000 },
-      { component: comp('4001', { componentType: 'deduction' }), amount: 8_000 },
+      { component: comp('4030', { componentType: 'deduction' }), amount: 8_000 },
       { component: comp('3605'), amount: 130_000 },
     ]);
     expect(l.payeSplit).toEqual({ regular: 0, annualPayment: 5040, directive: 0 });

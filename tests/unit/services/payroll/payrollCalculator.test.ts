@@ -88,7 +88,11 @@ describe('payrollCalculator — property tests', () => {
       taxYear: 2025,
       annualPayrollEstimate: 1_000_000,
     });
-    expect(result.taxableIncome).toBeCloseTo(23_000, 2);
+    // PAYE 4c: a pension contribution (4001) is the s11F deduction, its own figure; taxable income is stored
+    // before it, and the tax is the tax on 23 000.
+    expect(result.retirementDeduction).toBeCloseTo(2_000, 2);
+    expect(result.taxableIncome).toBeCloseTo(25_000, 2);
+    expect(result.paye.monthlyPaye).toBe(calculatePayrollLine(makeInput(23_000)).paye.monthlyPaye);
     expect(result.grossPay).toBeCloseTo(25_000, 2);
   });
 
@@ -111,6 +115,28 @@ describe('payrollCalculator — property tests', () => {
       annualPayrollEstimate: 1_000_000,
     });
     expect(result.paye.monthlyPaye).toBeCloseTo(taxableBase, 1);
+  });
+
+  it('taxes a non-cash 3801 benefit without paying it as cash gross or net', () => {
+    const base = calculatePayrollLine(makeInput(25_000));
+    const input = makeInput(25_000);
+    input.components.push({
+      component: makeComponent({
+        id: 'loan-fringe', name: 'Low-interest loan benefit', sarsSourceCode: '3801',
+        isUifApplicable: false, isSdlApplicable: true,
+      }),
+      amount: 1_000,
+      isNonCash: true,
+    });
+
+    const result = calculatePayrollLine(input);
+
+    expect(result.grossPay).toBe(base.grossPay);
+    expect(result.remuneration).toBe(base.remuneration + 1_000);
+    expect(result.sdlLeviable).toBe(base.sdlLeviable + 1_000);
+    expect(result.taxableIncome).toBe(base.taxableIncome + 1_000);
+    expect(result.paye.monthlyPaye).toBeGreaterThan(base.paye.monthlyPaye);
+    expect(result.netPay).toBeCloseTo(base.netPay - (result.paye.monthlyPaye - base.paye.monthlyPaye), 2);
   });
 
   it('component breakdown includes all components', () => {

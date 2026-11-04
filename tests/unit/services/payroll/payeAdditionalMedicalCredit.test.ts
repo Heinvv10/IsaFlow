@@ -69,7 +69,8 @@ describe('the annual credit (payeEngine)', () => {
 
 describe('cumulative PAYE with the credit (payeCumulative)', () => {
   const month = (ytd: PayeYearToDate, fees = 5_100) => calculateCumulativePaye({
-    taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 2, regularTaxable: 30_000, annualPayments: 0, medicalSchemeFees: fees, ytd,
+    taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 2, regularTaxable: 30_000, annualPayments: 0,
+    periodicRemuneration: 30_000, annualPaymentRemuneration: 0, medicalSchemeFees: fees, ytd,
   });
   const next = (ytd: PayeYearToDate, r: ReturnType<typeof month>, fees = 5_100): PayeYearToDate => ({
     periods: ytd.periods + 1, periodicTaxable: ytd.periodicTaxable + 30_000, annualPayments: 0,
@@ -110,7 +111,8 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
     // 2026: tax(360 000) = 42 678 + 26% x 122 900 = 74 632; - 17 235 - 9 444 = 47 953; MTC 728 x 12 = 8 736: 39 217.
     // AMTC 33,3% x (61 200 - 3 x 8 736) = 11 652.336: 27 564.664 a year, 2 297.0553 a month.
     const in2026 = (ytd: PayeYearToDate) => calculateCumulativePaye({
-      taxYear: 2026, rebateAge: 67, monthlyMedicalBeneficiaries: 2, regularTaxable: 30_000, annualPayments: 0, medicalSchemeFees: 5_100, ytd,
+      taxYear: 2026, rebateAge: 67, monthlyMedicalBeneficiaries: 2, regularTaxable: 30_000, annualPayments: 0,
+      periodicRemuneration: 30_000, annualPaymentRemuneration: 0, medicalSchemeFees: 5_100, ytd,
     });
     let ytd = NONE;
     const out: Array<ReturnType<typeof in2026>> = [];
@@ -126,6 +128,7 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
     // tax(360 000) = 73 992 - 27 585 - 4 512 = 41 895; - 7 480.512 = 34 414.488 / 12 = 2 867.874.
     const r = calculateCumulativePaye({
       taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 1, regularTaxable: 30_000, annualPayments: 0, medicalSchemeFees: 3_000, ytd: NONE,
+      periodicRemuneration: 30_000, annualPaymentRemuneration: 0,
     });
     expect([r.regular.monthlyPaye, r.additionalMedicalCredit, r.medicalCredit]).toEqual([2_867.87, 623.38, 376]);
   });
@@ -139,6 +142,7 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
     // 4005 fees but no scheme membership recorded: no MTC, and no AMTC (round 2 review). tax 73 992 - 27 585 = 46 407.
     const r = calculateCumulativePaye({
       taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 0, regularTaxable: 30_000, annualPayments: 0, medicalSchemeFees: 5_100, ytd: NONE,
+      periodicRemuneration: 30_000, annualPaymentRemuneration: 0,
     });
     expect([r.regular.monthlyPaye, r.additionalMedicalCredit]).toEqual([3_867.25, 0]);
   });
@@ -146,6 +150,7 @@ describe('cumulative PAYE with the credit (payeCumulative)', () => {
   it('no periodic pay yet (an annual payment alone): the fees to date are taken as they stand', () => {
     const r = calculateCumulativePaye({
       taxYear: 2027, rebateAge: 67, monthlyMedicalBeneficiaries: 2, regularTaxable: 0, annualPayments: 400_000, medicalSchemeFees: 61_200, ytd: NONE,
+      periodicRemuneration: 0, annualPaymentRemuneration: 400_000,
     });
     // AE 0; tax(400 000) = 79 998 + 31% x 16 900 = 85 237 - 27 585 - 9 024 - 11 364.624 = 37 263.376.
     expect(r.annualPaymentPaye).toBeCloseTo(37_263.38, 2);

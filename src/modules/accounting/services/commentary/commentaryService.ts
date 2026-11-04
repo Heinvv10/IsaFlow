@@ -113,21 +113,34 @@ export async function generateDrafts(input: {
   return { written, skipped };
 }
 
-export async function rejectCommentary(companyId: string, id: string, userId: string): Promise<CommentaryResult> {
+/** `reportKind` and `expectedDraft` as in `approveCommentary`: a row of another kind is `not_found` to this
+ *  caller; a draft that is not the text the rejecter was shown is `invalid_state`, here and in the UPDATE. */
+export async function rejectCommentary(
+  companyId: string, id: string, userId: string, reportKind = 'pack', expectedDraft?: string,
+): Promise<CommentaryResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const row = await currentRow(companyId, id);
-  if (!row) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
+  if (!row || row.reportKind !== reportKind) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
 
   const t = nextStatus(row.status, 'reject');
   if (!t.ok) return { ok: false, code: 'invalid_state', reason: t.reason };
+  const changed = 'This note changed since you opened it, or is no longer a draft. Reload and review the new text.';
+  if (expectedDraft !== undefined && row.draftText !== expectedDraft) return { ok: false, code: 'invalid_state', reason: changed };
 
-  const rows = (await sql`
+  const rows = (expectedDraft === undefined ? await sql`
     UPDATE report_commentary
     SET status = 'rejected', updated_at = NOW()
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND report_kind = ${reportKind} AND status = 'draft'
+    RETURNING *
+  ` : await sql`
+    UPDATE report_commentary
+    SET status = 'rejected', updated_at = NOW()
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND report_kind = ${reportKind} AND status = 'draft' AND draft_text = ${expectedDraft}
     RETURNING *
   `) as DbRow[];
-  if (!rows[0]) return { ok: false, code: 'invalid_state', reason: 'This commentary is no longer a draft.' };
+  if (!rows[0]) {
+    return { ok: false, code: 'invalid_state', reason: expectedDraft === undefined ? 'This commentary is no longer a draft.' : changed };
+  }
 
   log.info('Commentary rejected', { companyId, userId, commentaryId: id }, 'commentary');
   return { ok: true, row: toRow(rows[0]) };
