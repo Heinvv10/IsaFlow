@@ -30,6 +30,36 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-04 — AFS Pack Export + Pack Viewer, Budgets P3/P5, MP Wave 3 Payrun Grid
+
+**AFS / Management Pack**
+
+- Pack export no longer fails on AFS-only blockers (review/disclosure/sign-off checks skipped for management packs); pack reads its own month for its period rather than the AFS fiscal-year end (#1134)
+- Pack viewer: skeleton-before-load, extracted tabs, pack title aligned, defensive null blocks; muted-text uses ink tokens
+- Monthly pack always prints its month even when a fiscal year is attached; pack signer wording aligned; blank-period DOCX description fixed
+
+**Budgets — Phase 3**
+
+- Page 6 footnote wording preserved for untrimmed pages; dropped-columns note only printed where the page carries it untrimmed (#1121)
+- IS slide returns 400 for invalid params; deck's budget Retry superseded on window/params change; 429 Retry bounded (#1120)
+- Template year hands its mid-month last month only to a STORED next year — template→stored hand-off edge case fixed (#1124)
+- Reviewed rows frozen before driver dependencies; approved variance note wording preserved
+- Shared `budgetStateOf`; ratios-slide and classifier tests added; LB-2(b) adversary repros (#1128)
+
+**Budgets — Phase 5**
+
+- PO approval step (#1114)
+
+**Management Pack — Wave 3**
+
+- Payrun review grid (#1091)
+
+**MCP**
+
+- Bank rule autopost scope restricted (#1094)
+
+---
+
 ## 2026-10-29 — Bank Export, Budget Notes, Invoice Form Kit, GL Re-type Guard
 
 **Bank**
