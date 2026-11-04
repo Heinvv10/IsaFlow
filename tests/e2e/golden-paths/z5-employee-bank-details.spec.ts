@@ -4,8 +4,11 @@
  *
  *  - Create an employee with bank details on the form: the profile shows "•••• 1234" and who changed it last.
  *  - The page only ever reads the masked view (?view=masked) and the full number is nowhere in the page.
- *  - An owner / admin changes the details from the card; the card then shows the new last four.
- *  - axe reports 0 critical and 0 serious on the create form (with its bank section) and on the profile, both themes.
+ *  - The card's history timeline holds a change row with the masked account number.
+ *  - An owner / admin changes the details from the card; the card then shows the new last four, and the history row
+ *    for the new details holds the new masked number and not the old one.
+ *  - axe reports 0 critical and 0 serious on the create form (with its bank section), on the profile, on the open
+ *    change form and on its field-error state, both themes.
  *  - EVIDENCE_DIR=<dir> saves screenshots (light and dark).
  *
  * Dev/CI gate: it writes employees (no delete endpoint exists; the numbers are unique per run), in one dedicated
@@ -74,9 +77,14 @@ test('create with bank details: the profile shows the masked number and the last
 
   const card = page.getByTestId('employee-bank-card');
   await expect(card.getByText('•••• 1234')).toBeVisible({ timeout: 30_000 });
-  await expect(card.getByText('FNB')).toBeVisible();
-  await expect(card.getByText('…55')).toBeVisible();
+  const summary = card.locator('dl');
+  await expect(summary.getByText('FNB')).toBeVisible();
+  await expect(summary.getByText('…55')).toBeVisible();
   await expect(card.getByTestId('bank-last-change')).toHaveText(/^Changed (just now|\d+ minutes? ago) by \S+/, { timeout: 30_000 });
+  const history = card.getByTestId('bank-history').getByTestId('entity-change');
+  await expect(history).toHaveCount(1, { timeout: 30_000 });
+  await expect(history.first()).toContainText('Account number');
+  await expect(history.first()).toContainText('…1234');
   expect(await page.content()).not.toContain(FULL);
   expect(reads.length).toBeGreaterThan(0);
   for (const url of reads) expect(url).toContain('view=masked');
@@ -90,6 +98,8 @@ test('an owner / admin changes the details from the card', async ({ page }) => {
   await page.waitForURL(PROFILE, { timeout: 30_000 });
   const card = page.getByTestId('employee-bank-card');
   await expect(card.getByText('•••• 1234')).toBeVisible({ timeout: 30_000 });
+  const history = card.getByTestId('bank-history');
+  await expect(history).toContainText('…1234', { timeout: 30_000 });
 
   await card.getByRole('button', { name: 'Change bank details' }).click();
   await expect(card.getByLabel('Account number *')).toHaveValue('');
@@ -99,8 +109,13 @@ test('an owner / admin changes the details from the card', async ({ page }) => {
   await card.getByLabel('Branch code *').fill('470010');
   await card.getByLabel('Account number *').fill(CHANGED);
   await card.getByRole('button', { name: 'Save bank details' }).click();
+  // The details name a holder, so a change has to type it again rather than silently clear it.
+  await expect(card.getByLabel('Account holder')).toHaveAttribute('aria-invalid', 'true');
+  await card.getByLabel('Account holder').fill('Golden Bank');
+  await card.getByRole('button', { name: 'Save bank details' }).click();
   await expect(card.getByText('•••• 5678')).toBeVisible({ timeout: 30_000 });
-  await expect(card.getByTestId('bank-last-change')).toHaveText(/^Changed /);
+  await expect(history).toContainText('…5678', { timeout: 30_000 });
+  await expect(history).not.toContainText('…1234');
 });
 
 for (const theme of THEMES) {
@@ -122,5 +137,16 @@ for (const theme of THEMES) {
     await settle(page);
     await expectAxeClean(page);
     await snap(page, 'employee-bank-profile', theme);
+
+    const card = page.getByTestId('employee-bank-card');
+    await card.getByRole('button', { name: 'Change bank details' }).click();
+    await expect(card.getByLabel('Account number *')).toBeVisible();
+    await expectAxeClean(page);
+    await snap(page, 'employee-bank-change-form', theme);
+    await card.getByLabel('Branch code *').fill('12');
+    await card.getByRole('button', { name: 'Save bank details' }).click();
+    await expect(card.getByLabel('Branch code *')).toHaveAttribute('aria-invalid', 'true');
+    await expectAxeClean(page);
+    await snap(page, 'employee-bank-change-errors', theme);
   });
 }

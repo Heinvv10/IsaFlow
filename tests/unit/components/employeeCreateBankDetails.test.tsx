@@ -58,13 +58,17 @@ describe('bank details on create', () => {
     expect(sent('PUT', '/bank-details')).toHaveLength(0);
   });
 
-  it('a half-filled section stops the submit on the field, with nothing created', async () => {
+  it.each([
+    ['bank name only', { 'Bank name *': 'FNB' }, ['Branch code *', 'Account number *']],
+    ['branch code only', { 'Branch code *': '250655' }, ['Bank name *', 'Account number *']],
+    ['a short branch code', { 'Bank name *': 'FNB', 'Branch code *': '123', 'Account number *': '62000123456' }, ['Branch code *']],
+  ])('a half-filled section (%s) stops the submit on the fields, with nothing created', async (_n, typed, invalid) => {
     serve(ok({ id: 'b1' }));
     render(<NewEmployeePage />);
     fillEmployee();
-    fill('Bank name *', 'FNB');
+    for (const [label, value] of Object.entries(typed)) fill(label, value);
     submit();
-    await waitFor(() => expect(screen.getByLabelText('Account number *').getAttribute('aria-invalid')).toBe('true'));
+    await waitFor(() => { for (const l of invalid) expect(screen.getByLabelText(l).getAttribute('aria-invalid')).toBe('true'); });
     expect(sent('POST', '/api/payroll/employees')).toHaveLength(0);
   });
 
@@ -80,5 +84,19 @@ describe('bank details on create', () => {
     expect(screen.getByRole('link', { name: 'Open the profile' }).getAttribute('href')).toBe(`/payroll/employees/${EMP}`);
     expect(screen.queryByRole('button', { name: 'Create Employee' })).toBeNull();
     expect(sent('POST', '/api/payroll/employees')).toHaveLength(1);
+    // The employee exists: a field edited now would be discarded, so the form is read-only.
+    expect(screen.getByLabelText('First name *').closest('fieldset')?.disabled).toBe(true);
+    expect(screen.getByLabelText('Account number *').closest('fieldset')?.disabled).toBe(true);
+  });
+
+  it('a reason that already ends in a full stop does not double it', async () => {
+    serve(refusal('Only an owner or admin can enter bank details.'));
+    render(<NewEmployeePage />);
+    fillEmployee();
+    fill('Bank name *', 'FNB'); fill('Branch code *', '250655'); fill('Account number *', '62000123456');
+    submit();
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('bank details not saved: Only an owner or admin can enter bank details. Add them on the profile.');
+    expect(alert.textContent).not.toContain('..');
   });
 });

@@ -138,17 +138,20 @@ export default function NewEmployeePage() {
         <form onSubmit={handleSubmit} noValidate className="p-6 max-w-3xl space-y-2">
           {bankFailure && (
             <div role="alert" className="px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-sm">
-              Employee saved; bank details not saved: {bankFailure.message}. Add them on the profile.
+              Employee saved; bank details not saved: {bankFailure.message.replace(/[.\s]+$/, '')}. Add them on the profile.
             </div>
           )}
           {error && (
             <div role="alert" className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
           )}
-          <PersonalSection {...section} />
-          <EmploymentSection {...section} />
-          <TaxAndMedicalSection {...section} />
-          <PaySection {...section} setSalary={setSalary} />
-          <BankSection bank={bank} errors={bankErrors} onChange={setBankField} fieldRef={bankRef} />
+          {/* The employee exists once the bank call has failed: a field edited now would be discarded, so the form is read-only. */}
+          <fieldset disabled={bankFailure !== null} className="contents">
+            <PersonalSection {...section} />
+            <EmploymentSection {...section} />
+            <TaxAndMedicalSection {...section} />
+            <PaySection {...section} setSalary={setSalary} />
+            <BankSection bank={bank} errors={bankErrors} onChange={setBankField} fieldRef={bankRef} />
+          </fieldset>
           <div className="flex items-center gap-3 pt-2">
             {bankFailure ? (
               <Link href={`/payroll/employees/${bankFailure.id}`} className="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">

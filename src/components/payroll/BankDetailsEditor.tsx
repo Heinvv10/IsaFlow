@@ -11,12 +11,14 @@ interface Props {
   employeeId: string;
   /** A change keeps the bank name and type; the numbers are always typed again (the card never holds the full ones). */
   start?: { bankName: string; accountType: AccountType };
+  /** The current details name a holder (the mask shows one): it has to be typed again on a change. */
+  holderRequired?: boolean;
   onSaved: () => void;
   onCancel: () => void;
 }
 
 /** The first-entry and change form on the profile card. Shows the server's refusal as sent. */
-export function BankDetailsEditor({ employeeId, start, onSaved, onCancel }: Props) {
+export function BankDetailsEditor({ employeeId, start, holderRequired, onSaved, onCancel }: Props) {
   const [bank, setBank] = useState<BankForm>(() => ({ ...emptyBank(), ...start }));
   const [errors, setErrors] = useState<BankErrors>({});
   const [error, setError] = useState('');
@@ -33,7 +35,7 @@ export function BankDetailsEditor({ employeeId, start, onSaved, onCancel }: Prop
     e.preventDefault();
     if (inFlight.current) return;
     setError('');
-    const found = validateBank(bank);
+    const found = validateBank(bank, { holderRequired });
     setErrors(found);
     const first = BANK_FIELD_ORDER.find(k => found[k]);
     if (first) { refs.current[first]?.focus(); return; }

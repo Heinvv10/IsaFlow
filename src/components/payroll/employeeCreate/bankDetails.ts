@@ -31,8 +31,10 @@ export const emptyBank = (): BankForm => ({ bankName: '', branchCode: '', accoun
 export const bankIsBlank = (b: BankForm): boolean =>
   !b.bankName.trim() && !b.branchCode.trim() && !b.accountNumber.trim() && !b.accountHolder.trim();
 
-export function validateBank(b: BankForm): BankErrors {
+/** `holderRequired`: a change to details that already name a holder. The form never shows the current one, and a blank would clear it. */
+export function validateBank(b: BankForm, opts: { holderRequired?: boolean } = {}): BankErrors {
   const errors: BankErrors = {};
+  if (opts.holderRequired && !b.accountHolder.trim()) errors.accountHolder = 'Retype the account holder: these details name one, and leaving it blank would remove it.';
   if (!b.bankName.trim()) errors.bankName = 'Enter the bank name.';
   if (!/^[0-9]{6}$/.test(b.branchCode.trim())) errors.branchCode = 'Branch code must be 6 digits.';
   if (!/^[0-9]{6,16}$/.test(b.accountNumber.replace(/\s+/g, ''))) errors.accountNumber = 'Account number must be 6 to 16 digits.';

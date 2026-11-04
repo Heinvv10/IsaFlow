@@ -130,6 +130,80 @@ describe('buttons by role', () => {
   });
 });
 
+describe('roles that may not write', () => {
+  it.each(['viewer', 'accountant'])('a %s with no details sees no Add button, and no history request is made', async (r) => {
+    role.current = r;
+    serve({ details: null });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    expect(await screen.findByText('No bank details yet.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Add bank details' })).toBeNull();
+  });
+
+  it('a viewer with details reads the masks but makes no history request (it would 403)', async () => {
+    role.current = 'viewer';
+    serve({ details: masked });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    expect(await screen.findByText('•••• 1234')).toBeTruthy();
+    expect(calls().some(([u]) => u.includes('/entity-changes'))).toBe(false);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('the history', () => {
+  it('shows the bank-detail change rows (masked values only) under the details', async () => {
+    const withFields = change(new Date().toISOString());
+    (withFields.items[0] as { fields: unknown[] }).fields = [{ key: 'account_number', before: null, after: '…1234', masked: true }];
+    serve({ details: masked, history: withFields });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    const history = await screen.findByTestId('bank-history');
+    await waitFor(() => expect(history.textContent).toContain('…1234'));
+    expect(history.textContent).toContain('Account number');
+  });
+});
+
+describe('a change keeps the holder', () => {
+  it('needs the holder typed again when the details name one, and sends nothing until it is', async () => {
+    serve({ details: masked });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Change bank details' }));
+    fill('Branch code *', '470010'); fill('Account number *', '1357924680');
+    fireEvent.click(screen.getByRole('button', { name: 'Save bank details' }));
+    await waitFor(() => expect(screen.getByLabelText('Account holder').getAttribute('aria-invalid')).toBe('true'));
+    expect(calls().some(([, m]) => m === 'PUT')).toBe(false);
+    fill('Account holder', 'K One');
+    fireEvent.click(screen.getByRole('button', { name: 'Save bank details' }));
+    await waitFor(() => expect(calls().some(([, m]) => m === 'PUT')).toBe(true));
+  });
+
+  it('does not ask for it when the current details have none', async () => {
+    serve({ details: { ...masked, accountHolder: null } });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Change bank details' }));
+    fill('Branch code *', '470010'); fill('Account number *', '1357924680');
+    fireEvent.click(screen.getByRole('button', { name: 'Save bank details' }));
+    await waitFor(() => expect(calls().some(([, m]) => m === 'PUT')).toBe(true));
+  });
+});
+
+describe('another employee', () => {
+  it('a slow answer for the first employee never replaces the second', async () => {
+    const OTHER = '33333333-3333-4333-8333-333333333333';
+    let release: (r: Response) => void = () => undefined;
+    fetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.includes(EMP)) return new Promise<Response>((res) => { release = res; });
+      if (u.includes('/bank-details')) return Promise.resolve(ok({ ...masked, bankName: 'Capitec', employeeId: OTHER }));
+      return Promise.resolve(ok({ items: [], nextCursor: null }));
+    });
+    const { rerender } = render(<EmployeeBankCard employeeId={EMP} />);
+    rerender(<EmployeeBankCard employeeId={OTHER} />);
+    expect(await screen.findByText('Capitec')).toBeTruthy();
+    release(ok({ ...masked, bankName: 'FNB' }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText('FNB')).toBeNull();
+  });
+});
+
 describe('the form', () => {
   it('stops a short branch code on the field before any PUT', async () => {
     serve({ details: null });

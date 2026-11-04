@@ -8,6 +8,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Landmark, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
+import { canWrite } from '@/lib/auth/writeRoles';
+import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
 import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import type { EmployeeBankDetails } from '@/modules/accounting/services/payroll/payrollBankDetailsService';
 import { ACCOUNT_TYPES, maskedNumber } from './employeeCreate/bankDetails';
@@ -20,27 +22,36 @@ const BUTTON = 'rounded-lg border border-[var(--ff-border-primary)] px-3 py-1.5 
 export function EmployeeBankCard({ employeeId }: { employeeId: string }) {
   const { companyRole } = useCompany();
   const admin = isHistoryAdmin(companyRole ?? undefined);
+  const mayWrite = canWrite(companyRole); // owner / admin / manager: who may enter, and who the history route lets read
   const [details, setDetails] = useState<EmployeeBankDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isStale: () => boolean = () => false) => {
     try {
       const res = await apiFetch(`/api/payroll/employees/${employeeId}/bank-details?view=masked`);
       await assertOk(res, LOAD_FAILED);
       const json = (await res.json()) as { data?: EmployeeBankDetails | null };
+      if (isStale()) return;
       setDetails(json.data ?? null);
       setError('');
     } catch (err) {
+      if (isStale()) return;
       setDetails(null);
       setError(apiErrorMessage(err, LOAD_FAILED));
     } finally {
-      setLoading(false);
+      if (!isStale()) setLoading(false);
     }
   }, [employeeId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let stale = false;
+    setLoading(true);
+    setEditing(false);
+    void load(() => stale);
+    return () => { stale = true; };
+  }, [load]);
 
   const saved = () => { setEditing(false); setLoading(true); void load(); };
   const typeLabel = ACCOUNT_TYPES.find(t => t.value === details?.accountType)?.label ?? details?.accountType;
@@ -59,12 +70,13 @@ export function EmployeeBankCard({ employeeId }: { employeeId: string }) {
       {loading && !error && <Loader2 className="h-4 w-4 animate-spin text-[var(--ff-text-secondary)]" aria-label="Loading" />}
       {!loading && !error && editing && (
         <BankDetailsEditor employeeId={employeeId} onSaved={saved} onCancel={() => setEditing(false)}
+          holderRequired={Boolean(details?.accountHolder)}
           start={details ? { bankName: details.bankName, accountType: details.accountType } : undefined} />
       )}
       {!loading && !error && !editing && !details && (
         <div className="space-y-3">
           <p className="text-sm text-[var(--ff-text-secondary)]">No bank details yet.</p>
-          <button type="button" className={BUTTON} onClick={() => setEditing(true)}>Add bank details</button>
+          {mayWrite && <button type="button" className={BUTTON} onClick={() => setEditing(true)}>Add bank details</button>}
         </div>
       )}
       {!loading && !error && !editing && details && (
@@ -77,7 +89,12 @@ export function EmployeeBankCard({ employeeId }: { employeeId: string }) {
               </div>
             ))}
           </dl>
-          <BankLastChange key={details.id} detailId={details.id} />
+          {mayWrite && <BankLastChange key={details.id} detailId={details.id} />}
+          {mayWrite && (
+            <section aria-label="Bank details history" data-testid="bank-history" className="border-t border-[var(--ff-border-primary)] pt-3">
+              <EntityHistoryTimeline key={details.id} entityType="payroll_bank_detail" entityId={details.id} />
+            </section>
+          )}
           {admin
             ? <button type="button" className={BUTTON} onClick={() => setEditing(true)}>Change bank details</button>
             : <p className="text-xs text-[var(--ff-text-secondary)]">Only an owner or admin can change existing bank details.</p>}
