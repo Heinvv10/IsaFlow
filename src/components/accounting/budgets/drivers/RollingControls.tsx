@@ -153,6 +153,17 @@ export function RollingControls({ version, grid, editable }: RollingControlsProp
       </button>
       {badge && <span data-testid="rolling-stale" className={PILL}>{badge}</span>}
       {reopened && <span data-testid="rolling-reopened" className={PILL}>{reopened}</span>}
+      {status.sliceSkipped > 0 && (
+        <span data-testid="rolling-slice-skipped" className={PILL} title={status.sliceSkippedSlices.join(', ')}>
+          {status.sliceSkipped} cell{status.sliceSkipped === 1 ? '' : 's'} in slices under review not rolled
+        </span>
+      )}
+      {status.outsideSkipped > 0 && (
+        <span data-testid="rolling-outside-skipped" className={PILL}
+          title="The period was closed by a budget holder: their automatic roll refreshed only their own slices">
+          {status.outsideSkipped} cell{status.outsideSkipped === 1 ? '' : 's'} outside the closer&apos;s slices not rolled
+        </span>
+      )}
       {editable && (
         <button type="button" disabled={!can} className={`${BTN} underline`} data-testid="roll-now"
           title={status.rolling ? undefined : 'Refresh the closed months from the ledger (this version does not roll by itself)'}

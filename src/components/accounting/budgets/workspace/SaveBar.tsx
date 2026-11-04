@@ -31,7 +31,9 @@ function statusText(s: SaveState): string {
     const d = s.drivers;
     const drivers = d && (d.recomputed > 0 || d.reset > 0)
       ? `; drivers recomputed ${plural(d.recomputed, 'cell')}${d.reset > 0 ? `, ${plural(d.reset, 'override')} reset to the driver` : ''}` : '';
-    return `Saved: ${plural(s.saved, 'cell')} changed, ${plural(s.deleted, 'cell')} cleared${drivers}${s.refreshError ? `. ${s.refreshError}` : ''}`;
+    // P5-6: frozen slices (with their reviewer) keep their driver cells until the slice is returned.
+    const frozen = d?.frozen ? `. ${d.frozen} driver cell${d.frozen === 1 ? '' : 's'} in slices under review ${d.frozen === 1 ? 'was' : 'were'} not recalculated` : '';
+    return `Saved: ${plural(s.saved, 'cell')} changed, ${plural(s.deleted, 'cell')} cleared${drivers}${frozen}${s.refreshError ? `. ${s.refreshError}` : ''}`;
   }
   if (s.status === 'error') return s.retryAfter ? `${s.message} Try again in ${s.retryAfter} s.` : s.message;
   return '';

@@ -1,7 +1,8 @@
 /**
  * The versions bar's dialogs (spec §4.4, §10): confirm approve / lock / set primary, the unlock
  * reason (required, 1–500 characters once trimmed: P1's rule, checked again by the server), and
- * the delete confirm. Every dialog traps focus and hands it back to the button that opened it
+ * the delete confirm. Approve refused because budget slices are not approved yet (P5-6, decision 9a)
+ * offers the OWNER "Approve anyway" with a reason (same 1–500 rule; audited by the server). Every dialog traps focus and hands it back to the button that opened it
  * (`useFocusTrap`), and stays open with the server's message when the action is refused.
  */
 import { useId, useRef, useState, type ReactNode } from 'react';
@@ -13,8 +14,10 @@ export type VersionAction = 'approve' | 'lock' | 'unlock' | 'primary' | 'delete'
 
 export interface VersionActionRequest {
   action: VersionAction;
-  /** Unlock only: the trimmed reason. */
+  /** Unlock, or an approve forced over open budget slices: the trimmed reason. */
   reason?: string;
+  /** Approve only (owner): approve although assigned budget slices are not approved. */
+  force?: boolean;
 }
 
 /** Resolves with null when the action succeeded, else the message to show in the dialog. */
@@ -84,13 +87,18 @@ interface DialogsProps {
   version: BudgetVersion;
   onRun: RunVersionAction;
   onClose: () => void;
+  /** The owner may approve over budget slices that are not approved (with a reason). */
+  canForce?: boolean;
 }
 
-export function VersionStatusDialogs({ pending, version, onRun, onClose }: DialogsProps) {
+export function VersionStatusDialogs({ pending, version, onRun, onClose, canForce = false }: DialogsProps) {
   if (pending === null) return null;
   if (pending === 'unlock') return <UnlockReasonDialog version={version} onRun={onRun} onClose={onClose} />;
-  return <ConfirmVersionDialog action={pending} version={version} onRun={onRun} onClose={onClose} />;
+  return <ConfirmVersionDialog action={pending} version={version} onRun={onRun} onClose={onClose} canForce={canForce} />;
 }
+
+/** The server's refusal of an approve while budget slices are open (budgetVersionStatus). */
+export const SLICES_PENDING_TEXT = 'not approved yet';
 
 function useRunner(onRun: RunVersionAction, onClose: () => void) {
   const [busy, setBusy] = useState(false);
@@ -117,11 +125,13 @@ function ErrorLine({ error }: { error: string | null }) {
   return <p role="alert" className="rounded-md bg-[var(--ff-bg-tertiary)] p-2 text-error-700 dark:text-error-400">{error}</p>;
 }
 
-function ConfirmVersionDialog({ action, version, onRun, onClose }: {
-  action: Exclude<VersionAction, 'unlock'>; version: BudgetVersion; onRun: RunVersionAction; onClose: () => void;
+function ConfirmVersionDialog({ action, version, onRun, onClose, canForce }: {
+  action: Exclude<VersionAction, 'unlock'>; version: BudgetVersion; onRun: RunVersionAction; onClose: () => void; canForce: boolean;
 }) {
   const { busy, error, run } = useRunner(onRun, onClose);
   const copy = COPY[action];
+  const forcing = action === 'approve' && canForce && error !== null && error.includes(SLICES_PENDING_TEXT);
+  if (forcing) return <ForceApproveDialog version={version} refusal={error} busy={busy} run={run} onClose={onClose} />;
   return (
     <WorkspaceDialog title={copy.title} onClose={busy ? () => undefined : onClose} testId={`version-dialog-${action}`}
       footer={<>
@@ -161,6 +171,32 @@ function UnlockReasonDialog({ version, onRun, onClose }: { version: BudgetVersio
         {length} / {UNLOCK_REASON_MAX} characters
       </p>
       <ErrorLine error={error} />
+    </WorkspaceDialog>
+  );
+}
+
+/** Approve over budget slices that are not approved: the owner's act, with a reason the audit log keeps. */
+function ForceApproveDialog({ version, refusal, busy, run, onClose }: {
+  version: BudgetVersion; refusal: string; busy: boolean; run: (req: VersionActionRequest) => Promise<void>; onClose: () => void;
+}) {
+  const [text, setText] = useState('');
+  const fieldId = useId();
+  const reason = validUnlockReason(text);
+  return (
+    <WorkspaceDialog title="Approve over open budget slices" onClose={busy ? () => undefined : onClose} testId="version-dialog-force-approve"
+      footer={<>
+        <button type="button" className={BTN_SECONDARY} onClick={onClose} disabled={busy}>Cancel</button>
+        <button type="button" className={BTN_PRIMARY} disabled={busy || reason === null} data-testid="version-force-approve"
+          onClick={() => { if (reason !== null) void run({ action: 'approve', force: true, reason }); }}>
+          {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}Approve anyway
+        </button>
+      </>}>
+      <p role="alert" className="rounded-md bg-[var(--ff-bg-tertiary)] p-2 text-[var(--ff-text-primary)]">{refusal}</p>
+      <p>As the owner you can approve &quot;{version.name}&quot; now. The reason and the slices still open are kept in the audit log.</p>
+      <label htmlFor={fieldId} className="block font-medium text-[var(--ff-text-primary)]">Reason (required)</label>
+      <textarea id={fieldId} value={text} onChange={(e) => setText(e.target.value)} rows={3} disabled={busy}
+        aria-invalid={text !== '' && reason === null}
+        className="w-full rounded-md border border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)] p-2 text-[var(--ff-text-primary)]" />
     </WorkspaceDialog>
   );
 }
