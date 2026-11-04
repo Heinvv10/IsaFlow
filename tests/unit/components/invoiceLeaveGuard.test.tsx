@@ -4,7 +4,7 @@
  * send are not asked: the page goes, and the change being typed is saved as it goes. With a change autosave is HOLDING
  * (a line or date it refuses, a stale-priced draft) nothing would be sent, so Back and forward ask (merge-queue gate,
  * round eleven): Leave drops it knowingly; Stay keeps the page and goes back to its own entry with the Navigation
- * API's traverseTo (round twelve: Back, Forward and jumps keep history's order; without it, a history guard asks). And
+ * API's traverseTo (round twelve: Back, Forward and jumps keep history's order; no Navigation API, no question). And
  * the edit page
  * opened on another invoice in place starts again: no PUT for the second invoice's load.
  */
@@ -144,24 +144,14 @@ describe('leaving with a change unsaved', () => {
     expect(confirm).toHaveBeenCalledTimes(2);
   });
 
-  it('a change autosave is holding with window.navigation undefined: a guard entry makes Stay keep the edit and Leave continue Back', async () => {
-    Object.defineProperty(window, 'navigation', { value: undefined, configurable: true, writable: true });
-    const pushState = vi.spyOn(window.history, 'pushState');
-    const back = vi.spyOn(window.history, 'back').mockImplementation(() => undefined);
+  it.each([
+    ['no Navigation API at all', () => Object.defineProperty(window, 'navigation', { value: undefined, configurable: true, writable: true })],
+    ['no traverseTo', () => { (nav as { traverseTo?: unknown }).traverseTo = undefined; }],
+  ])('a change autosave is holding, but the browser has %s: not asked (the move could not be undone exactly)', async (_name, strip) => {
     await openHeld();
-    expect(pushState).toHaveBeenCalledTimes(1); // held edits put a guard in front of this page's entry
-
-    expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(false);
-    expect(pushState).toHaveBeenCalledTimes(2); // Back's pop restores the guard before asking
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(back).not.toHaveBeenCalled();
-    expect((screen.getAllByLabelText('Quantity')[0] as HTMLInputElement).value).toBe('0');
-
-    confirm.mockReturnValue(true);
-    expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(false);
-    expect(confirm).toHaveBeenCalledTimes(2);
-    expect(back).toHaveBeenCalledTimes(1);
-    expect(h.pop!({ url: '/previous', as: '/previous', options: {} })).toBe(true);
+    strip();
+    expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it('a change autosave is holding: Back asks; Leave goes, sends nothing, and is not asked again', async () => {

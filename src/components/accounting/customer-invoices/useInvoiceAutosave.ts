@@ -13,8 +13,8 @@
  *     Stay: by then the browser has moved and Next has not changed the route, so the move is undone with the
  *     Navigation API: `navigation.traverseTo(key)` back to this page's own entry (its key read at mount and at each
  *     route change). Back, Forward or a jump of several entries, history keeps its order (nothing is pushed). Where
- *     the browser has no Navigation API, a duplicate guard entry is pushed while a change is held; Back first lands
- *     on the guarded page, which restores that entry and asks before either staying or continuing back;
+ *     the browser has no Navigation API, or this page's key is unknown, the move cannot be undone exactly, and it is
+ *     not asked: the page goes, as it did;
  *   - a push or replace (a link, a button): `routeChangeStart` throws, Next's only way to cancel one, and the router's
  *     push and replace are wrapped for this page's life so the cancellation resolves false instead of rejecting (no
  *     unhandled rejection: no Sentry event, no dev overlay). The route change a back/forward starts goes through
@@ -75,16 +75,7 @@ function quietCancellations(router: NextRouter): () => void {
 function useLeaveGuard(guarded: Guarded): void {
   const router = useRouter() as NextRouter | null;
   const g = useRef(guarded);
-  const fallbackGuarded = useRef(false);
-  const fallbackLeaving = useRef(false);
   useEffect(() => { g.current = guarded; });
-
-  useEffect(() => {
-    if (!router || fallbackGuarded.current || fallbackLeaving.current) return;
-    if (typeof navigationApi()?.traverseTo === 'function' || !g.current.unsaved() || !g.current.heldBack()) return;
-    window.history.pushState(window.history.state, '', window.location.href);
-    fallbackGuarded.current = true;
-  });
 
   useEffect(() => {
     if (!router) return undefined;
@@ -111,22 +102,6 @@ function useLeaveGuard(guarded: Guarded): void {
     };
     const restoreNavigation = quietCancellations(router);
     router.beforePopState?.(() => {
-      if (fallbackLeaving.current) {
-        fallbackLeaving.current = false;
-        fallbackGuarded.current = false;
-        popping = true;
-        return true;
-      }
-      if (fallbackGuarded.current && typeof navigationApi()?.traverseTo !== 'function') {
-        fallbackGuarded.current = false; // popstate moved off the duplicate entry
-        window.history.pushState(window.history.state, '', window.location.href);
-        fallbackGuarded.current = true;
-        if (g.current.unsaved() && g.current.heldBack() && !window.confirm(question())) return false;
-        if (g.current.unsaved() && g.current.heldBack()) g.current.leaveWithout();
-        fallbackLeaving.current = true;
-        window.history.back();
-        return false;
-      }
       const now = entryKey(); // the entry the browser moved to
       if (restoring) {
         restoring = false;
@@ -161,8 +136,6 @@ function useLeaveGuard(guarded: Guarded): void {
       window.removeEventListener('beforeunload', onBeforeUnload);
       events?.off('routeChangeStart', onRouteChange);
       restoreNavigation();
-      fallbackGuarded.current = false;
-      fallbackLeaving.current = false;
       router.beforePopState?.(() => true);
     };
   }, [router]);
