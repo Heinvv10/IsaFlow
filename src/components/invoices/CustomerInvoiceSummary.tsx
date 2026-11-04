@@ -3,10 +3,9 @@
  */
 
 import type { CustomerInvoiceItem } from '@/modules/accounting/types/customerInvoice.types';
-import { formatMoney } from '@/lib/money/formatMoney';
+import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
-const fmt = (n: number) => formatMoney(n);
 
 interface Props {
   invoiceDate: string;
@@ -20,6 +19,8 @@ interface Props {
   balance: number;
   notes: string;
   items: CustomerInvoiceItem[];
+  /** The invoice's own currency: every amount shows in it ("R" for ZAR, "$" for USD…). */
+  currencyCode?: string;
 }
 
 /**
@@ -49,8 +50,9 @@ export function lineCoding(item: CustomerInvoiceItem): string {
 }
 export function CustomerInvoiceSummary({
   invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
-  taxRate, subtotal, taxAmount, totalAmount, balance, notes, items,
+  taxRate, subtotal, taxAmount, totalAmount, balance, notes, items, currencyCode = 'ZAR',
 }: Props) {
+  const fmt = (n: number) => formatCurrencyAmount(n, currencyCode);
   const cards = [
     { label: 'Invoice Date', value: formatDisplayDate(invoiceDate) },
     { label: 'Due Date', value: formatDisplayDate(dueDate) },

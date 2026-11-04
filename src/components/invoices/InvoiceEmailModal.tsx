@@ -1,10 +1,13 @@
 /**
- * InvoiceEmailModal — Send invoice by email.
- * Overlay click closes; inner div stopPropagation.
+ * InvoiceEmailModal — Send invoice by email. A modal dialog: focus moves in and stays (useFocusTrap), Escape and the
+ * backdrop close it, except while a send is out: then nothing closes it and Send waits. Send stays off once the
+ * invoice was emailed (reopen the form to send again).
  */
 
+import { useId, useRef } from 'react';
 import { Loader2, Send, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 
 interface Props {
   open: boolean;
@@ -14,51 +17,70 @@ interface Props {
   emailSuccess: string;
   emailSentAt?: string;
   emailSentTo?: string;
+  /** A line above the address, e.g. that the invoice was just approved and is not sent yet. */
+  notice?: string;
   onEmailToChange: (v: string) => void;
   onSend: () => void;
   onClose: () => void;
 }
 
-export function InvoiceEmailModal({
-  open,
+export function InvoiceEmailModal(props: Props) {
+  return props.open ? <EmailDialog {...props} /> : null;
+}
+
+function EmailDialog({
   invoiceNumber,
   emailTo,
   emailSending,
   emailSuccess,
   emailSentAt,
   emailSentTo,
+  notice,
   onEmailToChange,
   onSend,
   onClose,
 }: Props) {
-  if (!open) return null;
+  const dialog = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const inputId = useId();
+  const sent = emailSuccess.includes('successfully');
+  const close = () => { if (!emailSending) onClose(); };
+  useFocusTrap(dialog, true, close);
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
+      onClick={close}
     >
       <div
+        ref={dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="bg-[var(--ff-bg-secondary)] rounded-xl border border-[var(--ff-border-light)] shadow-2xl w-full max-w-md mx-4 p-6"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-[var(--ff-text-primary)]">Email Invoice</h3>
+          <h3 id={titleId} className="text-lg font-semibold text-[var(--ff-text-primary)]">Email Invoice</h3>
           <button
             type="button"
-            onClick={onClose}
-            className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"
+            aria-label="Close dialog"
+            onClick={close}
+            disabled={emailSending}
+            className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] disabled:opacity-50"
           >
-            <X className="h-5 w-5" />
+            <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
         <p className="text-sm text-[var(--ff-text-secondary)] mb-4">
           Send invoice <strong>{invoiceNumber}</strong> as a PDF attachment.
         </p>
-        <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
+        {notice && <p className="text-sm text-[var(--ff-text-secondary)] mb-4">{notice}</p>}
+        <label htmlFor={inputId} className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
           Recipient Email
         </label>
         <input
+          id={inputId}
           type="email"
           value={emailTo}
           onChange={e => onEmailToChange(e.target.value)}
@@ -87,15 +109,16 @@ export function InvoiceEmailModal({
         <div className="flex justify-end gap-2">
           <button
             type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] rounded-lg border border-[var(--ff-border-light)]"
+            onClick={close}
+            disabled={emailSending}
+            className="disabled:opacity-50 px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] rounded-lg border border-[var(--ff-border-light)]"
           >
             Close
           </button>
           <button
             type="button"
             onClick={onSend}
-            disabled={emailSending || !emailTo.trim()}
+            disabled={emailSending || sent || !emailTo.trim()}
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 disabled:opacity-50"
           >
             {emailSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

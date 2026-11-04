@@ -118,6 +118,18 @@ describe('InvoicePdfPreview', () => {
     expect(revokeObjectURL.mock.calls.map((c) => c[0])).toEqual(['blob:preview-1', 'blob:preview-2']);
   });
 
+  it('a refreshed document is a new iframe, never a new src on the old one (an iframe navigating adds a history entry)', async () => {
+    const view = render(<InvoicePdfPreview invoiceId={A} version={1} />);
+    await flush();
+    const first = frame();
+    expect(first?.getAttribute('src')).toBe('blob:preview-1');
+    view.rerender(<InvoicePdfPreview invoiceId={A} version={2} />);
+    await advance(3000);
+    expect(frame()?.getAttribute('src')).toBe('blob:preview-2');
+    expect(frame()).not.toBe(first);
+    expect(first?.getAttribute('src')).toBe('blob:preview-1'); // the old one was replaced, not navigated
+  });
+
   it('drops the previous invoice at once and ignores its late answer', async () => {
     let answerA: (r: Response) => void = () => undefined;
     const view = render(<InvoicePdfPreview invoiceId={A} version={1} />);
@@ -195,7 +207,7 @@ describe('InvoicePdfPreview', () => {
     view.rerender(<InvoicePdfPreview invoiceId={A} version={2} />);
     await advance(3000);
     expect(screen.getByRole('alert').textContent).toMatch(/out of date/i);
-    expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Retry PDF preview' })).toBeTruthy();
     expect(frame()?.getAttribute('src')).toBe('blob:preview-1');
   });
 

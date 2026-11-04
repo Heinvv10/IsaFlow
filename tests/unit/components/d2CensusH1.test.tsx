@@ -13,7 +13,7 @@ vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push: vi.fn() }) 
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/admin/AdminLayout', () => ({ AdminLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1' } }) }));
+vi.mock('@/contexts/CompanyContext', async () => ({ useCompany: () => ({ activeCompany: { id: 'co-1' } }), CompanyContext: (await import('react')).createContext(undefined) }));
 vi.mock('@/components/accounting/ScanAndFillButton', () => ({ ScanAndFillButton: () => null }));
 
 import { apiFetch } from '@/lib/apiFetch';

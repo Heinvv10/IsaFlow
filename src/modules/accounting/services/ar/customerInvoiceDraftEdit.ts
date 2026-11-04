@@ -26,6 +26,8 @@ import { withTransaction } from '@/lib/neon';
 import { checkDocumentCurrency, DocumentCurrencyError, loadCompanyCurrency } from '../shared/documentCurrency';
 import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
 import type { InvoiceLineCoding } from './invoiceLineCoding';
+import { releaseDroppedWipEntries, wipLinks, type WipLinkCheck } from './customerInvoiceWipLinks';
+import { draftDigestMoved } from './invoicePdfModel';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveEditCodings } from './customerInvoiceDraftCoding';
 import { invoiceLineAmount, invoiceTotals } from './invoiceLineAmount';
@@ -42,7 +44,7 @@ export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
 
 export type CustomerInvoiceDraftEditResult =
   | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' }
-  | { kind: 'bad_line'; message: string }
+  | { kind: 'bad_line'; message: string } | { kind: 'wip_link_refused'; message: string; code: string } | { kind: 'stale_view' }
   | { kind: 'bad_amount'; message: string }
   | { kind: 'currency_refused'; message: string }
   | { kind: 'bad_dimensions'; message: string };
@@ -81,6 +83,7 @@ export async function editDraftCustomerInvoice(
     if (String(ownedRows[0]!.status) !== 'draft') {
       return { kind: 'not_draft' as const };
     }
+    if (await draftDigestMoved(tx, companyId, id, edit.expectedDraftDigest)) return { kind: 'stale_view' as const }; // edited from an older read
     const existingRate = Number(ownedRows[0]!.exchange_rate ?? 1);
     // A currency change needs its rate: recomputing at the OLD one left a ZAR
     // invoice re-labelled USD with functional_total = the USD figure, which is
@@ -139,12 +142,15 @@ export async function editDraftCustomerInvoice(
     // A value the draft already stores is not re-checked at save (an account deactivated, or a job
     // cancelled, since): every save would refuse until it was recoded. Approve refuses it, pre-write.
     let unchanged = (_c: InvoiceLineCoding): InvoiceLineCoding => _c;
+    let wip: WipLinkCheck | null = null;
     if (items) {
       const stored = ((await tx`
         SELECT gl_account_id, project_id FROM customer_invoice_items WHERE invoice_id = ${id}::UUID
       `) as Row[]).map((r) => ({ glAccountId: idOrNull(r.gl_account_id), projectId: idOrNull(r.project_id) }));
       const resolved = resolveEditCodings(items, stored);
       if (typeof resolved === 'string') return { kind: 'bad_line' as const, message: resolved };
+      wip = await wipLinks(tx, companyId, id, items, edit.releaseTimeEntryIds); // keep a link, or release it by name
+      if (wip.refusal) return { kind: 'wip_link_refused' as const, ...wip.refusal };
       codings = resolved;
       const had = { glAccountId: new Set(stored.map((c) => c.glAccountId)), projectId: new Set(stored.map((c) => c.projectId)) };
       unchanged = (c) => ({ glAccountId: had.glAccountId.has(c.glAccountId) ? null : c.glAccountId,
@@ -260,12 +266,12 @@ export async function editDraftCustomerInvoice(
         await tx`
           INSERT INTO customer_invoice_items (
             invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-            gl_account_id, project_id, cc1_id, cc2_id, bu_id
+            gl_account_id, project_id, cc1_id, cc2_id, bu_id, time_entry_id, line_position
           ) VALUES (
             ${id}::UUID, ${it.description}, ${it.unitPrice},
             ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency},
             ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
-            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID
+            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID, ${it.timeEntryId ?? null}::UUID, ${i} -- the entry order (956)
           )
         `;
       }
@@ -286,6 +292,7 @@ export async function editDraftCustomerInvoice(
              IS DISTINCT FROM ${ownedRows[0]!.digest ?? null}::TEXT
     `;
 
+    await releaseDroppedWipEntries(tx, companyId, id, wip, editedBy); // a removed WIP line's time entry: billable again
     return { kind: 'ok' as const };
   });
 }
