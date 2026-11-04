@@ -5,7 +5,7 @@
  * No AppLayout on purpose: the sidebar, the header and the tenant switcher
  * are the "app chrome" this route exists to remove.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Loader2 } from 'lucide-react';
 import { apiJson, apiErrorMessage } from '@/lib/apiFetch';
@@ -47,8 +47,13 @@ export default function PresentPackPage() {
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [error, setError] = useState('');
 
+  /** The newest comparator request. The load effect and each Retry take the next id; a result applies only
+   *  while its id is still the newest, so a slow answer for an old window cannot overwrite the new one. */
+  const budgetRequest = useRef(0);
+
   /** Reads one comparator result into state. Shared by the first load and the 429 Retry. */
-  const takeBudget = useCallback((result: PromiseSettledResult<BudgetComparatorResponse>) => {
+  const takeBudget = useCallback((result: PromiseSettledResult<BudgetComparatorResponse>, id: number) => {
+    if (id !== budgetRequest.current) return;
     if (result.status === 'fulfilled') {
       setBudget(result.value.lines);
       setBudgetBands(result.value.bands);
@@ -81,12 +86,13 @@ export default function PresentPackPage() {
     setBudgetFailed(false);
     setBudgetRefusal(undefined);
     setBudgetLoading(true);
+    const id = ++budgetRequest.current;
     void apiJson(`/api/accounting/reports-budget-comparator?period_start=${from}&period_end=${to}`, undefined, 'Could not load the budget comparison - try again')
       .then(
         (value): PromiseSettledResult<BudgetComparatorResponse> => ({ status: 'fulfilled', value }),
         (reason): PromiseSettledResult<BudgetComparatorResponse> => ({ status: 'rejected', reason }),
       )
-      .then(takeBudget);
+      .then((result) => takeBudget(result, id));
   }, [from, to, takeBudget]);
 
   useEffect(() => {
@@ -102,6 +108,7 @@ export default function PresentPackPage() {
     setError('');
     setSlides(null); setIncome(null); setTrends(null); setBudget([]); setBudgetBands(undefined); setBudgetedCount(0); setBudgetInfo(undefined);
     let live = true;
+    const budgetId = ++budgetRequest.current;
     setTrendsFailed(false);
     setBudgetFailed(false);
     setBudgetRefusal(undefined);
@@ -140,7 +147,7 @@ export default function PresentPackPage() {
           log.error('Account trends failed to load', { error: trendsResult.reason }, 'present');
         }
         setTrendsLoading(false);
-        takeBudget(budgetResult);
+        takeBudget(budgetResult, budgetId);
         if (incomeResult.status === 'fulfilled') {
           setIncome(incomeResult.value);
         } else {

@@ -6,20 +6,20 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react';
 import { PresentSlide } from '@/components/accounting/present/PresentSlide';
-import type { BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
+import { TREND_FAILED, type BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
 import { classifyBudgetError } from '@/components/accounting/reportControls/useStatementComparators';
 import { budgetStateOf } from '@/components/accounting/reportControls/budgetStateOf';
-import { TREND_FAILED } from '@/components/accounting/reportControls/ComparatorNotices';
 import type { Slide } from '@/components/accounting/present/presentSlides';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { ApiRequestError } from '@/lib/apiFetch';
 
 const apiJson = vi.fn();
-vi.mock('next/router', () => ({ useRouter: () => ({ query: { pack: 'management', from: '2026-09-01', to: '2026-09-30' }, isReady: true, push: vi.fn() }) }));
+let query: Record<string, string> = { pack: 'management', from: '2026-09-01', to: '2026-09-30' };
+vi.mock('next/router', () => ({ useRouter: () => ({ query, isReady: true, push: vi.fn() }) }));
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiJson: (...a: unknown[]) => apiJson(...a) }));
 import PresentPackPage from '@/../pages/accounting/reports/present/[pack]';
 
-afterEach(() => { cleanup(); apiJson.mockReset(); });
+afterEach(() => { cleanup(); apiJson.mockReset(); query = { pack: 'management', from: '2026-09-01', to: '2026-09-30' }; });
 
 const INCOME = {
   periodStart: '2026-09-01', periodEnd: '2026-09-30',
@@ -125,6 +125,8 @@ describe('classifyBudgetError', () => {
   });
 });
 
+let view: ReturnType<typeof render>;
+
 describe('the present page classifies a refused comparator like the statement page', () => {
   const load = async (err: Error) => {
     apiJson.mockImplementation((url: string) => {
@@ -133,7 +135,7 @@ describe('the present page classifies a refused comparator like the statement pa
       if (url.includes('reports-income-statement')) return Promise.resolve(INCOME);
       return Promise.reject(new Error('no trends'));
     });
-    render(<PresentPackPage />);
+    view = render(<PresentPackPage />);
     await screen.findByText(/Management Pack/);
     fireEvent.keyDown(window, { key: 'ArrowRight' });
     await screen.findByText('Statement of Comprehensive Income');
@@ -157,6 +159,32 @@ describe('the present page classifies a refused comparator like the statement pa
     fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(screen.queryByText(/try again in 45 seconds/)).toBeNull());
     expect(calls()).toBe(2);
+  });
+  it('a Retry still in flight when the window changes cannot overwrite the new window', async () => {
+    const comparator = (turnover: number) => ({
+      lines: [], bands: [{ key: 'turnover', budget: turnover }], budgetedCount: 1, budgetAbsentYears: [],
+      budgetOutsideFilterYears: [], unallocatedBudget: null, partialBudgetCount: 0, splitsMonth: false,
+    });
+    await load(new ApiRequestError('limited', 429, 45));
+    let resolveOld: (v: unknown) => void = () => undefined;
+    const old = new Promise((r) => { resolveOld = r; });
+    apiJson.mockImplementation((url: string) => {
+      if (url.includes('reports-pack')) return Promise.resolve({ pack: { type: 'management', companyName: 'Co', period: 'Oct', generatedAt: '', sections: [{ type: 'income_statement', title: 'Income Statement', data: {} }] } });
+      if (url.includes('reports-budget-comparator')) return url.includes('2026-10-01') ? Promise.resolve(comparator(777)) : old;
+      if (url.includes('reports-income-statement')) return Promise.resolve(INCOME);
+      return Promise.reject(new Error('no trends'));
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' })); // old window's Retry, never answered yet
+    query = { pack: 'management', from: '2026-10-01', to: '2026-10-31' };
+    view.rerender(<PresentPackPage />);
+    await screen.findByText(/Management Pack/);
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    await screen.findByText('Statement of Comprehensive Income');
+    await waitFor(() => expect(document.body.textContent).toContain('777'));
+    resolveOld(comparator(111));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.body.textContent).toContain('777');
+    expect(document.body.textContent).not.toContain('111');
   });
   it('a 500 stays the plain failure notice', async () => {
     await load(new ApiRequestError('boom', 500));
