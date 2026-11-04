@@ -155,8 +155,8 @@ const BANK_HASH_EXCEPTIONS: Record<string, { why: string; sites: readonly RegExp
       /^const logoData = d\.logoData && forDigest \? md5\(d\.logoData\) : d\.logoData;(\s*\/\/.*)?$/,
       /^const hashed = \{ \.\.\.model, company: \{ \.\.\.model\.company, logoData: model\.company\.logoData === null \? null : md5\(model\.company\.logoData\) \} \};$/,
       // The wrapper's two callers: the shown digest (the whole model) and the draft digest (the invoice row and lines).
-      /^return sha\(\[approvalDigest, model\.company, model\.invoice, lineSet\(model\.items\)\]\);$/,
-      /^return sha\(\[approvalDigest, pick\(model\.invoice, INVOICE_FIELDS\), lineSet\(model\.items\)\]\);$/,
+      /^return sha\(\[approvalDigest, model\.company, model\.invoice, model\.items\]\);$/,
+      /^return sha\(\[approvalDigest, pick\(model\.invoice, INVOICE_FIELDS\), model\.items\]\);$/,
     ],
   },
 };

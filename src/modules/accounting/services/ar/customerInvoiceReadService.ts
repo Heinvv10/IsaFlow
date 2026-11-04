@@ -259,7 +259,8 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
     LEFT JOIN cost_centres c1 ON c1.id = cii.cc1_id AND c1.company_id = ci.company_id
     LEFT JOIN cost_centres c2 ON c2.id = cii.cc2_id AND c2.company_id = ci.company_id
     LEFT JOIN business_units bu ON bu.id = cii.bu_id AND bu.company_id = ci.company_id
-    WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId} ORDER BY cii.created_at
+    WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId}
+    ORDER BY cii.line_position NULLS LAST, cii.created_at, cii.id -- the entry order (956), as the PDF model
   `) as Row[];
 
   return { ...rows[0], items };

@@ -14,8 +14,8 @@
  *   - `draft`: the invoice row and its lines only, what a draft PUT's row lock covers. A customer or company record
  *     edited meanwhile does not refuse an open draft's autosave; it refuses its approve, if printed.
  * Read with `forDigest`, the company's logo comes back as its md5 (a logo can be megabytes); two statements in all.
- * Lines are ordered by created_at (the entry order: create and the draft PUT stamp clock_timestamp()), as the detail
- * GET orders them, and hashed as a set besides (a legacy invoice's lines may tie).
+ * Lines are ordered by line_position (the entry order create and the draft PUT write, migration 956), then created_at
+ * and id for lines other paths wrote, as the detail GET orders them, and hashed in that order: the PDF prints it.
  */
 import { createHash } from 'node:crypto';
 import { sql, type TxSql } from '@/lib/neon';
@@ -69,7 +69,7 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
     SELECT cii.description, cii.quantity, cii.unit_price, cii.amount, cii.tax_rate
     FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id
     WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
-    ORDER BY cii.created_at -- the entry order (create and the draft PUT stamp clock_timestamp()); as the detail GET
+    ORDER BY cii.line_position NULLS LAST, cii.created_at, cii.id -- the entry order (956); as the detail GET
   `) as InvoicePdfLine[];
   const invoice = { ...pick(r, INVOICE_FIELDS), ...pick(r, JOINED_FIELDS) };
   const company = r.company_found ? companyOf(r) : await settingsCompany(companyId, invoiceId, forDigest);
@@ -107,16 +107,15 @@ export async function loadInvoicePdfModel(companyId: string, invoiceId: string,
 // The digests' hashing sites (supplierBankVerificationCensus allowlists them: the issuer's printed bank details).
 const sha = (v: unknown): string => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const md5 = (v: string): string => createHash('md5').update(v).digest('hex'); // as Postgres md5(text): UTF-8 bytes
-const lineSet = (items: readonly InvoicePdfLine[]) => items.map((l) => JSON.stringify(l)).sort();
 
 /** The shown digest: every section of the model, and the approval digest. */
 export function shownDigestOfModel(model: InvoicePdfModel, approvalDigest: string): string {
-  return sha([approvalDigest, model.company, model.invoice, lineSet(model.items)]);
+  return sha([approvalDigest, model.company, model.invoice, model.items]);
 }
 
 /** The draft digest: the invoice row's own fields and its lines (no customer, job or company), and the approval digest. */
 export function draftDigestOfModel(model: InvoicePdfModel, approvalDigest: string): string {
-  return sha([approvalDigest, pick(model.invoice, INVOICE_FIELDS), lineSet(model.items)]);
+  return sha([approvalDigest, pick(model.invoice, INVOICE_FIELDS), model.items]);
 }
 
 /** Both digests of this company's invoice, read now (null when there is no such invoice). Two statements. */

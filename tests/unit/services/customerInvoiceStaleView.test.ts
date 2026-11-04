@@ -54,7 +54,8 @@ describe('assertShownIsStored and approval content', () => {
     for (const m of changed) expect(shownDigestOfModel(m, 'approval')).not.toBe(digest);
     expect(shownDigestOfModel(model, 'another approval')).not.toBe(digest);
     const twoLines = { ...model, items: [model.items[0]!, { ...model.items[0]!, description: 'Line B' }] };
-    expect(shownDigestOfModel({ ...twoLines, items: [...twoLines.items].reverse() }, 'approval')).toBe(shownDigestOfModel(twoLines, 'approval')); // lines are a set
+    // The PDF prints the lines in order (line_position, migration 956): two lines swapped is another view.
+    expect(shownDigestOfModel({ ...twoLines, items: [...twoLines.items].reverse() }, 'approval')).not.toBe(shownDigestOfModel(twoLines, 'approval'));
   });
 
   it('says what changed: the total when it moved, the content (never the total) when only that did', () => {
