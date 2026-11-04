@@ -12,8 +12,9 @@
  *     for any range (the comparator route caps its own).
  *   - Versions per year by P1's own scope (`primaryVersionScopeAndYears`), so a registry
  *     year that starts mid-month is read, not refused with a 409: a shared month
- *     counts once, in its owner (the stored year holding its 1st, else the
- *     stored year holding its later part; LB-2(b)). The version and absent
+ *     counts once, in its owner (LB-2(b), `budgetVersionScope.yearsInWindow`:
+ *     between stored years the one holding its 1st; from a template year to a
+ *     stored one the stored one; otherwise master's walk). The version and absent
  *     checks judge the owning years and every year reached by date after the
  *     first day, even one that split left no month.
  *   - `splitsMonth`: the range cuts a budget month (a start that is not the 1st,
