@@ -87,3 +87,4 @@ backspace go back; Home and End jump; Escape exits.
 - `[pack].tsx` renders an explicit "Unknown pack" error (via the same error
   state as a pack-fetch failure) once `router.isReady`, rather than spinning
   forever on an unrecognised `pack` type or a missing `from`/`to` range.
+- 2026-11-04 (P3 follow-up LB2-3, #1128): the income slide renders `ComparatorNotices` from the same `budgetStateOf` state as the statement page (failed, none, partial, above-filter, split month, trend failed). `PresentSlide` takes `budgetRefusal` (`limited` | `refused`, with `budgetInfo.retryAfterSecs` / `.rejection`) and `onRetryBudget`; `[pack].tsx` classifies with `classifyBudgetError` and its Retry re-asks the comparator alone. The ratios slide says the refusal instead of "no budget captured".
