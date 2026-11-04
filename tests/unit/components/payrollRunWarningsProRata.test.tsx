@@ -1,6 +1,7 @@
 /**
  * The run page lists a recurring component needing a manual pro-rata (RECURRING_NEEDS_PRO_RATA) under its own heading
- * and says it blocks approval; the other warnings still say they do not.
+ * and says it blocks approval; the other warnings still say they do not. The page shows each employee's own message
+ * for it (runWarningCodes.OWN_FIGURES: the component and its dates), in the text, not only in a tooltip.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import React from 'react';
@@ -21,14 +22,14 @@ describe('PayrollRunWarnings', () => {
     render(<PayrollRunWarnings lines={[{ employeeId: 'e1', employeeName: 'Thandi Mokoena', validationResults: [proRata] }]} />);
     expect(screen.getByText(/needs a manual pro-rata: use Edit dates on the employee's Pay Components, then recalculate/i)).toBeTruthy();
     expect(screen.getByText('Thandi Mokoena').closest('a')!.getAttribute('href')).toBe('/payroll/employees/e1#pay-components');
-    expect(screen.getByText('Thandi Mokoena').getAttribute('title')).toContain('starts on 2026-03-30');
-    expect(screen.getByText(/pro-rata blocks approval/i)).toBeTruthy();
-    expect(screen.queryByText(/These do not block the run/i)).toBeNull();
+    expect(screen.getByText(/starts on 2026-03-30/)).toBeTruthy();
+    expect(screen.getByText(/Blocks approval:/)).toBeTruthy();
+    expect(screen.queryByText(/do not block approval/i)).toBeNull();
   });
 
   it('without it, the warnings still say they do not block', () => {
     render(<PayrollRunWarnings lines={[{ employeeId: 'e1', employeeName: 'Thandi Mokoena', validationResults: [noTax] }]} />);
-    expect(screen.getByText(/These do not block the run/i)).toBeTruthy();
-    expect(screen.queryByText(/pro-rata blocks approval/i)).toBeNull();
+    expect(screen.getByText(/do not block approval/i)).toBeTruthy();
+    expect(screen.queryByText(/Blocks approval/)).toBeNull();
   });
 });

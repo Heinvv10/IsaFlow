@@ -71,7 +71,9 @@ export function medicalFieldLines(emp: EmployeeInput): { fees: (string | null)[]
  * and is on the certificate; anything else has no reason this file can state.
  */
 export function nilTaxReason(emp: EmployeeInput): '02' | '04' | '08' {
-  const income = Math.max(0, emp.grossSalary3601) + Math.max(0, emp.annualPayments3605 ?? 0);
+  // A non-cash fringe benefit (3801) is taxable remuneration like 3601 / 3605.
+  const income = Math.max(0, emp.grossSalary3601) + Math.max(0, emp.annualPayments3605 ?? 0)
+    + (emp.fringeBenefits ?? []).reduce((s, f) => s + Math.max(0, f.amount), 0);
   const lumpSums = emp.lumpSums ?? [];
   if (emp.taxThreshold != null && income <= emp.taxThreshold) return lumpSums.length > 0 ? '04' : '02';
   const m = emp.medical;

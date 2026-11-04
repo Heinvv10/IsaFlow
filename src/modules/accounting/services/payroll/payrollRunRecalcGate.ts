@@ -4,7 +4,7 @@
  *   - recalculate_required: the run carries no calculation stamp (calculated before migration 953) or an older one
  *     than PAYROLL_CALCULATION_VERSION: its lines were read under other rules.
  *   - components_changed_after_calculation: an employee on the run had an assignment's dates changed (Edit dates,
- *     End, cancel: audit_log entity payroll_employee_component) after the run was calculated.
+ *     End, cancel, the pay-run grid: audit_log entity payroll_employee_component; a removal by its metadata) after calculation.
  *   - termination_base_missing: a leaver's line carries TERMINATION_BASE_MISSING as an error (a termination reason,
  *     no recurring earnings on the end date, and a pay-out that needs that base). As a warning it does not refuse.
  * Both run on every approval, also a re-approval onto a journal still in force. The changed check covers the run's
@@ -49,10 +49,12 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
     SELECT DISTINCT e.employee_number
     FROM payroll_run_headers h
     JOIN audit_log a ON a.company_id = h.company_id AND a.entity_type = 'payroll_employee_component'
-    JOIN payroll_employee_components pec ON pec.id = a.entity_id
-    JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = h.company_id
+    -- A removed row (action 'delete', the pay-run grid) is gone: its employee is in the audit row's metadata.
+    LEFT JOIN payroll_employee_components pec ON pec.id = a.entity_id
+    JOIN payroll_employees e ON e.company_id = h.company_id
+      AND e.id = COALESCE(pec.employee_id, CASE WHEN a.action = 'delete' THEN (a.changes->'metadata'->>'employeeId')::uuid END)
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
-      AND pec.employee_id = ANY(${ids}::uuid[])
+      AND e.id = ANY(${ids}::uuid[])
       AND a.created_at > h.calculated_at
     ORDER BY 1
   `) as DbRow[];

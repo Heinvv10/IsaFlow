@@ -30,6 +30,7 @@ const WRITERS: Record<string, [number, string]> = {
   [`${SERVICES}payPackageService.ts`]: [1, 'package apply: refuseAssignmentWrite under the company lock'],
   [`${SERVICES}payPackageSupersede.ts`]: [2, 'package apply cut: paidPeriodChanged under the company lock'],
   [`${SERVICES}payrollComponentDateEdit.ts`]: [1, 'Edit dates / End: paid months and recurring overlap under the company lock'],
+  [`${SERVICES}payrollRunPeriodInputs.ts`]: [3, "pay-run grid: its unapproved run month's once-off only, under the company lock; refuseAssignmentWrite on insert; audited"],
 };
 
 /** file -> [indirect forms it holds, why]. Files that name the table without (or besides) a statement of their own. */

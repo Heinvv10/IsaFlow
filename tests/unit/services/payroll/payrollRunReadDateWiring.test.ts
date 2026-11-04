@@ -5,6 +5,11 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+// Both loan components exist: the fail-closed path has its own integration suites.
+vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => ({
+  appendLoanComponents: (components: unknown[]) => components,
+  loadLoanComponents: async () => ({ deduction: { id: 'loan' }, fringe: { id: 'fringe' } }),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollYearToDate', () => ({
   loadPayeYearToDate: vi.fn(async () => new Map()),
   laterPeriodsWarnings: vi.fn(async () => new Map()),

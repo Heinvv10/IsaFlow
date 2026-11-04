@@ -9,6 +9,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Both loan components exist: the fail-closed path has its own integration suites.
+vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => ({
+  appendLoanComponents: (components: unknown[]) => components,
+  loadLoanComponents: async () => ({ deduction: { id: 'loan' }, fringe: { id: 'fringe' } }),
+}));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({

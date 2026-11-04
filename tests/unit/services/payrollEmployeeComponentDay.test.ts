@@ -37,6 +37,18 @@ const ACTOR = { userId: 'u-1', channel: 'service' as const };
 const assignInsert = () => sqlCalls.find((c) => c.sql.includes('INSERT INTO payroll_employee_components'))!;
 beforeEach(() => { sqlCalls.length = 0; });
 
+describe('a date that is not a string', () => {
+  it.each([[['2026-03-01']], [20260301], [null], [{ toString: () => '2026-03-01' }], [0], [false], ['']])('%j is refused before any lock or query', async (d) => {
+    await expect(assignComponentToEmployee(CO, E, C, 1, d as never, undefined, true, ACTOR)).rejects.toBeInstanceOf(EmployeeComponentRefused);
+    // A null end date means "no end date"; any other non-string end date is refused.
+    if (d !== null && d !== undefined) {
+      await expect(assignComponentToEmployee(CO, E, C, 1, '2026-03-01', d as never, true, ACTOR)).rejects.toBeInstanceOf(EmployeeComponentRefused);
+    }
+    await expect(endEmployeeComponent(CO, E, d as never)).rejects.toBeInstanceOf(EmployeeComponentRefused);
+    expect(sqlCalls).toEqual([]);
+  });
+});
+
 describe('dayOf agrees with isRealCalendarDate', () => {
   it.each(['2028-02-29', '2026-03-01', '2026-12-31', '2000-02-29'])('accepts %s', async (d) => {
     expect(isRealCalendarDate(d)).toBe(true);
@@ -56,5 +68,8 @@ describe('dayOf agrees with isRealCalendarDate', () => {
     'refuses %s', async (d) => {
       expect(isRealCalendarDate(d)).toBe(false);
       await expect(endEmployeeComponent(CO, E, d)).rejects.toBeInstanceOf(EmployeeComponentRefused);
+      await expect(assignComponentToEmployee(CO, E, C, 1, d, undefined, true, ACTOR)).rejects.toBeInstanceOf(EmployeeComponentRefused);
+      // The date is judged first: a refused one reads nothing.
+      expect(sqlCalls).toEqual([]);
     });
 });

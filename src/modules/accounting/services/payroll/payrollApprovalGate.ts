@@ -18,7 +18,8 @@
  *      chain exists:
  *        in force → the run is re-approved onto it, posting nothing, but only
  *                   while its figures match what the run would post now
- *                   (`sameFigures`), else `recalculated_after_posting`;
+ *                   (`sameFigures`), else `recalculated_after_posting`; step 3
+ *                   (pro-rata, the line refusals) is not judged: nothing new posts;
  *        out      → nothing of the run is in the ledger: approval unlinks the
  *                   journal and posts a FRESH one (`replaces`), dated by
  *                   `datedForReplacement`;
@@ -26,7 +27,9 @@
  *   3. for a fresh journal, termination pay-outs another approved or paid run
  *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then a
  *      recurring row needing a manual pro-rata (`recurring_needs_pro_rata`,
- *      payrollRecurringProRata), then every journal-plan blocker except
+ *      payrollRecurringProRata), then the line refusals of payrollLineBlockers (`run_lines_unreadable`,
+ *      `loan_payments_off_payslip`, `loan_deduction_missing`, `loan_fringe_not_recorded`,
+ *      `loan_instalment_exceeds_pay`, `deductions_exceed_pay`), then every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
  *      'already_posted', which names the journal being replaced.
  *
@@ -35,7 +38,6 @@
  * journal it would re-lock onto or replace. The caller sends the hash it previewed and
  * approval refuses (409) when the run no longer hashes the same.
  */
-import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
@@ -45,8 +47,11 @@ import { readJournalChain, runRecalculatedSince, type JournalChain } from './pay
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
+import { findFringeNotRecordedLines, findLoanPaymentsOffPayslip, findOverdrawnLines, findWithheldLoanLines } from './payrollRunLines';
+import { lineBlocker } from './payrollLineBlockers';
 import { runProRataBlocker } from './payrollRecurringProRata';
 import { recalculateRequiredRefusal, runLinesRefusal } from './payrollRunRecalcGate';
+import { hashOf } from './payrollApprovalHash';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -186,20 +191,6 @@ async function datedForReplacement(companyId: string, plan: PayrollJournalPlan, 
   };
 }
 
-function hashOf(plan: PayrollJournalPlan, posted: PostedPayrollJournal | null, replaces: PostedPayrollJournal | null): string {
-  return createHash('sha256').update(JSON.stringify({
-    run: plan.runId,
-    status: plan.status,
-    entryDate: plan.entryDate,
-    description: plan.description,
-    posted: posted?.journalEntryId ?? null,
-    replaces: replaces?.journalEntryId ?? null,
-    // CC1 is in it: it changes what posts, so a preview taken before a centre moved cannot approve the new split.
-    lines: plan.lines.map((l) => [l.glAccountId, l.accountCode, l.cc1Id, cents(l.debit), cents(l.credit)]),
-    totals: Object.entries(plan.totals).map(([k, v]) => [k, cents(v)]),
-  })).digest('hex');
-}
-
 /** Null when the run is not in this company. Read-only. */
 export async function judgePayrollApproval(companyId: string, runId: string): Promise<PayrollApprovalGate | null> {
   const built = await buildPayrollJournalPlan(companyId, runId);
@@ -219,6 +210,8 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const yearToDate = await judgeYearToDate(companyId, runId);
   // Leavers whose approved severance directive this run does not pay, and why (P3), and a paid later month
   // this run's change leaves stale (R1 limit (f)); neither is in the hash.
+  const overdrawn = await findOverdrawnLines(companyId, runId);
+  const loanPayments = await findLoanPaymentsOffPayslip(companyId, runId);
   const plan = {
     ...dated,
     advisories: [...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId), ...yearToDate.advisories],
@@ -280,9 +273,13 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
           + '. Recalculate this run first; it then leaves them out.',
       };
     }
-    // A recurring row the last-day read pays in full or drops, unresolved (payrollRecurringProRata).
+    // A recurring row the last-day read pays in full or drops (payrollRecurringProRata): first, it changes the lines.
     const proRata = await runProRataBlocker(companyId, runId);
     if (proRata) return proRata;
+    // Unreadable lines, loans off the payslip, withheld or above pay, an unrecorded fringe benefit, a shortfall (payrollLineBlockers).
+    const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId), loanPayments.offPayslip,
+      [...await findFringeNotRecordedLines(companyId, runId), ...loanPayments.fringeNotRecorded]);
+    if (fromLines) return fromLines;
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;
   })();
 

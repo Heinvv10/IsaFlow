@@ -231,7 +231,7 @@ describe('exports — an owner with a complete company profile gets the file', (
     const paye = (await pool.query<{ p: string }>('SELECT paye AS p FROM payroll_run_lines WHERE run_id = $1', [runId])).rows[0]!.p;
     const r = await raw(emp501Export as Route, 'GET', '/api/payroll/emp501/export', { taxYear: '2027' }, owner);
     expect(r.status).toBe(200);
-    expect(r.body.split('\n')[0]).toBe('employee_name,irp5_number,gross_income,paye,uif,sdl');
+    expect(r.body.split('\n')[0]).toBe('employee_name,irp5_number,gross_income,paye,uif,sdl,fringe_3801');
     expect(r.body).toContain(`Wanda Test,0123456789,20000.00,${Number(paye).toFixed(2)}`);
     expect((await raw(emp501Export as Route, 'GET', '/api/payroll/emp501/export', { taxYear: '2027' }, viewer)).status).toBe(403);
   });

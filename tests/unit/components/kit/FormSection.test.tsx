@@ -81,6 +81,42 @@ describe('AutosaveStatus', () => {
     expect(screen.getByRole('status').textContent).toBe('Saved 5 s ago');
   });
 
+  it('a screen reader hears the state, never the clock', () => {
+    vi.useFakeTimers();
+    render(<AutosaveStatus state="saved" savedAt={Date.now()} />);
+    const heard = () => {
+      const copy = screen.getByRole('status').cloneNode(true) as HTMLElement;
+      copy.querySelectorAll('[aria-hidden="true"]').forEach((el) => el.remove());
+      return copy.textContent;
+    };
+    expect(heard()).toBe('Saved');
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(screen.getByRole('status').textContent).toBe('Saved 3 s ago');
+    expect(heard()).toBe('Saved');
+  });
+
+  it('any number of them share one timer, which goes with the last', () => {
+    vi.useFakeTimers();
+    const first = render(<AutosaveStatus state="saved" savedAt={Date.now()} />);
+    const second = render(<AutosaveStatus state="saved" savedAt={Date.now() - 60_000} />);
+    expect(vi.getTimerCount()).toBe(1);
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(first.container.textContent).toBe('Saved 2 s ago');
+    expect(second.container.textContent).toBe('Saved 1 min ago');
+    first.unmount();
+    expect(vi.getTimerCount()).toBe(1);
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(second.container.textContent).toBe('Saved 2 min ago');
+    second.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('accepts a Date', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 9, 15, 10, 0, 0));
