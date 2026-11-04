@@ -189,6 +189,15 @@ export async function deleteVersion(companyId: string, versionId: string, actor:
   }
   await lockVersionsOfYear(companyId, versionId);
   const v = await getVersion(companyId, versionId);
+  // P5-6: a version with budget holders' slices is an owner's or admin's to delete (migration 955
+  // refuses anyone else the slice rows the delete cascades to).
+  if (!APPROVERS.has(actor.role)) {
+    const slices = (await sql`
+      SELECT 1 FROM budget_slice_reviews WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
+      UNION ALL SELECT 1 FROM budget_holders WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID LIMIT 1
+    `) as DbRow[];
+    if (slices[0]) throw new BudgetVersionError('BUDGET_VERSION_FORBIDDEN', 'Only an owner or admin can delete a budget version with budget holders assigned');
+  }
   if (v.isPrimary) throw new BudgetVersionError('BUDGET_VERSION_STATE', 'The primary budget cannot be deleted; make another version primary first');
   if (v.status === 'locked') throw new BudgetVersionError('BUDGET_VERSION_LOCKED', 'A locked budget version cannot be deleted');
   if (v.status === 'approved' && !APPROVERS.has(actor.role)) {
