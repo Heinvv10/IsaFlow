@@ -1,16 +1,16 @@
 ---
-title: "Migrating a client from Sage to ISAFlow (CSV, step by step)"
+title: "Migrating a client from Sage to IsaFlow (CSV, step by step)"
 slug: "migrating-a-client-from-sage"
-description: "Step-by-step guide to moving a client from Sage Business Cloud or Sage 50 / Pastel to ISAFlow with the migration wizard and CSV exports."
+description: "Step-by-step guide to moving a client from Sage Business Cloud or Sage 50 / Pastel to IsaFlow with the migration wizard and CSV exports."
 order: 2
 updated: "2026-10-31"
 ---
 
-The migration wizard brings across what you need to start working in ISAFlow: chart of accounts, customers, suppliers, opening balances and unpaid invoices. It works from **CSV files** you export from Sage. There's no direct connection to Sage, and we'll never ask for your Sage login details.
+The migration wizard brings across what you need to start working in IsaFlow: chart of accounts, customers, suppliers, opening balances and unpaid invoices. It works from **CSV files** you export from Sage. There's no direct connection to Sage, and we'll never ask for your Sage login details.
 
 ## Before you start
 - **Choose your migration date.** Use the end of a closed, reviewed month. Your opening balances are the trial balance at that date.
-- **Payroll is separate.** ISAFlow doesn't import employees, payroll history or year-to-date figures. Set employees up in Payroll, Employees, and plan to start payroll at the beginning of a tax year (1 March). Check timing with your tax practitioner.
+- **Payroll is separate.** IsaFlow doesn't import employees, payroll history or year-to-date figures. Set employees up in Payroll, Employees, and plan to start payroll at the beginning of a tax year (1 March). Check timing with your tax practitioner.
 - **Keep the old system readable.** Leave detailed history in Sage and keep access to it, as SARS requires records to be kept.
 - **Use a laptop or desktop** for the migration.
 
@@ -37,7 +37,7 @@ Open **Accounting, Migration** and choose your source: *Sage Business Cloud* (3-
 If a file has the wrong headings, the wizard tells you which headings it expected. Check each file before you import it: the Sage wizard has no rollback. **Start over** only clears the wizard's progress; it doesn't undo records you've already imported. If an import needs reversing, [contact us](https://isaflow.co.za/contact).
 
 ## After go-live
-- Check the ISAFlow trial balance agrees with Sage at the migration date.
+- Check the IsaFlow trial balance agrees with Sage at the migration date.
 - Import bank statements from the migration date (Banking, import) and reconcile.
 - Reconcile the VAT control account in your first VAT period.
 

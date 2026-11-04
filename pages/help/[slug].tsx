@@ -48,11 +48,11 @@ export default function HelpPage({ document, html, faqJsonLd }: HelpPageProps) {
   return (
     <>
       <BlogHead
-        title={`${document.title} | ISAFlow Help`}
+        title={`${document.title} | IsaFlow Help`}
         description={document.description}
         canonical={canonical}
         image={`${SITE_URL}/landing-pitch-dark.png`}
-        imageAlt="ISAFlow"
+        imageAlt="IsaFlow"
         type="website"
         jsonLd={structuredData}
       />

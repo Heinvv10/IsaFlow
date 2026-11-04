@@ -9,7 +9,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const createTransport = vi.fn(() => ({ sendMail: vi.fn(async () => ({ messageId: 'mid' })) }));
+const sendMail = vi.fn(async () => ({ messageId: 'mid' }));
+const createTransport = vi.fn(() => ({ sendMail }));
 vi.mock('nodemailer', () => ({ default: { createTransport }, createTransport }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -20,6 +21,7 @@ const ENV = process.env;
 beforeEach(() => {
   process.env = { ...ENV, SMTP_HOST: 'mail.isaflow.co.za', SMTP_PORT: '465', SMTP_USER: 'u', SMTP_PASS: 'p' };
   createTransport.mockClear();
+  sendMail.mockClear();
 });
 afterEach(() => { process.env = ENV; });
 
@@ -37,5 +39,18 @@ describe('sendEmail TLS servername', () => {
     delete process.env.SMTP_TLS_SERVERNAME;
     await sendEmail({ to: 'x@y.com', subject: 's', html: '<p>h</p>' });
     expect(createTransport).toHaveBeenCalledWith(expect.not.objectContaining({ tls: expect.anything() }));
+  });
+
+  it('passes an optional Reply-To address to nodemailer', async () => {
+    await sendEmail({
+      to: 'sales@example.com',
+      replyTo: 'sender@example.com',
+      subject: 'Enquiry',
+      html: '<p>Hello</p>',
+    });
+
+    expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({
+      replyTo: 'sender@example.com',
+    }));
   });
 });

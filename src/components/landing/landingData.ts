@@ -43,12 +43,12 @@ export interface FAQItem {
 export const APP_URL = 'https://app.isaflow.co.za';
 
 export const BRAND = {
-  name: 'ISAFlow',
-  legalName: 'ISAFlow',
+  name: 'IsaFlow',
+  legalName: 'IsaFlow',
   url: 'https://isaflow.co.za',
   logo: 'https://isaflow.co.za/logo.png',
   description:
-    'Cloud accounting software for South African businesses — invoicing, bank reconciliation, VAT and payroll compliance, and payroll, in one platform.',
+    'Cloud accounting software for South African businesses: invoicing, bank statement import and reconciliation, VAT return preparation and payroll in one platform.',
   countryCode: 'ZA',
   // City and province only: the street address is deliberately not published.
   addressLocality: 'Pretoria',
@@ -62,7 +62,7 @@ export const BRAND = {
 
 // External profiles linked from Organization.sameAs to help AI engines and
 // search bots triangulate on the correct entity. Populate as each profile
-// goes live — leaving stale/fake URLs here makes disambiguation worse.
+// goes live. Leaving stale or fake URLs here makes disambiguation worse.
 export const BRAND_SAME_AS: string[] = [
   // 'https://www.linkedin.com/company/isaflow/',
   // 'https://www.wikidata.org/wiki/Q...',
@@ -84,8 +84,8 @@ export const FEATURE_PILLARS: FeaturePillar[] = [
   },
   {
     icon: Shield,
-    title: 'Stay compliant',
-    desc: 'VAT returns, tax submissions and audit trails — handled.',
+    title: 'SARS returns, prepared',
+    desc: 'VAT201 and EMP201 prepared for you to file on eFiling, with a full audit trail.',
   },
   {
     icon: Zap,
@@ -112,13 +112,13 @@ export const DETAILED_FEATURES: DetailedFeature[] = [
   {
     badge: 'Banking',
     title: 'Bank reconciliation on autopilot',
-    desc: 'Import statements from your bank or connect the ABSA browser import. Our 4-tier smart matching engine automatically categorises and reconciles transactions with confidence scoring.',
+    desc: 'Import bank statements in supported formats. Our 4-tier smart matching engine automatically categorises and reconciles transactions with confidence scoring.',
     bullets: [
       '7+ bank statement formats supported',
       '4-tier auto-matching (rules → reference → amount+date → AI)',
       'AI-powered smart categorisation with anomaly detection',
       'Categorisation rules engine with live preview',
-      'ABSA browser import, plus CSV/PDF/OFX/QIF statement uploads',
+      'CSV, PDF, OFX, QFX, QIF and MT940 statement imports',
       'Batch payments with EFT file generation',
     ],
     imgKey: 'banking',
@@ -126,7 +126,7 @@ export const DETAILED_FEATURES: DetailedFeature[] = [
   {
     badge: 'AI-Powered',
     title: 'Intelligence built into every workflow',
-    desc: 'ISAFlow uses Vision AI and machine learning to automate tedious accounting tasks. Capture a receipt and watch it become a journal entry in seconds.',
+    desc: 'IsaFlow uses Vision AI and machine learning to automate tedious accounting tasks. Capture a receipt and watch it become a journal entry in seconds.',
     bullets: [
       'Vision AI document extraction (receipts, invoices, contracts)',
       'Auto-invoice creation from captured documents',
@@ -141,7 +141,7 @@ export const DETAILED_FEATURES: DetailedFeature[] = [
 
 // Scenario C ("Premium-locked"), signed by Hein 2026-07-06.
 // Canonical spec: docs/commercial/pricing-skus.md. Prices VAT-inclusive (15%),
-// ZAR/month — the displayed number is the all-in price (Hein 2026-07-07, §9).
+// ZAR/month: the displayed number is the all-in price (Hein 2026-07-07, §9).
 export const PRICING_TIERS: PricingTier[] = [
   {
     name: 'Starter',
@@ -152,7 +152,7 @@ export const PRICING_TIERS: PricingTier[] = [
       'Full General Ledger',
       'Invoicing, Quotes & Statements',
       'Bank Reconciliation & Statement Import (1 bank)',
-      'VAT201 & Tax Compliance',
+      'VAT201 prepared for eFiling',
       'Financial Reports',
       'Full Audit Trail',
       'Two-Factor Authentication',
@@ -171,7 +171,7 @@ export const PRICING_TIERS: PricingTier[] = [
       'Everything in Starter, plus:',
       'Debtors / AR management & dunning',
       'Purchases & Supplier Invoices (AP)',
-      'Inventory — products & stock levels',
+      'Inventory: products & stock levels',
       'Multi-Currency & Exchange Rates',
       'Unlimited bank accounts & statement imports',
       'AI Document Capture & Smart Categorisation',

@@ -76,6 +76,7 @@ export interface EmailAttachment {
 
 export interface EmailOptions {
   to: string | string[];
+  replyTo?: string;
   subject: string;
   html: string;
   attachments?: EmailAttachment[];
@@ -179,6 +180,7 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
     const mailOptions: any = {
       from: config.from,
       to: recipients,
+      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
       subject: options.subject,
       html: options.html,
       attachments: [

@@ -1,12 +1,12 @@
 ---
-title: "Using ISAFlow on a phone or tablet"
+title: "Using IsaFlow on a phone or tablet"
 slug: "using-isaflow-on-a-phone"
-description: "Tips for using ISAFlow on a phone or tablet, and which screens work better on a laptop or desktop for now."
+description: "Tips for using IsaFlow on a phone or tablet, and which screens work better on a laptop or desktop for now."
 order: 6
 updated: "2026-10-31"
 ---
 
-You can log in to ISAFlow on a phone, but at the moment it works best on a laptop or desktop. We're working on the mobile layout. Until then:
+You can log in to IsaFlow on a phone, but at the moment it works best on a laptop or desktop. We're working on the mobile layout. Until then:
 
 - **Journal entries:** please use a laptop or desktop (or a large tablet in landscape). On phones, the balance summary covers the entry fields.
 - **Chart of accounts, trial balance, invoices and long lists** (customers, suppliers, bank reconciliation, payroll): these can be squeezed or cut off on phones. Rotate to landscape, or use a desktop.

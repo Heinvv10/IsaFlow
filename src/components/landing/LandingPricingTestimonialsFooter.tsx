@@ -147,17 +147,40 @@ export function LandingFooter() {
   return (
     <footer className="bg-white dark:bg-gray-900 border-t border-white/10 py-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex w-full flex-col items-center gap-3 text-center md:w-auto md:flex-row md:text-left">
-            <img src="/logo.png" alt="ISAFlow" className="h-8 w-auto brightness-0 invert opacity-60" />
-            <span className="text-sm text-gray-500">© {new Date().getFullYear()} Brightsphere Technologies (Pty) Ltd, trading as IsaFlow. All rights reserved.</span>
+        <div className="grid gap-10 lg:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))]">
+          <div>
+            <img src="/logo.png" alt="IsaFlow" className="h-8 w-auto brightness-0 invert opacity-60" />
+            <p className="mt-4 max-w-sm text-sm text-gray-500">
+              © {new Date().getFullYear()} Brightsphere Technologies (Pty) Ltd, trading as IsaFlow. All rights reserved.
+            </p>
           </div>
-          <div className="flex gap-6 text-sm text-gray-500">
-            <a href="/help" className="hover:text-white transition-colors">Help</a>
-            <a href="/privacy" className="hover:text-white transition-colors">Privacy</a>
-            <a href="/terms" className="hover:text-white transition-colors">Terms</a>
-            <a href="/security" className="hover:text-white transition-colors">Security</a>
-            <a href={`${APP_URL}/login`} className="hover:text-white transition-colors">Sign In</a>
+          <div className="text-sm">
+            <p className="font-semibold text-gray-900 dark:text-white">Product</p>
+            <div className="mt-3 space-y-2 text-gray-500">
+              <a href="/#features" className="block hover:text-white transition-colors">Features</a>
+              <a href="/pricing" className="block hover:text-white transition-colors">Pricing</a>
+            </div>
+          </div>
+          <div className="text-sm">
+            <p className="font-semibold text-gray-900 dark:text-white">Resources</p>
+            <div className="mt-3 space-y-2 text-gray-500">
+              <a href="/blog" className="block hover:text-white transition-colors">Blog</a>
+              <a href="/help" className="block hover:text-white transition-colors">Help</a>
+              <a href="/#faq" className="block hover:text-white transition-colors">FAQ</a>
+            </div>
+          </div>
+          <div className="text-sm">
+            <p className="font-semibold text-gray-900 dark:text-white">Company</p>
+            <div className="mt-3 space-y-2 text-gray-500">
+              <a href="/contact" className="block hover:text-white transition-colors">Contact</a>
+            </div>
+          </div>
+          <div className="text-sm">
+            <p className="font-semibold text-gray-900 dark:text-white">Legal</p>
+            <div className="mt-3 space-y-2 text-gray-500">
+              <a href="/privacy" className="block hover:text-white transition-colors">Privacy</a>
+              <a href="/terms" className="block hover:text-white transition-colors">Terms</a>
+            </div>
           </div>
         </div>
       </div>

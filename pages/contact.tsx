@@ -33,6 +33,7 @@ export default function ContactPage() {
       name: String(data.get('name') ?? ''),
       email: String(data.get('email') ?? ''),
       company: String(data.get('company') ?? ''),
+      phone: String(data.get('phone') ?? ''),
       message: String(data.get('message') ?? ''),
       website: String(data.get('website') ?? ''), // honeypot
     };
@@ -64,8 +65,8 @@ export default function ContactPage() {
     <>
       <PageHead
         path="/contact"
-        title="Contact ISAFlow: Book a Demo of Cloud Accounting in South Africa"
-        description="Talk to the ISAFlow team in Pretoria about accounting, VAT201, payroll and month-end for your South African business or accounting practice. Book a demo."
+        title="Contact IsaFlow: Book a Demo of Cloud Accounting in South Africa"
+        description="Talk to the IsaFlow team in Pretoria about accounting, VAT201, payroll and month-end for your South African business or accounting practice. Book a demo."
       />
 
       <div className="min-h-screen bg-white text-gray-900">
@@ -87,7 +88,7 @@ export default function ContactPage() {
               Book a demo
             </h1>
             <p className="text-lg text-white/70">
-              See IsaFlow close a messy month live — books, VAT, payroll and the
+              See IsaFlow close a messy month live: books, VAT, payroll and the
               Close Agent. Tell us a little about you and we&apos;ll be in touch.
             </p>
           </div>
@@ -98,7 +99,7 @@ export default function ContactPage() {
             {status === 'sent' ? (
               <div className="rounded-2xl border border-teal-200 bg-teal-50 p-8 text-center">
                 <CheckCircle2 className="w-10 h-10 text-teal-500 mx-auto mb-4" />
-                <h2 className="text-xl font-bold text-gray-900 mb-2">Thanks — message sent</h2>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Thanks. Message sent.</h2>
                 <p className="text-gray-600">
                   We&apos;ve got your request and will be in touch shortly. You can
                   also reach us any time at{' '}
@@ -119,6 +120,12 @@ export default function ContactPage() {
                   <input id="email" name="email" type="email" required maxLength={160} autoComplete="email" className={inputClass} placeholder="you@company.co.za" />
                 </div>
                 <div>
+                  <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Phone <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input id="phone" name="phone" type="tel" maxLength={40} autoComplete="tel" className={inputClass} placeholder="Your phone number" />
+                </div>
+                <div>
                   <label htmlFor="company" className="block text-sm font-medium text-gray-700 mb-1.5">
                     Company <span className="text-gray-400 font-normal">(optional)</span>
                   </label>
@@ -129,7 +136,7 @@ export default function ContactPage() {
                   <textarea id="message" name="message" required minLength={10} maxLength={2000} rows={5} className={inputClass} placeholder="Tell us about your business, your current tools, and what you'd like to see." />
                 </div>
 
-                {/* Honeypot — visually hidden, off the tab order; bots fill it, humans don't. */}
+                {/* Honeypot, visually hidden and off the tab order. Bots fill it; humans do not. */}
                 <div className="absolute w-px h-px overflow-hidden -m-px" aria-hidden="true">
                   <label htmlFor="website">Leave this field empty</label>
                   <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" />
@@ -138,6 +145,11 @@ export default function ContactPage() {
                 {status === 'error' && (
                   <p className="text-sm text-red-600" role="alert">{error}</p>
                 )}
+
+                <p className="text-xs text-gray-500">
+                  We use these details only to reply to your enquiry. See our{' '}
+                  <a href="/privacy" className="text-teal-600 hover:underline">Privacy Policy</a>.
+                </p>
 
                 <button
                   type="submit"

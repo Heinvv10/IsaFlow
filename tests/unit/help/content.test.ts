@@ -10,6 +10,7 @@ const EXPECTED_SLUGS = [
   'preparing-sars-returns-for-efiling',
   'something-looks-wrong',
   'using-isaflow-on-a-phone',
+  'connecting-an-ai-assistant',
 ];
 
 describe('help content', () => {
