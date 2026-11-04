@@ -80,14 +80,14 @@ function renderBlock(block: NoteContentBlock): DocxChild[] {
  * own period label, and nothing for a document with neither.
  */
 async function coverPeriodText(doc: AfsDocument): Promise<string | null> {
+  const isPack = doc.documentType === 'management_pack';
+  // A pack is monthly: its valid month wins even when it also carries a fiscal year.
+  if (isPack && isPackPeriod(doc.period)) return `For the ${packPeriodPhrase(doc.period)}`;
   if (doc.fiscalYear) {
     const period = await findReportingPeriod(doc.companyId, Number(doc.fiscalYear), 'docxExportService');
     return period ? `For the ${period.current.phrase}` : null;
   }
-  if (doc.documentType === 'management_pack') {
-    return isPackPeriod(doc.period) ? `For the ${packPeriodPhrase(doc.period)}` : null;
-  }
-  return doc.period;
+  return isPack ? null : doc.period;
 }
 
 function buildCoverChildren(periodText: string | null, companyName: string, title: string): DocxChild[] {

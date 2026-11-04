@@ -40,4 +40,13 @@ describe('DOCX cover title', () => {
     expect(paragraphs.some((t) => t.startsWith('For the'))).toBe(false);
     expect(paragraphs).toContain('Management Pack');
   });
+  it('a pack with a valid month and a fiscal year still prints its month', async () => {
+    const { paragraphs } = await parts({ documentType: 'management_pack', fiscalYear: 2026, period: '2026-10' });
+    expect(paragraphs).toContain('For the month of October 2026');
+    expect(paragraphs.some((t) => t.includes('year ended'))).toBe(false);
+  });
+  it('a pack without a valid month but with a fiscal year uses the fiscal-year phrase', async () => {
+    const { paragraphs } = await parts({ documentType: 'management_pack', fiscalYear: 2026, period: null });
+    expect(paragraphs).toContain('For the year ended 2026-02-28');
+  });
 });

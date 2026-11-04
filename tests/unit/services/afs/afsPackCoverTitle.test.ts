@@ -68,8 +68,15 @@ describe('cover title follows the document type', () => {
     });
   }
 
-  it('a caller-supplied periodPhrase wins for a pack, as it does for an AFS', () => {
-    const html = renderAfsToHtml({ ...ctx(PACK, 'classic'), periodPhrase: 'year ended 2027-02-28' });
+  it('a valid pack month beats a supplied phrase (a monthly pack with a fiscal year)', () => {
+    const html = renderAfsToHtml({ ...ctx({ ...PACK, fiscalYear: 2027 } as unknown as AfsDocument, 'classic'), periodPhrase: 'year ended 2027-02-28' });
+    expect(html).toContain('For the month of October 2026');
+    expect(html).not.toContain('year ended 2027-02-28');
+  });
+
+  it('a supplied phrase is used only for a pack without a valid month', () => {
+    const doc = { ...PACK, period: null } as unknown as AfsDocument;
+    const html = renderAfsToHtml({ ...ctx(doc, 'classic'), periodPhrase: 'year ended 2027-02-28' });
     expect(html).toContain('For the year ended 2027-02-28');
     expect(html).not.toContain('month of');
   });

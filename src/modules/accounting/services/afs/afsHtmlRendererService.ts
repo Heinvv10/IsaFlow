@@ -203,7 +203,7 @@ export function renderAfsToHtml(
     companyName,
     registrationNumber,
     periodEnd,
-    periodPhrase: isPack ? (periodPhrase ?? packPhrase) : periodPhrase,
+    periodPhrase: isPack ? (packPhrase ?? periodPhrase ?? null) : periodPhrase,
     coverPhotoUrl,
   });
 
