@@ -21,8 +21,11 @@ const budget = (over: Partial<RemainingInputs['budgets'][number]> = {}) => ({
 const actual = (grain: 'company' | 'cc1' | 'cc2' | 'bu', accountId: string, memberId: string | null, amount: number, month = '2026-04') =>
   ({ grain, accountId, month, memberId, amount });
 const item = (over: Partial<RemainingInputs['commitments'][number]> = {}) => ({
-  poItemId: 'pi-1', glAccountId: 'rent', month: '2026-04', cc1Id: null, cc2Id: null, buId: null, lineTotal: 100, billed: 0, ...over,
+  poItemId: 'pi-1', glAccountId: 'rent', month: '2026-04', cc1Id: null, cc2Id: null, buId: null, lineTotal: 100, billed: [], ...over,
 });
+/** A posted bill line linked to the PO line (default: rent, 2026-04, no dims: the PO line's own company slice). */
+const posted = (amount: number, over: Partial<RemainingInputs['commitments'][number]['billed'][number]> = {}) =>
+  ({ glAccountId: 'rent', month: '2026-04', cc1Id: null, cc2Id: null, buId: null, amount, ...over });
 const inputs = (over: Partial<RemainingInputs> = {}): RemainingInputs => ({
   versionOf: () => V,
   grains: new Map([[`${V}|rent`, 'company']]),
@@ -88,9 +91,20 @@ describe('computeRemaining', () => {
 
   it('committed is per PO line, floored at zero (an over-billed line never offsets another)', () => {
     const [r] = computeRemaining([key()], inputs({
-      commitments: [item({ lineTotal: 100, billed: 40 }), item({ poItemId: 'pi-2', lineTotal: 50, billed: 80 })],
+      commitments: [item({ lineTotal: 100, billed: [posted(40)] }), item({ poItemId: 'pi-2', lineTotal: 50, billed: [posted(80)] })],
     }));
     expect(r!.committed).toBe(60);
+  });
+
+  it('linked billing releases a PO line wherever it posted: another account, month or slice (decision 8a)', () => {
+    const anywhere = [posted(20, { glAccountId: 'wages' }), posted(30, { month: '2026-05' }), posted(10)];
+    const [company] = computeRemaining([key()], inputs({ commitments: [item({ billed: anywhere })] }));
+    expect(company!.committed).toBe(40);
+    // At CC1 grain the PO line's slice is released by a bill on another CC1 as much as by one on its own.
+    const grains = new Map([[`${V}|rent`, 'cc1' as const]]);
+    const po = item({ cc1Id: 'ct', billed: [posted(60, { cc1Id: 'other' }), posted(25, { cc1Id: 'ct' })] });
+    const [slice] = computeRemaining([key({ cc1Id: 'ct' })], inputs({ grains, budgets: [budget({ cc1Id: 'ct' })], commitments: [po] }));
+    expect(slice!.committed).toBe(15);
   });
 
   it('only the key\'s account and month count; another grain\'s actual rows are ignored', () => {

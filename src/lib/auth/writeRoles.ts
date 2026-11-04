@@ -12,6 +12,17 @@ export function canWrite(role: string | null | undefined): boolean {
   return (DEFAULT_WRITE_ROLES as readonly string[]).includes(role ?? '');
 }
 
+/**
+ * The roles that may cancel an APPROVED purchase order (budgets P5-3 review r2): owner and admin. The cancel route's
+ * `allowedRoles` and the PO page's button both read it.
+ */
+export const PO_CANCEL_ROLES = ['owner', 'admin'] as const;
+
+/** Whether a company role may cancel an approved purchase order. */
+export function canCancelApprovedPo(role: string | null | undefined): boolean {
+  return (PO_CANCEL_ROLES as readonly string[]).includes(role ?? '');
+}
+
 /** A token scope that lets it change data. */
 export function isWriteScope(scope: string): boolean {
   return scope.startsWith('write:');
