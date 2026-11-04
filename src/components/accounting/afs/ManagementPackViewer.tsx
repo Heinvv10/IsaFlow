@@ -54,7 +54,7 @@ function blocksOf(content: NoteContent | null): NoteContentBlock[] {
 export function ManagementPackViewer({ sections }: { sections: AfsSection[] }) {
   const ordered = [...sections].sort((a, b) => a.sortOrder - b.sortOrder);
   if (ordered.length === 0) {
-    return <p className="text-sm text-slate-500 dark:text-slate-400">This pack has no sections.</p>;
+    return <p className="text-sm text-ink-muted">This pack has no sections.</p>;
   }
   return (
     <div className="space-y-6">
