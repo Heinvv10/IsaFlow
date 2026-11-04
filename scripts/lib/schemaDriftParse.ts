@@ -39,12 +39,15 @@ export function parseExpectedSchema(migDir: string = MIG_DIR): Map<string, Set<s
       const table = m[1]!.toLowerCase();
       if (!expected.has(table)) expected.set(table, new Set());
       const cols = expected.get(table)!;
-      let depth = 0, buf = '';
+      let depth = 0, buf = '', inQuote = false;
       const parts: string[] = [];
       for (const c of m[2]!) {
-        if (c === '(') depth++;
-        else if (c === ')') depth--;
-        if (c === ',' && depth === 0) { parts.push(buf); buf = ''; }
+        // A comma or parenthesis inside a single-quoted literal (DEFAULT '{80,100,120}') is text, not
+        // structure. A '' escape toggles twice, so it stays inside the literal.
+        if (c === "'") inQuote = !inQuote;
+        else if (!inQuote && c === '(') depth++;
+        else if (!inQuote && c === ')') depth--;
+        if (c === ',' && depth === 0 && !inQuote) { parts.push(buf); buf = ''; }
         else buf += c;
       }
       if (buf.trim()) parts.push(buf);
