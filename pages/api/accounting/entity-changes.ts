@@ -14,7 +14,7 @@
  * details also mask the branch code (…55) and holder (K…); owner / admin
  * reveal one change through POST /api/accounting/entity-changes-reveal.
  * payroll_bank_detail history: a person in their own session only (Login-as 403 IMPERSONATION_FORBIDDEN, token 403
- * AGENT_FORBIDDEN), as the bank-details route.
+ * AGENT_FORBIDDEN), as the bank-details route; the all-types feed leaves those rows out for any other session.
  * RLS (entity_changes_read) enforces the same reading rules underneath.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -24,7 +24,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
-import { assertHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
+import { assertHumanSession, isHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import {
   EntityChangeCursorError, listEntityChanges, MAX_PAGE, type ListEntityChangesOptions,
@@ -80,7 +80,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!isHistoryAdmin(companyRole)) {
     return apiResponse.forbidden(res, 'Only an owner or admin can view the company-wide change history.');
   }
-  const types = entityType ? [entityType] : ENTITY_TYPES;
+  // The all-types feed carries bank-detail rows too: a Login-as or token session gets the feed without them.
+  const human = entityType ? true : await isHumanSession();
+  const types = entityType ? [entityType] : ENTITY_TYPES.filter((t) => human || t !== 'payroll_bank_detail');
   return page(res, companyId, { types, entityType, before, limit });
 }
 

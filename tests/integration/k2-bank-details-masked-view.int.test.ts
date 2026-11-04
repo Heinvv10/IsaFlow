@@ -135,6 +135,26 @@ describe('GET /entity-changes?entityType=payroll_bank_detail&employeeId=', () =>
     }
   });
 
+  it('the all-types company feed leaves bank-detail rows out for Login-as and a token, keeps them for a person, and keeps other types', async () => {
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin']], companies);
+    const e = await employee(pool, c);
+    expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
+    const typesOf = async (t: string) => {
+      const res = await callRoute(entityChanges, t, c, 'GET', undefined, '/api/accounting/entity-changes', {});
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+      return dataOf<{ items: Array<{ entityType: string }> }>(res).items.map((i) => i.entityType);
+    };
+    expect(await typesOf(tokens[o]!)).toContain('payroll_bank_detail');
+    const login = await impersonationToken(pool, o, a);
+    const token = await new SignJWT({ sub: o, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    for (const t of [login, token]) {
+      const types = await typesOf(t);
+      expect(types).not.toContain('payroll_bank_detail');
+      expect(types.length).toBeGreaterThan(0); // the company's other history is still there
+    }
+  });
+
   it('is refused (400) without the bank-detail entity type, with another type, or with an entity id', async () => {
     const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager'], [v, 'viewer'], [x, 'accountant']], companies);
     const e = await employee(pool, c);
