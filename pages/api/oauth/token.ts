@@ -193,4 +193,7 @@ const handler: NextApiHandler = async (req, res) => {
   }
 };
 
-export default withRateLimit(withErrorHandler(handler), { max: 60, windowSecs: 60 }, 'oauth-token');
+// Never the code, secret, verifier or tokens: RFC 6749 clients post a form, which the request log would omit whole.
+const LOGGED_FIELDS = ['grant_type', 'client_id', 'redirect_uri', 'resource'];
+
+export default withRateLimit(withErrorHandler(handler, { logBodyFields: LOGGED_FIELDS }), { max: 60, windowSecs: 60 }, 'oauth-token');

@@ -68,10 +68,11 @@ describe('GET /api/payroll/runs/[id]/journal-plan', () => {
 
   it.each(['owner', 'admin', 'manager'])('200 with the preview for %s', async (role) => {
     auth.role = role;
-    vi.mocked(previewPayrollApproval).mockResolvedValue({ plan: { runId: RUN }, blocker: null } as never);
+    vi.mocked(previewPayrollApproval).mockResolvedValue({ plan: { runId: RUN, lines: [] }, posted: null, replaces: null, blocker: null } as never);
     const res = await call('GET', RUN);
     expect(res.statusCode).toBe(200);
     expect(JSON.stringify(res.sent)).toContain(RUN);
+    expect((res.sent as { data: { costCentres: unknown } }).data.costCentres).toEqual({});
   });
 
   it.each(['viewer', 'technician', 'storeman'])('403 for %s, before the service is asked', async (role) => {

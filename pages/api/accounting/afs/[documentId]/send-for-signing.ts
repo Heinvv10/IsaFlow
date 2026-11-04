@@ -18,7 +18,8 @@ import { checkRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
 import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
 import { notifySigningRequested } from '@/modules/accounting/services/afs/portalNotificationService';
-import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
+import type { DocumentType, PortalRole } from '@/modules/accounting/services/afs/afsTypes';
+import { afsDocumentTitle } from '@/modules/accounting/services/afs/afsDocumentTitle';
 
 const SIGNER_ROLES: PortalRole[] = ['director', 'cfo'];
 
@@ -51,11 +52,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // 1. Load and verify the document
   const docs = (await sql`
-    SELECT id, status, signing_requested_at
+    SELECT id, status, signing_requested_at, document_type
     FROM afs_documents
     WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
     LIMIT 1
-  `) as Array<{ id: string; status: string; signing_requested_at: Date | null }>;
+  `) as Array<{ id: string; status: string; signing_requested_at: Date | null; document_type: DocumentType }>;
 
   if (docs.length === 0) return apiResponse.notFound(res, 'AFS document', documentId);
 
@@ -121,7 +122,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1
   `) as Array<{ name: string }>;
   const companyName = companies.length > 0 ? companies[0]!.name : 'Company';
-  const title = `Annual Financial Statements — ${companyName}`;
+  const title = `${afsDocumentTitle(doc.document_type)} — ${companyName}`;
 
   // 5. Send to Signum (JSON body — real API uses /documents/from-html)
   const signers = contacts.map((c) => ({ email: c.email, name: c.name }));
@@ -159,6 +160,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       },
       documentId,
       signingUrl,
+      doc.document_type,
     );
   }
 

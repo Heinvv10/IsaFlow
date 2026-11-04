@@ -23,6 +23,9 @@ export interface StatementGridProps {
   /** Opens the note thread for a row. Omit it and no note marker appears, which
    * is what the share and PDF surfaces do — annotations are internal. */
   onOpenNote?: (rowId: string) => void;
+  /** Extra controls after a `line` row's label (Budget vs Actual's variance note, budgets P5). Omit it and
+   * the row renders exactly as before. */
+  renderLineAside?: (row: StatementRow) => ReactNode;
   cents?: boolean;
   /** Sticky header row and first column, pinned to the page scroll (see stickyTable.ts). For the
    * on-screen report pages; the share, slide and pack surfaces render the table as before. */
@@ -37,7 +40,7 @@ export interface StatementGridProps {
   budgetCells?: boolean;
 }
 
-export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, onOpenNote, cents = false, sticky = false, projectionTitle, budgetTracking = false, budgetCells = false }: StatementGridProps) {
+export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, onOpenNote, renderLineAside, cents = false, sticky = false, projectionTitle, budgetTracking = false, budgetCells = false }: StatementGridProps) {
   const active = COMPARATORS.filter(c => columns[c.key]);
   // One bar scale PER COMPARATOR. Sharing one scale across prior and budget
   // would draw a small budget movement at the size of a large prior one.
@@ -91,6 +94,7 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
                 onToggle={onToggleAccount}
                 onEvidence={onEvidence}
                 onOpenNote={onOpenNote}
+                aside={row.kind === 'line' && renderLineAside ? renderLineAside(row) : undefined}
                 // Only the expanded row's drill is built. Building one per
                 // coded row and discarding it fetches nothing, but it is a
                 // render's worth of work per account on a long statement.

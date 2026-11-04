@@ -6,11 +6,8 @@
  * assignComponentToEmployee already applies. Recurring batches stay open-ended.
  *
  * Reader under test: payrollComponentService.getEmployeeComponents — the
- * function payrollRunService.calculatePayrollRun calls per employee. The run
- * builds `new Date(period.year, period.month - 1, 28)` in LOCAL time and
- * getEmployeeComponents renders it with toISOString(), so the date actually
- * queried is day 27 in SAST and day 28 on a UTC server. Nothing here depends
- * on which: a once-off row is open for its whole month either way.
+ * function payrollRunService.calculatePayrollRun calls per employee, on
+ * payrollRunReadDate(period): the period's last day, as a plain string.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -20,6 +17,7 @@ import {
 } from '../../src/modules/accounting/services/payroll/payrollBatchService';
 import { getEmployeeComponents } from '../../src/modules/accounting/services/payroll/payrollComponentService';
 import { applyPackageToEmployee } from '../../src/modules/accounting/services/payroll/payPackageService';
+import { payrollRunReadDate } from '../../src/modules/accounting/services/payroll/payrollRunReadDate';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -50,8 +48,8 @@ const travelNonTaxable = crypto.randomUUID();
 const otherComponent = crypto.randomUUID();
 const batchIds: string[] = [];
 
-// Exactly what calculatePayrollRun builds (local-time day 28; see header).
-const periodDate = (year: number, month: number) => new Date(year, month - 1, 28);
+// Exactly what calculatePayrollRun reads on (see header).
+const periodDate = (year: number, month: number) => payrollRunReadDate({ year, month });
 
 async function addEmployee(id: string, companyId: string, number: string) {
   await pool.query(
@@ -128,9 +126,13 @@ beforeAll(async () => {
   // A deliberately recurring batch must stay open-ended.
   await postOne(company, { batchType: 'component_values', componentId: allowanceComponent, isRecurring: true, month: 3 },
     { employeeId: recurringEmployee, value: 1500, effectiveFrom: new Date('2025-03-01') });
-  // An explicit effectiveTo must be preserved, not overwritten by the period end.
+  // An explicit effectiveTo inside the month is preserved, not overwritten by the period end. One running past the
+  // month is refused at post (final payroll breaker, 2026-11-02: a once-off is paid once, in its own month).
   await postOne(company, { batchType: 'component_values', componentId: bonusComponent, isRecurring: false, month: 3 },
-    { employeeId: explicitEndEmployee, value: 900, effectiveFrom: new Date('2025-03-01'), effectiveTo: new Date('2025-05-31') });
+    { employeeId: explicitEndEmployee, value: 900, effectiveFrom: new Date('2025-03-01'), effectiveTo: new Date('2025-03-20') });
+  await expect(postOne(company, { batchType: 'component_values', componentId: bonusComponent, isRecurring: false, month: 3 },
+    { employeeId: explicitEndEmployee, value: 901, effectiveFrom: new Date('2025-03-01'), effectiveTo: new Date('2025-05-31') }))
+    .rejects.toThrow(/one month/);
   // Reimbursive travel splits into a 3702 and a 3703 row; both must close.
   await postOne(company, { batchType: 'reimbursive_travel', isRecurring: false, month: 3 },
     { employeeId: travelEmployee, km: 1000, ratePerKm: 5, taxablePortion: 1000, nonTaxablePortion: 4000, effectiveFrom: new Date('2025-03-01') });
@@ -165,14 +167,15 @@ beforeAll(async () => {
     [boundaryEmployee, packageRecurring],
   );
   await applyPackageToEmployee(company, payPackage, boundaryEmployee, '2025-03-01', user);
-  // A row entirely in the FUTURE is cancelled by an earlier apply, not left to
-  // pay alongside it. Silent cancellation is what the warning covers.
+  // A hand-made once-off entirely in the FUTURE, on a component the package has no once-off line for: plainly not the
+  // package's, so the apply refuses it rather than cancel it (it is not a fail-closed case on a package shape).
   await pool.query(
     `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring)
      VALUES($1,$2,999,'2025-06-01','2025-06-30',false)`,
     [futureRowEmployee, packageRecurring],
   );
-  await applyPackageToEmployee(company, payPackage, futureRowEmployee, '2025-03-15', user);
+  await expect(applyPackageToEmployee(company, payPackage, futureRowEmployee, '2025-03-15', user))
+    .rejects.toThrow(/once-off this package did not write/i);
   // Second tenant, same shape — must be untouched by any of the above.
   await postOne(otherCompany, { batchType: 'component_values', componentId: otherComponent, isRecurring: false, month: 3 },
     { employeeId: otherEmployee, value: 400, effectiveFrom: new Date('2025-03-01') });
@@ -239,11 +242,12 @@ describe('adjacent cases', () => {
     expect(later.map(c => c.amount)).toEqual([1500]);
   });
 
-  it('an explicit line effective_to is preserved, not overwritten by the period end', async () => {
+  it('an explicit line effective_to inside the month is preserved; one past the month was refused, nothing written', async () => {
     const rows = await assignments(explicitEndEmployee);
-    expect(new Date(rows[0].effective_to).toISOString().slice(0, 10)).toBe('2025-05-31');
-    expect(await getEmployeeComponents(explicitEndEmployee, company, periodDate(2025, 5))).toHaveLength(1);
-    expect(await getEmployeeComponents(explicitEndEmployee, company, periodDate(2025, 6))).toEqual([]);
+    expect(rows).toHaveLength(1);
+    expect(new Date(rows[0].effective_to).toISOString().slice(0, 10)).toBe('2025-03-20');
+    expect(await getEmployeeComponents(explicitEndEmployee, company, periodDate(2025, 3))).toHaveLength(1);
+    expect(await getEmployeeComponents(explicitEndEmployee, company, periodDate(2025, 4))).toEqual([]);
   });
 
   it('both reimbursive-travel rows (3702 and 3703) close at the period end', async () => {
@@ -347,25 +351,21 @@ describe('supersede boundaries', () => {
       .toEqual([12000, 30000]);
   });
 
-  it('cancels a future-dated row rather than paying it alongside the new one', async () => {
+  it('leaves a hand-made future-dated once-off untouched when the apply is refused', async () => {
     const rows = await assignments(futureRowEmployee);
-    const cancelledRow = rows.find(r => Number(r.amount) === 999);
-    // Voided by an effective_to before its own effective_from — the idiom this
-    // table already uses for a superseded row. The reader never selects it.
-    expect(new Date(cancelledRow!.effective_to) < new Date(cancelledRow!.effective_from)).toBe(true);
+    const untouchedRow = rows.find(r => Number(r.amount) === 999);
+    expect(new Date(untouchedRow!.effective_to).toISOString().slice(0, 10)).toBe('2025-06-30');
     expect((await getEmployeeComponents(futureRowEmployee, company, periodDate(2025, 6))).map(c => c.amount))
-      .toEqual([30000]);
+      .toEqual([999]);
   });
 });
 
-describe('R-006 (separate defect, deliberately NOT fixed here)', () => {
-  it('a line whose effective_from is the UI default month-end is skipped in its own period', async () => {
-    // The batch UI defaults effectiveFrom to endOfMonth (2025-03-31) while
-    // calculatePayrollRun evaluates near the end of the month but before it
-    // (day 27 in SAST), so the line is never picked up in its own period.
-    // Before K-025 it leaked into every LATER period; it no longer does, but the
-    // in-period miss is R-006 and still reproduces.
-    expect(await getEmployeeComponents(monthEndEmployee, company, periodDate(2025, 3))).toEqual([]);
+describe('R-006: a once-off dated on the month end (the batch UI default)', () => {
+  it('is paid in its own period, once', async () => {
+    // The batch UI defaults effectiveFrom to endOfMonth (2025-03-31). The run
+    // used to read as at the 27th (day 28 through toISOString in SAST), so the
+    // line was never paid. It now reads on the period's last day.
+    expect((await getEmployeeComponents(monthEndEmployee, company, periodDate(2025, 3))).map(c => c.amount)).toEqual([700]);
     expect(await getEmployeeComponents(monthEndEmployee, company, periodDate(2025, 4))).toEqual([]);
   });
 });

@@ -215,8 +215,8 @@ describe('buildPayrollJournalPlan — ETI through the cost-centre split (K-079)'
 
 describe('buildPayrollJournalPlan — the GL poster\'s refusals are plan blockers (K-079)', () => {
   it('blocks a negative amount, which a journal line cannot carry', async () => {
-    // Net pay above gross − PAYE − employee UIF: the residual deductions line
-    // is skipped and nothing balances — but a negative 1110 must be named.
+    // Even though the residual makes the plan balance, a forged negative bank
+    // credit is still refused before the GL poster sees it.
     routeMock(standardRoutes({ header: [{ ...HEADER, total_net: -500 }] }));
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
     expect(plan!.blockers.find((b) => b.code === 'negative_amount')?.detail).toContain('1110');
@@ -239,12 +239,26 @@ describe('buildPayrollJournalPlan — the GL poster\'s refusals are plan blocker
     expect(plan!.totalDebit).toBe(plan!.totalCredit);
   });
 
-  it('blocks a 1-cent imbalance — the GL rejects it, so the plan must too', async () => {
-    // Net pay one cent above the residual: other deductions come to −0.01,
-    // are skipped, and credits exceed debits by R0.01.
+  it('debits 2175 when contribution corrections exceed other deductions, and balances without blockers', async () => {
+    // Net pay is R1 000 above gross less PAYE and employee UIF, so the
+    // residual other-deductions liability is a R1 000 reversal.
+    routeMock(standardRoutes({ header: [{ ...HEADER, total_net: 80000 }] }));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+    const reversal = plan!.lines.find((line) => line.accountCode === '2175');
+
+    expect(plan!.totals.otherDeductions).toBe(-1_000);
+    expect(reversal).toMatchObject({ debit: 1_000, credit: 0 });
+    expect(reversal!.description).toMatch(/reversal/i);
+    expect(plan!.totalDebit).toBe(plan!.totalCredit);
+    expect(plan!.blockers).toEqual([]);
+  });
+
+  it('books even a 1-cent other-deductions reversal instead of reporting an imbalance', async () => {
     routeMock(standardRoutes({ header: [{ ...HEADER, total_net: 79000.01 }] }));
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
-    expect(plan!.blockers.map((b) => b.code)).toContain('unbalanced');
+    expect(plan!.lines.find((line) => line.accountCode === '2175')).toMatchObject({ debit: 0.01, credit: 0 });
+    expect(plan!.totalDebit).toBe(plan!.totalCredit);
+    expect(plan!.blockers.map((b) => b.code)).not.toContain('unbalanced');
   });
 
   it('blocks a run whose period is closed, naming the status (the GL poster refuses it)', async () => {

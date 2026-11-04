@@ -58,6 +58,8 @@ describe('the gate on a recalculated run whose journal\'s CC1 no longer matches 
       .map(([account_code, d]) => ({ account_code, d })).sort((x, y) => x.account_code.localeCompare(y.account_code));
     expect(planPerAccount).toEqual(perAccount);
     expect(p.body.data!.blocker).toMatchObject({ code: 'recalculated_after_posting' });
+    // The refusal says why: the journal predates cost-centre tagging and the run now tags labour.
+    expect(p.body.data!.blocker.detail).toMatch(/predates cost-centre tagging/);
   });
 
   it('a centre deactivated after posting leaves an unchanged recalculated run approvable onto its journal', async () => {

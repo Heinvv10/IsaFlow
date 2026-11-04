@@ -8,7 +8,8 @@
  *   - no `entityId`: the company-wide feed (optionally one `entityType`),
  *     owner / admin only.
  * A `before` that is not a change of this same history is 400 (never an empty page).
- * Bank account and ID / tax numbers come back masked (…1234); owner / admin
+ * Bank account and ID / tax numbers come back masked (…1234); employee bank
+ * details also mask the branch code (…55) and holder (K…); owner / admin
  * reveal one change through POST /api/accounting/entity-changes-reveal.
  * RLS (entity_changes_read) enforces the same reading rules underneath.
  */

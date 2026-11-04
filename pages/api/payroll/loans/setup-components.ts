@@ -2,10 +2,12 @@
  * POST /api/payroll/loans/setup-components
  *
  * Idempotent bootstrap — creates the 'LOAN' deduction component and the
- * '3801' fringe-benefit earning component if either is missing. Both are
- * referenced by payrollRunService.appendLoanComponents when a payroll run
- * is calculated; without them loan payments are still recorded on
- * payroll_loan_payments but never show up on the payslip.
+ * '3801' fringe-benefit earning component if either is missing. "Present"
+ * is what a run can use (payrollRunLoanComponents.loadLoanComponents): an
+ * ACTIVE component of that TYPE whose code is that after the calculator's
+ * trim; the 3801 earning must also be taxable. A LOAN-coded earning, a non-taxable
+ * 3801 earning or an inactive deduction is not one. Without
+ * them a run withholds the loans that need them and approval is refused.
  */
 
 import type { NextApiResponse } from 'next';
@@ -63,20 +65,28 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const rows = (await sql`
       SELECT id FROM payroll_components
        WHERE company_id = ${companyId}::uuid
-         AND sars_source_code = ${spec.sarsSourceCode}
+         AND BTRIM(sars_source_code, E' \t\r\n') = ${spec.sarsSourceCode}
+         AND component_type = ${spec.componentType}
+         AND is_active = TRUE
+         AND (${spec.sarsSourceCode} <> '3801' OR is_taxable = TRUE)
        LIMIT 1
     `) as DbRow[];
     if (rows.length > 0) {
       existing.push(spec.sarsSourceCode);
       continue;
     }
+    // The name is unique per company, and a component that does not count (an earning coded LOAN, an
+    // inactive one) may already hold it: then the new one says what it is.
+    const taken = ((await sql`
+      SELECT 1 FROM payroll_components WHERE company_id = ${companyId}::uuid AND name = ${spec.name}
+    `) as DbRow[]).length > 0;
     await sql`
       INSERT INTO payroll_components (
         company_id, name, sars_source_code, component_type,
         is_taxable, is_uif_applicable, is_sdl_applicable, is_active
       ) VALUES (
         ${companyId}::uuid,
-        ${spec.name},
+        ${taken ? `${spec.name} (${spec.sarsSourceCode} ${spec.componentType})` : spec.name},
         ${spec.sarsSourceCode},
         ${spec.componentType},
         ${spec.isTaxable},
