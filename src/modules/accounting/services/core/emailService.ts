@@ -34,7 +34,8 @@ export interface EmailLogPayload {
 }
 
 /**
- * Inserts a row into email_log; never throws.
+ * Inserts a row into email_log and reports whether the audit row was written.
+ * Never throws.
  *
  * AWAITED and SAVEPOINTED deliberately. `sendEmail` is called from inside
  * request and cron transactions (see dunningSend.ts), so this INSERT runs on
@@ -47,7 +48,7 @@ export interface EmailLogPayload {
  * Exported for a sender that calls `sendEmail` WITHOUT `_log` outside any
  * transaction and writes the row itself in a short one (the budget digest).
  */
-export async function logEmailAttempt(payload: EmailLogPayload): Promise<void> {
+export async function logEmailAttempt(payload: EmailLogPayload): Promise<boolean> {
   try {
     await withSavepoint('email_log_write', async () => {
       await sql`
@@ -64,8 +65,10 @@ export async function logEmailAttempt(payload: EmailLogPayload): Promise<void> {
         )
       `;
     });
+    return true;
   } catch (err: unknown) {
     log.error('Failed to write email_log row', { error: err instanceof Error ? err.message : err }, 'emailService');
+    return false;
   }
 }
 
