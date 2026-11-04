@@ -244,9 +244,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   ` as Row[];
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
-  await insertCaptureBillLines(invoice.id as string, linePlan.lines); // before: requestApproval's digest (mig 708) hashes them
-  const approvalRequest = approval.gated
-    ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;
+  const slip = await insertCaptureBillLines(invoice.id as string, linePlan.lines); // before: requestApproval's digest (mig 708) hashes them
 
   // Record coding for the learning loop (both auto_publish and route_review paths).
   // At this point gateDecision is guaranteed to be auto_publish | route_review
@@ -265,7 +263,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     totalAmount: invoiceInput.totalAmount,
     invoiceDate: invoiceInput.invoiceDate,
     decision: publishedDecision,
+    slip,
   });
+  const approvalRequest = approval.gated // after the attach, which may re-plan inherited dimensions (P5-2b): binds their digest
+    ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;
 
   const finalStatus = provisionalAttach.settlementRefused ? 'draft' : invoice.status; // R-127: withdrawn auto-approval
   const finalRoute = provisionalAttach.settlementRefused ? 'manual_review' : approvalRoute;

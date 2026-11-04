@@ -37,6 +37,7 @@ import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDef
 import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { inheritSlipDimensions, provisionalDimLines } from '../ap/supplierInvoiceProvisionalDims';
 import { findAttachableProvisional } from './evidenceAttachmentService';
+import type { CaptureSlipPlan } from './captureSlipReplan';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -54,6 +55,8 @@ export interface CaptureBillLine {
   cc1Id?: string;
   cc2Id?: string;
   buId?: string;
+  /** The provisional journal this line's dimensions were inherited from (not stored; the attach re-checks it). */
+  slipJeId?: string;
 }
 
 export type CaptureBillLinesPlan = { lines: CaptureBillLine[] } | { refusal: string };
@@ -136,14 +139,20 @@ async function slipLines(companyId: string, invoice: PipelineInvoiceInput, lines
   const prov = await findAttachableProvisional(companyId, invoice.supplierId || null, invoice.totalAmount, invoice.invoiceDate);
   if (!prov) return { lines: [...lines], inherited: lines.map(() => false) };
   const header = { subtotal: Math.round((invoice.totalAmount - invoice.taxAmount) * 100) / 100, totalAmount: invoice.totalAmount, taxRate: invoice.taxRate };
-  return inheritSlipDimensions(companyId, lines, header, await provisionalDimLines(companyId, prov.jeId, prov.bankAccountId),
+  const out = await inheritSlipDimensions(companyId, lines, header, await provisionalDimLines(companyId, prov.jeId, prov.bankAccountId),
     await companyDefaultExpense(companyId));
+  return { inherited: out.inherited, lines: out.lines.map((l, i) => (out.inherited[i] ? { ...l, slipJeId: prov.jeId } : l)) };
 }
 
-/** On the request transaction, straight after the invoice INSERT — the column list createSupplierInvoice writes. */
-export async function insertCaptureBillLines(invoiceId: string, lines: readonly CaptureBillLine[]): Promise<void> {
+/**
+ * On the request transaction, straight after the invoice INSERT — the column list createSupplierInvoice writes.
+ * Returns which written lines inherited a provisional's dimensions, and from which journal: the attach compares it
+ * with the provisional it actually links and re-plans those lines when they differ (`captureSlipReplan`).
+ */
+export async function insertCaptureBillLines(invoiceId: string, lines: readonly CaptureBillLine[]): Promise<CaptureSlipPlan> {
+  const slip: CaptureSlipPlan = { plannedJeId: null, inheritedItemIds: [] };
   for (const line of lines) {
-    await sql`
+    const [row] = (await sql`
       INSERT INTO supplier_invoice_items (
         supplier_invoice_id, description, quantity, unit_price,
         tax_rate, tax_amount, line_total, gl_account_id, vat_classification, cc1_id, cc2_id, bu_id
@@ -152,6 +161,12 @@ export async function insertCaptureBillLines(invoiceId: string, lines: readonly 
         ${line.taxRate}, ${line.taxAmount}, ${line.lineTotal}, ${line.glAccountId}::UUID,
         ${defaultVatClassification(line.taxRate)}, ${line.cc1Id ?? null}::UUID, ${line.cc2Id ?? null}::UUID, ${line.buId ?? null}::UUID
       )
-    `;
+      RETURNING id::TEXT AS id
+    `) as Array<{ id: string }>;
+    if (line.slipJeId && row) {
+      slip.plannedJeId = line.slipJeId;
+      slip.inheritedItemIds.push(row.id);
+    }
   }
+  return slip;
 }

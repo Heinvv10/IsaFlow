@@ -111,18 +111,19 @@ function postedNets(lines: readonly DraftLine[], header: { subtotal: number; tot
 
 /**
  * The draft lines with the provisional's dimensions on the blank ones that match (validated), and which took them.
- * `defaultExpenseId`: the account a line with none posts to (null: such a line matches nothing).
+ * `defaultExpenseId`: the account a line with none posts to (null: such a line matches nothing). `eligible`: only these
+ * lines may inherit (a capture re-plan, `capture/captureSlipReplan`); all lines when absent.
  */
 export async function inheritSlipDimensions<T extends DraftLine>(
   companyId: string, lines: readonly T[], header: { subtotal: number; totalAmount: number; taxRate: number },
-  provisional: readonly ProvisionalDimLine[], defaultExpenseId: string | null,
+  provisional: readonly ProvisionalDimLine[], defaultExpenseId: string | null, eligible?: readonly boolean[],
 ): Promise<{ lines: T[]; inherited: boolean[] }> {
   const none = { lines: [...lines], inherited: lines.map(() => false) };
   if (provisional.length === 0 || lines.length === 0) return none;
   const nets = postedNets(lines, header);
   const matched = matchProvisionalDimensions(lines.map((l, i) => ({
     account: l.glAccountId || defaultExpenseId, net: nets[i] ?? 0,
-    blank: !l.cc1Id && !l.cc2Id && !l.buId && !l.costCenterId,
+    blank: (eligible ? eligible[i] === true : true) && !l.cc1Id && !l.cc2Id && !l.buId && !l.costCenterId,
   })), provisional);
   const sets = [...new Map(matched.filter((d): d is Dims => d !== null).map((d) => [dimsKey(d), d])).values()];
   if (sets.length === 0) return none;
