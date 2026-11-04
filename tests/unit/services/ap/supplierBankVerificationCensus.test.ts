@@ -121,6 +121,7 @@ describe('one fingerprint, in SQL', () => {
       "const fp = createHash('sha256').update(company.bankAccountNumber).digest('hex');",
       'const fp = sha([model.company.bankAccountNumber]);', // through the file's own wrapper
       "const mac = createHmac('sha256', key).update(company.bankAccountNumber).digest('hex');",
+      'const fp = md5(model.company.bankAccountNumber);', // through the file's other wrapper
     ]) expect(unpinnedHashSites(`${model}\n${extraSite}`, listed.sites)).toEqual([extraSite]);
   });
 });
@@ -132,11 +133,11 @@ function bankHashers(entries: { rel: string; text: string }[]): string[] {
 }
 /**
  * Each line that calls a hash, but those the exception pins: node's createHash / createHmac / crypto.hash, WebCrypto's
- * digest, and a call to a file's own `sha(` wrapper (so a new caller of the wrapper is a new site too).
+ * digest, and a call to a file's own `sha(` / `md5(` wrapper (so a new caller of a wrapper is a new site too).
  */
 function unpinnedHashSites(source: string, sites: readonly RegExp[]): string[] {
   return source.split('\n').map((l) => l.trim())
-    .filter((l) => /createHash\(|createHmac\(|crypto\.hash\(|subtle\.digest\(|\bsha\(/.test(l) && !sites.some((re) => re.test(l)));
+    .filter((l) => /createHash\(|createHmac\(|crypto\.hash\(|subtle\.digest\(|\bsha\(|\bmd5\(/.test(l) && !sites.some((re) => re.test(l)));
 }
 /**
  * Declared exceptions: files that hash AND name bank fields for a reason that is not a supplier bank-verification
@@ -147,7 +148,12 @@ const BANK_HASH_EXCEPTIONS: Record<string, { why: string; sites: readonly RegExp
     why: "hashes the issuer's own printed bank details to detect a stale view (the invoice's shown digest, PR S); not a supplier bank-verification fingerprint",
     sites: [
       /^const sha = \(v: unknown\): string => createHash\('sha256'\)\.update\(JSON\.stringify\(v\)\)\.digest\('hex'\);$/,
-      /^const logoData = d\.logoData && forDigest \? createHash\('md5'\)\.update\(d\.logoData\)\.digest\('hex'\) : d\.logoData;(\s*\/\/.*)?$/,
+      /^const md5 = \(v: string\): string => createHash\('md5'\)\.update\(v\)\.digest\('hex'\);(\s*\/\/.*)?$/,
+      // md5 of the LOGO only (a logo can be megabytes): in SQL for the digest read, in TS for the fallback and the
+      // approval's once-loaded model, so both hash alike.
+      /^CASE WHEN \$\{forDigest\}::BOOLEAN THEN md5\(co\.logo_data\) ELSE co\.logo_data END AS company_logo$/,
+      /^const logoData = d\.logoData && forDigest \? md5\(d\.logoData\) : d\.logoData;(\s*\/\/.*)?$/,
+      /^const hashed = \{ \.\.\.model, company: \{ \.\.\.model\.company, logoData: model\.company\.logoData === null \? null : md5\(model\.company\.logoData\) \} \};$/,
       // The wrapper's two callers: the shown digest (the whole model) and the draft digest (the invoice row and lines).
       /^return sha\(\[approvalDigest, model\.company, model\.invoice, lineSet\(model\.items\)\]\);$/,
       /^return sha\(\[approvalDigest, pick\(model\.invoice, INVOICE_FIELDS\), lineSet\(model\.items\)\]\);$/,

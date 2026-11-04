@@ -4,7 +4,7 @@
  */
 
 import { log } from '@/lib/logger';
-import { loadInvoicePdfModel, type InvoicePdfLine } from './invoicePdfModel';
+import { loadInvoicePdfModel, type InvoicePdfLine, type InvoicePdfModel } from './invoicePdfModel';
 import { allocateVatToLines } from './vatLineAllocation';
 import {
   fmtZAR, fmtDate, COLORS,
@@ -15,10 +15,14 @@ import {
   type TotalLine,
 } from '../core/pdfShared';
 
-export async function generateInvoicePdf(companyId: string, invoiceId: string): Promise<Buffer> {
+/**
+ * `given`: a model already loaded (the approval's, loaded once under its row lock and compared): rendered as it is,
+ * never re-read. Without it the model is loaded now.
+ */
+export async function generateInvoicePdf(companyId: string, invoiceId: string, given?: InvoicePdfModel): Promise<Buffer> {
   // Everything printed comes from this model (invoicePdfModel): the shown digest is its hash, so a page that showed
   // this invoice and the PDF can never disagree on a field without the approval noticing.
-  const model = await loadInvoicePdfModel(companyId, invoiceId);
+  const model = given ?? await loadInvoicePdfModel(companyId, invoiceId);
   if (!model) throw new Error(`Invoice not found: ${invoiceId}`);
   const { company: COMPANY, invoice: inv, items } = model;
   const accent = hexToRgb(COMPANY.primaryColor);

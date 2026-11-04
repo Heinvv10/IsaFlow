@@ -92,7 +92,7 @@ function companyOf(r: Row): PrintedCompany {
 async function settingsCompany(companyId: string, invoiceId: string, forDigest: boolean): Promise<PrintedCompany> {
   log.warn('Invoice PDF: no companies row, company details from app settings', { companyId, invoiceId }, 'invoicePdfModel');
   const d = await getCompanyDetailsFromCompany(companyId);
-  const logoData = d.logoData && forDigest ? createHash('md5').update(d.logoData).digest('hex') : d.logoData; // as md5() in SQL
+  const logoData = d.logoData && forDigest ? md5(d.logoData) : d.logoData;
   return { name: d.name, address: d.address, phone: d.phone, email: d.email, vatNumber: d.vatNumber, bankName: d.bankName,
     bankAccountName: d.bankAccountName, bankAccountNumber: d.bankAccountNumber, bankBranchCode: d.bankBranchCode,
     logoData, primaryColor: d.primaryColor };
@@ -104,8 +104,9 @@ export async function loadInvoicePdfModel(companyId: string, invoiceId: string,
   return (await load(opts.q ?? sql, companyId, invoiceId, Boolean(opts.forDigest)))?.model ?? null;
 }
 
-// The digests' one hashing site (supplierBankVerificationCensus allowlists it: the issuer's printed bank details).
+// The digests' hashing sites (supplierBankVerificationCensus allowlists them: the issuer's printed bank details).
 const sha = (v: unknown): string => createHash('sha256').update(JSON.stringify(v)).digest('hex');
+const md5 = (v: string): string => createHash('md5').update(v).digest('hex'); // as Postgres md5(text): UTF-8 bytes
 const lineSet = (items: readonly InvoicePdfLine[]) => items.map((l) => JSON.stringify(l)).sort();
 
 /** The shown digest: every section of the model, and the approval digest. */
@@ -123,6 +124,20 @@ export async function invoiceDigests(companyId: string, invoiceId: string, q: Tx
   const loaded = await load(q, companyId, invoiceId, true);
   if (!loaded) return null;
   return { shown: shownDigestOfModel(loaded.model, loaded.approvalDigest), draft: draftDigestOfModel(loaded.model, loaded.approvalDigest) };
+}
+
+/**
+ * The model loaded ONCE for rendering (the logo itself) and its digests, exactly as `invoiceDigests` computes them (the
+ * logo as its md5). The approval compares these digests under its row lock and seals THIS model: what was compared is
+ * what the PDF shows, whatever a customer or company record says by the time it is rendered.
+ */
+export async function loadInvoicePdfModelAndDigests(companyId: string, invoiceId: string, q: TxSql = sql):
+  Promise<{ model: InvoicePdfModel; digests: InvoiceDigests } | null> {
+  const loaded = await load(q, companyId, invoiceId, false);
+  if (!loaded) return null;
+  const { model, approvalDigest } = loaded;
+  const hashed = { ...model, company: { ...model.company, logoData: model.company.logoData === null ? null : md5(model.company.logoData) } };
+  return { model, digests: { shown: shownDigestOfModel(hashed, approvalDigest), draft: draftDigestOfModel(hashed, approvalDigest) } };
 }
 
 /** A draft PUT edited from `expected` (the draft digest its page last had), when the invoice row or lines moved since. */

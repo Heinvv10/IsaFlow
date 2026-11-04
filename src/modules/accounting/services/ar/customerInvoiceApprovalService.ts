@@ -11,7 +11,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { invoiceDigests } from './invoicePdfModel';
+import { loadInvoicePdfModelAndDigests, type InvoicePdfModel } from './invoicePdfModel';
 import { assertShownIsStored, InvoiceStaleViewError, type ShownInvoice } from './customerInvoiceStaleView';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
@@ -165,10 +165,15 @@ export async function approveCustomerInvoice(
     if (isLockTimeout(err)) throw new CustomerInvoiceLockTimeoutError(`Customer invoice ${invoiceId}`);
     throw err;
   }
+  // A screen sent what it showed: the PDF model is loaded ONCE, under the row lock, compared, and that same object is
+  // what the seal below renders, so a customer or company record changed after the comparison (bank details) is never
+  // sealed or sent unseen. (MCP and the recurring run send none; the seal loads its own.)
+  let compared: InvoicePdfModel | undefined;
   if (locked[0]) {
+    const shown = expectedContentDigest === undefined ? null : await loadInvoicePdfModelAndDigests(companyId, invoiceId);
+    compared = shown?.model;
     assertShownIsStored({ expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest },
-      // The PDF model's digest, recomputed under the lock: only when the screen sent one to compare (MCP, recurring: none).
-      { ...locked[0], shown_digest: expectedContentDigest === undefined ? undefined : (await invoiceDigests(companyId, invoiceId))?.shown });
+      { ...locked[0], shown_digest: shown?.digests.shown });
     await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
     // FX PR0: under the lock and before the status write, like the approval check.
     await assertDocumentPostable(companyId, [locked[0].currency_code], 'invoice');
@@ -252,7 +257,8 @@ export async function approveCustomerInvoice(
     // is rolled back to a clean point and the status transition stands.
     const snapshot = await withSavepoint(
       'invoice_pdf_snapshot',
-      () => snapshotInvoicePdf(companyId, invoiceId),
+      // The compared model, now approved: the one field the approval itself changed.
+      () => snapshotInvoicePdf(companyId, invoiceId, compared && { ...compared, invoice: { ...compared.invoice, status: 'approved' } }),
     );
     evidenceDocumentId = snapshot.documentId;
     log.info('Customer invoice PDF snapshot sealed', {
