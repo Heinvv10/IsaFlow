@@ -57,20 +57,13 @@ describe('splitIntoDenominations', () => {
 
 describe('cashPayRegisterForRun', () => {
   it('returns per-employee rows + rollup for cash employees only', async () => {
-    mockImpl = (strings) => {
-      const q = strings.join('?');
-      if (q.includes('FROM payroll_run_headers')) return Promise.resolve([{ id: RUN_ID }]);
-      if (q.includes('FROM payroll_run_lines')) {
-        return Promise.resolve([
-          {
-            employee_id: EMP_ID, employee_number: 'E001',
-            first_name: 'Jane', last_name: 'Doe',
-            net_pay: '1234.85',
-          },
-        ]);
-      }
-      return Promise.resolve([]);
-    };
+    mockImpl = () => Promise.resolve([
+      {
+        run_id: RUN_ID, employee_id: EMP_ID, employee_number: 'E001',
+        first_name: 'Jane', last_name: 'Doe', payment_method: 'cash',
+        net_pay: '1234.85', validation_results: [],
+      },
+    ]);
     const reg = await cashPayRegisterForRun(COMPANY_ID, RUN_ID);
     expect(reg.rows).toHaveLength(1);
     expect(reg.rows[0]!.employeeNumber).toBe('E001');
@@ -79,11 +72,7 @@ describe('cashPayRegisterForRun', () => {
   });
 
   it('returns empty rows when no cash employees', async () => {
-    mockImpl = (strings) => {
-      const q = strings.join('?');
-      if (q.includes('FROM payroll_run_headers')) return Promise.resolve([{ id: RUN_ID }]);
-      return Promise.resolve([]);
-    };
+    mockImpl = () => Promise.resolve([{ run_id: RUN_ID, employee_id: null }]);
     const reg = await cashPayRegisterForRun(COMPANY_ID, RUN_ID);
     expect(reg.rows).toHaveLength(0);
     expect(reg.totals.totalNet).toBe(0);
@@ -95,14 +84,26 @@ describe('cashPayRegisterForRun', () => {
   });
 
   it('query filters by payment_method=cash', async () => {
-    mockImpl = (strings) => {
-      const q = strings.join('?');
-      if (q.includes('FROM payroll_run_headers')) return Promise.resolve([{ id: RUN_ID }]);
-      return Promise.resolve([]);
-    };
+    mockImpl = () => Promise.resolve([{ run_id: RUN_ID, employee_id: null }]);
     await cashPayRegisterForRun(COMPANY_ID, RUN_ID);
-    const select = sqlCalls.find(c => c.sql.includes('FROM payroll_run_lines') && c.sql.includes('payment_method'));
-    expect(select).toBeDefined();
-    expect(select!.sql).toMatch(/payment_method\s*=\s*'cash'/);
+    expect(sqlCalls).toHaveLength(1);
+    expect(sqlCalls[0]!.sql).toContain('validation_results');
+    expect(sqlCalls[0]!.sql).toContain('payment_method');
+  });
+
+  it('checks every line for a blocker from the same query snapshot as the register', async () => {
+    mockImpl = () => Promise.resolve([
+      {
+        run_id: RUN_ID, employee_id: EMP_ID, employee_number: 'E001',
+        first_name: 'Jane', last_name: 'Doe', payment_method: 'eft', net_pay: '0',
+        validation_results: [{
+          code: 'LOAN_INSTALMENT_EXCEEDS_PAY', severity: 'error', rawNet: -100, loans: ['L-1'],
+        }],
+      },
+    ]);
+
+    await expect(cashPayRegisterForRun(COMPANY_ID, RUN_ID))
+      .rejects.toThrow(/Jane Doe.*E001.*L-1/i);
+    expect(sqlCalls).toHaveLength(1);
   });
 });

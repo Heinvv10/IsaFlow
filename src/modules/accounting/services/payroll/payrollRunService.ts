@@ -252,6 +252,7 @@ export async function calculatePayrollRun(
         ...line.validationResults, ...terminationWarnings, ...(withheldResults.get(employee.id) ?? []), ...(fringeWarnings.has(employee.id) ? [fringeWarnings.get(employee.id)!] : []),
         ...(blockedLoans.has(employee.id) ? [blockedLoanValidation(
           blockedLoans.get(employee.id)!.applications, blockedLoans.get(employee.id)!.rawNet,
+          `${employee.firstName} ${employee.lastName}`.trim(),
         )] : []),
         // Remuneration before taxable deductions feeds later months even when a deduction reduced this line to nil.
         ...((line.periodicRemuneration > 0 || line.annualPaymentRemuneration > 0) && laterApproved.has(employee.id)

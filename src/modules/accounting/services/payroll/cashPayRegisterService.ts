@@ -9,7 +9,9 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { assertNoLoanInstalmentBlock } from './payrollLineBlockers';
+import { loanInstalmentBlocker, PayrollLineBlockedError } from './payrollLineBlockers';
+import type { OverdrawnLine } from './payrollRunLines';
+import type { ValidationResult } from './payrollTypes';
 
 // ZAR denominations in descending order. R200 note down to 5c coin.
 // Values stored as integer cents internally.
@@ -77,28 +79,41 @@ export async function cashPayRegisterForRun(
   companyId: string,
   runId: string,
 ): Promise<CashRegister> {
-  await assertNoLoanInstalmentBlock(companyId, runId);
-  const runRows = (await sql`
-    SELECT id FROM payroll_run_headers
-     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-     LIMIT 1
-  `) as DbRow[];
-  if (runRows.length === 0) throw new Error(`Payroll run ${runId} not found in company`);
-
   const lineRows = (await sql`
-    SELECT prl.employee_id,
+    SELECT prh.id AS run_id, prl.employee_id,
            e.employee_number,
            e.first_name,
            e.last_name,
-           prl.net_pay
-      FROM payroll_run_lines prl
-      JOIN payroll_employees e ON e.id = prl.employee_id
-     WHERE prl.run_id = ${runId}::uuid
-       AND e.payment_method = 'cash'
+           e.payment_method,
+           prl.net_pay,
+           prl.validation_results
+      FROM payroll_run_headers prh
+      LEFT JOIN payroll_run_lines prl ON prl.run_id = prh.id
+      LEFT JOIN payroll_employees e
+        ON e.id = prl.employee_id AND e.company_id = prh.company_id
+     WHERE prh.id = ${runId}::uuid
+       AND prh.company_id = ${companyId}::uuid
      ORDER BY e.last_name, e.first_name
   `) as DbRow[];
+  if (lineRows.length === 0) throw new Error(`Payroll run ${runId} not found in company`);
 
-  const rows: CashRegisterRow[] = lineRows.map(r => {
+  const blocked = lineRows.flatMap((r): OverdrawnLine[] => {
+    const validations = Array.isArray(r.validation_results) ? r.validation_results as ValidationResult[] : [];
+    const result = validations.find((item) => item.code === 'LOAN_INSTALMENT_EXCEEDS_PAY');
+    if (!result || typeof result.rawNet !== 'number' || result.rawNet >= 0) return [];
+    return [{
+      employeeId: String(r.employee_id),
+      employeeNumber: String(r.employee_number),
+      employeeName: `${String(r.first_name)} ${String(r.last_name)}`.trim(),
+      shortfall: -result.rawNet,
+      fromLoan: true,
+      loans: result.loans ?? [],
+    }];
+  });
+  const blocker = loanInstalmentBlocker(blocked);
+  if (blocker) throw new PayrollLineBlockedError(blocker.detail);
+
+  const rows: CashRegisterRow[] = lineRows.filter((r) => r.employee_id && r.payment_method === 'cash').map(r => {
     const netPay = Number(r.net_pay ?? 0);
     return {
       employeeId: String(r.employee_id),

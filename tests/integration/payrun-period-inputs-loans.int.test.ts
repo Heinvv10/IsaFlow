@@ -9,6 +9,9 @@ import components from '../../pages/api/payroll/employees/[id]/components';
 import applyPackage from '../../pages/api/payroll/employees/[id]/apply-package';
 import postBatch from '../../pages/api/payroll/batches/[id]/post';
 import parallelExport from '../../pages/api/payroll/parallel-run/export';
+import cashRegister from '../../pages/api/payroll/runs/[id]/cash-register';
+import { postPayrollJournalTool } from '../../src/lib/mcp/tools/writePayroll';
+import type { McpToolContext } from '../../src/lib/mcp/types';
 import {
   addBatchLines, createBatch, validateBatch,
 } from '../../src/modules/accounting/services/payroll/payrollBatchService';
@@ -55,14 +58,32 @@ describe('a loan instalment above pay', () => {
     const l = await line(state.nov);
     expect(l.net).toBeGreaterThan(0);
     expect(codes(l)).toEqual(['LOAN_INSTALMENT_EXCEEDS_PAY']);
+    expect(l.validation_results[0]!.message).toContain('Wanda Test');
     const { blocker, plan, planHash } = (await preview(state.nov)).body.data!;
     expect(blocker).toMatchObject({ code: 'loan_instalment_exceeds_pay' });
     const detail = (blocker.detail as string).replace(/\s/g, ' ');
     for (const part of ['Wanda Test', 'W301-1', 'R-LOAN', 'blocked for manual review']) expect(detail).toContain(part);
     expect(plan.advisories.find((a: { code: string }) => a.code === 'loan_instalment_exceeds_pay')).toBeUndefined();
     expect((await doApprove(state.nov, planHash)).statusCode).toBe(400);
+    const cashRefused = await call(
+      cashRegister as Route, 'GET', `/api/payroll/runs/${state.nov}/cash-register`, state.nov,
+    );
+    expect(cashRefused.statusCode).toBe(400);
+    expect(cashRefused.body.error).toMatchObject({
+      details: { code: 'LOAN_INSTALMENT_EXCEEDS_PAY' },
+    });
+    expect(cashRefused.body.error?.message).toMatch(/blocked for manual review.*W301-1/i);
     await expect(cashPayRegisterForRun(state.coA, state.nov)).rejects.toThrow(/blocked for manual review.*W301-1/i);
     await expect(postPayrollRunJournal(state.coA, state.nov, fx.admin)).rejects.toThrow(/blocked for manual review.*W301-1/i);
+    const mcpContext: McpToolContext = {
+      userId: fx.admin, companyId: state.coA, companyRole: 'admin',
+      scopes: ['write:payroll', 'write:post'], tokenJti: 'loan-block-test', oauthAppId: null,
+    };
+    const mcpRefused = await postPayrollJournalTool.handler({
+      run_id: state.nov, dry_run: true, idempotency_key: 'blocked',
+    }, mcpContext);
+    expect(mcpRefused.isError).toBe(true);
+    expect(mcpRefused.content[0]!.text).toContain('loan_instalment_exceeds_pay');
     const external = await createExternalImport(state.coA, {
       periodMonth: 11, periodYear: 2026, source: 'test', fileName: 'blocked.csv',
       componentsPresent: ['net'], rows: [{ employeeNumber: 'W301-1', employeeName: 'Worker One', amounts: { net: 0 } }],
@@ -83,9 +104,18 @@ describe('a loan instalment above pay', () => {
     expect(cleared.blocker?.code).not.toBe('loan_instalment_exceeds_pay');
     await expect(cashPayRegisterForRun(state.coA, state.nov)).resolves.toMatchObject({ runId: state.nov });
     expect((await call(
+      cashRegister as Route, 'GET', `/api/payroll/runs/${state.nov}/cash-register`, state.nov,
+    )).statusCode).toBe(200);
+    expect((await call(
       parallelExport as Route, 'GET', `/api/payroll/parallel-run/export?importId=${external.id}`, undefined,
       { query: { importId: external.id } },
     )).statusCode).toBe(200);
+    await pool.query("UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1", [state.nov]);
+    const mcpCleared = await postPayrollJournalTool.handler({
+      run_id: state.nov, dry_run: true, idempotency_key: 'cleared',
+    }, mcpContext);
+    expect(mcpCleared.isError).not.toBe(true);
+    await pool.query("UPDATE payroll_run_headers SET status = 'calculated' WHERE id = $1", [state.nov]);
     expect((await doApprove(state.nov, cleared.planHash)).statusCode).toBe(200);
   });
 

@@ -34,12 +34,16 @@ export function judgeLoanApplications(input: {
   return { allowed: instalmentCents <= availableCents, rawNet: (availableCents - instalmentCents) / 100 };
 }
 
-export function blockedLoanValidation(applications: ApplyLoanResult[], rawNet: number): ValidationResult {
+export function blockedLoanValidation(
+  applications: ApplyLoanResult[],
+  rawNet: number,
+  employeeName: string,
+): ValidationResult {
   const loans = applications.map((app) => app.loanNumber);
   const instalment = applications.reduce((sum, app) => sum + app.installment, 0);
   return {
     code: 'LOAN_INSTALMENT_EXCEEDS_PAY', severity: 'error', rawNet, loans,
-    message: `${loans.length > 1 ? 'Loan instalments' : `Loan ${loans[0] ?? ''} instalment`} totalling ${formatMoney(instalment)} exceed available pay. `
+    message: `${loans.length > 1 ? 'Loan instalments' : `Loan ${loans[0] ?? ''} instalment`} for ${employeeName} totalling ${formatMoney(instalment)} exceed available pay. `
       + 'This payslip is blocked for manual review. No loan payment was taken and the loan balance is unchanged.',
   };
 }
