@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiResponse } from 'next';
 
 const order = vi.hoisted(() => [] as string[]);
-const SLIP = vi.hoisted(() => ({ plannedJeId: 'je-planned', inheritedItemIds: ['item-1'] }));
+const SLIP = vi.hoisted(() => ({ plannedJeId: 'je-planned', inheritedItemIds: ['item-1'], blankItemIds: ['item-1'] }));
 const attachOut = vi.hoisted(() => ({ current: { attachedJeId: null, bankTxId: null } as Record<string, unknown> }));
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));

@@ -10,10 +10,11 @@
  * - none: the inherited lines take the supplier's defaults, as a line that inherits nothing does at plan time. The
  *   plan resolved those defaults for every line already (a refused one is the plan's 400 before any write, breaker
  *   R3-2), so they cannot be refused here; if one still is (a master changed in between), it throws: rolled back, 500;
- * - the plan read none (nothing inherited) but the attach linked one: the blank lines inherit from it
- *   (`inheritOnAttach`, the manual attach's rule), the bill a draft, or an auto-approved bill not yet posted (the
- *   settlement posts it next, reclassing the provisional's slice), with no approval request bound.
- * Only the inherited lines are re-planned; a line that took the supplier default or nothing keeps it.
+ * - the plan inherited nothing but the attach linked one: the lines that were blank BEFORE the supplier's defaults
+ *   (`blankItemIds`; the stored lines may carry those defaults already) are re-planned from it by the same rule, so
+ *   an auto-approved bill (the settlement posts it next, reclassing the provisional's slice) posts on that slice.
+ *   The bill was inserted on this request transaction and its approval request is raised after the attach.
+ * Otherwise only the inherited lines are re-planned; a line that took the supplier default or nothing keeps it.
  *
  * Manual attach (`inheritOnAttach`, from `provisionalEvidenceAttach`; breaker R3-4): each bill raised from the slip
  * that is a DRAFT with NO approval request bound to it (pending or approved) has its blank lines inherit from the
@@ -22,7 +23,6 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { log } from '@/lib/logger';
 import { als } from '@/lib/als';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
@@ -31,10 +31,14 @@ import { inheritSlipDimensions, provisionalDimLines, type ProvisionalDimLine } f
 import { withContentEditorStamp } from '../ap/supplierInvoiceContentEditor';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from '../ap/supplierInvoiceLineOrder';
 
-/** What the capture plan inherited: the provisional it read, and the bill lines that took its dimensions. */
+/**
+ * What the capture plan inherited: the provisional it read, the bill lines that took its dimensions, and the lines
+ * that carried no dimensions before the supplier's defaults (re-planned when the plan inherited nothing).
+ */
 export interface CaptureSlipPlan {
   plannedJeId: string | null;
   inheritedItemIds: string[];
+  blankItemIds: string[];
 }
 
 /** One bill's outcome at an attach: how many lines inherited, or why it was skipped. */
@@ -105,20 +109,15 @@ async function writeDims(companyId: string, invoiceId: string, lines: readonly I
 export async function replanCaptureSlipDimensions(
   companyId: string, invoiceId: string, supplierId: string, slip: CaptureSlipPlan | undefined, attachedJeId: string | null,
 ): Promise<void> {
-  if (!slip) return;
-  if (slip.inheritedItemIds.length === 0) {
-    if (!attachedJeId) return;
-    // An auto-approved capture bill is 'approved' but not yet posted (the settlement right after posts it): it inherits
-    // too, or its expense would post on the default slice while the reclass credits the provisional's.
-    const outcome = await inheritOnAttach(companyId, invoiceId, attachedJeId, { unpostedCapture: true });
-    if ('skipped' in outcome) log.info('Capture slip inheritance skipped', { invoiceId, jeId: attachedJeId, reason: outcome.skipped }, 'capture-slip');
-    return;
-  }
-  if (slip.plannedJeId === attachedJeId) return;
+  if (!slip || slip.plannedJeId === attachedJeId) return;
+  // Nothing inherited: the originally blank lines, whose stored supplier defaults would otherwise block the
+  // inheritance and leave an auto-approved bill posting off the slice the settlement reclasses (Codex, 1b316ed36).
+  const eligibleIds = slip.inheritedItemIds.length > 0 ? slip.inheritedItemIds : attachedJeId ? slip.blankItemIds : [];
+  if (eligibleIds.length === 0) return;
   const bill = await readBill(companyId, invoiceId);
   if (!bill) throw new Error(`Capture slip re-plan: supplier invoice ${invoiceId} not found`);
-  const ids = new Set(slip.inheritedItemIds.map((v) => v.toLowerCase()));
-  // Only the inherited lines are eligible, read blank again; the others are neither matched nor written.
+  const ids = new Set(eligibleIds.map((v) => v.toLowerCase()));
+  // Only the eligible lines are re-planned, read blank again; the others are neither matched nor written.
   const items: ItemRow[] = bill.items.map((i) => ({ id: i.id, glAccountId: i.glAccountId, lineTotal: i.lineTotal }));
   const eligible = items.map((i) => ids.has(i.id.toLowerCase()));
   let planned = items;
@@ -182,15 +181,11 @@ export async function lockSlipBillsOrBusy(companyId: string, documentId: string)
  * (round 5, LOW 4). A request raised meanwhile waits on this lock (`approvalDocuments.raiseOnce` takes the bill FOR
  * SHARE), so it binds the inherited lines (breaker R4-2).
  */
-export async function inheritOnAttach(
-  companyId: string, invoiceId: string, jeId: string, opts: { unpostedCapture?: boolean } = {},
-): Promise<AttachInheritance> {
+export async function inheritOnAttach(companyId: string, invoiceId: string, jeId: string): Promise<AttachInheritance> {
   const row = await lockBillOrSkip(companyId, invoiceId);
   if (row === 'busy') return { invoiceId, skipped: BILL_BUSY };
   if (!row) return { invoiceId, skipped: 'not found' };
-  // The capture route's own auto-approved bill, not yet posted, counts as a draft (no request binds it; it posts next).
-  const unpostedApproved = opts.unpostedCapture === true && String(row.status) === 'approved' && row.gl_journal_entry_id == null;
-  if (String(row.status) !== 'draft' && !unpostedApproved) return { invoiceId, skipped: `the bill is ${String(row.status)}, not a draft: its lines are not changed` };
+  if (String(row.status) !== 'draft') return { invoiceId, skipped: `the bill is ${String(row.status)}, not a draft: its lines are not changed` };
   const bound = (await sql`
     SELECT 1 FROM approval_requests
      WHERE company_id = ${companyId}::UUID AND document_type = 'supplier_invoice' AND document_id = ${invoiceId}::UUID

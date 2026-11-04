@@ -179,6 +179,17 @@ describe('fail closed: the attach links another provisional than the plan read, 
     expect(await billLineCc1(pool, bill)).toEqual([null, c5]); // ordered by line_total: travel 300 stays NULL, opex 500 → C5
   });
 
+  it('no provisional at plan time, one attached: the line that took the S2 default (HT) is re-planned from it', async () => {
+    let je = '';
+    const { bill, planned, out } = await captureDraft('2026-07-11', async () => {
+      je = await seedUnevidencedProvisional(pool, f, '2026-07-10', [{ amount: 800, cc1: f.cc.FT }], S2);
+    });
+    expect(planned.cc1).toEqual([f.cc.HT]);
+    expect(planned.slip.inheritedItemIds).toEqual([]);
+    expect(out.attachedJeId).toBe(je);
+    expect(await billLineCc1(pool, bill)).toEqual([f.cc.FT]);
+  });
+
   it('the planned provisional attached: the inherited line is untouched', async () => {
     await seedUnevidencedProvisional(pool, f, '2026-10-10', [{ amount: 800, cc1: f.cc.FT }], S2);
     const { bill, out } = await captureDraft('2026-10-11', async () => undefined);
