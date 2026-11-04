@@ -36,6 +36,9 @@ import {
   type BudgetLockMode, type BudgetOutcome, type BudgetPolicy, type BudgetRefusalEvent,
 } from './budgetCheckTypes';
 
+/** The account label of a document line that names no account. */
+export const NO_ACCOUNT_LABEL = 'No account';
+
 /** pg_advisory_xact_lock's second key part: the migration that made budget checks (954). */
 const LOCK_SEED = 954;
 
@@ -77,8 +80,12 @@ export async function gateFor(companyId: string, ctx: BudgetCheckContext): Promi
   return openBudgetGate(companyId, ctx.lock);
 }
 
-async function labels(companyId: string, lines: readonly UnlabelledLine[]): Promise<BudgetCheckLine[]> {
-  const accounts = [...new Set(lines.map((l) => l.glAccountId))];
+/**
+ * Names each line's account and slice (code + name), company-scoped. A line with no account (`glAccountId` '':
+ * a PO line nobody coded, census 7) is labelled "No account".
+ */
+export async function labelBudgetLines(companyId: string, lines: readonly UnlabelledLine[]): Promise<BudgetCheckLine[]> {
+  const accounts = [...new Set(lines.map((l) => l.glAccountId).filter((a) => a !== ''))];
   const centres = [...new Set(lines.flatMap((l) => [l.cc1Id, l.cc2Id]).filter((v): v is string => v !== null))];
   const units = [...new Set(lines.map((l) => l.buId).filter((v): v is string => v !== null))];
   const name = new Map<string, string>();
@@ -95,13 +102,16 @@ async function labels(companyId: string, lines: readonly UnlabelledLine[]): Prom
   }
   return lines.map((l) => ({
     ...l,
-    accountLabel: name.get(l.glAccountId) ?? l.glAccountId,
+    accountLabel: l.glAccountId === '' ? NO_ACCOUNT_LABEL : name.get(l.glAccountId) ?? l.glAccountId,
     sliceLabel: [l.cc1Id, l.cc2Id, l.buId].filter((v): v is string => v !== null).map((v) => name.get(v) ?? v).join(' / '),
   }));
 }
 
-/** Options of a remaining read: the bills whose PO-linked lines count as billed whatever their status. */
-interface BilledAs { excludeInvoiceId?: string | null; alsoBilledInvoiceIds?: readonly string[] }
+/**
+ * Options of a remaining read: the bills whose PO-linked lines count as billed whatever their status, and the PO
+ * lines left out of committed (a PO judged against everything but itself, P5-3).
+ */
+interface BilledAs { excludeInvoiceId?: string | null; alsoBilledInvoiceIds?: readonly string[]; excludePoItemIds?: readonly string[] }
 
 /** Remaining per slice for one month's lines. Skips every read when no primary version budgets these accounts that month. */
 async function sliceMonth(companyId: string, lines: readonly DocumentLine[], month: string, billedAs: BilledAs): Promise<UnlabelledLine[]> {
@@ -124,6 +134,7 @@ async function sliceMonth(companyId: string, lines: readonly DocumentLine[], mon
   for (let i = 0; i < keys.length; i += MAX_REMAINING_KEYS) {
     results.push(...await remainingFor(companyId, keys.slice(i, i + MAX_REMAINING_KEYS), {
       excludeInvoiceId: billedAs.excludeInvoiceId ?? null, alsoBilledInvoiceIds: billedAs.alsoBilledInvoiceIds,
+      excludePoItemIds: billedAs.excludePoItemIds,
     }));
   }
   return sliceLines(lines, keys, results);
@@ -149,7 +160,7 @@ export async function evaluateDocumentLines(
   const kept = sliced.filter((l) => l.budget !== null || l.amount > 0);
   // Nothing checked (every line "No budget"): an approval records nothing, so it reads no names; a preview asks for them.
   if (!opts.labelAlways && kept.every((l) => l.budget === null)) return kept.map((l) => ({ ...l, accountLabel: '', sliceLabel: '' }));
-  return labels(companyId, kept);
+  return labelBudgetLines(companyId, kept);
 }
 
 export interface CheckedDocument {
@@ -160,7 +171,12 @@ export interface CheckedDocument {
   month: string;
   lines: readonly DocumentLine[];
   excludeInvoiceId?: string | null;
+  /** A PO's own lines: left out of committed, so the PO is not judged against itself (P5-3). */
+  excludePoItemIds?: readonly string[];
 }
+
+/** How a refusal or warning names the document's own amount. */
+const NOUN: Record<BudgetDocumentType, string> = { supplier_invoice: 'this bill', purchase_order: 'this order' };
 
 /**
  * The check (§3b). Returns the result (pass / warn / override recorded), or throws
@@ -175,9 +191,12 @@ export async function checkDocumentBudget(
   if (policy === 'off') return { policy, outcome: null, lines: [], warnings: [] };
   if (mustRetryForLock(policy, gate)) throw new BudgetCheckLockTimeoutError(true);
 
-  const lines = await evaluateDocumentLines(companyId, doc.lines, doc.month, { excludeInvoiceId: doc.excludeInvoiceId });
+  const lines = await evaluateDocumentLines(companyId, doc.lines, doc.month, {
+    excludeInvoiceId: doc.excludeInvoiceId, excludePoItemIds: doc.excludePoItemIds,
+  });
   const decision = decideBudgetOutcome({
     policy, lines, channel: ctx.channel, reason: ctx.reason, override: ctx.override, actorRole: ctx.actorRole, figures: ctx.figures,
+    documentNoun: NOUN[doc.type],
   });
   if (decision.kind === 'reason_required') throw new BudgetReasonRequiredError(decision.message, lines);
   if (decision.kind === 'refuse') {

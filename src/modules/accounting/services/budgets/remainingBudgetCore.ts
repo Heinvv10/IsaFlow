@@ -11,8 +11,11 @@
  *   never 0. A budgeted zero is 0 (D5).
  * - Actual: posted movement at the grain (rows from P3's `readTrackingActuals`, one read per
  *   grain level), picked by (account, month, member); the untagged member is the unassigned slice.
- * - Committed: per PO line, `line_total − billed` floored at 0, mapped onto the grain the same
- *   way, summed per slice.
+ * - Committed: per PO line, `line_total − billed` floored at 0 (`openPoLineCents`, the one formula the
+ *   PO approval check uses too), mapped onto the grain the same way, summed per slice. Once a PO line is
+ *   billed its commitment is consumed WHEREVER the bill posted (decision 8a): the bill's own spend is
+ *   actual on its own slice and is checked there when the bill is approved. A bill may name only its
+ *   own company's PO line (`ap/supplierInvoicePoLinks`).
  * - No grain (the account holds no budget in the version, or there is no version): actual and
  *   committed are reported at company level, budget and remaining are null.
  *
@@ -67,6 +70,15 @@ export interface GrainActualRow {
   amount: number;
 }
 
+/** One posted (ex-VAT) bill line linked to a PO line: where it landed and how much. */
+export interface BilledPosting extends Dims {
+  /** null: the line names no account (it posts to default_expense). */
+  glAccountId: string | null;
+  /** 'YYYY-MM' of the bill's invoice_date (the journal's month). */
+  month: string;
+  amount: number;
+}
+
 export interface CommitmentRow extends Dims {
   poItemId: string;
   glAccountId: string;
@@ -74,8 +86,16 @@ export interface CommitmentRow extends Dims {
   month: string;
   /** Ex-VAT PO line amount. */
   lineTotal: number;
-  /** Ex-VAT bill line amounts linked to this PO line that count as billed. */
-  billed: number;
+  /** The posted bill lines linked to this PO line that count as billed. */
+  billed: readonly BilledPosting[];
+}
+
+/**
+ * A PO line's open (still committed) amount in cents: `line_total` less ALL its linked billing, wherever it posted,
+ * floored at 0 (decision 8a). The one formula for committed and for the PO approval's checked amount.
+ */
+export function openPoLineCents(lineTotal: number, billed: readonly BilledPosting[]): number {
+  return Math.max(0, toCents(lineTotal) - billed.reduce((s, b) => s + toCents(b.amount), 0));
 }
 
 export interface RemainingInputs {
@@ -120,7 +140,7 @@ export function computeRemaining(keys: readonly RemainingKey[], inputs: Remainin
   const committedBy = new Map<string, number>();
   const grainsUsed = new Set<RemainingGrain>(['company', ...inputs.grains.values()]);
   for (const c of inputs.commitments) {
-    const cents = Math.max(0, toCents(c.lineTotal) - toCents(c.billed));
+    const cents = openPoLineCents(c.lineTotal, c.billed);
     if (cents === 0) continue;
     for (const g of grainsUsed) add(committedBy, `${g}|${cell(c.glAccountId, c.month, memberOnGrain(c, g).member)}`, cents);
   }

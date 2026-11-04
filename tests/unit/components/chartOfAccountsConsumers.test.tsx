@@ -12,7 +12,7 @@ import { chartAccount } from '../helpers/chartAccount';
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/accounting/supplier-invoices/SupplierSelect', () => ({ SupplierSelect: () => <div /> }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: null, companyRole: 'owner' }) }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: null, companyRole: 'owner' }), useCompanyRoleOrNull: () => 'owner' }));
 const router = { query: { id: 'claim-1', poId: 'po-1' } as Record<string, string>, push: vi.fn(), replace: vi.fn(), pathname: '/', isReady: true };
 vi.mock('next/router', () => ({ useRouter: () => router }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
