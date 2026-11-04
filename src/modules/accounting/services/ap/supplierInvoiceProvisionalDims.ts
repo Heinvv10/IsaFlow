@@ -8,13 +8,16 @@
  * the bill was refused as off-slice. Rule, per bill line that names no CC1, CC2 or BU (and carries no legacy
  * cost-centre pick, item or bill): the provisional's line on the SAME account (the line's own, else the default
  * expense account it posts to) gives its dimensions; of several, the one whose amount matches the line's posted net
- * (to the cent); none matching, or several matching, nothing is guessed and the line stays as it is.
+ * (to the cent); none matching, or several matching, nothing is guessed and the line stays as it is. A provisional
+ * line carrying a dimension since deactivated gives nothing either: approval refuses an inactive dimension on a
+ * line it posts (`assertPostsStoredDimensions`), while the provisional's own reclass still copies it (R-127).
  *
  * Live (approve and Post to GL, after the claim and before the lines are built and checked): the inherited
  * dimensions are WRITTEN to `supplier_invoice_items`, so the bill shows what it posted. The preview and the MCP dry
  * run apply the same rule to the unlocked provisional (`peekProvisionalReclassLines`) without writing.
  */
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import type { SupplierInvoice, SupplierInvoiceItem } from '../../types/ap.types';
 import type { ProvisionalClaim } from './provisionalSettlementClaim';
 import type { DocumentLine } from '../budgets/budgetCheckCore';
@@ -44,7 +47,7 @@ const namesNoDimension = (item: SupplierInvoiceItem, invoice: SupplierInvoice): 
 
 /** Pure: the invoice with the inherited dimensions on its items, and the items that took them. */
 export function inheritProvisionalDimensions(
-  invoice: SupplierInvoice, provisional: readonly ProvisionalDimLine[], defaultExpenseId: string,
+  invoice: SupplierInvoice, provisional: readonly ProvisionalDimLine[], defaultExpenseId: string, active: ReadonlySet<string>,
 ): { invoice: SupplierInvoice; inherited: SupplierInvoiceItem[] } {
   const items = invoice.items ?? [];
   if (provisional.length === 0 || items.length === 0) return { invoice, inherited: [] };
@@ -57,15 +60,33 @@ export function inheritProvisionalDimensions(
     const pick = onAccount.length === 1 ? onAccount
       : onAccount.filter((p) => Math.abs(cents(p.net) - cents(nets[i] ?? 0)) <= 1);
     const from = pick.length === 1 ? pick[0]! : null;
-    if (!from || (!from.cc1Id && !from.cc2Id && !from.buId)) return item;
+    const dims = from ? [from.cc1Id, from.cc2Id, from.buId].filter((d): d is string => d !== null) : [];
+    if (dims.length === 0 || !dims.every((d) => active.has(d.toLowerCase()))) return item;
+    const src = from!;
     const withDims: SupplierInvoiceItem = {
       ...item,
-      ...(from.cc1Id ? { cc1Id: from.cc1Id } : {}), ...(from.cc2Id ? { cc2Id: from.cc2Id } : {}), ...(from.buId ? { buId: from.buId } : {}),
+      ...(src.cc1Id ? { cc1Id: src.cc1Id } : {}), ...(src.cc2Id ? { cc2Id: src.cc2Id } : {}), ...(src.buId ? { buId: src.buId } : {}),
     };
     inherited.push(withDims);
     return withDims;
   });
   return { invoice: inherited.length > 0 ? { ...invoice, items: next } : invoice, inherited };
+}
+
+/** The provisional lines' dimensions that are this company's ACTIVE masters (lower-cased ids). */
+export async function activeDimensionIds(companyId: string, lines: readonly ProvisionalDimLine[]): Promise<Set<string>> {
+  const centres = [...new Set(lines.flatMap((l) => [l.cc1Id, l.cc2Id]).filter((v): v is string => v !== null))];
+  const units = [...new Set(lines.map((l) => l.buId).filter((v): v is string => v !== null))];
+  const out = new Set<string>();
+  if (centres.length > 0) {
+    for (const r of (await sql`SELECT id::TEXT AS id FROM cost_centres WHERE company_id = ${companyId}::UUID AND is_active
+                                 AND id = ANY(${centres}::UUID[])`) as DbRow[]) out.add(String(r.id).toLowerCase());
+  }
+  if (units.length > 0) {
+    for (const r of (await sql`SELECT id::TEXT AS id FROM business_units WHERE company_id = ${companyId}::UUID AND is_active
+                                 AND id = ANY(${units}::UUID[])`) as DbRow[]) out.add(String(r.id).toLowerCase());
+  }
+  return out;
 }
 
 /** The claim's settle lines as `ProvisionalDimLine`s. */
@@ -85,7 +106,9 @@ export const reclassDimLines = (reclass: readonly DocumentLine[]): ProvisionalDi
 export async function applyProvisionalDimensions(
   companyId: string, invoice: SupplierInvoice, claim: ProvisionalClaim | null | undefined, defaultExpenseId: string,
 ): Promise<SupplierInvoice> {
-  const { invoice: out, inherited } = inheritProvisionalDimensions(invoice, claimDimLines(claim), defaultExpenseId);
+  const lines = claimDimLines(claim);
+  if (lines.length === 0) return invoice;
+  const { invoice: out, inherited } = inheritProvisionalDimensions(invoice, lines, defaultExpenseId, await activeDimensionIds(companyId, lines));
   for (const item of inherited) {
     await sql`
       UPDATE supplier_invoice_items sii

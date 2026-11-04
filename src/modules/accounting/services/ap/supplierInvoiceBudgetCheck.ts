@@ -29,7 +29,9 @@ import type { DocumentLine } from '../budgets/budgetCheckCore';
 import { log } from '@/lib/logger';
 import type { ProvisionalClaim } from './provisionalSettlementClaim';
 import { peekProvisionalReclassLines, provisionalReclassLines } from './supplierInvoiceBudgetProvisional';
-import { applyProvisionalDimensions, inheritProvisionalDimensions, reclassDimLines } from './supplierInvoiceProvisionalDims';
+import {
+  activeDimensionIds, applyProvisionalDimensions, inheritProvisionalDimensions, reclassDimLines,
+} from './supplierInvoiceProvisionalDims';
 import {
   isFlaggedLine, type BudgetCheckContext, type BudgetCheckLine, type BudgetCheckResult, type BudgetGate, type BudgetPolicy,
 } from '../budgets/budgetCheckTypes';
@@ -126,7 +128,9 @@ export async function previewBillBudget(
   const defaultExpense = await getSystemAccount('default_expense', companyId);
   const reclass = await peekProvisionalReclassLines(companyId, invoice.id);
   // P5-2b: the dimensions approval would inherit from the provisional (not written: a preview).
-  const posting = inheritProvisionalDimensions(invoice, reclassDimLines(reclass), defaultExpense.id).invoice;
+  const provLines = reclassDimLines(reclass);
+  const posting = provLines.length === 0 ? invoice
+    : inheritProvisionalDimensions(invoice, provLines, defaultExpense.id, await activeDimensionIds(companyId, provLines)).invoice;
   const { lines } = await placeCostCentres(companyId, buildExpenseLines(posting, defaultExpense.id), { storedPosting: true });
   const month = billMonth(invoice);
   const docLines = [...documentLines(lines), ...reclass];
