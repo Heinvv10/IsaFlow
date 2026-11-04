@@ -21,6 +21,11 @@ export interface PivotInput {
   cells: ReadonlyMap<CellKey, number | null>;
   locked?: boolean;
   canWrite?: boolean;
+  /**
+   * P5-6 holder mode: why this account may not be edited in `view` (outside the holder's slices, a
+   * slice with its reviewer, not a draft), or null. Absent for everyone but a budget holder.
+   */
+  readReason?: ((accountId: string, view: View) => string | null) | null;
 }
 
 export interface PivotRow {
@@ -87,7 +92,8 @@ export function resolveView(input: PivotInput, view: View, grains = accountGrain
     if (mode === 'rollup') values = rollups.get(id) ?? input.months.map(() => null);
     else if (mode === 'blank') values = input.months.map(() => null);
     else values = input.months.map(m => input.cells.get(viewCellKey(id, view, m)) ?? null);
-    const readReason = input.locked ? 'Locked version' : input.canWrite === false ? 'Read-only access' : reason;
+    const readReason = input.locked ? 'Locked version' : input.canWrite === false ? 'Read-only access'
+      : input.readReason?.(id, view) ?? reason;
     out.set(id, readReason ? { values, editable: false, readReason } : { values, editable: true });
   }
   return out;

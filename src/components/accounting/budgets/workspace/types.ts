@@ -135,7 +135,7 @@ export type SaveState =
   /** `drivers`: what the save's driver recompute did (P4), when it did anything. */
   | {
     status: 'saved'; saved: number; deleted: number;
-    drivers?: { recomputed: number; reset: number; warnings: ReadonlyArray<{ code: string; rowKey: string; message: string }> };
+    drivers?: { recomputed: number; reset: number; warnings: ReadonlyArray<{ code: string; rowKey: string; message: string }>; frozen?: number };
     /** The in-place re-read after the drivers moved failed: what to tell the user. */
     refreshError?: string;
   }

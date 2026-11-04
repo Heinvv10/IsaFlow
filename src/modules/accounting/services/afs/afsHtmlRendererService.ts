@@ -2,6 +2,7 @@
 
 import type { AfsDocument, AfsSection, BrandProfile } from './afsTypes';
 import { renderCoverHtml } from './afsHtmlCoverTemplates';
+import { afsDocumentTitle, isPackPeriod, packPeriodPhrase } from './afsDocumentTitle';
 import { renderSectionContent, escapeHtml } from './afsHtmlTableRenderer';
 import type { AfsTemplateKey } from '@/lib/entityTypes';
 
@@ -184,22 +185,25 @@ export function renderAfsToHtml(
 ): string {
   const { document, sections, brandProfile, companyName, registrationNumber, coverPhotoUrl, entityType, charts, periodPhrase } = context;
 
-  // Entity-aware document title
-  const statementsTitle = entityType === 'trust'
-    ? 'Financial Statements'
-    : 'Annual Financial Statements';
+  // A management pack names itself; an AFS is entity-aware (trusts drop "Annual").
+  const isPack = document.documentType === 'management_pack';
+  const coverTitle = afsDocumentTitle(document.documentType);
+  const statementsTitle = !isPack && entityType === 'trust' ? 'Financial Statements' : coverTitle;
 
   const css = buildCss(brandProfile);
   const periodEnd = resolvePeriodEnd(document);
+  // A pack with no valid month prints no period line rather than a year-end date.
+  const packPhrase = isPackPeriod(document.period) ? packPeriodPhrase(document.period) : null;
 
   const coverHtml = renderCoverHtml(brandProfile.coverStyle, {
     primaryColour: brandProfile.primaryColour,
     secondaryColour: brandProfile.secondaryColour,
     logoUrl: brandProfile.logoUrl,
+    title: coverTitle,
     companyName,
     registrationNumber,
     periodEnd,
-    periodPhrase,
+    periodPhrase: isPack ? (packPhrase ?? periodPhrase ?? null) : periodPhrase,
     coverPhotoUrl,
   });
 

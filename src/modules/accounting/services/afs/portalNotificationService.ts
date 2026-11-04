@@ -9,7 +9,8 @@ import { log } from '@/lib/logger';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { emailLayout, emailContentRow, ctaButton } from '@/lib/email-templates-shared';
 import { escapeHtml } from './afsHtmlTableRenderer';
-import type { PortalContact } from './afsTypes';
+import type { DocumentType, PortalContact } from './afsTypes';
+import { afsDocumentTitle, afsDocumentNoun } from './afsDocumentTitle';
 
 const APP_URL = 'https://app.isaflow.co.za';
 
@@ -62,18 +63,20 @@ export async function notifySigningRequested(
   contact: PortalContact,
   documentId: string,
   signingUrl: string,
+  documentType: DocumentType = 'afs',
 ): Promise<void> {
   try {
+    const title = afsDocumentTitle(documentType);
     const html = emailLayout(emailContentRow(`
-      <h2>Annual Financial Statements — Signature Required</h2>
+      <h2>${title} — Signature Required</h2>
       <p>Hi ${escapeHtml(contact.name)},</p>
-      <p>The annual financial statements for your company are ready for your signature.</p>
+      <p>The ${afsDocumentNoun(documentType)} for your company ${documentType === 'management_pack' ? 'is' : 'are'} ready for your signature.</p>
       ${ctaButton('Review & Sign', signingUrl)}
       <p style="font-size:12px;color:#94a3b8;">This signing link expires in ${process.env.SIGNUM_EXPIRES_IN_DAYS ?? 14} days.</p>
     `));
     await sendEmail({
       to: contact.email,
-      subject: 'Annual Financial Statements — Signature Required',
+      subject: `${title} — Signature Required`,
       html,
       _log: { companyId: contact.companyId, emailType: 'other', sentBy: null },
     });
@@ -90,8 +93,10 @@ export async function notifySigningRequested(
 export async function notifyDocumentSignedOff(
   companyId: string,
   documentId: string,
+  documentType: DocumentType = 'afs',
 ): Promise<void> {
   try {
+    const title = afsDocumentTitle(documentType);
     const contacts = (await sql`
       SELECT id, name, email
       FROM portal_contacts
@@ -102,14 +107,14 @@ export async function notifyDocumentSignedOff(
 
     for (const row of contacts) {
       const html = emailLayout(emailContentRow(`
-        <h2>Annual Financial Statements — Signed Off</h2>
+        <h2>${title} — Signed Off</h2>
         <p>Hi ${escapeHtml(row.name)},</p>
         <p>All signatures have been collected. The signed document is now available in your portal.</p>
         ${ctaButton('View in Portal', `${APP_URL}/accounting/afs/portal/dashboard`)}
       `));
       await sendEmail({
         to: row.email,
-        subject: 'Annual Financial Statements — Signed Off',
+        subject: `${title} — Signed Off`,
         html,
         _log: { companyId, emailType: 'other', sentBy: null },
       });
