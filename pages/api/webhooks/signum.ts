@@ -13,6 +13,7 @@ import {
   verifySignumWebhookSignature,
   downloadSignedPdf,
 } from '@/modules/accounting/services/afs/signumIntegrationService';
+import type { DocumentType } from '@/modules/accounting/services/afs/afsTypes';
 import { notifyDocumentSignedOff } from '@/modules/accounting/services/afs/portalNotificationService';
 
 export const config = { api: { bodyParser: false } };
@@ -72,10 +73,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // 3. Look up afs_document by signum_document_id (includes status for idempotency guard)
   const rows = (await sql`
-    SELECT id, company_id, status FROM afs_documents
+    SELECT id, company_id, status, document_type FROM afs_documents
     WHERE signum_document_id = ${payload.documentId}
     LIMIT 1
-  `) as Array<{ id: string; company_id: string; status: string }>;
+  `) as Array<{ id: string; company_id: string; status: string; document_type: DocumentType }>;
 
   if (rows.length === 0) {
     log.warn(
@@ -134,7 +135,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   `;
 
   // 8. Notify portal contacts
-  await notifyDocumentSignedOff(doc.company_id, doc.id);
+  await notifyDocumentSignedOff(doc.company_id, doc.id, doc.document_type);
 
   log.info(
     'Document signed off via Signum webhook',
