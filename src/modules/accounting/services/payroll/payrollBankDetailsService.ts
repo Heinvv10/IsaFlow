@@ -13,10 +13,12 @@
  * owner / admin is never refused by that rule, so takes no approval lock). The
  * employee lock makes bank-detail writes for one employee one order. The
  * details sent again unchanged write nothing, and that is
- * decided after the role, so a manager's PUT cannot test a guessed number. That
- * is this route only: /api/payroll/duplicates groups on the whole number, so a
- * first entry with the guess confirms it there.
- * The account number is masked for everyone but owner / admin.
+ * decided after the role, so a manager's PUT cannot test a guessed number.
+ * /api/payroll/duplicates cannot either: it gives a manager no bank-account
+ * groups (owner / admin only; masked in Login-as and token sessions).
+ * The account number (last four), branch code (last two) and holder (first
+ * letter) are masked for everyone but owner / admin; the bank name is not.
+ * The masks reduce, not prevent, matching two employees to one account.
  * Sessions: the route refuses Login-as and tokens; MCP has no bank-details tool.
  *
  * Every refusal is raised before the first write (a 4xx commits the request).
@@ -26,7 +28,7 @@ import { z } from 'zod';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { todayInSast } from '@/lib/saDateParser';
-import { maskValue } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
+import { maskInitial, maskLastTwo, maskValue } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
 import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { ROW_LOCK_BUDGET_MS, RowLockTimeoutError, withRowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 import { payrollApprovalLockScope } from './payrollRunLock';
@@ -73,9 +75,12 @@ export interface EmployeeBankDetails {
   bankName: string;
   /** In full for owner / admin, else `…1234`. */
   accountNumber: string;
+  /** True for anyone but owner / admin: number, branch code and holder are then masked. */
   masked: boolean;
   accountType: AccountType;
+  /** In full for owner / admin, else `…55` (last two digits). */
   branchCode: string;
+  /** In full for owner / admin, else its first letter and `…`. */
   accountHolder: string | null;
   effectiveFrom: string;
 }
@@ -108,8 +113,11 @@ function toView(row: BankRow, role: string | undefined): EmployeeBankDetails {
     accountNumber: full ? row.account_number : String(maskValue(row.account_number)),
     masked: !full,
     accountType: row.account_type,
-    branchCode: row.branch_code,
-    accountHolder: row.account_holder,
+    // Branch code to its last two, holder to its first letter (as the history). That reduces, not prevents, matching
+    // employees to one account: bank name + last two can give a universal branch code, and last four + bank + type +
+    // initial can still match.
+    branchCode: full ? row.branch_code : String(maskLastTwo(row.branch_code)),
+    accountHolder: full ? row.account_holder : (maskInitial(row.account_holder) as string | null),
     effectiveFrom: row.effective_from,
   };
 }

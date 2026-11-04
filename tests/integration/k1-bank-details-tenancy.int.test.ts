@@ -173,8 +173,14 @@ describe('the service\'s own company predicate (with no RLS behind it)', () => {
        VALUES ($1, $2, 'Planted', $3, '250655')`, [company, emp, number]);
     await row(c, one);
     await row(B, two);
-    expect((await outsideRls(pool, c, () => findDuplicates(c, { fullBankAccounts: true }))).bankAccount).toEqual([]);
-    expect((await outsideRls(pool, B, () => findDuplicates(B, { fullBankAccounts: true }))).bankAccount).toEqual([]);
+    const opts = { includeBankAccounts: true, fullBankAccounts: true };
+    expect((await outsideRls(pool, c, () => findDuplicates(c, opts))).bankAccount).toEqual([]);
+    expect((await outsideRls(pool, B, () => findDuplicates(B, opts))).bankAccount).toEqual([]);
+    // Control: the bank scan did run. A second row under this company makes a group.
+    const three = await employee(pool, c);
+    await row(c, three);
+    const groups = (await outsideRls(pool, c, () => findDuplicates(c, opts))).bankAccount;
+    expect(groups.map((g) => [g.value, g.employees.map((e) => e.id).sort()])).toEqual([[number, [one, three].sort()]]);
   });
 });
 

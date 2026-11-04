@@ -1,7 +1,10 @@
 /**
  * Every line and header total of payroll-run-read-date-figures.int.test.ts as master (f60bd7e56, before the read-date
  * fix) wrote them, captured on a throwaway cluster with TZ=Africa/Johannesburg and again with TZ=UTC: the two were
- * identical. Generated once from that run; do not edit by hand. Ids are replaced by their fixture labels.
+ * identical. Ids are replaced by their fixture labels. Two things differ from that capture, both for #1116 (pension is
+ * no longer deducted from taxable income): the pension line's component_breakdown entry carries
+ * `retirementContribution: true`, and taxable_income / periodic_taxable of the lines with a pension are no longer reduced
+ * by it (27270.00 -> 29550.00). Nothing else was edited.
  */
 type Period = 'feb' | 'mar';
 export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknown>>> = {

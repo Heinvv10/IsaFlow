@@ -167,8 +167,8 @@ beforeAll(async () => {
     [boundaryEmployee, packageRecurring],
   );
   await applyPackageToEmployee(company, payPackage, boundaryEmployee, '2025-03-01', user);
-  // An unaudited row entirely in the FUTURE is ambiguous: matching a package
-  // shape cannot prove the package wrote it, so the apply fails closed.
+  // A hand-made once-off entirely in the FUTURE, on a component the package has no once-off line for: plainly not the
+  // package's, so the apply refuses it rather than cancel it (it is not a fail-closed case on a package shape).
   await pool.query(
     `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring)
      VALUES($1,$2,999,'2025-06-01','2025-06-30',false)`,
@@ -351,7 +351,7 @@ describe('supersede boundaries', () => {
       .toEqual([12000, 30000]);
   });
 
-  it('leaves an ambiguous future-dated row untouched when the apply is refused', async () => {
+  it('leaves a hand-made future-dated once-off untouched when the apply is refused', async () => {
     const rows = await assignments(futureRowEmployee);
     const untouchedRow = rows.find(r => Number(r.amount) === 999);
     expect(new Date(untouchedRow!.effective_to).toISOString().slice(0, 10)).toBe('2025-06-30');

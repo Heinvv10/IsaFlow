@@ -9,7 +9,7 @@ import { ROOT } from '../../helpers/sourceCensus';
 import {
   ADMIN_ROLES, CHANNELS, ENTITY_TYPES, isHistoryAdmin, mayReadType,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
-import { changeFields, maskValue, SENSITIVE_FIELDS } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
+import { changeFields, maskInitial, maskLastTwo, maskValue, SENSITIVE_FIELDS } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
 import { entityLabel } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 
 const SQL = readFileSync(path.join(ROOT, 'scripts/migrations/sql/888_entity_change_history.sql'), 'utf8');
@@ -95,7 +95,7 @@ describe('888, 952 and their TypeScript agree', () => {
       company: ['bank_account_number', 'tax_number', 'paye_reference_number', 'sdl_reference_number', 'uif_reference_number'],
       approval_rule: [],
       approval_enforcement: [],
-      payroll_bank_detail: ['account_number'],
+      payroll_bank_detail: ['account_number', 'branch_code', 'account_holder'],
     });
   });
 
@@ -127,6 +127,29 @@ describe('masking', () => {
       { key: 'account_number', before: null, after: '…3456', masked: true },
       { key: 'bank_name', before: null, after: 'FNB', masked: false },
     ]);
+  });
+
+  it('masks a bank-details branch code to its last two and the holder to its first letter, unless revealed', () => {
+    const keys = ['account_holder', 'branch_code'];
+    const before = { branch_code: '250655', account_holder: 'Élise One' };
+    const after = { branch_code: '470010', account_holder: null };
+    expect(changeFields('payroll_bank_detail', keys, before, after)).toEqual([
+      { key: 'account_holder', before: 'É…', after: null, masked: true },
+      { key: 'branch_code', before: '…55', after: '…10', masked: true },
+    ]);
+    expect(changeFields('payroll_bank_detail', keys, before, after, true)).toEqual([
+      { key: 'account_holder', before: 'Élise One', after: null, masked: false },
+      { key: 'branch_code', before: '250655', after: '470010', masked: false },
+    ]);
+    // Another type's same-named key keeps the default (last four) mask, or none.
+    expect(changeFields('supplier', ['branch_code'], null, { branch_code: '250655' })[0]!.masked).toBe(false);
+  });
+
+  it('the short masks pass empties through and hide values too short to mask', () => {
+    expect([maskLastTwo(null), maskLastTwo(''), maskLastTwo('12'), maskLastTwo(' 250655 ')]).toEqual([null, '', '••', '…55']);
+    expect([maskInitial(null), maskInitial(''), maskInitial(' K One'), maskInitial('Joe')]).toEqual([null, '', 'K…', 'J…']);
+    // Two characters or fewer would be the value itself (or most of it): hidden whole.
+    expect([maskInitial('K'), maskInitial('KO'), maskInitial(' É ')]).toEqual(['••', '••', '••']);
   });
 });
 
