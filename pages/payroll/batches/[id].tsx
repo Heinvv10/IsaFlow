@@ -10,6 +10,7 @@ import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/api
 import { formatCurrency } from '@/utils/formatters';
 import { Layers, Loader2, AlertCircle, CheckCircle2, Send, Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { defaultBatchEffectiveFrom } from '@/components/payroll/batchDefaults';
 
 interface Employee {
   id: string;
@@ -59,11 +60,6 @@ interface NewLineDraft {
 
 const SARS_PRESCRIBED_RATE_PER_KM = 4.64;
 
-function endOfMonth(year: number, month: number): string {
-  const last = new Date(year, month, 0).getDate();
-  return `${year}-${String(month).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
-}
-
 export default function BatchGridPage() {
   const router = useRouter();
   const id = typeof router.query.id === 'string' ? router.query.id : '';
@@ -76,7 +72,7 @@ export default function BatchGridPage() {
   const [message, setMessage] = useState('');
 
   const isEditable = batch?.status === 'draft' || batch?.status === 'validated';
-  const defaultEffectiveFrom = batch ? endOfMonth(batch.periodYear, batch.periodMonth) : '';
+  const defaultEffectiveFrom = batch ? defaultBatchEffectiveFrom(batch) : '';
 
   const emptyDraft: NewLineDraft = useMemo(
     () => ({ employeeId: '', value: '', km: '', ratePerKm: '', taxablePortion: '', nonTaxablePortion: '', effectiveFrom: '' }),

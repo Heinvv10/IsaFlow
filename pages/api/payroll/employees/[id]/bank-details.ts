@@ -1,6 +1,8 @@
 /**
- * GET /api/payroll/employees/[id]/bank-details — the employee's active details, or null; the account number is in
- *     full for owner / admin, else masked to its last four. A full read is recorded in audit_log (`export`).
+ * GET /api/payroll/employees/[id]/bank-details — the employee's active details, or null; in full for owner / admin,
+ *     else the account number to its last four, branch code to its last two and holder to its first letter. A full
+ *     read is recorded in audit_log (`export`).
+ * The request log masks branchCode and accountHolder (maskBodyKeys); the account number is redacted by key anyway.
  * PUT — enter or change them: { bankName, branchCode, accountNumber, accountType, accountHolder? }. The first entry:
  *     owner / admin / manager. A change to existing details: owner / admin only (403 CHANGE_REQUIRES_ADMIN). The same
  *     details again write nothing.
@@ -55,4 +57,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['branchCode', 'accountHolder'] }));

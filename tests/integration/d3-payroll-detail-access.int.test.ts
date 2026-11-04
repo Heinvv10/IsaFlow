@@ -182,7 +182,8 @@ describe('writes the gate newly closes — viewer 403 and nothing written, owner
 
   it('components POST: viewer 403, no assignment written; owner 201 writes one', async () => {
     const before = await assigns();
-    const body = { componentId: allowanceId, amount: 100, effectiveFrom: '2026-01-01' };
+    // After the approved March run: a recurring row dated in a paid month is refused (every writer judges the company).
+    const body = { componentId: allowanceId, amount: 100, effectiveFrom: '2026-04-01' };
     const v = await call(components as Route, 'POST', url(), employeeId, { user: viewer, body });
     expect(v.statusCode).toBe(403);
     expect(await assigns()).toBe(before);
@@ -230,7 +231,7 @@ describe('exports — an owner with a complete company profile gets the file', (
     const paye = (await pool.query<{ p: string }>('SELECT paye AS p FROM payroll_run_lines WHERE run_id = $1', [runId])).rows[0]!.p;
     const r = await raw(emp501Export as Route, 'GET', '/api/payroll/emp501/export', { taxYear: '2027' }, owner);
     expect(r.status).toBe(200);
-    expect(r.body.split('\n')[0]).toBe('employee_name,irp5_number,gross_income,paye,uif,sdl');
+    expect(r.body.split('\n')[0]).toBe('employee_name,irp5_number,gross_income,paye,uif,sdl,fringe_3801');
     expect(r.body).toContain(`Wanda Test,0123456789,20000.00,${Number(paye).toFixed(2)}`);
     expect((await raw(emp501Export as Route, 'GET', '/api/payroll/emp501/export', { taxYear: '2027' }, viewer)).status).toBe(403);
   });

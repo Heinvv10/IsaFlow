@@ -55,6 +55,7 @@ import type { unclassifiedWarning } from '@/modules/accounting/services/gl/finan
 import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
 import type { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import type { LabelledJournalPlanPreview } from '@/modules/accounting/services/payroll/payrollJournalPlanLabels';
+import type { RunInputsState } from '@/modules/accounting/services/payroll/payrollRunPeriodInputs';
 import type { getSetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
@@ -70,6 +71,7 @@ import type { BudgetVersion } from '@/modules/accounting/services/budgets/budget
 import type { GridCellsOnly, GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
 import type { RemainingResult } from '@/modules/accounting/services/budgets/remainingBudgetCore';
+import type { VarianceNote } from '@/modules/accounting/services/commentary/varianceNoteTypes';
 import type { NotificationFeed } from '@/modules/accounting/services/notifications/userNotificationService';
 import type { SaveCellsResult } from '@/modules/accounting/services/budgets/gridSave';
 import type { SeedResult } from '@/modules/accounting/services/budgets/seedVersion';
@@ -131,6 +133,8 @@ interface StaticRoutes {
   '/api/accounting/budgets/remaining': { lines: RemainingResult[] };
   '/api/accounting/notifications': NotificationFeed;
   '/api/accounting/notifications/read': { updated: number };
+  // Budgets P5-5: variance notes. GET the (version, month)'s notes, POST save / approve / reject one (the list and the item).
+  '/api/accounting/budgets/variance-notes': { notes: VarianceNote[] } | { note: VarianceNote };
   '/api/accounting/budget-drivers/override': DriverOverrideResponse;
   '/api/accounting/budget-drivers/headcount': DriverHeadcountResponse;
   '/api/accounting/budget-drivers/planned-hires': PlannedHiresResponse;
@@ -210,6 +214,8 @@ interface DynamicRoutes {
   // plan.blockers is withheld from the response (the route strips it): the top-level `blocker` is the one answer.
   '/api/payroll/runs/{}/journal-plan': LabelledJournalPlanPreview;
   '/api/payroll/runs/{}/approve': Awaited<ReturnType<typeof approvePayrollRun>>;
+  // Wave 3 R. GET and PUT answer the same state, so a PUT hands the grid the recalculated lines.
+  '/api/payroll/runs/{}/inputs': RunInputsState;
   // Fleet records (mig 853): GET the list, POST the new record, DELETE `{ deleted, id }` — the list and the item of
   // one resource, so a union (see above). The bank-links read is GET only; null (404) never reaches the caller.
   '/api/accounting/assets/{}/fuel': FuelRecord[] | FuelRecord | { deleted: true; id: string };

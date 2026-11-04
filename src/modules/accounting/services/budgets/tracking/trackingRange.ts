@@ -11,10 +11,13 @@
  *     the range touches, whole (P0's rule). No 24-month cap here: MCP may ask
  *     for any range (the comparator route caps its own).
  *   - Versions per year by P1's own scope (`primaryVersionScopeAndYears`), so a registry
- *     year that starts mid-month is read the way the budgets page writes it (a
- *     shared month counts once, in the earlier year), not refused with a 409.
- *     The year holding the range's end is judged for the absent rule even when
- *     that split left it no month.
+ *     year that starts mid-month is read, not refused with a 409: a shared month
+ *     counts once (LB-2(b), `budgetVersionScope.yearsInWindow`): in the stored
+ *     year holding its 1st; a template year's mid-month last month goes to the
+ *     following year only when that year is stored; where no stored year holds
+ *     the 1st, master's walk. The version and absent
+ *     checks judge the owning years and every year reached by date after the
+ *     first day, even one that split left no month.
  *   - `splitsMonth`: the range cuts a budget month (a start that is not the 1st,
  *     an end that is not a month end, or a registry year starting or ending
  *     mid-month inside it). With `wholeMonthsOnly` the whole window's budget is
@@ -88,20 +91,26 @@ export async function buildRangeTracking(
   const filter = await resolveTrackingFilter(companyId, opts);
   // ONE registry walk: P1's scope and the years the range touches by date come from the same lookups.
   const { scope: primary, years: dateYears } = await mapRegistryMiss(() => primaryVersionScopeAndYears(companyId, startDate, endDate));
+  // The window's years for the version and absent checks: every year owning a month of it (P1's
+  // owner rule), and every year reached by DATE after the first day, including one that starts
+  // mid-month late enough to own no month. The year holding the first day but owning none of the
+  // window's months (the owner rule gave them to the stored year holding the 1st) is not one.
+  const owned = new Set(primary.map((s) => s.fiscalYear));
+  // A window with no month (inverted) keeps every year reached by date, as before.
+  const reached = primary.length === 0 ? dateYears : dateYears.filter((y) => owned.has(y.fiscalYear) || y.startDate > startDate);
+  const windowLabels = [...new Set([...primary.map((s) => s.fiscalYear), ...reached.map((y) => y.fiscalYear)])];
   let scope = primary;
   if (opts.versionId) {
-    // Validate against every year reached by DATE, including a year that starts mid-month late
-    // enough to own no complete budget month. Keep P1's month allocation for the actual read.
-    await namedVersionScopeOf(companyId, opts.versionId, dateYears.map((y) => ({
-      fiscalYear: y.fiscalYear, first: y.startDate, last: y.endDate,
-    })));
+    // Keep P1's month allocation for the actual read.
+    await namedVersionScopeOf(companyId, opts.versionId, windowLabels.map((fiscalYear) => ({ fiscalYear, first: startDate, last: endDate })));
     scope = primary.map((s) => ({ ...s, versionId: opts.versionId! }));
   }
   // Each scoped year with its months. The year holding the end is FY*: when P1 gave it no month (it
   // starts mid-month inside the range), `budgetAbsentYears` judges it over the range all the same.
   const years: WindowYear[] = scope.map((s) => ({ fiscalYear: s.fiscalYear, months: budgetMonthKeysInWindow(s.first, s.last) }));
   const splitsMonth = splitsBudgetMonth(startDate, endDate, dateYears);
-  const last = dateYears[dateYears.length - 1]!;
+  // FY*: the last year reached by date, else (it owns none of the window) the last owner.
+  const last = { fiscalYear: reached[reached.length - 1]?.fiscalYear ?? primary[primary.length - 1]!.fiscalYear };
   const rangeYear = { fiscalYear: last.fiscalYear, startDate, endDate };
 
   const core = months.length === 0 ? null : await trackingCore(companyId, {

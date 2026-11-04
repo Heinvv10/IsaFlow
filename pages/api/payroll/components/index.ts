@@ -50,6 +50,12 @@ async function handler(
       return apiResponse.badRequest(res, "componentType must be 'earning' or 'deduction'");
     }
 
+    // The loan instalment is never a tax deduction (Hein): a taxable LOAN deduction would lower PAYE by the repayment.
+    // A LOAN-coded earning is not the loan deduction (loadLoanComponents) and keeps the usual default.
+    const loan = code === 'LOAN' && componentType === 'deduction';
+    if (loan && isTaxable === true) {
+      return apiResponse.badRequest(res, 'A LOAN component cannot be taxable: a loan repayment is not a tax deduction. Send isTaxable: false.');
+    }
     // A boolean or absent: "true" or 1 read as false would take a private contribution out of net pay.
     if (paidOutsidePayroll !== undefined && typeof paidOutsidePayroll !== 'boolean') {
       return apiResponse.badRequest(res, 'paidOutsidePayroll must be true or false');
@@ -60,7 +66,7 @@ async function handler(
       // Normalised as PAYE classifies it (normaliseSarsCode), so the stored code is the one every reader sees.
       sarsSourceCode: code,
       componentType,
-      isTaxable: isTaxable !== false,
+      isTaxable: loan ? false : isTaxable !== false,
       isUifApplicable: isUifApplicable !== false,
       isSdlApplicable: isSdlApplicable !== false,
       paidOutsidePayroll: paidOutsidePayroll === true,

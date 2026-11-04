@@ -34,11 +34,14 @@ export async function seedPayrollCompany(pool: Pool, company: string, salary = 2
 }
 
 export function routeCaller(tokens: Record<string, string>, defaults: { user: string; company: string }) {
-  return async function call(route: Route, method: string, url: string, id: unknown, opts: { company?: string; user?: string; body?: unknown } = {}) {
+  return async function call(
+    route: Route, method: string, url: string, id: unknown,
+    opts: { company?: string; user?: string; body?: unknown; query?: Record<string, string> } = {},
+  ) {
     const req = request({ 'sb-access-token': tokens[opts.user ?? defaults.user]!, active_company_id: opts.company ?? defaults.company }, method) as never as {
       url: string; body: unknown; query: Record<string, unknown>;
     };
-    req.query = id === undefined ? {} : { id };
+    req.query = { ...(id === undefined ? {} : { id }), ...opts.query };
     req.url = url;
     req.body = opts.body;
     const result = response();

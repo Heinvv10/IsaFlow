@@ -14,6 +14,12 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', ()
 vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating: async () => undefined }));
 // Its own integration test (p4-termination-approval-gate); here, no duplicate pay-outs.
 vi.mock('@/modules/accounting/services/payroll/payrollTerminationPaidCheck', () => ({ findTerminationsPaidElsewhere: vi.fn(async () => []) }));
+// The pro-rata guard has its own tests (payroll-run-pro-rata-guard.int).
+vi.mock('@/modules/accounting/services/payroll/payrollRecurringProRata', () => ({ runProRataBlocker: vi.fn(async () => null) }));
+// The recalculation gates have their own tests (payroll-approval-recalc-gates.int).
+vi.mock('@/modules/accounting/services/payroll/payrollRunRecalcGate', () => ({
+  recalculateRequiredRefusal: vi.fn(async () => null), runLinesRefusal: vi.fn(async () => null),
+}));
 // Likewise (p3-severance-directive-run): no severance paid by directive.
 vi.mock('@/modules/accounting/services/payroll/payrollRunDirectiveClaim', () => ({
   judgeRunDirectives: vi.fn(async () => null), claimRunSeveranceDirectives: vi.fn(async () => undefined),
@@ -24,6 +30,11 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunDirectiveClaim', () => 
 const headerRow = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 // approvePayrollRun takes its header lock through withTransaction (payrollRunLock).
 // The stale year-to-date blocker (PAYE 4a follow-ups G4) has its own tests (p4fu-brk-order, p4fu-cumulative-paye).
+// Loan payments against the payslip have their own integration suite (payrun-loan-components).
+vi.mock('@/modules/accounting/services/payroll/payrollRunLines', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/modules/accounting/services/payroll/payrollRunLines')>(),
+  findLoanPaymentsOffPayslip: vi.fn(async () => ({ offPayslip: [], fringeNotRecorded: [] })),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollYearToDateGate', () => ({ judgeYearToDate: vi.fn(async () => ({ blocker: null, advisories: [] })) }));
 vi.mock('@/lib/neon', () => {
   const sql = vi.fn(async () => [headerRow.current]);
