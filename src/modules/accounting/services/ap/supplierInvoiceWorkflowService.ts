@@ -27,6 +27,7 @@ import { claimEvidencedProvisional, settleClaimedProvisional } from './provision
 import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
+import { applyProvisionalDimensions } from './supplierInvoiceProvisionalDims';
 import { budgetWarningsOf, checkBillBudget, lockBillAfterBudgetGate, logApproveFailure, placeCheckedBillLines, type BillBudgetOpts, type BudgetWarned } from './supplierInvoiceBudgetCheck';
 
 type Row = DbRow;
@@ -118,7 +119,9 @@ async function approveInner(
     const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
     await assertBillPostable(companyId, invoice);
-    const { lines, warnings } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseAccount.id), { storedPosting: true });
+    // P5-2b: a line naming no dimension takes the claimed provisional's (stored on the line) before it is built and checked.
+    const posting = await applyProvisionalDimensions(companyId, invoice, provisional, defaultExpenseAccount.id);
+    const { lines, warnings } = await placeCostCentres(companyId, buildExpenseLines(posting, defaultExpenseAccount.id), { storedPosting: true });
     // What the pick added follows the stored items' rule: approving refuses an inactive CC1 / CC2 (an inactive FNO too); Post to GL copies.
     await assertPostsStoredDimensions(companyId, invoice.status, lines, (i) => `Supplier invoice ${invoice.invoiceNumber} line ${i + 1}`);
     const budget = await checkBillBudget(companyId, invoice, lines, budgetGate, opts?.budget, userId, provisional); // P5-2: before the first write

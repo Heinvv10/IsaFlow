@@ -29,6 +29,7 @@ import type { DocumentLine } from '../budgets/budgetCheckCore';
 import { log } from '@/lib/logger';
 import type { ProvisionalClaim } from './provisionalSettlementClaim';
 import { peekProvisionalReclassLines, provisionalReclassLines } from './supplierInvoiceBudgetProvisional';
+import { applyProvisionalDimensions, inheritProvisionalDimensions, reclassDimLines } from './supplierInvoiceProvisionalDims';
 import {
   isFlaggedLine, type BudgetCheckContext, type BudgetCheckLine, type BudgetCheckResult, type BudgetGate, type BudgetPolicy,
 } from '../budgets/budgetCheckTypes';
@@ -83,12 +84,16 @@ export function checkBillBudget(
   }, ctx ?? DEFAULT_BILL_BUDGET_CONTEXT, gate, actorId);
 }
 
-/** Post to GL's expense lines (the legacy pick placed, as approve) and the check on them, before its first write. */
+/**
+ * Post to GL's expense lines (the legacy pick placed, as approve; a line naming no dimension takes the claimed
+ * provisional's, P5-2b) and the check on them, before its first write.
+ */
 export async function placeCheckedBillLines(
   companyId: string, invoice: SupplierInvoice, defaultExpenseId: string, gate: BudgetGate, ctx: BudgetCheckContext | undefined, actorId: string,
   provisional: ProvisionalClaim | null,
 ) {
-  const placed = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseId), { storedPosting: true });
+  const posting = await applyProvisionalDimensions(companyId, invoice, provisional, defaultExpenseId);
+  const placed = await placeCostCentres(companyId, buildExpenseLines(posting, defaultExpenseId), { storedPosting: true });
   return { ...placed, budget: await checkBillBudget(companyId, invoice, placed.lines, gate, ctx, actorId, provisional) };
 }
 
@@ -119,9 +124,12 @@ export async function previewBillBudget(
     return { policy, checks: false, lines: [], overCount: 0, reusesJournal: !!invoice.glJournalEntryId };
   }
   const defaultExpense = await getSystemAccount('default_expense', companyId);
-  const { lines } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpense.id), { storedPosting: true });
+  const reclass = await peekProvisionalReclassLines(companyId, invoice.id);
+  // P5-2b: the dimensions approval would inherit from the provisional (not written: a preview).
+  const posting = inheritProvisionalDimensions(invoice, reclassDimLines(reclass), defaultExpense.id).invoice;
+  const { lines } = await placeCostCentres(companyId, buildExpenseLines(posting, defaultExpense.id), { storedPosting: true });
   const month = billMonth(invoice);
-  const docLines = [...documentLines(lines), ...await peekProvisionalReclassLines(companyId, invoice.id)];
+  const docLines = [...documentLines(lines), ...reclass];
   const checked = await evaluateDocumentLines(companyId, docLines, month, {
     excludeInvoiceId: invoice.id, alsoBilledInvoiceIds: opts.alsoBilledInvoiceIds, labelAlways: true,
   });
