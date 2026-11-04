@@ -70,7 +70,7 @@ export async function notifySigningRequested(
     const html = emailLayout(emailContentRow(`
       <h2>${title} — Signature Required</h2>
       <p>Hi ${escapeHtml(contact.name)},</p>
-      <p>The ${afsDocumentNoun(documentType)} for your company are ready for your signature.</p>
+      <p>The ${afsDocumentNoun(documentType)} for your company ${documentType === 'management_pack' ? 'is' : 'are'} ready for your signature.</p>
       ${ctaButton('Review & Sign', signingUrl)}
       <p style="font-size:12px;color:#94a3b8;">This signing link expires in ${process.env.SIGNUM_EXPIRES_IN_DAYS ?? 14} days.</p>
     `));

@@ -87,11 +87,11 @@ describe('portal notification wording follows the document type', () => {
     await notifySigningRequested(contactWith('Jo'), 'd1', 'https://app/sign', 'management_pack');
     expect(lastSubject()).toBe('Management Pack — Signature Required');
     expect(lastHtml()).toContain('<h2>Management Pack — Signature Required</h2>');
-    expect(lastHtml()).toContain('The management pack for your company');
+    expect(lastHtml()).toContain('The management pack for your company is ready for your signature.');
     expect(lastHtml()).not.toContain('nnual');
     await notifySigningRequested(contactWith('Jo'), 'd1', 'https://app/sign');
     expect(lastSubject()).toBe('Annual Financial Statements — Signature Required');
-    expect(lastHtml()).toContain('The annual financial statements for your company');
+    expect(lastHtml()).toContain('The annual financial statements for your company are ready for your signature.');
   });
   it('signed off: a pack says Management Pack, an AFS keeps its wording', async () => {
     sqlMock.mockResolvedValue([{ id: 'r1', name: 'Jo', email: 'd@e.co' }]);

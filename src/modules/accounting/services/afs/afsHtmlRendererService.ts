@@ -2,7 +2,7 @@
 
 import type { AfsDocument, AfsSection, BrandProfile } from './afsTypes';
 import { renderCoverHtml } from './afsHtmlCoverTemplates';
-import { afsDocumentTitle, packPeriodPhrase } from './afsDocumentTitle';
+import { afsDocumentTitle, isPackPeriod, packPeriodPhrase } from './afsDocumentTitle';
 import { renderSectionContent, escapeHtml } from './afsHtmlTableRenderer';
 import type { AfsTemplateKey } from '@/lib/entityTypes';
 
@@ -192,6 +192,8 @@ export function renderAfsToHtml(
 
   const css = buildCss(brandProfile);
   const periodEnd = resolvePeriodEnd(document);
+  // A pack with no valid month prints no period line rather than a year-end date.
+  const packPhrase = isPackPeriod(document.period) ? packPeriodPhrase(document.period) : null;
 
   const coverHtml = renderCoverHtml(brandProfile.coverStyle, {
     primaryColour: brandProfile.primaryColour,
@@ -201,7 +203,7 @@ export function renderAfsToHtml(
     companyName,
     registrationNumber,
     periodEnd,
-    periodPhrase: isPack ? packPeriodPhrase(periodEnd) : periodPhrase,
+    periodPhrase: isPack ? (periodPhrase ?? packPhrase) : periodPhrase,
     coverPhotoUrl,
   });
 

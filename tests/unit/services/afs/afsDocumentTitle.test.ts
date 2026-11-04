@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  afsDocumentTitle, afsDocumentNoun, packPeriodPhrase,
+  afsDocumentTitle, afsDocumentNoun, packPeriodPhrase, packPeriodLabel, isPackPeriod,
 } from '@/modules/accounting/services/afs/afsDocumentTitle';
 
 describe('afsDocumentTitle', () => {
@@ -22,6 +22,18 @@ describe('packPeriodPhrase', () => {
   it('spells a YYYY-MM period as month name and year', () => {
     expect(packPeriodPhrase('2026-10')).toBe('month of October 2026');
     expect(packPeriodPhrase('2027-02')).toBe('month of February 2027');
+  });
+  it('a blank period has no label', () => {
+    expect(packPeriodLabel('')).toBe('');
+    expect(isPackPeriod('')).toBe(false);
+    expect(isPackPeriod(null)).toBe(false);
+    expect(isPackPeriod(undefined)).toBe(false);
+  });
+  it('an invalid month is not a pack period', () => {
+    expect(isPackPeriod('2026-13')).toBe(false);
+    expect(isPackPeriod('2026-00')).toBe(false);
+    expect(isPackPeriod('2026-10')).toBe(true);
+    expect(packPeriodLabel('2026-13')).toBe('2026-13');
   });
   it('leaves a value that is not YYYY-MM as the raw period', () => {
     expect(packPeriodPhrase('2026-13')).toBe('month of 2026-13');

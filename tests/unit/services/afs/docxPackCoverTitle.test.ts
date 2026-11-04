@@ -34,4 +34,10 @@ describe('DOCX cover title', () => {
     expect(core).toContain('AFS for fiscal year 2026');
     expect(paragraphs).not.toContain('Management Pack');
   });
+  it.each([[null], [''], ['2026-13']])('pack with period %j: description is just "Management pack", cover has no period line', async (period) => {
+    const { paragraphs, core } = await parts({ documentType: 'management_pack', fiscalYear: null, period });
+    expect(core).toContain('<dc:description>Management pack</dc:description>');
+    expect(paragraphs.some((t) => t.startsWith('For the'))).toBe(false);
+    expect(paragraphs).toContain('Management Pack');
+  });
 });

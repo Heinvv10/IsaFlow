@@ -10,7 +10,7 @@ import {
 } from 'docx';
 import { log } from '@/lib/logger';
 import { findReportingPeriod } from './afsReportingPeriod';
-import { afsDocumentTitle, packPeriodLabel, packPeriodPhrase } from './afsDocumentTitle';
+import { afsDocumentTitle, isPackPeriod, packPeriodLabel, packPeriodPhrase } from './afsDocumentTitle';
 import type { AfsDocument, AfsSection, NoteContentBlock, NoteContent } from './afsTypes';
 import { renderNoteTable } from './docxTableRenderer';
 
@@ -80,10 +80,12 @@ function renderBlock(block: NoteContentBlock): DocxChild[] {
  * own period label, and nothing for a document with neither.
  */
 async function coverPeriodText(doc: AfsDocument): Promise<string | null> {
-  if (doc.documentType === 'management_pack' && doc.period) return `For the ${packPeriodPhrase(doc.period)}`;
   if (doc.fiscalYear) {
     const period = await findReportingPeriod(doc.companyId, Number(doc.fiscalYear), 'docxExportService');
     return period ? `For the ${period.current.phrase}` : null;
+  }
+  if (doc.documentType === 'management_pack') {
+    return isPackPeriod(doc.period) ? `For the ${packPeriodPhrase(doc.period)}` : null;
   }
   return doc.period;
 }
@@ -228,7 +230,7 @@ export async function renderToDocx(
     creator: 'IsaFlow AFS',
     title: `${companyName} — ${documentTitle}`,
     description: document.documentType === 'management_pack'
-      ? `Management pack for ${packPeriodLabel(document.period ?? '')}`
+      ? (isPackPeriod(document.period) ? `Management pack for ${packPeriodLabel(document.period)}` : 'Management pack')
       : `AFS for fiscal year ${document.fiscalYear ?? ''}`,
     styles: buildStyles(),
     sections: [

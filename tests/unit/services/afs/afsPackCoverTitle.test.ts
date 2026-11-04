@@ -50,4 +50,32 @@ describe('cover title follows the document type', () => {
     expect(html).toMatch(/<h1 class="cover-title"[^>]*>Annual Financial Statements<\/h1>/);
     expect(html).toContain('<title>Financial Statements — Acme (Pty) Ltd</title>');
   });
+
+  it('trust pack: title is Management Pack on cover and <title>', () => {
+    const html = renderAfsToHtml(ctx(PACK, 'classic', 'trust'));
+    expect(html).toMatch(/<h1 class="cover-title"[^>]*>Management Pack<\/h1>/);
+    expect(html).toContain('<title>Management Pack — Acme (Pty) Ltd</title>');
+  });
+
+  for (const style of STYLES) {
+    it.each([[null], [''], ['2026-13'], ['Q3']])(`pack with period %j, ${style} cover: no month line and no year-end date`, (period) => {
+      const doc = { ...PACK, period } as unknown as AfsDocument;
+      const html = renderAfsToHtml(ctx(doc, style));
+      expect(html).not.toContain('<p class="cover-period"');
+      expect(html).not.toContain('For the');
+      expect(html).not.toContain('year end');
+      expect(html).toMatch(/<h1 class="cover-title"[^>]*>Management Pack<\/h1>/);
+    });
+  }
+
+  it('a caller-supplied periodPhrase wins for a pack, as it does for an AFS', () => {
+    const html = renderAfsToHtml({ ...ctx(PACK, 'classic'), periodPhrase: 'year ended 2027-02-28' });
+    expect(html).toContain('For the year ended 2027-02-28');
+    expect(html).not.toContain('month of');
+  });
+
+  it('an AFS with no period keeps the year-end fallback', () => {
+    const html = renderAfsToHtml(ctx({ ...AFS, fiscalYear: null, period: null } as unknown as AfsDocument, 'classic'));
+    expect(html).toContain('For the year ended year end');
+  });
 });

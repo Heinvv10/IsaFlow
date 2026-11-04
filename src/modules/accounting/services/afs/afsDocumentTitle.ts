@@ -22,9 +22,16 @@ export function afsDocumentNoun(documentType: DocumentType | string | null | und
   return afsDocumentTitle(documentType).toLowerCase();
 }
 
+const PACK_PERIOD = /^(\d{4})-(0[1-9]|1[0-2])$/;
+
+/** True for a real pack month, YYYY-MM with a month from 01 to 12. */
+export function isPackPeriod(period: string | null | undefined): period is string {
+  return typeof period === 'string' && PACK_PERIOD.test(period);
+}
+
 /** "2026-10" -> "October 2026"; a value that is not YYYY-MM stays as written. */
 export function packPeriodLabel(period: string): string {
-  const m = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(period);
+  const m = PACK_PERIOD.exec(period);
   return m ? `${MONTHS[Number(m[2]) - 1]} ${m[1]}` : period;
 }
 
