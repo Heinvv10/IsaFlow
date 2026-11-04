@@ -10,11 +10,11 @@
  *   trigger re-stamps fired_at), and comes back to be announced again. The WHERE repeats
  *   `resolved_at IS NOT NULL`, so two racing evaluators re-fire it once.
  * - `refreshOpen`: an open crossing's figures follow the books (no announcement).
- * - `resolveUncrossed`: every open alert of the company in the evaluated months, on the evaluated
- *   version (which must belong to the company and the evaluated fiscal year), that is not crossed now
- *   (below its threshold, a threshold no longer configured, a budget removed) is resolved (954's
- *   trigger stamps resolved_at with the clock). Another version's alerts, in this fiscal year or
- *   another, are never touched; with no evaluated version nothing resolves.
+ * - `resolveUncrossed`: every open alert of the company in the evaluated months, on any version of the
+ *   evaluated fiscal year, that is not crossed now (below its threshold, a threshold no longer
+ *   configured, a budget removed, or raised on a former primary version, which the evaluator never
+ *   crosses again) is resolved (954's trigger stamps resolved_at with the clock). Another fiscal
+ *   year's alerts are never touched; with no evaluated version nothing resolves.
  * A crossing's `pct` is sent as text: JSON has no Infinity, NUMERIC does (spend against R0).
  */
 import { sql } from '@/lib/neon';
@@ -101,8 +101,8 @@ export async function refreshOpen(companyId: string, versionId: string, crossing
 }
 
 /**
- * Resolves the open alerts of `[firstMonth, lastMonth]` ('YYYY-MM-01') on `versionId`, a version of
- * `fiscalYear`, that `crossings` does not hold; their ids. No version: none.
+ * Resolves the open alerts of `[firstMonth, lastMonth]` ('YYYY-MM-01') on any version of `fiscalYear`
+ * (the evaluated primary or a former one) that `crossings` does not hold; their ids. No version: none.
  */
 export async function resolveUncrossed(
   companyId: string, fiscalYear: number, versionId: string | null, crossings: readonly Crossing[],
@@ -112,7 +112,6 @@ export async function resolveUncrossed(
   const rows = (await sql`
     UPDATE budget_alerts a SET resolved_at = clock_timestamp()
      WHERE a.company_id = ${companyId}::UUID AND a.resolved_at IS NULL
-       AND a.version_id = ${versionId}::UUID
        AND a.month BETWEEN ${firstMonth}::DATE AND ${lastMonth}::DATE
        AND EXISTS (SELECT 1 FROM budget_versions v
                     WHERE v.company_id = a.company_id AND v.id = a.version_id AND v.fiscal_year = ${fiscalYear}::INT)

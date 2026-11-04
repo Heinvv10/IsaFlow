@@ -1,8 +1,8 @@
 /**
- * Budgets P5-4: `evaluateOverspend` resolves only the open alerts of the EVALUATED VERSION, and only
- * while that version belongs to the company and the evaluated fiscal year. The evaluated version's
- * uncrossed alert resolves; another version's alert, in a month inside the evaluated range, survives
- * whether that version is another fiscal year's (incl. the range's first month) or a same-year scenario.
+ * Budgets P5-4: `evaluateOverspend` resolves the open alerts of the EVALUATED FISCAL YEAR's versions
+ * (the primary, and a former primary whose alerts the evaluator never crosses again), in the evaluated
+ * months. An alert on another fiscal year's version, inside the evaluated range (incl. its first
+ * month), survives.
  * Seed: helpers/budgetAlertsFixture.ts (asOf 2026-04-20: FY2027 March and April are evaluated).
  *
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
@@ -32,30 +32,30 @@ const openAlert = async (c: PoolClient, versionId: string, month: string): Promi
    VALUES ($1, $2, $3, $4::DATE, 90, 1000, 900, 0, 90) RETURNING id::TEXT AS id`, [f.a, versionId, f.acc.opex, month])).rows[0].id);
 
 describe('evaluateOverspend: what a run resolves', () => {
-  it('resolves the evaluated version\'s uncrossed alert; another version\'s alert stays open', async () => {
+  it('resolves the primary\'s uncrossed alert and a former primary\'s; another fiscal year\'s stay open', async () => {
     let primary = '';
     let otherYearBoundary = '';
     let otherYearInRange = '';
-    let sameYearScenario = '';
+    let formerPrimary = '';
     await inRequest(pool, f.a, f.ownerA, async ({ asSuper }) => {
       const out = await evaluateOverspend(f.a, { asOf: AS_OF });
       expect(out.versionId).toBe(f.vA);
-      expect(out.resolved).toEqual([primary]);
-      const ids = [primary, otherYearBoundary, otherYearInRange, sameYearScenario];
+      expect([...out.resolved].sort()).toEqual([primary, formerPrimary].sort());
+      const ids = [primary, formerPrimary, otherYearBoundary, otherYearInRange];
       const rows = await asSuper((c) => c.query(
         'SELECT id::TEXT AS id, resolved_at FROM budget_alerts WHERE id = ANY($1::UUID[])', [ids]));
       const byId = new Map(rows.rows.map((r) => [String(r.id), r.resolved_at]));
       expect(byId.get(primary)).not.toBeNull();
       expect(byId.get(otherYearBoundary)).toBeNull();
       expect(byId.get(otherYearInRange)).toBeNull();
-      expect(byId.get(sameYearScenario)).toBeNull();
+      expect(byId.get(formerPrimary)).not.toBeNull();
     }, async (c) => {
       await journal(c, f.a, '2026-04-10', f.ownerA, [[f.acc.opex, 1050, 0], [f.acc.bank, 0, 1050]]);
       primary = await openAlert(c, f.vA, '2026-04-01');
       const fy2026 = await extraVersion(c, 2026, 'FY2026 original');
       otherYearBoundary = await openAlert(c, fy2026, '2026-03-01'); // first month of the evaluated range
       otherYearInRange = await openAlert(c, fy2026, '2026-04-01');
-      sameYearScenario = await openAlert(c, await extraVersion(c, 2027, 'FY2027 scenario'), '2026-04-01');
+      formerPrimary = await openAlert(c, await extraVersion(c, 2027, 'FY2027 former primary'), '2026-04-01');
     });
   });
 
