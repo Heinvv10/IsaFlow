@@ -25,6 +25,8 @@ export const PutItemSchema = z.object({
   cc1Id: UUID.nullable().optional(),
   cc2Id: UUID.nullable().optional(),
   buId: UUID.nullable().optional(),
+  // The WIP time entry the line bills, re-sent as loaded: only one this invoice's lines already carry (customerInvoiceWipLinks).
+  timeEntryId: UUID.nullable().optional(),
 });
 
 export const PutBodySchema = z.object({
@@ -43,9 +45,20 @@ export const PutBodySchema = z.object({
   items: z.array(PutItemSchema).min(1).optional(),
   // The invoice's own project: display only (only line dimensions post). Absent keeps it, null clears it.
   projectId: UUID.nullable().optional(),
+  // The draft digest the page edited from (its last read or save; the invoice row and its lines only): a moved
+  // invoice refuses the PUT (409 STALE_VIEW). A customer or company record edited meanwhile does not.
+  expectedDraftDigest: z.string().min(1).max(128).optional(),
+  // Time entries whose lines the user removed (asked first): released. A linked line left unlinked unnamed is refused.
+  releaseTimeEntryIds: z.array(UUID).max(500).optional(),
 });
 
 export const PostBodySchema = z.object({
   id: UUID,
   action: z.enum(['approve', 'send', 'cancel']),
+  // approve only: what the approver was shown. Anything stored differently is refused (409 STALE_VIEW), so an invoice
+  // is never approved at a total, in a currency or at a rate nobody saw. Optional for API clients with no screen.
+  expectedTotal: z.number().finite().optional(),
+  expectedCurrency: z.string().min(1).max(8).optional(),
+  expectedExchangeRate: z.number().positive().finite().optional(),
+  expectedContentDigest: z.string().min(1).max(128).optional(),
 });

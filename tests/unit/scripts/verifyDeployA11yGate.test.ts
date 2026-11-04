@@ -73,7 +73,7 @@ describe('verify-deploy.sh and the a11y gate', () => {
     expect(r.code).toBe(0);
     expect(r.skipA11y).toBe('1');
     const tests = listTests({ GOLDEN_SKIP_A11Y: r.skipA11y }, r.args); // throws if the spec were loaded
-    expect(EXCLUDED.length).toBe(25);
+    expect(EXCLUDED.length).toBe(27); // master's 25 (z8-budget-tracking, #1114) + this PR's z2 and z2b
     expect(tests.filter((l) => EXCLUDED.some((n) => l.includes(`${n}.spec.ts`)))).toEqual([]);
     expect(tests.length).toBeGreaterThanOrEqual(10); // one file left out, not the suite
     for (const p of PREFIX) expect(tests.some((l) => l.includes(p))).toBe(true);

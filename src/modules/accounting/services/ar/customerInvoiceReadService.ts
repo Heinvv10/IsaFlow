@@ -10,6 +10,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { invoiceDigests } from './invoicePdfModel';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 import { linkExpiredSql } from './portalLinkCharge';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
@@ -203,6 +204,9 @@ export async function exportCustomerInvoices(
 }
 
 export async function getCustomerInvoiceDetail(companyId: string, invoiceId: string): Promise<Row | null> {
+  // The digests FIRST, then the invoice the page shows: a change landing between the two leaves the page newer than its
+  // digest (the approve is refused), never older (an approve of a view nobody saw).
+  const digests = await invoiceDigests(companyId, invoiceId);
   const rows = (await sql`
     SELECT ci.id, ci.invoice_number, ci.customer_id, ci.client_id,
            ci.subtotal, ci.tax_rate, ci.tax_amount, ci.total_amount,
@@ -220,12 +224,20 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
            to_char(ci.billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
            to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end,
            ci.created_at, ci.updated_at,
+           (SELECT p.name FROM projects p WHERE p.id = ci.project_id AND p.company_id = ci.company_id) AS project_name,
+           (SELECT count(*)::INT FROM time_entries te
+             WHERE te.invoice_id = ci.id AND te.company_id = ci.company_id
+               AND NOT EXISTS (SELECT 1 FROM customer_invoice_items x WHERE x.invoice_id = ci.id AND x.time_entry_id = te.id)
+           ) AS unlinked_time_entries,
            c.name AS client_name, c.email AS client_email
     FROM customer_invoices ci
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}
   `) as Row[];
   if (rows.length === 0) return null;
+  // What Approve (shown_digest) and a draft PUT (draft_digest) send back (invoicePdfModel).
+  rows[0]!.shown_digest = digests?.shown ?? '';
+  rows[0]!.draft_digest = digests?.draft ?? '';
 
   const items = (await sql`
     SELECT cii.*,
@@ -247,7 +259,8 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
     LEFT JOIN cost_centres c1 ON c1.id = cii.cc1_id AND c1.company_id = ci.company_id
     LEFT JOIN cost_centres c2 ON c2.id = cii.cc2_id AND c2.company_id = ci.company_id
     LEFT JOIN business_units bu ON bu.id = cii.bu_id AND bu.company_id = ci.company_id
-    WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId} ORDER BY cii.created_at
+    WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId}
+    ORDER BY cii.line_position NULLS LAST, cii.created_at, cii.id -- the entry order (956), as the PDF model
   `) as Row[];
 
   return { ...rows[0], items };

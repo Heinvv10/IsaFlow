@@ -19,6 +19,7 @@ import {
   InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
+import { invoiceDigests } from '@/modules/accounting/services/ar/invoicePdfModel';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -38,7 +39,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
       taxRate, notes, items, currencyCode, exchangeRate, projectId,
     });
-    return apiResponse.created(res, { id: invoiceId, invoiceNumber });
+    // What Approve (shownDigest) and the edit page's PUTs (draftDigest) send back for this invoice (invoicePdfModel).
+    const digests = await invoiceDigests(companyId, invoiceId);
+    return apiResponse.created(res, { id: invoiceId, invoiceNumber, shownDigest: digests?.shown ?? '', draftDigest: digests?.draft ?? '' });
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof InvoiceLineValidationError) return apiResponse.badRequest(res, err.message);

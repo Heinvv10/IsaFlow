@@ -108,7 +108,7 @@ describe('snapshotInvoicePdf — first call (fresh invoice)', () => {
     });
 
     expect(mockGenerate).toHaveBeenCalledOnce();
-    expect(mockGenerate).toHaveBeenCalledWith(COMPANY_ID, INVOICE_ID);
+    expect(mockGenerate).toHaveBeenCalledWith(COMPANY_ID, INVOICE_ID, undefined); // no model given: the builder loads its own
     expect(mockUpload).toHaveBeenCalledOnce();
     expect(mockUpload.mock.calls[0]![0]).toBe(COMPANY_ID);
     expect(mockUpload.mock.calls[0]![2]).toBe(PDF_BYTES);

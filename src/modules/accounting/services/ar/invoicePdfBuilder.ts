@@ -3,55 +3,29 @@
  * Returns a Node.js Buffer suitable for API responses and email attachments.
  */
 
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { loadInvoicePdfModel, type InvoicePdfLine, type InvoicePdfModel } from './invoicePdfModel';
 import { allocateVatToLines } from './vatLineAllocation';
 import {
   fmtZAR, fmtDate, COLORS,
-  getCompanyDetailsFromCompany, renderPageFooters,
+  renderPageFooters,
   getLastAutoTableY, hexToRgb,
   renderPremiumHeader, renderPartySection, renderRefStrip,
   renderTotalsBlock, renderPaymentDetails, renderNotesBlock,
   type TotalLine,
 } from '../core/pdfShared';
 
-type Row = DbRow;
-
-export async function generateInvoicePdf(companyId: string, invoiceId: string): Promise<Buffer> {
-  const COMPANY = await getCompanyDetailsFromCompany(companyId);
+/**
+ * `given`: a model already loaded (the approval's, loaded once under its row lock and compared): rendered as it is,
+ * never re-read. Without it the model is loaded now.
+ */
+export async function generateInvoicePdf(companyId: string, invoiceId: string, given?: InvoicePdfModel): Promise<Buffer> {
+  // Everything printed comes from this model (invoicePdfModel): the shown digest is its hash, so a page that showed
+  // this invoice and the PDF can never disagree on a field without the approval noticing.
+  const model = given ?? await loadInvoicePdfModel(companyId, invoiceId);
+  if (!model) throw new Error(`Invoice not found: ${invoiceId}`);
+  const { company: COMPANY, invoice: inv, items } = model;
   const accent = hexToRgb(COMPANY.primaryColor);
-
-  const invoiceRows = (await sql`
-    SELECT ci.*,
-           c.name AS client_name,
-           c.email AS client_email,
-           c.phone AS client_phone,
-           c.vat_number AS client_vat,
-           c.billing_address AS client_address,
-           c.contact_person AS client_contact,
-           p.name AS project_name
-    FROM customer_invoices ci
-    -- Both joins carry company_id. customer_invoices.client_id has no FK, so a
-    -- drifted id would print another tenant's customer name, VAT number and
-    -- billing address onto a customer-facing tax invoice.
-    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-                         AND c.company_id = ci.company_id
-    -- Scoped: project_id carries no FK, so an unscoped join would print
-    -- another company's project name on this invoice.
-    LEFT JOIN projects p ON p.id = ci.project_id AND p.company_id = ci.company_id
-    WHERE ci.id = ${invoiceId}::UUID
-      AND ci.company_id = ${companyId}::UUID
-  `) as Row[];
-
-  if (invoiceRows.length === 0) throw new Error(`Invoice not found: ${invoiceId}`);
-  const inv = invoiceRows[0]!;
-
-  const items = (await sql`
-    SELECT * FROM customer_invoice_items
-    WHERE invoice_id = ${invoiceId}::UUID
-    ORDER BY created_at
-  `) as Row[];
 
   log.info('Generating premium invoice PDF', {
     invoiceId, invoiceNumber: inv.invoice_number, itemCount: items.length,
@@ -147,7 +121,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   // Falling back to the header rate for every line printed 15% VAT against a
   // zero-rated line and the VAT column stopped footing to the totals block.
   const headerTaxRate = Number(inv.tax_rate ?? 15);
-  const lineRate = (item: Row): number =>
+  const lineRate = (item: InvoicePdfLine): number =>
     item.tax_rate != null ? Number(item.tax_rate) : headerTaxRate;
   // The totals label must state the rate the LINES carry, not the header's. A
   // fully zero-rated invoice whose header still holds the 15.00 column default
@@ -167,7 +141,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   const headerVat = Number(inv.tax_amount || 0);
   const { lineVats, unattributed } = allocateVatToLines(
     headerVat,
-    items.map((item: Row) => Number(item.line_total || item.amount || 0) * (lineRate(item) / 100)),
+    items.map((item) => Number(item.amount || 0) * (lineRate(item) / 100)),
   );
   if (unattributed !== 0) {
     log.warn('Invoice VAT total is not attributable to its lines', {
@@ -177,10 +151,10 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   autoTable(doc, {
     startY: y,
     head: [['Description', 'Qty', 'Unit Price', 'VAT', 'Amount']],
-    body: items.map((item: Row, index: number) => {
-      const lineAmount = Number(item.line_total || item.amount || 0);
+    body: items.map((item, index: number) => {
+      const lineAmount = Number(item.amount || 0);
       return [
-        item.description || '—',
+        String(item.description || '—'),
         Number(item.quantity || 0).toFixed(2),
         fmtZAR(Number(item.unit_price || 0)),
         fmtZAR(lineVats[index] ?? 0),
