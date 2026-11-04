@@ -37,6 +37,11 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () => ({
   approveSupplierInvoice: vi.fn(),
 }));
+// Budgets P5-2: the dry run's budget verdicts (cumulative, in batch order) are pinned on real
+// PostgreSQL by tests/integration/budgets-p5-bill-check-paths.int.test.ts; no bill meets a budget here.
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceBudgetDryRun', () => ({
+  billBudgetDryRun: vi.fn(async () => new Map()),
+}));
 vi.mock('@/modules/accounting/services/ar/customerInvoiceApprovalService', () => ({
   approveCustomerInvoice: vi.fn(),
   InvoiceNotApprovableError: class extends Error {
@@ -54,6 +59,7 @@ import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemA
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
+import { BudgetCheckLockTimeoutError } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import {
   bulkApproveSupplierInvoicesTool,
 } from '@/lib/mcp/tools/writeBulkApproveSupplierInvoices';
@@ -172,6 +178,23 @@ describe('bulk_approve_supplier_invoices', () => {
    * batches overlapping in opposite orders would deadlock (40P01). A total
    * order over the locked rows makes that impossible.
    */
+  /**
+   * Budgets P5-2 (review R7): the policy became block after the batch opened its gate unlocked. The element is
+   * refused before any write; it must be a retryable SKIP, never an unwind of the bills already posted.
+   */
+  it('a BUDGET_CHECK_LOCK_TIMEOUT element is a retryable skip; the rest of the batch posts', async () => {
+    rows({ id: ID(1), status: 'draft', invoice_date: '2026-09-01' },
+         { id: ID(2), status: 'draft', invoice_date: '2026-09-01' });
+    const real = vi.mocked(approveSupplierInvoice).getMockImplementation()!;
+    vi.mocked(approveSupplierInvoice).mockImplementation((async (c: string, id: string, ...rest: unknown[]) => {
+      if (id === ID(2)) throw new BudgetCheckLockTimeoutError(true);
+      return (real as (...a: unknown[]) => unknown)(c, id, ...rest);
+    }) as never);
+    const res = payload(await bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [ID(1), ID(2)], idempotency_key: 'k' }, ctx));
+    expect(res.posted).toBe(1);
+    expect(res.skipped).toEqual([expect.objectContaining({ document_id: ID(2), reason: 'locked by another request — retry' })]);
+  });
+
   it('posts in id order, not the order the agent sent', async () => {
     rows({ id: ID(3), status: 'draft', invoice_date: '2026-09-01' },
          { id: ID(1), status: 'draft', invoice_date: '2026-09-01' });

@@ -99,6 +99,7 @@ describe('supplier invoice detail — approval state', () => {
   it('an approve that races into a 409 shows the refusal and, reloaded, offers Submit', async () => {
     fetchMock.mockResolvedValueOnce(ok(invoice('approved')));
     render(<SupplierInvoiceDetailPage />);
+    fetchMock.mockResolvedValueOnce(ok({ policy: 'warn', checks: true, lines: [], overCount: 0 })); // P5-2 budget preview: none
     fetchMock.mockResolvedValueOnce(refused(409,
       'Supplier invoice INV-001 changed after it was approved; submit it for approval again (rule: Owner signs).', 'APPROVAL_STALE'));
     fetchMock.mockResolvedValueOnce(ok(invoice('stale')));

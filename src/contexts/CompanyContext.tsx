@@ -275,6 +275,14 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
   return <CompanyContext.Provider value={value}>{children}</CompanyContext.Provider>;
 }
 
+/**
+ * The active company role, or null outside a CompanyProvider (or before it is known). For gating what a component
+ * OFFERS (fails closed: no role, no action); the server enforces the real gate.
+ */
+export function useCompanyRoleOrNull(): string | null {
+  return useContext(CompanyContext)?.companyRole ?? null;
+}
+
 export function useCompany() {
   const context = useContext(CompanyContext);
   if (context === undefined) {
