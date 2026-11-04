@@ -31,6 +31,7 @@ vi.mock('@/modules/accounting/services/afs/packDeliveryService', () => ({ delive
 
 import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 import { orderedEnabledSections, PACK_SECTION_ORDER } from '@/modules/accounting/services/afs/managementPackConfigService';
+import { SECTIONS_META } from '@/components/accounting/management-packs/ManagementPackConfigTab';
 import { config, report } from './managementPackFixtures';
 
 const CANONICAL = ['income_statement', 'income_vs_budget', 'balance_sheet', 'budget_variance', 'cash_flow_forecast'];
@@ -70,8 +71,7 @@ describe('pack section order', () => {
 });
 
 describe('settings screen order', () => {
-  it('SECTIONS_META lists the sections in the canonical print order', async () => {
-    const { SECTIONS_META } = await import('@/components/accounting/management-packs/ManagementPackConfigTab');
+  it('SECTIONS_META lists the sections in the canonical print order', () => {
     expect(SECTIONS_META.map(({ key }) => key)).toEqual([...PACK_SECTION_ORDER]);
   });
 });
