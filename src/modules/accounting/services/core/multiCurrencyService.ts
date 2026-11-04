@@ -160,5 +160,8 @@ export function calculateFXGainLoss(
 export function formatCurrencyAmount(amount: number, currencyCode: string): string {
   if (currencyCode === 'ZAR') return formatMoney(amount);
   const symbol = CURRENCY_SYMBOLS[currencyCode] ?? currencyCode;
-  return `${symbol} ${formatAmount(amount)}`;
+  // As formatMoney: the sign before the symbol ("−$ 2 300.00", never "$ −2 300.00"), and a no-break space.
+  const body = formatAmount(amount);
+  const negative = body.startsWith('\u2212');
+  return `${negative ? '\u2212' : ''}${symbol}\u00A0${negative ? body.slice(1) : body}`;
 }

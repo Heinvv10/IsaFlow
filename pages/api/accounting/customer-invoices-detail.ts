@@ -22,6 +22,7 @@ import {
 import {
   approveCustomerInvoice,
   InvoiceNotApprovableError,
+  InvoiceStaleViewError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
 import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
@@ -34,6 +35,8 @@ import {
 import { getCustomerInvoiceDetail } from '@/modules/accounting/services/ar/customerInvoiceReadService';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
+import { WIP_CLIENT_STALE, WIP_LINK_REFUSED } from '@/modules/accounting/services/ar/customerInvoiceWipLinks';
+import { invoiceDigests } from '@/modules/accounting/services/ar/invoicePdfModel';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
@@ -93,6 +96,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!items && (taxRate !== undefined || currencyCode !== undefined || exchangeRate !== undefined)) {
       return apiResponse.badRequest(res, 'taxRate, currencyCode and exchangeRate require items[] to recompute totals');
     }
+    if (!items && putParsed.data.releaseTimeEntryIds?.length) { // only a PUT that replaces the lines removes one
+      return apiResponse.badRequest(res, 'releaseTimeEntryIds requires items[]: it names the entries of removed lines', { code: WIP_LINK_REFUSED });
+    }
 
     // R-035 PR4: the editor is recorded as an author when the edit moves the approval content.
     const result = await editDraftCustomerInvoice(companyId, (req as CompanyAuthedRequest).user.id, putParsed.data);
@@ -102,12 +108,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'bad_client') return apiResponse.badRequest(res, 'clientId does not belong to this company');
     if (result.kind === 'rate_required') return apiResponse.badRequest(res, 'exchangeRate is required when currencyCode changes');
     if (result.kind === 'bad_line') return apiResponse.badRequest(res, result.message, { code: 'INVOICE_LINE_CODING_REFUSED' });
+    if (result.kind === 'stale_view') {
+      return apiResponse.conflict(res, 'This invoice changed after this page read it (saved elsewhere): reload it to see the change. This edit was not saved.', { reason: 'STALE_VIEW' });
+    }
+    if (result.kind === 'wip_link_refused') {
+      return result.code === WIP_CLIENT_STALE // a client that does not know the links: reload, nothing was written
+        ? apiResponse.conflict(res, result.message, { code: WIP_CLIENT_STALE })
+        : apiResponse.badRequest(res, result.message, { code: WIP_LINK_REFUSED });
+    }
     if (result.kind === 'currency_refused') return apiResponse.badRequest(res, result.message);
     if (result.kind === 'bad_amount') return apiResponse.badRequest(res, result.message);
     if (result.kind === 'bad_dimensions') return apiResponse.badRequest(res, result.message);
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
-    return apiResponse.success(res, { updated: true });
+    // Read after the write, under its row lock: what the page's next Approve & email (shownDigest) and next PUT
+    // (draftDigest) send back. The page's PDF preview, which shows the printed parties, is fetched after this.
+    const digests = await invoiceDigests(companyId, id);
+    return apiResponse.success(res, { updated: true, shownDigest: digests?.shown ?? '', draftDigest: digests?.draft ?? '' });
   }
 
   if (req.method === 'POST') {
@@ -115,7 +132,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!postParsed.success) {
       return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
     }
-    const { id, action } = postParsed.data;
+    const { id, action, expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest } = postParsed.data;
     const userId = (req as CompanyAuthedRequest).user?.id || 'system';
 
     // Cancel reverses the approval GL journal and zeroes the outstanding
@@ -151,8 +168,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'approve') {
+      // A screen that sends what it showed sends the digest it read with it: without it the content shown is unknown.
+      if ((expectedTotal !== undefined || expectedCurrency !== undefined || expectedExchangeRate !== undefined) && expectedContentDigest === undefined) {
+        return apiResponse.conflict(res, 'This page is out of date: reload it, then approve again.', { code: 'INVOICE_APPROVE_VIEW_INCOMPLETE' });
+      }
       try {
-        const result = await withJournalDateRefusal(res, () => approveCustomerInvoice(companyId, id, userId));
+        const result = await withJournalDateRefusal(res, () =>
+          approveCustomerInvoice(companyId, id, userId, { expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest }));
         if (result === JOURNAL_DATE_REFUSED) return;
         log.info('Customer invoice action', { id, action, newStatus: result.status });
         return apiResponse.success(res, {
@@ -160,6 +182,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           evidenceDocumentId: result.evidenceDocumentId,
         });
       } catch (err) {
+        // Under the row lock, before any write: what the approver saw is not what is stored. Nothing was approved.
+        if (err instanceof InvoiceStaleViewError) return apiResponse.conflict(res, err.message, { reason: 'STALE_VIEW' });
         if (err instanceof InvoiceNotApprovableError) {
           return err.notFound ? apiResponse.notFound(res, 'Invoice', id) : apiResponse.badRequest(res, err.message);
         }

@@ -6,6 +6,8 @@
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { generateInvoicePdf } from '../ar/invoicePdfService';
+import { getSealedInvoicePdf } from '../ar/invoicePdfSnapshotService';
+import { downloadCapturedDocument } from '@/lib/supabaseStorage';
 import { inviteEmailHtml, invoiceEmailHtml, appendSignatureToHtml } from '@/lib/email-templates';
 import type { InviteEmailData, InvoiceEmailData } from '@/lib/email-templates';
 import { fireWebhook } from './webhookService';
@@ -67,7 +69,10 @@ export async function sendInvoiceEmail(
     ? String(companyRow.invoice_email_signature)
     : null;
 
-  const pdfBuffer = await generateInvoicePdf(companyId, invoiceId);
+  // The sealed PDF when there is one (the approved document, as approved: its customer and bank details are those the
+  // approver compared), as the PDF routes serve it; rendered now only for an invoice never sealed.
+  const sealed = await getSealedInvoicePdf(companyId, invoiceId);
+  const pdfBuffer = sealed ? await downloadCapturedDocument(sealed.bucket, sealed.path, companyId) : await generateInvoicePdf(companyId, invoiceId);
 
   const invoiceData: InvoiceEmailData = {
     invoiceNumber: invoice.invoice_number,

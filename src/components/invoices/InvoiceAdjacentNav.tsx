@@ -15,14 +15,17 @@ export function useAdjacentInvoices() {
 
   const clear = useCallback(() => { setPrevId(null); setNextId(null); }, []);
 
-  const loadAdjacent = useCallback(async (id: string) => {
+  // `isOpen`: the page's own check that `id` is still the invoice open; a late answer for another is dropped.
+  const loadAdjacent = useCallback(async (id: string, isOpen: (id: string) => boolean = () => true) => {
     try {
       const res = await apiFetch(`/api/accounting/customer-invoices-adjacent?id=${id}`);
       await assertOk(res, 'Could not load the neighbouring invoices');
       const json = await res.json() as { data: { prevId: string | null; nextId: string | null } };
+      if (!isOpen(id)) return;
       setPrevId(json.data?.prevId ?? null);
       setNextId(json.data?.nextId ?? null);
     } catch (err) {
+      if (!isOpen(id)) return;
       // non-critical — navigation stays disabled
       setPrevId(null);
       setNextId(null);

@@ -184,24 +184,29 @@ describe('calculateFXGainLoss', () => {
 // formatCurrencyAmount
 // ---------------------------------------------------------------------------
 describe('formatCurrencyAmount', () => {
+  it('a negative foreign amount puts the sign before the symbol, as formatMoney does for rands', () => {
+    expect(formatCurrencyAmount(-2300, 'USD')).toBe('\u2212$\u00A02\u00A0300.00');
+    expect(formatCurrencyAmount(-2300, 'ZAR')).toBe('\u2212R\u00A02\u00A0300.00');
+  });
+
   it('formats ZAR as "R 1 234.56"', () => {
     expect(formatCurrencyAmount(1234.56, 'ZAR')).toBe('R\xa01\u00A0234.56');
   });
 
   it('formats USD as "$ 1 234.56"', () => {
-    expect(formatCurrencyAmount(1234.56, 'USD')).toBe('$ 1\u00A0234.56');
+    expect(formatCurrencyAmount(1234.56, 'USD')).toBe('$\u00A01\u00A0234.56');
   });
 
   it('formats EUR as "€ 1 234.56"', () => {
-    expect(formatCurrencyAmount(1234.56, 'EUR')).toBe('€ 1\u00A0234.56');
+    expect(formatCurrencyAmount(1234.56, 'EUR')).toBe('€\u00A01\u00A0234.56');
   });
 
   it('formats GBP as "£ 1 234.56"', () => {
-    expect(formatCurrencyAmount(1234.56, 'GBP')).toBe('£ 1\u00A0234.56');
+    expect(formatCurrencyAmount(1234.56, 'GBP')).toBe('£\u00A01\u00A0234.56');
   });
 
   it('falls back to "XXX 1\u00A0234.56" for unknown currency code', () => {
-    expect(formatCurrencyAmount(1234.56, 'XXX')).toBe('XXX 1\u00A0234.56');
+    expect(formatCurrencyAmount(1234.56, 'XXX')).toBe('XXX\u00A01\u00A0234.56');
   });
 
   it('formats zero correctly', () => {

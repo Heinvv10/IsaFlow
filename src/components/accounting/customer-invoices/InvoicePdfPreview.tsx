@@ -110,14 +110,16 @@ export function InvoicePdfPreview({ invoiceId, version }: Props) {
           {failed && (
             <div role="alert" className="flex items-center gap-3 text-sm text-red-600 dark:text-red-400">
               {doc ? 'Could not update the preview. What is shown may be out of date.' : 'Could not load the preview.'}
-              <button type="button" onClick={retry} className="underline">Retry</button>
+              <button type="button" onClick={retry} aria-label="Retry PDF preview" className="underline">Retry</button>
             </div>
           )}
           <p role="status" className="text-xs text-[var(--ff-text-tertiary)]">
             {failed ? '' : !doc ? 'Loading preview…' : doc.version !== version ? 'Updating preview…' : ''}
           </p>
           {doc && (
-            <iframe title="Invoice PDF preview" src={doc.url}
+            // A new iframe per document (key), never a new src on the same one: an iframe navigating adds a history
+            // entry, so each refresh would put one between the editor and Back (and spoil a Back the editor asks about).
+            <iframe key={doc.url} title="Invoice PDF preview" src={doc.url}
               className="h-[70vh] w-full rounded border border-[var(--ff-border-light)] bg-white" />
           )}
         </div>
