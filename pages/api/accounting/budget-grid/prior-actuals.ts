@@ -13,10 +13,12 @@ import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
 import { parseYearLabel } from '@/modules/accounting/services/core/budgetMonths';
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { loadPriorActuals, PRIOR_GRAINS, type PriorGrain } from '@/modules/accounting/services/budgets/priorActuals';
+import { holderSlicesOfYear, priorForHolder } from '@/modules/accounting/services/budgets/gridHolderView';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
   const { companyId } = req as CompanyAuthedRequest;
+  const userId = (req as AuthenticatedNextApiRequest).user.id;
   // A whole year of posted movement per call: a page fetches it once per view, never 60 times a minute.
   if (!(await checkRateLimit(`budget-prior-actuals:${(req as AuthenticatedNextApiRequest).user.id}`, { max: 60, windowSecs: 60 }))) {
     res.setHeader('Retry-After', '60');
@@ -29,7 +31,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `grain must be one of ${PRIOR_GRAINS.join(', ')}`);
   }
   try {
-    return apiResponse.success(res, await loadPriorActuals(companyId, label, rawGrain as PriorGrain));
+    const prior = await loadPriorActuals(companyId, label, rawGrain as PriorGrain);
+    // P5-6: a budget holder of the year sees only their slices' members (gridHolderView).
+    const slices = await holderSlicesOfYear(companyId, label, userId);
+    return apiResponse.success(res, slices ? priorForHolder(prior, slices) : prior);
   } catch (err) {
     if (respondBudgetVersionError(res, err)) return;
     if (err instanceof FiscalYearLabelUnknownError) return apiResponse.notFound(res, 'Financial year', String(err.fiscalYear));

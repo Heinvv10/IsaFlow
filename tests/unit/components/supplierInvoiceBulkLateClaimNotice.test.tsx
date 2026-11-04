@@ -17,7 +17,8 @@ afterEach(() => { vi.mocked(apiFetch).mockReset(); vi.mocked(notify.info).mockRe
 describe('BulkActionBar — late claims', () => {
   it('summarises the bills whose VAT was claimed late', async () => {
     vi.stubGlobal('confirm', () => true);
-    vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: {
+    // A fresh Response per call: the bar first previews the budget (P5-2), then runs the action.
+    vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify({ success: true, data: {
       action: 'approve', total: 3, succeeded: 3, failed: 0,
       results: [{ invoiceId: 'b1', ok: true, lateClaim: lc(150) }, { invoiceId: 'b2', ok: true, lateClaim: lc(30) }, { invoiceId: 'b3', ok: true }],
     } }), { status: 200 }));

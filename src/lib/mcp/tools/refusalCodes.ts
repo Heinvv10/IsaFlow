@@ -68,6 +68,12 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'BATCH_NOT_SENDABLE',
   'BATCH_NOT_PROCESSABLE',
   'BILL_LINE_ACCOUNT_REFUSED',
+  // Budgets P5-2 (budgets/budgetCheckTypes): a bill over its remaining budget under the block policy
+  // (names account, slice, month, remaining and amount: the company's own figures); a UI approval over
+  // budget without a reason; the company budget lock not held in time (retry). All raised before any write.
+  'BUDGET_CHECK_LOCK_TIMEOUT',
+  'BUDGET_EXCEEDED',
+  'BUDGET_REASON_REQUIRED',
   // A captured document already claimed for posting, or rejected (K-072), or its
   // file already posted from another upload / held by another request (R-088).
   // Four fixed messages naming no id, amount or table, raised only after the

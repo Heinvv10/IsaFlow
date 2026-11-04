@@ -43,6 +43,18 @@ const appliedOk = (res: { state: { statusCode: number; body: unknown } }) => {
   expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
   expect(dataOf<Held>(res).status).toBe('applied');
 };
+const scopeRefusal = (result: { isError?: boolean; content: { text: string }[] }) => {
+  expect(result.isError).toBe(true);
+  const body = JSON.parse(result.content[0]!.text) as {
+    success: boolean;
+    error: { code: string; message: string };
+  };
+  expect(Object.keys(body)).toEqual(['success', 'error']);
+  expect(body.success).toBe(false);
+  expect(Object.keys(body.error)).toEqual(['code', 'message']);
+  expect(body.error.code).toBe('INSUFFICIENT_SCOPE');
+  return body.error;
+};
 const pendingOf = async (c: string) => (await historyOf(pool, c)).filter((h) => h.status === 'pending');
 const line = async (f: JournalCompany) => (await pool.query(
   `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status, import_batch_id)
@@ -85,18 +97,101 @@ describe('held, not applied', () => {
 
   it('MCP: an auto-posting create, update or re-enable is held with a clear result, not an error', async () => {
     const f = await fixture();
+    const postingScopes = ['write:bank-tx', 'write:post'];
     const made = await mcp(a, f.c, 'create_bank_rule', { rule_name: 'BRC mcp', match_field: 'description', match_type: 'contains',
-      match_pattern: 'BRCMCP', gl_account_id: f.expA, auto_create_entry: true });
+      match_pattern: 'BRCMCP', gl_account_id: f.expA, auto_create_entry: true }, postingScopes);
     expect(made.isError).toBeFalsy();
     expect(made.content[0]!.text).toMatch(/held for approval \(change [0-9a-f-]{36}\).*Bank rules page/i);
     const suggest = await plantBankRule(pool, f.c, f.expA);
-    expect((await mcp(a, f.c, 'update_bank_rule', { rule_id: suggest, auto_create_entry: true })).content[0]!.text)
+    expect((await mcp(a, f.c, 'update_bank_rule', { rule_id: suggest, auto_create_entry: true }, postingScopes)).content[0]!.text)
       .toMatch(/held for approval/i);
     const posting = await plantBankRule(pool, f.c, f.expA, { autoPost: true, active: false });
-    expect((await mcp(a, f.c, 'disable_bank_rule', { rule_id: posting, enable: true })).content[0]!.text).toMatch(/held for approval/i);
+    expect((await mcp(a, f.c, 'disable_bank_rule', { rule_id: posting, enable: true }, postingScopes)).content[0]!.text)
+      .toMatch(/held for approval/i);
     expect((await pendingOf(f.c)).map((p) => [p.kind, p.proposed_by])).toEqual([['create', a], ['update', a], ['toggle', a]]);
     expect((await ruleOf(pool, posting))!.is_active).toBe(false);
     expect((await ruleOf(pool, suggest))!.auto_create_entry).toBe(false);
+  });
+
+  it('MCP: without write:post an auto-posting change returns the structured scope refusal', async () => {
+    const f = await fixture();
+    const made = await mcp(a, f.c, 'create_bank_rule', { rule_name: 'BRC refused', match_field: 'description',
+      match_type: 'contains', match_pattern: 'BRCREFUSED', gl_account_id: f.expA, auto_create_entry: true });
+
+    expect(scopeRefusal(made).message).toMatch(/write:post/);
+    expect(await pendingOf(f.c)).toEqual([]);
+    expect(Number((await pool.query(
+      'SELECT count(*) FROM bank_categorisation_rules WHERE company_id = $1', [f.c])).rows[0].count)).toBe(0);
+  });
+
+  it('MCP: company auto-post also needs write:post, then preserves the held-change path', async () => {
+    const f = await fixture();
+    await pool.query('INSERT INTO bank_auto_post_settings(company_id, enabled) VALUES($1, true)', [f.c]);
+    const args = { rule_name: 'BRC company auto-post', match_field: 'description', match_type: 'contains',
+      match_pattern: 'BRCCOMPANY', gl_account_id: f.expA };
+
+    const refused = await mcp(a, f.c, 'create_bank_rule', args);
+    expect(scopeRefusal(refused).message).toMatch(/write:post/);
+    expect(await pendingOf(f.c)).toEqual([]);
+
+    const heldResult = await mcp(a, f.c, 'create_bank_rule', args, ['write:bank-tx', 'write:post']);
+    expect(heldResult.isError).toBeFalsy();
+    expect(heldResult.content[0]!.text).toMatch(/held for approval \(change [0-9a-f-]{36}\)/i);
+    expect(await pendingOf(f.c)).toHaveLength(1);
+  });
+
+  it('MCP: the locked update rechecks write:post after a concurrent rule change', async () => {
+    const f = await fixture();
+    const id = await plantBankRule(pool, f.c, f.expA);
+    const concurrent = await pool.connect();
+    let committed = false;
+    let call: ReturnType<ReturnType<typeof mcpRules>> | null = null;
+    let result: Awaited<ReturnType<ReturnType<typeof mcpRules>>> | null = null;
+    try {
+      await concurrent.query('BEGIN');
+      await concurrent.query('SET LOCAL session_replication_role = replica');
+      await concurrent.query('UPDATE bank_categorisation_rules SET auto_create_entry = true WHERE id = $1', [id]);
+
+      call = mcp(a, f.c, 'update_bank_rule', { rule_id: id, rule_name: 'Must not apply' });
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        const waiting = await pool.query<{ waiting: boolean }>(
+          `SELECT EXISTS (
+             SELECT 1 FROM pg_stat_activity
+             WHERE datname = current_database()
+               AND wait_event_type = 'Lock'
+               AND query ILIKE '%bank_rule_projection(to_jsonb(r))%'
+           ) AS waiting`,
+        );
+        if (waiting.rows[0]!.waiting) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const waiting = await pool.query<{ waiting: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM pg_stat_activity
+           WHERE datname = current_database()
+             AND wait_event_type = 'Lock'
+             AND query ILIKE '%bank_rule_projection(to_jsonb(r))%'
+         ) AS waiting`,
+      );
+      expect(waiting.rows[0]!.waiting).toBe(true);
+
+      await concurrent.query('COMMIT');
+      committed = true;
+      result = await call;
+      expect(scopeRefusal(result).message).toMatch(/write:post/);
+    } finally {
+      if (!committed) await concurrent.query('ROLLBACK');
+      if (call && !result) await call.catch(() => undefined);
+      concurrent.release();
+    }
+
+    expect(await ruleOf(pool, id)).toMatchObject({ rule_name: 'BRC rule', auto_create_entry: true });
+    expect(await pendingOf(f.c)).toEqual([]);
+    expect((await pool.query(
+      `SELECT status, idempotency_key FROM mcp_tool_calls
+       WHERE company_id = $1 AND tool = 'update_bank_rule' ORDER BY created_at DESC LIMIT 1`, [f.c])).rows[0])
+      .toEqual({ status: 'rejected', idempotency_key: null });
   });
 });
 

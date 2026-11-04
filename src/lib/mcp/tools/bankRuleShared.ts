@@ -90,7 +90,7 @@ export const RULE_TARGET_PROPERTIES = {
   vat_code: { type: 'string', enum: [...VAT_CODES] },
   auto_create_entry: {
     type: 'boolean',
-    description: 'TRUE means a match POSTS a journal automatically. Default false.',
+    description: 'TRUE means a match POSTS a journal automatically and requires write:post. Default false.',
   },
   auto_apply: {
     type: 'string',

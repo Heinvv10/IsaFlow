@@ -65,7 +65,8 @@ describe('sessions', () => {
   it('MCP proposes (pending) and has no way to decide; a person then approves it', async () => {
     const f = await fixture([[u.a, 'admin'], [u.b, 'admin']]);
     const out = await mcp(u.a, f.c, 'create_bank_rule', { rule_name: 'BRC agent', match_field: 'description',
-      match_type: 'contains', match_pattern: 'AGENT', gl_account_id: f.expA, auto_create_entry: true });
+      match_type: 'contains', match_pattern: 'AGENT', gl_account_id: f.expA, auto_create_entry: true },
+    ['write:bank-tx', 'write:post']);
     const id = (JSON.parse(out.content[0]!.text) as { change_id: string }).change_id;
     expect((await historyOf(pool, f.c)).map((h) => [h.id, h.status, h.proposed_by])).toEqual([[id, 'pending', u.a]]);
     expect((await r.decide(u.b, f.c, id, 'approve')).state.statusCode).toBe(200);

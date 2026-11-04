@@ -15,7 +15,14 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
 import { bankCompany, cleanupBankControlsA } from './bank-controls-a.helpers';
-import { enforceRules, plantBankRule, ruleOf, ruleRoutes } from './bank-rule-changes.helpers';
+import {
+  enforceRules,
+  historyOf,
+  mcpRules,
+  plantBankRule,
+  ruleOf,
+  ruleRoutes,
+} from './bank-rule-changes.helpers';
 
 const hook = vi.hoisted(() => ({ armed: null as null | (() => Promise<void>), fired: false }));
 vi.mock('@/lib/neon', async (importOriginal) => {
@@ -44,6 +51,7 @@ const companies: string[] = [];
 const tokens: Record<string, string> = {};
 const u = { o: '', a: '' };
 const r = ruleRoutes(tokens);
+const mcp = mcpRules(pool);
 
 beforeAll(async () => { for (const k of Object.keys(u) as (keyof typeof u)[]) u[k] = await createUser(pool, tokens); });
 afterAll(() => cleanupBankControlsA(pool, companies, Object.values(u)));
@@ -72,5 +80,59 @@ describe('switching auto-post on races a rule change', () => {
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect(dataOf<{ status: string }>(res).status).toBe('pending_approval');
     expect((await ruleOf(pool, rule))!.gl_account_id).toBe(f.expA);
+  });
+
+  it('an MCP create waits for a company-setting flip, then applies the write:post gate', async () => {
+    const f = await bankCompany(pool, [[u.o, 'owner'], [u.a, 'admin']], companies);
+    await pool.query('INSERT INTO bank_auto_post_settings(company_id, enabled) VALUES($1, false)', [f.c]);
+    await enforceRules(pool, f.c, u.o);
+    const concurrent = await pool.connect();
+    let committed = false;
+    let call: ReturnType<ReturnType<typeof mcpRules>> | null = null;
+    let result: Awaited<ReturnType<ReturnType<typeof mcpRules>>> | null = null;
+    try {
+      await concurrent.query('BEGIN');
+      await concurrent.query(
+        `SELECT pg_advisory_xact_lock(hashtextextended('bank_rule_auto_post:' || $1::text, 0))`,
+        [f.c],
+      );
+      await concurrent.query('UPDATE bank_auto_post_settings SET enabled = true WHERE company_id = $1', [f.c]);
+
+      call = mcp(u.a, f.c, 'create_bank_rule', {
+        rule_name: 'MCP setting race',
+        match_field: 'description',
+        match_type: 'contains',
+        match_pattern: 'MCPSETTINGRACE',
+        gl_account_id: f.expA,
+      });
+      for (let i = 0; i < 100 && (await advisoryWaiters()) === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(await advisoryWaiters()).toBeGreaterThan(0);
+
+      await concurrent.query('COMMIT');
+      committed = true;
+      result = await call;
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0]!.text)).toEqual({
+        success: false,
+        error: {
+          code: 'INSUFFICIENT_SCOPE',
+          message: expect.stringMatching(/write:post/),
+        },
+      });
+    } finally {
+      if (!committed) await concurrent.query('ROLLBACK');
+      if (call && !result) await call.catch(() => undefined);
+      concurrent.release();
+    }
+
+    expect((await historyOf(pool, f.c)).filter((entry) => entry.status === 'pending')).toEqual([]);
+    expect(Number((await pool.query(
+      'SELECT count(*) FROM bank_categorisation_rules WHERE company_id = $1', [f.c])).rows[0].count)).toBe(0);
+    expect((await pool.query(
+      `SELECT status, idempotency_key FROM mcp_tool_calls
+       WHERE company_id = $1 AND tool = 'create_bank_rule' ORDER BY created_at DESC LIMIT 1`, [f.c])).rows[0])
+      .toEqual({ status: 'rejected', idempotency_key: null });
   });
 });

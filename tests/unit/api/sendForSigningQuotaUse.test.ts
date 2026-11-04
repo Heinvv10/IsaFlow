@@ -18,14 +18,14 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/lib/rateLimit', () => ({ checkSendRateLimit: vi.fn(async () => true), checkRateLimit: vi.fn(async () => true) }));
 vi.mock('fs/promises', () => ({ default: { access: vi.fn(async () => undefined), readFile: vi.fn(async () => '<html>afs</html>') } }));
 vi.mock('@/lib/storage/afsStorage', () => ({ afsHtmlPath: () => '/tmp/afs.html' }));
-const { sendForSigning, notify } = vi.hoisted(() => ({ sendForSigning: vi.fn(), notify: vi.fn() }));
+const { sendForSigning, notify, docType } = vi.hoisted(() => ({ sendForSigning: vi.fn(), notify: vi.fn(), docType: { current: 'afs' } }));
 vi.mock('@/modules/accounting/services/afs/signumIntegrationService', () => ({ sendForSigning }));
 // Every signer email fails: the notifier sends nothing (it logs and swallows its own errors).
 vi.mock('@/modules/accounting/services/afs/portalNotificationService', () => ({ notifySigningRequested: notify }));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: TemplateStringsArray) => {
     const text = strings.join(' ');
-    if (text.includes('FROM afs_documents')) return [{ id: 'd', status: 'partner_review', signing_requested_at: null }];
+    if (text.includes('FROM afs_documents')) return [{ id: 'd', status: 'partner_review', signing_requested_at: null, document_type: docType.current }];
     if (text.includes('FROM portal_contacts')) return [{ id: ID, name: 'Dee', email: 'director@co.test', role: 'director' }];
     if (text.includes('FROM companies')) return [{ name: 'Co' }];
     return [];
@@ -57,6 +57,17 @@ describe('send-for-signing — the Signum document spends the unit (R-175)', () 
     vi.clearAllMocks();
     notify.mockResolvedValue(undefined);
     sendForSigning.mockResolvedValue({ signumDocumentId: 'sig-1', signingTokens: [{ email: 'director@co.test', signingToken: 't' }] });
+  });
+
+  it.each([
+    ['management_pack', 'Management Pack — Co'],
+    ['afs', 'Annual Financial Statements — Co'],
+  ])('a %s is sent to Signum titled "%s" and the signer email is told its type', async (type, title) => {
+    docType.current = type;
+    await run();
+    expect(sendForSigning.mock.calls[0]![3]).toBe(title);
+    expect(notify.mock.calls[0]![3]).toBe(type);
+    docType.current = 'afs';
   });
 
   it('Signum created the document and every email failed: the unit stays spent', async () => {

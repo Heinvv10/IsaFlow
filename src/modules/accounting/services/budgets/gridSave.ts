@@ -34,12 +34,13 @@ import { auditBudgetWrite, holdYearRegistry } from './budgetVersionScope';
 import { BudgetVersionError, mapBudgetDbError } from './budgetVersionTypes';
 import { inputError } from './gridErrors';
 import { takeVersion } from './versionTake';
+import { assertNoFrozenReset, assertSliceWrites, beginSliceReview, driverSliceGuard, loadHolderScope } from './holderScope';
 import {
   cellsTypedOverDrivers, clearedDriverCells, deleteCells, firstClosedMonthCell, markOverrides, versionSum, writeCells,
 } from './gridSaveWrite';
 import { loadVersionModel, skippedRows } from './drivers/driverModel';
 import { listDriverLines } from './drivers/driverRepository';
-import { recomputeDependents, type RecomputeWarning } from './drivers/driverRecomputeService';
+import { recomputeDependents, type FrozenDriverCells, type RecomputeWarning } from './drivers/driverRecomputeService';
 import { accountWithTwoGrains, assertMonthsInYear, validateBatch, type SaveCell, type ValidatedBatch } from './gridSaveValidate';
 
 export { MAX_IMPORT_CELLS, MAX_SAVE_CELLS, type SaveCell } from './gridSaveValidate';
@@ -63,6 +64,8 @@ export interface SaveCellsResult {
   reset?: number;
   /** The recompute's warnings (REF_MISSING, SECTION_EMPTY, BASE_MISSING, DRIVER_SKIPPED), as the driver routes answer them. */
   driverWarnings?: RecomputeWarning[];
+  /** P5-6: driver cells left as they are because their slice is with its reviewer (frozen); absent when none. */
+  frozenDriverCells?: FrozenDriverCells;
 }
 
 const unique = <T>(xs: T[]): T[] => [...new Set(xs)];
@@ -115,9 +118,15 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
 
   const labels = await checkAccounts(companyId, versionId, input.cells, batch);
   await checkDimensions(companyId, input.cells);
+  // P5-6 budget holders (decision 9a): a holder's cells inside their slices of a draft, no one but a
+  // reviewer into a submitted or approved slice; an owner's or admin's save takes the reviewer path.
+  const holders = await loadHolderScope(companyId, versionId, userId);
+  assertSliceWrites(holders, version.status, input.cells, (a) => labels.get(a) ?? a);
+  await beginSliceReview(companyId, versionId, holders, input.cells);
   const twoGrains = accountWithTwoGrains(batch.upserts);
   if (twoGrains) throw grainClash(labels.get(twoGrains)!);
   const cleared = await assertDriverCells(companyId, versionId, batch, labels, months);
+  assertNoFrozenReset(holders, version.status, cleared.resetRows, (a) => labels.get(a) ?? a);
 
   const sumBefore = await versionSum(companyId, versionId);
   const deleted = await deleteCells(companyId, versionId, batch.deletes);
@@ -126,7 +135,8 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
   const changed = await writeCells(companyId, versionId, userId, batch.upserts);
   const overrides = await markOverrides(companyId, versionId, typedOver);
   if (deleted === 0 && changed === 0 && overrides === 0) throw new NothingChanged();
-  const { changed: recomputed, warnings, headcountAsOf } = await recomputeDependents(companyId, versionId, userId, cleared.resetRows);
+  const { changed: recomputed, warnings, headcountAsOf, frozen } = await recomputeDependents(
+    companyId, versionId, userId, cleared.resetRows, driverSliceGuard(holders, version.status));
   const sumAfter = await versionSum(companyId, versionId);
 
   // `saved` and the audit count the rows the batch changed (updated or inserted), not the cells sent.
@@ -134,8 +144,12 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
     upserts: String(changed), deletes: String(deleted), sumBefore, sumAfter, versionStatus: version.status,
     overrides: String(overrides), reset: String(cleared.reset), recomputed: String(recomputed),
     driverWarnings: JSON.stringify(warnings), ...(headcountAsOf === null ? {} : { headcountAsOf }),
+    ...(frozen ? { frozenDriverCells: String(frozen.cells), frozenDriverRows: frozen.rows.join('; ') } : {}),
   });
-  return { updatedAt: version.updatedAt, saved: changed, deleted, recomputed, reset: cleared.reset, driverWarnings: warnings };
+  return {
+    updatedAt: version.updatedAt, saved: changed, deleted, recomputed, reset: cleared.reset, driverWarnings: warnings,
+    ...(frozen ? { frozenDriverCells: frozen } : {}),
+  };
 }
 
 /**
