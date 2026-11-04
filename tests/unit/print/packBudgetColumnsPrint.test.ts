@@ -11,6 +11,7 @@ import { chromium } from 'playwright';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import { formatStatementFigure, MONEY_SCALES } from '@/lib/format/money';
+import { BUDGET_COLUMNS_DROPPED_NOTE as DROPPED_NOTE } from '@/modules/accounting/services/packs/pages/packIncomeBudget';
 import { demoInput, demoSet } from '../services/packs/fixtures/boardPackInputs';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/packBoardPackInput';
 import { printBoardPack, type PrintedPack } from './renderPackPdf';
@@ -25,14 +26,14 @@ beforeAll(async () => {
 }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
-const incomeSheetOf = (p: PrintedPack): string => p.sheetText.find((t) => /Gross profit/.test(t) && /Net profit/.test(t))!.replace(/\s+/g, ' ');
-
 /** The sheet the income statement printed on: the one carrying its rows. */
-const incomeSheet = (): string => {
-  const sheet = printed.sheetText.find((t) => /Gross profit/.test(t) && /Operating expenses/.test(t) && /Net profit/.test(t));
+const incomeSheet = (from: PrintedPack = printed): string => {
+  const sheet = from.sheetText.find((t) => /Gross profit/.test(t) && /Operating expenses/.test(t) && /Net profit/.test(t));
   if (!sheet) throw new Error('no printed sheet carries the income statement');
   return sheet.replace(/ /g, ' ');
 };
+/** Whitespace-collapsed, so a note wrapped across lines still matches and an absence check cannot pass on a wrap. */
+const flat = (text: string): string => text.replace(/\s+/g, ' ');
 
 describe('page 6 with a budget, on paper', () => {
   it('runs past no page edge', () => {
@@ -81,7 +82,6 @@ function scaled(k: number, negative: boolean, loss: boolean): BoardPackInput {
   return { ...demoInput, set: { ...demoSet, current: { ...current, operatingProfit: op, netProfit: op - current.otherExpenses }, prior, budget: { ...demoSet.budget!, bands } } };
 }
 
-const DROPPED_NOTE = 'The Budget and Variance columns are left out of this page because the figures are too wide to fit it.';
 const page6Notes = (document: ReturnType<typeof buildBoardPackPages>): string[] =>
   document.pages.find((p) => p.navLabel === 'Income statement')!.footnotes.map((f) => f.text);
 
@@ -93,19 +93,19 @@ describe('page 6 says so when it leaves the budget columns out', () => {
     expect(page6Notes(buildBoardPackPages(scaled(k, negative, false)))).toContain(DROPPED_NOTE);
   });
 
-  it('prints the footnote in the PDF text layer, with nothing past the edge, and the pack still passes the gate', async () => {
-    const document = buildBoardPackPages(scaled(3000, true, false));
+  it.each([[1220], [3000]])('prints the footnote in the PDF text layer at k=%i, page 6 inside its edge, and the pack passes the gate', async (k) => {
+    const document = buildBoardPackPages(scaled(k, true, false));
     expect(() => assertPackIntegrity(document)).not.toThrow();
     const out = await printBoardPack(document, browser);
     // Page 3 already overflows at this figure (it did before the footnote); page 6 must not.
     expect(out.overflow.filter((o) => o.id === 'pack-page-6')).toEqual([]);
     expect(out.sheets).toBe(document.pages.length);
-    expect(incomeSheetOf(out)).toContain('Budget and Variance columns are left out');
+    expect(flat(incomeSheet(out))).toContain(DROPPED_NOTE);
   }, 180_000);
 
   it('does not print it when the columns fit', async () => {
     expect(page6Notes(doc)).not.toContain(DROPPED_NOTE);
-    expect(incomeSheet()).not.toContain('left out of this page');
+    expect(flat(incomeSheet())).not.toContain('left out of this page');
   });
 });
 

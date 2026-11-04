@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { log } from '@/lib/logger';
+import { BUDGET_COLUMNS_DROPPED_NOTE } from '@/modules/accounting/services/packs/pages/packIncomeBudget';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import { demoInput, demoSet } from '../services/packs/fixtures/boardPackInputs';
@@ -22,5 +24,19 @@ describe('REPRO 1: the required dropped-columns footnote refuses a pack the old 
     expect(() => assertPackIntegrity(doc)).not.toThrow();
     const p6 = doc.pages.find((p) => p.navLabel === 'Income statement')!;
     expect(p6.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'))).toBe(false);
+  });
+});
+
+describe('a crowded page 6 falls back to the old layout rather than refuse the pack', () => {
+  it('drops the columns, prints no dropped-columns note, still builds, and logs the warning', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    try {
+      const doc = buildBoardPackPages(creditCostOfSalesWithTax(true));
+      const p6 = doc.pages.find((p) => p.navLabel === 'Income statement')!;
+      expect(p6.footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE)).toBe(false);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('cannot fit the Budget and Variance columns'))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
