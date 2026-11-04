@@ -122,12 +122,13 @@ export function fringeNotRecordedResults(applied: Map<string, ApplyLoanResult[]>
   for (const [employeeId, apps] of applied) {
     const missed = apps.filter((a) => a.fringeBenefit > 0);
     if (missed.length === 0) continue;
+    const taken = missed.some((a) => a.principal + a.interest > 0);
     out.set(employeeId, {
       code: 'LOAN_FRINGE_NOT_RECORDED',
       severity: 'error',
       loans: missed.map((a) => a.loanNumber),
       message: `${missed.length > 1 ? 'Loans' : 'Loan'} ${listed(missed.map((a) => `${a.loanNumber} (fringe benefit ${formatMoney(a.fringeBenefit)})`))}: `
-        + `the ${missed.length > 1 ? 'instalments were' : 'instalment was'} taken, but no active earning is coded 3801, so the low-interest fringe `
+        + `the ${missed.length > 1 ? 'instalments were' : 'instalment was'} ${taken ? 'taken' : 'not taken'}, but no active earning is coded 3801, so the low-interest fringe `
         + `${missed.length > 1 ? 'benefits are' : 'benefit is'} not on the payslip and not taxed, which blocks approval. `
         + 'Add the 3801 earning under Setup → Pay Components, then recalculate.',
     });

@@ -21,6 +21,7 @@ import type { Route } from './w3-01-payroll.helpers';
 import { cashPayRegisterForRun } from '../../src/modules/accounting/services/payroll/cashPayRegisterService';
 import { postPayrollRunJournal } from '../../src/modules/accounting/services/payroll/payrollJournalPostingService';
 import { createExternalImport } from '../../src/modules/accounting/services/payroll/payrollExternalImportService';
+import { createLoan } from '../../src/modules/accounting/services/payroll/payrollLoanService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -181,6 +182,59 @@ describe('a loan instalment above pay', () => {
     expect((await pool.query('SELECT id FROM payroll_loan_payments WHERE loan_id = $1', [loan])).rows).toEqual([]);
     expect((await pool.query('SELECT outstanding_balance::float8 AS balance FROM payroll_loans WHERE id = $1', [loan])).rows)
       .toEqual([{ balance: 1000 }]);
+    await expect(postPayrollRunJournal(state.coA, state.nov, fx.admin)).rejects.toThrow(/blocked for manual review/i);
+    const mcpRefused = await postPayrollJournalTool.handler({
+      run_id: state.nov, dry_run: true, idempotency_key: 'negative-other-deductions',
+    }, {
+      userId: fx.admin, companyId: state.coA, companyRole: 'admin',
+      scopes: ['write:payroll', 'write:post'], tokenJti: 'negative-other-deductions', oauthAppId: null,
+    });
+    expect(mcpRefused.isError).toBe(true);
+    expect(mcpRefused.content[0]!.text).toContain('loan_instalment_exceeds_pay');
+  });
+
+  it('blocks the rounded principal plus interest even when the stored instalment equals available pay', async () => {
+    await fx.addComponent(state.coA, 'Loan fringe', '3801', 'earning', true);
+    const initialOtherDeduction = 30000;
+    await addRow(comp.union!, initialOtherDeduction, '2026-01-01', null, true);
+    const loan = await createLoan({
+      companyId: state.coA, employeeId: state.employee, loanNumber: 'R-ROUND', description: 'Rounding regression',
+      principal: 20000, annualInterestRate: 0.01, termMonths: 3, method: 'straight_line',
+      startDate: new Date('2026-11-01T00:00:00.000Z'), firstPeriodYear: 2026, firstPeriodMonth: 11,
+      userId: fx.admin,
+    });
+    await recalculate(state.nov);
+    const overdrawn = (await line(state.nov)).validation_results.find(
+      (result: { code: string }) => result.code === 'DEDUCTIONS_EXCEED_PAY',
+    ) as { rawNet: number };
+    await pool.query(
+      'UPDATE payroll_employee_components SET amount = $1 WHERE employee_id = $2 AND component_id = $3',
+      [initialOtherDeduction - (6683.33 - overdrawn.rawNet), state.employee, comp.union],
+    );
+    await recalculate(state.nov);
+
+    expect((await pool.query(
+      `SELECT principal::float8, interest::float8, installment::float8, paid_flag
+         FROM payroll_loan_schedule WHERE loan_id = $1 AND sequence = 1`, [loan.id],
+    )).rows).toEqual([{ principal: 6666.67, interest: 16.67, installment: 6683.33, paid_flag: false }]);
+    const blocked = await line(state.nov);
+    expect(blocked.validation_results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'LOAN_INSTALMENT_EXCEEDS_PAY', rawNet: -0.01 }),
+    ]));
+    expect((await pool.query('SELECT id FROM payroll_loan_payments WHERE loan_id = $1', [loan.id])).rows).toEqual([]);
+    expect((await pool.query(
+      'SELECT outstanding_balance::float8 AS balance FROM payroll_loans WHERE id = $1', [loan.id],
+    )).rows).toEqual([{ balance: 20000 }]);
+  });
+
+  it('does not say a blocked instalment was taken when its fringe benefit cannot be recorded', async () => {
+    await addLoan(30000, 'R-FRINGE-BLOCKED', 0.01, 30000);
+    await recalculate(state.nov);
+    const warning = (await line(state.nov)).validation_results.find(
+      (result: { code: string }) => result.code === 'LOAN_FRINGE_NOT_RECORDED',
+    );
+    expect(warning?.message).toMatch(/instalment was not taken/i);
+    expect(warning?.message).not.toMatch(/instalment was taken/i);
   });
 
   it('keeps PAYE, UIF and SDL identical when only the cash instalment becomes blocked', async () => {

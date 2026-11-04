@@ -126,7 +126,8 @@ export async function findOverdrawnLines(companyId: string, runId: string, db: T
   `) as Row[];
   return rows.flatMap((r): OverdrawnLine[] => {
     const flagged = r.coded === true
-      ? parseValidationResults(r.validation_results).find((v) => OVERDRAWN_CODES.has(v.code))
+      ? parseValidationResults(r.validation_results).find((v) => v.code === 'LOAN_INSTALMENT_EXCEEDS_PAY')
+        ?? parseValidationResults(r.validation_results).find((v) => OVERDRAWN_CODES.has(v.code))
       : undefined;
     if (!flagged && r.unreadable === true) {
       return [{

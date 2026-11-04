@@ -30,8 +30,8 @@ export function judgeLoanApplications(input: {
     period: input.period, taxYear: input.taxYear, annualPayrollEstimate: 'defer', ytd: input.ytd,
   });
   const availableCents = Math.round(Math.max(0, benefitOnly.netPay) * 100);
-  const instalmentCents = Math.round(input.applications.reduce((sum, app) => sum + app.installment, 0) * 100);
-  return { allowed: instalmentCents <= availableCents, rawNet: (availableCents - instalmentCents) / 100 };
+  const deductionCents = Math.round(input.applications.reduce((sum, app) => sum + app.principal + app.interest, 0) * 100);
+  return { allowed: deductionCents <= availableCents, rawNet: (availableCents - deductionCents) / 100 };
 }
 
 export function blockedLoanValidation(
