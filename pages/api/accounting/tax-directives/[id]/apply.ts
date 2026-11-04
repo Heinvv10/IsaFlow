@@ -2,7 +2,9 @@
  * POST /api/accounting/tax-directives/[id]/apply
  *
  * Applies an approved SARS tax directive — disburses the lump-sum net of PAYE,
- * posts the GL journal (DR 5200 / CR 2140 / CR 1110), and records the payment.
+ * posts the GL journal (DR labour, split and CC1-tagged as a pay run's —
+ * taxDirectivePaymentService / CR 2140 / CR 1110), and records the payment.
+ * 409 TAX_DIRECTIVE_SPLIT_CHANGED: the cost-centre split changed while paying; retry.
  *
  * Body: { paymentDate: 'YYYY-MM-DD', bankAccountId?: string }
  */
@@ -10,12 +12,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
-  applyTaxDirective, TaxDirectiveAlreadyAppliedError, TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError,
+  applyTaxDirective, TaxDirectiveAlreadyAppliedError, TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError,
+  TaxDirectiveWithoutEmployeeError,
 } from '@/modules/accounting/services/payroll/taxDirectivePaymentService';
 import { log } from '@/lib/logger';
 
@@ -58,11 +62,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       user.id,
     ));
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
     // Raised before anything is written (taxDirectivePaymentService), so the
     // 409 withAuth commits leaves nothing half-applied.
     if (err instanceof TaxDirectiveAlreadyAppliedError) return apiResponse.conflict(res, err.message);
     if (err instanceof TaxDirectiveNotApprovedError) return apiResponse.conflict(res, err.message);
     if (err instanceof TaxDirectiveWithoutEmployeeError) return apiResponse.badRequest(res, err.message);
+    if (err instanceof TaxDirectiveSplitChangedError) return apiResponse.conflict(res, err.message, { code: err.code, retryable: true });
     throw err;
   }
   if (result === JOURNAL_DATE_REFUSED) return;

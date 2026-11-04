@@ -8,6 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { AlertTriangle, Loader2, AlertCircle, UserCheck } from 'lucide-react';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { useCompany } from '@/contexts/CompanyContext';
+import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 
 interface DupEmployee {
   id: string;
@@ -37,6 +39,7 @@ const TABS: Array<{ key: keyof Omit<DupResult, 'totals'>; label: string }> = [
 ];
 
 export default function DuplicatesPage() {
+  const { companyRole } = useCompany();
   const [data, setData] = useState<DupResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -64,6 +67,10 @@ export default function DuplicatesPage() {
   useEffect(() => { void load(); }, [load]);
 
   const groups = data ? data[activeTab] : [];
+  // The server decides who gets bank-account groups; the role here only keeps an admin's empty tab.
+  const showBankTab = (data?.bankAccount.length ?? 0) > 0 || isHistoryAdmin(companyRole ?? undefined);
+  const visibleTabs = showBankTab ? TABS : TABS.filter((tab) => tab.key !== 'bankAccount');
+  const showBankNote = companyRole !== null && !isHistoryAdmin(companyRole);
 
   return (
     <AppLayout>
@@ -85,6 +92,9 @@ export default function DuplicatesPage() {
         </div>
 
         <div className="p-6 space-y-4">
+          {showBankNote && (
+            <p className="text-sm text-[var(--ff-text-secondary)]">Bank-account duplicates are visible to owners and admins.</p>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
@@ -97,7 +107,9 @@ export default function DuplicatesPage() {
             <div className="text-center py-16">
               <UserCheck className="h-12 w-12 text-emerald-500 mx-auto mb-3" />
               <p className="text-[var(--ff-text-primary)] font-medium">No duplicates found</p>
-              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">Employee master data is clean.</p>
+              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
+                {showBankNote ? 'No duplicates in the fields you can see.' : 'Employee master data is clean.'}
+              </p>
             </div>
           ) : data ? (
             <>
@@ -108,7 +120,7 @@ export default function DuplicatesPage() {
               </div>
 
               <div className="flex gap-2 border-b border-[var(--ff-border-primary)]">
-                {TABS.map(t => {
+                {visibleTabs.map(t => {
                   const count = data[t.key].length;
                   return (
                     <button key={t.key} onClick={() => setActiveTab(t.key)}
@@ -125,7 +137,7 @@ export default function DuplicatesPage() {
               ) : (
                 <div className="space-y-3">
                   {groups.map(g => (
-                    <div key={g.value} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
+                    <div key={`${g.value}:${g.employees[0]?.id}`} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
                       <div className="text-sm text-[var(--ff-text-secondary)] mb-3">
                         Shared value: <span className="font-mono text-[var(--ff-text-primary)]">{g.value}</span>
                       </div>

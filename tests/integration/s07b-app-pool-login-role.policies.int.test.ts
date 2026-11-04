@@ -48,6 +48,9 @@ const REVIEWED: Record<string, string> = {
   'company_invitations.invites_by_token': 'SELECT only; invites_tenant admits the same rows to forged claims',
   'oauth_apps.oauth_apps_dynamic_read': 'SELECT only; oauth_apps_owner (ALL) admits every row to a forged owner id',
   'entity_changes.entity_changes_read': 'SELECT only; the CASE is the caller\'s company role, which forged claims of an owner satisfy',
+  'payroll_bank_details.payroll_detail_read': 'the role test is the caller\'s company role, which forged claims of an owner satisfy; 915\'s list excludes the table, so app_service has no mirror to widen it',
+  'payroll_bank_details.payroll_detail_insert': 'as payroll_detail_read, and the WITH CHECK\'s employee is in the row\'s own company, which forged claims of an owner satisfy',
+  'payroll_bank_details.payroll_detail_update': 'as payroll_detail_read, for owner and admin; only is_active is updatable',
   'bureaus.bureaus_owner_member_read': 'SELECT only (932); membership is a bureau_users row with user_id = auth.uid(), which forged claims of a member satisfy; the service pool reads every bureau, as the bureau routes do',
 };
 
@@ -80,14 +83,14 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
                         'company_users', 'personal_access_tokens', 'oauth_apps', 'oauth_authorisation_codes',
                         'oauth_authorisations', 'waitlist_signups', 'portal_magic_links', 'portal_contacts',
                         'share_links', 'audit_portal_sessions', 'capture_whatsapp_claims', 'capture_inboxes',
-                        'bank_feed_connections']) t`);
+                        'bank_feed_connections', 'payroll_bank_details']) t`);
     expect(Object.fromEntries(r.rows.map((x) => [x.t, x.cmds]))).toEqual({
       users: 'rw',                    // 902: app_user selects and updates columns; no insert or delete
       companies: 'rw',                // app_user creates no company (the definer does)
       gl_journal_entries: 'adrw',
       flow_bundles: 'r',              // bundles_no_tenant_writes is `false`
       impersonation_sessions: '',     // excluded: no service path reads it
-      entity_changes: 'r',            // the forensic log: app_user only reads it
+      entity_changes: '',             // 952: excluded; it holds whole bank account numbers, and every reader switches to app_user
       audit_snapshots: 'r',           // written by the definer only
       company_invitations: 'dr',      // 930: written on the migration_admin pool; a cancel deletes
       approval_requests: 'r',         // 872: writes only through the definer functions
@@ -109,6 +112,7 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
       capture_whatsapp_claims: 'dr',
       capture_inboxes: 'dr',
       bank_feed_connections: 'drw',   // the sync stamps
+      payroll_bank_details: '',       // 952: excluded, no service path reads it; app_user's own policies still bind
     });
   });
 

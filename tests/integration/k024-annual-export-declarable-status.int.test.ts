@@ -147,8 +147,8 @@ it('EMP501 CSV export declares only approved/paid remuneration', async () => {
   const csv = String(result.state.body);
   const dataLines = csv.split('\n').slice(1);
   expect(dataLines).toEqual([
-    'Grace Hopper,1234567890,10000.00,1000.00,0.00,0.00',
-    'Alan Turing,1234567891,20000.00,2000.00,0.00,0.00',
+    'Grace Hopper,1234567890,10000.00,1000.00,0.00,0.00,0.00',
+    'Alan Turing,1234567891,20000.00,2000.00,0.00,0.00,0.00',
   ]);
   // Calculated + cancelled + prior-year + other-tenant amounts are all excluded.
   for (const excluded of ['1210000.00', '500000.00', '700000.00', '900000.00', '800000.00', 'Babbage']) {
