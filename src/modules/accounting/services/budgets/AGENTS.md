@@ -69,6 +69,11 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 - Routes: `GET/POST /api/accounting/budgets/holders`, `POST /api/accounting/budgets/slices/[id]/{submit,approve,return}` (CSRF, zod, `budget-holders:<userId>` / `budget-slice:<userId>` 60/min). UI: `/accounting/budgets/review` (`components/accounting/budgets/review/`), grid holder mode (`workspace/holderMode.ts`, `HolderBanner.tsx`).
 - Tests: `budgets-p5-r3-integrity` (breaker repros 3-5, hires, holders of a locked slice, company delete), `budgets-p5-r3-writers` (roll, rehome, seed), `budgets-p5-r3-cost` (5 000 cells), `budgets-p5-holders-db` (955 as app_user), `budgets-p5-holders-api` (routes), `budgets-p5-slice-race` (racing moves), `budgets-p5-reminders` (as isaflow_service).
 
+## P5 variance notes (P5-5, no migration)
+- Notes on Budget vs Actual rows live in `report_commentary` (`report_kind = 'budget_variance'`), served by `services/commentary/varianceCommentary.ts` (see its `.claude.md`) and `GET/POST /api/accounting/budgets/variance-notes`: GET `?versionId=&month=YYYY-MM` any member (approved only, drafts for owner/admin/manager); POST `{action:'save'|'approve'|'reject'}` (approve and reject carry `draft`, the text the approver was shown: changed since → 409, nothing approved; the page reloads the notes) (save: owner/admin/manager; approve/reject: owner/admin; zod 422, 403 role, 404 any id not the company's, 409 approved note a manager may not change), CSRF, 60 writes / 240 reads a minute per user.
+- The BvA page offers the note on a one-month window only (the report's version and month; slice = the line's account + the report's CC1/CC2/BU filter). The management pack's `budget_variance` section prints the APPROVED notes of its month's version under the table (`afs/managementPackVarianceNotes.ts`); they never reach the board pack's page 4 or a share link.
+- Budget holders (P5-6) write their own slice: the rule goes in `mayWriteVarianceNote(role, slice)` (`commentary/varianceNoteTypes.ts`), the one question the service, route and page ask.
+
 ## Business rules (decisions 1-4, 11-14)
 - Approve and lock: owner or admin. Unlock: owner only, reason 1-500 chars (DB requires a non-blank reason, 23514). Owner-only is app-enforced (decision 11).
 - Set primary: owner or admin, but owner only when the year's current primary is locked (moving reports off a locked budget is an unlock in effect; Hein, 2026-10-27).
@@ -79,6 +84,7 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 
 ## Recent changes
 - 2026-10-26 (P1, migration 947): module created.
+- 2026-11-03 (P3 follow-up LB-2(b), #1124): `primaryVersionScopeAndYears` owner rule, whatever day the window starts: a month belongs to the stored year holding its 1st (as `budget_primary_month_amounts` and year-end rehoming file it). The one exception: a template year's mid-month last month goes to the following year only when that year is stored. Where no stored year holds the 1st, master's walk holds. `trackingRange` judges the version/absent checks on the owning years. Byte-identical where every year starts on the 1st (fuzz vs master in `budgetVersionScopeLb2bAdversarial.test.ts`). Known limitation (master too): a window from the 1st of a month whose 1st is in a registry gap is a 400.
 - 2026-10-26 (P2 PR-B): grid read model, prior actuals, batch save, seed wizard, Excel template + import preview; decision 18 refusal in `upsertBudget`.
 - 2026-10-27 (P2 PR-B fix, found in the PR-D browser proof): the no-version read returns the accounts (it answered `accounts: []`, so the budgets page said "No revenue or expense accounts" instead of offering the wizard).
 - 2026-10-27 (P2 PR-D review): `GridAccount.note` (read-only budget notes on the grid).
@@ -92,3 +98,4 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 - 2026-11-03 (P5-6): migration 955 (holder slice guard, holder and slice-review rules), budget holders, the slice review workflow, holder mode in the grid read and save, version approve gated on slices (owner force with a reason), reminders + cron.
 - 2026-11-02 (P5-1 review r2): session-stamped actors/times, member-only notification recipients, href control chars refused, event documents checked, committed netted at the posted ex-VAT amount.
 - 2026-11-02 (P5-1): migration 954 (controls schema), `remainingBudget.ts` + `remainingBudgetCore.ts`, `POST /api/accounting/budgets/remaining`.
+- 2026-11-03 (P5-5): variance notes (see "P5 variance notes").

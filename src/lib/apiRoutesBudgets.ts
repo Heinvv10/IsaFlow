@@ -9,6 +9,7 @@ import type { GridCellsOnly, GridReadModel } from '@/modules/accounting/services
 import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
 import type { RemainingResult } from '@/modules/accounting/services/budgets/remainingBudgetCore';
 import type { SliceReview } from '@/modules/accounting/services/budgets/sliceReviewRead';
+import type { VarianceNote } from '@/modules/accounting/services/commentary/varianceNoteTypes';
 import type { SaveCellsResult } from '@/modules/accounting/services/budgets/gridSave';
 import type { SeedResult } from '@/modules/accounting/services/budgets/seedVersion';
 import type { ImportPreview } from '@/modules/accounting/services/budgets/budgetImportDiff';
@@ -31,6 +32,8 @@ export interface BudgetStaticRoutes {
   '/api/accounting/budget-drivers/planned-hires': PlannedHiresResponse;
   // Budgets P5-1: remaining-budget preview (POST).
   '/api/accounting/budgets/remaining': { lines: RemainingResult[] };
+  // Budgets P5-5: GET the month's notes; POST saves, approves or rejects one.
+  '/api/accounting/budgets/variance-notes': { notes: VarianceNote[] } | { note: VarianceNote };
   // Budgets P5-6: GET the slices (owner/admin every one, others their own); POST assigns a holder and answers the
   // slice; DELETE unassigns one (`{ removed, sliceDeleted }`).
   '/api/accounting/budgets/holders': { slices: SliceReview[] } | SliceReview | { removed: true; sliceDeleted: boolean };
