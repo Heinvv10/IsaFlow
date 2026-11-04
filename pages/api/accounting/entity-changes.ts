@@ -7,6 +7,8 @@
  *     admin, manager; the rest: owner, admin) — else 403;
  *   - no `entityId`: the company-wide feed (optionally one `entityType`),
  *     owner / admin only.
+ * `?entityType=payroll_bank_detail&employeeId=` an employee's bank-detail changes across every row they have had
+ *   (a change retires a row and inserts a new id); same roles and masking.
  * A `before` that is not a change of this same history is 400 (never an empty page).
  * Bank account and ID / tax numbers come back masked (…1234); employee bank
  * details also mask the branch code (…55) and holder (K…); owner / admin
@@ -30,6 +32,7 @@ import {
 const Query = z.object({
   entityType: z.enum(ENTITY_TYPES).optional(),
   entityId: UUID.optional(),
+  employeeId: UUID.optional(),
   before: UUID.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_PAGE).default(50),
 });
@@ -39,7 +42,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, companyRole } = req as CompanyAuthedRequest;
   const parsed = Query.safeParse(req.query);
   if (!parsed.success) return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
-  const { entityType, entityId, before, limit } = parsed.data;
+  const { entityType, entityId, employeeId, before, limit } = parsed.data;
+
+  if (employeeId) {
+    // An employee's bank-detail history across all their rows: same role rule and masking as one entity's.
+    if (entityId || entityType !== 'payroll_bank_detail') {
+      return apiResponse.badRequest(res, 'employeeId goes with entityType=payroll_bank_detail alone');
+    }
+    if (!mayReadType(companyRole, entityType)) {
+      return apiResponse.forbidden(res, `Your role (${companyRole ?? 'unknown'}) cannot view this history.`);
+    }
+    return page(res, companyId, { types: [entityType], entityType, employeeId, before, limit });
+  }
 
   if (entityId) {
     if (!entityType) return apiResponse.badRequest(res, 'entityType is required with entityId');

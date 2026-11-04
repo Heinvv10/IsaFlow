@@ -23,6 +23,7 @@ export function BankDetailsEditor({ employeeId, start, holderRequired, onSaved, 
   const [errors, setErrors] = useState<BankErrors>({});
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [clearHolder, setClearHolder] = useState(false);
   const refs = useRef<Partial<Record<BankKey, HTMLElement | null>>>({});
   const inFlight = useRef(false);
 
@@ -35,14 +36,14 @@ export function BankDetailsEditor({ employeeId, start, holderRequired, onSaved, 
     e.preventDefault();
     if (inFlight.current) return;
     setError('');
-    const found = validateBank(bank, { holderRequired });
+    const found = validateBank(bank, { holderRequired: holderRequired && !clearHolder });
     setErrors(found);
     const first = BANK_FIELD_ORDER.find(k => found[k]);
     if (first) { refs.current[first]?.focus(); return; }
     inFlight.current = true;
     setSaving(true);
     try {
-      await saveBankDetails(employeeId, bank);
+      await saveBankDetails(employeeId, bank, { clearHolder: clearHolder && Boolean(holderRequired) });
       onSaved();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save the bank details - try again'));
@@ -56,7 +57,14 @@ export function BankDetailsEditor({ employeeId, start, holderRequired, onSaved, 
     <form onSubmit={submit} noValidate className="space-y-4">
       {error && <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">{error}</p>}
       <BankFields bank={bank} errors={errors} onChange={change} fieldRef={k => el => { refs.current[k] = el; }}
+        holderDisabled={clearHolder}
         hint={start ? 'Type the full number again; the current one is never shown here.' : undefined} />
+      {holderRequired && (
+        <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+          <input type="checkbox" checked={clearHolder} onChange={e => { setClearHolder(e.target.checked); if (e.target.checked) change('accountHolder', ''); }} />
+          Remove account holder
+        </label>
+      )}
       <div className="flex items-center gap-3">
         <button type="submit" disabled={saving}
           className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">

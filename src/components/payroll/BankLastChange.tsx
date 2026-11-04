@@ -1,9 +1,9 @@
 import { useEntityChanges } from '@/components/accounting/entity-history/useEntityChanges';
 import { agoText } from './employeeCreate/bankDetails';
 
-/** "Changed 2 days ago by Hein": the newest recorded change to this bank-detail row. Mounted only once the row's id is known. */
-export function BankLastChange({ detailId }: { detailId: string }) {
-  const { items, loading, error } = useEntityChanges({ entityType: 'payroll_bank_detail', entityId: detailId });
+/** "Changed 2 days ago by Hein": the newest recorded change to this bank-detail row. Across every row the employee has had, so a change shows as the last change. */
+export function BankLastChange({ employeeId }: { employeeId: string }) {
+  const { items, loading, error } = useEntityChanges({ entityType: 'payroll_bank_detail', employeeId });
   const last = items[0];
   if (error) return <p className="text-xs text-red-500" role="alert">{error}</p>;
   if (loading || !last) return null;

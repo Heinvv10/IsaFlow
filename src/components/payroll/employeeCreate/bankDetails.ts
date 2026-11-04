@@ -42,19 +42,20 @@ export function validateBank(b: BankForm, opts: { holderRequired?: boolean } = {
 }
 
 /** The PUT body. A blank holder is left out (it is optional). */
-export const bankBody = (b: BankForm) => ({
+export const bankBody = (b: BankForm, opts: { clearHolder?: boolean } = {}) => ({
   bankName: b.bankName.trim(),
   branchCode: b.branchCode.trim(),
   accountNumber: b.accountNumber,
   accountType: b.accountType,
-  accountHolder: b.accountHolder.trim() || undefined,
+  // `null` is the explicit removal of a holder the details named; blank on a first entry is just left out.
+  accountHolder: opts.clearHolder ? null : (b.accountHolder.trim() || undefined),
 });
 
 /** Enter or change an employee's bank details. Throws the server's own message on a refusal. The reply (a full number for owner / admin) is not read. */
-export async function saveBankDetails(employeeId: string, bank: BankForm): Promise<void> {
+export async function saveBankDetails(employeeId: string, bank: BankForm, opts: { clearHolder?: boolean } = {}): Promise<void> {
   const res = await apiFetch(`/api/payroll/employees/${employeeId}/bank-details`, {
     method: 'PUT',
-    body: JSON.stringify(bankBody(bank)),
+    body: JSON.stringify(bankBody(bank, opts)),
   });
   await assertOk(res, 'Could not save the bank details - try again');
 }

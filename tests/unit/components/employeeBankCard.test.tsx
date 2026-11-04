@@ -62,7 +62,10 @@ describe('the masked view', () => {
     serve({ details: masked, history: change(new Date(Date.now() - 2 * 86_400_000 - 60_000).toISOString()) });
     render(<EmployeeBankCard employeeId={EMP} />);
     expect(await screen.findByText('Changed 2 days ago by Hein')).toBeTruthy();
-    expect(calls().some(([u]) => u.includes(`entityType=payroll_bank_detail`) && u.includes(`entityId=${ROW_ID}`))).toBe(true);
+    const histories = calls().map(([u]) => u).filter((u) => u.includes('/entity-changes'));
+    expect(histories.length).toBeGreaterThan(1); // the last-change line and the timeline
+    for (const u of histories) expect(u).toMatch(new RegExp(`entityType=payroll_bank_detail&employeeId=${EMP}`));
+    expect(histories.some((u) => u.includes('entityId='))).toBe(false);
   });
 
   it('shows the server message when the read is refused', async () => {
@@ -139,13 +142,17 @@ describe('roles that may not write', () => {
     expect(screen.queryByRole('button', { name: 'Add bank details' })).toBeNull();
   });
 
-  it('a viewer with details reads the masks but makes no history request (it would 403)', async () => {
-    role.current = 'viewer';
-    serve({ details: masked });
+  it.each(['viewer', 'accountant'])('a %s is refused by the server (403): the card shows its message, no buttons, and no history request', async (r) => {
+    role.current = r;
+    const message = `Your role (${r}) does not allow viewing payroll detail.`;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes('/bank-details')) return refusal(403, message);
+      throw new Error(`unexpected ${String(url)}`);
+    });
     render(<EmployeeBankCard employeeId={EMP} />);
-    expect(await screen.findByText('•••• 1234')).toBeTruthy();
+    expect((await screen.findByRole('alert')).textContent).toContain(message);
+    expect(screen.queryByRole('button')).toBeNull();
     expect(calls().some(([u]) => u.includes('/entity-changes'))).toBe(false);
-    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
 
@@ -158,6 +165,74 @@ describe('the history', () => {
     const history = await screen.findByTestId('bank-history');
     await waitFor(() => expect(history.textContent).toContain('…1234'));
     expect(history.textContent).toContain('Account number');
+  });
+});
+
+describe('history fields', () => {
+  const withBank = () => {
+    const c = change(new Date().toISOString());
+    (c.items[0] as { fields: unknown[] }).fields = [
+      { key: 'employee_id', before: null, after: '61d641dd-0000-4000-8000-000000000000', masked: false },
+      { key: 'account_type', before: null, after: 'cheque', masked: false },
+      { key: 'account_number', before: null, after: '…1234', masked: true },
+    ];
+    return c;
+  };
+
+  it('leaves out the employee uuid and words the account type as the card does', async () => {
+    serve({ details: masked, history: withBank() });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    const history = await screen.findByTestId('bank-history');
+    await waitFor(() => expect(history.textContent).toContain('…1234'));
+    expect(history.textContent).not.toContain('61d641dd');
+    expect(history.textContent).not.toContain('Employee');
+    expect(history.textContent).toContain('Cheque / current');
+    expect(history.textContent).not.toMatch(/\bcheque\b/);
+  });
+
+  it('offers no Reveal control to an owner or admin on the profile', async () => {
+    for (const r of ['owner', 'admin']) {
+      cleanup();
+      role.current = r;
+      serve({ details: masked, history: withBank() });
+      render(<EmployeeBankCard employeeId={EMP} />);
+      const history = await screen.findByTestId('bank-history');
+      await waitFor(() => expect(history.textContent).toContain('…1234'));
+      expect(screen.queryByText(/Reveal/)).toBeNull();
+    }
+  });
+});
+
+describe('removing the holder', () => {
+  const putBody = () => JSON.parse((fetchMock.mock.calls.find(([, i]) => (i as RequestInit | undefined)?.method === 'PUT')![1] as RequestInit).body as string);
+
+  it('the checkbox shows only when the details name a holder', async () => {
+    serve({ details: { ...masked, accountHolder: null } });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Change bank details' }));
+    expect(screen.queryByLabelText('Remove account holder')).toBeNull();
+  });
+
+  it('ticked: no retype needed, the holder field is off, and the PUT sends an explicit null', async () => {
+    serve({ details: masked });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Change bank details' }));
+    fill('Branch code *', '470010'); fill('Account number *', '1357924680');
+    fireEvent.click(screen.getByLabelText('Remove account holder'));
+    expect((screen.getByLabelText('Account holder') as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Save bank details' }));
+    await waitFor(() => expect(calls().some(([, m]) => m === 'PUT')).toBe(true));
+    expect(putBody().accountHolder).toBeNull();
+  });
+
+  it('unticked: the retyped holder is sent as typed', async () => {
+    serve({ details: masked });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Change bank details' }));
+    fill('Branch code *', '470010'); fill('Account number *', '1357924680'); fill('Account holder', 'K One');
+    fireEvent.click(screen.getByRole('button', { name: 'Save bank details' }));
+    await waitFor(() => expect(calls().some(([, m]) => m === 'PUT')).toBe(true));
+    expect(putBody().accountHolder).toBe('K One');
   });
 });
 
@@ -196,6 +271,34 @@ describe('another employee', () => {
       return Promise.resolve(ok({ items: [], nextCursor: null }));
     });
     const { rerender } = render(<EmployeeBankCard employeeId={EMP} />);
+    rerender(<EmployeeBankCard employeeId={OTHER} />);
+    expect(await screen.findByText('Capitec')).toBeTruthy();
+    release(ok({ ...masked, bankName: 'FNB' }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText('FNB')).toBeNull();
+  });
+});
+
+describe('the reload after a save', () => {
+  it('does not land on another employee the page has moved to', async () => {
+    const OTHER = '33333333-3333-4333-8333-333333333333';
+    let release: (r: Response) => void = () => undefined;
+    let first = true;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/bank-details') && init?.method === 'PUT') return Promise.resolve(ok(masked));
+      if (u.includes(`${EMP}/bank-details`)) {
+        if (first) { first = false; return Promise.resolve(ok(null)); }
+        return new Promise<Response>((res) => { release = res; }); // the reload after the save, held
+      }
+      if (u.includes('/bank-details')) return Promise.resolve(ok({ ...masked, bankName: 'Capitec' }));
+      return Promise.resolve(ok({ items: [], nextCursor: null }));
+    });
+    const { rerender } = render(<EmployeeBankCard employeeId={EMP} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add bank details' }));
+    fillAll();
+    fireEvent.click(screen.getByRole('button', { name: 'Save bank details' }));
+    await waitFor(() => expect(calls().filter(([u]) => u.includes(`${EMP}/bank-details`)).length).toBeGreaterThan(2));
     rerender(<EmployeeBankCard employeeId={OTHER} />);
     expect(await screen.findByText('Capitec')).toBeTruthy();
     release(ok({ ...masked, bankName: 'FNB' }));

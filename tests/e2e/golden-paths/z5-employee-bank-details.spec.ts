@@ -5,8 +5,8 @@
  *  - Create an employee with bank details on the form: the profile shows "•••• 1234" and who changed it last.
  *  - The page only ever reads the masked view (?view=masked) and the full number is nowhere in the page.
  *  - The card's history timeline holds a change row with the masked account number.
- *  - An owner / admin changes the details from the card; the card then shows the new last four, and the history row
- *    for the new details holds the new masked number and not the old one.
+ *  - An owner / admin changes the details from the card; the card then shows the new last four, and the history
+ *    holds the old masked number and the new one (across the retired row), with no employee uuid and no Reveal.
  *  - axe reports 0 critical and 0 serious on the create form (with its bank section), on the profile, on the open
  *    change form and on its field-error state, both themes.
  *  - EVIDENCE_DIR=<dir> saves screenshots (light and dark).
@@ -110,12 +110,16 @@ test('an owner / admin changes the details from the card', async ({ page }) => {
   await card.getByLabel('Account number *').fill(CHANGED);
   await card.getByRole('button', { name: 'Save bank details' }).click();
   // The details name a holder, so a change has to type it again rather than silently clear it.
-  await expect(card.getByLabel('Account holder')).toHaveAttribute('aria-invalid', 'true');
-  await card.getByLabel('Account holder').fill('Golden Bank');
+  await expect(card.getByLabel('Account holder', { exact: true })).toHaveAttribute('aria-invalid', 'true');
+  await card.getByLabel('Account holder', { exact: true }).fill('Golden Bank');
   await card.getByRole('button', { name: 'Save bank details' }).click();
   await expect(card.getByText('•••• 5678')).toBeVisible({ timeout: 30_000 });
+  // The history spans the retired row too: the old and the new account are both on the profile, with no uuid and no Reveal.
   await expect(history).toContainText('…5678', { timeout: 30_000 });
-  await expect(history).not.toContainText('…1234');
+  await expect(history).toContainText('…1234');
+  await expect(history).toContainText('Cheque / current');
+  await expect(history).not.toContainText(/Employee\s+[0-9a-f]{8}-/);
+  await expect(history.getByText(/Reveal/)).toHaveCount(0);
 });
 
 for (const theme of THEMES) {

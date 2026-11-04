@@ -4,7 +4,7 @@
  * for an employee who has been paid, and says so); everyone else sees the masks. Who changed it last comes from the
  * entity history.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Landmark, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -27,6 +27,7 @@ export function EmployeeBankCard({ employeeId }: { employeeId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
+  const currentEmployee = useRef(employeeId);
 
   const load = useCallback(async (isStale: () => boolean = () => false) => {
     try {
@@ -46,6 +47,7 @@ export function EmployeeBankCard({ employeeId }: { employeeId: string }) {
   }, [employeeId]);
 
   useEffect(() => {
+    currentEmployee.current = employeeId;
     let stale = false;
     setLoading(true);
     setEditing(false);
@@ -53,7 +55,12 @@ export function EmployeeBankCard({ employeeId }: { employeeId: string }) {
     return () => { stale = true; };
   }, [load]);
 
-  const saved = () => { setEditing(false); setLoading(true); void load(); };
+  // The reload after a save is for the employee that was saved: if the page has moved on, it must not land.
+  const saved = () => {
+    const savedFor = employeeId;
+    setEditing(false); setLoading(true);
+    void load(() => currentEmployee.current !== savedFor);
+  };
   const typeLabel = ACCOUNT_TYPES.find(t => t.value === details?.accountType)?.label ?? details?.accountType;
   const rows: Array<[string, string]> = details ? [
     ['Bank', details.bankName], ['Account number', maskedNumber(details.accountNumber)], ['Branch code', details.branchCode],
@@ -89,10 +96,10 @@ export function EmployeeBankCard({ employeeId }: { employeeId: string }) {
               </div>
             ))}
           </dl>
-          {mayWrite && <BankLastChange key={details.id} detailId={details.id} />}
+          {mayWrite && <BankLastChange key={details.id} employeeId={employeeId} />}
           {mayWrite && (
             <section aria-label="Bank details history" data-testid="bank-history" className="border-t border-[var(--ff-border-primary)] pt-3">
-              <EntityHistoryTimeline key={details.id} entityType="payroll_bank_detail" entityId={details.id} />
+              <EntityHistoryTimeline key={details.id} entityType="payroll_bank_detail" employeeId={employeeId} allowReveal={false} />
             </section>
           )}
           {admin

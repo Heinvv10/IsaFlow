@@ -9,10 +9,12 @@ interface Props {
   fieldRef?: (k: BankKey) => (el: HTMLElement | null) => void;
   /** Make a field read as already known (a change keeps the bank name and type). */
   hint?: string;
+  /** The holder is being removed: nothing to type. */
+  holderDisabled?: boolean;
 }
 
 /** The five fields, shared by the create form and the profile card. */
-export function BankFields({ bank, errors, onChange, fieldRef, hint }: Props) {
+export function BankFields({ bank, errors, onChange, fieldRef, hint, holderDisabled }: Props) {
   const ref = (k: BankKey) => fieldRef?.(k);
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -25,7 +27,7 @@ export function BankFields({ bank, errors, onChange, fieldRef, hint }: Props) {
       <Select id="bank-account-type" label="Account type *" value={bank.accountType}
         options={ACCOUNT_TYPES.map(t => ({ value: t.value, label: t.label }))}
         onChange={v => onChange('accountType', (v ?? 'cheque') as AccountType)} />
-      <Input ref={ref('accountHolder')} label="Account holder" value={bank.accountHolder} error={errors.accountHolder} autoComplete="off"
+      <Input ref={ref('accountHolder')} label="Account holder" value={bank.accountHolder} error={errors.accountHolder} autoComplete="off" disabled={holderDisabled}
         helperText="Only if the account is not in the employee's own name." onChange={e => onChange('accountHolder', e.target.value)} />
     </div>
   );
