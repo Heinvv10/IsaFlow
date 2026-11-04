@@ -5,7 +5,8 @@
  *
  * Use: `vi.mock('@/lib/neon', () => ({ sql: fakeSql }))` and the registry mock below, then fill `W`.
  */
-type Year = { fiscalYear: number; startDate: string; endDate: string };
+/** `stored: false`: a template year fiscal_year_for_date returns that has no fiscal_years row. */
+type Year = { fiscalYear: number; startDate: string; endDate: string; stored?: boolean };
 type JL = { account: string; date: string; amount: number; cc1?: string; cc2?: string }; // natural sign
 type Cell = { version: string; account: string; month: string; amount: number; cc1?: string; cc2?: string; bu?: string }; // month 'YYYY-MM'
 /** A cost centre: `type` 'cc1' (an FNO) or 'cc2' (a project, whose `parent` is its FNO). */
@@ -48,6 +49,12 @@ export function fakeSql(strings: TemplateStringsArray, ...values: unknown[]): Pr
       const [a, m, cc1, cc2, bu] = k.split('|');
       return { ...meta(a!), month: m, cc1_id: cc1 || null, cc2_id: cc2 || null, bu_id: bu || null, amount: v.toFixed(2) };
     }));
+  }
+  if (q.includes('FROM fiscal_years')) {
+    // The STORED year holding a date (budgetVersionScope.storedYearHolding).
+    const d = values.find(isDate)!;
+    return Promise.resolve(W.years.filter((y) => y.stored !== false && y.startDate <= d && y.endDate >= d)
+      .map((y) => ({ fiscal_year: y.fiscalYear, start_date: y.startDate, end_date: y.endDate })));
   }
   if (q.includes('FROM budget_versions') && q.includes('is_primary AND fiscal_year')) {
     const labels = values.find(Array.isArray) as number[];
@@ -116,5 +123,5 @@ export async function fakeFiscalYearForDate(_c: string, date: string) {
   registry.lookups += 1;
   const y = W.years.find((r) => date >= r.startDate && date <= r.endDate);
   if (!y) throw new Error(`fiscalYearForDate: no fiscal year for company x on ${date}`);
-  return { ...y, id: `fy${y.fiscalYear}`, status: 'open', kind: 'normal', stored: true, assumed: false };
+  return { ...y, id: `fy${y.fiscalYear}`, status: 'open', kind: 'normal', stored: y.stored !== false, assumed: false };
 }

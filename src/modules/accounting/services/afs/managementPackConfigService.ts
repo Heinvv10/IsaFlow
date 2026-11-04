@@ -6,6 +6,8 @@ import type { ManagementPackConfig } from './afsTypes';
 
 type Row = DbRow;
 
+// LOAD-BEARING: the key order below IS the pack's print order (PACK_SECTION_ORDER derives from it);
+// pinned by tests/unit/services/afs/managementPackSectionOrder.test.ts.
 const DEFAULT_SECTIONS_ENABLED: Record<string, boolean> = {
   cover: true,
   ai_executive_summary: true,
@@ -24,6 +26,22 @@ const DEFAULT_SECTIONS_ENABLED: Record<string, boolean> = {
   vat_dashboard: false,
   cfo_narrative: false,
 };
+
+/** Canonical print order of pack sections: the key order above, never the stored jsonb's. */
+export const PACK_SECTION_ORDER: readonly string[] = Object.keys(DEFAULT_SECTIONS_ENABLED);
+
+/** Enabled section keys in canonical order; unknown keys follow, in their stored order. */
+export function orderedEnabledSections(sectionsEnabled: Record<string, boolean>): string[] {
+  const enabled = Object.keys(sectionsEnabled).filter((k) => sectionsEnabled[k]);
+  const rank = (k: string) => {
+    const i = PACK_SECTION_ORDER.indexOf(k);
+    return i === -1 ? PACK_SECTION_ORDER.length : i;
+  };
+  return enabled
+    .map((key, storedAt) => ({ key, storedAt }))
+    .sort((a, b) => rank(a.key) - rank(b.key) || a.storedAt - b.storedAt)
+    .map(({ key }) => key);
+}
 
 const DEFAULT_CONFIG: Omit<ManagementPackConfig, 'id' | 'companyId'> = {
   enabled: false,
