@@ -30,6 +30,8 @@ const draft = {
   taxRate: 15, totalAmount: 1150, balance: 1150, notes: '', items: [],
 };
 const ok = (data: unknown) => ({ ok: true, json: () => Promise.resolve({ success: true, data }) });
+/** Budgets P5-2: approve first previews the bill's budget; none here, so it approves at once. */
+const NO_BUDGET = ok({ policy: 'warn', checks: true, lines: [], overCount: 0 });
 
 describe('supplier invoice page — late claim notice', () => {
   beforeEach(() => { fetchMock.mockReset(); vi.mocked(notify.info).mockReset(); });
@@ -37,6 +39,7 @@ describe('supplier invoice page — late claim notice', () => {
   it('tells the person the VAT was claimed in a later period', async () => {
     fetchMock.mockResolvedValueOnce(ok(draft));
     render(<SupplierInvoiceDetailPage />);
+    fetchMock.mockResolvedValueOnce(NO_BUDGET);
     fetchMock.mockResolvedValueOnce(ok({
       ...draft, status: 'approved',
       lateClaim: { claimDate: '2026-07-01', lockPeriod: { start: '2026-05-01', end: '2026-06-30' }, inputTax: 150 },
@@ -50,10 +53,11 @@ describe('supplier invoice page — late claim notice', () => {
   it('says nothing for an ordinary approval', async () => {
     fetchMock.mockResolvedValueOnce(ok(draft));
     render(<SupplierInvoiceDetailPage />);
+    fetchMock.mockResolvedValueOnce(NO_BUDGET);
     fetchMock.mockResolvedValueOnce(ok({ ...draft, status: 'approved' }));
     fetchMock.mockResolvedValueOnce(ok({ ...draft, status: 'approved' }));
     fireEvent.click(await screen.findByText('Approve & Post GL'));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
     expect(notify.info).not.toHaveBeenCalled();
   });
 });
