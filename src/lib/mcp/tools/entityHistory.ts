@@ -18,22 +18,24 @@ const TYPE_SCOPE: Partial<Record<EntityType, string>> = {
   supplier: 'read:contacts',
   customer: 'read:contacts',
   payroll_employee: 'read:payroll',
+  payroll_bank_detail: 'read:payroll',
 };
 
 export const entityHistoryTool: McpTool = {
   name: 'entity_history',
   description:
-    'WHO CHANGED A SUPPLIER, CUSTOMER, GL / BANK ACCOUNT, EMPLOYEE, MEMBER OR COMPANY SETTING, AND FROM WHAT TO WHAT. '
+    'WHO CHANGED A SUPPLIER, CUSTOMER, GL / BANK ACCOUNT, EMPLOYEE, EMPLOYEE BANK DETAILS, MEMBER OR COMPANY SETTING, AND FROM WHAT TO WHAT. '
     + 'One row per write that changed a master-data record, recorded by the database itself whoever wrote it (the app, an '
     + 'MCP token, Login-as, the platform admin portal, a script, raw SQL), newest first: op (create / update / delete), the '
     + 'changed fields with their before and after values, the actor (a user id, or db:<role> for a write with no signed-in '
     + 'user) and the channel — session (a person signed in as themselves), impersonation (Login-as; impersonator is the '
     + 'platform admin behind it), token (an API / MCP token), platform_admin, system. '
-    + 'Bank account numbers and ID / tax numbers are MASKED to their last four characters (masked: true); a changed value '
+    + 'Bank account numbers and ID / tax numbers are MASKED to their last four characters (masked: true); employee bank '
+    + 'details also mask the branch code to its last two digits and the account holder to its first letter. A changed value '
     + 'still shows as changed. Netcash keys are recorded only as a sha256 digest. '
     + 'entity_id needs entity_type. Without entity_id this is the company-wide feed (optionally one entity_type), owner / '
     + 'admin only. Members, invitations, permissions, company settings, approval rules and switches: owner / admin; '
-    + 'employees: owner / admin / manager with the read:payroll scope; suppliers and customers need read:contacts (the '
+    + 'employees and their bank details: owner / admin / manager with the read:payroll scope; suppliers and customers need read:contacts (the '
     + 'feed leaves out any type a scope is missing for). History starts when migration 888 was deployed; '
     + 'earlier changes were not recorded. Bank rules have their own history (list_bank_rules). '
     + `Paginate with next_cursor; at most ${MAX_PAGE} rows per page.`,

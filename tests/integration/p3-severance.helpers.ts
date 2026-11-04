@@ -104,6 +104,7 @@ export async function runLine(pool: Pool, runId: string, employeeId: string) {
   return (await pool.query(
     `SELECT gross_pay::float8 AS gross, paye::float8 AS paye, uif_employee::float8 AS uif_employee,
             uif_employer::float8 AS uif_employer, sdl::float8 AS sdl, net_pay::float8 AS net,
+            periodic_taxable::float8 AS periodic_taxable, annual_taxable::float8 AS annual_taxable,
             component_breakdown, validation_results
        FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2`, [runId, employeeId])).rows[0];
 }

@@ -21,6 +21,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { retryDropped } from '../helpers/droppedConnection';
 
 const SANDBOX = { name: '0GP Golden Employee Sandbox', onboardingId: '67a6e8ca-634d-4bd2-bd93-dbfe73b22ff9' };
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
@@ -135,7 +136,7 @@ test('keyboard only: create an employee with a salary, and the profile shows it'
   await expect(page.getByRole('heading', { name: 'Pay Components' })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('section', { hasText: 'Pay Components' }).getByText(RANDS).first()).toBeVisible({ timeout: 30_000 });
   const id = new URL(page.url()).pathname.split('/').pop()!;
-  const res = await page.request.get(`/api/payroll/employees/${id}/components`);
+  const res = await retryDropped(() => page.request.get(`/api/payroll/employees/${id}/components`));
   expect(res.status()).toBe(200);
   const rows = ((await res.json()) as { data: Array<{ amount: number; isRecurring: boolean }> }).data;
   expect(rows.map((r) => [r.amount, r.isRecurring])).toEqual([[25000, true]]);

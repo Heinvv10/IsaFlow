@@ -16,6 +16,10 @@ vi.mock('@/lib/neon', () => ({
   }),
   withSavepoint: vi.fn((_name: string, fn: () => Promise<unknown>) => fn()),
 }));
+vi.mock('@/modules/accounting/services/payroll/payrollOnboardingPaidMonth', async (original) => ({
+  ...(await original<typeof import('@/modules/accounting/services/payroll/payrollOnboardingPaidMonth')>()), // salaryEndRefusal stays real
+  salaryInPaidMonthRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
   createPayrollEmployee: vi.fn(async () => ({ id: 'e1' })),
 }));
