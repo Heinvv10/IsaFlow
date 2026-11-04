@@ -19,7 +19,8 @@
  * Matching, per account, failing closed (breaker C/D): every positive provisional line on the account carries the
  * SAME dimensions AND the account's blank lines sum to the provisional lines' sum (±1 cent) → every blank line
  * inherits them; otherwise a blank line inherits only from the ONE provisional line whose amount equals its posted
- * net (±1 cent); otherwise nothing. Validated (breaker B): the dimensions must be this company's active masters and
+ * net (±1 cent), and only when no other blank line would take that same provisional line (round 4); otherwise
+ * nothing. Validated (breaker B): the dimensions must be this company's active masters and
  * CC1 derivation over them must agree and add nothing; otherwise nothing is inherited.
  */
 import { sql } from '@/lib/neon';
@@ -62,9 +63,13 @@ export function matchProvisionalDimensions(lines: readonly InheritLine[], provis
       if (hasAny(d)) for (const { i } of blanks) out[i] = { cc1Id: d.cc1Id, cc2Id: d.cc2Id, buId: d.buId };
       continue;
     }
-    for (const { l, i } of blanks) {
+    // Each blank line's unique candidate of its own amount; a candidate two lines would both take goes to neither.
+    const hits = blanks.map(({ l, i }) => {
       const hit = cands.filter((c) => Math.abs(cents(c.net) - cents(l.net)) <= 1);
-      if (hit.length === 1 && hasAny(hit[0]!)) out[i] = { cc1Id: hit[0]!.cc1Id, cc2Id: hit[0]!.cc2Id, buId: hit[0]!.buId };
+      return { i, c: hit.length === 1 ? hit[0]! : null };
+    });
+    for (const { i, c } of hits) {
+      if (c && hasAny(c) && hits.filter((h) => h.c === c).length === 1) out[i] = { cc1Id: c.cc1Id, cc2Id: c.cc2Id, buId: c.buId };
     }
   }
   return out;

@@ -28,6 +28,11 @@ describe('matchProvisionalDimensions', () => {
     expect(cc1(matchProvisionalDimensions([line(800)], [prov(400, 'ft'), prov(400, 'ht')]))).toEqual([null]);
     expect(cc1(matchProvisionalDimensions([line(500), line(500)], [prov(500, 'ft'), prov(500, 'ht')]))).toEqual([null, null]);
   });
+  it('each candidate is taken by one line at most: two blank 400 lines and ONE FT 400 candidate (plus HT 300) inherit nothing', () => {
+    expect(cc1(matchProvisionalDimensions([line(400), line(400)], [prov(400, 'ft'), prov(300, 'ht')]))).toEqual([null, null]);
+    // A line whose own candidate is unique still inherits beside them.
+    expect(cc1(matchProvisionalDimensions([line(400), line(400), line(300)], [prov(400, 'ft'), prov(300, 'ht')]))).toEqual([null, null, 'ht']);
+  });
   it('amounts within one cent match; two cents do not', () => {
     expect(cc1(matchProvisionalDimensions([line(300.01), line(223.74)], [prov(300, 'ft'), prov(223.74, 'ht')]))).toEqual(['ft', 'ht']);
     expect(cc1(matchProvisionalDimensions([line(800.02)], [prov(800, 'ft'), prov(1, 'ht')]))).toEqual([null]);
