@@ -225,7 +225,9 @@ export async function executeRecurring(
   } else if (template.entityType === 'customer_invoice') {
     ({ entityId, posted } = await afterFirstWrite(() => mintRecurringCustomerInvoice(companyId, template, userId)));
   } else {
-    ({ entityId, posted } = await afterFirstWrite(() => mintRecurringSupplierInvoice(companyId, template, userId)));
+    const minted = await afterFirstWrite(() => mintRecurringSupplierInvoice(companyId, template, userId));
+    ({ entityId, posted } = minted);
+    warnings = minted.warnings ?? []; // P5-2: over budget (warn), or left a draft over budget (block)
   }
 
   // Advance schedule

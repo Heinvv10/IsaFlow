@@ -22,6 +22,8 @@ import { evaluateApprovalGate } from '../gl/approvalGate';
 import { raiseUnattendedApproval } from '../gl/approvalUnattended';
 import { stampUpstreamAuthors } from '../ar/customerInvoiceUpstreamAuthors';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
+import { recordBudgetRefusal } from '../budgets/budgetCheck';
+import { BudgetExceededError } from '../budgets/budgetCheckTypes';
 
 export async function mintRecurringCustomerInvoice(
   companyId: string,
@@ -130,7 +132,7 @@ export async function mintRecurringSupplierInvoice(
   companyId: string,
   template: RecurringTemplate,
   userId: string,
-): Promise<{ entityId: string; posted: boolean }> {
+): Promise<{ entityId: string; posted: boolean; warnings?: string[] }> {
   // BL-57: populate invoice_number, created_by (NOT-NULL)
   const data = template.templateData;
   // Same month-constant number as the customer side above, but supplier
@@ -209,7 +211,6 @@ export async function mintRecurringSupplierInvoice(
       return id;
     });
 
-  let posted = false;
   if (template.autoPost) {
     // Same as the customer side above: 'posted' is not a value
     // supplier_invoices_status_check permits (draft, pending_approval,
@@ -223,8 +224,18 @@ export async function mintRecurringSupplierInvoice(
       return { entityId, posted: false };
     }
     const { approveSupplierInvoice } = await import('../ap/supplierInvoiceWorkflowService');
-    await approveSupplierInvoice(companyId, entityId, userId);
-    posted = true;
+    // Budgets P5-2: unattended (channel system). The template row, its accounts and the document number
+    // are already locked, so the company budget lock cannot come first: lock-free (`none`), a named
+    // residual race in block mode (ap/.claude.md). Over budget under block, the bill is left a DRAFT
+    // (as the approval gate leaves one, above), the refusal recorded and reported; the schedule advances.
+    try {
+      const approved = await approveSupplierInvoice(companyId, entityId, userId, { budget: { channel: 'system', lock: 'none' } });
+      return { entityId, posted: true, ...(approved.budgetWarnings ? { warnings: approved.budgetWarnings } : {}) };
+    } catch (err) {
+      if (!(err instanceof BudgetExceededError)) throw err;
+      await recordBudgetRefusal(err); // approve's savepoint rolled back; this is on the run's transaction
+      return { entityId, posted: false, warnings: [`Left as a draft: ${err.message}`] };
+    }
   }
-  return { entityId, posted };
+  return { entityId, posted: false };
 }
