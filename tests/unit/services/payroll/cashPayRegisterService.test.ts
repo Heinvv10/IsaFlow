@@ -122,4 +122,37 @@ describe('cashPayRegisterForRun', () => {
     expect((refusal as Error).message).toMatch(/earlier version.*recalculate/i);
     expect((refusal as Error).message).not.toMatch(/loan is unchanged/i);
   });
+
+  it('refuses a legacy pre-code line whose stored breakdown shows the loan overdrew it', async () => {
+    mockImpl = () => Promise.resolve([{
+      run_id: RUN_ID, calculation_version: null, employee_id: EMP_ID, employee_number: 'E001',
+      first_name: 'Jane', last_name: 'Doe', payment_method: 'cash', net_pay: '0',
+      gross_pay: '1000', paye: '0', uif_employee: '10', loans: ['L-9'], validation_results: [],
+      component_breakdown: [
+        { amount: 1000, sarsSourceCode: '3601' },
+        { amount: 1500, sarsSourceCode: ' LOAN ' },
+      ],
+    }]);
+
+    await expect(cashPayRegisterForRun(COMPANY_ID, RUN_ID))
+      .rejects.toThrow(/Jane Doe.*E001.*L-9.*earlier version.*recalculate/i);
+    expect(sqlCalls).toHaveLength(1);
+    expect(sqlCalls[0]!.sql).toContain('component_breakdown');
+  });
+
+  it('does not refuse a legacy nil line overdrawn without the loan', async () => {
+    mockImpl = () => Promise.resolve([{
+      run_id: RUN_ID, calculation_version: null, employee_id: EMP_ID, employee_number: 'E001',
+      first_name: 'Jane', last_name: 'Doe', payment_method: 'cash', net_pay: '0',
+      gross_pay: '1000', paye: '0', uif_employee: '0', validation_results: [],
+      component_breakdown: [
+        { amount: 1000, sarsSourceCode: '3601' },
+        { amount: 1200, sarsSourceCode: '4005' },
+        { amount: 100, sarsSourceCode: 'LOAN' },
+      ],
+    }]);
+
+    const reg = await cashPayRegisterForRun(COMPANY_ID, RUN_ID);
+    expect(reg.rows).toHaveLength(1);
+  });
 });

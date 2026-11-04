@@ -10,8 +10,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { loanInstalmentBlocker, PayrollLineBlockedError } from './payrollLineBlockers';
-import type { OverdrawnLine } from './payrollRunLines';
-import type { ValidationResult } from './payrollTypes';
+import { loanOverdrawnFromStoredRow } from './payrollStoredLoanBlock';
 
 // ZAR denominations in descending order. R200 note down to 5c coin.
 // Values stored as integer cents internally.
@@ -86,7 +85,10 @@ export async function cashPayRegisterForRun(
            e.first_name,
            e.last_name,
            e.payment_method,
-           prl.net_pay,
+           prl.net_pay, prl.gross_pay, prl.paye, prl.uif_employee, prl.component_breakdown,
+           (SELECT COALESCE(array_agg(l.loan_number ORDER BY l.loan_number), '{}') FROM payroll_loan_payments p
+              JOIN payroll_loans l ON l.id = p.loan_id AND l.company_id = prh.company_id
+             WHERE p.run_id = prl.run_id AND l.employee_id = prl.employee_id) AS loans,
            prl.validation_results
       FROM payroll_run_headers prh
       LEFT JOIN payroll_run_lines prl ON prl.run_id = prh.id
@@ -98,20 +100,8 @@ export async function cashPayRegisterForRun(
   `) as DbRow[];
   if (lineRows.length === 0) throw new Error(`Payroll run ${runId} not found in company`);
 
-  const blocked = lineRows.flatMap((r): OverdrawnLine[] => {
-    const validations = Array.isArray(r.validation_results) ? r.validation_results as ValidationResult[] : [];
-    const result = validations.find((item) => item.code === 'LOAN_INSTALMENT_EXCEEDS_PAY');
-    if (!result || typeof result.rawNet !== 'number' || result.rawNet >= 0) return [];
-    return [{
-      employeeId: String(r.employee_id),
-      employeeNumber: String(r.employee_number),
-      employeeName: `${String(r.first_name)} ${String(r.last_name)}`.trim(),
-      shortfall: -result.rawNet,
-      fromLoan: true,
-      calculationVersion: r.calculation_version == null ? null : Number(r.calculation_version),
-      loans: result.loans ?? [],
-    }];
-  });
+  // Legacy pre-code lines are rebuilt from this same snapshot's breakdown, as findOverdrawnLines does.
+  const blocked = lineRows.flatMap(loanOverdrawnFromStoredRow);
   const blocker = loanInstalmentBlocker(blocked);
   if (blocker) throw new PayrollLineBlockedError(blocker.detail);
 
