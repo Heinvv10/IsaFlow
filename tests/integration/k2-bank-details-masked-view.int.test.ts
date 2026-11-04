@@ -12,6 +12,7 @@ import { callRoute, reasonOf } from './r035-approval.helpers';
 import { dataOf, impersonationToken } from './r035-pr2.helpers';
 import { cleanupEntityChanges, members, newCompany } from './entity-changes.helpers';
 import { listEntityChanges } from '../../src/modules/accounting/services/core/entityChanges/entityChangeQuery';
+import { mcpCall } from './entity-changes-mcp.helpers';
 import { employee, OTHER, outsideRls, put, ROW, url } from './k1-employee-bank-details.helpers';
 
 assertDisposable();
@@ -106,12 +107,15 @@ describe('GET /entity-changes?entityType=payroll_bank_detail&employeeId=', () =>
     expect(afterOf(res, 'account_number')).toEqual(['…3456']);
   });
 
-  it.each([['viewer', () => v], ['accountant', () => x]])('a %s is refused 403 (by the role check, before any query)', async (_r, user) => {
+  it.each([['viewer', () => v], ['accountant', () => x]])('a %s is refused 403 by the role check', async (_r, user) => {
     const c = await newCompany(pool, [[o, 'owner'], [v, 'viewer'], [x, 'accountant']], companies);
     const e = await employee(pool, c);
     expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
     const res = await byEmployee(user(), c, { entityType: 'payroll_bank_detail', employeeId: e });
     expect(res.state.statusCode).toBe(403);
+    const error = (res.state.body as { error?: { code?: string; message?: string } }).error;
+    expect(error?.code).toBe('FORBIDDEN');
+    expect(error?.message).toContain('cannot view this history');
     expect(JSON.stringify(res.state.body)).not.toContain('…3456');
   });
 
@@ -173,5 +177,21 @@ describe('GET /entity-changes?entityType=payroll_bank_detail&employeeId=', () =>
     const query = { types: ['payroll_bank_detail'] as const, entityType: 'payroll_bank_detail' as const, employeeId: e, limit: 50 };
     expect((await outsideRls(pool, c1, () => listEntityChanges(c1, query))).items.length).toBeGreaterThan(0);
     expect((await outsideRls(pool, c2, () => listEntityChanges(c2, query))).items).toEqual([]);
+  });
+});
+
+describe('MCP entity_history for payroll_bank_detail (the deliberate exception: masked only)', () => {
+  it.each(['owner', 'admin', 'manager'])('a %s token holder with read:payroll gets masked values and no full value anywhere', async (role) => {
+    const c = await newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager']], companies);
+    const e = await employee(pool, c);
+    expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
+    expect((await put(tokens[o]!, c, e, OTHER)).state.statusCode).toBe(200);
+    const [{ id }] = (await pool.query<{ id: string }>('SELECT id FROM payroll_bank_details WHERE employee_id = $1 AND is_active', [e])).rows as [{ id: string }];
+    const user = { owner: o, admin: a, manager: m }[role]!;
+    const out = await mcpCall(pool, user, c, role, 'entity_history', { entity_type: 'payroll_bank_detail', entity_id: id }, ['read:reports', 'read:payroll']);
+    expect(out.isError, out.content[0]!.text).toBeFalsy();
+    const text = out.content[0]!.text;
+    for (const masked of ['…4680', '…10', 'K…']) expect(text).toContain(masked);
+    for (const full of [OTHER.accountNumber, OTHER.branchCode, OTHER.accountHolder, ROW.accountNumber, ROW.accountHolder]) expect(text).not.toContain(full);
   });
 });

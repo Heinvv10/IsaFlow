@@ -13,8 +13,12 @@
  * Bank account and ID / tax numbers come back masked (…1234); employee bank
  * details also mask the branch code (…55) and holder (K…); owner / admin
  * reveal one change through POST /api/accounting/entity-changes-reveal.
- * payroll_bank_detail history: a person in their own session only (Login-as 403 IMPERSONATION_FORBIDDEN, token 403
- * AGENT_FORBIDDEN), as the bank-details route; the all-types feed leaves those rows out for any other session.
+ * On THIS route payroll_bank_detail history is for a person in their own session only: the bank-detail paths (entityId,
+ * employeeId, entityType) refuse Login-as (403 IMPERSONATION_FORBIDDEN) and tokens (403 AGENT_FORBIDDEN), as the
+ * bank-details route does, and the all-types feed leaves those rows out for any such session.
+ * MCP is the deliberate exception (Hein, 2026-11-04): `entity_history` and `compare_audit_snapshot` return the MASKED
+ * bank-detail history (…last4, branch …last2, holder initial, never a reveal) to a token holder with an owner / admin /
+ * manager role and read:payroll.
  * RLS (entity_changes_read) enforces the same reading rules underneath.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
