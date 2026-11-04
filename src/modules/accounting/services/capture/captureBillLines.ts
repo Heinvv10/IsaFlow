@@ -19,10 +19,13 @@
  * before its posting claim, where a 4xx still commits nothing. The pipeline
  * skipped a line it could not use and inserted the bill anyway — with no lines
  * when it skipped them all, and a R0 bill for a document with no total.
- * Dimensions (budgets P5-2b, breaker REPRO 2): the lines take the supplier's
- * default CC1 / CC2 / BU (migration 890) through `resolveBillLineDimensions`, as
- * `createSupplierInvoice` does; they were written with none, so under a block
- * budget policy an auto-approved capture on a per-centre budget was withdrawn.
+ * Dimensions (budgets P5-2b, breaker REPRO 2 and round 2): when the slip is
+ * the evidence of a bank-first provisional (the one `attachEvidenceToProvisional`
+ * will link, `findAttachableProvisional`), a line takes that provisional's
+ * dimensions (`ap/supplierInvoiceProvisionalDims`); a line that inherits nothing
+ * takes the supplier's default CC1 / CC2 / BU (migration 890) through
+ * `resolveBillLineDimensions`, as `createSupplierInvoice` does. Both are written
+ * with the lines, before an approval request can bind the draft's digest.
  */
 import { sql } from '@/lib/neon';
 import type { SupplierRule } from './supplierRulesService';
@@ -32,6 +35,8 @@ import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
 import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
+import { inheritSlipDimensions, provisionalDimLines } from '../ap/supplierInvoiceProvisionalDims';
+import { findAttachableProvisional } from './evidenceAttachmentService';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -115,11 +120,24 @@ export async function planCaptureBillLines(
   const accountRefusal = await billLineAccountRefusal(companyId, lines.map((l) => l.glAccountId));
   if (accountRefusal) return { refusal: accountRefusal };
   try {
-    return { lines: await resolveBillLineDimensions(companyId, invoice.supplierId, lines) };
+    // The slip's provisional first; the supplier's defaults only for the lines that inherited nothing.
+    const slip = await slipLines(companyId, invoice, lines);
+    const rest = await resolveBillLineDimensions(companyId, invoice.supplierId, lines.filter((_, i) => !slip.inherited[i]));
+    let next = 0;
+    return { lines: slip.lines.map((l, i) => (slip.inherited[i] ? l : rest[next++]!)) };
   } catch (err) {
     if (err instanceof DimensionRefusal) return { refusal: err.message };
     throw err;
   }
+}
+
+/** The lines with the dimensions of the provisional the slip will evidence, if any (read only). */
+async function slipLines(companyId: string, invoice: PipelineInvoiceInput, lines: readonly CaptureBillLine[]) {
+  const prov = await findAttachableProvisional(companyId, invoice.supplierId || null, invoice.totalAmount, invoice.invoiceDate);
+  if (!prov) return { lines: [...lines], inherited: lines.map(() => false) };
+  const header = { subtotal: Math.round((invoice.totalAmount - invoice.taxAmount) * 100) / 100, totalAmount: invoice.totalAmount, taxRate: invoice.taxRate };
+  return inheritSlipDimensions(companyId, lines, header, await provisionalDimLines(companyId, prov.jeId, prov.bankAccountId),
+    await companyDefaultExpense(companyId));
 }
 
 /** On the request transaction, straight after the invoice INSERT — the column list createSupplierInvoice writes. */

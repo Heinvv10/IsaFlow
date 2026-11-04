@@ -1,26 +1,31 @@
 /**
- * A bill that settles a bank-first provisional (R-127) inherits the provisional's dimensions on lines that name none
- * (budgets P5-2b, breaker PROBE 3; Hein's ruling, 2026-11-04).
+ * A slip bill's lines inherit the bank-first provisional's dimensions (R-127) when they are WRITTEN as a draft
+ * (budgets P5-2b; Hein's ruling on breaker PROBE 3, moved to draft time by the coordinator's ruling on breaker
+ * round 2, 2026-11-04).
  *
  * The provisional already expensed the slip on its own account and slice (say opex · FT); approving the bill posts
- * the bill's expense and reclasses the provisional's lines away. A bill line with no CC1 / CC2 / BU posted the expense
- * on the unassigned slice while the reclass credited FT, so the spend moved off FT and, under a block budget policy,
- * the bill was refused as off-slice. Rule, per bill line that names no CC1, CC2 or BU (and carries no legacy
- * cost-centre pick, item or bill): the provisional's line on the SAME account (the line's own, else the default
- * expense account it posts to) gives its dimensions; of several, the one whose amount matches the line's posted net
- * (to the cent); none matching, or several matching, nothing is guessed and the line stays as it is. A provisional
- * line carrying a dimension since deactivated gives nothing either: approval refuses an inactive dimension on a
- * line it posts (`assertPostsStoredDimensions`), while the provisional's own reclass still copies it (R-127).
+ * the bill's expense and reclasses the provisional's lines away. A bill line with no CC1 / CC2 / BU would post the
+ * expense on the unassigned slice while the reclass credited FT. So a draft line that names no dimension (and no
+ * legacy pick) takes the provisional's, BEFORE any approval request can bind the draft's digest (migration 873 hashes
+ * the lines' cc1/cc2/bu): approve, Post to GL, the budget preview and the MCP dry run read the stored lines only and
+ * write nothing (writing at approve broke R-035's backstop, breaker test A).
  *
- * Live (approve and Post to GL, after the claim and before the lines are built and checked): the inherited
- * dimensions are WRITTEN to `supplier_invoice_items`, so the bill shows what it posted. The preview and the MCP dry
- * run apply the same rule to the unlocked provisional (`peekProvisionalReclassLines`) without writing.
+ * Writers that apply it (the only ones that write lines of a bill tied to a slip): the capture line plan
+ * (`capture/captureBillLines`, capture post + AI pipeline; the provisional the attach will link, read before the
+ * lines are written) and MCP `update_supplier_invoice` (`supplierInvoiceDraftUpdateGuards.planLines`; the standing
+ * provisional behind the bill's slip). Precedence for a blank line: the provisional's dimensions, then the
+ * supplier's defaults.
+ *
+ * Matching, per account, failing closed (breaker C/D): every positive provisional line on the account carries the
+ * SAME dimensions AND the account's blank lines sum to the provisional lines' sum (±1 cent) → every blank line
+ * inherits them; otherwise a blank line inherits only from the ONE provisional line whose amount equals its posted
+ * net (±1 cent); otherwise nothing. Validated (breaker B): the dimensions must be this company's active masters and
+ * CC1 derivation over them must agree and add nothing; otherwise nothing is inherited.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import type { SupplierInvoice, SupplierInvoiceItem } from '../../types/ap.types';
-import type { ProvisionalClaim } from './provisionalSettlementClaim';
-import type { DocumentLine } from '../budgets/budgetCheckCore';
+import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
+import { DimensionRefusal, type DimensionIds } from '../gl/dimensions/dimensionTypes';
 
 /** A provisional journal line: its account, dimensions and net (debit − credit). */
 export interface ProvisionalDimLine {
@@ -31,93 +36,118 @@ export interface ProvisionalDimLine {
   net: number;
 }
 
+/** A draft line as the matcher sees it: the account it posts to, its posted net, and whether it names nothing. */
+export interface InheritLine { account: string | null; net: number; blank: boolean }
+
+export type Dims = { cc1Id: string | null; cc2Id: string | null; buId: string | null };
+
 const cents = (n: number): number => Math.round(n * 100);
-const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+const low = (v: string | null | undefined): string | null => (v ? v.toLowerCase() : null);
+const dimsKey = (d: Dims): string => `${low(d.cc1Id) ?? ''}|${low(d.cc2Id) ?? ''}|${low(d.buId) ?? ''}`;
+const hasAny = (d: Dims): boolean => Boolean(d.cc1Id || d.cc2Id || d.buId);
 
-/** Each item's posted net, as `buildExpenseLines` allocates it (gross storage scaled to the subtotal). */
-function postedNets(invoice: SupplierInvoice): number[] {
-  const items = invoice.items ?? [];
-  const sum = items.reduce((s, i) => s + i.lineTotal, 0);
-  const gross = invoice.taxRate > 0 && Math.abs(sum - invoice.totalAmount) < 0.02 && sum > 0;
-  return items.map((i) => (gross ? i.lineTotal * (invoice.subtotal / sum) : i.lineTotal));
+/** Pure: per line, the dimensions it would inherit (null: none). See the header for the rule. */
+export function matchProvisionalDimensions(lines: readonly InheritLine[], provisional: readonly ProvisionalDimLine[]): Array<Dims | null> {
+  const out: Array<Dims | null> = lines.map(() => null);
+  const accounts = new Set(lines.filter((l) => l.blank && l.account).map((l) => low(l.account)!));
+  for (const account of accounts) {
+    const blanks = lines.map((l, i) => ({ l, i })).filter(({ l }) => l.blank && low(l.account) === account);
+    const cands = provisional.filter((p) => low(p.glAccountId) === account && cents(p.net) > 0);
+    if (cands.length === 0) continue;
+    const allSame = cands.every((c) => dimsKey(c) === dimsKey(cands[0]!));
+    const blankSum = blanks.reduce((s, { l }) => s + cents(l.net), 0);
+    const candSum = cands.reduce((s, c) => s + cents(c.net), 0);
+    if (allSame && Math.abs(blankSum - candSum) <= 1) {
+      const d = cands[0]!;
+      if (hasAny(d)) for (const { i } of blanks) out[i] = { cc1Id: d.cc1Id, cc2Id: d.cc2Id, buId: d.buId };
+      continue;
+    }
+    for (const { l, i } of blanks) {
+      const hit = cands.filter((c) => Math.abs(cents(c.net) - cents(l.net)) <= 1);
+      if (hit.length === 1 && hasAny(hit[0]!)) out[i] = { cc1Id: hit[0]!.cc1Id, cc2Id: hit[0]!.cc2Id, buId: hit[0]!.buId };
+    }
+  }
+  return out;
 }
 
-const namesNoDimension = (item: SupplierInvoiceItem, invoice: SupplierInvoice): boolean =>
-  !item.cc1Id && !item.cc2Id && !item.buId && !item.costCenterId && !invoice.costCenterId;
-
-/** Pure: the invoice with the inherited dimensions on its items, and the items that took them. */
-export function inheritProvisionalDimensions(
-  invoice: SupplierInvoice, provisional: readonly ProvisionalDimLine[], defaultExpenseId: string, active: ReadonlySet<string>,
-): { invoice: SupplierInvoice; inherited: SupplierInvoiceItem[] } {
-  const items = invoice.items ?? [];
-  if (provisional.length === 0 || items.length === 0) return { invoice, inherited: [] };
-  const nets = postedNets(invoice);
-  const inherited: SupplierInvoiceItem[] = [];
-  const next = items.map((item, i) => {
-    if (!namesNoDimension(item, invoice)) return item;
-    const account = item.glAccountId || defaultExpenseId;
-    const onAccount = provisional.filter((p) => same(p.glAccountId, account) && p.net > 0);
-    const pick = onAccount.length === 1 ? onAccount
-      : onAccount.filter((p) => Math.abs(cents(p.net) - cents(nets[i] ?? 0)) <= 1);
-    const from = pick.length === 1 ? pick[0]! : null;
-    const dims = from ? [from.cc1Id, from.cc2Id, from.buId].filter((d): d is string => d !== null) : [];
-    if (dims.length === 0 || !dims.every((d) => active.has(d.toLowerCase()))) return item;
-    const src = from!;
-    const withDims: SupplierInvoiceItem = {
-      ...item,
-      ...(src.cc1Id ? { cc1Id: src.cc1Id } : {}), ...(src.cc2Id ? { cc2Id: src.cc2Id } : {}), ...(src.buId ? { buId: src.buId } : {}),
-    };
-    inherited.push(withDims);
-    return withDims;
-  });
-  return { invoice: inherited.length > 0 ? { ...invoice, items: next } : invoice, inherited };
-}
-
-/** The provisional lines' dimensions that are this company's ACTIVE masters (lower-cased ids). */
-export async function activeDimensionIds(companyId: string, lines: readonly ProvisionalDimLine[]): Promise<Set<string>> {
-  const centres = [...new Set(lines.flatMap((l) => [l.cc1Id, l.cc2Id]).filter((v): v is string => v !== null))];
-  const units = [...new Set(lines.map((l) => l.buId).filter((v): v is string => v !== null))];
-  const out = new Set<string>();
+/** The dimension sets that may be inherited: active masters of the company, and CC1 derivation agrees and adds nothing. */
+async function inheritable(companyId: string, sets: readonly Dims[]): Promise<Set<string>> {
+  const centres = [...new Set(sets.flatMap((d) => [d.cc1Id, d.cc2Id]).filter((v): v is string => v !== null))];
+  const units = [...new Set(sets.map((d) => d.buId).filter((v): v is string => v !== null))];
+  const active = new Set<string>();
   if (centres.length > 0) {
     for (const r of (await sql`SELECT id::TEXT AS id FROM cost_centres WHERE company_id = ${companyId}::UUID AND is_active
-                                 AND id = ANY(${centres}::UUID[])`) as DbRow[]) out.add(String(r.id).toLowerCase());
+                                 AND id = ANY(${centres}::UUID[])`) as DbRow[]) active.add(String(r.id).toLowerCase());
   }
   if (units.length > 0) {
     for (const r of (await sql`SELECT id::TEXT AS id FROM business_units WHERE company_id = ${companyId}::UUID AND is_active
-                                 AND id = ANY(${units}::UUID[])`) as DbRow[]) out.add(String(r.id).toLowerCase());
+                                 AND id = ANY(${units}::UUID[])`) as DbRow[]) active.add(String(r.id).toLowerCase());
   }
-  return out;
+  const ok = new Set<string>();
+  for (const d of sets) {
+    const ids = [d.cc1Id, d.cc2Id, d.buId].filter((v): v is string => v !== null);
+    if (!ids.every((v) => active.has(v.toLowerCase()))) continue;
+    const asLine: DimensionIds = { ...(d.cc1Id ? { cc1Id: d.cc1Id } : {}), ...(d.cc2Id ? { cc2Id: d.cc2Id } : {}), ...(d.buId ? { buId: d.buId } : {}) };
+    try {
+      const [derived] = await deriveLineDimensions(companyId, [asLine]);
+      const same = dimsKey({ cc1Id: derived?.cc1Id ?? null, cc2Id: derived?.cc2Id ?? null, buId: derived?.buId ?? null }) === dimsKey(d);
+      if (same) ok.add(dimsKey(d));
+    } catch (err) {
+      if (!(err instanceof DimensionRefusal)) throw err;
+    }
+  }
+  return ok;
 }
 
-/** The claim's settle lines as `ProvisionalDimLine`s. */
-export const claimDimLines = (claim: ProvisionalClaim | null | undefined): ProvisionalDimLine[] =>
-  (claim?.settleLines ?? []).map((l) => ({
-    glAccountId: l.glAccountId, cc1Id: l.cc1Id ?? null, cc2Id: l.cc2Id ?? null, buId: l.buId ?? null, net: (l.debit || 0) - (l.credit || 0),
-  }));
+/** A draft line the writers hand over (capture plan, MCP update plan). */
+type DraftLine = DimensionIds & { glAccountId?: string | null; lineTotal: number; costCenterId?: string | null };
 
-/** The preview's reclass lines (credits of the provisional's lines) back as the provisional's own lines. */
-export const reclassDimLines = (reclass: readonly DocumentLine[]): ProvisionalDimLine[] =>
-  reclass.map((l) => ({ glAccountId: l.glAccountId, cc1Id: l.cc1Id, cc2Id: l.cc2Id, buId: l.buId, net: -l.amount }));
+/** Each line's posted net, as `buildExpenseLines` allocates it (gross storage scaled to the subtotal). */
+function postedNets(lines: readonly DraftLine[], header: { subtotal: number; totalAmount: number; taxRate: number }): number[] {
+  const sum = lines.reduce((s, l) => s + l.lineTotal, 0);
+  const gross = header.taxRate > 0 && Math.abs(sum - header.totalAmount) < 0.02 && sum > 0;
+  return lines.map((l) => (gross ? l.lineTotal * (header.subtotal / sum) : l.lineTotal));
+}
 
 /**
- * Live: inherits from the CLAIMED provisional and writes the inherited dimensions to the bill's lines (only to a line
- * that still names none). Call after `claimEvidencedProvisional`, under the bill's row lock, before the lines are built.
+ * The draft lines with the provisional's dimensions on the blank ones that match (validated), and which took them.
+ * `defaultExpenseId`: the account a line with none posts to (null: such a line matches nothing).
  */
-export async function applyProvisionalDimensions(
-  companyId: string, invoice: SupplierInvoice, claim: ProvisionalClaim | null | undefined, defaultExpenseId: string,
-): Promise<SupplierInvoice> {
-  const lines = claimDimLines(claim);
-  if (lines.length === 0) return invoice;
-  const { invoice: out, inherited } = inheritProvisionalDimensions(invoice, lines, defaultExpenseId, await activeDimensionIds(companyId, lines));
-  for (const item of inherited) {
-    await sql`
-      UPDATE supplier_invoice_items sii
-         SET cc1_id = ${item.cc1Id ?? null}::UUID, cc2_id = ${item.cc2Id ?? null}::UUID, bu_id = ${item.buId ?? null}::UUID
-        FROM supplier_invoices si
-       WHERE sii.id = ${item.id}::UUID AND sii.supplier_invoice_id = si.id
-         AND si.id = ${invoice.id}::UUID AND si.company_id = ${companyId}::UUID
-         AND sii.cc1_id IS NULL AND sii.cc2_id IS NULL AND sii.bu_id IS NULL
-    `;
-  }
-  return out;
+export async function inheritSlipDimensions<T extends DraftLine>(
+  companyId: string, lines: readonly T[], header: { subtotal: number; totalAmount: number; taxRate: number },
+  provisional: readonly ProvisionalDimLine[], defaultExpenseId: string | null,
+): Promise<{ lines: T[]; inherited: boolean[] }> {
+  const none = { lines: [...lines], inherited: lines.map(() => false) };
+  if (provisional.length === 0 || lines.length === 0) return none;
+  const nets = postedNets(lines, header);
+  const matched = matchProvisionalDimensions(lines.map((l, i) => ({
+    account: l.glAccountId || defaultExpenseId, net: nets[i] ?? 0,
+    blank: !l.cc1Id && !l.cc2Id && !l.buId && !l.costCenterId,
+  })), provisional);
+  const sets = [...new Map(matched.filter((d): d is Dims => d !== null).map((d) => [dimsKey(d), d])).values()];
+  if (sets.length === 0) return none;
+  const ok = await inheritable(companyId, sets);
+  const inherited = matched.map((d) => d !== null && ok.has(dimsKey(d)));
+  return {
+    inherited,
+    lines: lines.map((l, i) => {
+      const d = matched[i];
+      if (!inherited[i] || !d) return l;
+      return { ...l, ...(d.cc1Id ? { cc1Id: d.cc1Id } : {}), ...(d.cc2Id ? { cc2Id: d.cc2Id } : {}), ...(d.buId ? { buId: d.buId } : {}) };
+    }),
+  };
+}
+
+/** A provisional journal's lines, all but its bank line, as `ProvisionalDimLine`s (company-scoped). */
+export async function provisionalDimLines(companyId: string, jeId: string, bankAccountId: string): Promise<ProvisionalDimLine[]> {
+  const rows = (await sql`
+    SELECT gl_account_id::TEXT AS gl_account_id, cc1_id::TEXT AS cc1_id, cc2_id::TEXT AS cc2_id, bu_id::TEXT AS bu_id,
+           (debit - credit)::TEXT AS net
+      FROM gl_journal_lines
+     WHERE journal_entry_id = ${jeId}::UUID AND company_id = ${companyId}::UUID AND gl_account_id <> ${bankAccountId}::UUID
+  `) as DbRow[];
+  return rows.map((r) => ({
+    glAccountId: String(r.gl_account_id), cc1Id: r.cc1_id ? String(r.cc1_id) : null, cc2Id: r.cc2_id ? String(r.cc2_id) : null,
+    buId: r.bu_id ? String(r.bu_id) : null, net: Number(r.net),
+  }));
 }

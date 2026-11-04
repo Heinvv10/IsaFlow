@@ -1,53 +1,43 @@
 /**
- * Budgets P5-2b, breaker PROBE 3 (Hein's ruling, 2026-11-04): the pure rule a bill settling a bank-first provisional
- * inherits the provisional's dimensions by. Real-PG proof: tests/integration/budgets-p5-off-slice-provisional.int.test.ts.
+ * Budgets P5-2b (breaker round 2, coordinator's ruling 2026-11-04): the pure matching rule a slip bill's blank draft
+ * lines inherit the bank-first provisional's dimensions by, failing closed. Real-PG proof (validation, the draft
+ * writers, approve reading stored lines only): tests/integration/budgets-p5-off-slice-provisional*.int.test.ts.
  */
 import { describe, expect, it } from 'vitest';
 import {
-  inheritProvisionalDimensions, type ProvisionalDimLine,
+  matchProvisionalDimensions, type InheritLine, type ProvisionalDimLine,
 } from '@/modules/accounting/services/ap/supplierInvoiceProvisionalDims';
-import type { SupplierInvoice, SupplierInvoiceItem } from '@/modules/accounting/types/ap.types';
 
-const item = (o: Partial<SupplierInvoiceItem> = {}): SupplierInvoiceItem => ({
-  id: 'i1', supplierInvoiceId: 'b', description: 'x', quantity: 1, unitPrice: 800, taxRate: 15, taxAmount: 120,
-  lineTotal: 800, glAccountId: 'opex', createdAt: '', ...o,
-});
-const bill = (items: SupplierInvoiceItem[], o: Partial<SupplierInvoice> = {}): SupplierInvoice => ({
-  id: 'b', subtotal: items.reduce((s, i) => s + i.lineTotal, 0), taxRate: 15, totalAmount: 920, items, ...o,
-} as SupplierInvoice);
+const line = (net: number, o: Partial<InheritLine> = {}): InheritLine => ({ account: 'opex', net, blank: true, ...o });
 const prov = (net: number, cc1Id: string | null, glAccountId = 'opex'): ProvisionalDimLine => ({ glAccountId, cc1Id, cc2Id: null, buId: null, net });
-const ACTIVE = new Set(['ft', 'ht']);
-const cc1Of = (r: ReturnType<typeof inheritProvisionalDimensions>) => r.invoice.items!.map((i) => i.cc1Id ?? null);
+const cc1 = (r: ReturnType<typeof matchProvisionalDimensions>) => r.map((d) => d?.cc1Id ?? null);
 
-describe('inheritProvisionalDimensions', () => {
-  it('one provisional line on the account: its dimensions, whatever the amount', () => {
-    const r = inheritProvisionalDimensions(bill([item()]), [prov(500, 'ft'), prov(120, null, 'vat')], 'defexp', ACTIVE);
-    expect(cc1Of(r)).toEqual(['ft']);
-    expect(r.inherited.map((i) => i.id)).toEqual(['i1']);
+describe('matchProvisionalDimensions', () => {
+  it('one candidate whose amount is the blank lines\' sum: every blank line inherits (one line, or two summing to it)', () => {
+    expect(cc1(matchProvisionalDimensions([line(800)], [prov(800, 'ft'), prov(120, null, 'vat')]))).toEqual(['ft']);
+    expect(cc1(matchProvisionalDimensions([line(500), line(300)], [prov(800, 'ft')]))).toEqual(['ft', 'ft']);
   });
-  it('several on the account: the one matching the posted net; none or two matching: nothing guessed', () => {
-    expect(cc1Of(inheritProvisionalDimensions(bill([item()]), [prov(300, 'ft'), prov(800, 'ht')], 'defexp', ACTIVE))).toEqual(['ht']);
-    expect(cc1Of(inheritProvisionalDimensions(bill([item()]), [prov(400, 'ft'), prov(400, 'ht')], 'defexp', ACTIVE))).toEqual([null]);
-    expect(cc1Of(inheritProvisionalDimensions(bill([item()]), [prov(800, 'ft'), prov(800, 'ht')], 'defexp', ACTIVE))).toEqual([null]);
+  it('breaker C: a single FT 100 candidate against blank lines of 800 and 50 inherits nothing', () => {
+    expect(cc1(matchProvisionalDimensions([line(800), line(50)], [prov(100, 'ft')]))).toEqual([null, null]);
   });
-  it('gross storage: matched on the net the line posts', () => {
-    const gross = bill([item({ lineTotal: 920 })], { subtotal: 800 });
-    expect(cc1Of(inheritProvisionalDimensions(gross, [prov(800, 'ft'), prov(100, 'ht')], 'defexp', ACTIVE))).toEqual(['ft']);
+  it('breaker D: FT 400 + FT 400 against an 800 line inherits FT (all candidates agree and the sums match)', () => {
+    expect(cc1(matchProvisionalDimensions([line(800)], [prov(400, 'ft'), prov(400, 'ft')]))).toEqual(['ft']);
   });
-  it('a line naming a dimension, or carrying the legacy pick (line or bill), is left alone', () => {
-    for (const b of [bill([item({ cc1Id: 'ht' })]), bill([item({ buId: 'ops' })]), bill([item({ costCenterId: 'old' })]),
-      bill([item()], { costCenterId: 'old' })]) {
-      expect(inheritProvisionalDimensions(b, [prov(800, 'ft')], 'defexp', ACTIVE).inherited).toEqual([]);
-    }
+  it('different candidates: each blank line takes the ONE candidate of its own amount; none or two: nothing', () => {
+    expect(cc1(matchProvisionalDimensions([line(500), line(300)], [prov(500, 'ft'), prov(300, 'ht')]))).toEqual(['ft', 'ht']);
+    expect(cc1(matchProvisionalDimensions([line(800)], [prov(400, 'ft'), prov(400, 'ht')]))).toEqual([null]);
+    expect(cc1(matchProvisionalDimensions([line(500), line(500)], [prov(500, 'ft'), prov(500, 'ht')]))).toEqual([null, null]);
   });
-  it('a line with no account matches the default expense account it posts to; another account never matches', () => {
-    expect(cc1Of(inheritProvisionalDimensions(bill([item({ glAccountId: undefined })]), [prov(800, 'ft', 'defexp')], 'defexp', ACTIVE))).toEqual(['ft']);
-    expect(cc1Of(inheritProvisionalDimensions(bill([item()]), [prov(800, 'ft', 'travel')], 'defexp', ACTIVE))).toEqual([null]);
+  it('amounts within one cent match; two cents do not', () => {
+    expect(cc1(matchProvisionalDimensions([line(300.01), line(223.74)], [prov(300, 'ft'), prov(223.74, 'ht')]))).toEqual(['ft', 'ht']);
+    expect(cc1(matchProvisionalDimensions([line(800.02)], [prov(800, 'ft'), prov(1, 'ht')]))).toEqual([null]);
   });
-  it('a provisional line whose dimension was deactivated gives nothing (approval would refuse it)', () => {
-    expect(inheritProvisionalDimensions(bill([item()]), [prov(800, 'ft')], 'defexp', new Set(['ht'])).inherited).toEqual([]);
+  it('a line naming a dimension is not blank and is never matched; nor counted in the sum', () => {
+    expect(cc1(matchProvisionalDimensions([line(500, { blank: false }), line(300)], [prov(300, 'ft')]))).toEqual([null, 'ft']);
   });
-  it('a provisional line with no dimensions gives nothing', () => {
-    expect(inheritProvisionalDimensions(bill([item()]), [prov(800, null)], 'defexp', ACTIVE).inherited).toEqual([]);
+  it('another account never matches; a candidate with no dimensions, or a credit, gives nothing', () => {
+    expect(cc1(matchProvisionalDimensions([line(800)], [prov(800, 'ft', 'travel')]))).toEqual([null]);
+    expect(cc1(matchProvisionalDimensions([line(800)], [prov(800, null)]))).toEqual([null]);
+    expect(cc1(matchProvisionalDimensions([line(800)], [prov(-800, 'ft')]))).toEqual([null]);
   });
 });

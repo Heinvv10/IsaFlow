@@ -15,6 +15,10 @@ import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
+import { getSystemAccountId } from '../gl/systemAccountResolver';
+import { MissingSystemAccountError } from '../gl/systemAccountKeys';
+import { inheritSlipDimensions, provisionalDimLines } from './supplierInvoiceProvisionalDims';
+import { standingProvisionalRef } from './supplierInvoiceBudgetProvisional';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -22,6 +26,23 @@ import {
   type ComputedSupplierInvoiceItem,
   type SupplierInvoiceTotals,
 } from './supplierInvoiceTotals';
+
+/** The lines with the dimensions of the provisional behind the bill's slip, when it has a standing one (read only). */
+async function slipBillLines(
+  companyId: string, invoiceId: string, computed: SupplierInvoiceTotals, taxRate: number,
+): Promise<ComputedSupplierInvoiceItem[]> {
+  const prov = await standingProvisionalRef(companyId, invoiceId);
+  if (!prov) return computed.items;
+  let defaultExpense: string | null = null;
+  try {
+    defaultExpense = await getSystemAccountId('default_expense', companyId);
+  } catch (err) {
+    if (!(err instanceof MissingSystemAccountError)) throw err; // no role: a line with no account matches nothing
+  }
+  const header = { subtotal: computed.subtotal, totalAmount: computed.totalAmount, taxRate };
+  return (await inheritSlipDimensions(companyId, computed.items, header,
+    await provisionalDimLines(companyId, prov.jeId, prov.bankAccountId), defaultExpense)).lines;
+}
 
 /** A refusal whose message is safe to show the caller. Raised before any write. */
 export class SupplierInvoiceDraftUpdateRefusal extends Error {
@@ -62,8 +83,10 @@ export async function planLines(
   let totals: SupplierInvoiceTotals;
   try {
     const computed = computeSupplierInvoiceTotals(keepStoredDimensions(items, kept), taxRate, false);
+    // Budgets P5-2b: a blank line of a slip bill takes the standing provisional's dimensions, at this draft write.
+    const slip = await slipBillLines(companyId, invoiceId, computed, taxRate);
     // CC1 derived from each line's CC2; a conflicting CC1 is refused (no query without a CC2).
-    totals = { ...computed, items: await deriveLineDimensions(companyId, computed.items) };
+    totals = { ...computed, items: await deriveLineDimensions(companyId, slip) };
     await assertDocumentDimensions(companyId, totals.items);
   } catch (err) {
     if (isDimensionRefusal(err)) throw new SupplierInvoiceDraftUpdateRefusal(err.message);
