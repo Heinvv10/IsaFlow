@@ -6,7 +6,15 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { clearInvoiceDrafts, invoiceDraftKey } from '@/lib/invoiceDrafts';
+import {
+  clearInvoiceDrafts,
+  invoiceDraftGeneration,
+  invoiceDraftKey,
+  invoiceDraftsClearedSince,
+  readInvoiceDraft,
+  removeInvoiceDraft,
+  writeInvoiceDraft,
+} from '@/lib/invoiceDrafts';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
@@ -31,6 +39,17 @@ const drafts = () => Object.keys(localStorage).filter((k) => k.startsWith('isafl
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); authState.value = null; });
 
 describe('clearInvoiceDrafts', () => {
+  it('does not access browser storage during SSR', () => {
+    vi.stubGlobal('window', undefined);
+    const generation = invoiceDraftGeneration();
+    expect(generation).toBe('0:0');
+    expect(invoiceDraftsClearedSince(generation)).toBe('none');
+    expect(readInvoiceDraft('draft', (value): value is object => typeof value === 'object')).toBeNull();
+    expect(writeInvoiceDraft('draft', { data: {}, savedAt: 1 }, generation)).toBe(false);
+    expect(removeInvoiceDraft('draft')).toBe(false);
+    expect(clearInvoiceDrafts()).toBe(true);
+  });
+
   it('removes every invoice draft and nothing else', () => {
     plant();
     expect(clearInvoiceDrafts()).toBe(true);

@@ -18,6 +18,7 @@ const GENERATION_KEY = 'isaflow:invoice-drafts-generation'; // not under INVOICE
 let localGeneration = 0;
 
 function storedGeneration(): number {
+  if (typeof window === 'undefined') return 0;
   try {
     const n = Number(window.localStorage.getItem(GENERATION_KEY) ?? '0');
     return Number.isFinite(n) ? n : 0;
@@ -51,6 +52,7 @@ export interface StoredDraft<T> { data: T; savedAt: number }
 
 /** The draft under `key`, or null when there is none, it cannot be read, or it is not one this code wrote. */
 export function readInvoiceDraft<T>(key: string, isData: (v: unknown) => v is T): StoredDraft<T> | null {
+  if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(key);
     if (raw === null) return null;
@@ -64,6 +66,7 @@ export function readInvoiceDraft<T>(key: string, isData: (v: unknown) => v is T)
 
 /** False when the browser refused the write, or a clear came after `since` (invoiceDraftGeneration). */
 export function writeInvoiceDraft<T>(key: string, draft: StoredDraft<T>, since: string): boolean {
+  if (typeof window === 'undefined') return false;
   if (since !== invoiceDraftGeneration()) return false;
   try {
     window.localStorage.setItem(key, JSON.stringify(draft));
@@ -74,6 +77,7 @@ export function writeInvoiceDraft<T>(key: string, draft: StoredDraft<T>, since: 
 }
 
 export function removeInvoiceDraft(key: string): boolean {
+  if (typeof window === 'undefined') return false;
   try {
     window.localStorage.removeItem(key);
     return true;
