@@ -129,17 +129,18 @@ async function storedYearHolding(companyId: string, date: string): Promise<numbe
 /**
  * The registry years overlapping [startDate, endDate], each with its months inside the window.
  *
- * Owner rule (ledger LB-2(b)): a month two years share (one ends and the next starts inside it)
- * counts once. Between two STORED years it is the year holding its 1st, the key a change of year end
- * files a month under (`budgetYearRehome`, `fiscalYearForDate(month)`), whatever day the window starts.
- * When the 1st lies in a template year and the month's later part in a stored year, it is the stored
- * year's. Otherwise (template to template, a gap, a template to a gap) master's attribution holds:
- * the year of the window's first day, then each following year from its first whole month.
+ * Owner rule (ledger LB-2(b)), whatever day the window starts: a month belongs to the STORED year
+ * holding its 1st (as `budget_primary_month_amounts` and year-end rehoming file it:
+ * `fiscalYearForDate(month)`, `budgetYearRehome`). The one exception: a template year's mid-month last
+ * month goes to the following year only when that year is stored. Where no stored year holds the 1st
+ * (a template year, a gap), master's walk holds: the year of the window's first day, then each
+ * following year from its first whole month.
  *
- * The walk is master's: from the window's first DAY to the day after each year ends. Two steps apply
- * the rule where that walk alone would not, both only where a year starts mid-month:
- *   - The window starts in a year that starts mid-month inside the window's first month: the first
- *     month goes to the stored year holding its 1st, if there is one (`storedYearHolding`).
+ * The walk is master's: from the window's first DAY to the day after each year ends. It already gives
+ * every month after the window's first to the year holding its 1st, so two steps apply the rule where
+ * it alone would not, both only where a year starts mid-month:
+ *   - The window starts in a year (stored or template) that starts mid-month inside the window's first
+ *     month: that month goes to the stored year holding its 1st, if there is one (`storedYearHolding`).
  *   - A template year ending mid-month keeps none of its last month ONLY when the day after it ends
  *     is in a stored year (`storedYearHolding`); the walk goes on to that stored year for it even past
  *     the window's end, so the owed lookup always lands on a stored year (never a gap).
@@ -185,8 +186,9 @@ async function handsOnLastMonth(companyId: string, year: FiscalYearRecord): Prom
 }
 
 /**
- * The window starts in a year that starts mid-month inside its first month: that month belongs to the
- * stored year holding its 1st, when there is one. Only such a registry pays the extra lookup.
+ * The window starts in a year (stored or template) that starts mid-month inside its first month: that
+ * month belongs to the stored year holding its 1st, when there is one; otherwise master's walk keeps it
+ * in the year of the first day. Only such a registry pays the extra lookup.
  */
 async function giveFirstMonthToItsOwner(companyId: string, startYear: FiscalYearRecord, parts: Part[], firstMonth: string | null) {
   const head = parts[0];

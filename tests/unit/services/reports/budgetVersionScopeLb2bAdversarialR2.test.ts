@@ -1,5 +1,6 @@
 /**
- * LB-2(b) regression tests, #1124 round 2 (adopted from the adversarial review of 00fa209c1). Same
+ * LB-2(b) regression tests, #1124 rounds 2 and 3 (adopted from the adversarial reviews of 00fa209c1
+ * and 203475be3). Same
  * harness as budgetVersionScopeLb2bAdversarial.test.ts: the real facade/range/core, run with master's
  * scope (helpers/budgetVersionScopeMaster.ts) and the live one. The registry answers below were proved
  * on PG16 with migration 940's fiscal_year_template: fixtures/lb2b-pg-proof-r2.txt. `stored: false` =
@@ -111,6 +112,42 @@ describe('a template year ending on a month end keeps its last month', () => {
     W.cells = [{ version: 'v26', account: SALES, month: '2026-02', amount: 100 }, { version: 'v27', account: SALES, month: '2026-03', amount: 10 }];
     const { before, after } = await both(() => getBudgetVariance(CO, '2026-01-01', '2026-03-31'));
     expect([before.ok && budget(before.value, SALES), after.ok && budget(after.value, SALES)]).toEqual([110, 110]);
+  });
+});
+
+describe('R3 (pinned, 203475be3): stored year -> template year, the month belongs to the stored year holding its 1st', () => {
+  // PG-proved registry (fixtures/lb2b-pg-proof-r2.txt, co3): stored FY2027 ends 14 Mar 2027; FY2028 is a template from 15 Mar 2027.
+  // Coordinator's ruling: the CODE is right here. March 2027 is filed under FY2027 by budget_primary_month_amounts and by
+  // year-end rehoming (fiscal_year_for_date('2027-03-01')), which is the point of LB-2(b). Master read FY2028's March (180).
+  const setup = () => {
+    W.years = [
+      { fiscalYear: 2027, startDate: '2026-03-15', endDate: '2027-03-14' },
+      { fiscalYear: 2028, startDate: '2027-03-15', endDate: '2028-03-14', stored: false },
+      { fiscalYear: 2029, startDate: '2028-03-15', endDate: '2029-03-14', stored: false },
+    ];
+    W.versions = { 2027: 'v27', 2028: 'v28' };
+    // Both grids hold March 2027 (gridSave: budgetMonthKeysInWindow(start, end)).
+    W.cells = [
+      { version: 'v27', account: SALES, month: '2027-03', amount: 70 },
+      { version: 'v28', account: SALES, month: '2027-03', amount: 80 },
+      { version: 'v28', account: SALES, month: '2027-04', amount: 100 },
+    ];
+  };
+  it('a window starting in the template year after the boundary reads FY2027\'s March: 170 (master 180)', async () => {
+    setup();
+    const { before, after } = await both(() => getBudgetVariance(CO, '2027-03-20', '2027-04-30'));
+    expect([before.ok && budget(before.value, SALES), after.ok && budget(after.value, SALES)]).toEqual([180, 170]);
+  });
+  it('the template head year\'s own window (its first month\'s 1st is in stored FY2027) reads FY2027\'s March: 170 (master 180)', async () => {
+    setup();
+    const { before, after } = await both(() => getBudgetVariance(CO, '2027-03-15', '2028-03-14'));
+    expect([before.ok && budget(before.value, SALES), after.ok && budget(after.value, SALES)]).toEqual([180, 170]);
+    expect(after.ok && after.value.fiscalYear).toBe(2028);
+  });
+  it('a window from the 1st already read FY2027\'s March on master: the start day no longer matters', async () => {
+    setup();
+    const { before, after } = await both(() => getBudgetVariance(CO, '2027-03-01', '2027-04-30'));
+    expect([before.ok && budget(before.value, SALES), after.ok && budget(after.value, SALES)]).toEqual([170, 170]);
   });
 });
 

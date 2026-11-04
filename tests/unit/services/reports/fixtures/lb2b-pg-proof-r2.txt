@@ -1,3 +1,7 @@
+# PG16 + migration 940's fiscal_year_for_date / fiscal_year_template, run by the #1124 round-2
+# adversarial reviewer (archive: /home/hein/audit-archive/p3fu/adv-1124/r2/pg-proof.txt).
+# co3: stored FY2027 ends 14 Mar 2027, later years are templates; co4: stored FY2027, template
+# FY2028, gap, stored FY2029 from 1 Jun 2028.
 INSERT 0 2
 INSERT 0 1
        w        | fiscal_year | start_date |  end_date  
@@ -10,10 +14,8 @@ INSERT 0 1
  co3 2028-03-20 |        2029 | 2028-03-15 | 2029-03-14
 (1 row)
 
-ERROR:  function fiscal_year_for_label(unknown, integer) does not exist
-LINE 1: ...l 2028' w, fiscal_year, start_date, end_date FROM fiscal_yea...
-                                                             ^
-HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+[aborted probe, trimmed: a fiscal_year_for_label call with an untyped argument failed to resolve
+ (a typo in the reviewer's probe, not registry behaviour); it proves nothing and was not used.]
 INSERT 0 2
        w        | fiscal_year | start_date |  end_date  
 ----------------+-------------+------------+------------

@@ -1,3 +1,7 @@
+# PG16 + migration 940's fiscal_year_for_date / fiscal_year_template, run by the #1124 round-1
+# adversarial reviewer (archive: /home/hein/audit-archive/p3fu/adv-1124/pg-proof.txt).
+# co1: first stored year starts 15 Mar 2025 (1 Mar 2025 is a template year's); then a registry
+# gap over 1 Mar 2026 (FY2026 ends 25 Feb, FY2027 starts 5 Mar).
        w        | fiscal_year | start_date |  end_date  | stored 
 ----------------+-------------+------------+------------+--------
  co1 1 Mar 2025 |        2025 | 2024-03-15 | 2025-03-14 | f
