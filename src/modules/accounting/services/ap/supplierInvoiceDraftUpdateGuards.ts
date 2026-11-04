@@ -30,9 +30,9 @@ import {
 /** The lines with the dimensions of the provisional behind the bill's slip, when it has a standing one (read only). */
 async function slipBillLines(
   companyId: string, invoiceId: string, computed: SupplierInvoiceTotals, taxRate: number,
-): Promise<ComputedSupplierInvoiceItem[]> {
+): Promise<{ items: ComputedSupplierInvoiceItem[]; inherited: InheritedDimension[] }> {
   const prov = await standingProvisionalRef(companyId, invoiceId);
-  if (!prov) return computed.items;
+  if (!prov) return { items: computed.items, inherited: [] };
   let defaultExpense: string | null = null;
   try {
     defaultExpense = await getSystemAccountId('default_expense', companyId);
@@ -40,9 +40,15 @@ async function slipBillLines(
     if (!(err instanceof MissingSystemAccountError)) throw err; // no role: a line with no account matches nothing
   }
   const header = { subtotal: computed.subtotal, totalAmount: computed.totalAmount, taxRate };
-  return (await inheritSlipDimensions(companyId, computed.items, header,
-    await provisionalDimLines(companyId, prov.jeId, prov.bankAccountId), defaultExpense)).lines;
+  const out = await inheritSlipDimensions(companyId, computed.items, header,
+    await provisionalDimLines(companyId, prov.jeId, prov.bankAccountId), defaultExpense);
+  const inherited = out.lines.flatMap((l, i) => (out.inherited[i]
+    ? [{ line: i + 1, cc1Id: l.cc1Id ?? null, cc2Id: l.cc2Id ?? null, buId: l.buId ?? null, provisionalId: prov.jeId }] : []));
+  return { items: out.lines, inherited };
 }
+
+/** A sent line (1-based) that took the slip's provisional's dimensions at this draft write (P5-2b round 4). */
+export interface InheritedDimension { line: number; cc1Id: string | null; cc2Id: string | null; buId: string | null; provisionalId: string }
 
 /** A refusal whose message is safe to show the caller. Raised before any write. */
 export class SupplierInvoiceDraftUpdateRefusal extends Error {
@@ -66,7 +72,7 @@ export async function planLines(
   number: string,
   items: SupplierInvoiceItemInput[],
   taxRate: number,
-): Promise<(SupplierInvoiceTotals & { taxRate: number }) | null> {
+): Promise<(SupplierInvoiceTotals & { taxRate: number; inheritedDimensions: InheritedDimension[] }) | null> {
   try {
     assertSupplierInvoiceLines(items, false);
   } catch (err) {
@@ -80,13 +86,15 @@ export async function planLines(
     FROM supplier_invoice_items sii
     WHERE supplier_invoice_id = ${invoiceId}::UUID
     ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}`) as DbRow[];
+  let inheritedDimensions: InheritedDimension[] = [];
   let totals: SupplierInvoiceTotals;
   try {
     const computed = computeSupplierInvoiceTotals(keepStoredDimensions(items, kept), taxRate, false);
     // Budgets P5-2b: a blank line of a slip bill takes the standing provisional's dimensions, at this draft write.
     const slip = await slipBillLines(companyId, invoiceId, computed, taxRate);
+    inheritedDimensions = slip.inherited;
     // CC1 derived from each line's CC2; a conflicting CC1 is refused (no query without a CC2).
-    totals = { ...computed, items: await deriveLineDimensions(companyId, slip) };
+    totals = { ...computed, items: await deriveLineDimensions(companyId, slip.items) };
     await assertDocumentDimensions(companyId, totals.items);
   } catch (err) {
     if (isDimensionRefusal(err)) throw new SupplierInvoiceDraftUpdateRefusal(err.message);
@@ -122,7 +130,7 @@ export async function planLines(
       + 'Edit it in the app instead, or cancel and re-enter it.',
     );
   }
-  return { ...totals, taxRate };
+  return { ...totals, taxRate, inheritedDimensions };
 }
 
 /** Migration 646's index — (company, supplier, number) on live, non-blank rows — as a worded refusal. */

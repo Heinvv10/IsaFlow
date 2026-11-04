@@ -29,6 +29,7 @@ import {
   refuseIfNumberTaken,
   refuseIfRecordsPinBill,
   refuseIfSettlementPlanned,
+  type InheritedDimension,
 } from './supplierInvoiceDraftUpdateGuards';
 
 export { SupplierInvoiceDraftUpdateRefusal };
@@ -58,7 +59,7 @@ export interface SupplierInvoiceDraftUpdatePlan {
   notes: string | null;
   totalBefore: number;
   /** The recomputed lines and totals, or null when the lines are untouched or resent unchanged. */
-  lines: (SupplierInvoiceTotals & { taxRate: number }) | null;
+  lines: (SupplierInvoiceTotals & { taxRate: number; inheritedDimensions: InheritedDimension[] }) | null;
   /** Patch field names whose value differs from the stored one. */
   changed: string[];
   /** Supplier, number or total moved, so the duplicate fingerprint must too. */

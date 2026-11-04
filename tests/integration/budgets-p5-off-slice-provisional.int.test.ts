@@ -36,7 +36,7 @@ const approve = (invoiceId: string, extra: Record<string, unknown> = {}, user = 
 const digest = async (bill: string) => String((await pool.query(
   "SELECT approval_document_digest($1, 'supplier_invoice', $2) AS d", [f.co, bill])).rows[0].d);
 /** The draft write: MCP update_supplier_invoice replacing the lines with blank opex lines of these nets, as the manager. */
-async function rewriteLines(bill: string, nets: number[]): Promise<void> {
+async function rewriteLines(bill: string, nets: number[]): Promise<Record<string, unknown>> {
   const r = await openRequest(pool, f, f.manager);
   try {
     const ctx = { companyId: f.co, userId: f.manager, companyRole: 'manager', scopes: ['write:invoices'], tokenJti: 'p52b', oauthAppId: null };
@@ -46,6 +46,7 @@ async function rewriteLines(bill: string, nets: number[]): Promise<void> {
     }, ctx as never));
     if (res.isError) throw new Error(res.content[0]!.text);
     await r.commit();
+    return JSON.parse(res.content[0]!.text) as Record<string, unknown>;
   } finally { await r.rollback(); }
 }
 /** A slip bill raised from a fresh provisional (`opex` lines), its lines then rewritten blank at `nets`. */
@@ -143,6 +144,16 @@ describe('the draft write inherits; approve reads the stored lines', () => {
     expect(await billLineCc1(pool, bill)).toEqual([f.cc.FT]);
     const r = await approve(bill);
     expect({ code: r.statusCode, err: r.body.error?.message ?? null }).toEqual({ code: 200, err: null });
+  });
+
+  it('the MCP result lists the inherited lines and the provisional they came from (round 4, LOW 5)', async () => {
+    const doc = await seedSlipProvisional(pool, f, '2027-02-10', [{ amount: 500, cc1: f.cc.FT }, { amount: 300, cc1: null }]);
+    const je = String((await pool.query('SELECT id FROM gl_journal_entries WHERE source_document_id = $1', [doc])).rows[0].id);
+    const bill = await makeSlipBill(pool, f, doc, '2027-02-12');
+    const out = await rewriteLines(bill, [300, 500]);
+    expect(out.inherited_dimensions).toEqual([{ line: 2, cc1_id: f.cc.FT, cc2_id: null, bu_id: null, provisional_id: je }]);
+    const other = await makeSlipBill(pool, f, doc, '2027-02-12');
+    expect((await rewriteLines(other, [400, 400])).inherited_dimensions).toBeUndefined(); // nothing matches: nothing listed
   });
 
   it('FT 500 + HT 300 against blank 500 + 300: each line its own (300 HT, 500 FT)', async () => {
