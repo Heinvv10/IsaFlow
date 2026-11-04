@@ -23,7 +23,7 @@ const LOGO_PATH = (() => {
 
 export type EmailType = 'invoice' | 'statement' | 'quote' | 'payment_receipt' | 'invite' | 'practice_digest' | 'practice_monthly' | 'other';
 
-export interface EmailLogPayload {
+interface EmailLogPayload {
   companyId: string | null;
   recipientEmail: string;
   subject: string;
@@ -34,8 +34,7 @@ export interface EmailLogPayload {
 }
 
 /**
- * Inserts a row into email_log and reports whether the audit row was written.
- * Never throws.
+ * Inserts a row into email_log; never throws.
  *
  * AWAITED and SAVEPOINTED deliberately. `sendEmail` is called from inside
  * request and cron transactions (see dunningSend.ts), so this INSERT runs on
@@ -44,11 +43,8 @@ export interface EmailLogPayload {
  * statement — the `dunning_sends.email_status` UPDATE that records an email
  * already delivered — died with 25P02. An audit log must never be able to lose
  * the record of the thing it is auditing.
- *
- * Exported for a sender that calls `sendEmail` WITHOUT `_log` outside any
- * transaction and writes the row itself in a short one (the budget digest).
  */
-export async function logEmailAttempt(payload: EmailLogPayload): Promise<boolean> {
+async function logEmailAttempt(payload: EmailLogPayload): Promise<void> {
   try {
     await withSavepoint('email_log_write', async () => {
       await sql`
@@ -65,10 +61,8 @@ export async function logEmailAttempt(payload: EmailLogPayload): Promise<boolean
         )
       `;
     });
-    return true;
   } catch (err: unknown) {
     log.error('Failed to write email_log row', { error: err instanceof Error ? err.message : err }, 'emailService');
-    return false;
   }
 }
 

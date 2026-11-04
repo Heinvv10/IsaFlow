@@ -7,12 +7,9 @@
  *   company with neither has nothing to evaluate and gets no "last evaluated" row.
  * - Per company, its OWN transaction on the service pool (`withAlsTransaction`: the pool's login, in
  *   production `isaflow_service` → app_service, no claims, the 915 mirrors; census finding 9), with
- *   `app.current_company_id` set to the company and statements bounded at 120 s: evaluate, record
- *   "last evaluated", plan the email digest; COMMIT. A failure (a lock held past its wait, a bad
+ *   `app.current_company_id` set to the company and statements bounded at 120 s: evaluate and record
+ *   "last evaluated"; COMMIT. A failure (a lock held past its wait, a bad
  *   row, a timeout) rolls back that company only, is logged and counted, and the run goes on.
- * - After the commit, the digest is sent outside any transaction, each email's email_log row then
- *   written in a short company-context transaction as the cron's role; only with the company flag AND
- *   BUDGET_ALERT_EMAIL_ENABLED=1 (`overspendDigest.ts`); otherwise nothing is sent.
  * - `asOf` defaults to today in South Africa. Budget-holder reminders (P5-6) are not here.
  */
 import { sql } from '@/lib/neon';
@@ -22,10 +19,6 @@ import { withAlsTransaction } from '@/lib/alsTransaction';
 import { todayInSast } from '@/lib/saDateParser';
 import { recordEvaluated } from './budgetAlertRuns';
 import { evaluateOverspend } from './overspendAlerts';
-import {
-  acknowledgeOverspendDigest, enqueueOverspendDigest, pendingOverspendDigest, planOverspendDigest,
-  sendOverspendDigest, type DigestOutcome, type DigestPlan,
-} from './overspendDigest';
 
 /** The ALS actor of the cron's transactions (no person; nothing it writes stamps a user). */
 export const BUDGET_ALERT_CRON_ACTOR = 'system:budget-alerts';
@@ -37,7 +30,6 @@ export interface CompanyAlertRun {
   ok: boolean;
   fired: number;
   resolved: number;
-  digest: DigestOutcome | null;
   /** A fixed phrase (the log holds the detail): exception text can name ids. */
   error?: string;
 }
@@ -48,7 +40,6 @@ export interface BudgetAlertCronResult {
   failed: number;
   fired: number;
   resolved: number;
-  emailsSent: number;
   perCompany: CompanyAlertRun[];
 }
 
@@ -78,34 +69,22 @@ export async function loadAlertCompanies(): Promise<string[]> {
 }
 
 async function runCompany(companyId: string, asOf: string): Promise<CompanyAlertRun> {
-  let plan: DigestPlan;
   let fired = 0;
   let resolved = 0;
   try {
-    plan = await inServiceTx(companyId, async () => {
+    await inServiceTx(companyId, async () => {
       const out = await evaluateOverspend(companyId, { asOf });
       fired = out.fired.length;
       resolved = out.resolved.length;
       await recordEvaluated(companyId, { source: 'daily', fired, resolved });
-      const fresh = await planOverspendDigest(companyId, out.fired);
-      if (fresh.skip === null) return enqueueOverspendDigest(companyId, fresh);
-      return fresh.skip === 'nothing_fired' ? pendingOverspendDigest(companyId) : fresh;
     });
   } catch (err) {
     log.error('budget alerts: company evaluation failed', {
       companyId, asOf, error: err instanceof Error ? err.message : String(err), code: (err as { code?: unknown })?.code,
     }, 'cron-budget-alerts');
-    return { companyId, ok: false, fired: 0, resolved: 0, digest: null, error: 'evaluation failed; see logs' };
+    return { companyId, ok: false, fired: 0, resolved: 0, error: 'evaluation failed; see logs' };
   }
-  // After the commit: each email goes out with NO transaction open (a slow mail server holds no
-  // pooled connection); its email_log row is written in a short company-context transaction of its
-  // own (same pool and role, company GUC set). Never throws; counts each actual outcome.
-  const digest = await sendOverspendDigest(
-    companyId, plan, (write) => inServiceTx(companyId, write),
-    (emailId) => acknowledgeOverspendDigest(companyId, emailId),
-  );
-  return { companyId, ok: digest.failed === 0, fired, resolved, digest,
-    ...(digest.failed > 0 ? { error: 'digest delivery failed; see logs' } : {}) };
+  return { companyId, ok: true, fired, resolved };
 }
 
 export async function runBudgetAlertCron(opts: { asOf?: string } = {}): Promise<BudgetAlertCronResult> {
@@ -122,11 +101,10 @@ export async function runBudgetAlertsFor(companies: readonly string[], asOf: str
     failed: perCompany.filter((r) => !r.ok).length,
     fired: perCompany.reduce((s, r) => s + r.fired, 0),
     resolved: perCompany.reduce((s, r) => s + r.resolved, 0),
-    emailsSent: perCompany.reduce((s, r) => s + (r.digest?.sent ?? 0), 0),
     perCompany,
   };
   log.info('budget alerts: daily run complete', {
-    asOf, companies: result.companies, failed: result.failed, fired: result.fired, resolved: result.resolved, emailsSent: result.emailsSent,
+    asOf, companies: result.companies, failed: result.failed, fired: result.fired, resolved: result.resolved,
   }, 'cron-budget-alerts');
   return result;
 }

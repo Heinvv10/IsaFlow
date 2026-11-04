@@ -89,8 +89,8 @@ async function readExpenseKeys(companyId: string, versionId: string, first: stri
 }
 
 /**
- * Owners and admins of the company whose account is in use: active, not suspended (the digest's rule,
- * `overspendDigest.ts`). The cron (service pool, no session user) reads users through 915's mirror.
+ * Owners and admins of the company whose account is in use: active, not suspended.
+ * The cron (service pool, no session user) reads users through 915's mirror.
  * In a request users RLS shows a member only their own row, so the others come from 714's reviewed
  * `approval_company_other_members` (bound to the caller and the active company) and the caller's own
  * row is read directly. Its 42501 for a caller with no membership cannot be reached: withAuth refuses
@@ -142,7 +142,7 @@ async function named(companyId: string, rows: readonly AlertRow[], refired: Read
       href: alertHref(r),
     };
   });
-  // Account code, slice, month, threshold: the order the bell and the digest read best in.
+  // Account code, slice, month, threshold: the order the bell reads best in.
   return out.sort((x, y) => x.accountCode.localeCompare(y.accountCode) || (x.sliceName ?? '').localeCompare(y.sliceName ?? '')
     || x.month.localeCompare(y.month) || x.threshold - y.threshold);
 }
