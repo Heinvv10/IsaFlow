@@ -27,21 +27,23 @@ const extraVersion = async (c: PoolClient, fiscalYear: number, name: string): Pr
   `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, is_primary, created_by)
    VALUES ($1, $2, $3, 'scenario', false, $4) RETURNING id`, [f.a, fiscalYear, name, f.ownerA])).rows[0].id);
 // threshold 90 is not a configured threshold: on the evaluated version it is uncrossed; elsewhere it is simply open.
-const openAlert = async (c: PoolClient, versionId: string, month: string): Promise<string> => String((await c.query(
+const openAlert = async (c: PoolClient, versionId: string, month: string, company = f.a, account = f.acc.opex): Promise<string> => String((await c.query(
   `INSERT INTO budget_alerts (company_id, version_id, gl_account_id, month, threshold, budget, actual, committed, pct)
-   VALUES ($1, $2, $3, $4::DATE, 90, 1000, 900, 0, 90) RETURNING id::TEXT AS id`, [f.a, versionId, f.acc.opex, month])).rows[0].id);
+   VALUES ($1, $2, $3, $4::DATE, 90, 1000, 900, 0, 90) RETURNING id::TEXT AS id`, [company, versionId, account, month])).rows[0].id);
 
 describe('evaluateOverspend: what a run resolves', () => {
-  it('resolves the primary\'s uncrossed alert and a former primary\'s; another fiscal year\'s stay open', async () => {
+  it('resolves the primary\'s uncrossed alert and a former primary\'s; another fiscal year\'s, a later month\'s and another company\'s stay open', async () => {
     let primary = '';
     let otherYearBoundary = '';
     let otherYearInRange = '';
     let formerPrimary = '';
+    let laterMonth = '';
+    let otherCompany = '';
     await inRequest(pool, f.a, f.ownerA, async ({ asSuper }) => {
       const out = await evaluateOverspend(f.a, { asOf: AS_OF });
       expect(out.versionId).toBe(f.vA);
       expect([...out.resolved].sort()).toEqual([primary, formerPrimary].sort());
-      const ids = [primary, formerPrimary, otherYearBoundary, otherYearInRange];
+      const ids = [primary, formerPrimary, otherYearBoundary, otherYearInRange, laterMonth, otherCompany];
       const rows = await asSuper((c) => c.query(
         'SELECT id::TEXT AS id, resolved_at FROM budget_alerts WHERE id = ANY($1::UUID[])', [ids]));
       const byId = new Map(rows.rows.map((r) => [String(r.id), r.resolved_at]));
@@ -49,6 +51,8 @@ describe('evaluateOverspend: what a run resolves', () => {
       expect(byId.get(otherYearBoundary)).toBeNull();
       expect(byId.get(otherYearInRange)).toBeNull();
       expect(byId.get(formerPrimary)).not.toBeNull();
+      expect(byId.get(laterMonth)).toBeNull(); // after asOf's month: outside the evaluated range
+      expect(byId.get(otherCompany)).toBeNull(); // company B's same-year alert, same months
     }, async (c) => {
       await journal(c, f.a, '2026-04-10', f.ownerA, [[f.acc.opex, 1050, 0], [f.acc.bank, 0, 1050]]);
       primary = await openAlert(c, f.vA, '2026-04-01');
@@ -56,6 +60,8 @@ describe('evaluateOverspend: what a run resolves', () => {
       otherYearBoundary = await openAlert(c, fy2026, '2026-03-01'); // first month of the evaluated range
       otherYearInRange = await openAlert(c, fy2026, '2026-04-01');
       formerPrimary = await openAlert(c, await extraVersion(c, 2027, 'FY2027 former primary'), '2026-04-01');
+      laterMonth = await openAlert(c, f.vA, '2026-05-01');
+      otherCompany = await openAlert(c, f.vB, '2026-04-01', f.b, f.acc.bOpex);
     });
   });
 
