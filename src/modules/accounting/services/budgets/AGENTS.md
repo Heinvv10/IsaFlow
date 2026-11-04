@@ -60,6 +60,7 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 
 ## Recent changes
 - 2026-10-26 (P1, migration 947): module created.
+- 2026-11-03 (P3 follow-up LB-2(b), #1124): `primaryVersionScopeAndYears` owner rule, whatever day the window starts: a month belongs to the stored year holding its 1st (as `budget_primary_month_amounts` and year-end rehoming file it). The one exception: a template year's mid-month last month goes to the following year only when that year is stored. Where no stored year holds the 1st, master's walk holds. `trackingRange` judges the version/absent checks on the owning years. Byte-identical where every year starts on the 1st (fuzz vs master in `budgetVersionScopeLb2bAdversarial.test.ts`). Known limitation (master too): a window from the 1st of a month whose 1st is in a registry gap is a 400.
 - 2026-10-26 (P2 PR-B): grid read model, prior actuals, batch save, seed wizard, Excel template + import preview; decision 18 refusal in `upsertBudget`.
 - 2026-10-27 (P2 PR-B fix, found in the PR-D browser proof): the no-version read returns the accounts (it answered `accounts: []`, so the budgets page said "No revenue or expense accounts" instead of offering the wizard).
 - 2026-10-27 (P2 PR-D review): `GridAccount.note` (read-only budget notes on the grid).
