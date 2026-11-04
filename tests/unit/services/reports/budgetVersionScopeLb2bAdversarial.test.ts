@@ -4,8 +4,8 @@
  * with master's (helpers/budgetVersionScopeMaster.ts, a test fixture).
  *
  * The registry mock answers from W.years; a date in GAP_ERRORS raises the exact error real
- * PostgreSQL's fiscal_year_template raised for that registry (proved on PG16 with 940's function,
- * see pg-proof.txt), with its P0001 code.
+ * PostgreSQL's fiscal_year_template raised for that registry (proved on PG16 with 940's function:
+ * fixtures/lb2b-pg-proof-r1.txt), with its P0001 code. Round 2's cases: ...AdversarialR2.test.ts.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SALES, RENT, W, fakeSql, resetLedger } from './helpers/budgetLedgerFake';
@@ -51,8 +51,8 @@ const budget = (r: { lines: Array<{ account_id: string; budget_amount: number }>
 
 beforeEach(() => { resetLedger(); for (const k of Object.keys(GAP_ERRORS)) delete GAP_ERRORS[k]; impl.old = false; });
 
-describe('REPRO 1: a registry gap holding the 1st of the window\'s first month', () => {
-  it('a window starting after the gap (10 Mar) worked before and is a 400 now', async () => {
+describe('R1-1 (regression at 8bb78345e): a registry gap holding the 1st of the window\'s first month', () => {
+  it('a window starting after the gap (10 Mar) answers (was a 400 at 8bb78345e; master answers)', async () => {
     // FY2026 ends 25 Feb 2026, FY2027 starts 5 Mar 2026: 26 Feb..4 Mar is a gap holding 1 March.
     W.years = [{ fiscalYear: 2026, startDate: '2025-02-26', endDate: '2026-02-25' }, { fiscalYear: 2027, startDate: '2026-03-05', endDate: '2027-03-04' }];
     GAP_ERRORS['2026-03-01'] = 'fiscal_year_template: no free label for the year holding 2026-03-01 (between FY2026 and FY2027)';
@@ -60,11 +60,11 @@ describe('REPRO 1: a registry gap holding the 1st of the window\'s first month',
     W.cells = [{ version: 'v27', account: SALES, month: '2026-04', amount: 1000 }];
     const { before, after } = await both(() => buildRangeTracking(CO, '2026-03-10', '2026-04-30'));
     expect(before.ok).toBe(true);
-    expect(after).toMatchObject({ ok: true }); // FAILS: 400 No financial year can be placed for that date
+    expect(after).toMatchObject({ ok: true }); // 8bb78345e: 400 No financial year can be placed for that date
   });
 });
 
-describe('REPRO 2: first registry year starts mid-month', () => {
+describe('R1-2 (regression at 8bb78345e): the first stored year starts mid-month', () => {
   // Real PG: fiscal_year_for_date(co, 2025-03-01) with FY2026 = 15 Mar 2025..14 Mar 2026 the only
   // stored year returns the TEMPLATE FY2025 (2024-03-15..2025-03-14, stored=false), no version.
   const setup = () => {
@@ -79,21 +79,21 @@ describe('REPRO 2: first registry year starts mid-month', () => {
       { version: 'v26', account: SALES, month: '2025-04', amount: 1000 },
     ];
   };
-  it('the company\'s own FY2026 window drops the first month its FY2026 grid holds', async () => {
+  it('the company\'s own FY2026 window reads the first month its FY2026 grid holds (8bb78345e: 1000)', async () => {
     setup();
     const { before, after } = await both(() => getBudgetVariance(CO, '2025-03-15', '2026-03-14'));
     expect(before.ok && budget(before.value, SALES)).toBe(1500);
-    expect(after.ok && budget(after.value, SALES)).toBe(1500); // FAILS: 1000
+    expect(after.ok && budget(after.value, SALES)).toBe(1500); // 8bb78345e: 1000
   });
-  it('a window inside FY2026\'s first month reads no budget at all now', async () => {
+  it('a window inside FY2026\'s first month reads its budget (8bb78345e: no line)', async () => {
     setup();
     const { before, after } = await both(() => getBudgetVariance(CO, '2025-03-20', '2025-03-31'));
     expect(before.ok && budget(before.value, SALES)).toBe(500);
-    expect(after.ok && budget(after.value, SALES)).toBe(500); // FAILS: undefined (no line)
+    expect(after.ok && budget(after.value, SALES)).toBe(500); // 8bb78345e: undefined (no line)
   });
 });
 
-describe('REPRO 3: consumers of visited vs parts disagree on the owning year', () => {
+describe('R1-3 (regression at 8bb78345e): the version and absent checks judge the owning year', () => {
   const twoYears = () => {
     W.years = [{ fiscalYear: 2026, startDate: '2025-03-15', endDate: '2026-03-14' }, { fiscalYear: 2027, startDate: '2026-03-15', endDate: '2027-03-14' }];
     W.versions = { 2026: 'v26', 2027: 'v27' };
@@ -102,7 +102,7 @@ describe('REPRO 3: consumers of visited vs parts disagree on the owning year', (
       { version: 'v27', account: SALES, month: '2026-03', amount: 700 },
     ];
   };
-  it('window 20-31 Mar 2026 (absent mode, the comparator/MCP): FY2027 reported as having NO budget version', async () => {
+  it('window 20-31 Mar 2026 (absent mode): no year called absent, the owner\'s version (8bb78345e: FY2027 absent, no version)', async () => {
     twoYears();
     const { before, after } = await both(() => getBudgetVariance(CO, '2026-03-20', '2026-03-31', { partialWindow: 'absent' }));
     const pick = (r: typeof before) => (r.ok ? { fiscalYear: r.value.fiscalYear, years: r.value.years, budgetAbsentYears: r.value.budgetAbsentYears, version: r.value.version?.id ?? null } : r);
@@ -112,7 +112,7 @@ describe('REPRO 3: consumers of visited vs parts disagree on the owning year', (
     // year (FY2026, whose version the month is read from) is the window's year; P0's fiscalYear stays the first day's.
     expect(pick(after)).toEqual({ fiscalYear: 2027, years: [2026], budgetAbsentYears: [], version: 'v26' });
   });
-  it('naming the version the default read uses (v26) for that window is refused', async () => {
+  it('naming the version the default read uses (v26) for that window is accepted (8bb78345e: 400)', async () => {
     twoYears();
     const r = await settle(() => getBudgetVariance(CO, '2026-03-20', '2026-03-31', { partialWindow: 'absent', versionId: 'v26' }));
     expect(r.ok).toBe(true); // was 400: version v26 is FY2026; the window reaches FY2027
@@ -122,7 +122,7 @@ describe('REPRO 3: consumers of visited vs parts disagree on the owning year', (
   });
 });
 
-describe('owner rule, template side: a template year ending mid-month hands its last month to the stored year', () => {
+describe('owner rule, template side: a template year ending mid-month hands its last month to the STORED year after it', () => {
   const setup = () => {
     W.years = [
       { fiscalYear: 2025, startDate: '2024-03-15', endDate: '2025-03-14', stored: false },
@@ -152,8 +152,8 @@ describe('visited is never empty', () => {
   });
 });
 
-describe('REPRO 4: MAX_YEARS_IN_WINDOW now counts years before the window', () => {
-  it('a window touching exactly 200 years by date throws now; it did not before', async () => {
+describe('R1-4 (regression at 8bb78345e): MAX_YEARS_IN_WINDOW counts years by date only', () => {
+  it('a window touching exactly 200 years by date answers (8bb78345e: threw)', async () => {
     // 201 one-month years, each 15th..14th; the window starts on the 20th of the first year's 2nd month.
     const years = [] as Array<{ fiscalYear: number; startDate: string; endDate: string }>;
     const ymd = (o: number, d: number) => `${String(2000 + Math.floor(o / 12))}-${String((o % 12) + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -163,7 +163,7 @@ describe('REPRO 4: MAX_YEARS_IN_WINDOW now counts years before the window', () =
     const end = ymd(200, 20); // in year i=200: years 1..200 = 200 by date
     const { before, after } = await both(() => buildRangeTracking(CO, start, end));
     expect(before.ok).toBe(true);
-    expect(after.ok).toBe(true); // FAILS: spans too many years
+    expect(after.ok).toBe(true); // 8bb78345e: spans too many years
   });
 });
 

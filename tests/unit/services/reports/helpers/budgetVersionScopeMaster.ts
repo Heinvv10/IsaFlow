@@ -3,6 +3,9 @@
  * master before PR #1124 (budgetVersionScope.ts at 8bb78345e~1), trimmed to that function and the
  * helpers it calls. The LB-2(b) adversarial suite runs the facade with this and with the live
  * function to prove the companies whose years all start on the 1st read byte-identically.
+ *
+ * Removal: this is only the oracle for the LB-2(b) byte-identity fuzz and the before/after repros;
+ * delete it together with those suites when they are retired. Never import it from src/.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';

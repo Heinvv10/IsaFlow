@@ -1,0 +1,27 @@
+INSERT 0 2
+INSERT 0 1
+       w        | fiscal_year | start_date |  end_date  
+----------------+-------------+------------+------------
+ co3 2028-03-01 |        2028 | 2027-03-15 | 2028-03-14
+(1 row)
+
+       w        | fiscal_year | start_date |  end_date  
+----------------+-------------+------------+------------
+ co3 2028-03-20 |        2029 | 2028-03-15 | 2029-03-14
+(1 row)
+
+ERROR:  function fiscal_year_for_label(unknown, integer) does not exist
+LINE 1: ...l 2028' w, fiscal_year, start_date, end_date FROM fiscal_yea...
+                                                             ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+INSERT 0 2
+       w        | fiscal_year | start_date |  end_date  
+----------------+-------------+------------+------------
+ co4 2027-04-01 |        2028 | 2027-03-15 | 2028-03-14
+(1 row)
+
+ERROR:  fiscal_year_template: no free label for the year holding 2028-03-15 (between FY2027 and FY2029)
+CONTEXT:  PL/pgSQL function fiscal_year_template(uuid,date,integer) line 47 at RAISE
+SQL statement "SELECT NULL::uuid, t.fiscal_year, t.start_date, t.end_date, 'open'::varchar, 'normal'::varchar, false, t.assumed
+        FROM public.fiscal_year_template(p_company, p_date, 3) t"
+PL/pgSQL function fiscal_year_for_date(uuid,date) line 9 at RETURN QUERY
