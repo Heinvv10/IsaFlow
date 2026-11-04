@@ -118,6 +118,16 @@ describe('the draft write inherits; approve reads the stored lines', () => {
     expect({ code: r.statusCode, err: r.body.error?.message ?? null }).toEqual({ code: 200, err: null });
   });
 
+  it('a provisional project with no CC1 (derivation would add the FNO): nothing inherited', async () => {
+    await setPolicy(pool, f, 'warn');
+    const P = crypto.randomUUID();
+    await pool.query(`INSERT INTO cost_centres (id, company_id, code, name, cc_type, parent_id, is_active) VALUES ($1,$2,'PRJ2','Project 2','cc2',$3,true)`, [P, f.co, f.cc.FT]);
+    const doc = await seedSlipProvisional(pool, f, '2027-01-10', [{ amount: 800, cc1: null, cc2: P }]);
+    const bill = await makeSlipBill(pool, f, doc, '2027-01-12');
+    await rewriteLines(bill, [800]);
+    expect(await billLineCc1(pool, bill)).toEqual([null]);
+  });
+
   it('breaker C: one FT 100 provisional line against blank lines of 800 and 50: nothing inherited, at the draft write or at approve', async () => {
     await setPolicy(pool, f, 'warn');
     const bill = await draft('2026-08-10', [{ amount: 100, cc1: f.cc.FT }], [800, 50]);
