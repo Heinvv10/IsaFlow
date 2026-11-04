@@ -17,6 +17,9 @@ import {
   getSupplierInvoiceById,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
+import { BudgetExceededError } from '@/modules/accounting/services/budgets/budgetCheckTypes';
+import { mayReadBudgetFigures } from './budgetFigures';
 import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
@@ -143,7 +146,8 @@ export const approveSupplierInvoiceTool: McpTool = {
   name: 'approve_supplier_invoice',
   description:
     'Approve a DRAFT supplier invoice and POST it to the ledger — DR Expense (per line) + DR VAT Input / CR Accounts Payable. Irreversible except by a reversing entry. Requires the write:post permission. ' +
-    'The invoice must be in draft or pending_approval; anything else is refused with its current status.',
+    'The invoice must be in draft or pending_approval; anything else is refused with its current status. '
+    + 'Budget check: under the company\'s block policy a bill over its remaining budget is refused (BUDGET_EXCEEDED, naming each line; an agent cannot override); under warn it posts and the over-budget lines come back as budget_warnings.',
   scope: 'write:invoices',
   write: true,
   requiresPost: true,
@@ -188,10 +192,23 @@ export const approveSupplierInvoiceTool: McpTool = {
     // The stamp is what puts this entry in list_agent_postings. Without it
     // createJournalEntry falls back to defaultHumanMeta(userId), labelling
     // agent work as the token owner's own.
-    const updated = await approveSupplierInvoice(ctx.companyId, invoiceId, ctx.userId, {
-      ...mcpPostingOpts(ctx, 'approve_supplier_invoice'),
-      allowLateInputClaim: allowLateInputClaim(args),
-    });
+    //
+    // The ONE catch (budgets P5-2): a BUDGET_EXCEEDED refusal (block policy) is raised before approve's first
+    // write and approve's own savepoint has already rolled back, so nothing of the approval is left. Its `refused`
+    // event must outlive the registry's savepoint, so it is recorded here and answered as a refusal (census finding 4).
+    // An agent cannot override; warn-mode overspend proceeds and comes back as `budget_warnings`.
+    let updated: Awaited<ReturnType<typeof approveSupplierInvoice>>;
+    try {
+      updated = await approveSupplierInvoice(ctx.companyId, invoiceId, ctx.userId, {
+        ...mcpPostingOpts(ctx, 'approve_supplier_invoice'),
+        allowLateInputClaim: allowLateInputClaim(args),
+        budget: { channel: 'mcp', lock: 'take', figures: mayReadBudgetFigures(ctx) },
+      });
+    } catch (err) {
+      if (!(err instanceof BudgetExceededError)) throw err;
+      await recordBudgetRefusal(err);
+      return toolError(`${err.code}: ${err.message}`);
+    }
 
     return ok({
       id: updated.id,
@@ -201,6 +218,7 @@ export const approveSupplierInvoiceTool: McpTool = {
       gl_journal_entry_id: updated.glJournalEntryId ?? null,
       late_claim: lateClaimResult(updated.lateClaim),
       ...(updated.warnings ? { warnings: updated.warnings } : {}), // a cost-centre pick the posting dropped
+      ...(updated.budgetWarnings ? { budget_warnings: updated.budgetWarnings } : {}), // P5-2: approved over budget (warn)
     });
   },
 };

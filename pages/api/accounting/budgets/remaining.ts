@@ -9,6 +9,9 @@
  * Bounds (400 before anything is read): at most 200 lines, months 'YYYY-MM' in 1900-2200, spanning at
  * most 12 months first to last. Write roles only (owner, admin, manager): it previews an approval.
  * Reads nothing but this company's rows. 120 previews a minute per user (429 with Retry-After).
+ *
+ * Budgets P5-2, the bill approve dialogs (no locks: a preview; the approval decides again under its own):
+ * POST { supplierInvoiceId } or { supplierInvoiceIds: [≤50] }: `@/lib/budgetBillPreview` (charged one unit per bill).
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -21,6 +24,7 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { respondTrackingError } from '@/lib/budgetTrackingResponse';
 import { mapRegistryMiss } from '@/modules/accounting/services/budgets/tracking/trackingWindow';
 import { MAX_REMAINING_KEYS, remainingFor, remainingKeysProblem } from '@/modules/accounting/services/budgets/remainingBudget';
+import { billPreviewCost, MAX_BULK_BILL_PREVIEW, respondBillPreview } from '@/lib/budgetBillPreview';
 
 const RemainingSchema = z.object({
   lines: z.array(z.object({
@@ -38,10 +42,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
-  if (!(await checkRateLimit(`budget-remaining:${userId}`, { max: 120, windowSecs: 60 }))) {
+  // The bulk bill mode's size first (400 before anything is charged or read); it is charged per bill.
+  const ids = (req.body as { supplierInvoiceIds?: unknown } | undefined)?.supplierInvoiceIds;
+  if (Array.isArray(ids) && ids.length > MAX_BULK_BILL_PREVIEW) {
+    return apiResponse.badRequest(res, `At most ${MAX_BULK_BILL_PREVIEW} bills per budget preview`);
+  }
+  if (!(await checkRateLimit(`budget-remaining:${userId}`, { max: 120, windowSecs: 60, cost: billPreviewCost(req.body) }))) {
     res.setHeader('Retry-After', '60');
     return apiResponse.tooManyRequests(res, 'Too many budget previews; wait a minute and try again.');
   }
+  if (await respondBillPreview(companyId, req.body, res)) return;
   // The count first, before zod walks a long array (400, as every bound below).
   const raw = (req.body as { lines?: unknown } | undefined)?.lines;
   if (Array.isArray(raw) && raw.length > MAX_REMAINING_KEYS) {

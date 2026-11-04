@@ -5,7 +5,7 @@
  * No AppLayout on purpose: the sidebar, the header and the tenant switcher
  * are the "app chrome" this route exists to remove.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Loader2 } from 'lucide-react';
 import { apiJson, apiErrorMessage } from '@/lib/apiFetch';
@@ -14,6 +14,8 @@ import { PresentDeck } from '@/components/accounting/present/PresentDeck';
 import { buildSlides, type ReportPack, type Slide } from '@/components/accounting/present/presentSlides';
 import { PresentSlide } from '@/components/accounting/present/PresentSlide';
 import type { BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
+import type { BudgetComparatorResponse } from '@/lib/apiRoutesBudgetComparator';
+import { classifyBudgetError } from '@/components/accounting/reportControls/useStatementComparators';
 import type { BudgetVarianceTracked, TrackedLine } from '@/modules/accounting/services/reports/budgetVarianceTracked';
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
@@ -34,6 +36,7 @@ export default function PresentPackPage() {
   const [budgetedCount, setBudgetedCount] = useState(0);
   const [budgetInfo, setBudgetInfo] = useState<BudgetInfo | undefined>(undefined);
   const [budgetFailed, setBudgetFailed] = useState(false);
+  const [budgetRefusal, setBudgetRefusal] = useState<'limited' | 'refused' | undefined>(undefined);
   const [income, setIncome] = useState<IncomeStatementReport | null>(null);
   // One flag per fetch, not one for the batch. The deck renders as soon as
   // the PACK resolves, which is before any of these three have landed — so
@@ -44,9 +47,62 @@ export default function PresentPackPage() {
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [error, setError] = useState('');
 
+  /** The newest comparator request. The load effect and each Retry take the next id; a result applies only
+   *  while its id is still the newest, so a slow answer for an old window cannot overwrite the new one. */
+  const budgetRequest = useRef(0);
+
+  /** Reads one comparator result into state. Shared by the first load and the 429 Retry. */
+  const takeBudget = useCallback((result: PromiseSettledResult<BudgetComparatorResponse>, id: number) => {
+    if (id !== budgetRequest.current) return;
+    if (result.status === 'fulfilled') {
+      setBudget(result.value.lines);
+      setBudgetBands(result.value.bands);
+      setBudgetedCount(result.value.budgetedCount);
+      // Why a count of 0 is not "no budget captured": the comparator withholds a budget that exists.
+      const b = result.value;
+      setBudgetInfo({
+        budgetAbsentYears: b.budgetAbsentYears, budgetOutsideFilterYears: b.budgetOutsideFilterYears,
+        unallocatedBudget: b.unallocatedBudget, partialBudgetCount: b.partialBudgetCount, splitsMonth: b.splitsMonth,
+        retryAfterSecs: null, rejection: null,
+      });
+    } else {
+      const failure = classifyBudgetError(result.reason);
+      if (failure.kind === 'failed') setBudgetFailed(true);
+      else {
+        setBudgetRefusal(failure.kind);
+        setBudgetInfo({
+          budgetAbsentYears: [], budgetOutsideFilterYears: [], unallocatedBudget: null, partialBudgetCount: 0, splitsMonth: false,
+          retryAfterSecs: failure.kind === 'limited' ? failure.retryAfterSecs : null,
+          rejection: failure.kind === 'refused' ? failure.reason : null,
+        });
+      }
+      log.error('Budget comparator failed to load', { error: result.reason }, 'present');
+    }
+    setBudgetLoading(false);
+  }, []);
+
+  /** Re-asks the comparator alone (the 429 notice's Retry), as the statement page's `retryBudget` does. */
+  const retryBudget = useCallback(() => {
+    setBudgetFailed(false);
+    setBudgetRefusal(undefined);
+    setBudgetLoading(true);
+    const id = ++budgetRequest.current;
+    void apiJson(`/api/accounting/reports-budget-comparator?period_start=${from}&period_end=${to}`, undefined, 'Could not load the budget comparison - try again')
+      .then(
+        (value): PromiseSettledResult<BudgetComparatorResponse> => ({ status: 'fulfilled', value }),
+        (reason): PromiseSettledResult<BudgetComparatorResponse> => ({ status: 'rejected', reason }),
+      )
+      .then((result) => takeBudget(result, id));
+  }, [from, to, takeBudget]);
+
   useEffect(() => {
     if (!router.isReady) return;
     if (!PACK_TYPES.has(packType) || !from || !to) {
+      // Supersede any comparator request still in flight (a Retry from the last valid window), so its
+      // answer cannot land under this banner, and drop what that window left in state.
+      budgetRequest.current += 1;
+      setBudget([]); setBudgetBands(undefined); setBudgetedCount(0); setBudgetInfo(undefined);
+      setBudgetFailed(false); setBudgetRefusal(undefined); setBudgetLoading(false);
       setError(`Unknown pack: "${packType || '(none)'}". Expected one of board, management, monthly with a from/to range.`);
       return;
     }
@@ -57,8 +113,10 @@ export default function PresentPackPage() {
     setError('');
     setSlides(null); setIncome(null); setTrends(null); setBudget([]); setBudgetBands(undefined); setBudgetedCount(0); setBudgetInfo(undefined);
     let live = true;
+    const budgetId = ++budgetRequest.current;
     setTrendsFailed(false);
     setBudgetFailed(false);
+    setBudgetRefusal(undefined);
     // Set BEFORE the pack fetch, not after it: `setSlides` and these flags
     // land in the same render, so a deck can never appear with all three
     // reading "not loading, no data".
@@ -94,22 +152,7 @@ export default function PresentPackPage() {
           log.error('Account trends failed to load', { error: trendsResult.reason }, 'present');
         }
         setTrendsLoading(false);
-        if (budgetResult.status === 'fulfilled') {
-          setBudget(budgetResult.value.lines);
-          setBudgetBands(budgetResult.value.bands);
-          setBudgetedCount(budgetResult.value.budgetedCount);
-          // Why a count of 0 is not "no budget captured": the comparator withholds a budget that exists.
-          const b = budgetResult.value;
-          setBudgetInfo({
-            budgetAbsentYears: b.budgetAbsentYears, budgetOutsideFilterYears: b.budgetOutsideFilterYears,
-            unallocatedBudget: b.unallocatedBudget, partialBudgetCount: b.partialBudgetCount, splitsMonth: b.splitsMonth,
-            retryAfterSecs: null, rejection: null,
-          });
-        } else {
-          setBudgetFailed(true);
-          log.error('Budget comparator failed to load', { error: budgetResult.reason }, 'present');
-        }
-        setBudgetLoading(false);
+        takeBudget(budgetResult, budgetId);
         if (incomeResult.status === 'fulfilled') {
           setIncome(incomeResult.value);
         } else {
@@ -132,7 +175,7 @@ export default function PresentPackPage() {
 
     void load();
     return () => { live = false; };
-  }, [router.isReady, packType, from, to]);
+  }, [router.isReady, packType, from, to, takeBudget]);
 
   const renderSlide = useCallback(
     (slide: Slide) => (
@@ -140,12 +183,12 @@ export default function PresentPackPage() {
         slide={slide} income={income} incomeLoading={incomeLoading}
         trends={trends} trendsFailed={trendsFailed} trendsLoading={trendsLoading}
         budget={budget} budgetBands={budgetBands} budgetedCount={budgetedCount} budgetInfo={budgetInfo}
-        budgetFailed={budgetFailed} budgetLoading={budgetLoading}
+        budgetFailed={budgetFailed} budgetLoading={budgetLoading} budgetRefusal={budgetRefusal} onRetryBudget={retryBudget}
       />
     ),
     [
       income, incomeLoading, trends, trendsFailed, trendsLoading,
-      budget, budgetBands, budgetedCount, budgetInfo, budgetFailed, budgetLoading,
+      budget, budgetBands, budgetedCount, budgetInfo, budgetFailed, budgetLoading, budgetRefusal, retryBudget,
     ],
   );
 
