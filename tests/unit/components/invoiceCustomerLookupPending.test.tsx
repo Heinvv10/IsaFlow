@@ -14,10 +14,11 @@ import { clickWhenEnabled, pickOption } from '../helpers/kitPick';
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push: vi.fn(), replace: vi.fn(), pathname: '/', isReady: true }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: { invoiceId: 'inv-1' }, push: vi.fn(), replace: vi.fn(), pathname: '/', isReady: true }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 
 import NewPage from '../../../pages/accounting/customer-invoices/new';
+import EditPage from '../../../pages/accounting/customer-invoices/edit/[invoiceId]';
 import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
 
 useApiJsonOverMock();
@@ -29,15 +30,23 @@ function gate() {
   return { promise, release };
 }
 
-/** Each customer lookup (`?id=`) waits on the next gate queued for that customer, if any; the rest answer at once. */
-function serve(held: Record<string, Promise<void>[]> = {}) {
+/** A customer lookup's script: wait for `gate`, then answer, or fail (500). */
+type Step = Promise<void> | { gate?: Promise<void>; fail?: true };
+const DISCOUNT: Record<string, number> = { A: 5, B: 5, C: 9 }; // C's defaults differ from B's
+
+/** Each customer lookup (`?id=`) takes the next step queued for that customer, if any; the rest answer at once. */
+function serve(held: Record<string, Step[]> = {}) {
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
     const u = String(url);
     if (u.includes('customer-invoices-create') && init?.method === 'POST') return ok({ id: 'n1' });
+    if (u.includes('customer-invoices-detail') && !init?.method) return ok(STORED);
     const id = /\/api\/accounting\/customers\?id=([^&]+)/.exec(u)?.[1];
     if (id) {
-      await held[id]?.shift();
-      return ok({ id, payment_terms: 30, payment_terms_type: 'days', default_discount: 0, default_vat_type: null });
+      const step = held[id]?.shift();
+      const { gate: wait, fail } = step instanceof Promise ? { gate: step, fail: undefined } : (step ?? {});
+      await wait;
+      if (fail) return new Response('{}', { status: 500 });
+      return ok({ id, payment_terms: 30, payment_terms_type: 'days', default_discount: DISCOUNT[id] ?? 0, default_vat_type: null });
     }
     if (u.includes('/customers')) return ok([{ id: 'c-1', name: 'Acme' }, { id: 'c-2', name: 'Beta' }]);
     return ok([]);
@@ -47,6 +56,10 @@ const posts = () => vi.mocked(apiFetch).mock.calls.filter((c) => (c[1] as Reques
 const lookups = (id: string) => vi.mocked(apiFetch).mock.calls.filter((c) => String(c[0]) === `/api/accounting/customers?id=${id}`).length;
 const saveAndNew = () => screen.getByRole('button', { name: /save & new/i }) as HTMLButtonElement;
 const clientBox = () => screen.getByRole('combobox', { name: 'Client' }).textContent ?? '';
+const STORED = { id: 'inv-1', invoice_number: 'INV-1', status: 'draft', client_id: 'c-1', invoice_date: '2026-09-15', due_date: '2026-10-15',
+  billing_period_start: '2026-09-01', billing_period_end: '2026-09-30', tax_rate: 15, notes: '', currency_code: 'ZAR', exchange_rate: 1,
+  items: [{ description: 'L', quantity: 1, unit_price: 10, amount: 10 }] };
+const lookupHook = (id: string) => renderHook(({ id: c }) => useCustomerLookup(c, 'failed'), { initialProps: { id } });
 
 describe('a customer picked again waits for its own answer', () => {
   it('Save & New for Acme, then Acme again: Save & New waits for Acme\'s new lookup and posts nothing meanwhile', async () => {
@@ -96,7 +109,66 @@ describe('a customer picked again waits for its own answer', () => {
     expect(result.current.pending).toBe(true);
     await act(async () => { c.release(); await c.promise; }); // C's late answer counts for nothing
     expect(result.current.pending).toBe(true);
+    expect(result.current.defaults).toBeNull(); // never C's (discount 9)
     await act(async () => { bAgain.release(); await bAgain.promise; });
     await waitFor(() => expect(result.current.pending).toBe(false));
+    expect(result.current.defaults?.discount).toBe(5);
+  });
+
+  it('A answered, then B picked: A\'s defaults are gone while B\'s are asked', async () => {
+    const b = gate();
+    serve({ B: [b.promise] });
+    const { result, rerender } = lookupHook('A');
+    await waitFor(() => expect(result.current.defaults?.discount).toBe(5));
+    rerender({ id: 'B' });
+    expect(result.current.defaults).toBeNull();
+    expect(result.current.pending).toBe(true);
+    await act(async () => { b.release(); await b.promise; });
+    await waitFor(() => expect(result.current.defaults?.discount).toBe(5));
+  });
+
+  it('A, cleared, A again whose lookup fails: pending, then not, with the error said', async () => {
+    const again = gate();
+    serve({ A: [Promise.resolve(), { gate: again.promise, fail: true }] });
+    const { result, rerender } = lookupHook('A');
+    await waitFor(() => expect(result.current.pending).toBe(false));
+    rerender({ id: '' });
+    rerender({ id: 'A' });
+    expect(result.current.pending).toBe(true);
+    await act(async () => { again.release(); await again.promise; });
+    await waitFor(() => expect(result.current.pending).toBe(false));
+    expect(result.current.error).toBe('failed');
+  });
+
+  it('forget() while the customer stays picked asks again: pending until that answer, never stuck', async () => {
+    const again = gate();
+    serve({ A: [Promise.resolve(), again.promise] });
+    const { result } = lookupHook('A');
+    await waitFor(() => expect(result.current.pending).toBe(false));
+    act(() => { result.current.forget(); });
+    expect(result.current.pending).toBe(true);
+    await waitFor(() => expect(lookups('A')).toBe(2));
+    await act(async () => { again.release(); await again.promise; });
+    await waitFor(() => expect(result.current.pending).toBe(false));
+  });
+});
+
+describe('the edit page waits only for a customer changed on the page', () => {
+  const saveChanges = () => screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement;
+
+  it('the stored customer\'s lookup held: Save Changes is enabled; another customer picked: disabled until its answer', async () => {
+    const stored = gate();
+    const beta = gate();
+    serve({ 'c-1': [stored.promise], 'c-2': [beta.promise] });
+    render(<EditPage />);
+    await screen.findByDisplayValue('L');
+    await waitFor(() => expect(lookups('c-1')).toBe(1));
+    expect(saveChanges().disabled).toBe(false);
+    await pickOption('Client', 'Beta');
+    await waitFor(() => expect(lookups('c-2')).toBe(1));
+    expect(saveChanges().disabled).toBe(true);
+    await act(async () => { beta.release(); await beta.promise; });
+    await waitFor(() => expect(saveChanges().disabled).toBe(false));
+    stored.release();
   });
 });

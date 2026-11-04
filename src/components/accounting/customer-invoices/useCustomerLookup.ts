@@ -38,8 +38,10 @@ export function useCustomerLookup(clientId: string, failedMessage: string) {
   // the pick, and in between Save was drawn enabled with the customer's defaults unasked.
   const [answeredFor, setAnsweredFor] = useState<string | null>(null);
   const [askedFor, setAskedFor] = useState(clientId);
-  if (askedFor !== clientId) { setAskedFor(clientId); setAnsweredFor(null); }
+  // Another customer's defaults are not this one's: none while its own are asked (a new line's discount, the VAT warning).
+  if (askedFor !== clientId) { setAskedFor(clientId); setAnsweredFor(null); if (clientId) setDefaults(null); }
   const [error, setError] = useState('');
+  const [asks, setAsks] = useState(0); // forget() asks again for a customer still picked, so pending cannot stick
 
   const lookup = useRef(0);
   useEffect(() => {
@@ -56,7 +58,7 @@ export function useCustomerLookup(clientId: string, failedMessage: string) {
         if (seq === lookup.current) { setDefaults(NO_DEFAULTS); setAnsweredFor(clientId); setError(apiErrorMessage(err, failedMessage)); }
       }
     })();
-  }, [clientId, failedMessage]);
+  }, [clientId, failedMessage, asks]);
 
   /** Back to before any customer was picked (Save & New). */
   const forget = useCallback(() => {
@@ -64,6 +66,7 @@ export function useCustomerLookup(clientId: string, failedMessage: string) {
     setDefaults(null);
     setAnsweredFor(null);
     setError('');
+    setAsks((n) => n + 1);
   }, []);
 
   const pending = Boolean(clientId) && answeredFor !== clientId;
