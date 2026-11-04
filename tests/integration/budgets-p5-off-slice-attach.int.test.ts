@@ -90,13 +90,14 @@ describe('R3-4: the manual attach inherits on a draft slip bill with no approval
 });
 
 describe('R3-4: the manual attach leaves a bill that is not a draft alone', () => {
-  it('an approved slip bill (no journal yet): nothing inherited, the digest unchanged, the attach says why', async () => {
+  it('an approved slip bill (no journal yet): not taken, nothing inherited, the digest unchanged', async () => {
     const je = await seedUnevidencedProvisional(pool, f, '2026-08-10', [{ amount: 800, cc1: f.cc.FT }], S0);
     const { bill, doc } = await slipDraft('2026-08-12');
     await pool.query("UPDATE supplier_invoices SET status = 'approved' WHERE id = $1", [bill]);
     const before = await digest(bill);
     const out = await asOwner(() => attachDocumentToProvisional(f.co, je, doc));
-    expect(out).toMatchObject({ kind: 'attached', slipInheritance: [{ invoiceId: bill, skipped: expect.stringMatching(/not a draft/) }] });
+    // Only drafts are taken by the attach (review round 7): an approved bill is neither locked nor listed.
+    expect(out).toMatchObject({ kind: 'attached', slipInheritance: [] });
     expect(await billLineCc1(pool, bill)).toEqual([null]);
     expect(await digest(bill)).toBe(before);
   });

@@ -125,11 +125,16 @@ export async function replanCaptureSlipDimensions(
   if (!slip || slip.plannedJeId === attachedJeId) return;
   // Nothing inherited: the originally blank lines, whose stored supplier defaults would otherwise block the
   // inheritance and leave an auto-approved bill posting off the slice the settlement reclasses (Codex, 1b316ed36).
+  // The asymmetry is deliberate, fail closed (review round 7): when the plan DID inherit, only those lines are re-planned
+  // (the others took the supplier default or nothing on purpose, after a provisional was read); when it inherited
+  // nothing, no provisional was matched at plan time, so every originally blank line is re-planned against the one
+  // actually attached. Either way inherited dimensions only ever come from the attached provisional.
   const eligibleIds = slip.inheritedItemIds.length > 0 ? slip.inheritedItemIds : attachedJeId ? slip.blankItemIds : [];
   if (eligibleIds.length === 0) return;
   // R-035 (round 7): only a bill that has not posted and has no approval request bound may change lines here (an
   // auto-approved capture bill qualifies until the settlement below posts it: no request binds its digest). The
-  // bill was inserted on this transaction, so its row lock never waits.
+  // bill was inserted on this transaction, so its row lock never waits. The request check is DEFENSIVE: both capture
+  // routes raise their request after the attach, so none can be bound yet; it guards a future caller that raises first.
   const row = await lockSupplierInvoiceForUpdate(companyId, invoiceId);
   if (!row) throw new Error(`Capture slip re-plan: supplier invoice ${invoiceId} not found`);
   const why = row.gl_journal_entry_id ? 'it has posted' : await boundRequest(companyId, invoiceId) ? 'an approval request is bound to it' : null;
@@ -171,15 +176,18 @@ async function lockBillOrSkip(companyId: string, invoiceId: string): Promise<DbR
 }
 
 /**
- * The live bills raised from slip `documentId`, each locked FOR UPDATE without waiting, in id order: 'busy' when
+ * The live DRAFT bills raised from slip `documentId`, each locked FOR UPDATE without waiting, in id order: 'busy' when
  * another transaction holds any of them. The manual attach takes these BEFORE its first write (after its bank line,
  * journal and document locks), so a held bill answers contended with nothing written: an attach that committed and
  * then skipped the bill could never be retried (the journal is evidenced), leaving the bill on its old dimensions.
  */
 export async function lockSlipBillsOrBusy(companyId: string, documentId: string): Promise<string[] | 'busy'> {
+  // Drafts only (review round 7): only a draft can inherit, so a payment holding a paid bill never 503s the attach.
+  // The status is read unlocked here and re-checked under the lock (`inheritOnAttach`).
   const bills = (await sql`
     SELECT id FROM supplier_invoices
      WHERE company_id = ${companyId}::UUID AND source_document_id = ${documentId}::UUID AND deleted_at IS NULL
+       AND status = 'draft'
      ORDER BY id`) as DbRow[];
   const ids: string[] = [];
   for (const b of bills) {

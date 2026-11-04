@@ -97,13 +97,6 @@ export async function attachDocumentToProvisional(
     const doc = await lockCapturedDocumentForUpdate(companyId, documentId);
     if (!doc) return { kind: 'not_found', what: 'Captured document', id: documentId };
     if (isBeingRead(doc)) return { kind: 'reading', message: STILL_BEING_READ };
-
-    // (4) Budgets P5-2b: the bills raised from this slip, locked last and without waiting. A held bill is contended,
-    // decided HERE before any write: committing the attach and skipping the bill would leave it un-inheritable (a
-    // retry is refused as already evidenced) and on blank or wrong dimensions.
-    const locked = await lockSlipBillsOrBusy(companyId, documentId);
-    if (locked === 'busy') return { kind: 'contended', message: BILL_CONTENDED };
-    slipBills = locked;
   } catch (err) {
     if (err instanceof BankTransactionLockTimeoutError || err instanceof CaptureRowLockTimeoutError
       || isLockContention(err)) {
@@ -128,6 +121,15 @@ export async function attachDocumentToProvisional(
     }
     throw err;
   }
+
+  // (4) Budgets P5-2b: the DRAFT bills raised from this slip, locked last (after the bank line, journal and document:
+  // the order above) and without waiting, after the read-only refusals so an attach refused anyway answers 400, not
+  // 503 (review round 7). A held bill is contended, decided HERE before the first write (the claim below):
+  // committing the attach and skipping the bill would leave it un-inheritable (a retry is refused as already
+  // evidenced). The claim's own refusals (already claimed, rejected) still follow it: a contended retry then gets them.
+  const locked = await lockSlipBillsOrBusy(companyId, documentId);
+  if (locked === 'busy') return { kind: 'contended', message: BILL_CONTENDED };
+  slipBills = locked;
 
   // The claim: one predicated UPDATE, so a refusal (already claimed, or rejected) writes nothing.
   // An evidence attach books nothing new, so it neither checks nor stamps posted content (R-088).

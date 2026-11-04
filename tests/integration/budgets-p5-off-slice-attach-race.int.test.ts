@@ -128,6 +128,54 @@ describe('R5-3: a held bill fails the WHOLE attach at once, nothing written, so 
   }, 30_000);
 });
 
+describe('review round 7: only DRAFT slip bills are locked by the attach', () => {
+  it('a paid bill held by another transaction (a payment) does not 503 the attach', async () => {
+    const je = await seedUnevidencedProvisional(pool, f, '2026-09-10', [{ amount: 800, cc1: f.cc.FT }], S0);
+    const { bill, doc } = await slipDraft('2026-09-12');
+    await pool.query("UPDATE supplier_invoices SET status = 'paid' WHERE id = $1", [bill]);
+    const holder = await pool.connect();
+    let r: Awaited<ReturnType<typeof attachRoute>>;
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [bill]);
+      r = await attachRoute(je, doc);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(r.state.statusCode, JSON.stringify(r.state.body)).toBe(200);
+    expect((r.state.body as { data: { slipInheritance: unknown[] } }).data.slipInheritance).toEqual([]);
+    expect((await pool.query('SELECT needs_evidence FROM gl_journal_entries WHERE id = $1', [je])).rows[0].needs_evidence).toBe(false);
+  });
+});
+
+describe('review round 7: an attach refused anyway answers 400, not 503, even with a slip bill held', () => {
+  it('the slip already backs a posted journal: 400 (document already posted), never the bill lock\'s 503', async () => {
+    const je = await seedUnevidencedProvisional(pool, f, '2026-10-10', [{ amount: 800, cc1: f.cc.FT }], S0);
+    const { bill, doc } = await slipDraft('2026-10-12');
+    const other = crypto.randomUUID();
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL session_replication_role = replica');
+      await c.query(`INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, status, created_by, description, source, source_document_id)
+                     VALUES ($1, $2, $3, '2026-10-12', 'posted', $4, 'already posted', 'manual', $5)`, [other, f.co, `R7-${other.slice(0, 6)}`, f.owner, doc]);
+      await c.query('COMMIT');
+    } finally { c.release(); }
+    const holder = await pool.connect();
+    let r: Awaited<ReturnType<typeof attachRoute>>;
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [bill]);
+      r = await attachRoute(je, doc);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(r.state.statusCode, JSON.stringify(r.state.body)).toBe(400);
+  });
+});
+
 describe('LOW 4: the attaching user becomes a content author of the bill it changed', () => {
   it('content_authors carries the attacher after inheritance, and SoD refuses them as the approver', async () => {
     const je = await seedUnevidencedProvisional(pool, f, '2026-08-10', [{ amount: 800, cc1: f.cc.FT }], S0);
