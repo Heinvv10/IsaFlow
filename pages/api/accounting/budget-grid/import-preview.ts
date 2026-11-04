@@ -79,7 +79,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if ((fileName ?? '').toLowerCase().endsWith('.xls') || (bytes[0] === 0xd0 && bytes[1] === 0xcf)) {
       return apiResponse.badRequest(res, 'Old-style Excel .xls files are not supported. Save the template as .xlsx and upload again.');
     }
-    return apiResponse.success(res, await buildImportPreview(companyId, versionId, bytes));
+    return apiResponse.success(res, await buildImportPreview(companyId, versionId, bytes, context.userId));
   } catch (err) {
     if (err instanceof SpreadsheetRefusedError) {
       log.warn('Budget import workbook refused', { ...context, versionId, reason: err.message }, 'accounting');

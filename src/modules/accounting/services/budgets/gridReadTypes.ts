@@ -10,6 +10,7 @@ import type { AccountGrain } from './grid/pivot';
 import type { BudgetVersion } from './budgetVersionTypes';
 import type { CellSource } from './drivers/driverTypes';
 import type { VisibleDriverLine } from './drivers/perHeadAccess';
+import type { HolderView } from './holderSlices';
 
 export interface GridAccount {
   id: string;
@@ -82,6 +83,12 @@ export interface GridReadModel {
    * (the sum of its dimension rows); a legacy header counts its OWN amounts once, never its roll-up.
    */
   totals: BandTotals;
+  /**
+   * P5-6: the viewer's own budget slices when they are a budget holder of this version (owners and
+   * admins never are: they see every slice); null or absent otherwise. The cells, totals and roll-ups
+   * above then cover these slices only.
+   */
+  holder?: HolderView | null;
 }
 
 /** `cells_only=1`: the compare-version fetch. */

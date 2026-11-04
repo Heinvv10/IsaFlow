@@ -33,7 +33,7 @@ import { DriverRangeError, DriverRefError, type DriverWarningCode, type RowKey }
 import { BudgetDriverError } from './driverErrors';
 import { listDriverLines } from './driverRepository';
 import { versionHeadcount } from './driverHeadcount';
-import { breakLoops, labelKeys, loadVersionModel } from './driverModel';
+import { breakLoops, labelKeys, loadVersionModel, rowLabel } from './driverModel';
 
 /** An engine warning (REF_MISSING, SECTION_EMPTY, BASE_MISSING) or a skipped driver (DRIVER_SKIPPED); labelled. */
 export interface RecomputeWarning {
@@ -48,11 +48,28 @@ export interface RecomputeResult {
   warnings: RecomputeWarning[];
   /** When payroll was read for a live per_head row (UTC ISO); null when this pass read none. */
   headcountAsOf: string | null;
+  /** P5-6: cells not recalculated because their slice is with its reviewer; absent when none. */
+  frozen?: FrozenDriverCells;
 }
+
+/**
+ * Called with the cells a recompute is about to write, before any is written (P5-6: the budget-holder
+ * slice rules, holderScope.driverSliceGuard): it answers which to write and which to leave (`frozen`),
+ * or throws to refuse. `label` names a driver row.
+ */
+export interface DriverWriteGuard {
+  <W extends { rowKey: RowKey; month: string }>(writes: readonly W[], label: (rowKey: RowKey) => string): { keep: W[]; frozen: W[] };
+  /** Rows under review that the engine must read from storage, never from a discarded projection. */
+  frozenRows?: (rows: readonly RowKey[]) => ReadonlySet<RowKey>;
+}
+
+/** Driver cells a recompute left as they are (slices with their reviewer): how many, and the driver rows (labelled, at most 20). */
+export interface FrozenDriverCells { cells: number; rows: string[] }
 
 export interface RecomputeOptions {
   /** per_head rows that compute this pass: 'all', or these rows; the rest keep their cells. Default none. */
   live?: 'all' | ReadonlySet<RowKey>;
+  guard?: DriverWriteGuard | null;
 }
 
 const NIL = NIL_UUID;
@@ -151,14 +168,18 @@ export async function recomputeVersion(
     log.warn('budget driver loop found at recompute: its rows are frozen', { companyId, versionId, path: loop.path.join(' > ') });
   }
   for (const d of defs) if (d.kind === 'per_head' && live !== 'all' && !live.has(d.rowKey)) frozen.add(d.rowKey);
-  const readsPayroll = defs.some((d) => d.kind === 'per_head' && !frozen.has(d.rowKey));
+  const guardedFrozen = opts.guard?.frozenRows?.([...rowKeys]) ?? NONE;
+  const reportFrozen = new Set([...guardedFrozen].filter((key) => !frozen.has(key)));
+  for (const key of guardedFrozen) frozen.add(key);
+  const readsPayroll = defs.some((d) => d.kind === 'per_head' && (!frozen.has(d.rowKey) || reportFrozen.has(d.rowKey)));
   const headcountAsOf = readsPayroll ? new Date().toISOString() : null;
   const heads = readsPayroll ? await versionHeadcount(companyId, versionId, months) : null;
   let result: ReturnType<typeof computeVersion>;
   try {
     result = computeVersion({
       months, rows: model.rows, cells: model.cells, drivers: defs, closedMonths: model.closedMonths,
-      frozenRows: frozen, rounding: 1, headcount: (scope, month) => heads?.(scope).get(month)?.total ?? 0,
+      frozenRows: frozen, reportFrozenRows: reportFrozen, rounding: 1,
+      headcount: (scope, month) => heads?.(scope).get(month)?.total ?? 0,
     });
   } catch (err) {
     if (err instanceof DriverRangeError) throw new BudgetDriverError('DRIVER_RANGE', `A budget driver cannot compute: ${labelKeys(err.message, model.labels)}`);
@@ -170,7 +191,13 @@ export async function recomputeVersion(
     ...loops.map((l) => ({ code: 'DRIVER_SKIPPED' as const, rowKey: l.path[0]!, message: l.message })),
     ...result.warnings.map((w) => ({ ...w, message: labelKeys(w.message, model.labels) })),
   ];
-  return { changed: await writeDriverCells(companyId, versionId, userId, result.writes), warnings, headcountAsOf };
+  const label = (k: RowKey) => rowLabel(k, model.labels);
+  const guarded = opts.guard ? opts.guard(result.writes, label) : { keep: result.writes, frozen: [] };
+  const keep = guarded.keep;
+  const left = [...result.frozenWrites, ...guarded.frozen];
+  const changed = await writeDriverCells(companyId, versionId, userId, keep);
+  if (left.length === 0) return { changed, warnings, headcountAsOf };
+  return { changed, warnings, headcountAsOf, frozen: { cells: left.length, rows: [...new Set(left.map((w) => label(w.rowKey)))].slice(0, 20) } };
 }
 
 /**
@@ -180,7 +207,7 @@ export async function recomputeVersion(
  * refuses the save (400 DRIVER_RANGE) and rolls all of it back.
  */
 export async function recomputeDependents(
-  companyId: string, versionId: string, userId: string, live: ReadonlySet<RowKey>,
+  companyId: string, versionId: string, userId: string, live: ReadonlySet<RowKey>, guard: DriverWriteGuard | null = null,
 ): Promise<RecomputeResult> {
-  return recomputeVersion(companyId, versionId, userId, { live });
+  return recomputeVersion(companyId, versionId, userId, { live, guard });
 }

@@ -4,12 +4,13 @@
  * GET ?fiscal_year=2027    — the year's primary version, else its newest; `version: null` when it has none
  * GET …&cells_only=1       — just the cells and the token (the compare-version fetch)
  * Another tenant's version id is a 404. Any member may read (viewers included); per_head driver rates go to
- * budget writers only (POPIA, decision 15: perHeadAccess).
+ * budget writers only (POPIA, decision 15: perHeadAccess). A budget holder of the version (P5-6) gets their
+ * own slices only, and `holder` naming them (gridHolderView).
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { isUuidParam } from '@/lib/validation';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
 import { parseYearLabel } from '@/modules/accounting/services/core/budgetMonths';
@@ -21,6 +22,7 @@ import { perHeadAccessOf } from '@/modules/accounting/services/budgets/drivers/p
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
   const { companyId } = req as CompanyAuthedRequest;
+  const userId = (req as AuthenticatedNextApiRequest).user.id;
   const { version_id: versionId, fiscal_year: fiscalYearRaw, cells_only: cellsOnly } = req.query;
 
   const sel: GridSelector = {};
@@ -34,8 +36,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    if (cellsOnly === '1') return apiResponse.success(res, await loadGridCells(companyId, sel));
-    return apiResponse.success(res, await loadGridReadModel(companyId, sel, perHeadAccessOf((req as CompanyAuthedRequest).companyRole)));
+    if (cellsOnly === '1') return apiResponse.success(res, await loadGridCells(companyId, sel, userId));
+    return apiResponse.success(res, await loadGridReadModel(companyId, sel, perHeadAccessOf((req as CompanyAuthedRequest).companyRole), userId));
   } catch (err) {
     if (respondBudgetVersionError(res, err)) return;
     if (err instanceof FiscalYearLabelUnknownError) return apiResponse.notFound(res, 'Financial year', String(err.fiscalYear));
