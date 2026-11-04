@@ -37,8 +37,6 @@ export function useCustomerLookup(clientId: string, failedMessage: string) {
   // an effect runs a commit after the pick, and in between Save was drawn enabled with the customer's defaults unasked.
   const [answeredFor, setAnsweredFor] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const current = useRef(clientId);
-  current.current = clientId;
 
   const lookup = useRef(0);
   useEffect(() => {
@@ -61,9 +59,9 @@ export function useCustomerLookup(clientId: string, failedMessage: string) {
   const forget = useCallback(() => {
     lookup.current++;
     setDefaults(null);
-    setAnsweredFor(current.current);
+    setAnsweredFor(clientId);
     setError('');
-  }, []);
+  }, [clientId]);
 
   const pending = Boolean(clientId) && answeredFor !== clientId;
   return { defaults, pending, error, forget };
