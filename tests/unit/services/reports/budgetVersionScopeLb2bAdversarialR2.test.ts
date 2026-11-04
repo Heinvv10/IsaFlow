@@ -1,10 +1,9 @@
 /**
  * LB-2(b) regression tests, #1124 rounds 2 and 3 (adopted from the adversarial reviews of 00fa209c1
- * and 203475be3). Same
- * harness as budgetVersionScopeLb2bAdversarial.test.ts: the real facade/range/core, run with master's
- * scope (helpers/budgetVersionScopeMaster.ts) and the live one. The registry answers below were proved
- * on PG16 with migration 940's fiscal_year_template: fixtures/lb2b-pg-proof-r2.txt. `stored: false` =
- * a template year (no fiscal_years row).
+ * and 203475be3). Same harness as budgetVersionScopeLb2bAdversarial.test.ts: the real
+ * facade/range/core, run with master's scope (helpers/budgetVersionScopeMaster.ts) and the live one.
+ * The registry answers below were proved on PG16 with migration 940's fiscal_year_template:
+ * fixtures/lb2b-pg-proof-r2.txt. `stored: false` = a template year (no fiscal_years row).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SALES, W, fakeSql, resetLedger } from './helpers/budgetLedgerFake';
