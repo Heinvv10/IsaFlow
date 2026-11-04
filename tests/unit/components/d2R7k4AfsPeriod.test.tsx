@@ -24,6 +24,7 @@ import AfsDocumentPage, { getServerSideProps } from '../../../pages/accounting/a
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 type Ctx = Parameters<typeof getServerSideProps>[0];
 const ctx = (query: Record<string, string> = {}) => ({ query: { documentId: 'doc-1', ...query }, req: { headers: { host: 'app.test', cookie: 'c=1' } } }) as unknown as Ctx;
+const loadAfs = () => (apiFetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response(JSON.stringify({ data: { document: { id: 'doc-1', documentType: 'afs', fiscalYear: 2026, status: 'draft', version: 1 } } }), { status: 200 }));
 const stubFetch = (res: () => Response | Promise<Response>) => { const f = vi.fn(async () => res()); vi.stubGlobal('fetch', f); return f; };
 const resolved = async (query?: Record<string, string>) => (await getServerSideProps(ctx(query))) as { props: { periodStart: string; periodEnd: string; periodError: string | null } };
 
@@ -65,8 +66,10 @@ describe('afs document period lookup', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/Could not work out the reporting period/);
     expect(screen.queryByText(/TAB Overview/)).toBeNull();
   });
-  it('with no period stated the page shows no period line and no period-bound tab', () => {
+  it('with no period stated the page shows no period line and no period-bound tab', async () => {
+    loadAfs();
     render(<AfsDocumentPage documentId="doc-1" periodStart="" periodEnd="" periodError={null} />);
+    await screen.findByText('Annual Financial Statements');
     expect(screen.queryByText(/Period:/)).toBeNull();
     expect(screen.queryByText(/TAB Overview/)).toBeNull();
   });
@@ -81,8 +84,9 @@ describe('afs document period lookup', () => {
   // 717 px wide before (scrollWidth 717 vs clientWidth 375) and 375 after; the link was 3.36:1 on light (text-blue-500),
   // now 6.12:1 (text-blue-700; dark text-blue-400 5.75:1). jsdom has no layout, so these pin the classes that fixed it.
   it('the tab row scrolls inside its own container and the header row wraps, so the page never scrolls sideways', async () => {
+    loadAfs();
     render(<AfsDocumentPage documentId="doc-1" periodStart="2023-03-01" periodEnd="2023-03-31" periodMonths={12} periodError={null} />);
-    const tabRow = screen.getByText('Overview').closest('button')!.parentElement!;
+    const tabRow = (await screen.findByText('Overview')).closest('button')!.parentElement!;
     expect(tabRow.className).toContain('overflow-x-auto');
     expect(screen.getByText('Overview').closest('button')!.className).toMatch(/shrink-0.*whitespace-nowrap/);
     const header = screen.getByText('Annual Financial Statements').closest('div.max-w-6xl')!;
@@ -97,13 +101,15 @@ describe('afs document period lookup', () => {
     expect(cls).toContain('dark:text-blue-400');
     expect(cls).not.toContain('text-blue-500');
   });
-  it('the page hands the period length to the Overview tab', () => {
+  it('the page hands the period length to the Overview tab', async () => {
+    loadAfs();
     render(<AfsDocumentPage documentId="doc-1" periodStart="2026-01-01" periodEnd="2027-02-28" periodMonths={14} periodError={null} />);
-    expect(screen.getByText('TAB Overview months=14')).toBeTruthy();
+    expect(await screen.findByText('TAB Overview months=14')).toBeTruthy();
   });
-  it('the page shows the tabs when the period is known', () => {
+  it('the page shows the tabs when the period is known', async () => {
+    loadAfs();
     render(<AfsDocumentPage documentId="doc-1" periodStart="2023-03-01" periodEnd="2023-03-31" periodError={null} />);
-    expect(screen.getByText(/TAB Overview/)).toBeTruthy(); expect(screen.queryByRole('alert')).toBeNull();
+    expect(await screen.findByText(/TAB Overview/)).toBeTruthy(); expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByText(/Period: 2023-03-01 — 2023-03-31/)).toBeTruthy();
   });
 });
