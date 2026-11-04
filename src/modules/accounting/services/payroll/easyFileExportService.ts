@@ -11,6 +11,8 @@
  *   - Income code 3601 (gross salary/wages), and 3605 annual payments (bonus,
  *     leave pay on resignation, notice pay — SARS PAYE-GEN-01-G21 (2027) p. 33:
  *     "Reflect under code 3605"), which 3601 then excludes
+ *   - Non-cash fringe benefits (3801, the loan benefit; payrollNonCashFiling)
+ *     under their own income code, outside 3601. Their PAYE is in 4102.
  *   - Lump sums paid under a SARS directive, in a run (audit 2026-10-18 P3) or
  *     outside payroll (directivePaymentFiling, PAYE 4a follow-ups G1): the
  *     income code (3901, or 3907 for other lump sums) with its PAYE under 4115
@@ -19,8 +21,8 @@
  *     3230 number, 3231 issued date, 3232 income source code, 3233 income
  *     amount (BRS "Directive Information", p. 41–44; the optional 3234 type
  *     indicator is left out). 3601 excludes them.
- *   - Deduction codes 4102 (PAYE), 4115 (PAYE on lump sums), 4141 (total UIF:
- *     employee + employer), 4142 (SDL)
+ *   - Deduction codes 4001/4003/4006 (retirement funds, easyFileRetirementFields), 4102 (PAYE),
+ *     4115 (PAYE on lump sums), 4141 (total UIF: employee + employer), 4142 (SDL)
  *   - Periods-of-employment field derived from employee start/end dates
  *
  * Deliberately out of scope — will be added in later iterations:
@@ -33,7 +35,7 @@
  *   - ETI (codes 3026, 3190, 7002-7009)
  *   - Foreign nationals / passport / alternate ID (codes 3061/3090/3100)
  *   - Fixed-rate PAYE directives
- *   - Fringe benefits and allowances (codes 3701-3713, 3801-3815)
+ *   - Allowances (3701-3713); other fringe benefits (a hand-made 38xx is paid as cash, so in 3601)
  *   - Non-natural persons / directors / asylum seekers
  *
  * The service throws UsageError on missing employer data so the caller can
@@ -45,6 +47,7 @@ import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
 import { birthDate3080, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
+import { retirementFieldLines, type RetirementContributions } from './easyFileRetirementFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
@@ -89,6 +92,8 @@ export interface EmployeeInput {
   sdl4142: number;                // 4142 (SDL) — cents kept
   /** Annual payments (3605), NOT included in grossSalary3601. Their PAYE stays in 4102. */
   annualPayments3605?: number;
+  /** Non-cash fringe benefits by income code (3801), NOT included in grossSalary3601; cents dropped. */
+  fringeBenefits?: { sourceCode: string; amount: number }[];
   /** Lump sums paid under a directive, NOT included in grossSalary3601. */
   lumpSums?: LumpSumInput[];
   /**
@@ -99,6 +104,8 @@ export interface EmployeeInput {
   taxThreshold?: number;
   /** Medical scheme fees and credits (4005, 4116, 4120); absent = none reported. */
   medical?: MedicalCertificateInput;
+  /** Retirement fund contributions (4001, 4003, 4006; PAYE 4c); absent = none reported. */
+  retirementFund?: RetirementContributions;
   /** The payroll record's date of birth (local calendar day): 3080, which must be the ID number's date (birthDate3080). */
   dateOfBirth?: Date | null;
 }
@@ -202,6 +209,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   const it3a = emp.paye4102 <= 0 && paye4115 <= 0;
   const reason = it3a ? nilTaxReason(emp) : null;
   const medical = medicalFieldLines(emp);
+  const retirement = retirementFieldLines(emp.retirementFund);
   const lines: (string | null)[] = [
     formatField(3010, emp.certificateNumber, 'AN'),
     formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
@@ -225,8 +233,12 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     ]),
     formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
     formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
+    // Income codes in code order, as the BRS file layout lists them: 36xx, 38xx, then 39xx.
+    ...[...(emp.fringeBenefits ?? [])].sort((a, b) => a.sourceCode.localeCompare(b.sourceCode)).map(f => formatField(Number(f.sourceCode), f.amount >= 1 ? f.amount : null, 'N')),
     ...lumpIncome(lumpSums),
+    ...retirement.beforeMedical,
     ...medical.fees,
+    ...retirement.afterMedical,
     it3a ? null : formatField(4102, emp.paye4102, 'N_CENTS'),
     // 4115 only for 3901 / 3915 / 3920-3924 (lumpSumPayeCode); a 3907's PAYE is in 4102.
     !it3a && under4115.length > 0 ? formatField(4115, paye4115, 'N_CENTS') : null,

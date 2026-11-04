@@ -31,6 +31,8 @@ import { log } from '@/lib/logger';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional, type AttachResult } from './evidenceAttachmentService';
+import { recordBudgetRefusal } from '../budgets/budgetCheck';
+import { BudgetExceededError } from '../budgets/budgetCheckTypes';
 
 export interface AttachAndSettleInput {
   companyId: string;
@@ -56,12 +58,21 @@ export async function attachEvidenceAndSettleApproved(
   if (input.invoiceStatus !== 'approved' || (!attached.attachedJeId && !input.postUnattached)) return attached;
 
   try {
-    await withSavepoint('provisional_settle', () => postSupplierInvoiceToGL(companyId, invoiceId, input.userId));
+    // Budgets P5-2 (census finding 1): this is the auto-approval the budget check must see. The routes
+    // already hold the captured document, its events, the posted-content key and the new bill, so the
+    // company budget lock cannot come first: lock-free (`none`), refusing an over-budget bill in block
+    // mode. Named residual race (ap/.claude.md): two such postings racing in block mode can both pass.
+    await withSavepoint('provisional_settle', () => postSupplierInvoiceToGL(companyId, invoiceId, input.userId, {
+      budget: { channel: 'system', lock: 'none' },
+    }));
   } catch (err) {
     // Contention, not a refusal (D8 round 11): the savepoint rolled the settlement back, and a retry of the whole
     // request settles it — withdrawing the auto-approval would send a person to approve by hand for a 5 s wait.
     // D11: ALL contention — a typed timeout, a held refusal, a raw 55P03 or a 40P01 deadlock victim — not only the typed.
     if (isHeldRowError(err)) throw err;
+    // Over budget under block: the savepoint rolled the posting back; the refusal is recorded here, on the
+    // request transaction, and the auto-approval is withdrawn below like any other refusal.
+    if (err instanceof BudgetExceededError) await recordBudgetRefusal(err);
     const reason = err instanceof Error ? err.message : String(err);
     const why = attached.attachedJeId
       ? `this bill's slip is already booked by a bank-first provisional journal, and settling the bill against it failed (${reason})`

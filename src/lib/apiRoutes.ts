@@ -48,13 +48,15 @@ import type { getAccountTransactions } from '@/modules/accounting/services/gl/ac
 import type { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 import type { getMonthlyMovements } from '@/modules/accounting/services/reports/trendRowsService';
 import type { BudgetComparatorResponse } from './apiRoutesBudgetComparator';
+import type { BudgetDynamicRoutes, BudgetStaticRoutes } from './apiRoutesBudgets';
 import type { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
 import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
 import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
 import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
 import type { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
-import type { JournalPlanPreview } from '@/modules/accounting/services/payroll/payrollApprovalGate';
+import type { LabelledJournalPlanPreview } from '@/modules/accounting/services/payroll/payrollJournalPlanLabels';
+import type { RunInputsState } from '@/modules/accounting/services/payroll/payrollRunPeriodInputs';
 import type { getSetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
@@ -66,13 +68,7 @@ import type { YearEndChangeAssessment } from '@/modules/accounting/services/gl/f
 import type { FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import type { YearEndChangeRecord } from '@/modules/accounting/services/gl/financialYearEndChangeUndo';
 import type { listAssetBankLinks } from '@/modules/accounting/services/items/assetBankLinksService';
-import type { BudgetVersion } from '@/modules/accounting/services/budgets/budgetVersionTypes';
-import type { GridCellsOnly, GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
-import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
-import type { SaveCellsResult } from '@/modules/accounting/services/budgets/gridSave';
-import type { SeedResult } from '@/modules/accounting/services/budgets/seedVersion';
-import type { ImportPreview } from '@/modules/accounting/services/budgets/budgetImportDiff';
-import type { DriverHeadcountResponse, DriverOverrideResponse, DriversResponse, PlannedHiresResponse, ReforecastResponse } from '@/modules/accounting/services/budgets/drivers/driverApiTypes';
+import type { NotificationFeed } from '@/modules/accounting/services/notifications/userNotificationService';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -104,7 +100,7 @@ import type { DriverHeadcountResponse, DriverOverrideResponse, DriversResponse, 
  * changed by people who never read this file, so it is pinned by typeproof
  * cases 15-17 rather than by this comment.
  */
-interface StaticRoutes {
+interface StaticRoutes extends BudgetStaticRoutes {
   // GET; `preview` only when `?newYearEndMonth=` is sent. `undo.changeId` is the latest live change, null when none.
   '/api/accounting/financial-year-end-change': {
     currentYear: FiscalYearRecord;
@@ -114,20 +110,9 @@ interface StaticRoutes {
   };
   '/api/accounting/fiscal-years': Awaited<ReturnType<typeof listYearsWithPeriods>>;
   '/api/accounting/currencies': Currency[];
-  // Budget versions (mig 947): GET the list, POST the new draft (the list and the item of one resource, a union).
-  '/api/accounting/budget-versions': { items: BudgetVersion[] } | BudgetVersion;
-  // Budget grid (P2): GET read model, or `cells_only=1` the cells and token.
-  '/api/accounting/budget-grid': GridReadModel | GridCellsOnly;
-  '/api/accounting/budget-grid/prior-actuals': PriorActuals;
-  '/api/accounting/budget-grid/save': SaveCellsResult;
-  '/api/accounting/budget-grid/seed': SeedResult;
-  '/api/accounting/budget-grid/import-preview': ImportPreview;
-  // PUT: the note as stored (trimmed; null when cleared). Year-scoped (P2 follow-up F1).
-  '/api/accounting/budget-grid/note': { note: string | null };
-  '/api/accounting/budget-drivers': DriversResponse;
-  '/api/accounting/budget-drivers/override': DriverOverrideResponse;
-  '/api/accounting/budget-drivers/headcount': DriverHeadcountResponse;
-  '/api/accounting/budget-drivers/planned-hires': PlannedHiresResponse;
+  // The header bell's feed (GET) and mark-read (POST) (budgets P5-1). Budget routes: apiRoutesBudgets.ts.
+  '/api/accounting/notifications': NotificationFeed;
+  '/api/accounting/notifications/read': { updated: number };
   '/api/accounting/setup-checklist': Awaited<ReturnType<typeof getSetupProgress>>;
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
   // W1-02. GET lists accounts, PUT returns `{ updated }` — disjoint on Array.isArray.
@@ -182,7 +167,7 @@ interface StaticRoutes {
  * would silently inherit this type. That is precisely the defect class this
  * file exists to close, so the matcher rejects any binding containing `/`.
  */
-interface DynamicRoutes {
+interface DynamicRoutes extends BudgetDynamicRoutes {
   '/api/admin/users/{}/impersonate': { redirect: string };
   '/api/accounting/packs/{}/trend': Awaited<ReturnType<typeof getPackTrend>>;
   // The board pack document, composed server-side. Projected off the
@@ -202,19 +187,15 @@ interface DynamicRoutes {
   '/api/accounting/annotations/{}/resolve': { resolved: true };
   // PAY-01. GET only / POST only respectively; the handlers are passthroughs.
   // plan.blockers is withheld from the response (the route strips it): the top-level `blocker` is the one answer.
-  '/api/payroll/runs/{}/journal-plan': JournalPlanPreview;
+  '/api/payroll/runs/{}/journal-plan': LabelledJournalPlanPreview;
   '/api/payroll/runs/{}/approve': Awaited<ReturnType<typeof approvePayrollRun>>;
+  // Wave 3 R. GET and PUT answer the same state, so a PUT hands the grid the recalculated lines.
+  '/api/payroll/runs/{}/inputs': RunInputsState;
   // Fleet records (mig 853): GET the list, POST the new record, DELETE `{ deleted, id }` — the list and the item of
   // one resource, so a union (see above). The bank-links read is GET only; null (404) never reaches the caller.
   '/api/accounting/assets/{}/fuel': FuelRecord[] | FuelRecord | { deleted: true; id: string };
   '/api/accounting/assets/{}/service': ServiceRecord[] | ServiceRecord | { deleted: true; id: string };
   '/api/accounting/assets/{}/bank-links': NonNullable<Awaited<ReturnType<typeof listAssetBankLinks>>>;
-  // Budget versions (mig 947): GET the version or DELETE `{ deleted }` (a union); status/copy/primary return it; P4's reforecast a union.
-  '/api/accounting/budget-versions/{}': BudgetVersion | { deleted: true };
-  '/api/accounting/budget-versions/{}/status': BudgetVersion;
-  '/api/accounting/budget-versions/{}/copy': BudgetVersion;
-  '/api/accounting/budget-versions/{}/primary': BudgetVersion;
-  '/api/accounting/budget-versions/{}/reforecast': ReforecastResponse;
 }
 
 /**

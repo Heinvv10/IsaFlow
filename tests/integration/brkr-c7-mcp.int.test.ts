@@ -94,6 +94,7 @@ describe('CLAIM 7 — MCP approve_pay_run', () => {
     const stale = await tool('approve_pay_run', { run_id: id, expected_plan_hash: dry.json?.plan_hash });
     out.liveStaleHashAfterRecalc = stale; expect.soft(stale.isError && stale.wroteNothing, 'stale hash').toBe(true);
     const dry2 = await tool('approve_pay_run', { run_id: id, dry_run: true });
+    await r.authorise(id);
     const live = await tool('approve_pay_run', { run_id: id, expected_plan_hash: dry2.json?.plan_hash });
     out.live = live; expect.soft(live.isError).toBe(false);
     const j1 = String(live.json?.journal_entry_id);
@@ -104,6 +105,7 @@ describe('CLAIM 7 — MCP approve_pay_run', () => {
     const parity: unknown[] = [];
     const both = async (state: string) => {
       const d = await tool('approve_pay_run', { run_id: id, dry_run: true });
+      if (!d.isError) await r.authorise(id);
       const l = await tool('approve_pay_run', { run_id: id, expected_plan_hash: d.json?.plan_hash ?? 'f'.repeat(64) });
       parity.push({ state, dryRefuses: d.isError, dryWroteNothing: d.wroteNothing, liveRefuses: l.isError, dry: d.text.slice(0, 120), live: l.text.slice(0, 120) });
       expect.soft(d.wroteNothing, `${state}: dry run wrote nothing`).toBe(true);

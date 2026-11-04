@@ -1,6 +1,7 @@
 /**
  * AutosaveStatus — "Saved 2 s ago" / "Saving…" / "Unsaved changes" / "Couldn't save".
- * A polite live region, so a screen reader hears the state change but not every tick of the clock.
+ * A polite live region: a screen reader hears the state change, and the clock is aria-hidden so it
+ * does not hear every tick. However many are on a page, they share one timer.
  */
 import * as React from 'react';
 import { AlertCircle, Check, Loader2, Pencil } from 'lucide-react';
@@ -26,13 +27,28 @@ export function formatSavedAgo(elapsedMs: number): string {
   return `${Math.floor(seconds / 3600)} h ago`;
 }
 
+const ticking = new Set<() => void>();
+let clock: ReturnType<typeof setInterval> | undefined;
+
+/** Call `tick` every second, on the one timer every status on the page shares. Returns the way out. */
+function onTick(tick: () => void): () => void {
+  ticking.add(tick);
+  clock ??= setInterval(() => ticking.forEach((t) => t()), 1000);
+  return () => {
+    ticking.delete(tick);
+    if (ticking.size === 0) {
+      clearInterval(clock);
+      clock = undefined;
+    }
+  };
+}
+
 function useNow(active: boolean): number {
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
     if (!active) return undefined;
     setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
+    return onTick(() => setNow(Date.now()));
   }, [active]);
   return now;
 }
@@ -44,7 +60,7 @@ export function AutosaveStatus({ state, savedAt, errorMessage, className }: Auto
   let icon = <Check size={14} aria-hidden="true" />;
   let text = 'Saved';
   let tone = 'text-gray-600 dark:text-gray-400';
-  if (state === 'saved' && savedMs !== null) text = `Saved ${formatSavedAgo(now - savedMs)}`;
+  const ago = state === 'saved' && savedMs !== null ? ` ${formatSavedAgo(now - savedMs)}` : null;
   if (state === 'saving') {
     icon = <Loader2 size={14} aria-hidden="true" className="animate-spin" />;
     text = 'Saving…';
@@ -61,7 +77,7 @@ export function AutosaveStatus({ state, savedAt, errorMessage, className }: Auto
   return (
     <p role="status" className={cn('inline-flex items-center gap-1.5 text-xs font-medium', tone, className)}>
       {icon}
-      <span>{text}</span>
+      <span>{text}{ago && <span aria-hidden="true">{ago}</span>}</span>
     </p>
   );
 }

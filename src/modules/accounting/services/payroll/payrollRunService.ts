@@ -3,6 +3,8 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
 import { getEmployeeComponents } from './payrollComponentService';
+import { payrollRunReadDate } from './payrollRunReadDate';
+import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
@@ -14,7 +16,8 @@ import { journalInForceOrNull } from './payrollJournalChain';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
-import { appendLoanComponents } from './payrollRunLoanComponents';
+import { appendLoanComponents, loadLoanComponents } from './payrollRunLoanComponents';
+import { fringeNotRecordedResults, runOfficialRate, withheldLineResults, type WithheldLoan } from './payrollLoanWithholding';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
 import { listSeveranceOnlyRunEmployees } from './payrollSeveranceDirective';
 import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
@@ -137,12 +140,18 @@ export async function calculatePayrollRun(
   // deductions and before any line is built. UnsupportedTaxYearError is a
   // refusal with nothing written; the callers answer it as a 4xx.
   getTaxYearConfig(taxYear);
+  // Components are read as at the period's last day, a plain calendar string (payrollRunReadDate).
+  const readDate = payrollRunReadDate(period);
+  // Only for validateEti's ETI_TABLE_UNCONFIRMED warning, which reads its month through local getters. ETI itself
+  // (table, age, months employed) is worked out in calculatePayrollLine on its own local day-28 Date, not on this nor
+  // on readDate; getAge there compares days, so ETI age is still taken on the 28th.
   const periodDate = new Date(period.year, period.month - 1, 28);
 
   const employees = await listPayrollRunEmployees(companyId, period);
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
+  let totalRemuneration = 0;
   let totalPaye = 0;
   let totalUifEmployee = 0;
   let totalUifEmployer = 0;
@@ -154,19 +163,26 @@ export async function calculatePayrollRun(
   // Undo the loan deductions THIS run already applied, then re-apply the
   // instalments due — one locked transaction, so a recalculation reproduces
   // the same payslip instead of dropping the deduction while keeping the
-  // reduced balance. See payrollRunLoanApplication.ts.
+  // reduced balance. See payrollRunLoanApplication.ts. A loan the payslip has no component for is
+  // not taken at all (payrollLoanWithholding); its line is marked instead.
+  const loanComponents = await loadLoanComponents(companyId);
+  const withheld: WithheldLoan[] = [];
   const loansByEmployee = await applyRunLoans({
     companyId,
     runId,
     periodYear: period.year,
     periodMonth: period.month,
-    officialRate: Number(process.env.SARS_OFFICIAL_RATE ?? 0.085),
+    officialRate: runOfficialRate(),
     // Only a journal whose amounts are in the ledger blocks loan work (round 5).
     journalEntryId: await journalInForceOrNull(companyId, run.journal_entry_id),
     // Only the run's own employees: an instalment taken from someone with no
     // line here would reduce the loan with no deduction on any payslip.
     employeeIds: new Set(employees.map(e => e.id)),
+    components: { deduction: loanComponents.deduction != null, fringe: loanComponents.fringe != null },
+    onWithheld: (w) => withheld.push(w),
   });
+  const withheldResults = withheldLineResults(withheld);
+  const fringeWarnings = fringeNotRecordedResults(loansByEmployee, loanComponents);
 
   // Leavers from earlier periods whose severance directive this run may pay:
   // the severance line alone, no salary, recurring components or loans, and so
@@ -179,6 +195,8 @@ export async function calculatePayrollRun(
   // Earlier periods of the tax year, for the cumulative PAYE (PAYE 4a follow-ups G4).
   const ytdByEmployee = await loadPayeYearToDate(companyId, runId, period, population.map(p => p.employee.id));
   const laterApproved = await laterPeriodsWarnings(companyId, runId, period);
+  // Recurring rows the last-day read pays in full or drops: flagged on the line, refused at approval.
+  const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));
 
   for (const { employee, severanceOnly: onlySeverance } of population) {
     const terminationWarnings: ValidationResult[] = [];
@@ -187,12 +205,12 @@ export async function calculatePayrollRun(
       componentsWithLoans = await severanceOnlyComponents(companyId, runId, employee, period, terminationWarnings);
       if (componentsWithLoans.length === 0) continue;
     } else {
-      const components = await getEmployeeComponents(employee.id, companyId, periodDate);
+      const components = await getEmployeeComponents(employee.id, companyId, readDate);
       const componentsWithTermination = await appendTerminationIfEndingThisPeriod(
         companyId, runId, employee, components, period, terminationWarnings,
       );
       const loanApplications: ApplyLoanResult[] = loansByEmployee.get(employee.id) ?? [];
-      componentsWithLoans = await appendLoanComponents(companyId, componentsWithTermination, loanApplications);
+      componentsWithLoans = appendLoanComponents(componentsWithTermination, loanApplications, loanComponents);
     }
 
     const line = calculatePayrollLine({
@@ -208,7 +226,8 @@ export async function calculatePayrollRun(
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);
     const empValidation = validateEmployee(employee, otherTaxNumbers);
     const lineValidation = validatePayrollLine({
-      taxableIncome: line.taxableIncome,
+      // After the retirement fund deduction: a contribution can legitimately bring it under the threshold.
+      taxableIncome: line.taxableIncome - line.retirementDeduction,
       monthlyPaye: line.paye.monthlyPaye,
       grossPay: line.grossPay,
     });
@@ -223,6 +242,8 @@ export async function calculatePayrollRun(
       medicalCredit: line.medicalCredit,
       additionalMedicalCredit: line.additionalMedicalCredit,
       medicalSchemeFees: line.medicalSchemeFees,
+      retirementContributions: line.retirementContributions,
+      retirementDeduction: line.retirementDeduction,
       uifEmployee: line.uif.employeeContribution,
       uifEmployer: line.uif.employerContribution,
       sdl: 0, // set below, once the run's own leviable total decides leviability
@@ -232,13 +253,16 @@ export async function calculatePayrollRun(
       componentBreakdown: JSON.stringify(line.componentBreakdown),
       validationResults: JSON.stringify([
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
-        ...line.validationResults, ...terminationWarnings,
-        // Only a line taxed from the tables feeds the later months' cumulative PAYE.
-        ...((line.periodicTaxable > 0 || line.annualTaxable > 0) && laterApproved.has(employee.id) ? [laterApproved.get(employee.id)!] : []),
+        ...line.validationResults, ...terminationWarnings, ...(withheldResults.get(employee.id) ?? []), ...(fringeWarnings.has(employee.id) ? [fringeWarnings.get(employee.id)!] : []),
+        // Remuneration before taxable deductions feeds later months even when a deduction reduced this line to nil.
+        ...((line.periodicRemuneration > 0 || line.annualPaymentRemuneration > 0) && laterApproved.has(employee.id)
+          ? [laterApproved.get(employee.id)!] : []),
+        ...proRata.filter(r => r.employeeId === employee.id).map(proRataValidation),
       ]),
     });
 
     totalGross += line.grossPay;
+    totalRemuneration += line.remuneration;
     totalPaye += line.paye.monthlyPaye;
     totalUifEmployee += line.uif.employeeContribution;
     totalUifEmployer += line.uif.employerContribution;
@@ -255,7 +279,7 @@ export async function calculatePayrollRun(
   // threshold by employee count alone, exempting any single employee however
   // much they earned and levying any two however little.
   const annualRemuneration = await estimateAnnualRemuneration(
-    companyId, period, r(totalGross), runId,
+    companyId, period, r(totalRemuneration), runId,
   );
   const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear);
 

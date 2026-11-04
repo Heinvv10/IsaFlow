@@ -12,8 +12,14 @@
  * LOCK ORDER, every payroll-run writer (all waits bounded at 5s, then a
  * retryable refusal):
  *   1. the company approval lock (lockCompanyPayrollApprovals): approve,
- *      calculate and reopen;
- *   2. the run's header row (lockPayrollRunHeader): the same three;
+ *      calculate, reopen and the pay-run grid. assignComponentToEmployee,
+ *      endEmployeeComponent, postBatch and applyPackageToEmployee take it
+ *      alone, so a row cannot change between a grid edit's read and its write;
+ *      setEmployeeBankDetails takes the same key for a non-owner / admin caller
+ *      (payrollApprovalLockScope; RowLockTimeoutError), then the employee row,
+ *      and no run header;
+ *   2. the run's header row (lockPayrollRunHeader): approve, calculate, reopen
+ *      and the grid;
  *   3. approval only: the linked journal and its reversal chain
  *      (lockRunJournalForApproval, payrollJournalChain), then the severance
  *      directive rows (FOR SHARE) and their payment row (payrollRunDirectiveClaim).
@@ -36,6 +42,8 @@ import {
 } from './payrollRunLoanApplication';
 import { lockJournalChain } from './payrollJournalChain';
 import { GRANDFATHERED_PLAN_HASH, recordPayRunApprovalAudit } from './payRunApprovalAudit';
+import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
+import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 
 export type PayrollRunStatus = 'draft' | 'calculated' | 'approved' | 'paid' | 'cancelled';
 
@@ -74,7 +82,7 @@ export class PayrollRunLockedError extends Error {
  * SET LOCAL — so the previous timeout is restored by hand, or the 5s would
  * bound every later statement of the request.
  */
-export async function withBoundedLockWait<T>(runId: string, take: (tx: TxSql) => Promise<T>): Promise<T> {
+export async function withBoundedLockWait<T>(runId: string | null, take: (tx: TxSql) => Promise<T>): Promise<T> {
   return withTransaction(async (tx) => {
     const previousLockTimeout = await setLocalLockTimeout(tx, '5s');
     let taken: T;
@@ -109,6 +117,9 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
   `) as DbRow[])[0] ?? null);
 }
 
+/** Shared key for every write whose verdict depends on payroll approval state. */
+export const payrollApprovalLockScope = (companyId: string): string => `payroll_approval:${companyId}`;
+
 /**
  * Serialise this company's payroll approvals until the caller's transaction
  * ends (a transaction-scoped advisory lock, bounded like the row locks). The
@@ -117,7 +128,9 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
  * pay-outs, approved at once, would both pass it. Taken by approvePayrollRun,
  * since cumulative PAYE (PAYE 4a follow-ups G4) by calculatePayrollRun, and
  * since round 2 (R1) by reopenPayrollRun, all before the header lock, so they
- * cannot form a cycle; the generic reversal does not take it. A reopen waits
+ * cannot form a cycle; setEmployeeBankDetails (a manager's first entry reads
+ * the ever-approved verdict) takes it before the employee row, via
+ * payrollApprovalLockScope, and never a run header; the generic reversal does not take it. A reopen waits
  * for an in-flight calculation, so its reopened_at is either before the
  * calculation read the year-to-date or after its lines were written — the
  * stale year-to-date gate compares the two. Deliberately, a calculation holds it until its
@@ -130,9 +143,9 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
  * caller with no outer transaction (a script) holds this lock, like the header
  * lock, only for withTransaction's own block, so it serialises nothing there.
  */
-export async function lockCompanyPayrollApprovals(runId: string, companyId: string): Promise<void> {
+export async function lockCompanyPayrollApprovals(runId: string | null, companyId: string): Promise<void> {
   await withBoundedLockWait(runId, (tx) => tx`
-    SELECT pg_advisory_xact_lock(hashtextextended(${`payroll_approval:${companyId}`}, 0))
+    SELECT pg_advisory_xact_lock(hashtextextended(${payrollApprovalLockScope(companyId)}, 0))
   `);
 }
 
@@ -184,7 +197,11 @@ export async function saveCalculatedRunTotals(
       prepared_by     = ${preparedBy}::uuid,
       approval_plan_hash = NULL,
       approval_revision = gen_random_uuid(),
-      updated_at     = NOW()
+      updated_at     = NOW(),
+      -- clock_timestamp(), not the transaction's start: taken under the company lock the calculation holds, so a
+      -- component change after it (which waits for that lock) is stamped later (payrollRunRecalcGate).
+      calculated_at  = clock_timestamp(),
+      calculation_version = ${PAYROLL_CALCULATION_VERSION}
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
       AND status NOT IN ('approved', 'paid', 'cancelled')
     RETURNING *
@@ -257,8 +274,11 @@ export async function reopenPayrollRun(opts: {
            -- Unknown stays unknown: a history with no set was reopened before the column existed.
            approved_taxed_employees = CASE WHEN h.approval_history IS NOT NULL AND h.approved_taxed_employees IS NULL THEN NULL
              ELSE ARRAY(SELECT DISTINCT u FROM unnest(COALESCE(h.approved_taxed_employees, '{}'::uuid[]) || ARRAY(
-               SELECT l.employee_id FROM payroll_run_lines l WHERE l.run_id = h.id
-                 AND COALESCE(l.periodic_taxable > 0 OR l.annual_taxable > 0, l.taxable_income > 0))) u ORDER BY u) END,
+               SELECT l.employee_id
+               FROM payroll_run_lines l
+               CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
+               WHERE l.run_id = h.id
+                 AND r.had_table_remuneration)) u ORDER BY u) END,
            updated_at = NOW()
       FROM (SELECT clock_timestamp() AS now) c
      WHERE h.id = ${opts.runId}::uuid AND h.company_id = ${opts.companyId}::uuid

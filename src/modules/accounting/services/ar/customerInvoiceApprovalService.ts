@@ -11,6 +11,8 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { loadInvoicePdfModelAndDigests, type InvoicePdfModel } from './invoicePdfModel';
+import { assertShownIsStored, InvoiceStaleViewError, type ShownInvoice } from './customerInvoiceStaleView';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
@@ -57,6 +59,8 @@ import { CustomerInvoiceLockTimeoutError } from './customerInvoiceLock';
 
 export { CustomerInvoiceLockTimeoutError };
 
+export { InvoiceStaleViewError };
+
 export class InvoiceNotApprovableError extends Error {
   public readonly notFound: boolean;
 
@@ -101,13 +105,17 @@ export interface ApproveCustomerInvoiceResult {
  *   and last-positional: the HTTP route (a human clicking Approve) omits it
  *   and keeps `human:<userId>`; the MCP finalize_invoice tool passes its own
  *   stamp so agent-approved invoices show up in list_agent_postings.
+ * @param opts.expectedTotal / expectedCurrency / expectedExchangeRate What the approver was shown (the HTTP route,
+ *   from a screen). Anything stored differently throws InvoiceStaleViewError under the lock, before any write
+ *   (customerInvoiceStaleView.ts). MCP and the recurring run have no screen and omit them.
  */
 export async function approveCustomerInvoice(
   companyId: string,
   invoiceId: string,
   userId: string,
-  opts?: PostingActorOpts,
+  opts?: PostingActorOpts & ShownInvoice,
 ): Promise<ApproveCustomerInvoiceResult> {
+  const { expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest, ...actor } = opts ?? {};
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // A COMPARE-AND-SWAP IS STRONGER THAN A LOCK AGAINST DOUBLE-POSTING, AND
   // WEAKER AGAINST HANGING. The guarded UPDATE below means two callers cannot
@@ -148,7 +156,7 @@ export async function approveCustomerInvoice(
   let locked: Row[];
   try {
     locked = (await sql`
-      SELECT status, currency_code, total_amount FROM customer_invoices
+      SELECT status, currency_code, total_amount, exchange_rate FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
         AND status = ANY(${APPROVABLE_STATUSES}::text[])
       FOR NO KEY UPDATE
@@ -157,7 +165,15 @@ export async function approveCustomerInvoice(
     if (isLockTimeout(err)) throw new CustomerInvoiceLockTimeoutError(`Customer invoice ${invoiceId}`);
     throw err;
   }
+  // A screen sent what it showed: the PDF model is loaded ONCE, under the row lock, compared, and that same object is
+  // what the seal below renders, so a customer or company record changed after the comparison (bank details) is never
+  // sealed or sent unseen. (MCP and the recurring run send none; the seal loads its own.)
+  let compared: InvoicePdfModel | undefined;
   if (locked[0]) {
+    const shown = expectedContentDigest === undefined ? null : await loadInvoicePdfModelAndDigests(companyId, invoiceId);
+    compared = shown?.model;
+    assertShownIsStored({ expectedTotal, expectedCurrency, expectedExchangeRate, expectedContentDigest },
+      { ...locked[0], shown_digest: shown?.digests.shown });
     await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
     // FX PR0: under the lock and before the status write, like the approval check.
     await assertDocumentPostable(companyId, [locked[0].currency_code], 'invoice');
@@ -219,7 +235,7 @@ export async function approveCustomerInvoice(
   // check above — projects and cost centres are not locked) must not reach a
   // route as the pre-write 400 it maps InvoiceLineCodingRefusal to.
   const glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId,
-    { ...opts, approvingFromStatus: String(locked[0]?.status) }).catch((err: unknown) => {
+    { ...actor, approvingFromStatus: String(locked[0]?.status) }).catch((err: unknown) => {
     if (err instanceof InvoiceLineCodingRefusal) throw new ArPostingAfterWriteError(err.message, { cause: err });
     throw err;
   });
@@ -241,7 +257,8 @@ export async function approveCustomerInvoice(
     // is rolled back to a clean point and the status transition stands.
     const snapshot = await withSavepoint(
       'invoice_pdf_snapshot',
-      () => snapshotInvoicePdf(companyId, invoiceId),
+      // The compared model, now approved: the one field the approval itself changed.
+      () => snapshotInvoicePdf(companyId, invoiceId, compared && { ...compared, invoice: { ...compared.invoice, status: 'approved' } }),
     );
     evidenceDocumentId = snapshot.documentId;
     log.info('Customer invoice PDF snapshot sealed', {

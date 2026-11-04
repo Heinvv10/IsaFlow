@@ -29,6 +29,9 @@ const LOCK_TIMEOUT_CODES = new Set([
   // (55P03, or 40P01 as the victim): raised inside the element's savepoint,
   // which ROLLBACK TO SAVEPOINT recovers, so the element is a retryable skip.
   'INVOICE_LINE_ACCOUNT_LOCK_TIMEOUT',
+  // Budgets P5-2: the budget policy became block after the batch opened its gate unlocked (the
+  // company lock is taken before the loop, never per element). Raised before any write: a retryable skip.
+  'BUDGET_CHECK_LOCK_TIMEOUT',
 ]);
 
 /** Postgres `deadlock_detected` — this transaction was chosen as the victim. */

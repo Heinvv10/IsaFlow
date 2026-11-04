@@ -8,9 +8,10 @@ import type { Pool } from 'pg';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import createRun from '../../pages/api/payroll/runs';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
+import approvalRequests from '../../pages/api/accounting/approval-requests';
 
 export type Route = (req: never, res: never) => Promise<unknown>;
-export type Body = { data?: Record<string, any>; error?: { message?: string } }; // eslint-disable-line @typescript-eslint/no-explicit-any
+export type Body = { data?: Record<string, any>; error?: { message?: string; details?: { reason?: string } } }; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 export const REQUIRED_GL = ['5200', '2140', '2150', '2160', '1110'];
 
@@ -34,17 +35,50 @@ export async function seedPayrollCompany(pool: Pool, company: string, salary = 2
 }
 
 export function routeCaller(tokens: Record<string, string>, defaults: { user: string; company: string }) {
-  return async function call(route: Route, method: string, url: string, id: unknown, opts: { company?: string; user?: string; body?: unknown } = {}) {
+  return async function call(
+    route: Route, method: string, url: string, id: unknown,
+    opts: { company?: string; user?: string; body?: unknown; query?: Record<string, string> } = {},
+  ) {
     const req = request({ 'sb-access-token': tokens[opts.user ?? defaults.user]!, active_company_id: opts.company ?? defaults.company }, method) as never as {
       url: string; body: unknown; query: Record<string, unknown>;
     };
-    req.query = id === undefined ? {} : { id };
+    req.query = { ...(id === undefined ? {} : { id }), ...opts.query };
     req.url = url;
     req.body = opts.body;
     const result = response();
     await route(req as never, result.res as never);
     return result.state as { statusCode: number; body: Body };
   };
+}
+
+/**
+ * Raise and clear the mandatory R-035 request for the run's current plan.
+ * Pass a second eligible member whenever the fixture has one; omitting it is
+ * reserved for fixtures whose sole eligible member exercises the audited
+ * sole-approver exception.
+ */
+export async function authorisePayRun(
+  call: ReturnType<typeof routeCaller>, runId: string, approverUser?: string,
+): Promise<string> {
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const raised = await call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined, {
+      body: { action: 'request', documentType: 'pay_run', documentId: runId },
+    });
+    if (raised.statusCode !== 200) {
+      throw new Error(`request pay-run approval: ${raised.statusCode} ${JSON.stringify(raised.body)}`);
+    }
+    const request = raised.body.data as { id: string; documentDigest: string };
+    const decided = await call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined, {
+      ...(approverUser ? { user: approverUser } : {}),
+      body: { action: 'approve', requestId: request.id, expectedDigest: request.documentDigest },
+    });
+    if (decided.statusCode === 200) return request.documentDigest;
+    const reason = decided.body.error?.details?.reason;
+    if (decided.statusCode !== 409 || reason !== 'DOCUMENT_CHANGED' || attempt === 5) {
+      throw new Error(`approve pay-run request: ${decided.statusCode} ${JSON.stringify(decided.body)}`);
+    }
+  }
+  throw new Error('approve pay-run request: exhausted retries');
 }
 
 /** A run for (2026, month) made and costed through the real routes. */
@@ -60,6 +94,7 @@ export async function calculatedRun(call: ReturnType<typeof routeCaller>, month:
 /** Delete everything the fixtures above (and approval) wrote for these companies. */
 export async function cleanPayrollCompanies(pool: Pool, ids: string[]): Promise<void> {
   const q = (text: string) => pool.query(text, [ids]);
+  await q('DELETE FROM approval_requests WHERE company_id = ANY($1)');
   await q('DELETE FROM payroll_run_lines WHERE run_id IN (SELECT id FROM payroll_run_headers WHERE company_id = ANY($1))');
   await q('DELETE FROM payroll_run_headers WHERE company_id = ANY($1)');
   await q('DELETE FROM payroll_employee_components WHERE employee_id IN (SELECT id FROM payroll_employees WHERE company_id = ANY($1))');

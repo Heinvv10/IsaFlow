@@ -34,7 +34,7 @@ import {
   previewPayrollApproval,
 } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollApprovalRefusedError } from '@/modules/accounting/services/payroll/payrollApprovalRefusal';
-import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { isPayrollRunLocked, PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
   PayrollLoanLockTimeoutError,
   PayrollRunJournalPostedError,
@@ -43,6 +43,7 @@ import {
 import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
 import { ETI_TABLE_UNCONFIRMED_MESSAGE, isEtiTableUnconfirmed } from '@/modules/accounting/services/payroll/etiTables';
 import { UnsupportedTaxYearError, unloadedTaxYearMessage } from '@/modules/accounting/services/payroll/taxTables';
+import { withheldLoansReport as withheldLoans } from '@/modules/accounting/services/payroll/payrollLoanWithholding';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
@@ -104,24 +105,24 @@ export const calculatePayRunTool: McpTool = {
     if (!run) return toolError(NOT_FOUND);
 
     if (args.dry_run === true) {
-      // dry_run must run the row-state guards the live path runs. Without this
-      // a reopened run whose GL journal is still posted was promised a recost
-      // that calculatePayrollRun then refuses.
-      const blocked = run.journalEntryId != null
+      // dry_run runs the live path's row-state guards, in its order (locked, then tax year): without them a reopened
+      // run whose GL journal is still posted was promised a recost that calculatePayrollRun then refuses.
+      const refusal = isPayrollRunLocked(run.status) ? new PayrollRunLockedError(run.status).message : unloadedTaxYearMessage(run.periodMonth, run.periodYear);
+      const blocked = !refusal && run.journalEntryId != null
         && await payrollJournalInForce(ctx.companyId, run.journalEntryId)
         && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);
-      const taxYearMissing = unloadedTaxYearMessage(run.periodMonth, run.periodYear);
       return ok({
         dryRun: true,
         wroteNothing: true,
         journals: [],
-        effects: blocked || taxYearMissing
+        effects: blocked || refusal
           ? []
           : [`Recost run ${run.periodMonth}/${run.periodYear} (status '${run.status}') and rebuild its lines.`],
         skipped: [
           ...(blocked ? [new PayrollRunJournalPostedError(runId).message] : []),
-          ...(taxYearMissing ? [taxYearMissing] : []),
+          ...(refusal ? [refusal] : []),
         ],
+        withheld_loans: blocked || refusal ? [] : await withheldLoans(ctx.companyId, run),
         current: runPayload(run),
       });
     }
@@ -133,6 +134,7 @@ export const calculatePayRunTool: McpTool = {
         ...(costed.totalEti > 0 && isEtiTableUnconfirmed(new Date(costed.periodYear, costed.periodMonth - 1, 28))
           ? { warnings: [ETI_TABLE_UNCONFIRMED_MESSAGE] }
           : {}),
+        withheld_loans: await withheldLoans(ctx.companyId, costed), approval_blocker: (await previewPayrollApproval(ctx.companyId, runId))?.blocker ?? null,
         next_step: costed.employeeCount === 0
           ? 'No employees were costed — create_employee and assign_employee_component first.'
           : 'approve_pay_run posts this to the ledger.',

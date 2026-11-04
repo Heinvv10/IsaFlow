@@ -2,6 +2,7 @@
  * GET  /api/payroll/employees/[id]/termination — fetch stored termination details + live preview.
  * PUT  /api/payroll/employees/[id]/termination — save termination details.
  */
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -18,7 +19,7 @@ import {
   type TerminationReason,
   type TerminationDetailsInput,
 } from '@/modules/accounting/services/payroll/payrollTerminationService';
-import { getEmployeeComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
+import { terminationMonthlySalary } from '@/modules/accounting/services/payroll/payrollRunTermination';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function hasApprovedSeveranceDirective(companyId: string, employeeId: string, endDateIso: string | null): Promise<boolean> {
@@ -54,11 +55,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const balanceYear = employee.endDate?.getFullYear() ?? new Date().getFullYear();
     const leaveBalance = await getAnnualLeaveBalance(companyId, employeeId, balanceYear);
 
+    // The run's termination base (terminationMonthlySalary), on the end date; today until one is captured.
     const periodDate = employee.endDate ?? new Date();
-    const components = await getEmployeeComponents(employeeId, companyId, periodDate);
-    const monthlySalary = components
-      .filter((c) => c.component.componentType === 'earning')
-      .reduce((s, c) => s + c.amount, 0);
+    const monthlySalary = await terminationMonthlySalary(companyId, employeeId, periodDate.toISOString().slice(0, 10));
 
     const preview = details?.reason && employee.endDate
       ? computeTerminationPreview({
@@ -115,7 +114,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       severanceWeeksPerYear: body.severanceWeeksPerYear ?? null,
       includeLeavePayout: body.includeLeavePayout ?? true,
     };
-    await setTerminationDetails(companyId, employeeId, input);
+    try {
+      await setTerminationDetails(companyId, employeeId, input);
+    } catch (err) {
+      // Waits for the company's payroll lock (an approval in flight): retry, not a server error.
+      if (respondIfLockTimeout(res, err)) return;
+      throw err;
+    }
     return apiResponse.success(res, { ok: true });
   }
 

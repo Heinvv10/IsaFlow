@@ -81,11 +81,12 @@ export async function plantBill(db: Db, companyId: string, createdBy: string, op
 }
 
 export async function callRoute(handler: Handler, token: string, companyId: string, method: string,
-  body: unknown, url: string, query: Record<string, string> = {}) {
+  body: unknown, url: string, query: Record<string, string> = {}, headers: Record<string, string | undefined> = {}) {
   const req = request({ 'sb-access-token': token, active_company_id: companyId }, method) as never as {
-    body: unknown; query: Record<string, string>; url: string;
+    body: unknown; query: Record<string, string>; url: string; headers: Record<string, string | undefined>;
   };
   req.body = body;
+  Object.assign(req.headers, headers);
   req.query = query;
   req.url = url;
   const result = response();

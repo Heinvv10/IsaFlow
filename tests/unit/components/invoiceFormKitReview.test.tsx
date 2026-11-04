@@ -4,6 +4,7 @@
  */
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createElement, useLayoutEffect } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok } from '../helpers/d2CensusG4';
@@ -18,6 +19,16 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: { invoiceId: 'inv-1' }, push, replace: vi.fn(), pathname: '/', isReady: true }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
+// Armed, it presses Save & New in any commit that draws it enabled, as a click landing right after that paint would.
+const press = vi.hoisted(() => ({ armed: false, pressed: 0 }));
+vi.mock('@/components/accounting/customer-invoices/NewInvoiceParts', async (original) => {
+  const real = await original<typeof import('@/components/accounting/customer-invoices/NewInvoiceParts')>();
+  function PressedActions(props: Parameters<typeof real.NewInvoiceActions>[0]) {
+    useLayoutEffect(() => { if (press.armed && !props.busy) { press.armed = false; press.pressed++; props.onSaveAndNew(); } });
+    return createElement(real.NewInvoiceActions, props);
+  }
+  return { ...real, NewInvoiceActions: PressedActions };
+});
 vi.mock('@/components/accounting/ScanAndFillButton', () => ({
   ScanAndFillButton: ({ onExtracted }: { onExtracted: (d: unknown) => void }) => (
     <button onClick={() => onExtracted({ ...scan.current, vatRate: null, lineItems: [], confidence: 0.9 })}>scan stub</button>
@@ -31,13 +42,13 @@ import type { InvoiceHeaderForm } from '@/components/accounting/customer-invoice
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
-afterEach(() => { cleanup(); push.mockClear(); vi.mocked(apiFetch).mockReset(); scan.current = { date: null, dueDate: null, customerName: null }; });
+afterEach(() => { press.armed = false; press.pressed = 0; cleanup(); push.mockClear(); vi.mocked(apiFetch).mockReset(); scan.current = { date: null, dueDate: null, customerName: null }; });
 
 const LEGACY = { id: 'inv-1', invoice_number: 'INV-1', status: 'draft', client_id: 'c-1', invoice_date: '2026-09-15', due_date: '2026-09-01',
   billing_period_start: '2026-09-01', billing_period_end: '2026-09-30', tax_rate: 15, notes: '', currency_code: 'ZAR', exchange_rate: 1,
   items: [{ description: 'L', quantity: 1, unit_price: 10, amount: 10 }] };
 
-function serve(opts: { customersFail?: boolean; listGate?: Promise<void> } = {}) {
+function serve(opts: { customersFail?: boolean; listGate?: Promise<void>; defaultsGate?: { id: string; gate: Promise<void> } } = {}) {
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
     const u = String(url);
     if (u.includes('customer-invoices-create') && init?.method === 'POST') return ok({ id: 'n1' });
@@ -46,6 +57,7 @@ function serve(opts: { customersFail?: boolean; listGate?: Promise<void> } = {})
     if (u.includes('/customers')) {
       if (opts.customersFail && u === '/api/accounting/customers') return new Response('{}', { status: 500 });
       if (u === '/api/accounting/customers') { await opts.listGate; return ok([{ id: 'c-1', name: 'Acme' }]); }
+      if (opts.defaultsGate && u === `/api/accounting/customers?id=${opts.defaultsGate.id}`) await opts.defaultsGate.gate;
       return ok([{ id: 'c-1', name: 'Acme' }, { id: 'c-2', name: 'Beta' }]);
     }
     return ok([]);
@@ -191,20 +203,36 @@ describe('a slow scan lookup cannot overwrite what the user did meanwhile', () =
     expect(sentBody('POST')).toMatchObject({ clientId: 'c-2' });
   });
 
-  it('a lookup that lands after Save & New does not refill the cleared form', async () => {
+  it('Save & New waits for a scan\'s lookup, so it cannot land on the created invoice or refill the cleared form (PR S)', async () => {
     const g = gate();
-    serve({ listGate: g.promise });
+    const acme = gate();
+    serve({ listGate: g.promise, defaultsGate: { id: 'c-1', gate: acme.promise } });
     scan.current = { date: '2026-08-01', dueDate: null, customerName: 'Acme' };
     render(<NewPage />);
     await pickOption('Client', 'Beta');
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Work' } });
     fireEvent.change(screen.getByLabelText('Unit price'), { target: { value: '50' } });
-    scanNow(); // the lookup starts after the last pick, so only the reset can invalidate it
+    const saveAndNew = () => screen.getByRole('button', { name: /save & new/i }) as HTMLButtonElement;
+    await waitFor(() => expect(saveAndNew().disabled).toBe(false)); // Beta's defaults have answered
+    scanNow();
+    expect(screen.getByText('Finding the scanned customer…')).toBeTruthy();
+    fireEvent.click(saveAndNew()); // while the lookup is out: refused
+    expect(saveAndNew().disabled).toBe(true);
+    expect(calls('POST')).toBe(0);
+    // The scan's match lands: from the commit that shows Acme, Save & New waits for Acme's defaults. With `pending` set in
+    // the lookup's effect, that commit drew it enabled (until the effect's re-render), and a click on it then created
+    // the invoice without them. Pressed in any commit that draws it enabled before Acme's defaults answer: none may.
+    press.armed = true;
+    g.release();
+    await waitFor(() => expect(clientBox()).toContain('Acme'));
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.filter((c) => String(c[0]) === '/api/accounting/customers?id=c-1')).toHaveLength(1));
+    expect(press.pressed).toBe(0);
+    expect(calls('POST')).toBe(0);
+    press.armed = false;
+    acme.release();
     await clickWhenEnabled(/save & new/i);
     await waitFor(() => expect(calls('POST')).toBe(1));
     await waitFor(() => expect(clientBox()).toContain('Select client'));
-    g.release();
-    await waitFor(() => expect(clientListCalls()).toBe(1));
     await new Promise((r) => setTimeout(r, 50));
     expect(clientBox()).toContain('Select client');
   });

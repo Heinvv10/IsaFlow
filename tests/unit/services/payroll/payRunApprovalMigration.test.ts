@@ -31,6 +31,8 @@ describe('migration 951 pay-run approval contract', () => {
   it('binds R-035 to payroll planHash through the durable digest', () => {
     expect(migration).toContain('h.approval_plan_hash');
     expect(migration).toContain('approval_document_digest_pre_payroll_951');
+    expect(migration).toContain("pg_get_functiondef('public.approval_document_digest(uuid,text,uuid)'");
+    expect(migration).toContain('FUNCTION public.approval_document_digest_pre_payroll_951(');
   });
 
   it('documents a rollback that can retain pay-run request history', () => {

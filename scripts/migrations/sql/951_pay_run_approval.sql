@@ -77,6 +77,16 @@ BEGIN
 END
 $$;
 REVOKE ALL ON FUNCTION public.seed_pay_run_approval() FROM PUBLIC;
+-- 930's definer registry: this trigger writes only the two fixed pay-run
+-- approval rows for the company that was just inserted.
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+VALUES (
+  'seed_pay_run_approval()',
+  'trigger: approval_rules and approval_enforcement fixed pay_run rows for NEW.id only',
+  public.app_definer_hash('public.seed_pay_run_approval()'::regprocedure)
+)
+ON CONFLICT (signature) DO UPDATE
+SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 DROP TRIGGER IF EXISTS trg_companies_seed_pay_run_approval ON public.companies;
 CREATE TRIGGER trg_companies_seed_pay_run_approval
 AFTER INSERT ON public.companies FOR EACH ROW EXECUTE FUNCTION public.seed_pay_run_approval();
@@ -115,18 +125,32 @@ BEFORE UPDATE OR DELETE ON public.approval_enforcement
 FOR EACH ROW EXECUTE FUNCTION public.refuse_pay_run_approval_disable();
 
 DO $$
+DECLARE
+  definition pg_catalog.text;
 BEGIN
   IF pg_catalog.to_regprocedure('public.approval_document_digest_pre_payroll_951(uuid,text,uuid)') IS NULL THEN
-    ALTER FUNCTION public.approval_document_digest(pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid)
-      RENAME TO approval_document_digest_pre_payroll_951;
+    definition := pg_catalog.replace(
+      pg_catalog.pg_get_functiondef('public.approval_document_digest(uuid,text,uuid)'::pg_catalog.regprocedure),
+      'FUNCTION public.approval_document_digest(',
+      'FUNCTION public.approval_document_digest_pre_payroll_951('
+    );
+    EXECUTE definition;
   END IF;
   IF pg_catalog.to_regprocedure('public.approval_document_authors_pre_payroll_951(uuid,text,uuid)') IS NULL THEN
-    ALTER FUNCTION public.approval_document_authors(pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid)
-      RENAME TO approval_document_authors_pre_payroll_951;
+    definition := pg_catalog.replace(
+      pg_catalog.pg_get_functiondef('public.approval_document_authors(uuid,text,uuid)'::pg_catalog.regprocedure),
+      'FUNCTION public.approval_document_authors(',
+      'FUNCTION public.approval_document_authors_pre_payroll_951('
+    );
+    EXECUTE definition;
   END IF;
   IF pg_catalog.to_regprocedure('public.approval_request_document_facts_pre_payroll_951(uuid,text,uuid)') IS NULL THEN
-    ALTER FUNCTION public.approval_request_document_facts(pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid)
-      RENAME TO approval_request_document_facts_pre_payroll_951;
+    definition := pg_catalog.replace(
+      pg_catalog.pg_get_functiondef('public.approval_request_document_facts(uuid,text,uuid)'::pg_catalog.regprocedure),
+      'FUNCTION public.approval_request_document_facts(',
+      'FUNCTION public.approval_request_document_facts_pre_payroll_951('
+    );
+    EXECUTE definition;
   END IF;
 END
 $$;

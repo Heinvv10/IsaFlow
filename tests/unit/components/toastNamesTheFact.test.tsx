@@ -19,7 +19,8 @@ const lc = (inputTax: number) => ({ claimDate: '2026-07-01', lockPeriod: { start
 
 async function approve(results: unknown[]) {
   vi.stubGlobal('confirm', () => true);
-  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: {
+  // A fresh Response per call: the bar first previews the budget (P5-2), then runs the action.
+    vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify({ success: true, data: {
     action: 'approve', total: results.length, succeeded: results.length, failed: 0, results,
   } }), { status: 200 }));
   render(<><Toaster /><BulkActionBar selected={new Set(['b1', 'b2'])} busy={null} onBusyChange={() => {}}

@@ -13,6 +13,8 @@ vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h:
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_n: string, fn: () => unknown) => fn() }));
+// supplier-invoices-action is rate-limited per user (P5-2 round 4; pinned in budgets-p5-bill-check); admitted here.
+vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
   confirmCustomerPayment: vi.fn(), cancelCustomerPayment: vi.fn(),
 }));

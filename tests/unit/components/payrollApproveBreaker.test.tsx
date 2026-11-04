@@ -60,7 +60,7 @@ describe('BRK-596 UI repros', () => {
   });
 
   it('UI-2: stale page (a peer already approved): the refusal is shown up front and Approve is disabled', async () => {
-    const detail = "Cannot approve payroll run with status 'approved' (expected one of: draft, calculated, processed)";
+    const detail = "Cannot approve payroll run with status 'approved' (expected one of: draft, calculated)";
     serve(() => fail(400, detail), planBody({ code: 'status_not_approvable', detail }, {
       plan: { status: 'approved', alreadyPostedJournalId: 'je-peer' },
     }));

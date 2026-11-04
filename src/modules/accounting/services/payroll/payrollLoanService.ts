@@ -96,6 +96,11 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** The month's low-interest-loan fringe benefit (Seventh Schedule §7): the rate shortfall on the opening balance. */
+export function fringeBenefitOf(officialRate: number, loanRate: number, opening: number): number {
+  return round2((Math.max(0, officialRate - loanRate) * opening) / 12);
+}
+
 export interface BuildScheduleInput {
   principal: number;
   annualInterestRate: number;
@@ -375,6 +380,7 @@ export interface ApplyLoanToRunInput {
 
 export interface ApplyLoanResult {
   loanId: string;
+  loanNumber: string;
   employeeId: string;
   scheduleRowId: string;
   interest: number;
@@ -393,7 +399,7 @@ export async function applyLoanToRun(
   db: TxSql = sql,
 ): Promise<ApplyLoanResult | null> {
   const loanRows = (await db`
-    SELECT id, company_id, employee_id, status, outstanding_balance,
+    SELECT id, company_id, employee_id, loan_number, status, outstanding_balance,
            total_interest_charged, total_principal_paid,
            method, annual_interest_rate
       FROM payroll_loans
@@ -429,9 +435,7 @@ export async function applyLoanToRun(
   // opening/closing balances are not the loan's.
   const balanceBefore = Number(loanRow.outstanding_balance);
 
-  const loanRate = Number(loanRow.annual_interest_rate);
-  const rateShortfall = Math.max(0, input.officialRate - loanRate);
-  const fringeBenefit = round2((rateShortfall * opening) / 12);
+  const fringeBenefit = fringeBenefitOf(input.officialRate, Number(loanRow.annual_interest_rate), opening);
 
   await db`
     INSERT INTO payroll_loan_payments (
@@ -499,6 +503,7 @@ export async function applyLoanToRun(
 
   return {
     loanId: input.loanId,
+    loanNumber: String(loanRow.loan_number),
     employeeId: String(loanRow.employee_id),
     scheduleRowId: String(scheduleRow.id),
     interest,

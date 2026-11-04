@@ -6,6 +6,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const inserts: unknown[][] = [];
 // The year-to-date for cumulative PAYE (PAYE 4a follow-ups G4) has its own tests (p4fu-cumulative-paye).
+// Both loan components exist: the fail-closed path has its own integration suites.
+vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => ({
+  appendLoanComponents: (components: unknown[]) => components,
+  loadLoanComponents: async () => ({ deduction: { id: 'loan' }, fringe: { id: 'fringe' } }),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollYearToDate', () => ({
   loadPayeYearToDate: vi.fn(async () => new Map()),
   laterPeriodsWarnings: vi.fn(async () => new Map()),
@@ -39,13 +44,28 @@ vi.mock('@/modules/accounting/services/payroll/payRunApprovalAudit', () => ({
   recordPayRunApprovalAudit: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollComponentService', () => ({
-  getEmployeeComponents: vi.fn(async () => [{
-    component: {
-      id: 'c1', name: 'Salary', sarsSourceCode: '3601', componentType: 'earning',
-      isTaxable: true, isUifApplicable: true, isSdlApplicable: true,
+  getEmployeeComponents: vi.fn(async () => [
+    {
+      component: {
+        id: 'c1', name: 'Salary', sarsSourceCode: '3601', componentType: 'earning',
+        isTaxable: true, isUifApplicable: true, isSdlApplicable: true,
+      },
+      amount: 3_000,
     },
-    amount: 3_000,
-  }]),
+    {
+      component: {
+        id: 'c2', name: 'Loan fringe', sarsSourceCode: '3801', componentType: 'earning',
+        isTaxable: true, isUifApplicable: false, isSdlApplicable: true,
+      },
+      amount: 100,
+      isNonCash: true,
+    },
+  ]),
+}));
+// No recurring row needs a pro-rata (payroll-run-pro-rata-guard.int covers the guard).
+vi.mock('@/modules/accounting/services/payroll/payrollRecurringProRata', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/payroll/payrollRecurringProRata')>()),
+  recurringRowsNeedingProRata: vi.fn(async () => []),
 }));
 vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
   estimateAnnualRemuneration: vi.fn(async () => 0),
@@ -68,6 +88,9 @@ vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
+import { estimateAnnualRemuneration } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
+import { getEmployeeComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
+import { laterPeriodsWarnings } from '@/modules/accounting/services/payroll/payrollYearToDate';
 
 const codesWritten = (): string[] =>
   (JSON.parse(String(inserts[0]!.at(-1))) as Array<{ code: string }>).map((w) => w.code);
@@ -97,5 +120,39 @@ describe('calculatePayrollRun - unconfirmed ETI table warning', () => {
     expect(listPayrollRunEmployees).toHaveBeenLastCalledWith(
       '11111111-1111-4111-8111-111111111111', { month: 6, year: 2026 },
     );
+  });
+
+  it('includes non-cash remuneration in the employer SDL threshold basis', async () => {
+    await calculate(6, 2026);
+    expect(estimateAnnualRemuneration).toHaveBeenLastCalledWith(
+      '11111111-1111-4111-8111-111111111111', { month: 6, year: 2026 }, 3_100,
+      '22222222-2222-4222-8222-222222222222',
+    );
+  });
+
+  it('warns a fully donated salary line when a later period is approved', async () => {
+    vi.mocked(getEmployeeComponents).mockResolvedValueOnce([
+      {
+        component: {
+          id: 'salary', name: 'Salary', sarsSourceCode: '3601', componentType: 'earning',
+          isTaxable: true, isUifApplicable: true, isSdlApplicable: true,
+        },
+        amount: 20_000,
+      },
+      {
+        component: {
+          id: 'donation', name: 'Donation', sarsSourceCode: '4030', componentType: 'deduction',
+          isTaxable: true, isUifApplicable: false, isSdlApplicable: false,
+        },
+        amount: 20_000,
+      },
+    ] as never);
+    vi.mocked(laterPeriodsWarnings).mockResolvedValueOnce(new Map([['e1', {
+      code: 'PAYE_LATER_PERIODS_APPROVED', severity: 'warning', periods: ['2027-02'], message: 'later',
+    }]]));
+
+    await calculate(1, 2027);
+
+    expect(codesWritten()).toContain('PAYE_LATER_PERIODS_APPROVED');
   });
 });

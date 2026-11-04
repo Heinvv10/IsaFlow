@@ -70,6 +70,7 @@ export const accountingTab: Tab = {
       items: [
         { label: 'Cost Centres', href: '/accounting/cost-centres' },
         { label: 'Business Units', href: '/accounting/business-units' },
+        { label: 'Budget Review', href: '/accounting/budgets/review' },
         { label: 'Budgets', href: '/accounting/budgets' },
       ],
     },

@@ -26,16 +26,17 @@ import batchDetail from '../../pages/api/payroll/batches/[id]';
 import parallelCompare from '../../pages/api/payroll/parallel-run/compare';
 import parallelExport from '../../pages/api/payroll/parallel-run/export';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
-import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const company = crypto.randomUUID();
 const owner = crypto.randomUUID();
+const approver = crypto.randomUUID();
 const viewer = crypto.randomUUID();
 const tokens: Record<string, string> = {};
 const call = routeCaller(tokens, { user: owner, company });
-const sign = (sub: string) => new SignJWT({ sub, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+const sign = (sub: string) => new SignJWT({ sub, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
   .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
 let runId = '';
 let employeeId = '';
@@ -43,12 +44,13 @@ let employeeId = '';
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'D3 payroll detail access']);
   await seedPayrollCompany(pool, company);
-  for (const [u, role] of [[owner, 'owner'], [viewer, 'viewer']] as const) {
+  for (const [u, role] of [[owner, 'owner'], [approver, 'owner'], [viewer, 'viewer']] as const) {
     await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [u, `${u}@test.local`]);
     tokens[u] = await sign(u);
     await pool.query('INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,$3)', [company, u, role]);
   }
   runId = await calculatedRun(call, 3);
+  await authorisePayRun(call, runId, approver);
   employeeId = (await pool.query<{ id: string }>('SELECT id FROM payroll_employees WHERE company_id = $1', [company])).rows[0]!.id;
 });
 
@@ -59,7 +61,7 @@ afterAll(async () => {
     }
     await pool.query('DELETE FROM payroll_loans WHERE company_id = $1', [company]);
     await cleanPayrollCompanies(pool, [company]);
-    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[owner, viewer]]);
+    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[owner, approver, viewer]]);
   } finally { await pool.end(); }
 });
 
@@ -182,7 +184,8 @@ describe('writes the gate newly closes — viewer 403 and nothing written, owner
 
   it('components POST: viewer 403, no assignment written; owner 201 writes one', async () => {
     const before = await assigns();
-    const body = { componentId: allowanceId, amount: 100, effectiveFrom: '2026-01-01' };
+    // After the approved March run: a recurring row dated in a paid month is refused (every writer judges the company).
+    const body = { componentId: allowanceId, amount: 100, effectiveFrom: '2026-04-01' };
     const v = await call(components as Route, 'POST', url(), employeeId, { user: viewer, body });
     expect(v.statusCode).toBe(403);
     expect(await assigns()).toBe(before);
@@ -230,7 +233,7 @@ describe('exports — an owner with a complete company profile gets the file', (
     const paye = (await pool.query<{ p: string }>('SELECT paye AS p FROM payroll_run_lines WHERE run_id = $1', [runId])).rows[0]!.p;
     const r = await raw(emp501Export as Route, 'GET', '/api/payroll/emp501/export', { taxYear: '2027' }, owner);
     expect(r.status).toBe(200);
-    expect(r.body.split('\n')[0]).toBe('employee_name,irp5_number,gross_income,paye,uif,sdl');
+    expect(r.body.split('\n')[0]).toBe('employee_name,irp5_number,gross_income,paye,uif,sdl,fringe_3801');
     expect(r.body).toContain(`Wanda Test,0123456789,20000.00,${Number(paye).toFixed(2)}`);
     expect((await raw(emp501Export as Route, 'GET', '/api/payroll/emp501/export', { taxYear: '2027' }, viewer)).status).toBe(403);
   });

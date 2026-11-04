@@ -20,6 +20,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/modules/accounting/services/payroll/costCentreGlMappingService', () => ({ getMappingLookup: vi.fn(async () => ({})) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn(async () => ({ id: 'je-1' })) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn(), reverseJournalEntry: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({ assertPayRunApproved: vi.fn() }));
 
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';

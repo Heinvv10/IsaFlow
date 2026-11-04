@@ -152,7 +152,10 @@ export interface StoredInvoiceLines {
   lines: StoredRevenueLine[];
 }
 
-/** An invoice's stored lines, oldest first; `null` when the invoice is not this company's. */
+/**
+ * An invoice's stored lines in printed order (line_position, migration 956; then created_at, id for lines other writers
+ * left unpositioned), so a refusal's "line N" is the line printed Nth; `null` when the invoice is not this company's.
+ */
 export async function storedInvoiceLines(
   companyId: string,
   invoiceId: string,
@@ -164,7 +167,7 @@ export async function storedInvoiceLines(
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     LEFT JOIN customer_invoice_items cii ON cii.invoice_id = ci.id
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
-    ORDER BY cii.created_at, cii.id
+    ORDER BY cii.line_position NULLS LAST, cii.created_at, cii.id
   `) as Record<string, unknown>[];
   if (rows.length === 0) return null;
   const id = (v: unknown): string | null => (v == null ? null : String(v));

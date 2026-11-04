@@ -54,9 +54,11 @@ interface Totals { gross: number; paye: number; uif: number; sdl: number; eti: n
 
 async function run(company: string, month: number, t: Totals): Promise<string> {
   return (await pool.query<{ id: string }>(
+    // Stamped as a calculation by this code stamps it (migration 953), so approval does not ask for a recalculation.
     `INSERT INTO payroll_run_headers(company_id,period_month,period_year,status,total_gross,total_taxable,
-       total_paye,total_uif,total_sdl,total_eti,total_net,employee_count,prepared_by,approval_revision)
-     VALUES($1,$2,2026,'calculated',$3,$3,$4,$5,$6,$7,$8,1,$9,gen_random_uuid()) RETURNING id`,
+       total_paye,total_uif,total_sdl,total_eti,total_net,employee_count,prepared_by,approval_revision,
+       calculated_at,calculation_version)
+     VALUES($1,$2,2026,'calculated',$3,$3,$4,$5,$6,$7,$8,1,$9,gen_random_uuid(),now(),1) RETURNING id`,
     [company, month, t.gross, t.paye, t.uif, t.sdl, t.eti, t.net, admin])).rows[0]!.id;
 }
 

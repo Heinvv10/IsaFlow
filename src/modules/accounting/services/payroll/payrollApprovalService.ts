@@ -42,7 +42,7 @@ export async function previewPayrollApproval(companyId: string, runId: string): 
 
 /**
  * Approve a payroll run and post its GL journal entry.
- * Valid prior statuses: 'draft', 'calculated', 'processed'.
+ * Valid prior statuses: 'draft', 'calculated'.
  *
  * The run transitions to 'approved' then the GL journal is created and posted.
  * Every refusal comes BEFORE the status write, as PayrollApprovalRefusedError

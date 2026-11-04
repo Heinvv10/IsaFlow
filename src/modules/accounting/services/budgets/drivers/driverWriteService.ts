@@ -17,6 +17,7 @@
  *   driver save or reset reads headcount for its own row only; every other pass keeps per_head rows
  *   as they stand. Each write that reads payroll audits and answers `headcountAsOf`.
  */
+import { sql, type DbRow } from '@/lib/neon';
 import { versionYear } from '../budgetVersionScope';
 import { inputError } from '../gridErrors';
 import { assertDriverMonths, monthIndex } from './driverEngine';
@@ -59,6 +60,7 @@ export async function saveDriver(companyId: string, userId: string, target: Driv
     if (loop) {
       throw new BudgetDriverError('DRIVER_CYCLE', `This driver makes a loop: ${loop.map((k) => rowLabel(k, model.labels)).join(' → ')}`, loop);
     }
+    ctx.sliceCheck(key, rowLabel(key, model.labels));
     const { line: driver, replaced } = await upsertDriverLine(companyId, ctx.versionId, userId, line);
     return { value: { driver }, audit: { kind: line.kind, rowKey: key, replaced: String(replaced) }, live: new Set([key]) };
   });
@@ -66,6 +68,8 @@ export async function saveDriver(companyId: string, userId: string, target: Driv
 
 export async function deleteDriver(companyId: string, userId: string, target: DriverWriteTarget, driverId: string) {
   return runDriverWrite(companyId, userId, target, 'driver_deleted', async (ctx) => {
+    const existing = (await listDriverLines(companyId, ctx.versionId)).find((d) => d.id === driverId.toLowerCase());
+    if (existing) ctx.sliceCheck(rowKeyOfGrain(existing), await accountName(companyId, existing.glAccountId));
     const gone = await deleteDriverLine(companyId, ctx.versionId, driverId.toLowerCase());
     if (!gone) throw new BudgetDriverError('DRIVER_NOT_FOUND', 'Budget driver not found in this version');
     const released = await releaseOverrideCells(companyId, ctx.versionId, gone);
@@ -88,6 +92,7 @@ export async function resetOverride(companyId: string, userId: string, target: D
   return runDriverWrite(companyId, userId, target, 'override_reset', async (ctx) => {
     const driver = await driverLineOfRow(companyId, ctx.versionId, g);
     if (!driver) throw inputError('This row has no driver to reset to');
+    ctx.sliceCheck(rowKeyOfGrain(g), await accountName(companyId, g.glAccountId));
     if (month !== null && (month < driver.fromMonth || month > driver.toMonth)) {
       throw inputError(`Month ${month} is outside the driver's months (${driver.fromMonth} to ${driver.toMonth})`);
     }
@@ -106,4 +111,12 @@ export async function refreshHeadcount(companyId: string, userId: string, target
   return runDriverWrite(companyId, userId, target, 'headcount_refresh', async () => ({
     value: {}, audit: { headcountAsOf: requestedAt }, live: 'all' as const,
   }));
+}
+
+/** "code name" of an account of the company (a driver's label in a refusal); the id when unknown. */
+async function accountName(companyId: string, accountId: string): Promise<string> {
+  const rows = (await sql`
+    SELECT account_code || ' ' || account_name AS label FROM gl_accounts WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return rows[0] ? String(rows[0].label) : accountId;
 }

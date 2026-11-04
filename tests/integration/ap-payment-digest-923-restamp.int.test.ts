@@ -32,6 +32,7 @@ const { r, eft, fixture, approve, changeBank, storedDigest } = digestKit(pool, u
 
 const SQL_DIR = 'scripts/migrations/sql';
 const MIGRATION = readFileSync(`${SQL_DIR}/923_payment_digest_payee_name_originator.sql`, 'utf8');
+const CURRENT_APPROVAL_WRAPPERS = readFileSync(`${SQL_DIR}/951_pay_run_approval.sql`, 'utf8');
 /** One CREATE OR REPLACE FUNCTION statement, as a migration file defines it. */
 function definition(file: string, fn: string): string {
   const text = readFileSync(`${SQL_DIR}/${file}`, 'utf8');
@@ -88,6 +89,10 @@ beforeEach(() => {
 });
 afterAll(async () => {
   await migrate();
+  // 923 replaces database-wide approval helpers. Restore the later pay-run
+  // wrapper as the current schema has it so this fixture cannot poison the
+  // next integration suite in the shard.
+  await pool.query(CURRENT_APPROVAL_WRAPPERS);
   await cleanupPr5(pool, companies, Object.values(u));
 });
 
