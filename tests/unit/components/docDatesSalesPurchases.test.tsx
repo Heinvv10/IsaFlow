@@ -22,7 +22,7 @@ vi.mock('@/components/accounting/ScanAndFillButton', () => ({ ScanAndFillButton:
 vi.mock('@/components/accounting/supplier-invoices/SupplierSelect', () => ({ SupplierSelect: () => null }));
 vi.mock('@/utils/toast', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1', name: 'Co' } }) }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1', name: 'Co' } }), useCompanyRoleOrNull: () => null }));
 import { apiFetch } from '@/lib/apiFetch';
 import { cases, type DateCase } from '../helpers/docDateCases';
 

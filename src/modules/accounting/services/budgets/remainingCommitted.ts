@@ -11,7 +11,8 @@
  *   in the approve path's line order (`SUPPLIER_INVOICE_LINE_ORDER_BY`). A bill whose lines are
  *   stored gross (Σ line_total ≈ total_amount) is scaled to its subtotal, the last line takes the
  *   rounding residual, and a sub-cent overshoot or a R0 line is folded/dropped there exactly as
- *   posted (census finding 3). Never the stored `line_total`, never `quantity_invoiced`.
+ *   posted (census finding 3). Never the stored `line_total`, never `quantity_invoiced`. All of a PO
+ *   line's linked billing releases it, wherever it posted (decision 8a; the core's `openPoLineCents`).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -19,7 +20,8 @@ import { buildExpenseLines } from '../ap/supplierInvoiceExpenseLines';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from '../ap/supplierInvoiceLineOrder';
 import { mapInvoiceRow } from '../ap/supplierInvoiceWorkflowRow';
 import type { SupplierInvoiceItem } from '../../types/ap.types';
-import type { CommitmentRow } from './remainingBudgetCore';
+import { fmtDate } from '@/lib/fmtDate';
+import type { BilledPosting, CommitmentRow } from './remainingBudgetCore';
 
 /** PO statuses whose lines commit spend; bill statuses whose linked lines release it. */
 export const COMMITTING_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;
@@ -45,12 +47,20 @@ function itemOf(r: DbRow): SupplierInvoiceItem {
     quantity: Number(r.quantity), unitPrice: Number(r.unit_price), taxRate: Number(r.tax_rate), taxAmount: Number(r.tax_amount),
     lineTotal: Number(r.line_total), glAccountId: r.gl_account_id ? String(r.gl_account_id) : undefined,
     createdAt: String(r.created_at),
+    ...(r.cc1_id ? { cc1Id: String(r.cc1_id) } : {}), ...(r.cc2_id ? { cc2Id: String(r.cc2_id) } : {}), ...(r.bu_id ? { buId: String(r.bu_id) } : {}),
   };
 }
 
-/** Ex-VAT posted amount per PO line, over the bills that count as billed. */
-async function billedByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
+const NO_ACCOUNT = 'unused';
+
+/**
+ * The posted ex-VAT lines of the bills that count as billed (`BILLED_STATUSES`, plus `own`), per linked PO line
+ * (lower-case ids): account and CC1 / CC2 / BU as `buildExpenseLines` posts them, the bill's month. Committed
+ * (`readCommitments`) and the PO approval (`ap/purchaseOrderBudget`) both net a PO line by all of them
+ * (`remainingBudgetCore.openPoLineCents`).
+ */
+export async function billedLinesByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, BilledPosting[]>> {
+  const out = new Map<string, BilledPosting[]>();
   if (poItemIds.length === 0) return out;
   const bills = (await sql`
     SELECT si.* FROM supplier_invoices si
@@ -68,9 +78,15 @@ async function billedByPoItem(companyId: string, poItemIds: string[], own: strin
   for (const b of bills) {
     const billItems = items.filter((i) => String(i.supplier_invoice_id) === String(b.id));
     const poOf = new Map(billItems.map((i) => [String(i.id), text(i.po_item_id)]));
-    for (const line of buildExpenseLines({ ...mapInvoiceRow(b), items: billItems.map(itemOf) }, 'unused')) {
+    const invoice = mapInvoiceRow(b);
+    const month = fmtDate(invoice.invoiceDate).slice(0, 7);
+    for (const line of buildExpenseLines({ ...invoice, items: billItems.map(itemOf) }, NO_ACCOUNT)) {
       const po = poOf.get(String(line.description));
-      if (po && linked.has(po)) out.set(po, Math.round(((out.get(po) ?? 0) + line.debit) * 100) / 100);
+      if (!po || !linked.has(po)) continue;
+      out.set(po, [...(out.get(po) ?? []), {
+        glAccountId: line.glAccountId === NO_ACCOUNT ? null : text(line.glAccountId), cc1Id: text(line.cc1Id), cc2Id: text(line.cc2Id),
+        buId: text(line.buId), month, amount: line.debit,
+      }]);
     }
   }
   return out;
@@ -92,13 +108,13 @@ export async function readCommitments(
        AND NOT (pi.id = ANY(${exclude}::UUID[]))
   `) as DbRow[];
   const own = [opts.excludeInvoiceId, ...(opts.alsoBilledInvoiceIds ?? [])].filter((v): v is string => !!v).map((v) => v.toLowerCase());
-  const billed = await billedByPoItem(companyId, rows.map((r) => String(text(r.po_item_id))), own);
+  const billed = await billedLinesByPoItem(companyId, rows.map((r) => String(text(r.po_item_id))), own);
   return rows.map((r) => {
     const id = String(text(r.po_item_id));
     return {
       poItemId: id, glAccountId: String(text(r.gl_account_id)), month: String(r.month),
       cc1Id: text(r.cc1_id), cc2Id: text(r.cc2_id), buId: text(r.bu_id),
-      lineTotal: Number(r.line_total), billed: billed.get(id) ?? 0,
+      lineTotal: Number(r.line_total), billed: billed.get(id) ?? [],
     };
   });
 }

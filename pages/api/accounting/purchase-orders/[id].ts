@@ -1,7 +1,7 @@
 /**
  * Purchase Order Detail API
  * GET    /api/accounting/purchase-orders/[id] — Get single PO with line items
- * PUT    /api/accounting/purchase-orders/[id] — Update draft PO
+ * PUT    /api/accounting/purchase-orders/[id] — Update draft PO (never to approved: POST …/[id]/approve, budgets P5-3)
  * DELETE /api/accounting/purchase-orders/[id] — Delete draft PO
  */
 
@@ -19,11 +19,30 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertSupplierInCompany, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { DocumentLineAccountRefusal, assertDocumentLineAccounts } from '@/modules/accounting/services/gl/documentLineAccountGuard';
+import { isDimensionRefusal, type DimensionIds } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import {
+  readStoredPoLineDimensions, resolvePoLineDimensions, sentFromSnake,
+} from '@/modules/accounting/services/ap/purchaseOrderLineDimensions';
+import { readPoItemsLabelled } from '@/modules/accounting/services/ap/purchaseOrderItemsRead';
 
 type Row = Record<string, unknown>;
 
 // Keep in step with the status IN (...) guard in the PUT's UPDATE.
 const EDITABLE_STATUSES = ['draft', 'submitted'];
+
+/**
+ * The statuses the PUT may SET (budgets P5-3, decision 8c; census item 2). `approved` goes through the Approve
+ * action (budget check, approved_by / approved_at); `partially_received` / `received` are the goods-received
+ * service's, and would commit spend that was never approved.
+ */
+const PUT_STATUSES = ['draft', 'submitted', 'cancelled'];
+
+function refusePutStatus(res: NextApiResponse, status: unknown) {
+  if (status === 'approved') {
+    return apiResponse.badRequest(res, 'Approve a purchase order with its Approve action (POST /api/accounting/purchase-orders/{id}/approve): it runs the budget check and records who approved it.');
+  }
+  return apiResponse.badRequest(res, `A purchase order's status can be set to ${PUT_STATUSES.join(', ')} here; receipts set the received statuses`);
+}
 
 async function readStatus(id: string, companyId: string): Promise<string | null> {
   const rows = await sql`
@@ -65,13 +84,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     if (poRows.length === 0) return apiResponse.notFound(res, 'Purchase order', id);
 
-    const items = await sql`
-      SELECT pi.*, g.account_name, g.account_code
-      FROM po_items pi
-      LEFT JOIN gl_accounts g ON g.id = pi.gl_account_id
-      WHERE pi.purchase_order_id = ${id}::UUID
-      ORDER BY pi.sort_order
-    ` as Row[];
+    const items = await readPoItemsLabelled(companyId, id);
 
     return apiResponse.success(res, { ...poRows[0], items });
   }
@@ -102,8 +115,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         gl_account_id?: string | null;
         product_id?: string | null;
         sort_order?: number;
+        cc1_id?: string | null;
+        cc2_id?: string | null;
+        bu_id?: string | null;
       }>;
     };
+
+    // Before any read: the PUT never approves (P5-3) and never sets a receipt status.
+    if (status !== undefined && status !== null && !PUT_STATUSES.includes(status)) return refusePutStatus(res, status);
 
     // Fetch current PO to verify ownership and answer early on a non-editable
     // status. This read is not the guard: the status can change before the
@@ -143,6 +162,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         await assertDocumentLineAccounts(companyId, toCheck);
       } catch (err) {
         if (err instanceof DocumentLineAccountRefusal) return apiResponse.badRequest(res, err.message);
+        throw err;
+      }
+    }
+
+    // P5-3: each replacement line's CC1 / CC2 / BU, under the bill lines' rules, before the first write.
+    let dims: DimensionIds[] = [];
+    if (Array.isArray(items) && items.length > 0) {
+      try {
+        dims = await resolvePoLineDimensions(companyId, items.map(sentFromSnake), await readStoredPoLineDimensions(id));
+      } catch (err) {
+        if (isDimensionRefusal(err)) return apiResponse.badRequest(res, err.message);
         throw err;
       }
     }
@@ -202,7 +232,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         const lineTax = Math.round(lineTotal * ((item.tax_rate ?? 15) / 100) * 100) / 100;
         await sql`
           INSERT INTO po_items
-            (purchase_order_id, product_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, gl_account_id, sort_order)
+            (purchase_order_id, product_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, gl_account_id, sort_order,
+             cc1_id, cc2_id, bu_id)
           VALUES
             (${id}::UUID,
              ${item.product_id ?? null},
@@ -213,16 +244,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
              ${lineTotal},
              ${lineTax},
              ${item.gl_account_id ?? null},
-             ${i})
+             ${i},
+             ${dims[i]?.cc1Id ?? null}::UUID, ${dims[i]?.cc2Id ?? null}::UUID, ${dims[i]?.buId ?? null}::UUID)
         `;
       }
     }
 
     log.info('Purchase order updated', { id, status, total }, 'accounting');
 
-    const newItems = await sql`
-      SELECT * FROM po_items WHERE purchase_order_id = ${id}::UUID ORDER BY sort_order
-    ` as Row[];
+    const newItems = await readPoItemsLabelled(companyId, id);
 
     return apiResponse.success(res, { ...updated[0], items: newItems });
   }

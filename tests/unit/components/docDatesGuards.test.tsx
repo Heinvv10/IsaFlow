@@ -24,7 +24,7 @@ vi.mock('@/components/accounting/ap/ThreeWayMatchPanel', () => ({ ThreeWayMatchP
 vi.mock('@/components/accounting/ap/SupplierInvoiceApprovalPanel', () => ({ SupplierInvoiceApprovalPanel: () => null }));
 vi.mock('@/components/accounting/sars/MarkVatDeclaredElsewhereButton', () => ({ MarkVatDeclaredElsewhereButton: () => null }));
 vi.mock('@/utils/toast', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1', name: 'Co' } }) }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1', name: 'Co' } }), useCompanyRoleOrNull: () => null }));
 import { apiFetch } from '@/lib/apiFetch';
 import PoDetail from '../../../pages/accounting/purchase-orders/[poId]';
 import RecurringInvoiceEdit from '../../../pages/accounting/recurring-invoices/[id]';

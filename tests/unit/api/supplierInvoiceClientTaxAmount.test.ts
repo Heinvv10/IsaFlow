@@ -45,6 +45,8 @@ vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOr
 vi.mock('@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults', () => ({
   resolveBillLineDimensions: vi.fn(async (_companyId: string, _supplierId: string, lines: unknown[]) => [...lines]),
 }));
+// The PO-line ownership check (P5-3) reads the database; it has its own integration test (budgets-p5-po-security).
+vi.mock('@/modules/accounting/services/ap/supplierInvoicePoLinks', () => ({ assertBillPoLinks: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
   getSupplierInvoices: vi.fn(),
   getSupplierInvoiceStatusCounts: vi.fn(),

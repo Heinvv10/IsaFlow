@@ -131,9 +131,9 @@ async function tokenFor(user: string): Promise<string> {
 }
 
 type Route = (req: never, res: never) => unknown;
-/** POSTs `body` to a route through withAuth, as `user` of the fixture's company. */
-export async function callRoute(route: Route, f: BillFixture, user: string, url: string, body: unknown) {
-  const req = request({ 'sb-access-token': await tokenFor(user), active_company_id: f.co }, 'POST');
+/** POSTs `body` (or `opts.method`, with `opts.id` as the `[id]` query) to a route through withAuth, as `user` of the fixture's company. */
+export async function callRoute(route: Route, f: BillFixture, user: string, url: string, body: unknown, opts: { method?: string; id?: string } = {}) {
+  const req = request({ 'sb-access-token': await tokenFor(user), active_company_id: f.co }, opts.method ?? 'POST', opts.id);
   req.url = url;
   req.body = body;
   const result = response();
@@ -175,7 +175,7 @@ export async function dropBillFixture(pool: Pool, f: BillFixture | undefined): P
       'recurring_transaction_templates', 'company_document_numbers', 'capture_events', 'captured_documents',
       'supplier_invoices', 'gl_journal_lines', 'gl_journal_entries',
       'budget_month_amounts', 'budget_versions', 'budget_control_settings', 'fiscal_periods', 'fiscal_years', 'suppliers', 'cost_centres',
-      'gl_accounts', 'company_users']) {
+      'business_units', 'gl_accounts', 'company_users']) {
       await c.query(`DELETE FROM ${t} WHERE company_id = $1`, [f.co]);
     }
     await c.query('DELETE FROM companies WHERE id = $1', [f.co]);
