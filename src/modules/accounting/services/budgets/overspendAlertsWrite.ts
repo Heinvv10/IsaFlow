@@ -52,11 +52,11 @@ const RECORD = sql.unsafe(`c(version_id UUID, gl_account_id UUID, cc1_id UUID, c
 const MATCH = sql.unsafe(`a.version_id = c.version_id AND a.gl_account_id = c.gl_account_id
   AND a.cc1_id IS NOT DISTINCT FROM c.cc1_id AND a.cc2_id IS NOT DISTINCT FROM c.cc2_id AND a.bu_id IS NOT DISTINCT FROM c.bu_id
   AND a.month = c.month AND a.threshold = c.threshold`);
-const RETURNED = sql.unsafe(`a.id::TEXT AS id, a.gl_account_id::TEXT AS gl_account_id, a.cc1_id::TEXT AS cc1_id,
+export const RETURNED = sql.unsafe(`a.id::TEXT AS id, a.gl_account_id::TEXT AS gl_account_id, a.cc1_id::TEXT AS cc1_id,
   a.cc2_id::TEXT AS cc2_id, a.bu_id::TEXT AS bu_id, to_char(a.month, 'YYYY-MM') AS month, a.threshold::TEXT AS threshold,
   a.budget::TEXT AS budget, a.actual::TEXT AS actual, a.committed::TEXT AS committed, a.pct::TEXT AS pct, a.fired_at`);
 
-function mapRow(r: DbRow): AlertRow {
+export function mapRow(r: DbRow): AlertRow {
   return {
     id: String(r.id), glAccountId: String(r.gl_account_id), cc1Id: text(r.cc1_id), cc2Id: text(r.cc2_id), buId: text(r.bu_id),
     month: String(r.month), threshold: Number(r.threshold), budget: Number(r.budget), actual: Number(r.actual),

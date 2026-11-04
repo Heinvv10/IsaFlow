@@ -13,6 +13,8 @@
  * - After the commit, the digest is sent outside any transaction, each email's email_log row then
  *   written in a short company-context transaction as the cron's role; only with the company flag AND
  *   BUDGET_ALERT_EMAIL_ENABLED=1 (`overspendDigest.ts`); otherwise nothing is sent.
+ * - A failed send fails the company's run (the cron answers 500) and is retried by the next daily run, for the
+ *   failed recipients only (`overspendDigestPending.ts`).
  * - `asOf` defaults to today in South Africa. Budget-holder reminders (P5-6) are not here.
  */
 import { sql } from '@/lib/neon';
@@ -96,6 +98,9 @@ async function runCompany(companyId: string, asOf: string): Promise<CompanyAlert
   // pooled connection); its email_log row is written in a short company-context transaction of its
   // own (same pool and role, company GUC set). Never throws; counts each actual outcome.
   const digest = await sendOverspendDigest(companyId, plan, (write) => inServiceTx(companyId, write));
+  // The evaluation committed, so fired/resolved stand; but a recipient left without their digest is a
+  // failed company run (the cron answers 500). Their failed email_log row is what the next run retries.
+  if (digest.failed > 0) return { companyId, ok: false, fired, resolved, digest, error: 'digest delivery failed; see logs' };
   return { companyId, ok: true, fired, resolved, digest };
 }
 

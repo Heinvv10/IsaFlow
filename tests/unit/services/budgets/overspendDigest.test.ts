@@ -16,6 +16,8 @@ const { sql, sendEmail, logEmailAttempt } = vi.hoisted(() => ({
 vi.mock('@/lib/neon', () => ({ sql }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail, logEmailAttempt }));
+// The owed-digest read (retry state) is covered in overspendDigestRetry.test.ts and the integration suite.
+vi.mock('@/modules/accounting/services/budgets/overspendDigestPending', () => ({ readPendingDigestAlerts: vi.fn(async () => new Map()) }));
 
 import { renderBudgetDigestHtml, renderBudgetDigestSubject, type BudgetDigestPayload } from '@/lib/email-templates-budget-digest';
 import { planOverspendDigest, sendOverspendDigest } from '@/modules/accounting/services/budgets/overspendDigest';
@@ -78,10 +80,12 @@ describe('planOverspendDigest / sendOverspendDigest', () => {
     expect(await planOverspendDigest(CO, fired)).toEqual({ skip: 'server_off' });
   });
 
-  it('no alerts fired: nothing to send, whatever the switches', async () => {
-    process.env.BUDGET_ALERT_EMAIL_ENABLED = '1';
+  it('no alerts fired and none owed: nothing to send, whatever the switches', async () => {
     expect(await planOverspendDigest(CO, [])).toEqual({ skip: 'nothing_fired' });
     expect(sql).not.toHaveBeenCalled();
+    process.env.BUDGET_ALERT_EMAIL_ENABLED = '1';
+    sql.mockImplementationOnce((() => [] as never) as never); // the company's settings: no row = flag off
+    expect(await planOverspendDigest(CO, [])).toEqual({ skip: 'nothing_fired' });
   });
 
   it('a plan with emails sends each one, counts each actual outcome (a throw is one failure), and logs each in the given context', async () => {

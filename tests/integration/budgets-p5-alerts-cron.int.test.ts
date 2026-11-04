@@ -184,7 +184,8 @@ describe('the daily run, as isaflow_service', () => {
     try {
       await spend(f.a, f.acc.opex, f.acc.bank, f.ownerA, '2026-04-12', 200); // April opex 125%: crosses 120
       const out = await runBudgetAlertsFor([f.a], AS_OF);
-      expect(out.perCompany[0]).toMatchObject({ ok: true, fired: 1, digest: { skipped: null, sent: 1, failed: 1 } });
+      // A failed send is a failed company run (the cron answers 500); the next run retries it (budgets-p5-alerts-digest-retry).
+      expect(out.perCompany[0]).toMatchObject({ ok: false, fired: 1, digest: { skipped: null, sent: 1, failed: 1 } });
       expect(held).toEqual([0, 0]); // no pooled connection checked out while SMTP runs
       const logged = await pool.query(`SELECT status, error_message FROM email_log WHERE company_id = $1 AND subject LIKE '%1 new overspend alert' ORDER BY sent_at DESC LIMIT 2`, [f.a]);
       expect(logged.rows.map((r) => r.status).sort()).toEqual(['failed', 'sent']);
