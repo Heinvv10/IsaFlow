@@ -17,8 +17,20 @@ import type { PayrollPeriod } from './payrollTypes';
  *    makes a 13th-cheque month look like a R1m payroll and a short month look
  *    like an exempt one, so the gate would oscillate with pay.
  *
- * So the basis is the company's own trailing twelve periods of gross pay: the
+ * So the basis is the company's own trailing twelve periods of remuneration: the
  * eleven periods before this run plus this run.
+ *
+ * Remuneration, not cash gross. A non-cash fringe benefit (the 3801 low-interest
+ * loan benefit) is remuneration (Fourth Schedule para 1 (a): para (i) of "gross
+ * income") but is not paid, so a run stores it outside gross_pay / total_gross,
+ * as a breakdown item with `isNonCash: true` (payrollCalculator's design note).
+ * An earlier month therefore counts as its total_gross PLUS its lines' non-cash
+ * items, the same figure this month passes in (`currentPeriodRemuneration`).
+ * Summing total_gross alone read eleven months of R41,000 + R1,000 benefit and
+ * an identical month as R493,000 instead of R504,000, and exempted the employer.
+ * A line from before the benefit was non-cash has it inside gross_pay and no
+ * flag, so it is counted once; a breakdown that is not an array adds nothing.
+ * The flag is on the line as it was costed, never re-read from the catalogue.
  *
  * The denominator is elapsed CALENDAR months, not the number of runs found. A
  * company that has been running payroll for a year is measured over twelve
@@ -51,27 +63,37 @@ function periodIndex(year: number, month: number): number {
 export async function estimateAnnualRemuneration(
   companyId: string,
   period: PayrollPeriod,
-  currentPeriodGross: number,
+  currentPeriodRemuneration: number,
   runId: string,
 ): Promise<number> {
   const index = periodIndex(period.year, period.month);
   const windowStart = index - (TRAILING_PERIODS - 1);
   const rows = (await sql`
-    SELECT COALESCE(SUM(total_gross) FILTER (
-             WHERE (period_year * 12 + period_month) BETWEEN ${windowStart} AND ${index - 1}
-           ), 0)::float8 AS window_gross,
-           COUNT(*) FILTER (
-             WHERE (period_year * 12 + period_month) BETWEEN ${windowStart} AND ${index - 1}
-           )::int AS window_periods,
-           MIN(period_year * 12 + period_month)::int AS first_index
-    FROM payroll_run_headers
-    WHERE company_id = ${companyId}::uuid
-      AND status IN ('calculated', 'approved', 'paid')
-      AND total_gross > 0
-      AND (period_year * 12 + period_month) <= ${index}
+    WITH runs AS (
+      SELECT prh.period_year * 12 + prh.period_month AS idx,
+             -- The breakdown is read only inside the window: an older run counts only for the first
+             -- month of history, which its cash gross decides (a run of benefits alone is not one).
+             COALESCE(prh.total_gross, 0) + CASE WHEN prh.period_year * 12 + prh.period_month < ${windowStart} THEN 0 ELSE COALESCE((
+               SELECT SUM((item->>'amount')::numeric)
+                 FROM payroll_run_lines prl
+                 CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array'
+                   THEN prl.component_breakdown ELSE '[]'::jsonb END) item
+                WHERE prl.run_id = prh.id
+                  AND item->>'isNonCash' = 'true'
+             ), 0) END AS remuneration
+        FROM payroll_run_headers prh
+       WHERE prh.company_id = ${companyId}::uuid
+         AND prh.status IN ('calculated', 'approved', 'paid')
+         AND (prh.period_year * 12 + prh.period_month) <= ${index}
+    )
+    SELECT COALESCE(SUM(remuneration) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1}), 0)::float8 AS window_remuneration,
+           COUNT(*) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1})::int AS window_periods,
+           MIN(idx)::int AS first_index
+      FROM runs
+     WHERE remuneration > 0
   `) as DbRow[];
 
-  const priorGross = Number(rows[0]?.window_gross ?? 0);
+  const priorRemuneration = Number(rows[0]?.window_remuneration ?? 0);
   const priorPeriods = Number(rows[0]?.window_periods ?? 0);
   const firstIndex = rows[0]?.first_index == null ? index : Number(rows[0].first_index);
   // Elapsed months of payroll history, this period included, capped at a year.
@@ -83,7 +105,7 @@ export async function estimateAnnualRemuneration(
     ? 1
     : Math.min(TRAILING_PERIODS, Math.max(1, index - firstIndex + 1));
   const annual = Math.round(
-    ((priorGross + currentPeriodGross) / elapsedPeriods) * TRAILING_PERIODS * 100,
+    ((priorRemuneration + currentPeriodRemuneration) / elapsedPeriods) * TRAILING_PERIODS * 100,
   ) / 100;
 
   // The estimate is not stored on the run, and it looks strictly backwards, so
@@ -91,7 +113,7 @@ export async function estimateAnnualRemuneration(
   // Log it or a nil-SDL month cannot be explained after the fact.
   log.info(
     'SDL leviability basis',
-    { runId, companyId, annual, priorGross, priorPeriods, elapsedPeriods },
+    { runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods },
     'sdlLeviabilityService',
   );
   return annual;

@@ -51,8 +51,9 @@ beforeAll(async () => {
     );
   }
   await pool.query(
-    `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status)
-     VALUES($1,$3,2,2026,'approved'),($2,$3,3,2026,'calculated')`,
+    // March carries the calculation stamp a calculation writes (migration 953), so recalculate_required stays out of the way.
+    `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,calculated_at,calculation_version)
+     VALUES($1,$3,2,2026,'approved',NULL,NULL),($2,$3,3,2026,'calculated',now(),1)`,
     [febRun, marchRun, company],
   );
   // February (approved) paid E-TWICE's notice pay; March was calculated before

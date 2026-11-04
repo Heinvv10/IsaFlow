@@ -23,14 +23,15 @@ export function defaultSalaryComponent(eligible: SalaryComponent[]): string | nu
 }
 
 /**
- * What the first pay run does with this start date. The run reads components once a month, as at the 27th, and does
- * not apportion (employee-create-with-pay.int.test.ts pins both), so the person capturing the salary has to be told.
- * Dates are ISO 'YYYY-MM-DD'.
+ * What the first pay run does with this start date. The run reads components once a month, as at the period's last
+ * day (payrollRunReadDate), and does not apportion (employee-create-with-pay.int.test.ts pins both), so the person
+ * capturing the salary has to be told. A start after the 27th is flagged on the run and refused at approval until it
+ * is pro-rated by hand (payrollRecurringProRata). Dates are ISO 'YYYY-MM-DD'.
  */
 export function firstMonthNotes(startDate: string, today: string): string[] {
   const day = Number(startDate.slice(8, 10));
   const notes: string[] = [];
-  if (day >= 28) notes.push("A start on the 28th or later gets no salary in that month's run: it is first paid next month.");
+  if (day >= 28) notes.push("A start after the 27th needs a manual pro-rata in that month's run: the run flags it and cannot be approved until it is done.");
   else if (day > 1) notes.push('The first pay run pays the full monthly salary: it is not reduced for a mid-month start.');
   if (startDate.slice(0, 7) < today.slice(0, 7)) {
     notes.push('This start date is in an earlier month: runs already made are not changed, and back pay is not added for you.');

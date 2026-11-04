@@ -39,8 +39,10 @@ export function validateEmployee(emp: EmployeeInput): void {
     throw new UsageError('Periods in year of assessment (code 3215) must be 0..12');
   }
   const lumpSums = emp.lumpSums ?? [];
-  if (emp.grossSalary3601 <= 0 && (emp.annualPayments3605 ?? 0) <= 0 && !lumpSums.some(l => l.amount > 0)) {
-    throw new UsageError('At least one income code must be greater than zero — 3601 (gross salary), 3605 or a lump sum must be > 0 for an IRP5');
+  if (emp.grossSalary3601 <= 0 && (emp.annualPayments3605 ?? 0) <= 0 && !lumpSums.some(l => l.amount > 0)
+    // As the writer: a benefit under R1 writes nothing (cents dropped, a nil field left out).
+    && !(emp.fringeBenefits ?? []).some(f => Math.floor(f.amount) >= 1)) {
+    throw new UsageError('At least one income code must be greater than zero — 3601 (gross salary), 3605, a fringe benefit or a lump sum must be > 0 for an IRP5');
   }
   const who = `${emp.surname} (certificate ${emp.certificateNumber})`;
   for (const l of lumpSums) {

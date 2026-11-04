@@ -18,6 +18,7 @@
 - Generation is rate limited per company (`checkReportRateLimit`, key `commentary-generate`): building the pack reads the whole ledger twice.
 - The service's three failure codes map to distinct statuses and must not be collapsed: `not_found` → 404, `empty_draft` → 400, `invalid_state` → 409. An id that is not this company's is not the same answer as a draft already approved.
 - `[id]` is guarded by `isUuidParam` (`@/lib/validation`) and a bad id answers 404, same as a cross-company id.
+- `approve` / `reject` act on PACK rows only: a budget variance note (`report_kind = 'budget_variance'`) answers 404 here, whatever the role (budgets P5-5). Its roles live on `/api/accounting/budgets/variance-notes`.
 
 ## Related
 - Services: `src/modules/accounting/services/commentary/` (see its `.claude.md` for the status machine and the `replace` gate).
