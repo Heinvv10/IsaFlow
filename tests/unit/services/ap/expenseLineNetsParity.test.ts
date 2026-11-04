@@ -66,6 +66,10 @@ describe('buildExpenseLines after the expenseLineNets refactor = before', () => 
     same(bill([500, -50], { subtotal: 450, totalAmount: 517.5 })); // a real discount line, net storage
     same(bill([345, 257.3], { subtotal: 523.74, totalAmount: 602.3 })); // gross, nets 300.00 / 223.74
     same(bill([800], { subtotal: 800, totalAmount: 920 })); // net, one line
+    // gross with a R0 last item: its residual is -0.01, folded into the LARGEST line (37.82 → 37.81), the R0 line dropped
+    const folded = bill([43.49, 27.46, 1.49, 0], { subtotal: 62.99, totalAmount: 72.44 });
+    same(folded);
+    expect(buildExpenseLines(folded, 'defexp').map((l) => l.debit)).toEqual([37.81, 23.88, 1.3]);
     same(bill([], { subtotal: 0, totalAmount: 0 })); // no items
   });
   it('2 000 seeded random bills (gross and net storage, 1-7 lines)', () => {
