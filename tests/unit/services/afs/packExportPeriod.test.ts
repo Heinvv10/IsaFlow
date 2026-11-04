@@ -23,6 +23,8 @@ function stubDb(doc: DocRow) {
   sqlMock.mockImplementation(async (strings: TemplateStringsArray) => {
     const text = strings.join('?');
     if (text.includes('FROM   afs_documents')) return [doc];
+    // A mandatory template makes the notes check go on to read the document's sections.
+    if (text.includes('FROM   note_templates')) return [{ section_type: 'accounting_policies' }];
     if (text.includes("section_type = 'cash_flow'")) return [{ data_snapshot: { closingCash: 100 } }];
     if (text.includes('SUM(jl.debit - jl.credit)::numeric') || text.includes('SUM(jl.debit - jl.credit)')) {
       return [{ balance: 100 }];
@@ -112,6 +114,21 @@ describe('runPreExportChecks for a management pack', () => {
   );
 });
 
+describe('runPreExportChecks for a document type it does not know', () => {
+  it.each(['bank_statement', '', 'MANAGEMENT_PACK', 'afs '])(
+    'blocks with a readable unknown-type blocker for %j and runs no check',
+    async (documentType) => {
+      stubDb({ fiscal_year: 2027, document_type: documentType, period: '2026-08' });
+      const checks = await runPreExportChecks(DOC, CO, 'ifrs_smes');
+      expect(checks).toHaveLength(1);
+      expect(checks[0]).toMatchObject({ label: 'Reporting period known', passed: false, severity: 'blocker' });
+      expect(checks[0]!.detail).toMatch(/unknown document type/);
+      expect(getFiscalRange).not.toHaveBeenCalled();
+      expect(queriedText()).not.toContain("section_type = 'statement_of_fp'");
+    },
+  );
+});
+
 describe('runPreExportChecks for annual financial statements', () => {
   it('still blocks a document with no fiscal year, ignoring any period', async () => {
     stubDb({ fiscal_year: null, document_type: 'afs', period: '2026-08' });
@@ -197,11 +214,9 @@ describe('AFS-only checks are not applicable to a management pack', () => {
     const checks = await runPreExportChecks(DOC, CO, 'ifrs_smes');
     expect(checks.map((c) => [c.label, c.severity])).toEqual(CHECKS);
     expect(checks.filter((c) => c.detail === NA)).toHaveLength(0);
-    // Same labels as the pack run: the not-applicable results replace the real ones one for one.
+    // Every string the pack test asserts is absent must be present here, or that assertion is vacuous.
     const text = queriedText();
-    for (const q of ["section_type = 'statement_of_fp'", "section_type = 'cash_flow'", "section_type = 'directors_report'", 'FROM   note_templates']) {
-      expect(text).toContain(q);
-    }
+    for (const q of AFS_ONLY_QUERIES) expect(text, q).toContain(q);
     expect(checks.find((c) => c.label === 'Balance sheet balances')!.passed).toBe(false);
   });
 });

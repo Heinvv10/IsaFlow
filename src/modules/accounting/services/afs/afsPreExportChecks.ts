@@ -3,7 +3,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ReportingFramework, SectionStatus } from './afsTypes';
 import { getFiscalRange } from './afsFiscalPeriod';
-import { packPeriodEnd } from './afsPackPeriod';
+import { documentKind, notApplicable, packPeriodBlocker, unknownDocumentTypeBlocker } from './afsPackPeriod';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { withStatementMappingFinding } from './afsMappingSectionCheck';
@@ -416,21 +416,6 @@ async function checkDirectorsReportApproved(
   return { label, passed: true, severity: 'warning' };
 }
 
-/**
- * The result of an AFS-only check for a document it does not apply to. A
- * management pack has none of the sections these checks read (statement_of_fp,
- * notes, a directors report, a cash flow with a closing cash figure), so
- * running them could only fail for a reason that has nothing to do with the pack.
- */
-function notApplicable(label: string, severity: ExportCheck['severity']): Promise<ExportCheck> {
-  return Promise.resolve({
-    label,
-    passed: true,
-    severity,
-    detail: 'Not applicable to a management pack.',
-  });
-}
-
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function runPreExportChecks(
@@ -447,22 +432,21 @@ export async function runPreExportChecks(
     LIMIT 1
   `) as Record<string, unknown>[];
 
-  // A management pack has no fiscal year: its period is its own month.
-  const isPack = String(docRows[0]?.document_type ?? 'afs') !== 'afs';
-  const packEnd = isPack ? packPeriodEnd(docRows[0]?.period as string | null | undefined) : null;
-  if (isPack && packEnd === null) {
-    return [{
-      label: 'Reporting period known',
-      passed: false,
-      severity: 'blocker',
-      detail:
-        'This management pack has no valid month (expected YYYY-MM), so the period it covers ' +
-        'is unknown and its figures cannot be checked against the ledger.',
-    }];
+  // Read once: only 'afs' takes the AFS path and only 'management_pack' skips it.
+  const documentType = String(docRows[0]?.document_type ?? 'afs');
+  const kind = documentKind(documentType);
+  if (kind === 'unknown') return [unknownDocumentTypeBlocker(documentType)];
+  const isAfs = kind === 'afs';
+
+  // A management pack has no fiscal year: its period is its own month, and no
+  // check reads a period end for it, so it is only validated.
+  if (!isAfs) {
+    const blocker = packPeriodBlocker(docRows[0]?.period as string | null | undefined);
+    if (blocker) return [blocker];
   }
 
   const fiscalYear = docRows[0]?.fiscal_year;
-  if (fiscalYear == null && packEnd === null) {
+  if (isAfs && fiscalYear == null) {
     return [{
       label: 'Reporting period known',
       passed: false,
@@ -479,30 +463,28 @@ export async function runPreExportChecks(
   // same class of misconfiguration four lines above returns a readable blocker.
   // A pre-export check that crashes tells the accountant nothing about what to
   // fix.
-  let periodEnd: string;
-  try {
-    ({ end: periodEnd } = packEnd !== null
-      ? { end: packEnd }
-      : await getFiscalRange(companyId, Number(fiscalYear)));
-  } catch (err) {
-    return [{
-      label: 'Reporting period known',
-      passed: false,
-      severity: 'blocker',
-      detail:
-        `The period these statements cover cannot be determined: the company has no financial ` +
-        `year with this label (a change of year end can skip one), or its financial year start ` +
-        `is not set. Check Accounting > Financial Years and Settings > General. ` +
-        `(${err instanceof Error ? err.message : String(err)})`,
-    }];
+  let periodEnd = ''; // AFS only: a pack's checks read no period end
+  if (isAfs) {
+    try {
+      ({ end: periodEnd } = await getFiscalRange(companyId, Number(fiscalYear)));
+    } catch (err) {
+      return [{
+        label: 'Reporting period known',
+        passed: false,
+        severity: 'blocker',
+        detail:
+          `The period these statements cover cannot be determined: the company has no financial ` +
+          `year with this label (a change of year end can skip one), or its financial year start ` +
+          `is not set. Check Accounting > Financial Years and Settings > General. ` +
+          `(${err instanceof Error ? err.message : String(err)})`,
+      }];
+    }
   }
 
   // The mapping tie-out is about the ANNUAL FINANCIAL STATEMENTS, whose every
   // figure flows through afs_account_mappings. A management pack is a different
   // document type built from its own queries, so requiring a complete AFS
   // mapping would block pack delivery for a reason that does not apply to it.
-  const isAfs = String(docRows[0]?.document_type ?? 'afs') === 'afs';
-
   const [
     allMapped,
     balanceSheet,
