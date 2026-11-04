@@ -170,5 +170,6 @@ describe('the edit page waits only for a customer changed on the page', () => {
     await act(async () => { beta.release(); await beta.promise; });
     await waitFor(() => expect(saveChanges().disabled).toBe(false));
     await act(async () => { stored.release(); await stored.promise; });
+    expect(saveChanges().disabled).toBe(false); // the stored customer's late answer does not disable Save
   });
 });
