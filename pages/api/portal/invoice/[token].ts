@@ -126,7 +126,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     SELECT id, description, quantity, unit_price, tax_rate, amount
     FROM customer_invoice_items
     WHERE invoice_id = ${invoiceId}::UUID
-    ORDER BY created_at ASC
+    ORDER BY line_position NULLS LAST, created_at, id -- the entry order (migration 956), as the PDF prints it
   `) as Row[];
 
   const items: PortalInvoiceLineItem[] = itemRows.map(r => ({

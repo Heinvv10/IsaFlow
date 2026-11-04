@@ -12,6 +12,8 @@ const router = vi.hoisted(() => ({ query: {} as Record<string, string>, pathname
 vi.mock('next/router', () => ({ useRouter: () => router }));
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
+// The edit page's PDF preview (PR S) has its own test; its Retry would sit beside the coding picker's.
+vi.mock('@/components/accounting/customer-invoices/InvoicePdfPreview', () => ({ InvoicePdfPreview: () => null }));
 // Stands in for a scan: one click hands the page an extraction with two lines.
 vi.mock('@/components/accounting/ScanAndFillButton', () => ({
   ScanAndFillButton: ({ onExtracted }: { onExtracted: (d: unknown) => void }) => (

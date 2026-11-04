@@ -58,3 +58,26 @@ export function toFunctional(amount: number | string, rate: number | string): nu
   const cents = roundTo({ digits: a.digits * r.digits, scale: a.scale + r.scale }, 2);
   return Number(cents.digits * 10n ** BigInt(2 - cents.scale)) / 100;
 }
+
+/**
+ * `value` as a whole number of 10^-places units (cents at 2, an exchange rate's millionths at 6), rounded half away
+ * from zero as numeric ROUND() does; null when it is not a plain finite decimal. For comparing figures exactly:
+ * `Math.round(1.005 * 100)` is 100, this is 101.
+ */
+export function toScaledInteger(value: number | string, places: number): bigint | null {
+  let d: Decimal;
+  try {
+    d = parseDecimal(value);
+  } catch (err) {
+    if (err instanceof NotADecimalError) return null;
+    throw err;
+  }
+  const r = roundTo(d, places);
+  return r.digits * 10n ** BigInt(places - r.scale);
+}
+
+/** Two money figures are the same to the cent (half away from zero); a figure that is not a decimal is never the same. */
+export function sameCents(a: number | string, b: number | string): boolean {
+  const x = toScaledInteger(a, 2);
+  return x !== null && x === toScaledInteger(b, 2);
+}

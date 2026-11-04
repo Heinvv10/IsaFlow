@@ -59,7 +59,8 @@ interface AuthContextType {
   hasRole: (role: AuthRole) => boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+/** Exported for a reader that must not throw outside the provider (useInvoiceDraftOwner); everyone else uses useAuth. */
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 /**
  * Map the raw API response into a typed AuthUser

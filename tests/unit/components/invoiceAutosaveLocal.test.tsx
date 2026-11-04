@@ -1,0 +1,253 @@
+/**
+ * Master plan wave 3, PR S (decision 1): a new invoice is kept in this browser until it is created, never on the server
+ * (create is wallet-metered and burns an invoice number). 800 ms after the last edit the form, lines and VAT mode go to
+ * `isaflow:invoice-draft:<companyId>:<userId>`; a storage that throws never breaks the form; the next visit offers to
+ * restore it; a successful create clears it. Nothing is written without a company and a user to key it by.
+ */
+import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiFetch } from '@/lib/apiFetch';
+import { AuthContext } from '@/contexts/AuthContext';
+import { CompanyContext } from '@/contexts/CompanyContext';
+import { clearInvoiceDrafts } from '@/lib/invoiceDrafts';
+import { act } from '@testing-library/react';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+import { advance, calls, description, pick, puts, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
+
+const h = vi.hoisted(() => ({ push: vi.fn(), events: null as null | ReturnType<typeof import('../helpers/invoiceAutosaveHarness').routerEvents> }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push: h.push, replace: vi.fn(), pathname: '/', isReady: true, events: h.events }) }));
+vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
+vi.mock('@/components/accounting/ScanAndFillButton', () => ({ ScanAndFillButton: () => null }));
+
+import NewPage from '../../../pages/accounting/customer-invoices/new';
+import { useLocalInvoiceDraft, type LocalDraftData } from '@/components/accounting/customer-invoices/useLocalInvoiceDraft';
+
+const KEY = 'isaflow:invoice-draft:co-1:u-1';
+useApiJsonOverMock();
+beforeEach(() => { vi.useFakeTimers(); h.events = routerEvents(); localStorage.clear(); serveInvoice(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); h.push.mockReset(); vi.mocked(apiFetch).mockReset(); localStorage.clear(); });
+
+async function open(owned = true) {
+  const page = <NewPage />;
+  render(owned ? (
+    <AuthContext.Provider value={{ user: { id: 'u-1' } } as never}>
+      <CompanyContext.Provider value={{ activeCompany: { id: 'co-1' } } as never}>{page}</CompanyContext.Provider>
+    </AuthContext.Provider>
+  ) : page);
+  await advance(0);
+}
+const stored = () => JSON.parse(localStorage.getItem(KEY) ?? 'null') as null | { savedAt: number; data: { form: Record<string, unknown>; lines: { description: string; unitPrice: number }[]; taxMode: string } };
+const price = () => screen.getAllByLabelText(/^Unit price/)[0] as HTMLInputElement;
+
+describe('new invoice: the draft on this device', () => {
+  const blankDraft: LocalDraftData = {
+    form: {
+      clientId: '', invoiceDate: '2026-11-03', dueDate: '', billingPeriodStart: '2026-11-03',
+      billingPeriodEnd: '2026-11-03', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '',
+    },
+    lines: [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, glAccountId: '', projectId: '', cc2Id: '', buId: '' }],
+    taxMode: 'exclusive',
+  };
+
+  it.each([
+    ['invoice date', (d: LocalDraftData) => { d.form.invoiceDate = '2026-11-04'; }],
+    ['due date', (d: LocalDraftData) => { d.form.dueDate = '2026-12-03'; }],
+    ['billing period', (d: LocalDraftData) => { d.form.billingPeriodEnd = '2026-11-30'; }],
+    ['currency', (d: LocalDraftData) => { d.form.currencyCode = 'USD'; }],
+    ['exchange rate', (d: LocalDraftData) => { d.form.exchangeRate = 17.5; }],
+    ['VAT rate', (d: LocalDraftData) => { d.form.taxRate = 14; }],
+    ['VAT mode', (d: LocalDraftData) => { d.taxMode = 'inclusive'; }],
+    ['invoice project', (d: LocalDraftData) => { d.form.projectId = 'project-1'; }],
+    ['quantity', (d: LocalDraftData) => { d.lines[0]!.quantity = 2; }],
+    ['discount', (d: LocalDraftData) => { d.lines[0]!.discount = 10; }],
+    ['GL coding', (d: LocalDraftData) => { d.lines[0]!.glAccountId = 'account-1'; }],
+    ['dimension coding', (d: LocalDraftData) => { d.lines[0]!.cc2Id = 'cc2-1'; }],
+  ])('keeps a draft whose only edit is %s', async (_name, change) => {
+    const onRestore = vi.fn();
+    const { result, rerender } = renderHook(({ snapshot }: { snapshot: LocalDraftData }) => useLocalInvoiceDraft({
+      mode: 'local', companyId: 'co-1', userId: 'u-1', snapshot, paused: false, onRestore,
+    }), { initialProps: { snapshot: structuredClone(blankDraft) } });
+    await advance(0);
+    const changed = structuredClone(blankDraft);
+    change(changed);
+    rerender({ snapshot: changed });
+    expect(result.current.unsaved()).toBe(true);
+    await advance(800);
+    expect(stored()?.data).toEqual(changed);
+  });
+
+  it('writes form, lines and VAT mode 800 ms after the last edit, and says so', async () => {
+    await open();
+    type(description(), 'Kept');
+    await advance(700);
+    expect(stored()).toBeNull();
+    await advance(100);
+    const draft = stored()!;
+    expect(draft.data.lines[0]).toMatchObject({ description: 'Kept' });
+    expect(draft.data.taxMode).toBe('exclusive');
+    expect(Object.keys(draft.data).sort()).toEqual(['form', 'lines', 'taxMode']);
+    expect(Object.keys(draft.data.form)).not.toContain('token');
+    expect(screen.getByText(/^Saved on this device · just now$/)).toBeTruthy();
+    expect(puts()).toHaveLength(0);
+    expect(calls('customer-invoices-create')).toHaveLength(0);
+  });
+
+  it('a storage that throws leaves the form working, says it could not keep the draft, and the next edit tries again', async () => {
+    await open();
+    const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new DOMException('quota', 'QuotaExceededError'); });
+    type(description(), 'Over quota');
+    await advance(800);
+    expect(description().value).toBe('Over quota');
+    expect(screen.getByText(/could not keep this draft on this device/i)).toBeTruthy();
+    setItem.mockRestore();
+    type(description(), 'Room again');
+    await advance(800);
+    expect(stored()!.data.lines[0]).toMatchObject({ description: 'Room again' });
+  });
+
+  it('offers the kept draft on the next visit; Restore puts it back, mode and gross prices together, and the customer does not overwrite it', async () => {
+    await open();
+    await pick('Client', /Client/); // a customer with no VAT type: its default would put the mode back to Excluding VAT
+    await pick('Amounts are', /Including VAT/);
+    type(description(), 'Restored work');
+    type(price(), '230');
+    await advance(800);
+    cleanup();
+    await open();
+    expect(description().value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    await advance(0);
+    expect(description().value).toBe('Restored work');
+    expect(price().value).toBe('230');
+    await advance(0); // the customer's answer lands after the restore
+    expect(screen.getByRole('combobox', { name: 'Amounts are' }).textContent).toMatch(/Including VAT/);
+    expect(price().value).toBe('230');
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
+  });
+
+  it('does not overwrite a kept draft before the user answers the offer; Discard removes it', async () => {
+    localStorage.setItem(KEY, JSON.stringify({ savedAt: Date.now(), data: { form: { clientId: '', invoiceDate: '2026-09-01', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: 'old', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' }, lines: [{ key: '1', description: 'Old', quantity: 1, unitPrice: 5, discount: 0, glAccountId: '', projectId: '', cc2Id: '', buId: '' }], taxMode: 'exclusive' } }));
+    await open();
+    type(description(), 'New typing');
+    await advance(2_000);
+    expect(stored()!.data.lines[0]).toMatchObject({ description: 'Old' });
+    expect(screen.getByText(/What you type here is not kept until you Restore or Discard it\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    await advance(0);
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('a successful create clears the draft', async () => {
+    await open();
+    await pick('Client', /Client/);
+    type(description(), 'Billed');
+    type(price(), '100');
+    await advance(800);
+    expect(stored()).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^create invoice$/i }));
+    await advance(0);
+    await advance(0);
+    expect(h.push).toHaveBeenCalledWith('/accounting/customer-invoices/inv-1');
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  const OLD = JSON.stringify({ savedAt: Date.now(), data: { form: { clientId: '', invoiceDate: '2026-09-01', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: 'old', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' }, lines: [{ key: '1', description: 'Old', quantity: 1, unitPrice: 5, discount: 0, glAccountId: '', projectId: '', cc2Id: '', buId: '' }], taxMode: 'exclusive' } });
+  it('an unanswered kept draft survives a create; after Save & New it is still offered, and nothing typed then overwrites it', async () => {
+    localStorage.setItem(KEY, OLD);
+    await open();
+    expect(screen.getByRole('button', { name: 'Restore' })).toBeTruthy();
+    await pick('Client', /Client/);
+    type(description(), 'Something else');
+    type(price(), '100');
+    fireEvent.click(screen.getByRole('button', { name: /save & new/i }));
+    for (let i = 0; i < 4; i++) await advance(0);
+    expect(calls('customer-invoices-create')).toHaveLength(1);
+    expect(localStorage.getItem(KEY)).toBe(OLD);
+    expect(screen.getByRole('button', { name: 'Restore' })).toBeTruthy();
+    expect(screen.getByText(/not kept until you Restore or Discard it/)).toBeTruthy();
+    type(description(), 'Typed after Save & New');
+    await advance(2_000);
+    expect(localStorage.getItem(KEY)).toBe(OLD);
+  });
+
+  it('after a sign-out or company switch clears the drafts, a timer still pending on this page writes nothing back', async () => {
+    await open();
+    type(description(), 'Racing the sign-out');
+    await advance(400);
+    act(() => { clearInvoiceDrafts(); });
+    await advance(2_000);
+    expect(localStorage.getItem(KEY)).toBeNull();
+    type(description(), 'Still on the old page');
+    await advance(2_000);
+    expect(localStorage.getItem(KEY)).toBeNull();
+    cleanup();
+    await open(); // a page opened after the clear keeps its draft again
+    type(description(), 'New page');
+    await advance(800);
+    expect(stored()!.data.lines[0]).toMatchObject({ description: 'New page' });
+  });
+
+  it('a page left before the 800 ms are up (Back, a link) keeps what was typed', async () => {
+    await open();
+    type(description(), 'Typed just before Back');
+    await advance(200);
+    cleanup();
+    expect(stored()!.data.lines[0]).toMatchObject({ description: 'Typed just before Back' });
+  });
+
+  it('a clear in another tab says this draft is no longer kept, and leaving still asks', async () => {
+    await open();
+    const generation = Number(localStorage.getItem('isaflow:invoice-drafts-generation') ?? '0');
+    localStorage.setItem('isaflow:invoice-drafts-generation', String(generation + 1));
+    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: 'isaflow:invoice-drafts-generation' })); });
+    type(description(), 'Typed after the other tab signed out');
+    await advance(2_000);
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(screen.getByText(/no longer kept: signed out or company switched in another tab/)).toBeTruthy();
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+  });
+
+  it('a clear in this tab (its own sign-out) does not make leaving ask', async () => {
+    await open();
+    type(description(), 'Signing out here');
+    act(() => { clearInvoiceDrafts(); });
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(false);
+  });
+
+  it('a clear in another tab (sign-out there) stops this tab writing too', async () => {
+    await open();
+    type(description(), 'Racing another tab');
+    await advance(400);
+    // Another tab's clearInvoiceDrafts: it removes the drafts and moves the shared generation on.
+    const generation = Number(localStorage.getItem('isaflow:invoice-drafts-generation') ?? '0');
+    localStorage.setItem('isaflow:invoice-drafts-generation', String(generation + 1));
+    await advance(2_000);
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('a draft kept under another company, or by another user, is never offered here', async () => {
+    const other = JSON.stringify({ savedAt: Date.now(), data: { form: { clientId: '' }, lines: [], taxMode: 'exclusive' } });
+    localStorage.setItem('isaflow:invoice-draft:co-2:u-1', other);
+    localStorage.setItem('isaflow:invoice-draft:co-1:u-2', other);
+    await open();
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
+    type(description(), 'Mine');
+    await advance(800);
+    expect(stored()!.data.lines[0]).toMatchObject({ description: 'Mine' });
+    expect(localStorage.getItem('isaflow:invoice-draft:co-2:u-1')).toBe(other);
+  });
+
+  it('writes nothing without a company and a user to key it by', async () => {
+    await open(false);
+    type(description(), 'Ownerless');
+    await advance(2_000);
+    expect(localStorage.length).toBe(0);
+  });
+});
