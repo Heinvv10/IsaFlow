@@ -87,7 +87,7 @@ function answer(strings: TemplateStringsArray): unknown[] {
   if (/FROM captured_documents/.test(text)) { events.push('read evidence'); return [{ raw_bytes_sha256: 'h', confidence: '0.9' }]; }
   if (/UPDATE\s+bank_transactions/.test(text)) { events.push('update bank'); return [{ id: BANK_TX_ID }]; }
   if (/UPDATE\s+gl_journal_entries/.test(text)) { events.push('update journal'); return []; }
-  // Budgets P5-2b: the bills raised from the slip, read after the journal (none here: each would take its row lock last).
+  // Budgets P5-2b: the bills raised from the slip, read and locked after the document, before the first write (none here).
   if (/SELECT id FROM supplier_invoices/.test(text)) { events.push('read slip bills'); return []; }
   throw new Error(`unexpected statement: ${text}`);
 }
@@ -108,13 +108,13 @@ describe('provisional evidence attach — canonical lock order', () => {
       `lock bank ${BANK_TX_ID}`,
       'lock journal',
       'lock document',
+      'read slip bills',
       'guard: document not already posted',
       'guard: document not already linked',
       'claim document',
       'read evidence',
       'update bank',
       'update journal',
-      'read slip bills',
     ]);
   });
 });

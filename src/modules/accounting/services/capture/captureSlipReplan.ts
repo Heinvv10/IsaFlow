@@ -155,6 +155,26 @@ async function lockBillOrSkip(companyId: string, invoiceId: string): Promise<DbR
 }
 
 /**
+ * The live bills raised from slip `documentId`, each locked FOR UPDATE without waiting, in id order: 'busy' when
+ * another transaction holds any of them. The manual attach takes these BEFORE its first write (after its bank line,
+ * journal and document locks), so a held bill answers contended with nothing written: an attach that committed and
+ * then skipped the bill could never be retried (the journal is evidenced), leaving the bill on its old dimensions.
+ */
+export async function lockSlipBillsOrBusy(companyId: string, documentId: string): Promise<string[] | 'busy'> {
+  const bills = (await sql`
+    SELECT id FROM supplier_invoices
+     WHERE company_id = ${companyId}::UUID AND source_document_id = ${documentId}::UUID AND deleted_at IS NULL
+     ORDER BY id`) as DbRow[];
+  const ids: string[] = [];
+  for (const b of bills) {
+    const row = await lockBillOrSkip(companyId, String(b.id));
+    if (row === 'busy') return 'busy';
+    if (row) ids.push(String(b.id));
+  }
+  return ids;
+}
+
+/**
  * The blank lines of bill `invoiceId` inherit from the provisional `jeId` its slip was just attached to, when the bill
  * is a draft with no approval request bound (pending or approved); otherwise skipped, with the reason. Takes the
  * bill's row lock without waiting (after the caller's bank line, journal and document locks). The session user becomes

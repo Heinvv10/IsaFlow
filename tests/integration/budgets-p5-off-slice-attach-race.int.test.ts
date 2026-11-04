@@ -3,8 +3,9 @@
  * work on the same draft bill, on real concurrent request transactions (app_user):
  *   - R4-2: a requestApproval raised while the attach is in flight waits for it (the raise takes the bill FOR SHARE,
  *     `approvalDocuments.raiseOnce`) and binds the digest of the INHERITED lines, never a digest the attach then moves;
- *   - LOW 2: a bill row another transaction holds (a long bulk approve) is skipped, not waited on: the attach succeeds
- *     and says 'the bill is being processed, retry';
+ *   - LOW 2: a bill row another transaction holds (a long bulk approve) is not waited on: the attach answers
+ *     contended at once with NOTHING written, so a retry can still evidence the journal and inherit (Codex, 9ae68871a:
+ *     committing the attach and skipping the bill left it un-inheritable, the journal already evidenced);
  *   - LOW 4: the attaching user becomes a content author of the bill whose lines it changed, so segregation of duties
  *     refuses them as its approver.
  * Fixture: opex BB-6100 at CC1 FT 1 000 / HT 0 a month (FY2027). Fixture route: isaflow_schema_fixture. Never skips.
@@ -77,7 +78,7 @@ describe('R4-2: a requestApproval raised while the manual attach is in flight', 
 });
 
 describe('LOW 2: the bill row held by another transaction', () => {
-  it('the attach succeeds at once and skips that bill: "the bill is being processed, retry"', async () => {
+  it('the attach answers contended at once and writes nothing; once the bill is free a retry inherits', async () => {
     const je = await seedUnevidencedProvisional(pool, f, '2026-07-10', [{ amount: 800, cc1: f.cc.FT }], S0);
     const { bill, doc } = await slipDraft('2026-07-12');
     const holder = await pool.connect();
@@ -89,13 +90,20 @@ describe('LOW 2: the bill row held by another transaction', () => {
       let out: unknown;
       try { out = await r.run(() => attachDocumentToProvisional(f.co, je, doc)); await r.commit(); } finally { await r.rollback(); }
       expect(Date.now() - t0).toBeLessThan(4000); // never the 5 s row-lock budget
-      expect(out).toMatchObject({ kind: 'attached', slipInheritance: [{ invoiceId: bill, skipped: 'the bill is being processed, retry' }] });
+      expect(out).toMatchObject({ kind: 'contended' });
     } finally {
       await holder.query('ROLLBACK');
       holder.release();
     }
-    expect((await pool.query('SELECT needs_evidence FROM gl_journal_entries WHERE id = $1', [je])).rows[0].needs_evidence).toBe(false);
+    expect((await pool.query('SELECT needs_evidence FROM gl_journal_entries WHERE id = $1', [je])).rows[0].needs_evidence).toBe(true);
+    expect((await pool.query('SELECT posted_at FROM captured_documents WHERE id = $1', [doc])).rows[0].posted_at).toBeNull();
     expect(await billLineCc1(pool, bill)).toEqual([null]);
+    // The bill free again, the retry evidences the journal and the bill inherits.
+    const r = await openRequest(pool, f, f.owner);
+    let again: unknown;
+    try { again = await r.run(() => attachDocumentToProvisional(f.co, je, doc)); await r.commit(); } finally { await r.rollback(); }
+    expect(again).toMatchObject({ kind: 'attached', slipInheritance: [{ invoiceId: bill, inheritedLines: 1 }] });
+    expect(await billLineCc1(pool, bill)).toEqual([f.cc.FT]);
   });
 });
 
