@@ -1,7 +1,6 @@
 /**
- * Budget controls settings form (P5-4 review r2): a save sends ONLY the fields the user changed (a
- * company whose stored email flag is on while the server switch is off must still be able to change
- * its policy: re-sending `alertEmailEnabled: true` would be a 409); an unsaved edit survives a
+ * Budget controls settings form (P5-4 review r2): a save sends ONLY the fields the user changed; no
+ * email digest control is offered (alerts are bell-only: nothing is promised that is not delivered); an unsaved edit survives a
  * refresh that brings the same saved settings, and gives way when the saved settings change; the
  * comma-separated threshold field is a text keyboard, not a numeric one.
  */
@@ -18,7 +17,13 @@ const view = (over: Partial<ControlsView['settings']> = {}, server = false): Con
 });
 
 describe('PolicySettings', () => {
-  it('sends only the changed field: a stored email flag with the server switch off is not re-sent', () => {
+  it('offers no email digest control, even when the server allows email and the stored flag is on', () => {
+    render(<PolicySettings view={view({ alertEmailEnabled: true }, true)} canEdit busy={false} onSave={vi.fn(async () => true)} />);
+    expect(screen.queryByTestId('budget-email-toggle')).toBeNull();
+    expect(screen.queryByText(/email|digest/i)).toBeNull();
+  });
+
+  it('sends only the changed field, never an email flag', () => {
     const onSave = vi.fn(async () => true);
     render(<PolicySettings view={view()} canEdit busy={false} onSave={onSave} />);
     fireEvent.change(screen.getByLabelText('Budget check on bill approval'), { target: { value: 'block' } });

@@ -1,6 +1,6 @@
 /**
  * /accounting/budgets/controls (budgets P5-4, spec §5): the company's budget check policy, alert
- * thresholds (default and per account or slice), the email digest switch, and, for owners and
+ * thresholds (default and per account or slice), and, for owners and
  * admins, the overspend alerts with Evaluate now and "last evaluated". Write roles read the
  * settings; owners and admins change them; a viewer is told the page is not theirs. The server
  * re-checks every role.
@@ -17,7 +17,17 @@ import { useBudgetControls } from './useBudgetControls';
 const PANEL = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4';
 const BTN = 'inline-flex items-center gap-1.5 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)]';
 
+/**
+ * Everything below is keyed by the active company: a switch remounts it, so the view, alerts, notice,
+ * in-flight loads and the settings form of the company left behind can never be shown or saved
+ * against the new one (the hook sees only role flags, which a same-role switch leaves unchanged).
+ */
 export function BudgetControlsPage() {
+  const { activeCompany } = useCompany();
+  return <BudgetControls key={activeCompany?.id ?? 'no-company'} />;
+}
+
+function BudgetControls() {
   const { companyRole, activeCompany } = useCompany();
   const known = companyRole !== null && activeCompany !== null;
   const canRead = canWrite(companyRole);

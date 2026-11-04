@@ -1,6 +1,6 @@
 /**
  * The budget controls page's state (budgets P5-4): the controls view (settings, overrides, picker
- * options, email switch, last evaluated) for every write role, and the alert list for owners and
+ * options, last evaluated) for every write role, and the alert list for owners and
  * admins only (the route refuses others, so the page never asks). Every write answers with fresh
  * data or a failure sentence; a failed refresh keeps the last good data beside the error.
  */
@@ -22,7 +22,7 @@ export interface BudgetControlsState {
   /** The last write's outcome, for the page's status line. */
   notice: { tone: 'ok' | 'error'; text: string } | null;
   reload: () => void;
-  save: (patch: { checkPolicy?: CheckPolicy; defaultThresholds?: number[]; alertEmailEnabled?: boolean }) => Promise<boolean>;
+  save: (patch: { checkPolicy?: CheckPolicy; defaultThresholds?: number[] }) => Promise<boolean>;
   addOverride: (draft: OverrideDraft) => Promise<boolean>;
   removeOverride: (id: string) => Promise<void>;
   evaluate: () => Promise<void>;

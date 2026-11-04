@@ -17,7 +17,7 @@ export function fetchControls(): Promise<ApiResult<ControlsView>> {
   return call('/api/accounting/budgets/controls', undefined, 'Could not load the budget controls.');
 }
 
-export function saveSettings(patch: { checkPolicy?: CheckPolicy; defaultThresholds?: number[]; alertEmailEnabled?: boolean }): Promise<ApiResult<ControlsView>> {
+export function saveSettings(patch: { checkPolicy?: CheckPolicy; defaultThresholds?: number[] }): Promise<ApiResult<ControlsView>> {
   return call('/api/accounting/budgets/controls', json('PUT', patch), 'Could not save the budget controls.');
 }
 
