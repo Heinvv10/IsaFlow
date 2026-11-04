@@ -83,13 +83,13 @@ export function useWorkspaceVersions(fiscalYear: number | null, grid: BudgetGrid
   }, [fiscalYear, bump, grid.token]);
 
   const { version, token, reload, selectVersion } = grid;
-  const run = useCallback(async ({ action, reason }: VersionActionRequest): Promise<string | null> => {
+  const run = useCallback(async ({ action, reason, force }: VersionActionRequest): Promise<string | null> => {
     if (!version) return 'There is no budget version to change.';
     if (grid.dirtyCount > 0) return `Save or discard ${grid.dirtyCount} unsaved changes first.`;
     let r: ApiResult<unknown>;
     if (action === 'primary') r = await setPrimaryVersion(version.id);
     else if (action === 'delete') r = await deleteVersion(version.id);
-    else r = await setVersionStatus(version.id, action, { ...(reason ? { reason } : {}), ...(token ? { expectedUpdatedAt: token } : {}) });
+    else r = await setVersionStatus(version.id, action, { ...(reason ? { reason } : {}), ...(force ? { force } : {}), ...(token ? { expectedUpdatedAt: token } : {}) });
     // A stale token: someone moved the version; show theirs (the grid is clean) and say so.
     if (!r.ok && r.kind === 'stale') { await reload(); refresh(); return `${r.message} The latest version is now on screen; check it and try again.`; }
     if (!r.ok) return failureText(r);

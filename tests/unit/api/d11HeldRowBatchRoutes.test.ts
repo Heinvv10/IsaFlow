@@ -11,6 +11,8 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/als', () => ({ als: { getStore: () => ({ txUnusable: false }) }, assertTxUsable: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_n: string, fn: () => unknown) => fn() }));
+// supplier-invoices-bulk-action is rate-limited per user, per id (P5-2 round 5; pinned in budgets-p5-bill-check-mcp); admitted here.
+vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/ar/recurringInvoiceService', () => ({ runRecurringInvoice: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', async (orig) => ({ ...(await orig<object>()), approveSupplierInvoice: vi.fn(), cancelSupplierInvoice: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', async (orig) => ({ ...(await orig<object>()), postSupplierInvoiceToGL: vi.fn() }));

@@ -251,7 +251,7 @@
   "pages/accounting/batch-payments/[batchId].tsx": 1,
   "pages/accounting/timesheets/index.tsx": 5,
   "pages/accounting/afs/index.tsx": 5,
-  "pages/accounting/afs/[documentId]/index.tsx": 3,
+  "pages/accounting/afs/[documentId]/index.tsx": 2,
   "pages/accounting/afs/[documentId]/compliance.tsx": 10,
   "pages/accounting/afs/management-packs.tsx": 6,
   "pages/accounting/afs/portal-contacts.tsx": 9,

@@ -18,7 +18,7 @@ vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNod
 const route = vi.hoisted(() => ({ query: {} as Record<string, string> }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: route.query, push: vi.fn(async () => true), replace: vi.fn(), pathname: '/', isReady: true }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1', name: 'Co' } }) }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1', name: 'Co' } }), useCompanyRoleOrNull: () => null }));
 vi.mock('@/utils/toast', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 vi.mock('@/modules/accounting/documents', () => ({ AccountingDocumentPanel: () => null }));
 
