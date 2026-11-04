@@ -150,20 +150,20 @@ export function LandingFooter() {
         <div className="grid gap-10 lg:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))]">
           <div>
             <img src="/logo.png" alt="IsaFlow" className="h-8 w-auto brightness-0 invert opacity-60" />
-            <p className="mt-4 max-w-sm text-sm text-gray-500">
+            <p className="mt-4 max-w-sm text-sm text-ink-muted">
               © {new Date().getFullYear()} Brightsphere Technologies (Pty) Ltd, trading as IsaFlow. All rights reserved.
             </p>
           </div>
           <div className="text-sm">
             <p className="font-semibold text-gray-900 dark:text-white">Product</p>
-            <div className="mt-3 space-y-2 text-gray-500">
+            <div className="mt-3 space-y-2 text-ink-muted">
               <a href="/#features" className="block hover:text-white transition-colors">Features</a>
               <a href="/pricing" className="block hover:text-white transition-colors">Pricing</a>
             </div>
           </div>
           <div className="text-sm">
             <p className="font-semibold text-gray-900 dark:text-white">Resources</p>
-            <div className="mt-3 space-y-2 text-gray-500">
+            <div className="mt-3 space-y-2 text-ink-muted">
               <a href="/blog" className="block hover:text-white transition-colors">Blog</a>
               <a href="/help" className="block hover:text-white transition-colors">Help</a>
               <a href="/#faq" className="block hover:text-white transition-colors">FAQ</a>
@@ -171,13 +171,13 @@ export function LandingFooter() {
           </div>
           <div className="text-sm">
             <p className="font-semibold text-gray-900 dark:text-white">Company</p>
-            <div className="mt-3 space-y-2 text-gray-500">
+            <div className="mt-3 space-y-2 text-ink-muted">
               <a href="/contact" className="block hover:text-white transition-colors">Contact</a>
             </div>
           </div>
           <div className="text-sm">
             <p className="font-semibold text-gray-900 dark:text-white">Legal</p>
-            <div className="mt-3 space-y-2 text-gray-500">
+            <div className="mt-3 space-y-2 text-ink-muted">
               <a href="/privacy" className="block hover:text-white transition-colors">Privacy</a>
               <a href="/terms" className="block hover:text-white transition-colors">Terms</a>
             </div>
