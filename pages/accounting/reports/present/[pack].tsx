@@ -98,6 +98,11 @@ export default function PresentPackPage() {
   useEffect(() => {
     if (!router.isReady) return;
     if (!PACK_TYPES.has(packType) || !from || !to) {
+      // Supersede any comparator request still in flight (a Retry from the last valid window), so its
+      // answer cannot land under this banner, and drop what that window left in state.
+      budgetRequest.current += 1;
+      setBudget([]); setBudgetBands(undefined); setBudgetedCount(0); setBudgetInfo(undefined);
+      setBudgetFailed(false); setBudgetRefusal(undefined); setBudgetLoading(false);
       setError(`Unknown pack: "${packType || '(none)'}". Expected one of board, management, monthly with a from/to range.`);
       return;
     }
