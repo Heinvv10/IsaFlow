@@ -26,6 +26,7 @@ import type { FiredAlert } from './overspendAlerts';
 export type DigestSkip = 'nothing_fired' | 'server_off' | 'company_off' | 'no_recipients';
 
 export interface DigestEmail {
+  id: string;
   to: string;
   subject: string;
   html: string;
@@ -40,6 +41,39 @@ export interface DigestOutcome {
 }
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
+const PENDING_DIGEST_KEY = 'budget_alerts.pending_digest';
+
+function parsePending(raw: unknown): DigestEmail[] {
+  if (raw === undefined) return [];
+  if (typeof raw !== 'string') throw new Error('Invalid pending budget digest');
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { throw new Error('Invalid pending budget digest'); }
+  if (!Array.isArray(parsed) || !parsed.every((e) => {
+    const v = e as Partial<DigestEmail>;
+    return typeof v.id === 'string' && typeof v.to === 'string' && typeof v.subject === 'string' && typeof v.html === 'string';
+  })) throw new Error('Invalid pending budget digest');
+  return parsed as DigestEmail[];
+}
+
+async function readPending(companyId: string): Promise<DigestEmail[]> {
+  const rows = (await sql`
+    SELECT value FROM accounting_settings
+     WHERE company_id = ${companyId}::UUID AND key = ${PENDING_DIGEST_KEY}
+  `) as DbRow[];
+  return parsePending(rows[0]?.value);
+}
+
+async function writePending(companyId: string, emails: readonly DigestEmail[]): Promise<void> {
+  if (emails.length === 0) {
+    await sql`DELETE FROM accounting_settings WHERE company_id = ${companyId}::UUID AND key = ${PENDING_DIGEST_KEY}`;
+    return;
+  }
+  await sql`
+    INSERT INTO accounting_settings (company_id, key, value)
+    VALUES (${companyId}::UUID, ${PENDING_DIGEST_KEY}, ${JSON.stringify(emails)})
+    ON CONFLICT (company_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+  `;
+}
 
 function digestAlert(a: FiredAlert): BudgetDigestAlert {
   return {
@@ -68,9 +102,30 @@ export async function planOverspendDigest(companyId: string, fired: readonly Fir
     skip: null,
     emails: users.map((u) => {
       const payload = { companyName: String(company[0]?.name ?? ''), recipientName: String(u.name), alerts, appBaseUrl: APP_BASE_URL };
-      return { to: String(u.email), subject: renderBudgetDigestSubject(payload), html: renderBudgetDigestHtml(payload) };
+      return { id: crypto.randomUUID(), to: String(u.email), subject: renderBudgetDigestSubject(payload), html: renderBudgetDigestHtml(payload) };
     }),
   };
+}
+
+/** Persists a fresh plan before SMTP and includes any recipients still pending from an earlier run. */
+export async function enqueueOverspendDigest(companyId: string, plan: DigestPlan): Promise<DigestPlan> {
+  if (plan.skip !== null) return plan;
+  const emails = [...await readPending(companyId), ...plan.emails];
+  await writePending(companyId, emails);
+  return { skip: null, emails };
+}
+
+/** Loads a persisted retry only while both email switches remain enabled. */
+export async function pendingOverspendDigest(companyId: string): Promise<DigestPlan> {
+  const emails = await readPending(companyId);
+  if (emails.length === 0) return { skip: 'nothing_fired' };
+  if (!alertEmailAllowedOnServer()) return { skip: 'server_off' };
+  if (!(await readControlSettings(companyId)).alertEmailEnabled) return { skip: 'company_off' };
+  return { skip: null, emails };
+}
+
+export async function acknowledgeOverspendDigest(companyId: string, emailId: string): Promise<void> {
+  await writePending(companyId, (await readPending(companyId)).filter((e) => e.id !== emailId));
 }
 
 /**
@@ -81,6 +136,7 @@ export async function planOverspendDigest(companyId: string, fired: readonly Fir
  */
 export async function sendOverspendDigest(
   companyId: string, plan: DigestPlan, inLogContext: (write: () => Promise<void>) => Promise<void> = (write) => write(),
+  acknowledge: (emailId: string) => Promise<void> = async () => undefined,
 ): Promise<DigestOutcome> {
   if (plan.skip !== null) return { skipped: plan.skip, sent: 0, failed: 0 };
   let sent = 0;
@@ -98,11 +154,15 @@ export async function sendOverspendDigest(
       log.warn('budget digest: send failed', { companyId, error: r.error ?? 'unknown' }, 'accounting');
     }
     try {
-      await inLogContext(() => logEmailAttempt({
-        companyId, recipientEmail: e.to, subject: e.subject, emailType: 'other',
-        status: r.success ? 'sent' : 'failed', errorMessage: r.success ? undefined : r.error ?? 'unknown', sentBy: null,
-      }));
+      await inLogContext(async () => {
+        await logEmailAttempt({
+          companyId, recipientEmail: e.to, subject: e.subject, emailType: 'other',
+          status: r.success ? 'sent' : 'failed', errorMessage: r.success ? undefined : r.error ?? 'unknown', sentBy: null,
+        });
+        if (r.success) await acknowledge(e.id);
+      });
     } catch (err) {
+      if (r.success) failed += 1; // accepted by SMTP but not durably acknowledged: keep the run retryable
       log.error('budget digest: email_log write failed', { companyId, error: err instanceof Error ? err.message : String(err) }, 'accounting');
     }
   }
