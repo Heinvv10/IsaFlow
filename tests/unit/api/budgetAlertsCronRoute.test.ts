@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { runBudgetAlertCron } = vi.hoisted(() => ({
-  runBudgetAlertCron: vi.fn(async () => ({ asOf: '2026-04-20', companies: 0, failed: 0, fired: 0, resolved: 0, perCompany: [] })),
+  runBudgetAlertCron: vi.fn(async () => ({ asOf: '2026-04-20', companies: 0, failed: 0, fired: 0, resolved: 0, emailsSent: 0, perCompany: [] })),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
@@ -37,9 +37,9 @@ describe('/api/cron/budget-alerts', () => {
     expect(runBudgetAlertCron).not.toHaveBeenCalled();
   });
   it('a run where any company failed answers 500 (curl --fail and systemd see it), with every company\'s result', async () => {
-    const result = { asOf: '2026-04-20', companies: 2, failed: 1, fired: 1, resolved: 0,
-      perCompany: [{ companyId: 'a', ok: false, fired: 0, resolved: 0, error: 'evaluation failed; see logs' },
-        { companyId: 'b', ok: true, fired: 1, resolved: 0 }] };
+    const result = { asOf: '2026-04-20', companies: 2, failed: 1, fired: 1, resolved: 0, emailsSent: 0,
+      perCompany: [{ companyId: 'a', ok: false, fired: 0, resolved: 0, digest: null, error: 'evaluation failed; see logs' },
+        { companyId: 'b', ok: true, fired: 1, resolved: 0, digest: null }] };
     runBudgetAlertCron.mockResolvedValueOnce(result as never);
     const r = await call({ method: 'POST', headers: { 'x-cron-secret': KEY } });
     expect(r.statusCode).toBe(500);

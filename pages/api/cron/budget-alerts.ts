@@ -3,7 +3,8 @@
  *
  * For every active company with a primary budget version or an open alert, in its own transaction:
  * evaluate the overspend alerts as of today (SAST), notify owners and admins of each NEW crossing in
- * the bell and record "last evaluated". One company's failure is logged and the run goes on; the
+ * the bell, record "last evaluated", and (only with the company flag AND BUDGET_ALERT_EMAIL_ENABLED=1,
+ * both off by default) email the digest. One company's failure is logged and the run goes on; the
  * answer is then 500 (every company's result in `error.details`) so the timer's curl --fail reports it.
  *
  * Authentication: X-Cron-Secret header must match CRON_SECRET env var.
