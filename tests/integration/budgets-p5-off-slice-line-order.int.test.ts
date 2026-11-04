@@ -18,6 +18,8 @@ import { netsInPostingOrder } from '@/modules/accounting/services/ap/supplierInv
 import { buildExpenseLines } from '@/modules/accounting/services/ap/supplierInvoiceExpenseLines';
 import { defaultVatClassification } from '@/modules/accounting/services/ap/supplierInvoiceTotals';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { applySupplierInvoiceDraftUpdate, lockAndPlanSupplierInvoiceDraftUpdate } from '@/modules/accounting/services/ap/supplierInvoiceDraftUpdate';
+import type { SupplierInvoiceItemInput } from '@/modules/accounting/types/ap.types';
 import { callRoute, dropBillFixture, makeBill, openRequest, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
 import { seedUnevidencedProvisional } from './helpers/budgetSlipFixture';
 
@@ -116,5 +118,80 @@ describe('the matcher\'s nets = what buildExpenseLines posts from the STORED lin
     const r = await compare('2026-05-12', [{ description: 'zz', unitPrice: 33.33 }, { description: 'Ab', unitPrice: 33.33 }, { description: 'mm', unitPrice: 33.34 }],
       { subtotal: 86.96, tax: 13.04 });
     expect(r.matcher).toEqual(r.posted);
+  });
+});
+
+describe('round 8: the planned order IS the stored order (ids written), through capture and the MCP plan', () => {
+  /** Posting debits per stored line, by id, in posting order (R0.00 lines read 0): expenseLineNets over the stored bill. */
+  const postedById = (stored: { items?: Array<{ id: string; lineTotal: number }>; subtotal: number; totalAmount: number; taxRate: number }) => {
+    const items = stored.items ?? [];
+    const nets = netsInPostingOrder(items, stored);
+    return Object.fromEntries(items.map((it, i) => [it.id, nets[i]!]));
+  };
+
+  it('a NULL-account line among account lines (capture; NULLS LAST on gl_account_id under one description)', async () => {
+    const bill = await makeBill(pool, f, [], { date: '2026-06-11' });
+    await pool.query('UPDATE supplier_invoices SET supplier_id = $2, subtotal = 600, tax_amount = 90, total_amount = 690 WHERE id = $1', [bill, S0]);
+    const r = await asOwner(async () => {
+      const p = await planCaptureBillLines(f.co, {
+        supplierId: S0, invoiceNumber: 'X', invoiceDate: '2026-06-11', totalAmount: 690, taxAmount: 90, taxRate: 15,
+        items: [{ description: 'Item', quantity: 1, unitPrice: 100, taxRate: 15 },
+          { description: 'Item', quantity: 1, unitPrice: 200, taxRate: 15, glAccountId: f.acc.travel },
+          { description: 'Item', quantity: 1, unitPrice: 300, taxRate: 15, glAccountId: f.acc.opex }],
+      } as never, 3, null, null);
+      if (!('lines' in p)) throw new Error(JSON.stringify(p));
+      expect(p.lines.map((l) => l.glAccountId ?? null)).toEqual([null, f.acc.travel, f.acc.opex]);
+      const order = await storedLineOrder(p.lines.map((l) => ({ ...l, vatClassification: defaultVatClassification(l.taxRate) })));
+      const planned = order.map((i) => p.lines[i]!.id);
+      const nets = netsInPostingOrder(p.lines, { subtotal: 600, totalAmount: 690, taxRate: 15 }, order);
+      await insertCaptureBillLines(bill, p.lines);
+      const stored = (await getSupplierInvoiceById(f.co, bill))!;
+      return { planned, stored: (stored.items ?? []).map((i) => i.id), lastAccount: stored.items?.at(-1)?.glAccountId ?? null,
+        matcher: Object.fromEntries(p.lines.map((l, i) => [l.id!, nets[i]!])), posted: postedById(stored) };
+    });
+    expect(r.planned).toEqual(r.stored);
+    expect(r.lastAccount).toBeNull(); // the NULL-account line sorts last (NULLS LAST) and carries the residual
+    expect(r.matcher).toEqual(r.posted);
+  });
+
+  /** A draft whose lines the MCP plan replaces with `items`: the planned order and nets against the stored bill. */
+  async function mcpReplace(date: string, items: SupplierInvoiceItemInput[]) {
+    const bill = await makeBill(pool, f, [{ acct: f.acc.opex, amount: 1 }], { date });
+    return asOwner(async () => {
+      const plan = await lockAndPlanSupplierInvoiceDraftUpdate(f.co, bill, { items });
+      const lines = plan.lines!;
+      const order = await storedLineOrder(lines.items.map((i) => ({
+        id: i.id ?? null, description: i.description, glAccountId: i.glAccountId ?? null, quantity: i.quantity, unitPrice: i.unitPrice,
+        taxRate: i.taxRate, taxAmount: i.taxAmount, lineTotal: i.lineTotal, vatClassification: defaultVatClassification(i.taxRate),
+      })));
+      const nets = netsInPostingOrder(lines.items, { subtotal: lines.subtotal, totalAmount: lines.totalAmount, taxRate: lines.taxRate }, order);
+      await applySupplierInvoiceDraftUpdate(f.co, plan, f.owner);
+      const stored = (await getSupplierInvoiceById(f.co, bill))!;
+      return {
+        planned: order.map((i) => lines.items[i]!.id), stored: (stored.items ?? []).map((i) => i.id),
+        matcher: Object.fromEntries(lines.items.map((l, i) => [l.id!, nets[i]!])), posted: postedById(stored),
+        cc1: (stored.items ?? []).map((i) => i.cc1Id ?? null),
+      };
+    });
+  }
+
+  it('matcher == posted through the MCP plan (non-alphabetical lines)', async () => {
+    const r = await mcpReplace('2026-07-11', [
+      { description: 'Zebra hire', quantity: 1, unitPrice: 333.33, glAccountId: f.acc.opex },
+      { description: 'Apple', quantity: 3, unitPrice: 0.33, glAccountId: f.acc.opex },
+      { description: 'Mango', quantity: 1, unitPrice: 0, glAccountId: f.acc.opex },
+    ]);
+    expect(r.planned).toEqual(r.stored);
+    expect(r.matcher).toEqual(r.posted);
+  });
+
+  it('two lines identical on every sort column, one carrying a dimension: the planned ids fix their order', async () => {
+    const r = await mcpReplace('2026-07-12', [
+      { description: 'Same', quantity: 1, unitPrice: 100, glAccountId: f.acc.opex, cc1Id: f.cc.FT },
+      { description: 'Same', quantity: 1, unitPrice: 100, glAccountId: f.acc.opex },
+    ]);
+    expect(r.planned).toEqual(r.stored);
+    expect(r.matcher).toEqual(r.posted);
+    expect([...r.cc1].sort()).toEqual([f.cc.FT, null].sort());
   });
 });

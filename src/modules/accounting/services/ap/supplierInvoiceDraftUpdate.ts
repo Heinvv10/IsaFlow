@@ -217,13 +217,14 @@ export async function applySupplierInvoiceDraftUpdate(
       WHERE id = ${plan.invoiceId}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'`;
     if (!totals) return;
     await tx`DELETE FROM supplier_invoice_items WHERE supplier_invoice_id = ${plan.invoiceId}::UUID`;
+    // storedLineOrder assumes these lines are inserted in ONE transaction (they tie on created_at) with the planned ids.
     for (const item of totals.items) {
       await tx`
         INSERT INTO supplier_invoice_items (
-          supplier_invoice_id, description, quantity, unit_price, tax_rate,
+          id, supplier_invoice_id, description, quantity, unit_price, tax_rate,
           tax_amount, line_total, gl_account_id, vat_classification, cc1_id, cc2_id, bu_id
         ) VALUES (
-          ${plan.invoiceId}::UUID, ${item.description}, ${item.quantity}, ${item.unitPrice},
+          COALESCE(${item.id ?? null}::UUID, gen_random_uuid()), ${plan.invoiceId}::UUID, ${item.description}, ${item.quantity}, ${item.unitPrice},
           ${item.taxRate}, ${item.taxAmount}, ${item.lineTotal}, ${item.glAccountId ?? null}::UUID,
           ${defaultVatClassification(item.taxRate)},
           ${item.cc1Id ?? null}::UUID, ${item.cc2Id ?? null}::UUID, ${item.buId ?? null}::UUID

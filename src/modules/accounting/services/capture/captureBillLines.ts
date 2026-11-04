@@ -162,6 +162,7 @@ async function slipLines(companyId: string, invoice: PipelineInvoiceInput, lines
  */
 export async function insertCaptureBillLines(invoiceId: string, lines: readonly CaptureBillLine[]): Promise<CaptureSlipPlan> {
   const slip: CaptureSlipPlan = { plannedJeId: null, inheritedItemIds: [], blankItemIds: [] };
+  // storedLineOrder assumes these lines are inserted in ONE transaction (they tie on created_at) with the planned ids.
   for (const line of lines) {
     const [row] = (await sql`
       INSERT INTO supplier_invoice_items (

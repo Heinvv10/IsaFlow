@@ -42,7 +42,7 @@ async function slipBillLines(
   const header = { subtotal: computed.subtotal, totalAmount: computed.totalAmount, taxRate };
   // Matched in the order the replaced lines will be read back for posting (breaker R6-1), as the apply writes them.
   const order = await storedLineOrder(computed.items.map((i) => ({
-    description: i.description, glAccountId: i.glAccountId ?? null, quantity: i.quantity, unitPrice: i.unitPrice, taxRate: i.taxRate,
+    id: i.id ?? null, description: i.description, glAccountId: i.glAccountId ?? null, quantity: i.quantity, unitPrice: i.unitPrice, taxRate: i.taxRate,
     taxAmount: i.taxAmount, lineTotal: i.lineTotal, vatClassification: defaultVatClassification(i.taxRate),
   })));
   const out = await inheritSlipDimensions(companyId, computed.items, header,
@@ -94,7 +94,10 @@ export async function planLines(
   let inheritedDimensions: InheritedDimension[] = [];
   let totals: SupplierInvoiceTotals;
   try {
-    const computed = computeSupplierInvoiceTotals(keepStoredDimensions(items, kept), taxRate, false);
+    const totalled = computeSupplierInvoiceTotals(keepStoredDimensions(items, kept), taxRate, false);
+    // Row ids chosen here and written by the apply (P5-2b round 8): `storedLineOrder` then knows the stored lines'
+    // full posting order, even for lines identical on every other sort column.
+    const computed = { ...totalled, items: totalled.items.map((i) => ({ ...i, id: crypto.randomUUID() })) };
     // Budgets P5-2b: a blank line of a slip bill takes the standing provisional's dimensions, at this draft write.
     const slip = await slipBillLines(companyId, invoiceId, computed, taxRate);
     inheritedDimensions = slip.inherited;

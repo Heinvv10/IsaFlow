@@ -127,6 +127,8 @@ export async function attachDocumentToProvisional(
   // 503 (review round 7). A held bill is contended, decided HERE before the first write (the claim below):
   // committing the attach and skipping the bill would leave it un-inheritable (a retry is refused as already
   // evidenced). The claim's own refusals (already claimed, rejected) still follow it: a contended retry then gets them.
+  // Outside the contention try above on purpose: SKIP LOCKED never waits, so it can neither time out nor deadlock;
+  // a held bill comes back as 'busy' and is answered contended here.
   const locked = await lockSlipBillsOrBusy(companyId, documentId);
   if (locked === 'busy') return { kind: 'contended', message: BILL_CONTENDED };
   slipBills = locked;
