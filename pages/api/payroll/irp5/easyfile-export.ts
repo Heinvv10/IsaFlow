@@ -18,6 +18,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import {
   buildIrp5File,
@@ -37,7 +38,11 @@ import {
   ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthsBetween, taxThresholdFor, toCCYYMMDD,
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
+import {
+  listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeSummary,
+} from '@/modules/accounting/services/payroll/payrollNonCashFiling';
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
+import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -61,7 +66,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // follow-ups G1). The stand-alone payments are in no run line, so their
   // gross and PAYE are added to the run totals.
   const bounds = saTaxYearBounds(taxYear);
-  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee] = await Promise.all([
+  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee, fringeByEmployee, unflaggedFringe] = await Promise.all([
     sql`
       SELECT
         COALESCE(registered_name, name) AS trading_name,
@@ -101,6 +106,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     listCertificateLumpSums(companyId, bounds),
     listRunAnnualPayments(companyId, bounds),
     loadMedicalRecord(companyId, bounds),
+    loadRetirementContributions(companyId, bounds),
+    // Non-cash benefits: outside gross_pay, so outside 3601; under their own code (3801).
+    listRunNonCashBenefits(companyId, bounds),
+    // 3801 items paid in cash (no flag): in 3601, and said so below.
+    listRunUnflaggedFringe(companyId, bounds),
   ]);
 
   const company = companyRows[0];
@@ -135,25 +145,47 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   const employees: EmployeeInput[] = [];
   const warnings: string[] = [];
+  const paidInCash: Array<{ employee: string; amount: number }> = [];
   let seq = 0;
   for (const row of empRows) {
     const standalone = lumpSums.standaloneTotals.get(String(row.id)) ?? { gross: 0, paye: 0 };
     const agg = aggMap.get(String(row.id)) ?? (standalone.gross > 0 ? ({} as DbRow) : undefined);
     if (!agg) continue;
     const gross = Number(agg.total_gross ?? 0) + standalone.gross;
-    if (gross <= 0) continue; // skip non-active employees
-
+    const fringeBenefits = fringeByEmployee.get(String(row.id)) ?? [];
     const employeeLumpSums = lumpSums.byEmployee.get(String(row.id)) ?? [];
     const split = splitCertificateIncome({
       gross, paye: Number(agg.total_paye ?? 0) + standalone.paye,
       annualPayments: annualByEmployee.get(String(row.id)) ?? 0, lumpSums: employeeLumpSums,
     });
     const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
+    // The writer's rule (cents dropped, a nil field left out): no income code of R1 or more, no
+    // certificate. Skipped, not refused for the whole company, unless PAYE was withheld: no
+    // certificate could carry it and 4102 would under-report, so the file is refused, naming it.
+    const incomes = [split.grossSalary3601, split.annualPayments3605, ...employeeLumpSums.map(l => l.amount), ...fringeBenefits.map(f => f.amount)];
+    if (!incomes.some(a => Math.floor(a) >= 1)) {
+      const paye = Math.round((Number(agg.total_paye ?? 0) + standalone.paye) * 100) / 100;
+      if (paye !== 0) {
+        return apiResponse.error(res, 'VALIDATION_ERROR' as never, `${who}: ${formatMoney(paye)} of PAYE was withheld this tax year, `
+          + 'but no income code is R1 or more, so no certificate can carry it. Correct the payroll before exporting.');
+      }
+      const uif = Math.round((Number(agg.total_uif_emp ?? 0) + Number(agg.total_uif_empr ?? 0)) * 100) / 100;
+      const sdl = Math.round(Number(agg.total_sdl ?? 0) * 100) / 100;
+      if (uif !== 0 || sdl !== 0) {
+        warnings.push(`${who}: no certificate is written (no income code is R1 or more), but the runs carry UIF ${formatMoney(uif)} `
+          + `and SDL ${formatMoney(sdl)} for this employee. Check the payroll.`);
+      } else if (incomes.some(a => a > 0)) {
+        warnings.push(`${who}: income this tax year is under R1 on every income code, so no certificate is written.`);
+      }
+      continue;
+    }
     warnings.push(...employeeLumpSums.filter(l => l.issuedDateFallback).map(l => issuedDateWarning(who, l)));
     // 4005/4116/4120 (easyFileMedicalFields) and what the file cannot carry about them.
     const medical = medicalByEmployee.get(String(row.id));
     const age = ageAtYearEnd(taxYear, row.date_of_birth, row.id_number);
     warnings.push(...medicalCertificateWarnings(who, medical, { age, dateOfBirthMissing: !row.date_of_birth }));
+    const inCash = unflaggedFringe.get(String(row.id));
+    if (inCash) paidInCash.push({ employee: who, amount: inCash });
     seq += 1;
     const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
     const certEndDate = toCCYYMMDD(row.end_date);
@@ -172,6 +204,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       employmentEndDate: certEndDate,
       periodsInYoA: monthsBetween(periodStart, periodEnd),
       ...split,
+      fringeBenefits,
       lumpSums: employeeLumpSums.map(l => ({
         sourceCode: l.sourceCode,
         directiveNumber: l.directiveNumber ?? '',
@@ -184,6 +217,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       medical: medical && {
         fees: medical.fees, credit: medical.credit, additionalCredit: medical.additionalCredit, age65OrOlder: age != null && age >= 65, recorded: medical.recorded,
       },
+      // 4001 / 4003 / 4006 (PAYE 4c, easyFileRetirementFields).
+      retirementFund: retirementByEmployee.get(String(row.id)),
       uifEmployee: Number(agg.total_uif_emp ?? 0),
       uifEmployer: Number(agg.total_uif_empr ?? 0),
       sdl4142: Number(agg.total_sdl ?? 0),
@@ -227,6 +262,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // A payment on no certificate first: the cap below must never hide one.
     warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
       + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
+    // 3801 paid in cash: ONE bounded warning, last, so the cap drops it before any other.
+    if (paidInCash.length > 0) warnings.push(unflaggedFringeSummary(paidInCash));
     const warningsTotal = warnings.length;
     warnings.splice(0, warningsTotal, ...capWarningsForHeader(warnings));
     if (warnings.length > 0) {

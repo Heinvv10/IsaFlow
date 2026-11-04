@@ -19,6 +19,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// What the costing withholds is read from the database; its own integration suite covers it.
+vi.mock('@/modules/accounting/services/payroll/payrollLoanWithholding', () => ({ withheldLoansReport: vi.fn(async () => []) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));

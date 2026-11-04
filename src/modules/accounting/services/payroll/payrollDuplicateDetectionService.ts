@@ -5,11 +5,14 @@
  * bank account, or employee number.
  *
  * One SQL round-trip per field. NULL / empty strings are never considered
- * duplicates.
+ * duplicates. Bank accounts are not queried unless the caller opts in with
+ * `includeBankAccounts` (fails closed when omitted). They group on the whole number and are masked to the last four unless
+ * the caller asks for `fullBankAccounts` (owner / admin in their own session).
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { maskValue } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
 
 type Row = DbRow;
 
@@ -39,6 +42,10 @@ export interface DuplicateResult {
 
 export interface FindDuplicatesOptions {
   includeTerminated?: boolean;
+  /** Owner / admin only. Bank details are not queried unless this (or fullBankAccounts) is true. */
+  includeBankAccounts?: boolean;
+  /** Owner / admin in their own session only; implies includeBankAccounts. Default: masked to the last four. */
+  fullBankAccounts?: boolean;
 }
 
 function mapEmployee(e: Row): DuplicateEmployee {
@@ -115,6 +122,7 @@ async function scanBankAccount(companyId: string, includeTerminated: boolean): P
       FROM payroll_bank_details b
       JOIN payroll_employees e ON e.id = b.employee_id
      WHERE e.company_id = $1::uuid
+       AND b.company_id = $1::uuid
        AND b.account_number IS NOT NULL
        AND b.account_number <> ''
        AND b.is_active = true
@@ -134,13 +142,18 @@ export async function findDuplicates(
   opts: FindDuplicatesOptions = {},
 ): Promise<DuplicateResult> {
   const includeTerminated = opts.includeTerminated === true;
+  // Fail closed: bank groups only when the caller opts in.
+  const includeBankAccounts = opts.includeBankAccounts === true || opts.fullBankAccounts === true;
 
   const [idNumber, taxNumber, passportNumber, employeeNumber, bankAccount] = await Promise.all([
     scanEmployeeField(companyId, 'id_number', includeTerminated),
     scanEmployeeField(companyId, 'tax_number', includeTerminated),
     scanEmployeeField(companyId, 'passport_number', includeTerminated),
     scanEmployeeField(companyId, 'employee_number', includeTerminated),
-    scanBankAccount(companyId, includeTerminated),
+    !includeBankAccounts
+      ? Promise.resolve([])
+      : scanBankAccount(companyId, includeTerminated).then((found) => (opts.fullBankAccounts === true
+        ? found : found.map((g) => ({ ...g, value: String(maskValue(g.value)) })))),
   ]);
 
   const groups = [idNumber, taxNumber, passportNumber, employeeNumber, bankAccount];

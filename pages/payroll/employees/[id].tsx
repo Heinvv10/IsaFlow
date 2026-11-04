@@ -144,6 +144,21 @@ export default function EmployeeDetailPage() {
     await loadAll();
   };
 
+  const editAssignmentDates = async (assignmentId: string, effectiveFrom: string, effectiveTo: string | null) => {
+    setError('');
+    try {
+      const res = await apiFetch(
+        `/api/payroll/employees/${employeeId}/components?aid=${assignmentId}`,
+        { method: 'PATCH', body: JSON.stringify({ effectiveFrom, effectiveTo }) },
+      );
+      await assertOk(res, 'Could not change the dates - try again');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not change the dates - try again'));
+      return;
+    }
+    await loadAll();
+  };
+
   if (isLoading) {
     return (
       <AppLayout>
@@ -221,6 +236,7 @@ export default function EmployeeDetailPage() {
               onNewIsRecurring={setNewIsRecurring}
               onAssign={assignComponent}
               onEnd={endAssignment}
+              onEditDates={editAssignmentDates}
               adding={addingAssignment}
             />
 

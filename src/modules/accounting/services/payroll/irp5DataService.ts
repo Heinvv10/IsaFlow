@@ -29,6 +29,7 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import type { LumpSumFiling } from './payrollLumpSumFiling';
 import { listCertificateLumpSums } from './directivePaymentFiling';
+import { listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeWarning, type NonCashBenefitFiling } from './payrollNonCashFiling';
 
 type Row = DbRow;
 
@@ -41,6 +42,7 @@ export interface Irp5EmployeeTotals {
   idNumber: string | null;
   taxNumber: string | null;
   identityNumbersMasked: boolean;
+  /** Cash only: a non-cash benefit is not in it (fringeBenefits). */
   grossSalary: number;
   taxableIncome: number;
   paye: number;
@@ -57,6 +59,12 @@ export interface Irp5EmployeeTotals {
    * PAYE under `payeCode`.
    */
   lumpSums: LumpSumFiling[];
+  /**
+   * Non-cash fringe benefits (the 3801 loan benefit), NOT in grossSalary; in taxableIncome and
+   * paye. The certificate shows them under their own code (payrollNonCashFiling), so
+   * grossSalary + these is the remuneration.
+   */
+  fringeBenefits: NonCashBenefitFiling[];
 }
 
 export interface Irp5Exclusion {
@@ -77,6 +85,8 @@ export interface Irp5Dataset {
   excludedTotal: number;
   excluded: Irp5Exclusion[];
   postedThrough: string | null;
+  /** Each employee whose 3801 items were paid in cash (no flag), so are in grossSalary / 3601. */
+  warnings: string[];
 }
 
 /** Excluded employees are listed individually up to this many; beyond it the
@@ -112,6 +122,7 @@ export async function getIrp5EmployeeTotals(
       e.id, e.employee_number, e.first_name, e.last_name, e.id_number, e.tax_number,
       SUM(prl.gross_pay)::NUMERIC      AS gross_pay,
       SUM(prl.taxable_income)::NUMERIC AS taxable_income,
+      SUM(COALESCE(prl.retirement_deduction, 0))::NUMERIC AS retirement_deduction,
       SUM(prl.paye)::NUMERIC           AS paye,
       SUM(prl.uif_employee)::NUMERIC   AS uif_employee,
       SUM(prl.uif_employer)::NUMERIC   AS uif_employer,
@@ -177,6 +188,8 @@ export async function getIrp5EmployeeTotals(
   // Directives paid outside payroll are in no run line: their gross and PAYE are
   // added here, and an employee paid ONLY that way gets a row of their own.
   const { byEmployee: lumpSums, standaloneTotals } = await listCertificateLumpSums(companyId, { start, end }, employeeId);
+  const fringeBenefits = await listRunNonCashBenefits(companyId, { start, end }, employeeId);
+  const unflagged = await listRunUnflaggedFringe(companyId, { start, end }, employeeId);
   const standaloneIds = [...standaloneTotals.keys()];
   const withRuns = new Set(rows.map(r => String(r.id)));
   const onlyStandalone = standaloneIds.filter(id => !withRuns.has(id));
@@ -200,7 +213,9 @@ export async function getIrp5EmployeeTotals(
       taxNumber: maskTail(r.tax_number, reveal),
       identityNumbersMasked: !reveal,
       grossSalary: round2((Number(r.gross_pay) || 0) + t.gross),
-      taxableIncome: round2((Number(r.taxable_income) || 0) + t.gross),
+      taxableIncome: round2(
+        (Number(r.taxable_income) || 0) - (Number(r.retirement_deduction) || 0) + t.gross,
+      ),
       paye: round2((Number(r.paye) || 0) + t.paye),
       uifEmployee: Number(r.uif_employee) || 0,
       uifEmployer: Number(r.uif_employer) || 0,
@@ -209,6 +224,7 @@ export async function getIrp5EmployeeTotals(
       netPay: round2((Number(r.net_pay) || 0) + t.gross - t.paye),
       runsIncluded: Number(r.runs_included) || 0,
       lumpSums: lumpSums.get(String(r.id)) ?? [],
+      fringeBenefits: fringeBenefits.get(String(r.id)) ?? [],
     };
   });
 
@@ -265,5 +281,7 @@ export async function getIrp5EmployeeTotals(
     excludedTotal,
     excluded,
     postedThrough,
+    warnings: rows.filter((r) => unflagged.has(String(r.id))).map((r) =>
+      unflaggedFringeWarning(`${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim(), unflagged.get(String(r.id))!)),
   };
 }
