@@ -33,9 +33,12 @@ function readDefaults(row: unknown): ContactDefaults {
 
 export function useCustomerLookup(clientId: string, failedMessage: string) {
   const [defaults, setDefaults] = useState<ContactDefaults | null>(null);
-  // The customer the last answer (or forget) was for. `pending` is derived from it in render, not set in the effect:
-  // an effect runs a commit after the pick, and in between Save was drawn enabled with the customer's defaults unasked.
+  // The customer the last answer was for, cleared by every change of customer (back to the same one included) in the
+  // render that makes it. `pending` is derived from it in render, not set in the effect: an effect runs a commit after
+  // the pick, and in between Save was drawn enabled with the customer's defaults unasked.
   const [answeredFor, setAnsweredFor] = useState<string | null>(null);
+  const [askedFor, setAskedFor] = useState(clientId);
+  if (askedFor !== clientId) { setAskedFor(clientId); setAnsweredFor(null); }
   const [error, setError] = useState('');
 
   const lookup = useRef(0);
@@ -59,9 +62,9 @@ export function useCustomerLookup(clientId: string, failedMessage: string) {
   const forget = useCallback(() => {
     lookup.current++;
     setDefaults(null);
-    setAnsweredFor(clientId);
+    setAnsweredFor(null);
     setError('');
-  }, [clientId]);
+  }, []);
 
   const pending = Boolean(clientId) && answeredFor !== clientId;
   return { defaults, pending, error, forget };
