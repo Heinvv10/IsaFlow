@@ -14,10 +14,15 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import type { UnnumberedPage } from './packFrontMatter';
 import { buildIncomeStatementSheet } from './packIncomeSheet';
-import { fitPageToBox } from './packPageFit';
+import { fitPageReport, fitPageToBox } from './packPageFit';
+import { tookSomething } from './packOmissionFootnote';
 import type { PackChartSpec, PackFootnote, PackTable } from './packPageModel';
 import { budgetColumnFootnote } from './packStatementFootnotes';
 import { anchorColumn } from './packStatementTables';
+
+/** Printed on page 6 when the columns are left out: the pack says what it left off rather than only logging it. */
+export const BUDGET_COLUMNS_DROPPED_NOTE =
+  'The Budget and Variance columns are left out of this page because the figures are too wide to fit it.';
 
 const BUDGET_COLUMNS = new Set(['budget', 'variance']);
 
@@ -56,5 +61,14 @@ export function incomeSheetWithBudget(
   }
   log.warn('board pack: page 6 cannot fit the Budget and Variance columns at these figures; printed without them',
     { period: set.currentWindow, diagnostic }, 'packs');
+  // The note is printed only where the page carries it AND everything it carried before: a page the
+  // fitter would trim for it (dropping anchored notes) or refuse is composed as it was without the note.
+  const droppedNote: PackFootnote = { number: statementNotes.length + 1, text: BUDGET_COLUMNS_DROPPED_NOTE, required: true };
+  const noted = buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote]);
+  try {
+    if (!tookSomething(fitPageReport(noted).dropped)) return noted;
+  } catch (err) {
+    if (!(err instanceof PackRefusal)) throw err;
+  }
   return buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, statementNotes);
 }

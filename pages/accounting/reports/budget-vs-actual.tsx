@@ -9,7 +9,9 @@
  * version of FY* (primary by default), and the CC1 / CC2 / BU filter. A line
  * expands into its GL transactions for the same window and filter, each linked
  * to its source document. CSV and Excel come from the same engine and rows.
- * The page renders; it computes no figure.
+ * The page renders; it computes no figure. On a one-month window a line carries
+ * its variance note (budgets P5 §3e): the version's note for that month, slice =
+ * the account and the report's CC1 / CC2 / BU filter.
  */
 import type { BudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import { useMemo, useState } from 'react';
@@ -24,7 +26,11 @@ import { BudgetTrackingHeader, BudgetTrackingNotices, projectionHeading } from '
 import { BudgetTrackingVisuals } from '@/components/accounting/budgets/tracking/BudgetTrackingVisuals';
 import { hasDimensionFilter } from '@/components/accounting/budgets/tracking/trackingControls';
 import { useBudgetTracking } from '@/components/accounting/budgets/tracking/useBudgetTracking';
-import type { StatementColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
+import { useVarianceNotes } from '@/components/accounting/budgets/tracking/useVarianceNotes';
+import { VarianceNoteButton } from '@/components/accounting/budgets/tracking/VarianceNoteButton';
+import { useCompany } from '@/contexts/CompanyContext';
+import { varianceRowRef, type VarianceSlice } from '@/modules/accounting/services/commentary/varianceNoteTypes';
+import type { StatementColumns, StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { toBudgetTrackingRows } from '@/modules/accounting/services/reports/statementRows/budgetTrackingRows';
 
 const COLUMNS: StatementColumns = { prior: false, budget: true, variance: true, trend: false, projection: true };
@@ -41,6 +47,20 @@ export default function BudgetVsActualPage() {
   const rows = useMemo(() => (report ? toBudgetTrackingRows(report) : []), [report]);
   const filtered = hasDimensionFilter(controls);
   const hasLines = !!report && report.lines.length > 0;
+  const { companyRole } = useCompany();
+  const noteMonth = report?.version && report.window.months.length === 1 ? report.window.months[0]! : null;
+  const notes = useVarianceNotes(report?.version && noteMonth ? { versionId: report.version.id, month: noteMonth } : null);
+  const lineByCode = useMemo(() => new Map((report?.lines ?? []).map((l) => [l.accountCode, l])), [report]);
+  const noteAside = (row: StatementRow) => {
+    const line = row.accountCode === undefined ? undefined : lineByCode.get(row.accountCode);
+    if (!line || !report) return null;
+    const slice: VarianceSlice = { glAccountId: line.accountId, cc1Id: report.filter.cc1?.id ?? null,
+      cc2Id: report.filter.cc2?.id ?? null, buId: report.filter.bu?.id ?? null };
+    return (
+      <VarianceNoteButton label={`${line.accountCode} ${line.accountName}`} slice={slice} role={companyRole} writable={notes.ready}
+        note={notes.notes.get(varianceRowRef(slice))} onSave={notes.save} onApprove={notes.approve} onReject={notes.reject} />
+    );
+  };
 
   const openExport = (format: 'csv' | 'xlsx') => {
     window.open(`/api/accounting/budget-tracking-export?format=${format}&${t.exportQuery}`, '_blank');
@@ -126,8 +146,10 @@ export default function BudgetVsActualPage() {
               <p className="sm:hidden text-xs text-[var(--ff-text-secondary)]">
                 Swipe the statement sideways for the variance and projected-year columns.
               </p>
+              {notes.error && <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">{notes.error}</p>}
               <div id="bva-statement" tabIndex={-1}>
               <StatementGrid rows={rows} columns={COLUMNS} title={report.window.label} sticky cents budgetTracking
+                renderLineAside={noteMonth ? noteAside : undefined}
                 projectionTitle={projectionHeading(report.projection)}
                 expandedAccount={expanded}
                 onToggleAccount={(code) => setExpanded((e) => (e === code ? null : code))}

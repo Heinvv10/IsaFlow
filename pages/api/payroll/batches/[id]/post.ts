@@ -7,6 +7,7 @@
  * Only admins/managers can post. Batch must be in 'validated' status.
  */
 
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -46,6 +47,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     if (err instanceof BatchNotFoundError) return apiResponse.notFound(res, err.message);
     if (err instanceof BatchNotEditableError) return apiResponse.badRequest(res, err.message);
     if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+    // The company's payroll lock was held past its 5s wait (an approval in flight): retry, not a bad request.
+    if (respondIfLockTimeout(res, err)) return;
     return apiResponse.badRequestFromError(res, err, 'Post failed');
   }
 }

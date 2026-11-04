@@ -11,6 +11,8 @@
  *   - Income code 3601 (gross salary/wages), and 3605 annual payments (bonus,
  *     leave pay on resignation, notice pay — SARS PAYE-GEN-01-G21 (2027) p. 33:
  *     "Reflect under code 3605"), which 3601 then excludes
+ *   - Non-cash fringe benefits (3801, the loan benefit; payrollNonCashFiling)
+ *     under their own income code, outside 3601. Their PAYE is in 4102.
  *   - Lump sums paid under a SARS directive, in a run (audit 2026-10-18 P3) or
  *     outside payroll (directivePaymentFiling, PAYE 4a follow-ups G1): the
  *     income code (3901, or 3907 for other lump sums) with its PAYE under 4115
@@ -33,7 +35,7 @@
  *   - ETI (codes 3026, 3190, 7002-7009)
  *   - Foreign nationals / passport / alternate ID (codes 3061/3090/3100)
  *   - Fixed-rate PAYE directives
- *   - Fringe benefits and allowances (codes 3701-3713, 3801-3815)
+ *   - Allowances (3701-3713); other fringe benefits (a hand-made 38xx is paid as cash, so in 3601)
  *   - Non-natural persons / directors / asylum seekers
  *
  * The service throws UsageError on missing employer data so the caller can
@@ -90,6 +92,8 @@ export interface EmployeeInput {
   sdl4142: number;                // 4142 (SDL) — cents kept
   /** Annual payments (3605), NOT included in grossSalary3601. Their PAYE stays in 4102. */
   annualPayments3605?: number;
+  /** Non-cash fringe benefits by income code (3801), NOT included in grossSalary3601; cents dropped. */
+  fringeBenefits?: { sourceCode: string; amount: number }[];
   /** Lump sums paid under a directive, NOT included in grossSalary3601. */
   lumpSums?: LumpSumInput[];
   /**
@@ -229,6 +233,8 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     ]),
     formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
     formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
+    // Income codes in code order, as the BRS file layout lists them: 36xx, 38xx, then 39xx.
+    ...[...(emp.fringeBenefits ?? [])].sort((a, b) => a.sourceCode.localeCompare(b.sourceCode)).map(f => formatField(Number(f.sourceCode), f.amount >= 1 ? f.amount : null, 'N')),
     ...lumpIncome(lumpSums),
     ...retirement.beforeMedical,
     ...medical.fees,

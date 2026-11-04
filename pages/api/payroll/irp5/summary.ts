@@ -24,6 +24,9 @@ import {
   type ValidationSeverity,
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import {
+  listRunNonCashBenefits, listRunUnflaggedFringe, nonCashTotal, unflaggedFringeWarning,
+} from '@/modules/accounting/services/payroll/payrollNonCashFiling';
 
 type Row = DbRow;
 
@@ -35,7 +38,10 @@ export interface Irp5EmployeeRow {
   taxNumber: string | null;
   startDate: string;
   endDate: string | null;
+  /** Cash gross pay. */
   totalGross: number;
+  /** Non-cash fringe benefits (the 3801 loan benefit), not in totalGross; on the certificate under 3801. */
+  totalFringeBenefits: number;
   totalTaxable: number;
   totalPaye: number;
   totalUif: number;
@@ -74,7 +80,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   // Employees, payroll aggregates, both component lookups, and severance-
   // directive presence all fan out in parallel.
-  const [empRows, aggRows, companyCompRows, empCompRows, directiveRows] = await Promise.all([
+  const [empRows, aggRows, companyCompRows, empCompRows, directiveRows, fringeByEmployee, unflaggedFringe] = await Promise.all([
     sql`
       SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date
       FROM   payroll_employees
@@ -128,6 +134,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         AND  effective_date <= ${bounds.end}::date
         AND  (expiry_date IS NULL OR expiry_date >= ${bounds.start}::date)
     ` as Promise<Row[]>,
+
+    listRunNonCashBenefits(companyId, bounds),
+    listRunUnflaggedFringe(companyId, bounds),
   ]);
 
   const employeesWithSeveranceDirective = new Set(
@@ -160,17 +169,26 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const totalPaye = agg ? Number(agg.total_paye) : 0;
     const totalUif = agg ? Number(agg.total_uif) : 0;
     const totalSdl = agg ? Number(agg.total_sdl) : 0;
+    const totalFringeBenefits = nonCashTotal(fringeByEmployee.get(String(emp.id)) ?? []);
+    // Readiness is on remuneration: an employee paid only a non-cash benefit has a certificate to issue.
+    const remuneration = totalGross + totalFringeBenefits;
 
     const messages = await validateEmployeeIrp5({
       taxNumber: emp.tax_number ? String(emp.tax_number) : null,
       idNumber: emp.id_number ? String(emp.id_number) : null,
-      totalGross,
+      totalGross: remuneration,
       totalPaye,
       totalUif,
       totalSdl,
       componentCodes: codesByEmployee.get(String(emp.id)) ?? [],
       hasApprovedSeveranceDirective: employeesWithSeveranceDirective.has(String(emp.id)),
     }, taxYear);
+    // 3801 items paid in cash (costed before the benefit was non-cash) are in 3601: the e@syFile export warns too.
+    const inCash = unflaggedFringe.get(String(emp.id));
+    if (inCash) {
+      messages.push({ severity: 'warning', code: 'IRP5_3801_PAID_IN_CASH', field: 'gross',
+        message: unflaggedFringeWarning(`${String(emp.first_name)} ${String(emp.last_name)}`.trim(), inCash) });
+    }
 
     return {
       employeeId: String(emp.id),
@@ -181,13 +199,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       startDate: fmtDate(emp.start_date),
       endDate: emp.end_date ? fmtDate(emp.end_date) : null,
       totalGross,
+      totalFringeBenefits,
       totalTaxable: agg
         ? Number(agg.total_taxable) - Number(agg.retirement_deduction)
         : 0,
       totalPaye,
       totalUif,
       totalSdl,
-      status: deriveStatus(messages, totalGross),
+      status: deriveStatus(messages, remuneration),
       messages,
     };
   }));

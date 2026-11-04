@@ -12,10 +12,14 @@
  * LOCK ORDER, every payroll-run writer (all waits bounded at 5s, then a
  * retryable refusal):
  *   1. the company approval lock (lockCompanyPayrollApprovals): approve,
- *      calculate and reopen; setEmployeeBankDetails takes the same key for a
- *      non-owner / admin caller (payrollApprovalLockScope; RowLockTimeoutError),
- *      then the employee row, and no run header;
- *   2. the run's header row (lockPayrollRunHeader): the same three;
+ *      calculate, reopen and the pay-run grid. assignComponentToEmployee,
+ *      endEmployeeComponent, postBatch and applyPackageToEmployee take it
+ *      alone, so a row cannot change between a grid edit's read and its write;
+ *      setEmployeeBankDetails takes the same key for a non-owner / admin caller
+ *      (payrollApprovalLockScope; RowLockTimeoutError), then the employee row,
+ *      and no run header;
+ *   2. the run's header row (lockPayrollRunHeader): approve, calculate, reopen
+ *      and the grid;
  *   3. approval only: the linked journal and its reversal chain
  *      (lockRunJournalForApproval, payrollJournalChain), then the severance
  *      directive rows (FOR SHARE) and their payment row (payrollRunDirectiveClaim).
@@ -37,6 +41,7 @@ import {
   setLocalLockTimeout,
 } from './payrollRunLoanApplication';
 import { lockJournalChain } from './payrollJournalChain';
+import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 
 export type PayrollRunStatus = 'draft' | 'calculated' | 'approved' | 'paid' | 'cancelled';
@@ -76,7 +81,7 @@ export class PayrollRunLockedError extends Error {
  * SET LOCAL — so the previous timeout is restored by hand, or the 5s would
  * bound every later statement of the request.
  */
-export async function withBoundedLockWait<T>(runId: string, take: (tx: TxSql) => Promise<T>): Promise<T> {
+export async function withBoundedLockWait<T>(runId: string | null, take: (tx: TxSql) => Promise<T>): Promise<T> {
   return withTransaction(async (tx) => {
     const previousLockTimeout = await setLocalLockTimeout(tx, '5s');
     let taken: T;
@@ -137,7 +142,7 @@ export const payrollApprovalLockScope = (companyId: string): string => `payroll_
  * caller with no outer transaction (a script) holds this lock, like the header
  * lock, only for withTransaction's own block, so it serialises nothing there.
  */
-export async function lockCompanyPayrollApprovals(runId: string, companyId: string): Promise<void> {
+export async function lockCompanyPayrollApprovals(runId: string | null, companyId: string): Promise<void> {
   await withBoundedLockWait(runId, (tx) => tx`
     SELECT pg_advisory_xact_lock(hashtextextended(${payrollApprovalLockScope(companyId)}, 0))
   `);
@@ -183,7 +188,11 @@ export async function saveCalculatedRunTotals(runId: string, companyId: string, 
       total_eti      = ${t.eti},
       total_net      = ${t.net},
       employee_count = ${t.employeeCount},
-      updated_at     = NOW()
+      updated_at     = NOW(),
+      -- clock_timestamp(), not the transaction's start: taken under the company lock the calculation holds, so a
+      -- component change after it (which waits for that lock) is stamped later (payrollRunRecalcGate).
+      calculated_at  = clock_timestamp(),
+      calculation_version = ${PAYROLL_CALCULATION_VERSION}
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
       AND status NOT IN ('approved', 'paid', 'cancelled')
     RETURNING *
