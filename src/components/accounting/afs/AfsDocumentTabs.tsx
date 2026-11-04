@@ -51,7 +51,7 @@ export function AfsDocumentTabs({ documentId, doc, onDocUpdate, periodStart, per
                   setActiveTab(tab.id);
                 }
               }}
-              className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${ activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-200' }`}
+              className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${ activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-ink-muted hover:text-slate-200' }`}
             >
               {tab.icon}{tab.label}
             </button>

@@ -97,7 +97,7 @@ export function ManagementPackView({ doc, periodStart, periodEnd }: ViewProps) {
   return (
     <div className="min-h-screen bg-white dark:bg-slate-900">
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-3">
-        <div className="flex items-center gap-2 text-sm text-slate-500">
+        <div className="flex items-center gap-2 text-sm text-ink-muted">
           <Link href="/accounting/afs/management-packs" className="hover:text-slate-300 transition-colors">Management Packs</Link>
           <ChevronRight className="w-3.5 h-3.5" />
           <span className="text-slate-800 dark:text-slate-200 font-medium">Pack {doc.period ?? ''}</span>
@@ -109,7 +109,7 @@ export function ManagementPackView({ doc, periodStart, periodEnd }: ViewProps) {
             <h1 className="text-xl font-bold text-slate-900 dark:text-white">{managementPackTitle(doc.period)}</h1>
             <AfsStatusBadge status={doc.status} />
           </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-ink-muted">
             {periodStart !== '' && periodEnd !== '' && `Period: ${periodStart} — ${periodEnd} · `}v{doc.version}
           </p>
         </div>
