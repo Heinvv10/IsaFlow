@@ -12,6 +12,8 @@ import type { EntityChangePage, EntityChangeView, EntityType } from '@/modules/a
 export interface EntityChangesQuery {
   entityType?: EntityType;
   entityId?: string;
+  /** payroll_bank_detail: all of one employee's bank-detail rows (with entityType, instead of entityId). */
+  employeeId?: string;
 }
 
 const FAILED = 'Could not load the change history - try again';
@@ -20,6 +22,7 @@ async function fetchPage(query: EntityChangesQuery, before: string | null): Prom
   const params = new URLSearchParams();
   if (query.entityType) params.set('entityType', query.entityType);
   if (query.entityId) params.set('entityId', query.entityId);
+  if (query.employeeId) params.set('employeeId', query.employeeId);
   if (before) params.set('before', before);
   const res = await apiFetch(`/api/accounting/entity-changes?${params.toString()}`);
   await assertOk(res, FAILED);
@@ -29,7 +32,7 @@ async function fetchPage(query: EntityChangesQuery, before: string | null): Prom
 }
 
 export function useEntityChanges(query: EntityChangesQuery) {
-  const { entityType, entityId } = query;
+  const { entityType, entityId, employeeId } = query;
   const [items, setItems] = useState<EntityChangeView[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,7 +41,7 @@ export function useEntityChanges(query: EntityChangesQuery) {
   const load = useCallback(async (before: string | null) => {
     setLoading(true);
     try {
-      const page = await fetchPage({ entityType, entityId }, before);
+      const page = await fetchPage({ entityType, entityId, employeeId }, before);
       setItems((prev) => (before ? [...prev, ...page.items] : page.items));
       setCursor(page.nextCursor);
       setError('');
@@ -48,7 +51,7 @@ export function useEntityChanges(query: EntityChangesQuery) {
     } finally {
       setLoading(false);
     }
-  }, [entityType, entityId]);
+  }, [entityType, entityId, employeeId]);
 
   useEffect(() => { void load(null); }, [load]);
 
