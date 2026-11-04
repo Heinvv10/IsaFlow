@@ -14,12 +14,16 @@ import { useEntityChanges } from './useEntityChanges';
 interface Props {
   entityType?: EntityType;
   entityId?: string;
+  /** payroll_bank_detail: the history of every bank-detail row of this employee. */
+  employeeId?: string;
+  /** Owner / admin may reveal masked values (audited). Off for a view that must stay masked. Default on. */
+  allowReveal?: boolean;
 }
 
-export function EntityHistoryTimeline({ entityType, entityId }: Props) {
+export function EntityHistoryTimeline({ entityType, entityId, employeeId, allowReveal = true }: Props) {
   const { companyRole } = useCompany();
-  const { items, loading, error, hasMore, loadMore, replace } = useEntityChanges({ entityType, entityId });
-  const feed = !entityId;
+  const { items, loading, error, hasMore, loadMore, replace } = useEntityChanges({ entityType, entityId, employeeId });
+  const feed = !entityId && !employeeId;
 
   if (error) return <p className="text-sm text-red-500" role="alert">{error}</p>;
   if (!loading && items.length === 0) {
@@ -34,7 +38,7 @@ export function EntityHistoryTimeline({ entityType, entityId }: Props) {
     <div className="space-y-3" data-testid="entity-history">
       <ul className="space-y-2">
         {items.map((c) => (
-          <EntityChangeItem key={c.id} change={c} canReveal={isHistoryAdmin(companyRole ?? undefined)} showEntity={feed} onRevealed={replace} />
+          <EntityChangeItem key={c.id} change={c} canReveal={allowReveal && isHistoryAdmin(companyRole ?? undefined)} showEntity={feed} onRevealed={replace} />
         ))}
       </ul>
       {loading && <Loader2 className="h-5 w-5 animate-spin text-[var(--ff-text-tertiary)] mx-auto" aria-label="Loading" />}

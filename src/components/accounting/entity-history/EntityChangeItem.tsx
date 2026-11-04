@@ -10,9 +10,9 @@ import { Eye, Lock } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import {
-  CHANNEL_LABELS, ENTITY_TYPE_LABELS, type EntityChangeView,
+  CHANNEL_LABELS, ENTITY_TYPE_LABELS, type EntityChangeField, type EntityChangeView,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
-import { CHANNEL_CLASSES, OP_CLASSES, OP_LABELS, fieldLabel, formatValue, sastDateTime } from './entityHistoryFormat';
+import { CHANNEL_CLASSES, OP_CLASSES, OP_LABELS, fieldLabel, displayValue, sastDateTime, visibleFields } from './entityHistoryFormat';
 
 interface Props {
   change: EntityChangeView;
@@ -27,7 +27,7 @@ export function EntityChangeItem({ change, canReveal, showEntity = false, onReve
   const [revealing, setRevealing] = useState(false);
   const anyMasked = change.fields.some((f) => f.masked);
   // The company only says something when a row MOVED between companies.
-  const fields = change.op === 'update' ? change.fields : change.fields.filter((f) => f.key !== 'company_id');
+  const fields = visibleFields(change.entityType, change.op === 'update' ? change.fields : change.fields.filter((f) => f.key !== 'company_id'));
   const who = change.actorName ?? (change.actor.startsWith('db:') ? `Database (${change.actor.slice(3)})` : change.actor);
 
   const reveal = async () => {
@@ -72,8 +72,8 @@ export function EntityChangeItem({ change, canReveal, showEntity = false, onReve
                 <td className="py-1 pr-3 text-[var(--ff-text-secondary)] w-1/3">
                   {fieldLabel(f.key)}{f.masked && <Lock className="inline h-3 w-3 ml-1 text-[var(--ff-text-tertiary)]" aria-label="masked" />}
                 </td>
-                {change.op !== 'create' && <td className="py-1 pr-3 text-[var(--ff-text-tertiary)] line-through break-all">{formatValue(f.before)}</td>}
-                {change.op !== 'delete' && <td className="py-1 text-[var(--ff-text-primary)] break-all">{formatValue(f.after)}</td>}
+                {change.op !== 'create' && <td className="py-1 pr-3 text-[var(--ff-text-tertiary)] line-through break-all">{displayValue(change.entityType, f.key, f.before)}</td>}
+                {change.op !== 'delete' && <td className="py-1 text-[var(--ff-text-primary)] break-all">{displayValue(change.entityType, f.key, f.after)}</td>}
               </tr>
             ))}
           </tbody>

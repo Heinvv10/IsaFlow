@@ -2,7 +2,7 @@
  * Display helpers for the entity change history (forensic-controls step 3):
  * field labels, values, the op and channel badges, and SAST times.
  */
-import type { Channel } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
+import type { Channel, EntityChangeField, EntityType } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 /** Names that read badly when merely humanised. */
@@ -10,6 +10,10 @@ const LABELS: Record<string, string> = {
   vat_number: 'VAT number',
   bank_account_number: 'Bank account number',
   bank_branch_code: 'Branch code',
+  account_number: 'Account number',
+  branch_code: 'Branch code',
+  account_holder: 'Account holder',
+  is_active: 'Active',
   id_number: 'ID number',
   uif_number: 'UIF number',
   uif_excluded: 'UIF excluded',
@@ -41,6 +45,19 @@ export function formatValue(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+/** Fields a change's own timeline leaves out: a bank-detail row's employee is the employee whose profile this is. */
+const HIDDEN_FIELDS: Partial<Record<EntityType, readonly string[]>> = { payroll_bank_detail: ['employee_id'] };
+export const visibleFields = (type: EntityType, fields: EntityChangeField[]): EntityChangeField[] =>
+  fields.filter((f) => !HIDDEN_FIELDS[type]?.includes(f.key));
+
+const ACCOUNT_TYPE_LABELS: Record<string, string> = { cheque: 'Cheque / current', savings: 'Savings', transmission: 'Transmission' };
+
+/** formatValue, with the bank-detail account type worded as the profile card words it. */
+export function displayValue(type: EntityType, key: string, value: unknown): string {
+  if (type === 'payroll_bank_detail' && key === 'account_type' && typeof value === 'string') return ACCOUNT_TYPE_LABELS[value] ?? value;
+  return formatValue(value);
 }
 
 export const OP_LABELS = { create: 'Created', update: 'Changed', delete: 'Deleted' } as const;
