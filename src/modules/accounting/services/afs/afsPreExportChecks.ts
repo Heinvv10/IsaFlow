@@ -416,6 +416,21 @@ async function checkDirectorsReportApproved(
   return { label, passed: true, severity: 'warning' };
 }
 
+/**
+ * The result of an AFS-only check for a document it does not apply to. A
+ * management pack has none of the sections these checks read (statement_of_fp,
+ * notes, a directors report, a cash flow with a closing cash figure), so
+ * running them could only fail for a reason that has nothing to do with the pack.
+ */
+function notApplicable(label: string, severity: ExportCheck['severity']): Promise<ExportCheck> {
+  return Promise.resolve({
+    label,
+    passed: true,
+    severity,
+    detail: 'Not applicable to a management pack.',
+  });
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function runPreExportChecks(
@@ -506,13 +521,25 @@ export async function runPreExportChecks(
           severity: 'blocker',
           detail: 'Not applicable to a management pack.',
         }),
-    checkBalanceSheetBalances(documentId, companyId),
-    checkClosingCashEqualsBank(documentId, companyId, periodEnd),
-    checkMandatoryNotes(documentId, companyId, reportingFramework),
-    checkComparativeFigures(documentId, companyId),
-    checkAllNotesReviewed(documentId, companyId),
+    isAfs
+      ? checkBalanceSheetBalances(documentId, companyId)
+      : notApplicable('Balance sheet balances', 'blocker'),
+    isAfs
+      ? checkClosingCashEqualsBank(documentId, companyId, periodEnd)
+      : notApplicable('Closing cash agrees with the ledger', 'blocker'),
+    isAfs
+      ? checkMandatoryNotes(documentId, companyId, reportingFramework)
+      : notApplicable('All mandatory notes present', 'blocker'),
+    isAfs
+      ? checkComparativeFigures(documentId, companyId)
+      : notApplicable('Comparative figures present', 'warning'),
+    isAfs
+      ? checkAllNotesReviewed(documentId, companyId)
+      : notApplicable('All notes reviewed', 'warning'),
     checkImageResolution(companyId),
-    checkDirectorsReportApproved(documentId, companyId),
+    isAfs
+      ? checkDirectorsReportApproved(documentId, companyId)
+      : notApplicable("Director's Report approved", 'warning'),
   ]);
 
   return withStatementMappingFinding([

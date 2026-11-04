@@ -73,17 +73,6 @@ describe('runPreExportChecks for a management pack', () => {
     expect(getFiscalRange).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['2026-08', '2026-08-31'],
-    ['2026-02', '2026-02-28'],
-    ['2028-02', '2028-02-29'],
-    ['2026-09', '2026-09-30'],
-  ])('reads the ledger up to the last day of the pack month %s', async (period, end) => {
-    stubDb({ fiscal_year: null, document_type: 'management_pack', period });
-    await runPreExportChecks(DOC, CO, 'ifrs_smes');
-    expect(ledgerCutoff()).toBe(end);
-  });
-
   it.each([null, '', '2026', '2026-13', 'Aug 2026'])(
     'blocks with its own readable wording when the pack period is %j',
     async (period) => {
@@ -111,5 +100,72 @@ describe('runPreExportChecks for annual financial statements', () => {
     await runPreExportChecks(DOC, CO, 'ifrs_smes');
     expect(getFiscalRange).toHaveBeenCalledWith(CO, 2027);
     expect(ledgerCutoff()).toBe('2027-02-28');
+  });
+});
+
+const NA = 'Not applicable to a management pack.';
+const CHECKS: ReadonlyArray<readonly [string, 'blocker' | 'warning']> = [
+  ['Every ledger account reaches the statements', 'blocker'],
+  ['Balance sheet balances', 'blocker'],
+  ['Closing cash agrees with the ledger', 'blocker'],
+  ['All mandatory notes present', 'blocker'],
+  ['Comparative figures present', 'warning'],
+  ['All notes reviewed', 'warning'],
+  ['Images below 150 DPI', 'warning'],
+  ["Director's Report approved", 'warning'],
+];
+const AFS_ONLY_QUERIES = ["section_type = 'statement_of_fp'", "section_type = 'cash_flow'", 'FROM   note_templates',
+  'AND  status      != \'pending\'', 'section_type = ANY(', "section_type = 'directors_report'", 'FROM gl_journal_lines'];
+
+function queriedText(): string {
+  return sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?')).join('\n----\n');
+}
+
+describe('AFS-only checks are not applicable to a management pack', () => {
+  it('returns all 8 checks in order, 7 of them passed with the not-applicable detail, image DPI still run', async () => {
+    stubDb({ fiscal_year: null, document_type: 'management_pack', period: '2026-08' });
+    const checks = await runPreExportChecks(DOC, CO, 'ifrs_smes');
+    expect(checks.map((c) => [c.label, c.severity])).toEqual(CHECKS);
+    for (const c of checks) {
+      if (c.label === 'Images below 150 DPI') {
+        expect(c).toEqual({ label: c.label, passed: true, severity: 'warning' });
+      } else {
+        expect(c).toEqual({ label: c.label, passed: true, severity: c.severity, detail: NA });
+      }
+    }
+  });
+
+  it.each([
+    ['Balance sheet balances'],
+    ['Closing cash agrees with the ledger'],
+    ['All mandatory notes present'],
+    ['Comparative figures present'],
+    ['All notes reviewed'],
+    ["Director's Report approved"],
+  ])('%s is not applicable on its own', async (label) => {
+    stubDb({ fiscal_year: null, document_type: 'management_pack', period: '2026-08' });
+    const checks = await runPreExportChecks(DOC, CO, 'ifrs_smes');
+    expect(checks.find((c) => c.label === label)).toMatchObject({ passed: true, detail: NA });
+  });
+
+  it('does not run any AFS-only query for a pack', async () => {
+    stubDb({ fiscal_year: null, document_type: 'management_pack', period: '2026-08' });
+    await runPreExportChecks(DOC, CO, 'ifrs_smes');
+    const text = queriedText();
+    for (const q of AFS_ONLY_QUERIES) expect(text).not.toContain(q);
+  });
+
+  it('an AFS document still runs every check and every query', async () => {
+    stubDb({ fiscal_year: 2027, document_type: 'afs', period: null });
+    vi.mocked(getFiscalRange).mockResolvedValue({ start: '2026-03-01', end: '2027-02-28' } as never);
+    const checks = await runPreExportChecks(DOC, CO, 'ifrs_smes');
+    expect(checks.map((c) => [c.label, c.severity])).toEqual(CHECKS);
+    expect(checks.filter((c) => c.detail === NA)).toHaveLength(0);
+    // Same labels as the pack run: the not-applicable results replace the real ones one for one.
+    const text = queriedText();
+    for (const q of ["section_type = 'statement_of_fp'", "section_type = 'cash_flow'", "section_type = 'directors_report'", 'FROM   note_templates']) {
+      expect(text).toContain(q);
+    }
+    expect(checks.find((c) => c.label === 'Balance sheet balances')!.passed).toBe(false);
   });
 });
