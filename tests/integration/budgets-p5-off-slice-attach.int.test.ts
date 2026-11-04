@@ -5,14 +5,13 @@
  *     off-slice; with an approval request bound (pending or approved) nothing is inherited, the digest does not move,
  *     and the attach says why;
  *   - the capture case where the plan read no provisional but the attach links one: the same rule, at the attach;
- *   - R3-2: a capture re-plan whose supplier-default fallback the dimension rules refuse answers the plan's own
- *     refusal (no throw) and marks the request rollback-only.
+ *   - R3-2: a supplier default the dimension rules refuse is the capture plan's refusal even when the line would
+ *     inherit, so the attach's re-plan never meets it (the wire status: budgets-p5-off-slice-capture-route.int.test.ts).
  * Fixture: opex BB-6100 at CC1 FT 1 000 / HT 0 a month (FY2027). Fixture route: isaflow_schema_fixture. Never skips.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import actionRoute from '../../pages/api/accounting/supplier-invoices-action';
-import { als } from '@/lib/als';
 import { attachDocumentToProvisional } from '@/modules/accounting/services/capture/provisionalEvidenceAttach';
 import { insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
 import { attachEvidenceAndSettleApproved } from '@/modules/accounting/services/capture/provisionalAttachSettle';
@@ -125,31 +124,37 @@ describe('capture: the plan read no provisional, the attach linked one', () => {
   });
 });
 
-describe('R3-2: the re-plan\'s supplier default is refused by the dimension rules', () => {
-  it('the attach links nothing: the plan\'s own refusal comes back (no throw) and the request is rollback-only', async () => {
-    const noProvisional = await asOwner(() => planCaptureBillLines(f.co, { supplierId: S3, invoiceNumber: 'X', invoiceDate: '2026-02-01', totalAmount: 920, taxAmount: 120, taxRate: 15, items: [] } as never, 0, f.acc.opex, null));
-    expect(noProvisional).toEqual({ refusal: expect.any(String) });
-    const je = await seedUnevidencedProvisional(pool, f, '2026-07-10', [{ amount: 800, cc1: f.cc.FT }], S3);
+describe('capture, auto-approved, the plan read no provisional, the attach linked one (round 5, LOW 5)', () => {
+  it('not a draft: nothing inherited (logged); block then refuses the posting off-slice and withdraws the auto-approval', async () => {
+    await setPolicy(pool, f, 'block');
     const doc = crypto.randomUUID();
     await pool.query(`INSERT INTO captured_documents (id, company_id, file_name, file_type) VALUES ($1, $2, 'slip.pdf', 'application/pdf')`, [doc, f.co]);
-    const bill = await makeBill(pool, f, [], { date: '2026-07-11' });
-    await pool.query('UPDATE supplier_invoices SET supplier_id = $2, subtotal = 800, tax_amount = 120, total_amount = 920, source_document_id = $3 WHERE id = $1', [bill, S3, doc]);
+    const bill = await makeBill(pool, f, [], { date: '2026-09-11', status: 'approved' });
+    await pool.query('UPDATE supplier_invoices SET supplier_id = $2, subtotal = 800, tax_amount = 120, total_amount = 920, source_document_id = $3 WHERE id = $1', [bill, S0, doc]);
     const slip = await asOwner(async () => {
-      const p = await planCaptureBillLines(f.co, { supplierId: S3, invoiceNumber: 'X', invoiceDate: '2026-07-11', totalAmount: 920, taxAmount: 120, taxRate: 15, items: [] } as never, 0, f.acc.opex, null);
+      const p = await planCaptureBillLines(f.co, { supplierId: S0, invoiceNumber: 'X', invoiceDate: '2026-09-11', totalAmount: 920, taxAmount: 120, taxRate: 15, items: [] } as never, 0, f.acc.opex, null);
       if (!('lines' in p)) throw new Error(JSON.stringify(p));
-      return insertCaptureBillLines(bill, p.lines); // planned from the provisional: S3's default never judged
+      return insertCaptureBillLines(bill, p.lines);
     });
-    await pool.query("UPDATE bank_transactions SET status = 'matched' WHERE provisional_je_id = $1", [je]); // matched elsewhere
-    const r = await openRequest(pool, f, f.owner);
-    try {
-      const got = await r.run(async () => {
-        const out = await attachEvidenceAndSettleApproved({
-          companyId: f.co, userId: f.owner, documentId: doc, invoiceId: bill, invoiceStatus: 'draft',
-          supplierId: S3, totalAmount: 920, invoiceDate: '2026-07-11', postUnattached: true, slip,
-        });
-        return { refusal: out.dimensionRefusal ?? null, rollbackOnly: Boolean(als.getStore()?.rollbackOnly) };
-      });
-      expect(got).toEqual({ refusal: (noProvisional as { refusal: string }).refusal, rollbackOnly: true });
-    } finally { await r.rollback(); }
+    const je = await seedUnevidencedProvisional(pool, f, '2026-09-12', [{ amount: 800, cc1: f.cc.FT }], S0); // after the plan
+    const out = await asOwner(() => attachEvidenceAndSettleApproved({
+      companyId: f.co, userId: f.owner, documentId: doc, invoiceId: bill, invoiceStatus: 'approved',
+      supplierId: S0, totalAmount: 920, invoiceDate: '2026-09-11', postUnattached: true, slip,
+    }));
+    expect(out.attachedJeId).toBe(je);
+    expect(await billLineCc1(pool, bill)).toEqual([null]);
+    expect(out.settlementRefused).toMatch(/not in a budgeted slice/);
+    expect((await billState(pool, bill)).status).toBe('draft');
+  });
+});
+
+describe('R3-2: a supplier default the dimension rules refuse is the plan\'s refusal, even when the line would inherit', () => {
+  it('S3 with a provisional to inherit from: the same refusal as without one, before any write (the re-plan cannot meet it)', async () => {
+    const plan = (date: string) => asOwner(() => planCaptureBillLines(f.co, { supplierId: S3, invoiceNumber: 'X', invoiceDate: date, totalAmount: 920, taxAmount: 120, taxRate: 15, items: [] } as never, 0, f.acc.opex, null));
+    const without = await plan('2026-02-01');
+    await seedUnevidencedProvisional(pool, f, '2026-07-10', [{ amount: 800, cc1: f.cc.FT }], S3);
+    const withProvisional = await plan('2026-07-11');
+    expect(without).toEqual({ refusal: expect.stringMatching(/CC1|cost centre/i) });
+    expect(withProvisional).toEqual(without);
   });
 });

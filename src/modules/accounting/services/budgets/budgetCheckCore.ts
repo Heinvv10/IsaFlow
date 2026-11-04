@@ -113,7 +113,10 @@ function offSliceWhere(l: BudgetCheckLine, documentNoun: string, figures: boolea
   const where = [l.accountLabel, slice, l.month].filter((s) => s !== '').join(' · ');
   const amount = figures ? `, ${documentNoun} ${formatMoney(l.amount)}` : '';
   const what = remedy === 'assign' ? `; assign a budgeted ${name}`
-    : remedy === 'mcp' ? `; set a budgeted ${name} on the line with update_supplier_invoice` : '';
+    : remedy === 'mcp'
+      ? `; set a budgeted ${name} on the line with update_supplier_invoice (if it refuses the edit — a purchase-order link, `
+        + 'project or VAT classification on the stored lines — cancel the bill and enter it again, or have an owner or admin override)'
+      : '';
   return { where, tail: `${amount}${what}` };
 }
 

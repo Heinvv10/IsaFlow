@@ -123,11 +123,12 @@ export async function planCaptureBillLines(
   const accountRefusal = await billLineAccountRefusal(companyId, lines.map((l) => l.glAccountId));
   if (accountRefusal) return { refusal: accountRefusal };
   try {
-    // The slip's provisional first; the supplier's defaults only for the lines that inherited nothing.
+    // The supplier's defaults are resolved for EVERY line, the inheriting ones too, and kept only where nothing is
+    // inherited: a default the dimension rules refuse is this plan's refusal (a 400 before any write), so the
+    // attach's re-plan, which may fall back to those defaults, can never meet one (review round 5, MEDIUM).
+    const defaulted = await resolveBillLineDimensions(companyId, invoice.supplierId, lines);
     const slip = await slipLines(companyId, invoice, lines);
-    const rest = await resolveBillLineDimensions(companyId, invoice.supplierId, lines.filter((_, i) => !slip.inherited[i]));
-    let next = 0;
-    return { lines: slip.lines.map((l, i) => (slip.inherited[i] ? l : rest[next++]!)) };
+    return { lines: slip.lines.map((l, i) => (slip.inherited[i] ? l : defaulted[i]!)) };
   } catch (err) {
     if (err instanceof DimensionRefusal) return { refusal: err.message };
     throw err;

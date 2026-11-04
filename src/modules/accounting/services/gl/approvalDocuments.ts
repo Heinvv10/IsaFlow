@@ -21,6 +21,13 @@ import { rebindPendingRequest } from './approvalRebind';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { ApprovalDocumentNotFoundError, ApprovalRequestStaleError } from './approvalDocumentErrors';
 import { insertRequestRow, raiseRefusal } from './approvalRequestWrites';
+import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
+
+/** The bill row FOR SHARE, company-scoped, under the 5 s row-lock budget (a held row: SupplierInvoiceLockTimeoutError). */
+async function shareLockSupplierInvoice(companyId: string, invoiceId: string): Promise<void> {
+  await withSupplierInvoiceLock('requestApproval', invoiceId, () => sql`
+    SELECT 1 FROM supplier_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID FOR SHARE`);
+}
 
 export { ApprovalDocumentNotFoundError } from './approvalDocumentErrors';
 
@@ -218,6 +225,11 @@ async function raiseOnce(companyId: string, input: {
   documentId: string;
   requestedBy: string;
 }): Promise<ApprovalRequest> {
+  // P5-2b (breaker R4-2): a bill's lines can change under a draft without a content edit (a slip attach inherits the
+  // provisional's dimensions, `capture/captureSlipReplan.inheritOnAttach`, under the bill's row lock). Share-locking
+  // the bill first makes the raise wait for such a write and hash its result; nothing after this in the raise locks
+  // a bank line, journal or captured document, so it adds no cycle with the attach (bank → journal → document → bill).
+  if (input.documentType === 'supplier_invoice') await shareLockSupplierInvoice(companyId, input.documentId);
   const document = await resolveApprovalDocument(companyId, input.documentType, input.documentId);
   const check = await checkApprovalRules(companyId, input.documentType, input.documentId, document.amount);
   // One pending request per document — enforced by uq_approval_requests_pending

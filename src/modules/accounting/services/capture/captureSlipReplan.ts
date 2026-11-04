@@ -7,9 +7,9 @@
  * lines were written (`captureBillLines`), and the attach may link another one, or none:
  * - the planned one: nothing to do;
  * - another one: the inherited lines are re-planned from it by the same rule (`inheritSlipDimensions`);
- * - none: the inherited lines take the supplier's defaults, as a line that inherits nothing does at plan time. A
- *   default the dimension rules refuse is the plan's own refusal (same message; the route answers 400 and the request
- *   rolls back, `als.rollbackOnly`), never a 500 (breaker R3-2);
+ * - none: the inherited lines take the supplier's defaults, as a line that inherits nothing does at plan time. The
+ *   plan resolved those defaults for every line already (a refused one is the plan's 400 before any write, breaker
+ *   R3-2), so they cannot be refused here; if one still is (a master changed in between), it throws: rolled back, 500;
  * - the plan read none (nothing inherited) but the attach linked one: the blank lines inherit from it
  *   (`inheritOnAttach`, the manual attach's rule), the bill still a draft with no approval request bound.
  * Only the inherited lines are re-planned; a line that took the supplier default or nothing keeps it.
@@ -21,13 +21,13 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { als } from '@/lib/als';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
-import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { inheritSlipDimensions, provisionalDimLines, type ProvisionalDimLine } from '../ap/supplierInvoiceProvisionalDims';
-import { lockSupplierInvoiceForUpdate } from '../ap/supplierInvoiceLock';
+import { withContentEditorStamp } from '../ap/supplierInvoiceContentEditor';
 
 /** What the capture plan inherited: the provisional it read, and the bill lines that took its dimensions. */
 export interface CaptureSlipPlan {
@@ -99,19 +99,19 @@ async function writeDims(companyId: string, invoiceId: string, lines: readonly I
   }
 }
 
-/**
- * Capture, right after the automatic attach (see the header). Returns null, or the refusal the line plan would give
- * for a supplier default the dimension rules refuse; then the request is marked rollback-only.
- */
+/** Capture, right after the automatic attach (see the header). */
 export async function replanCaptureSlipDimensions(
   companyId: string, invoiceId: string, supplierId: string, slip: CaptureSlipPlan | undefined, attachedJeId: string | null,
-): Promise<string | null> {
-  if (!slip) return null;
+): Promise<void> {
+  if (!slip) return;
   if (slip.inheritedItemIds.length === 0) {
-    if (attachedJeId) await inheritOnAttach(companyId, invoiceId, attachedJeId);
-    return null;
+    if (!attachedJeId) return;
+    const outcome = await inheritOnAttach(companyId, invoiceId, attachedJeId);
+    // An auto-approved capture bill is not a draft: it inherits nothing here (round 5, LOW 5); say so.
+    if ('skipped' in outcome) log.info('Capture slip inheritance skipped', { invoiceId, jeId: attachedJeId, reason: outcome.skipped }, 'capture-slip');
+    return;
   }
-  if (slip.plannedJeId === attachedJeId) return null;
+  if (slip.plannedJeId === attachedJeId) return;
   const bill = await readBill(companyId, invoiceId);
   if (!bill) throw new Error(`Capture slip re-plan: supplier invoice ${invoiceId} not found`);
   const ids = new Set(slip.inheritedItemIds.map((v) => v.toLowerCase()));
@@ -124,28 +124,44 @@ export async function replanCaptureSlipDimensions(
     ({ lines: planned, inherited } = await inheritSlipDimensions(companyId, items, bill.head,
       await attachedLines(companyId, attachedJeId), await defaultExpenseOrNull(companyId), eligible));
   }
-  // The lines that inherit nothing from the attached provisional take the supplier's defaults.
-  let defaulted: ItemRow[];
-  try {
-    defaulted = await resolveBillLineDimensions(companyId, supplierId, planned.filter((_, i) => eligible[i] && !inherited[i]));
-  } catch (err) {
-    if (!(err instanceof DimensionRefusal)) throw err;
-    const store = als.getStore();
-    if (store) store.rollbackOnly = 'capture slip re-plan: a supplier default the dimension rules refuse (answered 400)';
-    return err.message;
-  }
+  // The lines that inherit nothing from the attached provisional take the supplier's defaults (already accepted by the
+  // plan for every line; a refusal now would mean a master changed in between: it throws, rolled back, 500).
+  const defaulted = await resolveBillLineDimensions(companyId, supplierId, planned.filter((_, i) => eligible[i] && !inherited[i]));
   const byId = new Map(defaulted.map((l) => [l.id, l]));
   await writeDims(companyId, invoiceId, planned.filter((_, i) => eligible[i]).map((l) => byId.get(l.id) ?? l));
-  return null;
+}
+
+/** The skip reason when the bill row is held by another transaction (a long bulk approve): never waited on. */
+export const BILL_BUSY = 'the bill is being processed, retry';
+
+/**
+ * The bill row, locked FOR UPDATE without waiting (`SKIP LOCKED`; the caller's own lock never skips): 'busy' when
+ * another transaction holds it, so a long bulk approve cannot time the whole attach out (review round 5, LOW 2).
+ */
+async function lockBillOrSkip(companyId: string, invoiceId: string): Promise<DbRow | 'busy' | null> {
+  if (!als.getStore()?.client) throw new Error('inheritOnAttach requires a request transaction (withAuth / als.run)');
+  const [row] = (await sql`
+    SELECT * FROM supplier_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+    FOR UPDATE SKIP LOCKED
+  `) as DbRow[];
+  if (row) return row;
+  const exists = (await sql`
+    SELECT 1 FROM supplier_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return exists.length > 0 ? 'busy' : null;
 }
 
 /**
  * The blank lines of bill `invoiceId` inherit from the provisional `jeId` its slip was just attached to, when the bill
  * is a draft with no approval request bound (pending or approved); otherwise skipped, with the reason. Takes the
- * bill's row lock (after the caller's bank line, journal and document locks).
+ * bill's row lock without waiting (after the caller's bank line, journal and document locks). The session user becomes
+ * a content author of the bill when its lines change (`withContentEditorStamp`), so segregation of duties counts them
+ * (round 5, LOW 4). A request raised meanwhile waits on this lock (`approvalDocuments.raiseOnce` takes the bill FOR
+ * SHARE), so it binds the inherited lines (breaker R4-2).
  */
 export async function inheritOnAttach(companyId: string, invoiceId: string, jeId: string): Promise<AttachInheritance> {
-  const row = await lockSupplierInvoiceForUpdate(companyId, invoiceId);
+  const row = await lockBillOrSkip(companyId, invoiceId);
+  if (row === 'busy') return { invoiceId, skipped: BILL_BUSY };
   if (!row) return { invoiceId, skipped: 'not found' };
   if (String(row.status) !== 'draft') return { invoiceId, skipped: `the bill is ${String(row.status)}, not a draft: its lines are not changed` };
   const bound = (await sql`
@@ -162,6 +178,11 @@ export async function inheritOnAttach(companyId: string, invoiceId: string, jeId
   const items = bill.items.map((i) => (bill.head.costCenterId ? { ...i, costCenterId: bill.head.costCenterId } : i));
   const { lines, inherited } = await inheritSlipDimensions(companyId, items, bill.head,
     await attachedLines(companyId, jeId), await defaultExpenseOrNull(companyId));
-  await writeDims(companyId, invoiceId, lines.filter((_, i) => inherited[i]));
-  return { invoiceId, inheritedLines: inherited.filter(Boolean).length };
+  const changed = lines.filter((_, i) => inherited[i]);
+  if (changed.length > 0) {
+    const editor = als.getStore()?.userId;
+    if (editor) await withContentEditorStamp(companyId, invoiceId, editor, () => writeDims(companyId, invoiceId, changed));
+    else await writeDims(companyId, invoiceId, changed); // no session user (a service caller): nobody to stamp
+  }
+  return { invoiceId, inheritedLines: changed.length };
 }

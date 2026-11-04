@@ -25,6 +25,9 @@ vi.mock('@/lib/logger', () => ({
 // R-035 PR2: raising is refused under Login-as (covered through the real route
 // in r035-pr2-authors.int.test.ts); these tests are about the request row.
 vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating: async () => undefined }));
+// Budgets P5-2b: a supplier invoice's raise share-locks the bill first (real PG: budgets-p5-off-slice-attach-race);
+// not this file's subject, and its sql answers are sequenced, so the lock is a no-op here.
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({ withSupplierInvoiceLock: async () => undefined }));
 
 import { sql } from '@/lib/neon';
 import { createRule, updateRule, requestApproval } from '@/modules/accounting/services/gl/approvalService';

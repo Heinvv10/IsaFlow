@@ -53,15 +53,13 @@ export interface AttachAndSettleInput {
 
 export async function attachEvidenceAndSettleApproved(
   input: AttachAndSettleInput,
-): Promise<AttachResult & { settlementRefused?: string; dimensionRefusal?: string }> {
+): Promise<AttachResult & { settlementRefused?: string }> {
   const { companyId, documentId, invoiceId } = input;
   const attached = await attachEvidenceToProvisional(
     companyId, documentId, input.supplierId, input.totalAmount, input.invoiceDate,
   );
   // P5-2b, fail closed: inherited dimensions only ever come from the provisional actually attached (or none).
-  // A supplier default the dimension rules refuse: the plan's own refusal; the request is rollback-only, the route 400s.
-  const dimensionRefusal = await replanCaptureSlipDimensions(companyId, invoiceId, input.supplierId, input.slip, attached.attachedJeId);
-  if (dimensionRefusal) return { ...attached, dimensionRefusal };
+  await replanCaptureSlipDimensions(companyId, invoiceId, input.supplierId, input.slip, attached.attachedJeId);
   if (input.invoiceStatus !== 'approved' || (!attached.attachedJeId && !input.postUnattached)) return attached;
 
   try {

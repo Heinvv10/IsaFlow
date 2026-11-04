@@ -3,8 +3,7 @@
  * slip attach may re-plan the bill lines' inherited dimensions (`captureSlipReplan`), and migration 873 hashes those
  * dimensions into the R-035 digest. So a gated bill's approval request must be raised AFTER the attach, never before
  * it, and the attach must be handed what the line plan inherited (`slip`). Route-level pins on call order; the
- * re-plan itself is proven on real PG (tests/integration/budgets-p5-off-slice-capture-slip.int.test.ts). A re-plan that
- * refuses a supplier default (breaker R3-2) is answered 400 with the plan's own message, before any approval request.
+ * re-plan itself is proven on real PG (tests/integration/budgets-p5-off-slice-capture-slip.int.test.ts).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiResponse } from 'next';
@@ -69,7 +68,6 @@ vi.mock('@/modules/accounting/services/capture/captureRowLock', async (orig) => 
 
 import { runCapturePostFollowUps } from '@/modules/accounting/services/capture/capturePostFollowUps';
 import { attachEvidenceAndSettleApproved } from '@/modules/accounting/services/capture/provisionalAttachSettle';
-import { apiResponse } from '@/lib/apiResponse';
 import capturePost from '../../../pages/api/accounting/capture/[id]/post';
 import pipeline from '../../../pages/api/accounting/ai-invoice-pipeline';
 
@@ -108,18 +106,3 @@ describe('a gated capture bill: the approval request is raised after the attach,
   });
 });
 
-describe('the re-plan refused a supplier default (breaker R3-2): the plan\'s refusal, 400, no approval request', () => {
-  const REFUSAL = 'CC1 must name an active CC1 cost centre in this company';
-  it('capture/[id]/post', async () => {
-    attachOut.current = { attachedJeId: null, bankTxId: null, dimensionRefusal: REFUSAL };
-    await capturePost({ method: 'POST', companyId: 'co', user: { id: 'u' }, query: { id: EVENT_ID }, body: {} } as never, res());
-    expect(vi.mocked(apiResponse.badRequest)).toHaveBeenCalledWith(expect.anything(), REFUSAL);
-    expect(order).toEqual(['insertLines', 'attach']);
-  });
-  it('ai-invoice-pipeline', async () => {
-    attachOut.current = { attachedJeId: null, bankTxId: null, dimensionRefusal: REFUSAL };
-    await pipeline({ method: 'POST', companyId: 'co', user: { id: 'u' }, body: { documentId: DOC_ID } } as never, res());
-    expect(vi.mocked(apiResponse.badRequest)).toHaveBeenCalledWith(expect.anything(), REFUSAL);
-    expect(order).toEqual(['insertLines', 'attach']);
-  });
-});

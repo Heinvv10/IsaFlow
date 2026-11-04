@@ -262,7 +262,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     supplierId: supplierMatch.supplierId, totalAmount: invoiceInput.totalAmount, invoiceDate: invoiceInput.invoiceDate,
     postUnattached: true, slip,
   });
-  if (provisionalAttach.dimensionRefusal) return apiResponse.badRequest(res, provisionalAttach.dimensionRefusal); // rolled back
   // After the attach (P5-2b): it may re-plan the lines' inherited dimensions, and the request binds to their digest.
   const approvalRequest = approval.gated
     ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;

@@ -103,7 +103,8 @@ describe('decideBudgetOutcome: off-slice lines', () => {
       } else if (channel === 'bulk') {
         expect(d.message).toContain(`Approve it on its own in the app, where an owner or admin can override it, or ${reenter}.`);
       } else {
-        expect(d.message).toContain('set a budgeted cost centre 1 on the line with update_supplier_invoice');
+        expect(d.message).toContain('set a budgeted cost centre 1 on the line with update_supplier_invoice (if it refuses the edit');
+        expect(d.message).toContain('cancel the bill and enter it again, or have an owner or admin override)');
       }
       if (channel !== 'mcp') expect(d.message).not.toMatch(/assign|set a budgeted|update_supplier_invoice/);
     }
