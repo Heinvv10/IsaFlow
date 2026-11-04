@@ -96,6 +96,7 @@ describe('cashPayRegisterForRun', () => {
       {
         run_id: RUN_ID, employee_id: EMP_ID, employee_number: 'E001',
         first_name: 'Jane', last_name: 'Doe', payment_method: 'eft', net_pay: '0',
+        calculation_version: 2,
         validation_results: [{
           code: 'LOAN_INSTALMENT_EXCEEDS_PAY', severity: 'error', rawNet: -100, loans: ['L-1'],
         }],
@@ -105,5 +106,20 @@ describe('cashPayRegisterForRun', () => {
     await expect(cashPayRegisterForRun(COMPANY_ID, RUN_ID))
       .rejects.toThrow(/Jane Doe.*E001.*L-1/i);
     expect(sqlCalls).toHaveLength(1);
+  });
+
+  it('tells a legacy warning-only run to recalculate without claiming its loan is unchanged', async () => {
+    mockImpl = () => Promise.resolve([{
+      run_id: RUN_ID, calculation_version: 1, employee_id: EMP_ID, employee_number: 'E001',
+      first_name: 'Jane', last_name: 'Doe', payment_method: 'cash', net_pay: '0',
+      validation_results: [{
+        code: 'LOAN_INSTALMENT_EXCEEDS_PAY', severity: 'warning', rawNet: -100, loans: ['L-1'],
+      }],
+    }]);
+
+    const refusal = await cashPayRegisterForRun(COMPANY_ID, RUN_ID).catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(Error);
+    expect((refusal as Error).message).toMatch(/earlier version.*recalculate/i);
+    expect((refusal as Error).message).not.toMatch(/loan is unchanged/i);
   });
 });

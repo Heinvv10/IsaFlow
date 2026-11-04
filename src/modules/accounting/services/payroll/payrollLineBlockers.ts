@@ -9,6 +9,7 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { TxSql } from '@/lib/neon';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
+import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 import { findOverdrawnLines, type LoanPaymentOnPayslip, type OverdrawnLine, type WithheldLoanLine } from './payrollRunLines';
 
 export const overdrawnNames = (lines: OverdrawnLine[]) =>
@@ -17,6 +18,15 @@ export const overdrawnNames = (lines: OverdrawnLine[]) =>
 export function loanInstalmentBlocker(overdrawn: OverdrawnLine[]): PayrollJournalNote | null {
   const blocked = overdrawn.filter((line) => line.fromLoan && !line.unreadable);
   if (blocked.length === 0) return null;
+  const legacy = blocked.filter((line) => line.calculationVersion == null
+    || line.calculationVersion < PAYROLL_CALCULATION_VERSION);
+  if (legacy.length > 0) {
+    return {
+      code: 'loan_instalment_requires_recalculation',
+      detail: `The payslip for ${overdrawnNames(legacy)} was calculated by an earlier version of payroll that may have taken the loan instalment. `
+        + 'Recalculate this run before approving, posting, preparing the cash register, or exporting it.',
+    };
+  }
   return {
     code: 'loan_instalment_exceeds_pay',
     detail: `The payslip is blocked for manual review for ${overdrawnNames(blocked)}. No loan instalment was taken and the loan is unchanged. `

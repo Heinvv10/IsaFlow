@@ -64,6 +64,8 @@ export interface OverdrawnLine {
   shortfall: number;
   /** The shortfall would not exist without the loan instalment: LOAN_INSTALMENT_EXCEEDS_PAY. */
   fromLoan: boolean;
+  /** The calculation rules that wrote the line; null means it predates version stamps. */
+  calculationVersion: number | null;
   /** The loans this run took from the employee (loan numbers). */
   loans?: string[];
   /** A line at nil from before the codes whose breakdown cannot be read: nothing can say whether it is overdrawn. */
@@ -93,7 +95,7 @@ export async function findOverdrawnLines(companyId: string, runId: string, db: T
   const rows = (await db`
     WITH run_lines AS (
       SELECT prl.employee_id, pe.employee_number, pe.first_name, pe.last_name,
-        prl.validation_results, prl.net_pay = 0 AS net_pay_nil,
+        prl.validation_results, prh.calculation_version, prl.net_pay = 0 AS net_pay_nil,
         (SELECT COALESCE(array_agg(l.loan_number ORDER BY l.loan_number), '{}') FROM payroll_loan_payments p
            JOIN payroll_loans l ON l.id = p.loan_id AND l.company_id = prh.company_id
           WHERE p.run_id = prl.run_id AND l.employee_id = prl.employee_id) AS loans,
@@ -130,7 +132,8 @@ export async function findOverdrawnLines(companyId: string, runId: string, db: T
       return [{
         employeeId: String(r.employee_id), employeeNumber: String(r.employee_number),
         employeeName: `${String(r.first_name)} ${String(r.last_name)}`.trim(),
-        shortfall: 0, fromLoan: false, unreadable: true as const,
+        shortfall: 0, fromLoan: false, calculationVersion: r.calculation_version == null ? null : Number(r.calculation_version),
+        unreadable: true as const,
       }];
     }
     const rawNet = typeof flagged?.rawNet === 'number' ? flagged.rawNet : Number(r.derived_raw_net);
@@ -144,6 +147,7 @@ export async function findOverdrawnLines(companyId: string, runId: string, db: T
       employeeName: `${String(r.first_name)} ${String(r.last_name)}`.trim(),
       shortfall: -rawNet,
       fromLoan,
+      calculationVersion: r.calculation_version == null ? null : Number(r.calculation_version),
       loans: flagged?.loans ?? (Array.isArray(r.loans) ? r.loans.map(String) : []),
     }];
   });

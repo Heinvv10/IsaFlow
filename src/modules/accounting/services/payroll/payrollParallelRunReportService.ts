@@ -74,7 +74,7 @@ async function loadRunLines(
 ): Promise<{ lines: IsaflowRunLineInput[]; loanBlocker: PayrollJournalNote | null }> {
   const rows = (await sql`
     SELECT prl.gross_pay, prl.paye, prl.uif_employee, prl.uif_employer,
-           prl.sdl, prl.eti, prl.net_pay, prl.employee_id, prl.validation_results,
+           prl.sdl, prl.eti, prl.net_pay, prl.employee_id, prl.validation_results, prh.calculation_version,
            e.employee_number, e.first_name, e.last_name
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
@@ -100,7 +100,9 @@ async function loadRunLines(
     return [{
       employeeId: String(r.employee_id), employeeNumber: String(r.employee_number),
       employeeName: `${String(r.first_name)} ${String(r.last_name)}`.trim(),
-      shortfall: -result.rawNet, fromLoan: true, loans: result.loans ?? [],
+      shortfall: -result.rawNet, fromLoan: true,
+      calculationVersion: r.calculation_version == null ? null : Number(r.calculation_version),
+      loans: result.loans ?? [],
     }];
   });
   return { lines, loanBlocker: loanInstalmentBlocker(blocked) };

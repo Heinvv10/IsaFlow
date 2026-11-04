@@ -119,6 +119,51 @@ describe('a loan instalment above pay', () => {
     expect((await doApprove(state.nov, cleared.planHash)).statusCode).toBe(200);
   });
 
+  it('legacy warning-only runs tell every direct gate to recalculate without claiming the loan is unchanged', async () => {
+    const loan = await addLoan(1000);
+    await recalculate(state.nov);
+    expect((await pool.query('SELECT id FROM payroll_loan_payments WHERE loan_id = $1', [loan])).rows).toHaveLength(1);
+    await pool.query('UPDATE payroll_run_headers SET calculation_version = 1 WHERE id = $1', [state.nov]);
+    await pool.query(
+      `UPDATE payroll_run_lines
+          SET validation_results = $2::jsonb
+        WHERE run_id = $1`,
+      [state.nov, JSON.stringify([{
+        code: 'LOAN_INSTALMENT_EXCEEDS_PAY', severity: 'warning', rawNet: -100, loans: ['R-LOAN'],
+        message: 'Legacy warning-only line',
+      }])],
+    );
+
+    const approval = (await preview(state.nov)).body.data!;
+    expect(approval.blocker).toMatchObject({ code: 'recalculate_required' });
+    const approvalRefusal = await doApprove(state.nov, approval.planHash);
+    expect(approvalRefusal.statusCode).toBe(400);
+    expect(JSON.stringify(approvalRefusal.body)).toMatch(/recalculate/i);
+    expect(JSON.stringify(approvalRefusal.body)).not.toMatch(/loan is unchanged/i);
+
+    const cashRefusal = await cashPayRegisterForRun(state.coA, state.nov).catch((error: unknown) => error);
+    expect(cashRefusal).toBeInstanceOf(Error);
+    expect((cashRefusal as Error).message).toMatch(/earlier version.*recalculate/i);
+    expect((cashRefusal as Error).message).not.toMatch(/loan is unchanged/i);
+    const journalRefusal = await postPayrollRunJournal(state.coA, state.nov, fx.admin).catch((error: unknown) => error);
+    expect(journalRefusal).toBeInstanceOf(Error);
+    expect((journalRefusal as Error).message).toMatch(/earlier version.*recalculate/i);
+    expect((journalRefusal as Error).message).not.toMatch(/loan is unchanged/i);
+
+    const external = await createExternalImport(state.coA, {
+      periodMonth: 11, periodYear: 2026, source: 'test', fileName: 'legacy-warning.csv',
+      componentsPresent: ['net'], rows: [{ employeeNumber: 'W301-1', employeeName: 'Worker One', amounts: { net: 0 } }],
+      createdBy: fx.admin,
+    });
+    const exportRefusal = await call(
+      parallelExport as Route, 'GET', `/api/payroll/parallel-run/export?importId=${external.id}`, undefined,
+      { query: { importId: external.id } },
+    );
+    expect(exportRefusal.statusCode).toBe(400);
+    expect(JSON.stringify(exportRefusal.body)).toMatch(/earlier version.*recalculate/i);
+    expect(JSON.stringify(exportRefusal.body)).not.toMatch(/loan is unchanged/i);
+  });
+
   it('the grid still refuses an edit that makes it worse', async () => {
     await addLoan(30000);
     await recalculate(state.nov);

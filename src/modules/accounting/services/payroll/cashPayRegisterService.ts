@@ -81,6 +81,7 @@ export async function cashPayRegisterForRun(
 ): Promise<CashRegister> {
   const lineRows = (await sql`
     SELECT prh.id AS run_id, prl.employee_id,
+           prh.calculation_version,
            e.employee_number,
            e.first_name,
            e.last_name,
@@ -107,6 +108,7 @@ export async function cashPayRegisterForRun(
       employeeName: `${String(r.first_name)} ${String(r.last_name)}`.trim(),
       shortfall: -result.rawNet,
       fromLoan: true,
+      calculationVersion: r.calculation_version == null ? null : Number(r.calculation_version),
       loans: result.loans ?? [],
     }];
   });
