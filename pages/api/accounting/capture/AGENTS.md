@@ -60,3 +60,4 @@ Four ingestion channels: PWA upload, Postmark inbound email, Twilio WhatsApp WAB
 - 2026-04-24: remediate pentest findings — 2 Critical + 11 High
 - 2026-04-22: Phase 9 — mirror inbox (IMAP) with Gmail/M365 stubs
 - 2026-04-22: wire `source_document_id` when capture creates supplier invoice
+- 2026-11-04 (budgets P5-2b): `[id]/post` (and `ai-invoice-pipeline`) raise a gated bill's approval request AFTER the slip attach, which may re-plan the lines' inherited dimensions; a re-plan that refuses a supplier default answers 400 with the line plan's message and the request rolls back.
