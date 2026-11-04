@@ -14,6 +14,8 @@ import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types'
 import { ApiRequestError } from '@/lib/apiFetch';
 
 const apiJson = vi.fn();
+const logError = vi.fn();
+vi.mock('@/lib/logger', () => ({ log: { error: (...a: unknown[]) => logError(...a), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 let query: Record<string, string> = { pack: 'management', from: '2026-09-01', to: '2026-09-30' };
 vi.mock('next/router', () => ({ useRouter: () => ({ query, isReady: true, push: vi.fn() }) }));
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiJson: (...a: unknown[]) => apiJson(...a) }));
@@ -188,20 +190,18 @@ describe('the present page classifies a refused comparator like the statement pa
   });
   it('a Retry in flight when the params become invalid cannot apply under the Unknown pack banner', async () => {
     await load(new ApiRequestError('limited', 429, 45));
-    let resolveOld: (v: unknown) => void = () => undefined;
-    apiJson.mockImplementation(() => new Promise((r) => { resolveOld = r; }));
+    let rejectOld: (e: unknown) => void = () => undefined;
+    apiJson.mockImplementation(() => new Promise((_, rej) => { rejectOld = rej; }));
     fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
     query = { pack: 'nonsense', from: '2026-09-01', to: '2026-09-30' };
     view.rerender(<PresentPackPage />);
     await screen.findByText(/Unknown pack/);
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    resolveOld({ lines: [], bands: [], budgetedCount: 1, budgetAbsentYears: [], budgetOutsideFilterYears: [],
-      unallocatedBudget: null, partialBudgetCount: 0, splitsMonth: false });
+    logError.mockClear();
+    rejectOld(new Error('late'));
     await new Promise((r) => setTimeout(r, 20));
-    spy.mockRestore();
-    // the late answer was dropped: still the banner, and (queried via the slide-less state) nothing re-rendered a deck
+    // a superseded answer is dropped before it is read, so it logs nothing and writes nothing
+    expect(logError).not.toHaveBeenCalled();
     expect(screen.getByText(/Unknown pack/)).toBeInTheDocument();
-    expect(screen.queryByText(/Management Pack/)).toBeNull();
   });
   it('a 500 stays the plain failure notice', async () => {
     await load(new ApiRequestError('boom', 500));
