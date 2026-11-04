@@ -1,6 +1,6 @@
 /**
  * The HTTP answer to a budget-check refusal (budgets P5-2, spec §3b):
- * - `BudgetExceededError` → 409 `BUDGET_EXCEEDED`, `details.lines` = the over lines. Its `refused`
+ * - `BudgetExceededError` → 409 `BUDGET_EXCEEDED`, `details.lines` = the over and off-slice lines (P5-2b). Its `refused`
  *   event is written HERE, after the approval's savepoint rolled back and on the request
  *   transaction, which withAuth COMMITs on a 4xx (census finding 4): the refusal is on record, the
  *   approval is not.

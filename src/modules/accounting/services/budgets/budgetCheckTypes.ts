@@ -59,8 +59,14 @@ export interface BudgetCheckLine {
   cc1Id: string | null;
   cc2Id: string | null;
   buId: string | null;
-  /** The line lacks the grain's dimension: the unassigned slice, "No budget". */
+  /** The line lacks the grain's dimension: the unassigned slice. */
   unassigned: boolean;
+  /**
+   * P5-2b (Hein, 2026-11-04): the account is budgeted in the primary version, but this slice is not (the unassigned
+   * slice, or a member with no row while others have one); dims = the slice at the grain. Budget null; refused in
+   * block, warned in warn (a reason in the UI), like an over line. An account with no budget at all is never this.
+   */
+  offSlice: boolean;
   budget: number | null;
   actual: number;
   committed: number;
@@ -103,8 +109,9 @@ export class BudgetExceededError extends Error {
     super(message);
     this.name = 'BudgetExceededError';
   }
+  /** The lines that caused the refusal: over budget, or not in a budgeted slice (`isFlaggedLine`). */
   get overLines(): BudgetCheckLine[] {
-    return this.event.lines.filter((l) => l.over);
+    return this.event.lines.filter(isFlaggedLine);
   }
 }
 
@@ -136,5 +143,13 @@ export class BudgetCheckLockTimeoutError extends Error {
 }
 
 export const BUDGET_REASON_MAX = 2000;
+
+/** A line the check acts on: over its remaining budget, or outside every budgeted slice of its account (P5-2b). */
+export const isFlaggedLine = (l: Pick<BudgetCheckLine, 'over' | 'offSlice'>): boolean => l.over || l.offSlice;
+
+/** How an event's stored line says why it was (or was not) acted on: audits tell 'off_slice' from 'over'. */
+export type BudgetLineKind = 'over' | 'off_slice' | 'within' | 'no_budget';
+export const budgetLineKind = (l: Pick<BudgetCheckLine, 'over' | 'offSlice' | 'budget'>): BudgetLineKind =>
+  (l.over ? 'over' : l.offSlice ? 'off_slice' : l.budget !== null ? 'within' : 'no_budget');
 
 export const isBudgetPolicy = (v: unknown): v is BudgetPolicy => v === 'off' || v === 'warn' || v === 'block';

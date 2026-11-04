@@ -29,6 +29,7 @@ import { readCommitments, type CommittedOptions } from './remainingCommitted';
 import { TrackingError } from './tracking/trackingTypes';
 import { YEAR_MAX, YEAR_MIN } from './tracking/trackingWindow';
 import {
+  budgetedSliceKey,
   computeRemaining,
   GRAIN_BY_DIM,
   type BudgetAmountRow,
@@ -79,19 +80,25 @@ function normalise(k: RemainingKey): RemainingKey {
   return { glAccountId: k.glAccountId.toLowerCase(), cc1Id: lower(k.cc1Id), cc2Id: lower(k.cc2Id), buId: lower(k.buId), month: k.month };
 }
 
-async function readGrains(companyId: string, versions: string[], accounts: string[]): Promise<Map<string, RemainingGrain>> {
-  if (versions.length === 0) return new Map();
+/** Each account's grain per version, and every slice holding a row there (any month: P5-2b's off-slice test). */
+async function readGrains(
+  companyId: string, versions: string[], accounts: string[],
+): Promise<{ grains: Map<string, RemainingGrain>; budgetedSlices: Set<string> }> {
+  const grains = new Map<string, RemainingGrain>();
+  const budgetedSlices = new Set<string>();
+  if (versions.length === 0) return { grains, budgetedSlices };
   const rows = (await sql`
-    SELECT DISTINCT version_id::TEXT AS version_id, gl_account_id::TEXT AS gl_account_id, dim_grain
+    SELECT DISTINCT version_id::TEXT AS version_id, gl_account_id::TEXT AS gl_account_id, dim_grain,
+           COALESCE(cc1_id, cc2_id, bu_id)::TEXT AS member
       FROM budget_month_amounts
      WHERE company_id = ${companyId}::UUID AND version_id = ANY(${versions}::UUID[]) AND gl_account_id = ANY(${accounts}::UUID[])
   `) as DbRow[];
-  const out = new Map<string, RemainingGrain>();
   for (const r of rows) {
     const grain = GRAIN_BY_DIM[Number(r.dim_grain)];
-    if (grain) out.set(`${text(r.version_id)}|${text(r.gl_account_id)}`, grain);
+    if (grain) grains.set(`${text(r.version_id)}|${text(r.gl_account_id)}`, grain);
+    budgetedSlices.add(budgetedSliceKey(String(text(r.version_id)), String(text(r.gl_account_id)), text(r.member)));
   }
-  return out;
+  return { grains, budgetedSlices };
 }
 
 async function readBudgets(companyId: string, versions: string[], accounts: string[], monthDates: string[]): Promise<BudgetAmountRow[]> {
@@ -112,7 +119,8 @@ async function readBudgets(companyId: string, versions: string[], accounts: stri
 /**
  * Budget, actual, committed and remaining for each key, in input order. `budget` (and so
  * `remaining`) is null for "No budget": no primary version, no budget for the account in it, the
- * unassigned slice, or no row for the slice and month. A budgeted zero is 0.
+ * unassigned slice, or no row for the slice and month. A budgeted zero is 0. `offSlice`: the account is
+ * budgeted in the version but not on the key's slice (P5-2b; `remainingBudgetCore`).
  */
 export async function remainingFor(
   companyId: string, rawKeys: readonly RemainingKey[], opts: RemainingOptions = {},
@@ -133,7 +141,7 @@ export async function remainingFor(
   };
   const accounts = [...new Set(keys.map((k) => k.glAccountId))];
   const versions = [...new Set(months.map(versionOf).filter((v): v is string => v !== null))];
-  const grains = await readGrains(companyId, versions, accounts);
+  const { grains, budgetedSlices } = await readGrains(companyId, versions, accounts);
 
   // One actuals read per grain level the keys need (an account with no grain is read at company level).
   const levels = new Set<RemainingGrain>(keys.map((k) => {
@@ -151,6 +159,7 @@ export async function remainingFor(
     versionOf,
     grains,
     budgets: await readBudgets(companyId, versions, accounts, monthDates),
+    budgetedSlices,
     actuals,
     commitments: await readCommitments(companyId, accounts, start, end, opts),
   });

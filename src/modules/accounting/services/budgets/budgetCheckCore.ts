@@ -5,7 +5,9 @@
  *   SUMMED PER SLICE: two lines whose dims differ below the account's grain hit one budget and are
  *   compared against it together (each alone may fit; the pair may not). A line with no budget (no
  *   version, no grain, the unassigned slice, no row for the slice and month) is "No budget" and is
- *   never over. A budgeted zero is a budget (D5): anything above it is over.
+ *   never over. A budgeted zero is a budget (D5): anything above it is over. A line whose account is
+ *   budgeted in the version but whose slice is not (P5-2b, `offSlice`) is summed per slice at the grain and
+ *   flagged when the document's net amount there is positive.
  * - `decideBudgetOutcome`: the policy matrix (§3b), every cell unit-tested
  *   (`tests/unit/services/budgets/budgetCheckMatrix.test.ts`).
  * - `mustRetryForLock`: the policy read at check time is `block` but this transaction did not take
@@ -15,7 +17,7 @@
  */
 import { formatMoney } from '@/lib/money/formatMoney';
 import { toCents } from './grid/cents';
-import type { RemainingKey, RemainingResult } from './remainingBudgetCore';
+import type { RemainingGrain, RemainingKey, RemainingResult } from './remainingBudgetCore';
 import type { BudgetChannel, BudgetCheckLine, BudgetGate, BudgetOutcome, BudgetPolicy } from './budgetCheckTypes';
 
 /** One expense line the document will post (account, dims, ex-VAT amount). */
@@ -58,16 +60,17 @@ export function sliceLines(
   for (const l of lines) {
     const r = byKey.get(keyId(l));
     if (!r) throw new Error(`budget check: no remaining-budget answer for account ${l.glAccountId}`);
-    const budgeted = r.budget !== null;
-    const dims = budgeted ? r.slice : { cc1Id: low(l.cc1Id), cc2Id: low(l.cc2Id), buId: low(l.buId) };
-    const id = budgeted
-      ? `b|${r.versionId ?? ''}|${keyId({ glAccountId: l.glAccountId, ...dims })}|${r.key.month}`
+    // A budgeted slice and an off-slice one are both keyed by the slice at the grain; "No budget" by the line's dims.
+    const atGrain = r.budget !== null || r.offSlice;
+    const dims = atGrain ? r.slice : { cc1Id: low(l.cc1Id), cc2Id: low(l.cc2Id), buId: low(l.buId) };
+    const id = atGrain
+      ? `${r.offSlice ? 'o' : 'b'}|${r.versionId ?? ''}|${keyId({ glAccountId: l.glAccountId, ...dims })}|${r.key.month}`
       : `n|${keyId(l)}|${r.key.month}`;
     const at = slices.get(id) ?? {
       cents: 0,
       line: {
         glAccountId: l.glAccountId.toLowerCase(), month: r.key.month, grain: r.grain, ...dims, unassigned: r.unassigned,
-        budget: r.budget, actual: r.actual, committed: r.committed, remaining: r.remaining, amount: 0, over: false,
+        budget: r.budget, actual: r.actual, committed: r.committed, remaining: r.remaining, amount: 0, over: false, offSlice: r.offSlice,
       },
     };
     at.cents += toCents(l.amount);
@@ -78,7 +81,26 @@ export function sliceLines(
     amount: cents / 100,
     // Over: a budget exists and this document's own amount on the slice exceeds what remains.
     over: line.remaining !== null && cents > 0 && cents > toCents(line.remaining),
+    // Off-slice: only a net spend there is acted on (a credit, or lines netting to nil, cannot be refused).
+    offSlice: line.offSlice && cents > 0,
   }));
+}
+
+/** What a grain's dimension is called in a refusal ("assign a budgeted cost centre 1"). */
+const DIM_NAME: Record<Exclude<RemainingGrain, 'company'>, string> = { cc1: 'cost centre 1', cc2: 'cost centre 2', bu: 'business unit' };
+const dimName = (grain: RemainingGrain | null): string => (grain && grain !== 'company' ? DIM_NAME[grain] : 'cost centre or business unit');
+
+/**
+ * "6100 Opex · no cost centre 1 · 2026-06: not in a budgeted slice, this bill R 150.00 (6100 Opex is budgeted by
+ * cost centre 1: assign a budgeted cost centre 1)". The slice it landed in is named (its member at the grain, or
+ * "no <dimension>" for the unassigned slice). `figures: false`: no amount.
+ */
+export function describeOffSliceLine(l: BudgetCheckLine, documentNoun = 'this bill', figures = true): string {
+  const name = dimName(l.grain);
+  const slice = l.unassigned || l.sliceLabel === '' ? `no ${name}` : l.sliceLabel;
+  const where = [l.accountLabel, slice, l.month].filter((s) => s !== '').join(' · ');
+  const amount = figures ? `, ${documentNoun} ${formatMoney(l.amount)}` : '';
+  return `${where}: not in a budgeted slice${amount} (${l.accountLabel || 'the account'} is budgeted by ${name}: assign a budgeted ${name})`;
 }
 
 /**
@@ -151,19 +173,28 @@ export function decideBudgetOutcome(input: DecisionInput): BudgetDecision {
   const reason = hasReason(input.reason) ? input.reason!.trim() : null;
   if (policy === 'off') return { kind: 'proceed', event: null, warnings: [], reason: null };
   const over = lines.filter((l) => l.over);
-  const checked = lines.some((l) => l.budget !== null);
-  if (over.length === 0) return { kind: 'proceed', event: checked ? 'pass' : null, warnings: [], reason: null };
+  // P5-2b: a line outside every budgeted slice of a budgeted account is acted on exactly as an over line.
+  const offSlice = lines.filter((l) => l.offSlice);
+  const checked = lines.some((l) => l.budget !== null || l.offSlice);
+  if (over.length === 0 && offSlice.length === 0) return { kind: 'proceed', event: checked ? 'pass' : null, warnings: [], reason: null };
 
   const noun = input.documentNoun ?? 'this bill';
   const figures = input.figures !== false;
-  const detail = over.map((l) => describeOverLine(l, noun, figures)).join('; ');
-  const warnings = over.map((l) => `Over budget: ${describeOverLine(l, noun, figures)}`);
+  const detail = [
+    ...over.map((l) => describeOverLine(l, noun, figures)), ...offSlice.map((l) => describeOffSliceLine(l, noun, figures)),
+  ].join('; ');
+  const warnings = [
+    ...over.map((l) => `Over budget: ${describeOverLine(l, noun, figures)}`),
+    ...offSlice.map((l) => `Not in a budgeted slice: ${describeOffSliceLine(l, noun, figures)}`),
+  ];
+  const what = offSlice.length === 0 ? 'over budget' : over.length === 0 ? 'outside the budgeted slices' : 'over budget or outside the budgeted slices';
+  const head = offSlice.length === 0 ? 'Over budget' : over.length === 0 ? 'Not in a budgeted slice' : 'Over budget / not in a budgeted slice';
 
   if (policy === 'warn') {
     // A person approving in the UI answers for the overspend with a reason; bulk, MCP and system
     // callers proceed and are reported (decision 8). A bulk batch's one reason is kept when given.
     if (channel === 'ui' && reason === null) {
-      return { kind: 'reason_required', message: `Give a reason to approve over budget — ${detail}.` };
+      return { kind: 'reason_required', message: `Give a reason to approve ${what} — ${detail}.` };
     }
     return { kind: 'proceed', event: 'warn', warnings, reason: channel === 'mcp' || channel === 'system' ? null : reason };
   }
@@ -171,13 +202,13 @@ export function decideBudgetOutcome(input: DecisionInput): BudgetDecision {
   // block: only a single UI approve may override, only an owner or admin, and only with a reason.
   if (channel === 'ui' && input.override === true) {
     if (!OVERRIDE_ROLES.includes(input.actorRole ?? '')) {
-      return { kind: 'refuse', overrideRefused: true, message: `Over budget — approval refused, and only an owner or admin can override it: ${detail}.` };
+      return { kind: 'refuse', overrideRefused: true, message: `${head} — approval refused, and only an owner or admin can override it: ${detail}.` };
     }
     if (reason === null) return { kind: 'reason_required', message: `Give a reason to override the budget — ${detail}.` };
     return { kind: 'proceed', event: 'override', warnings, reason };
   }
   const remedy = channel === 'ui' ? ' An owner or admin can override it with a reason.' : ' Approve it on its own in the app, where an owner or admin can override it.';
-  return { kind: 'refuse', overrideRefused: false, message: `Over budget — approval refused: ${detail}.${remedy}` };
+  return { kind: 'refuse', overrideRefused: false, message: `${head} — approval refused: ${detail}.${remedy}` };
 }
 
 /** The policy at check time is `block`, the caller locks (`take`/`held`), and this transaction holds no lock. */
