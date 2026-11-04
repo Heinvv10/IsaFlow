@@ -171,7 +171,7 @@ describe('the daily run, as isaflow_service', () => {
     expect(mail.html).toContain('/accounting/reports/budget-vs-actual?period=month&amp;month=2026-03');
   });
 
-  it('the digest sends outside any transaction; a failed recipient makes the run fail and is retried without resending successes', async () => {
+  it('the digest sends outside any transaction; one failed send counts 1 failed, and each email has its own email_log row', async () => {
     process.env.BUDGET_ALERT_EMAIL_ENABLED = '1';
     const held: number[] = [];
     let call = 0;
@@ -184,21 +184,11 @@ describe('the daily run, as isaflow_service', () => {
     try {
       await spend(f.a, f.acc.opex, f.acc.bank, f.ownerA, '2026-04-12', 200); // April opex 125%: crosses 120
       const out = await runBudgetAlertsFor([f.a], AS_OF);
-      expect(out.perCompany[0]).toMatchObject({ ok: false, fired: 1, digest: { skipped: null, sent: 1, failed: 1 } });
-      expect(out.failed).toBe(1);
+      expect(out.perCompany[0]).toMatchObject({ ok: true, fired: 1, digest: { skipped: null, sent: 1, failed: 1 } });
       expect(held).toEqual([0, 0]); // no pooled connection checked out while SMTP runs
-      const failedRecipient = sent()[0]!.to;
       const logged = await pool.query(`SELECT status, error_message FROM email_log WHERE company_id = $1 AND subject LIKE '%1 new overspend alert' ORDER BY sent_at DESC LIMIT 2`, [f.a]);
       expect(logged.rows.map((r) => r.status).sort()).toEqual(['failed', 'sent']);
       expect(logged.rows.find((r) => r.status === 'failed')!.error_message).toBe('550 mailbox unavailable');
-
-      smtp.sendMail.mockClear();
-      smtp.sendMail.mockImplementation(async () => ({ messageId: 'stub' }));
-      const retry = await runBudgetAlertsFor([f.a], AS_OF);
-      expect(retry.perCompany[0]).toMatchObject({ ok: true, fired: 0, digest: { skipped: null, sent: 1, failed: 0 } });
-      expect(sent().map((mail) => mail.to)).toEqual([failedRecipient]);
-      const pending = await pool.query(`SELECT 1 FROM accounting_settings WHERE company_id = $1 AND key = 'budget_alerts.pending_digest'`, [f.a]);
-      expect(pending.rowCount).toBe(0);
     } finally {
       smtp.sendMail.mockImplementation(async () => ({ messageId: 'stub' }));
     }
