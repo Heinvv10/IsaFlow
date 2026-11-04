@@ -14,6 +14,7 @@ import customerInvoicesCreate from '../../pages/api/accounting/customer-invoices
 import customerInvoicesDetail from '../../pages/api/accounting/customer-invoices-detail';
 import portalInvoice from '../../pages/api/portal/invoice/[token]';
 import { loadInvoicePdfModel } from '@/modules/accounting/services/ar/invoicePdfModel';
+import { storedInvoiceLinesRefusal } from '@/modules/accounting/services/ar/invoiceLineCodingGuard';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
 import { cleanupPr4, invoiceCompany } from './r035-pr4.helpers';
@@ -76,8 +77,10 @@ describe('lines come back in the order they were entered', () => {
   it('a draft PUT that only reorders the lines: the PDF prints the new order, the shown digest moves, the approval digest does not', async () => {
     const customer = crypto.randomUUID();
     await pool.query('INSERT INTO customers(id, company_id, name) VALUES($1, $2, $3)', [customer, company, 'reorder']);
+    // Created F..A, then put A..F: entered against the digest's content order, so an approval digest that followed the
+    // entry order (created_at stamped per line) would differ between the two.
     const made = await callRoute(customerInvoicesCreate, tokens[owner]!, company, 'POST',
-      { clientId: customer, invoiceDate: '2026-09-01', items: lines() }, '/api/accounting/customer-invoices-create');
+      { clientId: customer, invoiceDate: '2026-09-01', items: lines().reverse() }, '/api/accounting/customer-invoices-create');
     expect(made.state.statusCode, JSON.stringify(made.state.body)).toBe(201);
     const id = (made.state.body as { data: { id: string } }).data.id;
     const digests = async () => {
@@ -87,12 +90,12 @@ describe('lines come back in the order they were entered', () => {
     };
     const before = await digests();
 
-    const reversed = lines().reverse();
+    expect((await loadInvoicePdfModel(company, id))!.items.map((l) => String(l.description))).toEqual([...ENTERED].reverse());
     const put = await callRoute(customerInvoicesDetail, tokens[owner]!, company, 'PUT',
-      { id, invoiceDate: '2026-09-01', taxRate: 15, items: reversed }, '/api/accounting/customer-invoices-detail');
+      { id, invoiceDate: '2026-09-01', taxRate: 15, items: lines() }, '/api/accounting/customer-invoices-detail');
     expect(put.state.statusCode, JSON.stringify(put.state.body)).toBe(200);
     const printed = (await loadInvoicePdfModel(company, id))!.items.map((l) => String(l.description));
-    expect(printed).toEqual([...ENTERED].reverse());
+    expect(printed).toEqual(ENTERED);
     const after = await digests();
     expect(after.approval).toBe(before.approval);
     expect(after.shown).not.toBe(before.shown);
@@ -119,5 +122,30 @@ describe('lines come back in the order they were entered', () => {
     const printed = (await loadInvoicePdfModel(company, id))!.items.map((l) => String(l.description));
     expect(portal).toEqual([...ENTERED].reverse());
     expect(portal).toEqual(printed);
+  });
+
+  it('an approve refusal names the line by its printed position', async () => {
+    const fno = String((await pool.query(
+      "INSERT INTO cost_centres(company_id, code, name, cc_type, is_active) VALUES($1, 'FNO-ORD', 'FNO line order', 'cc1', true) RETURNING id",
+      [company])).rows[0]!.id);
+    const customer = crypto.randomUUID();
+    await pool.query('INSERT INTO customers(id, company_id, name) VALUES($1, $2, $3)', [customer, company, 'refusal order']);
+    const made = await callRoute(customerInvoicesCreate, tokens[owner]!, company, 'POST',
+      { clientId: customer, invoiceDate: '2026-09-01', items: lines() }, '/api/accounting/customer-invoices-create');
+    expect(made.state.statusCode, JSON.stringify(made.state.body)).toBe(201);
+    const id = (made.state.body as { data: { id: string } }).data.id;
+    try {
+      // The customer gains an FNO after the save; every line carries it but the one printed second.
+      await pool.query('UPDATE customers SET default_cc1_id = $2 WHERE id = $1', [customer, fno]);
+      await pool.query('UPDATE customer_invoice_items SET cc1_id = CASE WHEN line_position = 1 THEN NULL ELSE $2::UUID END WHERE invoice_id = $1', [id, fno]);
+      // created_at made to run against the position (it ties in practice, leaving the order to the random line id).
+      await pool.query(`UPDATE customer_invoice_items SET created_at = '2026-09-01T10:00:00Z'::TIMESTAMPTZ + line_position * INTERVAL '-1 second'
+                        WHERE invoice_id = $1`, [id]);
+      expect(await storedInvoiceLinesRefusal(company, id, { lock: false })).toMatch(/\bline 2 carries no CC1/);
+    } finally {
+      await pool.query('UPDATE customer_invoice_items SET cc1_id = NULL WHERE invoice_id = $1', [id]);
+      await pool.query('UPDATE customers SET default_cc1_id = NULL WHERE id = $1', [customer]);
+      await pool.query('DELETE FROM cost_centres WHERE id = $1', [fno]);
+    }
   });
 });
