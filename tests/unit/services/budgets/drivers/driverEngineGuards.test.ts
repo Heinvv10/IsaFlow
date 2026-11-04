@@ -156,6 +156,18 @@ describe('frozen rows (headcount refreshes on demand)', () => {
     expect(out.some(w => w.rowKey === RENT.key)).toBe(false);
   });
 
+  it('reports a reviewed row projection without exposing it to dependents', () => {
+    const cells = new Map<RowKey, Cell[]>([[RENT.key, flat(70000, 'driver')]]);
+    const perHead: DriverDef = { kind: 'per_head', rowKey: RENT.key, amount: 10000, headcountScope: null, ...ALL };
+    const half: DriverDef = { kind: 'pct_of_line', rowKey: COGS.key, refRowKey: RENT.key, pct: 50, ...ALL };
+    const out = run({
+      cells, drivers: [perHead, half], headcount: () => 3,
+      frozenRows: new Set([RENT.key]), reportFrozenRows: new Set([RENT.key]),
+    });
+    expect(out.frozenWrites.filter(w => w.rowKey === RENT.key).map(w => w.amount)).toEqual(FY.map(() => 30000));
+    expect(out.writes.filter(w => w.rowKey === COGS.key).map(w => w.amount)).toEqual(FY.map(() => 35000));
+  });
+
   it('a frozen key that is not a row is refused like every unknown key', () => {
     expect(() => run({ drivers: [], frozenRows: new Set(['nope|||']) })).toThrow(DriverRefError);
   });

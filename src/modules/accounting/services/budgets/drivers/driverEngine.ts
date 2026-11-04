@@ -45,6 +45,8 @@ export interface ComputeInput {
    * (spec §5: payroll edits never push a recompute). Absent: none frozen.
    */
   frozenRows?: ReadonlySet<RowKey>;
+  /** Frozen rows whose discarded changes are returned for caller reporting. They still feed dependents from stored cells. */
+  reportFrozenRows?: ReadonlySet<RowKey>;
   rounding: RoundingUnit;
 }
 
@@ -58,6 +60,7 @@ export interface DriverWrite {
 
 export interface ComputeResult {
   writes: DriverWrite[];
+  frozenWrites: DriverWrite[];
   warnings: DriverWarning[];
 }
 
@@ -210,18 +213,27 @@ export function computeVersion(input: ComputeInput): ComputeResult {
   const order = topoOrder(graph);
   const effective = loadCells(input.cells, graph, index);
   const writes: DriverWrite[] = [];
+  const frozenWrites: DriverWrite[] = [];
   const warnings: DriverWarning[] = [];
   for (const key of input.frozenRows ?? []) {
     if (!graph.rows.has(key)) throw new DriverRefError(`Frozen row ${key} is not a row of the version`, key);
   }
+  for (const key of input.reportFrozenRows ?? []) {
+    if (!input.frozenRows?.has(key)) throw new DriverRefError(`Reported frozen row ${key} is not frozen`, key);
+  }
 
   for (const key of order) {
     const d = graph.driverOf.get(key);
-    const own = effective.get(key);
-    if (!own) continue;
-    if (input.frozenRows?.has(key)) continue;
+    const stored = effective.get(key);
+    if (!stored) continue;
+    const frozen = input.frozenRows?.has(key) ?? false;
+    if (frozen && !input.reportFrozenRows?.has(key)) continue;
+    // A reported frozen row is evaluated only to say what was retained. Its projection never
+    // enters `effective`, so every downstream driver reads the stored, reviewed figures.
+    const own = frozen ? new Map(stored) : stored;
+    const rowWrites = frozen ? frozenWrites : writes;
     if (!d) {
-      resource(key, own, () => false, input, writes);
+      resource(key, own, () => false, input, rowWrites);
       continue;
     }
     const missing = new Map<string, { code: DriverWarningCode; ref: string; months: string[] }>();
@@ -244,10 +256,10 @@ export function computeVersion(input: ComputeInput): ComputeResult {
       const [num, den] = ratio(d, i, input, graph, index, run);
       const amount = toAmount(num, den, d.rounding ?? input.rounding, key, month);
       own.set(month, { month, amount, source: 'driver' });
-      if (!before || before.amount !== amount || before.source !== 'driver') writes.push({ rowKey: key, month, amount, source: 'driver' });
+      if (!before || before.amount !== amount || before.source !== 'driver') rowWrites.push({ rowKey: key, month, amount, source: 'driver' });
     }
-    resource(key, own, m => (index.get(m) as number) >= from && (index.get(m) as number) <= to, input, writes);
+    resource(key, own, m => (index.get(m) as number) >= from && (index.get(m) as number) <= to, input, rowWrites);
     for (const m of missing.values()) warnings.push({ code: m.code, rowKey: key, message: warningText(m.code, m.ref, m.months) });
   }
-  return { writes, warnings };
+  return { writes, frozenWrites, warnings };
 }

@@ -57,8 +57,11 @@ export interface RecomputeResult {
  * slice rules, holderScope.driverSliceGuard): it answers which to write and which to leave (`frozen`),
  * or throws to refuse. `label` names a driver row.
  */
-export type DriverWriteGuard = <W extends { rowKey: RowKey; month: string }>(writes: readonly W[], label: (rowKey: RowKey) => string) =>
-  { keep: W[]; frozen: W[] };
+export interface DriverWriteGuard {
+  <W extends { rowKey: RowKey; month: string }>(writes: readonly W[], label: (rowKey: RowKey) => string): { keep: W[]; frozen: W[] };
+  /** Rows under review that the engine must read from storage, never from a discarded projection. */
+  frozenRows?: (rows: readonly RowKey[]) => ReadonlySet<RowKey>;
+}
 
 /** Driver cells a recompute left as they are (slices with their reviewer): how many, and the driver rows (labelled, at most 20). */
 export interface FrozenDriverCells { cells: number; rows: string[] }
@@ -165,14 +168,18 @@ export async function recomputeVersion(
     log.warn('budget driver loop found at recompute: its rows are frozen', { companyId, versionId, path: loop.path.join(' > ') });
   }
   for (const d of defs) if (d.kind === 'per_head' && live !== 'all' && !live.has(d.rowKey)) frozen.add(d.rowKey);
-  const readsPayroll = defs.some((d) => d.kind === 'per_head' && !frozen.has(d.rowKey));
+  const guardedFrozen = opts.guard?.frozenRows?.([...rowKeys]) ?? NONE;
+  const reportFrozen = new Set([...guardedFrozen].filter((key) => !frozen.has(key)));
+  for (const key of guardedFrozen) frozen.add(key);
+  const readsPayroll = defs.some((d) => d.kind === 'per_head' && (!frozen.has(d.rowKey) || reportFrozen.has(d.rowKey)));
   const headcountAsOf = readsPayroll ? new Date().toISOString() : null;
   const heads = readsPayroll ? await versionHeadcount(companyId, versionId, months) : null;
   let result: ReturnType<typeof computeVersion>;
   try {
     result = computeVersion({
       months, rows: model.rows, cells: model.cells, drivers: defs, closedMonths: model.closedMonths,
-      frozenRows: frozen, rounding: 1, headcount: (scope, month) => heads?.(scope).get(month)?.total ?? 0,
+      frozenRows: frozen, reportFrozenRows: reportFrozen, rounding: 1,
+      headcount: (scope, month) => heads?.(scope).get(month)?.total ?? 0,
     });
   } catch (err) {
     if (err instanceof DriverRangeError) throw new BudgetDriverError('DRIVER_RANGE', `A budget driver cannot compute: ${labelKeys(err.message, model.labels)}`);
@@ -185,7 +192,9 @@ export async function recomputeVersion(
     ...result.warnings.map((w) => ({ ...w, message: labelKeys(w.message, model.labels) })),
   ];
   const label = (k: RowKey) => rowLabel(k, model.labels);
-  const { keep, frozen: left } = opts.guard ? opts.guard(result.writes, label) : { keep: result.writes, frozen: [] };
+  const guarded = opts.guard ? opts.guard(result.writes, label) : { keep: result.writes, frozen: [] };
+  const keep = guarded.keep;
+  const left = [...result.frozenWrites, ...guarded.frozen];
   const changed = await writeDriverCells(companyId, versionId, userId, keep);
   if (left.length === 0) return { changed, warnings, headcountAsOf };
   return { changed, warnings, headcountAsOf, frozen: { cells: left.length, rows: [...new Set(left.map((w) => label(w.rowKey)))].slice(0, 20) } };

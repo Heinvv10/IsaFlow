@@ -119,7 +119,7 @@ export function driverSliceGuard(scope: HolderScope, versionStatus: string): Dri
   const holder = isHolder(scope);
   const frozenApplies = versionStatus === 'draft' && scope.reviews.some((r) => isLockedStatus(r.status));
   if (!holder && !frozenApplies) return null;
-  return (writes, label) => {
+  const guard: DriverWriteGuard = (writes, label) => {
     const keep: typeof writes[number][] = [];
     const frozen: typeof writes[number][] = [];
     for (const w of writes) {
@@ -133,6 +133,13 @@ export function driverSliceGuard(scope: HolderScope, versionStatus: string): Dri
     }
     return { keep, frozen };
   };
+  if (frozenApplies) {
+    guard.frozenRows = (rows) => new Set(rows.filter((row) => {
+      const cell = parseKey(`${row}|2000-01`);
+      return isLockedStatus(scope.reviews.find((r) => sameSlice(r, cell))?.status ?? null);
+    }));
+  }
+  return guard;
 }
 
 /**

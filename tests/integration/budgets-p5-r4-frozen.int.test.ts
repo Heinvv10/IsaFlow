@@ -92,6 +92,24 @@ describe('an approved slice is frozen to driver recomputes', () => {
     expect(dataOf<Frozen>(again).frozenDriverCells).toBeUndefined();
   });
 
+  it('a dependent driver reads the stored value of a frozen slice, not its discarded projection', async () => {
+    const { v } = await setup();
+    const fee = await fx.call.drivers(w.u, 'PUT', {
+      versionId: v, glAccountId: w.rent, kind: 'pct_of_line', pct: 10, fromMonth: w.months[0], toMonth: w.months[2],
+      ref: { glAccountId: w.cogs, cc2Id: w.cc2 },
+    });
+    expect(fee.status, dump(fee)).toBe(200);
+    expect(await at(v, w.rent, {}, w.months[0]!)).toBe('38.00');
+
+    const s = await fx.call.save(w.u, v, [{
+      glAccountId: w.sales, cc1Id: w.cc1, cc2Id: null, buId: null, month: w.months[0], amount: 2000,
+    }]);
+    expect(s.status, dump(s)).toBe(200);
+    expect(await at(v, w.cogs, { cc2: w.cc2 }, w.months[0]!)).toBe('380.00');
+    expect(await at(v, w.rent, {}, w.months[0]!)).toBe('38.00');
+    expect(dataOf<Frozen>(s).frozenDriverCells?.cells).toBe(1);
+  });
+
   it('a planned hire on the holder\'s own centre: the approved per_head slice reading it does not move', async () => {
     const v = await fx.version(w);
     await hx.hold(w as never, v, holder.userId, { cc1: w.cc1 });
