@@ -90,7 +90,7 @@ describe('planOverspendDigest / sendOverspendDigest', () => {
       .mockRejectedValueOnce(new Error('socket hang up'));
     const contexts: string[] = [];
     const inLog = vi.fn(async (write: () => Promise<void>) => { contexts.push('open'); await write(); });
-    const emails = ['a@x', 'b@x', 'c@x'].map((to) => ({ to, subject: 's', html: 'h' }));
+    const emails = ['a@x', 'b@x', 'c@x'].map((to, i) => ({ id: `mail-${i}`, to, subject: 's', html: 'h' }));
     const out = await sendOverspendDigest(CO, { skip: null, emails }, inLog);
     expect(out).toEqual({ skipped: null, sent: 1, failed: 2 });
     expect(sendEmail).toHaveBeenCalledTimes(3);
@@ -100,5 +100,17 @@ describe('planOverspendDigest / sendOverspendDigest', () => {
     expect(logEmailAttempt.mock.calls.map(([p]) => [p.recipientEmail, p.status, p.errorMessage ?? null])).toEqual([
       ['a@x', 'sent', null], ['b@x', 'failed', 'smtp down'], ['c@x', 'failed', 'socket hang up'],
     ]);
+  });
+
+  it('acknowledges only delivered emails so failed recipients remain retryable', async () => {
+    sendEmail.mockResolvedValueOnce({ success: false, error: 'smtp down' } as never)
+      .mockResolvedValueOnce({ success: true });
+    const acknowledged: string[] = [];
+    const emails = ['failed@x', 'sent@x'].map((to, i) => ({ id: `retry-${i}`, to, subject: 's', html: 'h' }));
+    const out = await sendOverspendDigest(CO, { skip: null, emails }, async (write) => write(), async (id) => {
+      acknowledged.push(id);
+    });
+    expect(out).toEqual({ skipped: null, sent: 1, failed: 1 });
+    expect(acknowledged).toEqual(['retry-1']);
   });
 });

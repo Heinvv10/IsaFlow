@@ -22,7 +22,10 @@ import { withAlsTransaction } from '@/lib/alsTransaction';
 import { todayInSast } from '@/lib/saDateParser';
 import { recordEvaluated } from './budgetAlertRuns';
 import { evaluateOverspend } from './overspendAlerts';
-import { planOverspendDigest, sendOverspendDigest, type DigestOutcome, type DigestPlan } from './overspendDigest';
+import {
+  acknowledgeOverspendDigest, enqueueOverspendDigest, pendingOverspendDigest, planOverspendDigest,
+  sendOverspendDigest, type DigestOutcome, type DigestPlan,
+} from './overspendDigest';
 
 /** The ALS actor of the cron's transactions (no person; nothing it writes stamps a user). */
 export const BUDGET_ALERT_CRON_ACTOR = 'system:budget-alerts';
@@ -84,7 +87,9 @@ async function runCompany(companyId: string, asOf: string): Promise<CompanyAlert
       fired = out.fired.length;
       resolved = out.resolved.length;
       await recordEvaluated(companyId, { source: 'daily', fired, resolved });
-      return planOverspendDigest(companyId, out.fired);
+      const fresh = await planOverspendDigest(companyId, out.fired);
+      if (fresh.skip === null) return enqueueOverspendDigest(companyId, fresh);
+      return fresh.skip === 'nothing_fired' ? pendingOverspendDigest(companyId) : fresh;
     });
   } catch (err) {
     log.error('budget alerts: company evaluation failed', {
@@ -95,8 +100,12 @@ async function runCompany(companyId: string, asOf: string): Promise<CompanyAlert
   // After the commit: each email goes out with NO transaction open (a slow mail server holds no
   // pooled connection); its email_log row is written in a short company-context transaction of its
   // own (same pool and role, company GUC set). Never throws; counts each actual outcome.
-  const digest = await sendOverspendDigest(companyId, plan, (write) => inServiceTx(companyId, write));
-  return { companyId, ok: true, fired, resolved, digest };
+  const digest = await sendOverspendDigest(
+    companyId, plan, (write) => inServiceTx(companyId, write),
+    (emailId) => acknowledgeOverspendDigest(companyId, emailId),
+  );
+  return { companyId, ok: digest.failed === 0, fired, resolved, digest,
+    ...(digest.failed > 0 ? { error: 'digest delivery failed; see logs' } : {}) };
 }
 
 export async function runBudgetAlertCron(opts: { asOf?: string } = {}): Promise<BudgetAlertCronResult> {
