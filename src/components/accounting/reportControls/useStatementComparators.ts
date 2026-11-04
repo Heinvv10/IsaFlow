@@ -33,9 +33,10 @@ import type { BudgetVarianceTracked, TrackedLine } from '@/modules/accounting/se
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import {
-  applyBudgetComparator, applyTrend, hasBudgetData,
+  applyBudgetComparator, applyTrend,
 } from '@/modules/accounting/services/reports/statementRows/comparators';
 import { applyBudgetBands, withBudgetedLines } from '@/modules/accounting/services/reports/statementRows/budgetComparatorBands';
+import { budgetStateOf } from './budgetStateOf';
 
 /** What the budget fetch has established so far. `unknown` covers both "not
  *  asked for" and "still in flight"; `failed` must never be shown as `none`;
@@ -216,17 +217,10 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
     return out;
   }, [trend, budget, trends, budgetData]);
 
-  const budgetState: BudgetState = !budget
-    ? 'unknown'
-    : budgetFailed
-      ? 'failed'
-      : budgetLimited
-        ? 'limited'
-        : budgetRefused !== null
-          ? 'refused'
-          : budgetData === null
-          ? 'unknown'
-          : hasBudgetData(budgetData.budgetedCount) ? 'available' : 'none';
+  const budgetState = budgetStateOf({
+    requested: budget, failed: budgetFailed, limited: budgetLimited !== null, refused: budgetRefused !== null,
+    budgetedCount: budgetData === null ? null : budgetData.budgetedCount,
+  });
 
   const budgetInfo: BudgetInfo = {
     budgetAbsentYears: budgetData?.budgetAbsentYears ?? [],

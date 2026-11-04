@@ -14,6 +14,7 @@ import { PresentDeck } from '@/components/accounting/present/PresentDeck';
 import { buildSlides, type ReportPack, type Slide } from '@/components/accounting/present/presentSlides';
 import { PresentSlide } from '@/components/accounting/present/PresentSlide';
 import type { BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
+import type { BudgetComparatorResponse } from '@/lib/apiRoutesBudgetComparator';
 import { classifyBudgetError } from '@/components/accounting/reportControls/useStatementComparators';
 import type { BudgetVarianceTracked, TrackedLine } from '@/modules/accounting/services/reports/budgetVarianceTracked';
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
@@ -45,6 +46,48 @@ export default function PresentPackPage() {
   const [trendsLoading, setTrendsLoading] = useState(false);
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [error, setError] = useState('');
+
+  /** Reads one comparator result into state. Shared by the first load and the 429 Retry. */
+  const takeBudget = useCallback((result: PromiseSettledResult<BudgetComparatorResponse>) => {
+    if (result.status === 'fulfilled') {
+      setBudget(result.value.lines);
+      setBudgetBands(result.value.bands);
+      setBudgetedCount(result.value.budgetedCount);
+      // Why a count of 0 is not "no budget captured": the comparator withholds a budget that exists.
+      const b = result.value;
+      setBudgetInfo({
+        budgetAbsentYears: b.budgetAbsentYears, budgetOutsideFilterYears: b.budgetOutsideFilterYears,
+        unallocatedBudget: b.unallocatedBudget, partialBudgetCount: b.partialBudgetCount, splitsMonth: b.splitsMonth,
+        retryAfterSecs: null, rejection: null,
+      });
+    } else {
+      const failure = classifyBudgetError(result.reason);
+      if (failure.kind === 'failed') setBudgetFailed(true);
+      else {
+        setBudgetRefusal(failure.kind);
+        setBudgetInfo({
+          budgetAbsentYears: [], budgetOutsideFilterYears: [], unallocatedBudget: null, partialBudgetCount: 0, splitsMonth: false,
+          retryAfterSecs: failure.kind === 'limited' ? failure.retryAfterSecs : null,
+          rejection: failure.kind === 'refused' ? failure.reason : null,
+        });
+      }
+      log.error('Budget comparator failed to load', { error: result.reason }, 'present');
+    }
+    setBudgetLoading(false);
+  }, []);
+
+  /** Re-asks the comparator alone (the 429 notice's Retry), as the statement page's `retryBudget` does. */
+  const retryBudget = useCallback(() => {
+    setBudgetFailed(false);
+    setBudgetRefusal(undefined);
+    setBudgetLoading(true);
+    void apiJson(`/api/accounting/reports-budget-comparator?period_start=${from}&period_end=${to}`, undefined, 'Could not load the budget comparison - try again')
+      .then(
+        (value): PromiseSettledResult<BudgetComparatorResponse> => ({ status: 'fulfilled', value }),
+        (reason): PromiseSettledResult<BudgetComparatorResponse> => ({ status: 'rejected', reason }),
+      )
+      .then(takeBudget);
+  }, [from, to, takeBudget]);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -97,31 +140,7 @@ export default function PresentPackPage() {
           log.error('Account trends failed to load', { error: trendsResult.reason }, 'present');
         }
         setTrendsLoading(false);
-        if (budgetResult.status === 'fulfilled') {
-          setBudget(budgetResult.value.lines);
-          setBudgetBands(budgetResult.value.bands);
-          setBudgetedCount(budgetResult.value.budgetedCount);
-          // Why a count of 0 is not "no budget captured": the comparator withholds a budget that exists.
-          const b = budgetResult.value;
-          setBudgetInfo({
-            budgetAbsentYears: b.budgetAbsentYears, budgetOutsideFilterYears: b.budgetOutsideFilterYears,
-            unallocatedBudget: b.unallocatedBudget, partialBudgetCount: b.partialBudgetCount, splitsMonth: b.splitsMonth,
-            retryAfterSecs: null, rejection: null,
-          });
-        } else {
-          const failure = classifyBudgetError(budgetResult.reason);
-          if (failure.kind === 'failed') setBudgetFailed(true);
-          else {
-            setBudgetRefusal(failure.kind);
-            setBudgetInfo({
-              budgetAbsentYears: [], budgetOutsideFilterYears: [], unallocatedBudget: null, partialBudgetCount: 0, splitsMonth: false,
-              retryAfterSecs: failure.kind === 'limited' ? failure.retryAfterSecs : null,
-              rejection: failure.kind === 'refused' ? failure.reason : null,
-            });
-          }
-          log.error('Budget comparator failed to load', { error: budgetResult.reason }, 'present');
-        }
-        setBudgetLoading(false);
+        takeBudget(budgetResult);
         if (incomeResult.status === 'fulfilled') {
           setIncome(incomeResult.value);
         } else {
@@ -144,7 +163,7 @@ export default function PresentPackPage() {
 
     void load();
     return () => { live = false; };
-  }, [router.isReady, packType, from, to]);
+  }, [router.isReady, packType, from, to, takeBudget]);
 
   const renderSlide = useCallback(
     (slide: Slide) => (
@@ -152,12 +171,12 @@ export default function PresentPackPage() {
         slide={slide} income={income} incomeLoading={incomeLoading}
         trends={trends} trendsFailed={trendsFailed} trendsLoading={trendsLoading}
         budget={budget} budgetBands={budgetBands} budgetedCount={budgetedCount} budgetInfo={budgetInfo}
-        budgetFailed={budgetFailed} budgetLoading={budgetLoading} budgetRefusal={budgetRefusal}
+        budgetFailed={budgetFailed} budgetLoading={budgetLoading} budgetRefusal={budgetRefusal} onRetryBudget={retryBudget}
       />
     ),
     [
       income, incomeLoading, trends, trendsFailed, trendsLoading,
-      budget, budgetBands, budgetedCount, budgetInfo, budgetFailed, budgetLoading, budgetRefusal,
+      budget, budgetBands, budgetedCount, budgetInfo, budgetFailed, budgetLoading, budgetRefusal, retryBudget,
     ],
   );
 
