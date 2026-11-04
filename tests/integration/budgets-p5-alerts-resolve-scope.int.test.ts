@@ -1,0 +1,72 @@
+/**
+ * Budgets P5-4: `evaluateOverspend` resolves only the open alerts of the EVALUATED VERSION, and only
+ * while that version belongs to the company and the evaluated fiscal year. The evaluated version's
+ * uncrossed alert resolves; another version's alert, in a month inside the evaluated range, survives
+ * whether that version is another fiscal year's (incl. the range's first month) or a same-year scenario.
+ * Seed: helpers/budgetAlertsFixture.ts (asOf 2026-04-20: FY2027 March and April are evaluated).
+ *
+ * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Pool, type PoolClient } from 'pg';
+import { evaluateOverspend } from '@/modules/accounting/services/budgets/overspendAlerts';
+import { resolveUncrossed } from '@/modules/accounting/services/budgets/overspendAlertsWrite';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { AS_OF, dropAlertFixture, inRequest, journal, seedAlertFixture, type AlertFixture } from './helpers/budgetAlertsFixture';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+let f: AlertFixture;
+
+beforeAll(async () => { f = await seedAlertFixture(pool); }, 120_000);
+afterAll(async () => {
+  try { await dropAlertFixture(pool, f); } finally { await pool.end(); }
+});
+
+const extraVersion = async (c: PoolClient, fiscalYear: number, name: string): Promise<string> => String((await c.query(
+  `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, is_primary, created_by)
+   VALUES ($1, $2, $3, 'scenario', false, $4) RETURNING id`, [f.a, fiscalYear, name, f.ownerA])).rows[0].id);
+// threshold 90 is not a configured threshold: on the evaluated version it is uncrossed; elsewhere it is simply open.
+const openAlert = async (c: PoolClient, versionId: string, month: string): Promise<string> => String((await c.query(
+  `INSERT INTO budget_alerts (company_id, version_id, gl_account_id, month, threshold, budget, actual, committed, pct)
+   VALUES ($1, $2, $3, $4::DATE, 90, 1000, 900, 0, 90) RETURNING id::TEXT AS id`, [f.a, versionId, f.acc.opex, month])).rows[0].id);
+
+describe('evaluateOverspend: what a run resolves', () => {
+  it('resolves the evaluated version\'s uncrossed alert; another version\'s alert stays open', async () => {
+    let primary = '';
+    let otherYearBoundary = '';
+    let otherYearInRange = '';
+    let sameYearScenario = '';
+    await inRequest(pool, f.a, f.ownerA, async ({ asSuper }) => {
+      const out = await evaluateOverspend(f.a, { asOf: AS_OF });
+      expect(out.versionId).toBe(f.vA);
+      expect(out.resolved).toEqual([primary]);
+      const ids = [primary, otherYearBoundary, otherYearInRange, sameYearScenario];
+      const rows = await asSuper((c) => c.query(
+        'SELECT id::TEXT AS id, resolved_at FROM budget_alerts WHERE id = ANY($1::UUID[])', [ids]));
+      const byId = new Map(rows.rows.map((r) => [String(r.id), r.resolved_at]));
+      expect(byId.get(primary)).not.toBeNull();
+      expect(byId.get(otherYearBoundary)).toBeNull();
+      expect(byId.get(otherYearInRange)).toBeNull();
+      expect(byId.get(sameYearScenario)).toBeNull();
+    }, async (c) => {
+      await journal(c, f.a, '2026-04-10', f.ownerA, [[f.acc.opex, 1050, 0], [f.acc.bank, 0, 1050]]);
+      primary = await openAlert(c, f.vA, '2026-04-01');
+      const fy2026 = await extraVersion(c, 2026, 'FY2026 original');
+      otherYearBoundary = await openAlert(c, fy2026, '2026-03-01'); // first month of the evaluated range
+      otherYearInRange = await openAlert(c, fy2026, '2026-04-01');
+      sameYearScenario = await openAlert(c, await extraVersion(c, 2027, 'FY2027 scenario'), '2026-04-01');
+    });
+  });
+
+  it('resolves nothing when the version is not of the stated fiscal year, or when there is no version', async () => {
+    let primary = '';
+    await inRequest(pool, f.a, f.ownerA, async ({ asSuper }) => {
+      expect(await resolveUncrossed(f.a, 2026, f.vA, [], '2026-03-01', '2026-04-01')).toEqual([]);
+      expect(await resolveUncrossed(f.a, 2027, null, [], '2026-03-01', '2026-04-01')).toEqual([]);
+      const open = await asSuper((c) => c.query('SELECT resolved_at FROM budget_alerts WHERE id = $1', [primary]));
+      expect(open.rows).toEqual([{ resolved_at: null }]);
+      expect(await resolveUncrossed(f.a, 2027, f.vA, [], '2026-03-01', '2026-04-01')).toEqual([primary]);
+    }, async (c) => { primary = await openAlert(c, f.vA, '2026-04-01'); });
+  });
+});
