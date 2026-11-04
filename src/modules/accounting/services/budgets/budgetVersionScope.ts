@@ -108,18 +108,16 @@ export async function versionYear(companyId: string, versionId: string): Promise
 
 type Part = { fiscalYear: number; first: string; last: string };
 
-function clip(year: FiscalYearRecord, first: string, last: string): { first: string; last: string } | null {
+function clip(year: FiscalYearRecord, first: string, last: string, handsOnLast: boolean): { first: string; last: string } | null {
   const own = budgetMonthBounds(year.startDate, year.endDate);
   if (!own) return null;
-  // A template year (no fiscal_years row) ending mid-month gives its last month to the year after.
-  const ownLast = !year.stored && year.endDate !== monthEnd(year.endDate)
-    ? monthKeyToDate(addMonthsToKey(own.last.slice(0, 7), -1)) : own.last;
+  const ownLast = handsOnLast ? monthKeyToDate(addMonthsToKey(own.last.slice(0, 7), -1)) : own.last;
   const f = own.first > first ? own.first : first;
   const l = ownLast < last ? ownLast : last;
   return f <= l ? { first: f, last: l } : null;
 }
 
-/** The STORED registry year holding `date` (no template year, never an error): null in a gap or before the first. */
+/** The STORED registry year holding `date` (no template year, never an error): null in a gap, before the first or after the last. */
 async function storedYearHolding(companyId: string, date: string): Promise<number | null> {
   const rows = (await sql`
     SELECT fiscal_year FROM fiscal_years
@@ -132,17 +130,19 @@ async function storedYearHolding(companyId: string, date: string): Promise<numbe
  * The registry years overlapping [startDate, endDate], each with its months inside the window.
  *
  * Owner rule (ledger LB-2(b)): a month two years share (one ends and the next starts inside it)
- * counts once, in the year holding its 1st when that is a STORED year, the key a change of year end
- * files a month under (`budgetYearRehome`, `fiscalYearForDate(month)`); otherwise (the 1st lies in a
- * template year or in a gap) in the stored year holding the month's later part. The window's start
- * day plays no part.
+ * counts once. Between two STORED years it is the year holding its 1st, the key a change of year end
+ * files a month under (`budgetYearRehome`, `fiscalYearForDate(month)`), whatever day the window starts.
+ * When the 1st lies in a template year and the month's later part in a stored year, it is the stored
+ * year's. Otherwise (template to template, a gap, a template to a gap) master's attribution holds:
+ * the year of the window's first day, then each following year from its first whole month.
  *
  * The walk is master's: from the window's first DAY to the day after each year ends. Two steps apply
  * the rule where that walk alone would not, both only where a year starts mid-month:
  *   - The window starts in a year that starts mid-month inside the window's first month: the first
  *     month goes to the stored year holding its 1st, if there is one (`storedYearHolding`).
- *   - A template year ending mid-month keeps none of its last month (`clip`); the walk goes on to the
- *     next year for it even past the window's end.
+ *   - A template year ending mid-month keeps none of its last month ONLY when the day after it ends
+ *     is in a stored year (`storedYearHolding`); the walk goes on to that stored year for it even past
+ *     the window's end, so the owed lookup always lands on a stored year (never a gap).
  *
  * `visited` is every registry year the walk touched by DATE, the year holding the first day always
  * first (even for an inverted window), never empty: one lookup per year, shared with the callers that
@@ -166,7 +166,7 @@ async function yearsInWindow(companyId: string, startDate: string, endDate: stri
     lookups += 1;
     const year = await fiscalYearForDate(companyId, day);
     if (day <= endDate || visited.length === 0) visited.push(year);
-    const part = owes() ? clip(year, first, bounds!.last) : null;
+    const part = owes() ? clip(year, first, bounds!.last, await handsOnLastMonth(companyId, year)) : null;
     if (part) {
       parts.push({ fiscalYear: year.fiscalYear, ...part });
       first = monthKeyToDate(addMonthsToKey(part.last.slice(0, 7), 1));
@@ -176,6 +176,12 @@ async function yearsInWindow(companyId: string, startDate: string, endDate: stri
   if (visited.length === 0) throw new Error(`budget window ${startDate}..${endDate} touched no registry year`);
   await giveFirstMonthToItsOwner(companyId, visited[0]!, parts, bounds?.first ?? null);
   return { parts, visited };
+}
+
+/** A template year ending mid-month gives its last month to the year after only when that year is stored. */
+async function handsOnLastMonth(companyId: string, year: FiscalYearRecord): Promise<boolean> {
+  if (year.stored || year.endDate === monthEnd(year.endDate)) return false;
+  return (await storedYearHolding(companyId, dayAfter(year.endDate))) !== null;
 }
 
 /**

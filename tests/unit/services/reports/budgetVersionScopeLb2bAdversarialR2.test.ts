@@ -101,6 +101,19 @@ describe('R2-2 (regression at 00fa209c1): the owed-month walk never looks up a d
   });
 });
 
+describe('a template year ending on a month end keeps its last month', () => {
+  it('a template year to 28 Feb before a stored year from 1 Mar: February stays the template year\'s, as on master', async () => {
+    W.years = [
+      { fiscalYear: 2026, startDate: '2025-03-01', endDate: '2026-02-28', stored: false },
+      { fiscalYear: 2027, startDate: '2026-03-01', endDate: '2027-02-28' },
+    ];
+    W.versions = { 2026: 'v26', 2027: 'v27' };
+    W.cells = [{ version: 'v26', account: SALES, month: '2026-02', amount: 100 }, { version: 'v27', account: SALES, month: '2026-03', amount: 10 }];
+    const { before, after } = await both(() => getBudgetVariance(CO, '2026-01-01', '2026-03-31'));
+    expect([before.ok && budget(before.value, SALES), after.ok && budget(after.value, SALES)]).toEqual([110, 110]);
+  });
+});
+
 describe('pre-existing limitation, pinned (master behaves the same; out of LB-2(b) scope)', () => {
   it('March in a gap company: from the 10th it is FY2027\'s; from the 1st (and remainingFor\'s keys) a 400, as on master', async () => {
     W.years = [{ fiscalYear: 2026, startDate: '2025-02-26', endDate: '2026-02-25' }, { fiscalYear: 2027, startDate: '2026-03-05', endDate: '2027-03-04' }];
