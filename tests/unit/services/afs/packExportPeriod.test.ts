@@ -31,6 +31,26 @@ function stubDb(doc: DocRow) {
   });
 }
 
+/**
+ * The rows a generated management pack actually has: sections keyed 'balance_sheet' and
+ * 'cash_flow' whose snapshots hold the month's income figures (no statement totals, no
+ * closing cash), no 'statement_of_fp', and no note sections, while a mandatory note template exists.
+ */
+function stubGeneratedPack(doc: DocRow) {
+  const income = { revenue: 1000, cogs: 400, net_profit: 300 };
+  sqlMock.mockImplementation(async (strings: TemplateStringsArray) => {
+    const text = strings.join('?');
+    if (text.includes('FROM   afs_documents')) return [doc];
+    if (text.includes('FROM   note_templates')) return [{ section_type: 'accounting_policies' }];
+    if (text.includes("section_type = 'cash_flow'")) return [{ data_snapshot: income }];
+    if (text.includes("status      != 'pending'")) {
+      return [{ section_type: 'balance_sheet' }, { section_type: 'cash_flow' }];
+    }
+    if (text.includes('SUM(jl.debit - jl.credit)')) return [{ balance: 100 }];
+    return [];
+  });
+}
+
 /** The entry_date cut-off the closing-cash ledger query was given. */
 function ledgerCutoff(): string | undefined {
   const call = sqlMock.mock.calls.find(
@@ -73,15 +93,16 @@ describe('runPreExportChecks for a management pack', () => {
     expect(getFiscalRange).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['2026-08', '2026-08-31'],
-    ['2026-02', '2026-02-28'],
-    ['2028-02', '2028-02-29'],
-    ['2026-09', '2026-09-30'],
-  ])('reads the ledger up to the last day of the pack month %s', async (period, end) => {
-    stubDb({ fiscal_year: null, document_type: 'management_pack', period });
-    await runPreExportChecks(DOC, CO, 'ifrs_smes');
-    expect(ledgerCutoff()).toBe(end);
+  it('passes every blocker for a generated pack, which has no AFS statement sections or notes', async () => {
+    stubGeneratedPack({ fiscal_year: null, document_type: 'management_pack', period: '2026-08' });
+    const checks = await runPreExportChecks(DOC, CO, 'ifrs_smes');
+    const failedBlockers = checks.filter((c) => c.severity === 'blocker' && !c.passed);
+    expect(failedBlockers).toEqual([]);
+    for (const label of ['Balance sheet balances', 'Closing cash agrees with the ledger', 'All mandatory notes present']) {
+      expect(checks.find((c) => c.label === label)).toMatchObject({
+        passed: true, detail: 'Not applicable to a management pack.',
+      });
+    }
   });
 
   it.each([null, '', '2026', '2026-13', 'Aug 2026'])(
@@ -103,6 +124,16 @@ describe('runPreExportChecks for annual financial statements', () => {
     const checks = await runPreExportChecks(DOC, CO, 'ifrs_smes');
     expect(checks).toHaveLength(1);
     expect(checks[0]!.detail).toMatch(/no fiscal year/);
+  });
+
+  it('still runs the statement blockers, which fail on sections that are not AFS statements', async () => {
+    stubGeneratedPack({ fiscal_year: 2027, document_type: 'afs', period: null });
+    vi.mocked(getFiscalRange).mockResolvedValue({ start: '2026-03-01', end: '2027-02-28' } as never);
+    const checks = await runPreExportChecks(DOC, CO, 'ifrs_smes');
+    const failed = checks.filter((c) => c.severity === 'blocker' && !c.passed).map((c) => c.label);
+    expect(failed).toEqual(expect.arrayContaining([
+      'Balance sheet balances', 'Closing cash agrees with the ledger', 'All mandatory notes present',
+    ]));
   });
 
   it('still takes the period end from the financial year registry', async () => {

@@ -482,11 +482,18 @@ export async function runPreExportChecks(
     }];
   }
 
-  // The mapping tie-out is about the ANNUAL FINANCIAL STATEMENTS, whose every
-  // figure flows through afs_account_mappings. A management pack is a different
-  // document type built from its own queries, so requiring a complete AFS
-  // mapping would block pack delivery for a reason that does not apply to it.
-  const isAfs = String(docRows[0]?.document_type ?? 'afs') === 'afs';
+  // The mapping tie-out, the balance sheet, the closing cash and the mandatory
+  // notes are about the ANNUAL FINANCIAL STATEMENTS: they read
+  // afs_account_mappings and the AFS sections 'statement_of_fp' / 'cash_flow'
+  // with their statement totals, and the IFRS note templates. A management pack
+  // is a different document built from its own queries: its sections
+  // ('balance_sheet', 'cash_flow', ...) snapshot the month's income figures and
+  // it has no notes, so those checks would block every pack for a reason that
+  // does not apply to it.
+  const isAfs = !isPack;
+  const notForPack = (label: string): Promise<ExportCheck> => Promise.resolve<ExportCheck>({
+    label, passed: true, severity: 'blocker', detail: 'Not applicable to a management pack.',
+  });
 
   const [
     allMapped,
@@ -498,17 +505,14 @@ export async function runPreExportChecks(
     imageResolution,
     directorsReport,
   ] = await Promise.all([
+    isAfs ? checkAllAccountsMapped(companyId, periodEnd) : notForPack('Every ledger account reaches the statements'),
+    isAfs ? checkBalanceSheetBalances(documentId, companyId) : notForPack('Balance sheet balances'),
     isAfs
-      ? checkAllAccountsMapped(companyId, periodEnd)
-      : Promise.resolve<ExportCheck>({
-          label: 'Every ledger account reaches the statements',
-          passed: true,
-          severity: 'blocker',
-          detail: 'Not applicable to a management pack.',
-        }),
-    checkBalanceSheetBalances(documentId, companyId),
-    checkClosingCashEqualsBank(documentId, companyId, periodEnd),
-    checkMandatoryNotes(documentId, companyId, reportingFramework),
+      ? checkClosingCashEqualsBank(documentId, companyId, periodEnd)
+      : notForPack('Closing cash agrees with the ledger'),
+    isAfs
+      ? checkMandatoryNotes(documentId, companyId, reportingFramework)
+      : notForPack('All mandatory notes present'),
     checkComparativeFigures(documentId, companyId),
     checkAllNotesReviewed(documentId, companyId),
     checkImageResolution(companyId),
