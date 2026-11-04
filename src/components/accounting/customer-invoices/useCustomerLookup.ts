@@ -33,23 +33,26 @@ function readDefaults(row: unknown): ContactDefaults {
 
 export function useCustomerLookup(clientId: string, failedMessage: string) {
   const [defaults, setDefaults] = useState<ContactDefaults | null>(null);
-  const [pending, setPending] = useState(false);
+  // The customer the last answer (or forget) was for. `pending` is derived from it in render, not set in the effect:
+  // an effect runs a commit after the pick, and in between Save was drawn enabled with the customer's defaults unasked.
+  const [answeredFor, setAnsweredFor] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const current = useRef(clientId);
+  current.current = clientId;
 
   const lookup = useRef(0);
   useEffect(() => {
     const seq = ++lookup.current;
     setError('');
-    setPending(Boolean(clientId));
     if (!clientId) { setDefaults((d) => (d ? NO_DEFAULTS : d)); return; }
     void (async () => {
       try {
         const res = await apiFetch(`/api/accounting/customers?id=${encodeURIComponent(clientId)}`, { credentials: 'include', signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
         await assertOk(res, failedMessage);
         const json = await res.json() as { data?: unknown };
-        if (seq === lookup.current) { setDefaults(readDefaults(json.data ?? json)); setPending(false); }
+        if (seq === lookup.current) { setDefaults(readDefaults(json.data ?? json)); setAnsweredFor(clientId); }
       } catch (err) {
-        if (seq === lookup.current) { setDefaults(NO_DEFAULTS); setPending(false); setError(apiErrorMessage(err, failedMessage)); }
+        if (seq === lookup.current) { setDefaults(NO_DEFAULTS); setAnsweredFor(clientId); setError(apiErrorMessage(err, failedMessage)); }
       }
     })();
   }, [clientId, failedMessage]);
@@ -58,9 +61,10 @@ export function useCustomerLookup(clientId: string, failedMessage: string) {
   const forget = useCallback(() => {
     lookup.current++;
     setDefaults(null);
-    setPending(false);
+    setAnsweredFor(current.current);
     setError('');
   }, []);
 
+  const pending = Boolean(clientId) && answeredFor !== clientId;
   return { defaults, pending, error, forget };
 }
