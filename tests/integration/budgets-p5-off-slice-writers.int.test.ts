@@ -104,8 +104,8 @@ describe('recurring template dimensions', () => {
     expect((await billState(pool, out.entityId)).status).toBe('draft');
     const w = out.warnings?.join(' ') ?? '';
     expect(w).toContain('BB-6100 Opex · no cost centre 1');
-    expect(w).toContain('The bill was left as a draft: set a budgeted cost centre 1 on its line and approve it');
-    expect(w).not.toMatch(/override|on its own in the app/);
+    expect(w).toContain('The bill was left as a draft: an owner or admin can approve it with an override and a reason, or cancel it and enter it again with a budgeted cost centre 1 on its line.');
+    expect(w).not.toMatch(/on its own in the app|assign|update_supplier_invoice/);
   });
 });
 

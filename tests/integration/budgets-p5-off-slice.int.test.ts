@@ -47,7 +47,7 @@ describe('block', () => {
     const r = await approve(f.manager, bill);
     expect(r.statusCode, JSON.stringify(r.body)).toBe(409);
     expect(r.body.error?.message).toContain(`BB-6100 Opex · no cost centre 1 · 2026-04: not in a budgeted slice, this bill ${R(200)}`);
-    expect(r.body.error?.message).toContain('assign a budgeted cost centre 1');
+    expect(r.body.error?.message).toContain('An owner or admin can override it with a reason, or cancel it and enter it again with a budgeted cost centre 1 on its line.');
     expect(r.body.error?.details).toMatchObject({ code: 'BUDGET_EXCEEDED', lines: [expect.objectContaining({ offSlice: true, over: false, amount: 200 })] });
     const after = await billState(pool, bill);
     expect(after).toEqual(before);
@@ -68,7 +68,7 @@ describe('block', () => {
     const r = await approve(f.manager, bill);
     expect(r.statusCode, JSON.stringify(r.body)).toBe(409);
     expect(r.body.error?.message).toContain('BB-6400 Projects · PB Project B · 2026-05: not in a budgeted slice');
-    expect(r.body.error?.message).toContain('assign a budgeted cost centre 2');
+    expect(r.body.error?.message).toContain('with a budgeted cost centre 2 on its line');
     expect((await billState(pool, bill)).status).toBe('draft');
     expect((await eventsFor(pool, bill)).map((e) => e.outcome)).toEqual(['refused']);
   });

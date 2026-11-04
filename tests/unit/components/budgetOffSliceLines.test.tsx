@@ -52,6 +52,12 @@ describe('BudgetApproveDialog: off-slice lines', () => {
     expect(onApprove).toHaveBeenCalledWith({ budgetReason: 'Shared cost' });
   });
 
+  it('an order\'s lines are edited on the order: the note says to assign a budgeted centre there', () => {
+    render(<BudgetApproveDialog open policy="block" noun="order" lines={[line({}), noBudget]} error="" busy={false} onCancel={() => undefined} onApprove={vi.fn()} />);
+    expect(screen.getByText(/Assign a budgeted cost centre 1 on this order's lines\./)).toBeTruthy();
+    expect(screen.queryByText(/cancel it and enter it again/)).toBeNull();
+  });
+
   it('block: a manager cannot approve; an owner overrides with a reason', () => {
     role.current = 'manager';
     dialog('block');
@@ -59,7 +65,7 @@ describe('BudgetApproveDialog: off-slice lines', () => {
     expect(screen.queryByRole('checkbox')).toBeNull();
     expect(screen.getByText(/Only an owner or admin can override it/)).toBeTruthy();
     // The note names the grain's dimension and never offers "approve it as it is" (blind review LOW).
-    expect(screen.getByText(/not in a budgeted slice: assign a budgeted cost centre 1 on this bill/)).toBeTruthy();
+    expect(screen.getByText(/not in a budgeted slice \(cost centre 1\)\. A bill's lines cannot be edited: to post it on a budgeted slice, cancel it and enter it again with a budgeted cost centre 1\./)).toBeTruthy();
     expect(screen.queryByText(/as it is/)).toBeNull();
     cleanup();
     role.current = 'owner';

@@ -63,7 +63,11 @@ export function BudgetApproveDialog({ open, policy, lines, error, busy, onCancel
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
             <span>
               {over > 0 && <>{over === 1 ? 'One line is' : `${over} lines are`} over budget.{' '}</>}
-              {offSlice > 0 && <>{offSlice === 1 ? 'One line is' : `${offSlice} lines are`} not in a budgeted slice: assign a budgeted {missing} on this {noun}.{' '}</>}
+              {offSlice > 0 && <>{offSlice === 1 ? 'One line is' : `${offSlice} lines are`} not in a budgeted slice ({missing}).{' '}
+                {/* Only what is possible: an order's lines are edited on the order; a bill's lines cannot be edited in the app. */}
+                {noun === 'order'
+                  ? `Assign a budgeted ${missing} on this order's lines.`
+                  : `A bill's lines cannot be edited: to post it on a budgeted slice, cancel it and enter it again with a budgeted ${missing}.`}{' '}</>}
               {policy === 'warn' && 'Say why it should be approved anyway; the reason goes on the audit log.'}
               {blocked && (mayOverride
                 ? 'Approval is refused unless you override the budget with a reason.'
