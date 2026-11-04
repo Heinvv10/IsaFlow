@@ -15,7 +15,7 @@ function creditCostOfSalesWithTax(withBudget: boolean): BoardPackInput {
   return { ...demoInput, set: { ...demoSet, current: { ...c, costOfSales, operatingProfit: op, netProfit }, budget: withBudget ? demoSet.budget : null } };
 }
 
-describe('REPRO 1: the required dropped-columns footnote refuses a pack the old code printed', () => {
+describe('regression: the dropped-columns footnote must not refuse a pack the old layout printed', () => {
   it('the same company without a budget gets its pack (control)', () => {
     expect(() => buildBoardPackPages(creditCostOfSalesWithTax(false))).not.toThrow();
   });
@@ -38,5 +38,29 @@ describe('a crowded page 6 falls back to the old layout rather than refuse the p
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+/** Demo figures at demo scale, cost of sales a net credit, unexplained interest/tax step of 3% of operating profit. */
+function creditCostOfSalesSmallTaxStep(): BoardPackInput {
+  const c = demoSet.current;
+  const costOfSales = -c.costOfSales;
+  const op = c.revenue - costOfSales + (c.otherIncome ?? 0) - c.operatingExpenses;
+  const netProfit = op - (c.otherExpenses ?? 0) - Math.round(Math.abs(op) * 0.03);
+  return { ...demoInput, set: { ...demoSet, current: { ...c, costOfSales, operatingProfit: op, netProfit } } };
+}
+
+describe('regression: the dropped-columns note must not make the fitter drop anchored footnotes (superscripts stay on the right note)', () => {
+  it('every superscript in the page 6 table points at a footnote that is about that row/column', () => {
+    const p6 = buildBoardPackPages(creditCostOfSalesSmallTaxStep()).pages.find((p) => p.navLabel === 'Income statement')!;
+    const t = p6.blocks.flatMap((b) => (b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue') ? [b.table] : []))[0]!;
+    const byNumber = new Map(p6.footnotes.map((f) => [f.number, f.text]));
+    const anchors = [
+      ...t.rows.filter((r) => r.footnote !== undefined).map((r) => ({ at: `row ${r.label}`, n: r.footnote! })),
+      ...(t.columnNotes ?? []).map((cn) => ({ at: `column ${cn.column}`, n: cn.footnote })),
+    ];
+    const bad = anchors.filter((a) => !byNumber.has(a.n) || byNumber.get(a.n)!.startsWith('Not printed on this page'))
+      .map((a) => `${a.at} -> ${a.n}: ${byNumber.get(a.n)?.slice(0, 40) ?? '(no such footnote on the page)'}`);
+    expect(bad).toEqual([]);
   });
 });

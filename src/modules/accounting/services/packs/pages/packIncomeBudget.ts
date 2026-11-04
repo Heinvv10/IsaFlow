@@ -15,7 +15,7 @@ import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import type { UnnumberedPage } from './packFrontMatter';
 import { buildIncomeStatementSheet } from './packIncomeSheet';
 import { fitPageReport, fitPageToBox } from './packPageFit';
-import { NOTHING } from './packOmissionFootnote';
+import { tookSomething } from './packOmissionFootnote';
 import type { PackChartSpec, PackFootnote, PackTable } from './packPageModel';
 import { budgetColumnFootnote } from './packStatementFootnotes';
 import { anchorColumn } from './packStatementTables';
@@ -66,7 +66,7 @@ export function incomeSheetWithBudget(
   const droppedNote: PackFootnote = { number: statementNotes.length + 1, text: BUDGET_COLUMNS_DROPPED_NOTE, required: true };
   const noted = buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote]);
   try {
-    if (fitPageReport(noted).dropped === NOTHING) return noted;
+    if (!tookSomething(fitPageReport(noted).dropped)) return noted;
   } catch (err) {
     if (!(err instanceof PackRefusal)) throw err;
   }
