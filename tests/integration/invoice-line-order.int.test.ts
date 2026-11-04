@@ -9,8 +9,10 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { randomBytes } from 'node:crypto';
 import customerInvoicesCreate from '../../pages/api/accounting/customer-invoices-create';
 import customerInvoicesDetail from '../../pages/api/accounting/customer-invoices-detail';
+import portalInvoice from '../../pages/api/portal/invoice/[token]';
 import { loadInvoicePdfModel } from '@/modules/accounting/services/ar/invoicePdfModel';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
@@ -94,5 +96,28 @@ describe('lines come back in the order they were entered', () => {
     const after = await digests();
     expect(after.approval).toBe(before.approval);
     expect(after.shown).not.toBe(before.shown);
+  });
+
+  it('the customer portal lists the lines in the order the PDF prints them, by line_position before created_at', async () => {
+    const customer = crypto.randomUUID();
+    await pool.query('INSERT INTO customers(id, company_id, name) VALUES($1, $2, $3)', [customer, company, 'portal order']);
+    const made = await callRoute(customerInvoicesCreate, tokens[owner]!, company, 'POST',
+      { clientId: customer, invoiceDate: '2026-09-01', items: lines() }, '/api/accounting/customer-invoices-create');
+    const id = (made.state.body as { data: { id: string } }).data.id;
+    const put = await callRoute(customerInvoicesDetail, tokens[owner]!, company, 'PUT',
+      { id, invoiceDate: '2026-09-01', taxRate: 15, items: lines().reverse() }, '/api/accounting/customer-invoices-detail');
+    expect(put.state.statusCode, JSON.stringify(put.state.body)).toBe(200);
+    // created_at made to disagree with the position (one tie from NOW() leaves the order to the plan): only an order by
+    // line_position first lists the lines as entered.
+    await pool.query(`UPDATE customer_invoice_items SET created_at = '2026-09-01T10:00:00Z'::TIMESTAMPTZ + line_position * INTERVAL '-1 second'
+                      WHERE invoice_id = $1`, [id]);
+    const token = randomBytes(32).toString('hex');
+    await pool.query('UPDATE customer_invoices SET portal_token = $2 WHERE id = $1', [id, token]);
+    const got = await callRoute(portalInvoice, '', company, 'GET', undefined, `/api/portal/invoice/${token}`, { token });
+    expect(got.state.statusCode, JSON.stringify(got.state.body)).toBe(200);
+    const portal = (got.state.body as { data: { items: { description: string }[] } }).data.items.map((l) => l.description);
+    const printed = (await loadInvoicePdfModel(company, id))!.items.map((l) => String(l.description));
+    expect(portal).toEqual([...ENTERED].reverse());
+    expect(portal).toEqual(printed);
   });
 });
