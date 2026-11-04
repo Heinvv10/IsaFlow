@@ -1,6 +1,6 @@
 /**
  * /accounting/budgets/controls (budgets P5-4, spec §5): the company's budget check policy, alert
- * thresholds (default and per account or slice), and, for owners and
+ * thresholds (default and per account or slice), the email digest switch, and, for owners and
  * admins, the overspend alerts with Evaluate now and "last evaluated". Write roles read the
  * settings; owners and admins change them; a viewer is told the page is not theirs. The server
  * re-checks every role.
