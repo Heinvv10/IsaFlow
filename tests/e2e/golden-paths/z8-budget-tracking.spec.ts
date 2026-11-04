@@ -12,10 +12,10 @@
  * statement for the same dates, with the Budget checkbox ticked, must grow a Budget column and show that line's
  * budget (both surfaces read one engine). Nothing is written, in any company.
  *
- * Figure comparisons run in a bounded retry (RETRY: at most about four attempts, so a persistent mismatch costs at
- * most four reports-budget-tracking reads against the company's shared limit). Each attempt re-reads the API AND
- * reloads the page, so fresh figures are never compared with a stale page (another golden spec may post into the
- * shared company between tests).
+ * Figure comparisons run in a bounded retry (RETRY: up to six attempts, fewer when page loads are slow, so a
+ * persistent mismatch costs at most six reports-budget-tracking reads against the company's shared limit). Each
+ * attempt re-reads the API AND reloads the page, so fresh figures are never compared with a stale page (another
+ * golden spec may post into the shared company between tests).
  *
  * Dev-only (marker above): it depends on a company that has an approved/primary budget, which prod Demo may lack.
  * Screenshots attach to the report, and go to EVIDENCE_DIR as golden-budget-tracking-<step>.png when it is set.
@@ -72,7 +72,10 @@ async function cellUnder(table: Locator, row: Locator, header: string): Promise<
   return digits(await cell.innerText());
 }
 
-/** Bounded retry: attempts start at about 0 s, 1 s, 4 s, 9 s (the last interval repeats), and none after 20 s. */
+/**
+ * Bounded retry: attempts can start at about 0, 1, 4, 9, 14 and 19 s (the last interval repeats), and none after
+ * 20 s: up to six attempts, fewer when page loads are slow.
+ */
 const RETRY = { timeout: 20_000, intervals: [1_000, 3_000, 5_000] };
 
 /** A fresh read of one window, and the line `code` in it. */
@@ -154,7 +157,9 @@ test.describe('Budget tracking: Budget vs Actual page and the income statement B
       await expect(table).toBeVisible();
       const row = lineRow(table, line);
       await expect(row).toBeVisible();
-      if (line.actual !== 0) expect(await cellUnder(table, row, 'Actual'), `Actual ${line.actual}`).toBe(printed(line.actual));
+      if (line.actual !== 0) {
+        expect(await cellUnder(table, row, 'Actual'), `Actual ${line.actual}`).toBe(printed(line.actual));
+      }
       expect(await cellUnder(table, row, 'Budget'), `Budget ${line.budget}`).toBe(printed(line.budget!));
       expect(await cellUnder(table, row, 'FY budget'), `FY budget ${line.fyBudget}`).toBe(printed(line.fyBudget!));
     }).toPass(RETRY);
@@ -199,7 +204,9 @@ test.describe('Budget tracking: Budget vs Actual page and the income statement B
       // header appears first and the figures arrive after it (cellUnder waits for them).
       const row = lineRow(table, line);
       await expect(row).toBeVisible();
-      if (line.actual !== 0) expect(await cellUnder(table, row, 'Actual'), `Actual ${line.actual}`).toBe(printed(line.actual));
+      if (line.actual !== 0) {
+        expect(await cellUnder(table, row, 'Actual'), `Actual ${line.actual}`).toBe(printed(line.actual));
+      }
       expect(await cellUnder(table, row, 'Budget'), `Budget ${line.budget}`).toBe(printed(line.budget!));
     }).toPass(RETRY);
     await shoot(page, 'income-statement-budget-column');
