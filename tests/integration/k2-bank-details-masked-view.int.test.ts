@@ -186,12 +186,19 @@ describe('MCP entity_history for payroll_bank_detail (the deliberate exception: 
     const e = await employee(pool, c);
     expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
     expect((await put(tokens[o]!, c, e, OTHER)).state.statusCode).toBe(200);
-    const [{ id }] = (await pool.query<{ id: string }>('SELECT id FROM payroll_bank_details WHERE employee_id = $1 AND is_active', [e])).rows as [{ id: string }];
+    // The retired row (ROW) and the active one (OTHER): the first holds the values a change replaced, so both are read.
+    const ids = (await pool.query<{ id: string; is_active: boolean }>('SELECT id, is_active FROM payroll_bank_details WHERE employee_id = $1', [e])).rows;
+    expect(ids.map((r) => r.is_active).sort()).toEqual([false, true]);
     const user = { owner: o, admin: a, manager: m }[role]!;
-    const out = await mcpCall(pool, user, c, role, 'entity_history', { entity_type: 'payroll_bank_detail', entity_id: id }, ['read:reports', 'read:payroll']);
-    expect(out.isError, out.content[0]!.text).toBeFalsy();
-    const text = out.content[0]!.text;
-    for (const masked of ['…4680', '…10', 'K…']) expect(text).toContain(masked);
-    for (const full of [OTHER.accountNumber, OTHER.branchCode, OTHER.accountHolder, ROW.accountNumber, ROW.accountHolder]) expect(text).not.toContain(full);
+    let text = '';
+    for (const { id } of ids) {
+      const out = await mcpCall(pool, user, c, role, 'entity_history', { entity_type: 'payroll_bank_detail', entity_id: id }, ['read:reports', 'read:payroll']);
+      expect(out.isError, out.content[0]!.text).toBeFalsy();
+      text += out.content[0]!.text;
+    }
+    for (const masked of ['…3456', '…55', '…4680', '…10', 'K…']) expect(text).toContain(masked);
+    for (const full of [ROW.accountNumber, ROW.branchCode, ROW.accountHolder, OTHER.accountNumber, OTHER.branchCode, OTHER.accountHolder]) {
+      expect(text).not.toContain(full);
+    }
   });
 });

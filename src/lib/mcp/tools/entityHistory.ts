@@ -6,7 +6,9 @@
  * the company-wide feed for owner / admin only; employees also need
  * `read:payroll`, suppliers and customers `read:contacts` (as their list tools).
  * Employee bank-detail history is deliberately readable here by a token holder (owner / admin / manager with
- * read:payroll), masked only, while GET /api/accounting/entity-changes refuses tokens and Login-as for it (Hein, 2026-11-04).
+ * read:reports + read:payroll), masked only, while GET /api/accounting/entity-changes refuses tokens and Login-as for it
+ * (Hein, 2026-11-04). compare_audit_snapshot's master-data list also names these changes (id, bank name, op, actor, time;
+ * no values) under read:reports alone.
  */
 import type { McpTool } from '../types';
 import { EntityChangeCursorError, listEntityChanges, MAX_PAGE } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';

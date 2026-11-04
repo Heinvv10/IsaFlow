@@ -16,9 +16,12 @@
  * On THIS route payroll_bank_detail history is for a person in their own session only: the bank-detail paths (entityId,
  * employeeId, entityType) refuse Login-as (403 IMPERSONATION_FORBIDDEN) and tokens (403 AGENT_FORBIDDEN), as the
  * bank-details route does, and the all-types feed leaves those rows out for any such session.
- * MCP is the deliberate exception (Hein, 2026-11-04): `entity_history` and `compare_audit_snapshot` return the MASKED
- * bank-detail history (…last4, branch …last2, holder initial, never a reveal) to a token holder with an owner / admin /
- * manager role and read:payroll.
+ * MCP is the deliberate exception (Hein, 2026-11-04), in two places:
+ *   - `entity_history` (read:reports plus read:payroll for this type) returns the MASKED bank-detail history (…last4,
+ *     branch …last2, holder initial, never a reveal) to a token holder with an owner / admin / manager role;
+ *   - `compare_audit_snapshot` against today's books (read:reports only, owner / admin / manager; comparisonService
+ *     masterDataSince) lists the bank-detail changes recorded since the snapshot as metadata only: the bank-detail row
+ *     id, the bank name as label, the op, the actor and the time, with no field values and no numbers.
  * RLS (entity_changes_read) enforces the same reading rules underneath.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
