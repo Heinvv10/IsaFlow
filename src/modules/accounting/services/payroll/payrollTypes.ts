@@ -45,8 +45,14 @@ export interface DirectiveFigures {
 export interface EmployeeComponent {
   component: PayrollComponent;
   amount: number;
+  /** Taxable remuneration reported on the payslip but not paid to the employee in cash. */
+  isNonCash?: boolean;
   /** Set on a lump-sum (39xx) component paid under a directive; see payrollCalculator. */
   directive?: DirectiveFigures;
+  /** The assignment's is_recurring, when read from payroll_employee_components (the termination base takes recurring rows only). */
+  isRecurring?: boolean;
+  /** The payroll_employee_components row it was read from (the pro-rata guard asks which rows the reader paid). */
+  assignmentId?: string;
 }
 
 export interface PayrollPeriod {
@@ -125,6 +131,12 @@ export interface ValidationResult {
   deepLink?: string;
   /** PAYE_LATER_PERIODS_APPROVED only: the later months it names, YYYY-MM. The approval gate matches on this, not the message. */
   periods?: string[];
+  /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */
+  rawNet?: number;
+  /** LOAN_DEDUCTION_MISSING only: the loan numbers whose instalment was not taken. */
+  loans?: string[];
+  /** LOAN_DEDUCTION_MISSING only: the components missing, 'LOAN' and, when also missing, '3801'. */
+  missing?: string[];
 }
 
 export interface PayrollLineInput {
@@ -162,6 +174,8 @@ export interface ComponentBreakdownItem {
   amount: number;
   isTaxable: boolean;
   isUifApplicable: boolean;
+  /** True when the earning is taxable remuneration but is not paid in cash. */
+  isNonCash?: true;
   directive?: DirectiveFigures;
   /** Set on an employee retirement fund contribution (4001/4003/4006 deduction; PAYE 4c, migration 948). */
   retirementContribution?: true;
@@ -208,6 +222,8 @@ export interface PayeSplit {
 export interface PayrollLineResult {
   employeeId: string;
   grossPay: number;
+  /** Every earning, non-cash benefits included (grossPay is cash only): the ETI base and the employer SDL threshold basis. */
+  remuneration: number;
   /** Regular plus annual-payment remuneration, before the retirement fund deduction (`retirementDeduction`). Lump sums are not in it. */
   taxableIncome: number;
   /** Periodic and annual-payment remuneration BEFORE the retirement fund deduction (stored on the line for the next period's year-to-date). */

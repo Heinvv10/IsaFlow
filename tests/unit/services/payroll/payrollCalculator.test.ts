@@ -117,6 +117,28 @@ describe('payrollCalculator — property tests', () => {
     expect(result.paye.monthlyPaye).toBeCloseTo(taxableBase, 1);
   });
 
+  it('taxes a non-cash 3801 benefit without paying it as cash gross or net', () => {
+    const base = calculatePayrollLine(makeInput(25_000));
+    const input = makeInput(25_000);
+    input.components.push({
+      component: makeComponent({
+        id: 'loan-fringe', name: 'Low-interest loan benefit', sarsSourceCode: '3801',
+        isUifApplicable: false, isSdlApplicable: true,
+      }),
+      amount: 1_000,
+      isNonCash: true,
+    });
+
+    const result = calculatePayrollLine(input);
+
+    expect(result.grossPay).toBe(base.grossPay);
+    expect(result.remuneration).toBe(base.remuneration + 1_000);
+    expect(result.sdlLeviable).toBe(base.sdlLeviable + 1_000);
+    expect(result.taxableIncome).toBe(base.taxableIncome + 1_000);
+    expect(result.paye.monthlyPaye).toBeGreaterThan(base.paye.monthlyPaye);
+    expect(result.netPay).toBeCloseTo(base.netPay - (result.paye.monthlyPaye - base.paye.monthlyPaye), 2);
+  });
+
   it('component breakdown includes all components', () => {
     const result = calculatePayrollLine(makeInput(25_000));
     expect(result.componentBreakdown).toHaveLength(1);

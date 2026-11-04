@@ -95,6 +95,9 @@ describe('CLAIM 3 — never stuck', () => {
   it('C3-B: a reopened run with a staff-loan instalment is recalculated once its journal is reversed', async () => {
     const loan = crypto.randomUUID();
     await r.pool.query(
+      `INSERT INTO payroll_components(company_id,name,sars_source_code,component_type,is_taxable)
+       VALUES($1,'Staff loan repayment','LOAN','deduction',false)`, [r.company]);
+    await r.pool.query(
       `INSERT INTO payroll_loans(id,company_id,employee_id,loan_number,description,principal,
          annual_interest_rate,term_months,method,start_date,first_deduction_period_year,
          first_deduction_period_month,status,outstanding_balance)
