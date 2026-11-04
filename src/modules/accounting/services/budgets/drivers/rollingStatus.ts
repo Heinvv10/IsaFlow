@@ -4,7 +4,7 @@
  * Read-only; nothing here is stored (no migration): every figure is recomputed from committed state.
  *
  * - staleMonths (rolling versions): closed months after rolled_through_month (a roll that did not
- *   run). Turning auto-roll on stamps nothing, so every closed month is stale until a roll.
+ *   run, or one that left cells in budget slices with their reviewer: `sliceSkipped`, P5-6). Turning auto-roll on stamps nothing, so every closed month is stale until a roll.
  * - reopenedMonths (any version): months that hold 'actual' cells and are not closed now (reopened
  *   since those actuals were written; the next roll, or Roll now, makes them 'manual').
  * - unplaced: the planner's own rule (`unplacedActuals`, reforecast.ts) over the version's rows as
@@ -34,6 +34,11 @@ export interface RollingStatus {
   unplaced: UnplacedActualLine[];
   lastRolledAt: string | null;
   lastError: string | null;
+  /** P5-6: cells the last roll left because their slice is with its reviewer (0 when none), and those slices. */
+  sliceSkipped: number;
+  sliceSkippedSlices: string[];
+  /** P5-6: cells the last roll left outside the slices of the holder whose close set it off. */
+  outsideSkipped: number;
 }
 
 /** Another company's version is a 404. Sequential reads (withAuth binds one client). */
@@ -63,5 +68,8 @@ export async function rollingStatus(companyId: string, versionId: string): Promi
     unplaced,
     lastRolledAt: row?.lastRolledAt ?? null,
     lastError: row?.lastError ?? null,
+    sliceSkipped: row?.sliceSkipped ?? 0,
+    sliceSkippedSlices: row?.sliceSkippedSlices ?? [],
+    outsideSkipped: row?.outsideSkipped ?? 0,
   };
 }

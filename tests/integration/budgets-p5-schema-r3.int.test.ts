@@ -103,6 +103,9 @@ describe('954 r3: a slice moved back to submitted loses the previous decision', 
     await asAppUser(A, async (q) => {
       const id = String((await q.query(`INSERT INTO budget_slice_reviews (company_id, version_id, bu_id, created_by)
         VALUES ($1, $2, $3, 'x') RETURNING id`, [A.id, vA, A.bu])).rows[0].id);
+      // Only a holder of the slice submits it (955, P5-6): the owner holds it here.
+      await q.query(`INSERT INTO budget_holders (company_id, version_id, user_id, bu_id, created_by) VALUES ($1, $2, $3, $4, 'x')
+                     ON CONFLICT ON CONSTRAINT budget_holders_one_per_slice DO NOTHING`, [A.id, vA, A.user, A.bu]);
       await q.query(`UPDATE budget_slice_reviews SET status = 'submitted' WHERE id = $1`, [id]);
       await q.query(`UPDATE budget_slice_reviews SET status = 'returned', decision_note = 'Too high' WHERE id = $1`, [id]);
       expect((await q.query('SELECT decided_by FROM budget_slice_reviews WHERE id = $1', [id])).rows[0].decided_by).toBe(A.user);

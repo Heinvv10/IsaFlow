@@ -25,6 +25,8 @@ vi.mock('@/modules/accounting/services/bank/bankRulesService', () => ({
   createRule: vi.fn(),
   updateRule: vi.fn(),
   toggleRule: vi.fn(),
+  validateCreateRuleTargets: vi.fn(),
+  validateUpdateRuleTargets: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   accountsBelongToCompany: vi.fn(),
@@ -64,11 +66,11 @@ const R1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const R2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const R3 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
-function ctx(): McpToolContext {
+function ctx(scopes = ['read:bank-tx', 'write:bank-tx', 'write:post']): McpToolContext {
   return {
     userId: '44444444-4444-4444-8444-444444444444',
     companyId: COMPANY,
-    scopes: ['read:bank-tx', 'write:bank-tx'],
+    scopes,
     tokenJti: 'jti',
     oauthAppId: null,
   } as McpToolContext;
@@ -249,6 +251,7 @@ describe('update_bank_rule', () => {
     ))).toBe('Not found');
     expect(updateRule).not.toHaveBeenCalled();
   });
+
 });
 
 describe('disable_bank_rule', () => {
@@ -256,7 +259,10 @@ describe('disable_bank_rule', () => {
 
   it('disables by default and reports the new state', async () => {
     vi.mocked(getRules).mockResolvedValue([rule({ id: R1, isActive: true })]);
-    const r = parseOk(await disableBankRuleTool.handler({ rule_id: R1, ...KEY }, ctx()));
+    const r = parseOk(await disableBankRuleTool.handler(
+      { rule_id: R1, ...KEY },
+      ctx(['write:bank-tx']),
+    ));
     expect(r.is_active).toBe(false);
     expect(r.already).toBe(false);
     expect(vi.mocked(toggleRule).mock.calls[0]!.slice(0, 3)).toEqual([COMPANY, R1, false]);
