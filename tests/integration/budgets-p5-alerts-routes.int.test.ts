@@ -163,6 +163,32 @@ describe('controls settings', () => {
     const row = await pool.query('SELECT alert_email_enabled, check_policy FROM budget_control_settings WHERE company_id = $1', [co]);
     expect(row.rows[0]).toEqual({ alert_email_enabled: false, check_policy: 'off' });
   });
+
+  it('serialises partial saves so concurrent admins do not revert each other\'s fields', async () => {
+    const co = o.u.homeCompanyId;
+    await pool.query(`UPDATE budget_control_settings
+                         SET check_policy = 'off', default_thresholds = '{80,100,120}'
+                       WHERE company_id = $1`, [co]);
+    await pool.query(`CREATE FUNCTION budget_controls_test_pause() RETURNS trigger
+                      LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.2); RETURN NEW; END $$`);
+    await pool.query(`CREATE TRIGGER budget_controls_test_pause
+                      BEFORE UPDATE ON budget_control_settings
+                      FOR EACH ROW EXECUTE FUNCTION budget_controls_test_pause()`);
+    try {
+      const [policy, thresholdsSave] = await Promise.all([
+        controls.call(o.u, 'PUT', { checkPolicy: 'warn' }),
+        controls.call(admin, 'PUT', { defaultThresholds: [75] }),
+      ]);
+      expect(policy.status).toBe(200);
+      expect(thresholdsSave.status).toBe(200);
+    } finally {
+      await pool.query('DROP TRIGGER budget_controls_test_pause ON budget_control_settings');
+      await pool.query('DROP FUNCTION budget_controls_test_pause()');
+    }
+    expect((await pool.query(`SELECT check_policy, default_thresholds::TEXT AS default_thresholds
+                                FROM budget_control_settings WHERE company_id = $1`, [co])).rows[0])
+      .toEqual({ check_policy: 'warn', default_thresholds: '{75}' });
+  });
 });
 
 describe('threshold overrides', () => {
@@ -176,6 +202,14 @@ describe('threshold overrides', () => {
     expect(ov).toMatchObject({ thresholds: [60, 95], accountCode: 'BR-5000', sliceName: null });
     const replaced = await thresholds.call(admin, 'POST', { glAccountId: o.account, thresholds: [70] });
     expect((d(replaced) as { override: { id: string; thresholds: number[] } }).override).toMatchObject({ id: ov.id, thresholds: [70] });
+    const audit = await pool.query(`SELECT changes FROM audit_log
+                                     WHERE company_id = $1 AND entity_type = 'budget'
+                                       AND entity_ref = 'Budget alert thresholds'
+                                     ORDER BY created_at`, [o.u.homeCompanyId]);
+    expect(audit.rows.map((row) => row.changes.fields[0])).toEqual([
+      { field: 'thresholds', label: 'Alert thresholds', old: null, new: '60,95' },
+      { field: 'thresholds', label: 'Alert thresholds', old: '60,95', new: '70' },
+    ]);
     expect((d(await controls.call(manager, 'GET')) as { overrides: unknown[] }).overrides).toHaveLength(1);
     expect((await thresholds.call(manager, 'DELETE', { id: ov.id })).status).toBe(403);
     expect((await thresholds.call(other.u, 'DELETE', { id: ov.id })).status).toBe(404);

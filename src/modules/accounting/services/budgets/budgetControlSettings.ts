@@ -15,6 +15,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { als, assertTxUsable } from '@/lib/als';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { DEFAULT_THRESHOLDS, normaliseThresholds, type ThresholdOverride } from './overspendAlertsCore';
 
@@ -83,8 +84,18 @@ export interface SettingsPatch {
   defaultThresholds?: number[];
 }
 
+/** Serialises every control mutation for one company until the request transaction commits. */
+async function lockControlWrites(companyId: string): Promise<void> {
+  if (!als.getStore()?.client) {
+    throw new Error('Budget control writes require a request transaction (withAuth)');
+  }
+  assertTxUsable();
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`budget_controls:${companyId}`}, 954))`;
+}
+
 /** Saves the fields given (the rest keep their stored or default values); one audit row naming what changed. */
 export async function saveControlSettings(companyId: string, userId: string, patch: SettingsPatch): Promise<ControlSettings> {
+  await lockControlWrites(companyId);
   const before = await readControlSettings(companyId);
   // Only switching it ON is refused while sending is off: a flag already on may be re-sent unchanged
   // (the form must still save the policy), and switching it off is always allowed.
@@ -158,6 +169,7 @@ export interface OverrideInput {
 
 /** Creates or replaces the override for (account, slice). 400 when the account or slice is not this company's. */
 export async function upsertThresholdOverride(companyId: string, userId: string, input: OverrideInput): Promise<OverrideRow> {
+  await lockControlWrites(companyId);
   const dims = [input.cc1Id, input.cc2Id, input.buId].filter((d) => d !== null);
   if (dims.length > 1) throw new BudgetControlsError(400, 'An override names at most one dimension: a CC1, a CC2 or a business unit.');
   const acct = (await sql`
@@ -178,6 +190,15 @@ export async function upsertThresholdOverride(companyId: string, userId: string,
     if (!found[0]) throw new BudgetControlsError(400, 'That business unit is not one of this company\'s.');
   }
   const thresholds = normaliseThresholds(input.thresholds);
+  const existing = (await sql`
+    SELECT thresholds::TEXT AS thresholds
+      FROM budget_alert_thresholds
+     WHERE company_id = ${companyId}::UUID AND gl_account_id = ${input.glAccountId}::UUID
+       AND cc1_id IS NOT DISTINCT FROM ${input.cc1Id}::UUID
+       AND cc2_id IS NOT DISTINCT FROM ${input.cc2Id}::UUID
+       AND bu_id IS NOT DISTINCT FROM ${input.buId}::UUID
+  `) as DbRow[];
+  const oldThresholds = existing[0] ? normaliseThresholds(nums(existing[0].thresholds)).join(',') : null;
   const saved = (await sql`
     INSERT INTO budget_alert_thresholds (company_id, gl_account_id, cc1_id, cc2_id, bu_id, thresholds, created_by)
     VALUES (${companyId}::UUID, ${input.glAccountId}::UUID, ${input.cc1Id}::UUID, ${input.cc2Id}::UUID, ${input.buId}::UUID,
@@ -189,7 +210,7 @@ export async function upsertThresholdOverride(companyId: string, userId: string,
   const id = String(saved[0]!.id);
   await logAuditOrThrow({
     companyId, userId, action: 'update', entityType: 'budget', entityId: companyId, entityRef: 'Budget alert thresholds',
-    changes: { fields: [{ field: 'thresholds', label: 'Alert thresholds', old: null, new: thresholds.join(',') }], metadata: { area: 'budget_alert_thresholds', overrideId: id, glAccountId: input.glAccountId } },
+    changes: { fields: [{ field: 'thresholds', label: 'Alert thresholds', old: oldThresholds, new: thresholds.join(',') }], metadata: { area: 'budget_alert_thresholds', overrideId: id, glAccountId: input.glAccountId } },
   });
   const out = (await listThresholdOverrides(companyId)).find((o) => o.id === id);
   if (!out) throw new Error(`upsertThresholdOverride: saved override ${id} not readable`);
@@ -198,6 +219,7 @@ export async function upsertThresholdOverride(companyId: string, userId: string,
 
 /** Removes one override (the account falls back to the next most specific thresholds). 404 when not this company's. */
 export async function deleteThresholdOverride(companyId: string, userId: string, id: string): Promise<void> {
+  await lockControlWrites(companyId);
   const gone = (await sql`
     DELETE FROM budget_alert_thresholds WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     RETURNING gl_account_id::TEXT AS gl_account_id, thresholds::TEXT AS thresholds
