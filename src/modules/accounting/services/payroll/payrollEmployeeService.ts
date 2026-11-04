@@ -1,4 +1,5 @@
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
+import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -149,7 +150,9 @@ export async function updatePayrollEmployee(
   const todayIso = new Date().toISOString().split('T')[0]!;
   const status = endIso && endIso <= todayIso ? 'terminated' : null;
 
-  const rows = (await sql`
+  // An end date moves who a run pays and the termination base: under the company's payroll-approval lock, as every
+  // change the approval gate re-checks (payrollRunRecalcGate). Other fields need no lock.
+  const write = (db: typeof sql) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
       last_name                    = COALESCE(${data.lastName ?? null}, last_name),
@@ -165,7 +168,11 @@ export async function updatePayrollEmployee(
       updated_at                   = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
-  `) as Row[];
+  `;
+  const rows = (endIso === null ? await write(sql) : await withTransaction(async (tx) => {
+    await lockCompanyPayrollForComponentChange(tx, companyId);
+    return write(tx as typeof sql);
+  })) as Row[];
 
   const updated = rows.length > 0 && rows[0] ? mapPayrollEmployeeRow(rows[0]) : null;
 

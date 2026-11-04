@@ -30,6 +30,7 @@ vi.mock('@/lib/apiResponse', () => ({
 import handler from '../../../pages/api/payroll/duplicates';
 import { apiResponse } from '@/lib/apiResponse';
 import { isHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
+import { auditBankDuplicatesRead } from '@/modules/accounting/services/payroll/payrollBankReadAudit';
 import { findDuplicates } from '@/modules/accounting/services/payroll/payrollDuplicateDetectionService';
 
 const COMPANY_ID = '11111111-1111-4111-9111-111111111111';
@@ -66,5 +67,18 @@ describe('GET /api/payroll/duplicates bank-account role gate', () => {
       includeBankAccounts: true,
       fullBankAccounts: true,
     });
+  });
+
+  it.each(['owner', 'admin'])('%s in a Login-as or token session: masked groups only, unaudited', async (companyRole) => {
+    vi.mocked(isHumanSession).mockResolvedValueOnce(false);
+    await (handler as unknown as (request: NextApiRequest, response: NextApiResponse) => Promise<void>)(req(companyRole), res);
+
+    expect(isHumanSession).toHaveBeenCalledTimes(1);
+    expect(findDuplicates).toHaveBeenCalledWith(COMPANY_ID, {
+      includeTerminated: false,
+      includeBankAccounts: true,
+      fullBankAccounts: false,
+    });
+    expect(auditBankDuplicatesRead).not.toHaveBeenCalled();
   });
 });

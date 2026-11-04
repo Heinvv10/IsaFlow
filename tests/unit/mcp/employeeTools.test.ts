@@ -289,10 +289,12 @@ describe('end_employee_component', () => {
       { assignment_id: ASSIGNMENT, effective_to: '2025-12-31', ...KEY }, ctx(),
     ));
     expect(out.ended).toBe(true);
-    const [companyId, id, date] = vi.mocked(endEmployeeComponent).mock.calls[0]!;
+    const [companyId, id, date, actor] = vi.mocked(endEmployeeComponent).mock.calls[0]!;
     expect(companyId).toBe(COMPANY);
     expect(id).toBe(ASSIGNMENT);
     expect(date).toBe('2025-12-31');
+    // The audit trail names the MCP caller (payrollComponentDateEdit).
+    expect(actor).toEqual({ userId: ctx().userId, channel: 'mcp' });
   });
 
   it('refuses a malformed id or date before the write', async () => {

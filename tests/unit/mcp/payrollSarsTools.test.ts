@@ -72,6 +72,7 @@ const IRP5 = {
     uifEmployee: 2124, uifEmployer: 2124, sdl: 4800, eti: 0, netPay: 381876,
     runsIncluded: 12,
     lumpSums: [{ sourceCode: '3901', directiveNumber: '1234567890', directiveIssuedDate: '2025-11-03', amount: 30000, paye: 3000 }],
+    fringeBenefits: [{ sourceCode: '3801', amount: 10000 }],
   }],
   rowsTotal: 1,
   universeTotal: 2,
@@ -80,6 +81,7 @@ const IRP5 = {
     detail: '3 payroll runs fall in this tax year but are not declarable', amount: 335800,
   }],
   postedThrough: '2026-02-28T10:00:00.000Z',
+  warnings: ['Thandi Mokoena: R 1 000.00 under code 3801 was costed before the benefit was non-cash; it was paid in cash and is in 3601.'],
 };
 
 beforeEach(() => {
@@ -102,6 +104,10 @@ describe('registration', () => {
 });
 
 describe('emp201_status', () => {
+  it('says taxable_remuneration includes non-cash benefits while a row\'s gross_pay is cash', () => {
+    expect(emp201StatusTool.description).toMatch(/taxable_remuneration includes non-cash fringe benefits[^.]*\. [^.]*gross_pay is cash/);
+  });
+
   it('reports PAYE withheld, the ETI offset, and PAYE actually payable as three numbers', async () => {
     const env = json(await emp201StatusTool.handler(
       { period_start: '2026-01-01', period_end: '2026-03-31' }, ctx,
@@ -182,6 +188,17 @@ describe('irp5_data', () => {
     expect(env.rows[0].lump_sums).toEqual([
       { source_code: '3901', directive_number: '1234567890', directive_issued_date: '2025-11-03', amount: 30000, paye: 3000 },
     ]);
+    // The non-cash loan benefit: NOT in gross_salary (cash), certified under its own code.
+    expect(env.rows[0].fringe_benefits).toEqual([{ source_code: '3801', amount: 10000 }]);
+    expect(env.totals).toMatchObject({ gross_salary: 480000, fringe_benefits: 10000 });
+    expect(env.warnings).toEqual(IRP5.warnings);
+  });
+
+  it('describes gross_salary as cash pay, not gross remuneration, in its first sentence', () => {
+    const first = irp5DataTool.description.split('. ')[0]!;
+    expect(first).not.toMatch(/gross remuneration/);
+    expect(first).toMatch(/cash gross pay/);
+    expect(first).toMatch(/non-cash fringe benefits/);
   });
 
   it('masks identity numbers by default and reveals them only on request', async () => {

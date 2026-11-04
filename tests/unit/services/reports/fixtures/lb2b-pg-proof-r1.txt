@@ -1,0 +1,19 @@
+# PG16 + migration 940's fiscal_year_for_date / fiscal_year_template, run by the #1124 round-1
+# adversarial reviewer (archive: /home/hein/audit-archive/p3fu/adv-1124/pg-proof.txt).
+# co1: first stored year starts 15 Mar 2025 (1 Mar 2025 is a template year's); then a registry
+# gap over 1 Mar 2026 (FY2026 ends 25 Feb, FY2027 starts 5 Mar).
+       w        | fiscal_year | start_date |  end_date  | stored 
+----------------+-------------+------------+------------+--------
+ co1 1 Mar 2025 |        2025 | 2024-03-15 | 2025-03-14 | f
+(1 row)
+
+ fiscal_year | start_date |  end_date  
+-------------+------------+------------
+        2027 | 2026-03-05 | 2027-03-04
+(1 row)
+
+ERROR:  fiscal_year_template: no free label for the year holding 2026-03-01 (between FY2026 and FY2027)
+CONTEXT:  PL/pgSQL function fiscal_year_template(uuid,date,integer) line 60 at RAISE
+SQL statement "SELECT NULL::uuid, t.fiscal_year, t.start_date, t.end_date, 'open'::varchar, 'normal'::varchar, false, t.assumed
+        FROM public.fiscal_year_template(p_company, p_date, 3) t"
+PL/pgSQL function fiscal_year_for_date(uuid,date) line 9 at RETURN QUERY

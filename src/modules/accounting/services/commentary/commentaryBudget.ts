@@ -12,8 +12,11 @@ import { approxCharsLeft } from './commentaryLimits';
 /** Only the board pack prints approved commentary on a fixed sheet (page 4);
  *  management and monthly packs flow it on screen and in the share link. The
  *  pack type is hashed into `params_hash`, so it is recovered by matching. A
- *  row that matches none is treated as board: fail closed. */
-export function printsOnFixedPage(row: { paramsHash: string; periodStart: string; periodEnd: string }): boolean {
+ *  PACK row that matches none is treated as board: fail closed. A row of any
+ *  other kind (a budget variance note, P5 §3e) is on no pack page at all: it
+ *  takes no page-4 budget and no pack lock, only the unbudgeted ceiling. */
+export function printsOnFixedPage(row: { reportKind: string; paramsHash: string; periodStart: string; periodEnd: string }): boolean {
+  if (row.reportKind !== 'pack') return false;
   const type = PACK_TYPES.find((t) =>
     canonicalParamsHash({ type: t, from: row.periodStart, to: row.periodEnd }) === row.paramsHash);
   return type === undefined || type === 'board';

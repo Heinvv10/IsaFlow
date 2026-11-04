@@ -67,9 +67,10 @@ export default function DuplicatesPage() {
   useEffect(() => { void load(); }, [load]);
 
   const groups = data ? data[activeTab] : [];
-  const visibleTabs = isHistoryAdmin(companyRole ?? undefined)
-    ? TABS
-    : TABS.filter((tab) => tab.key !== 'bankAccount');
+  // The server decides who gets bank-account groups; the role here only keeps an admin's empty tab.
+  const showBankTab = (data?.bankAccount.length ?? 0) > 0 || isHistoryAdmin(companyRole ?? undefined);
+  const visibleTabs = showBankTab ? TABS : TABS.filter((tab) => tab.key !== 'bankAccount');
+  const showBankNote = companyRole !== null && !isHistoryAdmin(companyRole);
 
   return (
     <AppLayout>
@@ -91,6 +92,9 @@ export default function DuplicatesPage() {
         </div>
 
         <div className="p-6 space-y-4">
+          {showBankNote && (
+            <p className="text-sm text-[var(--ff-text-secondary)]">Bank-account duplicates are visible to owners and admins.</p>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
@@ -103,7 +107,9 @@ export default function DuplicatesPage() {
             <div className="text-center py-16">
               <UserCheck className="h-12 w-12 text-emerald-500 mx-auto mb-3" />
               <p className="text-[var(--ff-text-primary)] font-medium">No duplicates found</p>
-              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">Employee master data is clean.</p>
+              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
+                {showBankNote ? 'No duplicates in the fields you can see.' : 'Employee master data is clean.'}
+              </p>
             </div>
           ) : data ? (
             <>
