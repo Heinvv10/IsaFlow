@@ -46,14 +46,22 @@ async function shoot(page: Page, name: string): Promise<void> {
   }
 }
 
-/** The digits of a printed figure: "9 000.00" and "9,000.00" both give 900000. */
-const digits = (s: string): string => s.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
 /**
- * The page's own money format (src/lib/format/money.ts `cents`: en-ZA, two decimals, sign dropped: a negative prints
- * in brackets).
+ * A printed figure with locale punctuation removed, but its accounting sign retained:
+ * "(9 000.00)" and "-9,000.00" both give -900000, while "9 000.00" gives 900000.
+ */
+const figure = (s: string): string => {
+  const text = s.trim();
+  const negative = /^\(.*\)$/.test(text) || /^[-\u2212]/.test(text);
+  const magnitude = text.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+  return negative ? `-${magnitude}` : magnitude;
+};
+/**
+ * The page's precision and locale (src/lib/format/money.ts `cents`: en-ZA, two decimals). `figure` equates Intl's
+ * minus sign here with the page's accounting brackets without discarding either sign.
  */
 const TWO_DP = new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const printed = (rand: number): string => digits(TWO_DP.format(Math.abs(rand)));
+const printed = (rand: number): string => figure(TWO_DP.format(rand));
 
 /** The statement body row for an account: the first row of `table` that shows its code and name. */
 const lineRow = (table: Locator, l: Line): Locator =>
@@ -69,7 +77,7 @@ async function cellUnder(table: Locator, row: Locator, header: string): Promise<
   expect(col, `column "${header}" in [${heads.join(' | ')}]`).toBeGreaterThanOrEqual(0);
   const cell = row.locator('td').nth(col);
   await expect(cell).toHaveText(/\d/, { timeout: 5_000 });
-  return digits(await cell.innerText());
+  return figure(await cell.innerText());
 }
 
 /**
