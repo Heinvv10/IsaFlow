@@ -8,6 +8,9 @@ import type { BudgetVersion } from '@/modules/accounting/services/budgets/budget
 import type { GridCellsOnly, GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
 import type { RemainingResult } from '@/modules/accounting/services/budgets/remainingBudgetCore';
+import type { BudgetAlertList } from '@/modules/accounting/services/budgets/budgetAlertList';
+import type { ControlsView, EvaluateNowResult } from '@/modules/accounting/services/budgets/budgetControlsApi';
+import type { OverrideRow } from '@/modules/accounting/services/budgets/budgetControlSettings';
 import type { SliceReview } from '@/modules/accounting/services/budgets/sliceReviewRead';
 import type { VarianceNote } from '@/modules/accounting/services/commentary/varianceNoteTypes';
 import type { SaveCellsResult } from '@/modules/accounting/services/budgets/gridSave';
@@ -32,6 +35,11 @@ export interface BudgetStaticRoutes {
   '/api/accounting/budget-drivers/planned-hires': PlannedHiresResponse;
   // Budgets P5-1: remaining-budget preview (POST).
   '/api/accounting/budgets/remaining': { lines: RemainingResult[] };
+  // Budgets P5-4: controls GET/PUT (one view), threshold overrides POST (the item) / DELETE, alerts list, Evaluate now.
+  '/api/accounting/budgets/controls': ControlsView;
+  '/api/accounting/budgets/controls/thresholds': { override: OverrideRow } | { deleted: true };
+  '/api/accounting/budgets/alerts': BudgetAlertList;
+  '/api/accounting/budgets/alerts/evaluate': EvaluateNowResult;
   // Budgets P5-5: GET the month's notes; POST saves, approves or rejects one.
   '/api/accounting/budgets/variance-notes': { notes: VarianceNote[] } | { note: VarianceNote };
   // Budgets P5-6: GET the slices (owner/admin every one, others their own); POST assigns a holder and answers the

@@ -1,0 +1,28 @@
+[Unit]
+Description=IsaFlow — daily budget overspend alerts (budgets P5-4)
+After=network-online.target isaflow.service
+Wants=network-online.target
+
+# Evaluates every active company's budget alerts and notifies owners/admins in the
+# bell. The email digest stays OFF unless BUDGET_ALERT_EMAIL_ENABLED=1 is in the env
+# file AND a company switches it on. The X-Cron-Secret header reaches curl on stdin
+# (-H @-), never its argv, which /proc/<pid>/cmdline shows every local account
+# (scripts/isaflow-management-packs.service). CRON_SECRET must never be written here.
+[Service]
+Type=oneshot
+User=velo
+Group=velo
+EnvironmentFile=/home/velo/isaflow/.env.local
+ExecStart=/bin/sh -c 'printf "X-Cron-Secret: %%s\\n" "$$CRON_SECRET" | exec /usr/bin/curl --silent --show-error --fail \
+  --max-time 600 \
+  -X POST \
+  -H @- \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:3101/api/cron/budget-alerts'
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-budget-alerts
+
+NoNewPrivileges=true
+ProtectSystem=strict
