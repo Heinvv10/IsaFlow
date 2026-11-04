@@ -37,7 +37,7 @@ const LEGACY = { id: 'inv-1', invoice_number: 'INV-1', status: 'draft', client_i
   billing_period_start: '2026-09-01', billing_period_end: '2026-09-30', tax_rate: 15, notes: '', currency_code: 'ZAR', exchange_rate: 1,
   items: [{ description: 'L', quantity: 1, unit_price: 10, amount: 10 }] };
 
-function serve(opts: { customersFail?: boolean; listGate?: Promise<void> } = {}) {
+function serve(opts: { customersFail?: boolean; listGate?: Promise<void>; defaultsGate?: { id: string; gate: Promise<void> } } = {}) {
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
     const u = String(url);
     if (u.includes('customer-invoices-create') && init?.method === 'POST') return ok({ id: 'n1' });
@@ -46,6 +46,7 @@ function serve(opts: { customersFail?: boolean; listGate?: Promise<void> } = {})
     if (u.includes('/customers')) {
       if (opts.customersFail && u === '/api/accounting/customers') return new Response('{}', { status: 500 });
       if (u === '/api/accounting/customers') { await opts.listGate; return ok([{ id: 'c-1', name: 'Acme' }]); }
+      if (opts.defaultsGate && u === `/api/accounting/customers?id=${opts.defaultsGate.id}`) await opts.defaultsGate.gate;
       return ok([{ id: 'c-1', name: 'Acme' }, { id: 'c-2', name: 'Beta' }]);
     }
     return ok([]);
@@ -193,17 +194,27 @@ describe('a slow scan lookup cannot overwrite what the user did meanwhile', () =
 
   it('Save & New waits for a scan\'s lookup, so it cannot land on the created invoice or refill the cleared form (PR S)', async () => {
     const g = gate();
-    serve({ listGate: g.promise });
+    const acme = gate();
+    serve({ listGate: g.promise, defaultsGate: { id: 'c-1', gate: acme.promise } });
     scan.current = { date: '2026-08-01', dueDate: null, customerName: 'Acme' };
     render(<NewPage />);
     await pickOption('Client', 'Beta');
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Work' } });
     fireEvent.change(screen.getByLabelText('Unit price'), { target: { value: '50' } });
+    const saveAndNew = () => screen.getByRole('button', { name: /save & new/i }) as HTMLButtonElement;
+    await waitFor(() => expect(saveAndNew().disabled).toBe(false)); // Beta's defaults have answered
     scanNow();
-    await waitFor(() => expect((screen.getByRole('button', { name: /save & new/i }) as HTMLButtonElement).disabled).toBe(true));
+    expect(screen.getByText('Finding the scanned customer…')).toBeTruthy();
+    fireEvent.click(saveAndNew()); // while the lookup is out: refused
+    expect(saveAndNew().disabled).toBe(true);
     expect(calls('POST')).toBe(0);
     g.release();
     await waitFor(() => expect(clientListCalls()).toBe(1));
+    // The scan's match (Acme) lands, and Save & New then waits for Acme's defaults. Their request goes out before that
+    // wait is on screen, so a click then (the button still drawn enabled) was dropped: click once they have answered.
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.filter((c) => String(c[0]) === '/api/accounting/customers?id=c-1')).toHaveLength(1));
+    await waitFor(() => expect(saveAndNew().disabled).toBe(true));
+    acme.release();
     await clickWhenEnabled(/save & new/i);
     await waitFor(() => expect(calls('POST')).toBe(1));
     await waitFor(() => expect(clientBox()).toContain('Select client'));
