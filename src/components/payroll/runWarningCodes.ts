@@ -15,7 +15,7 @@ export const GROUP_LABEL: Record<string, string> = {
   INVALID_ID_NUMBER: 'ID number must be 13 digits',
   MISSING_BANK_DETAILS: 'No bank details — EFT payment will fail',
   DEDUCTIONS_EXCEED_PAY: 'Deductions and tax exceed pay — reduce the deductions, then recalculate',
-  LOAN_INSTALMENT_EXCEEDS_PAY: 'Loan instalment exceeds pay — reduce or defer it, close the loan, or pay final pay first; then recalculate',
+  LOAN_INSTALMENT_EXCEEDS_PAY: 'Loan instalment exceeds available pay. Payslip blocked for manual review',
   LOAN_DEDUCTION_MISSING: 'Loan instalment not taken — no active LOAN deduction; add it under Setup → Pay Components, then recalculate',
   LOAN_FRINGE_NOT_RECORDED: 'Loan fringe benefit not recorded — add the 3801 earning under Setup → Pay Components, then recalculate',
   RECURRING_NEEDS_PRO_RATA: 'A recurring component starts after the 27th or ends before month end — needs a manual pro-rata: use Edit dates on the employee\'s Pay Components, then recalculate',

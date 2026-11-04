@@ -9,6 +9,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { assertNoLoanInstalmentBlock } from './payrollLineBlockers';
 
 // ZAR denominations in descending order. R200 note down to 5c coin.
 // Values stored as integer cents internally.
@@ -76,6 +77,7 @@ export async function cashPayRegisterForRun(
   companyId: string,
   runId: string,
 ): Promise<CashRegister> {
+  await assertNoLoanInstalmentBlock(companyId, runId);
   const runRows = (await sql`
     SELECT id FROM payroll_run_headers
      WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid

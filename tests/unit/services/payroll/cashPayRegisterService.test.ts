@@ -101,7 +101,7 @@ describe('cashPayRegisterForRun', () => {
       return Promise.resolve([]);
     };
     await cashPayRegisterForRun(COMPANY_ID, RUN_ID);
-    const select = sqlCalls.find(c => c.sql.includes('FROM payroll_run_lines'));
+    const select = sqlCalls.find(c => c.sql.includes('FROM payroll_run_lines') && c.sql.includes('payment_method'));
     expect(select).toBeDefined();
     expect(select!.sql).toMatch(/payment_method\s*=\s*'cash'/);
   });

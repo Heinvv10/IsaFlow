@@ -86,3 +86,8 @@ export function appendLoanComponents(
   }
   return [...components, ...injected];
 }
+
+/** Preserve the taxable non-cash benefit while omitting an unaffordable cash instalment. */
+export function fringeOnlyLoanApplications(applications: ApplyLoanResult[]): ApplyLoanResult[] {
+  return applications.map((app) => ({ ...app, installment: 0, interest: 0, principal: 0 }));
+}

@@ -5,7 +5,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import type { DbRow, TxSql } from '@/lib/neon';
 import type { ValidationResult } from './payrollTypes';
 
 type Row = DbRow;
@@ -60,6 +60,7 @@ const OVERDRAWN_CODES = new Set(['DEDUCTIONS_EXCEED_PAY', 'LOAN_INSTALMENT_EXCEE
 export interface OverdrawnLine {
   employeeId: string;
   employeeNumber: string;
+  employeeName?: string;
   shortfall: number;
   /** The shortfall would not exist without the loan instalment: LOAN_INSTALMENT_EXCEEDS_PAY. */
   fromLoan: boolean;
@@ -88,10 +89,11 @@ export interface OverdrawnLine {
  * stored line only when assigned by hand.
  * Net pay itself cannot prove the condition because negative values were always floored at nil.
  */
-export async function findOverdrawnLines(companyId: string, runId: string): Promise<OverdrawnLine[]> {
-  const rows = (await sql`
+export async function findOverdrawnLines(companyId: string, runId: string, db: TxSql = sql): Promise<OverdrawnLine[]> {
+  const rows = (await db`
     WITH run_lines AS (
-      SELECT prl.employee_id, pe.employee_number, prl.validation_results, prl.net_pay = 0 AS net_pay_nil,
+      SELECT prl.employee_id, pe.employee_number, pe.first_name, pe.last_name,
+        prl.validation_results, prl.net_pay = 0 AS net_pay_nil,
         (SELECT COALESCE(array_agg(l.loan_number ORDER BY l.loan_number), '{}') FROM payroll_loan_payments p
            JOIN payroll_loans l ON l.id = p.loan_id AND l.company_id = prh.company_id
           WHERE p.run_id = prl.run_id AND l.employee_id = prl.employee_id) AS loans,
@@ -125,7 +127,11 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
       ? parseValidationResults(r.validation_results).find((v) => OVERDRAWN_CODES.has(v.code))
       : undefined;
     if (!flagged && r.unreadable === true) {
-      return [{ employeeId: String(r.employee_id), employeeNumber: String(r.employee_number), shortfall: 0, fromLoan: false, unreadable: true as const }];
+      return [{
+        employeeId: String(r.employee_id), employeeNumber: String(r.employee_number),
+        employeeName: `${String(r.first_name)} ${String(r.last_name)}`.trim(),
+        shortfall: 0, fromLoan: false, unreadable: true as const,
+      }];
     }
     const rawNet = typeof flagged?.rawNet === 'number' ? flagged.rawNet : Number(r.derived_raw_net);
     if (!Number.isFinite(rawNet) || rawNet >= 0) return [];
@@ -135,9 +141,10 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
     return [{
       employeeId: String(r.employee_id),
       employeeNumber: String(r.employee_number),
+      employeeName: `${String(r.first_name)} ${String(r.last_name)}`.trim(),
       shortfall: -rawNet,
       fromLoan,
-      loans: Array.isArray(r.loans) ? r.loans.map(String) : [],
+      loans: flagged?.loans ?? (Array.isArray(r.loans) ? r.loans.map(String) : []),
     }];
   });
 }
