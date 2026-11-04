@@ -72,6 +72,7 @@ export const accountingTab: Tab = {
         { label: 'Business Units', href: '/accounting/business-units' },
         { label: 'Budget Review', href: '/accounting/budgets/review' },
         { label: 'Budgets', href: '/accounting/budgets' },
+        { label: 'Budget Controls', href: '/accounting/budgets/controls' },
       ],
     },
     {
