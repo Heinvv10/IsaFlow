@@ -19,6 +19,10 @@
  * before its posting claim, where a 4xx still commits nothing. The pipeline
  * skipped a line it could not use and inserted the bill anyway — with no lines
  * when it skipped them all, and a R0 bill for a document with no total.
+ * Dimensions (budgets P5-2b, breaker REPRO 2): the lines take the supplier's
+ * default CC1 / CC2 / BU (migration 890) through `resolveBillLineDimensions`, as
+ * `createSupplierInvoice` does; they were written with none, so under a block
+ * budget policy an auto-approved capture on a per-centre budget was withdrawn.
  */
 import { sql } from '@/lib/neon';
 import type { SupplierRule } from './supplierRulesService';
@@ -26,6 +30,8 @@ import type { PipelineInvoiceInput } from '../core/aiInvoicePipelineService';
 import { billLineAccountRefusal } from '../ap/billLineAccountGuard';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
+import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
+import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -40,6 +46,9 @@ export interface CaptureBillLine {
   taxAmount: number;
   lineTotal: number;
   glAccountId: string | null;
+  cc1Id?: string;
+  cc2Id?: string;
+  buId?: string;
 }
 
 export type CaptureBillLinesPlan = { lines: CaptureBillLine[] } | { refusal: string };
@@ -104,7 +113,13 @@ export async function planCaptureBillLines(
   }
 
   const accountRefusal = await billLineAccountRefusal(companyId, lines.map((l) => l.glAccountId));
-  return accountRefusal ? { refusal: accountRefusal } : { lines };
+  if (accountRefusal) return { refusal: accountRefusal };
+  try {
+    return { lines: await resolveBillLineDimensions(companyId, invoice.supplierId, lines) };
+  } catch (err) {
+    if (err instanceof DimensionRefusal) return { refusal: err.message };
+    throw err;
+  }
 }
 
 /** On the request transaction, straight after the invoice INSERT — the column list createSupplierInvoice writes. */
@@ -113,11 +128,11 @@ export async function insertCaptureBillLines(invoiceId: string, lines: readonly 
     await sql`
       INSERT INTO supplier_invoice_items (
         supplier_invoice_id, description, quantity, unit_price,
-        tax_rate, tax_amount, line_total, gl_account_id, vat_classification
+        tax_rate, tax_amount, line_total, gl_account_id, vat_classification, cc1_id, cc2_id, bu_id
       ) VALUES (
         ${invoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice},
         ${line.taxRate}, ${line.taxAmount}, ${line.lineTotal}, ${line.glAccountId}::UUID,
-        ${defaultVatClassification(line.taxRate)}
+        ${defaultVatClassification(line.taxRate)}, ${line.cc1Id ?? null}::UUID, ${line.cc2Id ?? null}::UUID, ${line.buId ?? null}::UUID
       )
     `;
   }

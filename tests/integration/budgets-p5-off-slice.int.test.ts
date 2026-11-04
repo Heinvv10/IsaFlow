@@ -118,6 +118,24 @@ describe('block', () => {
   });
 });
 
+describe('an account budgeted only in another month (the any-month test, blind review LOW)', () => {
+  it('blank CC1 in a month with no row for the account: refused; FT in that month: "No budget", approved', async () => {
+    await setPolicy(pool, f, 'block');
+    const acct = crypto.randomUUID();
+    await pool.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+                      VALUES ($1, $2, 'BB-6500', 'Marketing', 'expense', 'debit', 3, true)`, [acct, f.co]);
+    await pool.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, cc1_id)
+                      VALUES ($1, $2, $3, '2026-03-01', 100, $4)`, [f.co, f.version, acct, f.cc.FT]);
+    const blank = await makeBill(pool, f, [{ acct, amount: 50 }], { date: '2026-09-15' });
+    const r = await approve(f.manager, blank);
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(409);
+    expect(r.body.error?.message).toContain('BB-6500 Marketing · no cost centre 1 · 2026-09: not in a budgeted slice');
+    const ft = await makeBill(pool, f, [{ acct, amount: 50, cc1: f.cc.FT }], { date: '2026-09-15' });
+    expect((await approve(f.manager, ft)).statusCode).toBe(200);
+    expect(await eventsFor(pool, ft)).toHaveLength(0);
+  });
+});
+
 describe('warn', () => {
   it('UI without a reason: 400 BUDGET_REASON_REQUIRED, nothing written; with one: approved, event warn (kind off_slice)', async () => {
     await setPolicy(pool, f, 'warn');

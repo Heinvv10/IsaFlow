@@ -110,7 +110,7 @@ export class BudgetExceededError extends Error {
     this.name = 'BudgetExceededError';
   }
   /** The lines that caused the refusal: over budget, or not in a budgeted slice (`isFlaggedLine`). */
-  get overLines(): BudgetCheckLine[] {
+  get flaggedLines(): BudgetCheckLine[] {
     return this.event.lines.filter(isFlaggedLine);
   }
 }
@@ -143,6 +143,17 @@ export class BudgetCheckLockTimeoutError extends Error {
 }
 
 export const BUDGET_REASON_MAX = 2000;
+
+/** How a warning about an off-slice line starts (`decideBudgetOutcome`); the bulk toast reads it. */
+export const OFF_SLICE_WARNING_PREFIX = 'Not in a budgeted slice:';
+
+/** What a grain's dimension is called to a person ("assign a budgeted cost centre 1"). */
+export function budgetDimensionName(grain: RemainingGrain | null): string {
+  if (grain === 'cc1') return 'cost centre 1';
+  if (grain === 'cc2') return 'cost centre 2';
+  if (grain === 'bu') return 'business unit';
+  return 'cost centre or business unit';
+}
 
 /** A line the check acts on: over its remaining budget, or outside every budgeted slice of its account (P5-2b). */
 export const isFlaggedLine = (l: Pick<BudgetCheckLine, 'over' | 'offSlice'>): boolean => l.over || l.offSlice;

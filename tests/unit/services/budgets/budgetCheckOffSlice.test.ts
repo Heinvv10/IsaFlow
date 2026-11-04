@@ -94,7 +94,13 @@ describe('decideBudgetOutcome: off-slice lines', () => {
       expect(d.kind).toBe('refuse');
       if (d.kind !== 'refuse') continue;
       expect(d.message).toContain('6100 Opex · no cost centre 1 · 2026-06: not in a budgeted slice');
-      expect(d.message).toContain('assign a budgeted cost centre 1');
+      if (channel === 'system') {
+        // Nobody is at the document: the draft is what the person opens (breaker round 1, item 3).
+        expect(d.message).toContain('The bill was left as a draft: set a budgeted cost centre 1 on its line and approve it.');
+        expect(d.message).not.toMatch(/assign|override|on its own in the app/);
+      } else {
+        expect(d.message).toContain('assign a budgeted cost centre 1');
+      }
     }
     const member = decideBudgetOutcome({ policy: 'block', lines: [line({ unassigned: false, grain: 'cc2', cc2Id: 'pb', sliceLabel: 'PB Project B' })], channel: 'ui' });
     expect(member).toMatchObject({ kind: 'refuse', message: expect.stringContaining('6100 Opex · PB Project B · 2026-06: not in a budgeted slice') });
@@ -119,6 +125,11 @@ describe('decideBudgetOutcome: off-slice lines', () => {
     expect(decideBudgetOutcome({ policy: 'warn', lines: OFF, channel: 'ui', reason: 'Shared cost' })).toMatchObject({
       kind: 'proceed', event: 'warn', reason: 'Shared cost', warnings: [expect.stringMatching(/^Not in a budgeted slice: 6100 Opex · no cost centre 1 · 2026-06/)],
     });
+  });
+  it('a warning says "not in a budgeted slice" and names the account once (blind review LOW)', () => {
+    const d = decideBudgetOutcome({ policy: 'warn', lines: OFF, channel: 'bulk' });
+    const w = d.kind === 'proceed' ? d.warnings[0]! : '';
+    expect(w).toBe(`Not in a budgeted slice: 6100 Opex · no cost centre 1 · 2026-06, this bill ${R(150)}; assign a budgeted cost centre 1`);
   });
   it('warn, bulk / MCP / system: proceed with the warning, never refused', () => {
     for (const channel of ['bulk', 'mcp', 'system'] as const) {

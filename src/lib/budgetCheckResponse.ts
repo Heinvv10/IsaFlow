@@ -17,7 +17,7 @@ import { BudgetExceededError, BudgetReasonRequiredError } from '@/modules/accoun
 export async function respondIfBudgetRefused(res: NextApiResponse, err: unknown): Promise<boolean> {
   if (err instanceof BudgetExceededError) {
     await recordBudgetRefusal(err);
-    apiResponse.conflict(res, err.message, { code: err.code, lines: err.overLines, overrideRefused: err.overrideRefused });
+    apiResponse.conflict(res, err.message, { code: err.code, lines: err.flaggedLines, overrideRefused: err.overrideRefused });
     return true;
   }
   if (err instanceof BudgetReasonRequiredError) {

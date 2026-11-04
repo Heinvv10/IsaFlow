@@ -10,7 +10,7 @@ import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { useCompany } from '@/contexts/CompanyContext';
-import type { BudgetCheckLine, BudgetPolicy } from '@/modules/accounting/services/budgets/budgetCheckTypes';
+import { budgetDimensionName, type BudgetCheckLine, type BudgetPolicy } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import { BudgetLinesTable } from './BudgetLinesTable';
 
 export interface BudgetApproveChoice {
@@ -39,7 +39,10 @@ export function BudgetApproveDialog({ open, policy, lines, error, busy, onCancel
   const [override, setOverride] = useState(false); // mounted only while open: a new dialog starts blank
 
   const over = lines.filter((l) => l.over).length;
-  const offSlice = lines.filter((l) => l.offSlice).length;
+  const offSliceLines = lines.filter((l) => l.offSlice);
+  const offSlice = offSliceLines.length;
+  // The dimension(s) those lines lack, named as the account's grain is ("cost centre 1").
+  const missing = [...new Set(offSliceLines.map((l) => budgetDimensionName(l.grain)))].join(' or ');
   const flagged = over + offSlice;
   const mayOverride = OVERRIDE_ROLES.includes(companyRole ?? '');
   const blocked = policy === 'block' && flagged > 0;
@@ -60,7 +63,7 @@ export function BudgetApproveDialog({ open, policy, lines, error, busy, onCancel
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
             <span>
               {over > 0 && <>{over === 1 ? 'One line is' : `${over} lines are`} over budget.{' '}</>}
-              {offSlice > 0 && <>{offSlice === 1 ? 'One line is' : `${offSlice} lines are`} not in a budgeted slice: assign a budgeted cost centre or business unit, or approve it as it is.{' '}</>}
+              {offSlice > 0 && <>{offSlice === 1 ? 'One line is' : `${offSlice} lines are`} not in a budgeted slice: assign a budgeted {missing} on this {noun}.{' '}</>}
               {policy === 'warn' && 'Say why it should be approved anyway; the reason goes on the audit log.'}
               {blocked && (mayOverride
                 ? 'Approval is refused unless you override the budget with a reason.'

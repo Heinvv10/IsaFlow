@@ -17,8 +17,11 @@
  */
 import { formatMoney } from '@/lib/money/formatMoney';
 import { toCents } from './grid/cents';
-import type { RemainingGrain, RemainingKey, RemainingResult } from './remainingBudgetCore';
-import type { BudgetChannel, BudgetCheckLine, BudgetGate, BudgetOutcome, BudgetPolicy } from './budgetCheckTypes';
+import type { RemainingKey, RemainingResult } from './remainingBudgetCore';
+import {
+  budgetDimensionName, OFF_SLICE_WARNING_PREFIX,
+  type BudgetChannel, type BudgetCheckLine, type BudgetGate, type BudgetOutcome, type BudgetPolicy,
+} from './budgetCheckTypes';
 
 /** One expense line the document will post (account, dims, ex-VAT amount). */
 export interface DocumentLine {
@@ -86,22 +89,35 @@ export function sliceLines(
   }));
 }
 
-/** What a grain's dimension is called in a refusal ("assign a budgeted cost centre 1"). */
-const DIM_NAME: Record<Exclude<RemainingGrain, 'company'>, string> = { cc1: 'cost centre 1', cc2: 'cost centre 2', bu: 'business unit' };
-const dimName = (grain: RemainingGrain | null): string => (grain && grain !== 'company' ? DIM_NAME[grain] : 'cost centre or business unit');
-
 /**
- * "6100 Opex · no cost centre 1 · 2026-06: not in a budgeted slice, this bill R 150.00 (6100 Opex is budgeted by
- * cost centre 1: assign a budgeted cost centre 1)". The slice it landed in is named (its member at the grain, or
- * "no <dimension>" for the unassigned slice). `figures: false`: no amount.
+ * An off-slice line, where it landed: "6100 Opex · no cost centre 1 · 2026-06, this bill R 150.00, assign a budgeted
+ * cost centre 1". The slice is its member at the grain, or "no <dimension>" for the unassigned slice. `figures: false`:
+ * no amount. `remedy: false` (a system approval: nobody is at the document) leaves out "assign …"; the refusal's
+ * closing sentence says what to do with the draft instead.
  */
-export function describeOffSliceLine(l: BudgetCheckLine, documentNoun = 'this bill', figures = true): string {
-  const name = dimName(l.grain);
+function offSliceWhere(l: BudgetCheckLine, documentNoun: string, figures: boolean, remedy: boolean): { where: string; tail: string } {
+  const name = budgetDimensionName(l.grain);
   const slice = l.unassigned || l.sliceLabel === '' ? `no ${name}` : l.sliceLabel;
   const where = [l.accountLabel, slice, l.month].filter((s) => s !== '').join(' · ');
   const amount = figures ? `, ${documentNoun} ${formatMoney(l.amount)}` : '';
-  return `${where}: not in a budgeted slice${amount} (${l.accountLabel || 'the account'} is budgeted by ${name}: assign a budgeted ${name})`;
+  return { where, tail: `${amount}${remedy ? `; assign a budgeted ${name}` : ''}` };
 }
+
+/** "6100 Opex · no cost centre 1 · 2026-06: not in a budgeted slice, this bill R 150.00; assign a budgeted cost centre 1". */
+export function describeOffSliceLine(l: BudgetCheckLine, documentNoun = 'this bill', figures = true, remedy = true): string {
+  const { where, tail } = offSliceWhere(l, documentNoun, figures, remedy);
+  return `${where}: not in a budgeted slice${tail}`;
+}
+
+/** The warning for an off-slice line: the prefix says what it is, once. */
+const offSliceWarning = (l: BudgetCheckLine, documentNoun: string, figures: boolean, remedy: boolean): string => {
+  const { where, tail } = offSliceWhere(l, documentNoun, figures, remedy);
+  return `${OFF_SLICE_WARNING_PREFIX} ${where}${tail}`;
+};
+
+/** The distinct dimensions the off-slice lines lack, as a person reads them ("cost centre 1 or business unit"). */
+const missingDimensions = (lines: readonly BudgetCheckLine[]): string =>
+  [...new Set(lines.map((l) => budgetDimensionName(l.grain)))].join(' or ');
 
 /**
  * "6100 Opex · FT Fibertime · 2026-06: remaining R 100.00, this bill R 150.00" (the one ZAR format, `formatMoney`).
@@ -180,12 +196,14 @@ export function decideBudgetOutcome(input: DecisionInput): BudgetDecision {
 
   const noun = input.documentNoun ?? 'this bill';
   const figures = input.figures !== false;
+  // A system approval (recurring, capture) has nobody at the document: no "assign …" per line (round 2, item 3).
+  const remedyPerLine = channel !== 'system';
   const detail = [
-    ...over.map((l) => describeOverLine(l, noun, figures)), ...offSlice.map((l) => describeOffSliceLine(l, noun, figures)),
+    ...over.map((l) => describeOverLine(l, noun, figures)), ...offSlice.map((l) => describeOffSliceLine(l, noun, figures, remedyPerLine)),
   ].join('; ');
   const warnings = [
     ...over.map((l) => `Over budget: ${describeOverLine(l, noun, figures)}`),
-    ...offSlice.map((l) => `Not in a budgeted slice: ${describeOffSliceLine(l, noun, figures)}`),
+    ...offSlice.map((l) => offSliceWarning(l, noun, figures, remedyPerLine)),
   ];
   const what = offSlice.length === 0 ? 'over budget' : over.length === 0 ? 'outside the budgeted slices' : 'over budget or outside the budgeted slices';
   const head = offSlice.length === 0 ? 'Over budget' : over.length === 0 ? 'Not in a budgeted slice' : 'Over budget / not in a budgeted slice';
@@ -207,7 +225,11 @@ export function decideBudgetOutcome(input: DecisionInput): BudgetDecision {
     if (reason === null) return { kind: 'reason_required', message: `Give a reason to override the budget — ${detail}.` };
     return { kind: 'proceed', event: 'override', warnings, reason };
   }
-  const remedy = channel === 'ui' ? ' An owner or admin can override it with a reason.' : ' Approve it on its own in the app, where an owner or admin can override it.';
+  const remedy = channel === 'ui' ? ' An owner or admin can override it with a reason.'
+    : channel === 'system' && offSlice.length > 0
+      ? ` The bill was left as a draft: set a budgeted ${missingDimensions(offSlice)} on ${offSlice.length === 1 ? 'its line' : 'those lines'} and approve it.`
+        + (over.length > 0 ? ' Its over-budget lines need an owner or admin to approve it with a reason.' : '')
+      : ' Approve it on its own in the app, where an owner or admin can override it.';
   return { kind: 'refuse', overrideRefused: false, message: `${head} — approval refused: ${detail}.${remedy}` };
 }
 

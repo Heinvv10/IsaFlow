@@ -58,6 +58,9 @@ describe('BudgetApproveDialog: off-slice lines', () => {
     expect((screen.getByRole('button', { name: 'Override and approve' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole('checkbox')).toBeNull();
     expect(screen.getByText(/Only an owner or admin can override it/)).toBeTruthy();
+    // The note names the grain's dimension and never offers "approve it as it is" (blind review LOW).
+    expect(screen.getByText(/not in a budgeted slice: assign a budgeted cost centre 1 on this bill/)).toBeTruthy();
+    expect(screen.queryByText(/as it is/)).toBeNull();
     cleanup();
     role.current = 'owner';
     const onApprove = dialog('block');
