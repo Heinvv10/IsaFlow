@@ -27,6 +27,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
 import { DimensionRefusal, type DimensionIds } from '../gl/dimensions/dimensionTypes';
+import { expenseLineNets } from './supplierInvoiceExpenseLines';
 
 /** A provisional journal line: its account, dimensions and net (debit − credit). */
 export interface ProvisionalDimLine {
@@ -107,13 +108,6 @@ async function inheritable(companyId: string, sets: readonly Dims[]): Promise<Se
 /** A draft line the writers hand over (capture plan, MCP update plan). */
 type DraftLine = DimensionIds & { glAccountId?: string | null; lineTotal: number; costCenterId?: string | null };
 
-/** Each line's posted net, as `buildExpenseLines` allocates it (gross storage scaled to the subtotal). */
-function postedNets(lines: readonly DraftLine[], header: { subtotal: number; totalAmount: number; taxRate: number }): number[] {
-  const sum = lines.reduce((s, l) => s + l.lineTotal, 0);
-  const gross = header.taxRate > 0 && Math.abs(sum - header.totalAmount) < 0.02 && sum > 0;
-  return lines.map((l) => (gross ? l.lineTotal * (header.subtotal / sum) : l.lineTotal));
-}
-
 /**
  * The draft lines with the provisional's dimensions on the blank ones that match (validated), and which took them.
  * `defaultExpenseId`: the account a line with none posts to (null: such a line matches nothing). `eligible`: only these
@@ -125,7 +119,9 @@ export async function inheritSlipDimensions<T extends DraftLine>(
 ): Promise<{ lines: T[]; inherited: boolean[] }> {
   const none = { lines: [...lines], inherited: lines.map(() => false) };
   if (provisional.length === 0 || lines.length === 0) return none;
-  const nets = postedNets(lines, header);
+  // Each line's posted net exactly as `buildExpenseLines` allocates it (rounded, residual on the last line), in the
+  // order the caller hands the lines over: the posting order (`SUPPLIER_INVOICE_LINE_ORDER_BY`) for a stored bill.
+  const nets = expenseLineNets(lines, header);
   const matched = matchProvisionalDimensions(lines.map((l, i) => ({
     account: l.glAccountId || defaultExpenseId, net: nets[i] ?? 0,
     blank: (eligible ? eligible[i] === true : true) && !l.cc1Id && !l.cc2Id && !l.buId && !l.costCenterId,

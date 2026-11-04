@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import {
   matchProvisionalDimensions, type InheritLine, type ProvisionalDimLine,
 } from '@/modules/accounting/services/ap/supplierInvoiceProvisionalDims';
+import { buildExpenseLines, expenseLineNets } from '@/modules/accounting/services/ap/supplierInvoiceExpenseLines';
+import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
 
 const line = (net: number, o: Partial<InheritLine> = {}): InheritLine => ({ account: 'opex', net, blank: true, ...o });
 const prov = (net: number, cc1Id: string | null, glAccountId = 'opex'): ProvisionalDimLine => ({ glAccountId, cc1Id, cc2Id: null, buId: null, net });
@@ -44,5 +46,28 @@ describe('matchProvisionalDimensions', () => {
     expect(cc1(matchProvisionalDimensions([line(800)], [prov(800, 'ft', 'travel')]))).toEqual([null]);
     expect(cc1(matchProvisionalDimensions([line(800)], [prov(800, null)]))).toEqual([null]);
     expect(cc1(matchProvisionalDimensions([line(800)], [prov(-800, 'ft')]))).toEqual([null]);
+  });
+});
+
+describe('expenseLineNets: the nets the matcher sees are the nets buildExpenseLines posts', () => {
+  // Gross storage: five R10 lines and a R50 line, R100 incl. 15% VAT, subtotal 86.96. Each non-final line posts 8.70
+  // (rounded) and the last absorbs the residual: 43.46, where an unrounded proportional share would be 43.48.
+  const gross = [10, 10, 10, 10, 10, 50];
+  const header = { subtotal: 86.96, totalAmount: 100, taxRate: 15 };
+  const items = gross.map((lineTotal, i) => ({
+    id: `i${i}`, supplierInvoiceId: 'si', description: `l${i}`, quantity: 1, unitPrice: lineTotal, taxRate: 15, taxAmount: 0,
+    lineTotal, glAccountId: i < 5 ? 'other' : 'opex', createdAt: '2026-11-04',
+  }));
+
+  it('equals buildExpenseLines\' debits, residual on the last line', () => {
+    const posted = buildExpenseLines({ ...header, id: 'si', invoiceNumber: 'B', supplierId: 's', invoiceDate: '2026-11-04',
+      taxAmount: 13.04, amountPaid: 0, balance: 100, status: 'draft', items } as SupplierInvoice, 'opex').map((l) => l.debit);
+    expect(expenseLineNets(items, header)).toEqual(posted);
+    expect(posted).toEqual([8.7, 8.7, 8.7, 8.7, 8.7, 43.46]);
+  });
+  it('the last blank line matches the provisional line of its POSTED net (43.46), not the unrounded share (43.48)', () => {
+    const nets = expenseLineNets(items, header);
+    const lines = items.map((l, i) => ({ account: l.glAccountId, net: nets[i]!, blank: i === 5 }));
+    expect(cc1(matchProvisionalDimensions(lines, [prov(43.46, 'ht'), prov(43.5, 'ft')]))).toEqual([null, null, null, null, null, 'ht']);
   });
 });
