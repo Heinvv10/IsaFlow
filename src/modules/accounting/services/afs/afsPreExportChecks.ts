@@ -3,6 +3,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ReportingFramework, SectionStatus } from './afsTypes';
 import { getFiscalRange } from './afsFiscalPeriod';
+import { packPeriodEnd } from './afsPackPeriod';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { withStatementMappingFinding } from './afsMappingSectionCheck';
@@ -425,14 +426,28 @@ export async function runPreExportChecks(
   log.info('afsPreExportChecks.runPreExportChecks', { documentId, companyId });
 
   const docRows = (await sql`
-    SELECT fiscal_year, document_type
+    SELECT fiscal_year, document_type, period
     FROM   afs_documents
     WHERE  id = ${documentId}::UUID AND company_id = ${companyId}::UUID
     LIMIT 1
   `) as Record<string, unknown>[];
 
+  // A management pack has no fiscal year: its period is its own month.
+  const isPack = String(docRows[0]?.document_type ?? 'afs') !== 'afs';
+  const packEnd = isPack ? packPeriodEnd(docRows[0]?.period as string | null | undefined) : null;
+  if (isPack && packEnd === null) {
+    return [{
+      label: 'Reporting period known',
+      passed: false,
+      severity: 'blocker',
+      detail:
+        'This management pack has no valid month (expected YYYY-MM), so the period it covers ' +
+        'is unknown and its figures cannot be checked against the ledger.',
+    }];
+  }
+
   const fiscalYear = docRows[0]?.fiscal_year;
-  if (fiscalYear == null) {
+  if (fiscalYear == null && packEnd === null) {
     return [{
       label: 'Reporting period known',
       passed: false,
@@ -451,7 +466,9 @@ export async function runPreExportChecks(
   // fix.
   let periodEnd: string;
   try {
-    ({ end: periodEnd } = await getFiscalRange(companyId, Number(fiscalYear)));
+    ({ end: periodEnd } = packEnd !== null
+      ? { end: packEnd }
+      : await getFiscalRange(companyId, Number(fiscalYear)));
   } catch (err) {
     return [{
       label: 'Reporting period known',
