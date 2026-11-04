@@ -73,7 +73,7 @@ describe('POST /api/accounting/budgets/remaining', () => {
     expect(r.sent.data).toEqual({ lines: [{ budget: 10 }] });
     expect(svc.remaining).toHaveBeenCalledWith(COMPANY, [{ ...line, cc1Id: null, cc2Id: null, buId: null }],
       { excludeInvoiceId: ACCT, excludePoItemIds: undefined });
-    expect(svc.rateLimit).toHaveBeenCalledWith('budget-remaining:user-1', { max: 120, windowSecs: 60 });
+    expect(svc.rateLimit).toHaveBeenCalledWith('budget-remaining:user-1', { max: 120, windowSecs: 60, cost: 1 }); // P5-2: the bill bulk mode charges per bill
   });
 
   it('refuses GET (405), a missing CSRF token (403) and a viewer (403), reaching no service', async () => {

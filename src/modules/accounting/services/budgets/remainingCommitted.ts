@@ -28,6 +28,12 @@ export const BILLED_STATUSES = ['approved', 'paid', 'partially_paid'] as const;
 export interface CommittedOptions {
   excludePoItemIds?: readonly string[];
   excludeInvoiceId?: string | null;
+  /**
+   * More bills whose PO-linked lines count as billed whatever their status: the earlier bills of a batch
+   * preview, as if already approved (P5-2 MCP bulk dry run), so a PO line shared by bills, or on another
+   * account than a bill's own lines, is netted once and where it lives.
+   */
+  alsoBilledInvoiceIds?: readonly string[];
 }
 
 const text = (v: unknown): string | null => (v == null ? null : String(v).toLowerCase());
@@ -43,13 +49,13 @@ function itemOf(r: DbRow): SupplierInvoiceItem {
 }
 
 /** Ex-VAT posted amount per PO line, over the bills that count as billed. */
-async function billedByPoItem(companyId: string, poItemIds: string[], own: string | null): Promise<Map<string, number>> {
+async function billedByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (poItemIds.length === 0) return out;
   const bills = (await sql`
     SELECT si.* FROM supplier_invoices si
      WHERE si.company_id = ${companyId}::UUID
-       AND (si.status = ANY(${[...BILLED_STATUSES]}::TEXT[]) OR si.id = ${own}::UUID)
+       AND (si.status = ANY(${[...BILLED_STATUSES]}::TEXT[]) OR si.id = ANY(${own}::UUID[]))
        AND EXISTS (SELECT 1 FROM supplier_invoice_items x WHERE x.supplier_invoice_id = si.id AND x.po_item_id = ANY(${poItemIds}::UUID[]))
   `) as DbRow[];
   if (bills.length === 0) return out;
@@ -85,8 +91,8 @@ export async function readCommitments(
        AND po.order_date >= ${start}::DATE AND po.order_date <= ${end}::DATE
        AND NOT (pi.id = ANY(${exclude}::UUID[]))
   `) as DbRow[];
-  const billed = await billedByPoItem(companyId, rows.map((r) => String(text(r.po_item_id))),
-    opts.excludeInvoiceId ? opts.excludeInvoiceId.toLowerCase() : null);
+  const own = [opts.excludeInvoiceId, ...(opts.alsoBilledInvoiceIds ?? [])].filter((v): v is string => !!v).map((v) => v.toLowerCase());
+  const billed = await billedByPoItem(companyId, rows.map((r) => String(text(r.po_item_id))), own);
   return rows.map((r) => {
     const id = String(text(r.po_item_id));
     return {

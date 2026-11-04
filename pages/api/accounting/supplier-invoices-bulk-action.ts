@@ -36,6 +36,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { als } from '@/lib/als';
 import { sql, withSavepoint } from '@/lib/neon';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { UUID } from '@/lib/schemas/common';
 import {
   approveSupplierInvoice,
@@ -44,15 +45,19 @@ import {
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
 import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
-import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
+import { assertNotImpersonating, ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
+import { BUDGET_REASON_MAX, BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 
 const Schema = z.object({
   action: z.enum(['approve', 'cancel', 'post_gl']),
   invoiceIds: z.array(UUID).min(1).max(200),
+  /** Budgets P5-2: one reason for the batch's over-budget bills (warn); recorded on their events. */
+  budgetReason: z.string().trim().max(BUDGET_REASON_MAX).optional(),
 });
 
-const NOTHING: { lateClaim?: LateClaimInfo; warnings?: string[] } = {};
+const NOTHING: { lateClaim?: LateClaimInfo; warnings?: string[]; budgetWarnings?: string[] } = {};
 
 interface ItemResult {
   invoiceId: string;
@@ -60,11 +65,13 @@ interface ItemResult {
   invoiceNumber: string | null;
   ok: boolean;
   error?: string;
-  /** R-035: why the approval gate refused this bill (APPROVAL_REQUIRED / _PENDING / _STALE). */
+  /** R-035: why the approval gate refused this bill (APPROVAL_REQUIRED / _PENDING / _STALE); BUDGET_EXCEEDED (P5-2). */
   reason?: string;
   /** Set when the bill's input VAT was claimed late (s16(3)) — gl/vatLateClaimPlan. */
   lateClaim?: LateClaimInfo;
   warnings?: string[];
+  /** Budgets P5-2 (warn policy): the over-budget lines this bill was approved against. */
+  budgetWarnings?: string[];
 }
 
 /**
@@ -92,6 +99,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
+  // Budgets P5-2 (review round 5): each refused id writes an event and an audit row, and a new reason per call escapes
+  // the 60 s dedupe. Charged per id (as the budget preview is), BEFORE validation so a refused call still counts:
+  // 600 ids a minute per user, three full 200-id batches.
+  const rawIds = (req.body as { invoiceIds?: unknown } | undefined)?.invoiceIds;
+  const units = Array.isArray(rawIds) ? Math.max(1, Math.min(rawIds.length, 200)) : 1;
+  if (!(await checkRateLimit(`supplier-invoice-bulk:${req.user.id}`, { max: 600, windowSecs: 60, cost: units }))) {
+    res.setHeader('Retry-After', '60');
+    return apiResponse.tooManyRequests(res, 'Too many bulk invoice actions; wait a minute and try again.');
+  }
+
   const parsed = Schema.safeParse(req.body);
   if (!parsed.success) {
     return apiResponse.validationError(
@@ -100,7 +117,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     );
   }
 
-  const { action, invoiceIds } = parsed.data;
+  const { action, invoiceIds, budgetReason } = parsed.data;
   const userId = req.user.id;
   const results: ItemResult[] = [];
   let held = 0;
@@ -118,24 +135,37 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const numberOf = await billNumbers(companyId, ordered);
 
+  // Budgets P5-2 (spec §3c, census finding 6): the company budget lock, when the policy is block, is
+  // taken ONCE here, before the loop and outside every item savepoint. Per item it would be taken
+  // after items 1..k-1's journal-number locks (deadlock against a single approve), and a savepoint
+  // rolled back would release it. Held → BudgetCheckLockTimeoutError → 503 (withErrorHandler).
+  // A "Login as" session is refused by every approve / Post to GL before its first read; refuse it before the gate
+  // too, so it never takes (or waits on) the company budget lock (P5-2 review R4). Thrown: the whole request is 403.
+  if (action !== 'cancel') await assertNotImpersonating();
+  const budgetGate: BudgetGate | null = action === 'cancel' ? null : await openBudgetGate(companyId, 'take');
+  const budget = budgetGate ? { channel: 'bulk' as const, lock: 'held' as const, gate: budgetGate, reason: budgetReason ?? null } : undefined;
+
   for (const invoiceId of ordered) {
     try {
       // A person's bulk APPROVE opts in to the s16(3) late claim. Post to GL does
       // not: its bill was already approved, so already in the filed figures.
       // `warnings`: a cost-centre pick the posting dropped (gl/dimensions/costCentrePick).
-      const { lateClaim, warnings } = await withSavepoint('bulk_supplier_invoice_item', async () => {
+      const { lateClaim, warnings, budgetWarnings } = await withSavepoint('bulk_supplier_invoice_item', async () => {
         switch (action) {
           case 'approve':
-            return approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true });
+            return approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true, budget });
           case 'cancel':
             await cancelSupplierInvoice(companyId, invoiceId, userId);
             return NOTHING;
-          case 'post_gl':
-            return { ...NOTHING, warnings: (await postSupplierInvoiceToGL(companyId, invoiceId, userId)).warnings };
+          case 'post_gl': {
+            const r = await postSupplierInvoiceToGL(companyId, invoiceId, userId, { budget });
+            return { ...NOTHING, warnings: r.warnings, budgetWarnings: r.budgetWarnings };
+          }
         }
         return NOTHING;
       });
-      results.push({ invoiceId, invoiceNumber: numberOf.get(invoiceId) ?? null, ok: true, ...(lateClaim ? { lateClaim } : {}), ...(warnings ? { warnings } : {}) });
+      results.push({ invoiceId, invoiceNumber: numberOf.get(invoiceId) ?? null, ok: true, ...(lateClaim ? { lateClaim } : {}), ...(warnings ? { warnings } : {}),
+        ...(budgetWarnings ? { budgetWarnings } : {}) });
     } catch (err) {
       // R-032 L5: the session, not this id, is refused — every id would be. Answer 403.
       if (err instanceof ImpersonationForbiddenError) throw err;
@@ -145,7 +175,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }, 'accounting-api');
       if (isHeldRowError(err)) held += 1;
       results.push({ invoiceId, invoiceNumber: numberOf.get(invoiceId) ?? null, ok: false, error: message, ...(err instanceof ApprovalRequiredError ? { reason: err.reason } : {}),
-        ...(err instanceof BankControlError ? { reason: err.code } : {}) }); // step 2: e.g. IMPORTER_MAY_NOT_ALLOCATE
+        ...(err instanceof BankControlError ? { reason: err.code } : {}), // step 2: e.g. IMPORTER_MAY_NOT_ALLOCATE
+        ...(err instanceof BudgetExceededError ? { reason: err.code } : {}) });
+      // P5-2: the item's savepoint rolled the refused approval back; its `refused` event is written now, on
+      // the request transaction, in its own savepoint. Not caught: a refusal that cannot be recorded fails the batch.
+      if (err instanceof BudgetExceededError && !als.getStore()?.txUnusable) {
+        await withSavepoint('bulk_si_budget_event', () => recordBudgetRefusal(err));
+      }
 
       // The savepoint's own ROLLBACK TO failed, so the connection is genuinely
       // aborted and nothing this request wrote can commit. Reporting the rows

@@ -25,6 +25,11 @@ import { supplierInvoiceLineAccountRefusals } from '@/modules/accounting/service
 import { mcpPostingOpts } from '../mcpActor';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
+import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
+import { billBudgetDryRun } from '@/modules/accounting/services/ap/supplierInvoiceBudgetDryRun';
+import { mayReadBudgetFigures } from './budgetFigures';
+import { BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
+import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import {
   type BulkApproveAdapter,
   type DocumentState,
@@ -50,6 +55,8 @@ interface ApprovedRow {
   status: string;
   total_amount: number;
   gl_journal_entry_id: string | null;
+  /** Budgets P5-2 (warn policy): the over-budget lines this bill was approved against. */
+  budget_warnings?: string[];
 }
 
 /**
@@ -77,6 +84,10 @@ const NOT_FOUND_REFUSAL = /^Supplier invoice \S+ not found$/;
 export function racedReason(err: unknown): string | null {
   // R-035: the gate refuses under the row lock, before any write — a skip.
   if (err instanceof ApprovalRequiredError) return `approval_required: ${err.message}`;
+  // Budgets P5-2 (block policy): refused before any write, inside the element's savepoint — a skip, so one
+  // over-budget bill never unwinds the batch (census finding 5). The handler records its refused event.
+  if (err instanceof BudgetExceededError) return `budget_exceeded: ${err.message}`;
+  if (err instanceof SupplierPaymentRefusal) return `payment_refused: ${err.message}`; // e.g. its slip's provisional already settles another bill
   if (!(err instanceof Error)) return null;
   const status = STATUS_REFUSAL.exec(err.message)?.[1];
   if (status) return `status became ${status} before it could be approved`;
@@ -108,22 +119,31 @@ const adapter: BulkApproveAdapter<ApprovedRow> = {
       },
     ]));
   },
-  async postOne(ctx, id) {
-    const updated = await approveSupplierInvoice(
-      ctx.companyId, id, ctx.userId, mcpPostingOpts(ctx, TOOL),
-    );
-    return {
-      // Filled in by the caller, which knows the agent's own index.
-      index: -1,
-      id: updated.id,
-      invoice_number: updated.invoiceNumber,
-      status: updated.status,
-      total_amount: updated.totalAmount,
-      gl_journal_entry_id: updated.glJournalEntryId ?? null,
-      ...(updated.warnings ? { warnings: updated.warnings } : {}),
-    };
+  postOne() {
+    // The live call posts through `liveAdapter`, which carries the budget gate opened before its loop
+    // (P5-2). Posting without it would take the company budget lock per element: the deadlock of census finding 6.
+    throw new Error('bulk_approve_supplier_invoices posts only through its gated adapter');
   },
 };
+
+/** One element: approve under the gate the handler opened before the loop (`held`). */
+async function postWithGate(ctx: Parameters<BulkApproveAdapter<ApprovedRow>['postOne']>[0], id: string, gate: BudgetGate): Promise<ApprovedRow> {
+  const updated = await approveSupplierInvoice(ctx.companyId, id, ctx.userId, {
+    ...mcpPostingOpts(ctx, TOOL),
+    budget: { channel: 'mcp', lock: 'held', gate, figures: mayReadBudgetFigures(ctx) },
+  });
+  return {
+    // Filled in by the caller, which knows the agent's own index.
+    index: -1,
+    id: updated.id,
+    invoice_number: updated.invoiceNumber,
+    status: updated.status,
+    total_amount: updated.totalAmount,
+    gl_journal_entry_id: updated.glJournalEntryId ?? null,
+    ...(updated.warnings ? { warnings: updated.warnings } : {}),
+    ...(updated.budgetWarnings ? { budget_warnings: updated.budgetWarnings } : {}),
+  };
+}
 
 export const bulkApproveSupplierInvoicesTool: McpTool = {
   name: TOOL,
@@ -131,6 +151,7 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
     'Approve and POST up to 100 DRAFT supplier invoices (bills) in ONE call — each posts DR Expense (per line) + DR VAT Input / CR Accounts Payable. Irreversible except by a reversing entry. Requires the write:post permission. '
     + 'Identify each bill by its invoice_id (from list_supplier_invoices or bulk_create_supplier_invoices). '
     + 'A bill that cannot be approved is SKIPPED, not a failure: not found, already approved, cancelled, or dated in a CLOSED fiscal period — each is listed in "skipped" with its reason and the rest of the batch still posts. '
+    + 'Budget check: under the company\'s block policy a bill over its remaining budget is skipped as "budget_exceeded" (an agent cannot override; a person can, on the bill in the app); under warn it posts and its over-budget lines come back as budget_warnings. '
     + 'ALL OR NOTHING for real faults: if a bill genuinely fails to post, the whole batch is rolled back, nothing is posted, and the error names the element. '
     + 'A repeated invoice_id is REFUSED (not skipped) — each bill may appear once. '
     + 'Every posting is attributed to the agent and visible in list_agent_postings. Use dry_run to see what would post and what would be skipped.',
@@ -193,12 +214,21 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
       .sort((a, b) => a.index - b.index);
 
     if (args.dry_run === true) {
+      // Budgets P5-2: judged in the live loop's order (by id), each bill against what the earlier ones consume and claim.
+      const budget = await billBudgetDryRun(ctx.companyId, postable.map((p) => p.id).sort(), 'mcp', { figures: mayReadBudgetFigures(ctx) });
+      const refused = (id: string) => budget.get(id)?.skip !== undefined;
+      const wouldPost = postable.filter((p) => !refused(p.id));
+      const warned = wouldPost.filter((p) => budget.get(p.id)?.warnings)
+        .map((p) => ({ index: p.index, document_id: p.id, warnings: budget.get(p.id)!.warnings! }));
       const preview = ok({
         dry_run: true,
         posted: 0,
-        would_post: postable.length,
-        would_post_ids: postable.map((p) => p.id),
-        skipped,
+        would_post: wouldPost.length,
+        would_post_ids: wouldPost.map((p) => p.id),
+        skipped: [...skipped, ...postable.filter((p) => refused(p.id))
+          .map((p) => ({ index: p.index, document_id: p.id, reason: budget.get(p.id)!.skip! }))]
+          .sort((a, b) => a.index - b.index),
+        ...(warned.length > 0 ? { budget_warnings: warned } : {}),
       });
       // Wrote nothing, so it must not occupy the idempotency key: the real call
       // carries the same intent and would otherwise be served this preview
@@ -227,7 +257,19 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
       // creation (a skip) from a genuine fault (which unwinds the batch).
       .map((p) => ({ ...p, entryDate: states.get(p.id)?.entryDate }))
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    const { posted, raced } = await postPartitionedDocuments(ctx, ordered, adapter, racedReason);
+    //
+    // Budgets P5-2 (spec §3c, census 6): the company budget lock (block) is taken ONCE, before the loop and outside every
+    // element savepoint (per element it would follow earlier journal-number locks: deadlock). Held → a typed retryable
+    // refusal before any write. A BUDGET_EXCEEDED element is a skip; its event is recorded after the loop.
+    const gate = await openBudgetGate(ctx.companyId, 'take');
+    const liveAdapter: BulkApproveAdapter<ApprovedRow> = { ...adapter, postOne: (c, id) => postWithGate(c, id, gate) };
+    const budgetRefusals: BudgetExceededError[] = [];
+    const reasonOf = (err: unknown): string | null => {
+      if (err instanceof BudgetExceededError) budgetRefusals.push(err);
+      return racedReason(err);
+    };
+    const { posted, raced } = await postPartitionedDocuments(ctx, ordered, liveAdapter, reasonOf);
+    for (const refusal of budgetRefusals) await recordBudgetRefusal(refusal);
 
     // Back into the agent's own order, carrying its indexes — a human reads
     // this against the list they sent.
@@ -238,8 +280,8 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
     const allSkipped = [...skipped, ...raced].sort((a, b) => a.index - b.index);
 
     if (rows.length === 0) {
-      // Every postable bill lost its race. Nothing was written, so the key is
-      // left free — same reasoning as the dry run.
+      // Nothing posted: the key is left free, as for the dry run and as the single tool's refusal leaves it, so the
+      // same call posts once the state changes (a budget raised). Refused events stay committed; the 60 s dedupe bounds retries.
       const nothing = ok({ posted: 0, invoices: [], skipped: allSkipped });
       nothing.wroteNothing = true;
       nothing.billable = false;
