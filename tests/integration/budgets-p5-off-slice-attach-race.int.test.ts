@@ -3,8 +3,8 @@
  * work on the same draft bill, on real concurrent request transactions (app_user):
  *   - R4-2: a requestApproval raised while the attach is in flight waits for it (the raise takes the bill FOR SHARE,
  *     `approvalDocuments.raiseOnce`) and binds the digest of the INHERITED lines, never a digest the attach then moves;
- *   - LOW 2: a bill row another transaction holds (a long bulk approve) is skipped, not waited on: the attach succeeds
- *     and says 'the bill is being processed, retry';
+ *   - R5-3: a bill row another transaction holds past the 5 s budget fails the WHOLE manual attach (503 + Retry-After,
+ *     through the real withAuth route, nothing committed), so the retry attaches and inherits;
  *   - LOW 4: the attaching user becomes a content author of the bill whose lines it changed, so segregation of duties
  *     refuses them as its approver.
  * Fixture: opex BB-6100 at CC1 FT 1 000 / HT 0 a month (FY2027). Fixture route: isaflow_schema_fixture. Never skips.
@@ -15,7 +15,13 @@ import { attachDocumentToProvisional } from '@/modules/accounting/services/captu
 import { requestApproval } from '@/modules/accounting/services/gl/approvalDocuments';
 import { decideRequest } from '@/modules/accounting/services/gl/approvalService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { dropBillFixture, makeBill, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
+import { SignJWT } from 'jose';
+import attachRouteHandler from '../../pages/api/accounting/provisional/[jeId]/attach';
+import actionRoute from '../../pages/api/accounting/supplier-invoices-action';
+import { request, response } from './mfa-impersonation-postgres.helpers';
+import {
+  billState, callRoute, dropBillFixture, makeBill, openRequest, seedBillFixture, setPolicy, type BillFixture,
+} from './helpers/budgetBillFixture';
 import { billLineCc1, seedUnevidencedProvisional } from './helpers/budgetSlipFixture';
 
 assertDisposable();
@@ -31,10 +37,23 @@ afterAll(async () => {
   try {
     await pool.query('DELETE FROM approval_requests WHERE company_id = $1', [f.co]);
     await pool.query('DELETE FROM approval_rules WHERE company_id = $1', [f.co]);
+    await pool.query('DELETE FROM rate_limit_counters WHERE key = ANY($1::TEXT[])', [[f.owner, f.manager].map((u) => `supplier-invoice-action:${u}`)]);
     await dropBillFixture(pool, f);
   } finally { await pool.end(); }
 }, 60_000);
 
+/** POST /api/accounting/provisional/[jeId]/attach through the real withAuth, as the owner. */
+async function attachRoute(jeId: string, capturedDocumentId: string) {
+  const token = await new SignJWT({ sub: f.owner, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
+    .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  const req = request({ 'sb-access-token': token, active_company_id: f.co }, 'POST');
+  (req as unknown as { query: Record<string, string> }).query = { jeId };
+  req.url = `/api/accounting/provisional/${jeId}/attach`;
+  req.body = { capturedDocumentId };
+  const out = response();
+  await attachRouteHandler(req as never, out.res as never);
+  return out;
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const digest = async (bill: string) => String((await pool.query("SELECT approval_document_digest($1, 'supplier_invoice', $2) AS d", [f.co, bill])).rows[0].d);
 async function slipDraft(date: string): Promise<{ bill: string; doc: string }> {
@@ -76,27 +95,34 @@ describe('R4-2: a requestApproval raised while the manual attach is in flight', 
   });
 });
 
-describe('LOW 2: the bill row held by another transaction', () => {
-  it('the attach succeeds at once and skips that bill: "the bill is being processed, retry"', async () => {
+describe('R5-3 (coordinator\'s ruling): a bill row held past the 5 s budget fails the WHOLE attach, so a retry works', () => {
+  it('503 + Retry-After, the bank line and journal unchanged; released, the retried attach inherits', async () => {
+    await setPolicy(pool, f, 'block');
     const je = await seedUnevidencedProvisional(pool, f, '2026-07-10', [{ amount: 800, cc1: f.cc.FT }], S0);
     const { bill, doc } = await slipDraft('2026-07-12');
     const holder = await pool.connect();
+    let first: Awaited<ReturnType<typeof attachRoute>>;
     try {
       await holder.query('BEGIN');
-      await holder.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [bill]);
-      const t0 = Date.now();
-      const r = await openRequest(pool, f, f.owner);
-      let out: unknown;
-      try { out = await r.run(() => attachDocumentToProvisional(f.co, je, doc)); await r.commit(); } finally { await r.rollback(); }
-      expect(Date.now() - t0).toBeLessThan(4000); // never the 5 s row-lock budget
-      expect(out).toMatchObject({ kind: 'attached', slipInheritance: [{ invoiceId: bill, skipped: 'the bill is being processed, retry' }] });
+      await holder.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [bill]); // a long bulk approve
+      first = await attachRoute(je, doc);
     } finally {
       await holder.query('ROLLBACK');
       holder.release();
     }
-    expect((await pool.query('SELECT needs_evidence FROM gl_journal_entries WHERE id = $1', [je])).rows[0].needs_evidence).toBe(false);
+    expect({ code: first.state.statusCode, retryAfter: first.headers.get('retry-after') !== undefined }).toEqual({ code: 503, retryAfter: true });
+    expect((await pool.query('SELECT needs_evidence FROM gl_journal_entries WHERE id = $1', [je])).rows[0].needs_evidence).toBe(true);
+    expect((await pool.query('SELECT status FROM bank_transactions WHERE provisional_je_id = $1', [je])).rows[0].status).toBe('provisional');
+    expect((await pool.query('SELECT posted_at FROM captured_documents WHERE id = $1', [doc])).rows[0].posted_at).toBeNull();
     expect(await billLineCc1(pool, bill)).toEqual([null]);
-  });
+    // The retry (breaker R5-3): nothing was committed, so it attaches and inherits; block then approves the bill.
+    const retry = await attachRoute(je, doc);
+    expect(retry.state.statusCode, JSON.stringify(retry.state.body)).toBe(200);
+    expect((retry.state.body as { data: { slipInheritance: unknown[] } }).data.slipInheritance).toEqual([{ invoiceId: bill, inheritedLines: 1 }]);
+    expect(await billLineCc1(pool, bill)).toEqual([f.cc.FT]);
+    const appr = await callRoute(actionRoute as never, f, f.manager, '/api/accounting/supplier-invoices-action', { action: 'approve', invoiceId: bill });
+    expect({ code: appr.statusCode, status: (await billState(pool, bill)).status }).toEqual({ code: 200, status: 'paid' });
+  }, 30_000);
 });
 
 describe('LOW 4: the attaching user becomes a content author of the bill it changed', () => {

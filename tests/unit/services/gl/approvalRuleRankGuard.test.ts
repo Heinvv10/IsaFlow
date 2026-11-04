@@ -25,9 +25,10 @@ vi.mock('@/lib/logger', () => ({
 // R-035 PR2: raising is refused under Login-as (covered through the real route
 // in r035-pr2-authors.int.test.ts); these tests are about the request row.
 vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating: async () => undefined }));
-// Budgets P5-2b: a supplier invoice's raise share-locks the bill first (real PG: budgets-p5-off-slice-attach-race);
-// not this file's subject, and its sql answers are sequenced, so the lock is a no-op here.
-vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({ withSupplierInvoiceLock: async () => undefined }));
+// Budgets P5-2b: a supplier invoice's raise share-locks the bill first (real PG: budgets-p5-off-slice-attach-race).
+// Its sql answers are sequenced, so the lock's statement is not run here; the spy pins that it is taken (review r6).
+const { billLock } = vi.hoisted(() => ({ billLock: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({ withSupplierInvoiceLock: billLock }));
 
 import { sql } from '@/lib/neon';
 import { createRule, updateRule, requestApproval } from '@/modules/accounting/services/gl/approvalService';
@@ -121,6 +122,21 @@ describe('requestApproval — the governing rule is resolved from the document, 
 
   const raise = () => requestApproval(COMPANY, {
     documentType: 'supplier_invoice', documentId: 'doc-1', requestedBy: 'user-1',
+  });
+
+  it('share-locks the bill before resolving a supplier invoice; never for another document type (P5-2b, breaker R4-2)', async () => {
+    billLock.mockClear();
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([]);
+    await expect(raise()).rejects.toBeInstanceOf(ApprovalDocumentNotFoundError);
+    expect(billLock).toHaveBeenCalledTimes(1);
+    expect(billLock).toHaveBeenCalledWith('requestApproval', 'doc-1', expect.any(Function));
+    billLock.mockClear();
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([]);
+    await expect(requestApproval(COMPANY, { documentType: 'manual_journal', documentId: 'doc-2', requestedBy: 'user-1' }))
+      .rejects.toBeInstanceOf(ApprovalDocumentNotFoundError);
+    expect(billLock).not.toHaveBeenCalled();
   });
 
   it('refuses a documentId that names no document, before looking at any rule', async () => {

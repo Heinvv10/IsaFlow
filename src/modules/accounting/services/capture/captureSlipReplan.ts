@@ -28,6 +28,7 @@ import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
 import { inheritSlipDimensions, provisionalDimLines, type ProvisionalDimLine } from '../ap/supplierInvoiceProvisionalDims';
 import { withContentEditorStamp } from '../ap/supplierInvoiceContentEditor';
+import { lockSupplierInvoiceForUpdate } from '../ap/supplierInvoiceLock';
 
 /** What the capture plan inherited: the provisional it read, and the bill lines that took its dimensions. */
 export interface CaptureSlipPlan {
@@ -131,37 +132,19 @@ export async function replanCaptureSlipDimensions(
   await writeDims(companyId, invoiceId, planned.filter((_, i) => eligible[i]).map((l) => byId.get(l.id) ?? l));
 }
 
-/** The skip reason when the bill row is held by another transaction (a long bulk approve): never waited on. */
-export const BILL_BUSY = 'the bill is being processed, retry';
-
-/**
- * The bill row, locked FOR UPDATE without waiting (`SKIP LOCKED`; the caller's own lock never skips): 'busy' when
- * another transaction holds it, so a long bulk approve cannot time the whole attach out (review round 5, LOW 2).
- */
-async function lockBillOrSkip(companyId: string, invoiceId: string): Promise<DbRow | 'busy' | null> {
-  if (!als.getStore()?.client) throw new Error('inheritOnAttach requires a request transaction (withAuth / als.run)');
-  const [row] = (await sql`
-    SELECT * FROM supplier_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
-    FOR UPDATE SKIP LOCKED
-  `) as DbRow[];
-  if (row) return row;
-  const exists = (await sql`
-    SELECT 1 FROM supplier_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
-  `) as DbRow[];
-  return exists.length > 0 ? 'busy' : null;
-}
-
 /**
  * The blank lines of bill `invoiceId` inherit from the provisional `jeId` its slip was just attached to, when the bill
  * is a draft with no approval request bound (pending or approved); otherwise skipped, with the reason. Takes the
- * bill's row lock without waiting (after the caller's bank line, journal and document locks). The session user becomes
+ * bill's row lock under the 5 s row-lock budget (after the caller's bank line, journal and document locks): a bill held
+ * longer (a long bulk approve) is `SupplierInvoiceLockTimeoutError`, so the WHOLE attach rolls back as a 503 with
+ * Retry-After and a retry really retries (coordinator's ruling on breaker R5-3: a skip left the attach committed, its
+ * retry refused as already evidenced, and the line blank for good). The session user becomes
  * a content author of the bill when its lines change (`withContentEditorStamp`), so segregation of duties counts them
  * (round 5, LOW 4). A request raised meanwhile waits on this lock (`approvalDocuments.raiseOnce` takes the bill FOR
  * SHARE), so it binds the inherited lines (breaker R4-2).
  */
 export async function inheritOnAttach(companyId: string, invoiceId: string, jeId: string): Promise<AttachInheritance> {
-  const row = await lockBillOrSkip(companyId, invoiceId);
-  if (row === 'busy') return { invoiceId, skipped: BILL_BUSY };
+  const row = await lockSupplierInvoiceForUpdate(companyId, invoiceId);
   if (!row) return { invoiceId, skipped: 'not found' };
   if (String(row.status) !== 'draft') return { invoiceId, skipped: `the bill is ${String(row.status)}, not a draft: its lines are not changed` };
   const bound = (await sql`

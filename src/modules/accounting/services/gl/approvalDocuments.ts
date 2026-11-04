@@ -23,7 +23,12 @@ import { ApprovalDocumentNotFoundError, ApprovalRequestStaleError } from './appr
 import { insertRequestRow, raiseRefusal } from './approvalRequestWrites';
 import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
 
-/** The bill row FOR SHARE, company-scoped, under the 5 s row-lock budget (a held row: SupplierInvoiceLockTimeoutError). */
+/**
+ * The bill row FOR SHARE, company-scoped, under the 5 s row-lock budget (a held row: SupplierInvoiceLockTimeoutError,
+ * answered 503 + Retry-After: a raise can wait up to 5 s behind a bulk approve). ONE bill per transaction: a future
+ * raise that locks several bills must take them in id order, as bulk approve does, or the two deadlock (40P01,
+ * breaker R5-1c).
+ */
 async function shareLockSupplierInvoice(companyId: string, invoiceId: string): Promise<void> {
   await withSupplierInvoiceLock('requestApproval', invoiceId, () => sql`
     SELECT 1 FROM supplier_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID FOR SHARE`);
