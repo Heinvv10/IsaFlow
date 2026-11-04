@@ -11,16 +11,18 @@ vi.mock('next/head', () => ({ default: () => null }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push: vi.fn() }) }));
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: vi.fn(async () => new Response('', { status: 500 })) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock('@/components/accounting/afs/AfsOverviewTab', () => ({ AfsOverviewTab: () => <p>TAB Overview</p> }));
+const tabMounts = vi.hoisted(() => vi.fn());
+vi.mock('@/components/accounting/afs/AfsOverviewTab', () => ({ AfsOverviewTab: () => { tabMounts('overview'); return <p>TAB Overview</p>; } }));
 vi.mock('@/components/accounting/afs/AfsNotesTab', () => ({ AfsNotesTab: () => <p>TAB Notes</p> }));
 vi.mock('@/components/accounting/afs/AfsStatementsTab', () => ({ AfsStatementsTab: () => <p>TAB Statements</p> }));
 vi.mock('@/components/accounting/afs/AfsReviewTab', () => ({ AfsReviewTab: () => <p>TAB Review</p> }));
 vi.mock('@/components/accounting/afs/AfsExportTab', () => ({ AfsExportTab: () => <p>TAB Export</p> }));
 
 import { apiFetch } from '@/lib/apiFetch';
+import { managementPackTitle } from '@/components/accounting/afs/ManagementPackViewer';
 import AfsDocumentPage from '../../../pages/accounting/afs/[documentId]/index';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); tabMounts.mockClear(); });
 const load = (document: object) => (apiFetch as unknown as ReturnType<typeof vi.fn>)
   .mockResolvedValueOnce(new Response(JSON.stringify({ data: { document } }), { status: 200 }));
 const props = { documentId: 'p-1', periodStart: '2026-09-01', periodEnd: '2026-09-30', periodMonths: 1, periodError: null };
@@ -45,7 +47,8 @@ describe('management pack on the AFS document page', () => {
     expect(heads).toEqual(['Cover', 'Budget Variance', 'Ai Executive Summary']);
     expect(screen.getByText('4100 Sales Revenue')).toBeTruthy();
     expect(screen.getByText('Summary text')).toBeTruthy();
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Management Pack');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Management Pack September 2026');
+    expect(screen.queryByText('Annual Financial Statements')).toBeNull();
   });
   it('shows none of the AFS-only tabs or workflow actions', async () => {
     load(pack);
@@ -63,5 +66,36 @@ describe('management pack on the AFS document page', () => {
     await screen.findByText('Submit for Review');
     expect(screen.getByRole('button', { name: 'Statements' })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Annual Financial Statements');
+  });
+  it('before the document loads: no AFS tab, no tab content, no action (and no tab fetch)', () => {
+    (apiFetch as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise(() => undefined));
+    render(<AfsDocumentPage {...props} />);
+    expect(screen.getByRole('status', { name: 'Loading document' })).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.queryByText('TAB Overview')).toBeNull();
+    expect(tabMounts).not.toHaveBeenCalled();
+  });
+  it('a failed load shows the error and never the AFS tabs', async () => {
+    (apiFetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response('', { status: 500 }));
+    render(<AfsDocumentPage {...props} />);
+    expect((await screen.findByRole('alert')).textContent).toMatch(/Could not load the document/);
+    expect(screen.queryByRole('button', { name: 'Overview' })).toBeNull();
+    expect(tabMounts).not.toHaveBeenCalled();
+  });
+  it('an unknown block type and non-string cells render without throwing', async () => {
+    load({ ...pack, sections: [sec('cover', 0, { title: 'Cover', blocks: [
+      { type: 'chart', text: 'fallback text' }, { type: 'mystery' },
+      { type: 'table', headers: ['A', 'B'], rows: [['x', 42], ['y', { v: 1 }], ['z', null]] },
+    ] })] });
+    render(<AfsDocumentPage {...props} />);
+    expect(await screen.findByText('fallback text')).toBeTruthy();
+    expect(screen.getByText('42')).toBeTruthy();
+  });
+  it('the title names the pack month, not an AFS year', async () => {
+    load(pack);
+    render(<AfsDocumentPage {...props} />);
+    await screen.findByText('Budget Variance');
+    expect(managementPackTitle('2026-09')).toBe('Management Pack September 2026');
+    expect(managementPackTitle(null)).toBe('Management Pack');
   });
 });
