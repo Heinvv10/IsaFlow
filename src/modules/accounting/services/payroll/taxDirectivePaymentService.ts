@@ -4,7 +4,9 @@
  * posts the GL journal entry.  One payment per directive (idempotent).
  *
  * Journal shape:
- *   DR 5200 Labour Costs       = gross_amount
+ *   DR labour                  = gross_amount, split as a pay run splits it
+ *                                (payrollCostCentreTags: allocations, mapping,
+ *                                default 5200, the employee's CC1 on each line)
  *   CR 2140 PAYE Payable       = paye_amount
  *   CR 1110 Bank (or override) = net_amount
  *
@@ -20,10 +22,12 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { directivePaye } from './payrollSeveranceDirective';
-import { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
+import { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
 import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
+import { employeeLabourLines } from './payrollCostCentreTags';
+import { lockDirectiveLabour, postOrRetry, refreshDirectiveLabour } from './taxDirectiveLabour';
 
-export { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError };
+export { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError };
 
 type Row = DbRow;
 
@@ -41,6 +45,8 @@ export interface ApplyDirectiveResult {
   paye: number;
   net: number;
   status: 'applied';
+  /** `labour_cost_centre_untagged` (a centre that cannot be a CC1 tag posts untagged), `labour_account_inactive` (to 5200). */
+  advisories: Array<{ code: string; detail: string }>;
 }
 
 /**
@@ -119,6 +125,9 @@ export async function applyTaxDirective(
 ): Promise<ApplyDirectiveResult> {
   log.info('applyTaxDirective start', { companyId, directiveId }, 'taxDirective');
 
+  // 0. The cheap refusals, then the employee's centres share-locked BEFORE the directive row (taxDirectiveLabour).
+  const first = await lockDirectiveLabour(companyId, directiveId);
+
   // 1. Load and lock the directive — scoped by company_id. FOR SHARE, held to
   // the end of the request: a concurrent cancel (updateTaxDirective, FOR
   // UPDATE) waits for this payment and is then refused, or, if it got there
@@ -183,48 +192,15 @@ export async function applyTaxDirective(
     throw new Error('Cannot resolve bank GL account — supply bankAccountId or add GL account 1110');
   }
 
-  // 4. Build journal
+  // 4. Describe the journal; its labour lines are built after the claim wait.
   const employeeName = String(dir.employee_name);
   const directiveNum = dir.directive_number != null ? String(dir.directive_number) : directiveId.slice(0, 8);
   const narrative = `SARS directive ${directiveNum} — ${employeeName}`;
 
-  const lines: JournalLineInput[] = [
-    {
-      glAccountId: labourAccountId,
-      debit: gross,
-      credit: 0,
-      description: `${narrative} — gross lump sum`,
-    },
-    {
-      glAccountId: payeAccountId,
-      debit: 0,
-      credit: paye,
-      description: `${narrative} — PAYE withheld`,
-    },
-    {
-      glAccountId: bankAccountId,
-      debit: 0,
-      credit: net,
-      description: `${narrative} — net disbursement`,
-    },
-  ];
-
-  const journalInput: JournalEntryCreateInput = {
-    entryDate: input.paymentDate,
-    description: narrative,
-    source: 'auto_payroll',
-    lines,
-  };
-
-  // 5. CLAIM the directive before anything is posted. The payment row IS the
-  // claim: `tax_directive_payments` carries UNIQUE (company_id,
-  // tax_directive_id) from migration 403, so `ON CONFLICT DO NOTHING` matching
-  // zero rows is the refusal. What this replaced read the table for an existing
-  // payment and then posted DR 5200 / CR 2140 / CR bank with the INSERT last —
-  // so under concurrency the read was decorative and the loser's posted journal
-  // was unwound only by its 23505 aborting the transaction, an opaque 500 where
-  // the correct answer is a refusal raised before the first posting. The
-  // journal link is written after the posting, the only thing left to record.
+  // 5. CLAIM before posting. UNIQUE (company_id, tax_directive_id) makes
+  // ON CONFLICT matching zero rows the refusal. This replaced a decorative
+  // pre-post read whose loser reached a 23505 only after creating its journal.
+  // The journal link is the only write left after posting.
   const claimed = await claimUnderLockTimeout('tax directive', async () => (await sql`
     INSERT INTO tax_directive_payments (
       company_id, tax_directive_id, payment_date,
@@ -253,19 +229,51 @@ export async function applyTaxDirective(
   }
   const paymentId = String(claimed[0]!.id);
 
-  // 6. Create + post journal entry, then link it to the claimed payment.
-  const entry = await createJournalEntry(companyId, journalInput, userId);
-  await postJournalEntry(companyId, entry.id, userId);
-  await sql`
-    UPDATE tax_directive_payments SET journal_entry_id = ${entry.id}
-    WHERE id = ${paymentId} AND company_id = ${companyId}
-  `;
+  // 6. Re-read after acquiring the claim: a rival claim can make the INSERT
+  // wait while allocations or mappings change. Build no journal line from the
+  // pre-wait split. A new centre is still refused by the established lock-order
+  // guard, and the request savepoint rolls this claim back.
+  const split = await refreshDirectiveLabour(companyId, directiveId, first);
+  const lines: JournalLineInput[] = [
+    ...employeeLabourLines(split, gross, labourAccountId, `${narrative} — gross lump sum`),
+    {
+      glAccountId: payeAccountId,
+      debit: 0,
+      credit: paye,
+      description: `${narrative} — PAYE withheld`,
+    },
+    {
+      glAccountId: bankAccountId,
+      debit: 0,
+      credit: net,
+      description: `${narrative} — net disbursement`,
+    },
+  ];
+  const journalInput: JournalEntryCreateInput = {
+    entryDate: input.paymentDate,
+    description: narrative,
+    source: 'auto_payroll',
+    lines,
+  };
+
+  // 7. Create + post journal entry, then link it to the claimed payment.
+  // A mapped account deactivated since the re-read is a retryable 409
+  // (taxDirectiveLabour#postOrRetry).
+  const entry = await postOrRetry(companyId, directiveId, lines, labourAccountId, async () => {
+    const entry = await createJournalEntry(companyId, journalInput, userId);
+    await postJournalEntry(companyId, entry.id, userId);
+    await sql`
+      UPDATE tax_directive_payments SET journal_entry_id = ${entry.id}
+      WHERE id = ${paymentId} AND company_id = ${companyId}
+    `;
+    return entry;
+  });
 
   log.info('Tax directive applied', {
     companyId, directiveId, paymentId, journalEntryId: entry.id, gross, paye, net,
   }, 'taxDirective');
 
-  return { paymentId, journalEntryId: entry.id, gross, paye, net, status: 'applied' };
+  return { paymentId, journalEntryId: entry.id, gross, paye, net, status: 'applied', advisories: split.advisories };
 }
 
 // ─── listTaxDirectivePayments ─────────────────────────────────────────────────

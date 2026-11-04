@@ -46,6 +46,7 @@ export const emp201StatusTool: McpTool = {
     'It counts only runs in a DECLARABLE status — approved or paid. A draft or calculated run is not a finalised payroll and must not be declared, and a cancelled one never counts. It reports the runs it used so you can check that against list_pay_runs; if a month you expected is missing, the run was almost certainly never approved. ' +
     'The UIF split is an approximation. payroll_run_headers stores a single combined employee-plus-employer total, so this halves it. Where the two halves genuinely differ — an employee over the UIF ceiling, or one excluded from UIF — the split will be wrong even though the combined total is right. ' +
     'It also declares SARS tax directives paid OUTSIDE payroll in the period, dated by their posted journal: their PAYE is in paye_withheld and their gross in taxable_remuneration, counted in directive_payments_count and directive_payments_paye. rows are the runs only, so with such payments the rows do not sum to paye_withheld. ' +
+    'taxable_remuneration includes non-cash fringe benefits (the low-interest loan benefit, taxed but not paid). A row\'s gross_pay is cash only, so with such a benefit the rows do not sum to taxable_remuneration either. ' +
     'It does not file anything, does not compute penalties or interest, and does not know what was actually paid over to SARS. It tells you what the payroll says is owed for the period, not what is outstanding.',
   scope: 'read:payroll',
   write: false,
@@ -128,11 +129,11 @@ export const emp201StatusTool: McpTool = {
 export const irp5DataTool: McpTool = {
   name: 'irp5_data',
   description:
-    'Per-employee annual payroll totals for a SARS tax year, as an IRP5 / IT3(a) needs them: gross remuneration, taxable income, PAYE, the employee and employer UIF halves, SDL, ETI and net pay, with the number of pay runs behind each employee. ' +
+    'Per-employee annual payroll totals for a SARS tax year, as an IRP5 / IT3(a) needs them: cash gross pay, non-cash fringe benefits by SARS code, taxable income, PAYE, the employee and employer UIF halves, SDL, ETI and net pay, with the number of pay runs behind each employee. ' +
     'The SA tax year runs 1 MARCH to 28 or 29 FEBRUARY, so tax_year 2026 means 2025-03-01 to 2026-02-28. Pass the year the tax year ENDS in. ' +
     'It counts only DECLARABLE runs — approved or paid — using the same status list as emp201_status, so a certificate and a monthly declaration cannot disagree about which runs happened. Runs inside the year that were never approved appear in excludedRows as run_not_declarable with the remuneration they carry, because "this employee earned nothing" and "this employee\'s runs were never approved" are different facts. ' +
     'SA identity numbers and SARS tax numbers are MASKED to their last four digits unless you pass reveal_identity_numbers: true. They are personal information under POPIA. ' +
-    'This is the DATA for a certificate, not a certificate. It does not allocate amounts to SARS source codes, does not validate against the IRP5 rules, does not produce an EasyFile export, and does not file anything. It also carries no allowance or fringe-benefit breakdown — those live in each run line\'s component detail and are not aggregated here.',
+    'This is the DATA for a certificate, not a certificate. It does not allocate amounts to SARS source codes, does not validate against the IRP5 rules, does not produce an EasyFile export, and does not file anything. gross_salary is CASH pay: a non-cash fringe benefit (the low-interest loan benefit) is not in it but in fringe_benefits, by SARS source code (3801), and is in taxable_income and paye; gross_salary plus fringe_benefits is the remuneration. warnings names each employee whose 3801 items were paid in cash (runs costed before the benefit was non-cash), which are therefore inside gross_salary. It carries no allowance breakdown — that lives in each run line\'s component detail and is not aggregated here.',
   scope: 'read:payroll',
   requiresWriteRole: true,
   write: false,
@@ -189,6 +190,8 @@ export const irp5DataTool: McpTool = {
         directive_issued_date: l.directiveIssuedDate, issued_date_is_effective_date: l.issuedDateFallback,
         amount: l.amount, paye: l.paye, paye_code: l.payeCode, paid_by: l.paidBy,
       })),
+      // NOT in gross_salary (cash only); on the certificate under their own code.
+      fringe_benefits: r.fringeBenefits.map((b) => ({ source_code: b.sourceCode, amount: b.amount })),
     }));
 
     const envelope = buildEnvelope({
@@ -207,11 +210,13 @@ export const irp5DataTool: McpTool = {
 
     return ok({
       ...envelope,
+      warnings: ds.warnings,
       tax_year: ds.taxYear,
       period_start: ds.periodStart,
       period_end: ds.periodEnd,
       totals: {
         gross_salary: rows.reduce((s, r) => s + r.gross_salary, 0),
+        fringe_benefits: rows.reduce((s, r) => s + r.fringe_benefits.reduce((t, b) => t + b.amount, 0), 0),
         paye: rows.reduce((s, r) => s + r.paye, 0),
         uif_employee: rows.reduce((s, r) => s + r.uif_employee, 0),
         uif_employer: rows.reduce((s, r) => s + r.uif_employer, 0),

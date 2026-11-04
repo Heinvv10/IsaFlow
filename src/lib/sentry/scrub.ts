@@ -1,11 +1,13 @@
 // src/lib/sentry/scrub.ts
 import type { Event } from '@sentry/nextjs';
+import { keyMayBeData } from '@/lib/sanitizeRequestBody';
 import { REDACTED, redactQueryValues, redactUrlsInText, scrubText, scrubUrl } from './scrubText';
 
 const DROP_HEADERS = new Set(['cookie', 'authorization', 'x-csrf-token']);
 
 // A request body keeps its shape (keys, nesting) and loses every value: free text in a body (a note, a
 // description, a payee) cannot be recognised by its key, so no leaf is trusted. A null says nothing and stays.
+// A key that may itself be data (sanitizeRequestBody) is left out and counted.
 function redactBody(input: unknown, visited: WeakSet<object> = new WeakSet()): unknown {
   if (input === null || input === undefined) return input;
   if (typeof input !== 'object') return REDACTED;
@@ -13,7 +15,12 @@ function redactBody(input: unknown, visited: WeakSet<object> = new WeakSet()): u
   visited.add(input);
   if (Array.isArray(input)) return input.map((item) => redactBody(item, visited));
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(input)) out[k] = redactBody(v, visited);
+  let omittedKeys = 0;
+  for (const [k, v] of Object.entries(input)) {
+    if (keyMayBeData(k)) omittedKeys += 1;
+    else out[k] = redactBody(v, visited);
+  }
+  if (omittedKeys > 0) out['[omitted keys]'] = omittedKeys;
   return out;
 }
 
@@ -73,8 +80,9 @@ function mapStrings(input: unknown, fn: (s: string) => string, visited: WeakSet<
 
 function scrubQueryString(qs: NonNullable<NonNullable<Event['request']>['query_string']>) {
   if (typeof qs === 'string') return redactQueryValues(qs);
-  if (Array.isArray(qs)) return qs.map(([k]): [string, string] => [k, REDACTED]);
-  return Object.fromEntries(Object.keys(qs).map((k) => [k, REDACTED]));
+  const name = (k: string) => (keyMayBeData(k) ? REDACTED : k);
+  if (Array.isArray(qs)) return qs.map(([k]): [string, string] => [name(k), REDACTED]);
+  return Object.fromEntries(Object.keys(qs).map((k) => [name(k), REDACTED]));
 }
 
 export function scrubEvent<T extends Event>(event: T | null): T | null {

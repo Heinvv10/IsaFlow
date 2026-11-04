@@ -166,12 +166,14 @@ function RowLabel({ row, expanded, onToggle }: {
   return <>{row.label}</>;
 }
 
-export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst = false, expanded, onToggle, onEvidence, onOpenNote, drill, tracking = false, budgetCells = false }: {
+export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst = false, expanded, onToggle, onEvidence, onOpenNote, drill, aside, tracking = false, budgetCells = false }: {
   row: StatementRow; columns: StatementColumns; maxVariance: Record<ComparatorKey, number>; cents: boolean;
   /** Pin the label column on horizontal scroll (see StatementGrid `sticky`). */
   stickyFirst?: boolean;
   expanded: boolean; onToggle?: (code: string) => void; onEvidence?: (code: string) => void;
   onOpenNote?: (rowId: string) => void; drill?: ReactNode;
+  /** Rendered after the label (StatementGrid `renderLineAside`). */
+  aside?: ReactNode;
   /** Budget vs Actual cells (StatementGrid `budgetTracking`). */
   tracking?: boolean;
   /** The Budget column's zero rules on a statement page (StatementGrid `budgetCells`). */
@@ -197,6 +199,7 @@ export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst
             {row.note && onOpenNote && (
               <NoteMarker note={row.note} onClick={() => onOpenNote(row.id)} label={row.label} />
             )}
+            {aside}
           </span>
         </td>
         <td className={`${FIG} py-1.5 pr-3`} style={FIG_STYLE}>{blank ? '' : formatStatementFigure(row.actual, { cents })}</td>
