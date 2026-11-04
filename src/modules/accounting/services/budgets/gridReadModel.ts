@@ -32,6 +32,7 @@ import type { GridCell, GridCellsOnly, GridReadModel, GridSelector } from './gri
 import type { CellSource } from './drivers/driverTypes';
 import { listDriverLines } from './drivers/driverRepository';
 import { visibleDriverLines, type PerHeadAccess } from './drivers/perHeadAccess';
+import { holderFilter } from './gridHolderView';
 
 interface Resolved { id: string; fiscalYear: number }
 
@@ -92,17 +93,25 @@ async function readCells(companyId: string, versionId: string, year: BudgetYearI
   return { token: String(rows[0].token), status: String(rows[0].status), cells };
 }
 
-/** The compare-version fetch (`cells_only=1`): the cells and the token, nothing else. */
-export async function loadGridCells(companyId: string, sel: GridSelector): Promise<GridCellsOnly> {
+/**
+ * The compare-version fetch (`cells_only=1`): the cells and the token, nothing else. `viewerId`: a
+ * budget holder of the version gets their slices' cells only (P5-6, gridHolderView).
+ */
+export async function loadGridCells(companyId: string, sel: GridSelector, viewerId?: string): Promise<GridCellsOnly> {
   const found = await resolveVersion(companyId, sel);
   if (!found) return { versionId: null, updatedAt: null, cells: [] };
   const year = await yearOf(companyId, found.fiscalYear);
   const { token, cells } = await readCells(companyId, found.id, year);
-  return { versionId: found.id, updatedAt: token, cells };
+  const holder = await holderFilter(companyId, found.id, viewerId);
+  return { versionId: found.id, updatedAt: token, cells: holder ? holder.cells(cells) : cells };
 }
 
-/** `access` decides whether per_head drivers carry their rate (budget writers) or not (readers): perHeadAccess. */
-export async function loadGridReadModel(companyId: string, sel: GridSelector, access: PerHeadAccess): Promise<GridReadModel> {
+/**
+ * `access` decides whether per_head drivers carry their rate (budget writers) or not (readers): perHeadAccess.
+ * `viewerId`: a budget holder of the version (P5-6) sees only their slices (cells, totals, roll-ups and,
+ * when their rows name accounts, those accounts), and `holder` names their slices; null for anyone else.
+ */
+export async function loadGridReadModel(companyId: string, sel: GridSelector, access: PerHeadAccess, viewerId?: string): Promise<GridReadModel> {
   const found = await resolveVersion(companyId, sel);
   const label = found?.fiscalYear ?? sel.fiscalYear;
   if (label === undefined) throw inputError('Name a version or a financial year');
@@ -118,7 +127,10 @@ export async function loadGridReadModel(companyId: string, sel: GridSelector, ac
   }
 
   const version = await getVersion(companyId, found.id);
-  const { token, status, cells } = await readCells(companyId, found.id, year);
+  const read = await readCells(companyId, found.id, year);
+  const { token, status } = read;
+  const holder = await holderFilter(companyId, found.id, viewerId);
+  const cells = holder ? holder.cells(read.cells) : read.cells;
 
   const cents = new Map<CellKey, number | null>();
   const used = { cc1: new Set<string>(), cc2: new Set<string>(), bu: new Set<string>() };
@@ -130,12 +142,14 @@ export async function loadGridReadModel(companyId: string, sel: GridSelector, ac
   }
   const own = ownMonths(cents, year.monthKeys);
   const grains: Map<string, AccountGrain> = accountGrains(cents);
-  const accounts = await loadGridAccounts(companyId, own, grains, monthCount, await loadGridNotes(companyId, year.fiscalYear));
+  for (const d of ['cc1', 'cc2', 'bu'] as const) for (const m of holder?.members[d] ?? []) used[d].add(m);
+  const listed = await loadGridAccounts(companyId, own, grains, monthCount, await loadGridNotes(companyId, year.fiscalYear));
+  const accounts = holder ? holder.accounts(listed) : listed;
   const dimensions = await loadGridDimensions(companyId, { cc1: [...used.cc1], cc2: [...used.cc2], bu: [...used.bu] });
   const drivers = visibleDriverLines(await listDriverLines(companyId, found.id), access);
 
   return {
     version: { ...version, updatedAt: token, status: status as BudgetVersion['status'] }, updatedAt: token, year, accounts, dimensions, cells, grains: Object.fromEntries(grains), drivers,
-    totals: bandTotals(accounts, own, monthCount),
+    totals: bandTotals(accounts, own, monthCount), holder: holder?.view ?? null,
   };
 }

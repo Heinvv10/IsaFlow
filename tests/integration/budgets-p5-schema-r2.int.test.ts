@@ -116,6 +116,9 @@ describe('954 r2: actor and time stamps are the session\'s, never the caller\'s'
         const v = col.endsWith('_at') ? '2000-01-01' : 'forged';
         expect(await codeOf(q, `UPDATE budget_slice_reviews SET ${col} = $2 WHERE id = $1`, [r.rows[0].id, v])).toBe('42501');
       }
+      // Only a holder of the slice submits it (955, P5-6): the owner holds it here.
+      await q.query(`INSERT INTO budget_holders (company_id, version_id, user_id, bu_id, created_by) VALUES ($1, $2, $3, $4, 'x')
+                     ON CONFLICT ON CONSTRAINT budget_holders_one_per_slice DO NOTHING`, [A.id, vA, A.user, A.bu]);
       await q.query(`UPDATE budget_slice_reviews SET status = 'submitted' WHERE id = $1`, [r.rows[0].id]);
       const s = (await q.query('SELECT submitted_by, submitted_at > now() - interval \'1 minute\' AS fresh FROM budget_slice_reviews WHERE id = $1', [r.rows[0].id])).rows[0];
       expect(s).toEqual({ submitted_by: A.user, fresh: true });
