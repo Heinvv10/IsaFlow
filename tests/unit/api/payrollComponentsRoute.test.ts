@@ -18,7 +18,8 @@ import {
 import handler from '../../../pages/api/payroll/employees/[id]/components';
 
 function call(body: Record<string, unknown>) {
-  const req = { method: 'DELETE', query: { id: 'e1', aid: 'a1' }, body, companyId: 'co-1' } as unknown as NextApiRequest;
+  // withAuth sets req.user; End records it as the actor (payrollComponentDateEdit).
+  const req = { method: 'DELETE', query: { id: 'e1', aid: 'a1' }, body, companyId: 'co-1', user: { id: 'u-1', email: 'u@test.local' } } as unknown as NextApiRequest;
   const res = {
     statusCode: 0, sent: undefined as unknown,
     setHeader() { return this; },

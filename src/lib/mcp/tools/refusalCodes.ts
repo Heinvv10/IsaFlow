@@ -150,6 +150,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'NOT_ENFORCEABLE',
   'PAYMENT_LOCK_TIMEOUT',
   'PAYMENT_POSTED_DURING_VOID',
+  // Edit dates / End waited 5s for the company's payroll-approval lock (payrollComponentPaidMonths).
+  'PAYROLL_COMPONENT_LOCK_TIMEOUT',
   'PAYROLL_LOAN_LOCK_TIMEOUT',
   'PAYROLL_RUN_JOURNAL_POSTED',
   // W3-01 round 6: the payroll reversal guard's 5s wait ran out (payrollJournalReversalGuard).

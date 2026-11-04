@@ -2,8 +2,9 @@
  * Payroll Employee Components card — assignment form + list of current assignments.
  * Used by /payroll/employees/[id].
  */
-import { useState } from 'react';
-import { Loader2, Plus, X, Repeat, Calendar } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { Loader2, Plus, X, Repeat, Calendar, CalendarRange } from 'lucide-react';
+import { AssignmentDatesEditor } from './AssignmentDatesEditor';
 import { DateField } from '@/components/ui/DateField';
 import { formatCurrency } from '@/utils/formatters';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -40,6 +41,8 @@ interface Props {
   onNewIsRecurring: (v: boolean) => void;
   onAssign: () => void;
   onEnd: (assignmentId: string) => void;
+  /** Edit an assignment's dates, open or ended (PATCH …/components?aid=). Without it the card offers no Edit dates. */
+  onEditDates?: (assignmentId: string, effectiveFrom: string, effectiveTo: string | null) => Promise<void> | void;
   adding: boolean;
 }
 
@@ -59,12 +62,14 @@ export function EmployeeComponentsCard({
   onNewIsRecurring,
   onAssign,
   onEnd,
+  onEditDates,
   adding,
 }: Props) {
+  const [editingId, setEditingId] = useState<string | null>(null);
   // A refused date is reported as null: hold Assign until it is fixed rather than post an empty effective date.
   const [fromRefused, setFromRefused] = useState(false);
   return (
-    <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
+    <section id="pay-components" className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
       <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Pay Components</h2>
 
       <div className="mb-4 pb-4 border-b border-[var(--ff-border-primary)] space-y-3">
@@ -140,7 +145,8 @@ export function EmployeeComponentsCard({
           </thead>
           <tbody>
             {assignments.map(a => (
-              <tr key={a.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
+              <Fragment key={a.id}>
+              <tr className="border-b border-[var(--ff-border-primary)] last:border-0">
                 <td className="py-2 pr-4 text-[var(--ff-text-primary)]">
                   {a.componentName}
                   {!a.componentActive && (
@@ -163,6 +169,13 @@ export function EmployeeComponentsCard({
                 <td className="py-2 pl-6 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.effectiveFrom)}</td>
                 <td className="py-2 pl-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.effectiveTo)}</td>
                 <td className="py-2 text-right">
+                  {onEditDates && (
+                    <button onClick={() => setEditingId(editingId === a.id ? null : a.id)} aria-label={`Edit dates for ${a.componentName}`}
+                      title="Edit dates"
+                      className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)] hover:text-teal-400">
+                      <CalendarRange className="h-4 w-4" />
+                    </button>
+                  )}
                   {!a.effectiveTo && (
                     <button onClick={() => onEnd(a.id)} aria-label={`End ${a.componentName}`}
                       className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)] hover:text-red-400">
@@ -171,6 +184,16 @@ export function EmployeeComponentsCard({
                   )}
                 </td>
               </tr>
+              {onEditDates && editingId === a.id && (
+                <tr>
+                  <td colSpan={7} className="py-2">
+                    <AssignmentDatesEditor componentName={a.componentName} effectiveFrom={a.effectiveFrom} effectiveTo={a.effectiveTo}
+                      onCancel={() => setEditingId(null)}
+                      onSave={async (from, to) => { await onEditDates(a.id, from, to); setEditingId(null); }} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>

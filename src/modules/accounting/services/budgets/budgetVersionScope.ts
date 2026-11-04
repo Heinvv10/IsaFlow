@@ -13,7 +13,7 @@ import type { DbRow } from '@/lib/neon';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { fiscalYearForDate, getFiscalYear, type FiscalYearRecord } from '../gl/fiscalYearRegistry';
 import { addDaysISO } from '@/lib/dateUtils';
-import { addMonthsToKey, budgetMonthBounds, monthKeyToDate } from '../reports/budgetPeriodWindow';
+import { addMonthsToKey, budgetMonthBounds, monthEnd, monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { logAuditOrThrow, type AuditAction } from '../core/auditTrailService';
 import { BudgetVersionError } from './budgetVersionTypes';
 
@@ -106,43 +106,98 @@ export async function versionYear(companyId: string, versionId: string): Promise
   return year;
 }
 
-function clip(year: FiscalYearRecord, first: string, last: string): { first: string; last: string } | null {
+type Part = { fiscalYear: number; first: string; last: string };
+
+function clip(year: FiscalYearRecord, first: string, last: string, handsOnLast: boolean): { first: string; last: string } | null {
   const own = budgetMonthBounds(year.startDate, year.endDate);
   if (!own) return null;
+  const ownLast = handsOnLast ? monthKeyToDate(addMonthsToKey(own.last.slice(0, 7), -1)) : own.last;
   const f = own.first > first ? own.first : first;
-  const l = own.last < last ? own.last : last;
+  const l = ownLast < last ? ownLast : last;
   return f <= l ? { first: f, last: l } : null;
 }
 
+/** The STORED registry year holding `date` (no template year, never an error): null in a gap, before the first or after the last. */
+async function storedYearHolding(companyId: string, date: string): Promise<number | null> {
+  const rows = (await sql`
+    SELECT fiscal_year FROM fiscal_years
+     WHERE company_id = ${companyId}::UUID AND start_date <= ${date}::DATE AND end_date >= ${date}::DATE
+  `) as DbRow[];
+  return rows[0] ? Number(rows[0].fiscal_year) : null;
+}
+
 /**
- * The registry years overlapping [startDate, endDate], each with its months inside the window. The
- * walk starts at the window's first DAY and steps to the day after each year ends, so a year that
- * starts mid-month keeps its first month (as the budgets page writes it). A month two years share
- * (one ends and the next starts inside it) counts once, in the earlier year of the window.
+ * The registry years overlapping [startDate, endDate], each with its months inside the window.
+ *
+ * Owner rule (ledger LB-2(b)), whatever day the window starts: a month belongs to the STORED year
+ * holding its 1st (as `budget_primary_month_amounts` and year-end rehoming file it:
+ * `fiscalYearForDate(month)`, `budgetYearRehome`). The one exception: a template year's mid-month last
+ * month goes to the following year only when that year is stored. Where no stored year holds the 1st
+ * (a template year, a gap), master's walk holds: the year of the window's first day, then each
+ * following year from its first whole month.
+ *
+ * The walk is master's: from the window's first DAY to the day after each year ends. It already gives
+ * every month after the window's first to the year holding its 1st, so two steps apply the rule where
+ * it alone would not, both only where a year starts mid-month:
+ *   - The window starts in a year (stored or template) that starts mid-month inside the window's first
+ *     month: that month goes to the stored year holding its 1st, if there is one (`storedYearHolding`).
+ *   - A template year ending mid-month keeps none of its last month ONLY when the day after it ends
+ *     is in a stored year (`storedYearHolding`); the walk goes on to that stored year for it even past
+ *     the window's end, so the owed lookup always lands on a stored year (never a gap).
  *
  * `visited` is every registry year the walk touched by DATE, the year holding the first day always
- * first (even for an inverted window): one lookup per year, shared with the callers that need the
- * years themselves (`primaryVersionScopeAndYears`), so no read walks the registry twice. It is longer
- * than the parts when a year starts mid-month inside the window's last month and so owns no month.
+ * first (even for an inverted window), never empty: one lookup per year, shared with the callers that
+ * need the years themselves (`primaryVersionScopeAndYears`), so no read walks the registry twice. Its
+ * years and the parts' differ where a year owns no month in the window or owns one it is not touched in.
  */
 async function yearsInWindow(companyId: string, startDate: string, endDate: string) {
   const bounds = budgetMonthBounds(startDate, endDate);
-  const parts: Array<{ year: FiscalYearRecord; first: string; last: string }> = [];
+  const parts: Part[] = [];
   const visited: FiscalYearRecord[] = [];
   let day = startDate;
   let first = bounds?.first ?? startDate;
-  while (visited.length === 0 || day <= endDate) {
-    if (visited.length >= MAX_YEARS_IN_WINDOW) throw new Error(`budget window ${startDate}..${endDate} spans too many years`);
+  let lookups = 0;
+  // An inverted window owns no month. Otherwise a month a template year handed on is owed while
+  // `first` is inside the window, so the walk goes on past the window's end for it.
+  const owes = (): boolean => bounds !== null && endDate >= startDate && first <= bounds.last;
+  while (visited.length === 0 || day <= endDate || owes()) {
+    if (visited.length >= MAX_YEARS_IN_WINDOW || lookups >= 2 * MAX_YEARS_IN_WINDOW) {
+      throw new Error(`budget window ${startDate}..${endDate} spans too many years`);
+    }
+    lookups += 1;
     const year = await fiscalYearForDate(companyId, day);
-    visited.push(year);
-    const part = bounds && day <= endDate && first <= bounds.last ? clip(year, first, bounds.last) : null;
+    if (day <= endDate || visited.length === 0) visited.push(year);
+    const part = owes() ? clip(year, first, bounds!.last, await handsOnLastMonth(companyId, year)) : null;
     if (part) {
-      parts.push({ year, ...part });
+      parts.push({ fiscalYear: year.fiscalYear, ...part });
       first = monthKeyToDate(addMonthsToKey(part.last.slice(0, 7), 1));
     }
     day = dayAfter(year.endDate);
   }
+  if (visited.length === 0) throw new Error(`budget window ${startDate}..${endDate} touched no registry year`);
+  await giveFirstMonthToItsOwner(companyId, visited[0]!, parts, bounds?.first ?? null);
   return { parts, visited };
+}
+
+/** A template year ending mid-month gives its last month to the year after only when that year is stored. */
+async function handsOnLastMonth(companyId: string, year: FiscalYearRecord): Promise<boolean> {
+  if (year.stored || year.endDate === monthEnd(year.endDate)) return false;
+  return (await storedYearHolding(companyId, dayAfter(year.endDate))) !== null;
+}
+
+/**
+ * The window starts in a year (stored or template) that starts mid-month inside its first month: that
+ * month belongs to the stored year holding its 1st, when there is one; otherwise master's walk keeps it
+ * in the year of the first day. Only such a registry pays the extra lookup.
+ */
+async function giveFirstMonthToItsOwner(companyId: string, startYear: FiscalYearRecord, parts: Part[], firstMonth: string | null) {
+  const head = parts[0];
+  if (!firstMonth || !head || head.first !== firstMonth || startYear.startDate <= firstMonth) return;
+  const owner = await storedYearHolding(companyId, firstMonth);
+  if (owner === null || owner === head.fiscalYear) return;
+  if (head.last === firstMonth) parts.shift();
+  else head.first = monthKeyToDate(addMonthsToKey(firstMonth.slice(0, 7), 1));
+  parts.unshift({ fiscalYear: owner, first: firstMonth, last: firstMonth });
 }
 
 /**
@@ -154,14 +209,14 @@ export async function primaryVersionScopeAndYears(
 ): Promise<{ scope: VersionScope[]; years: FiscalYearRecord[] }> {
   const { parts, visited } = await yearsInWindow(companyId, startDate, endDate);
   if (parts.length === 0) return { scope: [], years: visited };
-  const labels = parts.map((y) => y.year.fiscalYear);
+  const labels = parts.map((y) => y.fiscalYear);
   const prim = (await sql`
     SELECT id, fiscal_year FROM budget_versions
      WHERE company_id = ${companyId}::UUID AND is_primary AND fiscal_year = ANY(${labels}::INT[])
   `) as DbRow[];
   const byLabel = new Map(prim.map((r) => [Number(r.fiscal_year), String(r.id)]));
   return {
-    scope: parts.map((y) => ({ fiscalYear: y.year.fiscalYear, versionId: byLabel.get(y.year.fiscalYear) ?? null, first: y.first, last: y.last })),
+    scope: parts.map((y) => ({ fiscalYear: y.fiscalYear, versionId: byLabel.get(y.fiscalYear) ?? null, first: y.first, last: y.last })),
     years: visited,
   };
 }

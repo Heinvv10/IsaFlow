@@ -2,7 +2,10 @@
  * GET /api/payroll/emp501/export?taxYear=2025
  *
  * Produces e@syFile-style CSV: one row per employee with aggregated tax year totals.
- * Format: employee_name, irp5_number, gross_income, paye, uif, sdl
+ * Format: employee_name, irp5_number, gross_income, paye, uif, sdl, fringe_3801
+ * gross_income is cash pay; fringe_3801 is the non-cash fringe benefit (the low-interest loan
+ * benefit, SARS code 3801; payrollNonCashFiling), not in gross_income, taxed in paye. Appended
+ * last so the earlier columns keep their positions.
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -15,13 +18,14 @@ import { log } from '@/lib/logger';
 import { escapeCsv } from '@/lib/csv';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
-import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
+import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH, payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
+import { listRunNonCashBenefits } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
 
 type Row = DbRow;
 
 /** Build the e@syFile-style CSV. Exported for unit testing (formula-injection safety). */
 export function buildEmp501Csv(rows: Row[]): string {
-  const header = 'employee_name,irp5_number,gross_income,paye,uif,sdl';
+  const header = 'employee_name,irp5_number,gross_income,paye,uif,sdl,fringe_3801';
   const lines = rows.map((r, idx) => {
     const name = `${r.first_name} ${r.last_name}`;
     const irp5Number = r.tax_number ? String(r.tax_number) : `IRP5-${String(idx + 1).padStart(4, '0')}`;
@@ -32,6 +36,7 @@ export function buildEmp501Csv(rows: Row[]): string {
       Number(r.total_paye).toFixed(2),
       Number(r.total_uif).toFixed(2),
       Number(r.total_sdl).toFixed(2),
+      Number(r.fringe_3801 ?? 0).toFixed(2),
     ].join(',');
   });
   return [header, ...lines].join('\n');
@@ -57,6 +62,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   const rows = (await sql`
     SELECT
+      pe.id AS employee_id,
       pe.first_name,
       pe.last_name,
       pe.tax_number,
@@ -79,7 +85,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     ORDER BY pe.last_name, pe.first_name
   `) as Row[];
 
-  const csv = buildEmp501Csv(rows);
+  const fringe = await listRunNonCashBenefits(companyId, payeTaxYearBounds(taxYear));
+  const csv = buildEmp501Csv(rows.map((r) => ({
+    ...r,
+    fringe_3801: (fringe.get(String(r.employee_id)) ?? []).filter((b) => b.sourceCode === '3801').reduce((s, b) => s + b.amount, 0),
+  })));
   const filename = `EMP501_${taxYear - 1}_${taxYear}.csv`;
 
   res.setHeader('Content-Type', 'text/csv');

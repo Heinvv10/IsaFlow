@@ -2,7 +2,8 @@
  * Reveal one recorded change in full (forensic-controls step 3; Hein's
  * decision 2): POST { changeId } — owner / admin only, a person in their own
  * session (Login-as 403 IMPERSONATION_FORBIDDEN, a token 403 AGENT_FORBIDDEN);
- * the bank account / ID / tax numbers the history masks are returned, and the
+ * the bank account / ID / tax numbers the history masks (and an employee bank
+ * detail's branch code and holder) are returned, and the
  * reveal is recorded in audit_log (`export`, `entity_change`) in the same
  * transaction. 404 when this company has no such change.
  */
