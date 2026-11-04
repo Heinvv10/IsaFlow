@@ -32,7 +32,7 @@ function gate() {
 
 /** A customer lookup's script: wait for `gate`, then answer, or fail (500). */
 type Step = Promise<void> | { gate?: Promise<void>; fail?: true };
-const DISCOUNT: Record<string, number> = { A: 5, B: 5, C: 9 }; // C's defaults differ from B's
+const DISCOUNT: Record<string, number> = { A: 5, B: 7, C: 9 }; // each customer's defaults tell it apart
 
 /** Each customer lookup (`?id=`) takes the next step queued for that customer, if any; the rest answer at once. */
 function serve(held: Record<string, Step[]> = {}) {
@@ -112,7 +112,7 @@ describe('a customer picked again waits for its own answer', () => {
     expect(result.current.defaults).toBeNull(); // never C's (discount 9)
     await act(async () => { bAgain.release(); await bAgain.promise; });
     await waitFor(() => expect(result.current.pending).toBe(false));
-    expect(result.current.defaults?.discount).toBe(5);
+    expect(result.current.defaults?.discount).toBe(7);
   });
 
   it('A answered, then B picked: A\'s defaults are gone while B\'s are asked', async () => {
@@ -124,7 +124,7 @@ describe('a customer picked again waits for its own answer', () => {
     expect(result.current.defaults).toBeNull();
     expect(result.current.pending).toBe(true);
     await act(async () => { b.release(); await b.promise; });
-    await waitFor(() => expect(result.current.defaults?.discount).toBe(5));
+    await waitFor(() => expect(result.current.defaults?.discount).toBe(7));
   });
 
   it('A, cleared, A again whose lookup fails: pending, then not, with the error said', async () => {
@@ -169,6 +169,6 @@ describe('the edit page waits only for a customer changed on the page', () => {
     expect(saveChanges().disabled).toBe(true);
     await act(async () => { beta.release(); await beta.promise; });
     await waitFor(() => expect(saveChanges().disabled).toBe(false));
-    stored.release();
+    await act(async () => { stored.release(); await stored.promise; });
   });
 });
