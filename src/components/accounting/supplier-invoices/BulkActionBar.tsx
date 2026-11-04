@@ -16,12 +16,20 @@ import { notify } from '@/utils/toast';
 /** The bulk preview's cap (`@/lib/budgetBillPreview`): a larger selection is approved without the modal; the server still checks every bill. */
 const MAX_BUDGET_PREVIEW = 50;
 
-/** Budgets P5-2 (warn): the bills approved over budget, named, so the person sees what they just approved. */
+/**
+ * Budgets P5-2 (warn): the bills approved over budget, named, so the person sees what they just approved. P5-2b: a
+ * warning for a line outside every budgeted slice starts "Not in a budgeted slice:" (`decideBudgetOutcome`); the
+ * title says which kinds the batch had.
+ */
 function notifyBudgetWarnings(data: BulkActionResult): void {
-  const over = data.results.filter((r) => r.ok && r.budgetWarnings && r.budgetWarnings.length > 0);
-  if (over.length === 0) return;
-  const names = over.map((r) => r.invoiceNumber || 'a bill').join(', ');
-  notify.warning(`${over.length === 1 ? '1 bill' : `${over.length} bills`} approved over budget`, names);
+  const warned = data.results.filter((r) => r.ok && r.budgetWarnings && r.budgetWarnings.length > 0);
+  if (warned.length === 0) return;
+  const all = warned.flatMap((r) => r.budgetWarnings ?? []);
+  const offSlice = all.some((w) => w.startsWith('Not in a budgeted slice:'));
+  const over = all.some((w) => !w.startsWith('Not in a budgeted slice:'));
+  const what = offSlice ? (over ? 'over budget or outside a budgeted slice' : 'outside a budgeted slice') : 'over budget';
+  const names = warned.map((r) => r.invoiceNumber || 'a bill').join(', ');
+  notify.warning(`${warned.length === 1 ? '1 bill' : `${warned.length} bills`} approved ${what}`, names);
 }
 
 type BulkAction = 'approve' | 'post_gl' | 'cancel';
