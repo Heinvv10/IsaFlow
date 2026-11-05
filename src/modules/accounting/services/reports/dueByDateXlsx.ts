@@ -6,6 +6,7 @@
 
 import ExcelJS from 'exceljs';
 import type { DueByDateContactDetail, DueByDateReport, DueByDateSide } from '../../utils/dueByDate';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 type FullSide = DueByDateSide<DueByDateContactDetail>;
 
@@ -19,9 +20,6 @@ const BUCKET_LABEL = {
   dueLater: 'Due later',
   noDueDate: 'No due date',
 } as const;
-
-/** Plain ASCII amount for a sentence in a cell. */
-const excl = (n: number): string => `R ${n.toFixed(2)}`;
 
 function styleHeader(row: ExcelJS.Row): void {
   row.eachCell((cell) => {
@@ -79,7 +77,7 @@ export function buildDueByDateWorkbook(report: DueByDateReport<DueByDateContactD
   const net = ws.addRow(['Net position by date (receivables less payables, total by date)', report.netPosition]);
   net.font = { bold: true };
   money(net, 2, 2);
-  ws.addRow([`Excludes ${excl(report.ap.totals.noDueDate)} payables and ${excl(report.ar.totals.noDueDate)} receivables with no due date.`]);
+  ws.addRow([`Excludes ${formatMoney(report.ap.totals.noDueDate)} payables and ${formatMoney(report.ar.totals.noDueDate)} receivables with no due date.`]);
 
   addInvoices(wb, 'AR invoices', 'Customer', report.ar);
   addInvoices(wb, 'AP invoices', 'Supplier', report.ap);

@@ -51,6 +51,6 @@ describe('Due by date workbook', () => {
   it('states what the net position leaves out (documents with no due date)', async () => {
     const wb = await roundTrip(buildDueByDateWorkbook(report()));
     const texts = cells(wb.getWorksheet('Due by date')!).map((c) => String(c.value));
-    expect(texts).toContain('Excludes R 5.00 payables and R 0.00 receivables with no due date.');
+    expect(texts.map((t) => t.replace(/\s/g, ' '))).toContain('Excludes R 5.00 payables and R 0.00 receivables with no due date.');
   });
 });

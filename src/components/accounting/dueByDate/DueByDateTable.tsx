@@ -6,6 +6,7 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import type { DueBucket, DueByDateInvoice, DueByDateSide } from '@/modules/accounting/utils/dueByDate';
@@ -41,7 +42,7 @@ export function DueByDateTable({ side, contactLabel, loadInvoices }: TableProps)
     loadInvoices(id).then(
       (invoices) => { if (alive.current) setDetails((d) => ({ ...d, [id]: { state: 'ready', invoices } })); },
       (err: unknown) => {
-        const message = err instanceof Error ? err.message : 'Could not load the invoices - try again';
+        const message = apiErrorMessage(err, 'Could not load the invoices - try again');
         if (alive.current) setDetails((d) => ({ ...d, [id]: { state: 'error', message } }));
       },
     );
