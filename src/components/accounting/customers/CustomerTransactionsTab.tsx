@@ -109,7 +109,7 @@ export function CustomerTransactionsTab({ customerId }: { customerId: string }) 
                       {TYPE_LABELS[row.type]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 font-mono text-[var(--ff-text-primary)]">{row.reference}</td>
+                  <td className="px-4 py-3 font-id text-[var(--ff-text-primary)]">{row.reference}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                     {formatCurrency(Number(row.total_amount))}
                   </td>
