@@ -96,6 +96,24 @@ describe('request body to service input', () => {
     expect(customerInputFromBody({ credit_limit: '12.5', default_discount: 0 })).toMatchObject({ creditLimit: 12.5, defaultDiscount: 0 });
   });
 
+  // Number(false), Number([]) and Number('  ') are all 0: for payment_terms that would store "Immediate".
+  it.each([[false], [true], [[]], [[5]], [{}], [{ n: 1 }]])('payment_terms of %j is refused, not read as 0', (value) => {
+    expect(() => customerInputFromBody({ payment_terms: value })).toThrow('payment_terms must be a number');
+    expect(() => supplierInputFromBody({ payment_terms: value })).toThrow('payment_terms must be a number');
+    expect(() => customerInputFromBody({ credit_limit: value })).toThrow('credit_limit must be a number');
+    expect(() => supplierInputFromBody({ opening_balance: value })).toThrow('opening_balance must be a number');
+  });
+
+  it.each([[' '], ['   '], ['\t'], [''], [null]])('a blank payment_terms (%j) is left out, not read as 0', (value) => {
+    expect(customerInputFromBody({ payment_terms: value }).paymentTerms).toBeUndefined();
+    expect(supplierInputFromBody({ payment_terms: value }).paymentTerms).toBeUndefined();
+  });
+
+  it('a real number, or a numeric string with spaces around it, is read', () => {
+    expect(customerInputFromBody({ payment_terms: 0 }).paymentTerms).toBe(0);
+    expect(supplierInputFromBody({ payment_terms: ' 45 ' }).paymentTerms).toBe(45);
+  });
+
   it.each([[null], [undefined], ['text'], [[1]], [5]])('a body of %j is refused before anything is read', (body) => {
     expect(() => customerInputFromBody(body)).toThrow('JSON object');
     expect(() => supplierInputFromBody(body)).toThrow('JSON object');

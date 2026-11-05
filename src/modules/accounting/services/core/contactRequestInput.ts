@@ -15,10 +15,15 @@ type Body = Record<string, unknown>;
 
 const str = (b: Body, k: string) => (typeof b[k] === 'string' ? (b[k] as string) : undefined);
 const bool = (b: Body, k: string) => (typeof b[k] === 'boolean' ? (b[k] as boolean) : undefined);
-/** A number field: absent or blank is undefined; anything that is not a finite number is refused (NaN would reach SQL). */
+/**
+ * A number field: absent, null or blank (an empty or whitespace-only string) is undefined. A number or a numeric string is
+ * that number; anything else is refused: a boolean, an array or an object (`Number(false)` and `Number([])` are 0, which
+ * for payment_terms would store "Immediate"), and a non-finite number (NaN would reach SQL).
+ */
 const num = (b: Body, k: string) => {
   const v = b[k];
-  if (v === undefined || v === null || v === '') return undefined;
+  if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) return undefined;
+  if (typeof v !== 'number' && typeof v !== 'string') throw new ContactValidationError(`${k} must be a number`);
   const n = Number(v);
   if (!Number.isFinite(n)) throw new ContactValidationError(`${k} must be a number`);
   return n;
