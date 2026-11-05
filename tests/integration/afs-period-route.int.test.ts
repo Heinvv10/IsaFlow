@@ -9,11 +9,12 @@
  * holding today; a management pack gets its calendar month. Disposable schema
  * fixture only; synthetic data.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { als } from '@/lib/als';
 import { localISODate } from '@/lib/dateUtils';
 import route from '../../pages/api/accounting/afs/[documentId]/period';
+import { getServerSideProps } from '../../pages/accounting/afs/[documentId]/index';
 import templatesRoute from '../../pages/api/accounting/afs/report-templates';
 import { generateFiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearGenerator';
 import { applyYearEndChange } from '@/modules/accounting/services/gl/financialYearEndChangeApply';
@@ -134,6 +135,53 @@ describe('GET /api/accounting/afs/[documentId]/period', () => {
     await (route as (a: never, b: never) => Promise<unknown>)(stranger as never, out.res as never);
     expect(out.state.statusCode).toBe(404);
     await pool.query('DELETE FROM company_users WHERE user_id = $1', [other.userId]);
+  });
+});
+
+describe('the AFS document page getServerSideProps (period through the route, in this process)', () => {
+  type Ctx = Parameters<typeof getServerSideProps>[0];
+  const pageCtx = (jar: Record<string, string>, documentId: string) => ({
+    query: { documentId }, resolvedUrl: `/accounting/afs/${documentId}`,
+    req: request(jar, 'GET'),
+  }) as unknown as Ctx;
+  const props = async (jar: Record<string, string>, documentId: string) =>
+    (await getServerSideProps(pageCtx(jar, documentId))) as { props?: Record<string, unknown>; notFound?: true; redirect?: { destination: string } };
+
+  it('a member gets the document period, with no HTTP call and whatever NEXT_PUBLIC_APP_URL says', async () => {
+    const f = vi.fn(async () => { throw new Error('the page must not fetch its own API'); });
+    vi.stubGlobal('fetch', f);
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://127.0.0.1:1');
+    try {
+      const out = await props({ 'sb-access-token': u.token, active_company_id: co }, docs.transition!);
+      expect(out.props).toMatchObject({ periodStart: '2026-01-01', periodEnd: '2027-02-28', periodMonths: 14, periodError: null });
+      const pack = await props({ 'sb-access-token': u.token, active_company_id: co }, docs.pack!);
+      expect(pack.props).toMatchObject({ periodStart: '2028-02-01', periodEnd: '2028-02-29', periodMonths: 1 });
+      expect(f).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
+  });
+
+  it('another company\'s document is not found for a visitor of this one', async () => {
+    const other = await newSetupUser(pool);
+    try {
+      expect(await props({ 'sb-access-token': other.token, active_company_id: other.homeCompanyId }, docs.transition!)).toEqual({ notFound: true });
+    } finally { await pool.query('DELETE FROM company_users WHERE user_id = $1', [other.userId]); }
+  });
+
+  it('a visitor claiming a company they do not belong to is refused and gets no period', async () => {
+    const other = await newSetupUser(pool);
+    try {
+      const out = await props({ 'sb-access-token': other.token, active_company_id: co }, docs.transition!);
+      expect(out.props).toMatchObject({ periodStart: '', periodEnd: '', periodError: null });
+    } finally { await pool.query('DELETE FROM company_users WHERE user_id = $1', [other.userId]); }
+  });
+
+  it('no session sends the visitor to sign in and come back', async () => {
+    const out = await props({ active_company_id: co }, docs.transition!);
+    expect(out.redirect?.destination).toBe(`/login?returnTo=${encodeURIComponent(`/accounting/afs/${docs.transition!}`)}`);
+  });
+
+  it('a label the change of year end skipped is not found, never another year', async () => {
+    expect(await props({ 'sb-access-token': u.token, active_company_id: co }, docs.skipped!)).toEqual({ notFound: true });
   });
 });
 
