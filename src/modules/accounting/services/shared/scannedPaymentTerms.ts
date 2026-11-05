@@ -15,8 +15,8 @@ import { STATEMENT_WORDING, ownTermsDueDate } from './paymentTerms';
 const TERMS_WORDS = new Set(['net', 'nett', 'days', 'day', 'from', 'after', 'within', 'of', 'the', 'in', 'invoice', 'date', 'payable',
   'due', 'pay', 'payment', 'terms', 'strictly', 'only', 'and', 'to']);
 const IMMEDIATE = /\b(immediate(ly)?|cod|cash on delivery|(due |payable )?(on|upon) receipt)\b/;
-/** A "net N" / "nett N" / "N days" / "N-day" phrase's number (up to 3 digits, never inside a longer number or after a decimal point). */
-const DAY_COUNTS = [/\bnett?\s*(\d{1,3})(?!\d)/, /(?<![\d.,])(\d{1,3})[\s-]*days?\b/];
+/** A "net N" / "nett N" / "N days" / "N-day" phrase's number (up to 3 digits, never inside a longer number; a decimal leaves a digit behind, which rejects the text). */
+const DAY_COUNTS = [/\bnett?\s*(\d{1,3})(?!\d)/, /(?<!\d)(\d{1,3})[\s-]*days?\b/];
 
 /** Dotted abbreviations without the dots: "c.o.d." -> "cod", "e.o.m." -> "eom". */
 const undotted = (s: string) => s.replace(/(?<![a-z])(?:[a-z]\.){2,}/g, (m) => m.replace(/\./g, ''));
