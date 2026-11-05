@@ -15,8 +15,10 @@
 -- new code is live; see the plan doc.
 --
 -- It DOES drop the column DEFAULTs (30 / 'days'): an insert that names no terms (the importers, a script) must store
--- not set, not a confirmed-looking 30. That is safe beside the old code: every old writer that means terms names both
--- columns (the old createSupplier / createCustomer / importer pass explicit values), and one that names neither now
+-- not set, not a confirmed-looking 30. That is safe beside the old code: no old writer relies on a default for the NUMBER
+-- (old createSupplier writes payment_terms ?? 30, old createCustomer both columns, the importers `?? 30`). Old createSupplier
+-- names ONLY payment_terms, so its type is now NULL where the default used to make it 'days'; the new code reads a number
+-- with no type as invoice days, and the old code never reads a supplier's type. A writer that names neither column now
 -- stores NULL / NULL, which the old code reads as no terms (its due-date fallbacks apply).
 --
 -- Data, all tenants on purpose (this is a column-semantics change, not tenant data):

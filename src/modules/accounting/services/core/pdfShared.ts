@@ -458,6 +458,17 @@ export interface RefField {
   value: string;
 }
 
+/** The largest font size from `max` down to `min` at which `text` (in the doc's current bold face) fits `maxWidth`; `min` when none does. */
+function fitFontSize(doc: JsPdfDoc, text: string, maxWidth: number, max: number, min: number): number {
+  let size = max;
+  doc.setFontSize(size);
+  while (size > min && doc.getTextWidth(text) > maxWidth) {
+    size -= 0.25;
+    doc.setFontSize(size);
+  }
+  return size;
+}
+
 /**
  * Render a subtle reference info strip with N columns.
  * Returns new Y position.
@@ -486,7 +497,7 @@ export function renderRefStrip(
     doc.text(field.label.toUpperCase(), cx, y + 5);
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
+    doc.setFontSize(fitFontSize(doc, field.value, colW - 8, 8, 6));
     doc.setTextColor(...COLORS.TEXT_PRIMARY);
     doc.text(field.value, cx, y + 11);
   });

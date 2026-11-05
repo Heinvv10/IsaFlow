@@ -5,8 +5,9 @@
 -- type, `company_setting`, with the same capture: owner / admin read it (entity_changes_read's ELSE arm, unchanged),
 -- the actor, the channel and the before / after are recorded by the database whoever writes it.
 --
--- Only THIS key is tracked: accounting_settings also holds noisy keys (budget alert run markers), and the generic
--- /accounting-settings route can write any key. Three narrow triggers (INSERT / UPDATE / DELETE: a WHEN clause may name
+-- Only THIS key is tracked: accounting_settings also holds noisy keys (budget alert run markers, the UI's display and
+-- dimension settings). The default is written by setCompanyDefaultTerms alone (the generic /accounting-settings route
+-- refuses it), but the capture is on the table, so whoever writes the key is recorded. Three narrow triggers (INSERT / UPDATE / DELETE: a WHEN clause may name
 -- OLD only for an UPDATE or DELETE), each ENABLE ALWAYS as 888's. The capture function and the projection are
 -- UNCHANGED (the projection keeps every column but id, created_at and updated_at: company_id, key, value), so 930's
 -- definer registry is too.
@@ -14,8 +15,11 @@
 -- Expand-only and safe beside the old code: the old code never writes this key, and a write to any other key fires no
 -- trigger. A rollback of code alone leaves a harmless trigger.
 --
--- Lock: the entity_type CHECK is replaced NOT VALID then validated, so entity_changes takes ACCESS EXCLUSIVE only for
--- the catalogue change, not for a scan. A lock not granted within 5s aborts the migration, which has then changed nothing.
+-- Lock: the entity_type CHECK is replaced NOT VALID then validated (the repo's pattern, as 952). The apply step runs a file in
+-- ONE transaction (scripts/lib/migrationFiles.ts applyOne), so the ACCESS EXCLUSIVE lock the DROP / ADD takes on
+-- entity_changes is held to the commit, through the VALIDATE scan: NOT VALID does not shorten it here, so the scan's length is
+-- the table's row count (check it before deploying). lock_timeout limits only the WAIT for the lock: not granted within 5s,
+-- the migration aborts and has changed nothing.
 
 SET LOCAL lock_timeout = '5s';
 

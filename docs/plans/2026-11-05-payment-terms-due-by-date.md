@@ -85,16 +85,25 @@ writes `?? 30`. So:
 
 ```sql
 SET LOCAL lock_timeout = '5s';
--- anything the old code wrote in the window: legacy names and the over-cap rows, mapped exactly as 960 maps them
+-- anything the old code wrote in the window, mapped as 960 maps it, EXCEPT the bare number: old createSupplier writes
+-- (30, NULL) (payment_terms only, ?? 30), and new code never writes (N, NULL), so a (30, NULL) supplier row is a default
+-- the old code stamped, not a choice: it becomes NULL / NULL (not set), never invoice_days 30. Any other (N, NULL) row has
+-- no known writer: map it to invoice_days N as 960 does.
+UPDATE suppliers SET payment_terms = NULL, payment_terms_type = NULL WHERE payment_terms = 30 AND payment_terms_type IS NULL;
 UPDATE suppliers SET payment_terms_type = CASE WHEN payment_terms_type IS NULL OR payment_terms_type = 'days' THEN 'invoice_days'
   WHEN payment_terms_type = 'end_of_month' THEN 'statement_days' ELSE payment_terms_type END
 WHERE payment_terms IS NOT NULL AND payment_terms_type IN ('days', 'end_of_month') OR (payment_terms IS NOT NULL AND payment_terms_type IS NULL);
--- (same for customers); then rows that are neither both-NULL nor a valid pair become NULL / NULL
+-- (customers: only the second UPDATE; see below) then rows that are neither both-NULL nor a valid pair become NULL / NULL
 ALTER TABLE suppliers ADD CONSTRAINT suppliers_payment_terms_shape CHECK (
   (payment_terms IS NULL AND payment_terms_type IS NULL)
   OR (payment_terms BETWEEN 0 AND 999 AND payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months'))) NOT VALID;
 ALTER TABLE suppliers VALIDATE CONSTRAINT suppliers_payment_terms_shape;  -- and the same two statements for customers
 ```
+
+  Old `createCustomer` writes (30, 'days') for both a default and a real "30 days" choice, so a customer's (30, 'days') cannot be
+  told apart from a choice: 960 already mapped those to not set when they were on the default and PR 1b cannot repeat that for
+  rows written in the window. They become invoice_days 30, which dates the same as the company default's start and is
+  visible on the contact. Suppliers differ only by the type column (NULL for the old writer, never written by the new code).
 
   Accepted as transient (round 2, 2026-11-05): during the deploy window and after a code-only rollback the OLD colour reads a
   contact with a new type value (`statement_days`, `statement_months`, or NULL / NULL) as no usable terms, so a customer invoice it
