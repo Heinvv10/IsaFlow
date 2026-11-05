@@ -61,9 +61,8 @@ describe('the 2,560-input shape sweep', () => {
           const p6 = doc.pages.find((p) => p.navLabel === 'Income statement')!;
           const hasBudget = p6.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'));
           if (hasBudget && !p6.footnotes.some((f) => f.text.startsWith(BUDGET_COLUMN_NOTE_START))) budgetWithoutNote += 1;
-          // The caption is the fitter's LAST lever, so a page that lost it has lost every ordinary footnote,
-          // including the one that explains the Budget columns: those pages leave the columns out (the
-          // figures and the caption do not trade places). Pinned, not assumed.
+          // The caption is the fitter's FIRST lever, so a page that lost it can still carry the footnote that
+          // names the Budget columns, and with it the columns: counted, and pinned below.
           if (hasBudget && !p6.blocks.some((b) => b.kind === 'narrative')) captionDroppedBudgetKept += 1;
           for (const page of doc.pages) {
             const call = fitted.calls.find((c) => (c.after as PackPage).blocks === page.blocks);
@@ -93,6 +92,6 @@ describe('the 2,560-input shape sweep', () => {
     // every shape in the sweep gets its pack.
     expect(unexpectedlyRefused).toEqual([]);
     expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 0, refused: 0, sample: [] });
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, refused: 0, sample: [] });
   }, 1_800_000);
 });

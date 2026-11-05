@@ -5,6 +5,7 @@
  * follows it to its new number.
  */
 import { describe, expect, it } from 'vitest';
+import { NOTHING, omissionFootnote } from '@/modules/accounting/services/packs/pages/packOmissionFootnote';
 import { withoutFootnotes } from '@/modules/accounting/services/packs/pages/packFootnoteRenumber';
 import type { PackFootnote, PackPageBlock } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { anchorsOf } from './fixtures/packAnchors';
@@ -76,6 +77,18 @@ describe('withoutFootnotes', () => {
     // anchor left at 9 stays dangling, and one at 3 (listed) must follow its note.
     const blocks = [{ kind: 'table', table: { scale: "R'000", columns: ['actual'], rows: [row('a', 9), row('b', 3)] } }] as unknown as PackPageBlock[];
     expect(at(withoutFootnotes(blocks, FOOTNOTES, new Set([2])).blocks)).toEqual({ 'table a row b': 2 });
+  });
+
+  it('a superscript that pointed at nothing before the fit never ends up on the omission note', () => {
+    // Revenue anchors footnote 2, which this page does not list; footnote 1 is dropped, 3 closes up to 2,
+    // and the omission note takes 3. Left at 2 the orphan would print the old cost-of-sales note.
+    const blocks = [{ kind: 'table', table: { scale: "R'000", columns: ['actual'], rows: [row('rev', 2), row('cos', 3)] } }] as unknown as PackPageBlock[];
+    const r = withoutFootnotes(blocks, [fn(1), fn(3)], new Set([1]));
+    const all = [...r.footnotes, omissionFootnote({ ...NOTHING, footnotes: 1 }, r.footnotes)];
+    const anchors = at(r.blocks);
+    expect(anchors['table rev row rev']).toBeUndefined();
+    expect(all.find((f) => f.number === anchors['table rev row cos'])?.text).toBe('Note 3');
+    expect(all.map((f) => f.number)).toEqual([1, 2]);
   });
 
   it('does not touch its input', () => {

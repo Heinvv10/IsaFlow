@@ -251,13 +251,12 @@ export type PackPageBlock =
        */
       stackActions?: boolean;
       /**
-       * A DERIVED CAPTION THE FITTER MAY TAKE AS ITS LAST LEVER.
+       * A DERIVED CAPTION THE FITTER TAKES FIRST.
        *
        * Set on a one-line caption that only restates a row of the table above it (page 6's "largest
-       * mover"). `fitPageToBox` takes it only when every optional note, every ordinary footnote and
-       * the tail of every required disclosure are already gone and the page is still over its
-       * sheet, and the page then says so in its omission footnote. Never set on approved
-       * commentary or on a block that carries something the pack owes the reader.
+       * mover"). `fitPageToBox` takes it before any note or footnote when the page is over its sheet,
+       * and the page then says so in its omission footnote. Never set on approved commentary or on a
+       * block that carries something the pack owes the reader.
        */
       droppable?: true;
     }

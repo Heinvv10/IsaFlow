@@ -1,5 +1,5 @@
 /**
- * THE LAST LEVER: A DERIVED CAPTION THAT ONLY RESTATES THE TABLE BESIDE IT MAY GO.
+ * THE FIRST LEVER: A DERIVED CAPTION THAT ONLY RESTATES THE TABLE BESIDE IT GOES BEFORE ANY NOTE.
  *
  * Page 6 with net-debit revenue and a material interest/tax step carries two required
  * disclosures, the table's not-meaningful reasons and the sign-flip footnote, with the bridge
@@ -7,9 +7,9 @@
  * box, and the whole pack was refused. The one block left that the pack is not bound to make is the
  * one-line "largest mover" caption, which restates a row of the table above it.
  *
- * Pulled only when nothing else is left, so a page that fits today is never changed by it; the page
- * says so in its omission footnote; a caption that is not flagged (page 3's, an approved
- * commentary) is never touched.
+ * Derived prose is worth less than a footnote or a budget figure, so it goes first (it is also the
+ * tallest thing to keep: 13.7mm against 4mm for a footnote); the page says so in its omission
+ * footnote; a caption that is not flagged (page 3's, an approved commentary) is never touched.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { log } from '@/lib/logger';
@@ -37,7 +37,7 @@ const page = (blocks: PackPageBlock[]): Omit<PackPage, 'number'> => ({
 });
 
 describe('a droppable caption', () => {
-  // 27 sentences: 275.6mm as composed, 246.4mm once the footnotes and the caption are gone.
+  // 27 sentences: 275.6mm as composed; the caption goes first and two of the three footnotes after it.
   const subject = page([required(27), caption({ droppable: true })]);
 
   it('is the fixture: footnotes alone cannot pay for it, so the page is refused without the flag', () => {
@@ -51,10 +51,10 @@ describe('a droppable caption', () => {
       const { page: fitted, dropped } = fitPageReport(subject);
       expect(fitted.blocks.some((b) => b.kind === 'narrative')).toBe(false);
       expect(dropped.captions).toBe(1);
-      expect(dropped.footnotes).toBe(3);
+      expect(dropped.footnotes).toBe(2);
       expect(pageMm(fitted)).toBeLessThanOrEqual(pageBoxMm(fitted));
       const said = fitted.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
-      expect(said?.text).toContain('3 footnotes; 1 derived caption');
+      expect(said?.text).toContain('2 footnotes; 1 derived caption');
       expect(said?.text).toContain('Every figure, table and chart on the page is complete');
       // The fit does not log: it is also run as a probe whose page is thrown away. The caller logs the page it uses.
       expect(warn).not.toHaveBeenCalled();
@@ -63,12 +63,23 @@ describe('a droppable caption', () => {
     }
   });
 
-  it('is kept while the footnotes can pay instead (it is the LAST lever)', () => {
-    // 25 sentences: two footnotes pay and the caption stays.
+  it('is taken BEFORE the footnotes: a page the footnotes alone could have fitted keeps more of them', () => {
+    // 25 sentences: with no caption lever two footnotes pay; with the caption first one footnote is enough.
     const { page: fitted, dropped } = fitPageReport(page([required(25), caption({ droppable: true })]));
-    expect(dropped.captions).toBe(0);
-    expect(dropped.footnotes).toBeGreaterThan(0);
-    expect(fitted.blocks.some((b) => b.kind === 'narrative')).toBe(true);
+    expect(dropped.captions).toBe(1);
+    expect(dropped.footnotes).toBeLessThan(2);
+    expect(fitted.footnotes.filter((f) => !f.text.startsWith(OMISSION_MARK)).length).toBeGreaterThanOrEqual(2);
+    expect(fitted.blocks.some((b) => b.kind === 'narrative')).toBe(false);
+  });
+
+  it('is taken before an optional note too', () => {
+    const withNote = page([
+      required(22), caption({ droppable: true }),
+      { kind: 'disclosure', disclosure: { heading: 'Reading this page', notes: [{ heading: 'A', body: SENTENCE }] } },
+    ]);
+    const { dropped } = fitPageReport(withNote);
+    expect(dropped.captions).toBe(1);
+    expect(dropped.notes).toBe(0);
   });
 
   it('is not dropped when it would not make the page fit: the page is still refused', () => {
