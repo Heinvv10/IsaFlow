@@ -28,7 +28,8 @@ export async function getCompanyDefaultTerms(companyId: string): Promise<Terms> 
 /** Set the company default. Refuses anything but a whole number from 0 to 999 with a type (no "not set" for a default). */
 export async function setCompanyDefaultTerms(companyId: string, days: unknown, type: unknown): Promise<Terms> {
   try {
-    const w = parseTermsWrite(typeof days === 'number' ? days : Number.NaN, typeof type === 'string' ? type : undefined);
+    // `days` is a request body value: parseTermsWrite refuses anything that is not a whole number (a string '30' included).
+    const w = parseTermsWrite(days as number | undefined, typeof type === 'string' ? type : undefined);
     if (w.kind !== 'set') throw new PaymentTermsError('Choose both the number and what it counts');
     const terms: Terms = { days: w.days, type: w.type };
     await sql`
