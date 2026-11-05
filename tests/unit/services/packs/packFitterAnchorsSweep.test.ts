@@ -53,6 +53,7 @@ describe('the 2,560-input shape sweep', () => {
     let captionDroppedBudgetKept = 0;
     let columnsNamed = 0;
     let columnsSilent = 0;
+    let falseCompleteness = 0;
     let trimmedPages = 0;
     try {
       for (const shape of shapes) {
@@ -70,6 +71,8 @@ describe('the 2,560-input shape sweep', () => {
           if (hasBudget && !p6.blocks.some((b) => b.kind === 'narrative')) captionDroppedBudgetKept += 1;
           // Every input has a budget: a page 6 without the columns that prints an omission note names them.
           const omission = p6.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
+          // No page lacking the columns may carry an omission note claiming every figure is complete.
+          if (!hasBudget && p6.footnotes.some((f) => f.text.startsWith(OMISSION_MARK) && f.text.includes('Every figure'))) falseCompleteness += 1;
           if (!hasBudget) {
             const said = p6.footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE
               || (f.text.startsWith(OMISSION_MARK) && /; the Budget and Variance columns\./.test(f.text) && !f.text.includes('Every figure')));
@@ -103,7 +106,7 @@ describe('the 2,560-input shape sweep', () => {
     // net-debit revenue with another line below zero got its two required disclosures under one heading):
     // every shape in the sweep gets its pack.
     expect(unexpectedlyRefused).toEqual([]);
-    expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, columnsSilent, columnsNamed, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, columnsSilent: 0, columnsNamed: 1485, refused: 0, sample: [] });
+    expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, columnsSilent, falseCompleteness, columnsNamed, refused, sample: printed.slice(0, 3) }).toEqual(
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, columnsSilent: 0, falseCompleteness: 0, columnsNamed: 1485, refused: 0, sample: [] });
   }, 1_800_000);
 });
