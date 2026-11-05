@@ -122,6 +122,8 @@ describe('PUT supplier', () => {
     expect(res.state.statusCode).toBe(400);
     expect(messageOf(res)).toContain('payment_terms_type must be one of');
     expect((await changesOf(pool, id)).filter((h) => h.op === 'update')).toHaveLength(0);
+    // withAuth COMMITs a 4xx: re-read the row to see that nothing was written first.
+    expect(await row('suppliers', id)).toMatchObject({ name: 'Edit Co', email: 'old@x.test', payment_terms: 30, payment_terms_type: 'invoice_days' });
   });
 
   it('company A cannot edit company B\'s supplier: 404, the row and its history are untouched', async () => {
@@ -136,6 +138,16 @@ describe('PUT supplier', () => {
     expect((await changesOf(pool, victim)).filter((h) => h.op === 'update')).toHaveLength(0);
   });
 
+  it.each([['opening_balance', 5000], ['openingBalanceDate', '2026-01-01']])(
+    'refuses %s on a supplier edit with a 400 naming it; the row is unchanged', async (field, value) => {
+      const c = await company();
+      const id = await newSupplier(c);
+      const res = await putSupplier(admin, c, { id, name: 'Edit Co (renamed)', [field]: value });
+      expect(res.state.statusCode).toBe(400);
+      expect(messageOf(res)).toContain(field);
+      expect((await row('suppliers', id)).name).toBe('Edit Co');
+    });
+
   it('a viewer cannot edit', async () => {
     const c = await company();
     const id = await newSupplier(c);
@@ -149,7 +161,7 @@ describe('PUT customer', () => {
   it('stores the edit, clears a blank credit limit, and records it in the entity history', async () => {
     const c = await company();
     const id = await newCustomer(c);
-    const res = await putCustomer(admin, c, { id, email: '', credit_limit: '', payment_terms: 90, payment_terms_type: 'invoice_days', opening_balance: 123456 });
+    const res = await putCustomer(admin, c, { id, email: '', credit_limit: '', payment_terms: 90, payment_terms_type: 'invoice_days' });
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect(await row('customers', id)).toMatchObject({
       email: null, credit_limit: null, payment_terms: 90, payment_terms_type: 'invoice_days', opening_balance: '0.00',
@@ -177,6 +189,39 @@ describe('PUT customer', () => {
     expect(res.state.statusCode).toBe(400);
     expect((await row('customers', id)).category_id).toBeNull();
     await pool.query('DELETE FROM customer_categories WHERE company_id = $1', [b]);
+  });
+
+  it('a viewer cannot edit a customer', async () => {
+    const c = await company();
+    const id = await newCustomer(c);
+    const res = await putCustomer(viewer, c, { id, name: 'Viewer was here', email: '' });
+    expect(res.state.statusCode).toBe(403);
+    expect(await row('customers', id)).toMatchObject({ name: 'Edit Cust', email: 'old@c.test' });
+    expect((await changesOf(pool, id)).filter((h) => h.op === 'update')).toHaveLength(0);
+  });
+
+  it.each([['opening_balance', 5000], ['opening_balance_date', '2026-01-01'], ['openingBalance', 1]])(
+    'refuses %s on an edit with a 400 naming it; the row is unchanged', async (field, value) => {
+      const c = await company();
+      const id = await newCustomer(c);
+      const res = await putCustomer(admin, c, { id, name: 'Edit Cust (renamed)', [field]: value });
+      expect(res.state.statusCode).toBe(400);
+      expect(messageOf(res)).toContain(field);
+      expect(await row('customers', id)).toMatchObject({ name: 'Edit Cust', opening_balance: '0.00' });
+    });
+
+  it('a bare payment_terms keeps the stored type (statement_days stays statement_days)', async () => {
+    const c = await company();
+    const id = await newCustomer(c);
+    expect((await putCustomer(admin, c, { id, payment_terms: 45 })).state.statusCode).toBe(200);
+    expect(await row('customers', id)).toMatchObject({ payment_terms: 45, payment_terms_type: 'statement_days' });
+  });
+
+  it('a bare payment_terms on a contact with no terms reads as invoice days', async () => {
+    const c = await company();
+    const id = await newSupplier(c, null);
+    expect((await putSupplier(admin, c, { id, payment_terms: 20 })).state.statusCode).toBe(200);
+    expect(await row('suppliers', id)).toMatchObject({ payment_terms: 20, payment_terms_type: 'invoice_days' });
   });
 
   it('company A cannot edit company B\'s customer: 404, nothing changes', async () => {

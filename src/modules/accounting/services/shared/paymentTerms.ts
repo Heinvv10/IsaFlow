@@ -20,7 +20,7 @@ export type PaymentTermsType = (typeof PAYMENT_TERMS_TYPES)[number];
 /** Input-only value: "clear the terms" on an update (the DB stores NULL). */
 export const TERMS_NOT_SET = 'not_set';
 
-/** The largest N a write accepts; the DB check only demands a non-negative integer. */
+/** The largest N the app accepts (write and read); the tighten migration's CHECK says the same. */
 export const MAX_PAYMENT_TERMS = 999;
 
 const LEGACY_TYPES: Record<string, PaymentTermsType> = { days: 'invoice_days', end_of_month: 'statement_days' };
@@ -40,13 +40,60 @@ export function normalisePaymentTermsType(type: string | null | undefined): Paym
 }
 
 function validTermsNumber(n: number | null | undefined): n is number {
-  return typeof n === 'number' && Number.isInteger(n) && n >= 0;
+  return typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= MAX_PAYMENT_TERMS;
+}
+
+export interface Terms { days: number; type: PaymentTermsType }
+
+/**
+ * A contact's stored (N, type) as terms, or null when they are not set. Legacy rows read as they always meant: 'days'
+ * is invoice days, 'end_of_month' is statement days, and a number with NO type (what the pre-958 code wrote as
+ * `(30, NULL)`) is invoice days. A negative, fractional or over-cap number, or a type nobody defined, is not terms.
+ */
+export function readTerms(days: number | null | undefined, type: string | null | undefined): Terms | null {
+  if (!validTermsNumber(days)) return null;
+  const kind = type === null || type === undefined || type === '' ? 'invoice_days' : normalisePaymentTermsType(type);
+  return kind === null ? null : { days, type: kind };
+}
+
+/** A company's default terms: what a contact whose own terms are not set is given. */
+export const FALLBACK_COMPANY_TERMS: Terms = { days: 30, type: 'invoice_days' };
+
+/** The accounting_settings key (per company) that holds the company's default terms, as JSON `{"days":30,"type":"invoice_days"}`. */
+export const COMPANY_DEFAULT_TERMS_KEY = 'default_payment_terms';
+
+/** The company's default terms from the setting's stored value; 30 days from invoice when there is none or it is unreadable. */
+export function companyTermsFromSetting(value: unknown): Terms {
+  if (typeof value !== 'string' || value === '') return FALLBACK_COMPANY_TERMS;
+  try {
+    const parsed = JSON.parse(value) as { days?: unknown; type?: unknown };
+    return readTerms(typeof parsed.days === 'number' ? parsed.days : null, typeof parsed.type === 'string' ? parsed.type : null) ?? FALLBACK_COMPANY_TERMS;
+  } catch {
+    return FALLBACK_COMPANY_TERMS; // a hand-edited setting that is not JSON is as good as none
+  }
+}
+
+export function companyTermsSetting(t: Terms): string {
+  return JSON.stringify({ days: t.days, type: t.type });
+}
+
+/** A company's default terms from the two fields a contact GET carries; 30 days from invoice when unreadable. */
+export function companyTermsFromFields(days: unknown, type: unknown): Terms {
+  return readTerms(days === null || days === undefined ? null : Number(days), typeof type === 'string' ? type : null) ?? FALLBACK_COMPANY_TERMS;
+}
+
+/** The contact's own terms, else the company default; `own` says which. */
+export function effectiveTerms(
+  days: number | null | undefined, type: string | null | undefined, companyDefault: Terms = FALLBACK_COMPANY_TERMS,
+): Terms & { own: boolean } {
+  const mine = readTerms(days, type);
+  return mine ? { ...mine, own: true } : { ...companyDefault, own: false };
 }
 
 /**
  * The due date `n` / `type` give `invoiceDateIso` ('YYYY-MM-DD'), or null when the terms give no date: not set, a
- * negative or fractional number, a type this file does not know, an invoice date that is not a real date, or a
- * number so large the result is not a date.
+ * negative, fractional or over-cap number, a type this file does not know (no type reads as invoice days), or an
+ * invoice date that is not a real date.
  */
 export function dueDateFromTerms(
   invoiceDateIso: string,
@@ -54,24 +101,44 @@ export function dueDateFromTerms(
   type: string | null | undefined,
 ): string | null {
   const invoiceDate = localDateFromISO(invoiceDateIso);
-  const kind = normalisePaymentTermsType(type);
-  if (invoiceDate === null || kind === null || !validTermsNumber(n)) return null;
+  const terms = readTerms(n, type);
+  if (invoiceDate === null || terms === null) return null;
   let due: string;
-  if (kind === 'invoice_days') due = addDaysISO(invoiceDateIso, n);
-  else if (kind === 'statement_days') due = addDaysISO(monthEndISO(invoiceDate), n);
-  else due = monthEndISO(new Date(invoiceDate.getFullYear(), invoiceDate.getMonth() + n, 1));
+  if (terms.type === 'invoice_days') due = addDaysISO(invoiceDateIso, terms.days);
+  else if (terms.type === 'statement_days') due = addDaysISO(monthEndISO(invoiceDate), terms.days);
+  else due = monthEndISO(new Date(invoiceDate.getFullYear(), invoiceDate.getMonth() + terms.days, 1));
   return localDateFromISO(due) === null ? null : due;
+}
+
+/** A bill's OWN terms text ("net30", "Net 45", "immediate") as a due date; null for anything else (including none). */
+export function ownTermsDueDate(invoiceDateIso: string, paymentTerms?: string | null): string | null {
+  if (!paymentTerms) return null;
+  if (/^\s*immediate\s*$/i.test(paymentTerms)) return dueDateFromTerms(invoiceDateIso, 0, 'invoice_days');
+  const match = paymentTerms.match(/net\s*(\d+)/i);
+  return match ? dueDateFromTerms(invoiceDateIso, Number(match[1]), 'invoice_days') : null;
+}
+
+/** The due date for a document: the contact's own terms, else the company default. Null only for a bad invoice date. */
+export function dueDateWithDefault(
+  invoiceDateIso: string,
+  n: number | null | undefined,
+  type: string | null | undefined,
+  companyDefault: Terms = FALLBACK_COMPANY_TERMS,
+): string | null {
+  const t = effectiveTerms(n, type, companyDefault);
+  return dueDateFromTerms(invoiceDateIso, t.days, t.type);
 }
 
 export type TermsWrite =
   | { kind: 'leave' }
   | { kind: 'clear' }
+  | { kind: 'days_only'; days: number }
   | { kind: 'set'; days: number; type: PaymentTermsType };
 
 /**
  * What a write's `payment_terms` / `payment_terms_type` pair means.
  *   neither sent            leave (an update keeps the stored terms; a create stores "not set")
- *   a number alone          invoice days (callers that predate the type)
+ *   a number alone          days_only: keeps the stored type (a create: invoice days) — callers that predate the type
  *   a number and a type     set
  *   type `not_set`, no N    clear
  * Anything else (a type without its number, an unknown type, a negative, fractional or over-cap number) throws
@@ -89,7 +156,8 @@ export function parseTermsWrite(days: number | null | undefined, type: string | 
   if (!validTermsNumber(days) || days > MAX_PAYMENT_TERMS) {
     throw new PaymentTermsError(`payment_terms must be a whole number from 0 to ${MAX_PAYMENT_TERMS}`);
   }
-  if (!hasType) return { kind: 'set', days, type: 'invoice_days' };
+  // A number alone: the type is whatever the contact has (a create reads it as invoice days).
+  if (!hasType) return { kind: 'days_only', days };
   const kind = normalisePaymentTermsType(type);
   if (kind === null) {
     throw new PaymentTermsError(`payment_terms_type must be one of: ${PAYMENT_TERMS_TYPES.join(', ')}, ${TERMS_NOT_SET}`);
@@ -103,9 +171,18 @@ function plural(n: number, unit: string): string {
 
 /** The terms in words: "Immediate", "30 days from invoice date", "3 months after statement", "Not set". */
 export function describePaymentTerms(n: number | null | undefined, type: string | null | undefined): string {
-  const kind = normalisePaymentTermsType(type);
-  if (kind === null || !validTermsNumber(n)) return 'Not set';
-  if (kind === 'invoice_days') return n === 0 ? 'Immediate' : `${plural(n, 'day')} from invoice date`;
-  if (kind === 'statement_days') return n === 0 ? 'End of the invoice month' : `${plural(n, 'day')} after statement`;
-  return `${plural(n, 'month')} after statement`;
+  const t = readTerms(n, type);
+  if (t === null) return 'Not set';
+  if (t.type === 'invoice_days') return t.days === 0 ? 'Immediate' : `${plural(t.days, 'day')} from invoice date`;
+  if (t.type === 'statement_days') return t.days === 0 ? 'End of the invoice month' : `${plural(t.days, 'day')} after statement`;
+  return `${plural(t.days, 'month')} after statement`;
+}
+
+/** "Terms not confirmed — using company default (30 days from invoice date)" for a contact that has none, else the terms. */
+export function describeContactTerms(
+  n: number | null | undefined, type: string | null | undefined, companyDefault: Terms = FALLBACK_COMPANY_TERMS,
+): string {
+  const e = effectiveTerms(n, type, companyDefault);
+  const words = describePaymentTerms(e.days, e.type);
+  return e.own ? words : `Terms not confirmed — using company default (${words})`;
 }

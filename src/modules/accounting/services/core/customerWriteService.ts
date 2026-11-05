@@ -31,7 +31,6 @@ import { termsColumns } from './contactTerms';
 import { clearFlags } from './contactClear';
 import { assertCategoryInCompany } from './contactCategory';
 
-export { ContactValidationError };
 
 export type { AutoAllocateStrategy };
 
@@ -181,7 +180,7 @@ export async function createCustomer(
       ${trimmed(input.shippingAddress)},
       ${trimmed(input.contactPerson)},
       ${terms.days}::INT,
-      ${terms.type},
+      ${terms.createType},
       ${input.creditLimit ?? null},
       ${input.isActive ?? true},
       ${trimmed(input.notes)},
@@ -255,8 +254,8 @@ export async function updateCustomer(
       billing_address = CASE WHEN ${cl.billingAddress} THEN NULL ELSE COALESCE(${trimmed(input.billingAddress)}, billing_address) END,
       shipping_address = CASE WHEN ${cl.shippingAddress} THEN NULL ELSE COALESCE(${trimmed(input.shippingAddress)}, shipping_address) END,
       contact_person  = CASE WHEN ${cl.contactPerson} THEN NULL ELSE COALESCE(${trimmed(input.contactPerson)}, contact_person) END,
-      payment_terms   = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.days}::INT WHEN 'clear' THEN NULL ELSE payment_terms END,
-      payment_terms_type = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'clear' THEN NULL ELSE payment_terms_type END,
+      payment_terms   = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.days}::INT WHEN 'days_only' THEN ${terms.days}::INT WHEN 'clear' THEN NULL ELSE payment_terms END,
+      payment_terms_type = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'days_only' THEN COALESCE(NULLIF(payment_terms_type, ''), 'invoice_days') WHEN 'clear' THEN NULL ELSE payment_terms_type END,
       credit_limit    = CASE WHEN ${cl.creditLimit} THEN NULL ELSE COALESCE(${input.creditLimit ?? null}, credit_limit) END,
       is_active       = COALESCE(${input.isActive ?? null}, is_active),
       notes           = CASE WHEN ${cl.notes} THEN NULL ELSE COALESCE(${trimmed(input.notes)}, notes) END,

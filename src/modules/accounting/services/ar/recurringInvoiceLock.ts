@@ -55,10 +55,14 @@ export async function lockRecurringTemplate(
   await client.query("SET LOCAL lock_timeout = '5s'");
   try {
     const rows = (await sql`
-      SELECT *, (next_run_date <= CURRENT_DATE) AS is_due
-      FROM recurring_invoices
-      WHERE id = ${id} AND company_id = ${companyId}
-      FOR UPDATE
+      SELECT ri.*, (ri.next_run_date <= CURRENT_DATE) AS is_due,
+             c.payment_terms AS contact_payment_terms, c.payment_terms_type AS contact_payment_terms_type,
+             d.value AS company_default_terms
+      FROM recurring_invoices ri
+      LEFT JOIN accounting_settings d ON d.company_id = ri.company_id AND d.key = 'default_payment_terms'
+      LEFT JOIN customers c ON c.id = ri.client_id AND c.company_id = ri.company_id
+      WHERE ri.id = ${id} AND ri.company_id = ${companyId}
+      FOR UPDATE OF ri
     `) as DbRow[];
     // Restored on the SUCCESS path only. After a timeout the transaction is
     // aborted and this statement would itself raise 25P02, replacing the typed

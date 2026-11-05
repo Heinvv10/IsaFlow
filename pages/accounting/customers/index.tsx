@@ -12,7 +12,7 @@ import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { ListEmpty } from '@/components/ui/ListEmpty';
 import { KpiStrip } from '@/components/ui';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
-import { describePaymentTerms } from '@/modules/accounting/services/shared/paymentTerms';
+import { describePaymentTerms, readTerms } from '@/modules/accounting/services/shared/paymentTerms';
 
 interface Customer {
   id: string;
@@ -194,7 +194,7 @@ export default function CustomersPage() {
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.phone ?? '-'}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.contact_person ?? '-'}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
-                        {describePaymentTerms(c.payment_terms, c.payment_terms_type)}
+                        {readTerms(c.payment_terms, c.payment_terms_type) ? describePaymentTerms(c.payment_terms, c.payment_terms_type) : 'Company default'}
                       </td>
                       <td className="py-3 px-4">
                         <StatusBadge active={c.is_active} />

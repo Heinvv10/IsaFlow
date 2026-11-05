@@ -25,7 +25,7 @@ vi.mock('@/lib/neon', () => {
 
 import { sql } from '@/lib/neon';
 import { createSupplier, updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
-import { ContactValidationError } from '@/modules/accounting/services/core/customerWriteService';
+import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 
@@ -105,8 +105,8 @@ describe('updateSupplier — auto_allocate_strategy', () => {
   // Position confirmed against the current column order in supplierWriteService.ts:
   // ...category, auto_allocate_strategy, auto_allocate_payments, [updated_at=NOW() has no param], id, company_id
   // After each cleared-flag / value pair and the terms quartet the update binds (migration 958, edit page).
-  const STRATEGY_INDEX = 30;
-  const BOOLEAN_INDEX = 31;
+  const STRATEGY_INDEX = 31;
+  const BOOLEAN_INDEX = 32;
 
   it('updates both columns in sync when a valid strategy is supplied', async () => {
     await updateSupplier(COMPANY_ID, SUPPLIER_ID, { autoAllocateStrategy: 'newest' });

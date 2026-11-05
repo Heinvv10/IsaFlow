@@ -16,7 +16,7 @@ import { ContactValidationError } from '@/modules/accounting/services/core/conta
 import { createCustomer, updateCustomer } from '@/modules/accounting/services/core/customerWriteService';
 import { updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 import {
-  customerInputFromBody, customerPatchFromBody, supplierPatchFromBody,
+  customerInputFromBody, customerPatchFromBody, supplierInputFromBody, supplierPatchFromBody,
 } from '@/modules/accounting/services/core/contactRequestInput';
 
 const mockSql = sql as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown[]>>;
@@ -81,10 +81,25 @@ describe('request body to service input', () => {
     expect(input.vatNumber).toBe('X1');
     expect(input.fax).toBeUndefined();
   });
-  it('an edit drops the opening balance, which is create-only; a create keeps it', () => {
+  it('an edit that names an opening balance is refused (create-only); a create keeps it', () => {
     const body = { opening_balance: 100, opening_balance_date: '2026-01-01' };
-    expect(customerPatchFromBody(body)).not.toHaveProperty('openingBalance');
+    expect(() => customerPatchFromBody(body)).toThrow('remove: opening_balance, opening_balance_date');
+    expect(() => supplierPatchFromBody({ openingBalance: 1 })).toThrow('remove: openingBalance');
     expect(customerInputFromBody(body).openingBalance).toBe(100);
+  });
+
+  it('a number that is not a number is refused, not bound as NaN', () => {
+    expect(() => customerInputFromBody({ credit_limit: 'abc' })).toThrow('credit_limit must be a number');
+    expect(() => customerInputFromBody({ default_discount: 'NaN' })).toThrow('default_discount must be a number');
+    expect(() => supplierInputFromBody({ opening_balance: 'x' })).toThrow('opening_balance must be a number');
+    expect(() => customerInputFromBody({ payment_terms: Infinity })).toThrow('payment_terms must be a number');
+    expect(customerInputFromBody({ credit_limit: '12.5', default_discount: 0 })).toMatchObject({ creditLimit: 12.5, defaultDiscount: 0 });
+  });
+
+  it.each([[null], [undefined], ['text'], [[1]], [5]])('a body of %j is refused before anything is read', (body) => {
+    expect(() => customerInputFromBody(body)).toThrow('JSON object');
+    expect(() => supplierInputFromBody(body)).toThrow('JSON object');
+    expect(() => supplierPatchFromBody(body)).toThrow('JSON object');
   });
   it('a supplier edit body naming a bank field is refused, blank or not', () => {
     expect(() => supplierPatchFromBody({ bank_account_number: '' })).toThrow('remove: bank_account_number');

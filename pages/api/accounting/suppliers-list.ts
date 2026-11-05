@@ -14,7 +14,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { UUID_RE } from '@/lib/validation';
 import { createSupplier, updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 import { supplierInputFromBody, supplierPatchFromBody } from '@/modules/accounting/services/core/contactRequestInput';
-import { ContactValidationError } from '@/modules/accounting/services/core/customerWriteService';
+import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
+import { withCompanyDefaultTerms } from '@/modules/accounting/services/core/companyDefaultTermsRow';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -36,15 +37,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // It reaches a ::UUID cast below: anything else is a 400 here, not a 22P02 500.
         if (typeof singleId !== 'string' || !UUID_RE.test(singleId)) return apiResponse.badRequest(res, 'id must be a supplier id');
         const rows = (await sql`
-          SELECT id, name, company_name, email, phone,
-                 contact_person, is_active, vat_number, registration_number, address, category, notes, whatsapp_number,
-                 auto_allocate_strategy,
-                 payment_terms, payment_terms_type, subject_to_drc_vat, created_at
-          FROM suppliers
-          WHERE id = ${singleId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
+          SELECT s.id, s.name, s.company_name, s.email, s.phone, s.contact_person, s.is_active, s.vat_number,
+                 s.registration_number, s.address, s.category, s.notes, s.whatsapp_number, s.auto_allocate_strategy,
+                 s.payment_terms, s.payment_terms_type, s.subject_to_drc_vat, s.created_at,
+                 d.value AS company_default_terms
+          FROM suppliers s
+          LEFT JOIN accounting_settings d ON d.company_id = s.company_id AND d.key = 'default_payment_terms'
+          WHERE s.id = ${singleId}::UUID AND s.company_id = ${companyId} AND s.deleted_at IS NULL
         `) as Row[];
         if (rows.length === 0) return apiResponse.notFound(res, 'Supplier');
-        return apiResponse.success(res, rows[0]);
+        return apiResponse.success(res, withCompanyDefaultTerms(rows[0]!));
       }
 
       const limitRaw = Number(limitParam);
@@ -75,7 +77,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Field validation and the INSERT live in supplierWriteService, so this route, the edit (PUT) and
       // create_supplier over MCP cannot drift apart.
       const rows = [await createSupplier(
-        companyId, supplierInputFromBody(req.body as Record<string, unknown>), (req as CompanyAuthedRequest).user.id,
+        companyId, supplierInputFromBody(req.body), (req as CompanyAuthedRequest).user.id,
       )];
 
       log.info('Supplier created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });

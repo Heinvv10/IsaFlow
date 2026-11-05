@@ -16,7 +16,8 @@ vi.mock('@/modules/accounting/services/ap/supplierPaymentAuthors', () => ({
 }));
 
 import { sql } from '@/lib/neon';
-import { createCustomer, updateCustomer, ContactValidationError } from '@/modules/accounting/services/core/customerWriteService';
+import { createCustomer, updateCustomer } from '@/modules/accounting/services/core/customerWriteService';
+import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
 import { createSupplier, updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
@@ -26,8 +27,8 @@ const ID = 'uuuuuuuu-0000-4000-8000-uuuuuuuuuuuu';
 // Parameter positions of the (days, type) pair in each statement, from the column order in the services.
 const CUSTOMER_CREATE = { days: 12, type: 13 };
 const SUPPLIER_CREATE = { days: 9, type: 10 };
-const CUSTOMER_UPDATE = { mode: 21, days: 22, type: 24 };
-const SUPPLIER_UPDATE = { mode: 17, days: 18, type: 20 };
+const CUSTOMER_UPDATE = { mode: 21, days: 22, type: 25 };
+const SUPPLIER_UPDATE = { mode: 17, days: 18, type: 21 };
 
 const params = (): unknown[] => mockSql.mock.calls[0]!.slice(1);
 
@@ -73,6 +74,14 @@ describe.each([
   it('leaves the terms when none are sent', async () => {
     await update({ notes: 'x' });
     expect(params()[at.mode]).toBe('leave');
+  });
+
+  it('a bare number is days_only: the stored type is kept, not reset to invoice days', async () => {
+    await update({ paymentTerms: 60 });
+    expect([params()[at.mode], params()[at.days]]).toEqual(['days_only', 60]);
+    expect(params()[at.type]).toBeNull();
+    const text = (mockSql.mock.calls[0]![0] as unknown as string[]).join('?');
+    expect(text).toContain("WHEN 'days_only' THEN COALESCE(NULLIF(payment_terms_type, ''), 'invoice_days')");
   });
 
   it('sets the pair', async () => {

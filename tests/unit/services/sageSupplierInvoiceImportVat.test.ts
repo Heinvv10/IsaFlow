@@ -102,7 +102,8 @@ describe('importSupplierInvoices — wired to deriveSageVat, never the inline /1
 
 describe('importSupplierInvoices — due date from the supplier terms (migration 958)', () => {
   const DUE_DATE_ARG = 4;
-  async function dueDateFor(terms: { payment_terms: number | null; payment_terms_type: string | null }): Promise<unknown> {
+  async function dueDateFor(terms: Record<string, unknown>): Promise<unknown> {
+    sqlMock.mockReset();
     sqlMock
       .mockResolvedValueOnce([stagedRow]) // SELECT staging
       .mockResolvedValueOnce([{ ...supplier, ...terms }]) // SELECT suppliers by name
@@ -122,8 +123,15 @@ describe('importSupplierInvoices — due date from the supplier terms (migration
     expect(await dueDateFor({ payment_terms: n, payment_terms_type: type })).toBe(due);
   });
 
-  it('terms not set give no due date, never 30 days', async () => {
-    expect(await dueDateFor({ payment_terms: null, payment_terms_type: null })).toBeNull();
+  it('terms not set use the company default: 30 days from invoice, or what the company sets', async () => {
+    expect(await dueDateFor({ payment_terms: null, payment_terms_type: null })).toBe('2026-01-31');
+    expect(await dueDateFor({ payment_terms: null, payment_terms_type: null, company_default_terms: JSON.stringify({ days: 1, type: 'statement_months' }) }))
+      .toBe('2026-02-28');
+  });
+
+  it('reads a legacy "days" row, and a number with no type, as invoice days', async () => {
+    expect(await dueDateFor({ payment_terms: 14, payment_terms_type: 'days' })).toBe('2026-01-15');
+    expect(await dueDateFor({ payment_terms: 14, payment_terms_type: null })).toBe('2026-01-15');
   });
 });
 

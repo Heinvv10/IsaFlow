@@ -41,6 +41,7 @@ import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierI
 import { attachEvidenceAndSettleApproved } from '@/modules/accounting/services/capture/provisionalAttachSettle';
 import { resolvePendingAlertForInvoice } from '@/modules/accounting/services/capture/alertResolutionService';
 import { raiseUnattendedApproval, unattendedBillStatus } from '@/modules/accounting/services/gl/approvalUnattended';
+import { billDueDate } from '@/modules/accounting/services/ap/billDueDate';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -198,7 +199,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return respondCapturedDocumentRefusal(res, claimRefusal);
   }
 
-  // Create supplier invoice (evidence columns stamped; hash backfilled by worker)
+  // Create supplier invoice (evidence columns stamped; hash backfilled by worker). Due date: the document's, else its
+  // own terms, the supplier's, the company default (migration 958).
   const [invoice] = (await sql`
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,
@@ -208,10 +210,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       duplicate_fingerprint
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
-      ${invoiceInput.invoiceDate}::date, ${invoiceInput.dueDate || null}::date,
+      ${invoiceInput.invoiceDate}::date, ${await billDueDate(companyId, supplierMatch.supplierId, invoiceInput.invoiceDate, invoiceInput)}::date,
       ${invoiceInput.totalAmount - invoiceInput.taxAmount}, ${invoiceInput.taxRate},
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
-      ${invoiceInput.paymentTerms || 'net30'}, ${invoiceInput.reference || null},
+      ${invoiceInput.paymentTerms || null}, ${invoiceInput.reference || null},
       ${approval.status},
       ${userId}, ${invoiceInput.notes ?? null},
       ${documentId}::uuid, NULL, ${pipelineConfidence}, 'ai:ai-invoice-pipeline:v1',

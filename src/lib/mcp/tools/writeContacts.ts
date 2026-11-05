@@ -28,8 +28,8 @@ import type { McpTool } from '../types';
 import {
   createCustomer,
   updateCustomer,
-  ContactValidationError,
 } from '@/modules/accounting/services/core/customerWriteService';
+import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
 import {
   createSupplier,
   updateSupplier,

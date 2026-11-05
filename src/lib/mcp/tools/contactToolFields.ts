@@ -25,12 +25,13 @@ const AUTO_ALLOCATE_STRATEGY_DESCRIPTION =
 
 // inputSchema.enum is documentation only (see above): parseTermsWrite in the services is what refuses a bad pair.
 const PAYMENT_TERMS_DESCRIPTION =
-  'N for payment_terms_type: days, or months for statement_months (0 to 999). Sent alone it means invoice_days. '
-  + 'Omit both to leave terms unchanged (create: stored as not set).';
+  'N for payment_terms_type: days, or months for statement_months (0 to 999). Sent alone it keeps the supplier\'s / '
+  + 'customer\'s current type (a create reads it as invoice_days). Omit both to leave terms unchanged (create: stored as '
+  + 'not set, and the company default terms date its new documents).';
 const PAYMENT_TERMS_TYPE_DESCRIPTION =
   "How payment_terms counts: 'invoice_days' (invoice date + N days; 0 = Immediate), 'statement_days' (month-end of "
   + "the invoice month + N days), 'statement_months' (month-end of the Nth month after the invoice month). "
-  + "'not_set' (with no payment_terms) clears the terms: bills and invoices then get no derived due date.";
+  + "'not_set' (with no payment_terms) clears the terms: the contact then uses the company's default terms (30 days from invoice unless changed in Company settings).";
 const PAYMENT_TERMS_TYPE_FIELD = {
   type: 'string',
   enum: [...PAYMENT_TERMS_TYPES, TERMS_NOT_SET],

@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { sql, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getCompanyDetailsFromCompany } from '../core/pdfShared';
+import { companyTermsFromSetting, describePaymentTerms, effectiveTerms } from '../shared/paymentTerms';
 import type { PrintedCompany } from '../core/pdfPrintedCompany';
 
 /** The invoice row's own fields (all a draft PUT's lock covers), as printed or shown. */
@@ -29,7 +30,7 @@ const INVOICE_FIELDS = ['invoice_number', 'invoice_date', 'due_date', 'status', 
   'billing_period_end'] as const;
 /** Joined from other tables (the customer, the job), as printed. */
 const JOINED_FIELDS = ['project_name', 'client_name', 'client_address', 'client_contact', 'client_email', 'client_phone',
-  'client_vat'] as const;
+  'client_vat', 'client_terms'] as const;
 
 export type InvoicePdfHeader = Record<(typeof INVOICE_FIELDS)[number] | (typeof JOINED_FIELDS)[number], unknown>;
 export interface InvoicePdfLine { description: unknown; quantity: unknown; unit_price: unknown; amount: unknown; tax_rate: unknown }
@@ -45,7 +46,9 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
   const rows = (await q`
     SELECT ci.invoice_number, to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date,
            to_char(ci.due_date, 'YYYY-MM-DD') AS due_date, ci.status,
-           NULL::TEXT AS payment_terms, -- customer_invoices has no terms column: the PDF prints its constant
+           NULL::TEXT AS payment_terms, -- customer_invoices has no terms column: the customer's terms are client_terms below
+           c.payment_terms AS contact_terms_days, c.payment_terms_type AS contact_terms_type,
+           ds.value AS company_default_terms,
            ci.subtotal, ci.tax_rate, ci.tax_amount, ci.total_amount, ci.amount_paid, ci.currency_code, ci.exchange_rate,
            ci.notes, to_char(ci.billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
            to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end, p.name AS project_name,
@@ -61,6 +64,7 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     LEFT JOIN projects p ON p.id = ci.project_id AND p.company_id = ci.company_id
     LEFT JOIN companies co ON co.id = ci.company_id
+    LEFT JOIN accounting_settings ds ON ds.company_id = ci.company_id AND ds.key = 'default_payment_terms'
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
   `) as Row[];
   const r = rows[0];
@@ -71,7 +75,11 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
     WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
     ORDER BY cii.line_position NULLS LAST, cii.created_at, cii.id -- the entry order (956); as the detail GET
   `) as InvoicePdfLine[];
-  const invoice = { ...pick(r, INVOICE_FIELDS), ...pick(r, JOINED_FIELDS) };
+  // The terms printed: the customer's own, else the company default (migration 958). Shown digest only: the draft digest
+  // covers the invoice row, and a customer's terms edited meanwhile must not refuse a draft's autosave.
+  const terms = effectiveTerms(r.contact_terms_days == null ? null : Number(r.contact_terms_days), r.contact_terms_type as string | null,
+    companyTermsFromSetting(r.company_default_terms));
+  const invoice = { ...pick(r, INVOICE_FIELDS), ...pick(r, JOINED_FIELDS), client_terms: describePaymentTerms(terms.days, terms.type) };
   const company = r.company_found ? companyOf(r) : await settingsCompany(companyId, invoiceId, forDigest);
   return { model: { company, invoice, items }, approvalDigest: text(r.approval_digest) };
 }

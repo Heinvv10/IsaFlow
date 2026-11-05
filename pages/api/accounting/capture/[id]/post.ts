@@ -32,6 +32,7 @@ import {
   type PublishedDecision,
 } from '@/modules/accounting/services/capture/capturePostFollowUps';
 import { respondCapturedDocumentRefusal } from '@/modules/accounting/services/capture/capturePostingClaim';
+import { billDueDate } from '@/modules/accounting/services/ap/billDueDate';
 import {
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   claimCapturedDocumentForPosting,
@@ -223,7 +224,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     invoiceInput.totalAmount,
   );
 
-  // Create supplier invoice
+  // Create supplier invoice. Due date: the document's, else its own terms, the supplier's, the company default (958).
   const [invoice] = await sql`
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,
@@ -232,10 +233,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       duplicate_fingerprint, source_document_id
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
-      ${invoiceInput.invoiceDate}::date, ${invoiceInput.dueDate ?? null}::date,
+      ${invoiceInput.invoiceDate}::date, ${await billDueDate(companyId, supplierMatch.supplierId, invoiceInput.invoiceDate, invoiceInput)}::date,
       ${invoiceInput.totalAmount - invoiceInput.taxAmount}, ${invoiceInput.taxRate},
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
-      ${invoiceInput.paymentTerms ?? 'net30'}, ${invoiceInput.reference ?? null},
+      ${invoiceInput.paymentTerms ?? null}, ${invoiceInput.reference ?? null},
       ${approval.status}, ${userId}, ${invoiceInput.notes ?? null},
       ${captureFingerprint}, ${documentId}::uuid
     )

@@ -45,7 +45,7 @@ export default function NewSupplierInvoicePage() {
     supplierId: '',
     invoiceDate: localISODate(),
     dueDate: '',
-    paymentTerms: 'net30',
+    paymentTerms: '',
     reference: '',
     notes: '',
     taxRate: 15,
@@ -123,7 +123,7 @@ export default function NewSupplierInvoicePage() {
 
   // The due date follows the supplier's terms until the user or a scanned document sets it.
   const { claim: claimDueDate, note: dueDateNote } = useSupplierTermsDueDate({
-    supplierId: form.supplierId, invoiceDate: form.invoiceDate,
+    supplierId: form.supplierId, invoiceDate: form.invoiceDate, invoiceTerms: form.paymentTerms,
     apply: due => { setForm(f => ({ ...f, dueDate: due })); dates.reset('dueDate'); },
   });
 
@@ -235,7 +235,7 @@ export default function NewSupplierInvoicePage() {
                   <div>
                     <label htmlFor="supplier-invoices-new-payment-terms" className={lbl}>Payment Terms</label>
                     <select id="supplier-invoices-new-payment-terms" value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>
-                      <option value="">None</option><option value="immediate">Immediate</option><option value="net30">Net 30</option><option value="net60">Net 60</option><option value="net90">Net 90</option>
+                      <option value="">None (use the supplier&apos;s terms)</option><option value="immediate">Immediate</option><option value="net30">Net 30</option><option value="net60">Net 60</option><option value="net90">Net 90</option>
                     </select>
                   </div>
                   <div><label htmlFor="supplier-invoices-new-reference" className={lbl}>Reference</label><input id="supplier-invoices-new-reference" type="text" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className={inp} placeholder="Free-text ref or delivery note" /></div>

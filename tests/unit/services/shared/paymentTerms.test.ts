@@ -4,7 +4,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  PaymentTermsError, describePaymentTerms, dueDateFromTerms, parseTermsWrite,
+  PaymentTermsError, describeContactTerms, describePaymentTerms, dueDateFromTerms, dueDateWithDefault, effectiveTerms,
+  ownTermsDueDate, parseTermsWrite,
 } from '@/modules/accounting/services/shared/paymentTerms';
 
 describe('dueDateFromTerms: invoice_days', () => {
@@ -47,6 +48,15 @@ describe('dueDateFromTerms: statement_months (month-end of the Nth month after t
   });
 });
 
+describe('dueDateFromTerms: a number with no type (what the pre-958 code wrote as (30, NULL))', () => {
+  it.each([[null], [undefined], ['']])('reads type %j as invoice days', (type) => {
+    expect(dueDateFromTerms('2026-10-01', 30, type)).toBe('2026-10-31');
+  });
+  it('but a type nobody defined is still no date', () => {
+    expect(dueDateFromTerms('2026-10-01', 30, 'junk')).toBeNull();
+  });
+});
+
 describe('dueDateFromTerms: legacy type names', () => {
   it('reads days as invoice_days and end_of_month as statement_days', () => {
     expect(dueDateFromTerms('2026-10-01', 30, 'days')).toBe('2026-10-31');
@@ -64,10 +74,10 @@ describe('dueDateFromTerms: no date', () => {
     ['terms too large to be a date', '2026-10-01', 2_000_000_000, 'invoice_days'],
     ['months too large to be a date', '2026-10-01', 2_000_000_000, 'statement_months'],
     ['a type nobody defined', '2026-10-01', 30, 'net'],
-    ['no type', '2026-10-01', 30, null],
     ['no invoice date', '', 30, 'invoice_days'],
     ['an impossible invoice date', '2026-02-30', 30, 'invoice_days'],
     ['an impossible invoice date with months', '2026-13-01', 1, 'statement_months'],
+    ['more than the 999 the forms accept', '2026-10-01', 1000, 'invoice_days'],
   ])('%s gives no due date', (_why, invoiceDate, n, type) => {
     expect(dueDateFromTerms(invoiceDate, n, type)).toBeNull();
   });
@@ -86,9 +96,9 @@ describe('parseTermsWrite', () => {
     expect(parseTermsWrite(30, 'end_of_month')).toEqual({ kind: 'set', days: 30, type: 'statement_days' });
   });
 
-  it('reads a number sent alone as invoice days (callers that predate the type)', () => {
-    expect(parseTermsWrite(45, undefined)).toEqual({ kind: 'set', days: 45, type: 'invoice_days' });
-    expect(parseTermsWrite(45, null)).toEqual({ kind: 'set', days: 45, type: 'invoice_days' });
+  it('reads a number sent alone as days only: the stored type is kept (a create reads it as invoice days)', () => {
+    expect(parseTermsWrite(45, undefined)).toEqual({ kind: 'days_only', days: 45 });
+    expect(parseTermsWrite(45, null)).toEqual({ kind: 'days_only', days: 45 });
   });
 
   it('clears terms on the explicit not_set type', () => {
@@ -109,6 +119,37 @@ describe('parseTermsWrite', () => {
   });
 });
 
+describe('effectiveTerms / dueDateWithDefault / describeContactTerms', () => {
+  const company = { days: 2, type: 'statement_months' } as const;
+  it('own terms win; none uses the company default; unreadable ones use it too', () => {
+    expect(effectiveTerms(10, 'invoice_days', company)).toEqual({ days: 10, type: 'invoice_days', own: true });
+    expect(effectiveTerms(null, null, company)).toEqual({ days: 2, type: 'statement_months', own: false });
+    expect(effectiveTerms(-1, 'days', company).own).toBe(false);
+    expect(effectiveTerms(30, 'junk', company).own).toBe(false);
+  });
+  it('the company default is 30 days from invoice when none is given', () => {
+    expect(dueDateWithDefault('2026-10-01', null, null)).toBe('2026-10-31');
+  });
+  it('dates a document by the contact, else the company', () => {
+    expect(dueDateWithDefault('2026-10-15', 7, 'invoice_days', company)).toBe('2026-10-22');
+    expect(dueDateWithDefault('2026-10-15', null, null, company)).toBe('2026-12-31');
+  });
+  it('says the terms are not confirmed when it falls back', () => {
+    expect(describeContactTerms(null, null, company)).toBe('Terms not confirmed — using company default (2 months after statement)');
+    expect(describeContactTerms(null, null)).toBe('Terms not confirmed — using company default (30 days from invoice date)');
+    expect(describeContactTerms(0, 'invoice_days', company)).toBe('Immediate');
+  });
+});
+
+describe('ownTermsDueDate', () => {
+  it.each([
+    ['net30', '2026-03-15', '2026-04-14'], ['Net 60', '2026-12-20', '2027-02-18'], ['immediate', '2026-08-16', '2026-08-16'],
+    [' Immediate ', '2026-08-16', '2026-08-16'], ['by arrangement', '2026-08-16', null], ['', '2026-08-16', null], [null, '2026-08-16', null],
+  ])('%j on %s gives %s', (text, date, due) => {
+    expect(ownTermsDueDate(date, text)).toBe(due);
+  });
+});
+
 describe('describePaymentTerms', () => {
   it.each([
     [0, 'invoice_days', 'Immediate'],
@@ -122,7 +163,9 @@ describe('describePaymentTerms', () => {
     [30, 'end_of_month', '30 days after statement'],
     [null, null, 'Not set'],
     [null, 'invoice_days', 'Not set'],
-    [30, null, 'Not set'],
+    [30, null, '30 days from invoice date'],
+    [1500, 'invoice_days', 'Not set'],
+    [30, 'junk', 'Not set'],
   ])('%s %s reads %s', (n, type, text) => {
     expect(describePaymentTerms(n, type)).toBe(text);
   });

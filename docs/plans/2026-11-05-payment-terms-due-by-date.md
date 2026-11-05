@@ -36,9 +36,17 @@ Code facts:
    | `statement_months` | month-end of the Nth month after the invoice month |
    | not set (NULL) | no derived date |
    Statement = month-end of the invoice month. Legacy `end_of_month` = `statement_days`.
-3. **Default 30 → "Not set".** Contacts still on the column default are migrated to not set;
-   Hein/Willie confirm real terms for the material suppliers. New contacts must pick terms
-   (Immediate suggested).
+3. **Default 30 → "Not set" → the company default (Hein, 2026-11-05 ruling).** Contacts still on the
+   column default are migrated to not set; Hein/Willie confirm real terms for the material suppliers. A
+   not-set contact is dated by the **company default terms**, a per-company setting (Company settings →
+   General → "Default payment terms"; same number + type shape; every company starts at 30 days from
+   invoice, so nothing moves at the migration). It applies to NEW documents everywhere: UI capture, the
+   server fallbacks, recurring runs and templates, quote/order/time/WIP conversions, scanned bills, MCP and
+   Sage. The contact shows "Terms not confirmed — using company default (30 days from invoice date)".
+   **Re-apply (PR 3) skips not-set contacts** and flags them. New contacts must CHOOSE terms (no
+   pre-selection; "Use company default" is a valid choice and stores NULL/NULL).
+   Stored in `accounting_settings` (key `default_payment_terms`, JSON): `companies` is column-level
+   read-only for the app pools since migration 936, so a new column there would not be writable by a tenant.
 4. **`due_date_source`** on supplier and customer invoices: `terms | manual | document | legacy`
    (all existing rows = `legacy`).
 5. **Re-apply terms**: open bills only (balance > 0); overwrites `terms` + `legacy`; lists
@@ -51,11 +59,56 @@ Code facts:
 Strongest argument against: ~4 PRs + 2 migrations versus a report-only PR. Rejected because a
 report over wrong stored dates leaves aging, pay-run and forecast wrong too.
 
+## Precedence for a supplier bill's due date
+
+1. a due date the document or caller gave;
+2. the bill's OWN terms when someone chose them (`net30`, `immediate`; the new-bill page sends none unless the user picked one);
+3. the supplier's terms;
+4. the company default. A customer invoice: given date > customer terms > company default.
+
+## Expand / tighten (PR 1 and PR 1b)
+
+The build that ships PR 1 runs beside the old code (the live colour during the build; a rollback is code-only), and the old
+code still writes the old shapes: `createSupplier` writes `(30, NULL)`, `createCustomer` writes `'days'`, the migration importer
+writes `?? 30`. So:
+
+- **958 (PR 1, expand).** Maps the data, adds NO CHECK and drops NO DEFAULT. The new code reads every legacy shape
+  (`shared/paymentTerms.readTerms`: `'days'` = invoice_days, `'end_of_month'` = statement_days, a number with no type =
+  invoice_days; a negative, over-999 or unknown-type row is not terms). Tested by
+  `tests/integration/payment-terms-958-migration.int.test.ts` (every legacy shape, idempotent, old-code writes still succeed).
+- **PR 1b (tighten): NOT in this PR; its own migration, applied only after PR 1 is live and the old colour is gone.**
+  Take the next free prefix, then:
+
+```sql
+SET LOCAL lock_timeout = '5s';
+-- anything the old code wrote in the window: legacy names and the over-cap rows, mapped exactly as 958 maps them
+UPDATE suppliers SET payment_terms_type = CASE WHEN payment_terms_type IS NULL OR payment_terms_type = 'days' THEN 'invoice_days'
+  WHEN payment_terms_type = 'end_of_month' THEN 'statement_days' ELSE payment_terms_type END
+WHERE payment_terms IS NOT NULL AND payment_terms_type IN ('days', 'end_of_month') OR (payment_terms IS NOT NULL AND payment_terms_type IS NULL);
+-- (same for customers); then rows that are neither both-NULL nor a valid pair become NULL / NULL
+ALTER TABLE suppliers ALTER COLUMN payment_terms DROP DEFAULT, ALTER COLUMN payment_terms_type DROP DEFAULT;
+ALTER TABLE suppliers ADD CONSTRAINT suppliers_payment_terms_shape CHECK (
+  (payment_terms IS NULL AND payment_terms_type IS NULL)
+  OR (payment_terms BETWEEN 0 AND 999 AND payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months'))) NOT VALID;
+ALTER TABLE suppliers VALIDATE CONSTRAINT suppliers_payment_terms_shape;  -- and the same two statements for customers
+```
+
+  The 999 cap in the CHECK is what makes the DB and the forms agree (the forms and `dueDateFromTerms` already refuse more).
+  PR 1b ships with an integration test that the CHECK rejects bad pairs, and its own deploy check that no contact row violates it.
+
+## Edit pages and bank details
+
+PR 1 also ships supplier and customer edit pages (`/accounting/suppliers/[id]/edit`, `/customers/[id]/edit`; PUT on
+`suppliers-list` and `customers`). **The supplier edit never changes bank details** (Hein, 2026-11-05): a PUT naming any bank
+field is a 400, and the form shows the bank details read-only and masked. A rename still goes through the bank-details stamp
+(the payee name is in the payment digest, migration 923).
+
 ## Build (task DAG)
 
 | PR | Scope | Depends on |
 |---|---|---|
-| 1 Terms model | migration (terms unit/basis columns, default-30 → NULL), shared pure `dueDateFromTerms`, supplier + customer forms, AP capture auto-fills from supplier terms, server-side fallback, fix `calculateDueDate` UTC bug + recurring hardcoded 30, check Sage import paths | — |
+| 1 Terms model | migration 958 (expand: default-30 → not set, legacy names mapped; no CHECK), shared pure `dueDateFromTerms` + company default, supplier + customer forms and edit pages, every document creator dated by contact terms then company default, fix `calculateDueDate` UTC bug + hardcoded 30s, Sage import paths | — |
+| 1b Tighten | DROP DEFAULT + CHECK (N ≤ 999) on suppliers and customers; applied only after 1 is live | 1, deployed |
 | 2 Due-date source + edit | migration (`due_date_source`, due-date audit table), date-only edit route for approved/partially_paid bills | — (adversarial review: loosens approved-bill lock) |
 | 3 Re-apply terms | preview/confirm UI + API + MCP | 1, 2 |
 | 4 Due-by-date report | service, page, nav, Excel, MCP tool | — (reads due_date only) |

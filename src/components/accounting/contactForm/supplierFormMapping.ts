@@ -1,24 +1,8 @@
 /** A stored supplier as the form's strings, and the form as the PUT body (blank text = clear that field; no bank fields). */
 import { localISODate } from '@/lib/dateUtils';
-import { TERMS_NOT_SET, normalisePaymentTermsType } from '@/modules/accounting/services/shared/paymentTerms';
-import { paymentTermsBody } from '@/components/accounting/PaymentTermsField';
-import type { AutoAllocateStrategy, SupplierFormData } from '@/components/accounting/SupplierForm';
-
-type Row = Record<string, unknown>;
-
-const text = (row: Row, key: string) => (row[key] === null || row[key] === undefined ? '' : String(row[key]));
-
-export function strategyOf(value: unknown): AutoAllocateStrategy {
-  return value === 'oldest' || value === 'newest' ? value : 'off';
-}
-
-/** Stored terms as the form's pair; terms that are not set (or carry an unknown type) show as "Not set". */
-export function termsToForm(days: unknown, type: unknown): { payment_terms: string; payment_terms_type: string } {
-  const kind = normalisePaymentTermsType(typeof type === 'string' ? type : null);
-  return days === null || days === undefined || kind === null
-    ? { payment_terms: '', payment_terms_type: TERMS_NOT_SET }
-    : { payment_terms: String(days), payment_terms_type: kind };
-}
+import { paymentTermsBody } from '@/components/accounting/paymentTermsForm';
+import type { SupplierFormData } from '@/components/accounting/SupplierForm';
+import { strategyOf, termsToForm, text, type Row } from './formMapping';
 
 export function supplierToForm(row: Row): SupplierFormData {
   return {

@@ -16,7 +16,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { ContactValidationError, boundedText } from './customerWriteService';
+import { boundedText } from './customerWriteService';
+import { ContactValidationError } from './contactValidationError';
 import { termsColumns } from './contactTerms';
 import { clearFlags } from './contactClear';
 import {
@@ -155,7 +156,7 @@ export async function createSupplier(
       ${trimmed(input.address)},
       ${trimmed(input.contactPerson)},
       ${terms.days}::INT,
-      ${terms.type},
+      ${terms.createType},
       ${boundedText(input.bankName, 'bank_name', 100)},
       ${boundedText(input.bankAccountNumber, 'bank_account_number', 50)},
       ${boundedText(input.bankBranchCode, 'bank_branch_code', 20)},
@@ -246,8 +247,8 @@ export async function updateSupplier(
       address             = CASE WHEN ${cl.address} THEN NULL ELSE COALESCE(${trimmed(input.address)}, address) END,
       contact_person      = CASE WHEN ${cl.contactPerson} THEN NULL ELSE COALESCE(${trimmed(input.contactPerson)}, contact_person) END,
       whatsapp_number     = CASE WHEN ${cl.whatsappNumber} THEN NULL ELSE COALESCE(${trimmed(input.whatsappNumber)}, whatsapp_number) END,
-      payment_terms       = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.days}::INT WHEN 'clear' THEN NULL ELSE payment_terms END,
-      payment_terms_type  = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'clear' THEN NULL ELSE payment_terms_type END,
+      payment_terms       = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.days}::INT WHEN 'days_only' THEN ${terms.days}::INT WHEN 'clear' THEN NULL ELSE payment_terms END,
+      payment_terms_type  = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'days_only' THEN COALESCE(NULLIF(payment_terms_type, ''), 'invoice_days') WHEN 'clear' THEN NULL ELSE payment_terms_type END,
       bank_name           = COALESCE(${v.bankName}, bank_name),
       bank_account_number = COALESCE(${v.bankAccountNumber}, bank_account_number),
       bank_branch_code    = COALESCE(${v.bankBranchCode}, bank_branch_code),

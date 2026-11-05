@@ -2,8 +2,8 @@
  * A REST request body as the contact write services' input. ONE parser per contact kind, used by the create (POST)
  * and the edit (PUT) route alike, so the two validate the same way (the service refuses the rest, before any SQL).
  *
- * An edit differs in one respect: a text field sent blank (or null) means "clear it" and is named in `clear`; a field
- * not sent at all is left alone. Create ignores `clear`.
+ * An edit differs in three respects: a text field sent blank (or null) means "clear it" and is named in `clear` (a field
+ * not sent at all is left alone); an opening balance is refused by name; and (supplier) so is any bank field. Create ignores `clear`.
  */
 import { ContactValidationError } from './contactValidationError';
 import type { CustomerWriteInput, AutoAllocateStrategy as CustomerStrategy } from './customerWriteService';
@@ -15,10 +15,29 @@ type Body = Record<string, unknown>;
 
 const str = (b: Body, k: string) => (typeof b[k] === 'string' ? (b[k] as string) : undefined);
 const bool = (b: Body, k: string) => (typeof b[k] === 'boolean' ? (b[k] as boolean) : undefined);
+/** A number field: absent or blank is undefined; anything that is not a finite number is refused (NaN would reach SQL). */
 const num = (b: Body, k: string) => {
   const v = b[k];
-  return v !== undefined && v !== null && v !== '' ? Number(v) : undefined;
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n)) throw new ContactValidationError(`${k} must be a number`);
+  return n;
 };
+
+/** The request body as an object; null, an array or a scalar is a 400, not a TypeError. */
+function bodyOf(raw: unknown): Body {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new ContactValidationError('The request body must be a JSON object');
+  return raw as Body;
+}
+
+/** Opening balances are set once, at creation, and corrected with a journal: an edit that names one is refused. */
+const OPENING_BODY_FIELDS = ['opening_balance', 'opening_balance_date', 'openingBalance', 'openingBalanceDate'] as const;
+function refuseOpeningBalance(b: Body): void {
+  const sent = OPENING_BODY_FIELDS.filter((k) => k in b);
+  if (sent.length > 0) {
+    throw new ContactValidationError(`The opening balance cannot be changed here (correct it with a journal); remove: ${sent.join(', ')}`);
+  }
+}
 
 /** The service input key -> the body key, for the fields an edit may clear. */
 const CUSTOMER_BODY_KEY: Record<(typeof CUSTOMER_CLEARABLE)[number], string> = {
@@ -40,7 +59,8 @@ function blanked(b: Body, keys: Record<string, string>): string[] {
     .map(([inputKey]) => inputKey);
 }
 
-export function customerInputFromBody(b: Body): CustomerWriteInput {
+export function customerInputFromBody(raw: unknown): CustomerWriteInput {
+  const b = bodyOf(raw);
   return {
     name: str(b, 'name'),
     email: str(b, 'email'), phone: str(b, 'phone'), mobile: str(b, 'mobile'), fax: str(b, 'fax'),
@@ -65,13 +85,15 @@ export function customerInputFromBody(b: Body): CustomerWriteInput {
   };
 }
 
-/** An edit: the opening balance is create-only, so it is dropped here; blank text fields are cleared. */
-export function customerPatchFromBody(b: Body): CustomerWriteInput {
-  const { openingBalance: _ob, openingBalanceDate: _obd, ...rest } = customerInputFromBody(b);
-  return { ...rest, clear: blanked(b, CUSTOMER_BODY_KEY) };
+/** An edit: an opening balance is refused (create-only); blank text fields are cleared. */
+export function customerPatchFromBody(raw: unknown): CustomerWriteInput {
+  const b = bodyOf(raw);
+  refuseOpeningBalance(b);
+  return { ...customerInputFromBody(b), clear: blanked(b, CUSTOMER_BODY_KEY) };
 }
 
-export function supplierInputFromBody(b: Body): SupplierWriteInput {
+export function supplierInputFromBody(raw: unknown): SupplierWriteInput {
+  const b = bodyOf(raw);
   return {
     name: str(b, 'name'),
     companyName: str(b, 'company_name'),
@@ -100,11 +122,12 @@ export const BANK_BODY_FIELDS = [
  * A supplier EDIT never changes bank details (Hein, 2026-11-05): any bank field in the body, even blank or null,
  * is refused by name, never ignored, so the bank-details stamp cannot be reached through the edit route.
  */
-export function supplierPatchFromBody(b: Body): SupplierWriteInput {
+export function supplierPatchFromBody(raw: unknown): SupplierWriteInput {
+  const b = bodyOf(raw);
+  refuseOpeningBalance(b);
   const sent = BANK_BODY_FIELDS.filter((k) => k in b);
   if (sent.length > 0) {
     throw new ContactValidationError(`Bank details cannot be changed here; remove: ${sent.join(', ')}`);
   }
-  const { openingBalance: _ob, openingBalanceDate: _obd, ...rest } = supplierInputFromBody(b);
-  return { ...rest, clear: blanked(b, SUPPLIER_BODY_KEY) };
+  return { ...supplierInputFromBody(b), clear: blanked(b, SUPPLIER_BODY_KEY) };
 }

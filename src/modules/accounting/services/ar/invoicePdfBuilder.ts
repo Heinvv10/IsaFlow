@@ -6,6 +6,7 @@
 import { log } from '@/lib/logger';
 import { loadInvoicePdfModel, type InvoicePdfLine, type InvoicePdfModel } from './invoicePdfModel';
 import { allocateVatToLines } from './vatLineAllocation';
+import { describePaymentTerms } from '../shared/paymentTerms';
 import {
   fmtZAR, fmtDate, COLORS,
   renderPageFooters,
@@ -14,6 +15,8 @@ import {
   renderTotalsBlock, renderPaymentDetails, renderNotesBlock,
   type TotalLine,
 } from '../core/pdfShared';
+
+const IMMEDIATE_WORDS = describePaymentTerms(0, 'invoice_days');
 
 /**
  * `given`: a model already loaded (the approval's, loaded once under its row lock and compared): rendered as it is,
@@ -93,6 +96,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
   );
 
   // ── Reference Strip ───────────────────────────────────────────────────────
+  const termsText = inv.client_terms ? String(inv.client_terms) : '';
   const refFields = [
     { label: 'Invoice #', value: String(inv.invoice_number || '—') },
     {
@@ -105,11 +109,14 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
     },
     {
       label: 'Due Date',
-      value: inv.due_date ? fmtDate(inv.due_date as string | Date | null | undefined) : 'On Receipt',
+      // "On Receipt" only beside terms that say so; an undated invoice on other terms prints no date, never a contradiction.
+      value: inv.due_date
+        ? fmtDate(inv.due_date as string | Date | null | undefined)
+        : (termsText === IMMEDIATE_WORDS ? 'On Receipt' : '—'),
     },
     {
       label: 'Terms',
-      value: inv.payment_terms ? String(inv.payment_terms) : '30 Days',
+      value: termsText || '—',
     },
   ];
   y = renderRefStrip(doc, y, PAGE_W, MARGIN, refFields);

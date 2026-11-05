@@ -10,7 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Truck, Loader2, ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
 import { notify } from '@/utils/toast';
-import { paymentTermsBody, paymentTermsFormError } from '@/components/accounting/PaymentTermsField';
+import { paymentTermsBody, paymentTermsFormError } from '@/components/accounting/paymentTermsForm';
 import { SupplierForm, type SupplierFormData, INITIAL_SUPPLIER_FORM } from '@/components/accounting/SupplierForm';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';

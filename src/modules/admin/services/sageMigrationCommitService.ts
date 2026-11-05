@@ -18,6 +18,7 @@ import { assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/jou
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { recomputeInvoiceStatus } from '@/modules/accounting/services/ar/invoiceStatusRecompute';
 import { assertMayImportOpenBills, withApprovalGateExempt } from '@/modules/accounting/services/gl/approvalGateExempt';
+import { dueDateForContact } from '@/modules/accounting/services/core/paymentTermsResolver';
 import type {
   Row,
   MappedCustomer,
@@ -165,6 +166,8 @@ export async function commitARInvoice(
   const open = amountPaid < Number(inv.totalAmount);
   if (open) await assertMayImportOpenBills(companyId, userId, 'customer_invoice');
 
+  // The source's due date; none: the customer's terms, else the company default (migration 958).
+  const dueDate = inv.dueDate ?? await dueDateForContact(companyId, 'customer', customerId, String(inv.invoiceDate));
   // R-035 Q1: issued in Sage, so exempt from the approval backstop.
   const inserted = (await withApprovalGateExempt({ companyId, userId, open, documentType: 'customer_invoice' }, () => sql`
     INSERT INTO customer_invoices (
@@ -173,7 +176,7 @@ export async function commitARInvoice(
       amount_paid, status, notes, created_by, currency_code, exchange_rate, functional_total
     ) VALUES (
       ${companyId}::UUID, ${inv.invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
-      ${inv.invoiceDate}, ${inv.dueDate ?? null},
+      ${inv.invoiceDate}, ${dueDate},
       ${inv.subtotal}, ${taxRate}, ${inv.taxAmount}, ${inv.totalAmount},
       ${amountPaid}, 'approved', ${inv.reference ?? null}, ${userId}, 'ZAR', 1.0, ${inv.totalAmount}
     ) RETURNING id

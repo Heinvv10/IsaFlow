@@ -25,7 +25,7 @@ import { toFunctional } from '../shared/functionalAmounts';
 import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
-import { customerTermsDueDate } from './customerTermsDueDate';
+import { dueDateForContact } from '../core/paymentTermsResolver';
 
 type Row = DbRow;
 
@@ -160,8 +160,8 @@ export async function createDraftCustomerInvoice(
   }
   const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
   const invDate = invoiceDate || today;
-  // No due date named: the customer's terms give it (migration 958); terms not set leave it empty.
-  const resolvedDueDate = dueDate || await customerTermsDueDate(companyId, clientId, invDate);
+  // No due date named: the customer's terms give it, else the company default (migration 958).
+  const resolvedDueDate = dueDate || await dueDateForContact(companyId, 'customer', clientId, invDate);
   const bpStart = billingPeriodStart || null;
   const bpEnd = billingPeriodEnd || null;
 

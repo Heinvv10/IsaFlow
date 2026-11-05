@@ -25,27 +25,9 @@ import { evaluateApprovalGate } from '../gl/approvalGate';
 import { raiseUnattendedApproval } from '../gl/approvalUnattended';
 import { stampUpstreamAuthors } from './customerInvoiceUpstreamAuthors';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
-import { addDaysISO } from '@/lib/dateUtils';
-import { dueDateFromTerms } from '../shared/paymentTerms';
+import { companyTermsFromSetting, dueDateWithDefault } from '../shared/paymentTerms';
 
 type Row = DbRow;
-
-/**
- * The due date for an invoice this run mints today: the customer's payment terms (migration 958) from the database's
- * CURRENT_DATE, which is the invoice date the INSERT writes (constant within the request transaction). A customer
- * whose terms are not set keeps +30 days, what this run always used: a recurring invoice has no person to enter a
- * date, and "no due date" would leave it out of every ageing bucket.
- */
-async function runDueDate(companyId: string, customerId: string | null): Promise<string> {
-  const [row] = (await sql`
-    SELECT CURRENT_DATE::TEXT AS today, c.payment_terms, c.payment_terms_type
-    FROM (SELECT 1) AS one
-    LEFT JOIN customers c ON c.id = ${customerId}::UUID AND c.company_id = ${companyId}::UUID
-  `) as Row[];
-  const today = String(row!.today);
-  const days = row!.payment_terms == null ? null : Number(row!.payment_terms);
-  return dueDateFromTerms(today, days, row!.payment_terms_type) ?? addDaysISO(today, 30);
-}
 
 /** One template's run: the invoice it minted, and whether approval holds it as a draft. */
 export interface RecurringInvoiceRun {
@@ -143,7 +125,13 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
   // configured width. The helper reserves, and retries past a number some
   // legacy row already holds under its own savepoint — without that, a single
   // such row stalls this template on every future run.
-  const dueDate = await runDueDate(companyId, ri.client_id ? String(ri.client_id) : null);
+  // The customer's terms, else the company default (migration 958), from the invoice date this run writes. The
+  // template row carries both (recurringInvoiceLock joins them), so there is no query of its own.
+  const invoiceDate = fmtDate(new Date());
+  const dueDate = dueDateWithDefault(
+    invoiceDate, ri.contact_payment_terms == null ? null : Number(ri.contact_payment_terms),
+    ri.contact_payment_terms_type, companyTermsFromSetting(ri.company_default_terms),
+  );
   const invoiceId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'rec_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const inv = (await sql`
@@ -154,7 +142,7 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
         ) VALUES (
           ${companyId}::UUID, ${invoiceNumber}, ${ri.client_id}::UUID, ${ri.client_id}::UUID,
           ${ri.project_id || null},
-          CURRENT_DATE, ${dueDate}::DATE,
+          ${invoiceDate}::DATE, ${dueDate}::DATE,
           ${totals.subtotal}, ${taxRate}, ${totals.taxAmount}, ${totals.totalAmount},
           'draft', ${ri.description || ri.template_name}, ${userId}::UUID
         ) RETURNING id

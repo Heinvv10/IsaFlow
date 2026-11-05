@@ -6,7 +6,7 @@
 
 import { localISODate } from '@/lib/dateUtils';
 import type { DateGate } from '@/hooks/useDateGate';
-import { IMMEDIATE_TERMS } from '@/components/accounting/PaymentTermsField';
+import { UNCHOSEN_TERMS } from '@/components/accounting/paymentTermsForm';
 import type { FormMode } from '@/components/accounting/contactForm/formParts';
 import {
   CustomerAddressSection, CustomerBasicSection, CustomerContactSection, CustomerNotesSection,
@@ -56,8 +56,8 @@ export const INITIAL_CUSTOMER_FORM: CustomerFormData = {
   vat_number: '',
   registration_number: '',
   contact_person: '',
-  payment_terms: IMMEDIATE_TERMS.payment_terms,
-  payment_terms_type: IMMEDIATE_TERMS.payment_terms_type,
+  payment_terms: UNCHOSEN_TERMS.payment_terms,
+  payment_terms_type: UNCHOSEN_TERMS.payment_terms_type,
   credit_limit: '',
   billing_address: '',
   shipping_address: '',

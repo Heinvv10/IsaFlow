@@ -109,10 +109,10 @@ describe('PUT supplier: what reaches the UPDATE', () => {
 
   it('sets terms as a pair and clears them on not_set', async () => {
     await suppliers(put({ id: ID, payment_terms: 3, payment_terms_type: 'statement_months' }), response());
-    expect(update()!.values.slice(17, 21)).toEqual(['set', 3, 'set', 'statement_months']);
+    expect(update()!.values.slice(17, 22)).toEqual(['set', 3, 3, 'set', 'statement_months']);
     db.calls = [];
     await suppliers(put({ id: ID, payment_terms_type: 'not_set' }), response());
-    expect(update()!.values.slice(17, 21)).toEqual(['clear', null, 'clear', null]);
+    expect(update()!.values.slice(17, 22)).toEqual(['clear', null, null, 'clear', null]);
   });
 
   // Hein, 2026-11-05: the edit never changes bank details. Refused by name, never ignored, before any SQL, so the
@@ -141,12 +141,36 @@ describe('PUT supplier: what reaches the UPDATE', () => {
 });
 
 describe('PUT customer: what reaches the UPDATE', () => {
-  it('clears a blank credit limit and email, keeps the opening balance out of the update', async () => {
-    await customers(put({ id: ID, email: '', credit_limit: '', opening_balance: 5000, opening_balance_date: '2026-01-01' }), response());
+  it('clears a blank credit limit and email, and the UPDATE never touches the opening balance', async () => {
+    await customers(put({ id: ID, email: '', credit_limit: '' }), response());
     const { text, values } = update()!;
     expect(values[1]).toBe(true);   // email cleared
-    expect(values[25]).toBe(true);  // credit_limit cleared
+    expect(values[26]).toBe(true);  // credit_limit cleared
     expect(text).not.toContain('opening_balance');
-    expect(values).not.toContain(5000);
+  });
+
+  it.each([['opening_balance', 5000], ['opening_balance_date', '2026-01-01'], ['openingBalance', 1]])(
+    'an edit naming %s is a 400 naming it, before any SQL (an opening balance is set once and corrected with a journal)',
+    async (field, value) => {
+      const res = response();
+      await customers(put({ id: ID, name: 'Acme', [field]: value }), res);
+      expect(status(res)).toBe(400);
+      expect(JSON.stringify(sent(res))).toContain(field);
+      expect(db.calls).toHaveLength(0);
+    });
+
+  it.each([['credit_limit', 'abc'], ['default_discount', 'NaN'], ['credit_limit', {}]])(
+    '%s = %j is a 400 (not a NaN bound into the UPDATE)', async (field, value) => {
+      const res = response();
+      await customers(put({ id: ID, [field]: value }), res);
+      expect(status(res)).toBe(400);
+      expect(db.calls).toHaveLength(0);
+    });
+
+  it.each([[null], ['text'], [[1, 2]]])('a POST with body %j is a 400, not a TypeError 500', async (body) => {
+    const res = response();
+    await customers({ method: 'POST', companyId: COMPANY_A, user: { id: USER }, query: {}, body } as unknown as NextApiRequest, res);
+    expect(status(res)).toBe(400);
+    expect(db.calls).toHaveLength(0);
   });
 });

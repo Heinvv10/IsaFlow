@@ -10,7 +10,6 @@ const written = vi.hoisted(() => ({ nextRunDate: null as string | null, template
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?');
-    if (text.includes('FROM (SELECT 1)')) return [{ today: '2026-11-05', payment_terms: null, payment_terms_type: null }];
     if (text.includes('UPDATE recurring_invoices')) {
       written.nextRunDate = String(values.find((v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)));
     }

@@ -44,12 +44,16 @@ function input(over: Partial<SupplierInvoiceCreateInput>): SupplierInvoiceCreate
   };
 }
 
-/** Create a bill for a supplier with these terms; returns the due date bound to the INSERT (or null). */
+type SupplierTerms = { payment_terms: number | null; payment_terms_type: string | null };
+const NOT_SET: SupplierTerms = { payment_terms: null, payment_terms_type: null };
+
+/** Create a bill for a supplier with these terms (and this company default); returns the due date bound to the INSERT. */
 async function storedDueDate(
-  supplier: { payment_terms: number | null; payment_terms_type: string | null },
+  supplier: SupplierTerms,
   over: Partial<SupplierInvoiceCreateInput>,
+  companyDefault: { company_default_terms: string } | null = null,
 ): Promise<unknown> {
-  mockSql.mockResolvedValueOnce([{ vat_number: '4000123456', ...supplier }]);
+  mockSql.mockResolvedValueOnce([{ vat_number: '4000123456', ...supplier, ...(companyDefault ?? {}) }]);
   let bound: unknown[] = [];
   mockTx.mockImplementation(async (fn) => {
     const tx = vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -78,21 +82,33 @@ describe('createSupplierInvoice due date', () => {
     expect(await storedDueDate({ payment_terms: 0, payment_terms_type: 'invoice_days' }, {})).toBe('2026-08-16');
   });
 
-  it('a due date the caller names wins over the supplier terms', async () => {
-    expect(await storedDueDate({ payment_terms: 3, payment_terms_type: 'statement_months' }, { dueDate: '2026-09-01' })).toBe('2026-09-01');
+  it('reads the legacy shapes: days, end_of_month, and a number with no type', async () => {
+    expect(await storedDueDate({ payment_terms: 45, payment_terms_type: 'days' }, {})).toBe('2026-09-30');
+    expect(await storedDueDate({ payment_terms: 14, payment_terms_type: 'end_of_month' }, {})).toBe('2026-09-14');
+    expect(await storedDueDate({ payment_terms: 30, payment_terms_type: null }, {})).toBe('2026-09-15');
   });
 
-  it('supplier terms win over the invoice netNN text', async () => {
-    expect(await storedDueDate({ payment_terms: 3, payment_terms_type: 'statement_months' }, { paymentTerms: 'net30' })).toBe('2026-11-30');
+  it('precedence: a due date the caller names wins over everything', async () => {
+    expect(await storedDueDate({ payment_terms: 3, payment_terms_type: 'statement_months' }, { dueDate: '2026-09-01', paymentTerms: 'net60' })).toBe('2026-09-01');
   });
 
-  it('terms not set fall back to the invoice netNN text, computed on the local calendar', async () => {
-    expect(await storedDueDate({ payment_terms: null, payment_terms_type: null }, { paymentTerms: 'net30', invoiceDate: '2026-03-15' })).toBe('2026-04-14');
-    expect(await storedDueDate({ payment_terms: null, payment_terms_type: null }, { paymentTerms: 'net60', invoiceDate: '2026-12-20' })).toBe('2027-02-18');
+  it('precedence: the bill\'s own terms, when someone chose them, beat the supplier\'s', async () => {
+    expect(await storedDueDate({ payment_terms: 3, payment_terms_type: 'statement_months' }, { paymentTerms: 'net30', invoiceDate: '2026-03-15' })).toBe('2026-04-14');
+    expect(await storedDueDate({ payment_terms: 3, payment_terms_type: 'statement_months' }, { paymentTerms: 'immediate' })).toBe('2026-08-16');
   });
 
-  it('terms not set and no netNN text give no due date (not 30 days)', async () => {
-    expect(await storedDueDate({ payment_terms: null, payment_terms_type: null }, {})).toBeNull();
-    expect(await storedDueDate({ payment_terms: null, payment_terms_type: null }, { paymentTerms: 'immediate' })).toBeNull();
+  it('precedence: no own terms, supplier terms beat the company default', async () => {
+    expect(await storedDueDate({ payment_terms: 3, payment_terms_type: 'statement_months' }, {},
+      { company_default_terms: JSON.stringify({ days: 7, type: 'invoice_days' }) })).toBe('2026-11-30');
+  });
+
+  it('a supplier whose terms are not set uses the company default (30 days from invoice when it says nothing else)', async () => {
+    expect(await storedDueDate(NOT_SET, {})).toBe('2026-09-15');
+    expect(await storedDueDate(NOT_SET, { paymentTerms: '' })).toBe('2026-09-15');
+    expect(await storedDueDate(NOT_SET, {}, { company_default_terms: JSON.stringify({ days: 2, type: 'statement_months' }) })).toBe('2026-10-31');
+  });
+
+  it('terms text that is not netNN or immediate falls through to the supplier / the default', async () => {
+    expect(await storedDueDate(NOT_SET, { paymentTerms: 'by arrangement' })).toBe('2026-09-15');
   });
 });

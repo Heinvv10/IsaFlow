@@ -1,12 +1,8 @@
 /** A stored customer as the form's strings, and the form as the PUT body (blank text = clear that field). */
 import { localISODate } from '@/lib/dateUtils';
-import { paymentTermsBody } from '@/components/accounting/PaymentTermsField';
+import { paymentTermsBody } from '@/components/accounting/paymentTermsForm';
 import type { CustomerFormData } from '@/components/accounting/CustomerForm';
-import { strategyOf, termsToForm } from './supplierFormMapping';
-
-type Row = Record<string, unknown>;
-
-const text = (row: Row, key: string) => (row[key] === null || row[key] === undefined ? '' : String(row[key]));
+import { strategyOf, termsToForm, text, type Row } from './formMapping';
 
 export function customerToForm(row: Row): CustomerFormData {
   return {

@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const state = vi.hoisted(() => ({
-  terms: [] as Array<{ payment_terms: number | null; payment_terms_type: string | null }>,
+  terms: [] as Array<Record<string, unknown>>,
   insert: [] as unknown[],
   termsLookup: [] as unknown[],
 }));
@@ -15,7 +15,7 @@ vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   const sqlMock = Object.assign(vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?');
-    if (text.includes('FROM customers')) { state.termsLookup = values; return state.terms; }
+    if (text.includes('LEFT JOIN customers')) { state.termsLookup = values; return state.terms; }
     if (text.includes('INSERT INTO customer_invoices')) { state.insert = values; return [{ id: 'inv-1' }]; }
     return [];
   }), { transaction: vi.fn(), unsafe: vi.fn((t: string) => t) });
@@ -61,13 +61,26 @@ describe('createDraftCustomerInvoice due date', () => {
     state.terms = [{ payment_terms: days, payment_terms_type: type }];
     await draft();
     expect(state.insert[DUE_DATE_INDEX]).toBe(due);
-    expect(state.termsLookup).toEqual([CLIENT, COMPANY]);
+    // The customer and the company, then the company again for its default-terms setting.
+    expect(state.termsLookup).toEqual([CLIENT, COMPANY, COMPANY, 'default_payment_terms']);
   });
 
-  it('terms not set leave the due date empty (not 30 days)', async () => {
+  it('terms not set use the company default (30 days from invoice unless the company says otherwise)', async () => {
     state.terms = [{ payment_terms: null, payment_terms_type: null }];
     await draft();
-    expect(state.insert[DUE_DATE_INDEX]).toBeNull();
+    expect(state.insert[DUE_DATE_INDEX]).toBe('2026-09-15');
+    state.terms = [{ payment_terms: null, payment_terms_type: null, company_default_terms: JSON.stringify({ days: 1, type: 'statement_months' }) }];
+    await draft();
+    expect(state.insert[DUE_DATE_INDEX]).toBe('2026-09-30');
+  });
+
+  it('reads the legacy shapes: days, and a number with no type', async () => {
+    state.terms = [{ payment_terms: 14, payment_terms_type: 'days' }];
+    await draft();
+    expect(state.insert[DUE_DATE_INDEX]).toBe('2026-08-30');
+    state.terms = [{ payment_terms: 14, payment_terms_type: null }];
+    await draft();
+    expect(state.insert[DUE_DATE_INDEX]).toBe('2026-08-30');
   });
 
   it('a due date the caller names is kept and the terms are not read', async () => {

@@ -12,9 +12,10 @@ import { UUID_RE } from '@/lib/validation';
 import {
   createCustomer,
   updateCustomer,
-  ContactValidationError,
 } from '@/modules/accounting/services/core/customerWriteService';
+import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
 import { customerInputFromBody, customerPatchFromBody } from '@/modules/accounting/services/core/contactRequestInput';
+import { withCompanyDefaultTerms } from '@/modules/accounting/services/core/companyDefaultTermsRow';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -88,16 +89,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // not a UUID keeps its old answer (the list), which the detail page still filters itself.
       if (typeof id === 'string' && UUID_RE.test(id)) {
         const found = (await sql`
-          SELECT id, name, email, phone, mobile, fax, web_address, contact_person, payment_terms, payment_terms_type,
-                 default_discount, default_vat_type, default_price_list, credit_limit, is_active, cash_sale,
-                 accepts_electronic_invoices, invoices_viewable_online, subject_to_drc_vat, statement_distribution,
-                 auto_allocate_strategy, category_id, billing_address, shipping_address, notes,
-                 vat_number, registration_number, created_at
-          FROM customers
-          WHERE id = ${id}::uuid AND company_id = ${companyId} AND deleted_at IS NULL
+          SELECT c.id, c.name, c.email, c.phone, c.mobile, c.fax, c.web_address, c.contact_person,
+                 c.payment_terms, c.payment_terms_type, c.default_discount, c.default_vat_type,
+                 c.default_price_list, c.credit_limit, c.is_active, c.cash_sale, c.accepts_electronic_invoices,
+                 c.invoices_viewable_online, c.subject_to_drc_vat, c.statement_distribution,
+                 c.auto_allocate_strategy, c.category_id, c.billing_address, c.shipping_address, c.notes,
+                 c.vat_number, c.registration_number, c.created_at,
+                 d.value AS company_default_terms
+          FROM customers c
+          LEFT JOIN accounting_settings d ON d.company_id = c.company_id AND d.key = 'default_payment_terms'
+          WHERE c.id = ${id}::uuid AND c.company_id = ${companyId} AND c.deleted_at IS NULL
         `) as Row[];
         if (found.length === 0) return apiResponse.notFound(res, 'Customer');
-        return apiResponse.success(res, found[0]);
+        return apiResponse.success(res, withCompanyDefaultTerms(found[0]!));
       }
 
       const searchQuery = typeof q === 'string' ? q : null;
@@ -121,7 +125,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       // Field validation and the INSERT itself live in customerWriteService, so this route, the edit (PUT) and
       // create_customer over MCP cannot drift apart.
-      const rows = [await createCustomer(companyId, customerInputFromBody(req.body as Record<string, unknown>))];
+      const rows = [await createCustomer(companyId, customerInputFromBody(req.body))];
 
       log.info('Customer created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
       return apiResponse.success(res, rows[0]);

@@ -2,8 +2,10 @@
  * Company Settings API — Document Numbers & Messages
  * GET  ?type=document-numbers  — get document number config
  * GET  ?type=messages          — get statement/document messages
+ * GET  ?type=payment-terms     — the company's default payment terms { payment_terms, payment_terms_type }
  * PUT  ?type=document-numbers  — update document number prefixes
  * PUT  ?type=messages          — update messages
+ * PUT  ?type=payment-terms     — set the default payment terms (what a contact with none uses on a new document)
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -16,6 +18,8 @@ import {
   getCompanyMessages, upsertCompanyMessages,
 } from '@/modules/accounting/services/core/companyService';
 import type { CompanyMessage } from '@/modules/accounting/services/core/companyService';
+import { getCompanyDefaultTerms, setCompanyDefaultTerms } from '@/modules/accounting/services/core/paymentTermsResolver';
+import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -30,7 +34,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const messages = await getCompanyMessages(companyId);
       return apiResponse.success(res, messages);
     }
-    return apiResponse.badRequest(res, 'type query param required: document-numbers or messages');
+    if (type === 'payment-terms') {
+      const t = await getCompanyDefaultTerms(companyId);
+      return apiResponse.success(res, { payment_terms: t.days, payment_terms_type: t.type });
+    }
+    return apiResponse.badRequest(res, 'type query param required: document-numbers, messages or payment-terms');
   }
 
   if (req.method === 'PUT') {
@@ -64,7 +72,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const updated = await getCompanyMessages(companyId);
       return apiResponse.success(res, updated);
     }
-    return apiResponse.badRequest(res, 'type query param required: document-numbers or messages');
+    if (type === 'payment-terms') {
+      const b = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+      try {
+        const t = await setCompanyDefaultTerms(companyId, b.payment_terms, b.payment_terms_type);
+        return apiResponse.success(res, { payment_terms: t.days, payment_terms_type: t.type });
+      } catch (err: unknown) {
+        if (err instanceof ContactValidationError) return apiResponse.badRequest(res, err.message);
+        throw err;
+      }
+    }
+    return apiResponse.badRequest(res, 'type query param required: document-numbers, messages or payment-terms');
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'PUT']);

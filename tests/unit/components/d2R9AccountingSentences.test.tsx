@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { empty500, expectNoJargon, MSG, ok, on, refuse, serve, writeCalls } from '../helpers/d2R3a6';
+import { empty500, expectNoJargon, MSG, ok, on, refuse, serve, writeCalls, chooseTerms } from '../helpers/d2R3a6';
 
 const router = vi.hoisted(() => ({ query: {} as Record<string, string>, isReady: true, pathname: '/', replace: vi.fn(), push: vi.fn(async () => true) }));
 const warn = vi.hoisted(() => vi.fn());
@@ -141,7 +141,7 @@ describe('new supplier', () => {
     router.push.mockImplementation(() => new Promise<boolean>(() => undefined));
     serve(on('POST', 'suppliers-list', () => ok({ id: 's-1' })));
     render(<NewSupplierPage />);
-    fireEvent.change(screen.getByPlaceholderText(/ABC Supplies/), { target: { value: 'D2 Supplier' } });
+    fireEvent.change(screen.getByPlaceholderText(/ABC Supplies/), { target: { value: 'D2 Supplier' } }); chooseTerms();
     const save = screen.getByRole('button', { name: /Save Supplier/ });
     fireEvent.click(save);
     await waitFor(() => expect(router.push).toHaveBeenCalledWith('/accounting/suppliers/s-1'));
@@ -152,7 +152,7 @@ describe('new supplier', () => {
   it('a refused save frees the button again and shows the server message', async () => {
     serve(on('POST', 'suppliers-list', () => refuse()));
     render(<NewSupplierPage />);
-    fireEvent.change(screen.getByPlaceholderText(/ABC Supplies/), { target: { value: 'D2 Supplier' } });
+    fireEvent.change(screen.getByPlaceholderText(/ABC Supplies/), { target: { value: 'D2 Supplier' } }); chooseTerms();
     fireEvent.click(screen.getByRole('button', { name: /Save Supplier/ }));
     await waitFor(() => expect([...document.querySelectorAll('[data-toast]')].map(n => n.textContent)).toContain(MSG));
     await waitFor(() => expect((screen.getByRole('button', { name: /Save Supplier/ }) as HTMLButtonElement).disabled).toBe(false));

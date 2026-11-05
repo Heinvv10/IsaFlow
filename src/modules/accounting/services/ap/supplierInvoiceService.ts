@@ -28,7 +28,7 @@ import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaults';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
-import { dueDateFromTerms } from '../shared/paymentTerms';
+import { companyTermsFromSetting, dueDateWithDefault, ownTermsDueDate } from '../shared/paymentTerms';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
@@ -106,16 +106,22 @@ export async function createSupplierInvoice(
     // The company's own currency at exactly 1 (R-035), a foreign one only once enabled (FX PR0).
     const { currencyCode, exchangeRate } = await resolveDocumentCurrency(companyId, input.currencyCode, input.exchangeRate, 'bill');
 
-    // The supplier's VAT number (duplicate fingerprint) and payment terms (due date), one company-scoped read.
+    // The supplier's VAT number (duplicate fingerprint), payment terms and the company default (due date): one company-scoped read.
     const [supplierRow] = (await sql`
-      SELECT vat_number, payment_terms, payment_terms_type FROM suppliers
-      WHERE id = ${input.supplierId}::UUID AND company_id = ${companyId}::UUID
+      SELECT s.vat_number, s.payment_terms, s.payment_terms_type, d.value AS company_default_terms
+      FROM suppliers s
+      LEFT JOIN accounting_settings d ON d.company_id = s.company_id AND d.key = 'default_payment_terms'
+      WHERE s.id = ${input.supplierId}::UUID AND s.company_id = ${companyId}::UUID
     `) as Row[];
     const supplierVatNumber: string | null = supplierRow?.vat_number ?? null;
-    // A due date the caller gave wins; else the supplier's terms (migration 958); else the invoice's own "netNN" text.
+    // Precedence: a due date the caller gave; the bill's own terms when the user or API caller chose them ("net30",
+    // "immediate"; never a silent default); the supplier's terms; the company default (migration 958).
     const dueDate = input.dueDate
-      || dueDateFromTerms(input.invoiceDate, supplierRow?.payment_terms == null ? null : Number(supplierRow.payment_terms), supplierRow?.payment_terms_type)
-      || calculateDueDate(input.invoiceDate, input.paymentTerms);
+      || ownTermsDueDate(input.invoiceDate, input.paymentTerms)
+      || dueDateWithDefault(
+        input.invoiceDate, supplierRow?.payment_terms == null ? null : Number(supplierRow.payment_terms),
+        supplierRow?.payment_terms_type, companyTermsFromSetting(supplierRow?.company_default_terms),
+      );
     const fingerprint = computeFingerprint(supplierVatNumber, input.invoiceNumber, totalAmount);
 
     const invoiceRow = await withTransaction(async (tx) => {
@@ -191,14 +197,6 @@ export {
   cancelSupplierInvoice,
   performThreeWayMatch,
 } from './supplierInvoiceWorkflowService';
-
-function calculateDueDate(invoiceDate: string, paymentTerms?: string): string | null {
-  if (!paymentTerms) return null;
-  const match = paymentTerms.match(/net(\d+)/i);
-  if (!match) return null;
-  // Local-date arithmetic: `new Date(iso)` is UTC midnight and `toISOString()` rolled the date back a day east of UTC.
-  return dueDateFromTerms(invoiceDate, Number(match[1]), 'invoice_days');
-}
 
 function mapItemRow(row: Row): SupplierInvoiceItem {
   return {

@@ -86,11 +86,11 @@ describe('EditSupplierPage', () => {
     expect(screen.getByText('Bank details cannot be changed on this page.')).toBeTruthy();
   });
 
-  it('Save sends PUT with the edits: terms cleared to not set, a blank field cleared, no bank field', async () => {
+  it('Save sends PUT with the edits: terms set to use the company default, a blank field cleared, no bank field', async () => {
     render(<EditSupplierPage />);
     const email = (await screen.findByLabelText('Email Address')) as HTMLInputElement;
     fireEvent.change(email, { target: { value: '' } });
-    fireEvent.change(screen.getByLabelText(/Payment Terms/), { target: { value: 'not_set' } });
+    fireEvent.change(screen.getByLabelText(/Payment Terms/), { target: { value: 'default' } });
     fireEvent.click(screen.getByRole('button', { name: /Save Supplier/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
     const body = putBody();
@@ -146,11 +146,11 @@ describe('EditCustomerPage', () => {
     expect(screen.queryByLabelText('Opening Balance')).toBeNull();
   });
 
-  it('Save sends PUT: a cleared credit limit goes blank, terms cleared to not set, the category kept', async () => {
+  it('Save sends PUT: a cleared credit limit goes blank, terms set to use the company default, the category kept', async () => {
     render(<EditCustomerPage />);
     fireEvent.change(await screen.findByLabelText('Credit Limit'), { target: { value: '' } });
     await waitFor(() => expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe(CATEGORY_ID));
-    fireEvent.change(screen.getByLabelText(/Payment Terms/), { target: { value: 'not_set' } });
+    fireEvent.change(screen.getByLabelText(/Payment Terms/), { target: { value: 'default' } });
     fireEvent.click(screen.getByRole('button', { name: /Save Customer/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
     expect(putBody()).toMatchObject({ id: CUSTOMER_ID, credit_limit: '', payment_terms_type: 'not_set', category_id: CATEGORY_ID, default_discount: '5.00' });

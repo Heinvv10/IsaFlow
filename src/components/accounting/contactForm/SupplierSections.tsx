@@ -43,7 +43,7 @@ export function SupplierBasicSection({ form, set, patch, fieldErrors, mode }: Pr
         <PaymentTermsField
           days={form.payment_terms} type={form.payment_terms_type} error={fieldErrors.payment_terms}
           onChange={(days, type) => patch({ payment_terms: days, payment_terms_type: type })}
-          inputClass={inputClass} allowNotSet={mode === 'edit'}
+          inputClass={inputClass} allowDefault
         />
         <div className="sm:col-span-2">
           <TextAreaField label="Physical Address" value={form.address} onChange={(v) => set('address', v)}

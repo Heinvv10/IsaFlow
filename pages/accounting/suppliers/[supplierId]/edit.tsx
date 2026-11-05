@@ -12,7 +12,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useDateGate } from '@/hooks/useDateGate';
 import { SupplierForm, type SupplierFormData } from '@/components/accounting/SupplierForm';
-import { paymentTermsFormError } from '@/components/accounting/PaymentTermsField';
+import { paymentTermsFormError } from '@/components/accounting/paymentTermsForm';
 import { ContactEditShell } from '@/components/accounting/contactForm/ContactEditShell';
 import { supplierEditBody, supplierToForm } from '@/components/accounting/contactForm/supplierFormMapping';
 

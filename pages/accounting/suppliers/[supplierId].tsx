@@ -17,7 +17,7 @@ import { DrcFlagToggle } from '@/components/accounting/suppliers/DrcFlagToggle';
 import { SupplierBankDetailsPanel } from '@/components/accounting/suppliers/SupplierBankDetailsPanel';
 import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { describePaymentTerms } from '@/modules/accounting/services/shared/paymentTerms';
+import { companyTermsFromFields, describeContactTerms } from '@/modules/accounting/services/shared/paymentTerms';
 
 interface Supplier {
   id: string;
@@ -29,6 +29,8 @@ interface Supplier {
   vat_number: string | null;
   payment_terms: number | null;
   payment_terms_type: string | null;
+  company_default_payment_terms?: number | null;
+  company_default_payment_terms_type?: string | null;
   is_active: boolean;
   subject_to_drc_vat: boolean;
   created_at: string;
@@ -124,7 +126,7 @@ export default function SupplierDetailPage() {
     { label: 'Phone',          value: supplier.phone },
     { label: 'Contact Person', value: supplier.contact_person },
     { label: 'VAT Number',     value: supplier.vat_number },
-    { label: 'Payment Terms',  value: describePaymentTerms(supplier.payment_terms, supplier.payment_terms_type) },
+    { label: 'Payment Terms',  value: describeContactTerms(supplier.payment_terms, supplier.payment_terms_type, companyTermsFromFields(supplier.company_default_payment_terms, supplier.company_default_payment_terms_type)) },
   ];
 
   const TABS: { id: Tab; label: string }[] = [

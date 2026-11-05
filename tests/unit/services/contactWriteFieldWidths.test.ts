@@ -31,8 +31,8 @@ import { createSupplier, updateSupplier } from '@/modules/accounting/services/co
 import {
   createCustomer,
   updateCustomer,
-  ContactValidationError,
 } from '@/modules/accounting/services/core/customerWriteService';
+import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 

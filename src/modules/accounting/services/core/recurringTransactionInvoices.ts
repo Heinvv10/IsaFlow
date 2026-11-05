@@ -7,6 +7,8 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
+import { dueDateForContact } from './paymentTermsResolver';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { assertCustomerInCompany, assertSupplierInCompany } from './contactDirectoryService';
@@ -66,6 +68,9 @@ export async function mintRecurringCustomerInvoice(
   }
   // The customer's FNO is stored on each line, so it is what posts and what an approval covers (dimensionStoredPosting).
   const dims = await revenueLineDefaults(companyId, clientId);
+  // The customer's terms, else the company default (migration 958), from the date this run writes.
+  const invoiceDate = fmtDate(new Date());
+  const dueDate = await dueDateForContact(companyId, 'customer', String(clientId), invoiceDate);
   const entityId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'rec_txn_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const ciRows = (await sql`
@@ -77,8 +82,8 @@ export async function mintRecurringCustomerInvoice(
           ${invoiceNumber},
           ${clientId},
           ${clientId},
-          CURRENT_DATE,
-          CURRENT_DATE::DATE + INTERVAL '30 days',
+          ${invoiceDate}::DATE,
+          ${dueDate}::DATE,
           ${String(data.notes || template.name)},
           ${totals.subtotal},
           ${totals.taxAmount},
@@ -188,6 +193,9 @@ export async function mintRecurringSupplierInvoice(
     vatNumber = supRow?.vat_number ?? null;
   }
 
+  // The supplier's terms, else the company default (migration 958), from the date this run writes.
+  const invoiceDate = fmtDate(new Date());
+  const dueDate = await dueDateForContact(companyId, 'supplier', String(supplierId), invoiceDate);
   const entityId = await insertWithReservedNumber(
     companyId, 'supplier_invoice', 'rec_txn_bill_', 'uq_supplier_invoices_supplier_number', async (invoiceNumber) => {
       // The fingerprint carries the number, so it is rebuilt per attempt.
@@ -201,8 +209,8 @@ export async function mintRecurringSupplierInvoice(
           ${companyId}::UUID,
           ${invoiceNumber},
           ${supplierId},
-          CURRENT_DATE,
-          CURRENT_DATE::DATE + INTERVAL '30 days',
+          ${invoiceDate}::DATE,
+          ${dueDate}::DATE,
           ${String(data.reference || 'AUTO-REC')},
           ${String(data.notes || data.description || template.name)},
           ${totals.subtotal},

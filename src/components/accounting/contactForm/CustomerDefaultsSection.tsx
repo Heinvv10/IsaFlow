@@ -68,7 +68,7 @@ export function CustomerDefaultsSection({ form, set, patch, fieldErrors, mode }:
           <option value="none">None</option>
         </SelectField>
         <TextField label="Default Discount %" type="number" min="0" max="100" step="0.01" value={form.default_discount}
-          onChange={(v) => set('default_discount', v)} />
+          hint={mode === 'edit' ? 'Leave blank to keep the current discount.' : undefined} onChange={(v) => set('default_discount', v)} />
         <SelectField label="Default VAT Type" value={form.default_vat_type} onChange={(v) => set('default_vat_type', v)}>
           <option value="">(No Default)</option>
           <option value="standard">Standard Rate (15%)</option>
@@ -80,7 +80,7 @@ export function CustomerDefaultsSection({ form, set, patch, fieldErrors, mode }:
         <PaymentTermsField
           days={form.payment_terms} type={form.payment_terms_type} error={fieldErrors.payment_terms}
           onChange={(days, type) => patch({ payment_terms: days, payment_terms_type: type })}
-          inputClass={inputClass} allowNotSet={mode === 'edit'}
+          inputClass={inputClass} allowDefault
         />
       </div>
       <div className="mt-3 space-y-2">
