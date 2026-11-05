@@ -34,6 +34,7 @@ const mv = (journal: string, net: number, type: string, subtype: string | null, 
   journal_entry_id: journal, source: 'manual', net_cash: net, account_type: type, account_subtype: subtype,
   is_loan_current_portion: false, debit, credit,
 });
+const CLOSING_ROWS = [{ ...OPENING_ROWS[0]!, gl_debit: 22000 }];
 const LEG_ROWS = [
   // One receipt of 80000 explained by two revenue lines.
   mv('L1', 80000, 'revenue', 'sales', 0, 50000),
@@ -53,7 +54,7 @@ describe('cashFlowDirectService', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns correct section totals', async () => {
-    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(LEG_ROWS);
+    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(LEG_ROWS).mockResolvedValueOnce(CLOSING_ROWS);
 
     const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -64,10 +65,23 @@ describe('cashFlowDirectService', () => {
     expect(result.investingTotal).toBeCloseTo(-10000, 2);
     expect(result.financingTotal).toBeCloseTo(5000, 2);
     expect(result.closingCash).toBeCloseTo(22000, 2);
+    expect(result.unexplainedDifference).toBe(0);
+  });
+
+  it('closes on the ledger cash and shows what its journals cannot explain as an unexplained difference', async () => {
+    // the ledger holds 22 400: 400 of cash is on no journal the statement reads (a year-end cash leg, an unbalanced posting)
+    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(LEG_ROWS).mockResolvedValueOnce([{ ...OPENING_ROWS[0]!, gl_debit: 22400 }]);
+
+    const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(result.closingCash).toBe(22400);
+    expect(result.unexplainedDifference).toBe(400);
+    expect(result.netChange).toBe(7400);
+    expect(result.operatingTotal).toBeCloseTo(12000, 2);
   });
 
   it('counts a journal\'s cash once however many legs explain it', async () => {
-    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(LEG_ROWS);
+    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(LEG_ROWS).mockResolvedValueOnce(CLOSING_ROWS);
 
     const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -78,7 +92,7 @@ describe('cashFlowDirectService', () => {
   });
 
   it('exposes line items for each operating group', async () => {
-    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(LEG_ROWS);
+    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(LEG_ROWS).mockResolvedValueOnce(CLOSING_ROWS);
 
     const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -90,7 +104,7 @@ describe('cashFlowDirectService', () => {
   });
 
   it('net change always equals the sum of the three activity totals', async () => {
-    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(LEG_ROWS);
+    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(LEG_ROWS).mockResolvedValueOnce(CLOSING_ROWS);
 
     const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -108,7 +122,10 @@ describe('cashFlowDirectService', () => {
           account_type: 'asset', gl_debit: 0, gl_credit: 0, posted_through: null },
       ])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([
+        { id: 'bank-1', account_code: '1110', account_name: 'Bank', is_active: true,
+          account_type: 'asset', gl_debit: 0, gl_credit: 0, posted_through: null },
+      ]);
 
     const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
 

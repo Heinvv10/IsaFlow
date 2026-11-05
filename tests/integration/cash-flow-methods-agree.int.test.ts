@@ -112,13 +112,52 @@ describeIfDb('cash flow: the indirect and direct methods agree on every journal'
     });
   });
 
-  it('a cash leg on the year-end closing journal (a ledger fault) is ignored by both methods, and the reconciliation flags it', async () => {
+  it('a payroll run (legs of mixed sign) keeps its operating lines: employees -70 000, not a magnitude-weighted split', async () => {
+    await inTx(async (x) => {
+      const bank = await x.acct('asset', 'bank'), salary = await x.acct('expense', 'payroll_expense'), paye = await x.acct('liability', 'payroll_liability');
+      await x.j('2026-11-15', [[salary, 100000, 0], [paye, 0, 30000], [bank, 0, 70000]]);
+      const t = await totals();
+      expect(near(t.ind)).toEqual({ op: -70000, inv: 0, fin: 0 });
+      expect(near(t.dir)).toEqual({ op: -70000, inv: 0, fin: 0 });
+      expect(t.dir_full.operatingItems).toEqual([expect.objectContaining({ cashGroup: 'cash_paid_to_employees', amount: -70000 })]);
+    });
+  });
+
+  it('a supplier paid and an asset bought in one journal: suppliers -2 000, investing -5 000', async () => {
+    await inTx(async (x) => {
+      const k = await kit(x), opex = await x.acct('expense', 'operating_expense');
+      await x.j('2026-11-15', [[k.fa, 5000, 0], [opex, 2000, 0], [k.bank, 0, 7000]]);
+      const t = await totals();
+      expect(near(t.dir)).toEqual({ op: -2000, inv: -5000, fin: 0 });
+      expect(t.dir_full.operatingItems).toEqual([expect.objectContaining({ cashGroup: 'cash_paid_to_suppliers', amount: -2000 })]);
+      expect(near(t.ind)).toEqual(near(t.dir));
+    });
+  });
+
+  it('a one-sided cash journal (a ledger fault) is kept by the direct statement as other operating, and it closes on the ledger cash', async () => {
+    await inTx(async (x) => {
+      const bank = await x.acct('asset', 'bank'), other = await x.acct('asset', 'bank');
+      // The balance trigger fires on the status change only: a line added to a POSTED journal leaves it unbalanced, here with cash legs only.
+      const je = await x.j('2026-11-15', [[bank, 250, 0], [other, 0, 250]]);
+      await x.c.query(`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,250,0)`, [CO, je, bank]);
+      const { dir, gl } = await tie(...P);
+      expect(gl).toBe(250);
+      expect(dir.operatingItems).toEqual([expect.objectContaining({ cashGroup: 'other_operating', amount: 250 })]);
+      expect(dir.unexplainedDifference).toBe(0);
+      expect(dir.closingCash).toBe(gl);
+    });
+  });
+
+  it('a cash leg on the year-end closing journal (a ledger fault) is ignored by both methods: the direct statement closes on the ledger and shows the gap, the reconciliation flags it', async () => {
     await inTx(async (x) => {
       const bank = await x.acct('asset', 'bank'), re = await x.acct('equity', 'retained_earnings');
       await x.j('2026-11-30', [[bank, 400, 0], [re, 0, 400]], { source: YEAR_END_JOURNAL_SOURCE });
       const t = await totals();
       expect(near(t.ind)).toEqual({ op: 0, inv: 0, fin: 0 });
       expect(near(t.dir)).toEqual({ op: 0, inv: 0, fin: 0 });
+      expect(t.dir_full.unexplainedDifference).toBe(400);
+      expect(t.dir_full.closingCash).toBe(400);
+      expect(t.ind_full.unexplainedDifference).toBe(400);
       const rec = await getCashFlowReconciliation(CO, ...P);
       expect(rec.bankBalance).toBe(400);
       expect(rec.isReconciled).toBe(false);

@@ -27,7 +27,10 @@ export interface CashFlowDirectReport {
   investingTotal: number;
   financingItems: DirectCashFlowItem[];
   financingTotal: number;
+  /** Net change less the three activities: zero on a sound ledger, a ledger fault otherwise (never absorbed into a line). */
+  unexplainedDifference: number;
   netChange: number;
+  /** Always the ledger's cash balance at the end date (`cash.balance.v1`). */
   closingCash: number;
 }
 
@@ -94,9 +97,12 @@ export async function getCashFlowDirect(
   periodEnd: string,
 ): Promise<CashFlowDirectReport> {
   try {
-    const [openingCash, journals] = await Promise.all([
+    // Three reads, not one snapshot (see getIndirectCashFlow): a journal posted by another session between them can show
+    // for one load as a small Unexplained Difference; the next load reads both after the posting.
+    const [openingCash, journals, ledgerClosing] = await Promise.all([
       fetchOpeningCash(companyId, periodStart),
       fetchCashFlowJournals(companyId, periodStart, periodEnd, { cashJournalsOnly: true }),
+      getCashBalance(companyId, periodEnd).then((b) => b.total),
     ]);
 
     const amountByGroup = groupAllocations(journals);
@@ -128,7 +134,15 @@ export async function getCashFlowDirect(
     const operatingTotal = toMoney(operatingItems.reduce((s, i) => s + i.amount, 0));
     const investingTotal = toMoney(investingItems.reduce((s, i) => s + i.amount, 0));
     const financingTotal = toMoney(financingItems.reduce((s, i) => s + i.amount, 0));
-    const netChange = toMoney(operatingTotal + investingTotal + financingTotal);
+    const explained = toMoney(operatingTotal + investingTotal + financingTotal);
+    // The statement closes on the ledger's cash (`cash.balance.v1`). What the journals' movements do not explain (a cash leg
+    // on the year-end closing journal, a posted journal that does not balance) is shown as its own figure, never absorbed.
+    const unexplainedDifference = toMoney(ledgerClosing - openingCash - explained);
+    if (unexplainedDifference !== 0) {
+      log.warn('Direct cash flow does not tie to the ledger cash',
+        { companyId, periodStart, periodEnd, openingCash, explained, ledgerClosing, unexplainedDifference }, 'cash-flow-direct');
+    }
+    const netChange = toMoney(explained + unexplainedDifference);
 
     return {
       periodStart,
@@ -141,7 +155,8 @@ export async function getCashFlowDirect(
       financingItems,
       financingTotal,
       netChange,
-      closingCash: toMoney(openingCash + netChange),
+      unexplainedDifference,
+      closingCash: toMoney(ledgerClosing),
     };
   } catch (err) {
     // Class and SQLSTATE only: the driver's message can carry SQL and values.

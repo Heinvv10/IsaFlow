@@ -16,8 +16,8 @@ import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEn
 import { isDisposalJournal, SEEDED_CURRENT_PORTION_CODE, type JournalLeg } from './cashFlowIndirectClassification';
 
 interface MovementRow {
-  journal_entry_id: string; source: string | null; net_cash: string | number | null; account_type: AccountType; account_subtype: string | null;
-  is_loan_current_portion: boolean; debit: string | number | null; credit: string | number | null;
+  journal_entry_id: string; source: string | null; net_cash: string | number | null; account_type: AccountType | null; account_subtype: string | null;
+  is_loan_current_portion: boolean | null; debit: string | number | null; credit: string | number | null;
 }
 
 export interface CashFlowJournal {
@@ -59,16 +59,21 @@ async function fetchNonCashMovement(
         AND ga.company_id = ${companyId}::UUID
         AND je.entry_date BETWEEN ${startDate} AND ${endDate}
     ), journal_cash AS (
-      SELECT journal_entry_id, SUM(COALESCE(debit, 0) - COALESCE(credit, 0)) AS net_cash FROM lines WHERE is_cash GROUP BY journal_entry_id
+      -- One row per journal, cash legs or not: a journal whose legs are all cash (or one-sided) has no non-cash line to
+      -- come back through, and must still return its cash movement.
+      SELECT journal_entry_id, MIN(source) AS source,
+             COALESCE(SUM(COALESCE(debit, 0) - COALESCE(credit, 0)) FILTER (WHERE is_cash), 0) AS net_cash,
+             COALESCE(bool_or(is_cash), false) AS has_cash
+      FROM lines GROUP BY journal_entry_id
     )
-    SELECT l.journal_entry_id, l.source, COALESCE(jc.net_cash, 0)::numeric AS net_cash,
+    SELECT jc.journal_entry_id, jc.source, jc.net_cash::numeric AS net_cash,
            l.account_type, l.account_subtype, l.is_loan_current_portion,
            COALESCE(SUM(l.debit), 0)::numeric  AS debit,
            COALESCE(SUM(l.credit), 0)::numeric AS credit
-    FROM lines l
-    LEFT JOIN journal_cash jc ON jc.journal_entry_id = l.journal_entry_id
-    WHERE NOT l.is_cash AND (NOT ${cashJournalsOnly}::boolean OR l.journal_entry_id IN (SELECT journal_entry_id FROM lines WHERE is_cash))
-    GROUP BY l.journal_entry_id, l.source, jc.net_cash, l.account_type, l.account_subtype, l.is_loan_current_portion
+    FROM journal_cash jc
+    LEFT JOIN lines l ON l.journal_entry_id = jc.journal_entry_id AND NOT l.is_cash
+    WHERE (NOT ${cashJournalsOnly}::boolean OR jc.has_cash)
+    GROUP BY jc.journal_entry_id, jc.source, jc.net_cash, l.account_type, l.account_subtype, l.is_loan_current_portion
   `) as MovementRow[];
 }
 
@@ -80,8 +85,9 @@ export async function fetchCashFlowJournals(
   const byJournal = new Map<string, MovementRow[]>();
   for (const r of rows) byJournal.set(r.journal_entry_id, [...(byJournal.get(r.journal_entry_id) ?? []), r]);
   return [...byJournal.values()].map((legRows) => {
-    const legs: JournalLeg[] = legRows.map((r) => ({
-      accountType: r.account_type,
+    // A journal with no non-cash line comes back as one row with NULL account fields: no legs, its cash movement kept.
+    const legs: JournalLeg[] = legRows.filter((r) => r.account_type !== null).map((r) => ({
+      accountType: r.account_type as AccountType,
       subtype: r.account_subtype,
       isLoanCurrentPortion: r.is_loan_current_portion === true,
       creditLessDebit: toMoney(Number(r.credit ?? 0) - Number(r.debit ?? 0)),
