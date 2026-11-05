@@ -1,7 +1,8 @@
 /**
  * The schema-drift audit's model of the expected schema, parsed from the
  * migration files' text: CREATE TABLE / ADD COLUMN add, DROP COLUMN / DROP
- * TABLE remove, RENAME moves. Comments are stripped first. A statement built
+ * TABLE remove, RENAME moves. Comments are stripped first (a `--` or `/*` inside
+ * a single-quoted literal on the same line is text, not a comment). A statement built
  * at runtime (EXECUTE format(...)) is invisible to it, so a migration that
  * drops a table must say DROP TABLE <name> literally, or the audit keeps
  * expecting the table and fails every deploy after it.
@@ -20,6 +21,38 @@ const ATR_RE = /ALTER\s+TABLE(?:\s+IF\s+EXISTS)?\s+(?:public\.)?(\w+)\s+RENAME\s
 const DT_RE = /DROP\s+TABLE(?:\s+IF\s+EXISTS)?\s+(?:public\.)?(\w+)/gi;
 const RT_RE = /ALTER\s+TABLE(?:\s+IF\s+EXISTS)?\s+(?:public\.)?(\w+)\s+RENAME\s+TO\s+(\w+)/gi;
 
+// Every CREATE TABLE <name> ( ... must be read by CT_RE; one it misses would vanish from the audit.
+const CT_HEAD_RE = /CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:public\.)?(\w+)\s*\(/gi;
+
+/**
+ * Removes `--` and `/* *\/` comments, leaving a comment marker inside a single-quoted literal
+ * (DEFAULT 'a--b') alone. Quote state restarts on each line outside a block comment, so a literal
+ * this scan misreads (E'\'' escapes, dollar quotes) can only keep a comment on its own line in the
+ * text; inside a CREATE TABLE that leaves the column list unbalanced, which throws below
+ * (a `--` inside a dollar-quoted default cuts its closing tag, so it throws too).
+ */
+export function stripSqlComments(src: string): string {
+  let out = '';
+  let inQuote = false, inBlock = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]!, next = src[i + 1];
+    if (inBlock) {
+      if (c === '*' && next === '/') { inBlock = false; i++; }
+      else if (c === '\n') out += c;
+      continue;
+    }
+    if (c === '\n') { inQuote = false; out += c; continue; }
+    if (!inQuote && c === '-' && next === '-') {
+      while (i + 1 < src.length && src[i + 1] !== '\n') i++;
+      continue;
+    }
+    if (!inQuote && c === '/' && next === '*') { inBlock = true; i++; continue; }
+    if (c === "'") inQuote = !inQuote;
+    out += c;
+  }
+  return out;
+}
+
 const NON_COL_PREFIXES = new Set([
   'constraint', 'primary', 'foreign', 'unique', 'check', 'like', 'exclude',
   'partition', 'generated', 'index',
@@ -31,23 +64,59 @@ export function parseExpectedSchema(migDir: string = MIG_DIR): Map<string, Set<s
 
   for (const f of files) {
     const src = readFileSync(join(migDir, f), 'utf8');
-    const clean = src.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const clean = stripSqlComments(src);
     let m: RegExpExecArray | null;
+
+    const heads: number[] = [];
+    CT_HEAD_RE.lastIndex = 0;
+    while ((m = CT_HEAD_RE.exec(clean)) !== null) heads.push(m.index);
 
     CT_RE.lastIndex = 0;
     while ((m = CT_RE.exec(clean)) !== null) {
       const table = m[1]!.toLowerCase();
+      if (heads[0] !== m.index) {
+        throw new Error(
+          `schemaDriftParse: a CREATE TABLE in ${f} could not be read (no closing ");" found for it); ` +
+          `the audit would silently skip that table`,
+        );
+      }
+      heads.shift();
       if (!expected.has(table)) expected.set(table, new Set());
       const cols = expected.get(table)!;
-      let depth = 0, buf = '';
+      let depth = 0, buf = '', inQuote = false, inDollar = false;
       const parts: string[] = [];
-      for (const c of m[2]!) {
-        if (c === '(') depth++;
-        else if (c === ')') depth--;
-        if (c === ',' && depth === 0) { parts.push(buf); buf = ''; }
+      const body = m[2]!;
+      for (let i = 0; i < body.length; i++) {
+        const c = body[i]!;
+        // A comma or parenthesis inside a single-quoted literal (DEFAULT '{80,100,120}') or a dollar-
+        // quoted one (DEFAULT $$a,b$$, $tag$...$tag$) is text, not structure. A '' escape toggles
+        // twice, so it stays inside the literal. This is a scan, not a SQL lexer: E'' backslash
+        // escapes are not modelled. An unread form leaves a quote or parenthesis unbalanced, which
+        // throws below instead of silently dropping (or inventing) the table's columns.
+        // A $ continuing an identifier (col$a$b) is not a dollar quote, as in PostgreSQL's lexer.
+        if (!inQuote && !/[\w$]/.test(body[i - 1] ?? '')) {
+          const dq = c === '$' ? /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(body.slice(i)) : null;
+          if (dq) {
+            const close = body.indexOf(dq[0], i + dq[0].length);
+            if (close === -1) { inDollar = true; break; }
+            buf += body.slice(i, close + dq[0].length);
+            i = close + dq[0].length - 1;
+            continue;
+          }
+        }
+        if (c === "'") inQuote = !inQuote;
+        else if (!inQuote && c === '(') depth++;
+        else if (!inQuote && c === ')') depth--;
+        if (c === ',' && depth === 0 && !inQuote) { parts.push(buf); buf = ''; }
         else buf += c;
       }
       if (buf.trim()) parts.push(buf);
+      if (inQuote || inDollar || depth !== 0) {
+        throw new Error(
+          `schemaDriftParse: unbalanced quote/parenthesis in CREATE TABLE ${table} (${f}); ` +
+          `the column list cannot be read, so the audit would silently skip its columns`,
+        );
+      }
       for (const part of parts) {
         const trimmed = part.trim();
         if (!trimmed) continue;
@@ -56,6 +125,13 @@ export function parseExpectedSchema(migDir: string = MIG_DIR): Map<string, Set<s
         const col = trimmed.split(/\s+/)[0]!.replace(/"/g, '').toLowerCase();
         if (/^\w+$/.test(col)) cols.add(col);
       }
+    }
+
+    if (heads.length > 0) {
+      throw new Error(
+        `schemaDriftParse: a CREATE TABLE in ${f} could not be read (no closing ");" found for it); ` +
+        `the audit would silently skip that table`,
+      );
     }
 
     AT_RE.lastIndex = 0;

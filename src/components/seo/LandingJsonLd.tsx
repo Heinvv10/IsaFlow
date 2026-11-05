@@ -45,8 +45,8 @@ function buildGraph() {
       featureList: [
         'Invoicing & quotes',
         'Bank reconciliation',
-        'VAT201 preparation for SARS',
-        'Payroll: PAYE, UIF, SDL, EMP201 and IRP5 data',
+        'VAT201 prepared for filing on SARS eFiling',
+        'Payroll: PAYE, UIF, SDL, EMP201 and IRP5 preparation',
         'Fixed assets and budgets',
         'Financial reports',
         'Annual financial statements (Premium plan)',

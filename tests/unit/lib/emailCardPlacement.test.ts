@@ -16,6 +16,7 @@ import type { PortalContact } from '@/modules/accounting/services/afs/afsTypes';
 
 const m = vi.hoisted(() => ({
   sendEmail: vi.fn(),
+  checkRateLimit: vi.fn(),
   sql: vi.fn(),
   getUser: vi.fn(),
 }));
@@ -24,7 +25,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => m.sql(...a) }));
 vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail: m.sendEmail }));
 vi.mock('@/lib/rateLimit', () => ({
-  checkRateLimit: async () => true,
+  checkRateLimit: (...args: unknown[]) => m.checkRateLimit(...args),
   getClientIp: () => '127.0.0.1',
   withRateLimit: (h: unknown) => h,
 }));
@@ -103,6 +104,7 @@ function expectInsideCard(html: string, heading: string, firstPara: string) {
 
 beforeEach(() => {
   m.sendEmail.mockReset().mockResolvedValue({ success: true });
+  m.checkRateLimit.mockReset().mockResolvedValue(true);
   m.sql.mockReset();
   m.getUser.mockReset().mockResolvedValue(null);
 });
@@ -119,6 +121,7 @@ describe('emails with bare content sit inside the card, after the logo', () => {
   it('contact form enquiry', async () => {
     await contactHandler(req({ name: 'Jo', email: 'jo@example.co.za', message: 'Please call me back.' }), res());
     expectInsideCard(sentHtml(), 'New contact request from isaflow.co.za', 'Please call me back.');
+    expect(m.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ replyTo: 'jo@example.co.za' }));
   });
 
   it('password reset', async () => {
