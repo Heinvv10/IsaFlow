@@ -44,6 +44,7 @@ import {
   DEFINITION_BRIDGE_ROW_MM,
   DEFINITION_BRIDGE_HEAD_MM,
 } from './packBlockHeights';
+import { kpiColumnWidthsMm } from './packKpiRowFit';
 import { mattersTableMm } from './packMattersPrinted';
 import type { PackPage, PackPageBlock } from './packPageModel';
 import { PACK_SCALE } from './packScale';
@@ -109,10 +110,11 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       // A grid row is as tall as the tallest tile IN IT, not as the tallest
       // in the block — which would charge a row of one-line tiles for a
       // five-line unavailable reason two rows below.
+      const columns = kpiColumnWidthsMm(block.tiles, orientation);
       let total = 0;
       for (let i = 0; i < block.tiles.length; i += 4) {
         total += (i === 0 ? 0 : GUTTER_MM)
-          + Math.max(0, ...block.tiles.slice(i, i + 4).map(kpiTileHeight));
+          + Math.max(0, ...block.tiles.slice(i, i + 4).map((tile, j) => kpiTileHeight(tile, columns[j])));
       }
       return total;
     }

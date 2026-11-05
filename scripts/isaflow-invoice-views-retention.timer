@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily trigger for IsaFlow invoice view receipt retention (POPIA, 12 months)
+
+[Timer]
+# Every night at 03:00 SAST, after the 02:00 AR views refresh and 02:30 fraud scan have used the day's receipts.
+# One DELETE on an indexed-by-company table of small rows; randomised delay spreads load.
+OnCalendar=*-*-* 03:00:00 Africa/Johannesburg
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

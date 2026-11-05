@@ -37,11 +37,16 @@ import { readShellPrefs, writeShellPrefs, type NavMode } from '@/components/layo
 
 interface AppLayoutProps {
   children: ReactNode;
+  /**
+   * The path the secondary nav bar highlights from, when the URL alone cannot say: an AFS document and a
+   * management pack share /accounting/afs/<id>, and only the loaded document knows which it is.
+   */
+  navPath?: string;
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export function AppLayout({ children }: AppLayoutProps) {
+export function AppLayout({ children, navPath }: AppLayoutProps) {
   const router = useRouter();
   const activeModuleId = getActiveModuleId(
     router.pathname,
@@ -146,7 +151,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           <div className="relative z-40 hidden lg:block flex-shrink-0">
             <div style={{ minHeight: SHELL_HEIGHTS.topNav }}><AccountingNav /></div>
             {hasModuleNav && (
-              <div style={{ minHeight: SHELL_HEIGHTS.moduleNav }}><SecondaryModuleNav moduleId={activeModuleId} /></div>
+              <div style={{ minHeight: SHELL_HEIGHTS.moduleNav }}><SecondaryModuleNav moduleId={activeModuleId} navPath={navPath} /></div>
             )}
           </div>
         )}

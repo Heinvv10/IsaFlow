@@ -27,16 +27,11 @@ echo
 bun scripts/ci/check-gl-journal-lines-scope.ts || exit 1
 
 echo
-echo "=== Pentest H7: client IP must come from getClientIp(), never x-forwarded-for[0] ==="
-# The first entry in X-Forwarded-For is client-supplied and therefore spoofable.
-# getClientIp() in src/lib/rateLimit.ts takes the last (proxy-appended) entry.
-IP_OFFENDERS=$(grep -rnE "x-forwarded-for['\"]?\s*\]\s*(as string\s*)?\)?\s*\??\.\s*split" src/ pages/ --include='*.ts' 2>/dev/null || true)
-if [[ -n "$IP_OFFENDERS" ]]; then
-  echo "ERROR: raw x-forwarded-for split detected. Use getClientIp() from @/lib/rateLimit instead."
-  echo "$IP_OFFENDERS"
-  exit 1
-fi
-echo "OK: client-IP extraction goes through getClientIp()."
+echo "=== Pentest H7/H8: no client address from the LEFTMOST x-forwarded-for entry ==="
+# The first entry is client-supplied and therefore spoofable. The old grep only saw `x-forwarded-for` and `.split` on one
+# line; the rule now reads every file that mentions the header (scripts/ci/clientIpRule.ts, tests/unit/ci/clientIpRule.test.ts).
+# Rate limits use getClientIp() (@/lib/rateLimit); records that name a person use trustedClientIp() (@/lib/trustedClientIp).
+bun scripts/ci/check-client-ip.ts || exit 1
 
 echo
 echo "=== Pentest H1: portal / impersonation JWT secrets must not be derived from JWT_SECRET ==="

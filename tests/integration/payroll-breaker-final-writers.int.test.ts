@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 import components from '../../pages/api/payroll/employees/[id]/components';
 import applyPackage from '../../pages/api/payroll/employees/[id]/apply-package';
 import postBatchRoute from '../../pages/api/payroll/batches/[id]/post';
@@ -34,6 +34,7 @@ const cancel = (aid: string) => call(components as Route, 'DELETE', url(aid), em
 const patch = (aid: string, body: unknown) => call(components as Route, 'PATCH', url(aid), employee, { body, query: { aid } });
 async function approveRun(run: string) {
   const plan = await call(journalPlan as Route, 'GET', `/api/payroll/runs/${run}/journal-plan`, run);
+  await authorisePayRun(call, run);
   const out = await call(approve as Route, 'POST', `/api/payroll/runs/${run}/approve`, run, { body: { expectedPlanHash: plan.body.data?.planHash } });
   expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
 }
@@ -56,7 +57,7 @@ beforeAll(async () => {
   employee = String((await pool.query('SELECT employee_id FROM payroll_employee_components WHERE id=$1', [row])).rows[0]!.employee_id);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [company, admin]);
-  const token = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  const token = await new SignJWT({ sub: admin, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   call = routeCaller({ [admin]: token }, { user: admin, company });
   bonus = crypto.randomUUID();

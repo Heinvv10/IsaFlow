@@ -82,7 +82,8 @@ const mapEnforcement = (r: Row): ApprovalEnforcement => ({
 export async function listEnforcement(companyId: string): Promise<ApprovalEnforcement[]> {
   const rows = (await sql`
     SELECT document_type, enabled_at, enabled_by FROM approval_enforcement
-    WHERE company_id = ${companyId} ORDER BY document_type
+    WHERE company_id = ${companyId} AND document_type <> 'pay_run'
+    ORDER BY document_type
   `) as Row[];
   return rows.map(mapEnforcement);
 }

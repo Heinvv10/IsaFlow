@@ -52,7 +52,7 @@ describe('approve', () => {
       { documentType: 'supplier_payment', enabled: true }, '/api/accounting/approval-enforcement');
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     const { rows } = await pool.query('SELECT document_type FROM approval_enforcement WHERE company_id = $1 ORDER BY 1', [c]);
-    expect(rows.map((x) => x.document_type)).toEqual(['payment_batch', 'supplier_payment']);
+    expect(rows.map((x) => x.document_type)).toEqual(['payment_batch', 'pay_run', 'supplier_payment']);
   });
 
   it('refuses 409 APPROVAL_REQUIRED before any write, naming the payment', async () => {

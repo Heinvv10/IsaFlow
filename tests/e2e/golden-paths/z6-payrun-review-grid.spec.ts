@@ -79,6 +79,15 @@ async function sandbox(context: BrowserContext, baseURL: string) {
   return { api, ...(await sandboxRun(api)) };
 }
 
+async function clearPayRunApproval(api: Api, runId: string): Promise<void> {
+  const request = await api.post<{ id: string; documentDigest: string }>('/api/accounting/approval-requests', {
+    action: 'request', documentType: 'pay_run', documentId: runId,
+  });
+  await api.post('/api/accounting/approval-requests', {
+    action: 'approve', requestId: request.id, expectedDigest: request.documentDigest,
+  });
+}
+
 test('type an amount: Saved, the new net, the approval sentence, cancel', async ({ page, context, baseURL }) => {
   const { api, runId, overtimeId, employeeId } = await sandbox(context, baseURL!);
   const netOf = async () => (await api.get<{ lines: Array<{ employeeId: string; netPay: number; grossPay: number }> }>(`/api/payroll/runs/${runId}`))
@@ -100,6 +109,8 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
     await expect(row(page)).toContainText(formatCurrency(after.netPay));
     await snap(page, 'payrun-grid-saved', 'light');
 
+    await clearPayRunApproval(api, runId);
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: /review & approve/i }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByText(/^Paying 2 employees R\s[\d\s]+\.\d\d net for November 2026\. Cost to the company R\s[\d\s]+\.\d\d \(gross plus employer UIF and SDL, less ETI used\)\.$/))
@@ -119,6 +130,7 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
 for (const theme of THEMES) {
   test(`no serious axe violation on the grid, and no sideways scroll at 390 (${theme})`, async ({ page, context, baseURL }) => {
     const { api, runId } = await sandbox(context, baseURL!);
+    await clearPayRunApproval(api, runId);
     await api.dispose();
     await seedTheme(page, theme);
     await page.setViewportSize({ width: 1568, height: 900 });

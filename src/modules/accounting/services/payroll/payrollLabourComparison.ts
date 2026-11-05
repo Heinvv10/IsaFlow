@@ -81,7 +81,9 @@ export function foldNetPayBank<P extends FigureLine & { description: string }>(
 export function figures(lines: FigureLine[], perAccount: boolean): Map<string, number> {
   const m = new Map<string, number>();
   for (const l of lines) {
-    const k = cents(l.debit) !== 0 && !perAccount ? 'labour' : JSON.stringify([l.glAccountId ?? 'missing', l.cc1Id]);
+    // Not recalculated since posting: no cost centre is part of a line's key. The journal is read as it stands, and a
+    // centre tagged onto a credit line since (tag_journal_lines) is the ledger being retagged, not the run changing.
+    const k = cents(l.debit) !== 0 && !perAccount ? 'labour' : JSON.stringify([l.glAccountId ?? 'missing', perAccount ? l.cc1Id : null]);
     m.set(k, (m.get(k) ?? 0) + cents(l.debit) - cents(l.credit));
   }
   for (const [k, v] of m) if (v === 0) m.delete(k);

@@ -53,7 +53,7 @@ export function incomeSheetWithBudget(
   let diagnostic: string;
   try {
     const fitted = fitPageToBox(sheet);
-    if (fitted.footnotes.some((note) => note.number === budgetNotes[0]!.number)) return fitted;
+    if (fitted.footnotes.some((note) => note.text === budgetNotes[0]!.text)) return fitted;
     diagnostic = 'fitPageToBox removed the footnote that explains the Budget and Variance columns';
   } catch (err) {
     if (!(err instanceof PackRefusal)) throw err;

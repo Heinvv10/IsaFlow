@@ -35,7 +35,7 @@ const company = () => newCompany(pool, [[u.owner, 'owner'], [u.admin, 'admin']],
 const ruleRow = async (id: string) => (await pool.query(
   'SELECT is_active, condition_value::TEXT AS v, approver_role FROM approval_rules WHERE id = $1', [id])).rows[0];
 const ruleCount = async (c: string) => Number((await pool.query(
-  'SELECT count(*) FROM approval_rules WHERE company_id = $1', [c])).rows[0].count);
+  "SELECT count(*) FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1", [c])).rows[0].count);
 const audits = async (c: string) => Number((await pool.query(
   `SELECT count(*) FROM audit_log WHERE company_id = $1 AND entity_type = 'approval_rule'`, [c])).rows[0].count);
 const messageOf = (res: { state: { body: unknown } }) => (res.state.body as { error?: { message?: string } }).error?.message ?? '';
@@ -122,7 +122,7 @@ describe('conditionValue must be a number from 0 to 9 999 999 999 999.99 (REPRO 
     ] });
     expect(res.state.statusCode).toBe(200);
     expect(await ruleCount(other)).toBe(0);
-    expect((await pool.query('SELECT condition_operator, name FROM approval_rules WHERE company_id = $1', [c])).rows)
+    expect((await pool.query("SELECT condition_operator, name FROM approval_rules WHERE company_id = $1 AND document_type <> 'pay_run'", [c])).rows)
       .toEqual([{ condition_operator: 'greater_than', name: 'Large supplier invoices' }]);
   });
 });

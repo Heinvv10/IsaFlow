@@ -7,7 +7,7 @@ import { BulkAllocationLineError, bulkAllocationLineErrorText } from './bulkAllo
 import { BankLineDirectionError, bankLineDirectionErrorText } from './bankLineDirectionError';
 import { MissingSystemAccountError, missingSystemAccountText } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { isRefusalCoded } from './tools/toolHelpers';
-import { lockWaitErrorText } from './lockWaitError';
+import { lockWaitErrorText, deadlockErrorText } from './lockWaitError';
 
 export const GENERIC_FAILURE = 'The operation failed. Please try again or contact support.';
 
@@ -55,5 +55,7 @@ export function thrownToolErrorText(name: string, err: unknown): string {
   if (isRefusalCoded(err)) return err.message;
   const lockWait = lockWaitErrorText(name, err); // a raw 55P03 — see lockWaitError.ts
   if (lockWait) return lockWait;
+  const deadlock = deadlockErrorText(name, err); // a raw 40P01 — every tool's deadlock victim
+  if (deadlock) return deadlock;
   return GENERIC_FAILURE;
 }

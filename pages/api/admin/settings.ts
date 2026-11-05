@@ -11,6 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
+import { trustedClientIp } from '@/lib/trustedClientIp';
 import { sql } from '@/lib/neon';
 import { getPlatformSettings, updatePlatformSettings } from '@/modules/admin/services/analyticsService';
 import type { PlatformSettings } from '@/modules/admin/types/admin.types';
@@ -54,7 +55,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           'platform',
           NULL,
           ${JSON.stringify(data)}::jsonb,
-          ${req.headers['x-forwarded-for']?.toString() ?? req.socket?.remoteAddress ?? null}
+          ${trustedClientIp(req)}
         )
       `;
 

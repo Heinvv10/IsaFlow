@@ -7,6 +7,7 @@
  * the token in this module.
  */
 
+import { isIP } from 'node:net';
 import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -44,8 +45,22 @@ function toIsoString(value: unknown): string {
   return String(value ?? '');
 }
 
+/** POPIA: a browser string is kept to this many characters. */
+export const USER_AGENT_MAX_CHARS = 256;
+
+/**
+ * An address the receipt may store, or null. A value that is not an IP address would fail the `::inet` cast and the
+ * insert would be dropped (a forged header suppressing the receipt), so it is stored as nothing instead.
+ */
+function storableIp(raw: string | null | undefined): string | null {
+  const text = (raw ?? '').trim();
+  return text !== '' && isIP(text) !== 0 ? text : null;
+}
+
 export async function logCustomerInvoiceView(input: LogViewInput): Promise<void> {
   const started = Date.now();
+  const ipAddress = storableIp(input.ipAddress);
+  const userAgent = input.userAgent ? input.userAgent.slice(0, USER_AGENT_MAX_CHARS) : null;
   try {
     await sql`
       INSERT INTO customer_invoice_views (
@@ -61,8 +76,8 @@ export async function logCustomerInvoiceView(input: LogViewInput): Promise<void>
         ${input.invoiceId}::uuid,
         ${input.viewSource},
         ${input.sessionTokenHash ?? null},
-        ${input.ipAddress ?? null}::inet,
-        ${input.userAgent ?? null},
+        ${ipAddress}::inet,
+        ${userAgent},
         ${input.responseTimeMs ?? null}
       )
     `;
