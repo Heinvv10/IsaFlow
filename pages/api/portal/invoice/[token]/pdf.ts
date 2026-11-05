@@ -13,6 +13,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
+import { trustedClientIp } from '@/lib/trustedClientIp';
 import { downloadCapturedDocument } from '@/lib/supabaseStorage';
 import { generateInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfBuilder';
 import { getInvoicePdfFilename } from '@/modules/accounting/services/ar/invoicePdfService';
@@ -22,13 +23,6 @@ import {
   verifyInvoicePortalToken,
 } from '@/modules/accounting/services/ar/portalTokenService';
 import { logCustomerInvoiceView } from '@/modules/accounting/services/ar/readReceiptService';
-
-function clientIp(req: NextApiRequest): string | null {
-  const xf = req.headers['x-forwarded-for'];
-  if (typeof xf === 'string' && xf.length) return xf.split(',')[0]!.trim();
-  if (Array.isArray(xf) && xf[0]) return xf[0]!.split(',')[0]!.trim();
-  return req.socket.remoteAddress ?? null;
-}
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -72,7 +66,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
       companyId,
       viewSource: 'pdf_link',
       sessionTokenHash: hashSessionToken(token!),
-      ipAddress: clientIp(req),
+      ipAddress: trustedClientIp(req),
       userAgent:
         typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null,
       responseTimeMs: Date.now() - started,
