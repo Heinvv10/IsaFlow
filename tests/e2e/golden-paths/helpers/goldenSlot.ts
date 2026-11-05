@@ -4,7 +4,8 @@
  * CI gives every runner a company of its own on isaflow_dev and a golden user for it (scripts/ci/golden/provision-slots.ts),
  * so runs on different runners never write to the same books. The golden-paths job turns the runner into these three
  * variables. With none set (the post-deploy run against production, a local run) there is no slot: the suite logs in as
- * E2E_ADMIN_* and works in that user's default company, exactly as before slots existed.
+ * E2E_ADMIN_* and works in that user's default company, exactly as before slots existed (pay-run approval there needs
+ * E2E_APPROVER_*, see payRunApproval.ts).
  */
 
 import { assertSlotCompanyId, slotEmail } from '../../../../scripts/ci/golden/slotConfig';
