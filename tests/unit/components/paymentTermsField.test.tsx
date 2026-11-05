@@ -108,6 +108,15 @@ describe('PaymentTermsField', () => {
   });
 });
 
+describe('a stale page error', () => {
+  it('goes once the terms are chosen, and stays while they are not', () => {
+    const { rerender } = render(<PaymentTermsField days="" type="" inputClass="x" error="Choose the payment terms" onChange={vi.fn()} />);
+    expect(screen.getByText('Choose the payment terms')).toBeTruthy();
+    rerender(<PaymentTermsField days="" type="not_set" inputClass="x" allowDefault error="Choose the payment terms" onChange={vi.fn()} />);
+    expect(screen.queryByText('Choose the payment terms')).toBeNull();
+  });
+});
+
 describe('paymentTermsFormError / paymentTermsBody', () => {
   it('accepts a whole number with a known type, and the company default', () => {
     expect(paymentTermsFormError('0', 'invoice_days')).toBeUndefined();

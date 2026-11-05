@@ -9,7 +9,7 @@ import { useState } from 'react';
 import {
   PAYMENT_TERMS_TYPES, TERMS_NOT_SET, describePaymentTerms, normalisePaymentTermsType, type PaymentTermsType,
 } from '@/modules/accounting/services/shared/paymentTerms';
-import { COMPANY_DEFAULT_TERMS, IMMEDIATE_TERMS } from './paymentTermsForm';
+import { COMPANY_DEFAULT_TERMS, IMMEDIATE_TERMS, paymentTermsFormError } from './paymentTermsForm';
 import { useCompanyDefaultTerms } from './useCompanyDefaultTerms';
 
 type Mode = 'choose' | 'immediate' | 'default' | PaymentTermsType;
@@ -39,7 +39,9 @@ function initialMode(days: string, type: string): Mode {
   return days === '0' && kind === 'invoice_days' ? 'immediate' : kind;
 }
 
-export function PaymentTermsField({ days, type, onChange, error, inputClass, allowDefault = false }: Props) {
+export function PaymentTermsField({ days, type, onChange, error: parentError, inputClass, allowDefault = false }: Props) {
+  // The page's message stays until its next save; once the value is fixable it is no longer true, so it goes.
+  const error = parentError && paymentTermsFormError(days, type) ? parentError : undefined;
   const kind = normalisePaymentTermsType(type) ?? 'invoice_days';
   const [mode, setMode] = useState<Mode>(initialMode(days, type));
   const companyDefault = useCompanyDefaultTerms();
