@@ -24,5 +24,3 @@ export function normaliseBlocks(blocks: unknown): NoteContentBlock[] {
     }
   });
 }
-
-export const titleText = (v: unknown): string => text(v);

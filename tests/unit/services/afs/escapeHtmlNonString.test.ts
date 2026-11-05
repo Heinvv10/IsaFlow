@@ -57,7 +57,7 @@ describe('DOCX of the same overrides', () => {
   it('does not crash on non-string cells, titles, paragraphs or list items', async () => {
     const { renderToDocx } = await import('@/modules/accounting/services/afs/docxExportService');
     const section = { id: 's', sectionType: 'kpi_scorecard', sortOrder: 0, aiNarrative: null, content: { title: 'KPI Scorecard', blocks: [] },
-      overrides: { title: 7, blocks: [{ type: 'paragraph', text: null }, { type: 'table', headers: ['A', 5], rows: [['x', 42], ['y', null], 'bad'] }, { type: 'list', items: [1, null] }] } } as unknown as AfsSection;
+      overrides: { title: { x: 1 }, blocks: [{ type: 'paragraph', text: null }, { type: 'table', headers: ['A', 5], rows: [['x', 42], ['y', null], 'bad'] }, { type: 'list', items: [1, null] }] } } as unknown as AfsSection;
     const buf = await renderToDocx(doc('management_pack'), [section], 'Acme');
     expect(buf.length).toBeGreaterThan(1000);
     const afs = await renderToDocx(doc('afs'), [section], 'Acme');
