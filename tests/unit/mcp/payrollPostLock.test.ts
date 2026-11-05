@@ -12,11 +12,15 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({ crea
 vi.mock('@/modules/accounting/services/payroll/payrollRunQueryService', () => ({ listPayRunsPage: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalBuilder', () => ({ buildPayrollJournalPlan: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', () => ({ postPayrollRunJournal: vi.fn() }));
-vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockPayrollRunHeader: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockPayrollRunHeader: vi.fn(), lockCompanyPayrollApprovals: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({ assertPayRunApproved: vi.fn() }));
+// The dry run reads the header unlocked; the figure it returns is the run's own header row.
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => [{ id: '44444444-4444-4444-4444-444444444444', journal_entry_id: null }]) }));
 
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
-import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+import { lockCompanyPayrollApprovals, lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollLoanLock';
 import { postPayrollJournalTool } from '@/lib/mcp/tools/writePayroll';
 import { GENERIC_FAILURE, thrownToolErrorText } from '@/lib/mcp/thrownToolErrorText';
@@ -39,6 +43,8 @@ const deadlock = Object.assign(new Error('deadlock detected'), { code: '40P01' }
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(lockPayrollRunHeader).mockResolvedValue({ id: RUN, journal_entry_id: null });
+  vi.mocked(lockCompanyPayrollApprovals).mockResolvedValue(undefined);
+  vi.mocked(assertPayRunApproved).mockResolvedValue({ grandfathered: true, planHash: null });
   vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan());
   vi.mocked(postPayrollRunJournal).mockResolvedValue('je-new');
 });
@@ -51,12 +57,15 @@ describe('post_payroll_journal — the header lock', () => {
     await expect(postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx)).rejects.toThrow('boom');
   });
 
-  it('locks the run header, company-scoped, BEFORE it reads the plan on a live call', async () => {
+  it('takes the company approval lock, then the run header (payrollRunLock.ts order 1, 2), company-scoped, BEFORE it reads the plan on a live call', async () => {
     const order: string[] = [];
-    vi.mocked(lockPayrollRunHeader).mockImplementation(async () => { order.push('lock'); return { id: RUN, journal_entry_id: null }; });
+    vi.mocked(lockCompanyPayrollApprovals).mockImplementation(async () => { order.push('approvals'); });
+    vi.mocked(lockPayrollRunHeader).mockImplementation(async () => { order.push('header'); return { id: RUN, journal_entry_id: null }; });
     vi.mocked(buildPayrollJournalPlan).mockImplementation(async () => { order.push('plan'); return plan(); });
+    vi.mocked(postPayrollRunJournal).mockImplementation(async () => { order.push('post'); return 'je-new'; });
     await postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx);
-    expect(order).toEqual(['lock', 'plan']);
+    expect(order).toEqual(['approvals', 'header', 'plan', 'post']);
+    expect(vi.mocked(lockCompanyPayrollApprovals).mock.calls[0]).toEqual([RUN, COMPANY]);
     expect(vi.mocked(lockPayrollRunHeader).mock.calls[0]).toEqual([RUN, COMPANY]);
   });
 
@@ -74,6 +83,7 @@ describe('post_payroll_journal — the header lock', () => {
   it('takes no lock on a dry run', async () => {
     await postPayrollJournalTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx);
     expect(lockPayrollRunHeader).not.toHaveBeenCalled();
+    expect(lockCompanyPayrollApprovals).not.toHaveBeenCalled();
   });
 
   it('answers a run of another company (no header to lock) with the shared not-found text', async () => {
@@ -93,6 +103,15 @@ describe('post_payroll_journal — what a lost lock race says', () => {
     expect(res.isError).toBe(true);
     expect(text(res)).toBe(`Payroll run ${RUN} is being changed by another request — retry in a moment.`);
     expect(text(res)).not.toMatch(/calculated/);
+    expect(postPayrollRunJournal).not.toHaveBeenCalled();
+  });
+
+  it('a post that times out on the COMPANY approval lock is told the run is busy too, and posts nothing', async () => {
+    vi.mocked(lockCompanyPayrollApprovals).mockRejectedValue(new PayrollLoanLockTimeoutError(RUN));
+    const res = await postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx);
+    expect(res.isError).toBe(true);
+    expect(text(res)).toBe(`Payroll run ${RUN} is being changed by another request — retry in a moment.`);
+    expect(lockPayrollRunHeader).not.toHaveBeenCalled();
     expect(postPayrollRunJournal).not.toHaveBeenCalled();
   });
 

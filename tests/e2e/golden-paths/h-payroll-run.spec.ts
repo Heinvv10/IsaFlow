@@ -63,6 +63,15 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     const calculated = await api.post<any>(`/api/payroll/runs/${runId}/calculate`);
     expect(Number(calculated.employeeCount ?? calculated.totalGross ?? 1)).toBeGreaterThan(0);
 
+    // Every run needs R-035 clearance. This slot has one eligible member, so
+    // the audited sole-approver exception permits that member to authorise it.
+    const request = await api.post<{ id: string; documentDigest: string }>('/api/accounting/approval-requests', {
+      action: 'request', documentType: 'pay_run', documentId: runId,
+    });
+    await api.post('/api/accounting/approval-requests', {
+      action: 'approve', requestId: request.id, expectedDigest: request.documentDigest,
+    });
+
     // Approve as the run page does: preview the journal, then send the hash of
     // what was previewed — the route refuses an approval without it (BRK-596).
     const preview = await api.get<any>(`/api/payroll/runs/${runId}/journal-plan`);
