@@ -63,12 +63,16 @@ export function safeRowKind(kind: unknown): 'heading' | 'line' | 'subtotal' | 't
   return typeof kind === 'string' && ROW_KINDS.includes(kind) ? (kind as 'heading' | 'line' | 'subtotal' | 'total') : 'line';
 }
 
-/** True when every table block of an overrides object carries only known row kinds (the overrides route refuses the rest). */
-export function overridesRowKindsValid(overrides: Record<string, unknown>): boolean {
-  const blocks = overrides.blocks;
-  if (!Array.isArray(blocks)) return true;
-  return blocks.every((b) => {
-    const kinds = (b as { rowKinds?: unknown } | null)?.rowKinds;
-    return kinds === undefined || (Array.isArray(kinds) && kinds.every((k) => typeof k === 'string' && ROW_KINDS.includes(k)));
-  });
+/**
+ * A pack's sections in print order. The canonical order is SECTIONS_META's key order (which equals
+ * PACK_SECTION_ORDER, pinned by managementPackSectionOrder.test.ts); packs stored before the generator wrote
+ * sort_order in that order keep a scrambled one, so every surface sorts at render time. A key the vocabulary
+ * does not know goes last, in its stored order.
+ */
+export function orderPackSections<T extends { sectionType: string; sortOrder: number }>(sections: readonly T[]): T[] {
+  const rank = (key: string): number => {
+    const i = SECTIONS_META.findIndex((m) => m.key === key);
+    return i === -1 ? SECTIONS_META.length : i;
+  };
+  return [...sections].sort((a, b) => rank(a.sectionType) - rank(b.sectionType) || a.sortOrder - b.sortOrder);
 }

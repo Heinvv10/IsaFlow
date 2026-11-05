@@ -11,13 +11,14 @@ import { getBalanceSheet } from '../reports/balanceSheetService';
 import { getIncomeStatement } from '../reports/incomeStatementService';
 import { AI_COMMENTARY_UNAVAILABLE, AI_SUMMARY_UNAVAILABLE } from './managementPackSections';
 import {
-  commentaryInput, hasCommentary, renderSection, renderSnapshot, type PackData, type Periodic,
+  commentaryInput, hasCommentary, incomeAggregate, renderSection, renderSnapshot, type PackData, type Periodic,
 } from './managementPackSectionContent';
 import { generateExecutiveSummary, generateSectionCommentary } from './packAiSummaryService';
 import { deliverPack } from './packDeliveryService';
 import {
-  comparisonPlan, isBudgetSection, loadPackBudget, narrativePrior, samePeriodLastYear,
+  capturePackFault, comparisonPlan, isBudgetSection, loadPackBudget, narrativePrior, samePeriodLastYear,
 } from './managementPackComparison';
+import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { loadPackVarianceNoteBlocks } from './managementPackVarianceNotes';
 import type { ManagementPackConfig } from './afsTypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
@@ -160,41 +161,45 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     ),
   );
 
-  const wantsIncome = enabledSections.includes('income_statement');
+  // The income statement also feeds the AI summary and the figures stored beside it, so they cannot disagree with the table.
+  const wantsIncome = enabledSections.includes('income_statement') || enabledSections.includes('ai_executive_summary');
   const wantsBalance = enabledSections.includes('balance_sheet');
-  // The statements are the Reports screens' own: the same services, over the same windows. One that cannot be
-  // read (a company with no retained-earnings account fails its balance sheet) leaves its section saying so;
-  // it does not stop the pack. The savepoint keeps the failed query from aborting the request's transaction.
+  // The statements are the Reports screens' own: the same services, over the same windows. One that cannot be read
+  // leaves its section saying so; it does not stop the pack (the budget path's rule: a refusal is a warning, any
+  // other fault is also reported to Bugsink). The savepoint keeps a failed query from aborting the request's
+  // transaction, so its reads run one after another: none can land after the ROLLBACK TO.
   const periodic = async <R>(name: string, read: (w: { start: string; end: string }) => Promise<R>): Promise<Periodic<R> | null> => {
     try {
       return await withSavepoint(`mgmt_pack_${name}`, async () => {
-        const [current, priorR, yearAgo] = await Promise.all([
-          read({ start, end }),
-          plan.priorMonth ? read({ start: priorStart, end: priorEnd }) : null,
-          plan.priorYear ? read({ start: yearAgoStart, end: yearAgoEnd }) : null,
-        ]);
+        const current = await read({ start, end });
+        const priorR = plan.priorMonth ? await read({ start: priorStart, end: priorEnd }) : null;
+        const yearAgo = plan.priorYear ? await read({ start: yearAgoStart, end: yearAgoEnd }) : null;
         return { current, prior: priorR, yearAgo };
       });
     } catch (err) {
-      log.error('management pack: a statement could not be read; its section says so', {
-        companyId, period, statement: name, error: err instanceof Error ? err.message : String(err),
-      }, 'managementPackGeneratorService');
+      const fields = { companyId, period, statement: name, errorClass: err instanceof Error ? err.name : typeof err, error: err instanceof Error ? err.message : String(err) };
+      if (err instanceof MissingSystemAccountError) {
+        log.warn('management pack: a statement could not be read (no system account); its section says so', fields, 'managementPackGeneratorService');
+      } else {
+        log.error('management pack: a statement read failed; its section says so', fields, 'managementPackGeneratorService');
+        capturePackFault(err, companyId);
+      }
       return null;
     }
   };
+  const incomeReports = wantsIncome ? await periodic('income', (w) => getIncomeStatement(companyId, w.start, w.end)) : null;
+  const balanceReports = wantsBalance ? await periodic('balance', (w) => getBalanceSheet(companyId, w.end)) : null;
 
-  const [income, priorIncome, priorYearIncome, kpiScorecard, companyName, topRevenue, topExpense, incomeReports, balanceReports] =
-    await Promise.all([
-      fetchIncomeAgg(companyId, start, end),
-      fetchIncomeAgg(companyId, priorStart, priorEnd),
-      plan.priorYear ? fetchIncomeAgg(companyId, yearAgoStart, yearAgoEnd) : null,
-      getKpiScorecard(companyId, period),
-      fetchCompanyName(companyId),
-      fetchTopMover(companyId, start, end, 'revenue'),
-      fetchTopMover(companyId, start, end, 'expense'),
-      wantsIncome ? periodic('income', (w) => getIncomeStatement(companyId, w.start, w.end)) : null,
-      wantsBalance ? periodic('balance', (w) => getBalanceSheet(companyId, w.end)) : null,
-    ]);
+  const [kpiScorecard, companyName, topRevenue, topExpense] = await Promise.all([
+    getKpiScorecard(companyId, period),
+    fetchCompanyName(companyId),
+    fetchTopMover(companyId, start, end, 'revenue'),
+    fetchTopMover(companyId, start, end, 'expense'),
+  ]);
+  // The figures the AI is told and the snapshot keeps are the statement's own (turnover, cost of sales, net profit).
+  const income = incomeAggregate(incomeReports?.current);
+  const priorIncome = incomeAggregate(incomeReports?.prior);
+  const priorYearIncome = incomeReports?.yearAgo ? incomeAggregate(incomeReports.yearAgo) : null;
 
   const packData: PackData = {
     kpis: kpiScorecard.kpis, income, priorIncome, priorYearIncome, incomeReports, balanceReports, plan, budget, varianceNotes, enabledSections,
@@ -212,7 +217,8 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const grossKpi = kpiScorecard.kpis.find(k => k.key === 'grossMarginPct');
   const debtorKpi = kpiScorecard.kpis.find(k => k.key === 'debtorDays');
 
-  const aiSummary = await generateExecutiveSummary({
+  const wantsSummary = enabledSections.includes('ai_executive_summary') && incomeReports !== null;
+  const aiSummary = !wantsSummary ? '' : await generateExecutiveSummary({
     companyName, period,
     revenue: Number(income.revenue ?? 0),
     priorRevenue: narrative.revenue,

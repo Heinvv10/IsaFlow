@@ -39,12 +39,12 @@ const pack = {
 };
 
 describe('management pack on the AFS document page', () => {
-  it('opens and lists its sections in sortOrder, titled from the section vocabulary, without the cover section', async () => {
+  it('opens and lists its sections in print order, titled from the section vocabulary, without the cover section', async () => {
     load(pack);
     render(<AfsDocumentPage {...props} />);
     await screen.findByText('Budget Variance');
     const heads = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent);
-    expect(heads).toEqual(['Budget Variance', 'AI Executive Summary']);
+    expect(heads).toEqual(['AI Executive Summary', 'Budget Variance']);
     expect(screen.queryByText('Cover commentary')).toBeNull();
     expect(screen.getByText('4100 Sales Revenue')).toBeTruthy();
     expect(screen.getByText('Summary text')).toBeTruthy();
@@ -105,6 +105,14 @@ describe('management pack on the AFS document page', () => {
     expect(screen.getByText('Current assets')).toBeTruthy();
     expect(screen.queryByText(/currentAssets/)).toBeNull();
     expect(screen.getByText('Net profit').closest('tr')?.className).toContain('font-bold');
+  });
+  it('lists the sections in print order, not the stored sort_order, and survives an object title and a null block in overrides', async () => {
+    const withOverrides = { ...sec('income_statement', 0, { title: 'Income Statement', blocks: [{ type: 'paragraph', text: 'generated' }] }), overrides: { title: { en: 'x' }, blocks: [null, { type: 'paragraph', text: 'accountant text' }] } };
+    load({ ...pack, sections: [sec('balance_sheet', 0, { title: 'Balance Sheet', blocks: [] }), withOverrides, sec('kpi_scorecard', 2, { title: 'KPI Scorecard', blocks: [] })] });
+    render(<AfsDocumentPage {...props} />);
+    await screen.findByText('accountant text');
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['KPI Scorecard', 'Income Statement', 'Balance Sheet']);
+    expect(screen.queryByText('generated')).toBeNull();
   });
   it('the title names the pack month, not an AFS year', async () => {
     load(pack);

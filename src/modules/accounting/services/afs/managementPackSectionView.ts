@@ -7,8 +7,9 @@
 // and a section with nothing in it.
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { NoteContent, NoteContentBlock, NoteContentTable } from './afsTypes';
+import { normaliseBlocks } from './noteBlockNormalise';
 import {
-  EXECUTIVE_SUMMARY_MISSING, SECTION_NOT_AVAILABLE, isAiPlaceholder, packSectionLabel,
+  EXECUTIVE_SUMMARY_MISSING, SECTION_NOT_AVAILABLE, isAiPlaceholder, orderPackSections, packSectionLabel,
 } from './managementPackSections';
 
 export interface PackSectionInput {
@@ -62,8 +63,9 @@ function repairBlock(sectionType: string, block: NoteContentBlock): NoteContentB
 
 function storedBlocks(section: PackSectionInput): NoteContentBlock[] {
   const overridden = section.overrides?.blocks;
-  const blocks = overridden && overridden.length > 0 ? overridden : section.content?.blocks;
-  return Array.isArray(blocks) ? blocks : [];
+  const blocks = Array.isArray(overridden) && overridden.length > 0 ? overridden : section.content?.blocks;
+  // Stored content is free-form JSON (a tenant writes overrides): every surface reads it as strings.
+  return normaliseBlocks(blocks);
 }
 
 /** The view of a section, or null when the section is not printed at all. */
@@ -79,8 +81,16 @@ export function packSectionView(section: PackSectionInput): PackSectionView | nu
   return {
     key: section.sectionType,
     // The title is the section vocabulary's, never the stored one: older packs stored the bare key there.
-    title: section.overrides?.title || packSectionLabel(section.sectionType),
+    title: typeof section.overrides?.title === 'string' && section.overrides.title !== '' ? section.overrides.title : packSectionLabel(section.sectionType),
     blocks,
     narrative,
   };
+}
+
+/** The printed sections of a pack, in canonical order (older packs stored a scrambled sort_order), with their views; the cover is dropped. */
+export function packSectionViews<T extends PackSectionInput & { sortOrder: number }>(sections: readonly T[]): Array<{ section: T; view: PackSectionView }> {
+  return orderPackSections(sections).flatMap((section) => {
+    const view = packSectionView(section);
+    return view ? [{ section, view }] : [];
+  });
 }

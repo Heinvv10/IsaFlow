@@ -49,7 +49,7 @@ describe('an override with non-string content does not crash either document typ
     expect(html).toContain('<li>1</li>');
     expect(html).toContain('<li>&lt;i&gt;</li>');
     expect(html).not.toContain('<i>');
-    expect(html).toMatch(/<h2>7<\/h2>/);
+    expect(html).toMatch(/<h2>KPI Scorecard<\/h2>/); // a non-string title is ignored
   });
 });
 

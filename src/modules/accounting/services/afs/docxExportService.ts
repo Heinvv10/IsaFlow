@@ -15,6 +15,7 @@ import type { AfsDocument, AfsSection, NoteContentBlock, NoteContent } from './a
 import { renderNoteTable } from './docxTableRenderer';
 import { packSectionView } from './managementPackSectionView';
 import { normaliseBlocks } from './noteBlockNormalise';
+import { orderPackSections } from './managementPackSections';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -217,7 +218,9 @@ export async function renderToDocx(
     sectionCount: sections.length,
   });
 
-  const sorted = [...sections].sort((a, b) => a.sortOrder - b.sortOrder);
+  const sorted = document.documentType === 'management_pack'
+    ? orderPackSections(sections)
+    : [...sections].sort((a, b) => a.sortOrder - b.sortOrder);
 
   const documentTitle = afsDocumentTitle(document.documentType);
   const coverChildren = buildCoverChildren(await coverPeriodText(document), companyName, documentTitle);

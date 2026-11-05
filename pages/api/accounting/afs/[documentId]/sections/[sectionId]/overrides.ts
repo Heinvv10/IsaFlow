@@ -8,7 +8,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
-import { overridesRowKindsValid } from '@/modules/accounting/services/afs/managementPackSections';
+import { overridesFieldErrors, sectionOverridesSchema } from '@/modules/accounting/services/afs/sectionOverridesSchema';
 import { sql } from '@/lib/neon';
 import {
   assertDocumentEditable,
@@ -19,13 +19,9 @@ import {
   VersionHistoryError,
 } from '@/modules/accounting/services/afs/afsVersionHistoryService';
 
-// `overrides` is a free-form JSONB blob (per-tenant section overrides).
-// Validate it's a JSON object; the structure varies by note generator.
-const BodySchema = z.object({
-  overrides: z.record(z.string(), z.unknown()).refine(overridesRowKindsValid, {
-    message: 'blocks[].rowKinds may only contain heading, line, subtotal or total',
-  }),
-}).strict();
+// `overrides` is a JSONB blob that the PDF, DOCX, app and portal all print: it must be the shape they read
+// (sectionOverridesSchema), and a refusal names the field.
+const BodySchema = z.object({ overrides: sectionOverridesSchema }).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'PUT') {
@@ -41,7 +37,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!sectionId) return;
 
   const parsed = BodySchema.safeParse(req.body);
-  if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
+  if (!parsed.success) {
+    const fields = overridesFieldErrors(parsed.error);
+    return apiResponse.validationError(res, fields, `Invalid overrides: ${Object.keys(fields).join(', ')}`);
+  }
   const { overrides } = parsed.data;
 
   log.info('Section overrides update', { companyId, documentId, sectionId, userId }, 'afs-overrides-api');

@@ -64,6 +64,16 @@ export const BUDGET_UNAVAILABLE = 'Budget figures are unavailable for this month
  * runs in a savepoint, so a failed query does not abort the request's transaction (inside withAuth)
  * that the pack is then written in; outside a request (the cron) the savepoint is a plain call.
  */
+/** Reports a fault that the pack survives (a budget or statement read that failed) to Bugsink, when Sentry is on. */
+export function capturePackFault(err: unknown, companyId: string): void {
+  if (process.env.SENTRY_ENABLED !== 'true') return;
+  try {
+    Sentry.captureException(err, { tags: { company_id: companyId, route: 'management-pack' } });
+  } catch (sentryErr) {
+    log.warn('management pack: Sentry capture failed', { error: sentryErr instanceof Error ? sentryErr.message : String(sentryErr) }, 'managementPackComparison');
+  }
+}
+
 export async function loadPackBudget(companyId: string, period: string, now?: Date): Promise<PackBudget> {
   try {
     const report = await withSavepoint('mgmt_pack_budget', () =>
@@ -76,13 +86,7 @@ export async function loadPackBudget(companyId: string, period: string, now?: Da
     else {
       log.error('management pack: the budget engine failed; budget sections print the unavailable sentence', fields, 'managementPackComparison');
       // The pack still goes out, so a bug here would otherwise only be a log line: report it (as deferredEnd does).
-      if (process.env.SENTRY_ENABLED === 'true') {
-        try {
-          Sentry.captureException(err, { tags: { company_id: companyId, route: 'management-pack' } });
-        } catch (sentryErr) {
-          log.warn('management pack: Sentry capture failed', { error: sentryErr instanceof Error ? sentryErr.message : String(sentryErr) }, 'managementPackComparison');
-        }
-      }
+      capturePackFault(err, companyId);
     }
     return { kind: 'unavailable', reason: BUDGET_UNAVAILABLE };
   }

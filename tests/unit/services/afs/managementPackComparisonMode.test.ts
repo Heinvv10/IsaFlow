@@ -45,6 +45,7 @@ import { AGGS, balanceReportFor, band, generateWith, incomeReportFor, line, repo
 import { comparisonPlan, topVarianceLines } from '@/modules/accounting/services/afs/managementPackComparison';
 import { TrackingError } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { buildExecutiveSummaryPrompt } from '@/modules/accounting/services/afs/packAiSummaryService';
 
 const generate = (mode: ManagementPackConfig['comparisonMode'], sections: string[]) => generateWith(m.updateSection, mode, sections);
@@ -82,7 +83,7 @@ const row = (t: { rows: string[][] }, label: string) => t.rows.find((r) => r[0] 
 
 describe('comparison_mode on the income statement section', () => {
   it('prior_month prints the report for the month and the month before, reads no budget and hands the AI the prior month', async () => {
-    const out = await generate('prior_month', ['income_statement']);
+    const out = await generate('prior_month', ['income_statement', 'ai_executive_summary']);
     const t = table(out.income_statement);
     expect(out.income_statement?.title).toBe('Income Statement');
     expect(t.headers).toEqual(['', 'This month', 'Prior month']);
@@ -92,18 +93,18 @@ describe('comparison_mode on the income statement section', () => {
       ['co', '2026-09-01', '2026-09-30'], ['co', '2026-08-01', '2026-08-31'],
     ]);
     expect(m.buildReport).not.toHaveBeenCalled();
-    expect(m.commentary.mock.calls[0]?.[0].priorData).toEqual(AGGS['2026-08-01']);
+    expect(m.commentary.mock.calls[0]?.[0].priorData).toEqual({ revenue: 1200, cogs: 300, net_profit: 250 });
     expect(m.summary.mock.calls[0]?.[0]).toMatchObject({ priorRevenue: 1200, priorLabel: 'prior month' });
   });
 
   it('prior_year compares the same month a year earlier', async () => {
-    const out = await generate('prior_year', ['income_statement']);
+    const out = await generate('prior_year', ['income_statement', 'ai_executive_summary']);
     const t = table(out.income_statement);
     expect(t.headers).toEqual(['', 'This month', 'Same month last year', 'Change on last year']);
     expect(row(t, 'Total revenue')).toEqual(['Total revenue', 'R 1 500.00', 'R 900.00', 'R 600.00']);
     expect(row(t, 'Total cost of sales')).toEqual(['Total cost of sales', 'R 400.00', 'R 100.00', 'R 300.00']);
     expect(row(t, 'Net profit')).toEqual(['Net profit', 'R 300.00', 'R 200.00', 'R 100.00']);
-    expect(m.commentary.mock.calls[0]?.[0].priorData).toEqual({ same_month_last_year: AGGS['2025-09-01'] });
+    expect(m.commentary.mock.calls[0]?.[0].priorData).toEqual({ same_month_last_year: { revenue: 900, cogs: 100, net_profit: 200 } });
     expect(m.summary.mock.calls[0]?.[0]).toMatchObject({ priorRevenue: 900, priorLabel: 'the same month last year' });
   });
 
@@ -124,7 +125,9 @@ describe('comparison_mode on the income statement section', () => {
     expect(table(out.income_statement).headers).toEqual(['', 'This month', 'Prior month', 'Same month last year', 'Change on last year']);
     expect(row(table(out.income_statement), 'Total revenue')).toEqual(['Total revenue', 'R 1 500.00', 'R 1 200.00', 'R 900.00', 'R 600.00']);
     expect(table(out.income_statement, 1).headers).toEqual(['', 'Actual', 'Budget', 'Var R', 'Var %', 'Position']);
-    expect(m.commentary.mock.calls[0]?.[0].priorData).toEqual({ prior_month: AGGS['2026-08-01'], same_month_last_year: AGGS['2025-09-01'] });
+    expect(m.commentary.mock.calls[0]?.[0].priorData).toEqual({
+      prior_month: { revenue: 1200, cogs: 300, net_profit: 250 }, same_month_last_year: { revenue: 900, cogs: 100, net_profit: 200 },
+    });
   });
 
   it('a month with no postings prints a sentence under the statement', async () => {
@@ -163,7 +166,6 @@ describe('the other pack sections', () => {
       cover: 'Cover Page', ai_executive_summary: 'AI Executive Summary', cash_flow: 'Cash Flow', debtors_ageing: 'Debtors Ageing',
     });
     expect(m.commentary).not.toHaveBeenCalled();
-    expect(m.incomeReport).not.toHaveBeenCalled();
     expect(m.balanceReport).not.toHaveBeenCalled();
     const snaps = (m.updateSection.mock.calls as [string, string, string, { dataSnapshot?: unknown }][]).map((c) => c[3].dataSnapshot).filter((d) => d !== undefined);
     expect(snaps).toEqual([{}, {}, {}, {}]);
@@ -341,5 +343,83 @@ describe('the budget sections', () => {
     const snap = (m.updateSection.mock.calls as [string, string, string, { dataSnapshot?: Record<string, unknown> }][])
       .find((c) => c[0] === 'income_vs_budget')?.[3].dataSnapshot;
     expect(snap).toMatchObject({ version: 'Original · approved', bands: [{ key: 'revenue', actual: 1500, budget: 1000 }, { key: 'net_profit', budget: null }] });
+  });
+});
+
+describe('the stored and narrated figures are the statement\'s own (turnover, not turnover plus other income)', () => {
+  // Other income of 150 sits beside 1500 of turnover: the old aggregate called 1650 "revenue".
+  const withOtherIncome = (start: string) => {
+    const r = incomeReportFor(start);
+    return start === '2026-09-01'
+      ? { ...r, otherIncome: [{ accountCode: '4300', accountName: 'Other Income', amount: 150 }], totalOtherIncome: 150, operatingProfit: r.operatingProfit + 150, netProfit: r.netProfit + 150 }
+      : r;
+  };
+  beforeEach(() => { m.incomeReport.mockImplementation(async (_c: string, start: string) => withOtherIncome(start)); });
+
+  it('the snapshot, the section commentary and the executive summary use the table\'s Total revenue and net profit', async () => {
+    const out = await generate('prior_month', ['income_statement', 'ai_executive_summary']);
+    expect(row(table(out.income_statement), 'Total revenue')?.[1]).toBe('R 1 500.00');
+    expect(m.commentary.mock.calls[0]?.[0].sectionData).toEqual({ revenue: 1500, cogs: 400, net_profit: 450 });
+    expect(m.summary.mock.calls[0]?.[0]).toMatchObject({ revenue: 1500, priorRevenue: 1200 });
+    const snap = (m.updateSection.mock.calls as [string, string, string, { dataSnapshot?: Record<string, unknown> }][])
+      .find((c) => c[0] === 'income_statement' && c[3].dataSnapshot)?.[3].dataSnapshot;
+    expect(snap).toEqual({ revenue: 1500, cogs: 400, net_profit: 450 });
+  });
+
+  it('asks for no executive summary when the section is off, and reads no income statement for nothing', async () => {
+    await generate('prior_month', ['kpi_scorecard']);
+    expect(m.summary).not.toHaveBeenCalled();
+    expect(m.incomeReport).not.toHaveBeenCalled();
+  });
+});
+
+describe('an income statement that could not be read', () => {
+  it('gets no AI commentary and the pack gets no executive summary about figures it does not print', async () => {
+    m.incomeReport.mockRejectedValue(new Error('statement read failed'));
+    const out = await generate('prior_month', ['income_statement', 'ai_executive_summary', 'balance_sheet']);
+    expect(out.income_statement?.blocks).toEqual([{ type: 'paragraph', text: 'This statement could not be produced for this period.' }]);
+    expect((m.commentary.mock.calls as { sectionType: string }[][]).map((c) => c[0]?.sectionType)).toEqual(['balance_sheet']);
+    expect(m.summary).not.toHaveBeenCalled();
+  });
+});
+
+describe('what a failed statement read reports (the budget path\'s rule)', () => {
+  it('a programming fault reaches Bugsink and is logged as an error', async () => {
+    vi.stubEnv('SENTRY_ENABLED', 'true');
+    try {
+      const fault = new TypeError("Cannot read properties of undefined (reading 'balance')");
+      m.balanceReport.mockRejectedValue(fault);
+      const out = await generate('prior_month', ['income_statement', 'balance_sheet']);
+      expect(out.balance_sheet?.blocks).toEqual([{ type: 'paragraph', text: 'This statement could not be produced for this period.' }]);
+      expect(m.capture).toHaveBeenCalledWith(fault, { tags: { company_id: 'co', route: 'management-pack' } });
+      expect(m.log.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ statement: 'balance', errorClass: 'TypeError' }), 'managementPackGeneratorService');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('a missing system account is a refusal: a warning, nothing sent to Bugsink', async () => {
+    vi.stubEnv('SENTRY_ENABLED', 'true');
+    try {
+      m.balanceReport.mockRejectedValue(new MissingSystemAccountError('retained_earnings', 'co', 'no_claimant', []));
+      await generate('prior_month', ['balance_sheet']);
+      expect(m.capture).not.toHaveBeenCalled();
+      expect(m.log.warn).toHaveBeenCalledWith(expect.stringContaining('no system account'), expect.objectContaining({ statement: 'balance' }), 'managementPackGeneratorService');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('the reads inside the savepoint run one after another, so none lands after a ROLLBACK TO', async () => {
+    let open = 0, max = 0;
+    m.incomeReport.mockImplementation(async (_c: string, start: string) => {
+      open += 1; max = Math.max(max, open);
+      await new Promise((r) => setTimeout(r, 5));
+      open -= 1;
+      return incomeReportFor(start);
+    });
+    await generate('all_three', ['income_statement']);
+    expect(m.incomeReport).toHaveBeenCalledTimes(3);
+    expect(max).toBe(1);
   });
 });

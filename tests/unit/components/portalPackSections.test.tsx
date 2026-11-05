@@ -14,8 +14,8 @@ vi.mock('next/link', () => ({ default: ({ children }: { children: ReactNode }) =
 import PortalDocumentPage from '../../../pages/accounting/afs/portal/documents/[documentId]';
 
 afterEach(cleanup);
-const sec = (id: string, section_type: string, blocks: unknown[], ai_narrative: string | null = null) =>
-  ({ id, section_type, sort_order: 0, status: 'ai_enhanced', content: { title: section_type, blocks }, ai_narrative });
+const sec = (id: string, section_type: string, blocks: unknown[], ai_narrative: string | null = null, extra: Record<string, unknown> = {}) =>
+  ({ id, section_type, sort_order: 0, status: 'ai_enhanced', content: { title: section_type, blocks }, ai_narrative, ...extra });
 const show = (document_type: string, sections: unknown[]) => {
   const props = { document: { id: 'd', fiscal_year: null, period: '2026-10', document_type, status: 'draft', signing_requested_at: null }, sections, canAnnotate: false } as unknown as Parameters<typeof PortalDocumentPage>[0];
   render(<PortalDocumentPage {...props} />);
@@ -42,6 +42,26 @@ describe('portal document page, management pack', () => {
     show('management_pack', [sec('1', 'kpi_scorecard', [{ type: 'table', headers: ['A', 5], rows: [['x', 42], ['y', null], ['z', { v: 1 }]] }])]);
     expect(screen.getByText('42')).toBeTruthy();
     expect(screen.getByText('5')).toBeTruthy();
+  });
+
+  it('prints the accountant\'s overrides, not the generated content, as the PDF does', () => {
+    show('management_pack', [sec('1', 'income_statement', [{ type: 'paragraph', text: 'ORIGINAL generated figure' }], null, {
+      overrides: { title: 'Income Statement (restated)', blocks: [{ type: 'paragraph', text: 'CORRECTED by the accountant' }] },
+    })]);
+    expect(screen.queryByText(/ORIGINAL generated/)).toBeNull();
+    expect(screen.getByText('CORRECTED by the accountant')).toBeTruthy();
+    expect(screen.getAllByText('Income Statement (restated)').length).toBeGreaterThan(0);
+  });
+
+  it('lists the sections in print order whatever their stored sort_order, and survives a stored title or block of the wrong type', () => {
+    const at = (n: number, id: string, type: string, extra: Record<string, unknown> = {}) => ({ ...sec(id, type, [{ type: 'paragraph', text: `body ${type}` }], null, extra), sort_order: n });
+    show('management_pack', [
+      at(0, 'a', 'balance_sheet'), at(1, 'b', 'kpi_scorecard'),
+      at(2, 'c', 'income_statement', { overrides: { title: { en: 'x' }, blocks: [null, { type: 'paragraph', text: 'ok' }] } }),
+    ]);
+    const heads = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(heads).toEqual(['KPI Scorecard', 'Income Statement', 'Balance Sheet']);
+    expect(screen.getByText('ok')).toBeTruthy();
   });
 
   it('an AFS document keeps its section_type headings and prints no table', () => {

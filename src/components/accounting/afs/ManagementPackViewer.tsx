@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import type { AfsDocument, AfsSection, NoteContentBlock } from '@/modules/accounting/services/afs/afsTypes';
 import { AfsStatusBadge } from './AfsStatusBadge';
 import { safeRowKind } from '@/modules/accounting/services/afs/managementPackSections';
-import { packSectionView } from '@/modules/accounting/services/afs/managementPackSectionView';
+import { packSectionViews } from '@/modules/accounting/services/afs/managementPackSectionView';
 
 const ROW_STYLE = {
   line: '',
@@ -57,9 +57,7 @@ function Block({ block }: { block: NoteContentBlock }) {
 }
 
 export function ManagementPackViewer({ sections }: { sections: AfsSection[] }) {
-  const views = [...sections]
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .flatMap(section => { const view = packSectionView(section); return view ? [{ id: section.id, view }] : []; });
+  const views = packSectionViews(sections).map(({ section, view }) => ({ id: section.id, view }));
   if (views.length === 0) {
     return <p className="text-sm text-ink-muted">This pack has no sections.</p>;
   }

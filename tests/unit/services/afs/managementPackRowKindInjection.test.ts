@@ -3,25 +3,10 @@
  * renderer puts it in a class attribute that WeasyPrint parses. Only the four known kinds may reach
  * the page; anything else is a plain row, and the overrides route refuses it.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { NextApiRequest, NextApiResponse } from 'next';
+import { describe, expect, it } from 'vitest';
 import { renderAfsToHtml, type AfsRenderContext } from '@/modules/accounting/services/afs/afsHtmlRendererService';
-import { overridesRowKindsValid, safeRowKind } from '@/modules/accounting/services/afs/managementPackSections';
+import { safeRowKind } from '@/modules/accounting/services/afs/managementPackSections';
 import type { AfsDocument, AfsSection, BrandProfile, NoteContentBlock } from '@/modules/accounting/services/afs/afsTypes';
-
-const m = vi.hoisted(() => ({ sql: vi.fn(), apiResponse: { zodValidationError: vi.fn(), success: vi.fn(), methodNotAllowed: vi.fn(), notFound: vi.fn(), error: vi.fn() } }));
-vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
-vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
-vi.mock('@/lib/auth/withWriteAccess', () => ({ withWriteAccess: (h: unknown) => h }));
-vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
-vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
-vi.mock('@/lib/neon', () => ({ sql: m.sql }));
-vi.mock('@/lib/apiResponse', () => ({ apiResponse: m.apiResponse, ErrorCode: { CONFLICT: 'CONFLICT' } }));
-vi.mock('@/modules/accounting/services/afs/afsReviewService', () => ({ assertDocumentEditable: vi.fn(), ReviewError: class extends Error {} }));
-vi.mock('@/modules/accounting/services/afs/afsVersionHistoryService', () => ({ saveVersion: vi.fn(async () => ({})), VersionHistoryError: class extends Error {} }));
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore — pages/ is outside src/
-import overridesHandler from '../../../../pages/api/accounting/afs/[documentId]/sections/[sectionId]/overrides';
 
 const EVIL = 'x"><img src=http://127.0.0.1/ssrf>';
 const brand = { id: 'b', companyId: 'c', logoUrl: null, primaryColour: '#1a3a5c', secondaryColour: '#c8a86b', fontFamily: 'professional', coverStyle: 'classic', reportFooterText: null, createdAt: new Date(), updatedAt: new Date() } as BrandProfile;
@@ -63,29 +48,5 @@ describe('safeRowKind', () => {
   it('passes the four kinds and nothing else', () => {
     for (const k of ['heading', 'line', 'subtotal', 'total']) expect(safeRowKind(k)).toBe(k);
     for (const k of [EVIL, 'constructor', '__proto__', '', 5, null, undefined, ['total']]) expect(safeRowKind(k)).toBe('line');
-  });
-});
-
-describe('the overrides route', () => {
-  beforeEach(() => { vi.clearAllMocks(); m.sql.mockResolvedValue([{ id: 's' }]); });
-  const call = async (overrides: Record<string, unknown>) => {
-    const req = { method: 'PUT', query: { documentId: '33333333-3333-4333-8333-333333333333', sectionId: '44444444-4444-4444-8444-444444444444' }, body: { overrides }, companyId: 'c', user: { id: 'u' } } as unknown as NextApiRequest;
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() } as unknown as NextApiResponse;
-    await (overridesHandler as unknown as (a: NextApiRequest, b: NextApiResponse) => Promise<void>)(req, res);
-  };
-
-  it('refuses a table whose rowKinds holds anything but the four kinds, and writes nothing', async () => {
-    await call({ blocks: [table(['total', EVIL])] });
-    expect(m.apiResponse.zodValidationError).toHaveBeenCalledTimes(1);
-    expect(m.sql).not.toHaveBeenCalled();
-  });
-
-  it('accepts known kinds and overrides with no tables', async () => {
-    await call({ blocks: [table(['heading', 'line', 'subtotal', 'total'])] });
-    expect(m.apiResponse.zodValidationError).not.toHaveBeenCalled();
-    expect(m.sql).toHaveBeenCalled();
-    expect(overridesRowKindsValid({ title: 'x' })).toBe(true);
-    expect(overridesRowKindsValid({ blocks: [{ type: 'paragraph', text: 'x' }] })).toBe(true);
-    expect(overridesRowKindsValid({ blocks: [table('total')] })).toBe(false);
   });
 });

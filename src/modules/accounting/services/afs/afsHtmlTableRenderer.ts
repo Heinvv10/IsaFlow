@@ -3,6 +3,7 @@
 import type { AfsSection, NoteContent, NoteContentBlock, NoteTableRowKind } from './afsTypes';
 import { packSectionView } from './managementPackSectionView';
 import { safeRowKind } from './managementPackSections';
+import { normaliseBlocks } from './noteBlockNormalise';
 
 // ── Block renderers ───────────────────────────────────────────────────────────
 
@@ -54,13 +55,15 @@ function renderTable(headersIn: string[], rowsIn: string[][], rowKinds?: NoteTab
 // ── NoteContent → blocks ──────────────────────────────────────────────────────
 
 function resolveContent(section: AfsSection): NoteContent | null {
-  if (section.overrides?.blocks && section.overrides.blocks.length > 0) {
+  // Stored content is free-form JSON (a tenant writes overrides): a title that is not a string is ignored, every cell is read as text.
+  const text = (v: unknown): string => (typeof v === 'string' ? v : '');
+  if (Array.isArray(section.overrides?.blocks) && section.overrides.blocks.length > 0) {
     return {
-      title: section.overrides.title ?? section.content?.title ?? '',
-      blocks: section.overrides.blocks,
+      title: text(section.overrides.title) || text(section.content?.title),
+      blocks: normaliseBlocks(section.overrides.blocks),
     };
   }
-  return section.content;
+  return section.content ? { title: text(section.content.title), blocks: normaliseBlocks(section.content.blocks) } : null;
 }
 
 // ── Public export ─────────────────────────────────────────────────────────────

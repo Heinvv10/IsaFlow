@@ -19,9 +19,13 @@ import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSh
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
 import type { ManagementPackConfig, NoteContent, NoteContentTable } from '@/modules/accounting/services/afs/afsTypes';
 
+const told = vi.hoisted(() => ({ sections: [] as Array<{ sectionType: string; sectionData: Record<string, unknown> }>, summary: [] as Array<Record<string, unknown>> }));
 vi.mock('@/modules/accounting/services/afs/packAiSummaryService', () => ({
-  generateExecutiveSummary: vi.fn(async () => 'summary'),
-  generateSectionCommentary: vi.fn(async () => 'commentary'),
+  generateExecutiveSummary: vi.fn(async (p: Record<string, unknown>) => { told.summary.push(p); return 'summary'; }),
+  generateSectionCommentary: vi.fn(async (p: { sectionType: string; sectionData: Record<string, unknown> }) => {
+    told.sections.push({ sectionType: p.sectionType, sectionData: p.sectionData });
+    return 'commentary';
+  }),
 }));
 
 assertDisposable();
@@ -35,7 +39,7 @@ afterAll(async () => {
 
 const config = (mode: ManagementPackConfig['comparisonMode']): ManagementPackConfig => ({
   id: '', companyId: f.a, enabled: true, generationDay: 5, deliveryDay: 10, reviewRequired: true,
-  sectionsEnabled: { income_statement: true, balance_sheet: true, cash_flow: true },
+  sectionsEnabled: { ai_executive_summary: true, kpi_scorecard: true, income_statement: true, balance_sheet: true, cash_flow: true },
   recipients: [], packStyle: 'detailed', comparisonMode: mode, currencyDisplay: 'full',
 });
 
@@ -56,9 +60,11 @@ async function pack(period: string, mode: ManagementPackConfig['comparisonMode']
     const end = `${period}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
     const income = await getIncomeStatement(f.a, `${period}-01`, end);
     const balance = before ? await getBalanceSheet(f.a, end).catch(() => null) : null;
-    return { sections: new Map(rows.map((r) => [r.section_type, r])), income, balance, end };
+    return { sections: new Map(rows.map((r) => [r.section_type, r])), income, balance, end, kpis: kpiRows(rows) };
   }, { appUser: true, before }).finally(() => clearSystemAccountCache(f.a));
 }
+const kpiRows = (rows: Array<{ section_type: string; data_snapshot: Record<string, unknown> }>) =>
+  (rows.find((r) => r.section_type === 'kpi_scorecard')?.data_snapshot.kpis ?? []) as Array<{ key: string; value: number }>;
 const tableOf = (c: NoteContent | undefined): NoteContentTable => {
   const t = c?.blocks.find((b): b is NoteContentTable => b.type === 'table');
   if (!t) throw new Error('no table');
@@ -118,5 +124,20 @@ describe('the pack\'s statements are the Reports screens\' figures', () => {
     // The request's transaction survived the failed read (the SELECT above ran in it) and the section after it is whole.
     expect(tableOf(sections.get('income_statement')?.content).rows.length).toBeGreaterThan(3);
     expect(sections.get('cash_flow')?.content).toEqual({ title: 'Cash Flow', blocks: [] });
+  });
+
+  it('the scorecard, the stored snapshot, the section commentary and the executive summary all use the statement\'s turnover, not turnover plus the other income', async () => {
+    told.sections.length = 0; told.summary.length = 0;
+    const { sections, income, kpis } = await pack('2026-02', 'prior_month');
+    // The fixture posts 12.34 of interest received (other income) every month beside 1591.15 of turnover.
+    expect(income.totalOtherIncome).toBeGreaterThan(10);
+    const t = tableOf(sections.get('income_statement')?.content);
+    expect(cell(t, 'Total revenue')).toBe(formatMoney(income.totalRevenue));
+    expect(sections.get('income_statement')?.data_snapshot).toEqual({ revenue: income.totalRevenue, cogs: income.totalCostOfSales, net_profit: income.netProfit });
+    expect(told.sections.find((x) => x.sectionType === 'income_statement')?.sectionData.revenue).toBe(income.totalRevenue);
+    expect(told.summary[0]?.revenue).toBe(income.totalRevenue);
+    // KPI gross margin is gross profit over the SAME turnover the report divides by.
+    const gross = kpis.find((k) => k.key === 'grossMarginPct')?.value;
+    expect(gross).toBeCloseTo(income.grossMarginPct ?? NaN, 6);
   });
 });

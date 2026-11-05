@@ -2,6 +2,7 @@
 
 import type { AfsDocument, AfsSection, BrandProfile } from './afsTypes';
 import { renderCoverHtml } from './afsHtmlCoverTemplates';
+import { orderPackSections } from './managementPackSections';
 import { afsDocumentTitle, isPackPeriod, packPeriodPhrase } from './afsDocumentTitle';
 import { renderSectionContent, renderPackSectionContent, escapeHtml } from './afsHtmlTableRenderer';
 import type { AfsTemplateKey } from '@/lib/entityTypes';
@@ -215,7 +216,7 @@ export function renderAfsToHtml(
     coverPhotoUrl,
   });
 
-  const sectionsHtml = sections
+  const sectionsHtml = (isPack ? orderPackSections(sections) : sections)
     .map((s) => (isPack ? renderPackSectionContent(s) : renderSectionContent(s, charts?.[s.sectionType])))
     .join('\n');
 

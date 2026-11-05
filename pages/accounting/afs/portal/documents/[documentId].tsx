@@ -11,7 +11,7 @@ import { verifyPortalToken } from '@/lib/auth/portalJwt';
 import { currentPortalSession } from '@/lib/auth/portalAuth';
 import { PORTAL_ACCESS_RULES } from '@/modules/accounting/services/afs/afsTypes';
 import { safeRowKind } from '@/modules/accounting/services/afs/managementPackSections';
-import { packSectionView, type PackSectionInput } from '@/modules/accounting/services/afs/managementPackSectionView';
+import { packSectionViews, type PackSectionInput } from '@/modules/accounting/services/afs/managementPackSectionView';
 
 interface NoteContentBlock {
   type: string;
@@ -32,6 +32,7 @@ interface AfsSection {
   sort_order: number;
   status: string;
   content: NoteContent | null;
+  overrides?: { title?: unknown; blocks?: unknown } | null;
   ai_narrative: string | null;
 }
 
@@ -93,11 +94,12 @@ export default function PortalDocumentPage({
   const typeLabel = doc.document_type === 'afs' ? 'Annual Financial Statements' : 'Management Pack';
   const isPack = doc.document_type === 'management_pack';
   // A pack section prints as it does in the PDF and the app (packSectionView): vocabulary title, never empty, tables, narrative.
-  const shown = sections.flatMap((s) => {
-    if (!isPack) return [{ s, title: s.section_type.replace(/_/g, ' '), blocks: s.content?.blocks ?? null, narrative: null as string | null }];
-    const view = packSectionView({ sectionType: s.section_type, content: s.content as PackSectionInput['content'], aiNarrative: s.ai_narrative });
-    return view ? [{ s, title: view.title, blocks: view.blocks as NoteContentBlock[], narrative: view.narrative }] : [];
-  });
+  const shown = (isPack
+    ? packSectionViews(sections.map((s) => ({
+      s, sectionType: s.section_type, sortOrder: s.sort_order, aiNarrative: s.ai_narrative,
+      content: s.content as PackSectionInput['content'], overrides: s.overrides as PackSectionInput['overrides'],
+    }))).map(({ section, view }) => ({ s: section.s, title: view.title, blocks: view.blocks as NoteContentBlock[], narrative: view.narrative }))
+    : sections.map((s) => ({ s, title: s.section_type.replace(/_/g, ' '), blocks: s.content?.blocks ?? null, narrative: null as string | null })));
 
   async function submitComment(sectionId: string) {
     if (!commentText.trim()) return;

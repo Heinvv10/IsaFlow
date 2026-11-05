@@ -32,8 +32,16 @@ export interface PackData {
 
 /** Sections that carry data of their own, and so a snapshot and AI commentary; the rest have no generator yet. */
 const COMMENTED = ['kpi_scorecard', 'income_statement', 'balance_sheet'];
+/** Commentary on a statement is never written about a statement that could not be read. */
 export const hasCommentary = (sectionType: string, data: PackData): boolean =>
-  COMMENTED.includes(sectionType) && (sectionType !== 'balance_sheet' || data.balanceReports !== null);
+  COMMENTED.includes(sectionType)
+  && (sectionType !== 'balance_sheet' || data.balanceReports !== null)
+  && (sectionType !== 'income_statement' || data.incomeReports !== null);
+
+/** The statement's own turnover, cost of sales and net profit: what the snapshot stores and the AI is told. Empty when there is no report. */
+export function incomeAggregate(report: IncomeStatementReport | null | undefined): Record<string, unknown> {
+  return report ? { revenue: report.totalRevenue, cogs: report.totalCostOfSales, net_profit: report.netProfit } : {};
+}
 
 export function renderSection(sectionType: string, data: PackData): NoteContent {
   const title = packSectionLabel(sectionType);

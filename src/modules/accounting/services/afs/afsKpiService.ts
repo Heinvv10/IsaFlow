@@ -171,7 +171,11 @@ function priorPeriod(period: string): string {
 async function fetchIncomeSnapshot(companyId: string, periodStart: string, periodEnd: string): Promise<Pick<FinancialSnapshot, 'revenue' | 'cogs' | 'grossProfit' | 'ebitda' | 'ebit' | 'netProfit'>> {
   const rows = (await sql`
     SELECT
-      COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
+      -- Turnover: revenue-type accounts less the other-income band, the definition the Income Statement report
+      -- (revenueBand) and the management pack's statement use. Other income sits below gross profit there; counting it
+      -- here made this scorecard's margins and debtor days disagree with the statement printed beside them.
+      -- COALESCE: NOT = ANY is NULL for a NULL subtype, which would drop an unclassified revenue account.
+      COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' AND COALESCE(ga.account_subtype, '') <> ALL(${rawSubtypesFor('other_income')}::TEXT[]) THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
       COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${rawSubtypesFor('cost_of_sales')}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS cogs,
       COALESCE(SUM(CASE
         WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit
