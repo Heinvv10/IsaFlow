@@ -43,7 +43,10 @@ export function parseExpectedSchema(migDir: string = MIG_DIR): Map<string, Set<s
       const parts: string[] = [];
       for (const c of m[2]!) {
         // A comma or parenthesis inside a single-quoted literal (DEFAULT '{80,100,120}') is text, not
-        // structure. A '' escape toggles twice, so it stays inside the literal.
+        // structure. A '' escape toggles twice, so it stays inside the literal. This is a scan, not a
+        // SQL lexer: E'' backslash escapes, dollar quotes and a `--` inside a literal (the comment strip
+        // above cuts it) are not modelled. Each leaves a quote or parenthesis unbalanced, which throws
+        // below instead of silently dropping the table's later columns from the audit.
         if (c === "'") inQuote = !inQuote;
         else if (!inQuote && c === '(') depth++;
         else if (!inQuote && c === ')') depth--;
@@ -51,6 +54,12 @@ export function parseExpectedSchema(migDir: string = MIG_DIR): Map<string, Set<s
         else buf += c;
       }
       if (buf.trim()) parts.push(buf);
+      if (inQuote || depth !== 0) {
+        throw new Error(
+          `schemaDriftParse: unbalanced quote/parenthesis in CREATE TABLE ${table} (${f}); ` +
+          `the column list cannot be read, so the audit would silently skip its columns`,
+        );
+      }
       for (const part of parts) {
         const trimmed = part.trim();
         if (!trimmed) continue;

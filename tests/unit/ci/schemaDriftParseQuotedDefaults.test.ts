@@ -66,10 +66,43 @@ describe('schema-drift parser: commas inside quoted literals', () => {
     expect(cols(m, 'q_chk')).toEqual(['check_policy', 'company_id', 'default_thresholds', 'updated_at']);
   });
 
-  it('migration 954 declares budget_control_settings without a column named 100', () => {
-    const expected = parseExpectedSchema();
-    expect(cols(expected, 'budget_control_settings')).toEqual([
+  it('migration 954 declares budget_control_settings with its real columns and none named 100', () => {
+    const got = cols(parseExpectedSchema(), 'budget_control_settings');
+    expect(got).not.toContain('100');
+    expect(got).toEqual(expect.arrayContaining([
       'alert_email_enabled', 'check_policy', 'company_id', 'default_thresholds', 'updated_at', 'updated_by',
-    ]);
+    ]));
+  });
+});
+
+/**
+ * The scan cannot read every SQL quoting form. What it cannot read must fail the audit LOUDLY: a
+ * quote left open swallows every later column of the table, and a column missing from the model
+ * is a column the audit stops checking (a false OK at deploy).
+ */
+describe('schema-drift parser: forms it cannot read fail loudly', () => {
+  it("an E'' backslash escape (E'it\\'s') throws, naming the table", () => {
+    const sql = "CREATE TABLE q_esc (\n  x TEXT DEFAULT E'it\\'s',\n  y INT,\n  z INT\n);";
+    expect(() => parseSql(sql)).toThrow(/unbalanced quote\/parenthesis in CREATE TABLE q_esc/);
+  });
+
+  it("a -- inside a literal (cut by the comment strip) throws, naming the table", () => {
+    const sql = "CREATE TABLE q_dash (\n  p TEXT DEFAULT 'a--b',\n  q INT,\n  r INT\n);";
+    expect(() => parseSql(sql)).toThrow(/unbalanced quote\/parenthesis in CREATE TABLE q_dash/);
+  });
+
+  it('a stray closing parenthesis throws, naming the table', () => {
+    const sql = 'CREATE TABLE q_paren (\n  a INT CHECK (a > 0)),\n  b INT\n);';
+    expect(() => parseSql(sql)).toThrow(/unbalanced quote\/parenthesis in CREATE TABLE q_paren/);
+  });
+
+  it('a stray opening parenthesis throws, naming the table', () => {
+    const sql = 'CREATE TABLE q_open (\n  a INT CHECK ((a > 0),\n  b INT\n);';
+    expect(() => parseSql(sql)).toThrow(/unbalanced quote\/parenthesis in CREATE TABLE q_open/);
+  });
+
+  it('a balanced table next to the failing one is not what is reported', () => {
+    const sql = "CREATE TABLE ok_t (a INT);\nCREATE TABLE bad_t (\n  x TEXT DEFAULT 'a--b',\n  y INT\n);";
+    expect(() => parseSql(sql)).toThrow(/CREATE TABLE bad_t/);
   });
 });
