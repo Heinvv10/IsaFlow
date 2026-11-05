@@ -11,6 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
+import { trustedClientIp } from '@/lib/trustedClientIp';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import {
   getExpiringTrials,
@@ -58,7 +59,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     try {
       const { company_id, company_ids, days } = parsed.data;
 
-      const ip = (req.headers['x-forwarded-for'] as string | undefined) ?? null;
+      const ip = trustedClientIp(req);
       const adminId = req.user.id;
 
       /* Single company extend */

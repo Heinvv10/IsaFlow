@@ -109,6 +109,8 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: var(--pack-gutter);
+  /* The row is the container its figures are sized against — see `.pack-kpi-value`. */
+  container-type: inline-size;
 }
 .pack-stat-groups { display: flex; flex-direction: column; gap: 4mm; }
 .pack-stat-group { display: flex; flex-direction: column; gap: 1.5mm; }

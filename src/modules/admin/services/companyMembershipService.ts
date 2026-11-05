@@ -25,8 +25,9 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { ErrorCode } from '@/lib/apiResponse';
 import { ALLOWED_COMPANY_ROLES, ONLY_OWNER_MESSAGE, isOnlyOwnerRefusal } from './adminUserActionsService';
+import { PayRunApproverProtectedError, assertPayRunApproverRetained } from '@/modules/accounting/services/core/payRunApproverGuard';
 
-export type CompanyMembershipErrorCode = 'NOT_FOUND' | 'LAST_OWNER' | 'INVALID_ROLE' | 'ALREADY_LINKED';
+export type CompanyMembershipErrorCode = 'NOT_FOUND' | 'LAST_OWNER' | 'INVALID_ROLE' | 'ALREADY_LINKED' | 'PAY_RUN_APPROVER';
 
 export class CompanyMembershipError extends Error {
   constructor(public readonly code: CompanyMembershipErrorCode, message: string) {
@@ -35,10 +36,10 @@ export class CompanyMembershipError extends Error {
   }
 }
 
-/** The API error a route answers for each refusal: 404, 409, 400, 409. */
+/** The API error a route answers for each refusal: 404, 409, 400, 409, 409. */
 export const MEMBERSHIP_ERROR_CODE: Record<CompanyMembershipErrorCode, ErrorCode> = {
   NOT_FOUND: ErrorCode.NOT_FOUND, LAST_OWNER: ErrorCode.CONFLICT,
-  INVALID_ROLE: ErrorCode.BAD_REQUEST, ALREADY_LINKED: ErrorCode.CONFLICT,
+  INVALID_ROLE: ErrorCode.BAD_REQUEST, ALREADY_LINKED: ErrorCode.CONFLICT, PAY_RUN_APPROVER: ErrorCode.CONFLICT,
 };
 
 const isOwner = (role: string) => role.trim().toLowerCase() === 'owner';
@@ -49,6 +50,16 @@ async function lastOwnerGuarded(write: Promise<unknown>): Promise<void> {
     await write;
   } catch (err) {
     if (isOnlyOwnerRefusal(err)) throw new CompanyMembershipError('LAST_OWNER', ONLY_OWNER_MESSAGE);
+    throw err;
+  }
+}
+
+/** Refuses (PAY_RUN_APPROVER) a change that leaves a pending pay-run approval with no approver but its requester. */
+async function assertKeepsPayRunApprover(companyId: string, userId: string, newRole: string | null): Promise<void> {
+  try {
+    await assertPayRunApproverRetained(companyId, userId, newRole);
+  } catch (err) {
+    if (err instanceof PayRunApproverProtectedError) throw new CompanyMembershipError('PAY_RUN_APPROVER', err.message);
     throw err;
   }
 }
@@ -128,6 +139,8 @@ export async function removeUserFromCompany(userId: string, companyId: string): 
   if (isOwner(previousRole)) {
     await assertAnotherOwner(userId, companyId);
   }
+  // After the owner lock, never before it: the approver lock is a leaf (payRunApproverGuard), memberWrites takes it last too.
+  await assertKeepsPayRunApprover(companyId, userId, null);
   await lastOwnerGuarded(sql`
     DELETE FROM company_users
     WHERE lower(user_id::text) = lower(${userId}) AND company_id = ${companyId}::uuid
@@ -148,6 +161,7 @@ export async function setUserCompanyRole(
   if (isOwner(previousRole)) {
     await assertAnotherOwner(userId, companyId);
   }
+  await assertKeepsPayRunApprover(companyId, userId, role);
   await lastOwnerGuarded(sql`
     UPDATE company_users SET role = ${role}
     WHERE lower(user_id::text) = lower(${userId}) AND company_id = ${companyId}::uuid
