@@ -1,5 +1,5 @@
 /**
- * createDraftCustomerInvoice fills a missing due date from the customer's payment terms (migration 958) and keeps a
+ * createDraftCustomerInvoice fills a missing due date from the customer's payment terms (migration 960) and keeps a
  * date the caller named. What is asserted is the due date bound to the customer_invoices INSERT, and that the terms are
  * read inside the company.
  */

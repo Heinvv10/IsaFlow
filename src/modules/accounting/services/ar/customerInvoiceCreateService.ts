@@ -160,7 +160,7 @@ export async function createDraftCustomerInvoice(
   }
   const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
   const invDate = invoiceDate || today;
-  // No due date named: the customer's terms give it, else the company default (migration 958).
+  // No due date named: the customer's terms give it, else the company default (migration 960).
   const resolvedDueDate = dueDate || await dueDateForContact(companyId, 'customer', clientId, invDate);
   const bpStart = billingPeriodStart || null;
   const bpEnd = billingPeriodEnd || null;

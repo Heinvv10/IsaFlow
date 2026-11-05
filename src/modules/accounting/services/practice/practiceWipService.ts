@@ -199,7 +199,7 @@ export async function generateWipInvoice(
     // transaction aborted and every later attempt failed 25P02 instead (K-107,
     // K-120). `insertWithReservedNumber` reserves outside each attempt's own
     // savepoint and retries only on the numbering index, so the retry terminates.
-    // The customer's terms, else the company default (migration 958).
+    // The customer's terms, else the company default (migration 960).
     const dueDate = await dueDateForContact(companyId, 'customer', customerId, invDate);
     const { invoiceId, invoiceNumber } = await insertWithReservedNumber(
       companyId, 'customer_invoice', 'wip_inv_', 'uq_customer_invoices_company_number',

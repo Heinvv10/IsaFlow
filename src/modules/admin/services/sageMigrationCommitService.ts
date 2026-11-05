@@ -166,7 +166,7 @@ export async function commitARInvoice(
   const open = amountPaid < Number(inv.totalAmount);
   if (open) await assertMayImportOpenBills(companyId, userId, 'customer_invoice');
 
-  // The source's due date; none: the customer's terms, else the company default (migration 958).
+  // The source's due date; none: the customer's terms, else the company default (migration 960).
   const dueDate = inv.dueDate ?? await dueDateForContact(companyId, 'customer', customerId, String(inv.invoiceDate));
   // R-035 Q1: issued in Sage, so exempt from the approval backstop.
   const inserted = (await withApprovalGateExempt({ companyId, userId, open, documentType: 'customer_invoice' }, () => sql`

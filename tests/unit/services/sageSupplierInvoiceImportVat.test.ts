@@ -100,7 +100,7 @@ describe('importSupplierInvoices — wired to deriveSageVat, never the inline /1
   });
 });
 
-describe('importSupplierInvoices — due date from the supplier terms (migration 958)', () => {
+describe('importSupplierInvoices — due date from the supplier terms (migration 960)', () => {
   const DUE_DATE_ARG = 4;
   async function dueDateFor(terms: Record<string, unknown>): Promise<unknown> {
     sqlMock.mockReset();

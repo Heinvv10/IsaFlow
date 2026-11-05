@@ -1,6 +1,6 @@
 /**
  * A recurring-invoice run stops hardcoding CURRENT_DATE + 30: the due date comes from the customer's payment terms
- * (migration 958), and +30 days stays only for a customer whose terms are not set. What is asserted is the due date
+ * (migration 960), and +30 days stays only for a customer whose terms are not set. What is asserted is the due date
  * bound to the customer_invoices INSERT.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

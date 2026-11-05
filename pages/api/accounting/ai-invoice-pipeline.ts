@@ -200,7 +200,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   // Create supplier invoice (evidence columns stamped; hash backfilled by worker). Due date: the document's, else its
-  // own terms, the supplier's, the company default (migration 958).
+  // own terms, the supplier's, the company default (migration 960).
   const [invoice] = (await sql`
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,

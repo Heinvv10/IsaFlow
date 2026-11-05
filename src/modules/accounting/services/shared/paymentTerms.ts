@@ -1,6 +1,6 @@
 /**
  * Payment terms: the due date a contact's terms give an invoice date, the one parser of a terms write, and the words
- * the UI shows. Shared by suppliers and customers (migration 958).
+ * the UI shows. Shared by suppliers and customers (migration 960).
  *
  *   invoice_days      invoice date + N days (N = 0 is "Immediate")
  *   statement_days    month-end of the invoice month + N days (the statement is the month-end of the invoice month)
@@ -47,7 +47,7 @@ export interface Terms { days: number; type: PaymentTermsType }
 
 /**
  * A contact's stored (N, type) as terms, or null when they are not set. Legacy rows read as they always meant: 'days'
- * is invoice days, 'end_of_month' is statement days, and a number with NO type (what the pre-958 code wrote as
+ * is invoice days, 'end_of_month' is statement days, and a number with NO type (what the pre-960 code wrote as
  * `(30, NULL)`) is invoice days. A negative, fractional or over-cap number, or a type nobody defined, is not terms.
  */
 export function readTerms(days: number | null | undefined, type: string | null | undefined): Terms | null {

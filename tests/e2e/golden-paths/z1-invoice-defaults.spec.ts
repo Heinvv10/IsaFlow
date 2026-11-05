@@ -31,7 +31,7 @@ const ZERO = { name: '0GP-Golden-Zero-Customer', payment_terms: 0, payment_terms
 const PLAIN = { name: '0GP-Golden-Plain-Customer', payment_terms: 0, payment_terms_type: 'invoice_days', default_discount: 0, default_vat_type: 'standard' };
 
 /**
- * Found or created, and its terms PUT on every run: migration 958 turned the customers that still carried the old
+ * Found or created, and its terms PUT on every run: migration 960 turned the customers that still carried the old
  * default 30 / 'days' into "not set" (the company default then dates their documents), so a fixture that is only created
  * once would lose the 30 days these assertions are about on the next database it meets.
  */

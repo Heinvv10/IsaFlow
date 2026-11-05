@@ -31,7 +31,7 @@ const IN_AR_STATUSES = new Set(['approved', 'sent', 'paid', 'partially_paid', 'o
  *   - customer: the ONE live customer of that name (case-insensitive, ends
  *     trimmed). None, or more than one, fails the row.
  *   - due date: what the customer's payment terms give the invoice date
- *     (`shared/paymentTerms`); terms not set use the company default (migration 958).
+ *     (`shared/paymentTerms`); terms not set use the company default (migration 960).
  *   - VAT: none stated, so none recorded and the invoice flagged (R-089).
  *   - payment state: unpaid and 'approved'. Staging carries no payment.
  *   - a negative total is a Sage credit note. It is not booked and not

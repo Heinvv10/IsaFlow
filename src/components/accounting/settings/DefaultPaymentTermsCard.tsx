@@ -2,7 +2,7 @@
  * "Default payment terms" on the company settings page: what a customer or supplier whose own terms are not set is
  * dated by on a NEW document (invoice, bill, recurring run, import). Saved on its own (PUT company-settings?type=payment-terms),
  * so it never rides on the page's company Save; owners and admins only (the route's withRole('admin') is the gate, this only
- * decides what is offered), and each change is recorded in the entity history (migration 959). Starts at 30 days from invoice for every company (migration 958).
+ * decides what is offered), and each change is recorded in the entity history (migration 961). Starts at 30 days from invoice for every company (migration 960).
  */
 import { useEffect, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';

@@ -1,5 +1,5 @@
 /**
- * createSupplierInvoice stores the due date the supplier's terms give (migration 958) when the caller names none,
+ * createSupplierInvoice stores the due date the supplier's terms give (migration 960) when the caller names none,
  * falling back to the invoice's own "netNN" text, and never overriding a date the caller supplied. The assertion is on
  * the value bound to the INSERT, not on a row the mock hands back.
  */

@@ -1,5 +1,5 @@
 /**
- * Customer and supplier writes carry payment terms as a (number, type) pair (migration 958): the legacy forms of the
+ * Customer and supplier writes carry payment terms as a (number, type) pair (migration 960): the legacy forms of the
  * pair are read, a bad pair is refused before any SQL, a create with none stores "not set" (not 30), and an update
  * leaves, sets or clears. What is asserted is the parameters bound to the INSERT / UPDATE.
  */

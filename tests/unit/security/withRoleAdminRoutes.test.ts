@@ -48,7 +48,7 @@ const ROUTES: Array<[string, string[], Record<string, unknown>]> = [
   ['accounting/sage-migration-action', ALL, { action: 'noop' }],
   ['accounting/run-depreciation', ALL, {}],
   ['accounting/vat-declared-elsewhere', ALL, { action: 'mark', kind: 'customer', invoiceIds: [ID], reason: 'r' }],
-  // GET reads the company's default terms for every member; withRole gates the PUT of ?type=payment-terms only (959).
+  // GET reads the company's default terms for every member; withRole gates the PUT of ?type=payment-terms only (961).
   ['accounting/company-settings', ['PUT'], { payment_terms: 30, payment_terms_type: 'invoice_days' }],
   // GET lists locks for every member; withRole gates the unlock action only.
   ['accounting/vat-period-locks', ['POST'], { action: 'unlock', lockId: ID, reason: 'filed in error' }],

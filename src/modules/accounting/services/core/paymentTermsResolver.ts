@@ -1,5 +1,5 @@
 /**
- * Which terms a new document is dated by: the contact's own, else the company's default (migration 958; Hein,
+ * Which terms a new document is dated by: the contact's own, else the company's default (migration 960; Hein,
  * 2026-11-05: a contact whose terms are not set uses the company default, which starts at 30 days from invoice).
  * The one server-side place a document creator turns a contact and an invoice date into a due date.
  *

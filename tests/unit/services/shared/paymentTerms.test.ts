@@ -48,7 +48,7 @@ describe('dueDateFromTerms: statement_months (month-end of the Nth month after t
   });
 });
 
-describe('dueDateFromTerms: a number with no type (what the pre-958 code wrote as (30, NULL))', () => {
+describe('dueDateFromTerms: a number with no type (what the pre-960 code wrote as (30, NULL))', () => {
   it.each([[null], [undefined], ['']])('reads type %j as invoice days', (type) => {
     expect(dueDateFromTerms('2026-10-01', 30, type)).toBe('2026-10-31');
   });

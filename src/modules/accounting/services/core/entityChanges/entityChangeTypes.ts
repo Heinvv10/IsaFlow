@@ -1,6 +1,6 @@
 /**
  * Entity change history (forensic-controls step 3, migration 888; 952 added
- * employee bank details, 959 the company's default payment terms): the types, and who may read what — the same rules entity_changes' RLS policy enforces
+ * employee bank details, 961 the company's default payment terms): the types, and who may read what — the same rules entity_changes' RLS policy enforces
  * (entity_changes_read), stated once here for the routes, the MCP tool and the
  * UI. Pinned to the migrations by entityChangeTypes.test.ts.
  */

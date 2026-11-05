@@ -105,7 +105,7 @@ describe('createCustomer — auto_allocate_strategy', () => {
 });
 
 describe('updateCustomer — auto_allocate_strategy', () => {
-  // After each cleared-flag / value pair and the terms quartet the update binds (migration 958, edit page).
+  // After each cleared-flag / value pair and the terms quartet the update binds (migration 960, edit page).
   const STRATEGY_INDEX = 39;
   const BOOLEAN_INDEX = 40;
 

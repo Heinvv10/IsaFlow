@@ -1,5 +1,5 @@
 /**
- * A supplier bill's due date, one precedence for every way a bill is created (migration 958; Hein, 2026-11-05):
+ * A supplier bill's due date, one precedence for every way a bill is created (migration 960; Hein, 2026-11-05):
  *   1. a due date the document or caller gave;
  *   2. the bill's own terms when someone CHOSE them ("net30", "immediate"; the page no longer sends a silent default);
  *   3. the supplier's terms;

@@ -75,7 +75,7 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
     WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
     ORDER BY cii.line_position NULLS LAST, cii.created_at, cii.id -- the entry order (956); as the detail GET
   `) as InvoicePdfLine[];
-  // The terms printed: the customer's own, else the company default (migration 958). Shown digest only: the draft digest
+  // The terms printed: the customer's own, else the company default (migration 960). Shown digest only: the draft digest
   // covers the invoice row, and a customer's terms edited meanwhile must not refuse a draft's autosave.
   const terms = effectiveTerms(r.contact_terms_days == null ? null : Number(r.contact_terms_days), r.contact_terms_type as string | null,
     companyTermsFromSetting(r.company_default_terms));

@@ -125,7 +125,7 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
   // configured width. The helper reserves, and retries past a number some
   // legacy row already holds under its own savepoint — without that, a single
   // such row stalls this template on every future run.
-  // The customer's terms, else the company default (migration 958), from the invoice date this run writes. The
+  // The customer's terms, else the company default (migration 960), from the invoice date this run writes. The
   // template row carries both (recurringInvoiceLock joins them), so there is no query of its own.
   const invoiceDate = fmtDate(new Date());
   const dueDate = dueDateWithDefault(

@@ -1,4 +1,4 @@
--- 959: the company's default payment terms get a change history (Hein, 2026-11-05: who, when, old -> new).
+-- 961: the company's default payment terms get a change history (Hein, 2026-11-05: who, when, old -> new).
 --
 -- The default lives in accounting_settings (key 'default_payment_terms', JSON), not on companies (936 made companies
 -- column-level read-only for the app pools), so 888's company projection cannot see it. It is tracked as its own entity

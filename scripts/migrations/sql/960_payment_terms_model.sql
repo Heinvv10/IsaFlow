@@ -1,4 +1,4 @@
--- 958: payment terms model, EXPAND step (payment-terms / due-by-date plan, PR 1,
+-- 960: payment terms model, EXPAND step (payment-terms / due-by-date plan, PR 1,
 -- docs/plans/2026-11-05-payment-terms-due-by-date.md, decisions 2 and 3 and the company-default ruling).
 --
 -- payment_terms (integer N) stays; payment_terms_type now says what N counts:
@@ -73,8 +73,8 @@ WHERE ((payment_terms IS NULL AND payment_terms_type IS NULL)
 COMMENT ON COLUMN suppliers.payment_terms IS
   'N for payment_terms_type (days or months). NULL with a NULL type: terms not set, the company default applies.';
 COMMENT ON COLUMN suppliers.payment_terms_type IS
-  'invoice_days | statement_days | statement_months; NULL = not set (migration 958). Old code still writes days / end_of_month until PR 1b.';
+  'invoice_days | statement_days | statement_months; NULL = not set (migration 960). Old code still writes days / end_of_month until PR 1b.';
 COMMENT ON COLUMN customers.payment_terms IS
   'N for payment_terms_type (days or months). NULL with a NULL type: terms not set, the company default applies.';
 COMMENT ON COLUMN customers.payment_terms_type IS
-  'invoice_days | statement_days | statement_months; NULL = not set (migration 958). Old code still writes days / end_of_month until PR 1b.';
+  'invoice_days | statement_days | statement_months; NULL = not set (migration 960). Old code still writes days / end_of_month until PR 1b.';

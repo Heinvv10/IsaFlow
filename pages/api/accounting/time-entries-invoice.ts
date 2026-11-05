@@ -101,7 +101,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // domain — it never advanced company_document_numbers — retrying on a message
     // containing "unique" with no savepoint, so a real 23505 left the request
     // transaction aborted and every later attempt failed 25P02 instead.
-    // The customer's terms, else the company default (migration 958).
+    // The customer's terms, else the company default (migration 960).
     const dueDate = await dueDateForContact(companyId, 'customer', customerId, invDate!);
     const { invoiceId, invoiceNumber } = await insertWithReservedNumber(
       companyId, 'customer_invoice', 'te_inv_', 'uq_customer_invoices_company_number',

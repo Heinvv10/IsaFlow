@@ -1,7 +1,7 @@
 /**
  * Fills a new supplier invoice's due date, by the same precedence the server uses (ap/billDueDate): the bill's own
  * terms when the user chose them (net30, immediate), else the supplier's terms, else the company default (migration
- * 958). The user (or a scanned document) owns the date once they set it: `claim()` stops any further fill, so a
+ * 960). The user (or a scanned document) owns the date once they set it: `claim()` stops any further fill, so a
  * supplier change, an invoice date change or a terms change never overwrites a date someone typed. Until then the
  * date is DERIVED: changing the supplier takes the previous supplier's date out at once and re-derives from the new one.
  */

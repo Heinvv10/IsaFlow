@@ -201,7 +201,7 @@ export async function convertToInvoice(
   // walked straight into historical INV-xxxxx rows (uq violation, found live
   // 2026-07-05). Same savepoint-isolated retry as the create path: a clash
   // with a legacy number must not poison the request transaction.
-  // The customer's terms, else the company default (migration 958): not the quote's expiry, which is how long the offer stands.
+  // The customer's terms, else the company default (migration 960): not the quote's expiry, which is how long the offer stands.
   const dueDate = (await dueDateForContact(companyId, 'customer', quote.clientId || null, String(quote.quoteDate))) ?? quote.quoteDate;
   const invoiceId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'quote_conv_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {

@@ -1,9 +1,9 @@
 /**
- * Migration 958 (payment terms, the EXPAND half) against every legacy shape a contact can carry, and against what the
+ * Migration 960 (payment terms, the EXPAND half) against every legacy shape a contact can carry, and against what the
  * OLD code still writes after it ran (the build runs beside the old code, and a rollback is code-only, so the old
  * writers (createSupplier (30, NULL), createCustomer 'days', the migration importer `?? 30`) must keep working).
  *
- * The harness has already applied 958 once. This test seeds the legacy shapes, runs the file's SQL again inside one
+ * The harness has already applied 960 once. This test seeds the legacy shapes, runs the file's SQL again inside one
  * transaction (it is written to be re-run), asserts what each shape became, runs it a third time to prove the mapping
  * is idempotent, then ROLLS BACK: nothing it seeded, and nothing the re-run touched in other suites' rows, survives.
  */
@@ -15,7 +15,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const MIGRATION = readFileSync(resolve(__dirname, '../../scripts/migrations/sql/958_payment_terms_model.sql'), 'utf8');
+const MIGRATION = readFileSync(resolve(__dirname, '../../scripts/migrations/sql/960_payment_terms_model.sql'), 'utf8');
 
 type Shape = [label: string, n: number | null, type: string | null, expectN: number | null, expectType: string | null];
 const SHAPES: Shape[] = [
@@ -33,13 +33,13 @@ const SHAPES: Shape[] = [
   ['1500 days (over the 999 the forms accept)', 1500, 'days', null, null],
   ['already new: 3 statement_months', 3, 'statement_months', 3, 'statement_months'],
   ['already new: 60 invoice_days', 60, 'invoice_days', 60, 'invoice_days'],
-  ['already new: 30 invoice_days (chosen after 958, kept)', 30, 'invoice_days', 30, 'invoice_days'],
+  ['already new: 30 invoice_days (chosen after 960, kept)', 30, 'invoice_days', 30, 'invoice_days'],
 ];
 
 let company = '';
 beforeAll(async () => {
   company = crypto.randomUUID();
-  await pool.query('INSERT INTO companies(id, name) VALUES($1, $2)', [company, `958 ${company.slice(0, 8)}`]);
+  await pool.query('INSERT INTO companies(id, name) VALUES($1, $2)', [company, `960 ${company.slice(0, 8)}`]);
 });
 afterAll(async () => {
   await pool.query('DELETE FROM companies WHERE id = $1', [company]);
@@ -79,7 +79,7 @@ async function stored(db: PoolClient, ids: Map<string, { table: 'suppliers' | 'c
   return out;
 }
 
-describe('migration 958 maps every legacy shape, and is safe to run again', () => {
+describe('migration 960 maps every legacy shape, and is safe to run again', () => {
   it('maps each shape on both tables, and a second and third run change nothing', async () => {
     await inTx(async (db) => {
       const ids = await seed(db);

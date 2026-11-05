@@ -224,7 +224,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     invoiceInput.totalAmount,
   );
 
-  // Create supplier invoice. Due date: the document's, else its own terms, the supplier's, the company default (958).
+  // Create supplier invoice. Due date: the document's, else its own terms, the supplier's, the company default (960).
   const [invoice] = await sql`
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,

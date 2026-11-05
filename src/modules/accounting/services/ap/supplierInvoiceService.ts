@@ -115,7 +115,7 @@ export async function createSupplierInvoice(
     `) as Row[];
     const supplierVatNumber: string | null = supplierRow?.vat_number ?? null;
     // Precedence: a due date the caller gave; the bill's own terms when the user or API caller chose them ("net30",
-    // "immediate"; never a silent default); the supplier's terms; the company default (migration 958).
+    // "immediate"; never a silent default); the supplier's terms; the company default (migration 960).
     const dueDate = input.dueDate
       || ownTermsDueDate(input.invoiceDate, input.paymentTerms)
       || dueDateWithDefault(

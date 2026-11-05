@@ -7,7 +7,7 @@
  * PUT  ?type=messages          — update messages
  * PUT  ?type=payment-terms     — set the default payment terms (what a contact with none uses on a new document);
  *                                 owner / admin only (it dates every new invoice and bill of a contact with no terms), recorded
- *                                 in the entity history (migration 959)
+ *                                 in the entity history (migration 961)
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';

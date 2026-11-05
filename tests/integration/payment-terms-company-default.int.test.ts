@@ -1,5 +1,5 @@
 /**
- * The company's default payment terms (migration 958; Hein, 2026-11-05): a contact whose terms are not set is dated by
+ * The company's default payment terms (migration 960; Hein, 2026-11-05): a contact whose terms are not set is dated by
  * them. Through the real route and the real resolver: set and read the default as an owner, refused for a viewer and for
  * an unreadable value, scoped to the company; a contact's own terms win; a contact in ANOTHER company is not read.
  */
@@ -89,7 +89,7 @@ describe('company default payment terms: the settings route', () => {
   });
 });
 
-describe('every change to the default is recorded: who, when, old -> new (migration 959)', () => {
+describe('every change to the default is recorded: who, when, old -> new (migration 961)', () => {
   const settingId = async (c: string) =>
     (await pool.query("SELECT id FROM accounting_settings WHERE company_id = $1 AND key = 'default_payment_terms'", [c])).rows[0].id as string;
   const terms = (value: unknown) => JSON.parse(String(value)) as { days: number; type: string };

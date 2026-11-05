@@ -45,7 +45,7 @@ Code facts:
    Sage. The contact shows "Terms not confirmed — using company default (30 days from invoice date)".
    **Re-apply (PR 3) skips not-set contacts** and flags them. New contacts must CHOOSE terms (no
    pre-selection; "Use company default" is a valid choice and stores NULL/NULL).
-   Owner/admin only to change (`withRole('admin')`), and every change is recorded in the entity history (migration 959,
+   Owner/admin only to change (`withRole('admin')`), and every change is recorded in the entity history (migration 961,
    entity type `company_setting`: who, when, old → new).
    Stored in `accounting_settings` (key `default_payment_terms`, JSON): `companies` is column-level
    read-only for the app pools since migration 936, so a new column there would not be writable by a tenant.
@@ -74,16 +74,16 @@ The build that ships PR 1 runs beside the old code (the live colour during the b
 code still writes the old shapes: `createSupplier` writes `(30, NULL)`, `createCustomer` writes `'days'`, the migration importer
 writes `?? 30`. So:
 
-- **958 (PR 1, expand).** Maps the data, adds NO CHECK and drops NO DEFAULT. The new code reads every legacy shape
+- **960 (PR 1, expand).** Maps the data, adds NO CHECK and drops NO DEFAULT. The new code reads every legacy shape
   (`shared/paymentTerms.readTerms`: `'days'` = invoice_days, `'end_of_month'` = statement_days, a number with no type =
   invoice_days; a negative, over-999 or unknown-type row is not terms). Tested by
-  `tests/integration/payment-terms-958-migration.int.test.ts` (every legacy shape, idempotent, old-code writes still succeed).
+  `tests/integration/payment-terms-960-migration.int.test.ts` (every legacy shape, idempotent, old-code writes still succeed).
 - **PR 1b (tighten): NOT in this PR; its own migration, applied only after PR 1 is live and the old colour is gone.**
   Take the next free prefix, then:
 
 ```sql
 SET LOCAL lock_timeout = '5s';
--- anything the old code wrote in the window: legacy names and the over-cap rows, mapped exactly as 958 maps them
+-- anything the old code wrote in the window: legacy names and the over-cap rows, mapped exactly as 960 maps them
 UPDATE suppliers SET payment_terms_type = CASE WHEN payment_terms_type IS NULL OR payment_terms_type = 'days' THEN 'invoice_days'
   WHEN payment_terms_type = 'end_of_month' THEN 'statement_days' ELSE payment_terms_type END
 WHERE payment_terms IS NOT NULL AND payment_terms_type IN ('days', 'end_of_month') OR (payment_terms IS NOT NULL AND payment_terms_type IS NULL);
@@ -109,7 +109,7 @@ field is a 400, and the form shows the bank details read-only and masked. A rena
 
 | PR | Scope | Depends on |
 |---|---|---|
-| 1 Terms model | migration 958 (expand: default-30 → not set, legacy names mapped; no CHECK), shared pure `dueDateFromTerms` + company default, supplier + customer forms and edit pages, every document creator dated by contact terms then company default, fix `calculateDueDate` UTC bug + hardcoded 30s, Sage import paths | — |
+| 1 Terms model | migration 960 (expand: default-30 → not set, legacy names mapped; no CHECK), shared pure `dueDateFromTerms` + company default, supplier + customer forms and edit pages, every document creator dated by contact terms then company default, fix `calculateDueDate` UTC bug + hardcoded 30s, Sage import paths | — |
 | 1b Tighten | DROP DEFAULT + CHECK (N ≤ 999) on suppliers and customers; applied only after 1 is live | 1, deployed |
 | 2 Due-date source + edit | migration (`due_date_source`, due-date audit table), date-only edit route for approved/partially_paid bills | — (adversarial review: loosens approved-bill lock) |
 | 3 Re-apply terms | preview/confirm UI + API + MCP | 1, 2 |

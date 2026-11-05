@@ -46,7 +46,7 @@ type RowOutcome = 'imported' | 'already_in_ap' | 'failed';
  *   - due date: what the supplier's payment terms give the invoice date
  *     (`shared/paymentTerms`: days from the invoice, days after the
  *     statement, or months after it); a supplier whose terms are not set uses
- *     the company's default terms (migration 958; Hein, 2026-11-05);
+ *     the company's default terms (migration 960; Hein, 2026-11-05);
  *     the ageing lists such a bill under "no due date", still owed.
  *   - VAT: none stated, so none recorded and the bill flagged (R-089,
  *     `deriveSageVat`). Never a 15% unwind of the total.

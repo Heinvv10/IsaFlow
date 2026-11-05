@@ -104,7 +104,7 @@ describe('createSupplier — auto_allocate_strategy', () => {
 describe('updateSupplier — auto_allocate_strategy', () => {
   // Position confirmed against the current column order in supplierWriteService.ts:
   // ...category, auto_allocate_strategy, auto_allocate_payments, [updated_at=NOW() has no param], id, company_id
-  // After each cleared-flag / value pair and the terms quartet the update binds (migration 958, edit page).
+  // After each cleared-flag / value pair and the terms quartet the update binds (migration 960, edit page).
   const STRATEGY_INDEX = 31;
   const BOOLEAN_INDEX = 32;
 

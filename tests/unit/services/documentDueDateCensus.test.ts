@@ -2,7 +2,7 @@
  * A source-text RATCHET (it proves nothing about behaviour; the due-date tests beside each creator do): every writer of a
  * customer or supplier invoice either dates it from the contact's terms and then the company default (it names one of the
  * shared derivations), or is listed here with the reason it takes the date from its own source. A new document creator
- * that writes no due date, or a hard-coded +30, fails this and has to choose (migration 958; Hein, 2026-11-05).
+ * that writes no due date, or a hard-coded +30, fails this and has to choose (migration 960; Hein, 2026-11-05).
  */
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';

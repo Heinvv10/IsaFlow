@@ -68,7 +68,7 @@ export async function mintRecurringCustomerInvoice(
   }
   // The customer's FNO is stored on each line, so it is what posts and what an approval covers (dimensionStoredPosting).
   const dims = await revenueLineDefaults(companyId, clientId);
-  // The customer's terms, else the company default (migration 958), from the date this run writes.
+  // The customer's terms, else the company default (migration 960), from the date this run writes.
   const invoiceDate = fmtDate(new Date());
   const dueDate = await dueDateForContact(companyId, 'customer', String(clientId), invoiceDate);
   const entityId = await insertWithReservedNumber(
@@ -193,7 +193,7 @@ export async function mintRecurringSupplierInvoice(
     vatNumber = supRow?.vat_number ?? null;
   }
 
-  // The supplier's terms, else the company default (migration 958), from the date this run writes.
+  // The supplier's terms, else the company default (migration 960), from the date this run writes.
   const invoiceDate = fmtDate(new Date());
   const dueDate = await dueDateForContact(companyId, 'supplier', String(supplierId), invoiceDate);
   const entityId = await insertWithReservedNumber(
