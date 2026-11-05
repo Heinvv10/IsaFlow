@@ -59,6 +59,8 @@ describe('recordLoanPayment — which bank it credits', () => {
     await pay();
     expect(resolvePaymentBankAccount).toHaveBeenCalledTimes(1);
     expect(resolvePaymentBankAccount.mock.calls[0]!.slice(0, 2)).toEqual([CO, 'acct-loan-bank']);
+    // The stored id was never subtype-checked: a cash / NULL-subtype account must not 400 forever.
+    expect(resolvePaymentBankAccount.mock.calls[0]![3]).toEqual({ requireBankSubtype: false });
     expect(credited()).toBe('acct-loan-bank');
   });
 
@@ -74,6 +76,7 @@ describe('recordLoanPayment — which bank it credits', () => {
     resolvePaymentBankAccount.mockResolvedValue('acct-checked');
     await pay('some-id');
     expect(resolvePaymentBankAccount.mock.calls[0]!.slice(0, 2)).toEqual([CO, 'some-id']);
+    expect(resolvePaymentBankAccount.mock.calls[0]![3]).toBeUndefined(); // the full subtype check
     expect(credited()).toBe('acct-checked');
   });
 

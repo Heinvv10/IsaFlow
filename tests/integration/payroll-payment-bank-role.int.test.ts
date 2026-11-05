@@ -20,6 +20,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { markUifDeclarationPaid } from '../../src/modules/accounting/services/payroll/uifPaymentService';
 import { applyTaxDirective, TaxDirectiveAlreadyAppliedError } from '../../src/modules/accounting/services/payroll/taxDirectivePaymentService';
 import { recordLoanPayment } from '../../src/modules/accounting/services/loans/loanPaymentService';
+import { reverseJournalEntry } from '../../src/modules/accounting/services/gl/journalEntryPostingService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -251,3 +252,65 @@ describe('a retry on a payment already made is answered as before, whatever the 
   });
 });
 
+
+describe('a loan\'s stored bank_account_id is not held to the bank subtype', () => {
+  it('a cash-subtype account the loan names is credited (it must not 400 forever)', async () => {
+    await flag('1544331', { active: true });
+    const cash = (await pool.query(
+      `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,account_subtype,is_system_account,is_active,level)
+       VALUES($1,'1190','Petty cash','asset','debit','cash',false,true,3) RETURNING id`, [company])).rows[0].id as string;
+    await pool.query('UPDATE loans SET bank_account_id = $2 WHERE id = $1', [loan, cash]);
+    try {
+      await payLoan();
+      expect(await credited(cash)).toBeCloseTo(10500, 2);
+      // ...whereas the SAME account supplied by a caller is refused: only the stored id is exempt.
+      const err = await payLoan(cash).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(BankAccountRefusedError);
+      expect((err as Error).message).toMatch(/1190 Petty cash is not a bank account/);
+    } finally {
+      await pool.query('UPDATE loans SET bank_account_id = NULL WHERE id = $1', [loan]);
+    }
+  });
+});
+
+describe('directive: a bank refusal has written nothing, not even the release of a reversed payment', () => {
+  /** What a route does with a 4xx: the transaction COMMITs whatever was written before the throw. */
+  const commitEvenOnRefusal = async (fn: () => Promise<unknown>): Promise<unknown> => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const err = await als.run(ctxFor(client), fn).catch((e: unknown) => e);
+      await client.query('COMMIT');
+      return err;
+    } finally { client.release(); }
+  };
+
+  it('keeps the reversed payment row when the bank is refused, then releases it when the bank is fine', async () => {
+    await flag('1544331', { system: true, active: true });
+    const d = await directive();
+    const first = await inTx(() => applyTaxDirective(company, d, { paymentDate: '2026-03-11' }, user));
+    await inTx(() => reverseJournalEntry(company, first.journalEntryId, user));
+    expect(await directivePayments(d)).toBe(1);
+
+    await flag('1544331', { active: false });
+    const err = await commitEvenOnRefusal(() => applyTaxDirective(company, d, { paymentDate: '2026-03-12' }, user));
+    expect(err).toBeInstanceOf(BankAccountRefusedError);
+    const kept = (await pool.query('SELECT id FROM tax_directive_payments WHERE tax_directive_id=$1', [d])).rows;
+    expect(kept).toHaveLength(1);
+
+    await flag('1544331', { active: true });
+    const again = await inTx(() => applyTaxDirective(company, d, { paymentDate: '2026-03-12' }, user));
+    expect(again.paymentId).not.toBe(String(kept[0].id));
+    expect(await directivePayments(d)).toBe(1);
+  });
+
+  it('a payment that is NOT reversed is still "already applied", ahead of the bank', async () => {
+    await flag('1544331', { active: true });
+    const d = await directive();
+    await inTx(() => applyTaxDirective(company, d, { paymentDate: '2026-03-13' }, user));
+    await flag('1544331', { active: false });
+    const err = await inTx(() => applyTaxDirective(company, d, { paymentDate: '2026-03-13' }, user)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TaxDirectiveAlreadyAppliedError);
+    await flag('1544331', { active: true });
+  });
+});

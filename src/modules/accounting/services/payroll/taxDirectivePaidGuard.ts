@@ -61,6 +61,24 @@ export async function directivePaidBy(companyId: string, directiveId: string, di
     + `declared to SARS under it. To cancel it, reverse ${journal} first.`;
 }
 
+/** The stand-alone payments `releaseReversedStandalonePayment` would delete (read-only), so a caller can decide before it writes. */
+export async function reversedStandalonePayments(companyId: string, directiveId: string | null): Promise<Array<{ id: string; directiveId: string }>> {
+  const rows = (await sql`
+    SELECT tdp.id, tdp.tax_directive_id, tdp.journal_entry_id
+    FROM tax_directive_payments tdp
+    JOIN gl_journal_entries je ON je.id = tdp.journal_entry_id AND je.company_id = tdp.company_id
+    WHERE tdp.company_id = ${companyId}::uuid
+      AND (${directiveId}::uuid IS NULL OR tdp.tax_directive_id = ${directiveId}::uuid)
+      AND tdp.payroll_run_id IS NULL AND je.reversed_at IS NOT NULL
+  `) as DbRow[];
+  const undone: Array<{ id: string; directiveId: string }> = [];
+  for (const p of rows) {
+    if (await payrollJournalInForce(companyId, String(p.journal_entry_id))) continue;
+    undone.push({ id: String(p.id), directiveId: String(p.tax_directive_id) });
+  }
+  return undone;
+}
+
 /**
  * A stand-alone payment whose journal has been reversed is undone (and its
  * reversal can no longer be reversed: payrollJournalReversalGuard), so its row
@@ -73,19 +91,8 @@ export async function directivePaidBy(companyId: string, directiveId: string, di
  * reversed).
  */
 export async function releaseReversedStandalonePayment(companyId: string, directiveId: string | null): Promise<void> {
-  const rows = (await sql`
-    SELECT tdp.id, tdp.tax_directive_id, tdp.journal_entry_id
-    FROM tax_directive_payments tdp
-    JOIN gl_journal_entries je ON je.id = tdp.journal_entry_id AND je.company_id = tdp.company_id
-    WHERE tdp.company_id = ${companyId}::uuid
-      AND (${directiveId}::uuid IS NULL OR tdp.tax_directive_id = ${directiveId}::uuid)
-      AND tdp.payroll_run_id IS NULL AND je.reversed_at IS NOT NULL
-  `) as DbRow[];
-  for (const p of rows) {
-    if (await payrollJournalInForce(companyId, String(p.journal_entry_id))) continue;
+  for (const p of await reversedStandalonePayments(companyId, directiveId)) {
     await sql`DELETE FROM tax_directive_payments WHERE id = ${p.id}::uuid AND company_id = ${companyId}::uuid`;
-    log.info('Reversed directive payment released', {
-      companyId, directiveId: String(p.tax_directive_id), paymentId: String(p.id),
-    }, 'taxDirective');
+    log.info('Reversed directive payment released', { companyId, directiveId: p.directiveId, paymentId: p.id }, 'taxDirective');
   }
 }

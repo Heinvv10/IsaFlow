@@ -28,6 +28,8 @@ function alreadyPaid(decl: UifDeclaration): UifPaymentResult {
   return { id: decl.id, totalPaid: decl.totalUif, journalEntryId: decl.journalEntryId ?? '', status: 'paid' };
 }
 
+const notSubmitted = (status: string): Error => new Error(`UIF declaration must be 'submitted' before paying (current: ${status})`);
+
 /** DR 2150 UIF Payable / CR Bank (`bankAccountId`, else the bank-role holder) — clears the month's UIF liability on payment to Labour Dept. */
 export async function markUifDeclarationPaid(
   companyId: string,
@@ -45,6 +47,9 @@ export async function markUifDeclarationPaid(
   // An already-paid declaration is idempotent whatever the bank role or the supplied account is now: a retry must
   // not be refused for a bank it will never credit. The claim below decides the same for a rival that wins the race.
   if (decl.status === 'paid') return alreadyPaid(decl);
+  // A declaration that is not 'submitted' gets the status error, not a bank refusal for a payment it could never make
+  // (the claim below repeats this against a rival that wins the race). Read-only, so nothing is written before a 4xx.
+  if (decl.status !== 'submitted') throw notSubmitted(decl.status);
   // Refused before the claim below: a payment with no bank to credit writes nothing.
   const bankAccId = await resolvePaymentBankAccount(companyId, opts.bankAccountId);
 
@@ -71,7 +76,7 @@ export async function markUifDeclarationPaid(
     `) as Row[];
     const cur = nowRows[0] ? mapUifDeclaration(nowRows[0]) : null;
     if (cur?.status === 'paid') return alreadyPaid(cur);
-    throw new Error(`UIF declaration must be 'submitted' before paying (current: ${cur?.status ?? 'missing'})`);
+    throw notSubmitted(cur?.status ?? 'missing');
   }
 
   const uifPayableId = await resolveGlAccount(companyId, '2150', 'UIF Payable');

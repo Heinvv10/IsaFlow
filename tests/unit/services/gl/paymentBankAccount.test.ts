@@ -127,3 +127,26 @@ describe('resolvePaymentBankAccount — a caller-supplied bankAccountId', () => 
     await expect(resolvePaymentBankAccount(CO, id(99))).rejects.toThrow(/not an account of this company/);
   });
 });
+
+describe('resolvePaymentBankAccount — a loan\'s STORED bank (requireBankSubtype: false)', () => {
+  const STORED = { requireBankSubtype: false };
+  const what = "The loan's bank account";
+
+  it('accepts an active postable account of this company whatever its subtype (cash, other, NULL)', async () => {
+    table.push(row(id(20), '1160', { account_subtype: 'cash' }), row(id(21), '1161', { account_subtype: null }), row(id(22), '1162', { account_subtype: 'other' }));
+    for (const acct of [id(20), id(21), id(22)]) {
+      await expect(resolvePaymentBankAccount(CO, acct, what, STORED)).resolves.toBe(acct);
+    }
+  });
+
+  it('still refuses another company, a deactivated account, a header and a non-UUID, naming the loan\'s account', async () => {
+    await expect(resolvePaymentBankAccount(CO, THEIRS, what, STORED)).rejects.toThrow(/The loan's bank account is not an account of this company/);
+    await expect(resolvePaymentBankAccount(CO, DEACT, what, STORED)).rejects.toThrow(/1140 Acct 1140 is deactivated/);
+    await expect(resolvePaymentBankAccount(CO, HEADER, what, STORED)).rejects.toThrow(/is a header with sub-accounts/);
+    await expect(resolvePaymentBankAccount(CO, 'nope', what, STORED)).rejects.toThrow(/The loan's bank account must be a valid UUID/);
+  });
+
+  it('a caller-supplied id (the default) still demands the bank subtype', async () => {
+    await expect(resolvePaymentBankAccount(CO, id(8), what)).rejects.toThrow(/is not a bank account/);
+  });
+});

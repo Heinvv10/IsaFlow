@@ -24,7 +24,7 @@ import { resolvePaymentBankAccount } from '@/modules/accounting/services/gl/paym
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { directivePaye } from './payrollSeveranceDirective';
 import { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
-import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
+import { releaseReversedStandalonePayment, reversedStandalonePayments } from './taxDirectivePaidGuard';
 import { employeeLabourLines } from './payrollCostCentreTags';
 import { lockDirectiveLabour, postOrRetry, refreshDirectiveLabour } from './taxDirectiveLabour';
 
@@ -116,11 +116,11 @@ async function glByCode(companyId: string, code: string): Promise<string | null>
   return rows.length > 0 ? String(rows[0]!.id) : null;
 }
 
-/** The refusal for a directive with a payment row already (a pay run that paid it holds the same row), else null. */
-async function existingPayment(companyId: string, directiveId: string): Promise<TaxDirectiveAlreadyAppliedError | null> {
+/** The refusal for a directive with a payment row already (a pay run that paid it holds the same row), else null. `undone` rows are not payments. */
+async function existingPayment(companyId: string, directiveId: string, undone: string[] = []): Promise<TaxDirectiveAlreadyAppliedError | null> {
   const now = (await sql`
     SELECT id, payroll_run_id FROM tax_directive_payments
-    WHERE company_id = ${companyId} AND tax_directive_id = ${directiveId}
+    WHERE company_id = ${companyId} AND tax_directive_id = ${directiveId} AND id <> ALL(${undone}::uuid[])
     LIMIT 1
   `) as Row[];
   if (!now[0]) return null;
@@ -161,7 +161,6 @@ export async function applyTaxDirective(
     SELECT 1 FROM payroll_employees WHERE company_id = ${companyId} AND id = ${dir.employee_id}
   `) as Row[];
   if (employee.length === 0) throw new TaxDirectiveWithoutEmployeeError(directiveId);
-  await releaseReversedStandalonePayment(companyId, directiveId);
 
   // 2. Compute amounts
   const gross = round2(num(dir.amount));
@@ -194,12 +193,14 @@ export async function applyTaxDirective(
     throw new Error('GL account 2140 (PAYE Payable) not found — ensure chart of accounts is seeded');
   }
 
-  // Already paid: "already applied" whatever the bank is now (a retry is not refused for a bank it never credits).
-  const applied = await existingPayment(companyId, directiveId);
+  // Already paid: "already applied" whatever the bank is now. A reversed stand-alone payment is no payment: it is
+  // read here, released only once the bank is settled, so a refusal has written nothing (the DELETE is the first write).
+  const applied = await existingPayment(companyId, directiveId, (await reversedStandalonePayments(companyId, directiveId)).map((p) => p.id));
   if (applied) throw applied;
 
-  // The supplied account, checked, else the bank-role holder; refused before the claim below.
+  // The supplied account, checked, else the bank-role holder.
   const bankAccountId = await resolvePaymentBankAccount(companyId, input.bankAccountId);
+  await releaseReversedStandalonePayment(companyId, directiveId);
 
   // 4. Describe the journal; its labour lines are built after the claim wait.
   const employeeName = String(dir.employee_name);

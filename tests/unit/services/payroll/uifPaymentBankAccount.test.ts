@@ -74,6 +74,18 @@ describe('markUifDeclarationPaid — which bank it credits', () => {
   });
 });
 
+describe('markUifDeclarationPaid — a declaration that is not submitted', () => {
+  it.each(['draft', 'accepted'])('%s: the status error wins over a bank refusal, and nothing is written', async (status) => {
+    declStatus = status;
+    resolvePaymentBankAccount.mockRejectedValue(new BankAccountRefusedError('No active account holds the company\'s bank role.'));
+    const err = await markUifDeclarationPaid(CO, DECL, {}, USER).catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(BankAccountRefusedError);
+    expect((err as Error).message).toBe(`UIF declaration must be 'submitted' before paying (current: ${status})`);
+    expect(resolvePaymentBankAccount).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+  });
+});
+
 describe('markUifDeclarationPaid — a retry on an already-paid declaration', () => {
   it('returns the idempotent result without consulting the bank resolver, even if it would now refuse', async () => {
     declStatus = 'paid';
