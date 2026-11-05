@@ -24,6 +24,34 @@ export interface AttachResult {
 }
 
 /**
+ * The provisional JE `attachEvidenceToProvisional` would attach a slip to (read only, unlocked), or null. Matching:
+ * JE needs_evidence, its bank line still 'provisional', the predicted supplier when one is given, |amount| within
+ * R0.01 of the total, transaction date within ±2 days; the latest first. Also read by the capture bill's line plan
+ * (`captureBillLines`, budgets P5-2b), which inherits the slip's dimensions before the lines are written.
+ */
+export async function findAttachableProvisional(
+  companyId: string, supplierId: string | null, totalAmount: number, documentDate: string,
+): Promise<{ jeId: string; btId: string; bankAccountId: string } | null> {
+  const rows = (await sql`
+    SELECT je.id AS je_id, bt.id AS bt_id, bt.bank_account_id
+    FROM gl_journal_entries je
+    JOIN bank_transactions bt ON bt.provisional_je_id = je.id
+    WHERE je.company_id = ${companyId}::UUID
+      AND bt.company_id = ${companyId}::UUID
+      AND je.needs_evidence = true
+      AND bt.status = 'provisional'
+      AND (${supplierId}::UUID IS NULL OR bt.predicted_supplier_id = ${supplierId}::UUID)
+      AND ABS(bt.amount) BETWEEN ${totalAmount - 0.01} AND ${totalAmount + 0.01}
+      AND bt.transaction_date BETWEEN (${documentDate}::DATE - INTERVAL '2 days')
+                                  AND (${documentDate}::DATE + INTERVAL '2 days')
+    ORDER BY bt.transaction_date DESC
+    LIMIT 1
+  `) as Row[];
+  const r = rows[0];
+  return r ? { jeId: String(r.je_id), btId: String(r.bt_id), bankAccountId: String(r.bank_account_id) } : null;
+}
+
+/**
  * Find a provisional JE that matches supplier + amount (±R0.01) + date (±2 days)
  * and flip it from provisional to evidenced.
  *
@@ -64,52 +92,11 @@ export async function attachEvidenceToProvisional(
       const rawConfidence = extractedData.confidence;
       const docConfidence = typeof rawConfidence === 'number' ? rawConfidence : null;
 
-      // Find matching provisional JE via linked bank_transaction
-      // Matching rules:
-      //   - JE needs_evidence = true
-      //   - bank_transactions.status = 'provisional'
-      //   - supplierId match (when provided)
-      //   - ABS(bank_transactions.amount) within R0.01 of totalAmount
-      //   - bank_transactions.transaction_date within ±2 days of documentDate
-      let matchRows: Row[];
+      const match = await findAttachableProvisional(companyId, supplierId, totalAmount, documentDate);
+      if (!match) return nothing;
 
-      if (supplierId) {
-        matchRows = (await sql`
-          SELECT je.id AS je_id, bt.id AS bt_id
-          FROM gl_journal_entries je
-          JOIN bank_transactions bt ON bt.provisional_je_id = je.id
-          WHERE je.company_id = ${companyId}::UUID
-            AND bt.company_id = ${companyId}::UUID
-            AND je.needs_evidence = true
-            AND bt.status = 'provisional'
-            AND bt.predicted_supplier_id = ${supplierId}::UUID
-            AND ABS(bt.amount) BETWEEN ${totalAmount - 0.01} AND ${totalAmount + 0.01}
-            AND bt.transaction_date BETWEEN (${documentDate}::DATE - INTERVAL '2 days')
-                                        AND (${documentDate}::DATE + INTERVAL '2 days')
-          ORDER BY bt.transaction_date DESC
-          LIMIT 1
-        `) as Row[];
-      } else {
-        matchRows = (await sql`
-          SELECT je.id AS je_id, bt.id AS bt_id
-          FROM gl_journal_entries je
-          JOIN bank_transactions bt ON bt.provisional_je_id = je.id
-          WHERE je.company_id = ${companyId}::UUID
-            AND bt.company_id = ${companyId}::UUID
-            AND je.needs_evidence = true
-            AND bt.status = 'provisional'
-            AND ABS(bt.amount) BETWEEN ${totalAmount - 0.01} AND ${totalAmount + 0.01}
-            AND bt.transaction_date BETWEEN (${documentDate}::DATE - INTERVAL '2 days')
-                                        AND (${documentDate}::DATE + INTERVAL '2 days')
-          ORDER BY bt.transaction_date DESC
-          LIMIT 1
-        `) as Row[];
-      }
-
-      if (matchRows.length === 0) return nothing;
-
-      const jeId = String(matchRows[0]!.je_id);
-      const btId = String(matchRows[0]!.bt_id);
+      const jeId = match.jeId;
+      const btId = match.btId;
 
       // One document, one claim, at the GL write side — before the bank-line
       // write below. A document that already backs a posted, unreversed

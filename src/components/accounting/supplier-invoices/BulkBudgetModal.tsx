@@ -4,6 +4,8 @@
  * on each over-budget bill's check; block: the over-budget bills are refused (409 per item) and the
  * rest approved (overriding is a single-bill act). Each bill is judged here on its own; the server
  * judges them in order, so bills in one batch drawing on one budget can be refused later in the run.
+ * P5-2b: `overBills` also counts bills with a line outside every budgeted slice of a budgeted account (the preview
+ * counts both alike), so the modal words them together.
  */
 import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
@@ -31,21 +33,21 @@ export function BulkBudgetModal({ open, total, overBills, policy, verb, onCancel
         <div className="flex items-start gap-2 rounded-lg bg-red-500/10 p-3 text-sm text-red-500" role="status">
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
           <span>
-            {overBills} of {total} selected {total === 1 ? 'bill is' : 'bills are'} over budget.{' '}
+            {overBills} of {total} selected {total === 1 ? 'bill is' : 'bills are'} over budget or not in a budgeted slice.{' '}
             {block
               ? 'They will be refused and the rest approved. An owner or admin can override a bill on its own page.'
-              : 'They will be approved and reported as over budget.'}
+              : 'They will be approved and reported.'}
           </span>
         </div>
         {!block && (
           <label className="block text-sm text-[var(--ff-text-primary)]">
-            <span className="block mb-1 font-medium">Reason for the batch (recorded on each over-budget bill)</span>
+            <span className="block mb-1 font-medium">Reason for the batch (recorded on each of those bills)</span>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value.slice(0, REASON_MAX))}
               rows={3}
               className="w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-3 py-2 text-sm"
-              placeholder="Why these bills should be approved over budget"
+              placeholder="Why these bills should be approved anyway"
             />
           </label>
         )}
