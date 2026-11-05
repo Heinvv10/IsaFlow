@@ -12,6 +12,7 @@ import { getAPAging } from '../ap/apAgingService';
 import { getUnappliedByEntity } from '../shared/agedNetting';
 import { getReconciliations } from '../bank/bankReconciliationService';
 import { getBankAccountsStatus } from '../bank/bankAccountStatusService';
+import { getCashBalance } from '../bank/cashBalanceService';
 import type { AgeingData, ReconciliationData } from './managementPackReportSections';
 
 /** The generator's logger component, which the log assertions and the log search both know. */
@@ -52,12 +53,23 @@ export function readAgeing(ctx: Ctx, side: 'ar' | 'ap', asAt: string): Promise<A
   });
 }
 
-/** Every reconciliation session, beside the company's bank accounts (so one never reconciled is not silently absent). */
-export function readReconciliations(ctx: Ctx): Promise<ReconciliationData | null> {
-  return readSafely(ctx, 'bank_reconciliation', async () => ({
-    sessions: await getReconciliations(ctx.companyId),
-    accounts: (await getBankAccountsStatus(ctx.companyId)).map((a) => ({ id: a.id, name: a.accountName })),
-  }));
+/**
+ * Every reconciliation session, beside the company's bank accounts (so one never reconciled is not silently absent).
+ * A money question, so deactivated accounts are in: one leaves the list only when nothing ever happened on it, with no
+ * session, no statement line and no ledger balance at the month end. The status service's balance is the statement basis
+ * and says nothing of money held only in the ledger, and it has no as-at date, so neither it nor a net of nil clears one.
+ */
+export function readReconciliations(ctx: Ctx, asAt: string): Promise<ReconciliationData | null> {
+  return readSafely(ctx, 'bank_reconciliation', async () => {
+    const sessions = await getReconciliations(ctx.companyId);
+    const accounts = await getBankAccountsStatus(ctx.companyId, { includeInactive: true });
+    const { deactivatedWithBalance } = await getCashBalance(ctx.companyId, asAt);
+    const inUse = new Set([...sessions.map((s) => s.bankAccountId), ...deactivatedWithBalance.map((a) => a.accountId)]);
+    return {
+      sessions,
+      accounts: accounts.filter((a) => a.isActive || a.txnCount > 0 || inUse.has(a.id)).map((a) => ({ id: a.id, name: a.accountName })),
+    };
+  });
 }
 
 /** One report a pack section depends on: `report` is null when it was wanted but could not be produced. */

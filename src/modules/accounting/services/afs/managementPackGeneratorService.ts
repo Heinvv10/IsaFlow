@@ -166,7 +166,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const cashFlowReports = enabledSections.includes('cash_flow') ? await periodic('cash_flow', (w) => getCashFlowDirect(companyId, w.start, w.end)) : null;
   const debtorsAging = enabledSections.includes('debtors_ageing') ? await readAgeing(ctx, 'ar', end) : null;
   const creditorsAging = enabledSections.includes('creditors_ageing') ? await readAgeing(ctx, 'ap', end) : null;
-  const reconciliations = enabledSections.includes('bank_reconciliation') ? await readReconciliations(ctx) : null;
+  const reconciliations = enabledSections.includes('bank_reconciliation') ? await readReconciliations(ctx, end) : null;
 
   // A section whose report was refused says so; a pack with such a section (or a budget-engine fault) is not signed off and sent on its own.
   const unproduced = unproducedSections([

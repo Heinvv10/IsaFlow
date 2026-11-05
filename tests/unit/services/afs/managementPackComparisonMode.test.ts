@@ -19,6 +19,7 @@ const m = vi.hoisted(() => ({
   unapplied: vi.fn(),
   recs: vi.fn(),
   bankAccounts: vi.fn(),
+  cashBalance: vi.fn(),
   deliver: vi.fn(),
   createSection: vi.fn(),
   updateSection: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock('@/modules/accounting/services/ap/apAgingService', () => ({ getAPAging: 
 vi.mock('@/modules/accounting/services/shared/agedNetting', () => ({ getUnappliedByEntity: m.unapplied }));
 vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({ getReconciliations: m.recs }));
 vi.mock('@/modules/accounting/services/bank/bankAccountStatusService', () => ({ getBankAccountsStatus: m.bankAccounts }));
+vi.mock('@/modules/accounting/services/bank/cashBalanceService', () => ({ getCashBalance: m.cashBalance }));
 vi.mock('@/modules/accounting/services/afs/afsDocumentService', () => ({ createAfsDocument: vi.fn(async () => ({ id: 'doc-1' })) }));
 vi.mock('@/modules/accounting/services/afs/afsSectionService', () => ({ createAfsSection: m.createSection, updateAfsSection: m.updateSection }));
 vi.mock('@/modules/accounting/services/afs/afsKpiService', () => ({
@@ -93,7 +95,8 @@ beforeEach(() => {
   m.apAging.mockImplementation(async () => agingRows('Supplier A'));
   m.unapplied.mockResolvedValue(new Map([['e', { entityName: 'Customer A', payments: 20, creditNotes: 5, total: 25 }]]));
   m.recs.mockResolvedValue([reconciliation()]);
-  m.bankAccounts.mockResolvedValue([{ id: 'a', accountName: 'Main' }, { id: 'z', accountName: 'Never Reconciled' }]);
+  m.bankAccounts.mockResolvedValue([{ id: 'a', accountName: 'Main', isActive: true, txnCount: 0 }, { id: 'z', accountName: 'Never Reconciled', isActive: true, txnCount: 0 }]);
+  m.cashBalance.mockResolvedValue({ deactivatedWithBalance: [] });
   m.withSavepoint.mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn());
 });
 
@@ -457,6 +460,26 @@ describe('what a failed statement read does', () => {
 describe('the cash flow, ageing and bank reconciliation sections', () => {
   const SECTIONS = ['cash_flow', 'debtors_ageing', 'creditors_ageing', 'bank_reconciliation'];
 
+  it('a deactivated bank account stays listed unless nothing ever happened on it', async () => {
+    const inactive = (id: string, accountName: string, txnCount = 0) => ({ id, accountName, isActive: false, txnCount });
+    m.bankAccounts.mockResolvedValue([
+      { id: 'a', accountName: 'Main', isActive: true, txnCount: 5 },
+      inactive('lines', 'Closed With Statement Lines Netting To Nil', 2),
+      inactive('gl', 'Closed With Ledger Balance Only'),
+      inactive('session', 'Closed With Old Session'),
+      inactive('empty', 'Retired Empty'),
+    ]);
+    m.cashBalance.mockResolvedValue({ deactivatedWithBalance: [{ accountId: 'gl', glBalance: 6550 }] });
+    m.recs.mockResolvedValue([reconciliation(), { ...reconciliation(), id: 'r2', bankAccountId: 'session', status: 'in_progress' }]);
+    const out = await generate('all_three', ['bank_reconciliation']);
+    expect(table(out.bank_reconciliation).rows.map((r) => [r[0], r[1]])).toEqual([
+      ['Closed With Ledger Balance Only', 'No reconciliation'],
+      ['Closed With Old Session', 'No reconciliation'],
+      ['Closed With Statement Lines Netting To Nil', 'No reconciliation'],
+      ['Main', '30 September 2026'],
+    ]);
+  });
+
   it('read each report for the pack month: windows, as-at dates and sides', async () => {
     const out = await generate('all_three', SECTIONS);
     expect(m.cashFlow.mock.calls.map((c) => c.slice(0, 3))).toEqual([
@@ -467,7 +490,8 @@ describe('the cash flow, ageing and bank reconciliation sections', () => {
     expect(m.apAging.mock.calls).toEqual([['co', '2026-09-30']]);
     expect(m.unapplied.mock.calls).toEqual([['co', 'ar', '2026-09-30'], ['co', 'ap', '2026-09-30']]);
     expect(m.recs).toHaveBeenCalledWith('co');
-    expect(m.bankAccounts).toHaveBeenCalledWith('co');
+    expect(m.bankAccounts).toHaveBeenCalledWith('co', { includeInactive: true });
+    expect(m.cashBalance).toHaveBeenCalledWith('co', '2026-09-30');
     expect(table(out.cash_flow).headers).toEqual(['', 'This month', 'Prior month', 'Same month last year', 'Change on last year']);
     expect(table(out.debtors_ageing).rows[0]?.[0]).toBe('Customer A');
     expect(table(out.creditors_ageing).rows[0]?.[0]).toBe('Supplier A');

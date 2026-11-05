@@ -91,6 +91,17 @@ async function seedBooks(c: PoolClient): Promise<void> {
   // A second bank account of company A that was never reconciled.
   await q(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance, level, is_active)
            VALUES (gen_random_uuid(), $1, 'BT-1099', 'Never Reconciled Bank', 'asset', 'bank', 'debit', 3, true)`, [f.a]);
+  // Deactivated bank accounts of company A: one holding money on its statement lines, one only in the ledger, one empty.
+  const closed = async (code: string, name: string) => (await q(
+    `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance, level, is_active)
+     VALUES (gen_random_uuid(), $1, $2, $3, 'asset', 'bank', 'debit', 3, false) RETURNING id`, [f.a, code, name])).rows[0].id as string;
+  const statementOnly = await closed('BT-1096', 'Closed Statement Bank');
+  await q(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description) VALUES ($1, $2, '2026-01-15', 250, 'closed')`, [f.a, statementOnly]);
+  const ledgerOnly = await closed('BT-1097', 'Closed Ledger Bank');
+  const je = (await q(`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, source, status, created_by)
+                       VALUES ($1, 'MP-CLOSED-1', '2026-01-15', 'closed', 'manual', 'posted', $2) RETURNING id`, [f.a, f.userA])).rows[0].id;
+  await q(`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 400, 0), ($1, $2, $4, 0, 400)`, [f.a, je, ledgerOnly, f.acc.bank]);
+  await closed('BT-1098', 'Retired Empty Bank');
 }
 
 async function pack(sections: string[], before?: (c: PoolClient) => Promise<unknown>, readReports = before === seedBooks, opts: { period?: string; reviewRequired?: boolean } = {}) {
@@ -219,6 +230,16 @@ describe('every cell is the report service\'s figure for the same company and mo
   it('a bank account of the company with no reconciliation is listed as such', async () => {
     const { sections } = await pack(ALL, seedBooks);
     expect(row(tableOf(sections.get('bank_reconciliation')?.content), 'Never Reconciled Bank')).toEqual(['Never Reconciled Bank', 'No reconciliation', '—', '—', '—', '—']);
+  });
+
+  it('a deactivated bank account holding money is listed; one where nothing ever happened is not', async () => {
+    const { sections } = await pack(ALL, seedBooks);
+    const t = tableOf(sections.get('bank_reconciliation')?.content);
+    expect(row(t, 'Closed Statement Bank')?.[1]).toBe('No reconciliation');
+    expect(row(t, 'Closed Ledger Bank')?.[1]).toBe('No reconciliation');
+    expect(row(t, 'Retired Empty Bank')).toBeUndefined();
+    // Never Reconciled Bank and the two closed accounts holding money.
+    expect(told.sections.find((s) => s.sectionType === 'bank_reconciliation')?.sectionData).toMatchObject({ accountsWithoutReconciliation: 3 });
   });
 
   it('nothing of company B reaches any section, and each section\'s commentary was told its own figures', async () => {
