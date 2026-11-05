@@ -57,3 +57,20 @@ describe.each(SHAPES)('%s', (unused, shape) => {
     expect(actual['is.netProfit']).toBe(c.netProfit);
   });
 });
+
+describe("the fitter's instruction does not leak into the document", () => {
+  it('no block of the composed pack carries `droppable`, whether or not the caption was dropped', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    try {
+      for (const shape of [SHAPES[0]![1], { ...SHAPES[0]![1], plug: 0, negative: false, sg: [1, 1, 1, 1] }]) {
+        const doc = buildBoardPackPages(input(shape));
+        expect(JSON.stringify(doc.pages)).not.toContain('droppable');
+        // And the second shape keeps its caption, so the flag was there to be stripped.
+        const kept = doc.pages.find((p) => p.navLabel === 'Income statement')!.blocks.some((b) => b.kind === 'narrative');
+        expect(kept).toBe(shape === SHAPES[0]![1] ? false : true);
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});

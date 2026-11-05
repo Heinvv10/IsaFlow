@@ -15,6 +15,23 @@ import { fitPageReport } from './packPageFit';
 import { relaidNarrative } from './packNarrativeLayout';
 import type { MeasurablePage } from './packPageMetrics';
 
+/**
+ * `droppable` is an instruction to the fitter, not part of the page: a caption that survived the fit
+ * leaves the composer exactly as it was before the flag existed, so the document is unchanged where
+ * nothing was dropped.
+ */
+function withoutDroppableMarks<T extends MeasurablePage>(page: T): T {
+  if (!page.blocks.some((b) => b.kind === 'narrative' && b.droppable !== undefined)) return page;
+  return {
+    ...page,
+    blocks: page.blocks.map((b) => {
+      if (b.kind !== 'narrative' || b.droppable === undefined) return b;
+      const { droppable: unused, ...rest } = b;
+      return rest;
+    }),
+  };
+}
+
 export function fitBodyPage<T extends MeasurablePage>(page: T, pageNumber: number): T {
   try {
     const { page: fitted, dropped } = fitPageReport(relaidNarrative(page));
@@ -24,7 +41,7 @@ export function fitBodyPage<T extends MeasurablePage>(page: T, pageNumber: numbe
       log.warn(`board pack: "${page.navLabel}" cannot fit its sheet with its derived caption; the caption is not printed`,
         { navLabel: page.navLabel, captions: dropped.captions }, 'packs');
     }
-    return fitted;
+    return withoutDroppableMarks(fitted);
   } catch (error) {
     const approved = page.blocks.some((b) => b.kind === 'narrative' && b.narrative.status === 'approved');
     if (!(error instanceof PackRefusal) || !approved) throw error;
