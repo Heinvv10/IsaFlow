@@ -5,6 +5,10 @@
  * as the route and RLS: one entity's timeline for whoever may read that type,
  * the company-wide feed for owner / admin only; employees also need
  * `read:payroll`, suppliers and customers `read:contacts` (as their list tools).
+ * Employee bank-detail history is deliberately readable here by a token holder (owner / admin / manager with
+ * read:reports + read:payroll), masked only, while GET /api/accounting/entity-changes refuses tokens and Login-as for it
+ * (Hein, 2026-11-04). compare_audit_snapshot's master-data list also names these changes (id, bank name, op, actor, time;
+ * no values) under read:reports alone.
  */
 import type { McpTool } from '../types';
 import { EntityChangeCursorError, listEntityChanges, MAX_PAGE } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
@@ -31,7 +35,8 @@ export const entityHistoryTool: McpTool = {
     + 'user) and the channel — session (a person signed in as themselves), impersonation (Login-as; impersonator is the '
     + 'platform admin behind it), token (an API / MCP token), platform_admin, system. '
     + 'Bank account numbers and ID / tax numbers are MASKED to their last four characters (masked: true); employee bank '
-    + 'details also mask the branch code to its last two digits and the account holder to its first letter. A changed value '
+    + 'details also mask the branch code to its last two digits and the account holder to its first letter. Employee bank-detail history is '
+    + 'returned masked to a token holder with owner / admin / manager and read:payroll by design (Hein, 2026-11-04). A changed value '
     + 'still shows as changed. Netcash keys are recorded only as a sha256 digest. '
     + 'entity_id needs entity_type. Without entity_id this is the company-wide feed (optionally one entity_type), owner / '
     + 'admin only. Members, invitations, permissions, company settings, approval rules and switches: owner / admin; '

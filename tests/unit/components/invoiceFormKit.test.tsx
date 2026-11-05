@@ -99,7 +99,7 @@ describe('request body is unchanged by the kit', () => {
     expect(sentBody('PUT')).toEqual({
       id: 'inv-1', clientId: 'c-1', invoiceDate: '2026-10-02', dueDate: '2026-11-01', billingPeriodStart: '2026-09-01', billingPeriodEnd: '2026-09-30',
       taxRate: 15, notes: 'new notes', currencyCode: 'ZAR', exchangeRate: 1, projectId: null,
-      items: [{ description: 'L', quantity: 1, unitPrice: 10, taxRate: 15, discount: 0, glAccountId: null, projectId: null, cc2Id: null, buId: null, cc1Id: null }],
+      items: [{ description: 'L', quantity: 1, unitPrice: 10, taxRate: 15, discount: 0, glAccountId: null, projectId: null, cc2Id: null, buId: null, cc1Id: null, timeEntryId: null }],
     });
   });
 });

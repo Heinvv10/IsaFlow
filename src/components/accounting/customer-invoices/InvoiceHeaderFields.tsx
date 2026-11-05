@@ -37,6 +37,8 @@ interface Props {
   vatWarning?: string;
   /** The user committed something in Due date, even text it refused. */
   onDueDateEdited?: () => void;
+  /** The VAT rate field gained (true) or lost (false) focus: autosave waits out a rate edit (PR S). */
+  onRateEditing?: (editing: boolean) => void;
 }
 
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
@@ -52,7 +54,7 @@ export function InvoiceCard({ n, title, children }: { n: number; title: string; 
   );
 }
 
-export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, taxMode, onTaxModeChange, hints, vatWarning, onDueDateEdited }: Props) {
+export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, taxMode, onTaxModeChange, hints, vatWarning, onDueDateEdited, onRateEditing }: Props) {
   const vatNoteId = useId();
   const isFx = form.currencyCode !== 'ZAR';
   const currencyOptions = [{ value: 'ZAR', label: 'ZAR — South African Rand' }, ...currencies.filter((c) => c.code !== 'ZAR').map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))];
@@ -86,7 +88,7 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
             </div>
           </div>
           <Input label="VAT rate %" type="number" name="taxRate" min={0} value={effectiveTaxRate(taxMode, form.taxRate)} disabled={taxMode === 'none'}
-            onChange={(e) => onChange({ taxRate: Number(e.target.value) })} />
+            onFocus={() => onRateEditing?.(true)} onBlur={() => onRateEditing?.(false)} onChange={(e) => onChange({ taxRate: Number(e.target.value) })} />
           <Select label="Currency" options={currencyOptions} value={form.currencyCode} valueOption={{ value: form.currencyCode, label: form.currencyCode }}
             onChange={(v) => onChange({ currencyCode: v ?? 'ZAR', exchangeRate: (v ?? 'ZAR') === 'ZAR' ? 1 : form.exchangeRate })} />
           <div>

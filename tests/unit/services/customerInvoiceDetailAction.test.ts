@@ -215,7 +215,7 @@ describe('customer-invoices-detail POST action guards', () => {
     await call({ id: INV_ID, action: 'approve' });
 
     // FOR NO KEY UPDATE, approvable only (review F2): an FK insert's KEY SHARE is not held off.
-    expect(sqlText(sqlMock.mock.calls[0]!)).toMatch(/SELECT status, currency_code, total_amount FROM customer_invoices[\s\S]*status = ANY\([\s\S]*FOR NO KEY UPDATE/);
+    expect(sqlText(sqlMock.mock.calls[0]!)).toMatch(/SELECT status, currency_code, total_amount, exchange_rate FROM customer_invoices[\s\S]*status = ANY\([\s\S]*FOR NO KEY UPDATE/);
     expect(assertApprovalCleared).toHaveBeenCalledWith(COMPANY_ID, 'customer_invoice', INV_ID);
     const gateAt = vi.mocked(assertApprovalCleared).mock.invocationCallOrder[0]!;
     expect(gateAt).toBeGreaterThan(sqlMock.mock.invocationCallOrder[0]!);

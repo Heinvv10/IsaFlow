@@ -5,7 +5,8 @@
  * different icon (bell), label ("Notifications") and badge colour.
  *
  * The feed loads on mount (only with an active company: withAuth answers 400 without one) and again
- * each time the panel opens. Every call's status is checked before its body is trusted; a failed
+ * each time the panel opens, and on `isaflow:notifications-changed` (`@/lib/notificationsSignal`, sent
+ * by the budget controls' Evaluate now). Every call's status is checked before its body is trusted; a failed
  * load is a sentence beside the last good list and badge, never a cleared badge. Responses carry a
  * sequence number: an older one that lands after a newer load (or after a mark-read) is dropped.
  * The panel is a non-modal dialog: opening moves focus into it, Escape closes it and returns focus
@@ -17,6 +18,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { Bell } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { isInAppPath } from '@/lib/inAppPath';
+import { onNotificationsChanged } from '@/lib/notificationsSignal';
 import { log } from '@/lib/logger';
 import { cn } from '@/utils/cn';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
@@ -74,6 +76,9 @@ export function NotificationBell() {
     setOpen(false);
     void load();
   }, [load]);
+
+  // Another part of the page wrote notifications (Evaluate now): refetch, through the same sequence.
+  useEffect(() => onNotificationsChanged(() => { void load(); }), [load]);
 
   useEffect(() => { if (open) panel.current?.focus(); }, [open]);
 

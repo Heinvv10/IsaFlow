@@ -33,34 +33,42 @@ function readDefaults(row: unknown): ContactDefaults {
 
 export function useCustomerLookup(clientId: string, failedMessage: string) {
   const [defaults, setDefaults] = useState<ContactDefaults | null>(null);
-  const [pending, setPending] = useState(false);
+  // The customer the last answer was for, cleared by every change of customer (back to the same one included) in the
+  // render that makes it. `pending` is derived from it in render, not set in the effect: an effect runs a commit after
+  // the pick, and in between Save was drawn enabled with the customer's defaults unasked.
+  const [answeredFor, setAnsweredFor] = useState<string | null>(null);
+  const [askedFor, setAskedFor] = useState(clientId);
+  // Another customer's defaults are not this one's: none while its own are asked (a new line's discount, the VAT warning).
+  if (askedFor !== clientId) { setAskedFor(clientId); setAnsweredFor(null); if (clientId) setDefaults(null); }
   const [error, setError] = useState('');
+  const [asks, setAsks] = useState(0); // forget() asks again for a customer still picked, so pending cannot stick
 
   const lookup = useRef(0);
   useEffect(() => {
     const seq = ++lookup.current;
     setError('');
-    setPending(Boolean(clientId));
     if (!clientId) { setDefaults((d) => (d ? NO_DEFAULTS : d)); return; }
     void (async () => {
       try {
         const res = await apiFetch(`/api/accounting/customers?id=${encodeURIComponent(clientId)}`, { credentials: 'include', signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
         await assertOk(res, failedMessage);
         const json = await res.json() as { data?: unknown };
-        if (seq === lookup.current) { setDefaults(readDefaults(json.data ?? json)); setPending(false); }
+        if (seq === lookup.current) { setDefaults(readDefaults(json.data ?? json)); setAnsweredFor(clientId); }
       } catch (err) {
-        if (seq === lookup.current) { setDefaults(NO_DEFAULTS); setPending(false); setError(apiErrorMessage(err, failedMessage)); }
+        if (seq === lookup.current) { setDefaults(NO_DEFAULTS); setAnsweredFor(clientId); setError(apiErrorMessage(err, failedMessage)); }
       }
     })();
-  }, [clientId, failedMessage]);
+  }, [clientId, failedMessage, asks]);
 
   /** Back to before any customer was picked (Save & New). */
   const forget = useCallback(() => {
     lookup.current++;
     setDefaults(null);
-    setPending(false);
+    setAnsweredFor(null);
     setError('');
+    setAsks((n) => n + 1);
   }, []);
 
+  const pending = Boolean(clientId) && answeredFor !== clientId;
   return { defaults, pending, error, forget };
 }

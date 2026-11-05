@@ -23,7 +23,7 @@ const LOGO_PATH = (() => {
 
 export type EmailType = 'invoice' | 'statement' | 'quote' | 'payment_receipt' | 'invite' | 'practice_digest' | 'practice_monthly' | 'other';
 
-interface EmailLogPayload {
+export interface EmailLogPayload {
   companyId: string | null;
   recipientEmail: string;
   subject: string;
@@ -43,8 +43,11 @@ interface EmailLogPayload {
  * statement — the `dunning_sends.email_status` UPDATE that records an email
  * already delivered — died with 25P02. An audit log must never be able to lose
  * the record of the thing it is auditing.
+ *
+ * Exported for a sender that calls `sendEmail` WITHOUT `_log` outside any
+ * transaction and writes the row itself in a short one (the budget digest).
  */
-async function logEmailAttempt(payload: EmailLogPayload): Promise<void> {
+export async function logEmailAttempt(payload: EmailLogPayload): Promise<void> {
   try {
     await withSavepoint('email_log_write', async () => {
       await sql`

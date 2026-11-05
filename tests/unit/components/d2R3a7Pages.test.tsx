@@ -19,7 +19,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/components/shared/ExportCSVButton', () => ({ ExportCSVButton: () => null }));
 vi.mock('@/components/accounting/ScanAndFillButton', () => ({ ScanAndFillButton: () => null }));
 vi.mock('@/components/accounting/supplier-invoices/SupplierSelect', () => ({ SupplierSelect: () => null }));
-vi.mock('@/contexts/CompanyContext', () => { const activeCompany = { id: 'co-1' }; return { useCompany: () => ({ activeCompany, companies: [] }) }; });
+vi.mock('@/contexts/CompanyContext', async () => { const activeCompany = { id: 'co-1' }; return { useCompany: () => ({ activeCompany, companies: [] }), CompanyContext: (await import('react')).createContext(undefined) }; });
 vi.mock('@/components/accounting/bank/BankAccountCard', () => ({
   BankAccountCard: ({ acct, onEdit }: { acct: { accountName: string }; onEdit: (a: unknown) => void }) => (
     <div><span>{acct.accountName}</span><button onClick={() => onEdit(acct)}>edit card</button></div>

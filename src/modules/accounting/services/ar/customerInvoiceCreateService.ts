@@ -204,12 +204,13 @@ export async function createDraftCustomerInvoice(
     await sql`
       INSERT INTO customer_invoice_items (
         invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-        gl_account_id, project_id, cc1_id, cc2_id, bu_id
+        gl_account_id, project_id, cc1_id, cc2_id, bu_id, line_position
       ) VALUES (
         ${invoiceId}::UUID, ${item.description}, ${price},
         ${qty}, ${lineAmount}, ${rate}, ${invCurrencyCode},
         ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
-        ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID
+        ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID,
+        ${i} -- the entry order (migration 956); created_at stays NOW(), which the approval digest relies on
       )
     `;
   }

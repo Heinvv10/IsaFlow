@@ -20,6 +20,7 @@ import {
 } from '@/lib/supabaseStorage';
 
 import { generateInvoicePdf } from './invoicePdfBuilder';
+import type { InvoicePdfModel } from './invoicePdfModel';
 
 export interface InvoiceSnapshot {
   invoiceId: string;
@@ -51,6 +52,7 @@ function sha256(buffer: Buffer): string {
 export async function snapshotInvoicePdf(
   companyId: string,
   invoiceId: string,
+  model?: InvoicePdfModel, // the approval's compared model: sealed as it is (generateInvoicePdf `given`)
 ): Promise<InvoiceSnapshot> {
   const rows = (await sql`
     SELECT id, company_id, invoice_number,
@@ -87,7 +89,7 @@ export async function snapshotInvoicePdf(
     };
   }
 
-  const buffer = await generateInvoicePdf(companyId, invoiceId);
+  const buffer = await generateInvoicePdf(companyId, invoiceId, model);
   const hash = sha256(buffer);
   const size = buffer.length;
   const invoiceNumber = String(row.invoice_number ?? invoiceId);
