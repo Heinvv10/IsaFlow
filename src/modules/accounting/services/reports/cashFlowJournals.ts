@@ -4,6 +4,8 @@
  * `cashFlowIndirectClassification`. The indirect and the direct statement place the same journals the same way, so their
  * operating / investing / financing totals agree by construction.
  *
+ * Both methods ignore the year-end closing journal, both legs, as every statement does (the G-01 census).
+ *
  * Every query is scoped to `companyId`.
  */
 
@@ -27,8 +29,6 @@ export interface CashFlowJournal {
 }
 
 export interface JournalFetchOptions {
-  /** The indirect statement ignores the year-end closing journal (both legs); the direct one keeps its cash legs. */
-  includeYearEnd?: boolean;
   /** Only journals with a leg on a cash account (all the direct statement needs). */
   cashJournalsOnly?: boolean;
 }
@@ -39,7 +39,7 @@ export interface JournalFetchOptions {
  * loan of this company names it (`loans.current_portion_account_id`, what a repayment debits).
  */
 async function fetchNonCashMovement(
-  companyId: string, startDate: string, endDate: string, { includeYearEnd = false, cashJournalsOnly = false }: JournalFetchOptions,
+  companyId: string, startDate: string, endDate: string, { cashJournalsOnly = false }: JournalFetchOptions,
 ): Promise<MovementRow[]> {
   return (await sql`
     WITH lines AS (
@@ -53,7 +53,7 @@ async function fetchNonCashMovement(
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.status = 'posted' AND (${includeYearEnd}::boolean OR je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE})
+      WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID

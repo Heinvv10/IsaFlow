@@ -77,7 +77,6 @@ The guard is per STATEMENT (`tests/unit/guards/yearEndJournalCensus.test.ts`, ru
 | `pages/api/accounting/opening-balances-export.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: opening-balance journals only (source opening_balance / auto_migration) |
 | `pages/api/accounting/reports-journal-entries.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
 | `pages/api/accounting/reports-waterfall.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
-| `src/modules/accounting/services/afs/cashFlowDirectService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
 | `src/modules/accounting/services/afs/noteGenerators/primaryStatements/cashFlow.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
 | `src/modules/accounting/services/ap/supplierCreditNoteExpenseLines.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
 | `src/modules/accounting/services/ar/invoiceRevenuePosting.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
@@ -154,7 +153,6 @@ The guard is per STATEMENT (`tests/unit/guards/yearEndJournalCensus.test.ts`, ru
 
 ## 3. Other readers (status, linkage, posting guards, document ownership): n/a, no balance or total
 
-- **afs** (1): `afs/cashFlowDirectService.ts`
 - **ap** (7): `ap/batchPaymentService.ts`, `ap/migrationApService.ts`, `ap/paymentJournalReversal.ts`, `ap/provisionalSettlementClaim.ts`, `ap/supplierInvoiceCancelPlan.ts`, `ap/supplierInvoiceDraftUpdateGuards.ts`, `ap/supplierPaymentWorkflowService.ts`
 - **ar** (10): `ar/creditNoteApproveService.ts`, `ar/customerInvoiceCancelService.ts`, `ar/customerInvoiceGlPosting.ts`, `ar/customerInvoiceLock.ts`, `ar/customerInvoiceReadService.ts`, `ar/gatewayFeeService.ts`, `ar/gatewaySettledReceipt.ts`, `ar/portalChatbotService.ts`, `ar/unappliedReceiptOrigin.ts`, `ar/writeOffService.ts`
 - **audit** (1): `audit/comparisonService.ts`

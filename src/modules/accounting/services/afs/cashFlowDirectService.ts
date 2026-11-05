@@ -96,8 +96,7 @@ export async function getCashFlowDirect(
   try {
     const [openingCash, journals] = await Promise.all([
       fetchOpeningCash(companyId, periodStart),
-      // The closing journal's cash legs stay (a ledger fault, but the statement still closes on the ledger's cash).
-      fetchCashFlowJournals(companyId, periodStart, periodEnd, { includeYearEnd: true, cashJournalsOnly: true }),
+      fetchCashFlowJournals(companyId, periodStart, periodEnd, { cashJournalsOnly: true }),
     ]);
 
     const amountByGroup = groupAllocations(journals);
