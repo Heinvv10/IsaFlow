@@ -43,10 +43,10 @@ beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K107 R7 loan fixture']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await pool.query(
-    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active)
-     VALUES($1,$2,'2300','Loan Payable','liability','other','credit',true),
-            ($3,$2,'5700','Bank Charges','expense','other','debit',true),
-            ($4,$2,'1110','Bank - Primary','asset','bank','debit',true)`,
+    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account)
+     VALUES($1,$2,'2300','Loan Payable','liability','other','credit',true,false),
+            ($3,$2,'5700','Bank Charges','expense','other','debit',true,false),
+            ($4,$2,'1110','Bank - Primary','asset','bank','debit',true,true)`,
     [loanAccount, company, interestAccount, bank]);
   // interest_expense_account_id and bank_account_id deliberately NULL: that is
   // the only path that reaches glByCode.

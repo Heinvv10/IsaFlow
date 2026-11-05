@@ -9,10 +9,11 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getAccountByCode } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { resolvePaymentBankAccount } from '@/modules/accounting/services/gl/paymentBankAccount';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { claimUnderLockTimeout } from '@/modules/accounting/services/core/documentClaimLock';
-import { mapUifDeclaration, type UifPaymentResult } from './uifDeclarationService';
+import { mapUifDeclaration, type UifDeclaration, type UifPaymentResult } from './uifDeclarationService';
 
 type Row = DbRow;
 
@@ -22,7 +23,23 @@ async function resolveGlAccount(companyId: string, code: string, label: string):
   return acc.id;
 }
 
-/** DR 2150 UIF Payable / CR 1110 Bank — clears the month's UIF liability on payment to Labour Dept. */
+function alreadyPaid(decl: UifDeclaration): UifPaymentResult {
+  log.info('UIF declaration already paid — idempotent', { companyId: decl.companyId, declarationId: decl.id }, 'uifDeclarationService');
+  return { id: decl.id, totalPaid: decl.totalUif, journalEntryId: decl.journalEntryId ?? '', status: 'paid' };
+}
+
+/** The declaration is not 'submitted' (draft, accepted). Raised before anything is written; the route answers 409. */
+export class UifDeclarationNotSubmittedError extends Error {
+  readonly code = 'UIF_DECLARATION_NOT_SUBMITTED';
+  constructor(readonly status: string) {
+    super(`UIF declaration must be 'submitted' before paying (current: ${status})`);
+    this.name = 'UifDeclarationNotSubmittedError';
+  }
+}
+
+const notSubmitted = (status: string): UifDeclarationNotSubmittedError => new UifDeclarationNotSubmittedError(status);
+
+/** DR 2150 UIF Payable / CR Bank (`bankAccountId`, else the bank-role holder) — clears the month's UIF liability on payment to Labour Dept. */
 export async function markUifDeclarationPaid(
   companyId: string,
   declarationId: string,
@@ -36,6 +53,14 @@ export async function markUifDeclarationPaid(
   if (declRows.length === 0 || !declRows[0]) throw new Error(`UIF declaration ${declarationId} not found`);
   const decl = mapUifDeclaration(declRows[0]);
   const paymentDate = opts.paymentDate ?? new Date().toISOString().slice(0, 10);
+  // An already-paid declaration is idempotent whatever the bank role or the supplied account is now: a retry must
+  // not be refused for a bank it will never credit. The claim below decides the same for a rival that wins the race.
+  if (decl.status === 'paid') return alreadyPaid(decl);
+  // A declaration that is not 'submitted' gets the status error, not a bank refusal for a payment it could never make
+  // (the claim below repeats this against a rival that wins the race). Read-only, so nothing is written before a 4xx.
+  if (decl.status !== 'submitted') throw notSubmitted(decl.status);
+  // Refused before the claim below: a payment with no bank to credit writes nothing.
+  const bankAccId = await resolvePaymentBankAccount(companyId, opts.bankAccountId);
 
   // CLAIM the declaration before anything is posted. What this replaced read
   // `decl.status` in JS and then posted DR 2150 / CR Bank and rewrote the row
@@ -59,15 +84,11 @@ export async function markUifDeclarationPaid(
       WHERE id = ${declarationId}::uuid AND company_id = ${companyId}::uuid
     `) as Row[];
     const cur = nowRows[0] ? mapUifDeclaration(nowRows[0]) : null;
-    if (cur?.status === 'paid') {
-      log.info('UIF declaration already paid — idempotent', { companyId, declarationId }, 'uifDeclarationService');
-      return { id: cur.id, totalPaid: cur.totalUif, journalEntryId: cur.journalEntryId ?? '', status: 'paid' };
-    }
-    throw new Error(`UIF declaration must be 'submitted' before paying (current: ${cur?.status ?? 'missing'})`);
+    if (cur?.status === 'paid') return alreadyPaid(cur);
+    throw notSubmitted(cur?.status ?? 'missing');
   }
 
   const uifPayableId = await resolveGlAccount(companyId, '2150', 'UIF Payable');
-  const bankAccId = opts.bankAccountId ?? await resolveGlAccount(companyId, '1110', 'Bank - Primary');
   const totalPaid = Math.round((decl.totalEmployeeContribution + decl.totalEmployerContribution) * 100) / 100;
   const narrative = `UIF payment ${decl.periodYear}-${String(decl.periodMonth).padStart(2, '0')}`;
   const entry = await createJournalEntry(companyId, {

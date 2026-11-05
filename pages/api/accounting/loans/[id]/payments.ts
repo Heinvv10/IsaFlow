@@ -14,6 +14,7 @@ import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDa
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { isBankAccountRefusal } from '@/modules/accounting/services/gl/paymentBankAccount';
 import {
   listLoanPayments,
   recordLoanPayment,
@@ -60,9 +61,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       bankAccountId: body.bankAccountId,
     };
 
-    const result = await withJournalDateRefusal(res, () => recordLoanPayment(companyId, loanId, input, userId));
-    if (result === JOURNAL_DATE_REFUSED) return;
-    return apiResponse.created(res, result);
+    try {
+      const result = await withJournalDateRefusal(res, () => recordLoanPayment(companyId, loanId, input, userId));
+      if (result === JOURNAL_DATE_REFUSED) return;
+      return apiResponse.created(res, result);
+    } catch (err) {
+      // Raised before the payment writes anything (loanPaymentService), inside the journal-date savepoint.
+      if (isBankAccountRefusal(err)) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   return apiResponse.badRequest(res, 'Method not allowed');

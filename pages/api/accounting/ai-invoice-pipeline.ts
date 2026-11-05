@@ -221,9 +221,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
 
-  await insertCaptureBillLines(invoice.id as string, linePlan.lines);
-  const approvalRequest = approval.gated // after the lines: the request binds to their digest
-    ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;
+  const slip = await insertCaptureBillLines(invoice.id as string, linePlan.lines);
   // Link document to invoice
   await sql`
     UPDATE captured_documents
@@ -262,8 +260,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const provisionalAttach = await attachEvidenceAndSettleApproved({
     companyId, userId, documentId, invoiceId: invoice.id as string, invoiceStatus: String(invoice.status),
     supplierId: supplierMatch.supplierId, totalAmount: invoiceInput.totalAmount, invoiceDate: invoiceInput.invoiceDate,
-    postUnattached: true,
+    postUnattached: true, slip,
   });
+  // After the attach (P5-2b): it may re-plan the lines' inherited dimensions, and the request binds to their digest.
+  const approvalRequest = approval.gated
+    ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;
 
   // Best-effort alert resolution — non-blocking
   resolvePendingAlertForInvoice(

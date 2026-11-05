@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { resolvePaymentBankAccount } from '@/modules/accounting/services/gl/paymentBankAccount';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 
 type Row = DbRow;
@@ -18,7 +19,7 @@ type Row = DbRow;
 export interface LoanPaymentInput {
   paymentDate: string;    // yyyy-mm-dd
   periodNumber?: number;  // Omit to match by month
-  bankAccountId?: string; // Override loan's default bank GL account
+  bankAccountId?: string; // Override loan's default bank GL account; must be an active bank account of the company
 }
 
 export interface LoanPaymentResult {
@@ -103,14 +104,12 @@ async function resolveAccounts(
   }
   if (!debitInterest) throw new Error('Cannot resolve interest expense account (set on loan or add GL 5700)');
 
-  // Bank: override → loan.bank_account_id → code 1110
-  let creditBank: string | null = bankAccountIdOverride ?? null;
-  if (!creditBank && loanRow.bank_account_id != null) creditBank = String(loanRow.bank_account_id);
-  if (!creditBank) {
-    creditBank = await glByCode(companyId, '1110');
-    log.warn('No bank account resolved — using GL 1110', { loanId: String(loanRow.id), companyId }, 'loans');
-  }
-  if (!creditBank) throw new Error('Cannot resolve bank GL account (supply bankAccountId or add GL 1110)');
+  // Bank: override → loan.bank_account_id → the bank-role holder. A stored id is checked for company, active and
+  // postable (it was valid when set, not necessarily now) but NOT for subtype: it never was, and nothing in the UI
+  // can change it, so a cash / NULL-subtype account would refuse every payment for good. The override keeps the full check.
+  const creditBank = bankAccountIdOverride
+    ? await resolvePaymentBankAccount(companyId, bankAccountIdOverride)
+    : await resolvePaymentBankAccount(companyId, loanRow.bank_account_id != null ? String(loanRow.bank_account_id) : undefined, "The loan's bank account", { requireBankSubtype: false });
 
   return { debitLoan, debitInterest, creditBank };
 }

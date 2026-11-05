@@ -124,6 +124,13 @@ describe('an accepted AI narrative is printed once', () => {
     }));
     expect(v?.narrative).toBe('Margins fell.');
   });
+
+  it('an override that cleared the blocks hides the generated content', () => {
+    const v = packSectionView(sec('cash_flow', {
+      content: { title: 'cash_flow', blocks: [{ type: 'paragraph', text: 'Stale generated figures.' }] }, overrides: { blocks: [] },
+    }));
+    expect(v?.blocks).toEqual([{ type: 'paragraph', text: SECTION_NOT_AVAILABLE }]);
+  });
 });
 
 describe('what an older pack stored in overrides', () => {

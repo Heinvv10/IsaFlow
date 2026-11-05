@@ -142,30 +142,17 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const varianceNotes = budget?.kind === 'report' && enabledSections.includes('budget_variance')
     ? await loadPackVarianceNoteBlocks(companyId, budget.report) : [];
 
-  const doc = await createAfsDocument({
-    companyId, period, documentType: 'management_pack', reportingFramework: 'ifrs_smes',
-  });
-
   const { start, end } = periodBounds(period);
   const prior = priorPeriod(period);
   const { start: priorStart, end: priorEnd } = periodBounds(prior);
   const { start: yearAgoStart, end: yearAgoEnd } = periodBounds(samePeriodLastYear(period));
 
-  const sectionRows = await Promise.all(
-    enabledSections.map((sectionType, idx) =>
-      createAfsSection({
-        documentId: doc.id, companyId,
-        // Management pack uses string-keyed sections that extend beyond SectionType union
-        sectionType: sectionType as import('./afsTypes').SectionType,
-        sortOrder: idx,
-      }),
-    ),
-  );
-
   // The income statement also feeds the AI summary and the figures stored beside it, so they cannot disagree with the table.
   const wantsIncome = enabledSections.includes('income_statement') || enabledSections.includes('ai_executive_summary');
   const wantsBalance = enabledSections.includes('balance_sheet');
   // The sections are the Reports' own figures: the same services, over the same windows (managementPackReads.readSafely).
+  // Only a refusal (no system account) leaves its section saying so; any other fault aborts the pack. All reads come before the
+  // document is created, so an aborted run leaves nothing that blocks the month's re-run.
   const ctx = { companyId, period };
   const periodic = <R>(name: string, read: (w: { start: string; end: string }) => Promise<R>): Promise<Periodic<R> | null> =>
     readSafely(ctx, name, async () => {
@@ -187,6 +174,21 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     ['debtors ageing', enabledSections.includes('debtors_ageing'), debtorsAging], ['creditors ageing', enabledSections.includes('creditors_ageing'), creditorsAging],
     ['bank reconciliation', enabledSections.includes('bank_reconciliation'), reconciliations],
   ].filter(([, wanted, report]) => wanted && report === null).map(([name]) => String(name));
+
+  const doc = await createAfsDocument({
+    companyId, period, documentType: 'management_pack', reportingFramework: 'ifrs_smes',
+  });
+
+  const sectionRows = await Promise.all(
+    enabledSections.map((sectionType, idx) =>
+      createAfsSection({
+        documentId: doc.id, companyId,
+        // Management pack uses string-keyed sections that extend beyond SectionType union
+        sectionType: sectionType as import('./afsTypes').SectionType,
+        sortOrder: idx,
+      }),
+    ),
+  );
 
   const [kpiScorecard, companyName, topRevenue, topExpense] = await Promise.all([
     getKpiScorecard(companyId, period),

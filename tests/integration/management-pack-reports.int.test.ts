@@ -215,11 +215,11 @@ describe('every cell is the report service\'s figure for the same company and mo
     expect(row(tableOf(sections.get('bank_reconciliation')?.content), 'Bank')?.[1]).toBe('No reconciliation');
   });
 
-  it('a read that fails inside the request leaves its own section saying so and the transaction usable', async () => {
+  it('a read that FAILS (not a refusal) aborts the pack: no document is left behind', async () => {
     // The table the reconciliation read needs is gone for this (rolled-back) request only: a real SQL error.
-    const { sections } = await pack([...ALL, 'kpi_scorecard'], (c) => c.query('ALTER TABLE bank_reconciliations RENAME TO bank_reconciliations_gone'), false);
-    expect(sections.get('bank_reconciliation')?.content.blocks).toEqual([{ type: 'paragraph', text: 'This report could not be produced for this period.' }]);
-    expect(tableOf(sections.get('cash_flow')?.content).rows.length).toBeGreaterThan(2);
-    expect(sections.get('kpi_scorecard')?.content.title).toBe('KPI Scorecard');
+    await expect(pack([...ALL, 'kpi_scorecard'], (c) => c.query('ALTER TABLE bank_reconciliations RENAME TO bank_reconciliations_gone'), false))
+      .rejects.toThrow(/bank_reconciliations/);
+    const left = await pool.query(`SELECT 1 FROM afs_documents WHERE company_id = $1 AND document_type = 'management_pack' AND period = $2`, [f.a, PERIOD]);
+    expect(left.rowCount).toBe(0);
   });
 });

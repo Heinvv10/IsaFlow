@@ -41,6 +41,7 @@ vi.mock('@/modules/accounting/services/afs/packAiSummaryService', async (importO
 vi.mock('@/modules/accounting/services/afs/packDeliveryService', () => ({ deliverPack: vi.fn() }));
 
 import { AGGS, balanceReportFor, generateWith, incomeReportFor, report } from "./managementPackFixtures";
+import { MissingSystemAccountError } from "@/modules/accounting/services/gl/systemAccountKeys";
 
 
 
@@ -66,21 +67,18 @@ beforeEach(() => {
   m.withSavepoint.mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn());
 });
 
-describe('F5 a programming fault in a statement read is swallowed into the client-facing pack', () => {
-  it('a TypeError from getBalanceSheet (not a refusal) reaches Bugsink, as the budget path does for a fault', async () => {
-    process.env.SENTRY_ENABLED = 'true';
-    m.balanceReport.mockRejectedValue(new TypeError("Cannot read properties of undefined (reading 'balance')"));
-    const sections = await generate('prior_month', ['income_statement', 'balance_sheet']);
-    // The pack generated, the balance sheet says it could not be produced...
-    expect(sections.balance_sheet?.blocks).toEqual([{ type: 'paragraph', text: 'This statement could not be produced for this period.' }]);
-    // ...and nobody but the log is told.
-    expect(m.capture).toHaveBeenCalled();
+describe('F5 a programming fault in a statement read is not swallowed into the client-facing pack', () => {
+  it('a TypeError from getBalanceSheet (not a refusal) aborts generation: no document, no section written', async () => {
+    const fault = new TypeError("Cannot read properties of undefined (reading 'balance')");
+    m.balanceReport.mockRejectedValue(fault);
+    await expect(generate('prior_month', ['income_statement', 'balance_sheet'])).rejects.toBe(fault);
+    expect(m.updateSection).not.toHaveBeenCalled();
   });
 });
 
 describe('F6 an income statement that could not be produced still gets AI commentary on figures it does not print', () => {
   it('no narrative is stored for income_statement when its report failed (balance_sheet is guarded the same way)', async () => {
-    m.incomeReport.mockRejectedValue(new Error('statement read failed'));
+    m.incomeReport.mockRejectedValue(new MissingSystemAccountError('retained_earnings', 'co', 'no_claimant', []));
     const sections = await generate('prior_month', ['income_statement', 'balance_sheet']);
     expect(sections.income_statement?.blocks).toEqual([{ type: 'paragraph', text: 'This statement could not be produced for this period.' }]);
     const narrated = m.updateSection.mock.calls.filter(([id, , , patch]) => id === 'income_statement' && patch?.aiNarrative);

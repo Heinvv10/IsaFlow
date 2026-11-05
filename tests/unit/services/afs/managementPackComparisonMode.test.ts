@@ -166,13 +166,14 @@ describe('comparison_mode on the income statement section', () => {
   });
 
   it('a statement that cannot be read says so, and the pack still generates', async () => {
-    m.incomeReport.mockRejectedValue(new Error('boom'));
+    const refusal = new MissingSystemAccountError('retained_earnings', 'co', 'no_claimant', []);
+    m.incomeReport.mockRejectedValue(refusal);
     const out = await generate('prior_month', ['income_statement', 'kpi_scorecard']);
     expect(out.income_statement?.blocks).toEqual([{ type: 'paragraph', text: 'This statement could not be produced for this period.' }]);
     expect(out.kpi_scorecard?.title).toBe('KPI Scorecard');
     expect(m.withSavepoint.mock.calls.map((c) => c[0])).toContain('mgmt_pack_income');
-    expect(m.log.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ statement: 'income', error: 'boom' }), 'managementPackGeneratorService');
-    expect(JSON.stringify(out)).not.toContain('boom');
+    expect(m.log.warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ statement: 'income', error: refusal.message }), 'managementPackGeneratorService');
+    expect(JSON.stringify(out)).not.toContain(refusal.message);
   });
 });
 
@@ -404,7 +405,7 @@ describe('the stored and narrated figures are the statement\'s own (turnover, no
 
 describe('an income statement that could not be read', () => {
   it('gets no AI commentary and the pack gets no executive summary about figures it does not print', async () => {
-    m.incomeReport.mockRejectedValue(new Error('statement read failed'));
+    m.incomeReport.mockRejectedValue(new MissingSystemAccountError('retained_earnings', 'co', 'no_claimant', []));
     const out = await generate('prior_month', ['income_statement', 'ai_executive_summary', 'balance_sheet']);
     expect(out.income_statement?.blocks).toEqual([{ type: 'paragraph', text: 'This statement could not be produced for this period.' }]);
     expect((m.commentary.mock.calls as { sectionType: string }[][]).map((c) => c[0]?.sectionType)).toEqual(['balance_sheet']);
@@ -412,19 +413,19 @@ describe('an income statement that could not be read', () => {
   });
 });
 
-describe('what a failed statement read reports (the budget path\'s rule)', () => {
-  it('a programming fault reaches Bugsink and is logged as an error', async () => {
-    vi.stubEnv('SENTRY_ENABLED', 'true');
-    try {
-      const fault = new TypeError("Cannot read properties of undefined (reading 'balance')");
-      m.balanceReport.mockRejectedValue(fault);
-      const out = await generate('prior_month', ['income_statement', 'balance_sheet']);
-      expect(out.balance_sheet?.blocks).toEqual([{ type: 'paragraph', text: 'This statement could not be produced for this period.' }]);
-      expect(m.capture).toHaveBeenCalledWith(fault, { tags: { company_id: 'co', route: 'management-pack' } });
-      expect(m.log.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ statement: 'balance', errorClass: 'TypeError' }), 'managementPackGeneratorService');
-    } finally {
-      vi.unstubAllEnvs();
-    }
+describe('what a failed statement read does', () => {
+  it.each([
+    ['a programming fault', new TypeError("Cannot read properties of undefined (reading 'balance')")],
+    ['a database fault', Object.assign(new Error('connection terminated unexpectedly'), { code: '57P01' })],
+  ])('%s aborts the pack before any document is created, so it is never signed off or delivered', async (_label, fault) => {
+    const { createAfsDocument } = await import('@/modules/accounting/services/afs/afsDocumentService');
+    const { deliverPack } = await import('@/modules/accounting/services/afs/packDeliveryService');
+    m.balanceReport.mockRejectedValue(fault);
+    await expect(generate('prior_month', ['income_statement', 'balance_sheet'])).rejects.toBe(fault);
+    expect(createAfsDocument).not.toHaveBeenCalled();
+    expect(m.updateSection).not.toHaveBeenCalled();
+    expect(deliverPack).not.toHaveBeenCalled();
+    expect(m.log.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ statement: 'balance', errorClass: fault.name }), 'managementPackGeneratorService');
   });
 
   it('a missing system account is a refusal: a warning, nothing sent to Bugsink', async () => {
@@ -507,14 +508,32 @@ describe('the cash flow, ageing and bank reconciliation sections', () => {
     ['debtors_ageing', () => m.arAging, 'This report could not be produced for this period.'],
     ['creditors_ageing', () => m.apAging, 'This report could not be produced for this period.'],
     ['bank_reconciliation', () => m.recs, 'This report could not be produced for this period.'],
-  ] as const)('%s that cannot be read says so, gets no commentary, and the rest of the pack is whole', async (section, mock, sentence) => {
-    mock().mockRejectedValue(new Error('boom'));
+  ] as const)('%s that is refused (no system account) says so, gets no commentary, and the rest of the pack is whole', async (section, mock, sentence) => {
+    mock().mockRejectedValue(new MissingSystemAccountError('retained_earnings', 'co', 'no_claimant', []));
     const out = await generate('prior_month', [...SECTIONS, 'kpi_scorecard']);
     expect(out[section]?.blocks).toEqual([{ type: 'paragraph', text: sentence }]);
     expect((m.commentary.mock.calls as { sectionType: string }[][]).map((c) => c[0]?.sectionType)).not.toContain(section);
     expect(out.kpi_scorecard?.title).toBe('KPI Scorecard');
     expect(m.withSavepoint.mock.calls.map((c) => c[0])).toContain(`mgmt_pack_${section}`);
-    // The log names the report that failed.
+    // The log names the report that was refused.
+    expect(m.log.warn).toHaveBeenCalledWith(expect.stringContaining(`the ${section} report could not be read`), expect.anything(), 'managementPackGeneratorService');
+  });
+});
+
+describe('any other fault in a report read aborts the pack, and says which report', () => {
+  it.each([
+    ['cash_flow', () => m.cashFlow],
+    ['debtors_ageing', () => m.arAging],
+    ['creditors_ageing', () => m.apAging],
+    ['bank_reconciliation', () => m.recs],
+  ] as const)('%s: no document is created, nothing is delivered', async (section, mock) => {
+    const { createAfsDocument } = await import('@/modules/accounting/services/afs/afsDocumentService');
+    const fault = Object.assign(new Error('connection terminated unexpectedly'), { code: '57P01' });
+    mock().mockRejectedValue(fault);
+    await expect(generate('prior_month', ['cash_flow', 'debtors_ageing', 'creditors_ageing', 'bank_reconciliation'])).rejects.toBe(fault);
+    expect(createAfsDocument).not.toHaveBeenCalled();
+    expect(m.updateSection).not.toHaveBeenCalled();
+    expect(m.deliver).not.toHaveBeenCalled();
     expect(m.log.error).toHaveBeenCalledWith(expect.stringContaining(`the ${section} report read failed`), expect.anything(), 'managementPackGeneratorService');
   });
 });
@@ -539,8 +558,8 @@ describe('a pack with a section that could not be produced is not signed off or 
     ['debtors_ageing', () => m.arAging],
     ['creditors_ageing', () => m.apAging],
     ['bank_reconciliation', () => m.recs],
-  ] as const)('review off, %s unreadable: held as a draft, not delivered, and logged', async (section, mock) => {
-    mock().mockRejectedValue(new Error('boom'));
+  ] as const)('review off, %s refused: held as a draft, not delivered, and logged', async (section, mock) => {
+    mock().mockRejectedValue(new MissingSystemAccountError('retained_earnings', 'co', 'no_claimant', []));
     const r = await run(['income_statement', 'balance_sheet', 'cash_flow', 'debtors_ageing', 'creditors_ageing', 'bank_reconciliation']);
     expect(r).toMatchObject({ status: 'draft', deliveryScheduled: false });
     expect(m.deliver).not.toHaveBeenCalled();
@@ -549,8 +568,8 @@ describe('a pack with a section that could not be produced is not signed off or 
     void section;
   });
 
-  it('an unreadable income statement holds the pack even when only the executive summary asked for it', async () => {
-    m.incomeReport.mockRejectedValue(new Error('boom'));
+  it('a refused income statement holds the pack even when only the executive summary asked for it', async () => {
+    m.incomeReport.mockRejectedValue(new MissingSystemAccountError('retained_earnings', 'co', 'no_claimant', []));
     const r = await run(['ai_executive_summary']);
     expect(r.status).toBe('draft');
     expect(m.deliver).not.toHaveBeenCalled();

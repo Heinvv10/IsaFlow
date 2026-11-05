@@ -1,8 +1,9 @@
 // src/modules/accounting/services/afs/managementPackReads.ts
-// How the generator reads a report for a pack section. A read that fails leaves its section saying so and
-// does not stop the pack (the budget path's rule: a refusal is a warning, any other fault is also reported to
-// Bugsink). The savepoint keeps a failed query from aborting the request's transaction, so each read runs
-// alone and the reads of one section run one after another: none can land after a ROLLBACK TO.
+// How the generator reads a report for a pack section. Only a refusal (no system account for the role) leaves its
+// section saying so; any other fault (database, RLS, a bug) is logged and aborts the pack, so a review-free pack is never
+// signed off and delivered incomplete. The reads run before the document is created, so an aborted run leaves nothing
+// that blocks the month's re-run. The savepoint keeps a refused query from aborting the request's transaction, so each
+// read runs alone and the reads of one section run one after another: none can land after a ROLLBACK TO.
 import { log } from '@/lib/logger';
 import { withSavepoint } from '@/lib/neon';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
@@ -11,7 +12,6 @@ import { getAPAging } from '../ap/apAgingService';
 import { getUnappliedByEntity } from '../shared/agedNetting';
 import { getReconciliations } from '../bank/bankReconciliationService';
 import { getBankAccountsStatus } from '../bank/bankAccountStatusService';
-import { capturePackFault } from './managementPackComparison';
 import type { AgeingData, ReconciliationData } from './managementPackReportSections';
 
 /** The generator's logger component, which the log assertions and the log search both know. */
@@ -26,12 +26,11 @@ export async function readSafely<T>(
     return await withSavepoint(`mgmt_pack_${name}`, read);
   } catch (err) {
     const fields = { ...ctx, statement: name, errorClass: err instanceof Error ? err.name : typeof err, error: err instanceof Error ? err.message : String(err) };
-    if (err instanceof MissingSystemAccountError) {
-      log.warn(`management pack: the ${name} report could not be read (no system account); its section says so`, fields, COMPONENT);
-    } else {
-      log.error(`management pack: the ${name} report read failed; its section says so`, fields, COMPONENT);
-      capturePackFault(err, ctx.companyId);
+    if (!(err instanceof MissingSystemAccountError)) {
+      log.error(`management pack: the ${name} report read failed; the pack is not generated`, fields, COMPONENT);
+      throw err;
     }
+    log.warn(`management pack: the ${name} report could not be read (no system account); its section says so`, fields, COMPONENT);
     return null;
   }
 }

@@ -58,3 +58,41 @@ describe('comparableLines + sameFigures (recalculated run)', () => {
     expect(comparableLines(lines, undefined, lines)).toEqual({ plan: lines, posted: lines });
   });
 });
+
+/**
+ * A run NOT recalculated since posting is compared against the journal as it
+ * stands now (payrollApprovalGate: `linked.lines`). A cost centre put on a
+ * credit line after posting (tag_journal_lines; 2175, say) is the ledger being
+ * retagged, not the run changing, so it is not a difference. The figures still are.
+ */
+describe('sameFigures, run not recalculated since posting (perAccount = false)', () => {
+  const DED = 'acct-2175';
+  const CC = 'centre-1';
+  const plan: FigureLine[] = [
+    { glAccountId: A5210, debit: 1500, credit: 0, cc1Id: null },
+    { glAccountId: DED, debit: 0, credit: 500, cc1Id: null },
+    { glAccountId: 'acct-1110', debit: 0, credit: 1000, cc1Id: null },
+  ];
+  const tagged = (cc1Id: string | null, over: Partial<Record<string, number>> = {}): FigureLine[] => plan.map((l) => ({
+    ...l,
+    credit: over[l.glAccountId ?? ''] ?? l.credit,
+    cc1Id: l.glAccountId === DED ? cc1Id : l.cc1Id,
+  }));
+
+  it('a cost centre tagged onto a credit line after posting is not a difference', () => {
+    expect(sameFigures({ plan, posted: tagged(CC) }, false)).toBe(true);
+  });
+
+  it('a credit that was tagged at posting and cleared since is not a difference either', () => {
+    expect(sameFigures({ plan: tagged(CC), posted: plan }, false)).toBe(true);
+  });
+
+  it('the figures are still compared: a changed credit is a difference, tagged or not', () => {
+    expect(sameFigures({ plan, posted: tagged(CC, { [DED]: 499.99 }) }, false)).toBe(false);
+    expect(sameFigures({ plan, posted: tagged(null, { [DED]: 499.99 }) }, false)).toBe(false);
+  });
+
+  it('a recalculated run still sees a credit line\'s cost centre (per account and CC1)', () => {
+    expect(sameFigures({ plan, posted: tagged(CC) }, true)).toBe(false);
+  });
+});

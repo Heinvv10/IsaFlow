@@ -10,6 +10,8 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('next/link', () => ({ default: ({ children, href, className }: { children: React.ReactNode; href?: string; className?: string }) => <a href={href} className={className}>{children}</a> }));
 vi.mock('next/head', () => ({ default: () => null }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push: vi.fn() }) }));
+// The page asks the period route in this process: no HTTP, so NEXT_PUBLIC_APP_URL and the port it ran on cannot matter.
+vi.mock('@/lib/auth/callApiInProcess', () => ({ callApiInProcess: vi.fn() }));
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: vi.fn(async () => new Response('', { status: 500 })) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/accounting/afs/AfsOverviewTab', () => ({ AfsOverviewTab: ({ periodMonths }: { periodMonths?: number | null }) => <p>TAB Overview months={String(periodMonths)}</p> }));
@@ -19,19 +21,45 @@ vi.mock('@/components/accounting/afs/AfsReviewTab', () => ({ AfsReviewTab: () =>
 vi.mock('@/components/accounting/afs/AfsExportTab', () => ({ AfsExportTab: () => <p>TAB Export</p> }));
 
 import { apiFetch } from '@/lib/apiFetch';
+import { callApiInProcess } from '@/lib/auth/callApiInProcess';
+import periodRoute from '../../../pages/api/accounting/afs/[documentId]/period';
 import AfsDocumentPage, { getServerSideProps } from '../../../pages/accounting/afs/[documentId]/index';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 type Ctx = Parameters<typeof getServerSideProps>[0];
-const ctx = (query: Record<string, string> = {}) => ({ query: { documentId: 'doc-1', ...query }, req: { headers: { host: 'app.test', cookie: 'c=1' } } }) as unknown as Ctx;
+const ctx = (query: Record<string, string> = {}) => ({ query: { documentId: 'doc-1', ...query }, req: { headers: { host: 'app.test', cookie: 'c=1' } }, resolvedUrl: '/accounting/afs/doc-1' }) as unknown as Ctx;
 const loadAfs = () => (apiFetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response(JSON.stringify({ data: { document: { id: 'doc-1', documentType: 'afs', fiscalYear: 2026, status: 'draft', version: 1 } } }), { status: 200 }));
-const stubFetch = (res: () => Response | Promise<Response>) => { const f = vi.fn(async () => res()); vi.stubGlobal('fetch', f); return f; };
+type Answer = { status: number; body?: unknown };
+/** What the period route answers in-process; a function may throw to model a failure. Fetch is stubbed to prove it is never used. */
+const stubFetch = (res: () => Response | Promise<Response>) => {
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('the page must not fetch its own API'); }));
+  const f = callApiInProcess as unknown as ReturnType<typeof vi.fn>;
+  f.mockReset();
+  f.mockImplementation(async (): Promise<Answer> => { const r = await res(); const text = await r.text(); return { status: r.status, body: text ? JSON.parse(text) : null }; });
+  return f;
+};
 const resolved = async (query?: Record<string, string>) => (await getServerSideProps(ctx(query))) as { props: { periodStart: string; periodEnd: string; periodError: string | null } };
 
 describe('afs document period lookup', () => {
   it('a good lookup returns the document period and no error', async () => {
     stubFetch(() => new Response(JSON.stringify({ success: true, data: { periodStart: '2023-03-01', periodEnd: '2023-03-31' } }), { status: 200 }));
     expect((await resolved()).props).toMatchObject({ periodStart: '2023-03-01', periodEnd: '2023-03-31', periodError: null });
+  });
+  it('asks the period route in-process for this document, with the visitor request, and never fetches', async () => {
+    const f = stubFetch(() => new Response(JSON.stringify({ success: true, data: { periodStart: '2023-03-01', periodEnd: '2023-03-31' } }), { status: 200 }));
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3200');
+    const c = ctx();
+    await getServerSideProps(c);
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(f.mock.calls[0]![0]).toBe(periodRoute);
+    expect(f.mock.calls[0]![1]).toBe(c.req);
+    expect(f.mock.calls[0]![2]).toEqual({ url: '/api/accounting/afs/doc-1/period', query: { documentId: 'doc-1' } });
+    expect(fetch).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+  it('a 401 sends the visitor to sign in and come back', async () => {
+    stubFetch(() => new Response('', { status: 401 }));
+    expect(await getServerSideProps(ctx())).toEqual({ redirect: { destination: '/login?returnTo=%2Faccounting%2Fafs%2Fdoc-1', permanent: false } });
   });
   it('the period length comes from the API; a period given in the query has no known length', async () => {
     stubFetch(() => new Response(JSON.stringify({ success: true, data: { periodStart: '2026-01-01', periodEnd: '2027-02-28', periodMonths: 14 } }), { status: 200 }));

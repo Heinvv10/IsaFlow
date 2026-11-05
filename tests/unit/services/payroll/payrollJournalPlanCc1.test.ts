@@ -16,7 +16,12 @@ vi.mock('@/lib/neon', () => ({
     return mockImpl(strings, ...values);
   },
 }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockPayrollRunHeader: vi.fn(async () => ({ id: 'run', journal_entry_id: null })) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+// The bank role's holder is this chart's 1110 (the holder is judged in payrollJournalBankRole.test.ts).
+vi.mock('@/modules/accounting/services/gl/bankRoleHolder', () => ({
+  resolveBankRoleHolder: vi.fn(async () => ({ account: { id: 'acc-1110', code: '1110', name: 'Bank - Primary', isActive: true }, refusal: null })),
+}));
 vi.mock('@/modules/accounting/services/payroll/costCentreGlMappingService', () => ({ getMappingLookup: vi.fn(async () => ({})) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn(async () => ({ id: 'je-1' })) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn(), reverseJournalEntry: vi.fn() }));
@@ -46,7 +51,7 @@ function route(lines: unknown[], allocations: unknown[] = []) {
     { match: 'payroll_employee_cost_allocations', rows: allocations },
     { match: 'payroll_run_lines prl', rows: lines },
     { match: 'FROM cost_centres cc', rows: CENTRES },
-    { match: 'id = ANY', rows: [{ id: 'acc-5210', account_code: '5210', account_name: 'Site labour', is_active: true }] },
+    { match: 'id = ANY', rows: [{ id: 'acc-5210', account_code: '5210', account_name: 'Site labour', is_active: true }, { id: 'acc-1110', account_code: '1110', account_name: 'Bank - Primary', is_active: true }] },
     { match: 'FROM gl_accounts', rows: ACCOUNTS },
   ];
   mockImpl = (strings) => Promise.resolve(routes.find((r) => strings.join('?').includes(r.match))?.rows ?? []);
