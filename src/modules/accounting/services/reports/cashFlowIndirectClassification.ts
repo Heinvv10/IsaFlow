@@ -12,10 +12,18 @@
  * (`cashFlowClassification.classifyCashGroup`): the cash moved, and dropping it would break the tie-out.
  */
 
+import { toMoney } from '@/lib/money/decimalSum';
 import {
   canonicalSubtype,
   type AccountType,
 } from '@/modules/accounting/services/gl/accountSubtypes';
+
+/**
+ * The system account every tenant is seeded with for the current portion of long-term debt (migration 471). Its
+ * subtype, `current_liability`, is shared with ordinary current liabilities, so the subtype alone cannot say it is debt;
+ * the code does, on a system account only (an imported chart's own 2215 is not flagged as one).
+ */
+export const SEEDED_CURRENT_PORTION_CODE = '2215';
 
 /** In presentation order within each section: the screen's long-standing lines first. */
 export const INDIRECT_BUCKETS = [
@@ -46,8 +54,14 @@ export function bucketSection(bucket: IndirectBucket): IndirectSection {
   return SECTION[bucket];
 }
 
-/** The line a NON-cash account's movement lands in. The caller never passes the cash accounts themselves. */
-export function classifyIndirectLine(accountType: AccountType, subtype: string | null | undefined): IndirectBucket {
+/**
+ * The line a NON-cash account's movement lands in. The caller never passes the cash accounts themselves.
+ * `isLoanCurrentPortion` says the account is the current portion of debt (the query knows; a subtype cannot say), which
+ * makes a liability with no line of its own a loan. A trade payable or VAT control keeps its line whatever a loan names.
+ */
+export function classifyIndirectLine(
+  accountType: AccountType, subtype: string | null | undefined, isLoanCurrentPortion = false,
+): IndirectBucket {
   if (accountType === 'revenue' || accountType === 'expense') return 'net_income';
   const canon = canonicalSubtype(subtype);
   if (accountType === 'equity') return canon === 'retained_earnings' ? 'retained_earnings' : 'equity';
@@ -74,20 +88,57 @@ export function classifyIndirectLine(accountType: AccountType, subtype: string |
     case 'long_term_liability':
     case 'non_current_liability':
     case 'credit_card': return 'debt';
-    default: return 'other_operating';
+    default: return isLoanCurrentPortion ? 'debt' : 'other_operating';
   }
 }
 
+export interface JournalLeg {
+  accountType: AccountType;
+  subtype: string | null | undefined;
+  isLoanCurrentPortion?: boolean;
+  creditLessDebit: number;
+}
+
+export interface PlacedAmount { bucket: IndirectBucket; amount: number }
+
 /**
- * The line a NON-cash journal line lands in, given whether its journal has a cash leg. A journal with no cash leg moved
- * no cash, so it must not show as an investing or financing cash flow: an asset bought on a loan would otherwise read
- * as an investing outflow and an equal financing inflow, and one bought on account as an investing outflow funded by
- * operating payables. Those legs land in `non_cash` (operating), where they offset the journal's other legs: the whole
- * journal sums to zero, so the tie-out to cash holds, and net income and working capital keep their own lines.
+ * Where one journal's non-cash legs land, given the journal's net movement on its cash accounts (debit less credit).
+ * Only the cash that actually moved is an investing or financing flow; the rest of those legs lands in `non_cash`
+ * (operating). A R10 000 asset bought with R2 000 cash and an R8 000 loan is investing -2 000, and non_cash nets the
+ * remaining -8 000 against the loan's +8 000. An asset bought wholly on a loan (no cash leg, netCash 0) moves nothing.
+ * Operating legs always keep their own lines, and:
+ * - when they run the same way as the cash they account for that much of it (a purchase's input VAT paid in cash);
+ * - when they run against it they funded the journal without cash (the part of an asset bought on account).
+ * Of what remains, only legs running the same way as the cash can have taken it; if those legs exceed it (rare: a
+ * single journal with cash, an asset and a loan repayment, part on account) each takes a pro-rata share.
+ * Every leg's whole amount is placed, so a journal's placed amounts always sum to its legs and the tie-out holds.
  */
-export function indirectLineFor(
-  accountType: AccountType, subtype: string | null | undefined, journalHasCashLeg: boolean,
-): IndirectBucket {
-  const bucket = classifyIndirectLine(accountType, subtype);
-  return !journalHasCashLeg && SECTION[bucket] !== 'operating' ? 'non_cash' : bucket;
+export function placeJournal(legs: readonly JournalLeg[], netCash: number): PlacedAmount[] {
+  const placed: PlacedAmount[] = [];
+  const nonOperating = new Map<IndirectBucket, number>();
+  let operating = 0;
+  for (const leg of legs) {
+    const bucket = classifyIndirectLine(leg.accountType, leg.subtype, leg.isLoanCurrentPortion);
+    if (SECTION[bucket] === 'operating') {
+      placed.push({ bucket, amount: leg.creditLessDebit });
+      operating += leg.creditLessDebit;
+    } else {
+      nonOperating.set(bucket, (nonOperating.get(bucket) ?? 0) + leg.creditLessDebit);
+    }
+  }
+
+  const way = Math.sign(netCash);
+  const sameWay = (amount: number) => way !== 0 && Math.sign(amount) === way;
+  const operatingDraw = sameWay(toMoney(operating)) ? toMoney(operating) : 0;
+  const available = Math.abs(operatingDraw) >= Math.abs(netCash) ? 0 : netCash - operatingDraw;
+  const nonOperatingAmounts = [...nonOperating].map(([bucket, amount]) => [bucket, toMoney(amount)] as const);
+  const candidates = nonOperatingAmounts.reduce((sum, [, amount]) => (sameWay(amount) ? sum + amount : sum), 0);
+  const share = candidates === 0 ? 0 : Math.min(1, available / candidates);
+
+  for (const [bucket, amount] of nonOperatingAmounts) {
+    const cash = sameWay(amount) ? toMoney(amount * share) : 0;
+    if (cash !== 0) placed.push({ bucket, amount: cash });
+    if (cash !== amount) placed.push({ bucket: 'non_cash', amount: amount - cash });
+  }
+  return placed;
 }

@@ -143,18 +143,18 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
     /**
      * Opening cash comes from getCashBalance (stood in above); the one SQL
      * call is the collapsed aggregate:
-     *   [0] non-cash movement grouped by account type and subtype → { account_type, account_subtype, debit, credit }
+     *   [0] non-cash movement per journal → { journal_entry_id, net_cash, account_type, account_subtype, debit, credit }
      */
     openingCash = 1500; // cash.balance.v1: debit=2000, credit=500 → 1500
     mockSqlResults.push(
       // [0] collapsed aggregate
       [
-        { account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '1000', has_cash_leg: true },
-        { account_type: 'expense', account_subtype: 'operating_expense', has_cash_leg: true, debit: '300', credit: '0' }, // net income 700
-        { account_type: 'asset', account_subtype: 'receivable', has_cash_leg: true, debit: '0', credit: '200' },     // credit-debit = 200
-        { account_type: 'liability', account_subtype: 'payable', has_cash_leg: true, debit: '0', credit: '100' },    // credit-debit = 100
-        { account_type: 'asset', account_subtype: 'fixed_asset', has_cash_leg: true, debit: '0', credit: '500' },    // 500
-        { account_type: 'equity', account_subtype: 'equity', has_cash_leg: true, debit: '0', credit: '400' },        // 400
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '1000' },
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'expense', account_subtype: 'operating_expense', debit: '300', credit: '0' }, // net income 700
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'asset', account_subtype: 'receivable', debit: '0', credit: '200' },     // credit-debit = 200
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'liability', account_subtype: 'payable', debit: '0', credit: '100' },    // credit-debit = 100
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'asset', account_subtype: 'fixed_asset', debit: '0', credit: '500' },    // 500
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'equity', account_subtype: 'equity', debit: '0', credit: '400' },        // 400
       ],
     );
 
@@ -247,8 +247,8 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
   it('VAT control and the other balance-sheet lines are in the statement (the R1 150 cash sale)', async () => {
     openingCash = 0;
     mockSqlResults.push([
-      { account_type: 'revenue', account_subtype: 'revenue', has_cash_leg: true, debit: '0', credit: '1000' },
-      { account_type: 'liability', account_subtype: 'vat_output', has_cash_leg: true, debit: '0', credit: '150' },
+      { journal_entry_id: 'j1', net_cash: '1150', account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '1000' },
+      { journal_entry_id: 'j1', net_cash: '1150', account_type: 'liability', account_subtype: 'vat_output', debit: '0', credit: '150' },
     ]);
     const mod = await import('../../../pages/api/accounting/reports-cash-flow');
     const handler = mod.default as (req: NextApiRequest, res: NextApiResponse) => Promise<void>;

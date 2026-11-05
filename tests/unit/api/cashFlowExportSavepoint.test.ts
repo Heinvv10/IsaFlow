@@ -95,9 +95,9 @@ describe('cash-flow-export classification', () => {
     const { req, res } = mockReqRes();
     await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);
 
-    // One grouped query over the non-cash accounts; the classification into lines is in TypeScript through the
+    // One query over the non-cash accounts, per journal; the classification into lines is in TypeScript through the
     // subtype vocabulary (cashFlowIndirectClassification.test.ts walks it, the plural fixed_assets included).
-    const movement = queryTexts().filter((t) => t.includes('GROUP BY l.account_type, l.account_subtype'));
+    const movement = queryTexts().filter((t) => t.includes('GROUP BY l.journal_entry_id, jc.net_cash, l.account_type, l.account_subtype'));
     expect(movement).toHaveLength(1);
     expect(movement[0]).toMatch(/\(ga\.account_type = 'asset' AND COALESCE\(ga\.account_subtype = ANY\(/);
     expect(movement[0]).toMatch(/WHERE NOT l\.is_cash/);
