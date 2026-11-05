@@ -105,6 +105,8 @@ export interface PrintedPack {
    * as the printing browser resolved their (fitted) font size. Null where the page has none.
    */
   figurePt: Array<{ id: string; kpi: number | null; table: number | null }>;
+  /** Every KPI value and table figure as laid out: its text and its measured width in ems of its own font size. */
+  figureEms: Array<{ text: string; ems: number; kpi: boolean }>;
   /** Sheets of paper, from the PDF itself. The number that matters. */
   sheets: number;
   /**
@@ -540,6 +542,13 @@ export async function printBoardPack(
         table: smallest(Array.from(pg.querySelectorAll('.pack-table-box .pack-table td:not(:first-child)'))),
       }));
     });
+    const figureEms = await page.evaluate(() => Array.from(document.querySelectorAll('.pack-kpi-value, .pack-table-box .pack-table td:not(:first-child)')).flatMap((el) => {
+      const text = (el.textContent ?? '').trim();
+      if (text === '') return [];
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return [{ text, ems: range.getBoundingClientRect().width / parseFloat(getComputedStyle(el).fontSize), kpi: el.classList.contains('pack-kpi-value') }];
+    }));
     // `pdf-parse` is already a dependency, and the count comes from the
     // DOCUMENT rather than from anything this harness believes about how tall
     // a page was — the two disagreeing is the whole defect.
@@ -550,7 +559,7 @@ export async function printBoardPack(
     };
     const { total, pages } = await new PDFParse({ data: pdf }).getText();
     return {
-      sheets: total, sheetText: pages.map((p) => p.text), overflow, heights, figurePt,
+      sheets: total, sheetText: pages.map((p) => p.text), overflow, heights, figurePt, figureEms,
       coverBand, pageNames, headingRanks, pendingNarrative, landscapeWidthMm, foreignClassNames, pdf,
     };
   } finally {

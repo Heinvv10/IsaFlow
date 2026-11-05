@@ -1,5 +1,5 @@
 /**
- * NO ELEMENT OF ANY PAGE PASSES THE SHEET'S RIGHT EDGE, AT ANY SCALE FROM 1 TO 10 000 000.
+ * NO ELEMENT OF ANY PAGE PASSES THE SHEET'S RIGHT EDGE, AT ANY SCALE FROM 1 TO 3 000 000, AND ABOVE THAT THE PACK IS REFUSED.
  *
  * Page 3's KPI tiles ran past the right edge of the paper from a net profit of (13 350 000) (R'000)
  * on: `.pack-kpi-tiles` is `repeat(4, 1fr)` and its figures are `nowrap` 22pt, so the widest figure of
@@ -16,8 +16,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
 import { chromium } from 'playwright';
+import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { figureTextEms } from '@/components/accounting/packs/primitives/packFigureFit';
 import { blockMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import { page6Input } from '../services/packs/fixtures/page6Shapes';
 import { printBoardPack } from './renderPackPdf';
@@ -26,7 +28,7 @@ let browser: Browser;
 beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
-const SCALES = [1, 1000, 10_000, 30_000, 100_000, 300_000, 1_000_000, 10_000_000];
+const SCALES = [1, 1000, 10_000, 30_000, 100_000, 300_000, 1_000_000, 3_000_000];
 /** The smallest a KPI figure or a table figure may be set (the stylesheet's floors). */
 const KPI_FLOOR_PT = 12;
 const TABLE_FLOOR_PT = 7.5;
@@ -45,6 +47,15 @@ describe.each(SCALES)('the demo company at k=%i', (k) => {
       expect(printed.heights.filter((h) => h.overMm > 0.2).map((h) => [h.id, h.overMm]), 'a page runs past its sheet').toEqual([]);
       expect(printed.figurePt.filter((f) => (f.kpi ?? KPI_FLOOR_PT) < KPI_FLOOR_PT || (f.table ?? TABLE_FLOOR_PT) < TABLE_FLOOR_PT),
         'a figure is set below the legibility floor').toEqual([]);
+      // The figure ruler is never short of Chromium's own layout of a figure, and, for a table, not loose by more than 20% (a KPI row is sized by its widest figure, always money, whose model is tight; a short percentage or ratio tile is allowed to be modelled wide)
+      // (`figureTextEms`): a short ruler is a column that runs past the edge, a loose one needless shrinking.
+      // An n/m cell prints its mark in a smaller superscript; the model charges it as 'n/m a', a figure-width stand-in.
+      const wrong = printed.figureEms
+        .filter((f) => !f.text.startsWith('n/m'))
+        .map((f) => ({ ...f, model: figureTextEms(f.text, f.kpi ? 'kpi' : 'table') }))
+        .filter((f) => f.model < f.ems || (!f.kpi && f.model > f.ems * 1.2 + 0.1))
+        .map((f) => `${f.text}: model ${f.model.toFixed(2)}em, laid out ${f.ems.toFixed(2)}em`);
+      expect(wrong, 'the figure ruler disagrees with the printed figures').toEqual([]);
       // The height model matches the CSS for what this change touches: the KPI tile block is never charged
       // less than the browser lays it out (a stretched column is wider, so its sparkline is taller: the
       // stylesheet caps it at the 33mm the model charges). Block 0 of the DOM is the page header.
@@ -52,6 +63,39 @@ describe.each(SCALES)('the demo company at k=%i', (k) => {
       const tiles = highlights.blocks.findIndex((b) => b.kind === 'kpiTiles');
       const measured = printed.heights[2]!.blocks[tiles + 1]!.mm;
       expect(blockMm(highlights.blocks[tiles]!, 'portrait'), 'the KPI tile block is taller on paper than the height model says').toBeGreaterThanOrEqual(measured - 0.05);
+    } finally {
+      warn.mockRestore();
+    }
+  }, 300_000);
+});
+
+describe('the demo company at k=1 prints its figures at their ceiling, as before', () => {
+  it('KPI figures 22pt, table figures 9pt, on every page', async () => {
+    const doc = buildBoardPackPages(page6Input({ k: 1, negative: false, loss: false, plug: 0, sg: [1, 1, 1, 1] }));
+    const printed = await printBoardPack(doc, browser);
+    for (const f of printed.figurePt) {
+      if (f.kpi !== null) expect(f.kpi, `${f.id} KPI figures`).toBeCloseTo(22, 1);
+      if (f.table !== null) expect(f.table, `${f.id} table figures`).toBeCloseTo(9, 1);
+    }
+    expect(printed.figurePt.some((f) => f.kpi !== null) && printed.figurePt.some((f) => f.table !== null)).toBe(true);
+  }, 300_000);
+});
+
+describe('figures beyond what the floor can hold', () => {
+  it.each([[10_000_000, false], [26_000_000, false], [30_000_000, false], [100_000_000, false]] as const)('k=%i (loss=%s): refused with a reader\'s sentence, or printed within the floor and the edge', async (k, loss) => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    try {
+      let doc;
+      try {
+        doc = buildBoardPackPages(page6Input({ k, negative: false, loss, plug: 0, sg: [1, 1, 1, 1] }));
+      } catch (err) {
+        expect(err).toBeInstanceOf(PackRefusal);
+        expect((err as PackRefusal).userMessage).toContain('too wide to print legibly');
+        return;
+      }
+      const printed = await printBoardPack(doc, browser);
+      expect(printed.overflow).toEqual([]);
+      expect(printed.figurePt.filter((f) => (f.kpi ?? KPI_FLOOR_PT) < KPI_FLOOR_PT || (f.table ?? TABLE_FLOOR_PT) < TABLE_FLOOR_PT)).toEqual([]);
     } finally {
       warn.mockRestore();
     }

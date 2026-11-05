@@ -23,7 +23,8 @@
 .pack-table tbody tr.is-grand-total td { font-weight: 600; border-top: 1pt solid var(--pack-ink); border-bottom: 3pt double var(--pack-ink); }
 /* A statement table's figures shrink only where its columns would outgrow the measure (see
  * `packFigureFit.ts`): 9pt is the ceiling, and the room is the box's width less a label column of 30mm
- * and the 4mm of padding every data column carries. Never below 7.5pt, the pack's smallest text (its footnotes).
+ * and the 4mm of padding every data column carries (TABLE_LABEL_COLUMN_MM and TABLE_CELL_PADDING_MM in
+ * `packFigureFit.ts`, which the readability gate reads: change them together). Never below 7.5pt, the pack's smallest text (its footnotes).
  * Figures that fit print at 9pt as before. */
 .pack-table-box { container-type: inline-size; }
 .pack-table-box .pack-table td:not(:first-child) {

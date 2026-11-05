@@ -13,11 +13,12 @@
  * The figure's text is `formatFigureText`'s, the same call the tile makes, at the pack's one scale
  * (as `tableLabelShare` does for the statement tables).
  */
+import { figureTextEms } from '@/components/accounting/packs/primitives/packFigureFit';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import { GUTTER_MM } from './packDisclosureHeight';
 import type { PackPageBlock } from './packPageModel';
 import { PACK_SCALE } from './packScale';
-import { PAGE_WIDTH_MM, PT_MM, textWidthEms, type PageOrientation } from './packTextMetrics';
+import { PAGE_WIDTH_MM, PT_MM, type PageOrientation } from './packTextMetrics';
 
 type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
 
@@ -33,7 +34,7 @@ export function kpiColumnWidthsMm(tiles: readonly KpiTile[], orientation: PageOr
   tiles.forEach((tile, i) => {
     if (tile.figure.value === null) return;
     const column = i % KPI_COLUMNS;
-    widestEms[column] = Math.max(widestEms[column]!, textWidthEms(formatFigureText(tile.figure, PACK_SCALE)));
+    widestEms[column] = Math.max(widestEms[column]!, figureTextEms(formatFigureText(tile.figure, PACK_SCALE), 'kpi'));
   });
   const totalEms = widestEms.reduce((sum, ems) => sum + ems, 0);
   const emMm = totalEms === 0

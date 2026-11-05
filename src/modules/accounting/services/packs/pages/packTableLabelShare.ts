@@ -21,7 +21,7 @@ const HEAD_PT = 8;
 /** `.pack-table th`: uppercase at letter-spacing 0.06em. */
 const HEAD_TRACKING = 1.06;
 /** The floor: a label column never measured narrower than this share (one short word). */
-const MIN_LABEL_SHARE = 0.1;
+export const MIN_LABEL_SHARE = 0.1;
 
 /** The cell's text as the table prints it, closely enough to measure: n/m plus its mark for a null. */
 function cellText(figure: PackFigure, scale: MoneyScale): string {

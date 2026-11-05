@@ -12,7 +12,7 @@
 import { formatFigureText } from './packFigureText';
 import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import { FootnoteMarker } from './FootnoteMarker';
-import { tableFitStyle } from './packFigureFit';
+import { tableColumnTexts, tableFitStyle } from './packFigureFit';
 import type { MoneyScale } from '@/lib/format/money';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packBlockModel';
 import type {
@@ -84,13 +84,8 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
     return '–';
   };
 
-  // What each data column prints, for the stylesheet's fit (see `packFigureFit`): a figure's own text, and
-  // the n/m mark for a cell with no value.
-  const columnTexts = columns.map((col) => table.rows.map((row) => {
-    const figure = row.figures[col];
-    if (figure === undefined) return '–';
-    return figure.value === null ? 'n/m a' : formatFigureText(figure, scale, col === 'changePct' ? 'change' : 'level');
-  }));
+  // What each data column prints, for the stylesheet's fit (see `packFigureFit`).
+  const columnTexts = tableColumnTexts(table, scale);
 
   return (
     <>

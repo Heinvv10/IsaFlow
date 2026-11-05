@@ -25,6 +25,7 @@ import {
   type UnnumberedPage,
 } from './packFrontMatter';
 import type { BoardPackInput } from './packBoardPackInput';
+import { assertFiguresReadable } from './packFigureFloor';
 import { printedStrings } from './packPrintedStrings';
 import type { PackComparativePeriod, PackPagesDocument } from './packPageModel';
 
@@ -108,6 +109,9 @@ export function assembleBoardPackDocument(
     ...body.map((p2, i) => fitBodyPage(p2, i + BODY_FIRST_SHEET)),
     fitPageToBox(basisPage),
   ]);
+
+  // A figure the sheet can only hold below the pack's smallest text is refused, not printed.
+  assertFiguresReadable(pages, scale);
 
   const document: PackPagesDocument = {
     packType: 'board',

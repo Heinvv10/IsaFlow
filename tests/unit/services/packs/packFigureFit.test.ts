@@ -4,18 +4,17 @@
  * `tests/unit/print/packNothingPassesTheEdge.test.ts`.
  */
 import { describe, expect, it } from 'vitest';
-import { kpiFitStyle, tableFitStyle, widestPerColumnEms } from '@/components/accounting/packs/primitives/packFigureFit';
-import { textWidthEms } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { figureTextEms, kpiFitStyle, tableFitStyle, widestPerColumnEms } from '@/components/accounting/packs/primitives/packFigureFit';
 
 describe('packFigureFit', () => {
   it('sums the widest text of each column, not the widest overall nor every text', () => {
     const ems = widestPerColumnEms([['(1 546)', '12'], ['9']]);
-    expect(ems).toBeCloseTo(textWidthEms('(1 546)') + textWidthEms('9'), 6);
+    expect(ems).toBeCloseTo(figureTextEms('(1 546)') + figureTextEms('9'), 6);
   });
 
   it('puts tile i in column i % 4, and ignores a tile with no figure', () => {
     const texts = ['1', '22', '333', '4444', '(55 555)', null, '7', '8'];
-    const expected = widestPerColumnEms([['1', '(55 555)'], ['22'], ['333', '7'], ['4444', '8']]);
+    const expected = widestPerColumnEms([['1', '(55 555)'], ['22'], ['333', '7'], ['4444', '8']], 'kpi');
     expect(kpiFitStyle(texts)['--pack-fit-ems']).toBeCloseTo(expected, 1);
   });
 
