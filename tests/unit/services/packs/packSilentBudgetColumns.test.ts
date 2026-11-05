@@ -89,6 +89,15 @@ describe('a plain fallback that fits untouched still says the columns are not pr
   });
 });
 
+describe('the adversary\'s advNotedEveryFigure repro (the noted page)', () => {
+  it('a page that leaves the Budget columns out never says every figure is complete', () => {
+    const { page } = p6({ tr: 'none', budget: true, prior: true, negative: false, loss: false, k: 30000, plug: 0.05, sg: [1, -1, 1, -1] });
+    const texts = page.footnotes.map((f) => f.text);
+    expect(texts.some((t) => t.startsWith('The Budget and Variance columns are left out'))).toBe(true);
+    expect(texts.filter((t) => /Every figure, table and chart on the page is complete/.test(t))).toEqual([]);
+  });
+});
+
 describe('the budget probe and the real body fit are one function', () => {
   it('fitRelaidPage is what fitBodyPage applies: relaying changes nothing on page 6 (its caption has no board actions), so the probe and the real path agree', () => {
     const page = p6({ tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1000, plug: 0.2, sg: [-1, 1, -1, -1] }).page;
