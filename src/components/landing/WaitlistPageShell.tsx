@@ -29,7 +29,7 @@ export function WaitlistPageShell({ children }: { children: ReactNode }) {
           <Link href="/" className="flex items-center">
             <Image
               src="/logo.png"
-              alt="ISAFlow"
+              alt="IsaFlow"
               width={160}
               height={64}
               className="h-9 w-auto brightness-0 invert sm:h-10"

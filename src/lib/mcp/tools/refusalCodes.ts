@@ -151,6 +151,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // No MCP tool reaches it today (no tool writes a job); registered so the census holds.
   'JOB_CLIENT_HAS_ENTRIES',
   'JOURNAL_REVERSAL_LOCK_TIMEOUT',
+  // A payroll line's due loan instalments exceed its available pay. Names only the employee and their loans;
+  // the payment is refused before any loan balance changes, with a manual-review remedy.
+  'LOAN_INSTALMENT_EXCEEDS_PAY',
   'LOAN_POST_LOCK_TIMEOUT',
   // R-035: enabling approval enforcement for a type not yet wired. Names only the type.
   'NOT_ENFORCEABLE',

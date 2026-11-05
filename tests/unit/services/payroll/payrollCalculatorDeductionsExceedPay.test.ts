@@ -26,6 +26,14 @@ const instalment = (amount: number) => ({
   component: component({ id: 'loan', name: 'Loan repayment', sarsSourceCode: 'LOAN', componentType: 'deduction', isTaxable: false, isUifApplicable: false, isSdlApplicable: false }),
   amount,
 });
+const fringe = (amount: number) => ({
+  component: component({
+    id: 'fringe', name: 'Low-interest loan benefit', sarsSourceCode: '3801',
+    isUifApplicable: false, isSdlApplicable: true,
+  }),
+  amount,
+  isNonCash: true,
+});
 const run = (components: PayrollLineInput['components']) => calculatePayrollLine({
   employee, components, period: { month: 11, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 1_000_000,
 });
@@ -34,10 +42,11 @@ const codes = (r: ReturnType<typeof run>) => r.validationResults.map((v) => v.co
 describe('LOAN_INSTALMENT_EXCEEDS_PAY', () => {
   const { netPay: net } = run([salary]);
 
-  it('a shortfall that would not exist without the instalment is a warning, with every figure as it was', () => {
+  it('a shortfall that would not exist without the instalment is blocked for manual review', () => {
     const plain = run([salary]);
     const over = run([salary, instalment(30000)]);
-    expect(over.validationResults).toMatchObject([{ code: 'LOAN_INSTALMENT_EXCEEDS_PAY', severity: 'warning', rawNet: -11916.12 }]);
+    expect(over.validationResults).toMatchObject([{ code: 'LOAN_INSTALMENT_EXCEEDS_PAY', severity: 'error', rawNet: -11916.12 }]);
+    expect(over.validationResults[0]!.message).toContain('blocked for manual review');
     expect(over.netPay).toBe(0);
     expect(over.paye).toEqual(plain.paye);
     expect(over.uif).toEqual(plain.uif);
@@ -54,6 +63,26 @@ describe('LOAN_INSTALMENT_EXCEEDS_PAY', () => {
 
   it('an instalment net pay can carry reports nothing', () => {
     expect(codes(run([salary, instalment(net)]))).toEqual([]);
+  });
+
+  it.each([
+    ['under', 1000],
+    ['equal', net],
+    ['blocked', 30000],
+  ])('keeps PAYE, UIF and SDL from the 3801 benefit when the cash instalment is %s', (_case, amount) => {
+    const benefitOnly = run([salary, fringe(212.5)]);
+    const withCashInstalment = run([salary, fringe(212.5), instalment(amount)]);
+    expect({
+      paye: withCashInstalment.paye,
+      uif: withCashInstalment.uif,
+      sdl: withCashInstalment.sdl,
+      taxableIncome: withCashInstalment.taxableIncome,
+    }).toEqual({
+      paye: benefitOnly.paye,
+      uif: benefitOnly.uif,
+      sdl: benefitOnly.sdl,
+      taxableIncome: benefitOnly.taxableIncome,
+    });
   });
 });
 

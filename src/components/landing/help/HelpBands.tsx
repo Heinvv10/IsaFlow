@@ -6,7 +6,7 @@ export function HelpIndexBand() {
   return (
     <>
       <Breadcrumb trail={[{ name: 'Home', href: '/' }, { name: 'Help' }]} />
-      <p className="mb-4 text-sm font-semibold uppercase tracking-widest text-teal-400">ISAFlow Help</p>
+      <p className="mb-4 text-sm font-semibold uppercase tracking-widest text-teal-400">IsaFlow Help</p>
       <h1 className="max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl">Help centre</h1>
       <p className="mt-5 max-w-2xl text-lg text-white/70">{HELP_DESCRIPTION}</p>
     </>

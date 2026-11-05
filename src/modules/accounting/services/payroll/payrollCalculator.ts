@@ -239,10 +239,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,
   ) / 100;
 
-  // Reported, never corrected: the line below still floors net at nil, and every other figure stands.
-  // The approval gate refuses a run carrying either code (findOverdrawnLines, payrollLineBlockers): a shortfall
-  // that would not exist without the loan instalment is LOAN_INSTALMENT_EXCEEDS_PAY, which blocks too (Hein) until
-  // the instalment is reduced or deferred, the loan closed, or final pay paid first.
+  // The run service previews loan applications through this calculation before writing them. A loan shortfall is
+  // therefore a blocking decision and the stored line is rebuilt without the loan. Other deductions keep the
+  // historical nil floor and approval refusal.
   if (netPay < 0) {
     const fromLoan = round2(netPay + loanInstalments) >= 0;
     // A non-cash benefit is taxed but not paid: its PAYE comes out of the cash, which may be why.
@@ -250,10 +249,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     const benefitNote = nonCash > 0 ? ` PAYE includes the tax on ${formatMoney(nonCash)} of non-cash benefits, which are taxed but not paid.` : '';
     warnings.push(fromLoan ? {
       code: 'LOAN_INSTALMENT_EXCEEDS_PAY',
-      severity: 'warning',
+      severity: 'error',
       rawNet: netPay,
-      message: `The loan instalment takes ${formatMoney(-netPay)} more than this employee's pay, so net pay shows as nil and `
-        + `the deductions payable are understated by that amount.${benefitNote}`,
+      message: `The loan instalment is ${formatMoney(-netPay)} above available pay. This payslip is blocked for manual review.${benefitNote}`,
     } : {
       code: 'DEDUCTIONS_EXCEED_PAY',
       severity: 'error',

@@ -117,7 +117,7 @@ async function recipients(companyId: string): Promise<string[]> {
 }
 
 /** Account and slice names for the announced alerts. */
-export async function named(companyId: string, rows: readonly AlertRow[], refired: ReadonlySet<string>): Promise<FiredAlert[]> {
+async function named(companyId: string, rows: readonly AlertRow[], refired: ReadonlySet<string>): Promise<FiredAlert[]> {
   if (rows.length === 0) return [];
   const accounts = [...new Set(rows.map((r) => r.glAccountId))];
   const centres = [...new Set(rows.flatMap((r) => [r.cc1Id, r.cc2Id]).filter((v): v is string => v !== null))];

@@ -9,6 +9,7 @@ import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import {
   withAuth,
   withCsrf,
@@ -39,6 +40,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     await closeLoan(companyId, id, parsed.data.status, user.id);
     return apiResponse.success(res, { closed: true, status: parsed.data.status });
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
     if (err instanceof LoanNotFoundError) return apiResponse.notFound(res, err.message);
     if (err instanceof LoanClosedError) return apiResponse.badRequest(res, err.message);
     throw err;

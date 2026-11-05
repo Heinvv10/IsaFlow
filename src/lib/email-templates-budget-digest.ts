@@ -65,14 +65,11 @@ function alertRows(alerts: BudgetDigestAlert[], base: string): string {
   }).join('');
 }
 
-/** Every digest subject starts with this: the retry (`overspendDigestPending.ts`) finds a company's digest rows in `email_log` by it. */
-export const DIGEST_SUBJECT_PREFIX = 'Budget alerts — ';
-
 export function renderBudgetDigestSubject(payload: BudgetDigestPayload): string {
   const n = payload.alerts.length;
   // A subject is a header, not HTML: strip line breaks so a company name cannot add a header line.
   const company = payload.companyName.replace(/[\r\n]+/g, ' ').trim();
-  return `${DIGEST_SUBJECT_PREFIX}${company}: ${n} new overspend alert${n === 1 ? '' : 's'}`;
+  return `Budget alerts — ${company}: ${n} new overspend alert${n === 1 ? '' : 's'}`;
 }
 
 export function renderBudgetDigestHtml(payload: BudgetDigestPayload): string {

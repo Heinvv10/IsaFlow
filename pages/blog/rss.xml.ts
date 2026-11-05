@@ -1,5 +1,5 @@
 /**
- * /blog/rss.xml — RSS 2.0 feed of published posts (never drafts or scheduled posts,
+ * /blog/rss.xml: RSS 2.0 feed of published posts (never drafts or scheduled posts,
  * even with preview on). Rendered per request and cached at the edge for an hour.
  */
 import type { GetServerSideProps } from 'next';
