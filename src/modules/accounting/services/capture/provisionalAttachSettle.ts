@@ -31,6 +31,7 @@ import { log } from '@/lib/logger';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional, type AttachResult } from './evidenceAttachmentService';
+import { replanCaptureSlipDimensions, type CaptureSlipPlan } from './captureSlipReplan';
 import { recordBudgetRefusal } from '../budgets/budgetCheck';
 import { BudgetExceededError } from '../budgets/budgetCheckTypes';
 
@@ -46,6 +47,8 @@ export interface AttachAndSettleInput {
   invoiceDate: string;
   /** Also post an auto-approved invoice that evidences no provisional (R-131, R-160). */
   postUnattached?: boolean;
+  /** What the capture line plan inherited from a provisional (`insertCaptureBillLines`); re-planned after the attach. */
+  slip?: CaptureSlipPlan;
 }
 
 export async function attachEvidenceAndSettleApproved(
@@ -55,6 +58,8 @@ export async function attachEvidenceAndSettleApproved(
   const attached = await attachEvidenceToProvisional(
     companyId, documentId, input.supplierId, input.totalAmount, input.invoiceDate,
   );
+  // P5-2b, fail closed: inherited dimensions only ever come from the provisional actually attached (or none).
+  await replanCaptureSlipDimensions(companyId, invoiceId, input.supplierId, input.slip, attached.attachedJeId);
   if (input.invoiceStatus !== 'approved' || (!attached.attachedJeId && !input.postUnattached)) return attached;
 
   try {

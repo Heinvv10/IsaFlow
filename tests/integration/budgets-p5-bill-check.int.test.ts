@@ -122,11 +122,11 @@ describe('block policy, UI channel', () => {
     expect((await eventsFor(pool, bill)).map((e) => [e.outcome, e.decided_by])).toEqual([['refused', f.manager]]);
   });
 
-  it('no budget never blocks: an unbudgeted account, and the unassigned slice of a CC1-grain account', async () => {
+  // The unassigned slice of a budgeted account is no longer "No budget": refused in block (P5-2b, budgets-p5-off-slice).
+  it('no budget never blocks: an account with no budget in the version', async () => {
     await setPolicy(pool, f, 'block');
     const unbudgeted = await makeBill(pool, f, [{ acct: f.acc.nob, amount: 99_999 }], { date: '2026-10-15' });
-    const unassigned = await makeBill(pool, f, [{ acct: f.acc.opex, amount: 99_999 }], { date: '2026-10-15' });
-    for (const bill of [unbudgeted, unassigned]) {
+    for (const bill of [unbudgeted]) {
       expect((await approve(f.manager, bill)).statusCode).toBe(200);
       expect((await billState(pool, bill)).status).toBe('approved');
       expect(await eventsFor(pool, bill)).toHaveLength(0); // nothing checked: no event
