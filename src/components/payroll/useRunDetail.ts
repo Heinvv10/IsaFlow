@@ -8,6 +8,7 @@ import type { ApproveResult } from '@/components/payroll/PayrollApproveDialog';
 import type { RunLineWarning } from '@/components/payroll/PayrollRunWarnings';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
+import type { PayRunDecisionSummary } from '@/modules/accounting/types/payRunDecision.types';
 
 export interface RunDetailLine {
   id: string;
@@ -41,6 +42,8 @@ export interface RunDetail {
   employeeCount: number;
   journalEntryId: string | null;
   approval: DocumentApprovalState | null;
+  /** Who decided the approval and whether it was the requester's own (sole-approver exception); null when not approved or grandfathered. */
+  approvalDecision?: PayRunDecisionSummary | null;
   lines: RunDetailLine[];
 }
 

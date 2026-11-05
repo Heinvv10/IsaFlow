@@ -129,6 +129,7 @@ const SERVICES = [
 
 // [tool, args, the argument expected to be named]
 const BAD_UUID: Array<[string, Record<string, unknown>, string]> = [
+  ['due_by_date', { side: 'ar', entity_id: 'abc' }, 'entity_id'],
   ['trial_balance', { fiscal_period_id: 'abc' }, 'fiscal_period_id'],
   ['search_gl', { account_id: 'abc', from_date: '2026-01-01', to_date: '2026-06-30' }, 'account_id'],
   ['list_invoices', { customer_id: 'not-a-uuid' }, 'customer_id'],
@@ -147,6 +148,7 @@ const BAD_DATE: Array<[string, Record<string, unknown>, string]> = [
   ['balance_sheet', { as_at: 'yesterday' }, 'as_at'],
   ['aged_debtors', { as_at: '2026-13-01' }, 'as_at'],
   ['aged_creditors', { as_at: '0000-01-01' }, 'as_at'],
+  ['due_by_date', { by_date: '2026-02-31' }, 'by_date'],
   ['search_gl', { account_code: '1000', from_date: '2026-02-31', to_date: '2026-06-30' }, 'from_date'],
   ['vat_status', { period_start: '2026-05-01', period_end: 'junk' }, 'period_end'],
   ['list_agent_postings', { from: '2026-02-31', to: '2026-08-31' }, 'from'],

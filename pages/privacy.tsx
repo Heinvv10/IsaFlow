@@ -55,6 +55,10 @@ export default function PrivacyPage() {
         <li>Documents you send for capture, including by email or WhatsApp.</li>
         <li>Billing information. Card details are handled by our payment providers, not stored by us.</li>
         <li>Security and usage data: sign-in events, IP address, device and audit logs.</li>
+        <li>
+          Invoice links: when someone opens an invoice link we send, we record their IP address
+          and browser, and keep them for 12 months to protect against fraud.
+        </li>
       </ul>
 
       <h2>4. Why we use it</h2>

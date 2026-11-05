@@ -8,7 +8,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import { soleApproverFacts, type SoleApproverSelfApproval } from './approvalSelfApproval';
+import { soleApproverFacts, SOLE_APPROVER, type SoleApproverSelfApproval } from './approvalSelfApproval';
 import { contentAuthorRefusal } from './approvalAuthors';
 import { currentSessionActor } from '@/lib/auth/impersonationSessions';
 import { requiredRank, actorRank } from './approvalRank';
@@ -222,5 +222,5 @@ export async function assertMayDecide(
       `This approval requires the ${demandedRole} role`
     );
   }
-  return row.is_self === true ? { selfApproval: 'sole_approver', requiredRole: demandedRole, approverRoster } : null;
+  return row.is_self === true ? { selfApproval: SOLE_APPROVER, requiredRole: demandedRole, approverRoster } : null;
 }

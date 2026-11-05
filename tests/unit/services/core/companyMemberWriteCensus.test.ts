@@ -88,6 +88,7 @@ const KNOWN_WRITERS = [
   'scripts/stress-test.ts: writes', // W18 stress seed — postgres
   'src/modules/accounting/services/core/memberWrites.ts: locks', // S-04: the target's row FOR UPDATE, the actor's FOR SHARE — migration_admin pool (S-07d, 937)
   'src/modules/accounting/services/core/memberWrites.ts: writes', // W1/W2 role change and removal — migration_admin pool since S-07d (937), the guard's rules in TS
+  'src/modules/accounting/services/core/payRunApproverGuard.ts: locks', // the onboarding reset's pre-lock of the user's membership rows FOR UPDATE (platform_admin), so it takes them before the approver lock as every member write does
   'src/modules/accounting/services/core/userInvitationService.ts: locks', // assertCanInvite: the inviter's membership, FOR SHARE — migration_admin pool (S-07c)
   'src/modules/accounting/services/core/userInvitationService.ts: writes', // W3–W6 — migration_admin pool since S-07c (930), no auto-add; the cancel DELETE — app_user
   'src/modules/admin/services/adminUserActionsService.ts: writes', // W13–W14 delete-user, reset-onboarding — platform_admin; refused whole for a company's only owner (908b)

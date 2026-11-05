@@ -119,6 +119,13 @@ describe('postPayrollRunJournal handed no plan (recovery posting)', () => {
 });
 
 describe('postPayrollRunJournal handed a plan', () => {
+  it("refuses another run's plan, writing nothing", async () => {
+    const other = { ...plan(null), runId: 'cccccccc-cccc-cccc-cccc-cccccccccccc' };
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: other })).rejects.toThrow(/is for run cccccccc-cccc-cccc-cccc-cccccccccccc, not run /);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
   it('still requires the run to be approved, writing nothing when it is not', async () => {
     vi.mocked(assertPayRunApproved).mockRejectedValue(new Error('Pay run is not approved, so it has no reviewed approval plan'));
     await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).rejects.toThrow(/not approved/);
