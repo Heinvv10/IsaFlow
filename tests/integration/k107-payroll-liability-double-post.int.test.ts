@@ -94,11 +94,11 @@ beforeAll(async () => {
     `INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
      VALUES ($1, $2, 'K107-1', 'K107', 'Employee', '2020-01-01', true)`, [employee, company]);
   await pool.query(
-    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active)
-     VALUES($1,$2,'2150','UIF Payable','liability','other','credit',true),
-            ($3,$2,'1110','Bank - Primary','asset','bank','debit',true),
-            ($4,$2,'5200','Labour Costs','expense','other','debit',true),
-            ($5,$2,'2140','PAYE Payable','liability','other','credit',true)`,
+    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account)
+     VALUES($1,$2,'2150','UIF Payable','liability','other','credit',true,false),
+            ($3,$2,'1110','Bank - Primary','asset','bank','debit',true,true),
+            ($4,$2,'5200','Labour Costs','expense','other','debit',true,false),
+            ($5,$2,'2140','PAYE Payable','liability','other','credit',true,false)`,
     [uifPayable, company, bank, labour, paye]);
 });
 

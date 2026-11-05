@@ -8,7 +8,7 @@
  *                                (payrollCostCentreTags: allocations, mapping,
  *                                default 5200, the employee's CC1 on each line)
  *   CR 2140 PAYE Payable       = paye_amount
- *   CR 1110 Bank (or override) = net_amount
+ *   CR Bank = net_amount (`bankAccountId`, else the bank-role holder: gl/paymentBankAccount)
  *
  * All queries scoped by company_id (multi-tenant).
  */
@@ -20,10 +20,11 @@ import { log } from '@/lib/logger';
 import { claimUnderLockTimeout } from '@/modules/accounting/services/core/documentClaimLock';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { resolvePaymentBankAccount } from '@/modules/accounting/services/gl/paymentBankAccount';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { directivePaye } from './payrollSeveranceDirective';
 import { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
-import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
+import { releaseReversedStandalonePayment, reversedStandalonePayments } from './taxDirectivePaidGuard';
 import { employeeLabourLines } from './payrollCostCentreTags';
 import { lockDirectiveLabour, postOrRetry, refreshDirectiveLabour } from './taxDirectiveLabour';
 
@@ -35,7 +36,7 @@ type Row = DbRow;
 
 export interface ApplyDirectiveInput {
   paymentDate: string;     // YYYY-MM-DD
-  bankAccountId?: string;  // override GL 1110 Bank
+  bankAccountId?: string;  // override the bank-role holder; must be an active bank account of the company
 }
 
 export interface ApplyDirectiveResult {
@@ -115,6 +116,18 @@ async function glByCode(companyId: string, code: string): Promise<string | null>
   return rows.length > 0 ? String(rows[0]!.id) : null;
 }
 
+/** The refusal for a directive with a payment row already (a pay run that paid it holds the same row), else null. `undone` rows are not payments. */
+async function existingPayment(companyId: string, directiveId: string, undone: string[] = []): Promise<TaxDirectiveAlreadyAppliedError | null> {
+  const now = (await sql`
+    SELECT id, payroll_run_id FROM tax_directive_payments
+    WHERE company_id = ${companyId} AND tax_directive_id = ${directiveId} AND id <> ALL(${undone}::uuid[])
+    LIMIT 1
+  `) as Row[];
+  if (!now[0]) return null;
+  const run = now[0].payroll_run_id;
+  return new TaxDirectiveAlreadyAppliedError(directiveId, String(now[0].id), run == null ? null : String(run));
+}
+
 // ─── applyTaxDirective ────────────────────────────────────────────────────────
 
 export async function applyTaxDirective(
@@ -148,7 +161,6 @@ export async function applyTaxDirective(
     SELECT 1 FROM payroll_employees WHERE company_id = ${companyId} AND id = ${dir.employee_id}
   `) as Row[];
   if (employee.length === 0) throw new TaxDirectiveWithoutEmployeeError(directiveId);
-  await releaseReversedStandalonePayment(companyId, directiveId);
 
   // 2. Compute amounts
   const gross = round2(num(dir.amount));
@@ -181,16 +193,14 @@ export async function applyTaxDirective(
     throw new Error('GL account 2140 (PAYE Payable) not found — ensure chart of accounts is seeded');
   }
 
-  let bankAccountId: string | null = input.bankAccountId ?? null;
-  if (!bankAccountId) {
-    bankAccountId = await glByCode(companyId, '1110');
-    if (bankAccountId) {
-      log.warn('No bankAccountId supplied — using GL 1110 (Bank)', { companyId, directiveId }, 'taxDirective');
-    }
-  }
-  if (!bankAccountId) {
-    throw new Error('Cannot resolve bank GL account — supply bankAccountId or add GL account 1110');
-  }
+  // Already paid: "already applied" whatever the bank is now. A reversed stand-alone payment is no payment: it is
+  // read here, released only once the bank is settled, so a refusal has written nothing (the DELETE is the first write).
+  const applied = await existingPayment(companyId, directiveId, (await reversedStandalonePayments(companyId, directiveId)).map((p) => p.id));
+  if (applied) throw applied;
+
+  // The supplied account, checked, else the bank-role holder.
+  const bankAccountId = await resolvePaymentBankAccount(companyId, input.bankAccountId);
+  await releaseReversedStandalonePayment(companyId, directiveId);
 
   // 4. Describe the journal; its labour lines are built after the claim wait.
   const employeeName = String(dir.employee_name);
@@ -215,17 +225,8 @@ export async function applyTaxDirective(
     RETURNING id
   `) as Row[]);
   if (claimed.length === 0) {
-    // Re-read rather than trusting a row read before the INSERT: the loser of a
-    // double-click needs the payment the winner left behind.
-    // A payroll run that paid a severance directive holds this same row (its
-    // claim, payrollRunDirectiveClaim), so the run is refused here too.
-    const now = (await sql`
-      SELECT id, payroll_run_id FROM tax_directive_payments
-      WHERE company_id = ${companyId} AND tax_directive_id = ${directiveId}
-      LIMIT 1
-    `) as Row[];
-    const run = now[0]?.payroll_run_id;
-    throw new TaxDirectiveAlreadyAppliedError(directiveId, now[0] ? String(now[0].id) : null, run == null ? null : String(run));
+    // Re-read: the loser of a double-click needs the payment the winner left behind.
+    throw (await existingPayment(companyId, directiveId)) ?? new TaxDirectiveAlreadyAppliedError(directiveId, null);
   }
   const paymentId = String(claimed[0]!.id);
 

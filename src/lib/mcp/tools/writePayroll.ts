@@ -20,6 +20,9 @@ import { createPayrollRun } from '@/modules/accounting/services/payroll/payrollR
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
+import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollLoanLock';
+import { PayrollRunBusyError } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import type { DryRunResult } from '../contracts';
 import { guardCastableArgs, NOT_FOUND, ok, toolError } from './toolHelpers';
@@ -102,7 +105,7 @@ export const postPayrollJournalTool: McpTool = {
   description:
     'Post the general-ledger journal for an APPROVED payroll run: debit labour cost with gross pay plus the employer UIF and SDL the company owes on top of it, and credit PAYE payable, UIF payable (both halves), SDL payable, any voluntary deductions, and net pay. ' +
     'This is the entry that is missing from these books. Today net pay alone is coded to Salaries & Wages, so employment cost is understated by every employer contribution and no PAYE, UIF or SDL liability is ever raised. ' +
-    'ALWAYS call it with dry_run: true first. The preview returns the complete journal — every line, both totals, the fiscal period the date falls in, and the run totals it was derived from — and it applies every check the live call applies: the run must be approved, it must not already carry a journal, the five required GL accounts (5200 labour, 2140 PAYE, 2150 UIF, 2160 SDL, 1110 bank) must exist, account 2175 must exist if there are voluntary deductions, no target account may be deactivated (inactive_target_account — the ledger refuses the posting; it does not activate them), the fiscal period covering the date must be open, the run must have something to post, and the journal must balance to the cent. If any of those fails, BOTH the preview and the live call refuse and name the reason. ' +
+    'ALWAYS call it with dry_run: true first. The preview returns the complete journal — every line, both totals, the fiscal period the date falls in, and the run totals it was derived from — and it applies every check the live call applies: the run must be approved, it must not already carry a journal, the four required GL accounts (5200 labour, 2140 PAYE, 2150 UIF, 2160 SDL) must exist, an active account must hold the bank system role of the company (net pay is credited to it, whatever its code; missing_bank_account otherwise), account 2175 must exist if there are voluntary deductions, no target account may be deactivated (inactive_target_account — the ledger refuses the posting; it does not activate them), the fiscal period covering the date must be open, the run must have something to post, and the journal must balance to the cent. If any of those fails, BOTH the preview and the live call refuse and name the reason. ' +
     'It also does not calculate or approve the run, does not pay anyone, and does not file an EMP201. ETI is booked net of labour cost and against PAYE payable, capped at the PAYE of the run: the labour debit and the PAYE credit both fall by min(ETI, PAYE), so the PAYE credit equals the EMP201 PAYE payable. ETI beyond PAYE is not booked and is reported as an eti_beyond_paye advisory. ' +
     'Reverse a posted payroll journal in the app; this tool will refuse a run that already has one rather than post a second.',
   scope: 'write:payroll',
@@ -122,6 +125,23 @@ export const postPayrollJournalTool: McpTool = {
     const guard = guardCastableArgs(args, { uuid: ['run_id'] });
     if (guard) return guard;
     const runId = String(args.run_id);
+
+    // A live post locks the run's header BEFORE it reads the plan: the idempotency
+    // key serialises only calls that share it, so two posts under different keys,
+    // or a post beside an approval, would both read a run with no journal and each
+    // post one. Behind the lock the plan reads the winner's link and refuses
+    // (already_posted). A dry run takes no lock. Nothing is written yet, so a
+    // lock timeout is a plain, retryable refusal. Ownership: the lock is
+    // company-scoped and a run of another tenant reads as a miss.
+    if (args.dry_run !== true) {
+      try {
+        if (!(await lockPayrollRunHeader(runId, ctx.companyId))) return toolError(NOT_FOUND);
+      } catch (err) {
+        // The neutral wording: the holder may be an approval or another post, not a calculation.
+        if (err instanceof PayrollLoanLockTimeoutError) return toolError(new PayrollRunBusyError(runId).message);
+        throw err;
+      }
+    }
 
     // Ownership is the handler's job: the plan builder is company-scoped and
     // returns null for a run in another tenant, which must read identically to
@@ -180,8 +200,10 @@ export const postPayrollJournalTool: McpTool = {
     // Past this point the poster may have written. Every failure RETHROWS — a
     // returned toolError releases the savepoint, commits the partial write AND
     // frees the key for a retry that writes a second time.
+    // The plan reported above is the plan that posts: rebuilt here, the bank role could be read a second time and differ.
     const journalId = await postPayrollRunJournal(ctx.companyId, runId, ctx.userId, {
       postingAgent: POST_TOOL_AGENT,
+      plan,
     });
 
     return ok({

@@ -13,6 +13,8 @@ import type {
 } from '../../types/ap.types';
 
 export interface ComputedSupplierInvoiceItem extends SupplierInvoiceItemInput {
+  /** The row id a planner chose (MCP update_supplier_invoice): written as is, so the stored order is the planned one. */
+  id?: string;
   lineTotal: number;
   taxAmount: number;
   taxRate: number;

@@ -11,6 +11,8 @@ import { MSG, empty500, expectNoJargon, ok, on, refuse, serve, writeCalls } from
 
 const route = vi.hoisted(() => ({ query: {} as Record<string, string>, push: vi.fn(), replace: vi.fn(), isReady: true, pathname: '/' }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+// The period lookup runs the route in-process (no fetch): the test chooses what the route answers.
+vi.mock('@/lib/auth/callApiInProcess', () => ({ callApiInProcess: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/router', () => ({ useRouter: () => route }));
 vi.mock('next/head', () => ({ default: () => null }));
@@ -24,6 +26,7 @@ vi.mock('@/components/accounting/afs/AfsReviewTab', () => ({ AfsReviewTab: () =>
 vi.mock('@/components/accounting/afs/AfsExportTab', () => ({ AfsExportTab: () => null }));
 
 import { apiFetch } from '@/lib/apiFetch';
+import { callApiInProcess } from '@/lib/auth/callApiInProcess';
 import AfsDocumentPage, { getServerSideProps } from '../../../pages/accounting/afs/[documentId]/index';
 import DedupPage from '../../../pages/accounting/customers/dedup';
 import GroupPage from '../../../pages/accounting/group/index';
@@ -39,7 +42,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe('afs/[documentId] period lookup with a session the route will not accept', () => {
   type Ctx = Parameters<typeof getServerSideProps>[0];
   const ctx = () => ({ query: { documentId: 'doc-1' }, resolvedUrl: '/accounting/afs/doc-1', req: { headers: { host: 'app.test', cookie: 'c=1' } } }) as unknown as Ctx;
-  const answer = (status: number) => vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status })));
+  const answer = (status: number) => vi.mocked(callApiInProcess).mockResolvedValue({ status, body: null });
   it('401: sends the person to sign in and back, never to a period-error page that no reload can clear', async () => {
     answer(401);
     expect(await getServerSideProps(ctx())).toEqual({ redirect: { destination: '/login?returnTo=%2Faccounting%2Fafs%2Fdoc-1', permanent: false } });

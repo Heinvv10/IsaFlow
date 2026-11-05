@@ -28,7 +28,8 @@ import { taggableCentres, type LabourTagAdvisory } from './payrollCostCentreTags
 
 type Row = DbRow;
 
-export const REQUIRED_PAYROLL_ACCOUNT_CODES = ['5200', '2140', '2150', '2160', '1110'] as const;
+/** Net pay's bank account is not here: it is whichever account holds the BANK role (`resolveBankAccount`). */
+export const REQUIRED_PAYROLL_ACCOUNT_CODES = ['5200', '2140', '2150', '2160'] as const;
 export const OPTIONAL_PAYROLL_ACCOUNT_CODES = ['2175'] as const;
 
 export interface ResolvedAccount {

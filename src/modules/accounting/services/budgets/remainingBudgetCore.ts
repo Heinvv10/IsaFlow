@@ -18,6 +18,11 @@
  *   own company's PO line (`ap/supplierInvoicePoLinks`).
  * - No grain (the account holds no budget in the version, or there is no version): actual and
  *   committed are reported at company level, budget and remaining are null.
+ * - Off-slice (budgets P5-2b, Hein 2026-11-04): the account holds a budget in the version at a dimension
+ *   grain, but the key lands outside every slice budgeted there (in any month of the version): the
+ *   unassigned slice, or a member with no row while others have one. Budget stays null; the check refuses
+ *   (block) or warns (warn) on it. A company-grain account has one slice, so it is never off-slice; a
+ *   budgeted slice with no row for the month is "No budget", not off-slice.
  *
  * Money is summed in integer cents.
  */
@@ -49,6 +54,8 @@ export interface RemainingResult {
   slice: Dims;
   /** The key lacks the grain's dimension. */
   unassigned: boolean;
+  /** The account is budgeted in the version, but not on this key's slice (see the header). */
+  offSlice: boolean;
   budget: number | null;
   actual: number;
   committed: number;
@@ -103,6 +110,8 @@ export interface RemainingInputs {
   /** `${versionId}|${glAccountId}` → grain. */
   grains: ReadonlyMap<string, RemainingGrain>;
   budgets: readonly BudgetAmountRow[];
+  /** The slices holding any row in their version, any month: `budgetedSliceKey(version, account, member)`. */
+  budgetedSlices: ReadonlySet<string>;
   actuals: readonly GrainActualRow[];
   commitments: readonly CommitmentRow[];
 }
@@ -120,6 +129,10 @@ function sliceOf(grain: RemainingGrain, member: string | null): Dims {
   if (member === null) return NO_DIMS;
   return { cc1Id: grain === 'cc1' ? member : null, cc2Id: grain === 'cc2' ? member : null, buId: grain === 'bu' ? member : null };
 }
+
+/** A budgeted slice's identity in `RemainingInputs.budgetedSlices` (member null at company grain). */
+export const budgetedSliceKey = (versionId: string, glAccountId: string, member: string | null): string =>
+  `${versionId}|${glAccountId}|${member ?? ''}`;
 
 const cell = (account: string, month: string, member: string | null) => `${account}|${month}|${member ?? ''}`;
 
@@ -158,12 +171,15 @@ export function computeRemaining(keys: readonly RemainingKey[], inputs: Remainin
       ? undefined
       : budgets.get(`${versionId}|${cell(key.glAccountId, key.month, member)}`);
     const budget = budgetCents === undefined ? null : fromCents(budgetCents);
+    const offSlice = grain !== null && grain !== 'company' && versionId !== null
+      && (unassigned || !inputs.budgetedSlices.has(budgetedSliceKey(versionId, key.glAccountId, member)));
     return {
       key,
       versionId,
       grain,
       slice: grain === null ? NO_DIMS : sliceOf(grain, member),
       unassigned: grain !== null && unassigned,
+      offSlice,
       budget,
       actual: fromCents(actual),
       committed: fromCents(committed),
