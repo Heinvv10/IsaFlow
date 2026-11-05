@@ -63,6 +63,21 @@ describe('withoutFootnotes', () => {
     expect(kt?.kind === 'kpiTiles' && kt.tiles.map((t) => t.trendFootnote)).toEqual([1, null, null]);
   });
 
+  it('removes the superscript of a disclosure note whose footnote is dropped, and only that one', () => {
+    // Notes n1 -> 3 and n2 -> 5: dropping 3 takes n1's anchor and n2's follows 5 to its new number.
+    const gone = withoutFootnotes(BLOCKS, FOOTNOTES, new Set([3])).blocks;
+    const anchors = at(gone);
+    expect(anchors['note D / n1']).toBeUndefined();
+    expect(anchors['note D / n2']).toBe(4);
+  });
+
+  it('removes an anchor whose number is neither dropped nor listed, rather than let it land on another note', () => {
+    // Footnote 9 is not on the page. Dropping footnote 2 would renumber 3 to 2, 4 to 3 and 5 to 4: an
+    // anchor left at 9 stays dangling, and one at 3 (listed) must follow its note.
+    const blocks = [{ kind: 'table', table: { scale: "R'000", columns: ['actual'], rows: [row('a', 9), row('b', 3)] } }] as unknown as PackPageBlock[];
+    expect(at(withoutFootnotes(blocks, FOOTNOTES, new Set([2])).blocks)).toEqual({ 'table a row b': 2 });
+  });
+
   it('does not touch its input', () => {
     const before = JSON.stringify(BLOCKS);
     withoutFootnotes(BLOCKS, FOOTNOTES, new Set([1]));

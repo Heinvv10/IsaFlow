@@ -9,14 +9,22 @@
  * assembler that knows it, so the message names the page the narrative
  * actually sits on rather than one this file believes.
  */
+import { log } from '@/lib/logger';
 import { PackRefusal } from '../packRefusal';
-import { fitPageToBox } from './packPageFit';
+import { fitPageReport } from './packPageFit';
 import { relaidNarrative } from './packNarrativeLayout';
 import type { MeasurablePage } from './packPageMetrics';
 
 export function fitBodyPage<T extends MeasurablePage>(page: T, pageNumber: number): T {
   try {
-    return fitPageToBox(relaidNarrative(page));
+    const { page: fitted, dropped } = fitPageReport(relaidNarrative(page));
+    // Logged here, for the page that is actually used: the fit is also run as a probe (see
+    // `incomeSheetWithBudget`) and a probe's page is thrown away.
+    if (dropped.captions > 0) {
+      log.warn(`board pack: "${page.navLabel}" cannot fit its sheet with its derived caption; the caption is not printed`,
+        { navLabel: page.navLabel, captions: dropped.captions }, 'packs');
+    }
+    return fitted;
   } catch (error) {
     const approved = page.blocks.some((b) => b.kind === 'narrative' && b.narrative.status === 'approved');
     if (!(error instanceof PackRefusal) || !approved) throw error;

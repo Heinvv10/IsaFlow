@@ -79,7 +79,8 @@ function renumberBlock(block: PackPageBlock, to: Renumber): PackPageBlock {
 /**
  * The page's blocks and footnotes once `droppedNumbers` are gone: their anchors removed, the
  * surviving footnotes numbered 1..n in list order, and every anchor moved to its note's new number.
- * An anchor whose number is neither dropped nor listed is left as found.
+ * An anchor whose number is neither dropped nor listed is removed too: it pointed at nothing before
+ * the fit, and left alone it could land on whichever note the renumbering gives that number.
  */
 export function withoutFootnotes(
   blocks: PackPageBlock[],
@@ -88,7 +89,9 @@ export function withoutFootnotes(
 ): { blocks: PackPageBlock[]; footnotes: PackFootnote[] } {
   const kept = footnotes.filter((f) => !droppedNumbers.has(f.number));
   const newNumber = new Map(kept.map((f, i) => [f.number, i + 1]));
-  const to: Renumber = (n) => (droppedNumbers.has(n) ? null : newNumber.get(n) ?? n);
+  // An anchor naming a number that is neither dropped nor listed points at nothing already; it is
+  // removed rather than left to land on whichever note the renumbering gives that number.
+  const to: Renumber = (n) => (droppedNumbers.has(n) ? null : newNumber.get(n) ?? null);
   return {
     blocks: blocks.map((b) => renumberBlock(b, to)),
     footnotes: kept.map((f, i) => ({ ...f, number: i + 1 })),

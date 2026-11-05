@@ -42,7 +42,6 @@ import {
   pageMm,
   type MeasurablePage,
 } from './packPageMetrics';
-import { log } from '@/lib/logger';
 import { PackRefusal } from '../packRefusal';
 import type { PackFootnote, PackPageBlock } from './packPageModel';
 import { NOTHING, omissionFootnote, tookSomething, type Dropped } from './packOmissionFootnote';
@@ -212,8 +211,6 @@ export function fitPageReport<T extends MeasurablePage>(
     if (caption !== null) {
       blocks.splice(caption, 1);
       dropped.captions += 1;
-      log.warn(`board pack: "${page.navLabel}" cannot fit its sheet with its derived caption; the caption is not printed`,
-        { navLabel: page.navLabel, captions: dropped.captions }, 'packs');
       continue;
     }
     break;

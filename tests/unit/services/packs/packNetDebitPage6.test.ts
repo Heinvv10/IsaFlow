@@ -42,7 +42,8 @@ describe.each([1, 30, 1000, 300000])('net-debit revenue and a 20%% interest/tax 
       expect(p6.blocks.some((b) => b.kind === 'narrative')).toBe(false);
       const said = p6.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
       expect(said?.text).toContain('1 derived caption');
-      expect(warn.mock.calls.some((c) => String(c[0]).includes('derived caption'))).toBe(true);
+      // Logged once, for the page that is used (the probe fits stay silent).
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes('derived caption'))).toHaveLength(1);
     } finally {
       warn.mockRestore();
     }
