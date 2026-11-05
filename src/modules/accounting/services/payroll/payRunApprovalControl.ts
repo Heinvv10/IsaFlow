@@ -75,6 +75,12 @@ export async function assertPayRunApproved(
   if (row.approval_grandfathered_at && (row.status === 'approved' || row.status === 'paid')) {
     return { grandfathered: true, planHash: null };
   }
+  // Without an explicit hash the stored approved_plan_hash is only the current
+  // approval while the run is approved or paid: a reopen leaves it populated as
+  // history, and a reopened run must not clear under its obsolete approval.
+  if (expectedPlanHash === undefined && row.status !== 'approved' && row.status !== 'paid') {
+    throw new Error('Pay run is not approved, so it has no reviewed approval plan');
+  }
   const planHash = expectedPlanHash ?? row.approved_plan_hash;
   if (!planHash) throw new Error('Pay run has no reviewed approval plan');
   await assertApprovalClearedForDocument(companyId, 'pay_run', runId, document(row, planHash));

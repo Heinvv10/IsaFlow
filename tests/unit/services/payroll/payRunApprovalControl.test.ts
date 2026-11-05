@@ -67,6 +67,24 @@ describe('pay-run R-035 approval control', () => {
     expect(assertApprovalClearedForDocument).not.toHaveBeenCalled();
   });
 
+  it('refuses a reopened run whose historical approved hash is still populated', async () => {
+    vi.mocked(sql).mockResolvedValue([
+      { status: 'calculated', approval_grandfathered_at: null, approved_plan_hash: 'plan-old' },
+    ] as never);
+    await expect(assertPayRunApproved(COMPANY, RUN)).rejects.toThrow('reviewed approval plan');
+    expect(assertApprovalClearedForDocument).not.toHaveBeenCalled();
+  });
+
+  it('clears an approved run against its stored approved hash', async () => {
+    vi.mocked(sql).mockResolvedValue([
+      { status: 'approved', approval_grandfathered_at: null, approved_plan_hash: 'plan-a' },
+    ] as never);
+    await expect(assertPayRunApproved(COMPANY, RUN)).resolves.toEqual({ grandfathered: false, planHash: 'plan-a' });
+    expect(assertApprovalClearedForDocument).toHaveBeenCalledWith(
+      COMPANY, 'pay_run', RUN, expect.objectContaining({ digest: 'plan-a' }),
+    );
+  });
+
   it('describes the approval against the live plan hash without mutating the run', async () => {
     vi.mocked(describeApprovalGateForDocument).mockResolvedValue({
       state: 'required', enforced: true, requiredRole: 'manager', ruleName: 'All pay runs', requestId: null,
