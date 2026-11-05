@@ -27,7 +27,8 @@ export interface ComparisonPlan {
 
 export type PackBudget =
   | { kind: 'report'; report: BudgetTrackingReport }
-  | { kind: 'unavailable'; reason: string };
+  /** `fault`: the engine FAILED (a database fault or a bug) rather than refusing the month; the pack is then held for review. */
+  | { kind: 'unavailable'; reason: string; fault: boolean };
 
 type IncomeAgg = Record<string, unknown>;
 
@@ -88,7 +89,7 @@ export async function loadPackBudget(companyId: string, period: string, now?: Da
       // The pack still goes out, so a bug here would otherwise only be a log line: report it (as deferredEnd does).
       capturePackFault(err, companyId);
     }
-    return { kind: 'unavailable', reason: BUDGET_UNAVAILABLE };
+    return { kind: 'unavailable', reason: BUDGET_UNAVAILABLE, fault: !refusal };
   }
 }
 
