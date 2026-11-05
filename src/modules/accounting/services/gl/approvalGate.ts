@@ -102,6 +102,49 @@ const STATE_OF: Record<ApprovalGateReason, ApprovalState> = {
   APPROVAL_REQUIRED: 'required', APPROVAL_PENDING: 'pending', APPROVAL_STALE: 'stale',
 };
 
+/** One APPROVED request for a document, decided since enforcement was (last) switched on. */
+export interface ApprovedRequestRow {
+  id: string;
+  /** The digest the approval was bound to; null binds nothing and never clears. */
+  documentDigest: string | null;
+  /** The role the approval proves: the snapshot it was raised under, else its rule's today. */
+  effectiveRequiredRole: string | null;
+  requestedBy: string;
+  decidedBy: string | null;
+}
+
+/**
+ * The approvals the gate clears a document on, newest first: approved requests for it, decided at or after
+ * `approval_enforcement.enabled_at` (one taken while the control was off, or before a disable and re-enable, clears
+ * nothing). The gate and anything that asks WHICH approval cleared a document read it through here. The gate then picks
+ * from the rank-filtered subset and a caller such as readPayRunDecision from this list; for a pay run (one fixed rule)
+ * no divergence is reachable, but another type with several rules could in principle pick differently.
+ */
+export async function approvedRequestsFor(
+  companyId: string,
+  documentType: DocumentType,
+  documentId: string,
+): Promise<ApprovedRequestRow[]> {
+  const rows = (await sql`
+    SELECT ar.id, ar.document_digest, COALESCE(ar.required_role, rl.approver_role) AS effective_required_role,
+           ar.requested_by::TEXT AS requested_by, ar.decided_by::TEXT AS decided_by
+    FROM approval_requests ar
+    JOIN approval_enforcement ae ON ae.company_id = ar.company_id AND ae.document_type = ar.document_type
+    LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
+    WHERE ar.company_id = ${companyId} AND ar.document_type = ${documentType}
+      AND ar.document_id = ${documentId}::UUID AND ar.status = 'approved'
+      AND ar.decided_at >= ae.enabled_at
+    ORDER BY ar.decided_at DESC NULLS LAST, ar.id
+  `) as Row[];
+  return rows.map((r) => ({
+    id: String(r.id),
+    documentDigest: r.document_digest == null ? null : String(r.document_digest),
+    effectiveRequiredRole: r.effective_required_role == null ? null : String(r.effective_required_role),
+    requestedBy: String(r.requested_by),
+    decidedBy: r.decided_by == null ? null : String(r.decided_by),
+  }));
+}
+
 type Outcome =
   | { enforced: false }
   | { enforced: true; rule: null }
@@ -123,21 +166,11 @@ async function gateOutcome(
 
   // An unbound row (rule_id NULL, no snapshot) proves no rank and cannot clear.
   // Only approvals decided since enforcement was (last) switched on count.
-  const approved = (await sql`
-    SELECT ar.id, ar.document_digest, COALESCE(ar.required_role, rl.approver_role) AS effective_required_role
-    FROM approval_requests ar
-    JOIN approval_enforcement ae ON ae.company_id = ar.company_id AND ae.document_type = ar.document_type
-    LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
-    WHERE ar.company_id = ${companyId} AND ar.document_type = ${documentType}
-      AND ar.document_id = ${documentId}::UUID AND ar.status = 'approved'
-      AND ar.decided_at >= ae.enabled_at
-    ORDER BY ar.decided_at DESC NULLS LAST, ar.id
-  `) as Row[];
-  const ranked = approved.filter((r) =>
-    r.effective_required_role != null && requiredRank(String(r.effective_required_role)) >= demanded);
+  const approved = await approvedRequestsFor(companyId, documentType, documentId);
+  const ranked = approved.filter((r) => r.effectiveRequiredRole != null && requiredRank(r.effectiveRequiredRole) >= demanded);
   const current = document.digest;
-  const match = current !== null ? ranked.find((r) => r.document_digest === current) : undefined;
-  if (match) return { enforced: true, rule, refusal: null, approvedId: String(match.id) };
+  const match = current !== null ? ranked.find((r) => r.documentDigest === current) : undefined;
+  if (match) return { enforced: true, rule, refusal: null, approvedId: match.id };
 
   const refusal = (reason: ApprovalGateReason, requestId: string | null): ApprovalGateRefusal => ({
     reason, requestId, requiredRole: rule.approverRole, ruleName: rule.name,
@@ -145,7 +178,7 @@ async function gateOutcome(
   });
   if (check.existingRequest) return { enforced: true, rule, approvedId: null, refusal: refusal('APPROVAL_PENDING', check.existingRequest.id) };
   // Approved at a sufficient rank, but for content the document no longer has.
-  if (ranked[0]) return { enforced: true, rule, approvedId: null, refusal: refusal('APPROVAL_STALE', String(ranked[0].id)) };
+  if (ranked[0]) return { enforced: true, rule, approvedId: null, refusal: refusal('APPROVAL_STALE', ranked[0].id) };
   return { enforced: true, rule, approvedId: null, refusal: refusal('APPROVAL_REQUIRED', null) };
 }
 

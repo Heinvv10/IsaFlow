@@ -16,10 +16,6 @@ vi.mock('@/lib/neon', () => ({
     return mockImpl(strings, ...values);
   },
 }));
-vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
-  lockPayrollRunHeader: vi.fn(async () => ({ id: 'run', journal_entry_id: null })),
-  lockCompanyPayrollApprovals: vi.fn(async () => undefined),
-}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 // The bank role's holder is this chart's 1110 (the holder is judged in payrollJournalBankRole.test.ts).
 vi.mock('@/modules/accounting/services/gl/bankRoleHolder', () => ({
