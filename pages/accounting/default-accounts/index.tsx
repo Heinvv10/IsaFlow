@@ -22,6 +22,8 @@ interface DefaultAccountMapping {
   description: string;
   accountId: string;
   category: string;
+  /** The select's empty option, when "Not configured" would mislead (it is a real choice there). */
+  emptyLabel?: string;
 }
 
 const DEFAULT_MAPPINGS: Omit<DefaultAccountMapping, 'accountId'>[] = [
@@ -37,6 +39,11 @@ const DEFAULT_MAPPINGS: Omit<DefaultAccountMapping, 'accountId'>[] = [
   // Banking
   { key: 'primary_bank', label: 'Primary Bank Account', description: 'Main operating bank account', category: 'Banking' },
   { key: 'petty_cash', label: 'Petty Cash', description: 'Petty cash account', category: 'Banking' },
+  // Payroll
+  {
+    key: 'payroll_net_pay', label: 'Payroll net pay', category: 'Payroll', emptyLabel: 'Bank account (pays salaries directly)',
+    description: 'Where a pay run credits net pay. Choose the net salaries payable account if you pay salaries by bank lines allocated to it; leave on the bank otherwise',
+  },
   // Other
   { key: 'retained_earnings', label: 'Retained Earnings', description: 'Year-end closing account', category: 'Year-End' },
   { key: 'opening_balance_equity', label: 'Opening Balance Equity', description: 'Used for opening balances during setup', category: 'Year-End' },
@@ -194,7 +201,7 @@ export default function DefaultAccountsPage() {
                           onChange={(e) => setMappings(prev => ({ ...prev, [mapping.key]: e.target.value }))}
                           className="w-80 px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
                         >
-                          <option value="">Not configured</option>
+                          <option value="">{mapping.emptyLabel ?? 'Not configured'}</option>
                           {roleCandidates(mapping.key, glAccounts, loaded[mapping.key]).map(a => (
                             <option key={a.id} value={a.id}>{(a.accountCode ?? a.account_code)} — {(a.accountName ?? a.account_name)}</option>
                           ))}

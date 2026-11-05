@@ -8,6 +8,7 @@
  */
 import type { SystemAccountKey } from './systemAccountKeys';
 import { roleTargetRefusal } from './roleTargetRules';
+import { PAYROLL_NET_PAY_KEY, netPayCandidates } from '../payroll/payrollNetPayTargetRules';
 
 /** UI setting key → the role (system account subtype) it manages. */
 export const DEFAULT_ACCOUNT_ROLES: Readonly<Record<string, SystemAccountKey>> = {
@@ -42,9 +43,10 @@ export interface CandidateAccount {
  * (inactive rows included: a child that is inactive still makes its parent a
  * header), plus `current` — the holder the page shows, kept even when it would
  * not pass today so the select still names it. A row that manages no role
- * offers every active account.
+ * offers every active account; payroll net pay offers what its own rule accepts.
  */
 export function roleCandidates<T extends CandidateAccount>(uiKey: string, accounts: readonly T[], current?: string): T[] {
+  if (uiKey === PAYROLL_NET_PAY_KEY) return netPayCandidates(accounts, current);
   const role = defaultAccountRole(uiKey);
   if (!role) return accounts.filter((a) => a.isActive === true || a.id === current);
   const parents = new Set(accounts.map((a) => a.parentAccountId).filter(Boolean));

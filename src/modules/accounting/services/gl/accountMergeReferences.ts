@@ -22,6 +22,7 @@
  * concatenated in JavaScript.
  */
 import { sql } from '@/lib/neon';
+import { PAYROLL_NET_PAY_KEY } from '../payroll/payrollNetPayTargetRules';
 
 export interface ConfigurationReference {
   table: string;
@@ -60,7 +61,27 @@ export const CONFIGURATION_REFERENCE_EXCLUSIONS: readonly { table: string; colum
   { table: 'capture_events', column: 'resolved_gl_account_id' },
 ];
 
+/**
+ * The Default Accounts settings that name an account by id inside `app_settings.value` (JSON text), which no foreign key
+ * sees: `payroll_net_pay`. Merging that account away would leave the setting dangling, and the payroll journal then
+ * blocks (`missing_net_pay_account`) instead of crediting the account the merge folded it into.
+ */
+async function findSettingReferences(companyId: string, accountId: string): Promise<ConfigurationReference[]> {
+  const rows = (await sql`
+    SELECT 1 FROM app_settings
+    WHERE key = 'accounting_default_accounts' AND company_id = ${companyId}
+      AND value::TEXT::JSONB ->> ${PAYROLL_NET_PAY_KEY}::TEXT = ${accountId}::TEXT
+  `) as unknown[];
+  return rows.length > 0 ? [{ table: 'app_settings', column: `accounting_default_accounts.${PAYROLL_NET_PAY_KEY}`, rows: rows.length }] : [];
+}
+
 export async function findConfigurationReferences(
+  companyId: string, accountId: string,
+): Promise<ConfigurationReference[]> {
+  return [...await findForeignKeyReferences(companyId, accountId), ...await findSettingReferences(companyId, accountId)];
+}
+
+async function findForeignKeyReferences(
   companyId: string, accountId: string,
 ): Promise<ConfigurationReference[]> {
   const excludedTables = CONFIGURATION_REFERENCE_EXCLUSIONS.map((e) => e.table);

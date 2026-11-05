@@ -15,14 +15,16 @@
  * the live path refused (K-079 review). Brightsphere carries all five payroll
  * accounts deactivated: they must reactivate or remap.
  *
- * NET PAY'S BANK ACCOUNT is the holder of the BANK system role (payrollJournalBank),
- * resolved once here; no holder is a `missing_bank_account` blocker, never a 1110 fallback.
+ * NET PAY'S TARGET (payrollJournalBank), resolved once here: the holder of the BANK system role (no holder is a
+ * `missing_bank_account` blocker, never a 1110 fallback), or the clearing liability Default Accounts' `payroll_net_pay`
+ * names (e.g. 2170 Net Salaries Payable; the bank role is then not consulted, and an unusable account blocks, never
+ * falling back to the bank).
  *
  * Balance formula:
  *   DR 5200 Labour = gross + employer UIF + SDL − ETI used, split by cost centre
  *     (the mapping picks the account; the centre is the line's CC1 — payrollJournalParts#buildLabourLines)
  *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
- *   CR 2175 deductions, or DR 2175 for a net reversal   CR bank-role account (net pay)
+ *   CR 2175 deductions, or DR 2175 for a net reversal   CR net pay: the bank-role account, or the clearing account set
  *
  * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
  * it reduces the 2140 credit, and it is presented net of labour cost. Only the
@@ -44,7 +46,7 @@ import {
   resolveAccounts,
   resolveAccountsById,
 } from './payrollJournalParts';
-import { bankNetPayLine, resolveBankAccount } from './payrollJournalBank';
+import { netPayLine, resolveNetPayTarget } from './payrollJournalBank';
 import { judgeJournalLines } from './payrollJournalBlockers';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
@@ -153,7 +155,7 @@ export async function buildPayrollJournalPlan(
   const labourDebit = round2(gross + employerUif + sdl - etiUsed);
 
   const accounts = await resolveAccounts(companyId);
-  const bank = await resolveBankAccount(companyId);
+  const netPayTarget = await resolveNetPayTarget(companyId);
   const blockers: PayrollJournalNote[] = [];
   const advisories: PayrollJournalNote[] = [];
   const blockedLoan = await payrollLoanInstalmentBlocker(companyId, runId);
@@ -167,7 +169,7 @@ export async function buildPayrollJournalPlan(
     });
   }
   // Only when a net-pay line survives (zero lines are dropped below): a run paying no one credits no bank.
-  if (bank.blocker && round2(net) !== 0) blockers.push(bank.blocker);
+  if (netPayTarget.blocker && round2(net) !== 0) blockers.push(netPayTarget.blocker);
   if (Math.abs(otherDeductions) > 0.005 && !accounts.has('2175')) {
     blockers.push({
       code: 'missing_other_deductions_account',
@@ -240,7 +242,7 @@ export async function buildPayrollJournalPlan(
   built.push(line('2140', 0, paye - etiUsed, 'PAYE payable, net of ETI'));
   built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
   built.push(line('2160', 0, sdl, 'SDL payable'));
-  built.push(bankNetPayLine(bank.account, round2(net)));
+  built.push(netPayLine(netPayTarget, round2(net)));
   if (otherDeductions > 0.005) {
     built.push(line('2175', 0, otherDeductions, 'Other employee deductions (medical aid, pension, RA, etc.)'));
   } else if (otherDeductions < -0.005) {

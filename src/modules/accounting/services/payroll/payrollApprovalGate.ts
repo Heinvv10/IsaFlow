@@ -18,7 +18,8 @@
  *      chain exists:
  *        in force → the run is re-approved onto it, posting nothing, but only
  *                   while its figures match what the run would post now
- *                   (`sameFigures`), else `recalculated_after_posting`; step 3
+ *                   (`sameFigures`), else `recalculated_after_posting`, or `net_pay_target_changed` when net pay's
+ *                   target moved between the bank and the clearing account (payrollNetPayTargetChange); step 3
  *                   (pro-rata, the line refusals) is not judged: nothing new posts;
  *        out      → nothing of the run is in the ledger: approval unlinks the
  *                   journal and posts a FRESH one (`replaces`), dated by
@@ -43,6 +44,7 @@ import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
 import { comparableLines, foldNetPayBank, predatesTagging, sameFigures, type PostedFigureLine } from './payrollLabourComparison';
+import { netPayTargetChangeNote } from './payrollNetPayTargetChange';
 import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
@@ -251,6 +253,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
       // In force. The journal to reverse is the LAST of the chain: the run's own, or the one that re-booked it.
       const inForce = chain.journals[chain.journals.length - 1]!;
       const perAccount = await runRecalculatedSince(companyId, runId, linkedId);
+      // Net pay moved between the bank and a clearing account (or between two): reverse first, never re-lock.
+      const moved = netPayTargetChangeNote(plan.lines, read!.current, linked.lines.map((l) => `${l.accountCode} ${l.accountName}`), inForce.entryNumber);
+      if (moved) return moved;
       // Net pay's bank credit is one role on both sides, so a bank role that moved since posting is not a change.
       const folded = foldNetPayBank(plan.lines, perAccount ? read!.asPosted : read!.current);
       const compared = perAccount ? comparableLines(folded.plan, plan.labourBySourceCentre, folded.posted) : folded;

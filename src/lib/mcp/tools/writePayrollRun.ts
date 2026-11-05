@@ -165,7 +165,9 @@ export const approvePayRunTool: McpTool = {
     + 'write:post permission. Approvable from draft, calculated or processed. '
     + 'Run calculate_pay_run first and check the totals — an uncosted run, or one whose journal '
     + 'cannot post (closed period, deactivated account, missing account), is refused before it is '
-    + 'approved. Reversal is by a reversing journal, not by re-approving. '
+    + 'approved. Net pay is credited to the bank, or to the Payroll net pay clearing account set in '
+    + 'Default Accounts; a reopened run whose journal went to the other is refused (net_pay_target_changed) '
+    + 'until that journal is reversed. Reversal is by a reversing journal, not by re-approving. '
     + 'Two calls: dry_run: true returns plan_hash for the journal it previews; the live call must '
     + 'send that value as expected_plan_hash, and is refused if the run has changed since.',
   scope: 'write:payroll',
