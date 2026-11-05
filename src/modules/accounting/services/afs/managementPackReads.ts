@@ -1,0 +1,81 @@
+// src/modules/accounting/services/afs/managementPackReads.ts
+// How the generator reads a report for a pack section. Only a refusal (no system account for the role) leaves its
+// section saying so; any other fault (database, RLS, a bug) is logged and aborts the pack, so a review-free pack is never
+// signed off and delivered incomplete. The reads run before the document is created, so an aborted run leaves nothing
+// that blocks the month's re-run. The savepoint keeps a refused query from aborting the request's transaction, so each
+// read runs alone and the reads of one section run one after another: none can land after a ROLLBACK TO.
+import { log } from '@/lib/logger';
+import { withSavepoint } from '@/lib/neon';
+import { MissingSystemAccountError } from '../gl/systemAccountKeys';
+import { getARAging } from '../ar/arAgingService';
+import { getAPAging } from '../ap/apAgingService';
+import { getUnappliedByEntity } from '../shared/agedNetting';
+import { getReconciliations } from '../bank/bankReconciliationService';
+import { getBankAccountsStatus } from '../bank/bankAccountStatusService';
+import { getCashBalance } from '../bank/cashBalanceService';
+import type { AgeingData, ReconciliationData } from './managementPackReportSections';
+
+/** The generator's logger component, which the log assertions and the log search both know. */
+const COMPONENT = 'managementPackGeneratorService';
+
+export async function readSafely<T>(
+  ctx: { companyId: string; period: string },
+  name: string,
+  read: () => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await withSavepoint(`mgmt_pack_${name}`, read);
+  } catch (err) {
+    const fields = { ...ctx, statement: name, errorClass: err instanceof Error ? err.name : typeof err, error: err instanceof Error ? err.message : String(err) };
+    if (!(err instanceof MissingSystemAccountError)) {
+      log.error(`management pack: the ${name} report read failed; the pack is not generated`, fields, COMPONENT);
+      throw err;
+    }
+    log.warn(`management pack: the ${name} report could not be read (no system account); its section says so`, fields, COMPONENT);
+    return null;
+  }
+}
+
+type Ctx = { companyId: string; period: string };
+
+/** The Aged Debtors / Aged Creditors services' rows as at the month end, and the credit that sits unapplied against them. */
+export function readAgeing(ctx: Ctx, side: 'ar' | 'ap', asAt: string): Promise<AgeingData | null> {
+  return readSafely(ctx, side === 'ar' ? 'debtors_ageing' : 'creditors_ageing', async () => {
+    const buckets = side === 'ar' ? await getARAging(ctx.companyId, asAt) : await getAPAging(ctx.companyId, asAt);
+    const byEntity = await getUnappliedByEntity(ctx.companyId, side, asAt);
+    const unapplied = [...byEntity.values()].reduce((sum, u) => sum + u.total, 0);
+    const open = new Set(buckets.map((b) => b.entityId));
+    const creditOnly = [...byEntity.entries()]
+      .filter(([id, u]) => !open.has(id) && Math.abs(u.total) >= 0.005)
+      .map(([, u]) => ({ name: u.entityName || (side === 'ar' ? 'Unknown customer' : 'Unknown supplier'), amount: u.total }))
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount) || a.name.localeCompare(b.name));
+    return { asAt, buckets, unapplied: Math.round(unapplied * 100) / 100, creditOnly };
+  });
+}
+
+/**
+ * Every reconciliation session, beside the company's bank accounts (so one never reconciled is not silently absent).
+ * A money question, so deactivated accounts are in: one leaves the list only when nothing ever happened on it, with no
+ * session, no statement line and no ledger balance at the month end. The status service's balance is the statement basis
+ * and says nothing of money held only in the ledger, and it has no as-at date, so neither it nor a net of nil clears one.
+ */
+export function readReconciliations(ctx: Ctx, asAt: string): Promise<ReconciliationData | null> {
+  return readSafely(ctx, 'bank_reconciliation', async () => {
+    const sessions = await getReconciliations(ctx.companyId);
+    const accounts = await getBankAccountsStatus(ctx.companyId, { includeInactive: true });
+    const { deactivatedWithBalance } = await getCashBalance(ctx.companyId, asAt);
+    const inUse = new Set([...sessions.map((s) => s.bankAccountId), ...deactivatedWithBalance.map((a) => a.accountId)]);
+    return {
+      sessions,
+      accounts: accounts.filter((a) => a.isActive || a.txnCount > 0 || inUse.has(a.id)).map((a) => ({ id: a.id, name: a.accountName })),
+    };
+  });
+}
+
+/** One report a pack section depends on: `report` is null when it was wanted but could not be produced. */
+export interface ProducedCheck { name: string; wanted: boolean; report: unknown }
+
+/** The names of the wanted reports that were not produced. */
+export function unproducedSections(checks: readonly ProducedCheck[]): string[] {
+  return checks.filter((c) => c.wanted && c.report === null).map((c) => c.name);
+}

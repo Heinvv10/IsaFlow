@@ -67,6 +67,8 @@ async function handleGenerate(
     UPDATE afs_sections
     SET ai_narrative = ${narrative},
         ai_enhanced  = false,
+        -- A new narrative is not the accepted one: its text is not in the blocks, so it must print.
+        ai_narrative_accepted = false,
         updated_at   = NOW()
     WHERE id = ${sectionId}::UUID
       AND document_id IN (
