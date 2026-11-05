@@ -31,7 +31,6 @@ import { termsColumns } from './contactTerms';
 import { clearFlags } from './contactClear';
 import { assertCategoryInCompany } from './contactCategory';
 
-
 export type { AutoAllocateStrategy };
 
 const MAX_NAME = 255;

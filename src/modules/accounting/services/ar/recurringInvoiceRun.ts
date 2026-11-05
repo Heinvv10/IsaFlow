@@ -14,6 +14,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { todayInSast } from '@/lib/saDateParser';
 import { advanceDate } from '@/modules/accounting/services/gl/recurringSchedule';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -127,7 +128,7 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
   // such row stalls this template on every future run.
   // The customer's terms, else the company default (migration 960), from the invoice date this run writes. The
   // template row carries both (recurringInvoiceLock joins them), so there is no query of its own.
-  const invoiceDate = fmtDate(new Date());
+  const invoiceDate = todayInSast(); // the same South African day recurringInvoiceLock's is_due used
   const dueDate = dueDateWithDefault(
     invoiceDate, ri.contact_payment_terms == null ? null : Number(ri.contact_payment_terms),
     ri.contact_payment_terms_type, companyTermsFromSetting(ri.company_default_terms, companyId),

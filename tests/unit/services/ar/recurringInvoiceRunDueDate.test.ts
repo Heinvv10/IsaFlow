@@ -68,6 +68,14 @@ describe('runRecurringInvoice due date', () => {
     expect(state.dueDate).toBe(due);
   });
 
+  it('writes the South African day as the invoice date, at 00:30 SAST (22:30 UTC the day before)', async () => {
+    vi.setSystemTime(new Date('2026-11-05T22:30:00Z'));
+    state.template = template({ next_run_date: '2026-11-06' });
+    await runRecurringInvoice('co-1', 't1', 'u1');
+    expect(state.invoiceDate).toBe('2026-11-06');
+    expect(state.dueDate).toBe('2026-12-06');
+  });
+
   it('runs no statement that reads terms: they ride on the locked template row', async () => {
     state.template = template({});
     await runRecurringInvoice('co-1', 't1', 'u1');
