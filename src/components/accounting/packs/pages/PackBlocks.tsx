@@ -28,7 +28,7 @@ import { ScorecardTable } from '../primitives/ScorecardTable';
 import { NarrativeColumns } from '../primitives/NarrativeColumns';
 import { StatTile } from '../primitives/StatTile';
 import { formatFigureText } from '../primitives/packFigureText';
-import { kpiFitStyle } from '../primitives/packFigureFit';
+import { fitAttributes, kpiFit } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { MattersTable } from '../primitives/MattersTable';
 import { PackChartBlock, PackSmallMultiples } from './PackChartBlock';
 import { PackDefinitionsBlock, PackDisclosureBlock } from './PackNoteBlocks';
@@ -48,14 +48,16 @@ export interface PackBlockViewProps {
 
 export function PackBlockView({ block, scale }: PackBlockViewProps) {
   switch (block.kind) {
-    case 'kpiTiles':
+    case 'kpiTiles': {
+      const fit = fitAttributes(kpiFit(block.tiles.map((tile) => (tile.figure.value === null ? null : formatFigureText(tile.figure, scale)))));
       return (
-        <div className="pack-kpi-tiles" style={kpiFitStyle(block.tiles.map((tile) => (tile.figure.value === null ? null : formatFigureText(tile.figure, scale))))}>
+        <div className={fit.className === undefined ? 'pack-kpi-tiles' : `pack-kpi-tiles ${fit.className}`} style={fit.style}>
           {block.tiles.map((tile, index) => (
             <KpiTileWithSparkline key={`${tile.label}-${index}`} tile={tile} scale={scale} />
           ))}
         </div>
       );
+    }
     case 'statTiles':
       return (
         <div className="pack-stat-groups">

@@ -1,0 +1,111 @@
+/**
+ * THE FIT DECISION IS EXACT AT ITS THRESHOLDS, IN CHROMIUM, BOTH WAYS.
+ *
+ * A pack's own figures cannot be made wide enough to reach the refusal inside JavaScript's safe integers (a
+ * R9e15 revenue prints in 13 digits and still fits), so this takes the composed demo pack and widens the figures
+ * of one block after composition, then prints it through the real print stylesheet without the composer's gate:
+ *
+ *  - the widest figure the MODEL says fits at the floor prints with nothing past the right edge;
+ *  - one digit wider, which the model says fits at no size, DOES run past it (so a refusal is never an over-refusal);
+ *  - the widest figure the model says fits at the ordinary size prints at the ordinary size and fits; one digit
+ *    wider is fitted to a smaller size, and printed at the ordinary size it would have overflowed.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Browser } from 'playwright';
+import { chromium } from 'playwright';
+import { kpiFit, tableFit } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { demoWithoutBudget, SCALE, withHeadingColumns, withWidenedKpi, withWidenedTable } from '../services/packs/fixtures/widenedFigures';
+import { printBoardPack } from './renderPackPdf';
+
+let browser: Browser;
+beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
+afterAll(async () => { await browser?.close(); });
+
+const overflowOf = async (doc: PackPagesDocument, index: number) => (await printBoardPack(doc, browser)).overflow.filter((o) => o.id === `pack-page-${index + 1}`);
+
+describe('a statement table', () => {
+  const fitsAt = (digits: number) => tableFit(withWidenedTable(demoWithoutBudget(), digits).table, SCALE);
+
+  it('the model: the widest that fits at the ordinary size, the widest that fits at the floor, and the first that fits at none', () => {
+    const ordinary = Array.from({ length: 30 }, (unused, i) => i + 4).filter((d) => fitsAt(d).fits && fitsAt(d).px === null).pop()!;
+    const floor = Array.from({ length: 30 }, (unused, i) => i + 4).filter((d) => fitsAt(d).fits).pop()!;
+    expect(floor).toBeGreaterThan(ordinary);
+    expect(fitsAt(floor + 1).fits).toBe(false);
+    expect(fitsAt(ordinary + 1).px).not.toBeNull();
+  });
+
+  it('prints clean at the widest figure the model fits at the floor, and runs past the edge one digit wider', async () => {
+    const floor = Array.from({ length: 30 }, (unused, i) => i + 4).filter((d) => fitsAt(d).fits).pop()!;
+    const fit = withWidenedTable(demoWithoutBudget(), floor);
+    expect(await overflowOf(fit.doc, fit.index), `${floor} digits`).toEqual([]);
+    const over = withWidenedTable(demoWithoutBudget(), floor + 1);
+    expect((await overflowOf(over.doc, over.index)).length, `${floor + 1} digits`).toBeGreaterThan(0);
+  }, 300_000);
+
+  it('prints clean at the widest figure the model fits at the ordinary size; one digit wider is fitted, and would overflow unfitted', async () => {
+    const ordinary = Array.from({ length: 30 }, (unused, i) => i + 4).filter((d) => fitsAt(d).fits && fitsAt(d).px === null).pop()!;
+    const fit = withWidenedTable(demoWithoutBudget(), ordinary);
+    expect(await overflowOf(fit.doc, fit.index), `${ordinary} digits`).toEqual([]);
+    const wider = withWidenedTable(demoWithoutBudget(), ordinary + 1);
+    expect(tableFit(wider.table, SCALE).px, 'the model fits it to a smaller size').not.toBeNull();
+    expect(await overflowOf(wider.doc, wider.index), 'fitted, it prints clean').toEqual([]);
+  }, 300_000);
+});
+
+describe('a statement table with a long label word (the label column cannot be narrower than its longest word)', () => {
+  it.each(['Telecommunications', 'Administrative', 'Depreciation'])('%s: the threshold is exact in Chromium both ways', async (label) => {
+    const fitsAt = (digits: number) => tableFit(withWidenedTable(demoWithoutBudget(), digits, label).table, SCALE);
+    const floor = Array.from({ length: 30 }, (unused, i) => i + 4).filter((d) => fitsAt(d).fits).pop()!;
+    expect(fitsAt(floor + 1).fits).toBe(false);
+    const fit = withWidenedTable(demoWithoutBudget(), floor, label);
+    expect(await overflowOf(fit.doc, fit.index), `${floor} digits`).toEqual([]);
+    const over = withWidenedTable(demoWithoutBudget(), floor + 1, label);
+    expect((await overflowOf(over.doc, over.index)).length, `${floor + 1} digits`).toBeGreaterThan(0);
+    // The label is what moves the threshold: an ordinary label holds at least as many digits.
+    const ordinary = Array.from({ length: 30 }, (unused, i) => i + 4).filter((d) => tableFit(withWidenedTable(demoWithoutBudget(), d).table, SCALE).fits).pop()!;
+    expect(floor).toBeLessThanOrEqual(ordinary);
+  }, 300_000);
+});
+
+describe('a table whose HEADINGS set its widths (tiny figures, a footnote marker on every heading or on none)', () => {
+  const ORDER = ['monthOperatingExpenses', 'variance', 'revenue', 'budget', 'otherIncome', 'netProfit', 'actual', 'prior', 'change', 'changePct', 'pctOfRevenue', 'otherExpenses', 'costOfSales'] as const;
+  const boundary = (marked: boolean) => Array.from({ length: 13 }, (unused, i) => i + 1)
+    .filter((n) => tableFit(withHeadingColumns(demoWithoutBudget(), ORDER.slice(0, n), marked).table, SCALE).fits).pop()!;
+
+  it.each([[false], [true]])('markers=%s: the widest set of columns the model fits prints clean, one more column runs past the edge', async (marked) => {
+    const n = boundary(marked);
+    expect(n).toBeLessThan(13);
+    const fit = withHeadingColumns(demoWithoutBudget(), ORDER.slice(0, n), marked);
+    expect(await overflowOf(fit.doc, fit.index), `${n} columns`).toEqual([]);
+    const over = withHeadingColumns(demoWithoutBudget(), ORDER.slice(0, n + 1), marked);
+    expect((await overflowOf(over.doc, over.index)).length, `${n + 1} columns`).toBeGreaterThan(0);
+  }, 300_000);
+
+  it('a marker on every heading never buys room', () => {
+    expect(boundary(true)).toBeLessThanOrEqual(boundary(false));
+  });
+});
+
+describe('a KPI row', () => {
+  const fitsAt = (digits: number) => kpiFit(withWidenedKpi(demoWithoutBudget(), digits).texts);
+  const range = Array.from({ length: 30 }, (unused, i) => i + 4);
+
+  it('prints clean at the widest the model fits at the floor, and runs past the edge one digit wider', async () => {
+    const floor = range.filter((d) => fitsAt(d).fits).pop()!;
+    const fit = withWidenedKpi(demoWithoutBudget(), floor);
+    expect(await overflowOf(fit.doc, fit.index), `${floor} digits`).toEqual([]);
+    const over = withWidenedKpi(demoWithoutBudget(), floor + 1);
+    expect(fitsAt(floor + 1).fits).toBe(false);
+    expect((await overflowOf(over.doc, over.index)).length, `${floor + 1} digits`).toBeGreaterThan(0);
+  }, 300_000);
+
+  it('prints clean at the widest the model fits at the ordinary size; one digit wider is fitted to a smaller size', async () => {
+    const ordinary = range.filter((d) => fitsAt(d).fits && fitsAt(d).px === null).pop()!;
+    const fit = withWidenedKpi(demoWithoutBudget(), ordinary);
+    expect(await overflowOf(fit.doc, fit.index), `${ordinary} digits`).toEqual([]);
+    const wider = withWidenedKpi(demoWithoutBudget(), ordinary + 1);
+    expect(kpiFit(wider.texts).px).not.toBeNull();
+    expect(await overflowOf(wider.doc, wider.index), 'fitted, it prints clean').toEqual([]);
+  }, 300_000);
+});

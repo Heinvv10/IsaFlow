@@ -105,8 +105,8 @@ export interface PrintedPack {
    * as the printing browser resolved their (fitted) font size. Null where the page has none.
    */
   figurePt: Array<{ id: string; kpi: number | null; table: number | null }>;
-  /** Every KPI value and table figure as laid out: its text and its measured width in ems of its own font size. */
-  figureEms: Array<{ text: string; ems: number; kpi: boolean }>;
+  /** Every KPI value and table figure as laid out: its text, its font size and its measured width in px. */
+  figureEms: Array<{ text: string; fontPx: number; weight: number; widthPx: number; kpi: boolean; hasMark: boolean }>;
   /** Sheets of paper, from the PDF itself. The number that matters. */
   sheets: number;
   /**
@@ -539,15 +539,15 @@ export async function printBoardPack(
       return Array.from(document.querySelectorAll('.pack-page')).map((pg) => ({
         id: (pg as HTMLElement).id || 'page',
         kpi: smallest(Array.from(pg.querySelectorAll('.pack-kpi-value'))),
-        table: smallest(Array.from(pg.querySelectorAll('.pack-table-box .pack-table td:not(:first-child)'))),
+        table: smallest(Array.from(pg.querySelectorAll('.pack-table:not(.pack-scorecard-group):not(.pack-matters):not(.pack-definition-bridge) td:not(:first-child)'))),
       }));
     });
-    const figureEms = await page.evaluate(() => Array.from(document.querySelectorAll('.pack-kpi-value, .pack-table-box .pack-table td:not(:first-child)')).flatMap((el) => {
+    const figureEms = await page.evaluate(() => Array.from(document.querySelectorAll('.pack-kpi-value, .pack-table:not(.pack-scorecard-group):not(.pack-matters):not(.pack-definition-bridge) td:not(:first-child)')).flatMap((el) => {
       const text = (el.textContent ?? '').trim();
       if (text === '') return [];
       const range = document.createRange();
       range.selectNodeContents(el);
-      return [{ text, ems: range.getBoundingClientRect().width / parseFloat(getComputedStyle(el).fontSize), kpi: el.classList.contains('pack-kpi-value') }];
+      return [{ text, fontPx: parseFloat(getComputedStyle(el).fontSize), weight: Number(getComputedStyle(el).fontWeight), widthPx: range.getBoundingClientRect().width, kpi: el.classList.contains('pack-kpi-value'), hasMark: el.querySelector('sup') !== null }];
     }));
     // `pdf-parse` is already a dependency, and the count comes from the
     // DOCUMENT rather than from anything this harness believes about how tall

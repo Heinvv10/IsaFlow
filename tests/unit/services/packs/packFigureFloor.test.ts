@@ -1,63 +1,60 @@
 /**
- * A pack whose figures cannot be set at the floor is refused, not printed small or cut off.
- *
- * The floors (12pt KPI figures, 7.5pt table figures) are in the stylesheet; `packFigureFloor.ts` repeats
- * the stylesheet's arithmetic so the composer can tell when the floor binds. Where figures fit, the
- * model says the ceiling (22pt / 9pt), which is what the stylesheet prints. The printed proof that the
- * model's ruler is never short of Chromium's is `tests/unit/print/packNothingPassesTheEdge.test.ts`.
+ * A pack whose figures fit at no size down to the pack's smallest text is refused, not printed past the sheet's
+ * edge. That cannot be reached through the composer with a real revenue (a R9e15 revenue prints in 13 digits and
+ * still fits), so the refusal is held here on the composed demo pack with its figures widened afterwards, and
+ * its wiring into the composer by a spy; the thresholds against Chromium are `packFigureFitThreshold.test.ts`.
  */
 import { describe, expect, it, vi } from 'vitest';
+
+const gate = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock('@/modules/accounting/services/packs/pages/packFigureFloor', async (orig) => {
+  const actual = await orig<typeof import('@/modules/accounting/services/packs/pages/packFigureFloor')>();
+  return { ...actual, assertFiguresReadable: (...args: Parameters<typeof actual.assertFiguresReadable>) => { gate.calls.push(args); return actual.assertFiguresReadable(...args); } };
+});
 import { log } from '@/lib/logger';
 import { packRefusalMessages, PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { kpiFigurePt, tableFigurePt, TABLE_FIGURE_FLOOR_PT, KPI_FIGURE_FLOOR_PT } from '@/modules/accounting/services/packs/pages/packFigureFloor';
+import { assertFiguresReadable, unreadableBlock } from '@/modules/accounting/services/packs/pages/packFigureFloor';
 import { demoInput } from './fixtures/boardPackInputs';
-import { page6Input } from './fixtures/page6Shapes';
+import { demoWithoutBudget, SCALE, withWidenedKpi, withWidenedTable } from './fixtures/widenedFigures';
 
-describe('the model of the stylesheet\'s figure size', () => {
-  it('is the ceiling where the figures fit', () => {
-    expect(kpiFigurePt(['126 000', '45.0%', '910', '610'])).toBe(22);
-    expect(tableFigurePt([['126 000', '(1 546)'], ['45.0%'], ['n/m a']])).toBe(9);
-    expect(tableFigurePt([['(126 000)'], ['45.0%'], ['1'], ['1'], ['1']])).toBe(9);
+const refusalOf = (fn: () => void): PackRefusal => {
+  try { fn(); } catch (err) { if (err instanceof PackRefusal) return err; throw err; }
+  throw new Error('no refusal');
+};
+
+describe('assertFiguresReadable', () => {
+  it('passes the demo pack', () => {
+    expect(() => assertFiguresReadable(demoWithoutBudget().pages, SCALE)).not.toThrow();
   });
 
-  it('falls as the figures widen, to below the floor for a very wide row', () => {
-    const narrow = kpiFigurePt(['(13 350 000)', '(13 350 000)', '(13 350 000)', '(13 350 000)'])!;
-    const wide = kpiFigurePt(['(133 500 000 000 000 000)', '(133 500 000 000 000 000)', '(133 500 000 000 000 000)', '(133 500 000 000 000 000)'])!;
-    expect(narrow).toBeLessThan(22);
-    expect(wide).toBeLessThan(narrow);
-    expect(wide).toBeLessThan(KPI_FIGURE_FLOOR_PT);
-    expect(tableFigurePt(Array.from({ length: 7 }, () => ['1 260 000 000 000 000']))!).toBeLessThan(TABLE_FIGURE_FLOOR_PT);
+  it('refuses a table whose figures fit at no size, in two registers', () => {
+    const { doc } = withWidenedTable(demoWithoutBudget(), 40);
+    const refusal = refusalOf(() => assertFiguresReadable(doc.pages, SCALE));
+    const { user, diagnostic } = packRefusalMessages(refusal);
+    expect(diagnostic).toMatch(/"Income statement": a table whose figures fit at no size down to the pack's smallest text/);
+    expect(user).toContain('too wide to print legibly');
+    expect(user).not.toContain('assertFiguresReadable');
   });
 
-  it('is null for a block with no figures', () => {
-    expect(kpiFigurePt([null, null])).toBeNull();
-    expect(tableFigurePt([])).toBeNull();
+  it('refuses a KPI row the same way', () => {
+    const { doc } = withWidenedKpi(demoWithoutBudget(), 40);
+    const refusal = refusalOf(() => assertFiguresReadable(doc.pages, SCALE));
+    expect(refusal.message).toMatch(/"Highlights": a KPI row/);
+    expect(unreadableBlock(doc.pages[2]!, SCALE)).toEqual({ kind: 'kpi' });
   });
 });
 
-describe('the pack', () => {
-  const build = (k: number) => {
+describe('the composer', () => {
+  it('runs the gate over all twelve pages of every pack it builds', () => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     try {
-      return buildBoardPackPages(page6Input({ k, negative: false, loss: false, plug: 0, sg: [1, 1, 1, 1] }));
+      gate.calls.length = 0;
+      expect(buildBoardPackPages(demoInput).pages).toHaveLength(12);
+      expect(gate.calls).toHaveLength(1);
+      expect((gate.calls[0]![0] as unknown[]).length).toBe(12);
     } finally {
       warn.mockRestore();
     }
-  };
-
-  it('is produced where every figure fits at or above its floor (the demo, and R3 trillion-scale figures)', () => {
-    expect(() => buildBoardPackPages(demoInput)).not.toThrow();
-    expect(build(3_000_000).pages).toHaveLength(12);
-  });
-
-  it('is refused, in two registers, where a table\'s figures cannot be set at the floor (k = 1e8, and from about k = 2.7e7)', () => {
-    let refusal: unknown;
-    try { build(100_000_000); } catch (err) { refusal = err; }
-    expect(refusal).toBeInstanceOf(PackRefusal);
-    const { user, diagnostic } = packRefusalMessages(refusal);
-    expect(diagnostic).toMatch(/"Income statement" needs its figures at \d\.\dpt and the floor is 7\.5pt/);
-    expect(user).toContain('too wide to print legibly');
-    expect(user).not.toContain('assertFiguresReadable');
   });
 });

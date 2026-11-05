@@ -1,56 +1,54 @@
 /**
- * `kpiColumnWidthsMm`: the widths of a KPI tile row's four columns as the stylesheet lays them out
- * (`minmax(auto, 1fr)` columns, figures shrunk to fit the row), which the height model reads so a
- * stretched column is charged the taller sparkline it prints. The printed proof is
- * `tests/unit/print/packNothingPassesTheEdge.test.ts` (the KPI block never taller than modelled).
+ * `kpiColumnWidthsMm`: the widths of a KPI tile row's four columns where the figures stretch them (the stylesheet's
+ * `minmax(auto, 1fr)` columns), which the height model reads so a stretched column is charged the taller sparkline
+ * it prints. Null for a row nothing stretches: the model then charges it as it always has.
  */
 import { describe, expect, it } from 'vitest';
 import { kpiColumnWidthsMm } from '@/modules/accounting/services/packs/pages/packKpiRowFit';
 import { kpiTileHeight } from '@/modules/accounting/services/packs/pages/packKpiTileHeight';
 import { PAGE_WIDTH_MM } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import type { PackKpiTile } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { demoWithoutBudget, money, withWidenedKpi } from './fixtures/widenedFigures';
 
-const tile = (value: number, withSpark = true): PackKpiTile => ({
-  label: 'Net profit',
-  figure: { value, format: 'money', source: 'packFigureSet.current.netProfit' },
-  delta: { value: 12, unit: 'percent', basis: 'prior period', favourable: true },
-  deltaAbsence: null,
-  trendFootnote: null,
-  sparklineSvg: withSpark ? ('<svg></svg>' as never) : null,
-  sparklineWindow: null,
-  sparklineScale: null,
-});
-const row = (...values: number[]) => values.map((v) => tile(v));
 const ROOM = PAGE_WIDTH_MM.portrait - 3 * 8;
 
+const kpiTiles = (digits: number): PackKpiTile[] => {
+  const { doc } = withWidenedKpi(demoWithoutBudget(), digits);
+  const block = doc.pages[2]!.blocks.find((b) => b.kind === 'kpiTiles');
+  if (block?.kind !== 'kpiTiles') throw new Error('no KPI block');
+  return block.tiles;
+};
+
 describe('kpiColumnWidthsMm', () => {
-  it('shares the room between four columns: equal quarters for ordinary figures', () => {
-    const widths = kpiColumnWidthsMm(row(126_000, 45, 910, 610));
-    expect(widths.reduce((a, b) => a + b, 0)).toBeCloseTo(ROOM, 6);
-    widths.forEach((w) => expect(w).toBeCloseTo(ROOM / 4, 6));
+  it('is null for the demo company\'s tiles (every column a quarter): the height is what it always was', () => {
+    expect(kpiColumnWidthsMm(kpiTiles(6))).toBeNull();
   });
 
-  it('gives a column whose figure is wider than a quarter that figure\'s width, and squeezes the others', () => {
-    const widths = kpiColumnWidthsMm(row(-133_500_000, 45, 910, 610));
+  it('shares the room between four columns, a wide figure keeping its width and squeezing the others', () => {
+    const base = kpiTiles(6);
+    const tiles = [{ ...base[0]!, figure: { ...base[0]!.figure, value: money(11) } }, ...base.slice(1)];
+    const widths = kpiColumnWidthsMm(tiles)!;
     expect(widths.reduce((a, b) => a + b, 0)).toBeCloseTo(ROOM, 6);
-    expect(widths[0]!).toBeGreaterThan(ROOM / 4);
-    expect(widths[1]!).toBeLessThan(ROOM / 4);
-  });
-
-  it('assigns tile i to column i % 4 (a second row widens the same column)', () => {
-    const widths = kpiColumnWidthsMm([...row(1, 2, 3, 4), ...row(1, 2, -133_500_000, 4)]);
-    expect(widths[2]!).toBeGreaterThan(ROOM / 4);
+    expect(Math.max(...widths)).toBeGreaterThan(ROOM / 4);
+    expect(Math.min(...widths)).toBeLessThan(ROOM / 4);
   });
 });
 
-describe('kpiTileHeight in a column', () => {
-  it('a stretched column draws a taller sparkline, capped at the stylesheet\'s 33mm', () => {
-    const quarter = kpiTileHeight(tile(1));
-    expect(kpiTileHeight(tile(1), 41)).toBeGreaterThan(quarter);
-    expect(kpiTileHeight(tile(1), 60)).toBeCloseTo(kpiTileHeight(tile(1), 80), 6);
+describe('kpiTileHeight', () => {
+  const tiles = kpiTiles(6);
+  const withDelta = tiles.find((t) => t.delta !== null && t.sparklineSvg !== null)!;
+
+  it('with no column it is the height every pack has always been charged', () => {
+    expect(kpiTileHeight(withDelta)).toBeCloseTo(kpiTileHeight(withDelta, undefined), 10);
   });
 
-  it('is never charged less than a quarter\'s sparkline in a squeezed column, and wraps its text no wider than a quarter', () => {
-    expect(kpiTileHeight(tile(1), 30)).toBeGreaterThanOrEqual(kpiTileHeight(tile(1)));
+  it('a wide column is charged what a quarter is (its sparkline is capped at the 33mm already charged)', () => {
+    expect(kpiTileHeight(withDelta, 60)).toBeCloseTo(kpiTileHeight(withDelta), 6);
+  });
+
+  it('a column squeezed so far that its delta line must wrap again is charged the extra line, never less than before', () => {
+    const quarter = kpiTileHeight(withDelta);
+    expect(kpiTileHeight(withDelta, 30)).toBeGreaterThanOrEqual(quarter);
+    expect(kpiTileHeight(withDelta, 15)).toBeGreaterThan(quarter);
   });
 });

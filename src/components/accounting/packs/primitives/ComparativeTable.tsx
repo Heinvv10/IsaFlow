@@ -12,7 +12,7 @@
 import { formatFigureText } from './packFigureText';
 import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import { FootnoteMarker } from './FootnoteMarker';
-import { tableColumnTexts, tableFitStyle } from './packFigureFit';
+import { fitAttributes, tableFit } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import type { MoneyScale } from '@/lib/format/money';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packBlockModel';
 import type {
@@ -84,13 +84,14 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
     return '–';
   };
 
-  // What each data column prints, for the stylesheet's fit (see `packFigureFit`).
-  const columnTexts = tableColumnTexts(table, scale);
+  // Whether the figures fit the sheet at their ordinary size, and the smaller one that fits where they do not
+  // (see `packFigureFit`): nothing is set for a table that fits, so its markup is what it always was.
+  const fit = fitAttributes(tableFit(table, scale));
+  const tableClass = [isLong ? 'pack-table is-long' : 'pack-table', fit.className].filter(Boolean).join(' ');
 
   return (
     <>
-    <div className="pack-table-box">
-    <table className={isLong ? 'pack-table is-long' : 'pack-table'} style={tableFitStyle(columnTexts)}>
+    <table className={tableClass} style={fit.style}>
       <caption>{table.scale}</caption>
       <thead>
         <tr>
@@ -117,7 +118,6 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
         ))}
       </tbody>
     </table>
-    </div>
     <NotMeaningfulNotes reasons={notes} />
     </>
   );

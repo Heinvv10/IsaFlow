@@ -10,7 +10,6 @@
  */
 import { describe, expect, it } from 'vitest';
 import { kpiTileHeight } from '@/modules/accounting/services/packs/pages/packBlockHeights';
-import { KPI_DELTA_CUE_MM } from '@/modules/accounting/services/packs/pages/packKpiTileHeight';
 import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
 import { lines, wrappedLines } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import type { PackKpiDelta, PackKpiTile } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -75,10 +74,8 @@ describe('kpiTileHeight charges the delta line the tile prints', () => {
  * line to give away, and an over-charge is paid for out of a disclosure.
  */
 describe('the delta line wraps in the model where it wrapped on the paper', () => {
-  // The first line of a delta is 17px on the paper, not the 16px of its 12pt leading (the arrow cue is a
-  // 7pt run): KPI_DELTA_CUE_MM, charged once per delta.
-  const ONE_LINE = 1 + KPI_DELTA_CUE_MM + lines(1, 12);
-  const TWO_LINES = 1 + KPI_DELTA_CUE_MM + lines(2, 12);
+  const ONE_LINE = 1 + lines(1, 12);
+  const TWO_LINES = 1 + lines(2, 12);
   const OBSERVED: Array<[string, PackKpiDelta, number]> = [
     ['up 12.0%', delta(12, 'percent'), ONE_LINE],
     ['up 33.9%', delta(33.9, 'percent'), ONE_LINE],
