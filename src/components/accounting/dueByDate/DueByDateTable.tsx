@@ -74,7 +74,7 @@ export function DueByDateTable({ side, contactLabel }: { side: DueByDateSide; co
                 </tr>
                 {isOpen && c.invoices.map((i) => (
                   <tr key={i.id} className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)]/40 text-xs">
-                    <td className="pl-10 pr-4 py-2 text-[var(--ff-text-secondary)] font-mono">
+                    <td className="pl-10 pr-4 py-2 text-[var(--ff-text-secondary)] font-id">
                       {i.invoiceNumber} <span className="font-sans text-[var(--ff-text-tertiary)]">· {formatDisplayDate(i.invoiceDate)}</span>
                     </td>
                     <td className="px-4 py-2 text-right text-[var(--ff-text-secondary)]" colSpan={2}>
