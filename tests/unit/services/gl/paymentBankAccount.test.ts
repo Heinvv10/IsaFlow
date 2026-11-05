@@ -86,6 +86,14 @@ describe('resolvePaymentBankAccount — no bankAccountId supplied', () => {
     await expect(resolvePaymentBankAccount(CO)).rejects.toThrow(/no longer holds/);
   });
 
+  it('refuses a holder that is not an asset (a liability carrying the bank subtype and system flag)', async () => {
+    table = table.map((r) => (r.id === BANK ? { ...r, account_type: 'liability' } : r));
+    getSystemAccount.mockResolvedValue(holder(BANK, '1544331'));
+    const err = await resolvePaymentBankAccount(CO).catch((e: unknown) => e);
+    expect(isBankAccountRefusal(err)).toBe(true);
+    expect((err as Error).message).toMatch(/1544331 Acct 1544331, which holds the company's bank role, is a liability account, not an asset/);
+  });
+
   it('propagates a failure that is not a missing role', async () => {
     getSystemAccount.mockRejectedValue(new Error('connection terminated'));
     await expect(resolvePaymentBankAccount(CO)).rejects.toThrow('connection terminated');

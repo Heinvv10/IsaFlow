@@ -281,6 +281,18 @@ describe('payroll net pay — the holder must be postable', () => {
     expect(createJournalEntry).not.toHaveBeenCalled();
   });
 
+  it('blocks a holder that is not an asset, as a liability credit is no payment from the bank', async () => {
+    routeMock([...PAYROLL_ACCOUNTS, bank('1544331', 'acc-bank', 'ABSA Cheque', { account_type: 'liability' })]);
+    getSystemAccount.mockResolvedValue(holder('acc-bank', '1544331', 'ABSA Cheque'));
+
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    expect(plan!.blockers.find((b) => b.code === 'not_asset_bank_account')?.detail).toMatch(/is a liability account, not an asset/);
+    expect(plan!.lines.find((l) => l.credit === 76000)?.glAccountId).toBeNull();
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'user-1')).rejects.toThrow(/not an asset/);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
   it('accepts a leaf holder that has a parent', async () => {
     routeMock([
       ...PAYROLL_ACCOUNTS,

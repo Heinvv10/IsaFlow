@@ -12,6 +12,8 @@
  *    another account: refused, "try again";
  *  - more than one active account claims the role: refused naming all of them
  *    (`getSystemAccount` would silently pick one by `preferSystemAccount`);
+ *  - the holder is not an asset (a liability, e.g. a credit card, can carry
+ *    the bank subtype and system flag): refused, crediting it is no payment;
  *  - the holder is a balance-sheet header: refused with the poster's own rule
  *    (`assertNoHeaderAccountLines`), which would refuse the post anyway.
  * A holder deactivated since the cache filled is RETURNED with `isActive:
@@ -26,6 +28,7 @@ import { assertNoHeaderAccountLines, isHeaderAccountRefusal } from './headerAcco
 export const MISSING_BANK_ACCOUNT = 'missing_bank_account';
 export const AMBIGUOUS_BANK_ACCOUNT = 'ambiguous_bank_account';
 export const HEADER_BANK_ACCOUNT = 'header_bank_account';
+export const NOT_ASSET_BANK_ACCOUNT = 'not_asset_bank_account';
 
 export interface BankRoleHolder {
   id: string;
@@ -82,6 +85,11 @@ export async function resolveBankRoleHolder(companyId: string): Promise<BankRole
       `${named(cached)} no longer holds the company's bank role (it changed within the last minute). Try again. ${SET_IT}`);
   }
 
+  if (mine.accountType !== 'asset') {
+    return refuse(NOT_ASSET_BANK_ACCOUNT,
+      `${named(mine)}, which holds the company's bank role, is a ${mine.accountType || 'untyped'} account, not an asset: `
+      + `crediting it is no payment from the bank. ${SET_IT}`);
+  }
   try {
     await assertNoHeaderAccountLines(companyId, [{ glAccountId: mine.id }]);
   } catch (err) {
