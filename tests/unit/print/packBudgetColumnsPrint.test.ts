@@ -87,13 +87,12 @@ const page6Notes = (document: ReturnType<typeof buildBoardPackPages>): string[] 
 
 describe('page 6 says so when it leaves the budget columns out', () => {
   it.each([
-    ['fitting would remove their footnote', 1220, true],
     ['no bridge rung fits with them', 3000, true],
   ] as const)('prints the dropped-columns footnote when %s', (_name, k, negative) => {
     expect(page6Notes(buildBoardPackPages(scaled(k, negative, false)))).toContain(DROPPED_NOTE);
   });
 
-  it.each([[1220], [3000]])('prints the footnote in the PDF text layer at k=%i, page 6 inside its edge, and the pack passes the gate', async (k) => {
+  it.each([[3000]])('prints the footnote in the PDF text layer at k=%i, page 6 inside its edge, and the pack passes the gate', async (k) => {
     const document = buildBoardPackPages(scaled(k, true, false));
     expect(() => assertPackIntegrity(document)).not.toThrow();
     const out = await printBoardPack(document, browser);
@@ -110,8 +109,24 @@ describe('page 6 says so when it leaves the budget columns out', () => {
 });
 
 describe('page 6 with a budget at the figures that spilled it', () => {
-  it('drops the budget columns when fitting them would remove their basis footnote', () => {
+  it('keeps the budget columns and their basis footnote at k=1220: the derived caption goes first, not the footnote', async () => {
     const document = buildBoardPackPages(scaled(1220, true, false));
+    const page = document.pages.find((p) => p.navLabel === 'Income statement')!;
+    const income = page.blocks
+      .flatMap((b) => (b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue') ? [b.table] : []))[0]!;
+    expect(income.columns).toEqual(expect.arrayContaining(['budget', 'variance']));
+    expect(page.footnotes.some((f) => f.text.startsWith('The budget column'))).toBe(true);
+    expect(page.footnotes.some((f) => f.text === DROPPED_NOTE)).toBe(false);
+    expect(page.blocks.some((b) => b.kind === 'narrative')).toBe(false);
+    const out = await printBoardPack(document, browser);
+    expect(out.overflow.filter((o) => o.id === 'pack-page-6')).toEqual([]);
+    expect(out.sheets).toBe(document.pages.length);
+    const sheet = out.sheetText.find((t) => /Gross profit/.test(t) && /Net profit/.test(t));
+    expect(flat(sheet ?? '')).toMatch(/budget/i);
+  }, 180_000);
+
+  it('drops the budget columns when fitting them would remove their basis footnote', () => {
+    const document = buildBoardPackPages(scaled(3000, true, false));
     const page = document.pages.find((p) => p.navLabel === 'Income statement')!;
     const income = page.blocks
       .flatMap((b) => (b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue') ? [b.table] : []))[0]!;
