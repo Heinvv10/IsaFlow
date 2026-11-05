@@ -22,7 +22,7 @@ const CHART: Array<[string, string, string | undefined]> = [
 ];
 
 describeIfDb('cash flow: indirect and direct agree on random journals', () => {
-  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+  for (const seed of Array.from({ length: 20 }, (_, i) => i + 1)) {
     it(`seed ${seed}: 28 journals, one a day, every day and the month agree`, async () => {
       await inTx(async (x) => {
         const banks = [await x.acct('asset', 'bank'), await x.acct('asset', 'bank')];
