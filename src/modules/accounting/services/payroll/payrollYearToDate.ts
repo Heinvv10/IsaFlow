@@ -36,6 +36,12 @@
  *   (yearToDatePeriods). Production had no such line in
  *   tax year 2027 (read-only census 2026-10-26: 0 of 167 lines).
  *
+ * - sdlApplicable / sdlLeviable / sdlRetirementDeduction: the SDL year to date
+ *   over the lines the employer was liable for (payrollSdlYearToDate), from the
+ *   same lines; the figures each run stored (sdl_applicable, sdl_leviable,
+ *   sdl_exempt, migration 957), or for a line before it the pay rebuilt from
+ *   its breakdown (flag `isSdlApplicable`, else today's catalogue).
+ *
  * Every query is scoped by company_id.
  */
 
@@ -47,6 +53,7 @@ import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
 import { loadMedicalRecord } from './payrollMedicalRecord';
 import { loadRetirementRecord } from './payrollRetirementRecord';
+import { sdlYearToDate, type SdlYearToDateLine } from './payrollSdlYearToDate';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -68,7 +75,9 @@ export async function loadPayeYearToDate(
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic,
              r.periodic_before_deductions,
              r.annual_before_deductions,
-             b.annual_3605, b.original_taxable, b.donations
+             b.annual_3605, b.original_taxable, b.donations,
+             h.period_year, h.period_month, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,
+             l.sdl_applicable AS stored_sdl_applicable, l.sdl_leviable, l.sdl_exempt, b.sdl_applicable AS rebuilt_sdl_applicable
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
@@ -85,7 +94,15 @@ export async function loadPayeYearToDate(
                COALESCE(SUM((item->>'amount')::numeric) FILTER (
                  WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '4030'
                    AND (item->>'isTaxable')::boolean AND pc.component_type = 'deduction'
-               ), 0) AS donations
+               ), 0) AS donations,
+               -- SDL-applicable pay: the items the calculator counted (isSdlApplicable, as costed). An item from
+               -- before the flag by today's catalogue (an earning flagged is_sdl_applicable, or the leave and
+               -- notice pay of a termination); a component since deleted counts nothing.
+               COALESCE(SUM((item->>'amount')::numeric) FILTER (
+                 WHERE COALESCE((item->>'isSdlApplicable')::boolean,
+                   (pc.component_type = 'earning' AND pc.is_sdl_applicable)
+                   OR item->>'componentId' IN ('synthetic:termination:leave-payout', 'synthetic:termination:notice-pay'))
+               ), 0) AS sdl_applicable
         FROM jsonb_array_elements(l.component_breakdown) AS item
         LEFT JOIN payroll_components pc ON pc.id::text = item->>'componentId' AND pc.company_id = h.company_id
       ) b
@@ -114,7 +131,12 @@ export async function loadPayeYearToDate(
            SUM(paye - directive_paye)::numeric AS table_paye,
            -- SUM skips a line written before migration 926 (NULL: recorded nothing).
            SUM(medical_credit)::numeric AS medical_credit,
-           SUM(additional_medical_credit)::numeric AS additional_medical_credit
+           SUM(additional_medical_credit)::numeric AS additional_medical_credit,
+           -- The lines in period order, for the SDL year to date (payrollSdlYearToDate).
+           jsonb_agg(jsonb_build_object('line', line_id, 'sdl', sdl, 'sdlApplicable', stored_sdl_applicable,
+               'rebuiltApplicable', rebuilt_sdl_applicable, 'sdlLeviable', sdl_leviable, 'sdlExempt', sdl_exempt,
+               'retirement', retirement_deduction)
+             ORDER BY period_year, period_month, line_created_at, line_id) AS sdl_lines
     FROM split
     GROUP BY employee_id
   `) as DbRow[];
@@ -153,6 +175,7 @@ export async function loadPayeYearToDate(
       retirementContributions: fund?.contributions ?? 0,
       retirementDeduction: fund?.deduction ?? 0,
       donations: fund?.donations ?? 0,
+      ...sdlYearToDate((r.sdl_lines ?? []) as SdlYearToDateLine[]),
     }];
   }));
 }
