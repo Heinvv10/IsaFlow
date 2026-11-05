@@ -42,12 +42,17 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalBuilder', () => ({
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', () => ({
   postPayrollRunJournal: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
+  lockPayrollRunHeader: vi.fn(),
+}));
 
 import { listPayrollEmployeesPage } from '@/modules/accounting/services/payroll/payrollEmployeeQueryService';
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
 import { createPayrollRun, getPayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
+import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollLoanLock';
 
 import { listEmployeesTool, listPayRunsTool } from '@/lib/mcp/tools/payroll';
 import { createPayRunTool, postPayrollJournalTool } from '@/lib/mcp/tools/writePayroll';
@@ -125,6 +130,7 @@ beforeEach(() => {
   vi.mocked(getPayrollRun).mockResolvedValue(RUN_ROW);
   vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan());
   vi.mocked(postPayrollRunJournal).mockResolvedValue('je-new');
+  vi.mocked(lockPayrollRunHeader).mockResolvedValue({ id: RUN, journal_entry_id: null });
   vi.mocked(createPayrollRun).mockResolvedValue({ ...RUN_ROW, status: 'draft' });
 });
 
@@ -370,5 +376,49 @@ describe('post_payroll_journal — the dry run is the deliverable', () => {
     await expect(
       postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx),
     ).rejects.toThrow('boom');
+  });
+
+  // The idempotency key serialises only calls that share it. Two posts under
+  // different keys, or a post beside an approval, both read a run with no
+  // journal and each posted one; the header lock is what orders them.
+  it('locks the run header, company-scoped, BEFORE it reads the plan on a live call', async () => {
+    const order: string[] = [];
+    vi.mocked(lockPayrollRunHeader).mockImplementation(async () => { order.push('lock'); return { id: RUN, journal_entry_id: null }; });
+    vi.mocked(buildPayrollJournalPlan).mockImplementation(async () => { order.push('plan'); return plan() as never; });
+    await postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx);
+    expect(order).toEqual(['lock', 'plan']);
+    expect(vi.mocked(lockPayrollRunHeader).mock.calls[0]).toEqual([RUN, COMPANY]);
+  });
+
+  it('refuses, naming the winner, when the plan read behind the lock finds the run already posted', async () => {
+    vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan({
+      alreadyPostedJournalId: 'je-winner',
+      blockers: [{ code: 'already_posted', detail: 'This run already posted journal je-winner. Reverse it before posting again.' }],
+    }));
+    const res = await postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx);
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('je-winner');
+    expect(postPayrollRunJournal).not.toHaveBeenCalled();
+  });
+
+  it('takes no lock on a dry run', async () => {
+    await postPayrollJournalTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx);
+    expect(lockPayrollRunHeader).not.toHaveBeenCalled();
+  });
+
+  it('answers a run of another company (no header to lock) with the shared not-found text', async () => {
+    vi.mocked(lockPayrollRunHeader).mockResolvedValue(null);
+    const res = await postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx);
+    expect(res.isError).toBe(true);
+    expect(text(res)).toBe('Not found');
+    expect(buildPayrollJournalPlan).not.toHaveBeenCalled();
+    expect(postPayrollRunJournal).not.toHaveBeenCalled();
+  });
+
+  it('answers a lock wait that ran out as a retryable tool error: nothing was written', async () => {
+    vi.mocked(lockPayrollRunHeader).mockRejectedValue(new PayrollLoanLockTimeoutError(RUN));
+    const res = await postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx);
+    expect(res.isError).toBe(true);
+    expect(postPayrollRunJournal).not.toHaveBeenCalled();
   });
 });

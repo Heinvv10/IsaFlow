@@ -18,6 +18,7 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { buildPayrollJournalPlan, type PayrollJournalPlan } from './payrollJournalBuilder';
+import { lockPayrollRunHeader } from './payrollRunLock';
 
 type Row = DbRow;
 
@@ -52,8 +53,23 @@ export async function postPayrollRunJournal(
   userId: string,
   opts?: { postingAgent?: string; plan?: PayrollJournalPlan },
 ): Promise<string> {
+  // The run's header, locked FOR UPDATE (5s wait, then a retryable PayrollLoanLockTimeoutError, nothing written)
+  // BEFORE the plan is read or the link judged: the idempotency lock of an MCP call covers one key only, so two
+  // posts under different keys, or a post beside an approval, each saw a run with no journal and each posted one.
+  // approvePayrollRun already holds this lock (same transaction, so this returns at once). Lock order: the header
+  // is level 2 of payrollRunLock's order and nothing of level 1 or 3 is taken here, so no cycle is added.
+  const locked = await lockPayrollRunHeader(runId, companyId);
+  if (!locked) throw new Error(`Payroll run ${runId} not found`);
+
   const plan = opts?.plan ?? await buildPayrollJournalPlan(companyId, runId);
   if (!plan) throw new Error(`Payroll run ${runId} not found`);
+
+  // Re-checked under the lock: a link the plan did not see (a plan built before the lock, or handed in by a caller
+  // that did not hold it) means a peer posted first. Refused before anything is written.
+  const linked = locked.journal_entry_id == null ? null : String(locked.journal_entry_id);
+  if (linked !== null && linked !== plan.alreadyPostedJournalId) {
+    throw new Error(`Payroll run ${runId} already carries journal ${linked} — it was posted by another request`);
+  }
 
   // Already posted is not an error — the approval path re-runs on retry and
   // relies on this being a no-op.
@@ -103,12 +119,20 @@ export async function postPayrollRunJournal(
     : await createJournalEntry(companyId, input, userId);
   await postJournalEntry(companyId, entry.id, userId);
 
-  await sql`
+  // Only onto a run with no journal. The lock above makes a miss impossible under a request transaction; for a
+  // caller with none (a script) the lock lapsed with its own statement, and this stops a second journal from
+  // overwriting the first's link. Thrown, so a request rolls the journal just posted back.
+  const stamped = (await sql`
     UPDATE payroll_run_headers
     SET journal_entry_id = ${entry.id}::uuid,
         updated_at       = NOW()
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-  `;
+      AND journal_entry_id IS NULL
+    RETURNING id
+  `) as Row[];
+  if (!stamped[0]) {
+    throw new Error(`Payroll run ${runId} already carries a journal — journal ${entry.id} was not linked to it`);
+  }
 
   log.info(
     'Payroll journal posted',
