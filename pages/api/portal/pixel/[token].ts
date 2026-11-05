@@ -15,6 +15,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
+import { trustedClientIp } from '@/lib/trustedClientIp';
 import {
   hashSessionToken,
   verifyInvoicePortalToken,
@@ -26,13 +27,6 @@ const PIXEL = Buffer.from(
   'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
   'base64',
 );
-
-function clientIp(req: NextApiRequest): string | null {
-  const xf = req.headers['x-forwarded-for'];
-  if (typeof xf === 'string' && xf.length) return xf.split(',')[0]!.trim();
-  if (Array.isArray(xf) && xf[0]) return xf[0]!.split(',')[0]!.trim();
-  return req.socket.remoteAddress ?? null;
-}
 
 function sendPixel(res: NextApiResponse): void {
   res.setHeader('Content-Type', 'image/gif');
@@ -67,7 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
         companyId: verified.companyId,
         viewSource: 'tracking_pixel',
         sessionTokenHash: hashSessionToken(token),
-        ipAddress: clientIp(req),
+        ipAddress: trustedClientIp(req),
         userAgent:
           typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null,
         responseTimeMs: Date.now() - started,

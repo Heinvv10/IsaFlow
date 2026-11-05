@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { trustedClientIpOf } from '@/lib/trustedClientIp';
 
 const FALLBACK_SALT = 'isaflow-analytics-fallback-salt-v1';
 
@@ -23,11 +24,9 @@ export function sessionHash(ip: string, userAgent: string, websiteId: string): s
 export function extractIp(headers: Record<string, string | string[] | undefined>): string {
   const cf = headers['cf-connecting-ip'];
   if (typeof cf === 'string' && cf) return cf;
-  const fwd = headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd) {
-    const first = fwd.split(',')[0];
-    if (first) return first.trim();
-  }
+  // The visitor behind Cloudflare and nginx, not the leftmost entry (which the client writes).
+  const forwarded = trustedClientIpOf(headers['x-forwarded-for'], undefined);
+  if (forwarded) return forwarded;
   const real = headers['x-real-ip'];
   if (typeof real === 'string' && real) return real;
   return '0.0.0.0';

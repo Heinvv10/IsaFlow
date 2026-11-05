@@ -7,18 +7,12 @@
 import type { IncomingMessage } from 'http';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { trustedClientIp } from '@/lib/trustedClientIp';
 import { hashSessionToken } from './portalTokenService';
 import { logCustomerInvoiceView } from './readReceiptService';
 
 /** The part of a request the read receipt needs: both a Next API request and a page's request have it. */
 export type PortalViewerRequest = Pick<IncomingMessage, 'headers' | 'socket'>;
-
-function clientIp(req: PortalViewerRequest): string | null {
-  const xf = req.headers['x-forwarded-for'];
-  if (typeof xf === 'string' && xf.length) return xf.split(',')[0]!.trim();
-  if (Array.isArray(xf) && xf[0]) return xf[0]!.split(',')[0]!.trim();
-  return req.socket.remoteAddress ?? null;
-}
 
 type Row = Record<string, unknown>;
 
@@ -114,7 +108,7 @@ export async function loadPortalInvoice(token: string, req: PortalViewerRequest)
     companyId,
     viewSource: 'portal',
     sessionTokenHash: hashSessionToken(token),
-    ipAddress: clientIp(req),
+    ipAddress: trustedClientIp(req),
     userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null,
     responseTimeMs: Date.now() - started,
   });

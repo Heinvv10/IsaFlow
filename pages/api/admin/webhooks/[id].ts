@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
+import { getClientIp } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import {
@@ -24,16 +25,6 @@ const PatchBody = z.object({
   url:    z.string().url().optional(),
   events: z.array(z.string().min(1)).optional(),
 }).strict();
-
-function getIp(req: AuthenticatedNextApiRequest): string {
-  const fwd = req.headers['x-forwarded-for'];
-  if (fwd) {
-    const raw = Array.isArray(fwd) ? fwd[0] ?? '' : fwd;
-    const ips = raw.split(',').map((s: string) => s.trim());
-    return ips[ips.length - 1] ?? req.socket?.remoteAddress ?? 'unknown';
-  }
-  return req.socket?.remoteAddress ?? 'unknown';
-}
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const id = req.query.id as string;
@@ -68,7 +59,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         'webhook',
         id,
         { status, url, events: events?.join(',') },
-        getIp(req),
+        getClientIp(req),
       );
       return apiResponse.success(res, updated);
     } catch (err) {
@@ -90,7 +81,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         'webhook',
         id,
         { companyId: webhook.companyId, url: webhook.url },
-        getIp(req),
+        getClientIp(req),
       );
       return apiResponse.success(res, { deleted: true });
     } catch (err) {

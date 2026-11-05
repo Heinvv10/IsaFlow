@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
+import { getClientIp } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { redeliverWebhook } from '@/modules/admin/services/adminWebhookService';
@@ -17,16 +18,6 @@ import { UUID } from '@/lib/schemas/common';
 const PostBody = z.object({
   deliveryId: UUID.optional(),
 }).strict();
-
-function getIp(req: AuthenticatedNextApiRequest): string {
-  const fwd = req.headers['x-forwarded-for'];
-  if (fwd) {
-    const raw = Array.isArray(fwd) ? fwd[0] ?? '' : fwd;
-    const ips = raw.split(',').map((s: string) => s.trim());
-    return ips[ips.length - 1] ?? req.socket?.remoteAddress ?? 'unknown';
-  }
-  return req.socket?.remoteAddress ?? 'unknown';
-}
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -51,7 +42,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       'webhook',
       webhookId,
       { deliveryId: deliveryId ?? 'last_failed', newDeliveryId: result.deliveryId },
-      getIp(req),
+      getClientIp(req),
     );
     log.info('Admin: queued webhook redeliver', { webhookId, deliveryId }, 'admin-webhooks-redeliver-api');
     return apiResponse.success(res, result, 'Delivery queued for retry');

@@ -13,6 +13,7 @@ import { signPortalToken } from '@/lib/auth/portalJwt';
 import { getServerSideProps as dashboard } from '../../pages/accounting/afs/portal/dashboard';
 import { getServerSideProps as documentPage } from '../../pages/accounting/afs/portal/documents/[documentId]';
 import { getServerSideProps as invoicePage } from '../../pages/portal/invoice/[token]';
+import { purgeInvoiceViewReceipts } from '@/modules/accounting/services/ar/invoiceViewRetention';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 vi.hoisted(() => { process.env.PORTAL_JWT_SECRET ??= 'portal-pages-in-process-secret-0123456789abcdef'; });
@@ -124,7 +125,7 @@ describe('portal document page (in-process)', () => {
 
 describe('portal invoice page (in-process)', () => {
   it('loads the invoice, flags it overdue, and the read receipt names the visitor, not the server', async () => {
-    const ctx = { params: { token: invoiceToken }, req: { headers: { 'x-forwarded-for': '203.0.113.77, 10.0.0.1', 'user-agent': 'VisitorBrowser/1.0' }, socket: { remoteAddress: '127.0.0.1' } } };
+    const ctx = { params: { token: invoiceToken }, req: { headers: { 'x-forwarded-for': '203.0.113.77, 172.71.1.1', 'user-agent': 'VisitorBrowser/1.0' }, socket: { remoteAddress: '127.0.0.1' } } };
     const r = await invoicePage(ctx as never) as Props;
     expect((r.props!.invoice as { items: Array<{ description: string }> }).items.map((i) => i.description)).toEqual(['PIP line']);
     expect(r.props!.isOverdue).toBe(true);
@@ -132,6 +133,36 @@ describe('portal invoice page (in-process)', () => {
     const views = (await pool.query(`SELECT host(ip_address) AS ip, user_agent, view_source FROM customer_invoice_views WHERE customer_invoice_id = $1`, [invoiceId])).rows;
     expect(views).toEqual([{ ip: '203.0.113.77', user_agent: 'VisitorBrowser/1.0', view_source: 'portal' }]);
     expect((await pool.query('SELECT portal_viewed_at FROM customer_invoices WHERE id = $1', [invoiceId])).rows[0].portal_viewed_at).not.toBeNull();
+  });
+
+  const receipts = async () => (await pool.query(
+    `SELECT host(ip_address) AS ip, user_agent FROM customer_invoice_views WHERE customer_invoice_id = $1 ORDER BY viewed_at DESC`, [invoiceId])).rows as Array<{ ip: string | null; user_agent: string | null }>;
+  const open = (headers: Record<string, string>) => invoicePage({ params: { token: invoiceToken }, req: { headers, socket: { remoteAddress: '127.0.0.1' } } } as never);
+
+  it('a forged leftmost X-Forwarded-For entry is not the recorded address: the visitor Cloudflare saw is', async () => {
+    await pool.query('DELETE FROM customer_invoice_views WHERE customer_invoice_id = $1', [invoiceId]);
+    await open({ 'x-forwarded-for': '6.6.6.6, 203.0.113.50, 172.71.1.1', 'user-agent': 'forged-test' });
+    expect((await receipts()).map((r) => r.ip)).toEqual(['203.0.113.50']);
+  });
+
+  it('a garbage address still leaves a receipt (with no address), and a long browser string is cut to 256 characters', async () => {
+    await pool.query('DELETE FROM customer_invoice_views WHERE customer_invoice_id = $1', [invoiceId]);
+    await open({ 'x-forwarded-for': "x'; DROP TABLE customer_invoice_views;--, 172.71.1.1", 'user-agent': 'B'.repeat(4000) });
+    const rows = await receipts();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.ip).toBeNull();
+    expect(rows[0]!.user_agent).toHaveLength(256);
+  });
+
+  it('retention: receipts older than 12 months are purged, newer ones stay', async () => {
+    await pool.query('DELETE FROM customer_invoice_views WHERE customer_invoice_id = $1', [invoiceId]);
+    await pool.query(
+      `INSERT INTO customer_invoice_views (company_id, customer_invoice_id, view_source, ip_address, user_agent, viewed_at) VALUES
+         ($1, $2, 'portal', '203.0.113.1', 'old', now() - interval '13 months'),
+         ($1, $2, 'portal', '203.0.113.2', 'edge', now() - interval '11 months 20 days'),
+         ($1, $2, 'portal', '203.0.113.3', 'new', now() - interval '2 days')`, [co, invoiceId]);
+    expect(await purgeInvoiceViewReceipts()).toBeGreaterThanOrEqual(1);
+    expect((await receipts()).map((r) => r.user_agent).sort()).toEqual(['edge', 'new']);
   });
 
   it('an unknown or malformed token is not found, and a cancelled invoice is not found', async () => {
