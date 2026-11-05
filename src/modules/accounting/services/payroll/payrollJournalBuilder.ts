@@ -13,13 +13,16 @@
  * the money lands there, but `postJournalEntry` refuses a deactivated account
  * (`assertNoInactiveAccountLines`), so a preview that passed it greenlit a post
  * the live path refused (K-079 review). Brightsphere carries all five payroll
- * accounts deactivated and Velocity Fibre 1110: they must reactivate or remap.
+ * accounts deactivated: they must reactivate or remap.
+ *
+ * NET PAY'S BANK ACCOUNT is the holder of the BANK system role (payrollJournalBank),
+ * resolved once here; no holder is a `missing_bank_account` blocker, never a 1110 fallback.
  *
  * Balance formula:
  *   DR 5200 Labour = gross + employer UIF + SDL − ETI used, split by cost centre
  *     (the mapping picks the account; the centre is the line's CC1 — payrollJournalParts#buildLabourLines)
  *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
- *   CR 2175 deductions, or DR 2175 for a net reversal   CR 1110 Bank (net pay)
+ *   CR 2175 deductions, or DR 2175 for a net reversal   CR bank-role account (net pay)
  *
  * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
  * it reduces the 2140 credit, and it is presented net of labour cost. Only the
@@ -42,6 +45,7 @@ import {
   resolveAccounts,
   resolveAccountsById,
 } from './payrollJournalParts';
+import { bankNetPayLine, resolveBankAccount } from './payrollJournalBank';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
 
@@ -148,6 +152,7 @@ export async function buildPayrollJournalPlan(
   const labourDebit = round2(gross + employerUif + sdl - etiUsed);
 
   const accounts = await resolveAccounts(companyId);
+  const bank = await resolveBankAccount(companyId);
   const blockers: PayrollJournalNote[] = [];
   const advisories: PayrollJournalNote[] = [];
 
@@ -158,6 +163,7 @@ export async function buildPayrollJournalPlan(
       detail: `The company has no GL account for ${missing.join(', ')}. The payroll journal cannot be built without them.`,
     });
   }
+  if (bank.blocker) blockers.push(bank.blocker);
   if (Math.abs(otherDeductions) > 0.005 && !accounts.has('2175')) {
     blockers.push({
       code: 'missing_other_deductions_account',
@@ -230,7 +236,7 @@ export async function buildPayrollJournalPlan(
   built.push(line('2140', 0, paye - etiUsed, 'PAYE payable, net of ETI'));
   built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
   built.push(line('2160', 0, sdl, 'SDL payable'));
-  built.push(line('1110', 0, net, 'Net pay — bank disbursement'));
+  built.push(bankNetPayLine(bank.account, round2(net)));
   if (otherDeductions > 0.005) {
     built.push(line('2175', 0, otherDeductions, 'Other employee deductions (medical aid, pension, RA, etc.)'));
   } else if (otherDeductions < -0.005) {
