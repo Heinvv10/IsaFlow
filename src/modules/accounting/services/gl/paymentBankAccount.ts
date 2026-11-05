@@ -6,8 +6,8 @@
  * moved off 1110 (Velocity Fibre, 2026-10-27) then posted to a deactivated
  * account, or to whatever now carries the code. The default is the holder of
  * the BANK system role, resolved as payroll's net pay is (`bankRoleHolder`).
- * A caller-supplied id is checked: it must be an active, postable bank account
- * of this company, not any account id a request body names.
+ * A caller-supplied id is checked: it must be an active, postable asset bank
+ * account of this company, not any account id a request body names.
  *
  * Refusals are `BankAccountRefusedError`, raised before the caller writes
  * anything; the routes answer them 400.
@@ -41,9 +41,10 @@ async function checkSupplied(companyId: string, accountId: string, what: string,
   const acc = rows[0];
   if (!acc) throw new BankAccountRefusedError(`${what} is not an account of this company`);
   const label = `${acc.account_code} ${acc.account_name}`;
+  // Every id must be an asset: a liability can carry a bank subtype (a credit card), and crediting it is no payment from the bank.
+  if (acc.account_type !== 'asset') throw new BankAccountRefusedError(`${label} is not a bank account`);
+  // A stored id skips the subtype check (see resolvePaymentBankAccount).
   if (requireBankSubtype && !isBankSubtype(acc.account_subtype)) throw new BankAccountRefusedError(`${label} is not a bank account`);
-  // A stored id skips the subtype check, but must still be an asset: a revenue / expense / liability id is no bank.
-  if (!requireBankSubtype && acc.account_type !== 'asset') throw new BankAccountRefusedError(`${label} is not a bank account`);
   if (acc.is_active === false) throw new BankAccountRefusedError(`${label} is deactivated`);
   try {
     await assertNoHeaderAccountLines(companyId, [{ glAccountId: acc.id }]);

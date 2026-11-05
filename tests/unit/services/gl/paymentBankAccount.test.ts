@@ -111,6 +111,11 @@ describe('resolvePaymentBankAccount — a caller-supplied bankAccountId', () => 
     await expect(resolvePaymentBankAccount(CO, id(8))).rejects.toThrow(/2150 Acct 2150 is not a bank account/);
   });
 
+  it.each(['bank', 'bank_account'])('refuses a liability carrying the %s subtype (a credit card is no bank)', async (account_subtype) => {
+    table.push(row(id(11), '2160', { account_type: 'liability', account_subtype }));
+    await expect(resolvePaymentBankAccount(CO, id(11))).rejects.toThrow(/2160 Acct 2160 is not a bank account/);
+  });
+
   it('refuses a deactivated bank account', async () => {
     await expect(resolvePaymentBankAccount(CO, DEACT)).rejects.toThrow(/1140 Acct 1140 is deactivated/);
   });
