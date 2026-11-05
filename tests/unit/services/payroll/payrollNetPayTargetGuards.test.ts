@@ -90,7 +90,11 @@ describe('a setting row that cannot be read fails closed (invalid_net_pay_settin
     holder();
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
     const blocker = plan!.blockers.find((b) => b.code === 'invalid_net_pay_setting');
-    expect(blocker?.detail).toMatch(/Default Accounts/);
+    // Truthful: names the row, says the page cannot repair it (non-JSON text fails the page's GET; `{"payroll_net_pay":7}` or a list
+    // read as empty there, so Save has nothing to change) and that support must, and does not send the user to the page.
+    expect(blocker?.detail).toContain('accounting_default_accounts');
+    expect(blocker?.detail).toMatch(/needs repair by support; payroll stays blocked until then/);
+    expect(blocker?.detail).not.toMatch(/Save the Default Accounts page/);
     expect(getSystemAccount).not.toHaveBeenCalled();
     expect(plan!.lines.some((l) => l.description === NET_PAY_DESCRIPTION)).toBe(false);
     await expect(postPayrollRunJournal(COMPANY, RUN, 'user-1')).rejects.toThrow();

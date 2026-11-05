@@ -88,7 +88,8 @@ export async function resolveNetPayTarget(companyId: string): Promise<NetPayTarg
   const setting = await readNetPayAccountId(companyId);
   if (!setting.ok) {
     return blocked('invalid_net_pay_setting',
-      `The Payroll net pay setting in Default Accounts cannot be read: ${setting.reason}. Save the Default Accounts page again (or clear the setting) to repair it; nothing falls back to the bank.`);
+      `The stored Default Accounts setting (the "accounting_default_accounts" row of the company's settings) cannot be read: ${setting.reason}. `
+      + 'The Default Accounts page cannot repair it, so it needs repair by support; payroll stays blocked until then and nothing falls back to the bank.');
   }
   if (setting.accountId !== null) return resolveClearingAccount(companyId, setting.accountId);
   const { account, refusal } = await resolveBankRoleHolder(companyId);
