@@ -23,7 +23,7 @@ beforeAll(async () => {
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [colleague, `${colleague}@test.local`]);
 });
 afterAll(async () => {
-  await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [company]);
+  await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [company]);
   // Lines before their batch: 877 refuses deleting a batch a line still names.
   await pool.query('DELETE FROM bank_transactions WHERE company_id = $1 AND import_batch_id IS NOT NULL', [company]);
   await pool.query('DELETE FROM bank_import_batches WHERE company_id = $1', [company]);
@@ -33,7 +33,7 @@ afterAll(async () => {
 
 /** supplier_payment enforced (no rule: the importer check needs only the type), and a colleague admin unless `sole`. */
 async function setUp(opts: { sole?: boolean } = {}) {
-  await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [company]);
+  await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [company]);
   for (const type of ['supplier_payment', 'payment_batch']) {
     await pool.query('INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1,$2,$3)', [company, type, user]);
   }

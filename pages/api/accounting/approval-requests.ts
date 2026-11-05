@@ -26,10 +26,14 @@ import {
 } from '@/modules/accounting/services/gl/approvalDecideDocument';
 import { ApprovalRequestStaleError } from '@/modules/accounting/services/gl/approvalDocumentErrors';
 import { isUuidParam } from '@/lib/validation';
+import { preparePayRunApprovalRequest } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+import { sql } from '@/lib/neon';
+import { recordPayRunApprovalAudit } from '@/modules/accounting/services/payroll/payRunApprovalAudit';
 
 const DOCUMENT_TYPES = new Set<DocumentType>([
   'customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note', 'customer_credit_note', 'supplier_credit_note',
   'supplier_payment', 'payment_batch', 'manual_journal',
+  'pay_run',
 ]);
 const isDocumentType = (value: unknown): value is DocumentType => typeof value === 'string' && DOCUMENT_TYPES.has(value as DocumentType);
 
@@ -97,9 +101,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // inside the transaction — a 500 and a logged stack for a bad request.
       if (!isUuidParam(documentId)) return apiResponse.badRequest(res, 'documentId must be a UUID');
       try {
+        let payRunPlanHash: string | null = null;
+        if (documentType === 'pay_run') payRunPlanHash = await preparePayRunApprovalRequest(companyId, documentId);
         const request = await requestApproval(companyId, {
           documentType, documentId, requestedBy: userId,
         });
+        if (payRunPlanHash) {
+          await recordPayRunApprovalAudit({
+            companyId, runId: documentId, actorId: userId,
+            event: 'requested', planHash: payRunPlanHash, metadata: { requestId: request.id },
+          });
+        }
         return apiResponse.success(res, request);
       } catch (error) {
         // Nothing to approve, a document that is not this company's, or a rule
@@ -133,7 +145,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
       const decision = action === 'approve' ? 'approved' : 'rejected';
       try {
+        const requestRows = ((await sql`
+          SELECT document_type, document_id FROM approval_requests
+          WHERE id = ${requestId}::uuid AND company_id = ${companyId}::uuid AND status = 'pending'
+        `) ?? []) as Array<{ document_type: string; document_id: string }>;
+        const requestRow = requestRows[0];
+        if (requestRow?.document_type === 'pay_run') {
+          await preparePayRunApprovalRequest(companyId, String(requestRow.document_id));
+        }
         const result = await decideRequest(companyId, requestId, decision, userId, notes, expectedDigest);
+        if (requestRow?.document_type === 'pay_run' && result.documentDigest) {
+          await recordPayRunApprovalAudit({
+            companyId, runId: String(requestRow.document_id), actorId: userId,
+            event: decision === 'approved' ? 'authorised' : 'declined',
+            planHash: result.documentDigest, metadata: { requestId: result.id },
+          });
+        }
         return apiResponse.success(res, result);
       } catch (error) {
         // Segregation-of-duties refusals are a 403, not a 500 — withAuth would

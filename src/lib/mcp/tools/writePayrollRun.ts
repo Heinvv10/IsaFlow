@@ -46,6 +46,10 @@ import { UnsupportedTaxYearError, unloadedTaxYearMessage } from '@/modules/accou
 import { withheldLoansReport as withheldLoans } from '@/modules/accounting/services/payroll/payrollLoanWithholding';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+
+const NEEDS_PERSON = 'A person must approve this pay run in ISAFlow before the connector can post it.';
 
 /**
  * The stamp that puts this journal in `list_agent_postings`. Without it
@@ -127,7 +131,7 @@ export const calculatePayRunTool: McpTool = {
     }
 
     try {
-      const costed = await calculatePayrollRun(runId, ctx.companyId);
+      const costed = await calculatePayrollRun(runId, ctx.companyId, ctx.userId);
       return ok({
         ...runPayload(costed),
         ...(costed.totalEti > 0 && isEtiTableUnconfirmed(new Date(costed.periodYear, costed.periodMonth - 1, 28))
@@ -165,9 +169,7 @@ export const approvePayRunTool: McpTool = {
     + 'write:post permission. Approvable from draft, calculated or processed. '
     + 'Run calculate_pay_run first and check the totals — an uncosted run, or one whose journal '
     + 'cannot post (closed period, deactivated account, missing account), is refused before it is '
-    + 'approved. Net pay is credited to the bank, or to the Payroll net pay clearing account set in '
-    + 'Default Accounts; a reopened run whose journal went to the other is refused (net_pay_target_changed) '
-    + 'until that journal is reversed. Reversal is by a reversing journal, not by re-approving. '
+    + 'approved. Net pay goes to the bank or to the Default Accounts Payroll net pay clearing account; a reopened run whose journal went to the other is refused (net_pay_target_changed) until it is reversed. Reversal is by a reversing journal, not by re-approving. '
     + 'Two calls: dry_run: true returns plan_hash for the journal it previews; the live call must '
     + 'send that value as expected_plan_hash, and is refused if the run has changed since.',
   scope: 'write:payroll',
@@ -272,6 +274,14 @@ export const approvePayRunTool: McpTool = {
       const gate = await previewPayrollApproval(ctx.companyId, runId);
       if (!gate) return toolError(NOT_FOUND);
       if (gate.blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${gate.blocker.detail}`);
+      // R-035: the live call refuses a plan no person has cleared, so the
+      // dry run does too, against the same plan hash (read-only).
+      try {
+        await assertPayRunApproved(ctx.companyId, runId, gate.planHash);
+      } catch (err) {
+        if (err instanceof ApprovalRequiredError) return toolError(NEEDS_PERSON);
+        throw err;
+      }
       return preview([], gate);
     }
 
@@ -287,6 +297,9 @@ export const approvePayRunTool: McpTool = {
         expectedPlanHash: expectedPlanHash as string,
       });
     } catch (err) {
+      if (err instanceof ApprovalRequiredError) {
+        return toolError(NEEDS_PERSON);
+      }
       if (err instanceof PayrollApprovalRefusedError) return toolError(`Not approved: ${err.message}`);
       // The bounded wait for the run or its journal ran out — before any write.
       if (err instanceof PayrollLoanLockTimeoutError) return toolError(err.message);
