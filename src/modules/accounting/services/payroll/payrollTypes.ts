@@ -247,7 +247,10 @@ export interface PayrollLineResult {
   retirementDeduction: number;
   uif: UifResult;
   sdl: number;
-  /** Remuneration this line contributes to the SDL leviable amount. */
+  /**
+   * This line's SDL leviable amount: SDL-applicable remuneration less the s11F retirement deduction PAYE allowed
+   * on the line (`retirementDeduction`, floored at nil), never below nil (SDL Act s3(4)).
+   */
   sdlLeviable: number;
   eti: EtiResult;
   netPay: number;

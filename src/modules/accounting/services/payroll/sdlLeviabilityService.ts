@@ -20,6 +20,18 @@ import type { PayrollPeriod } from './payrollTypes';
  * So the basis is the company's own trailing twelve periods of remuneration: the
  * eleven periods before this run plus this run.
  *
+ * The 1% itself is charged on each line's leviable amount AFTER the para 2(4)
+ * retirement deduction (payrollCalculator), but the threshold stays on
+ * remuneration before it. The SDL guide's registration test speaks of the
+ * "total leviable amount", so an after-deduction basis is arguably the stricter
+ * reading; it is not used because the run header stores only total_gross, so
+ * the trailing eleven periods could not be measured on that basis without a
+ * migration, and mixing an after-deduction current month with gross history
+ * would skew the estimate. Remuneration is never below the leviable amount, so
+ * the error, when there is one, is towards levying: an employer just over
+ * R500 000 whose leviable amount is not is still charged. Same proxy caveat as
+ * below.
+ *
  * Remuneration, not cash gross. A non-cash fringe benefit (the 3801 low-interest
  * loan benefit) is remuneration (Fourth Schedule para 1 (a): para (i) of "gross
  * income") but is not paid, so a run stores it outside gross_pay / total_gross,

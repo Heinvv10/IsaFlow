@@ -194,12 +194,24 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
     : calculateUIF(uifLeviable, taxYear);
 
+  // SDL is levied on the balance of remuneration after the Fourth Schedule para 2(4) deductions (SDL Act s3(4);
+  // SARS SDL-GEN-01-G01 Rev 5 s6). The one that applies here is the retirement fund contribution (4001/4003/4006),
+  // limited by s11F: the very figure PAYE just allowed on this line (`retirementDeduction`: 27.5% and the year's
+  // cap, cumulative over the tax year from the year to date, so a late catch-up is capped by what is left of the
+  // year and an early excess is recovered from later headroom). It is not computed a second time, so SDL and PAYE
+  // cannot disagree about it. Taken off what is SDL-applicable, floored at nil: a reversal (a negative record)
+  // is not added back, and a deduction larger than the SDL-applicable pay is lost, per line.
+  // Every other taxable deduction (union fees, 4005 medical, garnishees) reduces PAYE only. Donations (4030) do not
+  // reduce SDL: the s18A receipt and approved organisation are not modelled. The s4(b) threshold stays on gross
+  // remuneration (sdlLeviabilityService).
+  const sdlLeviableAfterDeductions = Math.max(0, sdlLeviable - Math.max(0, retirementDeduction));
+
   // Leviability depends on the employer's twelve-month remuneration, not on
   // this line, so a caller costing a full run defers and applies the threshold
   // once it knows that total.
   const sdl = annualPayrollEstimate === 'defer'
     ? 0
-    : calculateSDL(sdlLeviable, annualPayrollEstimate, taxYear);
+    : calculateSDL(sdlLeviableAfterDeductions, annualPayrollEstimate, taxYear);
 
   // Missing dates are reported as indeterminate, never fabricated into a
   // determination of "not eligible" — see resolveEtiForEmployee.
@@ -272,7 +284,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     retirementDeduction,
     uif,
     sdl: Math.round(sdl * 100) / 100,
-    sdlLeviable: Math.round(sdlLeviable * 100) / 100,
+    sdlLeviable: round2(sdlLeviableAfterDeductions),
     eti: etiRaw,
     netPay: Math.max(0, netPay),
     componentBreakdown: breakdown,
