@@ -1,6 +1,9 @@
 // src/modules/accounting/services/afs/afsHtmlTableRenderer.ts
 
-import type { AfsSection, NoteContent, NoteContentBlock } from './afsTypes';
+import type { AfsSection, NoteContent, NoteContentBlock, NoteTableRowKind } from './afsTypes';
+import { packSectionView } from './managementPackSectionView';
+import { safeRowKind } from './managementPackSections';
+import { normaliseBlocks } from './noteBlockNormalise';
 
 // ── Block renderers ───────────────────────────────────────────────────────────
 
@@ -16,26 +19,32 @@ function renderBlock(block: NoteContentBlock): string {
       return `<h3 class="note-heading">${escapeHtml(block.text)}</h3>`;
 
     case 'list':
-      return `<ul>${block.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+      return `<ul>${(Array.isArray(block.items) ? block.items : []).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
 
     case 'table':
-      return renderTable(block.headers, block.rows);
+      return renderTable(block.headers, block.rows, block.rowKinds);
 
     default:
       return '';
   }
 }
 
-function renderTable(headers: string[], rows: string[][]): string {
+function renderTable(headersIn: string[], rowsIn: string[][], rowKinds?: NoteTableRowKind[]): string {
+  // Overrides are tenant-written JSON: a table whose headers, rows or a row are not arrays prints what it can.
+  const headers = Array.isArray(headersIn) ? headersIn : [];
+  const rows = Array.isArray(rowsIn) ? rowsIn : [];
   const theadCells = headers
     .map((h) => `<th>${escapeHtml(h)}</th>`)
     .join('');
   const thead = `<thead><tr>${theadCells}</tr></thead>`;
 
   const tbodyRows = rows
-    .map((row) => {
-      const cells = row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('');
-      return `<tr>${cells}</tr>`;
+    .map((row, i) => {
+      const cells = (Array.isArray(row) ? row : []).map((cell) => `<td>${escapeHtml(cell)}</td>`).join('');
+      // A statement row's kind (heading, subtotal, bottom line) is a class; a table without kinds prints plain rows.
+      // The kind is allow-listed: it lands in a class attribute, and stored content is free-form JSON.
+      const kind = safeRowKind(rowKinds?.[i]);
+      return kind !== 'line' ? `<tr class="row-${kind}">${cells}</tr>` : `<tr>${cells}</tr>`;
     })
     .join('');
   const tbody = `<tbody>${tbodyRows}</tbody>`;
@@ -46,13 +55,15 @@ function renderTable(headers: string[], rows: string[][]): string {
 // ── NoteContent → blocks ──────────────────────────────────────────────────────
 
 function resolveContent(section: AfsSection): NoteContent | null {
-  if (section.overrides?.blocks && section.overrides.blocks.length > 0) {
+  // Stored content is free-form JSON (a tenant writes overrides): a title that is not a string is ignored, every cell is read as text.
+  const text = (v: unknown): string => (typeof v === 'string' ? v : '');
+  if (Array.isArray(section.overrides?.blocks) && section.overrides.blocks.length > 0) {
     return {
-      title: section.overrides.title ?? section.content?.title ?? '',
-      blocks: section.overrides.blocks,
+      title: text(section.overrides.title) || text(section.content?.title),
+      blocks: normaliseBlocks(section.overrides.blocks),
     };
   }
-  return section.content;
+  return section.content ? { title: text(section.content.title), blocks: normaliseBlocks(section.content.blocks) } : null;
 }
 
 // ── Public export ─────────────────────────────────────────────────────────────
@@ -73,9 +84,31 @@ ${chart}
 </section>`;
 }
 
+/**
+ * A management pack section: titled from the section vocabulary, never empty (a section with nothing says
+ * so), with the AI's narrative printed under it, and flowing on from the section before it. The statements
+ * start a page of their own. A section the pack does not print (its cover page stands in) returns ''.
+ */
+const STATEMENT_SECTIONS: readonly string[] = ['income_statement', 'balance_sheet'];
+
+export function renderPackSectionContent(section: AfsSection): string {
+  const view = packSectionView(section);
+  if (!view) return '';
+  const blocks = view.blocks.map(renderBlock).join('\n');
+  const narrative = view.narrative ? `<p class="ai-narrative">${escapeHtml(view.narrative)}</p>` : '';
+  const cls = STATEMENT_SECTIONS.includes(view.key) ? 'pack-section pack-statement' : 'pack-section';
+  return `<section class="${cls}" id="section-${escapeHtml(section.id)}">
+<h2>${escapeHtml(view.title)}</h2>
+${blocks}
+${narrative}
+</section>`;
+}
+
 // ── Utility ───────────────────────────────────────────────────────────────────
 
-export function escapeHtml(str: string): string {
+/** Stored content is free-form JSON: null/undefined print as nothing, any other value as its text, never a crash. */
+export function escapeHtml(value: unknown): string {
+  const str = value === null || value === undefined ? '' : String(value);
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
