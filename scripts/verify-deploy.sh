@@ -16,6 +16,11 @@
 #                          VERIFY_SKIP_INTEGRITY=1)
 #   E2E_ADMIN_EMAIL/_PASSWORD   Demo login for the golden suite; if unset,
 #                          sourced from /home/hein/isaflow-deploy.env (0600)
+#   E2E_APPROVER_EMAIL/_PASSWORD   OPTIONAL second Demo user (owner/admin of the
+#                          same company) who approves the golden payroll run:
+#                          prod Demo has several approvers, so the admin cannot
+#                          approve its own request (SELF_APPROVAL_FORBIDDEN).
+#                          Read from the same file; both or neither.
 #   VERIFY_BASELINE        integrity baseline file (default: the prod baseline)
 #   VERIFY_SKIP_INTEGRITY  =1 skips step 3 (drills against a dev server that
 #                          shares the workspace .env.local DB)
@@ -74,15 +79,16 @@ echo "OK: public-host redirects and the admin rewrite stay on their host"
 
 # ── 2. Golden-paths suite ────────────────────────────────────────────────────
 echo "[2/3] Golden-paths E2E suite..."
-if [ -z "$E2E_ADMIN_EMAIL" ] || [ -z "$E2E_ADMIN_PASSWORD" ]; then
-  if [ -f "$CREDS_FILE" ]; then
-    # Read only the two expected keys, literally — never `.`/source, which
-    # shell-parses values ($, backticks, quotes) and would silently mangle a
-    # generated password (same hazard deploy.sh documents for .env.local).
-    while IFS= read -r line; do
-      [ -n "$line" ] && export "$line"
-    done < <(grep -E '^E2E_ADMIN_(EMAIL|PASSWORD)=' "$CREDS_FILE" || true)
-  fi
+if [ -f "$CREDS_FILE" ]; then
+  # Read only the expected keys, literally — never `.`/source, which
+  # shell-parses values ($, backticks, quotes) and would silently mangle a
+  # generated password (same hazard deploy.sh documents for .env.local).
+  # A variable already exported wins over the file.
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    key="${line%%=*}"
+    [ -z "${!key}" ] && export "$line"
+  done < <(grep -E '^E2E_(ADMIN|APPROVER)_(EMAIL|PASSWORD)=' "$CREDS_FILE" || true)
 fi
 if [ -z "$E2E_ADMIN_EMAIL" ] || [ -z "$E2E_ADMIN_PASSWORD" ]; then
   echo "FAIL: E2E_ADMIN_EMAIL/E2E_ADMIN_PASSWORD not set and $CREDS_FILE missing —"

@@ -9,6 +9,7 @@
 import { test, expect } from '@playwright/test';
 import { Api, PAYROLL_SANDBOX_MONTH } from './_api';
 import { describeGoldenCompany } from './helpers/goldenSlot';
+import { clearPayRunApproval } from './helpers/payRunApproval';
 
 test('payroll run: create → calculate → approve posts a GL journal', async ({ baseURL }) => {
   const api = await Api.login(baseURL!);
@@ -63,14 +64,9 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     const calculated = await api.post<any>(`/api/payroll/runs/${runId}/calculate`);
     expect(Number(calculated.employeeCount ?? calculated.totalGross ?? 1)).toBeGreaterThan(0);
 
-    // Every run needs R-035 clearance. This slot has one eligible member, so
-    // the audited sole-approver exception permits that member to authorise it.
-    const request = await api.post<{ id: string; documentDigest: string }>('/api/accounting/approval-requests', {
-      action: 'request', documentType: 'pay_run', documentId: runId,
-    });
-    await api.post('/api/accounting/approval-requests', {
-      action: 'approve', requestId: request.id, expectedDigest: request.documentDigest,
-    });
+    // Every run needs R-035 clearance: a second approver where E2E_APPROVER_* is set (prod Demo has several
+    // eligible approvers), else the audited sole-approver exception (CI slots have one member).
+    await clearPayRunApproval(api, baseURL!, runId);
 
     // Approve as the run page does: preview the journal, then send the hash of
     // what was previewed — the route refuses an approval without it (BRK-596).

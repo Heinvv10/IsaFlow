@@ -14,7 +14,7 @@ import { request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { existsSync } from 'fs';
 import { GOLDEN_STATE_FILE } from './_global-setup';
 import { loginGolden } from './helpers/goldenLogin';
-import { readGoldenSlot } from './helpers/goldenSlot';
+import { readGoldenSlot, type GoldenSlot } from './helpers/goldenSlot';
 
 const CSRF_COOKIE = 'isaflow_csrf';
 const CSRF_HEADER = 'x-csrf-token';
@@ -59,6 +59,23 @@ export class Api {
       return new Api(ctx, csrf);
     } catch (err) {
       await ctx.dispose(); // don't leak the context on lockout/bad-cred paths
+      throw err;
+    }
+  }
+
+  /**
+   * A fresh login as another user, scoped to `as.companyId`. Always a new context with its own cookie jar: it never
+   * reads or writes GOLDEN_STATE_FILE, so the suite's own session is untouched.
+   */
+  static async loginAs(baseURL: string, as: GoldenSlot): Promise<Api> {
+    const ctx = await pwRequest.newContext({ baseURL });
+    try {
+      await loginGolden(ctx, as);
+      const csrf = await Api.readCsrf(ctx);
+      if (!csrf) throw new Error('no isaflow_csrf cookie after login');
+      return new Api(ctx, csrf);
+    } catch (err) {
+      await ctx.dispose();
       throw err;
     }
   }
