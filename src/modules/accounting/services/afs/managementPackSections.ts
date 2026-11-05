@@ -79,3 +79,6 @@ export function orderPackSections<T extends { sectionType: string; sortOrder: nu
 }
 
 export const REPORT_UNAVAILABLE = 'This report could not be produced for this period.';
+
+/** Printed under the cash flow: the pack's statement is the direct method, not the indirect statement the Reports screen shows. */
+export const CASH_FLOW_METHOD = 'Direct method: the cash received and paid in the month, grouped by what it was for.';

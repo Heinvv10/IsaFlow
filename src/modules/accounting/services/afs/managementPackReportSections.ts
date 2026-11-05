@@ -7,7 +7,7 @@ import type { BankReconciliation } from '../../types/bank.types';
 import type { CashFlowDirectReport } from './cashFlowDirectService';
 import type { AgingReport } from '../reports/agingReportService';
 import type { NoteContentBlock, NoteContentTable, NoteTableRowKind } from './afsTypes';
-import { NO_ACTIVITY } from './managementPackSections';
+import { CASH_FLOW_METHOD, NO_ACTIVITY } from './managementPackSections';
 import { build, longDate, type Spec, type StatementColumn } from './managementPackStatements';
 
 // ── Cash flow ────────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ export function cashFlowBlocks(columns: StatementColumn<CashFlowDirectReport>[],
     headers: ['', ...columns.map((c) => c.label), ...(changeOnLastYear ? ['Change on last year'] : [])],
     rows: built.rows, rowKinds: built.kinds,
   };
-  return [table, ...(built.empty ? [{ type: 'paragraph' as const, text: NO_ACTIVITY.cash_flow }] : [])];
+  return [table, { type: 'paragraph' as const, text: CASH_FLOW_METHOD }, ...(built.empty ? [{ type: 'paragraph' as const, text: NO_ACTIVITY.cash_flow }] : [])];
 }
 
 /** The figures behind the statement (snapshot and AI input): the report's own totals. */

@@ -114,6 +114,11 @@ describe('every cell is the report service\'s figure for the same company and mo
     expect(row(t, 'Net cash from operating activities')?.[1]).toBe(m(cash.operatingTotal));
     expect(row(t, 'Net change in cash')?.[1]).toBe(m(cash.netChange));
     expect(row(t, 'Closing cash')?.[1]).toBe(m(cash.closingCash));
+    // The statement ties: opening plus the net change is the closing cash, in the service's figures and in what is printed.
+    expect(cash.openingCash + cash.netChange).toBeCloseTo(cash.closingCash, 2);
+    expect(cash.operatingTotal + cash.investingTotal + cash.financingTotal).toBeCloseTo(cash.netChange, 2);
+    expect(m(cash.openingCash + cash.netChange)).toBe(row(t, 'Closing cash')?.[1]);
+    expect(JSON.stringify(sections.get('cash_flow')?.content.blocks)).toContain('Direct method');
     expect(sections.get('cash_flow')?.data_snapshot).toMatchObject({ openingCash: cash.openingCash, closingCash: cash.closingCash, netChange: cash.netChange });
   });
 

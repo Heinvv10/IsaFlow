@@ -40,6 +40,10 @@ describe('cash flow', () => {
     expect(t.rowKinds).toEqual(['subtotal', 'heading', 'line', 'line', 'subtotal', 'heading', 'line', 'subtotal', 'subtotal', 'total']);
   });
 
+  it('says it is the direct method', () => {
+    expect(texts(cashFlowBlocks([{ label: 'This month', report: cash() }], false))).toEqual(['Direct method: the cash received and paid in the month, grouped by what it was for.']);
+  });
+
   it('uses the report\'s closing cash, never a sum of its own', () => {
     expect(tableOf(cashFlowBlocks([{ label: 'x', report: cash({ closingCash: 1 }) }], false)).rows.at(-1)).toEqual(['Closing cash', 'R 1.00']);
   });
@@ -56,7 +60,7 @@ describe('cash flow', () => {
   it('a month in which no cash moved says so, and still shows opening and closing', () => {
     const none = cash({ operatingItems: [], operatingTotal: 0, investingItems: [], investingTotal: 0, netChange: 0, closingCash: 1000 });
     const blocks = cashFlowBlocks([{ label: 'This month', report: none }], false);
-    expect(texts(blocks)).toEqual(['No cash moved in this period.']);
+    expect(texts(blocks)).toEqual(['Direct method: the cash received and paid in the month, grouped by what it was for.', 'No cash moved in this period.']);
     expect(tableOf(blocks).rows.map((r) => r[0])).toEqual(['Opening cash', 'Net change in cash', 'Closing cash']);
   });
 
