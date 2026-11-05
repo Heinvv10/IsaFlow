@@ -10,6 +10,7 @@ import { ChevronRight } from 'lucide-react';
 import { log } from '@/lib/logger';
 import type { AfsDocument, AfsSection, NoteContentBlock } from '@/modules/accounting/services/afs/afsTypes';
 import { AfsStatusBadge } from './AfsStatusBadge';
+import { safeRowKind } from '@/modules/accounting/services/afs/managementPackSections';
 import { packSectionView } from '@/modules/accounting/services/afs/managementPackSectionView';
 
 const ROW_STYLE = {
@@ -38,7 +39,7 @@ function Block({ block }: { block: NoteContentBlock }) {
             </thead>
             <tbody>
               {block.rows.map((row, r) => (
-                <tr key={r} className={`border-b border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 ${ROW_STYLE[block.rowKinds?.[r] ?? 'line']}`}>
+                <tr key={r} className={`border-b border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 ${ROW_STYLE[safeRowKind(block.rowKinds?.[r])]}`}>
                   {row.map((cell, c) => <td key={c} className={`py-1.5 pr-4 ${c > 0 ? 'text-right tabular-nums' : ''}`}>{String(cell ?? '')}</td>)}
                 </tr>
               ))}

@@ -54,3 +54,21 @@ export const NO_ACTIVITY = {
 
 /** Printed when a statement's report could not be read; the real error is logged. */
 export const STATEMENT_UNAVAILABLE = 'This statement could not be produced for this period.';
+
+/** The row kinds a statement table may carry; the only values that ever reach a class attribute or a style lookup. */
+const ROW_KINDS: readonly string[] = ['heading', 'line', 'subtotal', 'total'];
+
+/** A stored row kind, or 'line': section content is free-form JSON (overrides are tenant-written), so an unknown value is a plain row. */
+export function safeRowKind(kind: unknown): 'heading' | 'line' | 'subtotal' | 'total' {
+  return typeof kind === 'string' && ROW_KINDS.includes(kind) ? (kind as 'heading' | 'line' | 'subtotal' | 'total') : 'line';
+}
+
+/** True when every table block of an overrides object carries only known row kinds (the overrides route refuses the rest). */
+export function overridesRowKindsValid(overrides: Record<string, unknown>): boolean {
+  const blocks = overrides.blocks;
+  if (!Array.isArray(blocks)) return true;
+  return blocks.every((b) => {
+    const kinds = (b as { rowKinds?: unknown } | null)?.rowKinds;
+    return kinds === undefined || (Array.isArray(kinds) && kinds.every((k) => typeof k === 'string' && ROW_KINDS.includes(k)));
+  });
+}

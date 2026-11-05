@@ -8,6 +8,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
+import { overridesRowKindsValid } from '@/modules/accounting/services/afs/managementPackSections';
 import { sql } from '@/lib/neon';
 import {
   assertDocumentEditable,
@@ -21,7 +22,9 @@ import {
 // `overrides` is a free-form JSONB blob (per-tenant section overrides).
 // Validate it's a JSON object; the structure varies by note generator.
 const BodySchema = z.object({
-  overrides: z.record(z.string(), z.unknown()),
+  overrides: z.record(z.string(), z.unknown()).refine(overridesRowKindsValid, {
+    message: 'blocks[].rowKinds may only contain heading, line, subtotal or total',
+  }),
 }).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

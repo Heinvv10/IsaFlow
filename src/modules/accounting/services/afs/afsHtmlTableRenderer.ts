@@ -2,6 +2,7 @@
 
 import type { AfsSection, NoteContent, NoteContentBlock, NoteTableRowKind } from './afsTypes';
 import { packSectionView } from './managementPackSectionView';
+import { safeRowKind } from './managementPackSections';
 
 // ── Block renderers ───────────────────────────────────────────────────────────
 
@@ -37,8 +38,9 @@ function renderTable(headers: string[], rows: string[][], rowKinds?: NoteTableRo
     .map((row, i) => {
       const cells = row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('');
       // A statement row's kind (heading, subtotal, bottom line) is a class; a table without kinds prints plain rows.
-      const kind = rowKinds?.[i];
-      return kind && kind !== 'line' ? `<tr class="row-${kind}">${cells}</tr>` : `<tr>${cells}</tr>`;
+      // The kind is allow-listed: it lands in a class attribute, and stored content is free-form JSON.
+      const kind = safeRowKind(rowKinds?.[i]);
+      return kind !== 'line' ? `<tr class="row-${kind}">${cells}</tr>` : `<tr>${cells}</tr>`;
     })
     .join('');
   const tbody = `<tbody>${tbodyRows}</tbody>`;
