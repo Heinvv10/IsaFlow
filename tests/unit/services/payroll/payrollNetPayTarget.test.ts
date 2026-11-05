@@ -12,16 +12,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import {
-  answerHeaderGuard, glAccount, selectGlAccounts, type GlAccountRow,
-} from '../../../helpers/glAccountsTableMock';
+  C2170, COMPANY, HEADER, OTHER_2170, RUN, VELOCITY, PAYROLL_ACCOUNTS, bank, acc, liability, on, rig, routeMock, sqlStub, type GlAccountRow,
+} from '../../../helpers/netPayPlanRig';
 
-let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
-  () => Promise.resolve([]);
-
-vi.mock('@/lib/neon', () => {
-  const sql = (strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values);
-  return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
-});
+vi.mock('@/lib/neon', () => ({ sql: sqlStub, withTransaction: async (fn: (tx: typeof sqlStub) => Promise<unknown>) => fn(sqlStub) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
   lockPayrollRunHeader: vi.fn(async () => ({ id: 'run', journal_entry_id: null })),
@@ -47,62 +41,6 @@ import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/p
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
 import { NET_PAY_CLEARING_DESCRIPTION, NET_PAY_DESCRIPTION } from '@/modules/accounting/services/payroll/payrollLabourComparison';
 
-const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const OTHER = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
-const RUN = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
-const C2170 = '21700000-0000-4000-8000-000000000001';
-const OTHER_2170 = '21700000-0000-4000-8000-0000000000ff';
-
-const HEADER = {
-  id: RUN, company_id: COMPANY, period_month: 10, period_year: 2026, status: 'approved',
-  journal_entry_id: null, total_gross: 100000, total_paye: 20000, total_uif: 2000,
-  total_sdl: 1000, total_eti: 0, total_net: 76000, employee_count: 4,
-  // A pre-R-035 approved run (migration 951): clears the approval gate (assertPayRunApproved) without a plan hash.
-  approval_grandfathered_at: '2026-10-01T00:00:00Z',
-};
-
-const acc = (code: string, id: string, name: string, over: Partial<GlAccountRow> = {}, company = COMPANY): GlAccountRow =>
-  glAccount({ id, company_id: company, account_code: code, account_name: name, ...over });
-const liability = (code: string, id: string, name: string, over: Partial<GlAccountRow> = {}) =>
-  acc(code, id, name, { account_type: 'liability', account_subtype: 'payroll_liability', ...over });
-
-const PAYROLL_ACCOUNTS = [
-  acc('5200', 'acc-5200', 'Labour Costs'),
-  acc('2140', 'acc-2140', 'PAYE Payable'),
-  acc('2150', 'acc-2150', 'UIF Payable'),
-  acc('2160', 'acc-2160', 'SDL Payable'),
-  acc('2175', 'acc-2175', 'Other Employee Deductions Payable'),
-];
-const bank = acc('1110', 'acc-1110', 'Bank - Primary', { account_subtype: 'bank', is_system_account: true });
-const VELOCITY = [...PAYROLL_ACCOUNTS, bank, liability('2170', C2170, 'Net Salaries Payable')];
-/** Another tenant, in the same table: a query that drops its company filter finds these. */
-const OTHER_TENANT = [liability('2170', OTHER_2170, 'Their Net Salaries Payable', {}), acc('1110', 'other-bank', 'Other Bank', { account_subtype: 'bank', is_system_account: true })]
-  .map((a) => ({ ...a, company_id: OTHER }));
-
-/** The accounts a loan of the company points at (loans.*_account_id), for the loan-account refusal. */
-let loanAccounts = new Set<string>();
-
-/** `setting` is what app_settings holds for accounting_default_accounts (undefined = no row). */
-function routeMock(accounts: GlAccountRow[], setting: unknown, header: Record<string, unknown> = HEADER) {
-  const table = [...accounts, ...OTHER_TENANT];
-  mockImpl = (strings, ...values) => {
-    const q = strings.join('?');
-    if (q.includes('payroll_run_headers')) {
-      return Promise.resolve(values.includes(RUN) && values.includes(COMPANY) ? [header] : []);
-    }
-    if (q.includes('app_settings')) {
-      const scoped = values.includes(COMPANY) && values.includes('accounting_default_accounts');
-      return Promise.resolve(scoped && setting !== undefined ? [{ value: setting }] : []);
-    }
-    if (q.includes('FROM loans')) {
-      return Promise.resolve(values.includes(COMPANY) && values.some((v) => loanAccounts.has(String(v))) ? [{ '?column?': 1 }] : []);
-    }
-    if (q.includes('parent_account_id')) return Promise.resolve(answerHeaderGuard(table, strings, values));
-    if (q.includes('FROM gl_accounts')) return Promise.resolve(selectGlAccounts(table, strings, values));
-    return Promise.resolve([]);
-  };
-}
-const on = (id: string | null) => ({ payroll_net_pay: id, sales_discount: 'unrelated' });
 const holder = () => getSystemAccount.mockResolvedValue({ id: 'acc-1110', accountCode: '1110', accountName: 'Bank - Primary' });
 const noBank = () => getSystemAccount.mockRejectedValue(new MissingSystemAccountError('bank', COMPANY, 'no_claimant', []));
 const netLines = (lines: Array<{ credit: number }>) => lines.filter((l) => l.credit === 76000);
@@ -110,8 +48,8 @@ const netLines = (lines: Array<{ credit: number }>) => lines.filter((l) => l.cre
 beforeEach(() => {
   getSystemAccount.mockReset();
   createJournalEntry.mockClear();
-  loanAccounts = new Set();
-  mockImpl = () => Promise.resolve([]);
+  rig.loanAccounts = new Set();
+  rig.impl = () => Promise.resolve([]);
 });
 
 describe('payroll net pay -> clearing account (setting on)', () => {
@@ -256,80 +194,10 @@ describe('payroll net pay -> clearing account that fails the rules: blocked, NEV
   it('does not swallow a failure that is not a business refusal', async () => {
     routeMock(VELOCITY, on(C2170));
     holder();
-    const answer = mockImpl;
-    mockImpl = (strings, ...values) => (strings.join('?').includes('app_settings')
+    const answer = rig.impl;
+    rig.impl = (strings, ...values) => (strings.join('?').includes('app_settings')
       ? Promise.reject(new Error('connection terminated'))
       : answer(strings, ...values));
     await expect(buildPayrollJournalPlan(COMPANY, RUN)).rejects.toThrow('connection terminated');
-  });
-});
-
-describe('the allow-list: payroll_liability, in any spelling the vocabulary knows', () => {
-  it('accepts payroll_liabilities (the plural alias) like payroll_liability', async () => {
-    routeMock([...VELOCITY.filter((a) => a.account_code !== '2170'), liability('2170', C2170, 'Net Salaries Payable', { account_subtype: 'payroll_liabilities' })], on(C2170));
-    noBank();
-    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
-    expect(plan!.blockers).toEqual([]);
-    expect(netLines(plan!.lines)[0]).toMatchObject({ glAccountId: C2170 });
-  });
-
-  it('refuses an account a loan uses (loans.*_account_id) even on the payroll_liability subtype', async () => {
-    routeMock(VELOCITY, on(C2170));
-    loanAccounts = new Set([C2170]);
-    holder();
-    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
-    expect(plan!.blockers.map((b) => b.code)).toContain('loan_net_pay_account');
-    expect(getSystemAccount).not.toHaveBeenCalled();
-    expect(plan!.lines.some((l) => l.description === NET_PAY_DESCRIPTION)).toBe(false);
-  });
-
-  it('a loan of ANOTHER company on the same account id does not refuse this company', async () => {
-    routeMock(VELOCITY, on(C2170));
-    loanAccounts = new Set(['some-other-account']);
-    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
-    expect(plan!.blockers.map((b) => b.code)).not.toContain('loan_net_pay_account');
-  });
-});
-
-describe('a setting row that cannot be read fails closed (invalid_net_pay_setting), never the bank, never a throw', () => {
-  it.each([
-    ['text that is not JSON', 'not json'],
-    ['a number', 42],
-    ['a list', ['payroll_net_pay']],
-    ['an object whose net pay is a number', { payroll_net_pay: 7 }],
-    ['an object whose net pay is an object', { payroll_net_pay: { id: C2170 } }],
-    ['JSON text of a list', JSON.stringify(['x'])],
-    ['text encoded three times', JSON.stringify(JSON.stringify(JSON.stringify(on(C2170))))],
-  ])('%s', async (_name, setting) => {
-    routeMock(VELOCITY, setting);
-    holder();
-    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
-    const blocker = plan!.blockers.find((b) => b.code === 'invalid_net_pay_setting');
-    expect(blocker?.detail).toMatch(/Default Accounts/);
-    expect(getSystemAccount).not.toHaveBeenCalled();
-    expect(plan!.lines.some((l) => l.description === NET_PAY_DESCRIPTION)).toBe(false);
-    await expect(postPayrollRunJournal(COMPANY, RUN, 'user-1')).rejects.toThrow();
-    expect(createJournalEntry).not.toHaveBeenCalled();
-  });
-
-  it('a string encoded twice is read through (it names 2170)', async () => {
-    routeMock(VELOCITY, JSON.stringify(JSON.stringify(on(C2170))));
-    noBank();
-    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
-    expect(plan!.blockers).toEqual([]);
-    expect(netLines(plan!.lines)[0]).toMatchObject({ glAccountId: C2170 });
-  });
-});
-
-describe('the header guard: only its own refusal is a blocker', () => {
-  it('rethrows a rejected header-guard query instead of reporting a header or reading the bank', async () => {
-    routeMock(VELOCITY, on(C2170));
-    holder();
-    const answer = mockImpl;
-    mockImpl = (strings, ...values) => (strings.join('?').includes('parent_account_id')
-      ? Promise.reject(new Error('header guard: connection terminated'))
-      : answer(strings, ...values));
-    await expect(buildPayrollJournalPlan(COMPANY, RUN)).rejects.toThrow('header guard: connection terminated');
-    expect(getSystemAccount).not.toHaveBeenCalled();
   });
 });

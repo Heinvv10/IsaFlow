@@ -24,7 +24,7 @@ vi.mock('@/modules/accounting/services/core/migrationService', () => ({ updateSe
 // The role lock, post-condition and cache clear issue their own statements; they
 // are proven against Postgres in tests/integration/w2-28-*.int.test.ts.
 vi.mock('@/modules/accounting/services/gl/systemRoleInvariant', () => ({
-  snapshotRoles: vi.fn(async () => ({})), assertRolesKept: vi.fn(async () => undefined),
+  snapshotRoles: vi.fn(async () => ({ holders: new Map(), contested: new Set() })), assertRolesKept: vi.fn(async () => undefined),
   rolesNotKept: vi.fn(() => []), SystemRoleInvariantError: class extends Error {},
 }));
 

@@ -112,3 +112,21 @@ export function netPayLine(target: NetPayTarget, net: number): PayrollJournalPla
     cc1Id: null,
   };
 }
+
+/**
+ * A blocker when the net-pay account also carries ANY other line of the plan (by id). A cost centre's labour mapped to
+ * the clearing account (or a bank role holder mapped as an expense account) would debit and credit one account, and the
+ * journal would look balanced while netting net pay away. Null when it stands alone, or has no account yet (blocked).
+ */
+export function sharedNetPayAccountBlocker(target: NetPayTarget, lines: PayrollJournalPlanLine[]): Blocker | null {
+  const id = target.account?.id;
+  if (!id) return null;
+  const isNetPay = (l: PayrollJournalPlanLine) => l.description === NET_PAY_CLEARING_DESCRIPTION || l.description === NET_PAY_DESCRIPTION;
+  const others = lines.filter((l) => l.glAccountId === id && !isNetPay(l));
+  if (others.length === 0) return null;
+  return {
+    code: 'net_pay_account_shared',
+    detail: `Net pay is credited to ${target.account!.code} ${target.account!.name}, and the same account carries another line of this journal `
+      + `(${others.map((l) => l.description).join('; ')}). Labour must go to an expense account: check the cost-centre GL mappings. Nothing is posted until net pay has an account of its own.`,
+  };
+}

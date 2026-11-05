@@ -46,7 +46,7 @@ import {
   resolveAccounts,
   resolveAccountsById,
 } from './payrollJournalParts';
-import { netPayLine, resolveNetPayTarget } from './payrollJournalBank';
+import { netPayLine, resolveNetPayTarget, sharedNetPayAccountBlocker } from './payrollJournalBank';
 import { judgeJournalLines } from './payrollJournalBlockers';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
@@ -250,6 +250,8 @@ export async function buildPayrollJournalPlan(
   }
 
   const lines = built.filter((l) => l.debit !== 0 || l.credit !== 0);
+  const shared = sharedNetPayAccountBlocker(netPayTarget, lines);
+  if (shared) blockers.push(shared);
 
   if (eti - etiUsed > 0.005) {
     advisories.push({
