@@ -87,6 +87,12 @@ describe('BankLineDrawerBody', () => {
     expect((await screen.findByRole('link', { name: 'evil.html' })).getAttribute('download')).toBe('evil.html.pdf');
   });
 
+  it('links an untyped row it cannot show, under a neutral name', async () => {
+    serve(() => ok([{ id: 'a5', file_name: 'blob.dat', file_url: `data:application/octet-stream;base64,${btoa('junk')}` }]));
+    render(<BankLineDrawerBody tx={TX} />);
+    expect((await screen.findByRole('link', { name: 'blob.dat' })).getAttribute('download')).toBe('blob.dat.bin');
+  });
+
   it('a line with no journal reads none and asks for none', async () => {
     serve();
     const { matchedJournalEntryId: _, ...unmatched } = TX;

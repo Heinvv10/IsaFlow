@@ -12,8 +12,12 @@
  * A row typed application/octet-stream is read from its first bytes. The email mirror's full-MIME file_type used to
  * miss captureBankTxAttachService's map, so stored rows carry that label over a real PDF or image. The bytes can only
  * select one of the inert types: a file that merely starts like a PDF still goes to the PDF viewer, never an HTML
- * renderer.
+ * renderer. tiff is recognised only to name its download.
+ *
+ * Every row the grid counts must be openable, so an untyped row the viewer cannot show still downloads: as .tif when its
+ * bytes say so, otherwise under a neutral .bin. Other data: types (text/html) get no link at all.
  */
+import { SAFE_HREF } from './bankTxAttachmentHelpers';
 
 export type PreviewKind = 'image' | 'pdf' | 'none';
 
@@ -34,6 +38,7 @@ function sniffMime(base64: string): string | null {
   if (head.startsWith('\xFF\xD8\xFF')) return 'image/jpeg';
   if (head.startsWith('\x89PNG\r\n\x1A\n')) return 'image/png';
   if (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP') return 'image/webp';
+  if (head.startsWith('II*\x00') || head.startsWith('MM\x00*')) return 'image/tiff';
   return null;
 }
 
@@ -45,7 +50,7 @@ function resolve(fileUrl: string): { mime: string; start: number } | null {
   if (!untyped) return null;
   const start = untyped[0].length;
   const mime = sniffMime(fileUrl.slice(start, start + SNIFF_CHARS));
-  return mime ? { mime, start } : null;
+  return mime && mime !== 'image/tiff' ? { mime, start } : null;
 }
 
 export function previewKind(fileUrl: string): PreviewKind {
@@ -76,7 +81,24 @@ const EXTENSIONS: Record<string, string[]> = {
   'image/png': ['png'],
   'image/webp': ['webp'],
   'image/tiff': ['tif', 'tiff'],
+  'application/octet-stream': ['bin'],
 };
+
+/** Whether the stored value may be a download link: SAFE_HREF, an inert type the viewer shows, or an untyped row. */
+export function canDownload(fileUrl: string): boolean {
+  return SAFE_HREF.test(fileUrl) || resolve(fileUrl) !== null || UNTYPED.test(fileUrl);
+}
+
+/** The type a download is named for: what the viewer shows it as, else what its label or bytes say. */
+function downloadMime(fileUrl: string): string | null {
+  const shown = resolve(fileUrl)?.mime;
+  if (shown) return shown;
+  if (fileUrl.startsWith('data:image/tiff;base64,')) return 'image/tiff';
+  const untyped = UNTYPED.exec(fileUrl);
+  if (!untyped) return null;
+  const start = untyped[0].length;
+  return sniffMime(fileUrl.slice(start, start + SNIFF_CHARS)) ?? 'application/octet-stream';
+}
 
 /**
  * The name to download a file under. The name is the sender's and the bytes are only known to start like the type, so
@@ -84,7 +106,7 @@ const EXTENSIONS: Record<string, string[]> = {
  * its text and gains the extension of the type it was shown as.
  */
 export function safeDownloadName(fileUrl: string, fileName: string): string {
-  const mime = resolve(fileUrl)?.mime ?? (fileUrl.startsWith('data:image/tiff;base64,') ? 'image/tiff' : null);
+  const mime = downloadMime(fileUrl);
   const allowed = mime ? EXTENSIONS[mime] : undefined;
   if (!allowed) return fileName;
   const dot = fileName.lastIndexOf('.');

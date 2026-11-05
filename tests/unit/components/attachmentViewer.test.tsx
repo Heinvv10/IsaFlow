@@ -10,7 +10,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AttachmentViewer } from '@/components/accounting/AttachmentViewer';
-import { previewKind, dataUrlToBlob, safeDownloadName } from '@/components/accounting/attachmentPreview';
+import { canDownload, previewKind, dataUrlToBlob, safeDownloadName } from '@/components/accounting/attachmentPreview';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
 const PDF = 'data:application/pdf;base64,JVBERi0xLjQK';
@@ -66,6 +66,29 @@ describe('previewKind', () => {
       expect(dataUrlToBlob(untyped(body))).toBeNull();
     }
     expect(previewKind('data:application/octet-stream;base64,***')).toBe('none');
+  });
+
+  it('fails closed on a signature that stops short', () => {
+    expect(previewKind(untyped([0xff, 0xd8]))).toBe('none');
+    expect(previewKind(untyped('%PDF'))).toBe('none');
+    expect(previewKind(untyped('RIFF'))).toBe('none');
+  });
+
+  it('downloads every untyped row, naming only what its bytes prove, and never links a refused type', () => {
+    const tiff = untyped([0x49, 0x49, 0x2a, 0x00, 0, 0]);
+    expect(previewKind(tiff)).toBe('none');
+    expect(canDownload(tiff)).toBe(true);
+    expect(safeDownloadName(tiff, 'scan.html')).toBe('scan.html.tif');
+    expect(safeDownloadName(untyped([0x4d, 0x4d, 0x00, 0x2a]), 'scan.tiff')).toBe('scan.tiff');
+    const junkPdf = untyped('junk%PDF-1.7');
+    expect(previewKind(junkPdf)).toBe('none');
+    expect(canDownload(junkPdf)).toBe(true);
+    expect(safeDownloadName(junkPdf, 'invoice.pdf')).toBe('invoice.pdf.bin');
+    expect(safeDownloadName(untyped('<html><script>'), 'evil.html')).toBe('evil.html.bin');
+    expect(canDownload('data:image/jpg;base64,/9j/')).toBe(true);
+    expect(canDownload('data:text/html;base64,PHNjcmlwdD4=')).toBe(false);
+    expect(canDownload('data:image/svg+xml;base64,PHN2Zz4=')).toBe(false);
+    expect(canDownload('javascript:alert(1)')).toBe(false);
   });
 
   it('never downloads a shown file under an extension that does not match its type', () => {
@@ -149,6 +172,16 @@ describe('AttachmentViewer', () => {
   it('renders nothing when its index is past the end of the list', () => {
     render(<AttachmentViewer attachments={FILES} startIndex={3} onClose={() => undefined} />);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('closes on a backdrop click, and not on a click on the image', () => {
+    const onClose = vi.fn();
+    render(<AttachmentViewer attachments={FILES} startIndex={0} onClose={onClose} />);
+    const img = screen.getByRole('img', { name: 'slip.png' });
+    fireEvent.click(img);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(img.parentElement!);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('moves focus to the dialog when a step disables the focused button, so the keys keep working', () => {

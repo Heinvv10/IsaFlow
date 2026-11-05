@@ -1,12 +1,12 @@
 /**
  * One file in BankTxAttachmentsModal: icon, name and size, then View (only for a file the viewer can show, see
- * ./attachmentPreview), Download (only for a SAFE_HREF url) and Remove.
+ * ./attachmentPreview), Download (only for a url ./attachmentPreview's canDownload allows) and Remove.
  */
 
 import { Eye, FileImage, FileText, Loader2, Paperclip, Trash2, Upload } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { type Attachment, SAFE_HREF, formatBytes, fileIcon } from './bankTxAttachmentHelpers';
-import { previewKind, safeDownloadName } from './attachmentPreview';
+import { type Attachment, formatBytes, fileIcon } from './bankTxAttachmentHelpers';
+import { canDownload, previewKind, safeDownloadName } from './attachmentPreview';
 
 interface Props {
   att: Attachment;
@@ -46,7 +46,7 @@ export function BankTxAttachmentRow({ att, deleting, onView, onDelete }: Props) 
       )}
 
       {/* Download link — only rendered when the URL is a safe scheme */}
-      {SAFE_HREF.test(att.file_url) ? (
+      {canDownload(att.file_url) ? (
         <a href={att.file_url} download={safeDownloadName(att.file_url, att.file_name)} target="_blank" rel="noopener noreferrer"
           className={`${ICON_BTN} hover:bg-blue-500/10 hover:text-blue-400`}
           title="Download" aria-label={`Download ${att.file_name}`} onClick={e => e.stopPropagation()}>

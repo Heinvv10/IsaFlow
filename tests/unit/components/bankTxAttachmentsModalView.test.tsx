@@ -74,6 +74,15 @@ describe('BankTxAttachmentsModal viewing', () => {
     expect((await screen.findByRole('link', { name: 'Download evil.html' })).getAttribute('download')).toBe('evil.html.png');
   });
 
+  it('offers a neutral download for an untyped row it cannot show, and no link for a refused type', async () => {
+    const octet = { ...FILES[0]!, id: 'a9', file_name: 'blob.dat', file_url: `data:application/octet-stream;base64,${btoa('junk')}` };
+    vi.mocked(apiFetch).mockImplementation(async () => ok([octet, FILES[1]]));
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />);
+    expect((await screen.findByRole('link', { name: 'Download blob.dat' })).getAttribute('download')).toBe('blob.dat.bin');
+    expect(screen.queryByRole('button', { name: 'View blob.dat' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Download note.html' })).toBeNull();
+  });
+
   it('offers no View button for a file it will not preview', async () => {
     render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />);
     await screen.findByRole('button', { name: 'View slip.png' });
@@ -148,6 +157,57 @@ describe('BankTxAttachmentsModal openFirst and a changing list', () => {
     release(ok({ id: 'n' }));
     await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Attachment preview' })).toBeNull());
     expect(screen.getByRole('dialog', { name: 'Attachments' })).toBeTruthy();
+  });
+
+  it('closes the viewer when a remove finishes behind it', async () => {
+    let release: (r: Response) => void = () => undefined;
+    vi.mocked(apiFetch).mockImplementation(async (_u, init) => (init?.method === 'DELETE'
+      ? new Promise<Response>((r) => { release = r; }) : ok(FILES)));
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove note.html' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View slip.png' }));
+    expect(screen.getByRole('dialog', { name: 'Attachment preview' })).toBeTruthy();
+    release(ok({ deleted: true }));
+    await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Attachment preview' })).toBeNull());
+  });
+
+  it('keeps both removals when two removes overlap', async () => {
+    const releases: ((r: Response) => void)[] = [];
+    vi.mocked(apiFetch).mockImplementation(async (_u, init) => (init?.method === 'DELETE'
+      ? new Promise<Response>((r) => { releases.push(r); }) : ok(FILES)));
+    const onCountChange = vi.fn();
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" onCountChange={onCountChange} onClose={() => undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove slip.png' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove note.html' }));
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    releases[0]!(ok({ deleted: true }));
+    await vi.waitFor(() => expect(onCountChange).toHaveBeenLastCalledWith(1));
+    releases[1]!(ok({ deleted: true }));
+    await vi.waitFor(() => expect(onCountChange).toHaveBeenLastCalledWith(0));
+    expect(await screen.findByText('No attachments yet')).toBeTruthy();
+  });
+
+  it('keeps the list, reports no count and closes the viewer when the refresh after an upload fails', async () => {
+    let reads = 0;
+    let release: (r: Response) => void = () => undefined;
+    vi.mocked(apiFetch).mockImplementation(async (_u, init) => {
+      if (init?.method === 'POST') return new Promise<Response>((r) => { release = r; });
+      reads += 1;
+      return reads === 1 ? ok(FILES) : new Response(JSON.stringify({ success: false }), { status: 500 });
+    });
+    const onCountChange = vi.fn();
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" onCountChange={onCountChange} onClose={() => undefined} />);
+    await screen.findByRole('button', { name: 'View slip.png' });
+    upload(png());
+    await vi.waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([, i]) => i?.method === 'POST')).toBe(true));
+    fireEvent.click(screen.getByRole('button', { name: 'View slip.png' }));
+    const calls = onCountChange.mock.calls.length;
+    release(ok({ id: 'n' }));
+    await vi.waitFor(() => expect(reads).toBe(2));
+    await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Attachment preview' })).toBeNull());
+    expect(screen.getByRole('button', { name: 'View slip.png' })).toBeTruthy();
+    expect(screen.queryByText('No attachments yet')).toBeNull();
+    expect(onCountChange.mock.calls.length).toBe(calls);
   });
 
   it('keeps the list on screen while it refreshes after an upload', async () => {

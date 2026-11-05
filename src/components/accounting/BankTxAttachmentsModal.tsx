@@ -55,6 +55,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   const countRef = useRef(onCountChange);
   useEffect(() => { countRef.current = onCountChange; });
   const openFirstRef = useRef(openFirst);
+  const listRef = useRef<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Fetch attachment list ──────────────────────────────────────────────────
@@ -68,6 +69,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       await assertOk(res, 'Could not load attachments');
       const json = await res.json() as { success: boolean; data: Attachment[] };
       if (!json.success) throw new ApiEnvelopeError('Could not load attachments');
+      listRef.current = json.data;
       setAttachments(json.data);
       // Only a successful read reports a count: a failed one must not clear the row's highlight.
       countRef.current?.(json.data.length);
@@ -76,7 +78,10 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       if (keepList) setViewIndex(null);
       else if (openFirstRef.current && json.data.some(a => previewKind(a.file_url) !== 'none')) setViewIndex(0);
     } catch {
-      setAttachments([]); setViewIndex(null); notify.error('Could not load attachments');
+      // A failed refresh keeps the list it has: "No attachments yet" would be false, and the row keeps its count.
+      if (!keepList) { listRef.current = []; setAttachments([]); }
+      setViewIndex(null);
+      notify.error('Could not load attachments');
     } finally {
       setLoading(false);
     }
@@ -150,7 +155,9 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       const json = await res.json() as { success: boolean; error?: { message?: string } };
       if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not remove the attachment - try again');
       notify.success(`${name} removed`);
-      const next = attachments.filter(a => a.id !== id);
+      // From the ref, not this render's list: two removes can overlap, and the second must not restore the first.
+      const next = listRef.current.filter(a => a.id !== id);
+      listRef.current = next;
       setAttachments(next);
       setViewIndex(null);
       countRef.current?.(next.length);
