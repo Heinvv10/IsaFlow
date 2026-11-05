@@ -32,11 +32,11 @@ describe('AFS document page nav highlight', () => {
     expect(layout().getAttribute('data-nav-path')).toBe('/accounting/afs/ba60eeb5?type=management_pack');
   });
 
-  it('an AFS document passes no navPath, so the router path (AFS) stands', async () => {
+  it('an AFS document passes its own explicit path, so a ?type=management_pack in its URL cannot light Management Packs', async () => {
     load({ id: 'a1', documentType: 'afs', fiscalYear: 2027, status: 'draft', version: 1 });
     render(<AfsDocumentPage documentId="a1" periodStart="2026-03-01" periodEnd="2027-02-28" periodMonths={12} periodError={null} />);
     await screen.findByText('TABS');
-    expect(layout().getAttribute('data-nav-path')).toBe('');
+    expect(layout().getAttribute('data-nav-path')).toBe('/accounting/afs/a1');
   });
 
   it('a pack URL (?type=management_pack) claims Management Packs while the document loads, so a pack never flashes AFS', () => {
@@ -62,7 +62,7 @@ describe('AFS document page nav highlight', () => {
     load({ id: 'a1', documentType: 'afs', fiscalYear: 2027, status: 'draft', version: 1 });
     render(<AfsDocumentPage documentId="a1" periodStart="2026-03-01" periodEnd="2027-02-28" periodMonths={12} periodError={null} />);
     await screen.findByText('TABS');
-    expect(layout().getAttribute('data-nav-path')).toBe('');
+    expect(layout().getAttribute('data-nav-path')).toBe('/accounting/afs/a1');
   });
 
   it('with no ?type in the URL, a document that is still loading claims no section', () => {

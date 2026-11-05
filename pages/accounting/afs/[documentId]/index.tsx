@@ -124,7 +124,8 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
 
   const hasPeriod = periodStart !== '' && periodEnd !== '';
   return (
-    <AppLayout>
+    // Explicit, not the router's: an AFS document opened at ?type=management_pack must still light AFS, not Management Packs.
+    <AppLayout navPath={`/accounting/afs/${documentId}`}>
       <Head><title>{`AFS ${doc.fiscalYear ?? periodStart.slice(0, 4)} | ISAFlow`}</title></Head>
       <div className="min-h-screen bg-white dark:bg-slate-900">
 
