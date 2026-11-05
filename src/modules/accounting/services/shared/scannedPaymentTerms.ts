@@ -15,8 +15,8 @@ import { STATEMENT_WORDING, ownTermsDueDate } from './paymentTerms';
 const TERMS_WORDS = new Set(['net', 'nett', 'days', 'day', 'from', 'after', 'within', 'of', 'the', 'in', 'invoice', 'date', 'payable',
   'due', 'pay', 'payment', 'terms', 'strictly', 'only', 'and', 'to']);
 const IMMEDIATE = /\b(immediate(ly)?|cod|cash on delivery|(due |payable )?(on|upon) receipt)\b/;
-/** The number of a "net N" / "nett N" / "N days" / "N-day" phrase (up to 3 digits, never part of a decimal or a longer number). */
-const DAY_COUNTS = [/\bnett?\s*(\d{1,3})(?![\d]|[.,]\d)/g, /(?<![\d.,])(\d{1,3})[\s-]*days?\b/g];
+/** A "net N" / "nett N" / "N days" / "N-day" phrase's number (up to 3 digits, never inside a longer number or after a decimal point). */
+const DAY_COUNTS = [/\bnett?\s*(\d{1,3})(?!\d)/, /(?<![\d.,])(\d{1,3})[\s-]*days?\b/];
 
 /** Dotted abbreviations without the dots: "c.o.d." -> "cod", "e.o.m." -> "eom". */
 const undotted = (s: string) => s.replace(/(?<![a-z])(?:[a-z]\.){2,}/g, (m) => m.replace(/\./g, ''));
@@ -26,10 +26,12 @@ export function scannedPaymentTermsOption(text: string): string | null {
   const pt = undotted(text.toLowerCase());
   if (STATEMENT_WORDING.test(text) || STATEMENT_WORDING.test(pt)) return null;
   if (IMMEDIATE.test(pt)) return 'immediate';
-  const counts = new Map<number, string>(); // index of the digits -> the digits: one phrase found by two patterns counts once
-  for (const re of DAY_COUNTS) for (const m of pt.matchAll(re)) counts.set(m.index + m[0].indexOf(m[1]!), m[1]!);
-  if (counts.size !== 1) return null;
-  const [at, digits] = [...counts][0]!;
+  // The first day count; any OTHER number left in the text (a second count, a percentage, the cents of "150.00") makes it
+  // not terms, as does any word a terms line does not use.
+  const found = DAY_COUNTS.map((re) => re.exec(pt)).filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => ({ at: m.index + m[0].indexOf(m[1]!), digits: m[1]! })).sort((x, y) => x.at - y.at)[0];
+  if (!found) return null;
+  const { at, digits } = found;
   const rest = pt.slice(0, at) + ' ' + pt.slice(at + digits.length);
   if (/\d/.test(rest) || !(rest.match(/[a-z]+/g) ?? []).every((w) => TERMS_WORDS.has(w))) return null;
   return Number(digits) === 0 ? 'immediate' : `net${Number(digits)}`;
