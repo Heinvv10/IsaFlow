@@ -39,6 +39,9 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunLock', async (orig) => 
   ...(await orig<object>()), reopenPayrollRun: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({ calculatePayrollRun: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/payrollLoanService', async (orig) => ({
+  ...(await orig<object>()), closeLoan: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/gl/approvalService', async (orig) => ({ ...(await orig<object>()), decideRequest: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/recurringJournalService', async (orig) => ({
   ...(await orig<object>()), updateRecurringJournalStatus: vi.fn(), runRecurringJournal: vi.fn(),
@@ -71,6 +74,7 @@ import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/a
 import { approvePayrollRun, PayrollApprovalConflictError } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { reopenPayrollRun, PayrollRunReopenRefusedError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
+import { closeLoan } from '@/modules/accounting/services/payroll/payrollLoanService';
 import { PayrollLoanLockTimeoutError, PayrollRunJournalPostedError } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { decideRequest } from '@/modules/accounting/services/gl/approvalService';
 import { ApprovalRequestLockTimeoutError, } from '@/modules/accounting/services/gl/approvalRequestLock';
@@ -93,6 +97,7 @@ import paymentLinkRevoke from '../../../pages/api/accounting/customer-invoices/[
 import payrollApprove from '../../../pages/api/payroll/runs/[id]/approve';
 import payrollReopen from '../../../pages/api/payroll/runs/[id]/reopen';
 import payrollCalculate from '../../../pages/api/payroll/runs/[id]/calculate';
+import payrollLoanClose from '../../../pages/api/payroll/loans/[id]/close';
 import approvalRequests from '../../../pages/api/accounting/approval-requests';
 import recurringJournals from '../../../pages/api/accounting/recurring-journals-action';
 import vatAdjustments from '../../../pages/api/accounting/vat-adjustments-action';
@@ -217,6 +222,12 @@ describe('D11 payroll routes: a held run or loan row -> 503 + Retry-After (was 4
   it('calculate: a posted-journal refusal keeps 400', async () => {
     vi.mocked(calculatePayrollRun).mockRejectedValueOnce(new PayrollRunJournalPostedError(ID));
     expectStatus(await call(payrollCalculate, {}, { id: ID }), 400);
+  });
+  it('close loan', async () => {
+    vi.mocked(closeLoan).mockRejectedValueOnce(held());
+    const res = await call(payrollLoanClose, { status: 'settled' }, { id: ID });
+    expectHeld(res);
+    expect(JSON.stringify(res.sent)).toContain('PAYROLL_LOAN_LOCK_TIMEOUT');
   });
 });
 

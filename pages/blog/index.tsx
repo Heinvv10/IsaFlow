@@ -1,5 +1,5 @@
 /**
- * /blog — the post index on the marketing host. Static with hourly ISR, so a scheduled
+ * /blog: the post index on the marketing host. Static with hourly ISR, so a scheduled
  * post appears within BLOG_REVALIDATE_SECONDS of its publishDate. The category filter is
  * client-side and kept in ?category= so a filtered view can be shared.
  */
@@ -60,7 +60,7 @@ export default function BlogIndexPage({ posts, categories }: IndexData) {
         description={BLOG_DESCRIPTION}
         canonical={BLOG_URL}
         image={`${SITE_URL}/landing-pitch-dark.png`}
-        imageAlt="ISAFlow"
+        imageAlt="IsaFlow"
         type="website"
         jsonLd={[
           blogIndexJsonLd(published),

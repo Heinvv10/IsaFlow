@@ -27,8 +27,13 @@ vi.mock('@/lib/neon', () => {
     }
     return [];
   };
-  return { sql: sqlFn };
+  return { sql: sqlFn, withTransaction: (fn: (tx: typeof sqlFn) => unknown) => fn(sqlFn) };
 });
+
+const { lockCompanyPayrollApprovals } = vi.hoisted(() => ({
+  lockCompanyPayrollApprovals: vi.fn(async () => undefined),
+}));
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockCompanyPayrollApprovals }));
 
 import {
   buildSchedule,
@@ -47,6 +52,7 @@ const RUN_ID = 'r0000001-0000-0000-0000-000000000001';
 
 beforeEach(() => {
   sqlCalls.length = 0;
+  lockCompanyPayrollApprovals.mockClear();
   mockImpl = () => Promise.resolve([]);
 });
 
@@ -373,6 +379,7 @@ describe('closeLoan', () => {
     };
 
     await closeLoan(COMPANY_ID, LOAN_ID, 'settled', USER_ID);
+    expect(lockCompanyPayrollApprovals).toHaveBeenCalledWith(null, COMPANY_ID, expect.any(Function));
     expect(sqlCalls.some(c => c.sql.includes('UPDATE payroll_loans') && c.values.includes('settled'))).toBe(true);
   });
 

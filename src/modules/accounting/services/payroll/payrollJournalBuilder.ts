@@ -48,6 +48,7 @@ import { bankNetPayLine, resolveBankAccount } from './payrollJournalBank';
 import { judgeJournalLines } from './payrollJournalBlockers';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
+import { payrollLoanInstalmentBlocker } from './payrollLineBlockers';
 
 type Row = DbRow;
 
@@ -155,6 +156,8 @@ export async function buildPayrollJournalPlan(
   const bank = await resolveBankAccount(companyId);
   const blockers: PayrollJournalNote[] = [];
   const advisories: PayrollJournalNote[] = [];
+  const blockedLoan = await payrollLoanInstalmentBlocker(companyId, runId);
+  if (blockedLoan) blockers.push(blockedLoan);
 
   const missing = REQUIRED_PAYROLL_ACCOUNT_CODES.filter((c) => !accounts.has(c));
   if (missing.length > 0) {

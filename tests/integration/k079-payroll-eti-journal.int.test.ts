@@ -18,6 +18,7 @@ import { SignJWT } from 'jose';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import { previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import { PAYROLL_CALCULATION_VERSION } from '@/modules/accounting/services/payroll/payrollCalculationVersion';
 
 const fault = vi.hoisted(() => ({ armed: false, fired: false }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', async (importOriginal) => {
@@ -54,8 +55,8 @@ async function run(company: string, month: number, t: Totals): Promise<string> {
     // Stamped as a calculation by this code stamps it (migration 953), so approval does not ask for a recalculation.
     `INSERT INTO payroll_run_headers(company_id,period_month,period_year,status,total_gross,total_taxable,
        total_paye,total_uif,total_sdl,total_eti,total_net,employee_count,calculated_at,calculation_version)
-     VALUES($1,$2,2026,'calculated',$3,$3,$4,$5,$6,$7,$8,1,now(),1) RETURNING id`,
-    [company, month, t.gross, t.paye, t.uif, t.sdl, t.eti, t.net])).rows[0]!.id;
+     VALUES($1,$2,2026,'calculated',$3,$3,$4,$5,$6,$7,$8,1,now(),$9) RETURNING id`,
+    [company, month, t.gross, t.paye, t.uif, t.sdl, t.eti, t.net, PAYROLL_CALCULATION_VERSION])).rows[0]!.id;
 }
 
 async function call(route: typeof approve, action: string, runId: string, company = companyA, body?: unknown) {

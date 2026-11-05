@@ -1,5 +1,5 @@
 /**
- * /blog/<slug> — one post. Published posts are prerendered; any other slug renders on
+ * /blog/<slug>: one post. Published posts are prerendered; any other slug renders on
  * demand (fallback: 'blocking') and is a 404 unless the post is viewable, so a scheduled
  * post goes live on the first request after its publishDate plus at most one ISR window.
  * The MDX body arrives as HTML compiled in getStaticProps: no MDX runs in the browser.
@@ -35,7 +35,7 @@ export default function BlogPostPage({ post, html, related }: PostPageData) {
   return (
     <>
       <BlogHead
-        title={`${post.title} | ISAFlow Blog`}
+        title={`${post.title} | IsaFlow Blog`}
         description={post.description}
         canonical={url}
         image={absoluteUrl(post.ogImage)}

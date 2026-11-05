@@ -17,7 +17,7 @@ import {
 } from '@/components/landing/PricingPageSections';
 
 /**
- * Public /pricing page — Phase 6 commercial wedge.
+ * Public /pricing page: Phase 6 commercial wedge.
  * Numbers are Hein-signed Scenario C (docs/commercial/pricing-skus.md); the
  * marketing prose is a draft pending Hein's copy review before public launch.
  */
@@ -36,7 +36,7 @@ export default function PricingPage() {
     <>
       <PageHead
         path="/pricing"
-        title="ISAFlow Pricing: Accounting, VAT and Payroll Plans for South Africa"
+        title="IsaFlow Pricing: Accounting, VAT and Payroll Plans for South Africa"
         description="Simple monthly pricing in rand for South African businesses. Books, VAT201 and bank reconciliation in every plan, payroll as an add-on. 30-day free trial."
       />
 

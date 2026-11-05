@@ -91,4 +91,83 @@ describe('getParallelRunReport', () => {
     expect(linesCall.sql).toContain('company_id =');
     expect(linesCall.values).toContain(COMPANY_ID);
   });
+
+  it('reads the export line and its loan block from the same query snapshot', async () => {
+    routeMock([
+      { match: 'FROM payroll_external_imports', rows: [IMPORT_ROW] },
+      { match: 'FROM payroll_run_headers', rows: [RUN_ROW] },
+      {
+        match: 'FROM payroll_run_lines',
+        rows: [{
+          gross_pay: '20000', paye: '1739', uif_employee: '177.12', uif_employer: '177.12',
+          sdl: '200', eti: '0', net_pay: '18083.88', employee_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          calculation_version: 2,
+          employee_number: 'E001', first_name: 'Thandi', last_name: 'Mokoena',
+          validation_results: [{
+            code: 'LOAN_INSTALMENT_EXCEEDS_PAY', severity: 'error', rawNet: -11916.12, loans: ['R-LOAN'],
+          }],
+        }],
+      },
+      { match: 'FROM payroll_external_payslips', rows: [] },
+    ]);
+
+    const report = await getParallelRunReport(COMPANY_ID, IMPORT_ID);
+    expect(report!.loanInstalmentBlocker).toMatchObject({ code: 'loan_instalment_exceeds_pay' });
+    expect(report!.loanInstalmentBlocker!.detail).toContain('Thandi Mokoena');
+    const lineReads = sqlCalls.filter((call) => call.sql.includes('FROM payroll_run_lines'));
+    expect(lineReads).toHaveLength(1);
+    expect(lineReads[0]!.sql).toContain('validation_results');
+  });
+
+  it('marks a legacy warning-only export for recalculation without claiming its loan is unchanged', async () => {
+    routeMock([
+      { match: 'FROM payroll_external_imports', rows: [IMPORT_ROW] },
+      { match: 'FROM payroll_run_headers', rows: [RUN_ROW] },
+      {
+        match: 'FROM payroll_run_lines',
+        rows: [{
+          gross_pay: '20000', paye: '1739', uif_employee: '177.12', uif_employer: '177.12',
+          sdl: '200', eti: '0', net_pay: '0', employee_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          employee_number: 'E001', first_name: 'Thandi', last_name: 'Mokoena', calculation_version: 1,
+          validation_results: [{
+            code: 'LOAN_INSTALMENT_EXCEEDS_PAY', severity: 'warning', rawNet: -11916.12, loans: ['R-LOAN'],
+          }],
+        }],
+      },
+      { match: 'FROM payroll_external_payslips', rows: [] },
+    ]);
+
+    const report = await getParallelRunReport(COMPANY_ID, IMPORT_ID);
+    expect(report!.loanInstalmentBlocker!.detail).toMatch(/earlier version.*recalculate/i);
+    expect(report!.loanInstalmentBlocker!.detail).not.toMatch(/loan is unchanged/i);
+  });
+
+  it('marks a legacy pre-code export whose stored breakdown shows the loan overdrew it', async () => {
+    routeMock([
+      { match: 'FROM payroll_external_imports', rows: [IMPORT_ROW] },
+      { match: 'FROM payroll_run_headers', rows: [RUN_ROW] },
+      {
+        match: 'FROM payroll_run_lines',
+        rows: [{
+          gross_pay: '20000', paye: '1739', uif_employee: '177.12', uif_employer: '177.12',
+          sdl: '200', eti: '0', net_pay: '0', employee_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          employee_number: 'E001', first_name: 'Thandi', last_name: 'Mokoena', calculation_version: null,
+          validation_results: null, loans: ['R-LOAN'],
+          component_breakdown: [
+            { amount: 20000, sarsSourceCode: '3601' },
+            { amount: 500, sarsSourceCode: '3801', isNonCash: true },
+            { amount: 30000, sarsSourceCode: 'LOAN' },
+          ],
+        }],
+      },
+      { match: 'FROM payroll_external_payslips', rows: [] },
+    ]);
+
+    const report = await getParallelRunReport(COMPANY_ID, IMPORT_ID);
+    expect(report!.loanInstalmentBlocker).toMatchObject({ code: 'loan_instalment_requires_recalculation' });
+    expect(report!.loanInstalmentBlocker!.detail).toMatch(/Thandi Mokoena.*R-LOAN.*11.?916[.,]12/);
+    const lineReads = sqlCalls.filter((call) => call.sql.includes('FROM payroll_run_lines'));
+    expect(lineReads).toHaveLength(1);
+    expect(lineReads[0]!.sql).toContain('component_breakdown');
+  });
 });

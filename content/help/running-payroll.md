@@ -1,23 +1,23 @@
 ---
-title: "Running payroll in ISAFlow"
+title: "Running payroll in IsaFlow"
 slug: "running-payroll"
-description: "How to set up and run monthly payroll in ISAFlow: company tax references, employees, the parallel run, and calculating and approving a pay run."
+description: "How to set up and run monthly payroll in IsaFlow: company tax references, employees, the parallel run, and calculating and approving a pay run."
 order: 3
 updated: "2026-10-31"
 ---
 
 *General product help, not tax advice.*
 
-ISAFlow calculates PAYE, UIF and SDL from versioned SARS tax tables, applies ETI where set up, and posts the payroll journal to your ledger. Payroll can be run by owners, admins and managers.
+IsaFlow calculates PAYE, UIF and SDL from versioned SARS tax tables, applies ETI where set up, and posts the payroll journal to your ledger. Payroll can be run by owners, admins and managers.
 
 ## First time: set up
 1. **Company tax references:** under Company settings, **Company Details**, fill in your PAYE, SDL and UIF reference numbers. The IRP5 export won't run without them.
 2. **Employees:** Payroll, Employees. Add each employee. Make sure every employee has a valid income tax number. SARS needs it at reconciliation time.
 3. **Pay packages and components:** set up pay packages, pay scales, components and cost centres. Bulk search and replace helps with bigger teams.
-4. ISAFlow doesn't import employees or year-to-date figures, so we suggest your first ISAFlow payroll is March, the start of the tax year.
+4. IsaFlow doesn't import employees or year-to-date figures, so we suggest your first IsaFlow payroll is March, the start of the tax year.
 
 ## Optional: parallel run
-Before you switch, run one month in both systems. Under **Payroll, Parallel run**, import the payslip CSV from Sage or VIP and compare it to the ISAFlow run, to the cent. Look at gross pay, PAYE, UIF, SDL, ETI and net pay. Fix differences before anyone is paid. This is for comparison only; it doesn't import history.
+Before you switch, run one month in both systems. Under **Payroll, Parallel run**, import the payslip CSV from Sage or VIP and compare it to the IsaFlow run, to the cent. Look at gross pay, PAYE, UIF, SDL, ETI and net pay. Fix differences before anyone is paid. This is for comparison only; it doesn't import history.
 
 ## Each month
 1. Confirm your inputs: overtime, commission, new starters and terminations.

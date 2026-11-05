@@ -25,7 +25,6 @@ import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
-  applyLoanToRun,
   listActiveLoansForRun,
   listLoansWithInstalmentDue,
   type ApplyLoanResult,
@@ -36,10 +35,14 @@ import {
   type ReversibleLoanPayment,
 } from './payrollLoanReversal';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
-import { withholdingFor, type LoanComponentsPresent, type WithheldLoan } from './payrollLoanWithholding';
+import type { LoanComponentsPresent, WithheldLoan } from './payrollLoanWithholding';
+import { applyPayableLoanCandidates } from './payrollRunLoanPayGate';
 
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
-const LOCK_NOT_AVAILABLE = '55P03';
+import {
+  isLockTimeout, PayrollLoanLockTimeoutError, setLocalLockTimeout,
+} from './payrollLoanLock';
+
+export { PayrollLoanLockTimeoutError } from './payrollLoanLock';
 
 export class PayrollRunJournalPostedError extends Error {
   readonly code = 'PAYROLL_RUN_JOURNAL_POSTED';
@@ -50,33 +53,6 @@ export class PayrollRunJournalPostedError extends Error {
     );
     this.name = 'PayrollRunJournalPostedError';
   }
-}
-
-export class PayrollLoanLockTimeoutError extends Error {
-  readonly code = 'PAYROLL_LOAN_LOCK_TIMEOUT';
-  /** `runId` null: the wait was on the company's payroll, not one run. */
-  constructor(runId: string | null) {
-    super(`${runId ? `Payroll run ${runId}` : 'This company\'s payroll'} is being calculated by another request — retry in a moment.`);
-    this.name = 'PayrollLoanLockTimeoutError';
-  }
-}
-
-export function isLockTimeout(err: unknown): boolean {
-  return typeof err === 'object' && err !== null
-    && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
-}
-
-/**
- * Transaction-local `lock_timeout`, via set_config rather than SET LOCAL:
- * `SET` takes no bind parameters, and set_config with is_local = true has the
- * same scope. Returns the value that was in force before the change.
- */
-export async function setLocalLockTimeout(tx: TxSql, value: string): Promise<string> {
-  const rows = (await tx`
-    SELECT current_setting('lock_timeout', true) AS previous,
-           set_config('lock_timeout', ${value}, true) AS applied
-  `) as DbRow[];
-  return String(rows[0]?.previous ?? '0');
 }
 
 export interface RunLoanWork {
@@ -149,6 +125,10 @@ export interface RunLoanInput {
   components: LoanComponentsPresent;
   /** Told of each withheld loan, so the run can mark its line. */
   onWithheld?: (withheld: WithheldLoan) => void;
+  /** Judge all due instalments for one employee before any of them is written. */
+  judgePay?: (employeeId: string, applications: ApplyLoanResult[]) => { allowed: boolean; rawNet: number };
+  /** Told when judgePay blocks the employee, for the stored line result. */
+  onPayBlocked?: (employeeId: string, applications: ApplyLoanResult[], rawNet: number) => void;
 }
 
 /**
@@ -229,26 +209,7 @@ export async function applyRunLoans(
 
     const active = await listActiveLoansForRun(input.companyId, input.periodYear, input.periodMonth, tx);
 
-    const byEmployee = new Map<string, ApplyLoanResult[]>();
-    const withheld = new Map<string, WithheldLoan>();
-    for (const row of active) {
-      if (!input.employeeIds.has(row.employeeId)) continue;
-      const loan = {
-        loanId: row.loanId, companyId: input.companyId, runId: input.runId,
-        periodYear: input.periodYear, periodMonth: input.periodMonth, officialRate: input.officialRate,
-      };
-      const held = await withholdingFor(loan, input.components, tx);
-      if (held) {
-        withheld.set(held.loanId, held);
-        input.onWithheld?.(held);
-        continue;
-      }
-      const applied = await applyLoanToRun(loan, tx);
-      if (!applied) continue;
-      const list = byEmployee.get(applied.employeeId) ?? [];
-      list.push(applied);
-      byEmployee.set(applied.employeeId, list);
-    }
+    const { byEmployee, blocked, withheld } = await applyPayableLoanCandidates(input, active, tx);
 
     // A loan closed between two calculations is reversed but not re-applied:
     // listActiveLoansForRun offers only `active` loans. The payslip then takes
@@ -256,7 +217,7 @@ export async function applyRunLoans(
     // but nothing else records that the instalment was undone for good, so the
     // tombstone is marked and the caller's log says which loans.
     const reapplied = new Set(
-      Array.from(byEmployee.values()).flat().map(a => a.loanId),
+      Array.from(byEmployee.values()).flat().filter(a => a.installment > 0).map(a => a.loanId),
     );
     for (const payment of work.reversible) {
       if (!reapplied.has(payment.loanId)) continue;
@@ -275,7 +236,9 @@ export async function applyRunLoans(
     if (notReapplied.length > 0) {
       const why = (loanId: string) => {
         const held = withheld.get(loanId);
-        return held ? 'no LOAN deduction' : 'loan no longer active for this period';
+        if (held) return 'no LOAN deduction';
+        const employeeId = work.dueThisPeriod.find((d) => d.loanId === loanId)?.employeeId;
+        return employeeId && blocked.has(employeeId) ? 'blocked for manual review' : 'loan no longer active for this period';
       };
       log.warn(
         'Loan payments reversed without re-application',

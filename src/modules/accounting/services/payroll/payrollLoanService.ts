@@ -18,9 +18,10 @@
  * interest as deduction, fringe as SARS 3801 income).
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { lockCompanyPayrollApprovals } from './payrollRunLock';
 
 type Row = DbRow;
 
@@ -521,22 +522,26 @@ export async function closeLoan(
   status: 'settled' | 'written_off' | 'cancelled',
   userId: string,
 ): Promise<void> {
-  const rows = (await sql`
-    SELECT id, status FROM payroll_loans
-     WHERE id = ${loanId}::uuid AND company_id = ${companyId}::uuid
-     LIMIT 1
-  `) as Row[];
-  const row = rows[0];
-  if (!row) throw new LoanNotFoundError(loanId);
-  if (row.status !== 'active') throw new LoanClosedError(row.status as LoanStatus);
+  await withTransaction(async (tx) => {
+    await lockCompanyPayrollApprovals(null, companyId, tx);
+    const rows = (await tx`
+      SELECT id, status FROM payroll_loans
+       WHERE id = ${loanId}::uuid AND company_id = ${companyId}::uuid
+       LIMIT 1
+       FOR UPDATE
+    `) as Row[];
+    const row = rows[0];
+    if (!row) throw new LoanNotFoundError(loanId);
+    if (row.status !== 'active') throw new LoanClosedError(row.status as LoanStatus);
 
-  await sql`
-    UPDATE payroll_loans
-       SET status = ${status},
-           settled_at = NOW(),
-           updated_at = NOW()
-     WHERE id = ${loanId}::uuid
-  `;
+    await tx`
+      UPDATE payroll_loans
+         SET status = ${status},
+             settled_at = NOW(),
+             updated_at = NOW()
+       WHERE id = ${loanId}::uuid
+    `;
+  });
 
   log.info('Loan closed', { companyId, loanId, status, userId }, 'payrollLoanService');
 }
