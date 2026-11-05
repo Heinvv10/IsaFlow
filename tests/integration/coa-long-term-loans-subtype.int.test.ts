@@ -134,6 +134,7 @@ describeIfDb('migration 958: seeded Long-term Loans subtype', () => {
     let inTx = false;
     try {
       await client.query(`CREATE ROLE ${role} NOLOGIN NOBYPASSRLS`);
+      await client.query(`GRANT ${role} TO CURRENT_USER`); // PG16: a non-superuser creator cannot SET ROLE to it otherwise
       await client.query(`GRANT SELECT, UPDATE ON public.gl_accounts TO ${role}`);
       await client.query('GRANT USAGE ON SCHEMA public TO ' + role);
       await client.query('BEGIN');
