@@ -149,6 +149,26 @@ UPDATE public.gl_accounts
    AND account_name = 'Long-term Loans'
    AND account_subtype IS NULL;
 
+-- 2b. Fail loudly rather than update nothing. gl_accounts has FORCED row level security: a role that does not bypass it
+-- sees no rows, so the UPDATE above would affect 0 rows and the migration would record itself as applied while changing
+-- nothing (and the check below, reading through the same filter, would see nothing left either). So: refuse to run as a
+-- role the policies filter, then refuse to finish if any row of the kind is still unset.
+DO $$
+DECLARE
+  left_over int;
+BEGIN
+  IF pg_catalog.row_security_active('public.gl_accounts') THEN
+    RAISE EXCEPTION '958: row level security applies to % on gl_accounts, so the backfill would silently change nothing; run migrations as the owner role (BYPASSRLS)', current_user;
+  END IF;
+  SELECT count(*) INTO left_over
+    FROM public.gl_accounts
+   WHERE account_code = '2210' AND account_type = 'liability' AND account_name = 'Long-term Loans' AND account_subtype IS NULL;
+  IF left_over <> 0 THEN
+    RAISE EXCEPTION '958: % seeded Long-term Loans account(s) still have no subtype after the backfill', left_over;
+  END IF;
+END
+$$;
+
 -- 3. 930's registry (app_pool_reach_violations refuses a changed definer without it).
 DO $$
 DECLARE
