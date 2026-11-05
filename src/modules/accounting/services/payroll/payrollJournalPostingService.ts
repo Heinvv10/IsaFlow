@@ -48,7 +48,9 @@ const BLOCKER_MESSAGES: Record<string, (detail: string) => string> = {
  * passes the plan its gate judged and its caller's hash described: a plan
  * rebuilt here could differ (a cost-centre mapping committed in between), and
  * would be posted under a hash that never described it (W3-01 breaker D).
- * post_payroll_journal also passes one, but only the plan it reported, read by
+ * A caller-supplied plan is trusted beyond its run id (which is checked): it must be approval's own, or one
+ * already hash-matched to the approved plan by `readApprovedPlan`. A new caller passing any other plan would
+ * post a journal no one approved. post_payroll_journal passes one, but only the plan it reported, read by
  * `readApprovedPlan` (payrollApprovedPlan.ts) under the approval and header
  * locks and hash-matched to the approved plan: every `opts.plan` is either
  * approval's own or an approved-and-hash-matched read. Without `opts.plan`
@@ -76,6 +78,8 @@ export async function postPayrollRunJournal(
     const header = await lockPayrollRunHeader(runId, companyId);
     if (!header) throw new Error(`Payroll run ${runId} not found`);
     locked = header;
+    // A plan describes one run; handed another run's plan this would post that run's journal and stamp this run.
+    if (opts.plan.runId !== runId) throw new Error(`The journal plan is for run ${opts.plan.runId}, not run ${runId}`);
     await assertPayRunApproved(companyId, runId);
     plan = opts.plan;
   } else {

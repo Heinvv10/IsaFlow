@@ -138,4 +138,21 @@ describe('post_payroll_journal posts only the approved plan', () => {
     expect(text(res)).toBe('Not found');
     expect(buildPayrollJournalPlan).not.toHaveBeenCalled();
   });
+
+  it.each([[false], [true]])('dry_run=%s: a reopened run that still carries a journal names already_posted, not "a person must approve"', async (dry) => {
+    vi.mocked(assertPayRunApproved).mockRejectedValue(new Error('Pay run is not approved, so it has no reviewed approval plan'));
+    vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan('cc-a', {
+      status: 'calculated', alreadyPostedJournalId: 'je-1',
+      blockers: [
+        { code: 'run_not_approved', detail: "This run is 'calculated'." },
+        { code: 'already_posted', detail: 'This run already posted journal je-1. Reverse it before posting again.' },
+      ],
+    }));
+    const res = await call(dry);
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('already_posted');
+    expect(text(res)).toContain('Reverse it before posting again');
+    expect(text(res)).not.toContain('A person must approve');
+    expect(postPayrollRunJournal).not.toHaveBeenCalled();
+  });
 });
