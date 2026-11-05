@@ -14,10 +14,10 @@ type Mode = 'immediate' | PaymentTermsType;
 export const IMMEDIATE_TERMS = { payment_terms: '0', payment_terms_type: 'invoice_days' } as const;
 
 const OPTION_LABEL: Record<Mode, string> = {
-  immediate: 'Immediate (due on the invoice date)',
-  invoice_days: 'Days from invoice date',
-  statement_days: 'Days after statement (month-end)',
-  statement_months: 'Months after statement (month-end)',
+  immediate: 'Immediate',
+  invoice_days: 'Days from invoice',
+  statement_days: 'Days after statement',
+  statement_months: 'Months after statement',
 };
 const SUGGESTED_N: Record<PaymentTermsType, string> = { invoice_days: '30', statement_days: '30', statement_months: '1' };
 
@@ -66,10 +66,10 @@ export function PaymentTermsField({ days, type, onChange, error, inputClass }: P
         {mode !== 'immediate' && (
           <input
             type="number" min="0" max="999" step="1" aria-label="Number of days or months" value={days}
-            onChange={(e) => onChange(e.target.value, kind)} className={`${inputClass} w-20`}
+            onChange={(e) => onChange(e.target.value, kind)} className={inputClass.replace('w-full', 'w-20 shrink-0')}
           />
         )}
-        <select id="payment-terms-kind" value={mode} onChange={(e) => pick(e.target.value as Mode)} className={inputClass}>
+        <select id="payment-terms-kind" value={mode} onChange={(e) => pick(e.target.value as Mode)} className={inputClass.replace('w-full', 'min-w-0 flex-1')}>
           {(['immediate', ...PAYMENT_TERMS_TYPES] as Mode[]).map((m) => (
             <option key={m} value={m}>{OPTION_LABEL[m]}</option>
           ))}
