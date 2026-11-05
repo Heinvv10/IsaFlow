@@ -121,7 +121,7 @@ describe('R3: the medical credit a line applied', () => {
       employee: employee(2),
       components: [{ component: comp('3901', { isUifApplicable: false }), amount: 50_000, directive: { id: 'd', number: '1', paye: 5_000 } }],
       period: { year: 2026, month: 7 }, taxYear: 2027, annualPayrollEstimate: 'defer',
-      ytd: { periods: 3, periodicTaxable: 60_000, annualPayments: 0, tablePaye: 4_089, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 }, notEmployedInPeriod: true,
+      ytd: { periods: 3, periodicTaxable: 60_000, annualPayments: 0, tablePaye: 4_089, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0, sdlApplicable: 60_000, sdlLeviable: 60_000 }, notEmployedInPeriod: true,
     });
     expect(severance.medicalCredit).toBe(0);
   });

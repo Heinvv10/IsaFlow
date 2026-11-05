@@ -68,15 +68,15 @@ const sdlPay = (cs: EmployeeComponent[]): number =>
 
 /**
  * A tax year month by month from April 2026, carrying the year to date as the run service and
- * loadPayeYearToDate do (SDL half: sdlYearToDate over the same lines). `withSdl: false` carries the
- * PAYE half only, to show the SDL fields never change a PAYE figure.
+ * loadPayeYearToDate do (SDL half: sdlYearToDate over the same lines). `withSdl: false` carries
+ * zero SDL figures instead, to show the SDL year to date never changes a PAYE figure.
  */
-function year(months: EmployeeComponent[][], withSdl = true): PayrollLineResult[] {
+function year(months: EmployeeComponent[][], withSdl = true, estimates: Array<number | 'defer'> = []): PayrollLineResult[] {
   const results: PayrollLineResult[] = [];
   const sdlLines: SdlYearToDateLine[] = [];
   let ytd: PayeYearToDate | undefined;
   months.forEach((components, i) => {
-    const r = line(components, 1_000_000, { period: { month: 4 + i, year: 2026 }, ytd });
+    const r = line(components, estimates[i] ?? 1_000_000, { period: { month: 4 + i, year: 2026 }, ytd });
     results.push(r);
     sdlLines.push({ line: String(i), sdlApplicable: sdlPay(components), retirement: r.retirementDeduction });
     const prev = ytd ?? ytdOf({});
@@ -89,7 +89,7 @@ function year(months: EmployeeComponent[][], withSdl = true): PayrollLineResult[
       tablePaye: r2(prev.tablePaye + r.paye.monthlyPaye),
       retirementContributions: r2((prev.retirementContributions ?? 0) + r.retirementContributions),
       retirementDeduction: r2((prev.retirementDeduction ?? 0) + r.retirementDeduction),
-      ...(withSdl ? sdlYearToDate(sdlLines, {}) : {}),
+      ...(withSdl ? sdlYearToDate(sdlLines, {}) : { sdlApplicable: 0, sdlLeviable: 0 }),
     };
   });
   return results;
@@ -264,6 +264,31 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(r.retirementDeduction).toBe(5_500);
     expect(r.sdlLeviable).toBe(0);
     expect(r.sdl).toBe(0);
+  });
+
+  it('KNOWN LIMIT (REPRO 8): months of an exempt employer count as levied, so a reversal once it turns liable over-levies 1% of the reversed amount', () => {
+    // M1 exempt (annual estimate R400 000: sdl nil), R20 000 pay, RA R5 000 -> leviable R15 000 counted as levied.
+    // M2 liable (R1m), the RA reversed: leviable R25 000 -> SDL R250. The liable months' SDL pay is R20 000 and
+    // no deduction stands, so R200 is due: R50 (1% of R5 000) over. payroll_run_lines stores no leviable amount
+    // to tell the exempt month apart, so fixing it needs a stored column (a migration). Pinned, not endorsed.
+    const rs = year([[salary(20_000), ra(5_000)], [salary(20_000), ra(-5_000)]], true, [400_000, 1_000_000]);
+    expect(rs[0]!.sdl).toBe(0);
+    expect(rs[0]!.sdlLeviable).toBe(15_000);
+    expect(rs[1]!.sdlLeviable).toBe(25_000);
+    expect(rs[1]!.sdl).toBe(250);
+    expect(r2(rs[1]!.sdl - 0.01 * sdlPay([salary(20_000)]))).toBe(50);
+  });
+
+  it('refuses a year to date that has earlier lines but no SDL figures, instead of silently over-levying', () => {
+    const hand = (extra: Partial<PayeYearToDate>) => () => line([salary(20_000)], 1_000_000, {
+      period: { month: 5, year: 2026 }, ytd: ytdOf({ periods: 1, periodicTaxable: 20_000, ...extra }),
+    });
+    expect(hand({})).toThrow(/earlier lines but no SDL figures/);
+    expect(hand({ sdlApplicable: 20_000 })).toThrow(/earlier lines but no SDL figures/);
+    expect(hand({ sdlLeviable: 20_000 })).toThrow(/earlier lines but no SDL figures/);
+    expect(hand({ sdlApplicable: 20_000, sdlLeviable: 20_000 })).not.toThrow();
+    // No earlier line: nothing to carry, the figures may be absent.
+    expect(() => line([salary(20_000)], 1_000_000, { ytd: ytdOf({}) })).not.toThrow();
   });
 
   it('refuses a non-finite retirement deduction or year-to-date figure instead of letting NaN reach SDL and the run totals', () => {

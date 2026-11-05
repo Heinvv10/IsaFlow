@@ -213,9 +213,9 @@ export interface PayeYearToDate {
   retirementDeduction?: number;
   /** Donations (4030) deducted on those lines as taxable deductions, for the s11F base; absent = none. */
   donations?: number;
-  /** SDL-applicable earnings on those lines (payrollSdlYearToDate); absent = none. */
+  /** SDL-applicable earnings on those lines (payrollSdlYearToDate); absent only when there are no earlier lines (the calculator throws otherwise). */
   sdlApplicable?: number;
-  /** SDL leviable amount those lines carried, rebuilt by payrollSdlYearToDate (nothing stores it); absent = none. */
+  /** SDL leviable amount those lines carried, rebuilt by payrollSdlYearToDate (nothing stores it); absent only when there are no earlier lines (the calculator throws otherwise). */
   sdlLeviable?: number;
 }
 

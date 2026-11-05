@@ -110,7 +110,7 @@ describe('P3: an annual payment (3605) is taxed by the SARS annual-payment metho
     const july = lineWithYtd([{ component: comp('3601'), amount: 20_000 }], {
       periods: 1, retirementCapPeriods: 1, periodicTaxable: 0, annualPayments: 0,
       tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0,
-      retirementContributions: 0, retirementDeduction: 0, donations: 0,
+      retirementContributions: 0, retirementDeduction: 0, donations: 0, sdlApplicable: 20_000, sdlLeviable: 20_000,
     });
     // Two paid salary periods, R20 000 taxable in total: AE R120 000, tax R3 780 × 2/12 = R630.
     expect(july.paye.monthlyPaye).toBe(630);

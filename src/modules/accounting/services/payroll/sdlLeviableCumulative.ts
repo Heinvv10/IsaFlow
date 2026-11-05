@@ -21,6 +21,12 @@
  * SDL-applicable pay, or recovered when no later month has any, is an over-levy
  * that is not refunded (no stored column carries it across years; a migration).
  *
+ * Second known limit (REPRO 8): payroll_run_lines stores no leviable amount, so
+ * a month whose employer was exempt (sdl = 0) is still counted as levied after
+ * its deduction. A reversal after the employer turns liable in the same tax year
+ * then adds back an amount that was never levied: an over-levy of 1% of the
+ * reversed amount. A fix needs a stored column (a migration).
+ *
  * Months costed before this rule levied SDL on gross. Their year-to-date
  * leviable amount is taken as if this rule had levied them (payrollSdlYearToDate),
  * so the first month after it takes only its own deduction: no credit for the
@@ -30,6 +36,9 @@ import type { PayeYearToDate } from './payrollTypes';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
+const ytdHasEarlierLine = (ytd: PayeYearToDate): boolean =>
+  ytd.periods > 0 || (ytd.retirementCapPeriods ?? 0) > 0 || ytd.periodicTaxable !== 0 || ytd.annualPayments !== 0;
+
 export function sdlLeviableToDate(
   employeeId: string,
   /** This line's SDL-applicable earnings (earnings flagged is_sdl_applicable). */
@@ -38,6 +47,12 @@ export function sdlLeviableToDate(
   retirementDeduction: number,
   ytd: PayeYearToDate | undefined,
 ): number {
+  // Absent SDL figures mean "no earlier line"; with an earlier line they would silently over-levy.
+  if (ytd && ytdHasEarlierLine(ytd) && (ytd.sdlApplicable === undefined || ytd.sdlLeviable === undefined)) {
+    throw new Error(
+      `SDL cannot be calculated for employee ${employeeId}: the year to date has earlier lines but no SDL figures `
+      + '(sdlApplicable / sdlLeviable; loadPayeYearToDate sets them)');
+  }
   const figures = {
     retirementDeduction,
     sdlApplicable,

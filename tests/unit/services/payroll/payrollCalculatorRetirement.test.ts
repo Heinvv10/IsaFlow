@@ -79,7 +79,7 @@ describe('PAYE 4c: taxable_income is never negative (review #891)', () => {
   it('February: R20 000 with a R60 000 catch-up contribution records a 60 000 deduction; taxable income stays 20 000', () => {
     // Eleven months of R20 000 with no contribution, then R60 000 in February: 60 000 < 27.5% × 240 000 = 66 000,
     // so the year deducts it all, in February's record. Taxable income after it would be −40 000.
-    const ytd = { periods: 11, periodicTaxable: 220_000, annualPayments: 0, tablePaye: 11 * 2_115, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 };
+    const ytd = { periods: 11, periodicTaxable: 220_000, annualPayments: 0, tablePaye: 11 * 2_115, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0, sdlApplicable: 220_000, sdlLeviable: 220_000 };
     const l = calculatePayrollLine({
       employee: employee(), components: [{ component: comp('3601'), amount: 20_000 }, { component: deduction('4006'), amount: 60_000 }],
       period: { month: 2, year: 2027 }, taxYear: 2027, annualPayrollEstimate: 'defer', ytd,
