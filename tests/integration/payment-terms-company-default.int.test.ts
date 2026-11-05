@@ -124,7 +124,8 @@ describe('every change to the default is recorded: who, when, old -> new (migrat
     expect(JSON.parse(String(value.before))).toEqual({ days: 60, type: 'invoice_days' });
     expect(JSON.parse(String(value.after))).toEqual({ days: 2, type: 'statement_months' });
     const denied = await read(viewer);
-    expect(denied.state.statusCode === 403 || (denied.state.statusCode === 200 && dataOf<EntityChangePage>(denied).items.length === 0)).toBe(true);
+    // company_setting history is owner / admin only (entity-changes route: the roles that may read the type, else 403).
+    expect(denied.state.statusCode).toBe(403);
   });
 
   it('saving the same terms again records nothing', async () => {
