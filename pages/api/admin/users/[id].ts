@@ -16,7 +16,6 @@ import {
   updateUser,
 } from '@/modules/admin/services/adminUserService';
 import { deleteUser, SoleOwnerError } from '@/modules/admin/services/adminUserActionsService';
-import { PayRunApproverProtectedError } from '@/modules/accounting/services/core/payRunApproverGuard';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -80,21 +79,22 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'DELETE') {
     try {
-      await deleteUser(userId);
+      const stranded = await deleteUser(userId);
 
       await logAdminAction(
         req.user.id,
         'user.delete',
         'user',
         userId,
-        {},
+        // Pending pay-run approvals this left without another approver (the deletion is never refused for them).
+        stranded.length > 0 ? { stranded_pay_run_requests: stranded } : {},
         getIp(req),
       );
 
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
       // A company's only owner (migration 908b): nothing was deleted.
-      if (err instanceof SoleOwnerError || err instanceof PayRunApproverProtectedError) return apiResponse.conflict(res, err.message);
+      if (err instanceof SoleOwnerError) return apiResponse.conflict(res, err.message);
       log.error('Failed to delete user', { userId, error: err }, 'admin-api');
       return apiResponse.badRequestFromError(res, err, 'Failed to delete user');
     }

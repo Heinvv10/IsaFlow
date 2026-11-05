@@ -5,7 +5,14 @@
  * (The company route and the member writes are in payroll-sole-approver.int.test.ts.)
  * Disposable schema fixture only (assertDisposable).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// The fixture has no GoTrue to revoke sessions at: the suspension itself is what is under test.
+vi.mock('@/lib/auth/gotrue', async (orig) => ({
+  ...(await orig<typeof import('@/lib/auth/gotrue')>()),
+  adminRevokeAllUserSessions: vi.fn(async () => undefined),
+}));
+
 import roleRoute from '../../pages/api/admin/users/[id]/company-role';
 import removeRoute from '../../pages/api/admin/users/[id]/remove-from-company';
 import suspendRoute from '../../pages/api/admin/users/[id]/suspend';
@@ -95,21 +102,59 @@ describe('platform-admin paths keep a pending pay-run approval decidable', () =>
     expect(await roleOf(m)).toBe('manager');
   }, 60000);
 
-  it('suspend: suspending the last other approver is a 409 and leaves the account active', async () => {
+  /** A fresh run with its own pending request, raised while `m` is the only other member who can approve. */
+  async function pendingRequestWith(month: number): Promise<{ id: string; documentDigest: string }> {
+    const made = await r.api.createRun(month);
+    const id = String(made.body.data!.id);
+    await r.api.calculate(id);
+    const raised = await r.call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined,
+      { user: r.admin, body: { action: 'request', documentType: 'pay_run', documentId: id } });
+    expect(raised.statusCode).toBe(200);
+    return raised.body.data as { id: string; documentDigest: string };
+  }
+  const selfApprove = (req: { id: string; documentDigest: string }) => r.call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests',
+    undefined, { user: r.admin, body: { action: 'approve', requestId: req.id, expectedDigest: req.documentDigest } });
+  const strandedAudit = async (action: string, user: string) => (await r.pool.query(
+    `SELECT details FROM admin_audit_log WHERE admin_user_id = $1 AND action = $2 AND target_id = $3`,
+    [platformAdmin, action, user])).rows.map((x) => x.details as { stranded_pay_run_requests?: Array<{ companyId: string; requestId: string }> });
+
+  it('suspend is NEVER refused: the stranded request is audited and its requester still cannot self-approve it', async () => {
     const m = await soleManager();
-    const refused = await call(suspendRoute as Route, 'POST', m, '/suspend', { reason: 'test' });
-    expect(refused.status).toBe(409);
-    expect(refused.body.error?.message).toMatch(REFUSAL);
-    expect(await userRow(m)).toMatchObject({ is_active: true, suspended_at: null });
+    const req = await pendingRequestWith(6);
+    // Control: while `m` can approve, the requester may not approve their own request.
+    const before = await selfApprove(req);
+    expect(before.statusCode).toBe(403);
+    expect(before.body.error?.message).toMatch(/while another member can approve/);
+
+    const suspended = await call(suspendRoute as Route, 'POST', m, '/suspend', { reason: 'compromised' });
+    expect(suspended.status).toBe(200);
+    expect(await userRow(m)).toMatchObject({ is_active: false });
+    expect((await userRow(m))!.suspended_at).not.toBeNull();
+
+    // The roster changed since the request was raised: the sole-approver fallback does not apply to it.
+    const after = await selfApprove(req);
+    expect(after.statusCode).toBe(403);
+    expect(after.body.error?.message).toMatch(/members or roles changed since it was raised/);
+    const stillPending = await r.pool.query("SELECT status FROM approval_requests WHERE id = $1", [req.id]);
+    expect(stillPending.rows[0].status).toBe('pending');
+    const audits = await strandedAudit('user.suspend', m);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.stranded_pay_run_requests?.map((x) => x.requestId)).toContain(req.id);
   }, 60000);
 
-  it('delete user: deleting the last other approver is a 409 and the user and link stay', async () => {
+  it('delete user is NEVER refused: the user goes, the stranded request is audited and cannot be self-approved', async () => {
     const m = await soleManager();
-    const refused = await call(userRoute as Route, 'DELETE', m, '', undefined);
-    expect(refused.status).toBe(409);
-    expect(refused.body.error?.message).toMatch(REFUSAL);
-    expect(await userRow(m)).not.toBeNull();
-    expect(await roleOf(m)).toBe('manager');
+    const req = await pendingRequestWith(7);
+    const deleted = await call(userRoute as Route, 'DELETE', m, '', undefined);
+    expect(deleted.status).toBe(200);
+    expect(await userRow(m)).toBeNull();
+    expect(await roleOf(m)).toBeNull();
+    const after = await selfApprove(req);
+    expect(after.statusCode).toBe(403);
+    expect(after.body.error?.message).toMatch(/members or roles changed since it was raised/);
+    const audits = await strandedAudit('user.delete', m);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.stranded_pay_run_requests?.map((x) => x.requestId)).toContain(req.id);
   }, 60000);
 
   it('reset-onboarding: resetting the last other approver is a 409 and the link stays', async () => {
@@ -124,9 +169,13 @@ describe('platform-admin paths keep a pending pay-run approval decidable', () =>
   it('once the request is withdrawn nothing is refused any more (every-company guard included)', async () => {
     const m = await soleManager();
     await expect(assertPayRunApproverRetainedEverywhere(m)).rejects.toThrow(REFUSAL);
-    const rejected = await r.call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined,
-      { user: r.admin, body: { action: 'reject', requestId: requestRow.id, expectedDigest: requestRow.documentDigest } });
-    expect(rejected.statusCode).toBe(200);
+    const pending = (await r.pool.query(
+      "SELECT id, document_digest FROM approval_requests WHERE company_id = $1 AND document_type = 'pay_run' AND status = 'pending'", [r.company])).rows;
+    for (const p of pending) {
+      const rejected = await r.call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined,
+        { user: r.admin, body: { action: 'reject', requestId: p.id, expectedDigest: p.document_digest } });
+      expect(rejected.statusCode).toBe(200);
+    }
     await expect(assertPayRunApproverRetainedEverywhere(m)).resolves.toBeUndefined();
     const demoted = await call(roleRoute as Route, 'PATCH', m, '/company-role', { company_id: r.company, role: 'viewer' });
     expect(demoted.status).toBe(200);

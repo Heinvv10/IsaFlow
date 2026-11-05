@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const sqlMock = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/auth/gotrue', () => ({ adminRevokeAllUserSessions: vi.fn() }));
-vi.mock('@/modules/accounting/services/core/payRunApproverGuard', () => ({ assertPayRunApproverRetainedEverywhere: vi.fn(async () => undefined) })); // judged on a real database: payroll-approver-guard-paths.int.test.ts
+vi.mock('@/modules/accounting/services/core/payRunApproverGuard', () => ({ assertPayRunApproverRetainedEverywhere: vi.fn(async () => undefined), findStrandedPayRunRequests: vi.fn(async () => []) })); // judged on a real database: payroll-approver-guard-paths.int.test.ts
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 import {

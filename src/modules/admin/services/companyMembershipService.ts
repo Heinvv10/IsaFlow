@@ -136,10 +136,11 @@ export async function addUserToCompany(userId: string, companyId: string, role: 
 
 export async function removeUserFromCompany(userId: string, companyId: string): Promise<{ previousRole: string }> {
   const previousRole = await lockMembership(userId, companyId);
-  await assertKeepsPayRunApprover(companyId, userId, null);
   if (isOwner(previousRole)) {
     await assertAnotherOwner(userId, companyId);
   }
+  // After the owner lock, never before it: the approver lock is a leaf (payRunApproverGuard), memberWrites takes it last too.
+  await assertKeepsPayRunApprover(companyId, userId, null);
   await lastOwnerGuarded(sql`
     DELETE FROM company_users
     WHERE lower(user_id::text) = lower(${userId}) AND company_id = ${companyId}::uuid
@@ -157,10 +158,10 @@ export async function setUserCompanyRole(
   assertGrantable(role);
   const previousRole = await lockMembership(userId, companyId);
   if (previousRole === role) return { previousRole, changed: false };
-  await assertKeepsPayRunApprover(companyId, userId, role);
   if (isOwner(previousRole)) {
     await assertAnotherOwner(userId, companyId);
   }
+  await assertKeepsPayRunApprover(companyId, userId, role);
   await lastOwnerGuarded(sql`
     UPDATE company_users SET role = ${role}
     WHERE lower(user_id::text) = lower(${userId}) AND company_id = ${companyId}::uuid

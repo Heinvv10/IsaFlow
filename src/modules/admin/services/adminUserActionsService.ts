@@ -13,7 +13,9 @@ import { sendPasswordResetEmail } from '@/lib/auth/passwordResetEmail';
 import { adminRevokeAllUserSessions } from '@/lib/auth/gotrue';
 import { revokeAllUserPats } from '@/lib/auth/personalAccessTokens';
 import { revokeAllUserAuthorisations } from '@/lib/auth/oauth';
-import { assertPayRunApproverRetainedEverywhere } from '@/modules/accounting/services/core/payRunApproverGuard';
+import {
+  assertPayRunApproverRetainedEverywhere, findStrandedPayRunRequests, type StrandedPayRunRequest,
+} from '@/modules/accounting/services/core/payRunApproverGuard';
 
 type Row = DbRow;
 
@@ -45,10 +47,14 @@ type Row = DbRow;
  * and is enforced; the throw exists so the admin learns that pre-existing
  * browser sessions may survive until their token expires, rather than seeing a
  * silent success.
+ *
+ * Never refused for a pending pay-run approval (revoking a compromised account must always land). When the user is
+ * the last other eligible approver of one, the suspension still goes ahead; the requests it strands are logged and
+ * returned (the route puts them on the admin audit row). They cannot be self-approved by their requester: the
+ * sole-approver fallback needs the roster unchanged since the request was raised (see payRunApproverGuard).
  */
-export async function suspendUser(userId: string, reason: string): Promise<void> {
-  // A suspended account is no approver: refused (PayRunApproverProtectedError) while that would strand a pending pay-run approval.
-  await assertPayRunApproverRetainedEverywhere(userId);
+export async function suspendUser(userId: string, reason: string): Promise<StrandedPayRunRequest[]> {
+  const stranded = await strandedOrNone(userId);
   await sql`
     UPDATE users
     SET is_active        = false,
@@ -57,6 +63,7 @@ export async function suspendUser(userId: string, reason: string): Promise<void>
         updated_at       = NOW()
     WHERE id = ${userId}
   `;
+  reportStranded('suspendUser', userId, stranded);
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
 
   // DB-side revocations first: same database as the flag, so these are the
@@ -80,6 +87,25 @@ export async function suspendUser(userId: string, reason: string): Promise<void>
   }
 
   log.info('suspendUser', { userId, reason, pats, authorisations }, 'AdminUserActionsService');
+  return stranded;
+}
+
+/** The look-up must never stand between an admin and an emergency revocation: a failure is logged and nothing is reported. */
+async function strandedOrNone(userId: string): Promise<StrandedPayRunRequest[]> {
+  try {
+    return await findStrandedPayRunRequests(userId);
+  } catch (err) {
+    log.error('could not look for pay-run approvals this revocation strands; revoking anyway',
+      { userId, message: err instanceof Error ? err.message : String(err) }, 'AdminUserActionsService');
+    return [];
+  }
+}
+
+/** Pending pay-run approvals an emergency revocation left without another approver: a warning, never a refusal. */
+function reportStranded(action: string, userId: string, stranded: StrandedPayRunRequest[]): void {
+  if (stranded.length === 0) return;
+  log.warn(`${action}: the user was the last other approver of a pending pay-run approval; their requester cannot self-approve it on the old roster`,
+    { userId, stranded }, 'AdminUserActionsService');
 }
 
 export async function activateUser(userId: string): Promise<void> {
@@ -166,10 +192,14 @@ async function assertOwnsNoCompanyAlone(userId: string): Promise<void> {
   if (rows.length > 0) throw new SoleOwnerError(rows.map((r) => r.name));
 }
 
-/** Remove `userId` from every company, or throw SoleOwnerError (see above). Runs before any other write. */
-async function removeFromEveryCompany(userId: string): Promise<void> {
+/**
+ * Remove `userId` from every company, or throw SoleOwnerError (see above). Runs before any other write.
+ * `refuseStranding`: also refuse (PayRunApproverProtectedError) when that leaves a pending pay-run approval without
+ * an approver but its requester. Not for a deletion, which is an emergency revocation too.
+ */
+async function removeFromEveryCompany(userId: string, refuseStranding: boolean): Promise<void> {
   await assertOwnsNoCompanyAlone(userId);
-  await assertPayRunApproverRetainedEverywhere(userId);
+  if (refuseStranding) await assertPayRunApproverRetainedEverywhere(userId);
   try {
     await sql`DELETE FROM company_users WHERE user_id = ${userId}`;
   } catch (err) {
@@ -183,7 +213,7 @@ async function removeFromEveryCompany(userId: string): Promise<void> {
  * Super-admins are protected — throws if the target user has role = 'super_admin'.
  * Throws SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
-export async function deleteUser(userId: string): Promise<void> {
+export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[]> {
   const rows = await sql`
     SELECT role FROM users WHERE id = ${userId} LIMIT 1
   `;
@@ -192,11 +222,15 @@ export async function deleteUser(userId: string): Promise<void> {
     throw new Error('Cannot delete a super_admin user');
   }
 
-  await removeFromEveryCompany(userId);
+  // Never refused for a pending pay-run approval (see suspendUser): reported instead.
+  const stranded = await strandedOrNone(userId);
+  await removeFromEveryCompany(userId, false);
   await sql`DELETE FROM user_sessions   WHERE user_id = ${userId}`;
   await sql`DELETE FROM users           WHERE id      = ${userId}`;
 
+  reportStranded('deleteUser', userId, stranded);
   log.info('deleteUser', { userId }, 'AdminUserActionsService');
+  return stranded;
 }
 
 /**
@@ -205,7 +239,7 @@ export async function deleteUser(userId: string): Promise<void> {
  * SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
 export async function resetOnboarding(userId: string): Promise<void> {
-  await removeFromEveryCompany(userId);
+  await removeFromEveryCompany(userId, true);
   await sql`
     UPDATE users
     SET onboarding_completed = false,
