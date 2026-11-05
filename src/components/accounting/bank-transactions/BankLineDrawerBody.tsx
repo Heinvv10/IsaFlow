@@ -50,10 +50,10 @@ function Attachments({ txId }: { txId: string }) {
     <>
       <ul className="space-y-1">
         {data.map((a) => (
-          <li key={a.id} className="flex items-baseline justify-between gap-3 break-words">
+          <li key={a.id} className="flex items-baseline justify-between gap-3">
             {SAFE_HREF.test(a.file_url)
-              ? <a href={a.file_url} target="_blank" rel="noopener noreferrer" download={a.file_name} className={LINK}>{a.file_name}</a>
-              : <span className={MUTED}>{a.file_name}</span>}
+              ? <a href={a.file_url} target="_blank" rel="noopener noreferrer" download={a.file_name} title={a.file_name} className={`min-w-0 truncate ${LINK}`}>{a.file_name}</a>
+              : <span title={a.file_name} className={`min-w-0 truncate ${MUTED}`}>{a.file_name}</span>}
             {previewKind(a.file_url) !== 'none' && (
               <button type="button" onClick={() => setViewIndex(viewable.indexOf(a))} aria-label={`View ${a.file_name}`}
                 className={`shrink-0 ${LINK}`}>View</button>
@@ -123,9 +123,7 @@ export function BankLineDrawerBody({ tx }: { tx: BankTx }) {
       </div>
       <section>
         <h3 className={HEADING}>Attachments</h3>
-        {/* Keyed by the grid's count: an upload or remove in the attachments modal re-reads the list here. A viewer open
-            here closes when the count changes under it, on purpose: its index would point into a list that has changed. */}
-        <Attachments key={`${tx.id}:${tx.attachmentCount ?? ''}`} txId={tx.id} />
+        <Attachments txId={tx.id} />
       </section>
       <section>
         <h3 className={HEADING}>Matched journal</h3>

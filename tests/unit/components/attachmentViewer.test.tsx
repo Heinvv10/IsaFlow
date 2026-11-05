@@ -7,6 +7,7 @@
  * CSP will not frame) falls back to "Preview not available", so the viewer can never become a script sink.
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AttachmentViewer } from '@/components/accounting/AttachmentViewer';
 import { previewKind, dataUrlToBlob } from '@/components/accounting/attachmentPreview';
@@ -38,6 +39,33 @@ describe('previewKind', () => {
     expect(previewKind('data:image/svg+xml;base64,PHN2Zz4=')).toBe('none');
     expect(previewKind('https://files.example/slip.pdf')).toBe('none');
     expect(previewKind('javascript:alert(1)')).toBe('none');
+  });
+
+  it('previews webp and the image/jpg spelling, and leaves tiff to its download', () => {
+    expect(previewKind('data:image/webp;base64,UklGRg==')).toBe('image');
+    expect(previewKind('data:image/jpg;base64,/9j/')).toBe('image');
+    expect(previewKind('data:image/tiff;base64,SUkq')).toBe('none');
+  });
+
+  // A stored octet-stream row is a real file under the wrong label: read it from its bytes, into an inert type only.
+  const untyped = (bytes: number[] | string) => `data:application/octet-stream;base64,${btoa(
+    typeof bytes === 'string' ? bytes : String.fromCharCode(...bytes))}`;
+
+  it('reads an untyped row from its first bytes', async () => {
+    expect(previewKind(untyped('%PDF-1.7\n'))).toBe('pdf');
+    expect(previewKind(untyped([0xff, 0xd8, 0xff, 0xe0]))).toBe('image');
+    expect(previewKind(untyped([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe('image');
+    expect(previewKind(untyped('RIFF\x00\x00\x00\x00WEBPVP8 '))).toBe('image');
+    expect(dataUrlToBlob(untyped('%PDF-1.7\n'))!.type).toBe('application/pdf');
+    expect(dataUrlToBlob(untyped([0xff, 0xd8, 0xff, 0xe0]))!.type).toBe('image/jpeg');
+  });
+
+  it('never previews an untyped row that is not one of those files', () => {
+    for (const body of ['<html><script>alert(1)</script></html>', '<svg onload="alert(1)"/>', 'RIFF\x00\x00\x00\x00WAVEfmt ', 'plain text']) {
+      expect(previewKind(untyped(body))).toBe('none');
+      expect(dataUrlToBlob(untyped(body))).toBeNull();
+    }
+    expect(previewKind('data:application/octet-stream;base64,***')).toBe('none');
   });
 
   it('decodes a data URL into a blob of its own type and bytes', async () => {
@@ -93,6 +121,17 @@ describe('AttachmentViewer', () => {
     expect(onClose).toHaveBeenCalledTimes(2);
     act(() => { unmount(); });
     expect(revoked).toContain('blob:test/1');
+  });
+
+  it('shows a live URL under StrictMode, whose double effect frees the first one', () => {
+    render(<StrictMode><AttachmentViewer attachments={FILES} startIndex={0} onClose={() => undefined} /></StrictMode>);
+    const src = screen.getByRole('img', { name: 'slip.png' }).getAttribute('src')!;
+    expect(revoked).not.toContain(src);
+  });
+
+  it('renders nothing when its index is past the end of the list', () => {
+    render(<AttachmentViewer attachments={FILES} startIndex={3} onClose={() => undefined} />);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('moves focus to the dialog when a step disables the focused button, so the keys keep working', () => {

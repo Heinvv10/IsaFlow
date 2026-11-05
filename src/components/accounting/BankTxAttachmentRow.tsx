@@ -23,11 +23,11 @@ export function BankTxAttachmentRow({ att, deleting, onView, onDelete }: Props) 
     <div className="flex items-center gap-3 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-3 py-2.5">
       <div className="shrink-0 p-1.5 rounded bg-[var(--ff-bg-secondary)]">
         {icon === 'image' ? (
-          <FileImage className="h-4 w-4 text-blue-400" />
+          <FileImage className="h-4 w-4 text-blue-400" aria-hidden="true" />
         ) : icon === 'pdf' ? (
-          <FileText className="h-4 w-4 text-orange-400" />
+          <FileText className="h-4 w-4 text-orange-400" aria-hidden="true" />
         ) : (
-          <Paperclip className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
+          <Paperclip className="h-4 w-4 text-[var(--ff-text-tertiary)]" aria-hidden="true" />
         )}
       </div>
 
@@ -41,7 +41,7 @@ export function BankTxAttachmentRow({ att, deleting, onView, onDelete }: Props) 
       {previewKind(att.file_url) !== 'none' && (
         <button type="button" onClick={onView} title="View" aria-label={`View ${att.file_name}`}
           className={`${ICON_BTN} hover:bg-blue-500/10 hover:text-blue-400`}>
-          <Eye className="h-3.5 w-3.5" />
+          <Eye className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       )}
 

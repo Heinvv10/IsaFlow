@@ -33,10 +33,21 @@ describe('the attachment button', () => {
     expect(plain.textContent).toBe('');
   });
 
-  it('caps the badge at 9+ and keeps the full count in its name', () => {
-    render(<BankTxTable {...tableProps({ transactions: withCounts({ a: 12 }) })} />);
-    const many = screen.getByRole('button', { name: `12 attachments - view, ${label('a')}` });
-    expect(many.textContent).toBe('9+');
+  it('caps the badge at 9+ from ten files, and keeps the full count in its name', () => {
+    render(<BankTxTable {...tableProps({ transactions: withCounts({ a: 9, c: 10 }) })} />);
+    expect(screen.getByRole('button', { name: `9 attachments - view, ${label('a')}` }).textContent).toBe('9');
+    expect(screen.getByRole('button', { name: `10 attachments - view, ${label('c')}` }).textContent).toBe('9+');
+  });
+
+  it('shows on an excluded line and a pending line that have files, and adds nothing to one without', () => {
+    const excluded = render(<BankTxTable {...tableProps({ tab: 'excluded', transactions: withCounts({ f: 2 }) })} />);
+    expect(screen.getByRole('button', { name: `2 attachments - view, ${label('f')}` })).toBeTruthy();
+    excluded.unmount();
+    const none = render(<BankTxTable {...tableProps({ tab: 'excluded', transactions: withCounts({}) })} />);
+    expect(screen.queryByRole('button', { name: `Attachments, ${label('f')}` })).toBeNull();
+    none.unmount();
+    render(<BankTxTable {...tableProps({ transactions: withCounts({ b: 1 }) })} />);
+    expect(screen.getByRole('button', { name: `1 attachment - view, ${label('b')}` })).toBeTruthy();
   });
 
   it('highlights reviewed rows the same way', () => {

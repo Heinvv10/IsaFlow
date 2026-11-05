@@ -8,6 +8,8 @@
  * Props:
  *   bankTransactionId     — UUID of the target bank transaction
  *   transactionDescription — Optional label shown in the modal header
+ *   openFirst             — Open the first viewable file once the list has loaded
+ *   onCountChange         — Told the file count after every successful load and remove
  *   onClose               — Dismiss callback
  */
 
@@ -51,13 +53,14 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   useFocusTrap(dialogRef, viewIndex === null, onClose);
   // Refs, so a parent's inline callback does not re-create fetchAttachments (and re-fetch) on every render.
   const countRef = useRef(onCountChange);
-  countRef.current = onCountChange;
+  useEffect(() => { countRef.current = onCountChange; });
   const openFirstRef = useRef(openFirst);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Fetch attachment list ──────────────────────────────────────────────────
-  const fetchAttachments = useCallback(async () => {
-    setLoading(true);
+  // keepList: a refresh after an upload leaves the list on screen instead of blanking it to "Loading…".
+  const fetchAttachments = useCallback(async (keepList = false) => {
+    if (!keepList) setLoading(true);
     try {
       const res = await apiFetch(
         `/api/accounting/bank-tx-attachments?bankTransactionId=${encodeURIComponent(bankTransactionId)}`,
@@ -69,10 +72,10 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       // Only a successful read reports a count: a failed one must not clear the row's highlight.
       countRef.current?.(json.data.length);
       if (openFirstRef.current && json.data.some(a => previewKind(a.file_url) !== 'none')) setViewIndex(0);
-      openFirstRef.current = false;
     } catch {
       setAttachments([]); notify.error('Could not load attachments');
     } finally {
+      openFirstRef.current = false;
       setLoading(false);
     }
   }, [bankTransactionId]);
@@ -110,7 +113,8 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       const json = await res.json() as { success: boolean; error?: { message?: string } };
       if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not upload the file - try again');
       notify.success(`${file.name} uploaded`);
-      await fetchAttachments();
+      await fetchAttachments(true);
+      setViewIndex(null); // The list changed behind any open viewer, so its index no longer names the same file.
     } catch (err) {
       notify.error(apiErrorMessage(err, 'Could not upload the file - try again'));
     } finally {
@@ -147,6 +151,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       notify.success(`${name} removed`);
       const next = attachments.filter(a => a.id !== id);
       setAttachments(next);
+      setViewIndex(null);
       countRef.current?.(next.length);
     } catch (err) {
       notify.error(apiErrorMessage(err, 'Could not remove the attachment - try again'));

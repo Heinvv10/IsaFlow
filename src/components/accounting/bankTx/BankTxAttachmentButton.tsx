@@ -18,9 +18,9 @@ export function BankTxAttachmentButton({ txId, count, rowName, onOpen }: Props) 
   const n = count ?? 0;
   const title = n > 0 ? `${n} attachment${n === 1 ? '' : 's'} - view` : 'Attachments';
   return (
-    <button onClick={() => onOpen(txId)} title={title} aria-label={`${title}, ${rowName}`}
+    <button type="button" onClick={() => onOpen(txId)} title={title} aria-label={`${title}, ${rowName}`}
       className={n > 0
-        ? 'relative p-1 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400'
+        ? 'relative mr-1 p-1 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400'
         : 'p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]'}>
       <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
       {n > 0 && (

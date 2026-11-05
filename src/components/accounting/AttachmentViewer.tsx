@@ -9,6 +9,9 @@
  *
  * Rendered into document.body: AppLayout's main column is `relative z-0`, a stacking context no z-index inside it can
  * leave, so rendered in place the top nav (z-40) drew over the viewer. React events still bubble to the opener's tree.
+ *
+ * Known limit: once a click lands inside a PDF, keys go to the browser's PDF viewer and this page cannot see them.
+ * Close and the backdrop still work.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -29,7 +32,8 @@ interface Props {
   onClose: () => void;
 }
 
-const NAV = 'p-1.5 rounded text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-primary)] hover:text-[var(--ff-text-primary)] disabled:opacity-30 disabled:pointer-events-none';
+// Larger targets at phone width.
+const NAV = 'p-2.5 sm:p-1.5 rounded text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-primary)] hover:text-[var(--ff-text-primary)] disabled:opacity-30 disabled:pointer-events-none';
 
 export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
   const [index, setIndex] = useState(startIndex);
@@ -99,7 +103,7 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
             className="max-h-full max-w-full object-contain rounded shadow-2xl bg-white" />
         ) : blobUrl && kind === 'pdf' ? (
           // A new frame per file (key): changing src on one frame adds a history entry per file.
-          <iframe key={blobUrl} src={blobUrl} title={file.file_name} onClick={e => e.stopPropagation()}
+          <iframe key={blobUrl} src={blobUrl} title={file.file_name}
             className="h-full w-full max-w-5xl rounded bg-white" />
         ) : blob ? null : (
           <div className="flex flex-col items-center gap-2 text-sm text-[var(--ff-text-secondary)]" onClick={e => e.stopPropagation()}>

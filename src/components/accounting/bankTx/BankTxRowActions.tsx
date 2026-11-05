@@ -39,12 +39,20 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
           ) : (
             <span className="text-xs text-[var(--ff-text-tertiary)] italic">Excluded</span>
           )}
+          {onAttachments && (tx.attachmentCount ?? 0) > 0 && (
+            <BankTxAttachmentButton txId={tx.id} count={tx.attachmentCount} rowName={label} onOpen={onAttachments} />
+          )}
         </div>
       ) : (
         <div className="flex items-center gap-0.5 justify-center">
           {isNew ? (
             isPendingFeedRow(tx) ? (
-              <PendingFeedNotice />
+              <>
+                <PendingFeedNotice />
+                {onAttachments && (tx.attachmentCount ?? 0) > 0 && (
+                  <BankTxAttachmentButton txId={tx.id} count={tx.attachmentCount} rowName={label} onOpen={onAttachments} />
+                )}
+              </>
             ) : (
             <>
               <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId} title="Accept" aria-label={`Accept, ${label}`}

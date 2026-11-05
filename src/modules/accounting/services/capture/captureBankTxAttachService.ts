@@ -17,12 +17,21 @@ import { fetchRawBytes } from '@/lib/documentStorage';
 
 const MAX_MIRROR_BYTES = 2 * 1024 * 1024;
 
+// captured_documents.file_type is a short name from most writers and a full MIME type from the email mirror
+// (imapMirrorIngest). Both must land on the same type: a miss stores application/octet-stream.
 const MIME_BY_FILE_TYPE: Record<string, string> = {
   pdf: 'application/pdf',
+  'application/pdf': 'application/pdf',
   jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  'image/jpeg': 'image/jpeg',
+  'image/jpg': 'image/jpeg',
   png: 'image/png',
+  'image/png': 'image/png',
   webp: 'image/webp',
+  'image/webp': 'image/webp',
   tiff: 'image/tiff',
+  'image/tiff': 'image/tiff',
 };
 
 export type AttachToBankTxResult =
@@ -107,7 +116,7 @@ async function mirrorIntoAttachments(
       return false;
     }
 
-    const mime = MIME_BY_FILE_TYPE[fileType] ?? 'application/octet-stream';
+    const mime = MIME_BY_FILE_TYPE[fileType.toLowerCase()] ?? 'application/octet-stream';
     const dataUrl = `data:${mime};base64,${raw.buffer.toString('base64')}`;
     await sql`
       INSERT INTO bank_transaction_attachments

@@ -50,6 +50,21 @@ describe('attachCapturedDocToBankTx', () => {
     expect(allValues).toContain(COMPANY);
   });
 
+  // The email mirror stores a full MIME type where other writers store a short name. Either must store a data URL the
+  // viewer can show, never application/octet-stream.
+  it.each([
+    ['application/pdf', 'data:application/pdf;base64,'], ['pdf', 'data:application/pdf;base64,'],
+    ['image/jpeg', 'data:image/jpeg;base64,'], ['IMAGE/JPG', 'data:image/jpeg;base64,'], ['jpg', 'data:image/jpeg;base64,'],
+    ['image/png', 'data:image/png;base64,'], ['image/webp', 'data:image/webp;base64,'],
+    ['application/x-unknown', 'data:application/octet-stream;base64,'],
+  ])('stores file_type %s as %s', async (fileType, prefix) => {
+    mockSqlByQuery(happyHandlers({ doc: [{ id: DOC, file_name: 'slip', file_type: fileType }] }));
+    vi.mocked(fetchRawBytes).mockResolvedValue({ buffer: Buffer.from('bytes'), hash: 'h', size: 5, fileType });
+    await attachCapturedDocToBankTx(COMPANY, DOC, TX, 'user-1');
+    const insert = sqlMock.mock.calls.find((c) => (c[0] as readonly string[]).join('?').includes('INSERT INTO bank_transaction_attachments'))!;
+    expect(insert.slice(1).find((v) => typeof v === 'string' && v.startsWith('data:'))).toBe(`${prefix}${Buffer.from('bytes').toString('base64')}`);
+  });
+
   it('returns notFound when the document is not in this company', async () => {
     mockSqlByQuery(happyHandlers({ doc: [] }));
     const result = await attachCapturedDocToBankTx(COMPANY, DOC, TX, 'user-1');
