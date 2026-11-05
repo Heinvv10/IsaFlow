@@ -199,16 +199,22 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // limited by s11F: the very figure PAYE just allowed on this line (`retirementDeduction`: 27.5% and the year's
   // cap, cumulative over the tax year from the year to date, so a late catch-up is capped by what is left of the
   // year and an early excess is recovered from later headroom). It is not computed a second time, so SDL and PAYE
-  // cannot disagree about it. Taken off what is SDL-applicable, floored at nil: a reversal (a negative record)
-  // is not added back, and a deduction larger than the SDL-applicable pay is lost, per line.
+  // cannot disagree about it. The record is SIGNED: a reversed contribution is negative and is added back, so the
+  // months of a year net to the deduction PAYE finally allowed. Only the line total is floored at nil, which
+  // loses a deduction larger than the line's SDL-applicable pay (e.g. a catch-up recovered in a month with none):
+  // KNOWN LIMIT, a small over-levy; carrying it forward would need a stored column (a migration), undecided.
   // Every other taxable deduction (union fees, 4005 medical, garnishees) reduces PAYE only. Donations (4030) do not
   // reduce SDL: the s18A receipt and approved organisation are not modelled. The s4(b) threshold stays on gross
   // remuneration (sdlLeviabilityService).
-  const sdlLeviableAfterDeductions = Math.max(0, sdlLeviable - Math.max(0, retirementDeduction));
+  if (!Number.isFinite(retirementDeduction)) {
+    throw new Error(`Retirement deduction for employee ${employee.id} is not a finite number (${retirementDeduction}); SDL cannot be calculated`);
+  }
+  const sdlLeviableAfterDeductions = round2(Math.max(0, sdlLeviable - retirementDeduction));
 
   // Leviability depends on the employer's twelve-month remuneration, not on
   // this line, so a caller costing a full run defers and applies the threshold
-  // once it knows that total.
+  // once it knows that total. Charged on the cent-rounded leviable amount the
+  // line stores, which is what the run pass (applySdlToLines) recomputes from.
   const sdl = annualPayrollEstimate === 'defer'
     ? 0
     : calculateSDL(sdlLeviableAfterDeductions, annualPayrollEstimate, taxYear);
@@ -284,7 +290,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     retirementDeduction,
     uif,
     sdl: Math.round(sdl * 100) / 100,
-    sdlLeviable: round2(sdlLeviableAfterDeductions),
+    sdlLeviable: sdlLeviableAfterDeductions,
     eti: etiRaw,
     netPay: Math.max(0, netPay),
     componentBreakdown: breakdown,

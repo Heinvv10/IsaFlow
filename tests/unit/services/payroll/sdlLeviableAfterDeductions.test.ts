@@ -149,17 +149,56 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(r.sdl).toBe(175);
   });
 
-  it('a reversed contribution never raises the leviable amount above SDL-applicable remuneration', () => {
-    // The R8 000 contributed earlier is reversed: PAYE records -R5 500 (its deduction is taken back), but the
-    // month's SDL deduction is floored at nil, so leviable stays at the month's pay (SDL Act s3(4)).
-    const r = line([salary(20_000), ra(-8_000)], 1_000_000, {
+  it('a reversed contribution is added back: two months net to the SDL of no contribution at all (SDL Act s3(4); PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1)', () => {
+    // Month 1: R20 000 + R5 000 RA -> R5 000 deducted (27.5% = R5 500). Month 2: the RA is reversed, PAYE
+    // records -R5 000, so SDL takes it back: R15 000 + R25 000 = R40 000 leviable = R400, as if never contributed.
+    const m1 = line([salary(20_000), ra(5_000)], 1_000_000, { period: { month: 3, year: 2026 } });
+    expect(m1.retirementDeduction).toBe(5_000);
+    expect(m1.sdl).toBe(150);
+    const m2 = line([salary(20_000), ra(-5_000)], 1_000_000, {
       period: { month: 4, year: 2026 },
       ytd: ytdOf({
-        periods: 1, periodicTaxable: 20_000, retirementContributions: 8_000, retirementDeduction: 5_500,
+        periods: 1, periodicTaxable: 20_000, retirementContributions: 5_000, retirementDeduction: m1.retirementDeduction,
       }),
     });
-    expect(r.retirementDeduction).toBeLessThan(0);
-    expect(r.sdlLeviable).toBe(20_000);
+    expect(m2.retirementDeduction).toBe(-5_000);
+    expect(m2.sdlLeviable).toBe(25_000);
+    expect(m1.sdl + m2.sdl).toBe(400);
+  });
+
+  it('the line total is floored at nil: a deduction above the SDL-applicable pay leaves leviable and SDL nil (SDL Act s3(4))', () => {
+    // R1 000 SDL-applicable + R20 000 taxable but SDL-excluded; RA R8 000. Base R21 000 x 27.5% = R5 775
+    // allowed, more than the R1 000 that SDL can take it from. The excess is lost (documented limit).
+    const sdlExcluded: EmployeeComponent = { component: comp('3713', { isSdlApplicable: false }), amount: 20_000 };
+    const r = line([salary(1_000), sdlExcluded, ra(8_000)]);
+    expect(r.retirementDeduction).toBe(5_775);
+    expect(r.sdlLeviable).toBe(0);
+    expect(r.sdl).toBe(0);
+  });
+
+  it('a catch-up month with no SDL-applicable pay at all has nil leviable and nil SDL', () => {
+    const excluded: EmployeeComponent = { component: comp('3713', { isSdlApplicable: false }), amount: 20_000 };
+    const r = line([excluded, ra(8_000)]);
+    expect(r.retirementDeduction).toBe(5_500);
+    expect(r.sdlLeviable).toBe(0);
+    expect(r.sdl).toBe(0);
+  });
+
+  it('refuses a non-finite retirement deduction instead of letting NaN reach SDL and the run totals', () => {
+    expect(() => line([salary(20_000), ra(5_000)], 1_000_000, {
+      period: { month: 4, year: 2026 },
+      ytd: ytdOf({ periods: 1, periodicTaxable: 20_000, retirementContributions: 5_000, retirementDeduction: Number.NaN }),
+    })).toThrow(/retirement deduction.*not a finite number/i);
+  });
+
+  it('one-pass SDL is charged on the cent-rounded leviable amount, as the run pass recomputes it (applySdlToLines)', () => {
+    // R1 000.496 rounds to R1 000.50 on the line; 1% of the unrounded figure is R10.00, of the rounded R10.01.
+    const r = line([salary(1_000.496)]);
+    expect(r.sdlLeviable).toBe(1_000.5);
+    expect(r.sdl).toBe(10.01);
+    const lines = [{ sdl: 0, sdlLeviable: r.sdlLeviable }];
+    applySdlToLines(lines, 1_000_000, 2027);
+    expect(r.sdl).toBe(lines[0]!.sdl);
   });
 
   it('employer retirement contribution: neither added as fringe benefit nor deducted, for PAYE or SDL', () => {
