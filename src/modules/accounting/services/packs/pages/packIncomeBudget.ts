@@ -19,8 +19,8 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import type { UnnumberedPage } from './packFrontMatter';
 import { buildIncomeStatementSheet } from './packIncomeSheet';
-import { fitPageReport } from './packPageFit';
-import { tookSomething, warnCaptionDropped } from './packOmissionFootnote';
+import { fitRelaidPage } from './packNarrativeFit';
+import { warnCaptionDropped } from './packOmissionFootnote';
 import type { PackChartSpec, PackFootnote, PackTable } from './packPageModel';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
 import { budgetColumnFootnote } from './packStatementFootnotes';
@@ -58,7 +58,7 @@ export function incomeSheetWithBudget(
     anchorColumn(income, 'budget', budgetNotes[0]!.number), set, scale, panels, [...statementNotes, ...budgetNotes]);
   let diagnostic: string;
   try {
-    const { page: fitted, dropped } = fitPageReport(sheet);
+    const { page: fitted, dropped } = fitRelaidPage(sheet);
     if (fitted.footnotes.some((note) => note.text === budgetNotes[0]!.text)) {
       // This fitted page is the one used, so a caption it dropped is logged here.
       warnCaptionDropped('Income statement', dropped);
@@ -71,12 +71,18 @@ export function incomeSheetWithBudget(
   }
   log.warn('board pack: page 6 cannot fit the Budget and Variance columns at these figures; printed without them',
     { period: set.currentWindow, diagnostic }, 'packs');
-  // The note is printed only where the page carries it AND everything it carried before: a page the
-  // fitter would trim for it (dropping anchored notes) or refuse is composed as it was without the note.
+  // The columns are figures, so the page says they are not printed wherever that costs it no more than its
+  // derived caption (the fitter's first lever: derived prose is worth less than a figure the reader is told
+  // is missing). A page that would have to drop a note or a footnote (anchored ones included) or is refused
+  // for it is composed as it was without the note (the #1121 ruling): see `columnsLeftOut` below.
   const droppedNote: PackFootnote = { number: statementNotes.length + 1, text: BUDGET_COLUMNS_DROPPED_NOTE, required: true };
   const noted = buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote]);
   try {
-    if (!tookSomething(fitPageReport(noted).dropped)) return noted;
+    const { page: fitted, dropped } = fitRelaidPage(noted);
+    if (dropped.notes === 0 && dropped.footnotes === 0 && dropped.requiredNotes === 0) {
+      warnCaptionDropped('Income statement', dropped);
+      return fitted;
+    }
   } catch (err) {
     if (!(err instanceof PackRefusal)) throw err;
   }
