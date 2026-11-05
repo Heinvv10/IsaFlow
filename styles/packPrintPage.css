@@ -260,8 +260,9 @@ html.print-mode .pack-pages {
    * column's track (`nowrap` + `1fr`), so a net profit of (13 350 000) pulled the row wider than the
    * 174mm measure and the last column went past the paper's edge. The component states the summed
    * widths of those four figures in ems (`--pack-fit-ems`, `packFigureFit.ts`); the figure takes the
-   * smaller of 22pt and the size at which they fill the row. Figures that fit print at 22pt as before. */
-  font-size: min(22pt, calc((100cqw - 3 * var(--pack-gutter)) / var(--pack-fit-ems, 1)));
+   * smaller of 22pt and the size at which they fill the row, and never below 12pt (a figure stays larger than
+   * the pack's 9pt tile labels and table figures). Figures that fit print at 22pt as before. */
+  font-size: max(12pt, min(22pt, calc((100cqw - 3 * var(--pack-gutter)) / var(--pack-fit-ems, 1))));
 }
 /* THE FOOTNOTES FOLLOW THE CONTENT THEY ANNOTATE. `margin-top: auto` pinned
  * them to the bottom margin of a flex column, which is invisible on a full
