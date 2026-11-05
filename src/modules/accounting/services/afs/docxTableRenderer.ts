@@ -10,7 +10,6 @@ import {
   WidthType,
   ShadingType,
 } from 'docx';
-import { safeRowKind } from './managementPackSections';
 import type { NoteContentTable } from './afsTypes';
 
 const NONE_BORDER = {
@@ -92,10 +91,10 @@ export function renderNoteTable(block: NoteContentTable): Table {
 
   const dataRows = rows.map((row, r) => {
     // The statement's row kinds (heading, subtotal, bottom line) print bold, the bottom line shaded, as in the PDF.
-    const kind = safeRowKind(block.rowKinds?.[r]);
+    const kind: unknown = block.rowKinds?.[r];
     return new TableRow({
       children: row.map((cell, i) =>
-        makeCell(cell ?? '', { header: false, numeric: numericCols[i] ?? false, bold: BOLD_KINDS.includes(kind), shade: kind === 'total' }),
+        makeCell(cell ?? '', { header: false, numeric: numericCols[i] ?? false, bold: typeof kind === 'string' && BOLD_KINDS.includes(kind), shade: kind === 'total' }),
       ),
     });
   });

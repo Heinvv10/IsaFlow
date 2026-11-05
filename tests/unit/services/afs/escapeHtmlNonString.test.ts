@@ -35,6 +35,7 @@ describe('an override with non-string content does not crash either document typ
   const overrides = {
     title: 7,
     blocks: [
+      null,
       { type: 'paragraph', text: null },
       { type: 'table', headers: ['A', 5], rows: [['x', 42], ['y', null], ['z', { v: 1 }], 'not-a-row'], rowKinds: ['total'] },
       { type: 'list', items: [1, null, '<i>'] },

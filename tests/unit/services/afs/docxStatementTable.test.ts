@@ -48,7 +48,7 @@ describe('row kinds', () => {
   });
 
   it('an unknown or hostile kind is a plain row', async () => {
-    const rs = await rows([{ ...STATEMENT, rowKinds: ['constructor', 'x"><b>', 5, null] } as unknown as NoteContentBlock]);
+    const rs = await rows([{ ...STATEMENT, rowKinds: ['line', 'x"><b>', 5, 'constructor'] } as unknown as NoteContentBlock]);
     expect(rowWith(rs, 'Net profit')).not.toContain('<w:shd');
     expect(cellsOf(rowWith(rs, 'Net profit'))[0]).not.toContain('<w:b/>');
   });
