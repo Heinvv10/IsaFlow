@@ -149,7 +149,7 @@ describe('bank reconciliation', () => {
     ];
     expect(latestReconciliations(all, '2026-09-30').map((r) => r.id)).toEqual(['2', '4']);
     const t = tableOf(bankReconciliationBlocks(all, '2026-09-30'));
-    expect(t.headers).toEqual(['Bank account', 'Statement date', 'Statement balance', 'GL balance', 'Difference', 'Status']);
+    expect(t.headers).toEqual(['Bank account', 'Statement date', 'Statement balance', 'GL balance', 'Outstanding difference', 'Status']);
     expect(t.rows).toEqual([
       ['Main', '30 September 2026', 'R 1 000.00', 'R 1 000.00', 'R 5.00', 'Completed'],
       ['Savings', '15 September 2026', 'R 1 000.00', 'R 1 000.00', 'R 12.50', 'In progress'],

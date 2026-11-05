@@ -132,7 +132,7 @@ export function bankReconciliationBlocks(all: readonly BankReconciliation[], per
   }
   const table: NoteContentTable = {
     type: 'table',
-    headers: ['Bank account', 'Statement date', 'Statement balance', 'GL balance', 'Difference', 'Status'],
+    headers: ['Bank account', 'Statement date', 'Statement balance', 'GL balance', 'Outstanding difference', 'Status'],
     rows: rows.map((r) => [
       r.bankAccountName ?? 'Unnamed account', longDate(r.statementDate), formatMoney(r.statementBalance),
       formatMoney(r.glBalance), formatMoney(r.difference), STATUS_WORDS[r.status] ?? r.status,
