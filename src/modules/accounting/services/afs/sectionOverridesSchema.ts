@@ -22,6 +22,8 @@ const block = z.discriminatedUnion('type', [
 ]);
 
 export const sectionOverridesSchema = z.object({
+  // Read by complianceCheckerService (note 26's nil-events confirmation is overrides.suppressReason === 'nil'); this route is its only writer.
+  suppressReason: z.literal('nil').optional(),
   title: z.string().optional(),
   blocks: z.array(block).optional(),
 }).strict();

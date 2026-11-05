@@ -74,6 +74,8 @@ export function packSectionView(section: PackSectionInput): PackSectionView | nu
   const narrative = section.aiNarrative && section.aiNarrative.trim() !== '' && !isAiPlaceholder(section.aiNarrative)
     ? section.aiNarrative : null;
   let blocks = storedBlocks(section).map((b) => repairBlock(section.sectionType, b));
+  // Accepting the AI narrative (PUT .../ai-narrative) freezes it into overrides.blocks as a paragraph: it must not print again beneath them.
+  const narrativeShown = narrative !== null && blocks.some((b) => b.type === 'paragraph' && b.text === narrative);
   if (blocks.length === 0 && narrative === null) {
     const text = section.sectionType === 'ai_executive_summary' ? EXECUTIVE_SUMMARY_MISSING : SECTION_NOT_AVAILABLE;
     blocks = [{ type: 'paragraph', text }];
@@ -83,7 +85,7 @@ export function packSectionView(section: PackSectionInput): PackSectionView | nu
     // The title is the section vocabulary's, never the stored one: older packs stored the bare key there.
     title: typeof section.overrides?.title === 'string' && section.overrides.title !== '' ? section.overrides.title : packSectionLabel(section.sectionType),
     blocks,
-    narrative,
+    narrative: narrativeShown ? null : narrative,
   };
 }
 

@@ -37,6 +37,7 @@ describe('a body the renderers can print is accepted and written', () => {
     ] }],
     ['an empty object', {}],
     ['a title only', { title: 'T' }],
+    ["note 26's nil-events confirmation (read by complianceCheckerService)", { suppressReason: 'nil' }],
   ])('%s', async (_n, overrides) => {
     await call(overrides);
     expect(m.apiResponse.validationError).not.toHaveBeenCalled();
@@ -57,6 +58,7 @@ describe('anything else is refused with the field named, and nothing is written'
     ['a bad row kind', { blocks: [{ type: 'table', headers: ['A'], rows: [['x']], rowKinds: ['total', 'x"><img>'] }] }, 'overrides.blocks.0.rowKinds.1'],
     ['an unknown key on a block', { blocks: [{ type: 'paragraph', text: 'x', onclick: 'y' }] }, 'overrides.blocks.0.onclick'],
     ['an unknown key on the overrides', { title: 'T', extra: 1 }, 'overrides.extra'],
+    ['a suppressReason that is not nil', { suppressReason: 'x' }, 'overrides.suppressReason'],
   ])('%s', async (_n, overrides, field) => {
     await call(overrides);
     expect(Object.keys(refused())).toContain(field);

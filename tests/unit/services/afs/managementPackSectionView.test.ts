@@ -97,3 +97,23 @@ describe('a statement an older pack stored as JSON prints as a table', () => {
     expect(packSectionView(sec('kpi_scorecard', { content: { blocks: [{ type: 'paragraph', text: json }] } }))?.blocks).toEqual([{ type: 'paragraph', text: json }]);
   });
 });
+
+describe('an accepted AI narrative is printed once', () => {
+  // PUT .../ai-narrative freezes the narrative into overrides.blocks as a paragraph and leaves ai_narrative set.
+  it('not again beneath the blocks that already carry it', () => {
+    const v = packSectionView(sec('ai_executive_summary', {
+      aiNarrative: 'Revenue grew.',
+      overrides: { title: 'AI Executive Summary', blocks: [{ type: 'paragraph', text: 'Revenue grew.' }] },
+    }));
+    expect(v?.blocks).toEqual([{ type: 'paragraph', text: 'Revenue grew.' }]);
+    expect(v?.narrative).toBeNull();
+  });
+
+  it('still prints a narrative the blocks do not carry', () => {
+    const v = packSectionView(sec('kpi_scorecard', {
+      aiNarrative: 'Margins fell.',
+      overrides: { blocks: [{ type: 'paragraph', text: 'Edited by the accountant.' }] },
+    }));
+    expect(v?.narrative).toBe('Margins fell.');
+  });
+});
