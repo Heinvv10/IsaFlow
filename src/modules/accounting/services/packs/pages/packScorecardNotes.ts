@@ -49,17 +49,6 @@ export function scorecardPageNotes(input: {
 // that the note fires only where the trends page actually plots the
 // measure it points at.
 const debtorDaysFootnote = periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1);
-// AND PAGE 9'S PRIOR COLUMN CARRIES THE SAME NOTE THE OTHER THREE SHEETS DO.
-//
-// Pages 6, 7 and 8 mark their PRIOR heading and date the comparative; page
-// 9 prints PRIOR five times and marked none — on the sheet where the
-// comparative is most treacherous, since its day counts are measured over
-// the comparative's own days. Same sentence
-// (`priorColumnFootnote`), numbered after the debtor-days note because this
-// page's numbering is its own.
-const scorecardPriorNote = comparativePeriod === null
-  ? null
-  : priorColumnFootnote(comparativePeriod, set.currentWindow, 2);
 // AND EVERY SCORED ROW STANDING ON A FIGURE THE PACK QUALIFIES SAYS SO.
 //
 // Sheet 9 prints `Current ratio · (0.14) · target 1.50 · MISSED` in red on
@@ -108,6 +97,18 @@ const rowNoteText = [disownedText, debtorWindow]
   .filter((part): part is string => part !== undefined && part !== null)
   .join(' ');
 const rowNote = rowNoteText === '' ? [] : [{ number: 1, required: true as const, text: rowNoteText }];
+// AND PAGE 9'S PRIOR COLUMN CARRIES THE SAME NOTE THE OTHER THREE SHEETS DO.
+//
+// Pages 6, 7 and 8 mark their PRIOR heading and date the comparative; page
+// 9 prints PRIOR five times and marked none — on the sheet where the
+// comparative is most treacherous, since its day counts are measured over
+// the comparative's own days. Same sentence
+// (`priorColumnFootnote`), numbered after the row note because this page's
+// numbering is its own: 2 where the page carries a row note, 1 where the prior-column note is
+// the only footnote, so the list never opens at 2.
+const scorecardPriorNote = comparativePeriod === null
+  ? null
+  : priorColumnFootnote(comparativePeriod, set.currentWindow, rowNote.length + 1);
 const flagged = new Set([
   ...disowned.map((d) => d.metric),
   ...(debtorDaysFootnote.length === 0 ? [] : ['debtor days']),

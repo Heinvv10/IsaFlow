@@ -158,8 +158,11 @@ describe('approval_enforcement under RLS (review LOW-4)', () => {
       await expect(insert(c, company, me)).rejects.toThrow(/permission denied for table approval_enforcement/);
       await c.query('ROLLBACK TO SAVEPOINT raw');
       expect((await set(c, company, me)).rows).toEqual([{ document_type: 'supplier_invoice' }]);
-      const { rows } = await c.query('SELECT company_id FROM public.approval_enforcement');
-      expect(rows.map((r) => r.company_id)).toEqual([company]);
+      const { rows } = await c.query('SELECT company_id, document_type FROM public.approval_enforcement ORDER BY document_type');
+      expect(rows).toEqual([
+        { company_id: company, document_type: 'pay_run' },
+        { company_id: company, document_type: 'supplier_invoice' },
+      ]);
     });
   });
 

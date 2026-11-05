@@ -40,7 +40,8 @@ const company = () => payCompany(pool, [[u.a, 'admin'], [u.b, 'owner'], [u.m, 'm
 const switchTo = (user: string, c: string, documentType: string, enabled: boolean) => callRoute(
   approvalEnforcement, tokens[user]!, c, 'POST', { documentType, enabled }, '/api/accounting/approval-enforcement');
 const enforced = async (c: string) => (await pool.query(
-  'SELECT document_type FROM approval_enforcement WHERE company_id = $1 ORDER BY document_type', [c])).rows.map((x) => x.document_type);
+  "SELECT document_type FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1 ORDER BY document_type",
+  [c])).rows.map((x) => x.document_type);
 const audits = async (c: string, action: string) => (await pool.query(
   `SELECT entity_ref FROM audit_log WHERE company_id = $1 AND entity_type = 'approval_enforcement' AND action = $2
    ORDER BY entity_ref`, [c, action])).rows.map((x) => x.entity_ref);
@@ -127,7 +128,7 @@ describe('a batch is judged by its members\' payment rules too', () => {
       [['supplier_payment', 'admin', 'greater_equal', 500], ['payment_batch', 'owner', 'greater_than', 9000]],
     ];
     for (const rules of cases) {
-      await pool.query('DELETE FROM approval_rules WHERE company_id = $1', [c]);
+      await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1", [c]);
       for (const [type, role, operator, value] of rules) await plantRule(pool, c, role, { documentType: type, operator, value });
       const ts = await inRequest(pool, u.a, c, () => checkApproval(c, 'payment_batch', b.id, 2800));
       const { rows: [row] } = await pool.query('SELECT approval_payment_batch_strictest_rank($1,$2) AS rank', [c, b.id]);

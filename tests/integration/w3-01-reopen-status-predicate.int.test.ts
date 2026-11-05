@@ -35,7 +35,7 @@ import approve from '../../pages/api/payroll/runs/[id]/approve';
 import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -48,7 +48,7 @@ beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'W301 reopen predicate']);
   await seedPayrollCompany(pool, company);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
-  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, admin]);
 });
@@ -65,6 +65,7 @@ describe('reopen — the status write is predicated (W3-01 breaker LOW)', () => 
     const id = await calculatedRun(call, 3);
     const url = (a: string) => `/api/payroll/runs/${id}/${a}`;
     const p = await call(journalPlan as Route, 'GET', url('journal-plan'), id);
+    await authorisePayRun(call, id);
     expect((await call(approve as Route, 'POST', url('approve'), id, { body: { expectedPlanHash: p.body.data!.planHash } })).statusCode).toBe(200);
 
     const peer = await pool.connect();
@@ -98,6 +99,7 @@ describe('reopen — the status write is predicated (W3-01 breaker LOW)', () => 
     const id = await calculatedRun(call, month);
     const url = (a: string) => `/api/payroll/runs/${id}/${a}`;
     const p = await call(journalPlan as Route, 'GET', url('journal-plan'), id);
+    await authorisePayRun(call, id);
     expect((await call(approve as Route, 'POST', url('approve'), id, { body: { expectedPlanHash: p.body.data!.planHash } })).statusCode).toBe(200);
     return id;
   };
