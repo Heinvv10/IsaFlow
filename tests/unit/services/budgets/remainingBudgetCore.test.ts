@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  budgetedSliceKey,
   computeRemaining,
   memberOnGrain,
   type RemainingInputs,
@@ -26,14 +27,19 @@ const item = (over: Partial<RemainingInputs['commitments'][number]> = {}) => ({
 /** A posted bill line linked to the PO line (default: rent, 2026-04, no dims: the PO line's own company slice). */
 const posted = (amount: number, over: Partial<RemainingInputs['commitments'][number]['billed'][number]> = {}) =>
   ({ glAccountId: 'rent', month: '2026-04', cc1Id: null, cc2Id: null, buId: null, amount, ...over });
-const inputs = (over: Partial<RemainingInputs> = {}): RemainingInputs => ({
-  versionOf: () => V,
-  grains: new Map([[`${V}|rent`, 'company']]),
-  budgets: [budget()],
-  actuals: [],
-  commitments: [],
-  ...over,
-});
+/** `budgetedSlices` defaults to the slices of `budgets` (as the reader derives it from every row of the version). */
+const inputs = (over: Partial<RemainingInputs> = {}): RemainingInputs => {
+  const budgets = over.budgets ?? [budget()];
+  return {
+    versionOf: () => V,
+    grains: new Map([[`${V}|rent`, 'company']]),
+    budgets,
+    budgetedSlices: new Set(budgets.map((b) => budgetedSliceKey(b.versionId, b.glAccountId, b.cc1Id ?? b.cc2Id ?? b.buId))),
+    actuals: [],
+    commitments: [],
+    ...over,
+  };
+};
 
 describe('memberOnGrain', () => {
   it('keeps the grain\'s dimension and drops the rest; a missing grain dimension is the unassigned slice', () => {

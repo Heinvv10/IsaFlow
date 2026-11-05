@@ -13,6 +13,7 @@ import { isLocked } from '@/components/payroll/PayrollRunStatusBadge';
 import { canWrite } from '@/lib/auth/writeRoles';
 import { PayrollRunWarnings } from '@/components/payroll/PayrollRunWarnings';
 import { PayrollRunLinesTable, PayrollRunTotals } from '@/components/payroll/PayrollRunLinesTable';
+import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
 import { PayRunReviewGrid } from '@/components/payroll/PayRunReviewGrid';
 import { RunHeaderActions } from '@/components/payroll/RunHeaderActions';
 import { useRunDetail } from '@/components/payroll/useRunDetail';
@@ -64,7 +65,8 @@ export default function PayrollRunDetailPage() {
   const canReopen = run.status === 'approved';
   // approvePayrollRun's own states; an approved run without its journal was
   // stranded before K-079 and re-approving it posts the journal.
-  const canApprove = canWrite(companyRole) && (run.status === 'calculated' || run.status === 'processed'
+  const cleared = !isApprovalHeld(run.approval) && run.approval?.state === 'approved';
+  const canApprove = canWrite(companyRole) && ((cleared && run.status === 'calculated')
     || (run.status === 'approved' && !run.journalEntryId));
 
   // Nothing reads a run the grid is still writing, and the preview must show what is stored.
@@ -89,6 +91,8 @@ export default function PayrollRunDetailPage() {
           calculate={() => void grid.drained().then(calculate)} reopen={() => void grid.drained().then(reopen)} openApprove={() => void openApprove()} />
 
         <div className="p-6 space-y-6">
+          <DocumentApprovalPanel documentType="pay_run" documentId={run.id} noun="pay run"
+            approval={run.approval} onChanged={() => load()} />
           {error && (
             <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
           )}

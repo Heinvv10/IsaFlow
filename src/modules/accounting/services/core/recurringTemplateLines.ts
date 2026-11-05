@@ -17,6 +17,9 @@ interface TemplateLine {
   amount?: unknown;
   accountId?: unknown;
   glAccountId?: unknown;
+  cc1Id?: unknown;
+  cc2Id?: unknown;
+  buId?: unknown;
 }
 
 export interface NormalisedLine {
@@ -27,7 +30,17 @@ export interface NormalisedLine {
   lineTotal: number;
   taxAmount: number;
   glAccountId: string | null;
+  /**
+   * The line's own CC1 / CC2 / BU when the template names them (budgets P5-2b). Read as given; the bill side checks
+   * them as every bill line's (`resolveBillLineDimensions`: tenant, slot, active, CC1 derived from a CC2).
+   */
+  cc1Id?: string;
+  cc2Id?: string;
+  buId?: string;
 }
+
+/** A dimension id from the template JSON: a non-blank string, else absent. */
+const dimId = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
 
 /**
  * The template's `lines` array, normalised. Absent or empty is allowed: the
@@ -54,6 +67,9 @@ export function normaliseLines(data: Record<string, unknown>): NormalisedLine[] 
       // by 100 after rounding the product is that, rounded to two decimals.
       taxAmount: Math.round(lineTotal * taxRate) / 100,
       glAccountId: account || null,
+      ...(dimId(l.cc1Id) ? { cc1Id: dimId(l.cc1Id) } : {}),
+      ...(dimId(l.cc2Id) ? { cc2Id: dimId(l.cc2Id) } : {}),
+      ...(dimId(l.buId) ? { buId: dimId(l.buId) } : {}),
     };
   });
 }

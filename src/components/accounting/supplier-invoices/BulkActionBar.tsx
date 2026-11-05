@@ -9,19 +9,27 @@ import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNotice';
 import { log } from '@/lib/logger';
-import type { BudgetPolicy } from '@/modules/accounting/services/budgets/budgetCheckTypes';
+import { OFF_SLICE_WARNING_PREFIX, type BudgetPolicy } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import { BulkBudgetModal } from './BulkBudgetModal';
 import { notify } from '@/utils/toast';
 
 /** The bulk preview's cap (`@/lib/budgetBillPreview`): a larger selection is approved without the modal; the server still checks every bill. */
 const MAX_BUDGET_PREVIEW = 50;
 
-/** Budgets P5-2 (warn): the bills approved over budget, named, so the person sees what they just approved. */
+/**
+ * Budgets P5-2 (warn): the bills approved over budget, named, so the person sees what they just approved. P5-2b: a
+ * warning for a line outside every budgeted slice starts `OFF_SLICE_WARNING_PREFIX` (`decideBudgetOutcome`); the
+ * title says which kinds the batch had.
+ */
 function notifyBudgetWarnings(data: BulkActionResult): void {
-  const over = data.results.filter((r) => r.ok && r.budgetWarnings && r.budgetWarnings.length > 0);
-  if (over.length === 0) return;
-  const names = over.map((r) => r.invoiceNumber || 'a bill').join(', ');
-  notify.warning(`${over.length === 1 ? '1 bill' : `${over.length} bills`} approved over budget`, names);
+  const warned = data.results.filter((r) => r.ok && r.budgetWarnings && r.budgetWarnings.length > 0);
+  if (warned.length === 0) return;
+  const all = warned.flatMap((r) => r.budgetWarnings ?? []);
+  const offSlice = all.some((w) => w.startsWith(OFF_SLICE_WARNING_PREFIX));
+  const over = all.some((w) => !w.startsWith(OFF_SLICE_WARNING_PREFIX));
+  const what = offSlice ? (over ? 'over budget or outside a budgeted slice' : 'outside a budgeted slice') : 'over budget';
+  const names = warned.map((r) => r.invoiceNumber || 'a bill').join(', ');
+  notify.warning(`${warned.length === 1 ? '1 bill' : `${warned.length} bills`} approved ${what}`, names);
 }
 
 type BulkAction = 'approve' | 'post_gl' | 'cancel';
@@ -54,6 +62,14 @@ const COULD_NOT: Record<BulkAction, string> = {
   cancel: 'Could not cancel the invoices - try again',
 };
 const PLURAL: Record<BulkAction, string> = { approve: 'approves', post_gl: 'GL postings', cancel: 'cancels' };
+
+/** A reason without one closing full stop (an ellipsis is kept); never empty. */
+export function withoutClosingStop(reason: string): string {
+  // No regex lookbehind: Safari before 16.4 cannot parse one, and this ships to the browser.
+  const t = reason.trim();
+  const stripped = t.endsWith('.') && !t.endsWith('..') ? t.slice(0, -1).trim() : t;
+  return stripped || t || reason;
+}
 
 /** Budgets P5-2: how many of the selected bills are over budget, each judged on its own. Null when it cannot be read. */
 async function budgetPreview(ids: string[]): Promise<{ policy: BudgetPolicy; overBills: number } | null> {
@@ -112,15 +128,21 @@ export function BulkActionBar({
         // selection typically fails for ONE reason (a status the action
         // refuses), and the operator needs to know which reason and how many,
         // not the first id's message alone.
-        const byReason = new Map<string, number>();
+        // Keyed by the reason without its closing full stop, so "x." and "x" group.
+        const byReason = new Map<string, { count: number; shown: string }>();
         for (const r of data.results) {
           if (r.ok) continue;
-          const reason = r.error || 'no reason was given';
-          byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
+          const shown = r.error?.trim() || 'no reason was given';
+          const key = withoutClosingStop(shown);
+          const seen = byReason.get(key);
+          byReason.set(key, { count: (seen?.count ?? 0) + 1, shown: seen?.shown ?? shown });
         }
-        const detail = Array.from(byReason.entries())
-          .map(([reason, count]) => (byReason.size > 1 ? `${count}× ${reason}` : reason))
-          .join('; ');
+        // One reason is shown as the server gave it. Several are joined by '; ' into
+        // one sentence: each loses its closing stop (no ".;") and the list ends with one.
+        const groups = Array.from(byReason.entries());
+        const detail = groups.length > 1
+          ? `${groups.map(([key, g]) => `${g.count}× ${key}`).join('; ')}.`
+          : groups[0]?.[1].shown ?? '';
         failure = `${data.failed} of ${data.total} ${PLURAL[action]} failed${detail ? `: ${detail}` : ''}`;
       }
       // Reload first: the page's reload clears its error, so a failure set

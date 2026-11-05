@@ -189,6 +189,15 @@ describe('assertMayDecide — sole-approver self-approval', () => {
     await expect(decide('approved')).resolves.toEqual({ selfApproval: 'sole_approver', requiredRole: 'owner', approverRoster: ROSTER });
   });
 
+  it.each(['one-person company', 'bureau with one eligible approver'])(
+    'keeps the audited sole-eligible exception for a %s',
+    async () => {
+      row({ is_self: true, approver_role: 'manager', decider_role: 'manager' });
+      otherMembers([]);
+      await expect(decide('approved')).resolves.toMatchObject({ selfApproval: 'sole_approver' });
+    },
+  );
+
   it('counts a HIGHER rank as able to approve', async () => {
     row({ is_self: true, approver_role: 'admin', decider_role: 'admin' });
     otherMembers([{ role: 'owner' }]);

@@ -21,6 +21,18 @@ import { rebindPendingRequest } from './approvalRebind';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { ApprovalDocumentNotFoundError, ApprovalRequestStaleError } from './approvalDocumentErrors';
 import { insertRequestRow, raiseRefusal } from './approvalRequestWrites';
+import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
+
+/**
+ * The bill row FOR SHARE, company-scoped, under the 5 s row-lock budget (a held row: SupplierInvoiceLockTimeoutError,
+ * answered 503 + Retry-After: a raise can wait up to 5 s behind a bulk approve). ONE bill per transaction: a future
+ * raise that locks several bills must take them in id order, as bulk approve does, or the two deadlock (40P01,
+ * breaker R5-1c).
+ */
+async function shareLockSupplierInvoice(companyId: string, invoiceId: string): Promise<void> {
+  await withSupplierInvoiceLock('requestApproval', invoiceId, () => sql`
+    SELECT 1 FROM supplier_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID FOR SHARE`);
+}
 
 export { ApprovalDocumentNotFoundError } from './approvalDocumentErrors';
 
@@ -142,6 +154,15 @@ async function findDocument(
                approval_document_digest(company_id, 'manual_journal', id) AS digest
         FROM gl_journal_entries WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
+    case 'pay_run':
+      return first((await sql`
+        SELECT COALESCE(total_gross, 0) AS amount,
+               lpad(period_month::text, 2, '0') || '/' || period_year::text AS reference,
+               approval_document_digest(company_id, 'pay_run', id) AS digest
+        FROM payroll_run_headers
+        WHERE id = ${documentId}::UUID AND company_id = ${companyId}
+          AND prepared_by IS NOT NULL AND approval_plan_hash IS NOT NULL
+      `) as Row[]);
     case 'journal_entry':
       return first((await sql`
         SELECT COALESCE((
@@ -218,6 +239,11 @@ async function raiseOnce(companyId: string, input: {
   documentId: string;
   requestedBy: string;
 }): Promise<ApprovalRequest> {
+  // P5-2b (breaker R4-2): a bill's lines can change under a draft without a content edit (a slip attach inherits the
+  // provisional's dimensions, `capture/captureSlipReplan.inheritOnAttach`, under the bill's row lock). Share-locking
+  // the bill first makes the raise wait for such a write and hash its result; nothing after this in the raise locks
+  // a bank line, journal or captured document, so it adds no cycle with the attach (bank → journal → document → bill).
+  if (input.documentType === 'supplier_invoice') await shareLockSupplierInvoice(companyId, input.documentId);
   const document = await resolveApprovalDocument(companyId, input.documentType, input.documentId);
   const check = await checkApprovalRules(companyId, input.documentType, input.documentId, document.amount);
   // One pending request per document — enforced by uq_approval_requests_pending

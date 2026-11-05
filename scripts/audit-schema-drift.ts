@@ -10,7 +10,8 @@
  * drift loud.
  *
  * Fails with exit code 1 when any column or table declared in migrations
- * is missing from the live DB, so it can run in CI before deploy.
+ * is missing from the live DB, so it can run in CI before deploy. Exit code 2:
+ * the audit could not run (a migration it cannot parse, or no live schema).
  *
  * Usage:
  *   bun scripts/audit-schema-drift.ts
@@ -103,7 +104,14 @@ function parseAllowlist(): Allowlist {
 }
 
 (async () => {
-  const expected = parseExpectedSchema();
+  let expected: Map<string, Set<string>>;
+  try {
+    expected = parseExpectedSchema();
+  } catch (err) {
+    // A migration the parser cannot read: say so plainly (exit 2, as for the live schema below), not as an unhandled rejection.
+    console.error('ERROR:', err instanceof Error ? err.message : String(err));
+    process.exit(2);
+  }
   const allow = parseAllowlist();
 
   let live: Map<string, Set<string>>;
@@ -160,4 +168,9 @@ function parseAllowlist(): Allowlist {
   console.error('  --allow=table_name:col_name     (single column)');
   console.error('  --allow=t1:c1,t2:*,t3:c3        (combine, comma-separated)');
   process.exit(1);
-})();
+})().catch((err: unknown) => {
+  // Any failure the steps above did not name (the allowlist, the comparison): the same ERROR line and exit 2 as
+  // a parse or live-schema failure, never an unhandled rejection with a stack trace.
+  console.error('ERROR:', err instanceof Error ? err.message : String(err));
+  process.exit(2);
+});

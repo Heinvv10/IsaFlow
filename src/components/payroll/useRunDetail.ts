@@ -7,6 +7,7 @@ import { apiFetch, assertOk, apiErrorMessage, apiJson, ApiRequestError } from '@
 import type { ApproveResult } from '@/components/payroll/PayrollApproveDialog';
 import type { RunLineWarning } from '@/components/payroll/PayrollRunWarnings';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 export interface RunDetailLine {
   id: string;
@@ -39,6 +40,7 @@ export interface RunDetail {
   totalNet: number;
   employeeCount: number;
   journalEntryId: string | null;
+  approval: DocumentApprovalState | null;
   lines: RunDetailLine[];
 }
 

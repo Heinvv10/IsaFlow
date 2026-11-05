@@ -160,7 +160,9 @@ describe('the enforcement switch', () => {
     const c = await company();
     const res = await call(u.b, c, 'journal_entry', true);
     expect(res.state.statusCode).toBe(400);
-    expect((await pool.query('SELECT 1 FROM approval_enforcement WHERE company_id = $1', [c])).rows).toEqual([]);
+    expect((await pool.query(
+      "SELECT 1 FROM approval_enforcement WHERE company_id = $1 AND document_type = 'journal_entry'", [c],
+    )).rows).toEqual([]);
   });
 
   it.each(['customer_credit_note', 'supplier_credit_note'])(

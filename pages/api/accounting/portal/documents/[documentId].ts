@@ -45,7 +45,7 @@ async function handler(req: PortalApiRequest, res: NextApiResponse) {
 
   // Load sections (exclude version_history for payload size)
   const sections = await sql`
-    SELECT id, section_type, sort_order, status, content, ai_narrative, created_at, updated_at
+    SELECT id, section_type, sort_order, status, content, overrides, ai_narrative, ai_narrative_accepted, created_at, updated_at
     FROM afs_sections
     WHERE document_id = ${documentId}::UUID AND company_id = ${companyId}::UUID
     ORDER BY sort_order ASC

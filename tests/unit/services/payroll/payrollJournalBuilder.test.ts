@@ -23,6 +23,11 @@ vi.mock('@/lib/neon', () => ({
   },
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+// The bank role's holder is this chart's 1110 (the holder is judged in payrollJournalBankRole.test.ts).
+const bank = vi.hoisted(() => ({ isActive: true }));
+vi.mock('@/modules/accounting/services/gl/bankRoleHolder', () => ({
+  resolveBankRoleHolder: vi.fn(async () => ({ account: { id: 'acc-1110', code: '1110', name: 'Bank - Primary', isActive: bank.isActive }, refusal: null })),
+}));
 vi.mock('@/modules/accounting/services/payroll/costCentreGlMappingService', () => ({
   getMappingLookup: vi.fn(async () => ({})),
 }));
@@ -78,6 +83,7 @@ function standardRoutes(overrides: Partial<Record<string, unknown[]>> = {}): Rou
 }
 
 beforeEach(() => {
+  bank.isActive = true;
   sqlCalls.length = 0;
   mockImpl = () => Promise.resolve([]);
 });
@@ -179,9 +185,8 @@ describe('buildPayrollJournalPlan — deactivated accounts block the post, and t
     // Fibre 1110. The line is kept (dropping it would understate the journal),
     // but postJournalEntry refuses a deactivated account, so the plan must too —
     // an advisory here greenlit a dry run the live post refused (K-079 review).
-    routeMock(standardRoutes({
-      accounts: ACCOUNTS.map((a) => (a.account_code === '1110' ? { ...a, is_active: false } : a)),
-    }));
+    bank.isActive = false; // the bank-role holder (1110 on this chart) is the deactivated one
+    routeMock(standardRoutes());
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
 
     expect(plan!.lines.find((l) => l.accountCode === '1110')!.credit).toBeCloseTo(76000, 2);
@@ -201,6 +206,7 @@ describe('buildPayrollJournalPlan — deactivated accounts block the post, and t
   });
 
   it('names every inactive target account, not just the first', async () => {
+    bank.isActive = false;
     routeMock(standardRoutes({ accounts: ACCOUNTS.map((a) => ({ ...a, is_active: false })) }));
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
     const blocker = plan!.blockers.find((b) => b.code === 'inactive_target_account');
