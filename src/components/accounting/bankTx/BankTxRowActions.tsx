@@ -4,9 +4,10 @@
  * excluded one.
  */
 
-import { Check, X, Undo2, Scissors, SearchCheck, RotateCcw, Paperclip, BookmarkPlus, MessageCircle } from 'lucide-react';
+import { Check, X, Undo2, Scissors, SearchCheck, RotateCcw, BookmarkPlus, MessageCircle } from 'lucide-react';
 import { isPendingFeedRow, PendingFeedNotice } from '../bank-transactions/pendingFeedRow';
 import { BankTxLinkAction } from '../bank-transactions/BankTxLinkAction';
+import { BankTxAttachmentButton } from './BankTxAttachmentButton';
 import type { BankTx, BankTxTableProps, RowSelection } from './bankTxTypes';
 
 interface Props {
@@ -67,12 +68,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
                 </button>
               )}
               {onLink && <BankTxLinkAction link={tx.link} rowName={label} onOpen={() => onLink(tx)} />}
-              {onAttachments && (
-                <button onClick={() => onAttachments(tx.id)} title="Attachments" aria-label={`Attachments, ${label}`}
-                  className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                  <Paperclip className="h-3.5 w-3.5" />
-                </button>
-              )}
+              {onAttachments && <BankTxAttachmentButton txId={tx.id} count={tx.attachmentCount} rowName={label} onOpen={onAttachments} />}
               {onAskClient && (
                 <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label={`Ask client on WhatsApp, ${label}`}
                   className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
@@ -94,12 +90,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
                 </button>
               )}
               {onLink && <BankTxLinkAction link={tx.link} rowName={label} onOpen={() => onLink(tx)} />}
-              {onAttachments && (
-                <button onClick={() => onAttachments(tx.id)} title="Attachments" aria-label={`Attachments, ${label}`}
-                  className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                  <Paperclip className="h-3.5 w-3.5" />
-                </button>
-              )}
+              {onAttachments && <BankTxAttachmentButton txId={tx.id} count={tx.attachmentCount} rowName={label} onOpen={onAttachments} />}
               {onAskClient && (
                 <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label={`Ask client on WhatsApp, ${label}`}
                   className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
@@ -120,12 +111,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
                 </button>
               )}
               {onLink && <BankTxLinkAction link={tx.link} rowName={label} onOpen={() => onLink(tx)} />}
-              {onAttachments && (
-                <button onClick={() => onAttachments(tx.id)} title="Attachments" aria-label={`Attachments, ${label}`}
-                  className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                  <Paperclip className="h-3.5 w-3.5" />
-                </button>
-              )}
+              {onAttachments && <BankTxAttachmentButton txId={tx.id} count={tx.attachmentCount} rowName={label} onOpen={onAttachments} />}
               {onAskClient && (
                 <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label={`Ask client on WhatsApp, ${label}`}
                   className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
