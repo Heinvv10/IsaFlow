@@ -2,6 +2,7 @@ import { log } from '@/lib/logger';
 import { getCashFlowDirect } from './cashFlowDirectService';
 import { getCashBalance } from '../bank/cashBalanceService';
 import { getIndirectCashFlow } from '../reports/cashFlowIndirectService';
+import { toMoney } from '@/lib/money/decimalSum';
 
 export interface CashFlowReconciliation {
   periodStart: string;
@@ -19,8 +20,12 @@ const TOLERANCE = 0.01;
 // cashFlowIndirectService), compared with the ledger cash. It used to return the ledger cash itself, so the
 // "indirect vs direct vs bank" check could never fail: the Reports statement closed R150 short of the ledger
 // (a VAT movement left out) and this still said "Reconciled".
+// The statement always closes on the ledger's cash, so what it says about itself is what its journals could NOT explain:
+// the closing the journals' movements reach is `closingCash - unexplainedDifference`, and a statement that does not tie
+// reads differently from the ledger cash here.
 async function fetchIndirectClosingCash(companyId: string, periodStart: string, periodEnd: string): Promise<number> {
-  return (await getIndirectCashFlow(companyId, periodStart, periodEnd)).closingCash;
+  const cf = await getIndirectCashFlow(companyId, periodStart, periodEnd);
+  return toMoney(cf.closingCash - cf.unexplainedDifference);
 }
 
 // `cash.balance.v1`. Its own copy of this query signed each account by its

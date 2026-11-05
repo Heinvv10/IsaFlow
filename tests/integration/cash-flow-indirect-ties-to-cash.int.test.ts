@@ -139,7 +139,7 @@ describeIfDb('cash flow statement (indirect) ties to the ledger cash', () => {
   it.each(PERIODS)('%s..%s: the AFS reconciliation runs the real indirect statement and finds it tied', async (start, end) => {
     const rec = await getCashFlowReconciliation(CO, start, end);
     const r = await report(start, end);
-    expect(rec.indirectClosing).toBe(r.closing_cash); // the statement's closing, not the ledger cash read a second time
+    expect(rec.indirectClosing).toBe(r.closing_cash); // the closing the statement's journals reach (= the ledger's when they explain it)
     expect(rec.isReconciled, JSON.stringify(rec)).toBe(true);
     expect(rec.variance).toBeLessThan(0.01);
   });

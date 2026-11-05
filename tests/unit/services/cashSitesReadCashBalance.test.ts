@@ -86,7 +86,7 @@ describe('afsKpiCash reads cash.balance.v1', () => {
 
 describe('cashFlowReconciliationService reads cash.balance.v1', () => {
   it('states the bank balance as closing cash at period end (the indirect closing is the statement\'s own)', async () => {
-    vi.mocked(getIndirectCashFlow).mockResolvedValueOnce({ closingCash: CLOSING } as Awaited<ReturnType<typeof getIndirectCashFlow>>);
+    vi.mocked(getIndirectCashFlow).mockResolvedValueOnce({ closingCash: CLOSING, unexplainedDifference: 0 } as Awaited<ReturnType<typeof getIndirectCashFlow>>);
     const recon = await getCashFlowReconciliation(COMPANY, START, END);
     expect(recon.bankBalance).toBe(CLOSING);
     expect(recon.indirectClosing).toBe(CLOSING);

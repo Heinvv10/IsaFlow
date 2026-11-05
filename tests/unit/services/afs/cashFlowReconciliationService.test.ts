@@ -24,7 +24,8 @@ import { getCashFlowReconciliation } from '@/modules/accounting/services/afs/cas
 const mockGetDirect = getCashFlowDirect as MockedFunction<typeof getCashFlowDirect>;
 const mockGetCash = getCashBalance as MockedFunction<typeof getCashBalance>;
 const mockGetIndirect = getIndirectCashFlow as MockedFunction<typeof getIndirectCashFlow>;
-const statement = (closingCash: number) => ({ periodStart: PERIOD_START, periodEnd: PERIOD_END, openingCash: 15000, sections: [], netChange: closingCash - 15000, closingCash });
+// The statement always closes on the ledger's cash; `unexplainedDifference` is what its journals could not account for.
+const statement = (closingCash: number, unexplainedDifference = 0) => ({ periodStart: PERIOD_START, periodEnd: PERIOD_END, openingCash: 15000, sections: [], netChange: closingCash - 15000, closingCash, unexplainedDifference });
 const cash = (total: number) => ({ asAt: '2026-12-31', total, accounts: [], deactivatedWithBalance: [], postedThrough: null });
 
 const COMPANY_ID = 'd27bac33-cdc0-4e58-bf6b-709c1597d41c';
@@ -80,10 +81,11 @@ describe('cashFlowReconciliationService', () => {
   });
 
   it('flags an indirect statement that does not tie to the ledger cash, even when direct and bank agree', async () => {
-    // The #1149 case: the statement closed at 287 750 while the ledger held 287 900 (a VAT movement left out).
+    // The #1149 case: the journals' movements reach 287 750 while the ledger holds 287 900 (a movement left out). The
+    // statement closes on the ledger and says so with an unexplained difference of 150.
     mockGetDirect.mockResolvedValueOnce({ ...DIRECT_REPORT, closingCash: 287900 });
     mockGetCash.mockResolvedValue(cash(287900));
-    mockGetIndirect.mockResolvedValue(statement(287750));
+    mockGetIndirect.mockResolvedValue(statement(287900, 150));
 
     const result = await getCashFlowReconciliation(COMPANY_ID, PERIOD_START, PERIOD_END);
 

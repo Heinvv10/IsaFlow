@@ -11,6 +11,7 @@ import { als } from '@/lib/als';
 import { getIndirectCashFlow, type IndirectCashFlow } from '@/modules/accounting/services/reports/cashFlowIndirectService';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { getCashFlowDirect } from '@/modules/accounting/services/afs/cashFlowDirectService';
+import { getCashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
@@ -264,6 +265,19 @@ describeIfDb('PR #1156 adversarial: by-construction tie assumptions', () => {
       const u = ind.sections.find((s) => s.section === 'Unexplained Difference')!;
       expect(u.items).toEqual([expect.objectContaining({ amount: 1234, label: expect.stringMatching(/^Unexplained difference/) })]);
       expect(ind.openingCash + ind.netChange).toBeCloseTo(ind.closingCash, 2);
+    });
+  });
+
+  it('L1b the AFS reconciliation FLAGS a ledger whose cash the journals do not explain (the check that used to be a tautology)', async () => {
+    await inTx(async ({ acct, j }) => {
+      const bank = await acct('asset', 'bank'), re = await acct('equity', 'retained_earnings'), rev = await acct('revenue', 'revenue');
+      await j('2026-11-05', [[bank, 100, 0], [rev, 0, 100]]);
+      await j('2026-11-30', [[bank, 1234, 0], [re, 0, 1234]], { source: YEAR_END_JOURNAL_SOURCE });
+      const rec = await getCashFlowReconciliation(CO, ...P);
+      expect(rec.bankBalance).toBe(1334);
+      expect(rec.indirectClosing).toBe(100); // what the journals' movements reach
+      expect(rec.isReconciled).toBe(false);
+      expect(rec.variance).toBeCloseTo(1234, 2);
     });
   });
 
