@@ -93,8 +93,9 @@ describe('CLAIM 7 — MCP approve_pay_run', () => {
     out.calculate = { isError: recalc.isError, gross: recalc.json?.total_gross };
     const stale = await tool('approve_pay_run', { run_id: id, expected_plan_hash: dry.json?.plan_hash });
     out.liveStaleHashAfterRecalc = stale; expect.soft(stale.isError && stale.wroteNothing, 'stale hash').toBe(true);
-    const dry2 = await tool('approve_pay_run', { run_id: id, dry_run: true });
+    // R-035: the dry run refuses a plan no person has cleared, so a person clears it first.
     await r.authorise(id);
+    const dry2 = await tool('approve_pay_run', { run_id: id, dry_run: true });
     const live = await tool('approve_pay_run', { run_id: id, expected_plan_hash: dry2.json?.plan_hash });
     out.live = live; expect.soft(live.isError).toBe(false);
     const j1 = String(live.json?.journal_entry_id);
@@ -104,8 +105,8 @@ describe('CLAIM 7 — MCP approve_pay_run', () => {
     // parity on every gate state: dry run refuses exactly when the live call refuses
     const parity: unknown[] = [];
     const both = async (state: string) => {
+      if (!(await r.api.preview(id)).body.data?.blocker) await r.authorise(id);
       const d = await tool('approve_pay_run', { run_id: id, dry_run: true });
-      if (!d.isError) await r.authorise(id);
       const l = await tool('approve_pay_run', { run_id: id, expected_plan_hash: d.json?.plan_hash ?? 'f'.repeat(64) });
       parity.push({ state, dryRefuses: d.isError, dryWroteNothing: d.wroteNothing, liveRefuses: l.isError, dry: d.text.slice(0, 120), live: l.text.slice(0, 120) });
       expect.soft(d.wroteNothing, `${state}: dry run wrote nothing`).toBe(true);

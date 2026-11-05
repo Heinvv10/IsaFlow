@@ -131,13 +131,18 @@ export const postPayrollJournalTool: McpTool = {
     const plan = await buildPayrollJournalPlan(ctx.companyId, runId);
     if (!plan) return toolError(NOT_FOUND);
 
-    try {
-      await assertPayRunApproved(ctx.companyId, runId);
-    } catch (err) {
-      if (err instanceof ApprovalRequiredError || (err instanceof Error && err.message.includes('reviewed approval plan'))) {
-        return toolError('A person must approve this pay run in ISAFlow before the connector can post it.');
+    // A blocker of the plan's own (a loan above pay) is named before the
+    // approval question: a person's approval would not clear it.
+    const ownBlocker = plan.blockers.some((b) => b.code !== 'run_not_approved');
+    if (!ownBlocker) {
+      try {
+        await assertPayRunApproved(ctx.companyId, runId);
+      } catch (err) {
+        if (err instanceof ApprovalRequiredError || (err instanceof Error && err.message.includes('reviewed approval plan'))) {
+          return toolError('A person must approve this pay run in ISAFlow before the connector can post it.');
+        }
+        throw err;
       }
-      throw err;
     }
 
     if (plan.blockers.length > 0) {
