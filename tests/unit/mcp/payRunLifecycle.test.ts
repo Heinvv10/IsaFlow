@@ -30,6 +30,10 @@ vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', () => ({
   approvePayrollRun: vi.fn(),
   previewPayrollApproval: vi.fn(),
 }));
+// R-035 clearance reads the approval tables; cleared unless a test says otherwise.
+vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({
+  assertPayRunApproved: vi.fn(async () => ({ grandfathered: false, planHash: 'hash-1' })),
+}));
 // The error classes must be the real ones — the tool branches on them, and a
 // stubbed sentinel would let those branches pass by accident.
 vi.mock('@/modules/accounting/services/payroll/payrollRunLoanApplication', async () => {
@@ -124,7 +128,7 @@ describe('calculate_pay_run', () => {
     expect(out.period).toBe('04/2025');
     expect(out.total_gross).toBe(250000);
     expect(out.total_paye).toBe(45000);
-    expect(calculatePayrollRun).toHaveBeenCalledWith(RUN, COMPANY);
+    expect(calculatePayrollRun).toHaveBeenCalledWith(RUN, COMPANY, ctx().userId);
   });
 
   it('warns that the post-March-2026 ETI table is unconfirmed when ETI is claimed', async () => {

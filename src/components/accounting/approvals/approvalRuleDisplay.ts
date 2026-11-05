@@ -19,6 +19,7 @@ export interface ApprovalRuleRow {
 }
 
 export const DOC_TYPE_LABELS: Record<string, string> = {
+  pay_run: 'Pay run',
   customer_invoice: 'Customer Invoice',
   supplier_invoice: 'Supplier Invoice',
   payment: 'Payment',

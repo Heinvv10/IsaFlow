@@ -16,8 +16,8 @@ vi.mock('../../src/modules/accounting/services/payroll/payrollRunService', async
   const actual = await importOriginal<typeof import('../../src/modules/accounting/services/payroll/payrollRunService')>();
   return {
     ...actual,
-    calculatePayrollRun: async (runId: string, companyId: string) => {
-      const summary = await actual.calculatePayrollRun(runId, companyId);
+    calculatePayrollRun: async (runId: string, companyId: string, preparedBy?: string) => {
+      const summary = await actual.calculatePayrollRun(runId, companyId, preparedBy);
       if (failCalculation.on) throw new Error('calculation failed after the write');
       return summary;
     },
@@ -32,7 +32,7 @@ import { calculatedRun, type Route } from './w3-01-payroll.helpers';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const fx = inputsFixture(pool);
-const { state, set, get, put, rows, line, preview, doApprove, call, viewer } = fx;
+const { state, set, get, put, rows, line, preview, doApprove, call, approver, viewer } = fx;
 const comp = state.comp;
 
 beforeAll(fx.setUp);
@@ -173,6 +173,15 @@ describe('what the grid may not touch', () => {
 });
 
 describe('approval after an edit', () => {
+  it('refuses the editor approval when another eligible approver exists, even though someone else created the run', async () => {
+    expect((await set(state.nov, comp.overtime!, 1000, state.employee, 0, { user: approver })).statusCode).toBe(200);
+    const prepared = await pool.query<{ prepared_by: string }>('SELECT prepared_by FROM payroll_run_headers WHERE id = $1', [state.nov]);
+    expect(prepared.rows[0]!.prepared_by).toBe(approver);
+    await expect(doApprove(state.nov, (await preview(state.nov)).body.data!.planHash))
+      .rejects.toThrow(/approve pay-run request: 403/);
+    expect((await fx.header(state.nov)).status).toBe('calculated');
+  });
+
   it('a preview taken before the edit is refused 409', async () => {
     const stale = (await preview(state.nov)).body.data!.planHash;
     expect((await set(state.nov, comp.overtime!, 1000)).statusCode).toBe(200);

@@ -52,8 +52,8 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
 
   afterAll(async () => {
     await sql`DELETE FROM vat_period_locks WHERE company_id = ${c.fx.companyId}::UUID`;
-    await sql`DELETE FROM approval_rules WHERE company_id = ${c.fx.companyId}::UUID`;
-    await sql`DELETE FROM approval_enforcement WHERE company_id = ${c.fx.companyId}::UUID`;
+    await sql`DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = ${c.fx.companyId}::UUID`;
+    await sql`DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = ${c.fx.companyId}::UUID`;
     await sql`DELETE FROM impersonation_sessions WHERE target_user_id = ${c.fx.userId}`;
     await dropRouteUser(c.fx);
     await dropFixture(c.fx);
@@ -177,8 +177,8 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     await sql`DELETE FROM approval_requests WHERE company_id = ${c.fx.companyId}::UUID`;
     await sql`DELETE FROM gl_journal_entries WHERE id = ${journalId}::UUID AND company_id = ${c.fx.companyId}::UUID`;
     // The rule stays out of the later tests' way.
-    await sql`DELETE FROM approval_rules WHERE company_id = ${c.fx.companyId}::UUID`;
-    await sql`DELETE FROM approval_enforcement WHERE company_id = ${c.fx.companyId}::UUID`;
+    await sql`DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = ${c.fx.companyId}::UUID`;
+    await sql`DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = ${c.fx.companyId}::UUID`;
   }, 60000);
 
   // R-032 L5 (sec-nrfa M1): a Login-as session is refused 403 before anything is read or written.

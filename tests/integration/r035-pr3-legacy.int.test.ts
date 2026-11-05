@@ -28,7 +28,8 @@ const company = () => newCompany(pool, [[owner, 'owner']], companies);
 const createRuleVia = (c: string, documentType: string) => callRoute(approvalRules, tokens[owner]!, c, 'POST',
   { name: `R035 ${documentType}`, documentType, conditionOperator: 'any', approverRole: 'owner' }, '/api/accounting/approval-rules');
 const rulesOf = async (c: string) => (await pool.query(
-  'SELECT document_type, is_active FROM approval_rules WHERE company_id = $1 ORDER BY document_type', [c])).rows;
+  "SELECT document_type, is_active FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1 ORDER BY document_type",
+  [c])).rows;
 
 describe('(a) a new legacy credit_note rule is refused', () => {
   it('400 naming customer_credit_note and supplier_credit_note; nothing written', async () => {

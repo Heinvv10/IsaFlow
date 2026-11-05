@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 import components from '../../pages/api/payroll/employees/[id]/components';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
@@ -59,7 +59,7 @@ beforeAll(async () => {
   salary = String((await pool.query('SELECT component_id FROM payroll_employee_components WHERE id=$1', [seeded])).rows[0]!.component_id);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [company, admin]);
-  const token = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  const token = await new SignJWT({ sub: admin, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   call = routeCaller({ [admin]: token }, { user: admin, company });
   bonus = crypto.randomUUID();
@@ -218,6 +218,7 @@ describe('4-6', () => {
   it('4: a once-off back-dated into an approved month is refused for an employee who was not on that run', async () => {
     const april = await calculatedRun(call, 4);
     const plan = await call(journalPlan as Route, 'GET', `/api/payroll/runs/${april}/journal-plan`, april);
+    await authorisePayRun(call, april);
     const ok = await call(approve as Route, 'POST', `/api/payroll/runs/${april}/approve`, april, { body: { expectedPlanHash: plan.body.data?.planHash } });
     expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
     await employee('lateHire', '2026-06-01', null);
