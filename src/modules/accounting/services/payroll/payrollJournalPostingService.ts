@@ -19,7 +19,6 @@ import { postJournalEntry, reverseJournalEntry } from '@/modules/accounting/serv
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { buildPayrollJournalPlan, type PayrollJournalPlan } from './payrollJournalBuilder';
 import { lockPayrollRunHeader } from './payrollRunLock';
-import { PayrollJournalDeadlockError, isDeadlockDetected } from './payrollJournalDeadlock';
 
 type Row = DbRow;
 
@@ -49,21 +48,6 @@ const BLOCKER_MESSAGES: Record<string, (detail: string) => string> = {
  * would be posted under a hash that never described it (W3-01 breaker D).
  */
 export async function postPayrollRunJournal(
-  companyId: string,
-  runId: string,
-  userId: string,
-  opts?: { postingAgent?: string; plan?: PayrollJournalPlan },
-): Promise<string> {
-  try {
-    return await postLockedRunJournal(companyId, runId, userId, opts);
-  } catch (err) {
-    // A batch of posts in opposite orders (see payrollJournalDeadlock): retryable, not a fault.
-    if (isDeadlockDetected(err)) throw new PayrollJournalDeadlockError(runId);
-    throw err;
-  }
-}
-
-async function postLockedRunJournal(
   companyId: string,
   runId: string,
   userId: string,

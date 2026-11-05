@@ -6,6 +6,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+
 vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({ createPayrollRun: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunQueryService', () => ({ listPayRunsPage: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalBuilder', () => ({ buildPayrollJournalPlan: vi.fn() }));
@@ -16,9 +18,9 @@ import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/p
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollLoanLock';
-import { PayrollJournalDeadlockError } from '@/modules/accounting/services/payroll/payrollJournalDeadlock';
 import { postPayrollJournalTool } from '@/lib/mcp/tools/writePayroll';
 import { GENERIC_FAILURE, thrownToolErrorText } from '@/lib/mcp/thrownToolErrorText';
+import { log } from '@/lib/logger';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 const COMPANY = '22222222-2222-2222-2222-222222222222';
@@ -95,17 +97,25 @@ describe('post_payroll_journal — what a lost lock race says', () => {
     expect(postPayrollRunJournal).not.toHaveBeenCalled();
   });
 
-  it('a deadlock on the header lock (a batch locking runs in opposite orders) is a retryable tool error', async () => {
+  it('a deadlock on the header lock is NOT swallowed by the tool: it propagates so the registry answers it (one mechanism)', async () => {
     vi.mocked(lockPayrollRunHeader).mockRejectedValue(deadlock);
-    const res = await postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx);
-    expect(res.isError).toBe(true);
-    expect(text(res)).toBe(new PayrollJournalDeadlockError(RUN).message);
-    expect(text(res)).toMatch(/retry/);
+    await expect(postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx)).rejects.toBe(deadlock);
     expect(postPayrollRunJournal).not.toHaveBeenCalled();
   });
+});
 
-  it('the poster\'s deadlock error keeps its own message when thrown, where a raw 40P01 would read GENERIC_FAILURE', () => {
-    expect(thrownToolErrorText('post_payroll_journal', new PayrollJournalDeadlockError(RUN))).toBe(new PayrollJournalDeadlockError(RUN).message);
-    expect(thrownToolErrorText('post_payroll_journal', deadlock)).toBe(GENERIC_FAILURE);
+describe('a thrown 40P01 from ANY MCP tool (approve_pay_run\'s own locks included)', () => {
+  it.each(['approve_pay_run', 'post_payroll_journal', 'void_payment'])('%s: retryable refusal, not GENERIC_FAILURE, no driver text', (tool) => {
+    const out = thrownToolErrorText(tool, deadlock);
+    expect(out).not.toBe(GENERIC_FAILURE);
+    expect(out).toMatch(/^[a-z_]+: another request holds locks this one needs \(deadlock\)/);
+    expect(out).toMatch(/nothing was written; retry in a moment/);
+    expect(out).not.toMatch(/40P01|deadlock detected|opposite orders/);
+  });
+
+  it('logs the original driver error with the tool, and leaves other errors generic', () => {
+    thrownToolErrorText('approve_pay_run', deadlock);
+    expect(log.warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ tool: 'approve_pay_run', error: 'deadlock detected' }), 'mcp');
+    expect(thrownToolErrorText('approve_pay_run', new Error('boom'))).toBe(GENERIC_FAILURE);
   });
 });

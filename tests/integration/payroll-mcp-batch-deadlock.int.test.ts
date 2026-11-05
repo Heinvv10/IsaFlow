@@ -2,7 +2,7 @@
  * Two MCP JSON-RPC batches (one request transaction each) posting two runs in opposite order. After a batch
  * creates a journal it holds the company-wide journal-numbering advisory lock; locking the next run's header then
  * inverts the single call's order (header, then numbering), so Postgres kills one batch with 40P01. That victim
- * is answered as a retryable refusal naming the cause (not GENERIC_FAILURE), and once retried on its own every run
+ * is answered by the registry's central 40P01 mapping as a retryable refusal (not GENERIC_FAILURE), and once retried on its own every run
  * ends with exactly one journal. Disposable fixture DB only.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
@@ -35,7 +35,11 @@ const journalCount = async (run: string): Promise<number> => (await r.pool.query
   "SELECT count(*)::int n FROM payroll_run_headers h JOIN gl_journal_entries j ON j.id = h.journal_entry_id WHERE h.id = $1 AND j.source = 'auto_payroll'", [run])).rows[0].n;
 const waitingOnLock = async (): Promise<void> => {
   for (let i = 0; i < 100; i++) {
-    const w = await r.pool.query("SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'");
+    // The waiter is inside the numbering trigger, so its top-level query text is the INSERT, not
+    // pg_advisory_xact_lock; filter on what it waits FOR: an ungranted advisory lock in this database.
+    const w = await r.pool.query(
+      `SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+        WHERE l.locktype = 'advisory' AND NOT l.granted AND a.datname = current_database()`);
     if (w.rowCount) return;
     await new Promise((x) => setTimeout(x, 50));
   }
@@ -64,7 +68,8 @@ it('the deadlock victim is told to retry; each run ends with exactly one journal
   expect(refused).toHaveLength(1);
   expect(refused[0]!.text).not.toBe(GENERIC_FAILURE);
   expect(refused[0]!.text).not.toMatch(/40P01|database error/);
-  expect(refused[0]!.text).toMatch(/opposite orders/);
+  expect(refused[0]!.text).toMatch(/\(deadlock\)/);
+  expect(refused[0]!.text).toMatch(/nothing was written/);
   expect(refused[0]!.text).toMatch(/retry/);
 
   for (const run of [r1, r2]) { // the victim's retry, on its own

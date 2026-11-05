@@ -23,7 +23,6 @@ vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ 
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
-import { PayrollJournalDeadlockError } from '@/modules/accounting/services/payroll/payrollJournalDeadlock';
 
 const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const RUN = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -83,19 +82,5 @@ describe('postPayrollRunJournal under the header lock', () => {
 
     stampRows = [];
     await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).rejects.toThrow(/already carries a journal/);
-  });
-});
-
-describe('postPayrollRunJournal as a deadlock victim', () => {
-  it('answers a 40P01 from the journal numbering lock with the retryable PayrollJournalDeadlockError', async () => {
-    vi.mocked(createJournalEntry).mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
-    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).rejects.toBeInstanceOf(PayrollJournalDeadlockError);
-  });
-
-  it('answers a 40P01 from the header lock the same way, and leaves any other error alone', async () => {
-    vi.mocked(lockPayrollRunHeader).mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
-    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).rejects.toBeInstanceOf(PayrollJournalDeadlockError);
-    vi.mocked(createJournalEntry).mockRejectedValueOnce(new Error('boom'));
-    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).rejects.toThrow('boom');
   });
 });

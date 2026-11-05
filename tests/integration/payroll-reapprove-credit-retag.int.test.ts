@@ -63,13 +63,15 @@ describe('a credit line retagged after posting', () => {
     await r.setSalary(salaryRow, 20000);
   });
 
-  it('a figure changed WITHOUT a recalculation is refused too (the run is compared as one total, not per cost centre)', async () => {
+  it('SYNTHETIC STATE (not reachable in production): header totals edited by direct SQL with no recalculation are still refused (compared as one total, not per cost centre)', async () => {
     const id = await r.calculatedRun(4);
     const journal = String((await r.api.approve(id)).body.data!.journalEntryId);
     await tagCredit(journal, '2140');
     expect((await r.api.reopen(id)).statusCode).toBe(200);
-    // No calculate: the lines keep their stamps, so the run reads as NOT recalculated since posting. Only the
-    // header figures the plan is built from move (PAYE up, net pay down by the same cents: still balanced).
+    // SYNTHETIC: production code cannot change a run's header totals without recalculating its lines (calculate
+    // restamps them), so this state is built by direct SQL purely to pin the comparison's behaviour for a run NOT
+    // recalculated since posting: the lines keep their stamps and only the header figures the plan is built from
+    // move (PAYE up, net pay down by the same cents: still balanced). It proves the gate, not a reachable path.
     await r.pool.query('UPDATE payroll_run_headers SET total_paye = total_paye + 100, total_net = total_net - 100 WHERE id = $1', [id]);
     expect((await r.api.preview(id)).body.data!.blocker).toMatchObject({ code: 'recalculated_after_posting' });
     const refused = await r.api.approve(id);
