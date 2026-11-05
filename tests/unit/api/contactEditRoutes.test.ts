@@ -96,7 +96,7 @@ describe.each([
 
 describe('PUT supplier: what reaches the UPDATE', () => {
   // The supplier UPDATE binds name, then a (cleared?, value) pair per clearable text column: company_name 1-2,
-  // email 3-4, ... terms mode/days/mode/type at 17-20.
+  // email 3-4, ... the four bank columns (17-20), then terms mode/days/days/mode/type at 21-25 (after the bank columns so the bank census window sees this writer).
   it('clears a text field sent blank and leaves one that is not sent', async () => {
     await suppliers(put({ id: ID, email: '', phone: '011 555' }), response());
     const v = update()!.values;
@@ -109,10 +109,10 @@ describe('PUT supplier: what reaches the UPDATE', () => {
 
   it('sets terms as a pair and clears them on not_set', async () => {
     await suppliers(put({ id: ID, payment_terms: 3, payment_terms_type: 'statement_months' }), response());
-    expect(update()!.values.slice(17, 22)).toEqual(['set', 3, 3, 'set', 'statement_months']);
+    expect(update()!.values.slice(21, 26)).toEqual(['set', 3, 3, 'set', 'statement_months']);
     db.calls = [];
     await suppliers(put({ id: ID, payment_terms_type: 'not_set' }), response());
-    expect(update()!.values.slice(17, 22)).toEqual(['clear', null, null, 'clear', null]);
+    expect(update()!.values.slice(21, 26)).toEqual(['clear', null, null, 'clear', null]);
   });
 
   // Hein, 2026-11-05: the edit never changes bank details. Refused by name, never ignored, before any SQL, so the
