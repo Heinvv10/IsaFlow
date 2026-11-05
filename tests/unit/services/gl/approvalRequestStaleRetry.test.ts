@@ -15,6 +15,9 @@ vi.mock('@/lib/neon', () => {
     fmtDate: (d: unknown) => String(d) };
 });
 vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating: async () => undefined }));
+// Budgets P5-2b: a supplier invoice's raise share-locks the bill first (real PG: budgets-p5-off-slice-attach-race);
+// not this file's subject, and its sql answers are sequenced, so the lock is a no-op here.
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({ withSupplierInvoiceLock: async () => undefined }));
 
 import { sql } from '@/lib/neon';
 import { requestApproval } from '@/modules/accounting/services/gl/approvalDocuments';

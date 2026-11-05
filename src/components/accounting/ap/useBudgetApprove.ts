@@ -1,7 +1,7 @@
 /**
  * Approving one bill (budgets P5-2) or one purchase order (P5-3, `kind: 'purchase_order'`) through the budget
  * check. `start()` previews the document's budget (POST /api/accounting/budgets/remaining { supplierInvoiceId } or
- * { purchaseOrderId }); when a line meets a budget the dialog opens, otherwise it approves at once. An approval
+ * { purchaseOrderId }); when a line meets a budget (or is off-slice, P5-2b) the dialog opens, otherwise it approves at once. An approval
  * the server refuses for the budget (400 BUDGET_REASON_REQUIRED, 409 BUDGET_EXCEEDED) opens or keeps the dialog
  * with the server's words, so a stale preview never strands the user.
  */
@@ -106,7 +106,8 @@ export function useBudgetApprove(
       // No preview is not a refusal: the approval below still runs the check, and a budget refusal opens the dialog.
       log.warn('Budget preview failed; approving without it', { id: invoiceId, error: err }, target.scope);
     }
-    if (preview?.checks && preview.lines.some((l) => l.budget !== null)) {
+    // A line meets a budget, or lands outside every budgeted slice of a budgeted account (P5-2b): the dialog decides.
+    if (preview?.checks && preview.lines.some((l) => l.budget !== null || l.offSlice)) {
       setPolicy(preview.policy);
       setLines(preview.lines);
       setError('');
