@@ -126,9 +126,11 @@ export function BulkActionBar({
           const reason = r.error || 'no reason was given';
           byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
         }
-        const detail = Array.from(byReason.entries())
-          .map(([reason, count]) => (byReason.size > 1 ? `${count}× ${reason}` : reason))
-          .join('; ');
+        // Several reasons are joined by '; ' into one sentence, so each loses its own
+        // closing full stop (no ".;") and the list ends with one.
+        const detail = byReason.size > 1
+          ? `${Array.from(byReason.entries()).map(([reason, count]) => `${count}× ${reason.replace(/\.+\s*$/, '')}`).join('; ')}.`
+          : Array.from(byReason.keys())[0] ?? '';
         failure = `${data.failed} of ${data.total} ${PLURAL[action]} failed${detail ? `: ${detail}` : ''}`;
       }
       // Reload first: the page's reload clears its error, so a failure set
