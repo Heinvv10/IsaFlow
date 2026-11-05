@@ -69,7 +69,7 @@ async function fetchNonCashMovement(companyId: string, startDate: string, endDat
              -- The cash accounts are what is being explained (the same predicate as cash.balance.v1).
              (ga.account_type = 'asset' AND COALESCE(ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}), false)) AS is_cash,
              (ga.account_type = 'liability' AND (
-               (ga.is_system_account AND ga.account_code = ${SEEDED_CURRENT_PORTION_CODE} AND ga.account_subtype = 'current_liability')
+               (ga.is_system_account AND ga.account_code = ${SEEDED_CURRENT_PORTION_CODE})
                OR EXISTS (SELECT 1 FROM loans ln WHERE ln.company_id = ${companyId}::UUID AND ln.current_portion_account_id = ga.id)
              )) AS is_loan_current_portion
       FROM gl_journal_lines jl
