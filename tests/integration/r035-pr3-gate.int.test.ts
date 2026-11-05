@@ -58,7 +58,10 @@ describe.each(['customer', 'supplier'] as const)('%s credit notes', (type) => {
     const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'POST',
       { documentType: docType, enabled: true }, '/api/accounting/approval-enforcement');
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
-    const { rows } = await pool.query('SELECT document_type FROM approval_enforcement WHERE company_id = $1', [c]);
+    const { rows } = await pool.query(
+      "SELECT document_type FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1",
+      [c],
+    );
     expect(rows.map((x) => x.document_type)).toEqual([docType]);
   });
 

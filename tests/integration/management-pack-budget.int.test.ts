@@ -90,15 +90,16 @@ describe('a generated pack prints the engine', () => {
     expect(printed).toEqual(expected);
   });
 
-  it('all_three reads the same month a year earlier off the ledger', async () => {
+  it('all_three reads the same month a year earlier off the ledger, with the Reports screen\'s own figures', async () => {
     const { sections } = await pack('all_three', '2026-03');
     // 2025-03 is before the fixture's ledger: an empty month, and the same month of 2026 has revenue.
-    const rows = firstTable(sections.get('income_statement')?.content).rows;
-    expect(rows[0]?.[3]).toBe(formatMoney(0));
-    expect(rows[0]?.[4]).toBe(rows[0]?.[1]);
+    const total = (c: NoteContent | undefined) => firstTable(c).rows.find((r) => r[0] === 'Total revenue') ?? [];
+    expect(total(sections.get('income_statement')?.content)[3]).toBe(formatMoney(0));
+    expect(total(sections.get('income_statement')?.content)[4]).toBe(total(sections.get('income_statement')?.content)[1]);
     const later = await pack('all_three', '2027-02');
-    // 2026-02 is the fixture's second ledger month: 1000 + 13.37 + 500.01 + 77.77 + 12.34 of revenue.
-    expect(firstTable(later.sections.get('income_statement')?.content).rows[0]?.[3]).toBe(formatMoney(1603.49));
+    // 2026-02 is the fixture's second ledger month: 1000 + 13.37 + 500.01 + 77.77 of turnover. The 12.34 of
+    // interest received is other income, which the statement keeps below gross profit (it was inside the old aggregate's "revenue").
+    expect(total(later.sections.get('income_statement')?.content)[3]).toBe(formatMoney(1591.15));
   });
 
   it('a failed engine query inside the request leaves the pack generated, with the unavailable sentence', async () => {

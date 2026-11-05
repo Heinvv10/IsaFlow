@@ -78,4 +78,8 @@ describe('the content-author refusal names its document', () => {
       + 'author of the recurring template it came from generate it themselves, so another eligible approver can approve '
       + 'the journal, or have someone with the owner role or above who did not author it approve it.');
   });
+
+  it('pay_run: refuses the preparer and names that role plainly', async () => {
+    expect(await deadEnd('pay_run')).toContain('you last calculated or edited the pay run');
+  });
 });

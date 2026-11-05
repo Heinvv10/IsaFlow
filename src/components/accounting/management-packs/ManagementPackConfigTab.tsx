@@ -3,25 +3,10 @@ import { useState, useEffect } from 'react';
 import { Plus, Trash2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiErrorMessage } from '@/lib/apiFetch';
 import type { ManagementPackConfig, PackRecipient, PackStyle } from '@/modules/accounting/services/afs/afsTypes';
+import { SECTIONS_META } from '@/modules/accounting/services/afs/managementPackSections';
 
-export const SECTIONS_META: Array<{ key: string; label: string }> = [
-  { key: 'cover', label: 'Cover Page' },
-  { key: 'ai_executive_summary', label: 'AI Executive Summary' },
-  { key: 'kpi_scorecard', label: 'KPI Scorecard' },
-  { key: 'income_statement', label: 'Income Statement' },
-  { key: 'income_vs_budget', label: 'Income vs Budget' },
-  { key: 'balance_sheet', label: 'Balance Sheet' },
-  { key: 'cash_flow', label: 'Cash Flow' },
-  { key: 'debtors_ageing', label: 'Debtors Ageing' },
-  { key: 'creditors_ageing', label: 'Creditors Ageing' },
-  { key: 'bank_reconciliation', label: 'Bank Reconciliation' },
-  { key: 'revenue_analysis', label: 'Revenue Analysis' },
-  { key: 'expense_analysis', label: 'Expense Analysis' },
-  { key: 'budget_variance', label: 'Budget Variance' },
-  { key: 'cash_flow_forecast', label: 'Cash Flow Forecast' },
-  { key: 'vat_dashboard', label: 'VAT Dashboard' },
-  { key: 'cfo_narrative', label: 'CFO Narrative' },
-];
+// The one list of section keys and labels lives with the section vocabulary; re-exported for the tests and the screen.
+export { SECTIONS_META };
 
 const DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
 

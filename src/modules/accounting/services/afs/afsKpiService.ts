@@ -10,8 +10,8 @@ import {
   NON_CURRENT_SUBTYPES,
   PAYABLE_SUBTYPES,
   RECEIVABLE_SUBTYPES,
-  rawSubtypesFor,
 } from '../gl/accountSubtypes';
+import { aggregateFigures } from '../gl/accountClassification';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 export type { FinancialSnapshot, RagThresholds };
@@ -169,17 +169,12 @@ function priorPeriod(period: string): string {
 }
 
 async function fetchIncomeSnapshot(companyId: string, periodStart: string, periodEnd: string): Promise<Pick<FinancialSnapshot, 'revenue' | 'cogs' | 'grossProfit' | 'ebitda' | 'ebit' | 'netProfit'>> {
+  // Banded by `aggregateFigures`, the fold the Income Statement report's bands come from (canonical subtypes: "Other Income",
+  // "COGS" and "cost-of-sales" band as the report bands them). Revenue here is TURNOVER: other income sits below gross profit.
   const rows = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
-      COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${rawSubtypesFor('cost_of_sales')}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS cogs,
-      COALESCE(SUM(CASE
-        WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit
-        WHEN ga.account_type = 'expense' THEN -(jl.debit - jl.credit)
-        ELSE 0 END), 0) AS net_profit,
-      COALESCE(SUM(CASE
-        WHEN ga.account_type = 'expense' AND ga.account_subtype = ANY(${rawSubtypesFor('depreciation_expense')}::TEXT[])
-        THEN jl.debit - jl.credit ELSE 0 END), 0) AS depreciation
+    SELECT ga.account_type, ga.account_subtype,
+      COALESCE(SUM(jl.debit), 0) AS debit,
+      COALESCE(SUM(jl.credit), 0) AS credit
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -189,17 +184,17 @@ async function fetchIncomeSnapshot(companyId: string, periodStart: string, perio
       AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${periodStart}::date
       AND je.entry_date <= ${periodEnd}::date
+      AND ga.account_type IN ('revenue', 'expense')
+    GROUP BY ga.account_type, ga.account_subtype
   `) as Row[];
 
-  const row = rows[0] ?? {};
-  const revenue     = Number(row.revenue ?? 0);
-  const cogs        = Number(row.cogs ?? 0);
-  const netProfit   = Number(row.net_profit ?? 0);
-  const depreciation= Number(row.depreciation ?? 0);
-  const grossProfit = revenue - cogs;
-  const ebit        = netProfit;
-  const ebitda      = ebit + depreciation;
-  return { revenue, cogs, grossProfit, ebitda, ebit, netProfit };
+  const f = aggregateFigures(rows.map((r) => ({
+    account_type: String(r.account_type) as 'revenue' | 'expense',
+    account_subtype: r.account_subtype == null ? null : String(r.account_subtype),
+    debit: Number(r.debit), credit: Number(r.credit),
+  })));
+  const ebit = f.netProfit;
+  return { revenue: f.revenue, cogs: f.costOfSales, grossProfit: f.grossProfit, ebitda: ebit + f.depreciation, ebit, netProfit: f.netProfit };
 }
 
 /**

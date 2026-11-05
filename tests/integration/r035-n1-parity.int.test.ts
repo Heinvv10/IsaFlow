@@ -107,7 +107,7 @@ describe('TypeScript and SQL refuse the same decisions', () => {
     await pool.query("UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND user_id = $2", [f.c, u.m]);
     expect(await both(k)).toEqual({ ts: 'RA001', sql: 'RA001' });
     await pool.query("UPDATE company_users SET role = 'manager' WHERE company_id = $1 AND user_id = $2", [f.c, u.m]);
-    await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [f.c]);
+    await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [f.c]);
     expect(await both(k)).toEqual({ ts: 'RA001', sql: 'RA001' });
   });
 

@@ -34,6 +34,10 @@ vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', () => ({
   approvePayrollRun: vi.fn(),
   previewPayrollApproval: vi.fn(),
 }));
+// R-035 clearance reads the approval tables; cleared unless a test says otherwise.
+vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({
+  assertPayRunApproved: vi.fn(async () => ({ grandfathered: false, planHash: 'hash-1' })),
+}));
 // The error classes must be the real ones — the tool branches on them, and a
 // stubbed sentinel would let those branches pass by accident.
 vi.mock('@/modules/accounting/services/payroll/payrollRunLoanApplication', async () => {
@@ -55,6 +59,8 @@ import {
 import { PayrollApprovalConflictError, PayrollApprovalRefusedError } from '@/modules/accounting/services/payroll/payrollApprovalRefusal';
 import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { approvePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
+import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -117,9 +123,30 @@ describe('approve_pay_run — K-079', () => {
     expect(previewPayrollApproval).not.toHaveBeenCalled();
   });
 
+  it('refuses connector execution until a person clears the pay run in ISAFlow', async () => {
+    vi.mocked(approvePayrollRun).mockRejectedValue(new ApprovalRequiredError({
+      reason: 'APPROVAL_REQUIRED', requiredRole: 'manager', ruleName: 'All pay runs',
+      requestId: null, documentType: 'pay_run', documentReference: '04/2025',
+    }));
+    expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...LIVE }, ctx())))
+      .toContain('A person must approve this pay run in ISAFlow');
+  });
+
   it('dry run asks the same blocker question, scoped to the company', async () => {
     await approvePayRunTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx());
     expect(previewPayrollApproval).toHaveBeenCalledWith(COMPANY, RUN);
+  });
+
+  it('dry run refuses an uncleared run, as the live call does, and returns no plan_hash', async () => {
+    vi.mocked(assertPayRunApproved).mockRejectedValueOnce(new ApprovalRequiredError({
+      reason: 'APPROVAL_REQUIRED', requiredRole: 'manager', ruleName: 'All pay runs',
+      requestId: null, documentType: 'pay_run', documentReference: '04/2025',
+    }));
+    const text = errText(await approvePayRunTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx()));
+    expect(text).toContain('A person must approve this pay run in ISAFlow');
+    expect(text).not.toContain('plan_hash');
+    expect(assertPayRunApproved).toHaveBeenCalledWith(COMPANY, RUN, 'hash-1');
+    expect(approvePayrollRun).not.toHaveBeenCalled();
   });
 
   it('dry run refuses the same blocked run the live call refuses', async () => {

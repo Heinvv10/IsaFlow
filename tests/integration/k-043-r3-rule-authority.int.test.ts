@@ -40,7 +40,7 @@ afterAll(async () => {
   try {
     await pool.query('DELETE FROM audit_log WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM approval_requests WHERE company_id=ANY($1::uuid[])', [companies]);
-    await pool.query('DELETE FROM approval_rules WHERE company_id=ANY($1::uuid[])', [companies]);
+    await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id=ANY($1::uuid[])", [companies]);
     await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [users]);

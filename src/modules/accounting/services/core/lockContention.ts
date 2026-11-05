@@ -42,3 +42,8 @@ export function isLockContention(err: unknown): boolean {
 export function isLockNotAvailable(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
 }
+
+/** A raw `deadlock_detected` only: this transaction was chosen as the victim (the lock holder is a peer). */
+export function isDeadlockDetected(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === DEADLOCK_DETECTED;
+}

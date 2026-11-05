@@ -37,7 +37,8 @@ type Row = { company_id: string; document_type: string; name: string; condition_
   condition_value: number; approver_role: string; is_active: boolean };
 const rulesOf = async (c: string): Promise<Row[]> => (await pool.query(
   `SELECT company_id, document_type, name, condition_operator, condition_value::FLOAT AS condition_value, approver_role, is_active
-   FROM approval_rules WHERE company_id = $1 ORDER BY document_type COLLATE "C", created_at`, [c])).rows;
+   FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1
+   ORDER BY document_type COLLATE "C", created_at`, [c])).rows;
 const audits = async (c: string) => (await pool.query(
   `SELECT action, user_id, entity_id, entity_ref FROM audit_log WHERE company_id = $1 AND entity_type = 'approval_rule'`, [c])).rows;
 const dataOf = (res: { state: { body: unknown } }) =>

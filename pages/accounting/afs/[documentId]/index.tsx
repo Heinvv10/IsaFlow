@@ -8,6 +8,8 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { callApiInProcess } from '@/lib/auth/callApiInProcess';
+import periodRoute from '../../../api/accounting/afs/[documentId]/period';
 import { CheckCircle, ChevronRight, Send } from 'lucide-react';
 import type { AfsDocument, AfsSection } from '@/modules/accounting/services/afs/afsTypes';
 import { AfsDocumentTabs } from '@/components/accounting/afs/AfsDocumentTabs';
@@ -105,7 +107,8 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
 
   if (doc.documentType === 'management_pack') {
     return (
-      <AppLayout>
+      // The URL is the same as an AFS document's; this is what lights "Management Packs", not "Annual Financial Statements".
+      <AppLayout navPath={`/accounting/afs/${documentId}?type=management_pack`}>
         <Head><title>{`${managementPackTitle(doc.period)} | ISAFlow`}</title></Head>
         <ManagementPackView doc={doc} periodStart={periodStart} periodEnd={periodEnd} />
       </AppLayout>
@@ -202,25 +205,22 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
   let periodMonths: number | null = null;
   let periodError: string | null = null;
 
-  // Otherwise derive the period from the API route — keeps DB access
-  // out of the page layer and ensures company_id scoping.
+  // Otherwise derive the period from the API route, called in this process: its withAuth keeps DB access
+  // company-scoped, and no URL is involved (NEXT_PUBLIC_APP_URL is another server on dev and the public
+  // hostname, out through Cloudflare, on production).
   if (!queryStart || !queryEnd) {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? `http://${req.headers.host}`;
-      const apiRes = await fetch(
-        `${baseUrl}/api/accounting/afs/${documentId}/period`,
-        { headers: { cookie: req.headers.cookie ?? '' } },
-      );
-      if (apiRes.status === 404) return { notFound: true };
+      const api = await callApiInProcess(periodRoute, req, { url: `/api/accounting/afs/${encodeURIComponent(documentId)}/period`, query: { documentId } });
+      if (api.status === 404) return { notFound: true };
       // 401: the session cookie outlived its token. Reloading can never clear a period-error page, and rendering with a guessed year would show the wrong period, so sign in again and come back.
-      if (apiRes.status === 401) return { redirect: { destination: `/login?returnTo=${encodeURIComponent(resolvedUrl)}`, permanent: false } };
+      if (api.status === 401) return { redirect: { destination: `/login?returnTo=${encodeURIComponent(resolvedUrl)}`, permanent: false } };
       // 403: the client load explains the refusal; this is not a failure to work out the period.
-      if (apiRes.ok) {
-        const json = (await apiRes.json()) as { data?: { periodStart?: string; periodEnd?: string; periodMonths?: number } };
-        periodStart  = json.data?.periodStart ?? null;
-        periodEnd    = json.data?.periodEnd   ?? null;
-        periodMonths = json.data?.periodMonths ?? null;
-      } else if (apiRes.status !== 403) {
+      if (api.status >= 200 && api.status < 300) {
+        const json = api.body as { data?: { periodStart?: string; periodEnd?: string; periodMonths?: number } } | null;
+        periodStart  = json?.data?.periodStart ?? null;
+        periodEnd    = json?.data?.periodEnd   ?? null;
+        periodMonths = json?.data?.periodMonths ?? null;
+      } else if (api.status !== 403) {
         periodError = PERIOD_ERROR;
       }
     } catch (err) {
