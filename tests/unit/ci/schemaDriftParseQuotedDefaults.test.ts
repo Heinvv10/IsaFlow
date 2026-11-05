@@ -86,11 +86,6 @@ describe('schema-drift parser: forms it cannot read fail loudly', () => {
     expect(() => parseSql(sql)).toThrow(/unbalanced quote\/parenthesis in CREATE TABLE q_esc/);
   });
 
-  it("a -- inside a literal (cut by the comment strip) throws, naming the table", () => {
-    const sql = "CREATE TABLE q_dash (\n  p TEXT DEFAULT 'a--b',\n  q INT,\n  r INT\n);";
-    expect(() => parseSql(sql)).toThrow(/unbalanced quote\/parenthesis in CREATE TABLE q_dash/);
-  });
-
   it('a stray closing parenthesis throws, naming the table', () => {
     const sql = 'CREATE TABLE q_paren (\n  a INT CHECK (a > 0)),\n  b INT\n);';
     expect(() => parseSql(sql)).toThrow(/unbalanced quote\/parenthesis in CREATE TABLE q_paren/);
@@ -102,7 +97,38 @@ describe('schema-drift parser: forms it cannot read fail loudly', () => {
   });
 
   it('a balanced table next to the failing one is not what is reported', () => {
-    const sql = "CREATE TABLE ok_t (a INT);\nCREATE TABLE bad_t (\n  x TEXT DEFAULT 'a--b',\n  y INT\n);";
+    const sql = "CREATE TABLE ok_t (a INT);\nCREATE TABLE bad_t (\n  x TEXT DEFAULT E'it\\'s',\n  y INT\n);";
     expect(() => parseSql(sql)).toThrow(/CREATE TABLE bad_t/);
+  });
+  it('a CREATE TABLE whose closing ");" never comes throws instead of skipping the table', () => {
+    const sql = 'CREATE TABLE ok_t (a INT);\nCREATE TABLE lost_t (\n  a INT,\n  b INT\n)';
+    expect(() => parseSql(sql)).toThrow(/CREATE TABLE in 001_t\.sql could not be read/);
+  });
+});
+
+/**
+ * Codex review of 88ebc9cc3: the comment strip ran before CT_RE, so `--` inside a literal on a
+ * one-line CREATE TABLE (or in its last column) cut the closing quote, parenthesis and semicolon;
+ * CT_RE never matched and the whole table vanished from the expected schema without an error.
+ */
+describe('schema-drift parser: comment markers inside literals are text', () => {
+  it("a one-line CREATE TABLE with DEFAULT 'a--b' keeps the table and its column", () => {
+    const m = parseSql("CREATE TABLE q (id TEXT DEFAULT 'a--b');");
+    expect(cols(m, 'q')).toEqual(['id']);
+  });
+
+  it("a -- literal in the last column, then a real comment, keeps every column", () => {
+    const m = parseSql("CREATE TABLE q_last (\n  a INT, -- it's a comment, b_fake INT\n  p TEXT DEFAULT 'a--b'\n); -- done");
+    expect(cols(m, 'q_last')).toEqual(['a', 'p']);
+  });
+
+  it("a -- literal mid-table keeps the later columns", () => {
+    const m = parseSql("CREATE TABLE q_dash (\n  p TEXT DEFAULT 'a--b',\n  q INT,\n  r INT\n);");
+    expect(cols(m, 'q_dash')).toEqual(['p', 'q', 'r']);
+  });
+
+  it("a /* inside a literal is not a block comment, and a real block comment is stripped", () => {
+    const m = parseSql("CREATE TABLE q_blk (a TEXT DEFAULT '/*', /* gone_col INT, */ b INT);");
+    expect(cols(m, 'q_blk')).toEqual(['a', 'b']);
   });
 });
