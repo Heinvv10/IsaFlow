@@ -45,6 +45,7 @@ describe('the 2,560-input shape sweep', () => {
     const printed: string[] = [];
     const fitter: string[] = [];
     let refused = 0;
+    const unexpectedlyRefused: string[] = [];
     let budgetWithoutNote = 0;
     let trimmedPages = 0;
     try {
@@ -66,6 +67,9 @@ describe('the 2,560-input shape sweep', () => {
         } catch (err) {
           if (!(err instanceof PackRefusal)) throw err;
           refused += 1;
+          // What is still refused is net-debit revenue with ANOTHER line below zero as well: every
+          // other shape, including net-debit revenue with a material interest/tax step, gets its pack.
+          if (!(shape.negative && shape.sg.includes(-1))) unexpectedlyRefused.push(JSON.stringify(shape));
         }
         if (faults.size > 0) printed.push(`${JSON.stringify(shape)} :: ${[...faults].join(' | ')}`);
         const inFitter = new Set<string>();
@@ -80,10 +84,11 @@ describe('the 2,560-input shape sweep', () => {
     }
     // The sweep must exercise the trimming path, or a green result proves nothing.
     expect(trimmedPages, 'no page was trimmed anywhere in the sweep').toBeGreaterThan(0);
-    // `refused` is pinned: renumbering must not turn a pack into a refusal or a refusal into a pack
-    // (953 of the 2,560 shapes are refused before and after; page 6 with net-debit revenue and an
-    // interest/tax step is the cause, and has its own fix).
+    // `refused` is pinned: 322 of the 2,560 shapes are refused (953 before the derived caption became
+    // page 6's last lever; renumbering footnotes changed none of them). They are the shapes whose
+    // required disclosures are longer still: net-debit revenue AND another line below zero.
+    expect(unexpectedlyRefused).toEqual([]);
     expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, refused: 953, sample: [] });
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, refused: 322, sample: [] });
   }, 1_800_000);
 });
