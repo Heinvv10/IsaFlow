@@ -54,26 +54,34 @@ export interface DueByDateInvoice {
   bucket: DueBucket;
 }
 
+/** A contact's row: the five columns only. The summary the page and the MCP tool list carries these. */
 export interface DueByDateContact extends DueByDateTotals {
   contactId: string;
   contactName: string;
+}
+
+/** One contact with its invoices: the drill-down, read on demand so the summary stays small. */
+export interface DueByDateContactDetail extends DueByDateContact {
   invoices: DueByDateInvoice[];
 }
 
-export interface DueByDateSide {
+export interface DueByDateSide<C extends DueByDateContact = DueByDateContact> {
   side: DueSide;
   today: string;
   byDate: string;
-  contacts: DueByDateContact[];
+  contacts: C[];
   totals: DueByDateTotals;
 }
 
-export interface DueByDateReport {
+export interface DueByDateReport<C extends DueByDateContact = DueByDateContact> {
   today: string;
   byDate: string;
-  ap: DueByDateSide;
-  ar: DueByDateSide;
-  /** AR totalByDate minus AP totalByDate. */
+  ap: DueByDateSide<C>;
+  ar: DueByDateSide<C>;
+  /**
+   * AR totalByDate minus AP totalByDate. It leaves out every document with no
+   * due date (`noDueDate` in each side's totals): those cannot be placed in time.
+   */
   netPosition: number;
 }
 
@@ -137,7 +145,7 @@ export function buildDueByDateSide(
   rows: OpenAgingInvoice[],
   today: string,
   byDate: string,
-): DueByDateSide {
+): DueByDateSide<DueByDateContactDetail> {
   const grand = emptyCents();
   const perContact = new Map<string, { name: string; cents: CentsTotals; invoices: DueByDateInvoice[] }>();
 
@@ -170,7 +178,7 @@ export function buildDueByDateSide(
     });
   }
 
-  const contacts: DueByDateContact[] = [...perContact.entries()].map(([contactId, e]) => ({
+  const contacts: DueByDateContactDetail[] = [...perContact.entries()].map(([contactId, e]) => ({
     contactId,
     contactName: e.name,
     ...finish(e.cents),
@@ -184,4 +192,14 @@ export function buildDueByDateSide(
 /** Net cash position by `byDate`: what customers owe by then less what suppliers are owed by then. */
 export function netPosition(ar: DueByDateTotals, ap: DueByDateTotals): number {
   return fromCents(toCents(ar.totalByDate) - toCents(ap.totalByDate));
+}
+
+/** The same side without the invoice lists. */
+export function withoutInvoices(side: DueByDateSide<DueByDateContactDetail>): DueByDateSide {
+  return { ...side, contacts: side.contacts.map(({ invoices: _invoices, ...contact }) => contact) };
+}
+
+/** The report without any invoice lists: contacts, totals and the net position. */
+export function reportWithoutInvoices(report: DueByDateReport<DueByDateContactDetail>): DueByDateReport {
+  return { ...report, ap: withoutInvoices(report.ap), ar: withoutInvoices(report.ar) };
 }

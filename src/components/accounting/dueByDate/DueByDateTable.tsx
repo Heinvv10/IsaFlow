@@ -4,11 +4,11 @@
  * placed in time, and a zero-looking column must never hide it.
  */
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import type { DueBucket, DueByDateSide } from '@/modules/accounting/utils/dueByDate';
+import type { DueBucket, DueByDateInvoice, DueByDateSide } from '@/modules/accounting/utils/dueByDate';
 
 type Column = 'overdueNow' | 'dueTodayToDate' | 'totalByDate' | 'dueLater' | 'noDueDate';
 const COLUMNS: Column[] = ['overdueNow', 'dueTodayToDate', 'totalByDate', 'dueLater', 'noDueDate'];
@@ -20,13 +20,43 @@ const NO_DUE_CELL = 'text-amber-700 dark:text-amber-400 bg-amber-500/10';
 const th = 'px-4 py-3 text-right';
 const num = 'px-4 py-3 text-right tabular-nums';
 
-export function DueByDateTable({ side, contactLabel }: { side: DueByDateSide; contactLabel: string }) {
+type Detail = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ready'; invoices: DueByDateInvoice[] };
+
+interface TableProps {
+  side: DueByDateSide;
+  contactLabel: string;
+  /** Reads one contact's invoices. The summary carries none, so a big book is not sent whole. */
+  loadInvoices: (contactId: string) => Promise<DueByDateInvoice[]>;
+}
+
+export function DueByDateTable({ side, contactLabel, loadInvoices }: TableProps) {
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const toggle = (id: string) => setOpen((prev) => {
-    const next = new Set(prev);
-    if (!next.delete(id)) next.add(id);
-    return next;
-  });
+  const [details, setDetails] = useState<Record<string, Detail>>({});
+  // The table is remounted for a new date or side; an answer that lands after that is dropped.
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+
+  const fetchDetail = (id: string) => {
+    setDetails((d) => ({ ...d, [id]: { state: 'loading' } }));
+    loadInvoices(id).then(
+      (invoices) => { if (alive.current) setDetails((d) => ({ ...d, [id]: { state: 'ready', invoices } })); },
+      (err: unknown) => {
+        const message = err instanceof Error ? err.message : 'Could not load the invoices - try again';
+        if (alive.current) setDetails((d) => ({ ...d, [id]: { state: 'error', message } }));
+      },
+    );
+  };
+  const toggle = (id: string) => {
+    const opening = !open.has(id);
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+    // A failed read is retried by closing and reopening; a read in hand or in flight is not repeated.
+    const have = details[id];
+    if (opening && (!have || have.state === 'error')) fetchDetail(id);
+  };
   const t = side.totals;
 
   return (
@@ -71,7 +101,14 @@ export function DueByDateTable({ side, contactLabel }: { side: DueByDateSide; co
                   <td className={num}>{formatMoney(c.dueLater)}</td>
                   <td className={`${num} ${c.noDueDate > 0 ? NO_DUE_CELL : ''}`}>{formatMoney(c.noDueDate)}</td>
                 </tr>
-                {isOpen && c.invoices.map((i) => (
+                {isOpen && details[c.contactId]?.state !== 'ready' && (
+                  <tr className="border-b border-[var(--ff-border-light)] text-xs">
+                    <td colSpan={6} className="pl-10 py-2 text-[var(--ff-text-tertiary)]">
+                      {details[c.contactId]?.state === 'error' ? `${(details[c.contactId] as { message: string }).message} (close and reopen to retry)` : 'Loading invoices...'}
+                    </td>
+                  </tr>
+                )}
+                {isOpen && details[c.contactId]?.state === 'ready' && (details[c.contactId] as { invoices: DueByDateInvoice[] }).invoices.map((i) => (
                   <tr key={i.id} className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)]/40 text-xs">
                     <td className="pl-10 pr-4 py-2 text-[var(--ff-text-secondary)]">
                       <span className="font-id">{i.invoiceNumber}</span> <span className="text-[var(--ff-text-tertiary)]">· {formatDisplayDate(i.invoiceDate)}</span>

@@ -9,6 +9,9 @@ import {
   byDateError,
   classifyDue,
   endOfMonth,
+  reportWithoutInvoices,
+  withoutInvoices,
+  netPosition,
 } from '@/modules/accounting/utils/dueByDate';
 import { calculateAgingBuckets, type OpenAgingInvoice } from '@/modules/accounting/utils/aging';
 
@@ -161,5 +164,29 @@ describe('endOfMonth', () => {
     expect(endOfMonth('2026-11-05')).toBe('2026-11-30');
     expect(endOfMonth('2028-02-10')).toBe('2028-02-29');
     expect(endOfMonth('2026-12-31')).toBe('2026-12-31');
+  });
+});
+
+describe('withoutInvoices', () => {
+  it('drops the invoice lists and keeps every figure', () => {
+    const full = buildDueByDateSide('ap', [
+      inv({ dueDate: TODAY, balance: 10 }),
+      inv({ entityId: 'e2', entityName: 'Beta', dueDate: '2026-12-31', balance: 7 }),
+    ], TODAY, BY);
+    const slim = withoutInvoices(full);
+    expect(slim.totals).toEqual(full.totals);
+    expect(slim.contacts).toHaveLength(2);
+    for (const c of slim.contacts) expect(c).not.toHaveProperty('invoices');
+    expect(slim.contacts.map(({ contactId, totalByDate, dueLater }) => [contactId, totalByDate, dueLater]))
+      .toEqual(full.contacts.map(({ contactId, totalByDate, dueLater }) => [contactId, totalByDate, dueLater]));
+    expect(full.contacts[0]).toHaveProperty('invoices');
+  });
+
+  it('reportWithoutInvoices strips both sides and keeps the net position', () => {
+    const ap = buildDueByDateSide('ap', [inv({ dueDate: TODAY, balance: 10 })], TODAY, BY);
+    const ar = buildDueByDateSide('ar', [inv({ dueDate: TODAY, balance: 25 })], TODAY, BY);
+    const r = reportWithoutInvoices({ today: TODAY, byDate: BY, ap, ar, netPosition: netPosition(ar.totals, ap.totals) });
+    expect(r.netPosition).toBe(15);
+    expect(JSON.stringify(r)).not.toContain('invoices');
   });
 });

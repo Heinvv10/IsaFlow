@@ -9,7 +9,6 @@
  * 22:00 and midnight SAST CURRENT_DATE is the previous day.
  */
 
-import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { fetchAPAgingInvoices } from '../ap/apAgingInvoices';
 import { fetchARAgingInvoices } from '../ar/arAgingInvoices';
@@ -17,6 +16,7 @@ import {
   buildDueByDateSide,
   byDateError,
   netPosition,
+  type DueByDateContactDetail,
   type DueByDateReport,
   type DueByDateSide,
   type DueSide,
@@ -35,23 +35,38 @@ function assertByDate(byDate: string, today: string): void {
   if (problem) throw new DueByDateInputError(problem);
 }
 
-export async function getDueByDate(companyId: string, side: DueSide, byDate: string): Promise<DueByDateSide> {
+/**
+ * One side, with every contact's invoices. A failure is not logged here: the
+ * REST route's withErrorHandler and the MCP registry each log a thrown error
+ * once, and a second log here would make every failure two lines.
+ */
+export async function getDueByDate(
+  companyId: string,
+  side: DueSide,
+  byDate: string,
+): Promise<DueByDateSide<DueByDateContactDetail>> {
   const today = appToday();
   assertByDate(byDate, today);
-  try {
-    // asAt = today, rewind window = today: the live open book, as the aging page shows it.
-    const rows = side === 'ap'
-      ? await fetchAPAgingInvoices(companyId, today, today)
-      : await fetchARAgingInvoices(companyId, today, today);
-    return buildDueByDateSide(side, rows, today, byDate);
-  } catch (err) {
-    log.error('Failed to get due-by-date report', { side, error: err }, 'accounting');
-    throw err;
-  }
+  // asAt = today, rewind window = today: the live open book, as the aging page shows it.
+  const rows = side === 'ap'
+    ? await fetchAPAgingInvoices(companyId, today, today)
+    : await fetchARAgingInvoices(companyId, today, today);
+  return buildDueByDateSide(side, rows, today, byDate);
+}
+
+/** One contact of a side with its invoices; null when the contact has nothing open (or is not this company's). */
+export async function getDueByDateContact(
+  companyId: string,
+  side: DueSide,
+  byDate: string,
+  contactId: string,
+): Promise<DueByDateContactDetail | null> {
+  const s = await getDueByDate(companyId, side, byDate);
+  return s.contacts.find((c) => c.contactId === contactId) ?? null;
 }
 
 /** Both sides plus the net cash position (AR totalByDate - AP totalByDate). */
-export async function getDueByDateReport(companyId: string, byDate: string): Promise<DueByDateReport> {
+export async function getDueByDateReport(companyId: string, byDate: string): Promise<DueByDateReport<DueByDateContactDetail>> {
   const today = appToday();
   assertByDate(byDate, today);
   const [ap, ar] = await Promise.all([

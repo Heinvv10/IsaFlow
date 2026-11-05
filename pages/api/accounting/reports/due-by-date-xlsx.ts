@@ -1,14 +1,14 @@
 /**
  * Due by date report, Excel export
  * GET /api/accounting/reports/due-by-date-xlsx?by_date=YYYY-MM-DD
- * Same parameters and figures as /reports/due-by-date.
+ * Same by_date and figures as /reports/due-by-date, with every invoice.
+ * Errors are not logged here: withErrorHandler logs a thrown error once.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
-import { log } from '@/lib/logger';
 import { endOfMonth } from '@/modules/accounting/utils/dueByDate';
 import {
   appToday,
@@ -38,7 +38,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     res.end();
   } catch (err) {
     if (err instanceof DueByDateInputError) return apiResponse.badRequest(res, err.message);
-    log.error('Failed to export due-by-date report', { error: err }, 'accounting-api');
     throw err;
   }
 }

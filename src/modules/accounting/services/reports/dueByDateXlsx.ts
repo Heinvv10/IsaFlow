@@ -5,7 +5,9 @@
  */
 
 import ExcelJS from 'exceljs';
-import type { DueByDateReport, DueByDateSide } from '../../utils/dueByDate';
+import type { DueByDateContactDetail, DueByDateReport, DueByDateSide } from '../../utils/dueByDate';
+
+type FullSide = DueByDateSide<DueByDateContactDetail>;
 
 const NUM_FMT = '#,##0.00';
 const HEADER_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
@@ -18,6 +20,9 @@ const BUCKET_LABEL = {
   noDueDate: 'No due date',
 } as const;
 
+/** Plain ASCII amount for a sentence in a cell. */
+const excl = (n: number): string => `R ${n.toFixed(2)}`;
+
 function styleHeader(row: ExcelJS.Row): void {
   row.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -29,7 +34,7 @@ function money(row: ExcelJS.Row, from: number, to: number): void {
   for (let c = from; c <= to; c++) row.getCell(c).numFmt = NUM_FMT;
 }
 
-function addSummary(ws: ExcelJS.Worksheet, label: string, entity: string, s: DueByDateSide): void {
+function addSummary(ws: ExcelJS.Worksheet, label: string, entity: string, s: FullSide): void {
   ws.addRow([`${label} (${entity})`]).font = { bold: true, size: 12 };
   styleHeader(ws.addRow([entity, 'Overdue now', 'Due today to date', 'Total by date', 'Due later', 'No due date', 'Disputed (held out)']));
   for (const c of s.contacts) {
@@ -44,7 +49,7 @@ function addSummary(ws: ExcelJS.Worksheet, label: string, entity: string, s: Due
   ws.addRow([]);
 }
 
-function addInvoices(wb: ExcelJS.Workbook, name: string, entity: string, s: DueByDateSide): void {
+function addInvoices(wb: ExcelJS.Workbook, name: string, entity: string, s: FullSide): void {
   const ws = wb.addWorksheet(name);
   ws.columns = [{ width: 32 }, { width: 18 }, { width: 14 }, { width: 14 }, { width: 16 }, { width: 14 }, { width: 16 }, { width: 20 }];
   styleHeader(ws.addRow([entity, 'Invoice #', 'Invoice date', 'Due date', 'Balance', 'Disputed', 'Counted', 'Bucket']));
@@ -58,7 +63,7 @@ function addInvoices(wb: ExcelJS.Workbook, name: string, entity: string, s: DueB
   ws.views = [{ state: 'frozen', ySplit: 1 }];
 }
 
-export function buildDueByDateWorkbook(report: DueByDateReport): ExcelJS.Workbook {
+export function buildDueByDateWorkbook(report: DueByDateReport<DueByDateContactDetail>): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'ISAFlow';
   wb.created = new Date();
@@ -74,6 +79,7 @@ export function buildDueByDateWorkbook(report: DueByDateReport): ExcelJS.Workboo
   const net = ws.addRow(['Net position by date (receivables less payables, total by date)', report.netPosition]);
   net.font = { bold: true };
   money(net, 2, 2);
+  ws.addRow([`Excludes ${excl(report.ap.totals.noDueDate)} payables and ${excl(report.ar.totals.noDueDate)} receivables with no due date.`]);
 
   addInvoices(wb, 'AR invoices', 'Customer', report.ar);
   addInvoices(wb, 'AP invoices', 'Supplier', report.ap);

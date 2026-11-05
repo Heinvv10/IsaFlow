@@ -3,7 +3,7 @@
  * customer (AR), at today's open balances, with the net cash position.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, CalendarClock, Loader2, AlertCircle, Download } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -12,7 +12,7 @@ import { DueByDateTable } from '@/components/accounting/dueByDate/DueByDateTable
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { todayInSast } from '@/lib/saDateParser';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { endOfMonth, type DueByDateReport, type DueSide } from '@/modules/accounting/utils/dueByDate';
+import { endOfMonth, type DueByDateContactDetail, type DueByDateInvoice, type DueByDateReport, type DueSide } from '@/modules/accounting/utils/dueByDate';
 
 const TABS: { id: DueSide; label: string; contact: string }[] = [
   { id: 'ap', label: 'Payables (AP)', contact: 'Supplier' },
@@ -27,24 +27,40 @@ export default function DueByDatePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Each load takes a number; only the latest may write. A slower answer for an earlier date
+  // must not replace the report for the date now on screen.
+  const latest = useRef(0);
+
   const load = useCallback(async () => {
     if (!byDate) return;
+    const mine = ++latest.current;
     setLoading(true);
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/reports/due-by-date?${new URLSearchParams({ by_date: byDate })}`, { credentials: 'include' });
       await assertOk(res, 'Could not load the due-by-date report - try again');
       const json = await res.json() as { data?: DueByDateReport };
+      if (mine !== latest.current) return;
       setData(json.data ?? null);
     } catch (err) {
+      if (mine !== latest.current) return;
       setData(null);
       setError(apiErrorMessage(err, 'Could not load the due-by-date report - try again'));
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
   }, [byDate]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => () => { latest.current += 1; }, []);
+
+  const loadInvoices = useCallback(async (contactId: string): Promise<DueByDateInvoice[]> => {
+    const params = new URLSearchParams({ by_date: data?.byDate ?? byDate, side: tab, entity_id: contactId });
+    const res = await apiFetch(`/api/accounting/reports/due-by-date?${params}`, { credentials: 'include' });
+    await assertOk(res, 'Could not load the invoices - try again');
+    const json = await res.json() as { data?: { contact?: DueByDateContactDetail } };
+    return json.data?.contact?.invoices ?? [];
+  }, [data?.byDate, byDate, tab]);
 
   function handleExport() {
     if (byDate) window.open(`/api/accounting/reports/due-by-date-xlsx?${new URLSearchParams({ by_date: byDate })}`, '_blank');
@@ -99,6 +115,12 @@ export default function DueByDatePage() {
                 </span>
                 <span className={`text-lg font-bold tabular-nums ${net < 0 ? 'text-red-700 dark:text-red-400' : 'text-[var(--ff-text-primary)]'}`}>{formatMoney(net)}</span>
               </div>
+              <p
+                data-testid="net-excludes"
+                className={`-mt-3 px-1 text-xs ${data.ap.totals.noDueDate + data.ar.totals.noDueDate > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-[var(--ff-text-tertiary)]'}`}
+              >
+                Excludes {formatMoney(data.ap.totals.noDueDate)} payables and {formatMoney(data.ar.totals.noDueDate)} receivables with no due date.
+              </p>
 
               <div role="tablist" className="flex gap-2 border-b border-[var(--ff-border-light)]">
                 {TABS.map((t) => (
@@ -114,7 +136,7 @@ export default function DueByDatePage() {
                 ))}
               </div>
 
-              <DueByDateTable side={side} contactLabel={TABS.find((t) => t.id === tab)!.contact} />
+              <DueByDateTable key={`${tab}:${data.byDate}:${data.today}`} side={side} contactLabel={TABS.find((t) => t.id === tab)!.contact} loadInvoices={loadInvoices} />
               <p className="text-xs text-[var(--ff-text-tertiary)]">
                 Open documents as at {data.today}. Total by date = overdue now + due today to date. Money in &quot;No due date&quot; is
                 owed but cannot be placed in time. Open customer disputes are held out of the columns, as in the age analysis.

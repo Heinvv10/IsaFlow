@@ -5,13 +5,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withTransaction: vi.fn() }));
-vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+const logSpy = vi.hoisted(() => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() }));
+vi.mock('@/lib/logger', () => ({ log: logSpy }));
 vi.mock('@/modules/accounting/services/ap/apAgingInvoices', () => ({ fetchAPAgingInvoices: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/arAgingInvoices', () => ({ fetchARAgingInvoices: vi.fn() }));
 
 import { fetchAPAgingInvoices } from '@/modules/accounting/services/ap/apAgingInvoices';
 import { fetchARAgingInvoices } from '@/modules/accounting/services/ar/arAgingInvoices';
-import { DueByDateInputError, getDueByDate, getDueByDateReport } from '@/modules/accounting/services/reports/dueByDateService';
+import { DueByDateInputError, getDueByDate, getDueByDateContact, getDueByDateReport } from '@/modules/accounting/services/reports/dueByDateService';
 import type { OpenAgingInvoice } from '@/modules/accounting/utils/aging';
 
 const CO = '11111111-1111-4111-8111-111111111111';
@@ -55,6 +56,30 @@ describe('getDueByDate', () => {
 
   it('refuses junk', async () => {
     await expect(getDueByDate(CO, 'ap', 'next friday')).rejects.toBeInstanceOf(DueByDateInputError);
+  });
+});
+
+describe('getDueByDateContact', () => {
+  it('finds one contact with its invoices', async () => {
+    const c = await getDueByDateContact(CO, 'ar', '2026-11-30', 'e');
+    expect(c?.invoices).toHaveLength(1);
+    expect(c?.totalByDate).toBe(100);
+  });
+
+  it('is null for a contact with nothing open', async () => {
+    expect(await getDueByDateContact(CO, 'ar', '2026-11-30', 'nobody')).toBeNull();
+  });
+
+  it('refuses a past by_date', async () => {
+    await expect(getDueByDateContact(CO, 'ar', '2026-11-01', 'e')).rejects.toBeInstanceOf(DueByDateInputError);
+  });
+});
+
+describe('failures', () => {
+  it('are rethrown WITHOUT being logged here: the route wrapper and the MCP registry each log once', async () => {
+    vi.mocked(fetchARAgingInvoices).mockRejectedValue(new Error('connection reset'));
+    await expect(getDueByDate(CO, 'ar', '2026-11-30')).rejects.toThrow('connection reset');
+    expect(logSpy.error).not.toHaveBeenCalled();
   });
 });
 

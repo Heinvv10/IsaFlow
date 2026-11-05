@@ -46,6 +46,20 @@ describe('due_by_date', () => {
     expect(b.receivables.contacts[0].invoices).toBeUndefined();
   });
 
+  it('states what the net position leaves out', async () => {
+    const b = body(await dueByDateTool.handler({ by_date: '2026-11-30' }, CTX));
+    expect(b.netPositionExcludesNoDueDate).toEqual({ receivables: 70, payables: 0 });
+  });
+
+  it('an entity_id with nothing open is an error that says so, not an empty list', async () => {
+    const other = 'dddddddd-0000-4000-8000-000000000009';
+    const r = await dueByDateTool.handler({ side: 'ar', entity_id: other }, CTX);
+    expect((r as { isError?: boolean }).isError).toBe(true);
+    const text = JSON.stringify(r);
+    expect(text).toContain(other);
+    expect(text).toContain('NOT a confirmation that nothing is owed');
+  });
+
   it('uses the company from ctx, and defaults by_date to the end of the current month', async () => {
     await dueByDateTool.handler({}, CTX);
     expect(getDueByDate).toHaveBeenCalledWith(CTX.companyId, 'ar', '2026-11-30');

@@ -7,7 +7,7 @@
  * there is no as-at. Totals are over EVERY contact, never the page.
  */
 import type { McpTool, McpToolResult, McpToolContext } from '../types';
-import { endOfMonth, netPosition, type DueByDateContact, type DueByDateSide } from '@/modules/accounting/utils/dueByDate';
+import { endOfMonth, netPosition, withoutInvoices, type DueByDateContactDetail, type DueByDateSide } from '@/modules/accounting/utils/dueByDate';
 import {
   appToday,
   DueByDateInputError,
@@ -18,9 +18,9 @@ import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 const SIDES = ['ar', 'ap'] as const;
 type Side = (typeof SIDES)[number];
 
-function shape(side: DueByDateSide, entityId: string | undefined) {
+function shape(side: DueByDateSide<DueByDateContactDetail>, entityId: string | undefined) {
   const contacts = entityId === undefined
-    ? side.contacts.map(({ invoices: _invoices, ...c }: DueByDateContact) => c)
+    ? withoutInvoices(side).contacts
     : side.contacts.filter((c) => c.contactId === entityId);
   return { totals: side.totals, contactCount: side.contacts.length, contacts };
 }
@@ -43,10 +43,23 @@ async function handler(args: Record<string, unknown>, ctx: McpToolContext): Prom
   try {
     // companyId from ctx ONLY.
     const results = await Promise.all(sides.map((s) => getDueByDate(ctx.companyId, s, byDate)));
+    // An id with nothing open is NOT "nothing owed": it may be a wrong id or another company's contact.
+    // Say so, instead of returning an empty list that reads as a clean bill.
+    if (entityId !== undefined && !results[0]!.contacts.some((c) => c.contactId === entityId)) {
+      return toolError(
+        `No open ${sideArg === 'ar' ? 'customer invoices' : 'supplier bills'} found for entity_id ${entityId}. `
+        + 'Either nothing is open for that contact, or the id is not a '
+        + `${sideArg === 'ar' ? 'customer' : 'supplier'} of this company. This is NOT a confirmation that nothing is owed.`,
+      );
+    }
     const out: Record<string, unknown> = { today: results[0]!.today, byDate };
     results.forEach((r) => { out[r.side === 'ar' ? 'receivables' : 'payables'] = shape(r, entityId); });
     if (results.length === 2) {
       out.netPosition = netPosition(results[0]!.totals, results[1]!.totals);
+      out.netPositionExcludesNoDueDate = {
+        receivables: results[0]!.totals.noDueDate,
+        payables: results[1]!.totals.noDueDate,
+      };
     }
     return ok(out);
   } catch (err) {
@@ -61,9 +74,9 @@ export const dueByDateTool: McpTool = {
     'What falls due by a date, per customer (receivables) and per supplier (payables), at TODAY\'s open balances. '
     + 'Per contact: overdueNow (due before today), dueTodayToDate (due today up to and including by_date), totalByDate (their sum: what must be settled by by_date), dueLater (due after by_date), noDueDate (no due date recorded, so it cannot be placed in time). '
     + 'totals are over EVERY contact. overdueNow + dueTodayToDate + dueLater + noDueDate = total = the aged_debtors / aged_creditors gross total; open customer disputes are held out of the columns (as the aging does) and shown as `disputed`. '
-    + 'netPosition = receivables totalByDate minus payables totalByDate (only when both sides are returned). '
+    + 'netPosition = receivables totalByDate minus payables totalByDate (only when both sides are returned); it LEAVES OUT documents with no due date, whose amounts are in netPositionExcludesNoDueDate. '
     + 'by_date defaults to the end of the current month and must be today or later. side "ar" or "ap" returns one side; omit for both. '
-    + 'entity_id (with side) returns that one contact WITH its invoices, each carrying its dueDate (null when none recorded) and bucket. Without it contacts carry no invoices.',
+    + 'entity_id (with side) returns that one contact WITH its invoices, each carrying its dueDate (null when none recorded) and bucket; an id with nothing open is an error, not an empty list. Without it contacts carry no invoices.',
   scope: 'read:reports',
   write: false,
   inputSchema: {

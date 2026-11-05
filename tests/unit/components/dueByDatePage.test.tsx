@@ -13,7 +13,8 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 
 import { apiFetch } from '@/lib/apiFetch';
 import Page from '../../../pages/accounting/reports/due-by-date';
-import { buildDueByDateSide, netPosition } from '@/modules/accounting/utils/dueByDate';
+import { reportWithoutInvoices, buildDueByDateSide, netPosition } from '@/modules/accounting/utils/dueByDate';
+import { typeDate } from '../helpers/dateFields';
 import type { OpenAgingInvoice } from '@/modules/accounting/utils/aging';
 
 useApiJsonOverMock();
@@ -42,9 +43,21 @@ beforeAll(() => {
   vi.setSystemTime(new Date('2026-10-31T22:30:00Z'));
 });
 afterAll(() => vi.useRealTimers());
+const json = (data: unknown, status = 200) => new Response(JSON.stringify({ success: true, data }), { status });
+
+/** The summary has no invoices; one contact's drill-down is asked for with side + entity_id. */
+async function serve(url: unknown): Promise<Response> {
+  const q = new URL(String(url), 'http://x').searchParams;
+  const full = report();
+  if (q.get('entity_id')) {
+    const side = full[q.get('side') as 'ap' | 'ar'];
+    return json({ today: full.today, byDate: full.byDate, side: side.side, contact: side.contacts.find((c) => c.contactId === q.get('entity_id')) });
+  }
+  return json(reportWithoutInvoices(full));
+}
+
 beforeEach(() => {
-  vi.mocked(apiFetch).mockReset().mockImplementation(async () =>
-    new Response(JSON.stringify({ success: true, data: report() }), { status: 200 }));
+  vi.mocked(apiFetch).mockReset().mockImplementation(serve);
 });
 afterEach(cleanup);
 
@@ -86,7 +99,7 @@ describe('Due by date page', () => {
   it('expands a contact to its invoices, the undated one marked', async () => {
     render(<Page />);
     fireEvent.click(await screen.findByRole('button', { name: /Show invoices for Acme Supplies/ }));
-    expect(screen.getByText(/BILL-77/)).toBeTruthy();
+    expect(await screen.findByText(/BILL-77/)).toBeTruthy();
     const undated = screen.getByText(/BILL-78/).closest('tr')!;
     expect(within(undated).getByText('No due date')).toBeTruthy();
     // the amount sits in the No due date column (last), and nowhere else
@@ -95,6 +108,85 @@ describe('Due by date page', () => {
     const dated = screen.getByText(/BILL-77/).closest('tr')!;
     expect([...dated.querySelectorAll('td')].map((td) => td.textContent?.replace(/\s+/g, ' ').trim()).slice(1))
       .toEqual(['R 1 000.00', '', 'R 1 000.00', '', '']);
+  });
+
+  it('reads no invoices until a contact is opened, then one contact only, once', async () => {
+    render(<Page />);
+    const open = await screen.findByRole('button', { name: /Show invoices for Acme Supplies/ });
+    const urls = () => vi.mocked(apiFetch).mock.calls.map(([u]) => new URL(String(u), 'http://x').searchParams);
+    expect(urls().filter((q) => q.get('entity_id'))).toEqual([]);
+    fireEvent.click(open);
+    await screen.findByText(/BILL-77/);
+    const asked = urls().filter((q) => q.get('entity_id'));
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.get('entity_id')).toBe('s1');
+    expect(asked[0]!.get('side')).toBe('ap');
+    expect(asked[0]!.get('by_date')).toBe('2026-11-30');
+    // close and open again: the invoices in hand are shown, not fetched again
+    fireEvent.click(screen.getByRole('button', { name: /Hide invoices for Acme Supplies/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Show invoices for Acme Supplies/ }));
+    await screen.findByText(/BILL-77/);
+    expect(urls().filter((q) => q.get('entity_id'))).toHaveLength(1);
+  });
+
+  it('says so when a contact\'s invoices cannot be read, and retries on reopen', async () => {
+    render(<Page />);
+    const open = await screen.findByRole('button', { name: /Show invoices for Acme Supplies/ });
+    vi.mocked(apiFetch).mockImplementation(async (url) => (String(url).includes('entity_id')
+      ? new Response(JSON.stringify({ success: false, message: 'Database is busy' }), { status: 500 })
+      : serve(url)));
+    fireEvent.click(open);
+    expect((await screen.findByText(/Database is busy/)).textContent).toContain('retry');
+    vi.mocked(apiFetch).mockImplementation(serve);
+    fireEvent.click(screen.getByRole('button', { name: /Hide invoices for Acme Supplies/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Show invoices for Acme Supplies/ }));
+    expect(await screen.findByText(/BILL-77/)).toBeTruthy();
+  });
+
+  it('says what the net position leaves out: documents with no due date, payables and receivables', async () => {
+    render(<Page />);
+    const note = await screen.findByTestId('net-excludes');
+    // AP has R 250 with no due date; AR has none
+    expect(note.textContent).toMatch(/^Excludes R\s250\.00 payables and R\s0\.00 receivables with no due date\.$/);
+  });
+
+  it('shows the report for the date on screen when a slower answer for an earlier date arrives last', async () => {
+    const early = report();
+    const later = report();
+    later.ap.contacts[0]!.contactName = 'Later Date Supplies';
+    const pending = new Map<string, (r: Response) => void>();
+    vi.mocked(apiFetch).mockReset().mockImplementation((url) => new Promise<Response>((resolve) => {
+      pending.set(new URL(String(url), 'http://x').searchParams.get('by_date')!, resolve);
+    }));
+    render(<Page />);
+    await waitFor(() => expect(pending.has('2026-11-30')).toBe(true));
+    typeDate(screen.getByRole('textbox', { name: 'Due by date' }), '15 Dec 2026');
+    await waitFor(() => expect(pending.has('2026-12-15')).toBe(true));
+    pending.get('2026-12-15')!(json(reportWithoutInvoices({ ...later, byDate: '2026-12-15' })));
+    expect(await screen.findByText('Later Date Supplies')).toBeTruthy();
+    // the slow answer for 30 Nov now lands, last
+    pending.get('2026-11-30')!(json(reportWithoutInvoices(early)));
+    await new Promise<void>((r) => setTimeout(r, 20));
+    expect(screen.getByText('Later Date Supplies')).toBeTruthy();
+    expect(screen.queryByText('Acme Supplies')).toBeNull();
+    expect(screen.getByTestId('net-position').textContent).toContain('2026-12-15');
+  });
+
+  it('does not let a slower FAILURE for an earlier date wipe the report for the date on screen', async () => {
+    const pending = new Map<string, (r: Response) => void>();
+    vi.mocked(apiFetch).mockReset().mockImplementation((url) => new Promise<Response>((resolve) => {
+      pending.set(new URL(String(url), 'http://x').searchParams.get('by_date')!, resolve);
+    }));
+    render(<Page />);
+    await waitFor(() => expect(pending.has('2026-11-30')).toBe(true));
+    typeDate(screen.getByRole('textbox', { name: 'Due by date' }), '15 Dec 2026');
+    await waitFor(() => expect(pending.has('2026-12-15')).toBe(true));
+    pending.get('2026-12-15')!(json(reportWithoutInvoices({ ...report(), byDate: '2026-12-15' })));
+    await screen.findByText('Acme Supplies');
+    pending.get('2026-11-30')!(new Response(JSON.stringify({ success: false, message: 'Database is busy' }), { status: 500 }));
+    await new Promise<void>((r) => setTimeout(r, 20));
+    expect(screen.getByText('Acme Supplies')).toBeTruthy();
+    expect(screen.queryByText(/Database is busy/)).toBeNull();
   });
 
   it('shows the server reason when the report is refused', async () => {
