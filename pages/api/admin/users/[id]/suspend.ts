@@ -11,6 +11,7 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { suspendUser } from '@/modules/admin/services/adminUserActionsService';
+import { PayRunApproverProtectedError } from '@/modules/accounting/services/core/payRunApproverGuard';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -43,6 +44,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.success(res, { suspended: true });
     } catch (err) {
+      // The user is the last other approver of a pending pay-run approval: nothing was suspended.
+      if (err instanceof PayRunApproverProtectedError) return apiResponse.conflict(res, err.message);
       log.error('Failed to suspend user', { userId, error: err }, 'admin-api');
       return apiResponse.badRequest(res, 'Failed to suspend user');
     }

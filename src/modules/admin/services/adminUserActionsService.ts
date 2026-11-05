@@ -13,6 +13,7 @@ import { sendPasswordResetEmail } from '@/lib/auth/passwordResetEmail';
 import { adminRevokeAllUserSessions } from '@/lib/auth/gotrue';
 import { revokeAllUserPats } from '@/lib/auth/personalAccessTokens';
 import { revokeAllUserAuthorisations } from '@/lib/auth/oauth';
+import { assertPayRunApproverRetainedEverywhere } from '@/modules/accounting/services/core/payRunApproverGuard';
 
 type Row = DbRow;
 
@@ -46,6 +47,8 @@ type Row = DbRow;
  * silent success.
  */
 export async function suspendUser(userId: string, reason: string): Promise<void> {
+  // A suspended account is no approver: refused (PayRunApproverProtectedError) while that would strand a pending pay-run approval.
+  await assertPayRunApproverRetainedEverywhere(userId);
   await sql`
     UPDATE users
     SET is_active        = false,
@@ -166,6 +169,7 @@ async function assertOwnsNoCompanyAlone(userId: string): Promise<void> {
 /** Remove `userId` from every company, or throw SoleOwnerError (see above). Runs before any other write. */
 async function removeFromEveryCompany(userId: string): Promise<void> {
   await assertOwnsNoCompanyAlone(userId);
+  await assertPayRunApproverRetainedEverywhere(userId);
   try {
     await sql`DELETE FROM company_users WHERE user_id = ${userId}`;
   } catch (err) {

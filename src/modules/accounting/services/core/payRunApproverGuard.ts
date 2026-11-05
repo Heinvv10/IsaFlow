@@ -10,11 +10,19 @@
  * (the ratchet: the higher of the role it was raised under and the bound rule's role today, as assertMayDecide
  * judges), and not the request's own requester. Ranks come from gl/approvalRank, the ladder assertMayDecide uses.
  *
- * Limit: this guards the window while a request is pending. A demotion made BEFORE a request is raised is in the
- * request's roster snapshot and is not stopped here; it is recorded instead (the audit trail and the run's
- * `selfApprovedSoleApprover` flag).
+ * ONE function, `refuseLastPayRunApprover`, judges every path that can reduce a company's eligible approvers; the
+ * two wrappers below are for callers that have no migration_admin client of their own. Callers: memberWrites
+ * (company role change, removal), companyMembershipService (platform-admin role change, removal),
+ * adminUserActionsService (suspension, user delete, onboarding reset). Not guarded: accepting an invitation that
+ * re-roles an existing member, which needs that member's own credentials.
+ *
+ * Limit, by design (the sole-approver fallback is kept and logged): this guards the window while a request is
+ * pending. A demotion made BEFORE a request is raised is in the request's roster snapshot, and a requester can
+ * withdraw their own request and then demote; neither is stopped here. They are made visible instead (the audit
+ * trail and the run's `selfApprovedSoleApprover` flag and note).
  */
 import type { PoolClient } from 'pg';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { actorRank, requiredRank } from '../gl/approvalRank';
 
 /** The member write would leave a pending pay-run approval with no approver but its requester. Routes answer 409. */
@@ -66,4 +74,26 @@ export async function refuseLastPayRunApprover(
     if (!eligible(target) || after >= demand) continue;
     if (!members.some((m) => m !== target && eligible(m))) throw new PayRunApproverProtectedError();
   }
+}
+
+/** `refuseLastPayRunApprover` on a migration_admin connection of its own, for callers that write on another pool. */
+export async function assertPayRunApproverRetained(companyId: string, userId: string, newRole: string | null): Promise<void> {
+  await migrationAdminTx('check pay-run approver', (client) => refuseLastPayRunApprover(client, companyId, userId, newRole));
+}
+
+/**
+ * The same judgement for a change that takes `userId` out of EVERY company they belong to (suspension, deleting the
+ * user, an onboarding reset): each company with a pending pay_run request is judged as if they were removed.
+ */
+export async function assertPayRunApproverRetainedEverywhere(userId: string): Promise<void> {
+  await migrationAdminTx('check pay-run approver of a user', async (client) => {
+    const companies = (await client.query<{ company_id: string }>(
+      `SELECT DISTINCT cu.company_id::TEXT AS company_id
+         FROM company_users cu
+         JOIN approval_requests ar ON ar.company_id = cu.company_id AND ar.document_type = 'pay_run' AND ar.status = 'pending'
+        WHERE lower(cu.user_id::TEXT) = lower($1)`,
+      [userId],
+    )).rows;
+    for (const c of companies) await refuseLastPayRunApprover(client, c.company_id, userId, null);
+  });
 }
