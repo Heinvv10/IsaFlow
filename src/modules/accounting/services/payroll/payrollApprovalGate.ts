@@ -42,7 +42,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
-import { comparableLines, predatesTagging, sameFigures, type FigureLine } from './payrollLabourComparison';
+import { comparableLines, foldNetPayBank, predatesTagging, sameFigures, type PostedFigureLine } from './payrollLabourComparison';
 import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
@@ -114,10 +114,10 @@ const AMBIGUOUS_TAG = 'ambiguous-tag-history';
  * then reads as `AMBIGUOUS_TAG`, a CC1 no plan carries, so a recalculated run
  * is refused as `recalculated_after_posting` (reverse, approve: a fresh one).
  */
-async function readPostedJournal(companyId: string, journalId: string): Promise<{ journal: PostedPayrollJournal; asPosted: FigureLine[] } | null> {
+async function readPostedJournal(companyId: string, journalId: string): Promise<{ journal: PostedPayrollJournal; asPosted: PostedFigureLine[]; current: PostedFigureLine[] } | null> {
   const rows = (await sql`
     SELECT e.entry_number, e.status, e.reversed_at, l.gl_account_id, a.account_code, a.account_name,
-           l.debit::float8 AS debit, l.credit::float8 AS credit, l.cc1_id,
+           l.debit::float8 AS debit, l.credit::float8 AS credit, l.cc1_id, l.description,
            (first_tag.journal_line_id IS NOT NULL) AS retagged, first_tag.old_cc1_id, first_tag.tied::int AS tied, l.id AS line_id
     FROM gl_journal_entries e
     LEFT JOIN gl_journal_lines l ON l.journal_entry_id = e.id AND l.company_id = e.company_id
@@ -135,10 +135,11 @@ async function readPostedJournal(companyId: string, journalId: string): Promise<
   const head = rows[0];
   if (!head) return null;
   const id = (v: unknown): string | null => (v == null ? null : String(v));
-  const asPosted = rows.filter((r) => r.gl_account_id != null).map((r): FigureLine => ({
+  const asPosted = rows.filter((r) => r.gl_account_id != null).map((r): PostedFigureLine => ({
     glAccountId: String(r.gl_account_id),
     debit: Number(r.debit) || 0,
     credit: Number(r.credit) || 0,
+    description: id(r.description),
     cc1Id: r.retagged !== true ? id(r.cc1_id) : Number(r.tied) > 1 ? `${AMBIGUOUS_TAG}:${String(r.line_id)}` : id(r.old_cc1_id),
   }));
   const lines = rows.filter((r) => r.gl_account_id != null).map((r) => ({
@@ -158,7 +159,9 @@ async function readPostedJournal(companyId: string, journalId: string): Promise<
     totalDebit: cents(lines.reduce((s, l) => s + l.debit, 0)) / 100,
     totalCredit: cents(lines.reduce((s, l) => s + l.credit, 0)) / 100,
   };
-  return { journal, asPosted };
+  // The lines with the CC1 they carry now, and their descriptions: what the comparison reads for a run not recalculated since.
+  const current = lines.map((l, i): PostedFigureLine => ({ glAccountId: l.glAccountId, debit: l.debit, credit: l.credit, cc1Id: l.cc1Id, description: asPosted[i]!.description }));
+  return { journal, asPosted, current };
 }
 
 /**
@@ -248,9 +251,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
       // In force. The journal to reverse is the LAST of the chain: the run's own, or the one that re-booked it.
       const inForce = chain.journals[chain.journals.length - 1]!;
       const perAccount = await runRecalculatedSince(companyId, runId, linkedId);
-      const compared = perAccount
-        ? comparableLines(plan.lines, plan.labourBySourceCentre, read!.asPosted)
-        : { plan: plan.lines, posted: linked.lines };
+      // Net pay's bank credit is one role on both sides, so a bank role that moved since posting is not a change.
+      const folded = foldNetPayBank(plan.lines, perAccount ? read!.asPosted : read!.current);
+      const compared = perAccount ? comparableLines(folded.plan, plan.labourBySourceCentre, folded.posted) : folded;
       if (!sameFigures(compared, perAccount)) {
         const cause = perAccount && predatesTagging(plan.lines, read!.asPosted)
           ? 'the journal predates cost-centre tagging and this run now tags its labour by cost centre'
