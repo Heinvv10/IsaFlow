@@ -42,6 +42,7 @@ import {
   pageMm,
   type MeasurablePage,
 } from './packPageMetrics';
+import { log } from '@/lib/logger';
 import { PackRefusal } from '../packRefusal';
 import type { PackFootnote, PackPageBlock } from './packPageModel';
 import { NOTHING, omissionFootnote, tookSomething, type Dropped } from './packOmissionFootnote';
@@ -203,6 +204,17 @@ export function fitPageReport<T extends MeasurablePage>(
     }
     const required = lastTrimmableNote(blocks, 'required');
     if (required !== null) { dropNote(blocks, required, dropped); dropped.requiredNotes += 1; continue; }
+    // THE LAST LEVER, so a page this function fits today is never changed by it: a derived caption
+    // that only restates the table beside it. Page 6 with net-debit revenue and a material
+    // interest/tax step reaches here with the bridge at its floor and was refused outright.
+    const caption = lastIndex(blocks, (b) => b.kind === 'narrative' && b.droppable === true);
+    if (caption !== null) {
+      blocks.splice(caption, 1);
+      dropped.captions += 1;
+      log.warn(`board pack: "${page.navLabel}" cannot fit its sheet with its derived caption; the caption is not printed`,
+        { navLabel: page.navLabel, captions: dropped.captions }, 'packs');
+      continue;
+    }
     break;
   }
 

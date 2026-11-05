@@ -23,6 +23,8 @@ export interface Dropped {
    */
   requiredNotes: number;
   footnotes: number;
+  /** Derived captions taken off a page that had nothing else left to give -- see `PackPageBlock.droppable`. */
+  captions: number;
   /**
    * The headings of the disclosures notes were taken from, in the order they
    * were taken, without repeats.
@@ -36,11 +38,11 @@ export interface Dropped {
   from: string[];
 }
 
-export const NOTHING: Dropped = { notes: 0, requiredNotes: 0, footnotes: 0, from: [] };
+export const NOTHING: Dropped = { notes: 0, requiredNotes: 0, footnotes: 0, captions: 0, from: [] };
 
 /** Did this page give anything up? */
 export function tookSomething(dropped: Dropped): boolean {
-  return dropped.notes > 0 || dropped.requiredNotes > 0 || dropped.footnotes > 0;
+  return dropped.notes > 0 || dropped.requiredNotes > 0 || dropped.footnotes > 0 || dropped.captions > 0;
 }
 
 /**
@@ -86,6 +88,9 @@ function omissionText(dropped: Dropped): string {
   }
   if (dropped.footnotes > 0) {
     parts.push(`${dropped.footnotes} ${dropped.footnotes === 1 ? 'footnote' : 'footnotes'}`);
+  }
+  if (dropped.captions > 0) {
+    parts.push(`${dropped.captions} derived ${dropped.captions === 1 ? 'caption' : 'captions'}`);
   }
   if (dropped.requiredNotes > 0) {
     parts.push(`${dropped.requiredNotes} ${dropped.requiredNotes === 1 ? 'note' : 'notes'} from a `

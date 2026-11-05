@@ -53,3 +53,13 @@ export const commentary = (body: string): PackPageBlock => ({
   kind: 'narrative',
   narrative: { status: 'derived', body, actions: [] },
 });
+
+/**
+ * A derived caption that only restates a row of the table above it, which `fitPageToBox` may drop
+ * as the last lever on a page that is otherwise refused -- see `PackPageBlock`'s `droppable`.
+ */
+export const droppableCommentary = (body: string): PackPageBlock => ({
+  kind: 'narrative',
+  narrative: { status: 'derived', body, actions: [] },
+  droppable: true,
+});
