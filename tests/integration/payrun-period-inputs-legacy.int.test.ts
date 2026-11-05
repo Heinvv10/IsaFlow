@@ -23,6 +23,14 @@ afterAll(fx.tearDown);
 
 /** The line as a calculation before the codes would have stored it. */
 const asBeforeTheCodes = () => pool.query(`UPDATE payroll_run_lines SET validation_results = '[]'::jsonb WHERE run_id = $1`, [state.nov]);
+const asLegacyLoanLine = (amount: number) => pool.query(
+  `UPDATE payroll_run_lines SET net_pay = 0, validation_results = '[]'::jsonb,
+      component_breakdown = component_breakdown || $2::jsonb WHERE run_id = $1`,
+  [state.nov, JSON.stringify([{
+    componentId: comp.loan, componentName: 'Loan repayment', sarsSourceCode: 'LOAN', amount,
+    isTaxable: false, isUifApplicable: false,
+  }])],
+);
 /** A breakdown amount carrying a float tail, as termination pay and loan repayments wrote them. */
 const tailOn = (code: string, tail: number) => pool.query(
   `UPDATE payroll_run_lines SET component_breakdown = (
@@ -40,7 +48,7 @@ describe('a run from before the codes', () => {
   it('a loan instalment above pay blocks approval, naming the employee', async () => {
     await addLoan(30000);
     await recalculate(state.nov);
-    await asBeforeTheCodes();
+    await asLegacyLoanLine(30000);
     const { blocker } = await judged();
     expect(blocker).toMatchObject({ code: 'loan_instalment_exceeds_pay' });
     expect(blocker.detail).toContain('W301-1');
@@ -49,7 +57,7 @@ describe('a run from before the codes', () => {
   it('reads LOAN off the line as the calculator does: a code changed in the catalogue since does not move it', async () => {
     await addLoan(30000);
     await recalculate(state.nov);
-    await asBeforeTheCodes();
+    await asLegacyLoanLine(30000);
     await pool.query(`UPDATE payroll_components SET sars_source_code = 'XLOAN' WHERE id = $1`, [comp.loan]);
     expect((await judged()).blocker).toMatchObject({ code: 'loan_instalment_exceeds_pay' });
   });

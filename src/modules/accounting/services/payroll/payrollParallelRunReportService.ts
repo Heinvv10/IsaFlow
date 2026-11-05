@@ -16,6 +16,9 @@ import {
   getExternalImportPayslips,
   type ExternalImportSummary,
 } from './payrollExternalImportService';
+import { loanInstalmentBlocker } from './payrollLineBlockers';
+import type { PayrollJournalNote } from './payrollJournalBuilder';
+import { loanOverdrawnFromStoredRow } from './payrollStoredLoanBlock';
 
 export interface ParallelRunReportRunInfo {
   id: string;
@@ -28,6 +31,8 @@ export interface ParallelRunReport {
   import: ExternalImportSummary;
   run: ParallelRunReportRunInfo | null;
   comparison: ParallelRunComparisonReport | null;
+  /** Derived from the same rows as comparison, so export cannot check one snapshot and emit another. */
+  loanInstalmentBlocker: PayrollJournalNote | null;
 }
 
 /** NUMERIC(14,2) rand string/number → integer cents. */
@@ -62,10 +67,17 @@ async function getRunById(companyId: string, runId: string): Promise<DbRow | nul
   return rows[0] ?? null;
 }
 
-async function loadRunLines(companyId: string, runId: string): Promise<IsaflowRunLineInput[]> {
+async function loadRunLines(
+  companyId: string,
+  runId: string,
+): Promise<{ lines: IsaflowRunLineInput[]; loanBlocker: PayrollJournalNote | null }> {
   const rows = (await sql`
     SELECT prl.gross_pay, prl.paye, prl.uif_employee, prl.uif_employer,
-           prl.sdl, prl.eti, prl.net_pay,
+           prl.sdl, prl.eti, prl.net_pay, prl.employee_id, prl.validation_results, prh.calculation_version,
+           prl.component_breakdown,
+           (SELECT COALESCE(array_agg(l.loan_number ORDER BY l.loan_number), '{}') FROM payroll_loan_payments p
+              JOIN payroll_loans l ON l.id = p.loan_id AND l.company_id = prh.company_id
+             WHERE p.run_id = prl.run_id AND l.employee_id = prl.employee_id) AS loans,
            e.employee_number, e.first_name, e.last_name
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
@@ -73,7 +85,7 @@ async function loadRunLines(companyId: string, runId: string): Promise<IsaflowRu
      WHERE prl.run_id = ${runId}::uuid
        AND prh.company_id = ${companyId}::uuid
   `) as DbRow[];
-  return rows.map((r) => ({
+  const lines = rows.map((r) => ({
     employeeNumber: String(r.employee_number),
     employeeName: `${String(r.first_name)} ${String(r.last_name)}`.trim(),
     gross: randToCents(r.gross_pay),
@@ -84,6 +96,9 @@ async function loadRunLines(companyId: string, runId: string): Promise<IsaflowRu
     eti: randToCents(r.eti),
     net: randToCents(r.net_pay),
   }));
+  // Legacy pre-code lines are rebuilt from this same snapshot's breakdown, as findOverdrawnLines does.
+  const blocked = rows.flatMap(loanOverdrawnFromStoredRow);
+  return { lines, loanBlocker: loanInstalmentBlocker(blocked) };
 }
 
 /**
@@ -106,10 +121,10 @@ export async function getParallelRunReport(
     throw new Error('Payroll run not found');
   }
   if (!runRow) {
-    return { import: imp, run: null, comparison: null };
+    return { import: imp, run: null, comparison: null, loanInstalmentBlocker: null };
   }
 
-  const [lines, payslips] = await Promise.all([
+  const [runLines, payslips] = await Promise.all([
     loadRunLines(companyId, String(runRow.id)),
     getExternalImportPayslips(companyId, importId),
   ]);
@@ -122,6 +137,7 @@ export async function getParallelRunReport(
       periodYear: Number(runRow.period_year),
       status: String(runRow.status),
     },
-    comparison: compareParallelRun(lines, payslips),
+    comparison: compareParallelRun(runLines.lines, payslips),
+    loanInstalmentBlocker: runLines.loanBlocker,
   };
 }
