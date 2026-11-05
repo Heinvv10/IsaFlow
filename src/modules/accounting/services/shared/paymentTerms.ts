@@ -123,7 +123,8 @@ export function dueDateFromTerms(
  * Wording that counts from a month-end or a statement, never from the invoice date ("90 days after statement", "30 days
  * EOM", "end of next month"). Terms text with it is never a netNN: the caller ignores it, or maps it to a statement type.
  */
-export const STATEMENT_WORDING = /\b(statements?|stmt|eom|month[\s-]*end|end\s+of)\b/i;
+// Lookarounds, not \b: after the final dot of "E.O.M." there is no word boundary.
+export const STATEMENT_WORDING = /(?<![a-z])(statements?|stmt|e\.?o\.?m\.?|month[\s-]*end|end\s+of)(?![a-z])/i;
 
 /**
  * A bill's OWN terms text ("net30", "Net 45", "immediate") as a due date; null for anything else (including none, and
@@ -132,8 +133,8 @@ export const STATEMENT_WORDING = /\b(statements?|stmt|eom|month[\s-]*end|end\s+o
 export function ownTermsDueDate(invoiceDateIso: string, paymentTerms?: string | null): string | null {
   if (!paymentTerms || STATEMENT_WORDING.test(paymentTerms)) return null;
   if (/^\s*immediate\s*$/i.test(paymentTerms)) return dueDateFromTerms(invoiceDateIso, 0, 'invoice_days');
-  // \bnet: "Internet 7 days" is not terms; at most three digits: net365000 is not terms either.
-  const match = paymentTerms.match(/\bnet\s*(\d{1,3})\b/i);
+  // \bnet: "Internet 7 days" is not terms; at most three digits: net365000 is not terms either; "Net 150.00" is an amount.
+  const match = paymentTerms.match(/\bnett?\s*(\d{1,3})\b(?![.,]\d)/i);
   return match ? dueDateFromTerms(invoiceDateIso, Number(match[1]), 'invoice_days') : null;
 }
 

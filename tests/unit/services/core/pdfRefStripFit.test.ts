@@ -1,7 +1,8 @@
 /**
  * A value in the PDF reference strip never runs past its column: "30 days from invoice date" in the last of five columns
  * crossed the strip's right border at the fixed 8pt (found by rendering a real PDF). The value shrinks until it fits.
- * Against a real jsPDF document: the width at the size actually drawn is measured, not a mocked number.
+ * Against a real jsPDF document: the width at the size actually drawn is measured against the width the code fits to
+ * (column less 8mm), not a mocked number.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -26,7 +27,8 @@ describe('renderRefStrip fits each value to its column', () => {
     doc.setFont('helvetica', 'bold');
     for (const f of fields) {
       doc.setFontSize(sizes.get(f.value)!);
-      expect(doc.getTextWidth(f.value) + 5, f.value).toBeLessThanOrEqual(colW);
+      // The width the code fits to (colW - 8: 5mm in from the column edge, 3mm clear of the next), not the bare column.
+      expect(doc.getTextWidth(f.value), f.value).toBeLessThanOrEqual(colW - 8);
     }
     expect(sizes.get('INV-1')).toBe(8);
     expect(sizes.get('999 days after statement')).toBeLessThan(8);

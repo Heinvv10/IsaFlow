@@ -90,10 +90,12 @@ SET LOCAL lock_timeout = '5s';
 -- the old code stamped, not a choice: it becomes NULL / NULL (not set), never invoice_days 30. Any other (N, NULL) row has
 -- no known writer: map it to invoice_days N as 960 does.
 UPDATE suppliers SET payment_terms = NULL, payment_terms_type = NULL WHERE payment_terms = 30 AND payment_terms_type IS NULL;
+-- customers too: the old importCustomers wrote `payment_terms ?? 30` with no type, so a customer can hold (30, NULL) as well
+UPDATE customers SET payment_terms = NULL, payment_terms_type = NULL WHERE payment_terms = 30 AND payment_terms_type IS NULL;
 UPDATE suppliers SET payment_terms_type = CASE WHEN payment_terms_type IS NULL OR payment_terms_type = 'days' THEN 'invoice_days'
   WHEN payment_terms_type = 'end_of_month' THEN 'statement_days' ELSE payment_terms_type END
 WHERE payment_terms IS NOT NULL AND payment_terms_type IN ('days', 'end_of_month') OR (payment_terms IS NOT NULL AND payment_terms_type IS NULL);
--- (customers: only the second UPDATE; see below) then rows that are neither both-NULL nor a valid pair become NULL / NULL
+-- (the same second UPDATE for customers) then rows that are neither both-NULL nor a valid pair become NULL / NULL
 ALTER TABLE suppliers ADD CONSTRAINT suppliers_payment_terms_shape CHECK (
   (payment_terms IS NULL AND payment_terms_type IS NULL)
   OR (payment_terms BETWEEN 0 AND 999 AND payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months'))) NOT VALID;

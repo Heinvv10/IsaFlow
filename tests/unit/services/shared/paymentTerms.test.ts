@@ -152,6 +152,7 @@ describe('ownTermsDueDate', () => {
     ['Internet 7 days', '2026-08-16', null], ['Cabinet 30', '2026-08-16', null], ['net365000', '2026-08-16', null], ['net 1000', '2026-08-16', null],
     ['net999', '2026-01-01', '2028-09-26'], ['net-30', '2026-08-16', null],
     // statement wording counts from the month-end, never invoice + N (an API or MCP caller's "Net 90 EOM")
+    ['Net 30 E.O.M.', '2026-09-16', null], ['Net 30 e.o.m', '2026-09-16', null], ['Nett 30', '2026-09-16', '2026-10-16'], ['Net 150.00', '2026-09-16', null],
     ['Net 90 EOM', '2026-09-16', null], ['net 30 end of month', '2026-09-16', null], ['Net 60 after statement', '2026-09-16', null], ['Net 30 month-end', '2026-09-16', null],
   ])('%j on %s gives %s', (text, date, due) => {
     expect(ownTermsDueDate(date, text)).toBe(due);
