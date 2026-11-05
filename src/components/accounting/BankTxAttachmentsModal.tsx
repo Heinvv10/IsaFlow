@@ -19,6 +19,7 @@ import { type Attachment, MAX_BYTES, ACCEPT, ACCEPTED_MIME, readFileAsDataUrl } 
 import { BankTxAttachmentRow } from './BankTxAttachmentRow';
 import { AttachmentViewer } from './AttachmentViewer';
 import { previewKind } from './attachmentPreview';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,14 +43,11 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [viewIndex, setViewIndex] = useState<number | null>(null);
-  // The View button that opened the viewer unmounted with the list, so the viewer cannot hand focus back to it:
-  // take it here instead, or a keyboard user lands on <body> behind the modal.
+  // Tab stays in, Escape closes, focus returns to the opener. Off while the viewer replaces the list (the viewer has
+  // its own); back on when it closes, which also takes focus back into the list: the View button that opened the
+  // viewer unmounted with the list, so the viewer cannot return focus to it.
   const dialogRef = useRef<HTMLDivElement>(null);
-  const wasViewing = useRef(false);
-  useEffect(() => {
-    if (viewIndex === null && wasViewing.current) dialogRef.current?.focus();
-    wasViewing.current = viewIndex !== null;
-  }, [viewIndex]);
+  useFocusTrap(dialogRef, viewIndex === null, onClose);
   // Refs, so a parent's inline callback does not re-create fetchAttachments (and re-fetch) on every render.
   const countRef = useRef(onCountChange);
   countRef.current = onCountChange;
@@ -179,6 +177,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
           </div>
           <button
             onClick={onClose}
+            aria-label="Close attachments"
             className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"
           >
             <X className="h-4 w-4" />

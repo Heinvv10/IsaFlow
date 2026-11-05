@@ -36,7 +36,18 @@ describe('BankTxAttachmentsModal viewing', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close preview' }));
     expect(screen.queryByRole('dialog', { name: 'Attachment preview' })).toBeNull();
     expect(screen.getByRole('dialog', { name: 'Attachments' })).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByRole('dialog', { name: 'Attachments' }));
+    expect(screen.getByRole('dialog', { name: 'Attachments' }).contains(document.activeElement)).toBe(true);
+  });
+
+  it('closes on Escape, and keeps Escape in the viewer while the viewer is open', async () => {
+    const onClose = vi.fn();
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={onClose} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'View slip.png' }));
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Attachment preview' }), { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Attachments' })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Attachments' }), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('opens the file whose View was pressed, counting only the files it can show', async () => {
