@@ -10,12 +10,11 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import type { DueBucket, DueByDateSide } from '@/modules/accounting/utils/dueByDate';
 
-const BUCKET_LABEL: Record<DueBucket, string> = {
-  overdueNow: 'Overdue now',
-  dueTodayToDate: 'Due today to date',
-  dueLater: 'Due later',
-  noDueDate: 'No due date',
-};
+type Column = 'overdueNow' | 'dueTodayToDate' | 'totalByDate' | 'dueLater' | 'noDueDate';
+const COLUMNS: Column[] = ['overdueNow', 'dueTodayToDate', 'totalByDate', 'dueLater', 'noDueDate'];
+/** Total by date is the sum of the two columns before it, so an invoice in either also sits in it. */
+const inColumn = (bucket: DueBucket, col: Column): boolean =>
+  col === bucket || (col === 'totalByDate' && (bucket === 'overdueNow' || bucket === 'dueTodayToDate'));
 
 const NO_DUE_CELL = 'text-amber-700 dark:text-amber-400 bg-amber-500/10';
 const th = 'px-4 py-3 text-right';
@@ -74,17 +73,20 @@ export function DueByDateTable({ side, contactLabel }: { side: DueByDateSide; co
                 </tr>
                 {isOpen && c.invoices.map((i) => (
                   <tr key={i.id} className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)]/40 text-xs">
-                    <td className="pl-10 pr-4 py-2 text-[var(--ff-text-secondary)] font-id">
-                      {i.invoiceNumber} <span className="font-sans text-[var(--ff-text-tertiary)]">· {formatDisplayDate(i.invoiceDate)}</span>
+                    <td className="pl-10 pr-4 py-2 text-[var(--ff-text-secondary)]">
+                      <span className="font-id">{i.invoiceNumber}</span> <span className="text-[var(--ff-text-tertiary)]">· {formatDisplayDate(i.invoiceDate)}</span>
+                      <span className="block text-[var(--ff-text-tertiary)]">
+                        {i.dueDate === null
+                          ? <span className="text-amber-700 dark:text-amber-400">No due date</span>
+                          : `Due ${formatDisplayDate(i.dueDate)}`}
+                        {i.disputed > 0 && ` · ${formatMoney(i.disputed)} disputed, held out`}
+                      </span>
                     </td>
-                    <td className="px-4 py-2 text-right text-[var(--ff-text-secondary)]" colSpan={2}>
-                      {i.dueDate === null ? <span className="text-amber-700 dark:text-amber-400">No due date</span> : `Due ${formatDisplayDate(i.dueDate)}`}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums font-semibold text-[var(--ff-text-primary)]">
-                      {formatMoney(i.counted)}
-                      {i.disputed > 0 && <span className="block font-normal text-[var(--ff-text-tertiary)]">{formatMoney(i.disputed)} disputed, held out</span>}
-                    </td>
-                    <td className="px-4 py-2 text-right text-[var(--ff-text-secondary)]" colSpan={2}>{BUCKET_LABEL[i.bucket]}</td>
+                    {COLUMNS.map((col) => (
+                      <td key={col} className={`${num} ${col === 'noDueDate' && i.bucket === col ? NO_DUE_CELL : ''}`}>
+                        {inColumn(i.bucket, col) ? formatMoney(i.counted) : ''}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </Fragment>

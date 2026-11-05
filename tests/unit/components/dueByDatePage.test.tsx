@@ -88,7 +88,13 @@ describe('Due by date page', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Show invoices for Acme Supplies/ }));
     expect(screen.getByText(/BILL-77/)).toBeTruthy();
     const undated = screen.getByText(/BILL-78/).closest('tr')!;
-    expect(within(undated).getAllByText('No due date').length).toBe(2);
+    expect(within(undated).getByText('No due date')).toBeTruthy();
+    // the amount sits in the No due date column (last), and nowhere else
+    const cells = [...undated.querySelectorAll('td')].map((td) => td.textContent?.replace(/\s+/g, ' ').trim());
+    expect(cells.slice(1)).toEqual(['', '', '', '', 'R 250.00']);
+    const dated = screen.getByText(/BILL-77/).closest('tr')!;
+    expect([...dated.querySelectorAll('td')].map((td) => td.textContent?.replace(/\s+/g, ' ').trim()).slice(1))
+      .toEqual(['R 1 000.00', '', 'R 1 000.00', '', '']);
   });
 
   it('shows the server reason when the report is refused', async () => {
