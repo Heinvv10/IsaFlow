@@ -67,8 +67,8 @@ describeIfDb('every receivables total includes the disputed amount', () => {
     await invoice('AGD-2', 21765.5, shift(-15));
     const disputed = await invoice('AGD-3', 600, shift(-45));
     await f.pool.query(
-      `INSERT INTO customer_invoice_disputes (company_id, customer_invoice_id, reason, raised_by, disputed_amount) VALUES ($1,$2,'fixture',$3,$4)`,
-      [f.company, disputed, f.user, DISPUTED]);
+      `INSERT INTO customer_invoice_disputes (company_id, customer_invoice_id, reason, raised_by, disputed_amount, raised_at) VALUES ($1,$2,'fixture',$3,$4, now() - interval '10 days')`,
+      [f.company, disputed, f.user, DISPUTED]); // raised 10 days ago, so a period ending yesterday has it open
     // A second tenant's debt must never reach any total.
     const other = await setupFixture('AGD2');
     await other.pool.query(
