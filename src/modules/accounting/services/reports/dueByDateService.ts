@@ -10,6 +10,7 @@
  */
 
 import { fmtDate } from '@/lib/fmtDate';
+import { isUuidParam } from '@/lib/validation';
 import { fetchAPAgingInvoices } from '../ap/apAgingInvoices';
 import { fetchARAgingInvoices } from '../ar/arAgingInvoices';
 import {
@@ -35,6 +36,14 @@ function assertByDate(byDate: string, today: string): void {
   if (problem) throw new DueByDateInputError(problem);
 }
 
+/** Open documents of one side as at today; `contactId` narrows to one supplier / customer in SQL. */
+function readOpen(companyId: string, side: DueSide, today: string, contactId: string | null) {
+  // asAt = today, rewind window = today: the live open book, as the aging page shows it.
+  return side === 'ap'
+    ? fetchAPAgingInvoices(companyId, today, today, contactId)
+    : fetchARAgingInvoices(companyId, today, today, contactId);
+}
+
 /**
  * One side, with every contact's invoices. A failure is not logged here: the
  * REST route's withErrorHandler and the MCP registry each log a thrown error
@@ -47,22 +56,28 @@ export async function getDueByDate(
 ): Promise<DueByDateSide<DueByDateContactDetail>> {
   const today = appToday();
   assertByDate(byDate, today);
-  // asAt = today, rewind window = today: the live open book, as the aging page shows it.
-  const rows = side === 'ap'
-    ? await fetchAPAgingInvoices(companyId, today, today)
-    : await fetchARAgingInvoices(companyId, today, today);
-  return buildDueByDateSide(side, rows, today, byDate);
+  return buildDueByDateSide(side, await readOpen(companyId, side, today, null), today, byDate);
 }
 
-/** One contact of a side with its invoices; null when the contact has nothing open (or is not this company's). */
+/**
+ * One contact of a side with its invoices; null when the contact has nothing
+ * open (or is not this company's). The contact is picked in SQL, by the
+ * fetchers' own supplier / customer filter, so a drill-down reads one contact's
+ * documents and not the whole side's. The contact id is the one the summary
+ * lists: COALESCE(client_id, customer_id) on AR, supplier_id on AP.
+ */
 export async function getDueByDateContact(
   companyId: string,
   side: DueSide,
   byDate: string,
   contactId: string,
 ): Promise<DueByDateContactDetail | null> {
-  const s = await getDueByDate(companyId, side, byDate);
-  return s.contacts.find((c) => c.contactId === contactId) ?? null;
+  const today = appToday();
+  assertByDate(byDate, today);
+  // Both callers check this already; the fetchers cast it ::UUID, and a cast error aborts the request transaction.
+  if (!isUuidParam(contactId)) return null;
+  const rows = await readOpen(companyId, side, today, contactId);
+  return buildDueByDateSide(side, rows, today, byDate).contacts.find((c) => c.contactId === contactId) ?? null;
 }
 
 /** Both sides plus the net cash position (AR totalByDate - AP totalByDate). */

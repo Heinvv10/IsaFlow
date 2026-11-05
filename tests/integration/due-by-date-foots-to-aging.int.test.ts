@@ -22,6 +22,7 @@ import {
   appToday,
   DueByDateInputError,
   getDueByDate,
+  getDueByDateContact,
   getDueByDateReport,
 } from '@/modules/accounting/services/reports/dueByDateService';
 import type { DueByDateSide } from '@/modules/accounting/utils/dueByDate';
@@ -191,6 +192,19 @@ describeIfDb('Due by date foots to the AR / AP aging', () => {
     const other = await getDueByDate(B, 'ar', BY);
     expect(other.totals.overdueNow).toBe(9999);
     expect(other.totals.total).toBe(9999);
+  });
+
+  it('a contact drill-down read in SQL equals that contact in the whole-side read, and is null for anyone else', async () => {
+    for (const [side, id] of [['ar', customer], ['ap', supplier]] as const) {
+      const whole = (await getDueByDate(A, side, BY)).contacts.find((c) => c.contactId === id)!;
+      const one = await getDueByDateContact(A, side, BY, id);
+      expect(one).toEqual(whole);
+      expect(one!.invoices.length).toBeGreaterThan(1);
+    }
+    // another tenant's customer, and a contact of this company on the wrong side
+    expect(await getDueByDateContact(A, 'ar', BY, otherCustomer)).toBeNull();
+    expect(await getDueByDateContact(A, 'ap', BY, customer)).toBeNull();
+    expect(await getDueByDateContact(B, 'ar', BY, customer)).toBeNull();
   });
 
   it('refuses a by_date in the past', async () => {

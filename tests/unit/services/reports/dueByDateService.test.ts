@@ -34,14 +34,14 @@ afterEach(() => vi.useRealTimers());
 describe('getDueByDate', () => {
   it('reads the open book as at the SAST day, both for the as-at and the rewind window', async () => {
     const r = await getDueByDate(CO, 'ar', '2026-11-30');
-    expect(fetchARAgingInvoices).toHaveBeenCalledWith(CO, '2026-11-05', '2026-11-05');
+    expect(fetchARAgingInvoices).toHaveBeenCalledWith(CO, '2026-11-05', '2026-11-05', null);
     expect(r.today).toBe('2026-11-05');
     expect(r.totals.dueTodayToDate).toBe(100);
   });
 
   it('uses the AP query for ap and not the AR one', async () => {
     await getDueByDate(CO, 'ap', '2026-11-30');
-    expect(fetchAPAgingInvoices).toHaveBeenCalledWith(CO, '2026-11-05', '2026-11-05');
+    expect(fetchAPAgingInvoices).toHaveBeenCalledWith(CO, '2026-11-05', '2026-11-05', null);
     expect(fetchARAgingInvoices).not.toHaveBeenCalled();
   });
 
@@ -60,18 +60,51 @@ describe('getDueByDate', () => {
 });
 
 describe('getDueByDateContact', () => {
+  const CONTACT = 'eeeeeeee-0000-4000-8000-000000000001';
+
+  beforeEach(() => {
+    vi.mocked(fetchARAgingInvoices).mockResolvedValue([row({ entityId: CONTACT })]);
+    vi.mocked(fetchAPAgingInvoices).mockResolvedValue([row({ entityId: CONTACT, balance: 40 })]);
+  });
+
   it('finds one contact with its invoices', async () => {
-    const c = await getDueByDateContact(CO, 'ar', '2026-11-30', 'e');
+    const c = await getDueByDateContact(CO, 'ar', '2026-11-30', CONTACT);
     expect(c?.invoices).toHaveLength(1);
     expect(c?.totalByDate).toBe(100);
   });
 
-  it('is null for a contact with nothing open', async () => {
-    expect(await getDueByDateContact(CO, 'ar', '2026-11-30', 'nobody')).toBeNull();
+  it('filters in SQL: the AR fetcher gets the company, the SAST day twice and the contact id', async () => {
+    await getDueByDateContact(CO, 'ar', '2026-11-30', CONTACT);
+    expect(fetchARAgingInvoices).toHaveBeenCalledTimes(1);
+    expect(fetchARAgingInvoices).toHaveBeenCalledWith(CO, '2026-11-05', '2026-11-05', CONTACT);
+    expect(fetchAPAgingInvoices).not.toHaveBeenCalled();
   });
 
-  it('refuses a past by_date', async () => {
-    await expect(getDueByDateContact(CO, 'ar', '2026-11-01', 'e')).rejects.toBeInstanceOf(DueByDateInputError);
+  it('filters in SQL on the AP side too', async () => {
+    const c = await getDueByDateContact(CO, 'ap', '2026-11-30', CONTACT);
+    expect(fetchAPAgingInvoices).toHaveBeenCalledWith(CO, '2026-11-05', '2026-11-05', CONTACT);
+    expect(fetchARAgingInvoices).not.toHaveBeenCalled();
+    expect(c?.totalByDate).toBe(40);
+  });
+
+  it('the whole-side read still passes no contact', async () => {
+    await getDueByDate(CO, 'ar', '2026-11-30');
+    expect(fetchARAgingInvoices).toHaveBeenCalledWith(CO, '2026-11-05', '2026-11-05', null);
+  });
+
+  it('is null (the route answers 404) for a contact with nothing open', async () => {
+    vi.mocked(fetchARAgingInvoices).mockResolvedValue([]);
+    expect(await getDueByDateContact(CO, 'ar', '2026-11-30', CONTACT)).toBeNull();
+  });
+
+  it('is null, without a query, for an id that is not a UUID (it would be cast ::UUID)', async () => {
+    expect(await getDueByDateContact(CO, 'ar', '2026-11-30', "1' OR '1'='1")).toBeNull();
+    expect(fetchARAgingInvoices).not.toHaveBeenCalled();
+  });
+
+  it('refuses a past by_date before any query', async () => {
+    await expect(getDueByDateContact(CO, 'ar', '2026-11-01', CONTACT)).rejects.toBeInstanceOf(DueByDateInputError);
+    expect(fetchARAgingInvoices).not.toHaveBeenCalled();
   });
 });
 
