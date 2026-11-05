@@ -30,10 +30,13 @@
  * liable month of a contribution made in an exempt month counts against the
  * liable months' deduction (an over-levy by that amount, never an under-levy).
  *
- * Lines costed before migration 957 are read as they were costed (SDL on gross):
- * the year to date takes their SDL-applicable pay as the leviable amount they
- * carried, so the deductions PAYE recorded on them are credited to the next line
- * (the SDL they over-levied is netted against the month's levy, not refunded).
+ * Lines costed before migration 957 were levied on gross, each EMP201 period right
+ * as filed: the new rule starts with the first run after them. The year to date
+ * takes their SDL-applicable pay as both liable pay and the leviable amount they
+ * carried, and none of their deductions, so the first new month's leviable amount
+ * is its own pay less its own deduction (no credit for earlier months). A later
+ * reversal of such a contribution lowers the liable deduction but is capped at the
+ * liable pay.
  */
 import type { PayeYearToDate } from './payrollTypes';
 

@@ -175,7 +175,7 @@ export async function loadPayeYearToDate(
       retirementContributions: fund?.contributions ?? 0,
       retirementDeduction: fund?.deduction ?? 0,
       donations: fund?.donations ?? 0,
-      ...sdlYearToDate((r.sdl_lines ?? []) as SdlYearToDateLine[], legacyTaxableByLine),
+      ...sdlYearToDate((r.sdl_lines ?? []) as SdlYearToDateLine[]),
     }];
   }));
 }

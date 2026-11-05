@@ -9,16 +9,18 @@
  * - sdlRetirementDeduction: the retirement deduction they recorded.
  *
  * Each line's figures are the ones the run stored (migration 957: sdl_applicable,
- * sdl_leviable, sdl_exempt). A line from before it (NULL) is read as it was
- * costed, on gross:
+ * sdl_leviable, sdl_exempt). A line from before it (NULL; costed on gross) is read
+ * as it was costed, and the new rule starts with the first run after it:
  * - SDL-applicable pay: rebuilt from its breakdown (the items flagged
  *   `isSdlApplicable`, else today's catalogue; in the SQL);
  * - exempt when it stored a nil levy although that pay would have carried one of
  *   a cent or more (exact for such a line: no deduction reduced its SDL);
- * - leviable amount: that pay.
- * The deduction is the line's retirement_deduction; a line from before migration
- * 948 has none stored, and its taxable-flagged contributions count instead (the
- * one rule for PAYE, payrollRetirementRecord).
+ * - leviable amount: that pay (it was levied on all of it);
+ * - deduction: NONE. No deduction reduced that month's SDL and its EMP201 period
+ *   stays right as filed, so the retirement deduction PAYE recorded on it is not
+ *   credited against later months (Hein: no credit). A later reversal of such a
+ *   contribution is capped at the liable pay (sdlLeviableCumulative).
+ * A line with stored figures contributes the retirement_deduction it recorded.
  */
 export interface SdlYearToDateLine {
   line: string;
@@ -32,7 +34,7 @@ export interface SdlYearToDateLine {
   sdlLeviable: number | null;
   /** Stored sdl_exempt; null for a line from before migration 957. */
   sdlExempt: boolean | null;
-  /** The line's retirement_deduction; null for a line from before migration 948. */
+  /** The line's retirement_deduction; counted only for a line with stored SDL figures (migration 957). */
   retirement: number | null;
 }
 
@@ -44,10 +46,7 @@ export interface SdlYearToDate {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
-export function sdlYearToDate(
-  lines: readonly SdlYearToDateLine[],
-  legacyRetirementByLine: Readonly<Record<string, number>>,
-): SdlYearToDate {
+export function sdlYearToDate(lines: readonly SdlYearToDateLine[]): SdlYearToDate {
   let pay = 0;
   let leviable = 0;
   let deduction = 0;
@@ -57,7 +56,8 @@ export function sdlYearToDate(
     if (exempt) continue;
     pay += linePay;
     leviable += l.sdlLeviable == null ? linePay : Number(l.sdlLeviable);
-    deduction += l.retirement == null ? (legacyRetirementByLine[l.line] ?? 0) : Number(l.retirement);
+    // A line costed before 957 deducted nothing from its SDL: its recorded deduction is not credited later.
+    if (l.sdlApplicable != null) deduction += Number(l.retirement ?? 0);
   }
   return { sdlApplicable: round2(pay), sdlLeviable: round2(leviable), sdlRetirementDeduction: round2(deduction) };
 }

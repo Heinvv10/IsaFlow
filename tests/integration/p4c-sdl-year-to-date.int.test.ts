@@ -7,7 +7,7 @@
  *    employer's twelve-month remuneration); the next month reads them back and levies only the liable months.
  * 2. A line from before migration 957 (the columns NULL): read as it was costed: pay rebuilt from its breakdown
  *    (flagged items, else today's catalogue), exempt when it stored a nil levy that its pay would have carried,
- *    leviable amount = that pay.
+ *    leviable amount = that pay, and none of its deduction (no credit).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -154,8 +154,9 @@ describe('lines from before migration 957 (the columns NULL)', () => {
     await line(6, 'calculated', { ded: 0, sdl: 50, pay: 50_000, leviable: 50_000, exempt: false }, [item('s', '3601', 50_000, { isSdlApplicable: true })]);
 
     const ytd = (await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 7 }, [f.employee])).get(f.employee)!;
-    // Liable: March (pay 20 000, leviable 20 000 = its pay, RA 5 000) and May (8 000, 7 000, RA 1 000).
-    expect(ytd).toMatchObject({ sdlApplicable: 28_000, sdlLeviable: 27_000, sdlRetirementDeduction: 6_000 });
+    // Liable: March (legacy: pay 20 000, leviable 20 000 = its pay, NO deduction: no credit for its R5 000) and May
+    // (stored: 8 000, 7 000, RA 1 000).
+    expect(ytd).toMatchObject({ sdlApplicable: 28_000, sdlLeviable: 27_000, sdlRetirementDeduction: 1_000 });
     // The PAYE figures read the same lines: all three approved months' deductions.
     expect(ytd.retirementDeduction).toBe(8_000);
   });

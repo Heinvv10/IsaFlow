@@ -56,13 +56,14 @@ describe('loadPayeYearToDate: SDL year to date (SDL Act s3(4); SDL-GEN-01-G01 Re
     expect(ytd.sdlRetirementDeduction).toBe(8_000);
   });
 
-  it('a pre-948 line (retirement_deduction null) uses its taxable-flagged contributions from the retirement record', async () => {
+  it('a line from before migration 957 contributes its pay and no deduction (no credit for earlier months)', async () => {
     sqlMock.mockResolvedValueOnce([row([
-      { line: 'legacy', sdl: 300, sdlApplicable: null, rebuiltApplicable: 30_000, sdlLeviable: null, sdlExempt: null, retirement: null },
+      { line: 'legacy', sdl: 300, sdlApplicable: null, rebuiltApplicable: 30_000, sdlLeviable: null, sdlExempt: null, retirement: 3_000 },
     ])]).mockResolvedValueOnce([record({ legacy: 1_000 })]);
     const ytd = (await loadPayeYearToDate(COMPANY, RUN, { year: 2026, month: 5 }, [EMP])).get(EMP)!;
-    expect(ytd.sdlRetirementDeduction).toBe(1_000);
+    expect(ytd.sdlApplicable).toBe(30_000);
     expect(ytd.sdlLeviable).toBe(30_000);
+    expect(ytd.sdlRetirementDeduction).toBe(0);
   });
 
   it('a row without lines (nothing to date) is none', async () => {

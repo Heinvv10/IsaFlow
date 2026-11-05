@@ -72,15 +72,21 @@ const sdlPay = (cs: EmployeeComponent[]): number =>
  * loadPayeYearToDate do (SDL half: sdlYearToDate over the same lines). `withSdl: false` carries
  * zero SDL figures instead, to show the SDL year to date never changes a PAYE figure.
  */
-function year(months: EmployeeComponent[][], withSdl = true, estimates: Array<number | 'defer'> = []): PayrollLineResult[] {
+function year(
+  months: EmployeeComponent[][], withSdl = true, estimates: Array<number | 'defer'> = [], legacyMonths = 0,
+): PayrollLineResult[] {
   const results: PayrollLineResult[] = [];
   const sdlLines: SdlYearToDateLine[] = [];
   let ytd: PayeYearToDate | undefined;
   months.forEach((components, i) => {
     const r = line(components, estimates[i] ?? 1_000_000, { period: { month: 4 + i, year: 2026 }, ytd });
     results.push(r);
-    // As the run writer stores the line (migration 957): pay, leviable amount, and whether the run was exempt.
-    sdlLines.push({
+    // As the run writer stores the line (migration 957): pay, leviable amount, and whether the run was exempt. The first
+    // `legacyMonths` months stand for lines costed before it, levied on gross: columns NULL, the levy 1% of the pay.
+    sdlLines.push(i < legacyMonths ? {
+      line: String(i), sdl: r2(sdlPay(components) * 0.01), sdlApplicable: null, rebuiltApplicable: sdlPay(components),
+      sdlLeviable: null, sdlExempt: null, retirement: r.retirementDeduction,
+    } : {
       line: String(i), sdl: r.sdl, sdlApplicable: r.sdlApplicable, rebuiltApplicable: r.sdlApplicable,
       sdlLeviable: r.sdlLeviable, sdlExempt: isSdlExempt(Number(estimates[i] ?? 1_000_000), 2027), retirement: r.retirementDeduction,
     });
@@ -94,7 +100,7 @@ function year(months: EmployeeComponent[][], withSdl = true, estimates: Array<nu
       tablePaye: r2(prev.tablePaye + r.paye.monthlyPaye),
       retirementContributions: r2((prev.retirementContributions ?? 0) + r.retirementContributions),
       retirementDeduction: r2((prev.retirementDeduction ?? 0) + r.retirementDeduction),
-      ...(withSdl ? sdlYearToDate(sdlLines, {}) : { sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 }),
+      ...(withSdl ? sdlYearToDate(sdlLines) : { sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 }),
     };
   });
   return results;
@@ -251,6 +257,31 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     // Pay R60 000 less the R8 000 PAYE finally allowed = R52 000 leviable.
     expect(withSdl.map(r => r.sdlLeviable)).toEqual([14_500, 17_500, 20_000]);
     expect(totalLeviable(withSdl)).toBe(52_000);
+  });
+
+  it('NO CREDIT: legacy months with a pension, then the first new-code month: leviable = its own pay - its own deduction (Hein)', () => {
+    // Two months costed before 957 (levied on gross) with a R2 000 pension each (PAYE 4c recorded it). The first new
+    // month: R20 000 pay, R2 000 pension -> R18 000, not R14 000 (which would credit the earlier months' R4 000).
+    const rs = year([
+      [salary(20_000), pension(2_000)], [salary(20_000), pension(2_000)], [salary(20_000), pension(2_000)],
+    ], true, [], 2);
+    expect(rs.map(r => r.retirementDeduction)).toEqual([2_000, 2_000, 2_000]);
+    expect(rs[2]!.sdlLeviable).toBe(18_000);
+    expect(rs[2]!.sdl).toBe(180);
+    // And the month after: the new rule from the first new month on, cumulatively.
+    const four = year([
+      [salary(20_000), pension(2_000)], [salary(20_000), pension(2_000)], [salary(20_000), pension(2_000)], [salary(20_000), pension(2_000)],
+    ], true, [], 2);
+    expect(four.slice(2).map(r => r.sdlLeviable)).toEqual([18_000, 18_000]);
+  });
+
+  it('a later reversal of a legacy-month contribution cannot push the leviable amount above the liable pay', () => {
+    // Legacy month: R20 000, R5 000 RA. First new month: the RA reversed (PAYE records -R5 000) on R20 000 pay.
+    // The liable deduction is -R5 000, but the year's leviable amount is capped at its pay: R20 000, not R25 000.
+    const rs = year([[salary(20_000), ra(5_000)], [salary(20_000), ra(-5_000)]], true, [], 1);
+    expect(rs[1]!.retirementDeduction).toBe(-5_000);
+    expect(rs[1]!.sdlLeviable).toBe(20_000);
+    expect(rs[1]!.sdlLeviable + 20_000).toBeLessThanOrEqual(40_000);
   });
 
   it('the line total is floored at nil: a deduction above the SDL-applicable pay leaves leviable and SDL nil (SDL Act s3(4))', () => {
