@@ -83,12 +83,24 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
       throw err;
     });
     if (selfApproval === 'refused') {
+      test.info().annotations.push({
+        type: 'two-person-gate',
+        description: 'self-approval refused: the approve/journal path is not run here, only the R-035 refusal is proved',
+      });
       const plan = await api.get<any>(`/api/payroll/runs/${runId}/journal-plan`);
+      expect(plan.blocker, 'the costed run must be approvable').toBeNull();
       const unapproved = await api.post<any>(`/api/payroll/runs/${runId}/approve`, {
         expectedPlanHash: plan.planHash,
       }).then(() => null, (err: unknown) => err);
       expect(unapproved, 'a run with no second-person clearance must not post').toBeInstanceOf(ApiError);
-      expect((unapproved as ApiError).status, 'refused before any write (R-035 gate)').toBe(409);
+      const refusal = unapproved as ApiError;
+      const details = (refusal.body as { error?: { details?: { reason?: string } } })?.error?.details;
+      expect(refusal.status, 'refused by the R-035 gate').toBe(409);
+      expect(details?.reason, 'the pending request is what refuses it').toBe('APPROVAL_PENDING');
+      const after = await api.get<any>(`/api/payroll/runs/${runId}`);
+      expect(after.status, 'the run is not approved').not.toBe('approved');
+      // The reused run may still link the earlier, reversed journal; no new one may appear.
+      expect([null, linked ?? null], 'no new journal is posted').toContain(after.journalEntryId ?? null);
       return;
     }
 
