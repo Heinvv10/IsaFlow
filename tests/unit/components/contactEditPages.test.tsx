@@ -1,6 +1,7 @@
 /**
  * The supplier and customer edit pages: edit mode prefills the form from the stored record, hides the create-only
- * opening balance, lets the terms be cleared to "Not set", and Save sends PUT with the changes (blank text = clear;
+ * opening balance, lets the terms be cleared to "Not set", and Save sends PUT with ONLY the fields changed since the page
+ * loaded (blank text = clear; an untouched field is never in the body, so another person's later edit is not overwritten;
  * never a bank field: the bank details are a read-only masked panel; a category only when the categories were read).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -94,11 +95,24 @@ describe('EditSupplierPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save Supplier/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
     const body = putBody();
-    expect(body).toMatchObject({ id: SUPPLIER_ID, name: 'Cable Feeder Systems', email: '', payment_terms_type: 'not_set' });
-    expect(body).not.toHaveProperty('payment_terms');
+    expect(body).toEqual({ id: SUPPLIER_ID, email: '', payment_terms_type: 'not_set' }); // the two fields changed, nothing else
     expect(Object.keys(body).filter((k) => /^bank/i.test(k))).toEqual([]);
-    expect(body).not.toHaveProperty('opening_balance');
     await waitFor(() => expect(router.push).toHaveBeenCalledWith(`/accounting/suppliers/${SUPPLIER_ID}`));
+  });
+
+  it('an untouched field is not in the body: one changed field sends that field alone', async () => {
+    render(<EditSupplierPage />);
+    fireEvent.change(await screen.findByLabelText('Phone Number'), { target: { value: '011 555 9999' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Supplier/ }));
+    await waitFor(() => expect(putCalls()).toHaveLength(1));
+    expect(putBody()).toEqual({ id: SUPPLIER_ID, phone: '011 555 9999' });
+  });
+
+  it('nothing changed: no PUT at all (a stale form cannot overwrite anything)', async () => {
+    render(<EditSupplierPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Save Supplier/ }));
+    await new Promise((r) => { setTimeout(r, 50); });
+    expect(putCalls()).toHaveLength(0);
   });
 
   it('changed terms go as the pair', async () => {
@@ -106,7 +120,7 @@ describe('EditSupplierPage', () => {
     fireEvent.change(await screen.findByLabelText('Number of days or months'), { target: { value: '6' } });
     fireEvent.click(screen.getByRole('button', { name: /Save Supplier/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
-    expect(putBody()).toMatchObject({ payment_terms: 6, payment_terms_type: 'statement_months' });
+    expect(putBody()).toEqual({ id: SUPPLIER_ID, payment_terms: 6, payment_terms_type: 'statement_months' });
   });
 
   it('does not save a blank name, and says why', async () => {
@@ -146,15 +160,14 @@ describe('EditCustomerPage', () => {
     expect(screen.queryByLabelText('Opening Balance')).toBeNull();
   });
 
-  it('Save sends PUT: a cleared credit limit goes blank, terms set to use the company default, the category kept', async () => {
+  it('Save sends PUT with the changes only: a cleared credit limit goes blank, terms set to use the company default', async () => {
     render(<EditCustomerPage />);
     fireEvent.change(await screen.findByLabelText('Credit Limit'), { target: { value: '' } });
     await waitFor(() => expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe(CATEGORY_ID));
     fireEvent.change(screen.getByLabelText(/Payment Terms/), { target: { value: 'default' } });
     fireEvent.click(screen.getByRole('button', { name: /Save Customer/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
-    expect(putBody()).toMatchObject({ id: CUSTOMER_ID, credit_limit: '', payment_terms_type: 'not_set', category_id: CATEGORY_ID, default_discount: '5.00' });
-    expect(putBody()).not.toHaveProperty('payment_terms');
+    expect(putBody()).toEqual({ id: CUSTOMER_ID, credit_limit: '', payment_terms_type: 'not_set' }); // the category and discount were not touched
     await waitFor(() => expect(router.push).toHaveBeenCalledWith(`/accounting/customers/${CUSTOMER_ID}`));
   });
 
@@ -165,7 +178,8 @@ describe('EditCustomerPage', () => {
       on('PUT', '/api/accounting/customers', () => ok({ id: CUSTOMER_ID })),
     );
     render(<EditCustomerPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /Save Customer/ }));
+    fireEvent.change(await screen.findByLabelText('Credit Limit'), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Customer/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
     expect(putBody()).not.toHaveProperty('category_id');
   });
