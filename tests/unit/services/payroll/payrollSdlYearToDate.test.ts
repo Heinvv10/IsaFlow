@@ -1,73 +1,64 @@
 /**
- * The SDL half of the year to date (payrollSdlYearToDate), rebuilt from the lines because payroll_run_lines
- * stores no leviable amount: what was levied to date is the highest max(0, SDL-applicable pay - retirement
- * deduction) to date has reached. SDL Act s3(4); SARS SDL-GEN-01-G01 Rev 5 s6.
+ * The SDL half of the year to date (payrollSdlYearToDate): sums over the lines the employer was LIABLE for, from the
+ * figures each run stored (migration 957: sdl_applicable, sdl_leviable, sdl_exempt), and for a line from before it
+ * the reading it was costed under (SDL on gross). SDL Act s3(4); SARS SDL-GEN-01-G01 Rev 5 s6 and s4(b).
  */
 import { describe, it, expect } from 'vitest';
-import { sdlYearToDate } from '@/modules/accounting/services/payroll/payrollSdlYearToDate';
+import { sdlYearToDate, type SdlYearToDateLine } from '@/modules/accounting/services/payroll/payrollSdlYearToDate';
 
-describe('sdlYearToDate (SDL Act s3(4); SDL-GEN-01-G01 Rev 5 s6)', () => {
+/** A line as the run writer stores it (migration 957 on). */
+const stored = (line: string, pay: number, leviable: number, retirement: number | null, exempt: boolean): SdlYearToDateLine => ({
+  line, sdl: exempt ? 0 : Math.round(leviable) / 100, sdlApplicable: pay, rebuiltApplicable: pay,
+  sdlLeviable: leviable, sdlExempt: exempt, retirement,
+});
+/** A line from before migration 957: the columns are NULL; the pay is rebuilt from the breakdown. */
+const legacy = (line: string, rebuilt: number, sdl: number, retirement: number | null): SdlYearToDateLine => ({
+  line, sdl, sdlApplicable: null, rebuiltApplicable: rebuilt, sdlLeviable: null, sdlExempt: null, retirement,
+});
+
+describe('sdlYearToDate (SDL Act s3(4); SDL-GEN-01-G01 Rev 5 s6; s4(b))', () => {
   it('no lines: nothing to date', () => {
-    expect(sdlYearToDate([], {})).toEqual({ sdlApplicable: 0, sdlLeviable: 0, sdlExemptDeduction: 0 });
+    expect(sdlYearToDate([], {})).toEqual({ sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 });
   });
 
-  it('pay less the deduction to date', () => {
-    const r = sdlYearToDate([
-      { line: 'a', sdlApplicable: 20_000, retirement: 5_500 },
-      { line: 'b', sdlApplicable: 20_000, retirement: 2_500 },
-    ], {});
-    expect(r).toEqual({ sdlApplicable: 40_000, sdlLeviable: 32_000, sdlExemptDeduction: 0 });
+  it('sums the liable lines: pay, the leviable amount they carried, the deduction they recorded', () => {
+    const r = sdlYearToDate([stored('a', 20_000, 14_500, 5_500, false), stored('b', 20_000, 17_500, 2_500, false)], {});
+    expect(r).toEqual({ sdlApplicable: 40_000, sdlLeviable: 32_000, sdlRetirementDeduction: 8_000 });
   });
 
-  it('a deduction floored for want of pay is not levied, and the level never falls with a reversal', () => {
-    const r = sdlYearToDate([
-      { line: 'a', sdlApplicable: 1_000, retirement: 5_775 },
-      { line: 'b', sdlApplicable: 1_000, retirement: -5_775 },
-    ], {});
-    expect(r).toEqual({ sdlApplicable: 2_000, sdlLeviable: 2_000, sdlExemptDeduction: 0 });
-    // A reversal after the level was reached does not lower what was levied.
-    const after = sdlYearToDate([
-      { line: 'a', sdlApplicable: 20_000, retirement: 0 },
-      { line: 'b', sdlApplicable: 0, retirement: 5_000 },
-      { line: 'c', sdlApplicable: 0, retirement: -5_000 },
-    ], {});
-    expect(after.sdlLeviable).toBe(20_000);
+  it('an exempt line is left out of every sum, whatever it stored; a liable line that stored a nil levy is not exempt (REPRO 9)', () => {
+    const exempt = stored('a', 20_000, 15_000, 5_000, true);
+    expect(sdlYearToDate([exempt], {})).toEqual({ sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 });
+    // Liable, but its deduction absorbed all its pay: levy nil, leviable nil: still a liable line.
+    const absorbed: SdlYearToDateLine = { ...stored('b', 1_000, 0, 1_000, false), sdl: 0 };
+    expect(sdlYearToDate([absorbed], {})).toEqual({ sdlApplicable: 1_000, sdlLeviable: 0, sdlRetirementDeduction: 1_000 });
+  });
+
+  it('a deduction is signed: a reversal on a liable line lowers the deduction to date', () => {
+    const r = sdlYearToDate([stored('a', 20_000, 15_000, 5_000, false), stored('b', 20_000, 25_000, -5_000, false)], {});
+    expect(r.sdlRetirementDeduction).toBe(0);
   });
 
   it('a line from before migration 948 (no retirement_deduction) uses its taxable-flagged contributions', () => {
-    const lines = [
-      { line: 'legacy', sdlApplicable: 30_000, retirement: null },
-      { line: 'new', sdlApplicable: 30_000, retirement: 3_000 },
-    ];
-    expect(sdlYearToDate(lines, { legacy: 1_000 })).toEqual({ sdlApplicable: 60_000, sdlLeviable: 56_000, sdlExemptDeduction: 0 });
+    const lines = [{ ...stored('legacy', 30_000, 30_000, null, false) }, stored('new', 30_000, 27_000, 3_000, false)];
+    expect(sdlYearToDate(lines, { legacy: 1_000 }).sdlRetirementDeduction).toBe(4_000);
     // A legacy line the retirement record has nothing for deducted nothing.
-    expect(sdlYearToDate(lines, {})).toEqual({ sdlApplicable: 60_000, sdlLeviable: 57_000, sdlExemptDeduction: 0 });
+    expect(sdlYearToDate(lines, {}).sdlRetirementDeduction).toBe(3_000);
   });
 
-  it('an exempt line (nil levy stored where one was due) is left out of the levied pay, and keeps the deduction it absorbed', () => {
-    const exempt = { line: 'a', sdlApplicable: 20_000, retirement: 5_000, sdl: 0 };
-    expect(sdlYearToDate([exempt], {})).toEqual({ sdlApplicable: 0, sdlLeviable: 0, sdlExemptDeduction: 5_000 });
-    // Reversed in a liable month: the exempt share goes first, nothing comes off the liable pay.
-    expect(sdlYearToDate([exempt, { line: 'b', sdlApplicable: 20_000, retirement: -5_000, sdl: 200 }], {}))
-      .toEqual({ sdlApplicable: 20_000, sdlLeviable: 20_000, sdlExemptDeduction: 0 });
-    // A levied line, or one whose levy would round to nil, is levied as before.
-    expect(sdlYearToDate([{ line: 'c', sdlApplicable: 20_000, retirement: 5_000, sdl: 150 }], {}).sdlLeviable).toBe(15_000);
-    expect(sdlYearToDate([{ line: 'd', sdlApplicable: 1_000, retirement: 1_000, sdl: 0 }], {}))
-      .toEqual({ sdlApplicable: 1_000, sdlLeviable: 0, sdlExemptDeduction: 0 });
+  it('a line from before migration 957 is read as costed: rebuilt pay, leviable amount = that pay, exempt when a levy was due and nil', () => {
+    // Levied on gross: R20 000 pay, levy R200 -> liable, carried R20 000 (not pay less its recorded deduction).
+    expect(sdlYearToDate([legacy('a', 20_000, 200, 5_000)], {}))
+      .toEqual({ sdlApplicable: 20_000, sdlLeviable: 20_000, sdlRetirementDeduction: 5_000 });
+    // Nil levy although R20 000 would carry R200: exempt, left out.
+    expect(sdlYearToDate([legacy('b', 20_000, 0, 5_000)], {}))
+      .toEqual({ sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 });
+    // Pay whose levy would round to nil (R0.40): read as liable, as costed.
+    expect(sdlYearToDate([legacy('c', 0.4, 0, 0)], {})).toEqual({ sdlApplicable: 0.4, sdlLeviable: 0.4, sdlRetirementDeduction: 0 });
   });
 
-  it('an exempt month after a levied one keeps its own deduction: later liable pay is levied in full', () => {
-    const r = sdlYearToDate([
-      { line: 'a', sdlApplicable: 20_000, retirement: 5_000, sdl: 150 },
-      { line: 'b', sdlApplicable: 20_000, retirement: 5_000, sdl: 0 },
-      { line: 'c', sdlApplicable: 20_000, retirement: 0, sdl: 200 },
-    ], {});
-    // Levied: 15 000 (a) + 20 000 (c); the exempt month's R5 000 deduction never comes off levied pay.
-    expect(r).toEqual({ sdlApplicable: 40_000, sdlLeviable: 35_000, sdlExemptDeduction: 5_000 });
-    // A deduction levied pay could not absorb before the exempt month is still absorbed by it.
-    expect(sdlYearToDate([
-      { line: 'a', sdlApplicable: 1_000, retirement: 3_000, sdl: 0 },
-      { line: 'b', sdlApplicable: 20_000, retirement: 1_000, sdl: 0 },
-    ], {})).toEqual({ sdlApplicable: 1_000, sdlLeviable: 0, sdlExemptDeduction: 3_000 });
+  it('a stored sdl_exempt decides over the stored levy, and a stored pay over the rebuilt one', () => {
+    const line: SdlYearToDateLine = { ...stored('a', 20_000, 20_000, 0, false), sdl: 0, rebuiltApplicable: 999 };
+    expect(sdlYearToDate([line], {}).sdlApplicable).toBe(20_000);
   });
 });

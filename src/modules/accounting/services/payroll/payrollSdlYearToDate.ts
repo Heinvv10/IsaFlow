@@ -1,84 +1,63 @@
 /**
  * The SDL half of an employee's year to date (sdlLeviableCumulative), from the
- * same lines loadPayeYearToDate reads, in period order. Pure.
+ * same lines loadPayeYearToDate reads. Pure.
  *
- * - sdlApplicable: the SDL-applicable earnings (the breakdown items flagged
- *   `isSdlApplicable` as costed; an item from before the flag by today's
- *   catalogue, in the SQL) of the lines SDL was LEVIED on. An exempt line's
- *   pay is left out: no levy was due on it, so none is due on it later.
- * - sdlLeviable: payroll_run_lines stores no leviable amount, only the levy
- *   (`sdl`), so it is rebuilt: a levied line's leviable amount is the rise in
- *   (levied pay to date - the deduction standing against it), never below nil,
- *   so what was levied to date is the highest that figure has reached.
- * - sdlExemptDeduction: the part of the deduction to date that exempt lines'
- *   pay absorbed: an exempt line's own deduction, and what levied pay before it
- *   had not absorbed, up to the line's pay. It never comes off levied pay,
- *   and a later reversal undoes it first, as far as the deduction to date falls
- *   below it: the reversal of a deduction taken in an exempt month restores
- *   exempt pay, not levied pay (REPRO 8).
+ * Only LIABLE lines count (those of runs the employer was not SDL-exempt for,
+ * s4(b)); the sums are over those lines:
+ * - sdlApplicable: their SDL-applicable earnings;
+ * - sdlLeviable: the leviable amount they carried;
+ * - sdlRetirementDeduction: the retirement deduction they recorded.
  *
- * Limits (no stored per-line exempt flag; an exact fix is a migration): the
- * exempt reading is a heuristic (REPRO 9: a liable month whose deduction
- * absorbed all its pay also stores a nil levy), so in mixed sequences a later
- * reversal can over-levy, never under-levy; and standingExemptDeduction
- * attributes a reversal LIFO, to the most recent share first.
- *
- * A line is exempt when it stores a nil levy although, levied, it would have
- * carried one of at least a cent: an employer under the s4(b) threshold, or one
- * with the levy switched off. A line whose levy would round to nil reads as
- * levied either way; it changes nothing it levies.
- *
- * The deduction is the line's retirement_deduction; a line from before
- * migration 948 has none stored, and its taxable-flagged contributions count
- * instead (the one rule for PAYE, payrollRetirementRecord). A line with no
- * stored levy (null) is read as levied, as before this rule.
+ * Each line's figures are the ones the run stored (migration 957: sdl_applicable,
+ * sdl_leviable, sdl_exempt). A line from before it (NULL) is read as it was
+ * costed, on gross:
+ * - SDL-applicable pay: rebuilt from its breakdown (the items flagged
+ *   `isSdlApplicable`, else today's catalogue; in the SQL);
+ * - exempt when it stored a nil levy although that pay would have carried one of
+ *   a cent or more (exact for such a line: no deduction reduced its SDL);
+ * - leviable amount: that pay.
+ * The deduction is the line's retirement_deduction; a line from before migration
+ * 948 has none stored, and its taxable-flagged contributions count instead (the
+ * one rule for PAYE, payrollRetirementRecord).
  */
 export interface SdlYearToDateLine {
   line: string;
-  sdlApplicable: number;
+  /** The levy the line stored (payroll_run_lines.sdl); nil for an exempt run. */
+  sdl: number;
+  /** Stored sdl_applicable; null for a line from before migration 957. */
+  sdlApplicable: number | null;
+  /** The pay rebuilt from the breakdown, used when sdlApplicable is null. */
+  rebuiltApplicable: number;
+  /** Stored sdl_leviable; null for a line from before migration 957. */
+  sdlLeviable: number | null;
+  /** Stored sdl_exempt; null for a line from before migration 957. */
+  sdlExempt: boolean | null;
   /** The line's retirement_deduction; null for a line from before migration 948. */
   retirement: number | null;
-  /** The levy the line stored (payroll_run_lines.sdl); nil for an exempt employer. */
-  sdl?: number | null;
 }
 
 export interface SdlYearToDate {
   sdlApplicable: number;
   sdlLeviable: number;
-  sdlExemptDeduction: number;
+  sdlRetirementDeduction: number;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
-
-/** Deduction absorbed by exempt pay, after the deduction to date has moved: never above what still stands. */
-export const standingExemptDeduction = (exemptDeduction: number, deductionToDate: number): number =>
-  Math.min(exemptDeduction, Math.max(0, deductionToDate));
 
 export function sdlYearToDate(
   lines: readonly SdlYearToDateLine[],
   legacyRetirementByLine: Readonly<Record<string, number>>,
 ): SdlYearToDate {
   let pay = 0;
+  let leviable = 0;
   let deduction = 0;
-  let exemptDeduction = 0;
-  let levied = 0;
   for (const l of lines) {
-    const linePay = Number(l.sdlApplicable);
-    const lineDeduction = l.retirement === null ? (legacyRetirementByLine[l.line] ?? 0) : Number(l.retirement);
-    deduction += lineDeduction;
-    exemptDeduction = standingExemptDeduction(exemptDeduction, deduction);
-    const leviable = Math.max(0, round2(pay + linePay - (deduction - exemptDeduction) - levied));
-    const exempt = l.sdl !== undefined && l.sdl !== null && Number(l.sdl) === 0 && round2(leviable * 0.01) > 0;
-    if (exempt) {
-      // Exempt pay absorbs its own month's deduction, plus what levied pay could not absorb before it;
-      // never more than its pay, nor more than the deduction standing against levied pay.
-      const own = Math.max(0, lineDeduction);
-      const unabsorbed = Math.max(0, deduction - own - exemptDeduction - pay) + own;
-      exemptDeduction += Math.min(linePay, unabsorbed, Math.max(0, deduction - exemptDeduction));
-    } else {
-      pay += linePay;
-      levied += leviable;
-    }
+    const linePay = l.sdlApplicable == null ? Number(l.rebuiltApplicable ?? 0) : Number(l.sdlApplicable);
+    const exempt = l.sdlExempt ?? (Number(l.sdl ?? 0) === 0 && round2(linePay * 0.01) > 0);
+    if (exempt) continue;
+    pay += linePay;
+    leviable += l.sdlLeviable == null ? linePay : Number(l.sdlLeviable);
+    deduction += l.retirement == null ? (legacyRetirementByLine[l.line] ?? 0) : Number(l.retirement);
   }
-  return { sdlApplicable: round2(pay), sdlLeviable: round2(levied), sdlExemptDeduction: round2(exemptDeduction) };
+  return { sdlApplicable: round2(pay), sdlLeviable: round2(leviable), sdlRetirementDeduction: round2(deduction) };
 }

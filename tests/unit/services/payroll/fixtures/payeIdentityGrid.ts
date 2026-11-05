@@ -60,7 +60,7 @@ export function payeFigures(line: PayrollLineResult): Record<string, unknown> {
  * The year-to-date fields added after the golden was written (R3). Recorded credits are a record only:
  * non-zero here so that any PAYE that read them would leave the golden. No fees to date.
  */
-const RECORDED_YTD = { medicalCredit: 1_234.56, additionalMedicalCredit: 321.09, medicalSchemeFees: 0, sdlApplicable: 0, sdlLeviable: 0 };
+const RECORDED_YTD = { medicalCredit: 1_234.56, additionalMedicalCredit: 321.09, medicalSchemeFees: 0, sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 };
 
 function ytdCases(): Array<[string, PayeYearToDate | undefined]> {
   return [

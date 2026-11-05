@@ -1,5 +1,6 @@
 /**
- * The SDL leviable amount of a payroll line, cumulative over the tax year.
+ * The SDL leviable amount of a payroll line, cumulative over the tax year's
+ * LIABLE months.
  *
  * SDL is levied on the balance of remuneration after the Fourth Schedule
  * para 2(4) deductions (SDL Act s3(4); SARS SDL-GEN-01-G01 Rev 5 s6). The only
@@ -10,40 +11,31 @@
  * figure, so the two cannot disagree about it, but it is applied to the year,
  * not to the line:
  *
- *   cumulative = max(0, SDL-applicable pay to date - retirement deduction to date)
- *   this line  = max(0, cumulative - SDL leviable already levied to date)
+ *   to date    = clamp(liable pay to date - liable deduction to date, 0, liable pay to date)
+ *   this line  = max(0, to date - leviable already carried by earlier liable lines)
  *
- * A deduction larger than one month's SDL-applicable pay therefore waits for
- * later pay instead of being lost, and a reversal takes back only what SDL
- * actually absorbed: the year's leviable amount is never above the year's
- * SDL-applicable pay and, when pay allows, equals pay less the deduction PAYE
- * finally allowed. Remaining limit: a deduction larger than ALL the year's
- * SDL-applicable pay, or recovered when no later month has any, is an over-levy
- * that is not refunded (no stored column carries it across years; a migration).
+ * "Liable" lines are those of runs the employer was not SDL-exempt for (s4(b)):
+ * an exempt run levies nothing, so its pay, its deduction and its leviable amount
+ * stay out of the sums (payrollSdlYearToDate reads them from the stored
+ * sdl_applicable / sdl_leviable / sdl_exempt, migration 957). Exact, no
+ * heuristics: a deduction larger than one month's pay waits for later liable
+ * pay instead of being lost, a reversal takes back only what the liable pay
+ * absorbed, and the year's leviable amount is never above its liable pay nor
+ * below that pay less every liable month's deduction.
  *
- * An exempt employer's months (stored levy nil) are kept apart
- * (payrollSdlYearToDate): their pay is not levied later, and the deduction their
- * pay absorbed (`sdlExemptDeduction`) never comes off levied pay; a reversal of
- * it restores the exempt pay, so a reversal after the employer turns liable
- * levies only liable pay (REPRO 8). Like PAYE 4c, an over-levy is carried
- * against later levy, never refunded within a line (no negative levy).
+ * Limits: (1) a deduction larger than ALL the year's liable SDL-applicable pay,
+ * or recovered when no later liable month has any, is an over-levy that is not
+ * refunded or carried into the next tax year. (2) PAYE records one cumulative
+ * deduction, not which month's contribution a reversal undoes: a reversal in a
+ * liable month of a contribution made in an exempt month counts against the
+ * liable months' deduction (an over-levy by that amount, never an under-levy).
  *
- * Remaining limits of the exempt handling (no stored per-line exempt flag; an
- * exact fix is a migration): (a) REPRO 9 - a stored nil levy cannot tell an
- * exempt month from a liable month whose deduction absorbed all its pay, so
- * exempt detection is a heuristic (`sdl === 0 && round2(leviable * 0.01) > 0`);
- * in mixed exempt/liable sequences part of an exempt-period deduction can stand
- * against levied pay and a later reversal over-levies (never under-levies).
- * (b) LIFO attribution in standingExemptDeduction: a reversal is assumed to
- * undo the most recent share of the deduction first.
- *
- * Months costed before this rule levied SDL on gross. Their year-to-date
- * leviable amount is taken as if this rule had levied them (payrollSdlYearToDate),
- * so the first month after it takes only its own deduction: no credit for the
- * earlier over-levy, which EMP201 already declared.
+ * Lines costed before migration 957 are read as they were costed (SDL on gross):
+ * the year to date takes their SDL-applicable pay as the leviable amount they
+ * carried, so the deductions PAYE recorded on them are credited to the next line
+ * (the SDL they over-levied is netted against the month's levy, not refunded).
  */
 import type { PayeYearToDate } from './payrollTypes';
-import { standingExemptDeduction } from './payrollSdlYearToDate';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -59,35 +51,25 @@ export function sdlLeviableToDate(
   ytd: PayeYearToDate | undefined,
 ): number {
   // Absent SDL figures mean "no earlier line"; with an earlier line they would silently over-levy.
-  if (ytd && ytdHasEarlierLine(ytd) && (ytd.sdlApplicable === undefined || ytd.sdlLeviable === undefined)) {
+  if (ytd && ytdHasEarlierLine(ytd)
+    && (ytd.sdlApplicable === undefined || ytd.sdlLeviable === undefined || ytd.sdlRetirementDeduction === undefined)) {
     throw new Error(
       `SDL cannot be calculated for employee ${employeeId}: the year to date has earlier lines but no SDL figures `
-      + '(sdlApplicable / sdlLeviable; loadPayeYearToDate sets them)');
+      + '(sdlApplicable / sdlLeviable / sdlRetirementDeduction; loadPayeYearToDate sets them)');
   }
   const figures = {
     retirementDeduction,
     sdlApplicable,
     ytdSdlApplicable: ytd?.sdlApplicable ?? 0,
     ytdSdlLeviable: ytd?.sdlLeviable ?? 0,
-    ytdRetirementDeduction: ytd?.retirementDeduction ?? 0,
-    // Absent = no exempt month to date.
-    ytdSdlExemptDeduction: ytd?.sdlExemptDeduction ?? 0,
+    ytdSdlRetirementDeduction: ytd?.sdlRetirementDeduction ?? 0,
   };
   for (const [name, value] of Object.entries(figures)) {
     if (!Number.isFinite(value)) {
       throw new Error(`SDL cannot be calculated for employee ${employeeId}: ${name} is not a finite number (${value})`);
     }
   }
-  // Levied pay to date less the deduction standing against it (exempt pay's share left out), less what was
-  // levied, floored at nil: the inner floor is implied by the outer one (what was levied is never negative).
-  const deductionToDate = figures.ytdRetirementDeduction + retirementDeduction;
-  const exemptDeduction = standingExemptDeduction(figures.ytdSdlExemptDeduction, deductionToDate);
-  return Math.max(
-    0,
-    round2(
-      figures.ytdSdlApplicable + sdlApplicable
-        - (deductionToDate - exemptDeduction)
-        - figures.ytdSdlLeviable,
-    ),
-  );
+  const pay = figures.ytdSdlApplicable + sdlApplicable;
+  const toDate = Math.min(pay, Math.max(0, pay - (figures.ytdSdlRetirementDeduction + retirementDeduction)));
+  return Math.max(0, round2(toDate - figures.ytdSdlLeviable));
 }

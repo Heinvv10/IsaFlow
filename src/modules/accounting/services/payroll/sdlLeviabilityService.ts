@@ -1,7 +1,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { calculateSDL } from './sdlEngine';
+import { calculateSDL, isSdlExempt } from './sdlEngine';
 import type { PayrollPeriod } from './payrollTypes';
 
 /**
@@ -66,6 +66,8 @@ const TRAILING_PERIODS = 12;
 export interface SdlLine {
   sdl: number;
   sdlLeviable: number;
+  /** Set by applySdlToLines: the run was SDL-exempt (s4(b)), stored as sdl_exempt (migration 957). */
+  sdlExempt?: boolean;
 }
 
 function periodIndex(year: number, month: number): number {
@@ -134,7 +136,9 @@ export async function estimateAnnualRemuneration(
 /**
  * Charge the levy on each line's own leviable remuneration, once the employer's
  * annual remuneration has decided whether it is due at all. Returns the run
- * total. Mutates `sdl` on the lines, which is why the caller builds them first.
+ * total. Mutates `sdl` and `sdlExempt` on the lines (the threshold decision, kept
+ * with each line so the year to date knows which months were liable), which is
+ * why the caller builds them first.
  */
 export function applySdlToLines(
   lines: SdlLine[],
@@ -142,7 +146,9 @@ export function applySdlToLines(
   taxYear: number,
 ): number {
   let total = 0;
+  const exempt = isSdlExempt(annualRemunerationEstimate, taxYear);
   for (const line of lines) {
+    line.sdlExempt = exempt;
     line.sdl = calculateSDL(line.sdlLeviable, annualRemunerationEstimate, taxYear);
     total += line.sdl;
   }

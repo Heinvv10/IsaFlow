@@ -18,6 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
 import { applySdlToLines } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
+import { isSdlExempt } from '@/modules/accounting/services/payroll/sdlEngine';
 import { sdlYearToDate, type SdlYearToDateLine } from '@/modules/accounting/services/payroll/payrollSdlYearToDate';
 import type {
   EmployeeComponent, PayeYearToDate, PayrollComponent, PayrollLineInput, PayrollLineResult,
@@ -78,7 +79,11 @@ function year(months: EmployeeComponent[][], withSdl = true, estimates: Array<nu
   months.forEach((components, i) => {
     const r = line(components, estimates[i] ?? 1_000_000, { period: { month: 4 + i, year: 2026 }, ytd });
     results.push(r);
-    sdlLines.push({ line: String(i), sdlApplicable: sdlPay(components), retirement: r.retirementDeduction, sdl: r.sdl });
+    // As the run writer stores the line (migration 957): pay, leviable amount, and whether the run was exempt.
+    sdlLines.push({
+      line: String(i), sdl: r.sdl, sdlApplicable: r.sdlApplicable, rebuiltApplicable: r.sdlApplicable,
+      sdlLeviable: r.sdlLeviable, sdlExempt: isSdlExempt(Number(estimates[i] ?? 1_000_000), 2027), retirement: r.retirementDeduction,
+    });
     const prev = ytd ?? ytdOf({});
     ytd = {
       ...prev,
@@ -89,7 +94,7 @@ function year(months: EmployeeComponent[][], withSdl = true, estimates: Array<nu
       tablePaye: r2(prev.tablePaye + r.paye.monthlyPaye),
       retirementContributions: r2((prev.retirementContributions ?? 0) + r.retirementContributions),
       retirementDeduction: r2((prev.retirementDeduction ?? 0) + r.retirementDeduction),
-      ...(withSdl ? sdlYearToDate(sdlLines, {}) : { sdlApplicable: 0, sdlLeviable: 0 }),
+      ...(withSdl ? sdlYearToDate(sdlLines, {}) : { sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 }),
     };
   });
   return results;
@@ -169,7 +174,7 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
       period: { month: 2, year: 2027 },
       ytd: ytdOf({
         periods: 11, periodicTaxable: 2_200_000, retirementContributions: 330_000, retirementDeduction: 330_000,
-        sdlApplicable: 2_200_000, sdlLeviable: 1_870_000,
+        sdlApplicable: 2_200_000, sdlLeviable: 1_870_000, sdlRetirementDeduction: 330_000,
       }),
     });
     expect(r.sdlLeviable).toBe(100_000);
@@ -183,7 +188,7 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
       period: { month: 4, year: 2026 },
       ytd: ytdOf({
         periods: 1, periodicTaxable: 20_000, retirementContributions: 8_000, retirementDeduction: 5_500,
-        sdlApplicable: 20_000, sdlLeviable: 14_500,
+        sdlApplicable: 20_000, sdlLeviable: 14_500, sdlRetirementDeduction: 5_500,
       }),
     });
     expect(r.sdlLeviable).toBe(17_500);
@@ -276,12 +281,10 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(rs[1]!.sdl).toBe(200);
   });
 
-  it('KNOWN LIMIT (REPRO 9): a liable month whose deduction absorbed all its pay stores a nil levy like an exempt one, so a later reversal can over-levy', () => {
+  it('REPRO 9: a liable month whose deduction absorbed all its pay is not mistaken for an exempt one: the reversal levies nothing more', () => {
     // M1 liable: R20 000, levied R200. M2/M3 exempt (R400 000): RAs of R1 448 and R7 737. M4 liable, no SDL pay,
-    // reversal of R7 904. M3's leviable amount is nil (its pay is absorbed), so its nil levy reads as levied, not exempt,
-    // and part of the exempt-period deduction stands against levied pay; M4's reversal then adds R3 000 back.
-    // The liable months' SDL pay is R20 000, already levied in M1: M4 should levy nothing, it levies R30.00.
-    // Never an under-levy. An exact fix needs a stored per-line exempt flag (a migration). Pinned, not endorsed.
+    // reversal of R7 904. The stored sdl_exempt tells the months apart exactly (a nil levy alone could not): the liable
+    // months' SDL pay is R20 000, all levied in M1, so M4 levies nothing.
     const rs = year([
       [salary(20_000)],
       [salary(60_000), ra(1_448)],
@@ -289,25 +292,27 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
       [nonSdl('3713', 15_000), ra(-7_904)],
     ], true, [1_000_000, 400_000, 400_000, 1_000_000]);
     expect(rs.map(r => [r.retirementDeduction, r.sdlLeviable, r.sdl])).toEqual([
-      [0, 20_000, 200], [1_448, 58_552, 0], [7_737, 0, 0], [-7_904, 3_000, 30],
+      [0, 20_000, 200], [1_448, 58_552, 0], [7_737, 0, 0], [-7_904, 0, 0],
     ]);
-    expect(rs[0]!.sdlLeviable + rs[3]!.sdlLeviable).toBeGreaterThan(20_000);
+    // An exempt month (M3, leviable nil here) is stored exempt, not read as levied.
+    expect(rs[0]!.sdlLeviable + rs[3]!.sdlLeviable).toBe(20_000);
   });
 
-  it('an exempt month\'s pay is not levied later, and the deduction it absorbed does not come off liable pay', () => {
-    // M1 exempt: R20 000 pay, RA R5 000 (absorbed by the exempt pay). M2 liable: R20 000, no RA -> R200.
+  it('an exempt month\'s pay is not levied later, and its deduction is outside the liable months\' sums', () => {
+    // M1 exempt: R20 000 pay, RA R5 000. M2 liable: R20 000, no RA -> R200.
     const kept = year([[salary(20_000), ra(5_000)], [salary(20_000)]], true, [400_000, 1_000_000]);
     expect(kept[1]!.sdlLeviable).toBe(20_000);
     expect(kept[1]!.sdl).toBe(200);
-    // A deduction larger than the exempt month's SDL pay carries its excess to the liable month (as REPRO 2): R5 775
-    // in M1 (R1 000 absorbed by exempt pay) plus the R2 225 PAYE allows in M2 -> R20 000 - R7 000 = R13 000.
+    // Only the liable month's own deduction counts: R5 775 in exempt M1, then the R2 225 PAYE allows in M2 -> R20 000 - R2 225.
     const carried = year([[salary(1_000), nonSdl('3713', 20_000), ra(8_000)], [salary(20_000)]], true, [400_000, 1_000_000]);
     expect(carried.map(r => r.retirementDeduction)).toEqual([5_775, 2_225]);
-    expect(carried[1]!.sdlLeviable).toBe(13_000);
-    // A deduction made in a liable month after an exempt one still comes off liable pay.
+    expect(carried[1]!.sdlLeviable).toBe(17_775);
+    // Limit: PAYE records one cumulative deduction, not whose contribution a reversal undoes. M2's reversal undoes the
+    // exempt month's R5 000, which is not in the liable sums: M2 is capped at its pay and M3 sees R0 net deduction
+    // (an over-levy of R5 000 of leviable against the R35 000 exact; never below liable pay less liable deductions).
     const later = year([[salary(20_000), ra(5_000)], [salary(20_000), ra(-5_000)], [salary(20_000), ra(5_000)]],
       true, [400_000, 1_000_000, 1_000_000]);
-    expect(totalLeviable(later.slice(1))).toBe(35_000);
+    expect(totalLeviable(later.slice(1))).toBe(40_000);
   });
 
   it('refuses a year to date that has earlier lines but no SDL figures, instead of silently over-levying', () => {
@@ -315,9 +320,10 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
       period: { month: 5, year: 2026 }, ytd: ytdOf({ periods: 1, periodicTaxable: 20_000, ...extra }),
     });
     expect(hand({})).toThrow(/earlier lines but no SDL figures/);
-    expect(hand({ sdlApplicable: 20_000 })).toThrow(/earlier lines but no SDL figures/);
-    expect(hand({ sdlLeviable: 20_000 })).toThrow(/earlier lines but no SDL figures/);
-    expect(hand({ sdlApplicable: 20_000, sdlLeviable: 20_000 })).not.toThrow();
+    expect(hand({ sdlApplicable: 20_000, sdlLeviable: 20_000 })).toThrow(/earlier lines but no SDL figures/);
+    expect(hand({ sdlApplicable: 20_000, sdlRetirementDeduction: 0 })).toThrow(/earlier lines but no SDL figures/);
+    expect(hand({ sdlLeviable: 20_000, sdlRetirementDeduction: 0 })).toThrow(/earlier lines but no SDL figures/);
+    expect(hand({ sdlApplicable: 20_000, sdlLeviable: 20_000, sdlRetirementDeduction: 0 })).not.toThrow();
     // No earlier line: nothing to carry, the figures may be absent.
     expect(() => line([salary(20_000)], 1_000_000, { ytd: ytdOf({}) })).not.toThrow();
   });
@@ -325,11 +331,12 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
   it('refuses a non-finite retirement deduction or year-to-date figure instead of letting NaN reach SDL and the run totals', () => {
     const bad = (extra: Partial<PayeYearToDate>) => () => line([salary(20_000), ra(5_000)], 1_000_000, {
       period: { month: 4, year: 2026 },
-      ytd: ytdOf({ periods: 1, periodicTaxable: 20_000, retirementContributions: 5_000, retirementDeduction: 5_000, sdlApplicable: 20_000, sdlLeviable: 15_000, ...extra }),
+      ytd: ytdOf({ periods: 1, periodicTaxable: 20_000, retirementContributions: 5_000, retirementDeduction: 5_000, sdlApplicable: 20_000, sdlLeviable: 15_000, sdlRetirementDeduction: 5_000, ...extra }),
     });
     expect(bad({ retirementDeduction: Number.NaN })).toThrow(/not a finite number/);
     expect(bad({ sdlApplicable: Number.NaN })).toThrow(/ytdSdlApplicable is not a finite number/);
     expect(bad({ sdlLeviable: Number.POSITIVE_INFINITY })).toThrow(/ytdSdlLeviable is not a finite number/);
+    expect(bad({ sdlRetirementDeduction: Number.NaN })).toThrow(/ytdSdlRetirementDeduction is not a finite number/);
   });
 
   it('one-pass SDL is charged on the cent-rounded leviable amount, as the run pass recomputes it (applySdlToLines)', () => {
@@ -371,6 +378,70 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
   });
 });
 
+describe('SDL over a tax year: invariants over random liable/exempt years with contributions and reversals (SDL Act s3(4); s4(b))', () => {
+  const EXEMPT_ESTIMATE = 400_000;
+  const LIABLE_ESTIMATE = 1_000_000;
+
+  function randomYear(seed: number, mixed: boolean): { months: EmployeeComponent[][]; estimates: number[] } {
+    let state = seed;
+    const rnd = (): number => (state = (state * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const months: EmployeeComponent[][] = [];
+    const estimates: number[] = [];
+    let contributed = 0;
+    for (let m = 0; m < 7; m++) {
+      const cs: EmployeeComponent[] = [];
+      const pay = [0, 3_000, 20_000, 20_000, 60_000][Math.floor(rnd() * 5)]!;
+      if (pay) cs.push(salary(pay));
+      if (rnd() < 0.3) cs.push(nonSdl('3713', 15_000));
+      const amount = rnd() < 0.5 ? Math.round(rnd() * 12_000)
+        : (contributed > 0 && rnd() < 0.5 ? -Math.round(rnd() * contributed) : 0);
+      contributed += amount;
+      if (amount) cs.push(ra(amount));
+      months.push(cs);
+      estimates.push(mixed && rnd() < 0.5 ? EXEMPT_ESTIMATE : LIABLE_ESTIMATE);
+    }
+    return { months, estimates };
+  }
+
+  it('liable months: leviable never above their SDL pay, never below that pay less their deductions (600 random years)', () => {
+    const bad: string[] = [];
+    for (let n = 0; n < 600; n++) {
+      const { months, estimates } = randomYear(1_000 + n, true);
+      const rs = year(months, true, estimates);
+      const liable = estimates.map(e => e === LIABLE_ESTIMATE);
+      const pay = r2(months.reduce((t, c, i) => t + (liable[i] ? sdlPay(c) : 0), 0));
+      const levied = r2(rs.reduce((t, r, i) => t + (liable[i] ? r.sdlLeviable : 0), 0));
+      const deduction = r2(rs.reduce((t, r, i) => t + (liable[i] ? r.retirementDeduction : 0), 0));
+      const tag = JSON.stringify(months.map((c, i) => [liable[i] ? 'L' : 'E', ...c.map(x => [x.component.sarsSourceCode, x.amount])]));
+      if (levied > pay + 0.005) bad.push(`over: ${levied} > pay ${pay} ${tag}`);
+      if (levied < Math.min(pay, Math.max(0, pay - deduction)) - 0.005) bad.push(`under: ${levied} < ${pay} - ${deduction} ${tag}`);
+      // An exempt run levies nothing, whatever it carries.
+      rs.forEach((r, i) => { if (!liable[i] && r.sdl !== 0) bad.push(`exempt month ${i} levied ${r.sdl} ${tag}`); });
+    }
+    expect(bad.slice(0, 3)).toEqual([]);
+  });
+
+  it('a year with no exempt month equals the earlier cumulative rule (levied pay to date less deduction to date, rise over the running maximum)', () => {
+    const bad: string[] = [];
+    for (let n = 0; n < 600; n++) {
+      const { months, estimates } = randomYear(50_000 + n, false);
+      const rs = year(months, true, estimates);
+      let pay = 0; let deduction = 0; let levied = 0;
+      months.forEach((cs, i) => {
+        pay += sdlPay(cs);
+        deduction += rs[i]!.retirementDeduction;
+        const toDate = Math.max(0, r2(pay - deduction));
+        const expected = Math.max(0, r2(toDate - levied));
+        levied = Math.max(levied, toDate);
+        if (Math.abs(expected - rs[i]!.sdlLeviable) > 0.005) {
+          bad.push(`month ${i}: ${rs[i]!.sdlLeviable} vs earlier rule ${expected} ${JSON.stringify(months.map(c => c.map(x => [x.component.sarsSourceCode, x.amount])))}`);
+        }
+      });
+    }
+    expect(bad.slice(0, 3)).toEqual([]);
+  });
+});
+
 describe('SDL: deductions outside the para 2(4) retirement allowlist (SDL-GEN-01-G01 Rev 5 s6)', () => {
   it('does not deduct 4030 without a modelled s18A receipt and approved organisation', () => {
     const r = line([salary(30_000), donation(10_000)]);
@@ -399,6 +470,14 @@ describe('SDL exemption threshold with deductions (SARS SDL-GEN-01-G01 Rev 5 s6;
 
   it('a liable employer pays 1% of the leviable amount after deductions', () => {
     expect(line([salary(30_000), pension(2_250)], 500_001).sdl).toBe(277.5);
+  });
+
+  it('the run pass records the threshold decision on every line (stored as sdl_exempt): exempt at R500 000, liable above', () => {
+    const lines = [{ sdl: 0, sdlLeviable: 20_000 }, { sdl: 0, sdlLeviable: 1_000 }];
+    applySdlToLines(lines, 500_000, 2027);
+    expect(lines.map(l => [l.sdlExempt, l.sdl])).toEqual([[true, 0], [true, 0]]);
+    applySdlToLines(lines, 500_000.01, 2027);
+    expect(lines.map(l => [l.sdlExempt, l.sdl])).toEqual([[false, 200], [false, 10]]);
   });
 
   it('the run pass charges each line on its after-deduction leviable amount once the threshold is crossed', () => {

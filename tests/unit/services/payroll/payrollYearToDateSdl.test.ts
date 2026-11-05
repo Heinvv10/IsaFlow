@@ -35,28 +35,34 @@ describe('loadPayeYearToDate: SDL year to date (SDL Act s3(4); SDL-GEN-01-G01 Re
     await loadPayeYearToDate(COMPANY, RUN, { year: 2026, month: 5 }, [EMP]);
     const query = (sqlMock.mock.calls[0]![0] as TemplateStringsArray).join('?');
     expect(query).toContain("COALESCE((item->>'isSdlApplicable')::boolean");
+    expect(query).toContain('l.sdl_applicable AS stored_sdl_applicable, l.sdl_leviable, l.sdl_exempt');
     expect(query).toContain("pc.component_type = 'earning' AND pc.is_sdl_applicable");
     expect(query).toContain('ORDER BY period_year, period_month, line_created_at, line_id) AS sdl_lines');
     // The SDL columns ride the one line set PAYE reads: no second WHERE.
     expect(query.match(/h\.status = ANY/g)).toHaveLength(1);
   });
 
-  it('rebuilds the pay and leviable amount to date from the lines (R20 000 + R20 000, R5 500 + R2 500 deducted)', async () => {
+  it('sums the stored figures of the liable lines (R20 000 + R20 000, R5 500 + R2 500 deducted)', async () => {
+    const stored = (line: string, pay: number, leviable: number, ded: number, exempt: boolean) =>
+      ({ line, sdl: exempt ? 0 : leviable / 100, sdlApplicable: pay, rebuiltApplicable: pay, sdlLeviable: leviable, sdlExempt: exempt, retirement: ded });
     sqlMock.mockResolvedValueOnce([row([
-      { line: 'a', sdlApplicable: 20_000, retirement: 5_500 },
-      { line: 'b', sdlApplicable: 20_000, retirement: 2_500 },
+      stored('a', 20_000, 14_500, 5_500, false),
+      stored('x', 20_000, 14_500, 1_000, true),
+      stored('b', 20_000, 17_500, 2_500, false),
     ])]).mockResolvedValueOnce([record({})]);
     const ytd = (await loadPayeYearToDate(COMPANY, RUN, { year: 2026, month: 6 }, [EMP])).get(EMP)!;
     expect(ytd.sdlApplicable).toBe(40_000);
     expect(ytd.sdlLeviable).toBe(32_000);
+    expect(ytd.sdlRetirementDeduction).toBe(8_000);
   });
 
   it('a pre-948 line (retirement_deduction null) uses its taxable-flagged contributions from the retirement record', async () => {
     sqlMock.mockResolvedValueOnce([row([
-      { line: 'legacy', sdlApplicable: 30_000, retirement: null },
+      { line: 'legacy', sdl: 300, sdlApplicable: null, rebuiltApplicable: 30_000, sdlLeviable: null, sdlExempt: null, retirement: null },
     ])]).mockResolvedValueOnce([record({ legacy: 1_000 })]);
     const ytd = (await loadPayeYearToDate(COMPANY, RUN, { year: 2026, month: 5 }, [EMP])).get(EMP)!;
-    expect(ytd.sdlLeviable).toBe(29_000);
+    expect(ytd.sdlRetirementDeduction).toBe(1_000);
+    expect(ytd.sdlLeviable).toBe(30_000);
   });
 
   it('a row without lines (nothing to date) is none', async () => {
@@ -64,5 +70,6 @@ describe('loadPayeYearToDate: SDL year to date (SDL Act s3(4); SDL-GEN-01-G01 Re
     const ytd = (await loadPayeYearToDate(COMPANY, RUN, { year: 2026, month: 5 }, [EMP])).get(EMP)!;
     expect(ytd.sdlApplicable).toBe(0);
     expect(ytd.sdlLeviable).toBe(0);
+    expect(ytd.sdlRetirementDeduction).toBe(0);
   });
 });

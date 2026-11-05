@@ -242,8 +242,8 @@ export async function calculatePayrollRun(
       retirementDeduction: line.retirementDeduction,
       uifEmployee: line.uif.employeeContribution,
       uifEmployer: line.uif.employerContribution,
-      sdl: 0, // set below, once the run's own leviable total decides leviability
-      sdlLeviable: line.sdlLeviable,
+      sdl: 0, sdlExempt: false, // set below (applySdlToLines), once the run's own leviable total decides leviability
+      sdlLeviable: line.sdlLeviable, sdlApplicable: line.sdlApplicable,
       eti: line.eti.monthlyEti,
       netPay: line.netPay,
       componentBreakdown: JSON.stringify(line.componentBreakdown),

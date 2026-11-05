@@ -280,6 +280,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     uif,
     sdl: Math.round(sdl * 100) / 100,
     sdlLeviable: sdlLeviableAfterDeductions,
+    sdlApplicable: round2(sdlLeviable),
     eti: etiRaw,
     netPay: Math.max(0, netPay),
     componentBreakdown: breakdown,

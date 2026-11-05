@@ -213,12 +213,15 @@ export interface PayeYearToDate {
   retirementDeduction?: number;
   /** Donations (4030) deducted on those lines as taxable deductions, for the s11F base; absent = none. */
   donations?: number;
-  /** SDL-applicable earnings on those lines SDL was levied on (payrollSdlYearToDate; an exempt line's are left out); absent only when there are no earlier lines (the calculator throws otherwise). */
+  /**
+   * SDL-applicable earnings on those lines the employer was LIABLE for (payrollSdlYearToDate: an exempt line's are
+   * left out); absent only when there are no earlier lines (the calculator throws otherwise).
+   */
   sdlApplicable?: number;
-  /** SDL leviable amount those lines carried, rebuilt by payrollSdlYearToDate (nothing stores it); absent only when there are no earlier lines (the calculator throws otherwise). */
+  /** The leviable amount those liable lines carried (stored: sdl_leviable); absent only when there are no earlier lines. */
   sdlLeviable?: number;
-  /** Retirement deduction to date absorbed by exempt lines' pay (payrollSdlYearToDate), never off levied pay; absent = none. */
-  sdlExemptDeduction?: number;
+  /** The retirement deduction recorded on those liable lines (retirement_deduction); absent only when there are no earlier lines. */
+  sdlRetirementDeduction?: number;
 }
 
 /** How a line's PAYE is made up (audit 2026-10-18 P3). */
@@ -260,11 +263,13 @@ export interface PayrollLineResult {
   uif: UifResult;
   sdl: number;
   /**
-   * This line's SDL leviable amount, cumulative over the tax year (sdlLeviableCumulative): the rise in
-   * max(0, SDL-applicable pay to date - the s11F retirement deduction PAYE allowed to date), never below nil
-   * (SDL Act s3(4)) and rounded to the cent.
+   * This line's SDL leviable amount, cumulative over the tax year's liable months (sdlLeviableCumulative): the rise
+   * in max(0, SDL-applicable pay to date - the s11F retirement deduction PAYE allowed to date), capped at that pay,
+   * never below nil (SDL Act s3(4)) and rounded to the cent.
    */
   sdlLeviable: number;
+  /** This line's SDL-applicable earnings (earnings flagged is_sdl_applicable), before any deduction, to the cent. */
+  sdlApplicable: number;
   eti: EtiResult;
   netPay: number;
   componentBreakdown: ComponentBreakdownItem[];

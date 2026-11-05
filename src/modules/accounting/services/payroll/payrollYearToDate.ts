@@ -36,11 +36,11 @@
  *   (yearToDatePeriods). Production had no such line in
  *   tax year 2027 (read-only census 2026-10-26: 0 of 167 lines).
  *
- * - sdlApplicable / sdlLeviable: the SDL year to date (payrollSdlYearToDate), from
- *   the same lines in period order; payroll_run_lines stores no leviable amount,
- *   so it is rebuilt from each line's SDL-applicable pay (breakdown flag
- *   `isSdlApplicable`, else today's catalogue), retirement_deduction and the
- *   stored levy `sdl` (nil where the employer was exempt).
+ * - sdlApplicable / sdlLeviable / sdlRetirementDeduction: the SDL year to date
+ *   over the lines the employer was liable for (payrollSdlYearToDate), from the
+ *   same lines; the figures each run stored (sdl_applicable, sdl_leviable,
+ *   sdl_exempt, migration 957), or for a line before it the pay rebuilt from
+ *   its breakdown (flag `isSdlApplicable`, else today's catalogue).
  *
  * Every query is scoped by company_id.
  */
@@ -76,7 +76,8 @@ export async function loadPayeYearToDate(
              r.periodic_before_deductions,
              r.annual_before_deductions,
              b.annual_3605, b.original_taxable, b.donations,
-             h.period_year, h.period_month, l.created_at AS line_created_at, l.retirement_deduction, l.sdl, b.sdl_applicable
+             h.period_year, h.period_month, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,
+             l.sdl_applicable AS stored_sdl_applicable, l.sdl_leviable, l.sdl_exempt, b.sdl_applicable AS rebuilt_sdl_applicable
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
@@ -132,7 +133,9 @@ export async function loadPayeYearToDate(
            SUM(medical_credit)::numeric AS medical_credit,
            SUM(additional_medical_credit)::numeric AS additional_medical_credit,
            -- The lines in period order, for the SDL year to date (payrollSdlYearToDate).
-           jsonb_agg(jsonb_build_object('line', line_id, 'sdlApplicable', sdl_applicable, 'retirement', retirement_deduction, 'sdl', sdl)
+           jsonb_agg(jsonb_build_object('line', line_id, 'sdl', sdl, 'sdlApplicable', stored_sdl_applicable,
+               'rebuiltApplicable', rebuilt_sdl_applicable, 'sdlLeviable', sdl_leviable, 'sdlExempt', sdl_exempt,
+               'retirement', retirement_deduction)
              ORDER BY period_year, period_month, line_created_at, line_id) AS sdl_lines
     FROM split
     GROUP BY employee_id
