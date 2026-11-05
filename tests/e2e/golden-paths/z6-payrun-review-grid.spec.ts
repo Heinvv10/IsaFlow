@@ -101,7 +101,7 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
     await expect(row(page)).toContainText(formatCurrency(after.netPay));
     await snap(page, 'payrun-grid-saved', 'light');
 
-    await clearPayRunApproval(api, baseURL!, runId);
+    await clearPayRunApproval(api, baseURL!, runId, { selfApprove: true });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: /review & approve/i }).click();
     const dialog = page.getByRole('dialog');
@@ -122,7 +122,7 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
 for (const theme of THEMES) {
   test(`no serious axe violation on the grid, and no sideways scroll at 390 (${theme})`, async ({ page, context, baseURL }) => {
     const { api, runId } = await sandbox(context, baseURL!);
-    await clearPayRunApproval(api, baseURL!, runId);
+    await clearPayRunApproval(api, baseURL!, runId, { selfApprove: true });
     await api.dispose();
     await seedTheme(page, theme);
     await page.setViewportSize({ width: 1568, height: 900 });

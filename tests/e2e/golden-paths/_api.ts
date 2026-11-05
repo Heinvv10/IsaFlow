@@ -76,6 +76,11 @@ export class Api {
       return new Api(ctx, csrf);
     } catch (err) {
       await ctx.dispose();
+      const msg = err instanceof Error ? err.message : String(err);
+      // loginGolden's company-switch failures are its "golden slot:" messages; the user is not in the company.
+      if (msg.startsWith('golden slot: switch to slot company') || msg.startsWith('golden slot: session is scoped')) {
+        throw new Error(`approver ${as.email} is not a member of company ${as.companyId} (${msg})`);
+      }
       throw err;
     }
   }

@@ -27,10 +27,23 @@ export function readApprover(env: Record<string, string | undefined>): ApproverC
   return { email, password };
 }
 
-const SELF_APPROVAL_HINT =
-  'the pay run needs a second approver (SELF_APPROVAL_FORBIDDEN): this company has more than one eligible approver. '
-  + 'Set E2E_APPROVER_EMAIL and E2E_APPROVER_PASSWORD (an owner/admin of the same company, not the E2E_ADMIN user) '
-  + 'in /home/hein/isaflow-deploy.env, or export them.';
+const HINT =
+  'If this company has more than one eligible approver, set E2E_APPROVER_EMAIL and E2E_APPROVER_PASSWORD '
+  + '(an owner/admin of the same company, not the E2E_ADMIN user, without MFA) in /home/hein/isaflow-deploy.env, or export them. '
+  + 'The refusal can also mean self-approval enforcement changed or the approver roster did.';
+
+function isSelfApproval(err: unknown): err is ApiError {
+  return err instanceof ApiError && (err.body as { error?: { details?: { reason?: string } } })?.error?.details?.reason === 'SELF_APPROVAL_FORBIDDEN';
+}
+
+async function approve(api: Api, decision: object): Promise<void> {
+  try {
+    await api.post('/api/accounting/approval-requests', decision);
+  } catch (err) {
+    if (isSelfApproval(err)) throw new Error(`pay run approval refused as SELF_APPROVAL_FORBIDDEN. ${HINT} (${err.message})`);
+    throw err;
+  }
+}
 
 async function activeCompanyId(api: Api): Promise<string> {
   const uc = await api.get<{ activeCompanyId?: string }>('/api/accounting/companies?action=user-companies');
@@ -39,29 +52,26 @@ async function activeCompanyId(api: Api): Promise<string> {
   return id;
 }
 
-/** Raises the pay-run approval request as `api` and gets it approved. */
-export async function clearPayRunApproval(api: Api, baseURL: string, runId: string): Promise<void> {
-  const approver = readApprover(process.env); // before any write: a half-set pair fails loudly first
+/**
+ * Raises the pay-run approval request as `api` and gets it approved.
+ * `selfApprove` ignores E2E_APPROVER_* (a spec working in a company the approver does not belong to, e.g. z6's sandbox).
+ */
+export async function clearPayRunApproval(
+  api: Api, baseURL: string, runId: string, opts: { selfApprove?: boolean } = {},
+): Promise<void> {
+  const approver = opts.selfApprove ? null : readApprover(process.env); // before any write: a bad config fails first
+  if (approver && approver.email.toLowerCase() === (process.env.E2E_ADMIN_EMAIL ?? '').toLowerCase()) {
+    throw new Error('E2E_APPROVER_EMAIL is the E2E_ADMIN user: the approver must be a different person or the approval is a self-approval.');
+  }
   const request = await api.post<{ id: string; documentDigest: string }>('/api/accounting/approval-requests', {
     action: 'request', documentType: 'pay_run', documentId: runId,
   });
   const decision = { action: 'approve', requestId: request.id, expectedDigest: request.documentDigest };
-
-  if (!approver) {
-    try {
-      await api.post('/api/accounting/approval-requests', decision);
-    } catch (err) {
-      if (err instanceof ApiError && JSON.stringify(err.body).includes('SELF_APPROVAL_FORBIDDEN')) {
-        throw new Error(`${SELF_APPROVAL_HINT} (${err.message})`);
-      }
-      throw err;
-    }
-    return;
-  }
+  if (!approver) return approve(api, decision);
 
   const second = await Api.loginAs(baseURL, { ...approver, companyId: await activeCompanyId(api) });
   try {
-    await second.post('/api/accounting/approval-requests', decision);
+    await approve(second, decision);
   } finally {
     await second.dispose();
   }
