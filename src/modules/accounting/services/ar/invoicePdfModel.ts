@@ -82,7 +82,7 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
   // (0 days from invoice), not their wording. Shown digest only: the draft digest covers the invoice row, and a customer's
   // terms edited meanwhile must not refuse a draft's autosave.
   const terms = effectiveTerms(r.contact_terms_days == null ? null : Number(r.contact_terms_days), r.contact_terms_type as string | null,
-    companyTermsFromSetting(r.company_default_terms));
+    companyTermsFromSetting(r.company_default_terms, companyId));
   const datedByTerms = r.due_date != null && dueDateFromTerms(String(r.invoice_date), terms.days, terms.type) === String(r.due_date);
   const invoice = {
     ...pick(r, INVOICE_FIELDS), ...pick(r, JOINED_FIELDS),

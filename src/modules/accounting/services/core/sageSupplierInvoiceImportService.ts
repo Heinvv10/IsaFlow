@@ -20,7 +20,7 @@ import { lockMigrationImport } from './migrationPostingSupport';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
-import { companyTermsFromSetting, dueDateWithDefault } from '../shared/paymentTerms';
+import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault } from '../shared/paymentTerms';
 import { fmtDate } from '@/lib/fmtDate';
 import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 
@@ -103,7 +103,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
           const suppliers = (await sql`
             SELECT s.id, s.vat_number, s.payment_terms, s.payment_terms_type, d.value AS company_default_terms
             FROM suppliers s
-            LEFT JOIN accounting_settings d ON d.company_id = s.company_id AND d.key = 'default_payment_terms'
+            LEFT JOIN accounting_settings d ON d.company_id = s.company_id AND d.key = ${COMPANY_DEFAULT_TERMS_KEY}
             WHERE s.company_id = ${companyId}::UUID
               AND s.deleted_at IS NULL
               AND lower(btrim(s.name)) = lower(${supplierName})
@@ -138,7 +138,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
             rowVatNotStated = vat.vatNotStated;
             const dueDate = dueDateWithDefault(
               fmtDate(inv.invoice_date), supplier.payment_terms == null ? null : Number(supplier.payment_terms),
-              supplier.payment_terms_type, companyTermsFromSetting(supplier.company_default_terms),
+              supplier.payment_terms_type, companyTermsFromSetting(supplier.company_default_terms, companyId),
             );
             const dupFingerprint = computeFingerprint(
               supplier.vat_number ? String(supplier.vat_number) : null, invNumber, totalAmount,

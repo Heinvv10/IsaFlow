@@ -130,7 +130,7 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
   const invoiceDate = fmtDate(new Date());
   const dueDate = dueDateWithDefault(
     invoiceDate, ri.contact_payment_terms == null ? null : Number(ri.contact_payment_terms),
-    ri.contact_payment_terms_type, companyTermsFromSetting(ri.company_default_terms),
+    ri.contact_payment_terms_type, companyTermsFromSetting(ri.company_default_terms, companyId),
   );
   const invoiceId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'rec_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {

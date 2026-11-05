@@ -7,6 +7,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
+import { COMPANY_DEFAULT_TERMS_KEY } from '@/modules/accounting/services/shared/paymentTerms';
 import { apiResponse } from '@/lib/apiResponse';
 import { UUID_RE } from '@/lib/validation';
 import {
@@ -97,7 +98,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                  c.vat_number, c.registration_number, c.created_at,
                  d.value AS company_default_terms
           FROM customers c
-          LEFT JOIN accounting_settings d ON d.company_id = c.company_id AND d.key = 'default_payment_terms'
+          LEFT JOIN accounting_settings d ON d.company_id = c.company_id AND d.key = ${COMPANY_DEFAULT_TERMS_KEY}
           WHERE c.id = ${id}::uuid AND c.company_id = ${companyId} AND c.deleted_at IS NULL
         `) as Row[];
         if (found.length === 0) return apiResponse.notFound(res, 'Customer');

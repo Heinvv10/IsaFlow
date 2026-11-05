@@ -22,7 +22,7 @@ export async function getCompanyDefaultTerms(companyId: string): Promise<Terms> 
   const [row] = (await sql`
     SELECT value FROM accounting_settings WHERE company_id = ${companyId}::UUID AND key = ${COMPANY_DEFAULT_TERMS_KEY}
   `) as DbRow[];
-  return companyTermsFromSetting(row?.value);
+  return companyTermsFromSetting(row?.value, companyId);
 }
 
 /** Set the company default. Refuses anything but a whole number from 0 to 999 with a type (no "not set" for a default). */
@@ -61,7 +61,7 @@ export async function contactTerms(
   return {
     days: row?.payment_terms == null ? null : Number(row.payment_terms),
     type: row?.payment_terms_type == null ? null : String(row.payment_terms_type),
-    companyDefault: companyTermsFromSetting(row?.company_default_terms),
+    companyDefault: companyTermsFromSetting(row?.company_default_terms, companyId),
   };
 }
 

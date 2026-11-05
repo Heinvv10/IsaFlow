@@ -12,7 +12,7 @@ import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, withRunRecovery } from './sageMigrationService';
 import { lockMigrationImport } from './migrationPostingSupport';
 import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
-import { companyTermsFromSetting, dueDateWithDefault } from '../shared/paymentTerms';
+import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault } from '../shared/paymentTerms';
 import { fmtDate } from '@/lib/fmtDate';
 import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 
@@ -96,7 +96,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
           const customers = (await sql`
             SELECT c.id, c.payment_terms, c.payment_terms_type, d.value AS company_default_terms
             FROM customers c
-            LEFT JOIN accounting_settings d ON d.company_id = c.company_id AND d.key = 'default_payment_terms'
+            LEFT JOIN accounting_settings d ON d.company_id = c.company_id AND d.key = ${COMPANY_DEFAULT_TERMS_KEY}
             WHERE c.company_id = ${companyId}::UUID
               AND c.deleted_at IS NULL
               AND lower(btrim(c.name)) = lower(${customerName})
@@ -133,7 +133,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
             rowVatNotStated = vat.vatNotStated;
             const dueDate = dueDateWithDefault(
               fmtDate(inv.invoice_date), customer.payment_terms == null ? null : Number(customer.payment_terms),
-              customer.payment_terms_type, companyTermsFromSetting(customer.company_default_terms),
+              customer.payment_terms_type, companyTermsFromSetting(customer.company_default_terms, companyId),
             );
             // R-035 Q1: issued in Sage, so exempt from the approval backstop.
             const newInv = (await withApprovalGateExempt({ companyId, userId, open: true, documentType: 'customer_invoice' }, () => sql`

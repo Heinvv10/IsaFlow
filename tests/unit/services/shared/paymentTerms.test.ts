@@ -2,9 +2,13 @@
  * paymentTerms.ts — the due date a contact's terms give an invoice date, and the one parser of a terms write.
  * Local-date arithmetic, so the result never slips a day across UTC.
  */
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+
+import { log } from '@/lib/logger';
 import {
-  PaymentTermsError, describeContactTerms, describePaymentTerms, dueDateFromTerms, dueDateWithDefault, effectiveTerms,
+  FALLBACK_COMPANY_TERMS, companyTermsFromSetting, PaymentTermsError, describeContactTerms, describePaymentTerms, dueDateFromTerms, dueDateWithDefault, effectiveTerms,
   ownTermsDueDate, parseTermsWrite,
 } from '@/modules/accounting/services/shared/paymentTerms';
 
@@ -170,5 +174,26 @@ describe('describePaymentTerms', () => {
     [30, 'junk', 'Not set'],
   ])('%s %s reads %s', (n, type, text) => {
     expect(describePaymentTerms(n, type)).toBe(text);
+  });
+});
+
+describe('companyTermsFromSetting: an unreadable stored default falls back to 30 days and says so', () => {
+  beforeEach(() => { vi.mocked(log.warn).mockClear(); });
+
+  it.each([['not json'], ['{"days":-1}'], ['{"days":30,"type":"weekly"}'], ['null'], ['{"days":1000,"type":"invoice_days"}']])(
+    '%j gives FALLBACK_COMPANY_TERMS and a warning with the company id', (stored) => {
+      expect(companyTermsFromSetting(stored, 'co-77')).toEqual(FALLBACK_COMPANY_TERMS);
+      expect(log.warn).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(log.warn).mock.calls[0]![1]).toEqual({ companyId: 'co-77' });
+    });
+
+  it.each([[null], [undefined], [''], [42]])('%j (no row / not text) is the quiet fallback: nothing to warn about', (stored) => {
+    expect(companyTermsFromSetting(stored, 'co-77')).toEqual(FALLBACK_COMPANY_TERMS);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it('a readable value is used and not warned about', () => {
+    expect(companyTermsFromSetting('{"days":2,"type":"statement_months"}', 'co-77')).toEqual({ days: 2, type: 'statement_months' });
+    expect(log.warn).not.toHaveBeenCalled();
   });
 });

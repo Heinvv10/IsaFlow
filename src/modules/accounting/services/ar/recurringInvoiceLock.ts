@@ -9,6 +9,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { COMPANY_DEFAULT_TERMS_KEY } from '../shared/paymentTerms';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 
@@ -59,7 +60,7 @@ export async function lockRecurringTemplate(
              c.payment_terms AS contact_payment_terms, c.payment_terms_type AS contact_payment_terms_type,
              d.value AS company_default_terms
       FROM recurring_invoices ri
-      LEFT JOIN accounting_settings d ON d.company_id = ri.company_id AND d.key = 'default_payment_terms'
+      LEFT JOIN accounting_settings d ON d.company_id = ri.company_id AND d.key = ${COMPANY_DEFAULT_TERMS_KEY}
       LEFT JOIN customers c ON c.id = ri.client_id AND c.company_id = ri.company_id
       WHERE ri.id = ${id} AND ri.company_id = ${companyId}
       FOR UPDATE OF ri

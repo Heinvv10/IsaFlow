@@ -10,9 +10,11 @@
  * The legacy customer values `days` and `end_of_month` still arrive (old rows, old clients, imports) and read as
  * `invoice_days` and `statement_days`.
  *
- * Local-date arithmetic only: `toISOString()` rolls the date back a day east of UTC. Pure, safe in a client bundle.
+ * Local-date arithmetic only: `toISOString()` rolls the date back a day east of UTC. Safe in a client bundle (the one
+ * side effect is a warning log for an unreadable company default).
  */
 import { addDaysISO, localDateFromISO, monthEndISO } from '@/lib/dateUtils';
+import { log } from '@/lib/logger';
 
 export const PAYMENT_TERMS_TYPES = ['invoice_days', 'statement_days', 'statement_months'] as const;
 export type PaymentTermsType = (typeof PAYMENT_TERMS_TYPES)[number];
@@ -62,15 +64,22 @@ export const FALLBACK_COMPANY_TERMS: Terms = { days: 30, type: 'invoice_days' };
 /** The accounting_settings key (per company) that holds the company's default terms, as JSON `{"days":30,"type":"invoice_days"}`. */
 export const COMPANY_DEFAULT_TERMS_KEY = 'default_payment_terms';
 
-/** The company's default terms from the setting's stored value; 30 days from invoice when there is none or it is unreadable. */
-export function companyTermsFromSetting(value: unknown): Terms {
+/**
+ * The company's default terms from the setting's stored value; 30 days from invoice when there is none. A stored value that
+ * is there but unreadable (not JSON, or terms the forms would refuse, e.g. {"days":-1}) also falls back to 30 days, and
+ * says so in the log with the company id: every undated contact of that company is being dated by a default nobody chose.
+ */
+export function companyTermsFromSetting(value: unknown, companyId?: string): Terms {
   if (typeof value !== 'string' || value === '') return FALLBACK_COMPANY_TERMS;
+  let terms: Terms | null = null;
   try {
-    const parsed = JSON.parse(value) as { days?: unknown; type?: unknown };
-    return readTerms(typeof parsed.days === 'number' ? parsed.days : null, typeof parsed.type === 'string' ? parsed.type : null) ?? FALLBACK_COMPANY_TERMS;
+    const parsed = JSON.parse(value) as { days?: unknown; type?: unknown } | null;
+    terms = readTerms(typeof parsed?.days === 'number' ? parsed.days : null, typeof parsed?.type === 'string' ? parsed.type : null);
   } catch {
-    return FALLBACK_COMPANY_TERMS; // a hand-edited setting that is not JSON is as good as none
+    terms = null; // a hand-edited setting that is not JSON
   }
+  if (terms === null) log.warn('Company default payment terms unreadable; using 30 days from invoice', { companyId }, 'paymentTerms');
+  return terms ?? FALLBACK_COMPANY_TERMS;
 }
 
 export function companyTermsSetting(t: Terms): string {

@@ -28,7 +28,7 @@ import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaults';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
-import { companyTermsFromSetting, dueDateWithDefault, ownTermsDueDate } from '../shared/paymentTerms';
+import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault, ownTermsDueDate } from '../shared/paymentTerms';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
@@ -110,7 +110,7 @@ export async function createSupplierInvoice(
     const [supplierRow] = (await sql`
       SELECT s.vat_number, s.payment_terms, s.payment_terms_type, d.value AS company_default_terms
       FROM suppliers s
-      LEFT JOIN accounting_settings d ON d.company_id = s.company_id AND d.key = 'default_payment_terms'
+      LEFT JOIN accounting_settings d ON d.company_id = s.company_id AND d.key = ${COMPANY_DEFAULT_TERMS_KEY}
       WHERE s.id = ${input.supplierId}::UUID AND s.company_id = ${companyId}::UUID
     `) as Row[];
     const supplierVatNumber: string | null = supplierRow?.vat_number ?? null;
@@ -120,7 +120,7 @@ export async function createSupplierInvoice(
       || ownTermsDueDate(input.invoiceDate, input.paymentTerms)
       || dueDateWithDefault(
         input.invoiceDate, supplierRow?.payment_terms == null ? null : Number(supplierRow.payment_terms),
-        supplierRow?.payment_terms_type, companyTermsFromSetting(supplierRow?.company_default_terms),
+        supplierRow?.payment_terms_type, companyTermsFromSetting(supplierRow?.company_default_terms, companyId),
       );
     const fingerprint = computeFingerprint(supplierVatNumber, input.invoiceNumber, totalAmount);
 
