@@ -224,7 +224,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     invoiceInput.totalAmount,
   );
 
-  // Create supplier invoice. Due date: the document's, else its own terms, the supplier's, the company default (960).
+  // Due date: the document's printed one, else the supplier's confirmed terms, the scan's terms text, the company default (960).
+  const dueDate = await billDueDate(companyId, supplierMatch.supplierId, invoiceInput.invoiceDate, {
+    dueDate: invoiceInput.dueDate, scannedTerms: invoiceInput.paymentTerms, // the scan's terms text ranks BELOW the supplier's confirmed terms
+  });
+
+  // Create supplier invoice.
   const [invoice] = await sql`
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,
@@ -233,7 +238,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       duplicate_fingerprint, source_document_id
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
-      ${invoiceInput.invoiceDate}::date, ${await billDueDate(companyId, supplierMatch.supplierId, invoiceInput.invoiceDate, invoiceInput)}::date,
+      ${invoiceInput.invoiceDate}::date, ${dueDate}::date,
       ${invoiceInput.totalAmount - invoiceInput.taxAmount}, ${invoiceInput.taxRate},
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
       ${invoiceInput.paymentTerms ?? null}, ${invoiceInput.reference ?? null},

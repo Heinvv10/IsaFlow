@@ -21,7 +21,6 @@ import { InvoiceNumberField } from '@/components/accounting/suppliers/InvoiceNum
 import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/SupplierInvoiceSummaryCard';
 import { localISODate } from '@/lib/dateUtils';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
-import { scannedPaymentTermsOption } from '@/components/accounting/supplier-invoices/scannedPaymentTerms';
 import { useSupplierTermsDueDate } from '@/components/accounting/supplier-invoices/useSupplierTermsDueDate';
 import { useSupplierDimensionDefaults } from '@/components/accounting/suppliers/useSupplierDimensionDefaults';
 import { PageHeader, DateField } from '@/components/ui';
@@ -38,6 +37,7 @@ export default function NewSupplierInvoicePage() {
   const [error, setError] = useState('');
   const dates = useDateGate();
   const [scanBanner, setScanBanner] = useState<string | null>(null);
+  const [scannedTerms, setScannedTerms] = useState('');
 
   const [form, setForm] = useState({
     invoiceNumber: '',
@@ -123,7 +123,7 @@ export default function NewSupplierInvoicePage() {
 
   // The due date follows the supplier's terms until the user or a scanned document sets it.
   const { claim: claimDueDate, note: dueDateNote } = useSupplierTermsDueDate({
-    supplierId: form.supplierId, invoiceDate: form.invoiceDate, invoiceTerms: form.paymentTerms,
+    supplierId: form.supplierId, invoiceDate: form.invoiceDate, invoiceTerms: form.paymentTerms, scannedTerms,
     apply: due => { setForm(f => ({ ...f, dueDate: due })); dates.reset('dueDate'); },
   });
 
@@ -134,8 +134,7 @@ export default function NewSupplierInvoicePage() {
     if (data.dueDate) { updates.dueDate = data.dueDate; claimDueDate(); dates.reset('dueDate'); }
     if (data.purchaseOrderRef) updates.reference = data.purchaseOrderRef;
     if (data.vatRate !== null) updates.taxRate = data.vatRate;
-    const scannedTerms = data.paymentTerms ? scannedPaymentTermsOption(data.paymentTerms) : null;
-    if (scannedTerms) updates.paymentTerms = scannedTerms;
+    setScannedTerms(data.paymentTerms ?? ''); // a lower-ranked input than the select, which only the user fills
     setForm(f => ({ ...f, ...updates }));
     if (data.vendorName) {
       matchVendor(data.vendorName);

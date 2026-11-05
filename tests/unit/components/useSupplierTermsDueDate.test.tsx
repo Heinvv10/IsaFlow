@@ -25,9 +25,9 @@ const SUPPLIERS: Record<string, Record<string, unknown>> = {
 };
 
 let claim: () => void = () => undefined;
-function Harness({ supplierId, invoiceDate = '2026-11-05', invoiceTerms = '' }: { supplierId: string; invoiceDate?: string; invoiceTerms?: string }) {
+function Harness({ supplierId, invoiceDate = '2026-11-05', invoiceTerms = '', scannedTerms = '' }: { supplierId: string; invoiceDate?: string; invoiceTerms?: string; scannedTerms?: string }) {
   const [due, setDue] = useState('');
-  const hook = useSupplierTermsDueDate({ supplierId, invoiceDate, invoiceTerms, apply: setDue });
+  const hook = useSupplierTermsDueDate({ supplierId, invoiceDate, invoiceTerms, scannedTerms, apply: setDue });
   claim = hook.claim;
   return <><output data-testid="due">{due}</output><output data-testid="note">{hook.note ?? ''}</output></>;
 }
@@ -105,5 +105,30 @@ describe('useSupplierTermsDueDate', () => {
   it('immediate is the invoice date', async () => {
     render(<Harness supplierId={B} invoiceTerms="immediate" />);
     await waitFor(() => expect(due()).toBe('2026-11-05'));
+  });
+
+  // The scan's terms text is the LOWEST-ranked terms input (Hein, 2026-11-05): CFS = 3 months after statement.
+  it('CFS: a confirmed supplier (3 months after statement) and a scan saying "90 days after statement": 31 Dec, not net90', async () => {
+    render(<Harness supplierId={B} invoiceDate="2026-09-16" scannedTerms="90 days after statement" />);
+    await waitFor(() => expect(due()).toBe('2026-12-31'));
+    expect(note()).toBe("Due date from the supplier's terms: 3 months after statement.");
+  });
+
+  it('a scan saying "Net 90" does not override a confirmed supplier either', async () => {
+    render(<Harness supplierId={B} invoiceDate="2026-09-16" scannedTerms="Net 90" />);
+    await waitFor(() => expect(due()).toBe('2026-12-31'));
+  });
+
+  it('a supplier with no terms: the scan\'s Net 60 dates the bill, with a note; statement wording is ignored (company default)', async () => {
+    const { rerender } = render(<Harness supplierId={C} invoiceDate="2026-09-16" scannedTerms="Net 60" />);
+    await waitFor(() => expect(due()).toBe('2026-11-15'));
+    expect(note()).toBe('Supplier terms not confirmed: due date from the terms on the scanned document.');
+    rerender(<Harness supplierId={C} invoiceDate="2026-09-16" scannedTerms="90 days after statement" />);
+    await waitFor(() => expect(due()).toBe('2026-11-30'));
+  });
+
+  it('terms the user picked on the bill beat the supplier\'s and the scan', async () => {
+    render(<Harness supplierId={B} invoiceDate="2026-09-16" invoiceTerms="net30" scannedTerms="Net 90" />);
+    await waitFor(() => expect(due()).toBe('2026-10-16'));
   });
 });

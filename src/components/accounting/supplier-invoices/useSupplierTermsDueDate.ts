@@ -1,7 +1,8 @@
 /**
  * Fills a new supplier invoice's due date, by the same precedence the server uses (ap/billDueDate): the bill's own
- * terms when the user chose them (net30, immediate), else the supplier's terms, else the company default (migration
- * 960). The user (or a scanned document) owns the date once they set it: `claim()` stops any further fill, so a
+ * terms when the user chose them (net30, immediate), else the supplier's CONFIRMED terms, else the terms text a scan
+ * read (lowest-ranked: it never overrides a confirmed supplier and never fills the terms select), else the company
+ * default (migration 960). The user (or a scanned document) owns the date once they set it: `claim()` stops any further fill, so a
  * supplier change, an invoice date change or a terms change never overwrites a date someone typed. Until then the
  * date is DERIVED: changing the supplier takes the previous supplier's date out at once and re-derives from the new one.
  */
@@ -12,6 +13,7 @@ import { UUID_RE } from '@/lib/validation';
 import {
   companyTermsFromFields, describePaymentTerms, dueDateWithDefault, ownTermsDueDate, readTerms, type Terms,
 } from '@/modules/accounting/services/shared/paymentTerms';
+import { scannedTermsDueDate } from '@/modules/accounting/services/shared/scannedPaymentTerms';
 
 interface SupplierTerms { supplierId: string; days: number | null; type: string | null; companyDefault: Terms }
 
@@ -20,13 +22,15 @@ interface Options {
   invoiceDate: string;
   /** The bill's own "Payment Terms" choice: '' (none), 'immediate' or 'netNN'. */
   invoiceTerms: string;
+  /** The terms text a scanned document printed ('' none): a separate, lower-ranked input than the user's own pick. */
+  scannedTerms?: string;
   /** Set the form's due date ('' clears it) and clear any refused text in the date field. */
   apply: (dueDate: string) => void;
 }
 
-export function useSupplierTermsDueDate({ supplierId, invoiceDate, invoiceTerms, apply }: Options) {
+export function useSupplierTermsDueDate({ supplierId, invoiceDate, invoiceTerms, scannedTerms = '', apply }: Options) {
   const [terms, setTerms] = useState<SupplierTerms | null>(null);
-  const [source, setSource] = useState<'bill' | 'supplier' | 'default' | null>(null);
+  const [source, setSource] = useState<'bill' | 'supplier' | 'scan' | 'default' | null>(null);
   const claimed = useRef(false);
   const shownFor = useRef('');
   const applyRef = useRef(apply);
@@ -70,14 +74,17 @@ export function useSupplierTermsDueDate({ supplierId, invoiceDate, invoiceTerms,
     const own = ownTermsDueDate(invoiceDate, invoiceTerms);
     if (own !== null) { setSource('bill'); applyRef.current(own); return; }
     if (current === null) return;
-    const due = dueDateWithDefault(invoiceDate, current.days, current.type, current.companyDefault);
-    setSource(readTerms(current.days, current.type) ? 'supplier' : 'default');
+    const confirmed = readTerms(current.days, current.type) !== null;
+    const scanned = confirmed ? null : scannedTermsDueDate(invoiceDate, scannedTerms);
+    const due = scanned ?? dueDateWithDefault(invoiceDate, current.days, current.type, current.companyDefault);
+    setSource(confirmed ? 'supplier' : scanned ? 'scan' : 'default');
     if (due !== null) applyRef.current(due);
-  }, [current, invoiceDate, invoiceTerms]);
+  }, [current, invoiceDate, invoiceTerms, scannedTerms]);
 
   const claim = useCallback(() => { claimed.current = true; setSource(null); }, []);
   let note: string | null = null;
   if (source === 'bill') note = "Due date from this bill's payment terms.";
+  else if (source === 'scan') note = "Supplier terms not confirmed: due date from the terms on the scanned document.";
   else if (source === 'supplier' && current) note = `Due date from the supplier's terms: ${describePaymentTerms(current.days, current.type).toLowerCase()}.`;
   else if (source === 'default' && current) {
     note = `Supplier terms not confirmed: due date from the company default (${describePaymentTerms(current.companyDefault.days, current.companyDefault.type).toLowerCase()}).`;

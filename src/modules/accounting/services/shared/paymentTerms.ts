@@ -114,7 +114,8 @@ export function dueDateFromTerms(
 export function ownTermsDueDate(invoiceDateIso: string, paymentTerms?: string | null): string | null {
   if (!paymentTerms) return null;
   if (/^\s*immediate\s*$/i.test(paymentTerms)) return dueDateFromTerms(invoiceDateIso, 0, 'invoice_days');
-  const match = paymentTerms.match(/net\s*(\d+)/i);
+  // \bnet: "Internet 7 days" is not terms; at most three digits: net365000 is not terms either.
+  const match = paymentTerms.match(/\bnet\s*(\d{1,3})\b/i);
   return match ? dueDateFromTerms(invoiceDateIso, Number(match[1]), 'invoice_days') : null;
 }
 

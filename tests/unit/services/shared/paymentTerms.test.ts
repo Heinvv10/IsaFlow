@@ -145,6 +145,8 @@ describe('ownTermsDueDate', () => {
   it.each([
     ['net30', '2026-03-15', '2026-04-14'], ['Net 60', '2026-12-20', '2027-02-18'], ['immediate', '2026-08-16', '2026-08-16'],
     [' Immediate ', '2026-08-16', '2026-08-16'], ['by arrangement', '2026-08-16', null], ['', '2026-08-16', null], [null, '2026-08-16', null],
+    ['Internet 7 days', '2026-08-16', null], ['Cabinet 30', '2026-08-16', null], ['net365000', '2026-08-16', null], ['net 1000', '2026-08-16', null],
+    ['net999', '2026-01-01', '2028-09-26'], ['net-30', '2026-08-16', null],
   ])('%j on %s gives %s', (text, date, due) => {
     expect(ownTermsDueDate(date, text)).toBe(due);
   });
