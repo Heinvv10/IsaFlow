@@ -34,7 +34,7 @@ import { PayrollApprovalRefusedError } from '@/modules/accounting/services/payro
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import type { Route } from './w3-01-payroll.helpers';
 import {
-  approvedDirective, approveRun, calculateRun, cleanSeveranceFixtures, createRunFor, directivePayments,
+  approvedDirective, approveRun, authoriseRun, calculateRun, cleanSeveranceFixtures, createRunFor, directivePayments,
   reopenRun, seedRetrenchedEmployee, type SeveranceFixture,
 } from './p3-severance.helpers';
 
@@ -61,6 +61,7 @@ describe('P3: a refused claim on the replace path', () => {
     const d = await approvedDirective(f, 10_000, 0.1, '2026-06-01');
     await calculateRun(f, june);
     expect(await directivePayments(pool, d)).toEqual([]);
+    await authoriseRun(f, june);
 
     refuse.on = true;
     const outcome = await withAlsTransaction({ companyId: f.company, userId: f.admin }, async () => {

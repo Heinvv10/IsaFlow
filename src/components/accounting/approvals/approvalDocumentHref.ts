@@ -15,6 +15,7 @@ const PAGES: Record<string, string> = {
 };
 
 export function approvalDocumentHref(documentType: string, documentId: string): string | null {
+  if (documentType === 'pay_run') return `/payroll/runs/${documentId}`;
   const base = PAGES[documentType];
   return base ? `${base}/${documentId}` : null;
 }

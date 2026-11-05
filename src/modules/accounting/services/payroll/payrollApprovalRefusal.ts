@@ -12,7 +12,7 @@ export class PayrollApprovalRefusedError extends Error {
   }
 }
 
-const APPROVABLE_STATUSES = ['draft', 'calculated', 'processed'];
+const APPROVABLE_STATUSES = ['draft', 'calculated'];
 
 /**
  * The status gate approvePayrollRun applies before anything else, as the

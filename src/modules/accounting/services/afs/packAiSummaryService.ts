@@ -2,6 +2,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { log } from '@/lib/logger';
 import type { KpiResult } from './afsTypes';
+import { AI_COMMENTARY_UNAVAILABLE, AI_SUMMARY_UNAVAILABLE } from './managementPackSections';
 
 const client = new Anthropic();
 
@@ -70,7 +71,7 @@ export async function generateExecutiveSummary(params: ExecutiveSummaryParams): 
       { period: params.period, error: message },
       'packAiSummaryService',
     );
-    return 'AI summary unavailable for this period.';
+    return AI_SUMMARY_UNAVAILABLE;
   } finally {
     clearTimeout(timeout);
   }
@@ -113,7 +114,7 @@ Be specific with numbers. Identify key movements and risks. Do not reference bud
       { sectionType: params.sectionType, error: message },
       'packAiSummaryService',
     );
-    return 'AI commentary unavailable for this section.';
+    return AI_COMMENTARY_UNAVAILABLE;
   } finally {
     clearTimeout(timeoutId);
   }
