@@ -33,6 +33,7 @@ vi.mock('@/lib/auth/oauth', () => ({
   revokeAllUserAuthorisations: (...a: unknown[]) => revokeAllUserAuthorisations(...a),
 }));
 
+vi.mock('@/modules/accounting/services/core/payRunApproverGuard', () => ({ assertPayRunApproverRetainedEverywhere: vi.fn(async () => undefined) })); // judged on a real database: payroll-approver-guard-paths.int.test.ts
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { suspendUser } from '@/modules/admin/services/adminUserActionsService';
