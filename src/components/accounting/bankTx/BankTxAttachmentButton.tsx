@@ -25,7 +25,7 @@ export function BankTxAttachmentButton({ txId, count, rowName, onOpen }: Props) 
       <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
       {n > 0 && (
         <span aria-hidden="true"
-          className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-blue-500 text-white text-[9px] leading-[14px] font-semibold">
+          className="absolute -top-1.5 -right-1.5 min-w-4 h-4 px-0.5 rounded-full bg-blue-500 text-white text-xs leading-4 font-semibold">
           {n > 9 ? '9+' : n}
         </span>
       )}
