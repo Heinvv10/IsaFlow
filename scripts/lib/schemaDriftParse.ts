@@ -28,7 +28,8 @@ const CT_HEAD_RE = /CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:public\.)?(\w+)
  * Removes `--` and `/* *\/` comments, leaving a comment marker inside a single-quoted literal
  * (DEFAULT 'a--b') alone. Quote state restarts on each line outside a block comment, so a literal
  * this scan misreads (E'\'' escapes, dollar quotes) can only keep a comment on its own line in the
- * text; inside a CREATE TABLE that leaves the column list unbalanced, which throws below.
+ * text; inside a CREATE TABLE that leaves the column list unbalanced, which throws below
+ * (a `--` inside a dollar-quoted default cuts its closing tag, so it throws too).
  */
 export function stripSqlComments(src: string): string {
   let out = '';
@@ -82,14 +83,27 @@ export function parseExpectedSchema(migDir: string = MIG_DIR): Map<string, Set<s
       heads.shift();
       if (!expected.has(table)) expected.set(table, new Set());
       const cols = expected.get(table)!;
-      let depth = 0, buf = '', inQuote = false;
+      let depth = 0, buf = '', inQuote = false, inDollar = false;
       const parts: string[] = [];
-      for (const c of m[2]!) {
-        // A comma or parenthesis inside a single-quoted literal (DEFAULT '{80,100,120}') is text, not
-        // structure. A '' escape toggles twice, so it stays inside the literal. This is a scan, not a
-        // SQL lexer: E'' backslash escapes and dollar quotes are not modelled. Each leaves a quote or
-        // parenthesis unbalanced, which throws below instead of silently dropping the table's later
-        // columns from the audit.
+      const body = m[2]!;
+      for (let i = 0; i < body.length; i++) {
+        const c = body[i]!;
+        // A comma or parenthesis inside a single-quoted literal (DEFAULT '{80,100,120}') or a dollar-
+        // quoted one (DEFAULT $$a,b$$, $tag$...$tag$) is text, not structure. A '' escape toggles
+        // twice, so it stays inside the literal. This is a scan, not a SQL lexer: E'' backslash
+        // escapes are not modelled. An unread form leaves a quote or parenthesis unbalanced, which
+        // throws below instead of silently dropping (or inventing) the table's columns.
+        // A $ continuing an identifier (col$a$b) is not a dollar quote, as in PostgreSQL's lexer.
+        if (!inQuote && !/[\w$]/.test(body[i - 1] ?? '')) {
+          const dq = c === '$' ? /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(body.slice(i)) : null;
+          if (dq) {
+            const close = body.indexOf(dq[0], i + dq[0].length);
+            if (close === -1) { inDollar = true; break; }
+            buf += body.slice(i, close + dq[0].length);
+            i = close + dq[0].length - 1;
+            continue;
+          }
+        }
         if (c === "'") inQuote = !inQuote;
         else if (!inQuote && c === '(') depth++;
         else if (!inQuote && c === ')') depth--;
@@ -97,7 +111,7 @@ export function parseExpectedSchema(migDir: string = MIG_DIR): Map<string, Set<s
         else buf += c;
       }
       if (buf.trim()) parts.push(buf);
-      if (inQuote || depth !== 0) {
+      if (inQuote || inDollar || depth !== 0) {
         throw new Error(
           `schemaDriftParse: unbalanced quote/parenthesis in CREATE TABLE ${table} (${f}); ` +
           `the column list cannot be read, so the audit would silently skip its columns`,

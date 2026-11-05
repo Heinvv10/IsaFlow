@@ -132,3 +132,35 @@ describe('schema-drift parser: comment markers inside literals are text', () => 
     expect(cols(m, 'q_blk')).toEqual(['a', 'b']);
   });
 });
+
+/**
+ * Codex review of 79450a45a: a dollar-quoted default ($$x, phantom text$$) is valid PostgreSQL, but
+ * its comma split the column list and `phantom` became an expected column, so a migration that
+ * applied cleanly would then fail the deploy's audit. Dollar quotes (with or without a tag) are text.
+ */
+describe('schema-drift parser: dollar-quoted literals are text', () => {
+  it('a $$ default with a comma does not invent a column', () => {
+    const m = parseSql('CREATE TABLE q (a text DEFAULT $$x, phantom text$$, b int);');
+    expect(cols(m, 'q')).toEqual(['a', 'b']);
+  });
+
+  it("a tagged $t$ default holding $$, a quote and parentheses is one literal", () => {
+    const m = parseSql("CREATE TABLE q_tag (\n  a text DEFAULT $t$it's $$, (x, y$t$,\n  b int\n);");
+    expect(cols(m, 'q_tag')).toEqual(['a', 'b']);
+  });
+
+  it("a $ inside a single-quoted literal does not open a dollar quote", () => {
+    const m = parseSql("CREATE TABLE q_cash (\n  a text DEFAULT '$$',\n  b int\n);");
+    expect(cols(m, 'q_cash')).toEqual(['a', 'b']);
+  });
+
+  it('a $ inside an identifier is not a dollar quote', () => {
+    const m = parseSql('CREATE TABLE q_ident (\n  a$x$ int,\n  b int,\n  c$x$ int\n);');
+    expect(cols(m, 'q_ident')).toContain('b');
+  });
+
+  it('a dollar quote that never closes throws, naming the table', () => {
+    const sql = 'CREATE TABLE q_open_dq (\n  a text DEFAULT $$x,\n  b int\n);';
+    expect(() => parseSql(sql)).toThrow(/unbalanced quote\/parenthesis in CREATE TABLE q_open_dq/);
+  });
+});
