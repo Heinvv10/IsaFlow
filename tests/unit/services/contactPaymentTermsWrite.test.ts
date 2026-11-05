@@ -28,7 +28,7 @@ const ID = 'uuuuuuuu-0000-4000-8000-uuuuuuuuuuuu';
 const CUSTOMER_CREATE = { days: 12, type: 13 };
 const SUPPLIER_CREATE = { days: 9, type: 10 };
 const CUSTOMER_UPDATE = { mode: 21, days: 22, type: 25 };
-const SUPPLIER_UPDATE = { mode: 17, days: 18, type: 21 };
+const SUPPLIER_UPDATE = { mode: 21, days: 22, type: 25 }; // the terms columns sit after the four bank columns: the bank census window (supplierPaymentApprovalCensus) needs them there
 
 const params = (): unknown[] => mockSql.mock.calls[0]!.slice(1);
 
@@ -81,7 +81,7 @@ describe.each([
     expect([params()[at.mode], params()[at.days]]).toEqual(['days_only', 60]);
     expect(params()[at.type]).toBeNull();
     const text = (mockSql.mock.calls[0]![0] as unknown as string[]).join('?');
-    expect(text).toContain("WHEN 'days_only' THEN COALESCE(NULLIF(payment_terms_type, ''), 'invoice_days')");
+    expect(text).toContain("WHEN 'days_only' THEN CASE WHEN payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months', 'days', 'end_of_month') THEN payment_terms_type ELSE 'invoice_days' END");
   });
 
   it('sets the pair', async () => {
