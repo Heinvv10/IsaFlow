@@ -15,6 +15,11 @@ import { PersonalSection } from '@/components/payroll/employeeCreate/PersonalSec
 import { EmploymentSection } from '@/components/payroll/employeeCreate/EmploymentSection';
 import { TaxAndMedicalSection } from '@/components/payroll/employeeCreate/TaxAndMedicalSection';
 import { PaySection } from '@/components/payroll/employeeCreate/PaySection';
+import { BankSection } from '@/components/payroll/employeeCreate/BankSection';
+import {
+  BANK_FIELD_ORDER, bankIsBlank, emptyBank, saveBankDetails, validateBank,
+  type BankErrors, type BankForm, type BankKey,
+} from '@/components/payroll/employeeCreate/bankDetails';
 import {
   FIELD_ORDER, buildBody, initialForm, validateForm,
   type DateKey, type FieldKey, type FormErrors, type FormState, type RefusedKey,
@@ -27,6 +32,11 @@ export default function NewEmployeePage() {
   const [refused, setRefused] = useState<Partial<Record<RefusedKey, string>>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [bank, setBank] = useState<BankForm>(emptyBank);
+  const [bankErrors, setBankErrors] = useState<BankErrors>({});
+  /** The employee exists but the bank call failed: the form stays, as a notice with the way on, and cannot create twice. */
+  const [bankFailure, setBankFailure] = useState<{ id: string; message: string } | null>(null);
+  const bankFields = useRef<Partial<Record<BankKey, HTMLElement | null>>>({});
   const fields = useRef<Partial<Record<FieldKey, HTMLElement | null>>>({});
   // State only reaches the disabled button on the next render; a second submit can arrive before that.
   const inFlight = useRef(false);
@@ -36,6 +46,11 @@ export default function NewEmployeePage() {
     setForm(prev => ({ ...prev, [k]: v }));
     clearError(k);
   };
+  const setBankField = <K extends keyof BankForm>(k: K, v: BankForm[K]) => {
+    setBank(prev => ({ ...prev, [k]: v }));
+    setBankErrors(prev => (k in prev ? { ...prev, [k]: undefined } : prev));
+  };
+  const bankRef = (k: BankKey) => (el: HTMLElement | null) => { bankFields.current[k] = el; };
   const fieldRef = (k: FieldKey) => (el: HTMLElement | null) => { fields.current[k] = el; };
   const checkField = (k: FieldKey) => setErrors(prev => ({ ...prev, [k]: validateForm(form, refused)[k] }));
   // A refused date arrives as null with valid=false; it must block submit, not read as "left empty".
@@ -55,8 +70,16 @@ export default function NewEmployeePage() {
     const found = validateForm(form, refused);
     setErrors(found);
     const first = FIELD_ORDER.find(k => found[k]);
+    // Bank details are optional, but a half-filled section is not: stop it before the employee is created.
+    const foundBank = bankIsBlank(bank) ? {} : validateBank(bank);
+    setBankErrors(foundBank);
     if (first) {
       fields.current[first]?.focus();
+      return;
+    }
+    const firstBank = BANK_FIELD_ORDER.find(k => foundBank[k]);
+    if (firstBank) {
+      bankFields.current[firstBank]?.focus();
       return;
     }
     inFlight.current = true;
@@ -71,6 +94,15 @@ export default function NewEmployeePage() {
       const json = await res.json();
       const created = json.data ?? json;
       target = `/payroll/employees/${created.id}`;
+      if (!bankIsBlank(bank)) {
+        try {
+          await saveBankDetails(created.id, bank);
+        } catch (bankErr) {
+          setBankFailure({ id: created.id, message: apiErrorMessage(bankErr, 'Could not save the bank details') });
+          setSubmitting(false); // inFlight stays set: the employee exists, and this form does not create a second
+          return;
+        }
+      }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the employee - try again'));
     } finally {
@@ -104,14 +136,28 @@ export default function NewEmployeePage() {
         </div>
 
         <form onSubmit={handleSubmit} noValidate className="p-6 max-w-3xl space-y-2">
+          {bankFailure && (
+            <div role="alert" className="px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-sm">
+              Employee saved; bank details not saved: {bankFailure.message.replace(/[.\s]+$/, '')}. Add them on the profile.
+            </div>
+          )}
           {error && (
             <div role="alert" className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
           )}
-          <PersonalSection {...section} />
-          <EmploymentSection {...section} />
-          <TaxAndMedicalSection {...section} />
-          <PaySection {...section} setSalary={setSalary} />
+          {/* The employee exists once the bank call has failed: a field edited now would be discarded, so the form is read-only. */}
+          <fieldset disabled={bankFailure !== null} className="contents">
+            <PersonalSection {...section} />
+            <EmploymentSection {...section} />
+            <TaxAndMedicalSection {...section} />
+            <PaySection {...section} setSalary={setSalary} />
+            <BankSection bank={bank} errors={bankErrors} onChange={setBankField} fieldRef={bankRef} />
+          </fieldset>
           <div className="flex items-center gap-3 pt-2">
+            {bankFailure ? (
+              <Link href={`/payroll/employees/${bankFailure.id}`} className="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
+                Open the profile
+              </Link>
+            ) : (<>
             <button
               type="submit"
               disabled={submitting}
@@ -121,6 +167,7 @@ export default function NewEmployeePage() {
               Create Employee
             </button>
             <Link href="/payroll/employees" className="px-4 py-2 rounded-lg text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] text-sm">Cancel</Link>
+            </>)}
           </div>
         </form>
       </div>

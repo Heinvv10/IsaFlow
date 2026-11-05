@@ -128,6 +128,18 @@ export async function remainingFor(
   if (rawKeys.length === 0) return [];
   const problem = remainingKeysProblem(rawKeys.map((k) => k.month));
   if (problem) throw new TrackingError(400, problem);
+  return remainingForKeys(companyId, rawKeys, opts);
+}
+
+/**
+ * `remainingFor` without the per-call bounds (key count, month span): the same readers and core, for
+ * a SERVER caller that builds its own keys from stored budget rows of one financial year (the
+ * overspend alert evaluator, `overspendAlerts.ts`). Never reached from a route's input.
+ */
+export async function remainingForKeys(
+  companyId: string, rawKeys: readonly RemainingKey[], opts: RemainingOptions = {},
+): Promise<RemainingResult[]> {
+  if (rawKeys.length === 0) return [];
   const keys = rawKeys.map(normalise);
   const months = [...new Set(keys.map((k) => k.month))].sort();
   const monthDates = months.map(monthKeyToDate);

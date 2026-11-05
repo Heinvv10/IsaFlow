@@ -21,6 +21,7 @@ import { EntityHistoryTimeline } from '@/components/accounting/entity-history/En
 import { PayScaleCard } from '@/components/payroll/PayScaleCard';
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
+import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
 import { localISODate } from '@/lib/dateUtils';
 import { payrollLoadMessage, NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -265,6 +266,8 @@ export default function EmployeeDetailPage() {
                 onChange={(id) => setEmployee({ ...employee, occupationalLevelId: id })}
               />
             )}
+
+            {employeeId && <EmployeeBankCard employeeId={employeeId} />}
 
             {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
 
