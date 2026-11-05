@@ -12,9 +12,23 @@
 import { sql } from '@/lib/neon';
 import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 
+/** The marker of a sole-approver self-approval, in the audit rows (migration 872 writes the same literal in SQL). */
+export const SOLE_APPROVER = 'sole_approver' as const;
+
+/**
+ * An approved request whose decider is its own requester: the only way K-043 lets one through is the sole-approver
+ * exception (assertMayDecide, Q2), so the pair says it was one without re-deriving the exception.
+ */
+export const isSoleApproverApproval = (request: { requestedBy: string; decidedBy: string | null }): boolean =>
+  request.decidedBy !== null && request.requestedBy === request.decidedBy;
+
+/** The audit metadata that marks a sole-approver self-approval; empty for any other decision. */
+export const soleApproverAuditMetadata = (isSoleApprover: boolean): { selfApproval?: typeof SOLE_APPROVER } =>
+  isSoleApprover ? { selfApproval: SOLE_APPROVER } : {};
+
 /** Returned by assertMayDecide when the decision is a sole-approver self-approval. */
 export interface SoleApproverSelfApproval {
-  selfApproval: 'sole_approver';
+  selfApproval: typeof SOLE_APPROVER;
   /** The ratcheted role the request demanded, which nobody else holds. */
   requiredRole: string;
   /** approval_requests.approver_roster — the roster the decision was allowed on. */
