@@ -32,8 +32,9 @@
  * (core/payRunApproverGuard: company and platform-admin role changes and removals, the onboarding reset). It is
  * taken after the member rows and the owner lock and nothing in 1-3 (calculate, approve, reopen, post) ever takes it
  * or waits on a member row while holding one of them, so it can sit in no cycle with them. A platform-admin write
- * holds it on its own transaction while judging on a migration_admin connection (pool max 4): a wait for that
- * connection ends with the 5 s lock_timeout and a retryable refusal, nothing written.
+ * holds it on its own transaction while judging on a migration_admin connection (pool max 4): a pool full of
+ * waiters for this lock ends with the 5 s lock_timeout and a retryable refusal; any other exhaustion fails the
+ * checkout after 15 s with an unclassified error (500 / generic 400). Nothing is written either way.
  * One company-wide lock rather than one per tax year (PAYE 4a follow-ups
  * round 2, R2): approvals need the company-wide one anyway
  * (termination_already_paid reads runs of any year), and a calculation holds

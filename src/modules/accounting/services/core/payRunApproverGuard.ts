@@ -35,8 +35,10 @@
  * locks first, in company-id order, for the same reason). A change spanning companies takes them in company-id order.
  * The check itself may run on another connection (a platform-admin write is on the platform pool): it reads committed
  * data, and a peer that held the lock has committed before it is granted. That connection is a migration_admin one
- * (pool max 4) while the request holds the lock on its own transaction: if the pool is exhausted the wait ends with
- * the 5 s lock_timeout and a retryable refusal, nothing written. Judging on the platform transaction itself was not
+ * (pool max 4) while the request holds the lock on its own transaction. If the pool is full of waiters for this very
+ * lock, the wait ends with the 5 s lock_timeout and a retryable refusal; if it is exhausted by anything else, the
+ * checkout fails after connectionTimeoutMillis (15 s) with an unclassified error (a 500 on the platform routes, a
+ * generic 400 on the reset). Either way nothing was written. Judging on the platform transaction itself was not
  * done: platform_admin's access to these tables is not what the member writes already rely on, and a request it could
  * not see would read as "no pending request", failing open; migration_admin (BYPASSRLS) is the known reader.
  *
@@ -94,8 +96,11 @@ async function strandedRequestIds(client: PoolClient, companyId: string, userId:
       WHERE cu.company_id = $1::UUID`,
     [companyId],
   )).rows;
-  const target = members.find((m) => m.user_id.toLowerCase() === userId.toLowerCase());
-  if (!target) return [];
+  // By PERSON: user_id is compared case-insensitively and the writes match lower(user_id), so a case-variant row of the
+  // same person is the target too (never "another approver"), and the target could approve if any of their rows could.
+  const person = userId.toLowerCase();
+  const targetRows = members.filter((m) => m.user_id.toLowerCase() === person);
+  if (targetRows.length === 0) return [];
   const after = newRole === null ? -1 : actorRank(newRole);
   const stranded: string[] = [];
   for (const request of pending) {
@@ -107,8 +112,8 @@ async function strandedRequestIds(client: PoolClient, companyId: string, userId:
       const id = m.user_id.toLowerCase();
       return m.in_good_standing && id !== requester && !authors.has(id) && actorRank(m.role) >= demand;
     };
-    if (!eligible(target) || after >= demand) continue;
-    if (!members.some((m) => m !== target && eligible(m))) stranded.push(request.id);
+    if (!targetRows.some(eligible) || after >= demand) continue;
+    if (!members.some((m) => m.user_id.toLowerCase() !== person && eligible(m))) stranded.push(request.id);
   }
   return stranded;
 }
@@ -165,12 +170,13 @@ async function companiesWithPendingRequests(userId: string): Promise<string[]> {
  * every member writer takes its locks (rows, owner lock, approver lock; see the header), companies in id order:
  * the user's membership rows, then the owner lock of each company they own, then the approver lock of EACH company
  * they belong to, and only then the companies are judged, each as a removal. Locking before listing means a request
- * raised meanwhile is judged, and taking rows first keeps a concurrent role change of the same user from meeting
+ * raised before the judge reads is judged (one raised after that is not, but its requester still cannot self-approve it
+ * on the old roster: the roster snapshot), and taking rows first keeps a concurrent role change of the same user from meeting
  * this one in the opposite order (it waits on the rows, before it holds the approver lock).
  */
 export async function assertPayRunApproverRetainedEverywhere(userId: string): Promise<void> {
   const memberships = await sql<{ company_id: string; is_owner: boolean }>`
-    SELECT company_id::TEXT AS company_id, lower(btrim(role)) = 'owner' AS is_owner
+    SELECT company_id::TEXT AS company_id, public.company_member_role_is_owner(role) AS is_owner
       FROM company_users
      WHERE lower(user_id::TEXT) = lower(${userId})
      ORDER BY company_id, id

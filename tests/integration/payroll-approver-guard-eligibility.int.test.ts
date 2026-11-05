@@ -112,3 +112,23 @@ describe('the demand ratchets: a member below it does not count (each operand)',
     expect((await put(admin2, 'viewer')).statusCode).toBe(200);
   }, 60000);
 });
+
+describe('by person, not by row', () => {
+  it('a case-variant company_users row of the target is not another approver', async () => {
+    const { run } = await freshRequest();
+    const m = await r.addUser('manager');
+    await raise(run);
+    // The same person under an upper-case id: the writes match lower(user_id) and hit both rows. users.id is text, so a
+    // profile under that id makes the variant row look like a member in good standing (the case that fails open).
+    await r.pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)", [m.toUpperCase(), `${m}-variant@test.local`]);
+    await r.pool.query('ALTER TABLE company_users DISABLE TRIGGER USER');
+    try {
+      await r.pool.query('INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, $3)', [r.company, m.toUpperCase(), 'manager']);
+    } finally { await r.pool.query('ALTER TABLE company_users ENABLE TRIGGER USER'); }
+    const refused = await put(m, 'viewer');
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body.error?.message ?? refused.body.message).toMatch(REFUSAL);
+    await r.pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [r.company, m.toUpperCase()]);
+    await r.pool.query('DELETE FROM users WHERE id = $1', [m.toUpperCase()]);
+  }, 60000);
+});

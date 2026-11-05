@@ -116,8 +116,9 @@ export interface ApprovedRequestRow {
 /**
  * The approvals the gate clears a document on, newest first: approved requests for it, decided at or after
  * `approval_enforcement.enabled_at` (one taken while the control was off, or before a disable and re-enable, clears
- * nothing). The gate and anything that asks WHICH approval cleared a document read it through here, so the two cannot
- * pick different requests.
+ * nothing). The gate and anything that asks WHICH approval cleared a document read it through here. The gate then picks
+ * from the rank-filtered subset and a caller such as readPayRunDecision from this list; for a pay run (one fixed rule)
+ * no divergence is reachable, but another type with several rules could in principle pick differently.
  */
 export async function approvedRequestsFor(
   companyId: string,
