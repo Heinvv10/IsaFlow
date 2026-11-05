@@ -10,7 +10,6 @@ import {
   NON_CURRENT_SUBTYPES,
   PAYABLE_SUBTYPES,
   RECEIVABLE_SUBTYPES,
-  rawSubtypesFor,
 } from '../gl/accountSubtypes';
 import { aggregateFigures } from '../gl/accountClassification';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';

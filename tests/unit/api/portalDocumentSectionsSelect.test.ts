@@ -17,7 +17,7 @@ vi.mock('@/lib/apiResponse', () => ({ apiResponse: { success: vi.fn(), forbidden
 import handler from '../../../pages/api/accounting/portal/documents/[documentId]';
 
 describe('portal document sections', () => {
-  it('selects overrides, for this document and company only', async () => {
+  it('selects overrides and the accepted flag, for this document and company only', async () => {
     m.sql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = strings.join('?');
       if (text.includes('FROM afs_documents')) return [{ id: 'd', document_type: 'management_pack', status: 'draft' }];
@@ -28,6 +28,8 @@ describe('portal document sections', () => {
     await (handler as unknown as (a: NextApiRequest, b: NextApiResponse) => Promise<void>)(req, {} as NextApiResponse);
     const captured = m.sections;
     expect(captured?.[0]).toMatch(/SELECT[^;]*\boverrides\b[^;]*FROM afs_sections/);
+    // The accepted flag decides whether the narrative prints beside the blocks (accept copies it there).
+    expect(captured?.[0]).toMatch(/SELECT[^;]*\bai_narrative_accepted\b[^;]*FROM afs_sections/);
     expect(captured?.[0]).toMatch(/company_id = \?::UUID/);
     expect(captured?.[1]).toContain('co');
   });
