@@ -11,7 +11,7 @@ import { useDrawerRead } from '@/components/ui/useDrawerRead';
 import type { BankTx } from '@/components/accounting/BankTxTable';
 import { SAFE_HREF, type Attachment } from '@/components/accounting/bankTxAttachmentHelpers';
 import { AttachmentViewer } from '@/components/accounting/AttachmentViewer';
-import { previewKind } from '@/components/accounting/attachmentPreview';
+import { previewKind, safeDownloadName } from '@/components/accounting/attachmentPreview';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
@@ -52,7 +52,7 @@ function Attachments({ txId }: { txId: string }) {
         {data.map((a) => (
           <li key={a.id} className="flex items-baseline justify-between gap-3">
             {SAFE_HREF.test(a.file_url)
-              ? <a href={a.file_url} target="_blank" rel="noopener noreferrer" download={a.file_name} title={a.file_name} className={`min-w-0 truncate ${LINK}`}>{a.file_name}</a>
+              ? <a href={a.file_url} target="_blank" rel="noopener noreferrer" download={safeDownloadName(a.file_url, a.file_name)} title={a.file_name} className={`min-w-0 truncate ${LINK}`}>{a.file_name}</a>
               : <span title={a.file_name} className={`min-w-0 truncate ${MUTED}`}>{a.file_name}</span>}
             {previewKind(a.file_url) !== 'none' && (
               <button type="button" onClick={() => setViewIndex(viewable.indexOf(a))} aria-label={`View ${a.file_name}`}

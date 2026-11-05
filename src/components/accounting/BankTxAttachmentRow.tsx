@@ -6,7 +6,7 @@
 import { Eye, FileImage, FileText, Loader2, Paperclip, Trash2, Upload } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { type Attachment, SAFE_HREF, formatBytes, fileIcon } from './bankTxAttachmentHelpers';
-import { previewKind } from './attachmentPreview';
+import { previewKind, safeDownloadName } from './attachmentPreview';
 
 interface Props {
   att: Attachment;
@@ -47,7 +47,7 @@ export function BankTxAttachmentRow({ att, deleting, onView, onDelete }: Props) 
 
       {/* Download link — only rendered when the URL is a safe scheme */}
       {SAFE_HREF.test(att.file_url) ? (
-        <a href={att.file_url} download={att.file_name} target="_blank" rel="noopener noreferrer"
+        <a href={att.file_url} download={safeDownloadName(att.file_url, att.file_name)} target="_blank" rel="noopener noreferrer"
           className={`${ICON_BTN} hover:bg-blue-500/10 hover:text-blue-400`}
           title="Download" aria-label={`Download ${att.file_name}`} onClick={e => e.stopPropagation()}>
           <Upload className="h-3.5 w-3.5 rotate-180" />

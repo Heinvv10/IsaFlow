@@ -71,11 +71,13 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       setAttachments(json.data);
       // Only a successful read reports a count: a failed one must not clear the row's highlight.
       countRef.current?.(json.data.length);
-      if (openFirstRef.current && json.data.some(a => previewKind(a.file_url) !== 'none')) setViewIndex(0);
+      // A refresh changed the list behind any open viewer, so its index no longer names the same file. Only the
+      // opening load may open the viewer; a ref, as the prop follows the count and must not re-create this callback.
+      if (keepList) setViewIndex(null);
+      else if (openFirstRef.current && json.data.some(a => previewKind(a.file_url) !== 'none')) setViewIndex(0);
     } catch {
-      setAttachments([]); notify.error('Could not load attachments');
+      setAttachments([]); setViewIndex(null); notify.error('Could not load attachments');
     } finally {
-      openFirstRef.current = false;
       setLoading(false);
     }
   }, [bankTransactionId]);
@@ -114,7 +116,6 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not upload the file - try again');
       notify.success(`${file.name} uploaded`);
       await fetchAttachments(true);
-      setViewIndex(null); // The list changed behind any open viewer, so its index no longer names the same file.
     } catch (err) {
       notify.error(apiErrorMessage(err, 'Could not upload the file - try again'));
     } finally {

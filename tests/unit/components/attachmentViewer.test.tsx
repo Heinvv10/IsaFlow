@@ -10,7 +10,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AttachmentViewer } from '@/components/accounting/AttachmentViewer';
-import { previewKind, dataUrlToBlob } from '@/components/accounting/attachmentPreview';
+import { previewKind, dataUrlToBlob, safeDownloadName } from '@/components/accounting/attachmentPreview';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
 const PDF = 'data:application/pdf;base64,JVBERi0xLjQK';
@@ -68,6 +68,18 @@ describe('previewKind', () => {
     expect(previewKind('data:application/octet-stream;base64,***')).toBe('none');
   });
 
+  it('never downloads a shown file under an extension that does not match its type', () => {
+    expect(safeDownloadName(PDF, 'invoice.pdf')).toBe('invoice.pdf');
+    expect(safeDownloadName(PDF, 'INVOICE.PDF')).toBe('INVOICE.PDF');
+    expect(safeDownloadName(PDF, 'evil.html')).toBe('evil.html.pdf');
+    expect(safeDownloadName(PDF, 'no-extension')).toBe('no-extension.pdf');
+    expect(safeDownloadName(untyped('%PDF-1.7<script>'), 'evil.svg')).toBe('evil.svg.pdf');
+    expect(safeDownloadName('data:image/jpeg;base64,/9j/', 'slip.jpeg')).toBe('slip.jpeg');
+    expect(safeDownloadName('data:image/jpeg;base64,/9j/', 'slip.png')).toBe('slip.png.jpg');
+    expect(safeDownloadName('data:image/tiff;base64,SUkq', 'scan.html')).toBe('scan.html.tif');
+    expect(safeDownloadName('https://files.example/a.pdf', 'a.pdf')).toBe('a.pdf');
+  });
+
   it('decodes a data URL into a blob of its own type and bytes', async () => {
     const blob = dataUrlToBlob(PDF)!;
     expect(blob.type).toBe('application/pdf');
@@ -111,6 +123,11 @@ describe('AttachmentViewer', () => {
     const link = screen.getByRole('link', { name: 'Download invoice.pdf' });
     expect(link.getAttribute('href')).toBe('blob:test/1');
     expect(link.getAttribute('download')).toBe('invoice.pdf');
+  });
+
+  it('downloads a mislabelled file under a name matching what it was shown as', () => {
+    render(<AttachmentViewer attachments={[{ id: 'p', file_name: 'evil.html', file_url: PDF }]} startIndex={0} onClose={() => undefined} />);
+    expect(screen.getByRole('link', { name: 'Download evil.html' }).getAttribute('download')).toBe('evil.html.pdf');
   });
 
   it('closes on Escape and on the close button, and frees the blob on the way out', () => {

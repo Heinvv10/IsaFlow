@@ -73,11 +73,18 @@ describe('BankLineDrawerBody', () => {
     render(<BankLineDrawerBody tx={TX} />);
     fireEvent.click(await screen.findByRole('button', { name: 'View till.png' }));
     expect(screen.getByRole('img', { name: 'till.png' }).getAttribute('src')).toBe('blob:test/1');
+    expect(screen.getByRole('link', { name: 'till.png' }).getAttribute('download')).toBe('till.png');
     expect(screen.queryByRole('button', { name: 'View slip.pdf' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'View evil.html' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Close preview' }));
     expect(screen.queryByRole('dialog', { name: 'Attachment preview' })).toBeNull();
     vi.restoreAllMocks();
+  });
+
+  it('downloads under a name matching the file\'s type', async () => {
+    serve(() => ok([{ id: 'a4', file_name: 'evil.html', file_url: 'data:application/pdf;base64,JVBERi0=' }]));
+    render(<BankLineDrawerBody tx={TX} />);
+    expect((await screen.findByRole('link', { name: 'evil.html' })).getAttribute('download')).toBe('evil.html.pdf');
   });
 
   it('a line with no journal reads none and asks for none', async () => {

@@ -68,3 +68,26 @@ export function dataUrlToBlob(dataUrl: string): Blob | null {
     return null;
   }
 }
+
+const EXTENSIONS: Record<string, string[]> = {
+  'application/pdf': ['pdf'],
+  'image/jpeg': ['jpg', 'jpeg'],
+  'image/jpg': ['jpg', 'jpeg'],
+  'image/png': ['png'],
+  'image/webp': ['webp'],
+  'image/tiff': ['tif', 'tiff'],
+};
+
+/**
+ * The name to download a file under. The name is the sender's and the bytes are only known to start like the type, so
+ * an "invoice.html" that begins %PDF- must not reach the disk as .html, where opening it runs its script. The name keeps
+ * its text and gains the extension of the type it was shown as.
+ */
+export function safeDownloadName(fileUrl: string, fileName: string): string {
+  const mime = resolve(fileUrl)?.mime ?? (fileUrl.startsWith('data:image/tiff;base64,') ? 'image/tiff' : null);
+  const allowed = mime ? EXTENSIONS[mime] : undefined;
+  if (!allowed) return fileName;
+  const dot = fileName.lastIndexOf('.');
+  const own = dot >= 0 ? fileName.slice(dot + 1).toLowerCase() : '';
+  return allowed.includes(own) ? fileName : `${fileName}.${allowed[0]}`;
+}

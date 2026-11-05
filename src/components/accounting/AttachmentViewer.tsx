@@ -18,7 +18,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Download, FileX, X } from 'lucide-react';
 import { useFocusTrap } from '@/components/ui/useFocusTrap';
-import { previewKind, dataUrlToBlob } from './attachmentPreview';
+import { previewKind, dataUrlToBlob, safeDownloadName } from './attachmentPreview';
 
 export interface ViewableAttachment {
   id: string;
@@ -88,7 +88,7 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
           <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </button>
         {blobUrl && (
-          <a href={blobUrl} download={file.file_name} className={NAV}
+          <a href={blobUrl} download={safeDownloadName(file.file_url, file.file_name)} className={NAV}
             aria-label={`Download ${file.file_name}`} title="Download">
             <Download className="h-4 w-4" aria-hidden="true" />
           </a>

@@ -68,6 +68,12 @@ describe('BankTxAttachmentsModal viewing', () => {
     expect(screen.queryByRole('dialog', { name: 'Attachment preview' })).toBeNull();
   });
 
+  it('downloads from the list under a name matching the file\'s type', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok([{ ...FILES[0]!, file_name: 'evil.html' }]));
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />);
+    expect((await screen.findByRole('link', { name: 'Download evil.html' })).getAttribute('download')).toBe('evil.html.png');
+  });
+
   it('offers no View button for a file it will not preview', async () => {
     render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />);
     await screen.findByRole('button', { name: 'View slip.png' });
