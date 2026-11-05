@@ -12,14 +12,18 @@
  * LOCK ORDER, every payroll-run writer (all waits bounded at 5s, then a
  * retryable refusal):
  *   1. the company approval lock (lockCompanyPayrollApprovals): approve,
- *      calculate, reopen and the pay-run grid. assignComponentToEmployee,
+ *      calculate, reopen and the pay-run grid, and the recovery posting
+ *      (post_payroll_journal live; postPayrollRunJournal when handed no plan,
+ *      both through readApprovedPlan). assignComponentToEmployee,
  *      endEmployeeComponent, postBatch and applyPackageToEmployee take it
  *      alone, so a row cannot change between a grid edit's read and its write;
  *      setEmployeeBankDetails takes the same key for a non-owner / admin caller
  *      (payrollApprovalLockScope; RowLockTimeoutError), then the employee row,
  *      and no run header;
  *   2. the run's header row (lockPayrollRunHeader): approve, calculate, reopen
- *      and the grid;
+ *      and the grid, and every postPayrollRunJournal (which returns at once
+ *      when approval or the MCP post already holds it); the generic journal
+ *      creation after it takes the numbering lock;
  *   3. approval only: the linked journal and its reversal chain
  *      (lockRunJournalForApproval, payrollJournalChain), then the severance
  *      directive rows (FOR SHARE) and their payment row (payrollRunDirectiveClaim).

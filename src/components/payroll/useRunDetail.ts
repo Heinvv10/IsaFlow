@@ -41,6 +41,8 @@ export interface RunDetail {
   employeeCount: number;
   journalEntryId: string | null;
   approval: DocumentApprovalState | null;
+  /** Who decided the approval and whether it was the requester's own (sole-approver exception); null when not approved or grandfathered. */
+  approvalDecision?: { selfApprovedSoleApprover: boolean; preparedByDecider: boolean } | null;
   lines: RunDetailLine[];
 }
 

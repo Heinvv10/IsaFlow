@@ -158,7 +158,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           await recordPayRunApprovalAudit({
             companyId, runId: String(requestRow.document_id), actorId: userId,
             event: decision === 'approved' ? 'authorised' : 'declined',
-            planHash: result.documentDigest, metadata: { requestId: result.id },
+            planHash: result.documentDigest,
+            // Approving a request you raised yourself is the sole-approver fallback (decision Q2): say so on the pay run's trail.
+            metadata: {
+              requestId: result.id,
+              ...(decision === 'approved' && result.requestedBy === result.decidedBy ? { selfApproval: 'sole_approver' } : {}),
+            },
           });
         }
         return apiResponse.success(res, result);

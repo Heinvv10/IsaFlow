@@ -15,6 +15,7 @@ import { PayrollRunWarnings } from '@/components/payroll/PayrollRunWarnings';
 import { PayrollRunLinesTable, PayrollRunTotals } from '@/components/payroll/PayrollRunLinesTable';
 import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
 import { PayRunReviewGrid } from '@/components/payroll/PayRunReviewGrid';
+import { SelfApprovedNote } from '@/components/payroll/SelfApprovedNote';
 import { RunHeaderActions } from '@/components/payroll/RunHeaderActions';
 import { useRunDetail } from '@/components/payroll/useRunDetail';
 import { useRunInputs } from '@/components/payroll/useRunInputs';
@@ -93,6 +94,7 @@ export default function PayrollRunDetailPage() {
         <div className="p-6 space-y-6">
           <DocumentApprovalPanel documentType="pay_run" documentId={run.id} noun="pay run"
             approval={run.approval} onChanged={() => load()} />
+          <SelfApprovedNote decision={run.approvalDecision} />
           {error && (
             <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
           )}
