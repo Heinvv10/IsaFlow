@@ -63,6 +63,12 @@ const COULD_NOT: Record<BulkAction, string> = {
 };
 const PLURAL: Record<BulkAction, string> = { approve: 'approves', post_gl: 'GL postings', cancel: 'cancels' };
 
+/** A reason without one closing full stop (an ellipsis is kept); never empty. */
+export function withoutClosingStop(reason: string): string {
+  const stripped = reason.trim().replace(/(?<!\.)\.$/, '').trim();
+  return stripped || reason.trim() || reason;
+}
+
 /** Budgets P5-2: how many of the selected bills are over budget, each judged on its own. Null when it cannot be read. */
 async function budgetPreview(ids: string[]): Promise<{ policy: BudgetPolicy; overBills: number } | null> {
   try {
@@ -120,17 +126,21 @@ export function BulkActionBar({
         // selection typically fails for ONE reason (a status the action
         // refuses), and the operator needs to know which reason and how many,
         // not the first id's message alone.
-        const byReason = new Map<string, number>();
+        // Keyed by the reason without its closing full stop, so "x." and "x" group.
+        const byReason = new Map<string, { count: number; shown: string }>();
         for (const r of data.results) {
           if (r.ok) continue;
-          const reason = r.error || 'no reason was given';
-          byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
+          const shown = r.error || 'no reason was given';
+          const key = withoutClosingStop(shown);
+          const seen = byReason.get(key);
+          byReason.set(key, { count: (seen?.count ?? 0) + 1, shown: seen?.shown ?? shown });
         }
-        // Several reasons are joined by '; ' into one sentence, so each loses its own
-        // closing full stop (no ".;") and the list ends with one.
-        const detail = byReason.size > 1
-          ? `${Array.from(byReason.entries()).map(([reason, count]) => `${count}× ${reason.replace(/\.+\s*$/, '')}`).join('; ')}.`
-          : Array.from(byReason.keys())[0] ?? '';
+        // One reason is shown as the server gave it. Several are joined by '; ' into
+        // one sentence: each loses its closing stop (no ".;") and the list ends with one.
+        const groups = Array.from(byReason.entries());
+        const detail = groups.length > 1
+          ? `${groups.map(([key, g]) => `${g.count}× ${key}`).join('; ')}.`
+          : groups[0]?.[1].shown ?? '';
         failure = `${data.failed} of ${data.total} ${PLURAL[action]} failed${detail ? `: ${detail}` : ''}`;
       }
       // Reload first: the page's reload clears its error, so a failure set
