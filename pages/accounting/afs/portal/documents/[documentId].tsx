@@ -167,10 +167,10 @@ export default function PortalDocumentPage({
                         return (
                           <div key={idx} style={{ overflowX: 'auto', margin: '0 0 0.75rem' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-                              <thead><tr>{block.headers.map((h, i) => <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', padding: '0.4rem 0.6rem', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>{h}</th>)}</tr></thead>
+                              <thead><tr>{block.headers.map((h, i) => <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', padding: '0.4rem 0.6rem', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>{String(h ?? '')}</th>)}</tr></thead>
                               <tbody>{block.rows.map((row, r) => (
                                 <tr key={r} style={{ fontWeight: safeRowKind(block.rowKinds?.[r]) !== 'line' ? 700 : 400, background: safeRowKind(block.rowKinds?.[r]) === 'total' ? '#e2e8f0' : safeRowKind(block.rowKinds?.[r]) === 'subtotal' ? '#f1f5f9' : undefined }}>
-                                  {row.map((cell, c) => <td key={c} style={{ textAlign: c === 0 ? 'left' : 'right', padding: '0.35rem 0.6rem', borderBottom: '1px solid #e2e8f0' }}>{cell}</td>)}
+                                  {row.map((cell, c) => <td key={c} style={{ textAlign: c === 0 ? 'left' : 'right', padding: '0.35rem 0.6rem', borderBottom: '1px solid #e2e8f0' }}>{String(cell ?? '')}</td>)}
                                 </tr>
                               ))}</tbody>
                             </table>

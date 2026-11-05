@@ -38,6 +38,12 @@ describe('portal document page, management pack', () => {
     expect(screen.queryByText('cash flow')).toBeNull();
   });
 
+  it('a table with non-string cells and headers renders as text instead of crashing the page', () => {
+    show('management_pack', [sec('1', 'kpi_scorecard', [{ type: 'table', headers: ['A', 5], rows: [['x', 42], ['y', null], ['z', { v: 1 }]] }])]);
+    expect(screen.getByText('42')).toBeTruthy();
+    expect(screen.getByText('5')).toBeTruthy();
+  });
+
   it('an AFS document keeps its section_type headings and prints no table', () => {
     show('afs', [sec('1', 'statement_of_fp', [{ type: 'table', headers: ['A'], rows: [['cell']] }, { type: 'paragraph', text: 'words' }])]);
     expect(screen.getAllByText('statement of fp').length).toBeGreaterThan(0);

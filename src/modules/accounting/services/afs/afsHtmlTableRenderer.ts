@@ -18,7 +18,7 @@ function renderBlock(block: NoteContentBlock): string {
       return `<h3 class="note-heading">${escapeHtml(block.text)}</h3>`;
 
     case 'list':
-      return `<ul>${block.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+      return `<ul>${(Array.isArray(block.items) ? block.items : []).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
 
     case 'table':
       return renderTable(block.headers, block.rows, block.rowKinds);
@@ -28,7 +28,10 @@ function renderBlock(block: NoteContentBlock): string {
   }
 }
 
-function renderTable(headers: string[], rows: string[][], rowKinds?: NoteTableRowKind[]): string {
+function renderTable(headersIn: string[], rowsIn: string[][], rowKinds?: NoteTableRowKind[]): string {
+  // Overrides are tenant-written JSON: a table whose headers, rows or a row are not arrays prints what it can.
+  const headers = Array.isArray(headersIn) ? headersIn : [];
+  const rows = Array.isArray(rowsIn) ? rowsIn : [];
   const theadCells = headers
     .map((h) => `<th>${escapeHtml(h)}</th>`)
     .join('');
@@ -36,7 +39,7 @@ function renderTable(headers: string[], rows: string[][], rowKinds?: NoteTableRo
 
   const tbodyRows = rows
     .map((row, i) => {
-      const cells = row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('');
+      const cells = (Array.isArray(row) ? row : []).map((cell) => `<td>${escapeHtml(cell)}</td>`).join('');
       // A statement row's kind (heading, subtotal, bottom line) is a class; a table without kinds prints plain rows.
       // The kind is allow-listed: it lands in a class attribute, and stored content is free-form JSON.
       const kind = safeRowKind(rowKinds?.[i]);
@@ -100,7 +103,9 @@ ${narrative}
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 
-export function escapeHtml(str: string): string {
+/** Stored content is free-form JSON: null/undefined print as nothing, any other value as its text, never a crash. */
+export function escapeHtml(value: unknown): string {
+  const str = value === null || value === undefined ? '' : String(value);
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

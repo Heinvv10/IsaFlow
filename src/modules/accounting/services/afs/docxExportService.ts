@@ -14,6 +14,7 @@ import { afsDocumentTitle, isPackPeriod, packPeriodLabel, packPeriodPhrase } fro
 import type { AfsDocument, AfsSection, NoteContentBlock, NoteContent } from './afsTypes';
 import { renderNoteTable } from './docxTableRenderer';
 import { packSectionView } from './managementPackSectionView';
+import { normaliseBlocks, titleText } from './noteBlockNormalise';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -139,7 +140,7 @@ function buildSectionChildren(section: AfsSection, isPack: boolean): DocxChild[]
     : resolveBlocks(section);
   if (!blocks) return [];
 
-  const title = view ? view.title : resolveTitle(section);
+  const title = titleText(view ? view.title : resolveTitle(section));
   const children: DocxChild[] = [
     new Paragraph({
       text: title,
@@ -149,7 +150,7 @@ function buildSectionChildren(section: AfsSection, isPack: boolean): DocxChild[]
     spacer(),
   ];
 
-  for (const block of blocks) {
+  for (const block of normaliseBlocks(blocks)) {
     children.push(...renderBlock(block));
   }
 
