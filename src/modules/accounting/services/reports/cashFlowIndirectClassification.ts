@@ -19,7 +19,7 @@ import {
 
 /** In presentation order within each section: the screen's long-standing lines first. */
 export const INDIRECT_BUCKETS = [
-  'net_income', 'receivable', 'payable', 'depreciation', 'inventory', 'vat', 'other_operating',
+  'net_income', 'receivable', 'payable', 'depreciation', 'inventory', 'vat', 'other_operating', 'non_cash',
   'investing',
   'equity', 'debt', 'retained_earnings',
 ] as const;
@@ -35,6 +35,7 @@ const SECTION: Record<IndirectBucket, IndirectSection> = {
   payable: 'operating',
   vat: 'operating',
   other_operating: 'operating',
+  non_cash: 'operating',
   investing: 'investing',
   debt: 'financing',
   equity: 'financing',
@@ -75,4 +76,18 @@ export function classifyIndirectLine(accountType: AccountType, subtype: string |
     case 'credit_card': return 'debt';
     default: return 'other_operating';
   }
+}
+
+/**
+ * The line a NON-cash journal line lands in, given whether its journal has a cash leg. A journal with no cash leg moved
+ * no cash, so it must not show as an investing or financing cash flow: an asset bought on a loan would otherwise read
+ * as an investing outflow and an equal financing inflow, and one bought on account as an investing outflow funded by
+ * operating payables. Those legs land in `non_cash` (operating), where they offset the journal's other legs: the whole
+ * journal sums to zero, so the tie-out to cash holds, and net income and working capital keep their own lines.
+ */
+export function indirectLineFor(
+  accountType: AccountType, subtype: string | null | undefined, journalHasCashLeg: boolean,
+): IndirectBucket {
+  const bucket = classifyIndirectLine(accountType, subtype);
+  return !journalHasCashLeg && SECTION[bucket] !== 'operating' ? 'non_cash' : bucket;
 }

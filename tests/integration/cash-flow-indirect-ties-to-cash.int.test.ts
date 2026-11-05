@@ -54,6 +54,9 @@ const JOURNALS: Array<{ n: string; date: string; status?: string; source?: strin
   { n: 'J18', date: '2026-02-22', legs: [['unknownAsset', 90, 0], ['petty', 0, 90]] }, // cash to an unclassified asset
   { n: 'J19', date: '2026-02-28', source: YEAR_END_JOURNAL_SOURCE, legs: [['rev', 3000, 0], ['re', 0, 3000]] }, // never counted
   { n: 'J20', date: '2026-02-25', status: 'draft', legs: [['bank', 999, 0], ['rev', 0, 999]] }, // never counted
+  { n: 'J21', date: '2026-03-05', legs: [['fa', 10000, 0], ['loan', 0, 10000]] }, // asset bought on a loan: no cash
+  { n: 'J22', date: '2026-03-10', legs: [['fa', 2000, 0], ['ap', 0, 2000]] }, // asset bought on account: no cash
+  { n: 'J23', date: '2026-03-15', legs: [['fa', 3000, 0], ['bank', 0, 3000]] }, // asset bought for cash
 ];
 const PERIODS: Array<[string, string]> = [
   ['2026-01-01', '2026-02-28'], ['2026-01-01', '2026-01-31'], ['2026-02-01', '2026-02-28'], ['2026-01-05', '2026-01-05'],
@@ -171,6 +174,18 @@ describeIfDb('cash flow statement (indirect) ties to the ledger cash', () => {
         expect(lines.some((l) => l.includes(i.label) && l.endsWith(`,${i.amount.toFixed(2)}`)), `${s.section} / ${i.label}`).toBe(true);
       }
     }
+  });
+
+  it('a non-cash acquisition (on a loan, or on account) invents no investing or financing cash flow', async () => {
+    const mar = await report('2026-03-01', '2026-03-31');
+    const [operating, investing, financing] = mar.sections;
+    expect(investing!.total).toBe(-3000); // only the asset bought for cash
+    expect(financing!.total).toBe(0); // the loan moved no cash
+    expect(operating!.total).toBe(0);
+    expect(operating!.items.find((i) => i.label === 'Change in Accounts Payable')!.amount).toBe(2000);
+    expect(operating!.items.find((i) => i.label === 'Non-cash Investing and Financing Items')!.amount).toBe(-2000);
+    expect(financing!.items.find((i) => i.label === 'Change in Loans and Borrowings')).toBeUndefined();
+    expect(mar.net_change).toBe(-3000);
   });
 
   it('another company\'s postings never reach this statement', async () => {

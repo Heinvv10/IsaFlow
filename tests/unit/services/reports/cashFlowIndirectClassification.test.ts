@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_RAW_SUBTYPES, isCashEquivalent, type AccountType } from '@/modules/accounting/services/gl/accountSubtypes';
 import {
-  classifyIndirectLine, INDIRECT_BUCKETS, bucketSection, type IndirectBucket,
+  classifyIndirectLine, indirectLineFor, INDIRECT_BUCKETS, bucketSection, type IndirectBucket,
 } from '@/modules/accounting/services/reports/cashFlowIndirectClassification';
 
 const TYPES: AccountType[] = ['asset', 'liability', 'equity', 'revenue', 'expense'];
@@ -72,5 +72,43 @@ describe('what the screen used to leave out', () => {
     expect(b('revenue', 'disposal_profit_loss')).toBe('net_income');
     expect(b('expense', 'default_expense')).toBe('net_income');
     expect(b('expense', 'depreciation_expense')).toBe('net_income');
+  });
+});
+
+describe('a journal with no cash leg is never an investing or financing cash flow', () => {
+  // Sum a journal's non-cash legs (credit less debit) per section, as the service does.
+  const sections = (legs: Array<[AccountType, string, number]>, hasCash: boolean) => {
+    const out: Record<string, number> = { operating: 0, investing: 0, financing: 0 };
+    for (const [type, sub, creditLessDebit] of legs) out[bucketSection(indirectLineFor(type, sub, hasCash))] += creditLessDebit;
+    return out;
+  };
+  it('an asset bought on a loan moves nothing in any section', () => {
+    expect(sections([['asset', 'fixed_asset', -10000], ['liability', 'long_term_liability', 10000]], false))
+      .toEqual({ operating: 0, investing: 0, financing: 0 });
+    expect(indirectLineFor('asset', 'fixed_asset', false)).toBe('non_cash');
+    expect(indirectLineFor('liability', 'long_term_liability', false)).toBe('non_cash');
+  });
+  it('an asset bought on account is not an investing outflow funded by payables', () => {
+    expect(sections([['asset', 'fixed_asset', -2000], ['liability', 'payable', 2000]], false))
+      .toEqual({ operating: 0, investing: 0, financing: 0 });
+    expect(indirectLineFor('liability', 'payable', false)).toBe('payable');
+  });
+  it('shares issued for an asset, and an impairment, move no investing or financing cash', () => {
+    expect(sections([['asset', 'intangible_asset', -500], ['equity', 'equity', 500]], false).investing).toBe(0);
+    expect(sections([['expense', 'operating_expense', -300], ['asset', 'fixed_asset', 300]], false))
+      .toEqual({ operating: 0, investing: 0, financing: 0 });
+  });
+  it('with a cash leg the classification is unchanged', () => {
+    for (const type of TYPES) for (const sub of subtypes) {
+      expect(indirectLineFor(type, sub, true), `${type}/${String(sub)}`).toBe(classifyIndirectLine(type, sub));
+    }
+  });
+  it('without one, only investing and financing lines move, into operating', () => {
+    for (const type of TYPES) for (const sub of subtypes) {
+      const plain = classifyIndirectLine(type, sub);
+      const got = indirectLineFor(type, sub, false);
+      expect(bucketSection(got), `${type}/${String(sub)}`).toBe('operating');
+      if (bucketSection(plain) === 'operating') expect(got).toBe(plain);
+    }
   });
 });
