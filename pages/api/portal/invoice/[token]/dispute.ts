@@ -18,6 +18,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { trustedClientIp } from '@/lib/trustedClientIp';
 import {
   hashSessionToken,
   verifyInvoicePortalToken,
@@ -82,7 +83,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       reason,
       disputedAmount,
       raisedBy: `customer:${hashSessionToken(token)}`,
-      ipAddress: ip === 'unknown' ? null : ip,
+      ipAddress: trustedClientIp(req), // the visitor, not the Cloudflare edge `ip` (the rate limit's key) names
       userAgent,
     });
 
