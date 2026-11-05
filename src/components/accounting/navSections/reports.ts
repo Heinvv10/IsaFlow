@@ -33,6 +33,7 @@ export const reportsTab: Tab = {
       items: [
         { label: 'AR Age Analysis', href: '/accounting/reports/ar-aging' },
         { label: 'AP Age Analysis', href: '/accounting/reports/ap-aging' },
+        { label: 'Due by Date', href: '/accounting/reports/due-by-date' },
       ],
     },
     {
