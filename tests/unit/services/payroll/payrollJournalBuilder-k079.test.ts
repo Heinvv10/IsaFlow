@@ -16,6 +16,10 @@ vi.mock('@/lib/neon', () => ({
   },
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+// The bank role's holder is this chart's 1110 (the holder is judged in payrollJournalBankRole.test.ts).
+vi.mock('@/modules/accounting/services/gl/bankRoleHolder', () => ({
+  resolveBankRoleHolder: vi.fn(async () => ({ account: { id: 'acc-1110', code: '1110', name: 'Bank - Primary', isActive: true }, refusal: null })),
+}));
 vi.mock('@/modules/accounting/services/payroll/costCentreGlMappingService', () => ({
   getMappingLookup: vi.fn(async () => ({})),
 }));

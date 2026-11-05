@@ -21,6 +21,7 @@ import {
   applyTaxDirective, TaxDirectiveAlreadyAppliedError, TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError,
   TaxDirectiveWithoutEmployeeError,
 } from '@/modules/accounting/services/payroll/taxDirectivePaymentService';
+import { isBankAccountRefusal } from '@/modules/accounting/services/gl/paymentBankAccount';
 import { log } from '@/lib/logger';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -68,6 +69,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (err instanceof TaxDirectiveAlreadyAppliedError) return apiResponse.conflict(res, err.message);
     if (err instanceof TaxDirectiveNotApprovedError) return apiResponse.conflict(res, err.message);
     if (err instanceof TaxDirectiveWithoutEmployeeError) return apiResponse.badRequest(res, err.message);
+    if (isBankAccountRefusal(err)) return apiResponse.badRequest(res, err.message);
     if (err instanceof TaxDirectiveSplitChangedError) return apiResponse.conflict(res, err.message, { code: err.code, retryable: true });
     throw err;
   }
