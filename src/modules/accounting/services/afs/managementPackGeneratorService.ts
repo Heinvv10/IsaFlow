@@ -18,10 +18,8 @@ import { deliverPack } from './packDeliveryService';
 import {
   comparisonPlan, isBudgetSection, loadPackBudget, narrativePrior, samePeriodLastYear,
 } from './managementPackComparison';
-import { readSafely } from './managementPackReads';
+import { readAgeing, readReconciliations, readSafely } from './managementPackReads';
 import { getCashFlowDirect } from './cashFlowDirectService';
-import { getAgingReport } from '../reports/agingReportService';
-import { getReconciliations } from '../bank/bankReconciliationService';
 import { loadPackVarianceNoteBlocks } from './managementPackVarianceNotes';
 import type { ManagementPackConfig } from './afsTypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
@@ -179,9 +177,16 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const incomeReports = wantsIncome ? await periodic('income', (w) => getIncomeStatement(companyId, w.start, w.end)) : null;
   const balanceReports = wantsBalance ? await periodic('balance', (w) => getBalanceSheet(companyId, w.end)) : null;
   const cashFlowReports = enabledSections.includes('cash_flow') ? await periodic('cash_flow', (w) => getCashFlowDirect(companyId, w.start, w.end)) : null;
-  const debtorsAging = enabledSections.includes('debtors_ageing') ? await readSafely(ctx, 'debtors_ageing', () => getAgingReport(companyId, 'ar', end)) : null;
-  const creditorsAging = enabledSections.includes('creditors_ageing') ? await readSafely(ctx, 'creditors_ageing', () => getAgingReport(companyId, 'ap', end)) : null;
-  const reconciliations = enabledSections.includes('bank_reconciliation') ? await readSafely(ctx, 'bank_reconciliation', () => getReconciliations(companyId)) : null;
+  const debtorsAging = enabledSections.includes('debtors_ageing') ? await readAgeing(ctx, 'ar', end) : null;
+  const creditorsAging = enabledSections.includes('creditors_ageing') ? await readAgeing(ctx, 'ap', end) : null;
+  const reconciliations = enabledSections.includes('bank_reconciliation') ? await readReconciliations(ctx) : null;
+
+  // A section whose report could not be read says so; a pack with such a section is not signed off and sent on its own.
+  const unproduced = [
+    ['income statement', wantsIncome, incomeReports], ['balance sheet', wantsBalance, balanceReports], ['cash flow', enabledSections.includes('cash_flow'), cashFlowReports],
+    ['debtors ageing', enabledSections.includes('debtors_ageing'), debtorsAging], ['creditors ageing', enabledSections.includes('creditors_ageing'), creditorsAging],
+    ['bank reconciliation', enabledSections.includes('bank_reconciliation'), reconciliations],
+  ].filter(([, wanted, report]) => wanted && report === null).map(([name]) => String(name));
 
   const [kpiScorecard, companyName, topRevenue, topExpense] = await Promise.all([
     getKpiScorecard(companyId, period),
@@ -262,7 +267,12 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     });
   }
 
-  const finalStatus: 'draft' | 'signed_off' = config.reviewRequired ? 'draft' : 'signed_off';
+  const heldForReview = config.reviewRequired || unproduced.length > 0;
+  if (unproduced.length > 0 && !config.reviewRequired) {
+    log.warn('management pack: held for review, not signed off or delivered: a section could not be produced',
+      { companyId, period, documentId: doc.id, sections: unproduced }, 'managementPackGeneratorService');
+  }
+  const finalStatus: 'draft' | 'signed_off' = heldForReview ? 'draft' : 'signed_off';
 
   await sql`
     UPDATE afs_documents SET status = ${finalStatus}, updated_at = NOW()
@@ -270,7 +280,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   `;
 
   let deliveryScheduled = false;
-  if (!config.reviewRequired) {
+  if (!heldForReview) {
     await deliverPack(doc.id, companyId);
     deliveryScheduled = true;
   }

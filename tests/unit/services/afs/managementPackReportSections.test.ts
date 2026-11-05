@@ -4,12 +4,12 @@
  * tests/integration/management-pack-reports.int.test.ts.)
  */
 import { describe, expect, it } from 'vitest';
-import type { AgingReport } from '@/modules/accounting/services/reports/agingReportService';
 import type { CashFlowDirectReport } from '@/modules/accounting/services/afs/cashFlowDirectService';
 import type { BankReconciliation } from '@/modules/accounting/types/bank.types';
 import type { NoteContentTable } from '@/modules/accounting/services/afs/afsTypes';
 import {
-  AGEING_TOP, ageingBlocks, ageingFigures, bankReconciliationBlocks, bankReconciliationFigures, cashFlowBlocks, cashFlowFigures, latestReconciliations,
+  AGEING_HEADERS, AGEING_TOP, ageingBlocks, ageingFigures, bankReconciliationBlocks, bankReconciliationFigures, cashFlowBlocks, cashFlowFigures,
+  latestReconciliations, type AgeingData, type ReconciliationData,
 } from '@/modules/accounting/services/afs/managementPackReportSections';
 
 const plain = (s: string) => s.replace(/ /g, ' ');
@@ -73,19 +73,17 @@ describe('cash flow', () => {
 const bucket = (name: string, total: number, over: Record<string, number> = {}) => ({
   entityId: name, entityName: name, current: total, days30: 0, days60: 0, days90: 0, days120Plus: 0, total, ...over,
 });
-const aging = (buckets: ReturnType<typeof bucket>[], over: Partial<AgingReport> = {}): AgingReport => {
-  const sum = (k: 'current' | 'days30' | 'days60' | 'days90' | 'days120Plus' | 'total') => buckets.reduce((s, b) => s + b[k], 0);
-  return {
-    asAt: '2026-09-30', buckets, totals: { current: sum('current'), days30: sum('days30'), days60: sum('days60'), days90: sum('days90'), days120Plus: sum('days120Plus'), disputed: 0, total: sum('total') },
-    excluded: [], excludedTotal: 0, entityUniverse: buckets.length, unappliedReceipts: 0, subledgerTotal: sum('total'), postedThrough: null, ...over,
-  };
-};
+const ageing = (buckets: ReturnType<typeof bucket>[], over: Partial<AgeingData> = {}): AgeingData => ({ asAt: '2026-09-30', buckets, unapplied: 0, ...over });
+const cents = (s: string | undefined) => Math.round(Number((s ?? '').replace(/[^0-9.−-]/g, '').replace('−', '-')) * 100);
 
 describe('ageing', () => {
-  it('lists the balances by size and ends on the report\'s own totals row', () => {
-    const report = aging([bucket('Small', 100), bucket('Big', 900, { current: 400, days30: 300, days60: 200 })]);
-    const t = tableOf(ageingBlocks(report, 'ar'));
-    expect(t.headers).toEqual(['Customer', 'Current', '30 days', '60 days', '90 days', '120+ days', 'Total']);
+  it('uses the Aged Debtors screen\'s labels', () => {
+    expect([...AGEING_HEADERS]).toEqual(['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days', 'Total']);
+    expect(tableOf(ageingBlocks(ageing([bucket('A', 1)]), 'ar')).headers).toEqual(['Customer', ...AGEING_HEADERS]);
+  });
+
+  it('lists the balances by size and ends on the sum of the rows', () => {
+    const t = tableOf(ageingBlocks(ageing([bucket('Small', 100), bucket('Big', 900, { current: 400, days30: 300, days60: 200 })]), 'ar'));
     expect(t.rows).toEqual([
       ['Big', 'R 400.00', 'R 300.00', 'R 200.00', 'R 0.00', 'R 0.00', 'R 900.00'],
       ['Small', 'R 100.00', 'R 0.00', 'R 0.00', 'R 0.00', 'R 0.00', 'R 100.00'],
@@ -94,87 +92,127 @@ describe('ageing', () => {
     expect(t.rowKinds).toEqual(['line', 'line', 'total']);
   });
 
-  it('uses the report\'s totals row, not a sum of the rows printed', () => {
-    const report = aging([bucket('A', 100)], { totals: { current: 7, days30: 0, days60: 0, days90: 0, days120Plus: 0, disputed: 0, total: 7 } });
-    expect(tableOf(ageingBlocks(report, 'ap')).rows.at(-1)).toEqual(['Total', 'R 7.00', 'R 0.00', 'R 0.00', 'R 0.00', 'R 0.00', 'R 7.00']);
+  it('ranks by size, a credit balance counting by its absolute value', () => {
+    const rows = tableOf(ageingBlocks(ageing([bucket('Small', 100), bucket('Credit', -900), bucket('Mid', 300)]), 'ar')).rows;
+    expect(rows.map((r) => r[0])).toEqual(['Credit', 'Mid', 'Small', 'Total']);
   });
 
-  it('folds the balances beyond the largest ten into one row that still foots to the total', () => {
-    const many = Array.from({ length: AGEING_TOP + 3 }, (_, i) => bucket(`C${String(i).padStart(2, '0')}`, 1000 - i));
-    const report = aging(many);
-    const t = tableOf(ageingBlocks(report, 'ar'));
+  it('folds the balances beyond the largest ten into one row, and top + fold = Total in EVERY column', () => {
+    const many = Array.from({ length: AGEING_TOP + 3 }, (_, i) => bucket(`C${String(i).padStart(2, '0')}`, 1000 - i, { current: 500 - i, days30: 100 + i, days60: 50, days90: 25 + i, days120Plus: 325 - i }));
+    const blocks = ageingBlocks(ageing(many), 'ar');
+    const t = tableOf(blocks);
     expect(t.rows).toHaveLength(AGEING_TOP + 2);
     expect(t.rows[AGEING_TOP]?.[0]).toBe('Other customers (3)');
-    const total = (r: string[] | undefined) => Number((r?.[6] ?? '').replace(/[^\d.]/g, ''));
-    expect(total(t.rows[AGEING_TOP])).toBeCloseTo(many.slice(AGEING_TOP).reduce((s, b) => s + b.total, 0), 2);
-    expect(texts(ageingBlocks(report, 'ar'))).toEqual([`${many.length} customers have a balance; the ${AGEING_TOP} largest are listed.`]);
+    for (let col = 1; col < t.headers.length; col++) {
+      const body = t.rows.slice(0, -1).reduce((sum, r) => sum + cents(r[col]), 0);
+      expect(body, t.headers[col]).toBe(cents(t.rows.at(-1)?.[col]));
+    }
+    expect(texts(blocks)).toEqual([`${many.length} customers have a balance; the ${AGEING_TOP} largest are listed.`]);
   });
 
-  it('suppliers, and the words for what the report could not age and left unapplied', () => {
-    const report = aging([bucket('S', 500)], {
-      excluded: [{ id: 'x', reason: 'null_due_date', detail: '', amount: 120, documentNumber: 'INV1', entityName: 'S' }], excludedTotal: 120, unappliedReceipts: 75,
-    });
-    const blocks = ageingBlocks(report, 'ap');
+  it('suppliers, and the words for what sits unapplied', () => {
+    const blocks = ageingBlocks(ageing([bucket('S', 500)], { unapplied: 75 }), 'ap');
     expect(tableOf(blocks).headers[0]).toBe('Supplier');
-    expect(texts(blocks)).toEqual(['1 document has no due date and cannot be aged: R 120.00, not in the columns above.', 'Unapplied payments on the control account: R 75.00.']);
-    expect(texts(ageingBlocks(report, 'ar')).at(-1)).toBe('Unapplied receipts on the control account: R 75.00.');
+    expect(texts(blocks)).toEqual(['Unapplied payments and credit notes standing against suppliers: R 75.00. The columns above are before them.']);
+    expect(texts(ageingBlocks(ageing([bucket('S', 500)], { unapplied: 75 }), 'ar'))[0]).toContain('Unapplied receipts and credit notes standing against customers');
   });
 
   it('a Disputed column only when debtors have disputes', () => {
-    const report = aging([bucket('A', 100, { disputed: 30 })]);
-    report.totals.disputed = 30;
-    const t = tableOf(ageingBlocks(report, 'ar'));
+    const t = tableOf(ageingBlocks(ageing([bucket('A', 100, { disputed: 30 })]), 'ar'));
     expect(t.headers.at(-1)).toBe('Disputed');
     expect(t.rows.at(-1)?.at(-1)).toBe('R 30.00');
-    expect(tableOf(ageingBlocks(aging([bucket('A', 100)]), 'ar')).headers).not.toContain('Disputed');
+    expect(tableOf(ageingBlocks(ageing([bucket('A', 100)]), 'ar')).headers).not.toContain('Disputed');
+    expect(tableOf(ageingBlocks(ageing([bucket('A', 100, { disputed: 30 })]), 'ap')).headers).not.toContain('Disputed');
   });
 
-  it('no balances prints a sentence with the date, not an empty table', () => {
-    expect(texts(ageingBlocks(aging([]), 'ar'))).toEqual(['No open customer balances at 30 September 2026.']);
-    expect(texts(ageingBlocks(aging([]), 'ap'))).toEqual(['No open supplier balances at 30 September 2026.']);
+  it('no balances prints a sentence with the date, and still says what sits unapplied', () => {
+    expect(texts(ageingBlocks(ageing([]), 'ar'))).toEqual(['No open customer balances at 30 September 2026.']);
+    expect(texts(ageingBlocks(ageing([], { unapplied: 40 }), 'ap'))).toEqual([
+      'No open supplier balances at 30 September 2026.',
+      'Unapplied payments and credit notes standing against suppliers: R 40.00. The columns above are before them.',
+    ]);
   });
 
-  it('the figures behind it', () => {
-    expect(ageingFigures(aging([bucket('A', 100), bucket('B', 300)]))).toMatchObject({ asAt: '2026-09-30', entities: 2, largest: [{ name: 'B', total: 300 }, { name: 'A', total: 100 }] });
+  it('what the AI is told has no name in it', () => {
+    const figures = ageingFigures(ageing([bucket('Alpha (Pty) Ltd', 100), bucket('Beta CC', 300)], { unapplied: 20 }));
+    expect(figures).toMatchObject({ asAt: '2026-09-30', entities: 2, unapplied: 20, largestBalances: [300, 100], totals: { total: 400 } });
+    expect(JSON.stringify(figures)).not.toMatch(/Alpha|Beta/);
     expect(ageingFigures(undefined)).toEqual({});
   });
 });
 
 const rec = (over: Partial<BankReconciliation>): BankReconciliation => ({
-  id: 'r', bankAccountId: 'a', statementDate: '2026-09-30', statementBalance: 1000, glBalance: 1000, reconciledBalance: 1000, difference: 0,
+  id: 'r', bankAccountId: 'a', statementDate: '2026-09-30', statementBalance: 1000, glBalance: 990, reconciledBalance: 995, difference: 0,
   status: 'completed', startedBy: 'u', startedAt: '2026-10-01', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01', bankAccountName: 'Main', ...over,
 });
+const data = (sessions: BankReconciliation[], accounts: Array<{ id: string; name: string }> = [{ id: 'a', name: 'Main' }]): ReconciliationData => ({ sessions, accounts });
 
 describe('bank reconciliation', () => {
-  it('the latest session of each account on or before the month end, never a later one', () => {
+  it('four figures: statement, GL, the stored reconciled balance and statement less GL (computed)', () => {
+    const t = tableOf(bankReconciliationBlocks(data([rec({})]), '2026-09-30'));
+    expect(t.headers).toEqual(['Bank account', 'Statement date', 'Statement balance', 'GL balance', 'Reconciled balance', 'Statement less GL']);
+    expect(t.rows).toEqual([['Main', '30 September 2026', 'R 1 000.00', 'R 990.00', 'R 995.00', 'R 10.00']]);
+    expect(texts(bankReconciliationBlocks(data([rec({})]), '2026-09-30')).at(-1)).toContain('stored when it was made, as at its statement date');
+  });
+
+  it('the latest COMPLETED session of each account on or before the month end, never a later one', () => {
     const all = [
-      rec({ id: '1', statementDate: '2026-08-31' }), rec({ id: '2', statementDate: '2026-09-30', difference: 5 }), rec({ id: '3', statementDate: '2026-10-31' }),
-      rec({ id: '4', bankAccountId: 'b', bankAccountName: 'Savings', statementDate: '2026-09-15', status: 'in_progress', difference: 12.5 }),
+      rec({ id: '1', statementDate: '2026-08-31' }), rec({ id: '2', statementDate: '2026-09-30', statementBalance: 1111 }), rec({ id: '3', statementDate: '2026-10-31' }),
+      rec({ id: '4', bankAccountId: 'b', bankAccountName: 'Savings', statementDate: '2026-09-15', statementBalance: 50 }),
     ];
     expect(latestReconciliations(all, '2026-09-30').map((r) => r.id)).toEqual(['2', '4']);
-    const t = tableOf(bankReconciliationBlocks(all, '2026-09-30'));
-    expect(t.headers).toEqual(['Bank account', 'Statement date', 'Statement balance', 'GL balance', 'Outstanding difference', 'Status']);
-    expect(t.rows).toEqual([
-      ['Main', '30 September 2026', 'R 1 000.00', 'R 1 000.00', 'R 5.00', 'Completed'],
-      ['Savings', '15 September 2026', 'R 1 000.00', 'R 1 000.00', 'R 12.50', 'In progress'],
-    ]);
+    const t = tableOf(bankReconciliationBlocks(data(all, [{ id: 'a', name: 'Main' }, { id: 'b', name: 'Savings' }]), '2026-09-30'));
+    expect(t.rows.map((r) => [r[0], r[2]])).toEqual([['Main', 'R 1 111.00'], ['Savings', 'R 50.00']]);
   });
 
-  it('no session up to the month end says so, with the date', () => {
-    expect(texts(bankReconciliationBlocks([rec({ statementDate: '2026-10-31' })], '2026-09-30'))).toEqual(['No bank account has a reconciliation dated on or before 30 September 2026.']);
-    expect(texts(bankReconciliationBlocks([], '2026-09-30'))).toHaveLength(1);
+  it('an in-progress session is not the figure; a note says it exists', () => {
+    const all = [rec({ id: 'done', statementDate: '2026-08-31', statementBalance: 700 }), rec({ id: 'open', statementDate: '2026-09-20', statementBalance: 999, status: 'in_progress' })];
+    const blocks = bankReconciliationBlocks(data(all), '2026-09-30');
+    expect(tableOf(blocks).rows[0]?.[2]).toBe('R 700.00');
+    expect(texts(blocks)).toContain('Main: a reconciliation to 20 September 2026 is in progress and not included.');
+    // An in-progress session OLDER than the completed one is not news.
+    const older = bankReconciliationBlocks(data([rec({ id: 'done', statementDate: '2026-09-25' }), rec({ id: 'old', statementDate: '2026-09-10', status: 'in_progress' })]), '2026-09-30');
+    expect(texts(older).some((t) => t.includes('in progress'))).toBe(false);
   });
 
-  it('two sessions on one date: the later created wins', () => {
-    const all = [rec({ id: 'old', createdAt: '2026-10-01T00:00:00Z' }), rec({ id: 'new', createdAt: '2026-10-02T00:00:00Z' })];
-    expect(latestReconciliations(all, '2026-09-30').map((r) => r.id)).toEqual(['new']);
+  it('a bank account with no completed reconciliation is listed as "No reconciliation"', () => {
+    const t = tableOf(bankReconciliationBlocks(data([rec({})], [{ id: 'a', name: 'Main' }, { id: 'z', name: 'Never Reconciled' }]), '2026-09-30'));
+    expect(t.rows.map((r) => r[0])).toEqual(['Main', 'Never Reconciled']);
+    expect(t.rows[1]).toEqual(['Never Reconciled', 'No reconciliation', '—', '—', '—', '—']);
+    // One with only an in-progress session is just as unreconciled, and says so.
+    const onlyOpen = bankReconciliationBlocks(data([rec({ status: 'in_progress' })]), '2026-09-30');
+    expect(tableOf(onlyOpen).rows[0]?.[1]).toBe('No reconciliation');
+    expect(texts(onlyOpen)).toContain('Main: a reconciliation to 30 September 2026 is in progress and not included.');
   });
 
-  it('the figures behind it honour the month end too', () => {
-    const all = [rec({ statementDate: '2026-09-30', difference: 1 }), rec({ id: 'later', statementDate: '2026-10-31', difference: 9 })];
-    expect(bankReconciliationFigures(all, '2026-09-30')).toEqual({
+  it('an account known only from its sessions is still listed, and a company with none says so', () => {
+    expect(tableOf(bankReconciliationBlocks(data([rec({})], []), '2026-09-30')).rows[0]?.[0]).toBe('Main');
+    expect(texts(bankReconciliationBlocks(data([], []), '2026-09-30'))).toEqual(['The company has no bank accounts.']);
+  });
+
+  it('two sessions on one date: the later created by instant wins, whatever its text says (String(Date) shapes)', () => {
+    // "Thu Feb 25 ..." sorts after "Fri Feb 26 ..." as text.
+    const thursday = String(new Date('2027-02-25T10:00:00Z'));
+    const friday = String(new Date('2027-02-26T10:00:00Z'));
+    const sessions = [rec({ id: 'thu', createdAt: thursday, statementBalance: 111 }), rec({ id: 'fri', createdAt: friday, statementBalance: 222 })];
+    expect(thursday > friday).toBe(true);
+    expect(latestReconciliations(sessions, '2026-09-30').map((r) => r.id)).toEqual(['fri']);
+    expect(latestReconciliations([...sessions].reverse(), '2026-09-30').map((r) => r.id)).toEqual(['fri']);
+  });
+
+  it('identical statement date and instant: the higher id wins, in either order', () => {
+    const a = rec({ id: 'a1' });
+    const b = rec({ id: 'b2' });
+    expect(latestReconciliations([a, b], '2026-09-30').map((r) => r.id)).toEqual(['b2']);
+    expect(latestReconciliations([b, a], '2026-09-30').map((r) => r.id)).toEqual(['b2']);
+  });
+
+  it('the figures behind it honour the month end and count the unreconciled accounts', () => {
+    const sessions = [rec({ statementDate: '2026-09-30' }), rec({ id: 'later', statementDate: '2026-10-31', statementBalance: 9 })];
+    expect(bankReconciliationFigures(data(sessions, [{ id: 'a', name: 'Main' }, { id: 'z', name: 'Z' }]), '2026-09-30')).toEqual({
       asAt: '2026-09-30',
-      accounts: [{ name: 'Main', statementDate: '2026-09-30', statementBalance: 1000, glBalance: 1000, difference: 1, status: 'completed' }],
+      accounts: [{ name: 'Main', statementDate: '2026-09-30', statementBalance: 1000, glBalance: 990, reconciledBalance: 995, statementLessGl: 10 }],
+      accountsWithoutReconciliation: 1,
     });
     expect(bankReconciliationFigures(undefined, '2026-09-30')).toEqual({});
   });

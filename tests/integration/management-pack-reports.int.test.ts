@@ -15,7 +15,10 @@ import { sql } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 import { getCashFlowDirect } from '@/modules/accounting/services/afs/cashFlowDirectService';
-import { getAgingReport } from '@/modules/accounting/services/reports/agingReportService';
+import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
+import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
+import { getUnappliedByEntity } from '@/modules/accounting/services/shared/agedNetting';
+import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getReconciliations } from '@/modules/accounting/services/bank/bankReconciliationService';
 import type { ManagementPackConfig, NoteContent, NoteContentTable } from '@/modules/accounting/services/afs/afsTypes';
 
@@ -64,17 +67,24 @@ async function seedBooks(c: PoolClient): Promise<void> {
   await inv(f.a, beta, 'MP-3', '2026-02-10', '2026-03-10', 450.5);
   const gamma = await supp(f.a, 'Gamma Supplier');
   await bill(f.a, gamma, 'MB-1', '2026-01-20', '2026-02-19', 800);
+  // No due date: the screen ages it from the bill date, so it is in the total (and the 1–30 or older columns), never dropped.
+  await q(`INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by)
+           VALUES ($1,$2,'MB-NODUE','2026-01-10',NULL,'approved',5000,0,$3)`, [f.a, gamma, f.userA]);
   const secretCust = await cust(f.b, 'SECRET Customer B');
   await inv(f.b, secretCust, 'MPB-1', '2026-01-05', '2026-02-04', 99999);
   const secretSupp = await supp(f.b, 'SECRET Supplier B');
   await bill(f.b, secretSupp, 'MBB-1', '2026-01-20', '2026-02-19', 88888);
-  const rec = (co: string, account: string, date: string, stmt: number, gl: number, status: string) => q(
+  const rec = (co: string, account: string, date: string, stmt: number, gl: number, reconciled: number, status: string) => q(
     `INSERT INTO bank_reconciliations (id, company_id, bank_account_id, statement_date, statement_balance, gl_balance, reconciled_balance, status, started_by)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $4, $6, $7)`, [co, account, date, stmt, gl, status, f.userA]);
-  await rec(f.a, f.acc.bank, '2026-01-31', 500, 500, 'completed');
-  await rec(f.a, f.acc.bank, '2026-02-27', 1200.5, 1210.5, 'in_progress');
-  await rec(f.a, f.acc.bank, '2026-03-31', 7777, 7777, 'completed');
-  await rec(f.b, f.acc.bSales, '2026-02-27', 66666, 66666, 'completed');
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)`, [co, account, date, stmt, gl, reconciled, status, f.userA]);
+  await rec(f.a, f.acc.bank, '2026-01-31', 500, 505, 498, 'completed');
+  await rec(f.a, f.acc.bank, '2026-02-20', 1200.5, 1210.5, 1195, 'completed');
+  await rec(f.a, f.acc.bank, '2026-02-27', 999, 999, 999, 'in_progress');
+  await rec(f.a, f.acc.bank, '2026-03-31', 7777, 7777, 7777, 'completed');
+  await rec(f.b, f.acc.bSales, '2026-02-27', 66666, 66666, 66666, 'completed');
+  // A second bank account of company A that was never reconciled.
+  await q(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance, level, is_active)
+           VALUES (gen_random_uuid(), $1, 'BT-1099', 'Never Reconciled Bank', 'asset', 'bank', 'debit', 3, true)`, [f.a]);
 }
 
 async function pack(sections: string[], before?: (c: PoolClient) => Promise<unknown>, readReports = before === seedBooks) {
@@ -87,9 +97,11 @@ async function pack(sections: string[], before?: (c: PoolClient) => Promise<unkn
     ` as { section_type: string; content: NoteContent; data_snapshot: Record<string, unknown> }[];
     const reports = readReports ? {
       cash: await getCashFlowDirect(f.a, START, END),
-      ar: await getAgingReport(f.a, 'ar', END),
-      ap: await getAgingReport(f.a, 'ap', END),
+      ar: await getARAging(f.a, END),
+      ap: await getAPAging(f.a, END),
+      arUnapplied: await getUnappliedByEntity(f.a, 'ar', END),
       recs: await getReconciliations(f.a),
+      accounts: await getBankAccountsStatus(f.a),
     } : null;
     return { sections: new Map(rows.map((r) => [r.section_type, r])), reports };
   }, { appUser: true, before });
@@ -122,37 +134,67 @@ describe('every cell is the report service\'s figure for the same company and mo
     expect(sections.get('cash_flow')?.data_snapshot).toMatchObject({ openingCash: cash.openingCash, closingCash: cash.closingCash, netChange: cash.netChange });
   });
 
+  const BUCKETS = ['current', 'days30', 'days60', 'days90', 'days120Plus', 'total'] as const;
   it.each([['debtors_ageing', 'ar', 'Alpha Customer', 'Beta Customer'], ['creditors_ageing', 'ap', 'Gamma Supplier', null]] as const)(
-    '%s: every balance row and the totals row',
+    '%s: every balance row, and the Total is the screen service\'s total',
     async (key, side, ...names) => {
       const { sections, reports } = await pack(ALL, seedBooks);
-      const report = reports![side];
+      const rows = reports![side];
       const t = tableOf(sections.get(key)?.content);
-      expect(report.buckets.length).toBeGreaterThan(0);
-      for (const b of report.buckets) {
-        expect(row(t, b.entityName)?.slice(1, 7)).toEqual([b.current, b.days30, b.days60, b.days90, b.days120Plus, b.total].map(m));
-      }
-      expect(row(t, 'Total')?.slice(1, 7)).toEqual([report.totals.current, report.totals.days30, report.totals.days60, report.totals.days90, report.totals.days120Plus, report.totals.total].map(m));
+      expect(rows.length).toBeGreaterThan(0);
+      expect(t.headers.slice(1, 7)).toEqual(['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days', 'Total']);
+      for (const b of rows) expect(row(t, b.entityName)?.slice(1, 7)).toEqual(BUCKETS.map((k) => m(b[k])));
+      // The footer of the screen is the sum of the service's rows; so is the pack's.
+      const sum = (k: (typeof BUCKETS)[number]) => Math.round(rows.reduce((s2, b) => s2 + b[k], 0) * 100) / 100;
+      expect(row(t, 'Total')?.slice(1, 7)).toEqual(BUCKETS.map((k) => m(sum(k))));
       for (const n of names) if (n) expect(row(t, n)).toBeDefined();
-      expect(sections.get(key)?.data_snapshot).toMatchObject({ asAt: END, totals: { total: report.totals.total } });
+      expect(sections.get(key)?.data_snapshot).toMatchObject({ asAt: END, totals: { total: sum('total') } });
     },
   );
 
-  it('debtors ageing buckets the invoices by their age at the month end (the 2025 invoice is 120+ days)', async () => {
+  it('a bill with no due date is aged from its bill date and is in the creditors total, as the Aged Creditors service has it', async () => {
+    const { sections, reports } = await pack(ALL, seedBooks);
+    const t = tableOf(sections.get('creditors_ageing')?.content);
+    const gamma = reports!.ap.find((b) => b.entityName === 'Gamma Supplier')!;
+    // MB-1 800 (due 19 Feb, 9 days late) + MB-NODUE 5 000 (no due date: 49 days from the bill date).
+    expect(gamma.total).toBe(5800);
+    expect(row(t, 'Gamma Supplier')?.[6]).toBe(m(5800));
+    expect(row(t, 'Total')?.[6]).toBe(m(reports!.ap.reduce((s2, b) => s2 + b.total, 0)));
+  });
+
+  it('debtors ageing buckets the invoices by their age at the month end (the 2025 invoice is 90+ days)', async () => {
     const { sections } = await pack(ALL, seedBooks);
     const alpha = row(tableOf(sections.get('debtors_ageing')?.content), 'Alpha Customer');
-    // [name, current, 30 days, 60 days, 90 days, 120+ days, total]: the 4 Feb due date is 24 days late, the 1 Nov one 119 days.
+    // [name, current, 1–30, 31–60, 61–90, 90+, total]: the 4 Feb due date is 24 days late, the 1 Nov one 119.
     expect(alpha?.slice(1)).toEqual([0, 1200, 0, 0, 300, 1500].map(m));
   });
 
-  it('bank reconciliation: the latest session on or before the month end, never a later one', async () => {
+  it('the commentary for ageing is told no customer or supplier name', async () => {
+    await pack(ALL, seedBooks);
+    const ageingTold = told.sections.filter((x) => x.sectionType.endsWith('_ageing'));
+    expect(ageingTold).toHaveLength(2);
+    expect(JSON.stringify(ageingTold)).not.toMatch(/Alpha|Beta|Gamma/);
+  });
+
+  it('bank reconciliation: the latest COMPLETED session on or before the month end, never a later or an in-progress one', async () => {
     const { sections, reports } = await pack(ALL, seedBooks);
     const t = tableOf(sections.get('bank_reconciliation')?.content);
-    const mine = reports!.recs.filter((r) => r.bankAccountId === f.acc.bank && r.statementDate <= END).sort((a, b) => b.statementDate.localeCompare(a.statementDate))[0]!;
-    expect(mine.statementDate).toBe('2026-02-27');
-    expect(t.rows).toHaveLength(1);
-    expect(t.rows[0]?.slice(2)).toEqual([m(mine.statementBalance), m(mine.glBalance), m(mine.difference), 'In progress']);
+    const mine = reports!.recs.filter((r) => r.bankAccountId === f.acc.bank && r.status === 'completed' && r.statementDate <= END)
+      .sort((a, b) => b.statementDate.localeCompare(a.statementDate))[0]!;
+    expect(mine.statementDate).toBe('2026-02-20');
+    const main = reports!.accounts.find((a) => a.id === f.acc.bank)!;
+    // Non-zero on both measures: statement less GL is -10 and the stored reconciled balance is 5.5 below the statement.
+    expect(row(t, main.accountName)?.slice(1)).toEqual(['20 February 2026', m(mine.statementBalance), m(mine.glBalance), m(mine.reconciledBalance), m(-10)]);
+    expect(mine.statementBalance - mine.glBalance).not.toBe(0);
+    expect(mine.statementBalance - mine.reconciledBalance).not.toBe(0);
     expect(JSON.stringify(t)).not.toContain('7 777');
+    const blocks = JSON.stringify(sections.get('bank_reconciliation')?.content.blocks);
+    expect(blocks).toContain('a reconciliation to 27 February 2026 is in progress and not included');
+  });
+
+  it('a bank account of the company with no reconciliation is listed as such', async () => {
+    const { sections } = await pack(ALL, seedBooks);
+    expect(row(tableOf(sections.get('bank_reconciliation')?.content), 'Never Reconciled Bank')).toEqual(['Never Reconciled Bank', 'No reconciliation', '—', '—', '—', '—']);
   });
 
   it('nothing of company B reaches any section, and each section\'s commentary was told its own figures', async () => {
@@ -163,15 +205,14 @@ describe('every cell is the report service\'s figure for the same company and mo
     expect(sectionData('debtors_ageing')).toMatchObject({ asAt: END });
     expect(sectionData('creditors_ageing')).toMatchObject({ asAt: END });
     expect(sectionData('bank_reconciliation')).toHaveProperty('accounts');
-    expect(JSON.stringify(sectionData('debtors_ageing'))).toContain('Alpha Customer');
-    expect(JSON.stringify(sectionData('creditors_ageing'))).not.toContain('Alpha Customer');
   });
 
   it('a company with no balances and no reconciliations gets sentences, not empty tables', async () => {
     const { sections } = await pack(ALL);
     expect(sections.get('debtors_ageing')?.content.blocks).toEqual([{ type: 'paragraph', text: 'No open customer balances at 28 February 2026.' }]);
     expect(sections.get('creditors_ageing')?.content.blocks).toEqual([{ type: 'paragraph', text: 'No open supplier balances at 28 February 2026.' }]);
-    expect(sections.get('bank_reconciliation')?.content.blocks).toEqual([{ type: 'paragraph', text: 'No bank account has a reconciliation dated on or before 28 February 2026.' }]);
+    // The fixture's bank account exists but was never reconciled: it is listed, not hidden.
+    expect(row(tableOf(sections.get('bank_reconciliation')?.content), 'Bank')?.[1]).toBe('No reconciliation');
   });
 
   it('a read that fails inside the request leaves its own section saying so and the transaction usable', async () => {

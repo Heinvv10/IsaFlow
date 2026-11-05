@@ -2,11 +2,10 @@
 // What the generator stores for each management pack section: its content, the data snapshot behind
 // it, and the data its AI commentary is told. Every section is titled from the section vocabulary.
 import type { IncomeStatementReport, BalanceSheetReport } from '../../types/gl.types';
-import type { BankReconciliation } from '../../types/bank.types';
-import type { AgingReport } from '../reports/agingReportService';
 import type { CashFlowDirectReport } from './cashFlowDirectService';
 import {
   ageingBlocks, ageingFigures, bankReconciliationBlocks, bankReconciliationFigures, cashFlowBlocks, cashFlowFigures,
+  type AgeingData, type ReconciliationData,
 } from './managementPackReportSections';
 import {
   budgetBandBlocks, budgetLineBlocks, budgetSnapshot, incomeStatementContent, isBudgetSection,
@@ -30,10 +29,10 @@ export interface PackData {
   incomeReports: Periodic<IncomeStatementReport> | null;
   balanceReports: Periodic<BalanceSheetReport> | null;
   cashFlowReports: Periodic<CashFlowDirectReport> | null;
-  debtorsAging: AgingReport | null;
-  creditorsAging: AgingReport | null;
-  /** Every reconciliation session of the company (null when the section is off or unreadable). */
-  reconciliations: BankReconciliation[] | null;
+  debtorsAging: AgeingData | null;
+  creditorsAging: AgeingData | null;
+  /** The reconciliation sessions and the company's bank accounts (null when the section is off or unreadable). */
+  reconciliations: ReconciliationData | null;
   /** The pack month's last day, 'YYYY-MM-DD'. */
   periodEnd: string;
   plan: ComparisonPlan;

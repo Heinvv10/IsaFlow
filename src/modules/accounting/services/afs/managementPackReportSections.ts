@@ -1,11 +1,14 @@
 // src/modules/accounting/services/afs/managementPackReportSections.ts
-// The management pack's Cash Flow, Debtors Ageing, Creditors Ageing and Bank Reconciliation sections, built
-// from the same services the reports use (getCashFlowDirect, getAgingReport, getReconciliations): the pack
-// prints their figures and computes none of its own. Pure: the generator fetches the reports.
+// The management pack's Cash Flow, Debtors Ageing, Creditors Ageing and Bank Reconciliation sections.
+// Cash flow is the DIRECT-method statement (getCashFlowDirect), not the indirect statement the Reports screen
+// builds inline. Ageing is the Aged Debtors / Aged Creditors services' own rows (getARAging / getAPAging) under
+// the screens' bucket labels; the bank reconciliation is the stored sessions (getReconciliations) beside the
+// company's bank accounts. The pack prints their figures and computes none of its own beyond column sums and
+// the statement-less-GL difference. Pure: the generator fetches the reports.
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { BankReconciliation } from '../../types/bank.types';
 import type { CashFlowDirectReport } from './cashFlowDirectService';
-import type { AgingReport } from '../reports/agingReportService';
+import type { AgingBucket } from '../../types/ap.types';
 import type { NoteContentBlock, NoteContentTable, NoteTableRowKind } from './afsTypes';
 import { CASH_FLOW_METHOD, NO_ACTIVITY } from './managementPackSections';
 import { build, longDate, type Spec, type StatementColumn } from './managementPackStatements';
@@ -48,106 +51,151 @@ export function cashFlowFigures(r: CashFlowDirectReport | undefined): Record<str
 
 /** Rows listed before the rest are folded into one; a pack page is not a ledger. */
 export const AGEING_TOP = 10;
-const AGEING_BUCKETS = ['Current', '30 days', '60 days', '90 days', '120+ days', 'Total'] as const;
+/** The Aged Debtors / Aged Creditors screens' own column labels (the service's days30 is "1–30 Days", days120Plus is "90+ Days"). */
+export const AGEING_HEADERS = ['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days', 'Total'] as const;
 
-const bucketCells = (b: { current: number; days30: number; days60: number; days90: number; days120Plus: number; total: number }): string[] =>
-  [b.current, b.days30, b.days60, b.days90, b.days120Plus, b.total].map((n) => formatMoney(n));
+/** What the ageing services returned for one side at the month end. */
+export interface AgeingData {
+  asAt: string;
+  /** getARAging / getAPAging: one row per customer or supplier, gross of unapplied credit, aged from the due date (invoice date when there is none). */
+  buckets: AgingBucket[];
+  /** Receipts / payments and credit notes not applied to any document (getUnappliedByEntity, summed). */
+  unapplied: number;
+}
+
+type Cols = { current: number; days30: number; days60: number; days90: number; days120Plus: number; total: number; disputed?: number };
+const COLS = ['current', 'days30', 'days60', 'days90', 'days120Plus', 'total'] as const;
+const cents = (n: number) => Math.round(n * 100) / 100;
+const sumCols = (rows: readonly Cols[]): Cols => {
+  const out: Cols = { current: 0, days30: 0, days60: 0, days90: 0, days120Plus: 0, total: 0, disputed: 0 };
+  for (const r of rows) {
+    for (const k of COLS) out[k] = cents(out[k] + r[k]);
+    out.disputed = cents((out.disputed ?? 0) + (r.disputed ?? 0));
+  }
+  return out;
+};
 
 /**
- * The aged balances at the report's date: the largest balances by name, the rest folded into one row, and the
- * report's own totals row (never a re-sum). What the report says it could not age, and the cash it left
- * unapplied, are printed under the table in words.
+ * The aged balances at the month end: the largest by size, the rest folded into one row, and a total that is the
+ * sum of every row (what the screen's footer is). What sits unapplied is printed in words under the table.
  */
-export function ageingBlocks(report: AgingReport, side: 'ar' | 'ap'): NoteContentBlock[] {
+export function ageingBlocks(data: AgeingData, side: 'ar' | 'ap'): NoteContentBlock[] {
   const who = side === 'ar' ? 'customer' : 'supplier';
-  const cash = side === 'ar' ? 'receipts' : 'payments';
-  if (report.buckets.length === 0 && report.excluded.length === 0) {
-    return [{ type: 'paragraph', text: `No open ${who} balances at ${longDate(report.asAt)}.` }];
+  const cash = side === 'ar' ? 'receipts and credit notes' : 'payments and credit notes';
+  const unappliedNote: NoteContentBlock[] = Math.abs(data.unapplied) >= 0.005
+    ? [{ type: 'paragraph', text: `Unapplied ${cash} standing against ${who}s: ${formatMoney(data.unapplied)}. The columns above are before them.` }] : [];
+  if (data.buckets.length === 0) {
+    return [{ type: 'paragraph', text: `No open ${who} balances at ${longDate(data.asAt)}.` }, ...unappliedNote];
   }
-  const showDisputed = side === 'ar' && report.totals.disputed !== 0;
-  const sorted = [...report.buckets].sort((a, b) => b.total - a.total || a.entityName.localeCompare(b.entityName));
+  const total = sumCols(data.buckets);
+  const showDisputed = side === 'ar' && (total.disputed ?? 0) !== 0;
+  const sorted = [...data.buckets].sort((a, b) => Math.abs(b.total) - Math.abs(a.total) || a.entityName.localeCompare(b.entityName));
   const top = sorted.slice(0, AGEING_TOP);
   const rest = sorted.slice(AGEING_TOP);
-  const cells = (b: Parameters<typeof bucketCells>[0] & { disputed?: number }): string[] =>
-    [...bucketCells(b), ...(showDisputed ? [formatMoney(b.disputed ?? 0)] : [])];
-  const sum = (key: 'current' | 'days30' | 'days60' | 'days90' | 'days120Plus' | 'total' | 'disputed') =>
-    rest.reduce((s, b) => s + (key === 'disputed' ? (b.disputed ?? 0) : b[key]), 0);
+  const cells = (b: Cols): string[] => [...COLS.map((k) => formatMoney(b[k])), ...(showDisputed ? [formatMoney(b.disputed ?? 0)] : [])];
 
   const rows: string[][] = top.map((b) => [b.entityName, ...cells(b)]);
   const kinds: NoteTableRowKind[] = top.map(() => 'line');
   if (rest.length > 0) {
-    rows.push([`Other ${who}s (${rest.length})`, ...cells({
-      current: sum('current'), days30: sum('days30'), days60: sum('days60'), days90: sum('days90'),
-      days120Plus: sum('days120Plus'), total: sum('total'), disputed: sum('disputed'),
-    })]);
+    rows.push([`Other ${who}s (${rest.length})`, ...cells(sumCols(rest))]);
     kinds.push('line');
   }
-  rows.push(['Total', ...cells(report.totals)]);
+  rows.push(['Total', ...cells(total)]);
   kinds.push('total');
 
   const table: NoteContentTable = {
     type: 'table',
-    headers: [side === 'ar' ? 'Customer' : 'Supplier', ...AGEING_BUCKETS, ...(showDisputed ? ['Disputed'] : [])],
+    headers: [side === 'ar' ? 'Customer' : 'Supplier', ...AGEING_HEADERS, ...(showDisputed ? ['Disputed'] : [])],
     rows, rowKinds: kinds,
   };
-  const notes: string[] = [];
-  if (rest.length > 0) notes.push(`${report.buckets.length} ${who}s have a balance; the ${AGEING_TOP} largest are listed.`);
-  if (report.excluded.length > 0) {
-    notes.push(`${report.excluded.length === 1 ? '1 document has' : `${report.excluded.length} documents have`} no due date and cannot be aged: ${formatMoney(report.excludedTotal)}, not in the columns above.`);
-  }
-  if (report.unappliedReceipts !== 0) notes.push(`Unapplied ${cash} on the control account: ${formatMoney(report.unappliedReceipts)}.`);
-  return [table, ...notes.map((text) => ({ type: 'paragraph' as const, text }))];
+  const notes: NoteContentBlock[] = rest.length > 0
+    ? [{ type: 'paragraph', text: `${data.buckets.length} ${who}s have a balance; the ${AGEING_TOP} largest are listed.` }] : [];
+  return [table, ...notes, ...unappliedNote];
 }
 
-export function ageingFigures(report: AgingReport | undefined): Record<string, unknown> {
-  if (!report) return {};
+/**
+ * The figures the AI is told: buckets, counts and amounts only. No customer or supplier name leaves the pack
+ * for the model (a name is personal data of a third party and the commentary does not need it).
+ */
+export function ageingFigures(data: AgeingData | undefined): Record<string, unknown> {
+  if (!data) return {};
   return {
-    asAt: report.asAt, totals: report.totals, entities: report.buckets.length, excludedTotal: report.excludedTotal,
-    unappliedReceipts: report.unappliedReceipts, subledgerTotal: report.subledgerTotal,
-    largest: [...report.buckets].sort((a, b) => b.total - a.total).slice(0, 5).map((b) => ({ name: b.entityName, total: b.total })),
+    asAt: data.asAt, totals: sumCols(data.buckets), entities: data.buckets.length, unapplied: data.unapplied,
+    largestBalances: [...data.buckets].map((b) => b.total).sort((a, b) => Math.abs(b) - Math.abs(a)).slice(0, 5),
   };
 }
 
 // ── Bank reconciliation ──────────────────────────────────────────────────────
 
-const STATUS_WORDS: Record<string, string> = { completed: 'Completed', in_progress: 'In progress' };
+/** The reconciliation sessions beside the company's bank accounts, so an account never reconciled is not silently absent. */
+export interface ReconciliationData {
+  sessions: BankReconciliation[];
+  accounts: Array<{ id: string; name: string }>;
+}
 
-/** The latest session of each bank account on or before the pack month end, by account name. */
-export function latestReconciliations(all: readonly BankReconciliation[], periodEnd: string): BankReconciliation[] {
+const stamp = (s: string): number => { const t = new Date(s).getTime(); return Number.isNaN(t) ? 0 : t; };
+
+/** Later statement date first; on one date the later-created, by instant (never by the text of a Date), then the id. */
+const newer = (a: BankReconciliation, b: BankReconciliation): boolean =>
+  a.statementDate !== b.statementDate ? a.statementDate > b.statementDate
+    : stamp(a.createdAt) !== stamp(b.createdAt) ? stamp(a.createdAt) > stamp(b.createdAt) : a.id > b.id;
+
+/** The latest session of each account in `status` dated on or before the month end. */
+function latestByAccount(all: readonly BankReconciliation[], periodEnd: string, status: BankReconciliation['status']): Map<string, BankReconciliation> {
   const latest = new Map<string, BankReconciliation>();
   for (const r of all) {
-    if (r.statementDate > periodEnd) continue;
+    if (r.status !== status || r.statementDate > periodEnd) continue;
     const seen = latest.get(r.bankAccountId);
-    if (!seen || r.statementDate > seen.statementDate || (r.statementDate === seen.statementDate && r.createdAt > seen.createdAt)) {
-      latest.set(r.bankAccountId, r);
-    }
+    if (!seen || newer(r, seen)) latest.set(r.bankAccountId, r);
   }
-  return [...latest.values()].sort((a, b) => (a.bankAccountName ?? '').localeCompare(b.bankAccountName ?? '') || a.bankAccountId.localeCompare(b.bankAccountId));
+  return latest;
 }
 
-export function bankReconciliationBlocks(all: readonly BankReconciliation[], periodEnd: string): NoteContentBlock[] {
-  const rows = latestReconciliations(all, periodEnd);
-  if (rows.length === 0) {
-    return [{ type: 'paragraph', text: `No bank account has a reconciliation dated on or before ${longDate(periodEnd)}.` }];
-  }
+export function latestReconciliations(all: readonly BankReconciliation[], periodEnd: string): BankReconciliation[] {
+  return [...latestByAccount(all, periodEnd, 'completed').values()]
+    .sort((a, b) => (a.bankAccountName ?? '').localeCompare(b.bankAccountName ?? '') || a.bankAccountId.localeCompare(b.bankAccountId));
+}
+
+export function bankReconciliationBlocks(data: ReconciliationData, periodEnd: string): NoteContentBlock[] {
+  const done = latestByAccount(data.sessions, periodEnd, 'completed');
+  const open = latestByAccount(data.sessions, periodEnd, 'in_progress');
+  const names = new Map<string, string>(data.accounts.map((a) => [a.id, a.name]));
+  for (const r of data.sessions) if (!names.has(r.bankAccountId)) names.set(r.bankAccountId, r.bankAccountName ?? 'Unnamed account');
+  if (names.size === 0) return [{ type: 'paragraph', text: 'The company has no bank accounts.' }];
+
+  const accounts = [...names.entries()].sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]));
+  const dash = '—';
+  const rows = accounts.map(([id, name]) => {
+    const r = done.get(id);
+    return r
+      ? [name, longDate(r.statementDate), formatMoney(r.statementBalance), formatMoney(r.glBalance), formatMoney(r.reconciledBalance), formatMoney(cents(r.statementBalance - r.glBalance))]
+      : [name, 'No reconciliation', dash, dash, dash, dash];
+  });
   const table: NoteContentTable = {
     type: 'table',
-    headers: ['Bank account', 'Statement date', 'Statement balance', 'GL balance', 'Outstanding difference', 'Status'],
-    rows: rows.map((r) => [
-      r.bankAccountName ?? 'Unnamed account', longDate(r.statementDate), formatMoney(r.statementBalance),
-      formatMoney(r.glBalance), formatMoney(r.difference), STATUS_WORDS[r.status] ?? r.status,
-    ]),
+    headers: ['Bank account', 'Statement date', 'Statement balance', 'GL balance', 'Reconciled balance', 'Statement less GL'],
+    rows, rowKinds: rows.map(() => 'line'),
   };
-  return [table, { type: 'paragraph', text: 'The latest reconciliation of each account up to the end of the month is listed.' }];
+  const inProgress = accounts.flatMap(([id, name]) => {
+    const o = open.get(id);
+    const c = done.get(id);
+    return o && (!c || o.statementDate > c.statementDate)
+      ? [{ type: 'paragraph' as const, text: `${name}: a reconciliation to ${longDate(o.statementDate)} is in progress and not included.` }] : [];
+  });
+  return [
+    table, ...inProgress,
+    { type: 'paragraph', text: 'The latest completed reconciliation of each account up to the end of the month is listed, with the figures stored when it was made, as at its statement date.' },
+  ];
 }
 
-export function bankReconciliationFigures(all: readonly BankReconciliation[] | undefined, periodEnd: string): Record<string, unknown> {
-  if (!all) return {};
+export function bankReconciliationFigures(data: ReconciliationData | undefined, periodEnd: string): Record<string, unknown> {
+  if (!data) return {};
   return {
     asAt: periodEnd,
-    accounts: latestReconciliations(all, periodEnd).map((r) => ({
+    accounts: latestReconciliations(data.sessions, periodEnd).map((r) => ({
       name: r.bankAccountName ?? null, statementDate: r.statementDate, statementBalance: r.statementBalance,
-      glBalance: r.glBalance, difference: r.difference, status: r.status,
+      glBalance: r.glBalance, reconciledBalance: r.reconciledBalance, statementLessGl: cents(r.statementBalance - r.glBalance),
     })),
+    accountsWithoutReconciliation: data.accounts.filter((a) => !latestByAccount(data.sessions, periodEnd, 'completed').has(a.id)).length,
   };
 }
