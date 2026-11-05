@@ -61,11 +61,15 @@ export interface AgeingData {
   buckets: AgingBucket[];
   /** Receipts / payments and credit notes not applied to any document (getUnappliedByEntity, summed). */
   unapplied: number;
+  /** Entities with unapplied credit and no open document, so in no row above (a name, for the document only). */
+  creditOnly: Array<{ name: string; amount: number }>;
 }
 
 type Cols = { current: number; days30: number; days60: number; days90: number; days120Plus: number; total: number; disputed?: number };
 const COLS = ['current', 'days30', 'days60', 'days90', 'days120Plus', 'total'] as const;
 const cents = (n: number) => Math.round(n * 100) / 100;
+/** What an entity owes: the service's total is net of disputed amounts (they are taken out of the buckets); they are still owed. */
+const owed = (b: AgingBucket): AgingBucket => ({ ...b, total: cents(b.total + (b.disputed ?? 0)) });
 const sumCols = (rows: readonly Cols[]): Cols => {
   const out: Cols = { current: 0, days30: 0, days60: 0, days90: 0, days120Plus: 0, total: 0, disputed: 0 };
   for (const r of rows) {
@@ -82,17 +86,28 @@ const sumCols = (rows: readonly Cols[]): Cols => {
 export function ageingBlocks(data: AgeingData, side: 'ar' | 'ap'): NoteContentBlock[] {
   const who = side === 'ar' ? 'customer' : 'supplier';
   const cash = side === 'ar' ? 'receipts and credit notes' : 'payments and credit notes';
-  const unappliedNote: NoteContentBlock[] = Math.abs(data.unapplied) >= 0.005
-    ? [{ type: 'paragraph', text: `Unapplied ${cash} standing against ${who}s: ${formatMoney(data.unapplied)}. The columns above are before them.` }] : [];
+  const creditOnly = data.creditOnly.slice(0, AGEING_TOP).map((c) => `${c.name} (${formatMoney(c.amount)})`).join(', ')
+    + (data.creditOnly.length > AGEING_TOP ? ` and ${data.creditOnly.length - AGEING_TOP} more` : '');
+  const unappliedNote: NoteContentBlock[] = [
+    ...(Math.abs(data.unapplied) >= 0.005
+      ? [{ type: 'paragraph' as const, text: `Unapplied ${cash} standing against ${who}s: ${formatMoney(data.unapplied)}. The columns above are before them.` }] : []),
+    ...(data.creditOnly.length > 0 ? [{ type: 'paragraph' as const, text: `${who === 'customer' ? 'Customers' : 'Suppliers'} with credit and no open document, so in no row above: ${creditOnly}.` }] : []),
+  ];
   if (data.buckets.length === 0) {
     return [{ type: 'paragraph', text: `No open ${who} balances at ${longDate(data.asAt)}.` }, ...unappliedNote];
   }
-  const total = sumCols(data.buckets);
+  // Total is what is owed, disputed amounts included; they are out of the age columns, so Disputed sits beside them and the row foots.
+  const rows0 = data.buckets.map(owed);
+  const total = sumCols(rows0);
   const showDisputed = side === 'ar' && (total.disputed ?? 0) !== 0;
-  const sorted = [...data.buckets].sort((a, b) => Math.abs(b.total) - Math.abs(a.total) || a.entityName.localeCompare(b.entityName));
+  const sorted = [...rows0].sort((a, b) => Math.abs(b.total) - Math.abs(a.total) || a.entityName.localeCompare(b.entityName));
   const top = sorted.slice(0, AGEING_TOP);
   const rest = sorted.slice(AGEING_TOP);
-  const cells = (b: Cols): string[] => [...COLS.map((k) => formatMoney(b[k])), ...(showDisputed ? [formatMoney(b.disputed ?? 0)] : [])];
+  const cells = (b: Cols): string[] => [
+    ...COLS.slice(0, 5).map((k) => formatMoney(b[k])),
+    ...(showDisputed ? [formatMoney(b.disputed ?? 0)] : []),
+    formatMoney(b.total),
+  ];
 
   const rows: string[][] = top.map((b) => [b.entityName, ...cells(b)]);
   const kinds: NoteTableRowKind[] = top.map(() => 'line');
@@ -105,7 +120,7 @@ export function ageingBlocks(data: AgeingData, side: 'ar' | 'ap'): NoteContentBl
 
   const table: NoteContentTable = {
     type: 'table',
-    headers: [side === 'ar' ? 'Customer' : 'Supplier', ...AGEING_HEADERS, ...(showDisputed ? ['Disputed'] : [])],
+    headers: [side === 'ar' ? 'Customer' : 'Supplier', ...AGEING_HEADERS.slice(0, 5), ...(showDisputed ? ['Disputed'] : []), 'Total'],
     rows, rowKinds: kinds,
   };
   const notes: NoteContentBlock[] = rest.length > 0
@@ -114,14 +129,16 @@ export function ageingBlocks(data: AgeingData, side: 'ar' | 'ap'): NoteContentBl
 }
 
 /**
- * The figures the AI is told: buckets, counts and amounts only. No customer or supplier name leaves the pack
- * for the model (a name is personal data of a third party and the commentary does not need it).
+ * The figures the AI is told: buckets, counts and amounts only. No customer, supplier or bank account name leaves
+ * the pack for the model (a name is personal data of a third party, a bank account's name can carry its number, and
+ * the commentary needs neither).
  */
 export function ageingFigures(data: AgeingData | undefined): Record<string, unknown> {
   if (!data) return {};
   return {
-    asAt: data.asAt, totals: sumCols(data.buckets), entities: data.buckets.length, unapplied: data.unapplied,
-    largestBalances: [...data.buckets].map((b) => b.total).sort((a, b) => Math.abs(b) - Math.abs(a)).slice(0, 5),
+    asAt: data.asAt, totals: sumCols(data.buckets.map(owed)), entities: data.buckets.length, unapplied: data.unapplied,
+    creditOnlyEntities: data.creditOnly.length, creditOnlyTotal: cents(data.creditOnly.reduce((s, c) => s + c.amount, 0)),
+    largestBalances: data.buckets.map((b) => owed(b).total).sort((a, b) => Math.abs(b) - Math.abs(a)).slice(0, 5),
   };
 }
 
@@ -193,7 +210,7 @@ export function bankReconciliationFigures(data: ReconciliationData | undefined, 
   return {
     asAt: periodEnd,
     accounts: latestReconciliations(data.sessions, periodEnd).map((r) => ({
-      name: r.bankAccountName ?? null, statementDate: r.statementDate, statementBalance: r.statementBalance,
+      statementDate: r.statementDate, statementBalance: r.statementBalance,
       glBalance: r.glBalance, reconciledBalance: r.reconciledBalance, statementLessGl: cents(r.statementBalance - r.glBalance),
     })),
     accountsWithoutReconciliation: data.accounts.filter((a) => !latestByAccount(data.sessions, periodEnd, 'completed').has(a.id)).length,

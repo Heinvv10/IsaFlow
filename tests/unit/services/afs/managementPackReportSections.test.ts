@@ -73,7 +73,7 @@ describe('cash flow', () => {
 const bucket = (name: string, total: number, over: Record<string, number> = {}) => ({
   entityId: name, entityName: name, current: total, days30: 0, days60: 0, days90: 0, days120Plus: 0, total, ...over,
 });
-const ageing = (buckets: ReturnType<typeof bucket>[], over: Partial<AgeingData> = {}): AgeingData => ({ asAt: '2026-09-30', buckets, unapplied: 0, ...over });
+const ageing = (buckets: ReturnType<typeof bucket>[], over: Partial<AgeingData> = {}): AgeingData => ({ asAt: '2026-09-30', buckets, unapplied: 0, creditOnly: [], ...over });
 const cents = (s: string | undefined) => Math.round(Number((s ?? '').replace(/[^0-9.−-]/g, '').replace('−', '-')) * 100);
 
 describe('ageing', () => {
@@ -117,12 +117,33 @@ describe('ageing', () => {
     expect(texts(ageingBlocks(ageing([bucket('S', 500)], { unapplied: 75 }), 'ar'))[0]).toContain('Unapplied receipts and credit notes standing against customers');
   });
 
-  it('a Disputed column only when debtors have disputes', () => {
-    const t = tableOf(ageingBlocks(ageing([bucket('A', 100, { disputed: 30 })]), 'ar'));
-    expect(t.headers.at(-1)).toBe('Disputed');
-    expect(t.rows.at(-1)?.at(-1)).toBe('R 30.00');
+  it('Total includes what is disputed (it is still owed); Disputed is a column beside the ages, so the row foots', () => {
+    // The service takes the disputed 30 out of the age buckets: 70 + 30 = 100 owed.
+    const t = tableOf(ageingBlocks(ageing([bucket('A', 70, { current: 70, disputed: 30 })]), 'ar'));
+    expect(t.headers).toEqual(['Customer', 'Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days', 'Disputed', 'Total']);
+    expect(t.rows[0]).toEqual(['A', 'R 70.00', 'R 0.00', 'R 0.00', 'R 0.00', 'R 0.00', 'R 30.00', 'R 100.00']);
+    expect(t.rows.at(-1)).toEqual(['Total', 'R 70.00', 'R 0.00', 'R 0.00', 'R 0.00', 'R 0.00', 'R 30.00', 'R 100.00']);
+    for (const r of t.rows) expect(cents(r[1]) + cents(r[2]) + cents(r[3]) + cents(r[4]) + cents(r[5]) + cents(r[6])).toBe(cents(r[7]));
+  });
+
+  it('a Disputed column only when debtors have disputes, and never for suppliers', () => {
     expect(tableOf(ageingBlocks(ageing([bucket('A', 100)]), 'ar')).headers).not.toContain('Disputed');
-    expect(tableOf(ageingBlocks(ageing([bucket('A', 100, { disputed: 30 })]), 'ap')).headers).not.toContain('Disputed');
+    expect(tableOf(ageingBlocks(ageing([bucket('A', 100, { disputed: 30 })]), 'ap')).headers).toEqual(['Supplier', ...AGEING_HEADERS]);
+  });
+
+  it('entities with only unapplied credit and no open document are listed beside the unapplied note', () => {
+    const blocks = ageingBlocks(ageing([bucket('A', 100)], { unapplied: -60, creditOnly: [{ name: 'Credit Only Co', amount: -40 }, { name: 'Other Credit', amount: -20 }] }), 'ar');
+    expect(texts(blocks)).toEqual([
+      'Unapplied receipts and credit notes standing against customers: −R 60.00. The columns above are before them.',
+      'Customers with credit and no open document, so in no row above: Credit Only Co (−R 40.00), Other Credit (−R 20.00).',
+    ]);
+    const empty = ageingBlocks(ageing([], { creditOnly: [{ name: 'Only Credit', amount: -5 }] }), 'ap');
+    expect(texts(empty)).toEqual(['No open supplier balances at 30 September 2026.', 'Suppliers with credit and no open document, so in no row above: Only Credit (−R 5.00).']);
+  });
+
+  it('a long credit-only list is shortened', () => {
+    const many = Array.from({ length: AGEING_TOP + 4 }, (_, i) => ({ name: `E${i}`, amount: -(i + 1) }));
+    expect(texts(ageingBlocks(ageing([bucket('A', 1)], { creditOnly: many }), 'ar')).at(-1)).toMatch(/ and 4 more\.$/);
   });
 
   it('no balances prints a sentence with the date, and still says what sits unapplied', () => {
@@ -135,7 +156,10 @@ describe('ageing', () => {
 
   it('what the AI is told has no name in it', () => {
     const figures = ageingFigures(ageing([bucket('Alpha (Pty) Ltd', 100), bucket('Beta CC', 300)], { unapplied: 20 }));
-    expect(figures).toMatchObject({ asAt: '2026-09-30', entities: 2, unapplied: 20, largestBalances: [300, 100], totals: { total: 400 } });
+    const f = ageingFigures(ageing([bucket('Alpha (Pty) Ltd', 100, { disputed: 25 }), bucket('Beta CC', 300)], { unapplied: 20, creditOnly: [{ name: 'Gamma Credit', amount: -8 }] }));
+    expect(f).toMatchObject({ asAt: '2026-09-30', entities: 2, unapplied: 20, largestBalances: [300, 125], totals: { total: 425, disputed: 25 }, creditOnlyEntities: 1, creditOnlyTotal: -8 });
+    expect(JSON.stringify(f)).not.toMatch(/Alpha|Beta|Gamma/);
+    expect(figures).toMatchObject({ entities: 2 });
     expect(JSON.stringify(figures)).not.toMatch(/Alpha|Beta/);
     expect(ageingFigures(undefined)).toEqual({});
   });
@@ -211,9 +235,16 @@ describe('bank reconciliation', () => {
     const sessions = [rec({ statementDate: '2026-09-30' }), rec({ id: 'later', statementDate: '2026-10-31', statementBalance: 9 })];
     expect(bankReconciliationFigures(data(sessions, [{ id: 'a', name: 'Main' }, { id: 'z', name: 'Z' }]), '2026-09-30')).toEqual({
       asAt: '2026-09-30',
-      accounts: [{ name: 'Main', statementDate: '2026-09-30', statementBalance: 1000, glBalance: 990, reconciledBalance: 995, statementLessGl: 10 }],
+      accounts: [{ statementDate: '2026-09-30', statementBalance: 1000, glBalance: 990, reconciledBalance: 995, statementLessGl: 10 }],
       accountsWithoutReconciliation: 1,
     });
     expect(bankReconciliationFigures(undefined, '2026-09-30')).toEqual({});
+  });
+
+  it('what the AI is told has no bank account name or number in it', () => {
+    const named = [rec({ bankAccountName: 'ZZPRIVATE FNB 62123456789' })];
+    const f = bankReconciliationFigures(data(named, [{ id: 'a', name: 'ZZPRIVATE FNB 62123456789' }]), '2026-09-30');
+    expect(JSON.stringify(f)).not.toMatch(/ZZPRIVATE|62123456789/);
+    expect(f).toMatchObject({ accounts: [{ statementBalance: 1000 }] });
   });
 });

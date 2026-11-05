@@ -22,7 +22,8 @@ import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAc
 import { getReconciliations } from '@/modules/accounting/services/bank/bankReconciliationService';
 import type { ManagementPackConfig, NoteContent, NoteContentTable } from '@/modules/accounting/services/afs/afsTypes';
 
-const told = vi.hoisted(() => ({ sections: [] as Array<{ sectionType: string; sectionData: Record<string, unknown> }> }));
+const told = vi.hoisted(() => ({ sections: [] as Array<{ sectionType: string; sectionData: Record<string, unknown> }>, delivered: [] as string[] }));
+vi.mock('@/modules/accounting/services/afs/packDeliveryService', () => ({ deliverPack: vi.fn(async (docId: string) => { told.delivered.push(docId); }) }));
 vi.mock('@/modules/accounting/services/afs/packAiSummaryService', () => ({
   generateExecutiveSummary: vi.fn(async () => 'summary'),
   generateSectionCommentary: vi.fn(async (p: { sectionType: string; sectionData: Record<string, unknown> }) => {
@@ -43,8 +44,8 @@ afterAll(async () => {
   try { await dropTrackingFixture(pool, f); } finally { await pool.end(); }
 });
 
-const config = (sections: string[]): ManagementPackConfig => ({
-  id: '', companyId: f.a, enabled: true, generationDay: 5, deliveryDay: 10, reviewRequired: true,
+const config = (sections: string[], reviewRequired = true): ManagementPackConfig => ({
+  id: '', companyId: f.a, enabled: true, generationDay: 5, deliveryDay: 10, reviewRequired,
   sectionsEnabled: Object.fromEntries(sections.map((s) => [s, true])),
   recipients: [], packStyle: 'detailed', comparisonMode: 'prior_month', currencyDisplay: 'full',
 });
@@ -65,6 +66,11 @@ async function seedBooks(c: PoolClient): Promise<void> {
   await inv(f.a, alpha, 'MP-1', '2026-01-05', '2026-02-04', 1200);
   await inv(f.a, alpha, 'MP-2', '2025-10-01', '2025-11-01', 300);
   await inv(f.a, beta, 'MP-3', '2026-02-10', '2026-03-10', 450.5);
+  // An open dispute: the age columns carry 700 of this 1 000 invoice and the 300 in dispute is still owed.
+  const disputed = (await q(`INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by)
+    VALUES ($1,$2,$2,'MP-DSP','2026-01-05','2026-02-04','approved',1000,0,$3) RETURNING id`, [f.a, beta, f.userA])).rows[0].id as string;
+  await q(`INSERT INTO customer_invoice_disputes (company_id, customer_invoice_id, reason, raised_by, raised_at, disputed_amount)
+    VALUES ($1,$2,'quality',$3,'2026-02-10',300)`, [f.a, disputed, f.userA]);
   const gamma = await supp(f.a, 'Gamma Supplier');
   await bill(f.a, gamma, 'MB-1', '2026-01-20', '2026-02-19', 800);
   // No due date: the screen ages it from the bill date, so it is in the total (and the 1–30 or older columns), never dropped.
@@ -87,10 +93,12 @@ async function seedBooks(c: PoolClient): Promise<void> {
            VALUES (gen_random_uuid(), $1, 'BT-1099', 'Never Reconciled Bank', 'asset', 'bank', 'debit', 3, true)`, [f.a]);
 }
 
-async function pack(sections: string[], before?: (c: PoolClient) => Promise<unknown>, readReports = before === seedBooks) {
+async function pack(sections: string[], before?: (c: PoolClient) => Promise<unknown>, readReports = before === seedBooks, opts: { period?: string; reviewRequired?: boolean } = {}) {
   told.sections.length = 0;
+  told.delivered.length = 0;
   return asRequest(pool, f.a, f.userA, async () => {
-    const { documentId } = await generateManagementPack({ companyId: f.a, period: PERIOD, config: config(sections), triggeredBy: 'manual' });
+    const { documentId } = await generateManagementPack({ companyId: f.a, period: opts.period ?? PERIOD, config: config(sections, opts.reviewRequired ?? true), triggeredBy: 'manual' });
+    const status = ((await sql`SELECT status FROM afs_documents WHERE id = ${documentId}::UUID AND company_id = ${f.a}::UUID`) as { status: string }[])[0]?.status;
     const rows = await sql`
       SELECT section_type, content, data_snapshot FROM afs_sections
        WHERE document_id = ${documentId}::UUID AND company_id = ${f.a}::UUID ORDER BY sort_order
@@ -103,7 +111,7 @@ async function pack(sections: string[], before?: (c: PoolClient) => Promise<unkn
       recs: await getReconciliations(f.a),
       accounts: await getBankAccountsStatus(f.a),
     } : null;
-    return { sections: new Map(rows.map((r) => [r.section_type, r])), reports };
+    return { sections: new Map(rows.map((r) => [r.section_type, r])), reports, status, delivered: told.delivered.length };
   }, { appUser: true, before });
 }
 const tableOf = (c: NoteContent | undefined): NoteContentTable => {
@@ -134,23 +142,38 @@ describe('every cell is the report service\'s figure for the same company and mo
     expect(sections.get('cash_flow')?.data_snapshot).toMatchObject({ openingCash: cash.openingCash, closingCash: cash.closingCash, netChange: cash.netChange });
   });
 
-  const BUCKETS = ['current', 'days30', 'days60', 'days90', 'days120Plus', 'total'] as const;
+  const AGES = ['current', 'days30', 'days60', 'days90', 'days120Plus'] as const;
   it.each([['debtors_ageing', 'ar', 'Alpha Customer', 'Beta Customer'], ['creditors_ageing', 'ap', 'Gamma Supplier', null]] as const)(
-    '%s: every balance row, and the Total is the screen service\'s total',
+    '%s: every balance row, and the Total is what the service says is owed (disputed amounts included)',
     async (key, side, ...names) => {
       const { sections, reports } = await pack(ALL, seedBooks);
       const rows = reports![side];
       const t = tableOf(sections.get(key)?.content);
+      const disputedCol = side === 'ar' ? ['Disputed'] : [];
       expect(rows.length).toBeGreaterThan(0);
-      expect(t.headers.slice(1, 7)).toEqual(['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days', 'Total']);
-      for (const b of rows) expect(row(t, b.entityName)?.slice(1, 7)).toEqual(BUCKETS.map((k) => m(b[k])));
-      // The footer of the screen is the sum of the service's rows; so is the pack's.
-      const sum = (k: (typeof BUCKETS)[number]) => Math.round(rows.reduce((s2, b) => s2 + b[k], 0) * 100) / 100;
-      expect(row(t, 'Total')?.slice(1, 7)).toEqual(BUCKETS.map((k) => m(sum(k))));
+      expect(t.headers.slice(1)).toEqual(['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days', ...disputedCol, 'Total']);
+      const owed = (b: (typeof rows)[number]) => Math.round((b.total + (b.disputed ?? 0)) * 100) / 100;
+      for (const b of rows) {
+        expect(row(t, b.entityName)?.slice(1)).toEqual([...AGES.map((k) => m(b[k])), ...(side === 'ar' ? [m(b.disputed ?? 0)] : []), m(owed(b))]);
+      }
+      // The screen's footer is the sum of the service's rows; the pack's is that sum plus what is in dispute.
+      const sum = (f: (b: (typeof rows)[number]) => number) => Math.round(rows.reduce((s2, b) => s2 + f(b), 0) * 100) / 100;
+      expect(row(t, 'Total')?.at(-1)).toBe(m(sum(owed)));
       for (const n of names) if (n) expect(row(t, n)).toBeDefined();
-      expect(sections.get(key)?.data_snapshot).toMatchObject({ asAt: END, totals: { total: sum('total') } });
+      expect(sections.get(key)?.data_snapshot).toMatchObject({ asAt: END, totals: { total: sum(owed) } });
     },
   );
+
+  it('debtors: an open dispute is still owed, so Total includes it and Disputed shows it', async () => {
+    const { sections, reports } = await pack(ALL, seedBooks);
+    const t = tableOf(sections.get('debtors_ageing')?.content);
+    const beta = reports!.ar.find((b) => b.entityName === 'Beta Customer')!;
+    // MP-3 450.50 (due 10 Mar: current) + MP-DSP 1 000 (due 4 Feb: 24 days late, 300 in dispute): the service ages 700 of it.
+    expect(beta.disputed).toBe(300);
+    expect(row(t, 'Beta Customer')?.slice(1)).toEqual([450.5, 700, 0, 0, 0, 300, 1450.5].map(m));
+    // Every invoice that is open is in the grand total, disputed or not.
+    expect(row(t, 'Total')?.at(-1)).toBe(m(1200 + 300 + 450.5 + 1000));
+  });
 
   it('a bill with no due date is aged from its bill date and is in the creditors total, as the Aged Creditors service has it', async () => {
     const { sections, reports } = await pack(ALL, seedBooks);
@@ -158,15 +181,15 @@ describe('every cell is the report service\'s figure for the same company and mo
     const gamma = reports!.ap.find((b) => b.entityName === 'Gamma Supplier')!;
     // MB-1 800 (due 19 Feb, 9 days late) + MB-NODUE 5 000 (no due date: 49 days from the bill date).
     expect(gamma.total).toBe(5800);
-    expect(row(t, 'Gamma Supplier')?.[6]).toBe(m(5800));
-    expect(row(t, 'Total')?.[6]).toBe(m(reports!.ap.reduce((s2, b) => s2 + b.total, 0)));
+    expect(row(t, 'Gamma Supplier')?.at(-1)).toBe(m(5800));
+    expect(row(t, 'Total')?.at(-1)).toBe(m(reports!.ap.reduce((s2, b) => s2 + b.total, 0)));
   });
 
   it('debtors ageing buckets the invoices by their age at the month end (the 2025 invoice is 90+ days)', async () => {
     const { sections } = await pack(ALL, seedBooks);
     const alpha = row(tableOf(sections.get('debtors_ageing')?.content), 'Alpha Customer');
-    // [name, current, 1–30, 31–60, 61–90, 90+, total]: the 4 Feb due date is 24 days late, the 1 Nov one 119.
-    expect(alpha?.slice(1)).toEqual([0, 1200, 0, 0, 300, 1500].map(m));
+    // [name, current, 1–30, 31–60, 61–90, 90+, disputed, total]: the 4 Feb due date is 24 days late, the 1 Nov one 119.
+    expect(alpha?.slice(1)).toEqual([0, 1200, 0, 0, 300, 0, 1500].map(m));
   });
 
   it('the commentary for ageing is told no customer or supplier name', async () => {
@@ -221,5 +244,25 @@ describe('every cell is the report service\'s figure for the same company and mo
       .rejects.toThrow(/bank_reconciliations/);
     const left = await pool.query(`SELECT 1 FROM afs_documents WHERE company_id = $1 AND document_type = 'management_pack' AND period = $2`, [f.a, PERIOD]);
     expect(left.rowCount).toBe(0);
+  });
+
+  it('no customer, supplier or bank account name, number or narrative reaches the model', async () => {
+    await pack([...ALL, 'ai_executive_summary'], async (c) => {
+      await seedBooks(c);
+      await c.query("UPDATE gl_accounts SET account_name = 'ZZPRIVATE FNB 62123456789', bank_account_number = '62123456789' WHERE id = $1", [f.acc.bank]);
+    }, false);
+    expect(told.sections.length).toBeGreaterThan(0);
+    expect(JSON.stringify(told.sections)).not.toMatch(/ZZPRIVATE|62123456789|Alpha|Beta|Gamma/);
+  });
+
+  it('a budget-engine FAULT holds an auto-delivered pack as a draft; a clean one is signed off and delivered', async () => {
+    // 2026-09 is a month the fixture has a budget for. The table the engine reads is gone for this (rolled-back) request only.
+    const held = await pack(['income_vs_budget', 'kpi_scorecard'], (c) => c.query('ALTER TABLE budget_versions RENAME TO budget_versions_gone'), false, { period: '2026-09', reviewRequired: false });
+    expect(held.status).toBe('draft');
+    expect(held.delivered).toBe(0);
+    expect(JSON.stringify(held.sections.get('income_vs_budget')?.content.blocks)).toContain('Budget figures are unavailable');
+    const clean = await pack(['income_vs_budget', 'kpi_scorecard'], undefined, false, { period: '2026-09', reviewRequired: false });
+    expect(clean.status).toBe('signed_off');
+    expect(clean.delivered).toBe(1);
   });
 });

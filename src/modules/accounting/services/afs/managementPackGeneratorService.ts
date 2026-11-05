@@ -18,7 +18,7 @@ import { deliverPack } from './packDeliveryService';
 import {
   comparisonPlan, isBudgetSection, loadPackBudget, narrativePrior, samePeriodLastYear,
 } from './managementPackComparison';
-import { readAgeing, readReconciliations, readSafely } from './managementPackReads';
+import { readAgeing, readReconciliations, readSafely, unproducedSections } from './managementPackReads';
 import { getCashFlowDirect } from './cashFlowDirectService';
 import { loadPackVarianceNoteBlocks } from './managementPackVarianceNotes';
 import type { ManagementPackConfig } from './afsTypes';
@@ -168,12 +168,17 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const creditorsAging = enabledSections.includes('creditors_ageing') ? await readAgeing(ctx, 'ap', end) : null;
   const reconciliations = enabledSections.includes('bank_reconciliation') ? await readReconciliations(ctx) : null;
 
-  // A section whose report could not be read says so; a pack with such a section is not signed off and sent on its own.
-  const unproduced = [
-    ['income statement', wantsIncome, incomeReports], ['balance sheet', wantsBalance, balanceReports], ['cash flow', enabledSections.includes('cash_flow'), cashFlowReports],
-    ['debtors ageing', enabledSections.includes('debtors_ageing'), debtorsAging], ['creditors ageing', enabledSections.includes('creditors_ageing'), creditorsAging],
-    ['bank reconciliation', enabledSections.includes('bank_reconciliation'), reconciliations],
-  ].filter(([, wanted, report]) => wanted && report === null).map(([name]) => String(name));
+  // A section whose report was refused says so; a pack with such a section (or a budget-engine fault) is not signed off and sent on its own.
+  const unproduced = unproducedSections([
+    { name: 'income statement', wanted: wantsIncome, report: incomeReports },
+    { name: 'balance sheet', wanted: wantsBalance, report: balanceReports },
+    { name: 'cash flow', wanted: enabledSections.includes('cash_flow'), report: cashFlowReports },
+    { name: 'debtors ageing', wanted: enabledSections.includes('debtors_ageing'), report: debtorsAging },
+    { name: 'creditors ageing', wanted: enabledSections.includes('creditors_ageing'), report: creditorsAging },
+    { name: 'bank reconciliation', wanted: enabledSections.includes('bank_reconciliation'), report: reconciliations },
+    // The budget engine refusing a month (no budget, out of window) is an expected sentence; failing is not.
+    { name: 'budget', wanted: budget?.kind === 'unavailable' && budget.fault, report: null },
+  ]);
 
   const doc = await createAfsDocument({
     companyId, period, documentType: 'management_pack', reportingFramework: 'ifrs_smes',

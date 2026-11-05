@@ -480,6 +480,15 @@ describe('the cash flow, ageing and bank reconciliation sections', () => {
     }
   });
 
+  it('an entity with only unapplied credit is listed in the unapplied note', async () => {
+    m.unapplied.mockResolvedValue(new Map([
+      ['e', { entityName: 'Customer A', payments: 20, creditNotes: 5, total: 25 }],
+      ['x', { entityName: 'Credit Only Co', payments: 0, creditNotes: 40, total: 40 }],
+    ]));
+    const out = await generate('prior_month', ['debtors_ageing']);
+    expect(texts(out.debtors_ageing)).toContain('Customers with credit and no open document, so in no row above: Credit Only Co (R 40.00).');
+  });
+
   it('read nothing when the sections are off', async () => {
     await generate('prior_month', ['kpi_scorecard']);
     for (const mock of [m.cashFlow, m.arAging, m.apAging, m.unapplied, m.recs, m.bankAccounts]) expect(mock).not.toHaveBeenCalled();
@@ -491,9 +500,10 @@ describe('the cash flow, ageing and bank reconciliation sections', () => {
     expect(Object.keys(told).sort()).toEqual([...SECTIONS].sort());
     expect(told.cash_flow?.sectionData).toMatchObject({ openingCash: 1000, closingCash: 1500, netChange: 500 });
     expect(told.cash_flow?.priorData).toMatchObject({ closingCash: 1500 });
-    expect(told.debtors_ageing?.sectionData).toMatchObject({ asAt: '2026-09-30', totals: { total: 100 }, entities: 1, unapplied: 25, largestBalances: [100] });
+    expect(told.debtors_ageing?.sectionData).toMatchObject({ asAt: '2026-09-30', totals: { total: 100 }, entities: 1, unapplied: 25, largestBalances: [100], creditOnlyEntities: 0 });
     expect(told.creditors_ageing?.sectionData).toMatchObject({ largestBalances: [100] });
-    expect(told.bank_reconciliation?.sectionData).toMatchObject({ accounts: [{ name: 'Main', statementLessGl: -5 }], accountsWithoutReconciliation: 1 });
+    expect(told.bank_reconciliation?.sectionData).toMatchObject({ accounts: [{ statementLessGl: -5 }], accountsWithoutReconciliation: 1 });
+    expect(JSON.stringify(told.bank_reconciliation)).not.toMatch(/Main|Never Reconciled/);
     expect(told.debtors_ageing?.priorData).toBeNull();
     // Privacy: the model gets buckets and amounts, never who owes or is owed.
     expect(JSON.stringify([told.debtors_ageing, told.creditors_ageing])).not.toMatch(/Customer A|Supplier A/);
@@ -575,10 +585,31 @@ describe('a pack with a section that could not be produced is not signed off or 
     expect(m.deliver).not.toHaveBeenCalled();
   });
 
-  it('a section that is off cannot hold the pack, and a budget "unavailable" is not a failed read', async () => {
+  it('a section that is off cannot hold the pack, and a budget refusal is not a failed read', async () => {
     m.arAging.mockRejectedValue(new Error('boom'));
-    m.buildReport.mockRejectedValue(new Error('no budget'));
+    m.buildReport.mockRejectedValue(new TrackingError(409, 'no budget for this month'));
     const r = await run(['income_statement', 'income_vs_budget']);
     expect(r.status).toBe('signed_off');
+  });
+
+  it('a budget-engine FAULT holds the pack for review; a refusal (no budget, out of window) does not', async () => {
+    m.buildReport.mockRejectedValue(new Error('relation "budget_month_amounts" does not exist'));
+    const faulted = await run(['income_statement', 'income_vs_budget']);
+    expect(faulted).toMatchObject({ status: 'draft', deliveryScheduled: false });
+    expect(m.deliver).not.toHaveBeenCalled();
+    expect(m.log.warn).toHaveBeenCalledWith(expect.stringContaining('held for review'), expect.objectContaining({ sections: ['budget'] }), 'managementPackGeneratorService');
+
+    m.deliver.mockClear();
+    m.buildReport.mockRejectedValue(new TrackingError(409, 'FY2027 does not run on calendar months'));
+    const refused = await run(['income_statement', 'income_vs_budget']);
+    expect(refused).toMatchObject({ status: 'signed_off', deliveryScheduled: true });
+    m.deliver.mockClear();
+    m.buildReport.mockRejectedValue(new BudgetVersionError('NOT_FOUND', 'no version'));
+    expect((await run(['income_statement', 'income_vs_budget'])).status).toBe('signed_off');
+  });
+
+  it('a clean budget, or no budget section, holds nothing', async () => {
+    expect((await run(['income_statement', 'income_vs_budget'])).status).toBe('signed_off');
+    expect((await run(['kpi_scorecard'])).status).toBe('signed_off');
   });
 });

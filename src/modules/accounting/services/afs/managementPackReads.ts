@@ -41,8 +41,14 @@ type Ctx = { companyId: string; period: string };
 export function readAgeing(ctx: Ctx, side: 'ar' | 'ap', asAt: string): Promise<AgeingData | null> {
   return readSafely(ctx, side === 'ar' ? 'debtors_ageing' : 'creditors_ageing', async () => {
     const buckets = side === 'ar' ? await getARAging(ctx.companyId, asAt) : await getAPAging(ctx.companyId, asAt);
-    const unapplied = [...(await getUnappliedByEntity(ctx.companyId, side, asAt)).values()].reduce((sum, u) => sum + u.total, 0);
-    return { asAt, buckets, unapplied: Math.round(unapplied * 100) / 100 };
+    const byEntity = await getUnappliedByEntity(ctx.companyId, side, asAt);
+    const unapplied = [...byEntity.values()].reduce((sum, u) => sum + u.total, 0);
+    const open = new Set(buckets.map((b) => b.entityId));
+    const creditOnly = [...byEntity.entries()]
+      .filter(([id, u]) => !open.has(id) && Math.abs(u.total) >= 0.005)
+      .map(([, u]) => ({ name: u.entityName || (side === 'ar' ? 'Unknown customer' : 'Unknown supplier'), amount: u.total }))
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount) || a.name.localeCompare(b.name));
+    return { asAt, buckets, unapplied: Math.round(unapplied * 100) / 100, creditOnly };
   });
 }
 
@@ -52,4 +58,12 @@ export function readReconciliations(ctx: Ctx): Promise<ReconciliationData | null
     sessions: await getReconciliations(ctx.companyId),
     accounts: (await getBankAccountsStatus(ctx.companyId)).map((a) => ({ id: a.id, name: a.accountName })),
   }));
+}
+
+/** One report a pack section depends on: `report` is null when it was wanted but could not be produced. */
+export interface ProducedCheck { name: string; wanted: boolean; report: unknown }
+
+/** The names of the wanted reports that were not produced. */
+export function unproducedSections(checks: readonly ProducedCheck[]): string[] {
+  return checks.filter((c) => c.wanted && c.report === null).map((c) => c.name);
 }

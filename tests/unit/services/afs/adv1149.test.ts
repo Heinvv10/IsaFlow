@@ -17,7 +17,7 @@ function report(names: string[], amounts: number[]): AgeingData {
     totalAmount: amounts[i]!, amountPaid: 0, balance: amounts[i]!, disputedAmount: i % 7 === 0 ? Math.round(amounts[i]! * 100 / 3) / 100 : 0,
   }));
   // The adapted shape: the services' rows, as the screens get them (the pack no longer reads a report with its own totals).
-  return { asAt: '2027-02-28', buckets: calculateAgingBuckets(invoices, new Date('2027-02-28')), unapplied: 0 };
+  return { asAt: '2027-02-28', buckets: calculateAgingBuckets(invoices, new Date('2027-02-28')), unapplied: 0, creditOnly: [] };
 }
 
 describe('#1149 fold arithmetic', () => {
