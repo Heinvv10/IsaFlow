@@ -14,6 +14,7 @@
 import { sql } from '@/lib/neon';
 import { TransactionRefusal } from '@/lib/transactionRefusal';
 import { canSetPayrollNetPay } from '@/lib/auth/writeRoles';
+import { isBankSubtype } from '../gl/accountSubtypes';
 import { DEFAULT_ACCOUNT_ROLES } from '../gl/defaultAccountRoles';
 import { auditDefaultAccountChanges, type DefaultAccountChange } from '../gl/defaultAccountsAudit';
 import type { RoleSnapshot } from '../gl/systemRoleInvariant';
@@ -54,7 +55,7 @@ export async function roleMapMoves(companyId: string, roles: RoleSnapshot, map: 
 
 /** Refuses (CoaRoleChangeForbiddenError) when the actor may not move the bank role and `moves` moves it. */
 export function assertActorMayMoveRoles(actor: CoaImportActor | undefined, moves: readonly RoleMove[]): void {
-  if (!actor || canSetPayrollNetPay(actor.role) || !moves.some((m) => m.subtype === 'bank')) return;
+  if (!actor || canSetPayrollNetPay(actor.role) || !moves.some((m) => isBankSubtype(m.subtype))) return;
   throw new CoaRoleChangeForbiddenError(
     `Your role (${actor.role ?? 'unknown'}) cannot move the bank role: with Payroll net pay unset, payroll credits net pay to the bank account, `
     + 'so only an owner or admin can change it. Remove "bank" from the system account map, or ask an owner or admin to run the import.',
