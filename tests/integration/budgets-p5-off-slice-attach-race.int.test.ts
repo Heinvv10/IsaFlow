@@ -37,7 +37,7 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM approval_requests WHERE company_id = $1', [f.co]);
-    await pool.query('DELETE FROM approval_rules WHERE company_id = $1', [f.co]);
+    await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1", [f.co]);
     await pool.query('DELETE FROM rate_limit_counters WHERE key = ANY($1::TEXT[])', [[f.owner, f.manager].map((u) => `supplier-invoice-action:${u}`)]);
     await dropBillFixture(pool, f);
   } finally { await pool.end(); }
@@ -91,7 +91,7 @@ describe('R4-2: a requestApproval raised while the manual attach is in flight', 
     } finally {
       await tAttach.rollback(); await tReq.rollback();
       await pool.query('DELETE FROM approval_requests WHERE company_id = $1', [f.co]);
-      await pool.query('DELETE FROM approval_rules WHERE company_id = $1', [f.co]);
+      await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1", [f.co]);
     }
   });
 });
@@ -203,7 +203,7 @@ describe('LOW 4: the attaching user becomes a content author of the bill it chan
       } finally { await tDec.rollback(); }
     } finally {
       await pool.query('DELETE FROM approval_requests WHERE company_id = $1', [f.co]);
-      await pool.query('DELETE FROM approval_rules WHERE company_id = $1', [f.co]);
+      await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1", [f.co]);
     }
   });
 });

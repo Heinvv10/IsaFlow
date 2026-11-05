@@ -14,6 +14,7 @@ import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import createRun from '../../pages/api/payroll/runs';
 import jeAction from '../../pages/api/accounting/journal-entries-action';
+import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
 export type Route = (req: never, res: never) => Promise<unknown>;
@@ -27,11 +28,14 @@ export async function rig(label: string) {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
   const company = crypto.randomUUID();
   const admin = crypto.randomUUID();
+  const approver = crypto.randomUUID();
   const tokens: Record<string, string> = {};
+  const clearedPlans = new Map<string, string>();
+  const authorisations = new Map<string, Promise<void>>();
   const planPath = '../../pages/api/payroll/runs/[id]/journal-plan';
   const journalPlan: Route | null = await import(/* @vite-ignore */ planPath).then((m) => m.default as Route).catch(() => null);
 
-  const mint = async (user: string) => new SignJWT({ sub: user, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  const mint = async (user: string) => new SignJWT({ sub: user, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
 
   async function call(route: Route, method: string, url: string, id: unknown, opts: { company?: string; user?: string; body?: unknown } = {}): Promise<Res> {
@@ -47,12 +51,63 @@ export async function rig(label: string) {
   }
 
   const url = (id: string, action: string) => `/api/payroll/runs/${id}/${action}`;
+  async function authorise(id: string, opts: { company?: string; user?: string } = {}): Promise<void> {
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const raised = await call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined, {
+        ...opts,
+        body: { action: 'request', documentType: 'pay_run', documentId: id },
+      });
+      if (raised.statusCode !== 200) throw new Error(`request pay-run approval: ${raised.statusCode} ${JSON.stringify(raised.body)}`);
+      const request = raised.body.data as { id: string; documentDigest: string };
+      const decided = await call(approvalRequests as Route, 'POST', '/api/accounting/approval-requests', undefined, {
+        ...opts,
+        user: opts.company && opts.company !== company ? (opts.user ?? admin) : approver,
+        body: { action: 'approve', requestId: request.id, expectedDigest: request.documentDigest },
+      });
+      if (decided.statusCode === 200) {
+        clearedPlans.set(`${opts.company ?? company}:${id}`, request.documentDigest);
+        return;
+      }
+      const reason = decided.body.error?.details?.reason;
+      if (decided.statusCode !== 409 || reason !== 'DOCUMENT_CHANGED' || attempt === 5) {
+        throw new Error(`approve pay-run request: ${decided.statusCode} ${JSON.stringify(decided.body)}`);
+      }
+    }
+  }
+
+  async function ensureAuthorised(id: string, expectedPlanHash: unknown, opts: { company?: string; user?: string } = {}): Promise<void> {
+    if (opts.user || typeof expectedPlanHash !== 'string') return;
+    const key = `${opts.company ?? company}:${id}`;
+    if (clearedPlans.get(key) === expectedPlanHash) return;
+    const current = (await api.preview(id, opts)).body.data?.planHash;
+    if (current !== expectedPlanHash) return;
+    const authorisationKey = `${key}:${expectedPlanHash}`;
+    let pending = authorisations.get(authorisationKey);
+    if (!pending) {
+      pending = authorise(id, opts);
+      authorisations.set(authorisationKey, pending);
+    }
+    try { await pending; } finally { authorisations.delete(authorisationKey); }
+  }
+
   const api = {
     preview: (id: string, o = {}) => journalPlan ? call(journalPlan, 'GET', url(id, 'journal-plan'), id, o) : Promise.resolve({ statusCode: 0, body: {} } as Res),
-    approveWith: (id: string, expectedPlanHash: unknown, o = {}) => call(approve as Route, 'POST', url(id, 'approve'), id, { ...o, body: { expectedPlanHash } }),
-    approve: async (id: string, o = {}) => api.approveWith(id, (await api.preview(id, o)).body.data?.planHash, o),
+    approveWith: async (id: string, expectedPlanHash: unknown, o = {}) => {
+      await ensureAuthorised(id, expectedPlanHash, o);
+      const result = await call(approve as Route, 'POST', url(id, 'approve'), id, { ...o, body: { expectedPlanHash } });
+      if (result.statusCode === 200) clearedPlans.delete(`${o.company ?? company}:${id}`);
+      return result;
+    },
+    approve: async (id: string, o = {}) => {
+      const planHash = (await api.preview(id, o)).body.data?.planHash;
+      return api.approveWith(id, planHash, o);
+    },
     reopen: (id: string, o = {}) => call(reopen as Route, 'POST', url(id, 'reopen'), id, { ...o, body: { reason: 'brk596 round 4' } }),
-    calculate: (id: string, o = {}) => call(calculate as Route, 'POST', url(id, 'calculate'), id, o),
+    calculate: async (id: string, o = {}) => {
+      const result = await call(calculate as Route, 'POST', url(id, 'calculate'), id, o);
+      if (result.statusCode === 200) clearedPlans.delete(`${o.company ?? company}:${id}`);
+      return result;
+    },
     createRun: (month: number, o = {}) => call(createRun as Route, 'POST', '/api/payroll/runs', undefined, { ...o, body: { month, year: 2026 } }),
     reverse: (journalId: string, o = {}) => call(jeAction as Route, 'POST', '/api/accounting/journal-entries-action', undefined, { ...o, body: { id: journalId, action: 'reverse' } }),
   };
@@ -60,8 +115,10 @@ export async function rig(label: string) {
   async function account(code: string, c = company): Promise<string> {
     const type = code.startsWith('5') ? 'expense' : code === '1110' ? 'asset' : 'liability';
     return (await pool.query(
-      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
-       VALUES ($1,$2,$3,$4,$5,1) RETURNING id`, [c, code, `BRK ${code}`, type, type === 'liability' ? 'credit' : 'debit'])).rows[0]!.id;
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, account_subtype, is_system_account)
+       VALUES ($1,$2,$3,$4,$5,1,$6,$7) RETURNING id`,
+      // 1110 holds the company's bank system role: net pay is credited to the role holder, not to the code.
+      [c, code, `BRK ${code}`, type, type === 'liability' ? 'credit' : 'debit', code === '1110' ? 'bank' : null, code === '1110'])).rows[0]!.id;
   }
   let empSeq = 0;
   /** An employee with a Basic Salary. Returns { employee, salaryRow }. */
@@ -85,9 +142,16 @@ export async function rig(label: string) {
   async function setup(): Promise<void> {
     await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, `BRK596 ${label}`]);
     for (const code of REQUIRED_GL) await account(code);
-    await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
+    await pool.query(
+      "INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true),($3,$4,'admin',true)",
+      [admin, `${admin}@test.local`, approver, `${approver}@test.local`],
+    );
     tokens[admin] = await mint(admin);
-    await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, admin]);
+    tokens[approver] = await mint(approver);
+    await pool.query(
+      "INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin'),($1,$3,'owner')",
+      [company, admin, approver],
+    );
   }
   async function addUser(role: string, c = company): Promise<string> {
     const u = crypto.randomUUID();
@@ -104,6 +168,7 @@ export async function rig(label: string) {
     const id = String(made.body.data!.id);
     const calc = await api.calculate(id);
     if (calc.statusCode !== 200) throw new Error(`calculate ${month}: ${calc.statusCode} ${JSON.stringify(calc.body)}`);
+    await authorise(id);
     return id;
   }
 
@@ -134,6 +199,7 @@ export async function rig(label: string) {
     const ids = [company, ...extraCompanies];
     const q = (text: string) => pool.query(text, [ids]);
     try {
+      await q('DELETE FROM approval_requests WHERE company_id = ANY($1)');
       await q('DELETE FROM payroll_loan_payment_reversals WHERE company_id = ANY($1)').catch(() => undefined);
       await q('DELETE FROM payroll_loan_payments WHERE loan_id IN (SELECT id FROM payroll_loans WHERE company_id = ANY($1))').catch(() => undefined);
       await q('DELETE FROM payroll_loan_schedule WHERE loan_id IN (SELECT id FROM payroll_loans WHERE company_id = ANY($1))');
@@ -164,5 +230,5 @@ export async function rig(label: string) {
     if (process.env.BRK_EVIDENCE) appendFileSync(process.env.BRK_EVIDENCE, `\n=== EVIDENCE ${name} ===\n${JSON.stringify(data, null, 1)}\n`);
   };
   const contraOf = async (journalId: string) => String((await pool.query('SELECT id FROM gl_journal_entries WHERE reversal_of_id = $1', [journalId])).rows[0]?.id);
-  return { pool, company, admin, tokens, call, api, account, employee, setSalary, setup, addUser, calculatedRun, header, journals, ledger, teardown, evidence, contraOf, hasPlanRoute: journalPlan != null, mint, msg };
+  return { pool, company, admin, approver, tokens, call, api, authorise, account, employee, setSalary, setup, addUser, calculatedRun, header, journals, ledger, teardown, evidence, contraOf, hasPlanRoute: journalPlan != null, mint, msg };
 }

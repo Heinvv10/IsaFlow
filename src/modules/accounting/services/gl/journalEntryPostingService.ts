@@ -19,6 +19,7 @@ import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingCl
 import { refuseReversingSettlementJournal } from '../ap/provisionalSettlementGuards';
 import { refuseReversingCompletedCash } from '../bank/reconciledCash';
 import { refuseReversalAgainstPayRun } from '../payroll/payrollJournalReversalGuard';
+import { recordPayRunApprovalAudit } from '../payroll/payRunApprovalAudit';
 import { postJournalEntry } from './journalEntryPostService';
 import { cleanUpAfter } from './reversalCleanup';
 import {
@@ -101,7 +102,7 @@ async function reverseJournalEntryInner(
     if (entry.source === 'auto_vat_late_claim' && !opts?.lateClaimCascade) {
       throw new LateClaimCompanionReversalError(entry.entryNumber);
     }
-    await refuseReversalAgainstPayRun(companyId, entry); // W3-01: a pay run's journal, judged by the ledger, under its locks
+    const payRunReversal = await refuseReversalAgainstPayRun(companyId, entry); // W3-01: judged under its locks
 
     // Debits and credits swap; every dimension and the VAT classification come
     // across unchanged EXCEPT a legacy tag naming another company's project,
@@ -258,6 +259,13 @@ async function reverseJournalEntryInner(
       ? await releaseCapturedDocumentPostingClaim(companyId, String(current.source_document_id)) : false;
     log.info('Reversed journal entry',
       { originalId: id, reversalId: reversalEntry.id, claimReleased }, 'accounting');
+    if (payRunReversal?.planHash) {
+      await recordPayRunApprovalAudit({
+        companyId, runId: payRunReversal.runId, actorId: userId,
+        event: 'reversed', planHash: payRunReversal.planHash,
+        metadata: { originalJournalId: id, reversalJournalId: reversalEntry.id },
+      });
+    }
     // The count rides on the returned entry so every caller — the REST action
     // route passes this straight through — can tell the operator that the
     // contra is not tag-for-tag identical to what it reverses.

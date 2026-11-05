@@ -65,6 +65,9 @@ function toClaimant(r: DbRow): NearMissClaimant {
   };
 }
 
+/** The resolver's own claim test (`ensureCache`'s WHERE): an active system account carrying the subtype. */
+export const isLiveClaimant = (c: NearMissClaimant): boolean => c.isActive && c.isSystemAccount;
+
 /**
  * Classify a role from every account carrying its subtype.
  *
@@ -77,7 +80,7 @@ function toClaimant(r: DbRow): NearMissClaimant {
  * holds the history is the fix. So the remedy that names the real account wins.
  */
 export function classifyRole(key: SystemAccountKey, claimants: NearMissClaimant[]): SystemRoleCoverage {
-  const resolvable = claimants.filter((c) => c.isActive && c.isSystemAccount);
+  const resolvable = claimants.filter(isLiveClaimant);
   if (resolvable.length === 1) {
     return { key, state: 'ok', holder: resolvable[0], claimants };
   }
@@ -136,6 +139,24 @@ export async function getSystemRoleCoverage(companyId: string, q: TxSql = sql): 
 }
 
 /**
+ * Every account carrying `key`'s subtype, in any state, read from the table and
+ * never the resolver's cache (which lives up to a minute past a Default
+ * Accounts save). For a caller about to post that must not act on a holder the
+ * cache still remembers; judge it with `isLiveClaimant`.
+ */
+export async function readRoleClaimants(key: SystemAccountKey, companyId: string): Promise<NearMissClaimant[]> {
+  const rows = (await sql`
+    SELECT id::TEXT AS id, account_code, account_name, account_type,
+           account_subtype, created_at, is_active, is_system_account
+    FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID
+      AND account_subtype = ${key}
+    ORDER BY account_code
+  `) as DbRow[];
+  return rows.map(toClaimant);
+}
+
+/**
  * The near misses for ONE role, for the error a failed resolution throws.
  *
  * A separate query rather than a slice of the full report, because this runs on
@@ -147,16 +168,7 @@ export async function describeEmptyRole(
   key: SystemAccountKey,
   companyId: string,
 ): Promise<{ gap: SystemRoleGap; nearMisses: NearMissClaimant[] }> {
-  const rows = (await sql`
-    SELECT id::TEXT AS id, account_code, account_name, account_type,
-           account_subtype, created_at, is_active, is_system_account
-    FROM gl_accounts
-    WHERE company_id = ${companyId}::UUID
-      AND account_subtype = ${key}
-    ORDER BY account_code
-  `) as DbRow[];
-
-  const claimants = rows.map(toClaimant);
+  const claimants = await readRoleClaimants(key, companyId);
   const classified = classifyRole(key, claimants);
   // `classifyRole` can only come back 'ok'/'contested' here if the chart changed
   // between the resolver's cached read and this one. Report it as no_claimant

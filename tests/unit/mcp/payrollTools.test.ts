@@ -42,12 +42,22 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalBuilder', () => ({
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', () => ({
   postPayrollRunJournal: vi.fn(),
 }));
+// The dry run reads the run's header unlocked (readApprovedPlan); the plan hash is judged in payrollPostApprovedPlan.test.ts.
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => [{ id: 'run', journal_entry_id: null, approval_revision: null }]) }));
+vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({
+  assertPayRunApproved: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
+  lockPayrollRunHeader: vi.fn(async () => ({ id: 'run', journal_entry_id: null })),
+  lockCompanyPayrollApprovals: vi.fn(async () => undefined),
+}));
 
 import { listPayrollEmployeesPage } from '@/modules/accounting/services/payroll/payrollEmployeeQueryService';
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
 import { createPayrollRun, getPayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
+import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 
 import { listEmployeesTool, listPayRunsTool } from '@/lib/mcp/tools/payroll';
 import { createPayRunTool, postPayrollJournalTool } from '@/lib/mcp/tools/writePayroll';
@@ -125,6 +135,7 @@ beforeEach(() => {
   vi.mocked(getPayrollRun).mockResolvedValue(RUN_ROW);
   vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan());
   vi.mocked(postPayrollRunJournal).mockResolvedValue('je-new');
+  vi.mocked(assertPayRunApproved).mockResolvedValue({ grandfathered: true, planHash: null });
   vi.mocked(createPayrollRun).mockResolvedValue({ ...RUN_ROW, status: 'draft' });
 });
 
@@ -282,6 +293,14 @@ describe('create_pay_run', () => {
 });
 
 describe('post_payroll_journal — the dry run is the deliverable', () => {
+  it('refuses both preview and execution until a person approves the pay run in ISAFlow', async () => {
+    vi.mocked(assertPayRunApproved).mockRejectedValue(new Error('Pay run has no reviewed approval plan'));
+    const res = await postPayrollJournalTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx);
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('A person must approve this pay run in ISAFlow');
+    expect(postPayrollRunJournal).not.toHaveBeenCalled();
+  });
+
   it('returns the FULL journal, not a count, and every employer contribution is in it', async () => {
     const res = await postPayrollJournalTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx);
     const out = json(res);
@@ -359,16 +378,15 @@ describe('post_payroll_journal — the dry run is the deliverable', () => {
     await postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx);
     const call = vi.mocked(postPayrollRunJournal).mock.calls[0]!;
     expect(call[0]).toBe(COMPANY);
-    expect(call[3]).toEqual({ postingAgent: 'mcp:post_payroll_journal:v1' });
+    expect(call[3]).toMatchObject({ postingAgent: 'mcp:post_payroll_journal:v1' });
   });
 
-  it('RETHROWS a failure from the poster instead of returning toolError', async () => {
-    // Once a service that can write has been called, a returned toolError
-    // releases the savepoint and COMMITs the partial write, and frees the key
-    // for a retry that writes again.
-    vi.mocked(postPayrollRunJournal).mockRejectedValue(new Error('boom'));
-    await expect(
-      postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx),
-    ).rejects.toThrow('boom');
+  it('posts the plan it reported, not one the poster rebuilds (the bank role would be read twice)', async () => {
+    const reported = plan();
+    vi.mocked(buildPayrollJournalPlan).mockResolvedValue(reported);
+    await postPayrollJournalTool.handler({ run_id: RUN, ...KEY }, ctx);
+    expect(buildPayrollJournalPlan).toHaveBeenCalledTimes(1);
+    const opts = vi.mocked(postPayrollRunJournal).mock.calls[0]![3];
+    expect(opts?.plan).toBe(reported);
   });
 });

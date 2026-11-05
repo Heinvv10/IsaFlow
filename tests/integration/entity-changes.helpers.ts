@@ -69,8 +69,8 @@ export { newCompany };
 export async function cleanupEntityChanges(pool: Pool, companies: string[], users: string[]): Promise<void> {
   try {
     await pool.query('DELETE FROM audit_log WHERE company_id = ANY($1)', [companies]);
-    await pool.query('DELETE FROM approval_enforcement WHERE company_id = ANY($1)', [companies]);
-    await pool.query('DELETE FROM approval_rules WHERE company_id = ANY($1)', [companies]);
+    await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = ANY($1)", [companies]);
+    await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = ANY($1)", [companies]);
     await pool.query('DELETE FROM payroll_employees WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM company_user_permissions WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM company_invitations WHERE company_id = ANY($1)', [companies]);

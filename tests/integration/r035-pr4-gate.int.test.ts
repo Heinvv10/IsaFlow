@@ -57,8 +57,8 @@ describe('the approve route', () => {
     const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'POST',
       { documentType: 'customer_invoice', enabled: true }, '/api/accounting/approval-enforcement');
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
-    const { rows } = await pool.query('SELECT document_type FROM approval_enforcement WHERE company_id = $1', [c]);
-    expect(rows.map((x) => x.document_type)).toEqual(['customer_invoice']);
+    const { rows } = await pool.query('SELECT document_type FROM approval_enforcement WHERE company_id = $1 ORDER BY document_type', [c]);
+    expect(rows.map((x) => x.document_type)).toEqual(['customer_invoice', 'pay_run']);
   });
 
   it('refuses 409 APPROVAL_REQUIRED before any write: the draft untouched, no journal, no PDF seal', async () => {
