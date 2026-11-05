@@ -81,7 +81,7 @@ it('the deadlock victim is told to retry, its batch carries on; each run ends wi
     expect(b.after.ok).toBe(true);
   }
 
-  const refused = outcomes.filter((o) => !o.ok); 
+  const refused = outcomes.filter((o) => !o.ok);
   expect(refused).toHaveLength(1);
   expect(refused[0]!.text).not.toBe(GENERIC_FAILURE);
   expect(refused[0]!.text).not.toMatch(/40P01|database error/);
