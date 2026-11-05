@@ -7,6 +7,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { PrintedCompany } from './pdfPrintedCompany';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { fitFontSize } from './pdfFitText';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type JsPdfDoc = any;
@@ -456,17 +457,6 @@ export function renderSingleParty(
 export interface RefField {
   label: string;
   value: string;
-}
-
-/** The largest font size from `max` down to `min` at which `text` (in the doc's current bold face) fits `maxWidth`; `min` when none does. */
-function fitFontSize(doc: JsPdfDoc, text: string, maxWidth: number, max: number, min: number): number {
-  let size = max;
-  doc.setFontSize(size);
-  while (size > min && doc.getTextWidth(text) > maxWidth) {
-    size -= 0.25;
-    doc.setFontSize(size);
-  }
-  return size;
 }
 
 /**
