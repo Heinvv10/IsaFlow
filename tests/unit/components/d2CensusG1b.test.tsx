@@ -15,7 +15,9 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('next/router', () => ({ useRouter: () => ({ query: mocks.query, isReady: true, push: vi.fn() }) }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co1' }, loading: false }) }));
+vi.mock('@/contexts/CompanyContext', () => ({
+  useCompany: () => ({ activeCompany: { id: 'co1' }, loading: false }), useCompanyRoleOrNull: () => 'owner',
+}));
 vi.mock('@/components/accounting/supplier-invoices/SupplierSelect', () => ({ SupplierSelect: () => <span /> }));
 vi.mock('@/components/accounting/RecordNavigation', () => ({ RecordNavigation: () => <span /> }));
 vi.mock('@/components/accounting/customers/DeliveryAddressesTab', () => ({ DeliveryAddressesTab: () => <span /> }));
