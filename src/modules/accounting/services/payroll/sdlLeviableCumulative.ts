@@ -50,9 +50,14 @@ export function sdlLeviableToDate(
       throw new Error(`SDL cannot be calculated for employee ${employeeId}: ${name} is not a finite number (${value})`);
     }
   }
-  const cumulative = Math.max(
+  // max(0, pay - deduction) to date, less what was levied, floored at nil: the inner floor is implied by the outer
+  // one (what was levied is never negative), so one floor serves.
+  return Math.max(
     0,
-    figures.ytdSdlApplicable + sdlApplicable - (figures.ytdRetirementDeduction + retirementDeduction),
+    round2(
+      figures.ytdSdlApplicable + sdlApplicable
+        - (figures.ytdRetirementDeduction + retirementDeduction)
+        - figures.ytdSdlLeviable,
+    ),
   );
-  return Math.max(0, round2(cumulative - figures.ytdSdlLeviable));
 }
