@@ -45,6 +45,7 @@ describe('the 2,560-input shape sweep', () => {
     const printed: string[] = [];
     const fitter: string[] = [];
     let refused = 0;
+    let budgetWithoutNote = 0;
     let trimmedPages = 0;
     try {
       for (const shape of shapes) {
@@ -52,6 +53,11 @@ describe('the 2,560-input shape sweep', () => {
         const faults = new Set<string>();
         try {
           const doc = buildBoardPackPages(page6Input(shape));
+          // A printed Budget column always carries the note that names its budget, wherever the
+          // renumbering moved it (it is found by text: its number may now belong to another note).
+          const p6 = doc.pages.find((p) => p.navLabel === 'Income statement')!;
+          const hasBudget = p6.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'));
+          if (hasBudget && !p6.footnotes.some((f) => f.text.startsWith('The budget column'))) budgetWithoutNote += 1;
           for (const page of doc.pages) {
             const call = fitted.calls.find((c) => (c.after as PackPage).blocks === page.blocks);
             const found = call === undefined ? numberingFaults(page) : fitterFaults(call.before as PackPage, page);
@@ -77,7 +83,7 @@ describe('the 2,560-input shape sweep', () => {
     // `refused` is pinned: renumbering must not turn a pack into a refusal or a refusal into a pack
     // (953 of the 2,560 shapes are refused before and after; page 6 with net-debit revenue and an
     // interest/tax step is the cause, and has its own fix).
-    expect({ printed: printed.length, fitter: fitter.length, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, refused: 953, sample: [] });
+    expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, refused, sample: printed.slice(0, 3) }).toEqual(
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, refused: 953, sample: [] });
   }, 1_800_000);
 });
