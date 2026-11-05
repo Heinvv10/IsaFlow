@@ -19,7 +19,7 @@ import {
 
 /** In presentation order within each section: the screen's long-standing lines first. */
 export const INDIRECT_BUCKETS = [
-  'net_income', 'receivable', 'payable', 'depreciation', 'inventory', 'vat', 'other_operating',
+  'net_income', 'receivable', 'payable', 'depreciation', 'disposal_adjustment', 'inventory', 'vat', 'other_operating',
   'investing',
   'equity', 'debt', 'retained_earnings',
 ] as const;
@@ -30,6 +30,7 @@ export type IndirectSection = 'operating' | 'investing' | 'financing';
 const SECTION: Record<IndirectBucket, IndirectSection> = {
   net_income: 'operating',
   depreciation: 'operating',
+  disposal_adjustment: 'operating',
   receivable: 'operating',
   inventory: 'operating',
   payable: 'operating',
@@ -72,7 +73,10 @@ export function classifyIndirectLine(accountType: AccountType, subtype: string |
     case 'vat_output': return 'vat';
     case 'long_term_liability':
     case 'non_current_liability':
-    case 'credit_card': return 'debt';
+    case 'credit_card':
+    // A liability spelled bank / cash is a credit card, as in the direct method.
+    case 'bank':
+    case 'cash': return 'debt';
     default: return 'other_operating';
   }
 }

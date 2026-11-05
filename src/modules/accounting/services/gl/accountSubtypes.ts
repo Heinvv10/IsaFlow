@@ -135,6 +135,15 @@ export const INVESTING_ASSET_SUBTYPES: readonly string[] = rawSubtypesFor(
   'investment'
 );
 
+/**
+ * The gain / loss on disposal of an asset (the system account `disposal_profit_loss`, posted by the asset-disposal
+ * journal). Not in the alias vocabulary (it is a P&L line, never grouped on a statement), so it is matched by its own
+ * spelling. A cash flow statement presents it with the proceeds, in investing, not in operating.
+ */
+export function isDisposalGainLossSubtype(raw: string | null | undefined): boolean {
+  return typeof raw === 'string' && raw.trim().toLowerCase().replace(/[\s-]+/g, '_') === 'disposal_profit_loss';
+}
+
 /** Cash and cash equivalents: bank or cash subtypes on an asset account. */
 export function isCashEquivalent(
   accountType: AccountType,
