@@ -8,6 +8,8 @@ import Link from 'next/link';
 import type { GetServerSidePropsContext, InferGetServerSidePropsType } from 'next';
 import { verifyPortalToken } from '@/lib/auth/portalJwt';
 import { currentPortalSession } from '@/lib/auth/portalAuth';
+import { listPortalDocuments } from '@/modules/accounting/services/afs/portalDocumentService';
+import { log } from '@/lib/logger';
 
 interface AfsDocument {
   id: string;
@@ -33,20 +35,13 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
     return { redirect: { destination: '/accounting/afs/portal/login?error=expired', permanent: false } };
   }
 
-  // Fetch documents server-side to avoid FOUC
+  // Read the documents server-side to avoid FOUC: straight from the service the portal API route uses, for the
+  // session just verified (no HTTP, so no URL to get wrong). JSON round trip: Date columns must reach the page as strings.
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-    const res = await fetch(`${baseUrl}/api/accounting/portal/documents`, {
-      headers: { Cookie: `portal_session=${cookie}` },
-    });
-    if (!res.ok) {
-      const failure = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-      return { props: { session, documents: [], loadError: failure.error?.message || LOAD_ERROR } };
-    }
-    const json = (await res.json()) as { data?: { documents: AfsDocument[] } };
-    const documents: AfsDocument[] = json.data?.documents ?? [];
+    const documents = JSON.parse(JSON.stringify(await listPortalDocuments(session.companyId, session.role))) as AfsDocument[];
     return { props: { session, documents, loadError: '' } };
-  } catch {
+  } catch (err) {
+    log.error('Portal dashboard: could not load documents', { error: err, companyId: session.companyId }, 'portal-dashboard-page');
     return { props: { session, documents: [], loadError: LOAD_ERROR } };
   }
 }

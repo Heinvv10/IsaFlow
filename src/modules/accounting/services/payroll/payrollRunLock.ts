@@ -12,18 +12,29 @@
  * LOCK ORDER, every payroll-run writer (all waits bounded at 5s, then a
  * retryable refusal):
  *   1. the company approval lock (lockCompanyPayrollApprovals): approve,
- *      calculate, reopen and the pay-run grid. assignComponentToEmployee,
+ *      calculate, reopen and the pay-run grid, and the recovery posting
+ *      (post_payroll_journal live; postPayrollRunJournal when handed no plan,
+ *      both through readApprovedPlan). assignComponentToEmployee,
  *      endEmployeeComponent, postBatch and applyPackageToEmployee take it
  *      alone, so a row cannot change between a grid edit's read and its write;
  *      setEmployeeBankDetails takes the same key for a non-owner / admin caller
  *      (payrollApprovalLockScope; RowLockTimeoutError), then the employee row,
  *      and no run header;
  *   2. the run's header row (lockPayrollRunHeader): approve, calculate, reopen
- *      and the grid;
+ *      and the grid, and every postPayrollRunJournal (which returns at once
+ *      when approval or the MCP post already holds it); the generic journal
+ *      creation after it takes the numbering lock;
  *   3. approval only: the linked journal and its reversal chain
  *      (lockRunJournalForApproval, payrollJournalChain), then the severance
  *      directive rows (FOR SHARE) and their payment row (payrollRunDirectiveClaim).
  * The generic journal reversal takes 2 then 3 and never 1, so no cycle.
+ * Outside this order, a LEAF: the member writers' approver lock `pay_run_approvers:<company id>`
+ * (core/payRunApproverGuard: company and platform-admin role changes and removals, the onboarding reset). It is
+ * taken after the member rows and the owner lock and nothing in 1-3 (calculate, approve, reopen, post) ever takes it
+ * or waits on a member row while holding one of them, so it can sit in no cycle with them. A platform-admin write
+ * holds it on its own transaction while judging on a migration_admin connection (pool max 4): a pool full of
+ * waiters for this lock ends with the 5 s lock_timeout and a retryable refusal; any other exhaustion fails the
+ * checkout after 15 s with an unclassified error (500 / generic 400). Nothing is written either way.
  * One company-wide lock rather than one per tax year (PAYE 4a follow-ups
  * round 2, R2): approvals need the company-wide one anyway
  * (termination_already_paid reads runs of any year), and a calculation holds
@@ -41,6 +52,7 @@ import {
   setLocalLockTimeout,
 } from './payrollLoanLock';
 import { lockJournalChain } from './payrollJournalChain';
+import { GRANDFATHERED_PLAN_HASH, recordPayRunApprovalAudit } from './payRunApprovalAudit';
 import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 
@@ -192,7 +204,12 @@ export interface CalculatedRunTotals {
  * refusal: under a request it is a 500 and rolls back (withAuth COMMITs a 4xx).
  * Test: tests/integration/w3-01-calculate-approve-race.int.test.ts.
  */
-export async function saveCalculatedRunTotals(runId: string, companyId: string, t: CalculatedRunTotals): Promise<DbRow> {
+export async function saveCalculatedRunTotals(
+  runId: string,
+  companyId: string,
+  t: CalculatedRunTotals,
+  preparedBy: string | null,
+): Promise<DbRow> {
   const updated = (await sql`
     UPDATE payroll_run_headers SET
       status         = 'calculated',
@@ -204,6 +221,9 @@ export async function saveCalculatedRunTotals(runId: string, companyId: string, 
       total_eti      = ${t.eti},
       total_net      = ${t.net},
       employee_count = ${t.employeeCount},
+      prepared_by     = ${preparedBy}::uuid,
+      approval_plan_hash = NULL,
+      approval_revision = gen_random_uuid(),
       updated_at     = NOW(),
       -- clock_timestamp(), not the transaction's start: taken under the company lock the calculation holds, so a
       -- component change after it (which waits for that lock) is stamped later (payrollRunRecalcGate).
@@ -271,6 +291,9 @@ export async function reopenPayrollRun(opts: {
        SET status = 'calculated',
            approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)
            approved_at = NULL,
+           approval_grandfathered_at = NULL,
+           approval_plan_hash = NULL,
+           approval_revision = gen_random_uuid(),
            reopened_at = c.now,
            approval_history = COALESCE(h.approval_history, '{}'::tstzmultirange)
              + tstzmultirange(tstzrange(CASE WHEN h.approved_at > c.now THEN c.now ELSE h.approved_at END, c.now, '[)')),
@@ -290,6 +313,12 @@ export async function reopenPayrollRun(opts: {
      RETURNING h.id
   `) as DbRow[];
   if (!reopened[0]) throw new PayrollRunReopenRefusedError('Payroll run changed while it was being reopened — it is no longer approved.');
+
+  const reviewedHash = run.approved_plan_hash == null ? GRANDFATHERED_PLAN_HASH : String(run.approved_plan_hash);
+  await recordPayRunApprovalAudit({
+    companyId: opts.companyId, runId: opts.runId, actorId: opts.userId,
+    event: 'reopened', planHash: reviewedHash, metadata: { reason },
+  });
 
   log.info(
     'Payroll run reopened',

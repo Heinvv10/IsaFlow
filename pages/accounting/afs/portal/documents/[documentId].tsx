@@ -9,7 +9,11 @@ import type { GetServerSidePropsContext, InferGetServerSidePropsType } from 'nex
 import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { verifyPortalToken } from '@/lib/auth/portalJwt';
 import { currentPortalSession } from '@/lib/auth/portalAuth';
+import { loadPortalDocument } from '@/modules/accounting/services/afs/portalDocumentService';
+import { log } from '@/lib/logger';
 import { PORTAL_ACCESS_RULES } from '@/modules/accounting/services/afs/afsTypes';
+import { safeRowKind } from '@/modules/accounting/services/afs/managementPackSections';
+import { packSectionViews, type PackSectionInput } from '@/modules/accounting/services/afs/managementPackSectionView';
 
 interface NoteContentBlock {
   type: string;
@@ -17,6 +21,7 @@ interface NoteContentBlock {
   items?: string[];
   headers?: string[];
   rows?: string[][];
+  rowKinds?: string[];
 }
 
 interface NoteContent {
@@ -29,7 +34,9 @@ interface AfsSection {
   sort_order: number;
   status: string;
   content: NoteContent | null;
+  overrides?: { title?: unknown; blocks?: unknown } | null;
   ai_narrative: string | null;
+  ai_narrative_accepted?: boolean | null;
 }
 
 interface AfsDocument {
@@ -52,25 +59,25 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
   if (!session) {
     return { redirect: { destination: '/accounting/afs/portal/login?error=expired', permanent: false } };
   }
-  // Encoded: a `..%2F` in the route param must not re-point this server-side fetch.
-  const documentId = encodeURIComponent(String(context.params?.documentId ?? ''));
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  // Straight from the service the portal API route uses, for the session just verified (no HTTP, so no URL to get
+  // wrong). A malformed id fails its uuid cast inside the service and goes back to the dashboard with the rest.
+  const documentId = String(context.params?.documentId ?? '');
   try {
-    const res = await fetch(`${baseUrl}/api/accounting/portal/documents/${documentId}`, {
-      headers: { Cookie: `portal_session=${cookie}` },
-    });
-    if (!res.ok) {
+    const outcome = await loadPortalDocument(session.companyId, session.role, documentId);
+    if (outcome.kind !== 'ok') {
       return { redirect: { destination: '/accounting/afs/portal/dashboard', permanent: false } };
     }
-    const json = (await res.json()) as { data?: { document: AfsDocument; sections: AfsSection[] } };
+    // JSON round trip: Date columns must reach the page as strings.
+    const { document, sections } = JSON.parse(JSON.stringify(outcome)) as { document: AfsDocument; sections: AfsSection[] };
     return {
       props: {
-        document: json.data!.document,
-        sections: json.data!.sections,
+        document,
+        sections,
         canAnnotate: PORTAL_ACCESS_RULES[session.role].canAnnotate,
       },
     };
-  } catch {
+  } catch (err) {
+    log.warn('Portal document page: could not load the document', { error: err, companyId: session.companyId }, 'portal-document-page');
     return { redirect: { destination: '/accounting/afs/portal/dashboard', permanent: false } };
   }
 }
@@ -88,6 +95,14 @@ export default function PortalDocumentPage({
 
   const isLocked = doc.status === 'signed_off' || doc.status === 'filed';
   const typeLabel = doc.document_type === 'afs' ? 'Annual Financial Statements' : 'Management Pack';
+  const isPack = doc.document_type === 'management_pack';
+  // A pack section prints as it does in the PDF and the app (packSectionView): vocabulary title, never empty, tables, narrative.
+  const shown = (isPack
+    ? packSectionViews(sections.map((s) => ({
+      s, sectionType: s.section_type, sortOrder: s.sort_order, aiNarrative: s.ai_narrative, aiNarrativeAccepted: s.ai_narrative_accepted,
+      content: s.content as PackSectionInput['content'], overrides: s.overrides as PackSectionInput['overrides'],
+    }))).map(({ section, view }) => ({ s: section.s, title: view.title, blocks: view.blocks as NoteContentBlock[], narrative: view.narrative }))
+    : sections.map((s) => ({ s, title: s.section_type.replace(/_/g, ' '), blocks: s.content?.blocks ?? null, narrative: null as string | null })));
 
   async function submitComment(sectionId: string) {
     if (!commentText.trim()) return;
@@ -128,19 +143,19 @@ export default function PortalDocumentPage({
         <div style={{ display:'flex', maxWidth:'1200px', margin:'0 auto', padding:'2rem 1.5rem', gap:'2rem' }}>
           <aside style={{ width:'200px', flexShrink:0, position:'sticky', top:'60px', alignSelf:'flex-start' }}>
             <p style={{ fontSize:'0.75rem', fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.5rem' }}>Sections</p>
-            {sections.map((s) => (
-              <a key={s.id} href={`#s-${s.id}`} style={{ display:'block', padding:'0.3rem 0.4rem', fontSize:'0.875rem', color:'#475569', textDecoration:'none', textTransform:'capitalize', marginBottom:'0.1rem' }}>
-                {s.section_type.replace(/_/g,' ')}
+            {shown.map(({ s, title }) => (
+              <a key={s.id} href={`#s-${s.id}`} style={{ display:'block', padding:'0.3rem 0.4rem', fontSize:'0.875rem', color:'#475569', textDecoration:'none', textTransform: isPack ? 'none' : 'capitalize', marginBottom:'0.1rem' }}>
+                {title}
               </a>
             ))}
           </aside>
           <main style={{ flex:1, minWidth:0 }}>
-            {sections.map((s) => (
+            {shown.map(({ s, title, blocks, narrative }) => (
               <section key={s.id} id={`s-${s.id}`} style={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:'0.75rem', padding:'1.75rem', marginBottom:'1.5rem' }}>
-                <h2 style={{ fontSize:'1rem', fontWeight:700, color:'#0f172a', textTransform:'capitalize', marginBottom:'1rem' }}>{s.section_type.replace(/_/g,' ')}</h2>
-                {s.content && Array.isArray(s.content.blocks) ? (
+                <h2 style={{ fontSize:'1rem', fontWeight:700, color:'#0f172a', textTransform: isPack ? 'none' : 'capitalize', marginBottom:'1rem' }}>{title}</h2>
+                {blocks && Array.isArray(blocks) ? (
                   <div style={{ color: '#334155', lineHeight: 1.7 }}>
-                    {s.content.blocks.map((block, idx) => {
+                    {blocks.map((block, idx) => {
                       if ((block.type === 'paragraph' || block.type === 'heading') && block.text) {
                         return block.type === 'heading'
                           ? <h3 key={idx} style={{ fontSize: '1rem', fontWeight: 700, margin: '0.75rem 0 0.25rem' }}>{block.text}</h3>
@@ -153,11 +168,25 @@ export default function PortalDocumentPage({
                           </ul>
                         );
                       }
-                      // TODO: render 'table' blocks (headers + rows) in a future enhancement
+                      if (isPack && block.type === 'table' && Array.isArray(block.headers) && Array.isArray(block.rows)) {
+                        return (
+                          <div key={idx} style={{ overflowX: 'auto', margin: '0 0 0.75rem' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                              <thead><tr>{block.headers.map((h, i) => <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', padding: '0.4rem 0.6rem', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>{String(h ?? '')}</th>)}</tr></thead>
+                              <tbody>{block.rows.map((row, r) => (
+                                <tr key={r} style={{ fontWeight: safeRowKind(block.rowKinds?.[r]) !== 'line' ? 700 : 400, background: safeRowKind(block.rowKinds?.[r]) === 'total' ? '#e2e8f0' : safeRowKind(block.rowKinds?.[r]) === 'subtotal' ? '#f1f5f9' : undefined }}>
+                                  {row.map((cell, c) => <td key={c} style={{ textAlign: c === 0 ? 'left' : 'right', padding: '0.35rem 0.6rem', borderBottom: '1px solid #e2e8f0' }}>{String(cell ?? '')}</td>)}
+                                </tr>
+                              ))}</tbody>
+                            </table>
+                          </div>
+                        );
+                      }
                       return null;
                     })}
+                    {narrative && <p style={{ margin: '0.5rem 0 0', fontStyle: 'italic', color: '#475569' }}>{narrative}</p>}
                   </div>
-                ) : s.ai_narrative ? (
+                ) : !isPack && s.ai_narrative ? (
                   <p style={{ color:'#334155', lineHeight:1.7, margin:0 }}>{s.ai_narrative}</p>
                 ) : null}
                 {canAnnotate && !isLocked && (

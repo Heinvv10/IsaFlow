@@ -15,6 +15,7 @@ import { reconcileSubledgerTool } from './tools/reconcileSubledger';
 import { generalLedgerTool } from './tools/generalLedger';
 import { balanceSheetTool } from './tools/reportsBalanceSheet';
 import { agedCreditorsTool, agedDebtorsTool } from './tools/reportsAging';
+import { dueByDateTool } from './tools/reportsDueByDate';
 import { profitAndLossTool } from './tools/reportsProfitAndLoss';
 import { listJournalsTool } from './tools/journals';
 import { attachDocumentTool } from './tools/writeAttachDocument';
@@ -165,6 +166,7 @@ export const MCP_TOOLS = [
   balanceSheetTool,
   agedDebtorsTool,
   agedCreditorsTool,
+  dueByDateTool,
   reconcileSubledgerTool,
   generalLedgerTool,
   searchGlTool,

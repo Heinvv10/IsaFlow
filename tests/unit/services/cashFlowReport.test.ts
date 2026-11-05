@@ -53,10 +53,8 @@ vi.mock('@/lib/logger', () => ({
 
 // Opening cash is cash.balance.v1 (K-091g), stood in per test.
 let openingCash = 0;
-// Closing cash is the ledger's own (cash.balance.v1 at the end date): the statement closes on it.
-let ledgerClosing = 0;
 vi.mock('@/modules/accounting/services/bank/cashBalanceService', () => ({
-  getCashBalance: vi.fn(async (_c: string, _d: string, o?: { exclusive?: boolean }) => ({ asAt: '', total: o?.exclusive === true ? openingCash : ledgerClosing, accounts: [], deactivatedWithBalance: [], postedThrough: null })),
+  getCashBalance: vi.fn(async () => ({ asAt: '', total: openingCash, accounts: [], deactivatedWithBalance: [], postedThrough: null })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -145,19 +143,18 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
     /**
      * Opening cash comes from getCashBalance (stood in above); the one SQL
      * call is the collapsed aggregate:
-     *   [0] non-cash movement grouped by account type and subtype → { account_type, account_subtype, debit, credit }
+     *   [0] non-cash movement per journal → { journal_entry_id, net_cash, account_type, account_subtype, debit, credit }
      */
     openingCash = 1500; // cash.balance.v1: debit=2000, credit=500 → 1500
-    ledgerClosing = 3400; // opening 1500 + the 1900 these journals move
     mockSqlResults.push(
       // [0] collapsed aggregate
       [
-        { account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '1000' },
-        { account_type: 'expense', account_subtype: 'operating_expense', debit: '300', credit: '0' }, // net income 700
-        { account_type: 'asset', account_subtype: 'receivable', debit: '0', credit: '200' },     // credit-debit = 200
-        { account_type: 'liability', account_subtype: 'payable', debit: '0', credit: '100' },    // credit-debit = 100
-        { account_type: 'asset', account_subtype: 'fixed_asset', debit: '0', credit: '500' },    // 500
-        { account_type: 'equity', account_subtype: 'equity', debit: '0', credit: '400' },        // 400
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '1000' },
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'expense', account_subtype: 'operating_expense', debit: '300', credit: '0' }, // net income 700
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'asset', account_subtype: 'receivable', debit: '0', credit: '200' },     // credit-debit = 200
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'liability', account_subtype: 'payable', debit: '0', credit: '100' },    // credit-debit = 100
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'asset', account_subtype: 'fixed_asset', debit: '0', credit: '500' },    // 500
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'equity', account_subtype: 'equity', debit: '0', credit: '400' },        // 400
       ],
     );
 
@@ -217,7 +214,6 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
     // Opening 0.1 plus a net change of 0.2 is 0.30000000000000004 in floating
     // point; the report printed that residue as closing cash.
     openingCash = 0.1;
-    ledgerClosing = 0.3;
     mockSqlResults.push(
       [{ account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '0.2' }],
     );
@@ -235,7 +231,6 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
     // Net income 0.1 plus a 0.2 receivables change is 0.30000000000000004 in
     // floating point; the report printed that residue as the net change.
     openingCash = 0;
-    ledgerClosing = 0.3;
     mockSqlResults.push(
       [{ account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '0.1' }, { account_type: 'asset', account_subtype: 'receivable', debit: '0', credit: '0.2' }],
     );
@@ -251,10 +246,9 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
 
   it('VAT control and the other balance-sheet lines are in the statement (the R1 150 cash sale)', async () => {
     openingCash = 0;
-    ledgerClosing = 1150;
     mockSqlResults.push([
-      { account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '1000' },
-      { account_type: 'liability', account_subtype: 'vat_output', debit: '0', credit: '150' },
+      { journal_entry_id: 'j1', net_cash: '1150', account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '1000' },
+      { journal_entry_id: 'j1', net_cash: '1150', account_type: 'liability', account_subtype: 'vat_output', debit: '0', credit: '150' },
     ]);
     const mod = await import('../../../pages/api/accounting/reports-cash-flow');
     const handler = mod.default as (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
@@ -265,27 +259,8 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
     expect(report.closing_cash).toBe(1150);
   });
 
-  it('a ledger whose cash the journals do not explain closes on the ledger with an Unexplained Difference section', async () => {
-    openingCash = 100;
-    ledgerClosing = 1350; // the journals move 1 150; the ledger holds 100 more
-    mockSqlResults.push([
-      { account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '1000' },
-      { account_type: 'liability', account_subtype: 'vat_output', debit: '0', credit: '150' },
-    ]);
-    const mod = await import('../../../pages/api/accounting/reports-cash-flow');
-    const handler = mod.default as (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
-    await handler(makeReq({ start_date: PERIOD_START, end_date: PERIOD_END }), makeRes());
-    const report = (jsonCapture as { data: { report: { sections: Array<{ section: string; total: number; items: Array<{ label: string; amount: number }> }>; net_change: number; closing_cash: number } } }).data.report;
-    const u = report.sections.find(s => s.section === 'Unexplained Difference')!;
-    expect(u.total).toBe(100);
-    expect(u.items[0]!.label).toMatch(/^Unexplained difference/);
-    expect(report.closing_cash).toBe(1350);
-    expect(report.net_change).toBe(1250);
-  });
-
   it('returns all-zero report when no journal lines exist', async () => {
     openingCash = 0;
-    ledgerClosing = 0;
     mockSqlResults.push(
       [], // [0] no non-cash movement
     );

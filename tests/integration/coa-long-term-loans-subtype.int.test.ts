@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { assertDisposableDb, isDisposableDb } from '../helpers/assertDisposableDb';
+import { getIndirectCashFlow } from '@/modules/accounting/services/reports/cashFlowIndirectService';
 
 const describeIfDb = isDisposableDb(process.env.DATABASE_URL) ? describe : describe.skip;
 const MIGRATION = readFileSync(join(process.cwd(), 'scripts/migrations/sql/958_seeded_long_term_loans_subtype.sql'), 'utf8');
@@ -66,6 +67,20 @@ describeIfDb('migration 958: seeded Long-term Loans subtype', () => {
     expect(by['2110']).toBe('payable');
     expect(by['4410']).toBe('disposal_profit_loss');
     expect(rows.length).toBeGreaterThan(30);
+  });
+
+  it('a loan drawn on the SEEDED 2210 is Financing on the cash flow, not Operating (the review\'s B1)', async () => {
+    const acct = async (code: string) => (await pool.query('SELECT id FROM gl_accounts WHERE company_id = $1 AND account_code = $2', [NEW_CO, code])).rows[0].id as string;
+    const bank = randomUUID();
+    await pool.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance) VALUES ($1,$2,'1990','958 bank','asset','bank','debit')`, [bank, NEW_CO]);
+    const e = await pool.query(`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, created_by) VALUES ($1,'958-LOAN','2026-11-10','loan','draft',$1) RETURNING id`, [NEW_CO]);
+    await pool.query(`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,50000,0),($1,$2,$4,0,50000)`, [NEW_CO, e.rows[0].id, bank, await acct('2210')]);
+    await pool.query(`UPDATE gl_journal_entries SET status='posted' WHERE id = $1`, [e.rows[0].id]);
+    const cf = await getIndirectCashFlow(NEW_CO, '2026-11-01', '2026-11-30');
+    const total = (name: string) => cf.sections.find((x) => x.section.startsWith(name))!.total;
+    expect({ operating: total('Operating'), financing: total('Financing') }).toEqual({ operating: 0, financing: 50000 });
+    await pool.query('DELETE FROM gl_journal_lines WHERE company_id = $1', [NEW_CO]);
+    await pool.query('DELETE FROM gl_journal_entries WHERE company_id = $1', [NEW_CO]);
   });
 
   it('the backfill changes exactly the NULL-subtype, exact-name 2210 liability rows', async () => {

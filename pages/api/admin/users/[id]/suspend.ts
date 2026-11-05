@@ -30,14 +30,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     try {
       const { reason } = parsed.data;
 
-      await suspendUser(userId, reason.trim());
+      const stranded = await suspendUser(userId, reason.trim());
 
       await logAdminAction(
         req.user.id,
         'user.suspend',
         'user',
         userId,
-        { reason },
+        // Pending pay-run approvals this left without another approver (the suspension is never refused for them).
+        { reason, ...(stranded.length > 0 ? { stranded_pay_run_requests: stranded } : {}) },
         getIp(req)
       );
 

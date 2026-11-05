@@ -113,7 +113,9 @@ describe('who reads what', () => {
       employment_type, start_date, medical_aid_main_member) VALUES($1,'R1','Ree','Oute','8001015009087','permanent','2026-01-01', true) RETURNING id`, [c])).rows[0].id;
     for (const user of [v, m]) expect((await get(user, c, {})).state.statusCode).toBe(403);
     const feed = await page(a, c, {});
-    expect(new Set(feed.items.map((i) => i.entityType))).toEqual(new Set(['company', 'company_user', 'payroll_employee']));
+    expect(new Set(feed.items.map((i) => i.entityType))).toEqual(new Set([
+      'approval_enforcement', 'approval_rule', 'company', 'company_user', 'payroll_employee',
+    ]));
     expect((await get(v, c, { entityType: 'payroll_employee', entityId: emp })).state.statusCode).toBe(403);
     const t = await page(m, c, { entityType: 'payroll_employee', entityId: emp });
     expect(field(t.items[0]!, 'id_number')).toMatchObject({ after: '…9087', masked: true });

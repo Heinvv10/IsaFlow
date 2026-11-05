@@ -14,6 +14,7 @@ import {
   listCompanyUsers, updateCompanyUserRole, removeCompanyUser, OwnerProtectedError, MemberRoleForbiddenError,
 } from '@/modules/accounting/services/core/userAccessService';
 import { isMemberWriteBusy } from '@/modules/accounting/services/core/memberWrites';
+import { PayRunApproverProtectedError } from '@/modules/accounting/services/core/payRunApproverGuard';
 
 const ADMIN_ROLES = ['owner', 'admin'];
 
@@ -50,6 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, users);
     } catch (err) {
       if (err instanceof OwnerProtectedError || err instanceof MemberRoleForbiddenError) return apiResponse.forbidden(res, err.message);
+      if (err instanceof PayRunApproverProtectedError) return apiResponse.conflict(res, err.message);
       if (isMemberWriteBusy(err)) return apiResponse.conflict(res, 'Another change to these members is in progress. Try again.');
       return apiResponse.badRequestFromError(res, err, 'Update failed.');
     }
@@ -76,6 +78,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, users);
     } catch (err) {
       if (err instanceof OwnerProtectedError || err instanceof MemberRoleForbiddenError) return apiResponse.forbidden(res, err.message);
+      if (err instanceof PayRunApproverProtectedError) return apiResponse.conflict(res, err.message);
       if (isMemberWriteBusy(err)) return apiResponse.conflict(res, 'Another change to these members is in progress. Try again.');
       return apiResponse.badRequestFromError(res, err, 'Remove failed.');
     }

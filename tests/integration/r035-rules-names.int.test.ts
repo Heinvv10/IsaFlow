@@ -28,7 +28,8 @@ const URL = '/api/accounting/approval-rules';
 const call = (as: string, c: string, method: string, body: unknown) => callRoute(approvalRules, tokens[as]!, c, method, body, URL);
 const company = () => newCompany(pool, [[u.owner, 'owner'], [u.admin, 'admin']], companies);
 const rows = async (c: string) => (await pool.query(
-  `SELECT name, document_type, condition_operator, condition_value::TEXT AS v, is_active FROM approval_rules WHERE company_id = $1 ORDER BY created_at`, [c])).rows;
+  `SELECT name, document_type, condition_operator, condition_value::TEXT AS v, is_active
+   FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1 ORDER BY created_at`, [c])).rows;
 const audits = async (c: string) => (await pool.query(
   `SELECT entity_ref FROM audit_log WHERE company_id = $1 AND entity_type = 'approval_rule'`, [c])).rows;
 const status = (res: { state: { statusCode: number } }) => res.state.statusCode;
@@ -99,7 +100,7 @@ describe('names', () => {
   it('PUT rename to the same name padded is a no-op on the stored name; the starter still skips it', async () => {
     const c = await company();
     expect(status(await call(u.owner, c, 'POST', { action: 'starter', rules: [{ documentType: 'supplier_invoice' }] }))).toBe(200);
-    const id = (await pool.query(`SELECT id FROM approval_rules WHERE company_id = $1`, [c])).rows[0].id;
+    const id = (await pool.query(`SELECT id FROM approval_rules WHERE company_id = $1 AND document_type = 'supplier_invoice'`, [c])).rows[0].id;
     expect(status(await call(u.owner, c, 'PUT', { id, name: '  Large supplier invoices ' }))).toBe(200);
     const again = await call(u.owner, c, 'POST', { action: 'starter', rules: [{ documentType: 'supplier_invoice' }] });
     expect((again.state.body as { data: { created: unknown[] } }).data.created).toEqual([]);

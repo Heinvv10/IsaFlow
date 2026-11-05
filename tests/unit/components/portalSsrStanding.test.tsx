@@ -7,7 +7,11 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const h = vi.hoisted(() => ({ current: null as unknown }));
+const h = vi.hoisted(() => ({
+  current: null as unknown,
+  list: vi.fn(async (..._a: unknown[]) => [] as unknown[]),
+  load: vi.fn(async (..._a: unknown[]) => ({ kind: 'ok', document: { id: 'd1' }, sections: [] }) as unknown),
+}));
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/head', () => ({ default: () => null }));
@@ -15,6 +19,7 @@ vi.mock('next/link', () => ({ default: () => null }));
 vi.mock('@/lib/auth/portalJwt', () => ({
   verifyPortalToken: async () => ({ contactId: 'c1', companyId: 'co-1', role: 'director', expiresAt: '' }),
 }));
+vi.mock('@/modules/accounting/services/afs/portalDocumentService', () => ({ listPortalDocuments: h.list, loadPortalDocument: h.load }));
 vi.mock('@/lib/auth/portalAuth', () => ({ currentPortalSession: vi.fn(async () => h.current) }));
 
 import { getServerSideProps as dashboardProps } from '../../../pages/accounting/afs/portal/dashboard';
@@ -25,9 +30,9 @@ const EXPIRED = { redirect: { destination: '/accounting/afs/portal/login?error=e
 
 beforeEach(() => {
   h.current = null;
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-    data: { documents: [], document: { id: 'd1' }, sections: [] },
-  }), { status: 200 })));
+  h.list.mockClear(); h.load.mockClear();
+  // The pages call the service in this process: a fetch of their own API would be a regression.
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('the page must not fetch its own API'); }));
 });
 
 describe('AFS portal pages — server-side session standing', () => {
@@ -49,12 +54,42 @@ describe('AFS portal pages — server-side session standing', () => {
     });
   });
 
-  it('encodes the document id into the server-side fetch: a ../ cannot re-point it', async () => {
+  it('reads the document with the verified session company and CURRENT role, never from the request', async () => {
     h.current = { contactId: 'c1', companyId: 'co-1', role: 'director', expiresAt: '' };
+    await documentProps(ctx);
+    expect(h.load).toHaveBeenCalledWith('co-1', 'director', 'd1');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('a document id that is not a document (a ../ path, a failed read) goes back to the dashboard, never to an error', async () => {
+    h.current = { contactId: 'c1', companyId: 'co-1', role: 'director', expiresAt: '' };
+    h.load.mockRejectedValueOnce(new Error('invalid input syntax for type uuid'));
     const traversal = { req: { cookies: { portal_session: 'tok' } }, params: { documentId: '../../reports/x' } } as never;
-    await documentProps(traversal);
-    const url = new URL(String(vi.mocked(fetch).mock.calls.at(-1)![0]));
-    expect(url.pathname).toBe('/api/accounting/portal/documents/..%2F..%2Freports%2Fx');
+    expect(await documentProps(traversal)).toEqual({ redirect: { destination: '/accounting/afs/portal/dashboard', permanent: false } });
+    expect(h.load).toHaveBeenCalledWith('co-1', 'director', '../../reports/x');
+  });
+
+  it.each([{ kind: 'not_found' }, { kind: 'forbidden', message: 'no' }])('a %o answer goes back to the dashboard', async (outcome) => {
+    h.current = { contactId: 'c1', companyId: 'co-1', role: 'director', expiresAt: '' };
+    h.load.mockResolvedValueOnce(outcome);
+    expect(await documentProps(ctx)).toEqual({ redirect: { destination: '/accounting/afs/portal/dashboard', permanent: false } });
+  });
+
+  it('lists with the session company and current role, and the props survive JSON (Date columns become strings)', async () => {
+    h.current = { contactId: 'c1', companyId: 'co-1', role: 'director', expiresAt: '' };
+    h.list.mockResolvedValueOnce([{ id: 'd1', created_at: new Date('2026-11-01T10:00:00Z') }]);
+    const res = await dashboardProps(ctx) as { props: { documents: Array<{ created_at: unknown }>; loadError: string } };
+    expect(h.list).toHaveBeenCalledWith('co-1', 'director');
+    expect(res.props.documents[0]!.created_at).toBe('2026-11-01T10:00:00.000Z');
+    expect(res.props.loadError).toBe('');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('a failed list is the load error, not a crash', async () => {
+    h.current = { contactId: 'c1', companyId: 'co-1', role: 'director', expiresAt: '' };
+    h.list.mockRejectedValueOnce(new Error('db down'));
+    const res = await dashboardProps(ctx) as { props: { documents: unknown[]; loadError: string } };
+    expect(res.props).toMatchObject({ documents: [], loadError: 'Could not load your documents - try again' });
   });
 
   it("judges annotation by the contact's current role, not the JWT's", async () => {

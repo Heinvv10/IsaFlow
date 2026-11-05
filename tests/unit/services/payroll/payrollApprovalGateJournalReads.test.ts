@@ -135,15 +135,26 @@ describe('judgePayrollApproval — the journal in force, as the gate reads it', 
     expect((await judgePayrollApproval(CO, RUN))?.blocker).toBeNull();
   });
 
-  it('not recalculated since posting: compared on the lines as they stand now, not as posted', async () => {
+  it('not recalculated since posting: a CC1 put on a credit line since posting is the ledger retagged, not the run changing', async () => {
     runRecalculatedSince.mockResolvedValue(false);
-    // A credit line re-tagged since posting: it no longer reads as the plan's untagged PAYE line.
+    // PAYE re-tagged to "cc-now" by tag_journal_lines after posting: the plan's untagged PAYE line still matches it.
     journalRows = [
       posted(LABOUR, '5200', 1000, 0, 'gross'),
       { ...posted(PAYE, '2140', 0, 200, 'paye', 'cc-now'), retagged: true, old_cc1_id: null },
       posted(BANK_OLD, '1110', 0, 800, NET_PAY),
     ];
     givenPlan([planLine(LABOUR, '5200', 1000, 0, 'gross'), planLine(PAYE, '2140', 0, 200, 'paye'), planLine(BANK_NOW, '1544331', 0, 800, NET_PAY)]);
+    expect((await judgePayrollApproval(CO, RUN))?.blocker).toBeNull();
+  });
+
+  it('not recalculated since posting: a changed AMOUNT on a credit line is still a difference', async () => {
+    runRecalculatedSince.mockResolvedValue(false);
+    journalRows = [
+      posted(LABOUR, '5200', 1000, 0, 'gross'),
+      { ...posted(PAYE, '2140', 0, 200, 'paye', 'cc-now'), retagged: true, old_cc1_id: null },
+      posted(BANK_OLD, '1110', 0, 800, NET_PAY),
+    ];
+    givenPlan([planLine(LABOUR, '5200', 1000, 0, 'gross'), planLine(PAYE, '2140', 0, 150, 'paye'), planLine(BANK_NOW, '1544331', 0, 850, NET_PAY)]);
     expect((await judgePayrollApproval(CO, RUN))?.blocker?.code).toBe('recalculated_after_posting');
   });
 });
