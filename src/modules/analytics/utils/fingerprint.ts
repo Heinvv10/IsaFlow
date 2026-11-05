@@ -22,11 +22,10 @@ export function sessionHash(ip: string, userAgent: string, websiteId: string): s
 }
 
 export function extractIp(headers: Record<string, string | string[] | undefined>): string {
-  const cf = headers['cf-connecting-ip'];
-  if (typeof cf === 'string' && cf) return cf;
-  // The visitor behind Cloudflare and nginx, not the leftmost entry (which the client writes).
-  const forwarded = trustedClientIpOf(headers['x-forwarded-for'], undefined);
-  if (forwarded) return forwarded;
+  // The visitor behind Cloudflare and nginx (trustedClientIpOf peels one hop and trusts CF-Connecting-IP only from a
+  // Cloudflare peer), not a header the client can set.
+  const visitor = trustedClientIpOf(headers['x-forwarded-for'], undefined, headers['cf-connecting-ip']);
+  if (visitor) return visitor;
   const real = headers['x-real-ip'];
   if (typeof real === 'string' && real) return real;
   return '0.0.0.0';
