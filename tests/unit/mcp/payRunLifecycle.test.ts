@@ -30,6 +30,10 @@ vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', () => ({
   approvePayrollRun: vi.fn(),
   previewPayrollApproval: vi.fn(),
 }));
+// R-035 clearance reads the approval tables; cleared unless a test says otherwise.
+vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({
+  assertPayRunApproved: vi.fn(async () => ({ grandfathered: false, planHash: 'hash-1' })),
+}));
 // The error classes must be the real ones — the tool branches on them, and a
 // stubbed sentinel would let those branches pass by accident.
 vi.mock('@/modules/accounting/services/payroll/payrollRunLoanApplication', async () => {

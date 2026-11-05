@@ -47,6 +47,9 @@ import { withheldLoansReport as withheldLoans } from '@/modules/accounting/servi
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+
+const NEEDS_PERSON = 'A person must approve this pay run in ISAFlow before the connector can post it.';
 
 /**
  * The stamp that puts this journal in `list_agent_postings`. Without it
@@ -271,6 +274,14 @@ export const approvePayRunTool: McpTool = {
       const gate = await previewPayrollApproval(ctx.companyId, runId);
       if (!gate) return toolError(NOT_FOUND);
       if (gate.blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${gate.blocker.detail}`);
+      // R-035: the live call refuses a plan no person has cleared, so the
+      // dry run does too, against the same plan hash (read-only).
+      try {
+        await assertPayRunApproved(ctx.companyId, runId, gate.planHash);
+      } catch (err) {
+        if (err instanceof ApprovalRequiredError) return toolError(NEEDS_PERSON);
+        throw err;
+      }
       return preview([], gate);
     }
 
@@ -287,7 +298,7 @@ export const approvePayRunTool: McpTool = {
       });
     } catch (err) {
       if (err instanceof ApprovalRequiredError) {
-        return toolError('A person must approve this pay run in ISAFlow before the connector can post it.');
+        return toolError(NEEDS_PERSON);
       }
       if (err instanceof PayrollApprovalRefusedError) return toolError(`Not approved: ${err.message}`);
       // The bounded wait for the run or its journal ran out — before any write.
