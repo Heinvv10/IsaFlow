@@ -15,6 +15,7 @@ import { log } from '@/lib/logger';
 import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { mergedDisclosures } from '@/modules/accounting/services/packs/pages/packIncomeSheet';
 import { fitPageReport } from '@/modules/accounting/services/packs/pages/packPageFit';
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import type { PackPage, PackPageBlock } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -41,6 +42,43 @@ describe('fitPageToBox and a neverTrim disclosure', () => {
 
   it('never abridges a neverTrim disclosure: the page is refused instead', () => {
     expect(() => fitPageReport(page([block('Req', 2, { neverTrim: true }), block('Other', 1, {})]))).toThrow(PackRefusal);
+  });
+});
+
+describe('mergedDisclosures', () => {
+  const req = (heading: string, ...notes: string[]): PackPageBlock =>
+    ({ kind: 'disclosure', disclosure: { heading, required: true, notes: notes.map((n) => ({ heading: n, body: n })) } }) as PackPageBlock;
+
+  it('merges EVERY disclosure block it is given, in order, under one neverTrim heading', () => {
+    const merged = mergedDisclosures([req('A', 'a1', 'a2')], [req('B', 'b1'), req('C', 'c1')]);
+    expect(merged).toHaveLength(1);
+    const d = merged[0]!;
+    expect(d.kind === 'disclosure' && d.disclosure).toMatchObject({ heading: 'Required disclosures', required: true, neverTrim: true });
+    expect(d.kind === 'disclosure' && d.disclosure.notes.map((n) => n.heading)).toEqual(['a1', 'a2', 'b1', 'c1']);
+  });
+
+  it('leaves a lone disclosure alone, heading and all, and merges nothing when there is nothing', () => {
+    const one = req('A', 'a1');
+    expect(mergedDisclosures([one], [])).toEqual([one]);
+    expect(mergedDisclosures([], [one])).toEqual([one]);
+    expect(mergedDisclosures([], [])).toEqual([]);
+  });
+
+  it('refuses a block that is not a required disclosure rather than promote it to neverTrim', () => {
+    const optional = { kind: 'disclosure', disclosure: { heading: 'O', notes: [{ heading: 'o', body: 'o' }] } } as PackPageBlock;
+    expect(() => mergedDisclosures([req('A', 'a1')], [optional])).toThrow(/only required disclosures merge/);
+    expect(() => mergedDisclosures([req('A', 'a1')], [{ kind: 'narrative', narrative: { status: 'derived', body: 'x', actions: [] } }])).toThrow(/only required disclosures merge/);
+  });
+});
+
+describe('neverTrim implies required', () => {
+  it('a block flagged neverTrim alone is not an optional disclosure: its notes are not taken first', () => {
+    const only = page([block('Req', 2, { neverTrim: true, required: undefined }), block('Optional', 2, { required: undefined })]);
+    const { page: fitted, dropped } = fitPageReport(only);
+    // The optional block pays; the neverTrim one keeps both notes.
+    expect(dropped.notes).toBeGreaterThan(0);
+    const kept = fitted.blocks[0]!;
+    expect(kept.kind === 'disclosure' && kept.disclosure.notes).toHaveLength(2);
   });
 });
 

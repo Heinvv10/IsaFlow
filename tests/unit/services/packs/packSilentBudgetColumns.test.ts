@@ -41,6 +41,15 @@ describe('the omission note on a budget company\'s page 6 that has no budget col
     expect(note).toContain('Every other figure, table and chart on the page is complete');
   });
 
+  it('merged disclosures, the #1154 rescue: names the columns too', () => {
+    const { page } = p6({ tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1000, plug: 0.05, sg: [1, -1, -1, -1] });
+    expect(hasColumns(page)).toBe(false);
+    expect(page.blocks.some((b) => b.kind === 'disclosure' && b.disclosure.heading === 'Required disclosures')).toBe(true);
+    const note = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))?.text;
+    expect(note).toMatch(/; the Budget and Variance columns\./);
+    expect(note).not.toContain('Every figure, table and chart');
+  });
+
   it('a company with no budget is not told about columns it never had', () => {
     const { page } = p6({ tr: 'demo', budget: false, prior: true, negative: true, loss: false, k: 1, plug: 0.05, sg: [-1, 1, 1, 1] });
     const note = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))?.text;
