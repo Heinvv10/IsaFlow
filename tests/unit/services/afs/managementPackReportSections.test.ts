@@ -9,7 +9,7 @@ import type { CashFlowDirectReport } from '@/modules/accounting/services/afs/cas
 import type { BankReconciliation } from '@/modules/accounting/types/bank.types';
 import type { NoteContentTable } from '@/modules/accounting/services/afs/afsTypes';
 import {
-  AGEING_TOP, ageingBlocks, ageingFigures, bankReconciliationBlocks, cashFlowBlocks, cashFlowFigures, latestReconciliations,
+  AGEING_TOP, ageingBlocks, ageingFigures, bankReconciliationBlocks, bankReconciliationFigures, cashFlowBlocks, cashFlowFigures, latestReconciliations,
 } from '@/modules/accounting/services/afs/managementPackReportSections';
 
 const plain = (s: string) => s.replace(/ /g, ' ');
@@ -164,5 +164,14 @@ describe('bank reconciliation', () => {
   it('two sessions on one date: the later created wins', () => {
     const all = [rec({ id: 'old', createdAt: '2026-10-01T00:00:00Z' }), rec({ id: 'new', createdAt: '2026-10-02T00:00:00Z' })];
     expect(latestReconciliations(all, '2026-09-30').map((r) => r.id)).toEqual(['new']);
+  });
+
+  it('the figures behind it honour the month end too', () => {
+    const all = [rec({ statementDate: '2026-09-30', difference: 1 }), rec({ id: 'later', statementDate: '2026-10-31', difference: 9 })];
+    expect(bankReconciliationFigures(all, '2026-09-30')).toEqual({
+      asAt: '2026-09-30',
+      accounts: [{ name: 'Main', statementDate: '2026-09-30', statementBalance: 1000, glBalance: 1000, difference: 1, status: 'completed' }],
+    });
+    expect(bankReconciliationFigures(undefined, '2026-09-30')).toEqual({});
   });
 });
