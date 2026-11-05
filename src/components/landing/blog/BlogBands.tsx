@@ -12,7 +12,7 @@ export function IndexBand() {
   return (
     <>
       <Breadcrumb trail={[{ name: 'Home', href: '/' }, { name: 'Blog' }]} />
-      <p className="mb-4 text-sm font-semibold uppercase tracking-widest text-teal-400">The ISAFlow Blog</p>
+      <p className="mb-4 text-sm font-semibold uppercase tracking-widest text-teal-400">The IsaFlow Blog</p>
       <h1 className="max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl">
         Guides for running the numbers of a South African business
       </h1>

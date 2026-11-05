@@ -16,7 +16,7 @@ import {
 export function PricingHero() {
   return (
     <section className="relative bg-[#050a0f] text-white pt-32 pb-20 lg:pt-40 lg:pb-28 overflow-hidden">
-      {/* ambient teal glow — the only flourish; kept quiet */}
+      {/* Ambient teal glow, the only flourish, kept quiet. */}
       <div
         aria-hidden
         className="absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_0%,rgba(20,184,166,0.18),transparent_70%)]"
@@ -28,10 +28,10 @@ export function PricingHero() {
         </h1>
         <p className="text-lg lg:text-xl text-white/70 max-w-2xl mx-auto mb-8">
           One platform for your books, VAT and payroll. And a price that won&apos;t
-          jump on you — capped at inflation, guaranteed.
+          jump on you. It is capped at inflation, guaranteed.
         </p>
         <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-500/15 ring-1 ring-teal-400/30 text-teal-300 text-sm font-semibold mb-10">
-          <Lock className="w-4 h-4" /> CPI price-lock — your rate won&apos;t jump
+          <Lock className="w-4 h-4" /> CPI price-lock: your rate won&apos;t jump
         </span>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <a
@@ -184,8 +184,8 @@ export function BureauSection() {
             Free for your practice. Pay per active client.
           </h2>
           <p className="text-lg text-gray-500">
-            The firm cockpit — portfolio view, bureau rollup and compliance
-            calendar — is free. You only pay for the clients you run.
+            The firm cockpit, portfolio view, bureau rollup and compliance
+            calendar are free. You only pay for the clients you run.
           </p>
         </div>
 
@@ -227,7 +227,7 @@ export function CloseAgentAddOn() {
   return (
     <section className="py-20 lg:py-28 bg-white">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Close Agent — the flagship add-on */}
+        {/* Close Agent, the flagship add-on. */}
         <div className="rounded-3xl bg-gradient-to-br from-gray-900 to-slate-800 text-white p-8 lg:p-12">
           <div className="flex flex-col lg:flex-row lg:items-center gap-8">
             <div className="lg:flex-1">
@@ -254,7 +254,7 @@ export function CloseAgentAddOn() {
           </div>
         </div>
 
-        {/* Payroll — per-employee add-on */}
+        {/* Payroll, the per-employee add-on. */}
         <div className="mt-6 rounded-2xl border border-gray-200 bg-white shadow-sm p-6 lg:p-8">
           <div className="flex flex-col sm:flex-row sm:items-center gap-6">
             <div className="sm:flex-1">

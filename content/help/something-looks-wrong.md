@@ -1,7 +1,7 @@
 ---
 title: "Something looks wrong? What to do (and how to report a bug)"
 slug: "something-looks-wrong"
-description: "What to do if something in ISAFlow looks wrong, what counts as urgent, quick checks to try first, and how to report a bug safely."
+description: "What to do if something in IsaFlow looks wrong, what counts as urgent, quick checks to try first, and how to report a bug safely."
 order: 5
 updated: "2026-10-31"
 ---

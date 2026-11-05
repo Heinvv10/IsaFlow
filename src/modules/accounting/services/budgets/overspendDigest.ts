@@ -11,11 +11,6 @@
  *   - `sendOverspendDigest` (after that transaction committed): `sendEmail` per recipient, outside
  *     any transaction, each email's `email_log` row written after it in a short transaction of its own.
  * Evaluate now (the button) sends no email: the digest belongs to the daily run.
- *
- * Delivery is retried: the crossings commit before the email, so a recipient whose send failed is
- * still owed it. The plan adds to each such recipient's email the alerts they missed
- * (`overspendDigestPending.ts`, read from `email_log` and `budget_alerts`; only the failed recipients,
- * for `RETRY_DAYS`), and the run reports the company as failed while a send fails.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -27,7 +22,6 @@ import {
 import { alertEmailAllowedOnServer, readControlSettings } from './budgetControlSettings';
 import { monthName, pctText, rand } from './overspendAlertsCore';
 import type { FiredAlert } from './overspendAlerts';
-import { readPendingDigestAlerts } from './overspendDigestPending';
 
 export type DigestSkip = 'nothing_fired' | 'server_off' | 'company_off' | 'no_recipients';
 
@@ -56,12 +50,9 @@ function digestAlert(a: FiredAlert): BudgetDigestAlert {
 }
 
 export async function planOverspendDigest(companyId: string, fired: readonly FiredAlert[]): Promise<DigestPlan> {
-  // With nothing fired, a closed gate is "nothing to send" (as ever); only an open gate looks for a debt.
-  const closed = (reason: DigestSkip): DigestPlan => ({ skip: fired.length === 0 ? 'nothing_fired' : reason });
-  if (!alertEmailAllowedOnServer()) return closed('server_off');
-  if (!(await readControlSettings(companyId)).alertEmailEnabled) return closed('company_off');
-  const owed = await readPendingDigestAlerts(companyId);
-  if (fired.length === 0 && owed.size === 0) return { skip: 'nothing_fired' };
+  if (fired.length === 0) return { skip: 'nothing_fired' };
+  if (!alertEmailAllowedOnServer()) return { skip: 'server_off' };
+  if (!(await readControlSettings(companyId)).alertEmailEnabled) return { skip: 'company_off' };
   const users = (await sql`
     SELECT DISTINCT u.email, COALESCE(NULLIF(btrim(u.first_name), ''), u.email) AS name
       FROM company_users cu JOIN users u ON u.id = cu.user_id
@@ -70,19 +61,13 @@ export async function planOverspendDigest(companyId: string, fired: readonly Fir
        AND btrim(COALESCE(u.email, '')) <> ''
      ORDER BY u.email
   `) as DbRow[];
-  const recipients = users.filter((u) => fired.length > 0 || owed.has(String(u.email).toLowerCase()));
-  if (recipients.length === 0) return { skip: users.length === 0 ? 'no_recipients' : 'nothing_fired' };
+  if (users.length === 0) return { skip: 'no_recipients' };
   const company = (await sql`SELECT name FROM companies WHERE id = ${companyId}::UUID`) as DbRow[];
+  const alerts = fired.map(digestAlert);
   return {
     skip: null,
-    emails: recipients.map((u) => {
-      // What fired now, plus what this recipient's failed send(s) missed, once each.
-      const alerts = new Map([...fired, ...(owed.get(String(u.email).toLowerCase()) ?? [])].map((a) => [a.id, a]));
-      const payload = {
-        companyName: String(company[0]?.name ?? ''), recipientName: String(u.name), appBaseUrl: APP_BASE_URL,
-        alerts: [...alerts.values()].sort((x, y) => x.accountCode.localeCompare(y.accountCode) || x.month.localeCompare(y.month)
-          || x.threshold - y.threshold).map(digestAlert),
-      };
+    emails: users.map((u) => {
+      const payload = { companyName: String(company[0]?.name ?? ''), recipientName: String(u.name), alerts, appBaseUrl: APP_BASE_URL };
       return { to: String(u.email), subject: renderBudgetDigestSubject(payload), html: renderBudgetDigestHtml(payload) };
     }),
   };

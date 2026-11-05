@@ -5,5 +5,6 @@
  * Bump it when a change alters what a calculation writes for the same inputs.
  *
  * 1: components read on the period's last day; once-offs inside the month; pro-rata and termination-base flags.
+ * 2: an unaffordable loan keeps its taxable 3801 benefit while omitting the cash instalment.
  */
-export const PAYROLL_CALCULATION_VERSION = 1;
+export const PAYROLL_CALCULATION_VERSION = 2;
