@@ -14,7 +14,9 @@ import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import createRun from '../../pages/api/payroll/runs';
 import applyDirective from '../../pages/api/accounting/tax-directives/[id]/apply';
-import { cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import {
+  authorisePayRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route,
+} from './w3-01-payroll.helpers';
 import { setTerminationDetails, computeTerminationPreview, yearsOfService } from '@/modules/accounting/services/payroll/payrollTerminationService';
 import { createTaxDirective, updateTaxDirectiveStatus } from '@/modules/accounting/services/payroll/taxDirectiveService';
 
@@ -26,6 +28,7 @@ export interface SeveranceFixture {
   company: string;
   employee: string;
   admin: string;
+  approver: string;
   token: string;
   call: ReturnType<typeof routeCaller>;
 }
@@ -33,6 +36,7 @@ export interface SeveranceFixture {
 export async function seedRetrenchedEmployee(pool: Pool, endDate: string, name: string, monthly = MONTHLY): Promise<SeveranceFixture> {
   const company = crypto.randomUUID();
   const admin = crypto.randomUUID();
+  const approver = crypto.randomUUID();
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, name]);
   await seedPayrollCompany(pool, company, monthly);
   const employee = String((await pool.query('SELECT id FROM payroll_employees WHERE company_id = $1', [company])).rows[0]!.id);
@@ -43,12 +47,20 @@ export async function seedRetrenchedEmployee(pool: Pool, endDate: string, name: 
   await setTerminationDetails(company, employee, {
     reason: 'retrenchment', noticePeriodDays: 30, servedNoticeDays: 30, severanceWeeksPerYear: 1, includeLeavePayout: false,
   });
-  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
-  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, admin]);
+  await pool.query(
+    "INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true),($3,$4,'admin',true)",
+    [admin, `${admin}@test.local`, approver, `${approver}@test.local`],
+  );
+  await pool.query(
+    "INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin'),($1,$3,'owner')",
+    [company, admin, approver],
+  );
   const tokens: Record<string, string> = {};
-  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
-  return { company, employee, admin, token: tokens[admin]!, call: routeCaller(tokens, { user: admin, company }) };
+  tokens[approver] = await new SignJWT({ sub: approver, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
+    .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  return { company, employee, admin, approver, token: tokens[admin]!, call: routeCaller(tokens, { user: admin, company }) };
 }
 
 /** The severance the termination flow calculates for this employee leaving on `endDate`. */
@@ -89,9 +101,17 @@ export async function calculateRun(f: SeveranceFixture, id: string) {
 /** The approval preview (GET …/journal-plan): plan, blocker and hash. */
 export const previewRun = (f: SeveranceFixture, id: string) => f.call(journalPlan as Route, 'GET', url(id, 'journal-plan'), id);
 
-export async function approveRun(f: SeveranceFixture, id: string) {
+export const authoriseRun = (f: SeveranceFixture, id: string) => authorisePayRun(f.call, id, f.approver);
+
+/** Post a run whose current plan already has a cleared approval request. */
+export async function postRun(f: SeveranceFixture, id: string) {
   const plan = await previewRun(f, id);
   return f.call(approve as Route, 'POST', url(id, 'approve'), id, { body: { expectedPlanHash: plan.body.data?.planHash } });
+}
+
+export async function approveRun(f: SeveranceFixture, id: string) {
+  await authoriseRun(f, id);
+  return postRun(f, id);
 }
 
 export const reopenRun = (f: SeveranceFixture, id: string) =>
@@ -122,5 +142,5 @@ export async function cleanSeveranceFixtures(pool: Pool, fixtures: SeveranceFixt
   await pool.query('DELETE FROM tax_directive_payments WHERE company_id = ANY($1)', [ids]);
   await pool.query('DELETE FROM tax_directives WHERE company_id = ANY($1)', [ids]);
   await cleanPayrollCompanies(pool, ids);
-  await pool.query('DELETE FROM users WHERE id = ANY($1)', [fixtures.map(f => f.admin)]);
+  await pool.query('DELETE FROM users WHERE id = ANY($1)', [fixtures.flatMap(f => [f.admin, f.approver])]);
 }

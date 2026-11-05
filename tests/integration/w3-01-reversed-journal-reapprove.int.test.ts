@@ -24,7 +24,7 @@ import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import createRun from '../../pages/api/payroll/runs';
 import jeAction from '../../pages/api/accounting/journal-entries-action';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -37,7 +37,11 @@ let salary = '';
 const url = (id: string, action: string) => `/api/payroll/runs/${id}/${action}`;
 const preview = (id: string) => call(journalPlan as Route, 'GET', url(id, 'journal-plan'), id);
 const approveWith = (id: string, expectedPlanHash: unknown) => call(approve as Route, 'POST', url(id, 'approve'), id, { body: { expectedPlanHash } });
-const doApprove = async (id: string) => approveWith(id, (await preview(id)).body.data?.planHash);
+const doApprove = async (id: string) => {
+  const planHash = (await preview(id)).body.data?.planHash;
+  await authorisePayRun(call, id);
+  return approveWith(id, planHash);
+};
 const doReopen = (id: string) => call(reopen as Route, 'POST', url(id, 'reopen'), id, { body: { reason: 'w301 reversed journal' } });
 const doCalculate = (id: string) => call(calculate as Route, 'POST', url(id, 'calculate'), id);
 const reverse = (journalId: string) => call(jeAction as Route, 'POST', '/api/accounting/journal-entries-action', undefined, { body: { id: journalId, action: 'reverse' } });
@@ -64,7 +68,7 @@ beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'W301 reversed journal']);
   salary = await seedPayrollCompany(pool, company);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
-  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, admin]);
 });
@@ -106,6 +110,7 @@ describe('a reopened run whose journal was reversed (W3-01 breaker A)', () => {
     expect((await approveWith(id, told.body.data!.planHash)).statusCode).toBe(409);
     expect(await header(id)).toMatchObject({ status: 'calculated', journal_entry_id: j1 });
 
+    await authorisePayRun(call, id);
     const again = await approveWith(id, p.body.data!.planHash);
     expect(again.statusCode).toBe(200);
     const j2 = String(again.body.data!.journalEntryId);
@@ -179,6 +184,7 @@ describe('a reopened run whose journal was reversed (W3-01 breaker A)', () => {
     expect(p.body.data!.plan.advisories).toEqual([expect.objectContaining({
       code: 'replacement_dated_on_reversal', detail: expect.stringContaining(`reversed by ${reversal.entry_number} on ${reversal.d}`),
     })]);
+    await authorisePayRun(call, id);
     const again = await approveWith(id, p.body.data!.planHash);
     expect(again.statusCode).toBe(200);
     const j2 = String(again.body.data!.journalEntryId);
@@ -204,6 +210,7 @@ describe('a reopened run whose journal was reversed (W3-01 breaker A)', () => {
     const pj = (await preview(june)).body.data!;
     expect(pm.plan.totals).toEqual(pj.plan.totals);
     expect(pm.planHash).not.toBe(pj.planHash);
+    await authorisePayRun(call, june);
     const stale = await approveWith(june, pm.planHash);
     expect(stale.statusCode).toBe(409);
     expect(await header(june)).toMatchObject({ status: 'calculated', journal_entry_id: null });

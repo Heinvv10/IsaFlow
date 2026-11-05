@@ -84,7 +84,7 @@ describe('the allocation journal is reversible around the reversal gate', () => 
     expect((await act(b, f.c, { action: 'reverse', bankTransactionId: f.line })).state.statusCode).toBe(200);
     expect((await pool.query("SELECT count(*)::INT AS n FROM audit_log WHERE company_id = $1 AND action = 'reverse'", [f.c])).rows[0].n).toBe(1);
     const off = await allocatedByA();
-    await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [off.c]);
+    await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [off.c]);
     expect((await viaGl(a, off.c, off.je)).state.statusCode).toBe(200);
     expect(await contras(off.c)).toBe(1);
   });

@@ -6,6 +6,7 @@ import { employerContributionWarning, employerFundBenefitWarning, isEmployerFund
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
+import { sdlLeviableToDate } from './sdlLeviableCumulative';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import type {
   PayrollLineInput,
@@ -90,6 +91,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       // As the line was costed: a LOAN deduction is never taxable (below), whatever the catalogue says.
       isTaxable: component.isTaxable && !(component.componentType === 'deduction' && normaliseSarsCode(component.sarsSourceCode) === 'LOAN'),
       isUifApplicable: component.isUifApplicable,
+      // Counted toward the SDL-applicable remuneration below: the year to date rebuilds it from this (payrollSdlYearToDate).
+      isSdlApplicable: component.componentType === 'earning' && component.isSdlApplicable,
       ...(isNonCash ? { isNonCash: true } : {}),
       ...(directive ? { directive } : {}),
       // Marked on the line itself, so the certificate never re-reads today's components (payrollRetirementRecord).
@@ -194,12 +197,21 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
     : calculateUIF(uifLeviable, taxYear);
 
+  // SDL is levied on SDL-applicable pay less the para 2(4) retirement deduction PAYE allowed, over the tax year
+  // (sdlLeviableCumulative). Other taxable deductions and donations (4030: no s18A receipt modelled) reduce PAYE only;
+  // the s4(b) threshold stays on gross (sdlLeviabilityService).
+  // The pay enters the cumulative maths as the cent figure the line stores (sdl_applicable), so the year to date and
+  // this line work from exactly the same numbers.
+  const sdlApplicable = round2(sdlLeviable);
+  const sdlLeviableAfterDeductions = sdlLeviableToDate(employee.id, sdlApplicable, retirementDeduction, input.ytd);
+
   // Leviability depends on the employer's twelve-month remuneration, not on
   // this line, so a caller costing a full run defers and applies the threshold
-  // once it knows that total.
+  // once it knows that total. Charged on the cent-rounded leviable amount the
+  // line stores, which is what the run pass (applySdlToLines) recomputes from.
   const sdl = annualPayrollEstimate === 'defer'
     ? 0
-    : calculateSDL(sdlLeviable, annualPayrollEstimate, taxYear);
+    : calculateSDL(sdlLeviableAfterDeductions, annualPayrollEstimate, taxYear);
 
   // Missing dates are reported as indeterminate, never fabricated into a
   // determination of "not eligible" — see resolveEtiForEmployee.
@@ -270,7 +282,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     retirementDeduction,
     uif,
     sdl: Math.round(sdl * 100) / 100,
-    sdlLeviable: Math.round(sdlLeviable * 100) / 100,
+    sdlLeviable: sdlLeviableAfterDeductions,
+    sdlApplicable,
     eti: etiRaw,
     netPay: Math.max(0, netPay),
     componentBreakdown: breakdown,

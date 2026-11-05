@@ -29,7 +29,8 @@ const rule = async (id: string) => (await pool.query(
   'SELECT is_active, approver_role, condition_operator, condition_value::TEXT AS value FROM approval_rules WHERE id = $1',
   [id])).rows[0];
 const switches = async (c: string) => (await pool.query(
-  'SELECT document_type FROM approval_enforcement WHERE company_id = $1 ORDER BY 1', [c])).rows.map((x) => x.document_type);
+  "SELECT document_type FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1 ORDER BY 1",
+  [c])).rows.map((x) => x.document_type);
 /** The gate still holds: the manager cannot approve the bill the owner rule governs. */
 const stillGated = async (f: { c: string; bill: { id: string } }) =>
   expect((await r.approveBill(u.m, f.c, f.bill.id)).state.statusCode).toBe(409);

@@ -5,7 +5,7 @@
  * what another refuses (W3-01 review).
  *
  * In order:
- *   1. status: draft / calculated / processed, or approved with no journal; then a run calculated by an older
+ *   1. status: draft / calculated, or approved with no journal; then a run calculated by an older
  *      calculation (`recalculate_required`), and after the directive and year-to-date checks, component dates changed
  *      since calculation or a leaver with no termination base (payrollRunRecalcGate) — for every approval;
  *   1a. severance lines whose SARS directive was paid by something else, or no
@@ -286,5 +286,10 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;
   })();
 
-  return { plan, posted, replaces, blocker, planHash: hashOf(plan, posted, replaces) };
+  const revisionRows = (await sql`
+    SELECT approval_revision FROM payroll_run_headers
+    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+  `) as DbRow[];
+  const revision = revisionRows[0]?.approval_revision == null ? null : String(revisionRows[0].approval_revision);
+  return { plan, posted, replaces, blocker, planHash: hashOf(plan, posted, replaces, revision) };
 }

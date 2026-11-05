@@ -18,7 +18,7 @@ import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import jeAction from '../../pages/api/accounting/journal-entries-action';
 import { findChainRoot, readJournalChain } from '@/modules/accounting/services/payroll/payrollJournalChain';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -29,7 +29,11 @@ const call = routeCaller(tokens, { user: admin, company });
 
 const url = (id: string, action: string) => `/api/payroll/runs/${id}/${action}`;
 const preview = (id: string) => call(journalPlan as Route, 'GET', url(id, 'journal-plan'), id);
-const doApprove = async (id: string) => call(approve as Route, 'POST', url(id, 'approve'), id, { body: { expectedPlanHash: (await preview(id)).body.data?.planHash } });
+const doApprove = async (id: string) => {
+  const planHash = (await preview(id)).body.data?.planHash;
+  await authorisePayRun(call, id);
+  return call(approve as Route, 'POST', url(id, 'approve'), id, { body: { expectedPlanHash: planHash } });
+};
 const reverse = (journalId: string) => call(jeAction as Route, 'POST', '/api/accounting/journal-entries-action', undefined, { body: { id: journalId, action: 'reverse' } });
 /** Approve and reopen: the run links j1. With `reversed`, j1 is then reversed by a contra. */
 async function reopenedRun(month: number, reversed: boolean) {
@@ -47,7 +51,7 @@ beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'W301 forged links']);
   await seedPayrollCompany(pool, company);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
-  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, admin]);
 });

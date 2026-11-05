@@ -7,7 +7,7 @@
  * the run so the next execution can reuse it.
  */
 import { test, expect } from '@playwright/test';
-import { Api, PAYROLL_SANDBOX_MONTH } from './_api';
+import { Api, ApiError, PAYROLL_SANDBOX_MONTH } from './_api';
 import { describeGoldenCompany } from './helpers/goldenSlot';
 
 test('payroll run: create → calculate → approve posts a GL journal', async ({ baseURL }) => {
@@ -62,6 +62,47 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
 
     const calculated = await api.post<any>(`/api/payroll/runs/${runId}/calculate`);
     expect(Number(calculated.employeeCount ?? calculated.totalGross ?? 1)).toBeGreaterThan(0);
+
+    // Every run needs R-035 clearance (migration 951). A CI/dev slot has one
+    // eligible member, so the audited sole-approver exception lets that member
+    // authorise it. The post-deploy run logs in to a company with other
+    // owners/admins, where the raiser may not approve their own request: one
+    // login cannot clear a run there, so the spec proves the two-person gate
+    // instead (self-approval refused, the run refused without clearance) and
+    // posts nothing. The pending request is reused by the next execution.
+    const request = await api.post<{ id: string; documentDigest: string }>('/api/accounting/approval-requests', {
+      action: 'request', documentType: 'pay_run', documentId: runId,
+    });
+    const selfApproval = await api.post('/api/accounting/approval-requests', {
+      action: 'approve', requestId: request.id, expectedDigest: request.documentDigest,
+    }).then(() => 'approved' as const, (err: unknown) => {
+      const reason = (err as ApiError)?.body as { error?: { details?: { reason?: string } } } | undefined;
+      if (err instanceof ApiError && err.status === 403 && reason?.error?.details?.reason === 'SELF_APPROVAL_FORBIDDEN') {
+        return 'refused' as const;
+      }
+      throw err;
+    });
+    if (selfApproval === 'refused') {
+      test.info().annotations.push({
+        type: 'two-person-gate',
+        description: 'self-approval refused: the approve/journal path is not run here, only the R-035 refusal is proved',
+      });
+      const plan = await api.get<any>(`/api/payroll/runs/${runId}/journal-plan`);
+      expect(plan.blocker, 'the costed run must be approvable').toBeNull();
+      const unapproved = await api.post<any>(`/api/payroll/runs/${runId}/approve`, {
+        expectedPlanHash: plan.planHash,
+      }).then(() => null, (err: unknown) => err);
+      expect(unapproved, 'a run with no second-person clearance must not post').toBeInstanceOf(ApiError);
+      const refusal = unapproved as ApiError;
+      const details = (refusal.body as { error?: { details?: { reason?: string } } })?.error?.details;
+      expect(refusal.status, 'refused by the R-035 gate').toBe(409);
+      expect(details?.reason, 'the pending request is what refuses it').toBe('APPROVAL_PENDING');
+      const after = await api.get<any>(`/api/payroll/runs/${runId}`);
+      expect(after.status, 'the run is not approved').not.toBe('approved');
+      // The reused run may still link the earlier, reversed journal; no new one may appear.
+      expect([null, linked ?? null], 'no new journal is posted').toContain(after.journalEntryId ?? null);
+      return;
+    }
 
     // Approve as the run page does: preview the journal, then send the hash of
     // what was previewed — the route refuses an approval without it (BRK-596).

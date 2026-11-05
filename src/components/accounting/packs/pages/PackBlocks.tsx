@@ -27,6 +27,8 @@ import { ComparativeTable } from '../primitives/ComparativeTable';
 import { ScorecardTable } from '../primitives/ScorecardTable';
 import { NarrativeColumns } from '../primitives/NarrativeColumns';
 import { StatTile } from '../primitives/StatTile';
+import { formatFigureText } from '../primitives/packFigureText';
+import { kpiFitStyle } from '../primitives/packFigureFit';
 import { MattersTable } from '../primitives/MattersTable';
 import { PackChartBlock, PackSmallMultiples } from './PackChartBlock';
 import { PackDefinitionsBlock, PackDisclosureBlock } from './PackNoteBlocks';
@@ -48,7 +50,7 @@ export function PackBlockView({ block, scale }: PackBlockViewProps) {
   switch (block.kind) {
     case 'kpiTiles':
       return (
-        <div className="pack-kpi-tiles">
+        <div className="pack-kpi-tiles" style={kpiFitStyle(block.tiles.map((tile) => (tile.figure.value === null ? null : formatFigureText(tile.figure, scale))))}>
           {block.tiles.map((tile, index) => (
             <KpiTileWithSparkline key={`${tile.label}-${index}`} tile={tile} scale={scale} />
           ))}
