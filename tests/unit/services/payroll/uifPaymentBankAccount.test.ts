@@ -39,7 +39,7 @@ vi.mock('@/modules/accounting/services/gl/paymentBankAccount', async (orig) => (
 }));
 
 import { BankAccountRefusedError } from '@/modules/accounting/services/gl/paymentBankAccount';
-import { markUifDeclarationPaid } from '@/modules/accounting/services/payroll/uifPaymentService';
+import { markUifDeclarationPaid, UifDeclarationNotSubmittedError } from '@/modules/accounting/services/payroll/uifPaymentService';
 
 const CO = 'aaaaaaaa-0000-4000-8000-000000000001';
 const DECL = 'dddddddd-0000-4000-8000-000000000002';
@@ -80,6 +80,7 @@ describe('markUifDeclarationPaid — a declaration that is not submitted', () =>
     resolvePaymentBankAccount.mockRejectedValue(new BankAccountRefusedError('No active account holds the company\'s bank role.'));
     const err = await markUifDeclarationPaid(CO, DECL, {}, USER).catch((e: unknown) => e);
     expect(err).not.toBeInstanceOf(BankAccountRefusedError);
+    expect(err).toBeInstanceOf(UifDeclarationNotSubmittedError);
     expect((err as Error).message).toBe(`UIF declaration must be 'submitted' before paying (current: ${status})`);
     expect(resolvePaymentBankAccount).not.toHaveBeenCalled();
     expect(writes).toEqual([]);

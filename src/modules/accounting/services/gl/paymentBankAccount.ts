@@ -34,14 +34,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 async function checkSupplied(companyId: string, accountId: string, what: string, requireBankSubtype: boolean): Promise<string> {
   if (!UUID_RE.test(accountId)) throw new BankAccountRefusedError(`${what} must be a valid UUID`);
   const rows = (await sql`
-    SELECT id, account_code, account_name, account_subtype, is_active
+    SELECT id, account_code, account_name, account_type, account_subtype, is_active
     FROM gl_accounts
     WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID
-  `) as Array<{ id: string; account_code: string; account_name: string; account_subtype: string | null; is_active: boolean | null }>;
+  `) as Array<{ id: string; account_code: string; account_name: string; account_type: string | null; account_subtype: string | null; is_active: boolean | null }>;
   const acc = rows[0];
   if (!acc) throw new BankAccountRefusedError(`${what} is not an account of this company`);
   const label = `${acc.account_code} ${acc.account_name}`;
   if (requireBankSubtype && !isBankSubtype(acc.account_subtype)) throw new BankAccountRefusedError(`${label} is not a bank account`);
+  // A stored id skips the subtype check, but must still be an asset: a revenue / expense / liability id is no bank.
+  if (!requireBankSubtype && acc.account_type !== 'asset') throw new BankAccountRefusedError(`${label} is not a bank account`);
   if (acc.is_active === false) throw new BankAccountRefusedError(`${label} is deactivated`);
   try {
     await assertNoHeaderAccountLines(companyId, [{ glAccountId: acc.id }]);
@@ -60,7 +62,7 @@ async function checkSupplied(companyId: string, accountId: string, what: string,
  * `requireBankSubtype: false` is for an id the company stored itself (a loan's
  * `bank_account_id`): that was never subtype-checked, and nothing in the UI can
  * change it, so a cash / NULL-subtype account would otherwise refuse every
- * payment for good. Company, active and postable are still checked.
+ * payment for good. Company, asset type, active and postable are still checked.
  */
 export async function resolvePaymentBankAccount(
   companyId: string,

@@ -146,6 +146,13 @@ describe('resolvePaymentBankAccount — a loan\'s STORED bank (requireBankSubtyp
     await expect(resolvePaymentBankAccount(CO, 'nope', what, STORED)).rejects.toThrow(/The loan's bank account must be a valid UUID/);
   });
 
+  it.each(['revenue', 'expense', 'liability'])('refuses a stored id that is a %s account, in the bank-account wording', async (account_type) => {
+    table.push(row(id(30), '4000', { account_type, account_subtype: null }));
+    await expect(resolvePaymentBankAccount(CO, id(30), what, STORED)).rejects.toThrow(/4000 Acct 4000 is not a bank account/);
+    const err = await resolvePaymentBankAccount(CO, id(30), what, STORED).catch((e: unknown) => e);
+    expect(isBankAccountRefusal(err)).toBe(true);
+  });
+
   it('a caller-supplied id (the default) still demands the bank subtype', async () => {
     await expect(resolvePaymentBankAccount(CO, id(8), what)).rejects.toThrow(/is not a bank account/);
   });

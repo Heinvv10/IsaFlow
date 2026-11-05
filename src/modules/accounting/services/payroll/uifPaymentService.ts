@@ -28,7 +28,16 @@ function alreadyPaid(decl: UifDeclaration): UifPaymentResult {
   return { id: decl.id, totalPaid: decl.totalUif, journalEntryId: decl.journalEntryId ?? '', status: 'paid' };
 }
 
-const notSubmitted = (status: string): Error => new Error(`UIF declaration must be 'submitted' before paying (current: ${status})`);
+/** The declaration is not 'submitted' (draft, accepted). Raised before anything is written; the route answers 409. */
+export class UifDeclarationNotSubmittedError extends Error {
+  readonly code = 'UIF_DECLARATION_NOT_SUBMITTED';
+  constructor(readonly status: string) {
+    super(`UIF declaration must be 'submitted' before paying (current: ${status})`);
+    this.name = 'UifDeclarationNotSubmittedError';
+  }
+}
+
+const notSubmitted = (status: string): UifDeclarationNotSubmittedError => new UifDeclarationNotSubmittedError(status);
 
 /** DR 2150 UIF Payable / CR Bank (`bankAccountId`, else the bank-role holder) — clears the month's UIF liability on payment to Labour Dept. */
 export async function markUifDeclarationPaid(

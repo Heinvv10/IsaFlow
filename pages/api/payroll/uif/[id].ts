@@ -15,7 +15,7 @@ import {
   markUifSubmitted,
 } from '@/modules/accounting/services/payroll/uifDeclarationService';
 import { isBankAccountRefusal } from '@/modules/accounting/services/gl/paymentBankAccount';
-import { markUifDeclarationPaid } from '@/modules/accounting/services/payroll/uifPaymentService';
+import { markUifDeclarationPaid, UifDeclarationNotSubmittedError } from '@/modules/accounting/services/payroll/uifPaymentService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,6 +57,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         return apiResponse.success(res, result);
       } catch (err) {
         // Raised before the declaration is claimed (uifPaymentService), inside the journal-date savepoint.
+        if (err instanceof UifDeclarationNotSubmittedError) return apiResponse.conflict(res, err.message);
         if (isBankAccountRefusal(err)) return apiResponse.badRequest(res, err.message);
         throw err;
       }

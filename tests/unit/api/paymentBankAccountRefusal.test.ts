@@ -23,13 +23,16 @@ vi.mock('@/modules/accounting/services/payroll/taxDirectivePaymentService', () =
   TaxDirectiveSplitChangedError: class extends Error {},
   TaxDirectiveWithoutEmployeeError: class extends Error {},
 }));
-vi.mock('@/modules/accounting/services/payroll/uifPaymentService', () => ({ markUifDeclarationPaid: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/uifPaymentService', () => ({
+  markUifDeclarationPaid: vi.fn(),
+  UifDeclarationNotSubmittedError: class extends Error {},
+}));
 vi.mock('@/modules/accounting/services/payroll/uifDeclarationService', () => ({ getUifDeclaration: vi.fn(), markUifSubmitted: vi.fn() }));
 vi.mock('@/modules/accounting/services/loans/loanPaymentService', () => ({ listLoanPayments: vi.fn(), recordLoanPayment: vi.fn() }));
 
 import { BankAccountRefusedError } from '@/modules/accounting/services/gl/paymentBankAccount';
 import { applyTaxDirective } from '@/modules/accounting/services/payroll/taxDirectivePaymentService';
-import { markUifDeclarationPaid } from '@/modules/accounting/services/payroll/uifPaymentService';
+import { markUifDeclarationPaid, UifDeclarationNotSubmittedError } from '@/modules/accounting/services/payroll/uifPaymentService';
 import { recordLoanPayment } from '@/modules/accounting/services/loans/loanPaymentService';
 import applyRoute from '../../../pages/api/accounting/tax-directives/[id]/apply';
 import uifRoute from '../../../pages/api/payroll/uif/[id]';
@@ -73,5 +76,15 @@ describe.each(routes)('%s route', (_name, route, method, body, service) => {
   it('rethrows any other failure', async () => {
     service().mockRejectedValue(new Error('boom'));
     await expect(call(route, method, body)).rejects.toThrow('boom');
+  });
+});
+
+describe('UIF mark paid route - a declaration that is not submitted', () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it('answers 409 with the reason, not a 500', async () => {
+    vi.mocked(markUifDeclarationPaid).mockRejectedValue(new UifDeclarationNotSubmittedError('draft'));
+    const res = await call(uifRoute, 'PATCH', { markPaid: true });
+    expect(res.statusCode).toBe(409);
   });
 });
