@@ -32,7 +32,6 @@ const { r, eft, fixture, approve, changeBank, storedDigest } = digestKit(pool, u
 
 const SQL_DIR = 'scripts/migrations/sql';
 const MIGRATION = readFileSync(`${SQL_DIR}/923_payment_digest_payee_name_originator.sql`, 'utf8');
-const CURRENT_APPROVAL_WRAPPERS = readFileSync(`${SQL_DIR}/951_pay_run_approval.sql`, 'utf8');
 /** One CREATE OR REPLACE FUNCTION statement, as a migration file defines it. */
 function definition(file: string, fn: string): string {
   const text = readFileSync(`${SQL_DIR}/${file}`, 'utf8');
@@ -44,6 +43,9 @@ function definition(file: string, fn: string): string {
 const OLD_CONTENT = definition('867_supplier_payment_approval_enforcement.sql', 'approval_supplier_payment_content');
 const OLD_DIGEST = definition('874_customer_invoice_line_revenue_coding.sql', 'approval_document_digest');
 const OLD_AUTHORS = definition('867_supplier_payment_approval_enforcement.sql', 'approval_supplier_payment_authors');
+/** 951's pay_run wrappers; only these three functions, never the rest of 951 (it stamps payroll rows database-wide). */
+const CURRENT_APPROVAL_WRAPPERS = ['approval_document_digest', 'approval_document_authors', 'approval_request_document_facts']
+  .map((fn) => definition('951_pay_run_approval.sql', fn));
 
 /** The migration, in one transaction as apply-migrations runs it; returns its notices. */
 async function migrate(): Promise<string[]> {
@@ -89,10 +91,9 @@ beforeEach(() => {
 });
 afterAll(async () => {
   await migrate();
-  // 923 replaces database-wide approval helpers. Restore the later pay-run
-  // wrapper as the current schema has it so this fixture cannot poison the
-  // next integration suite in the shard.
-  await pool.query(CURRENT_APPROVAL_WRAPPERS);
+  // 923 replaces database-wide approval helpers. Put back only 951's three pay-run
+  // wrapper definitions (not the whole migration) so the next suite sees the current schema.
+  for (const wrapper of CURRENT_APPROVAL_WRAPPERS) await pool.query(wrapper);
   await cleanupPr5(pool, companies, Object.values(u));
 });
 
