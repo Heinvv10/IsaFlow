@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Paperclip, Upload, AlertCircle, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
@@ -158,7 +159,9 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   if (viewIndex !== null && viewable[viewIndex]) {
     return <AttachmentViewer attachments={viewable} startIndex={viewIndex} onClose={() => setViewIndex(null)} />;
   }
-  return (
+  // Into document.body: AppLayout's main column is `relative z-0`, so in place the top nav drew over the backdrop.
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 outline-none" role="dialog" aria-modal="true" aria-label="Attachments">
       <div
         className="w-full max-w-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[85vh]"
@@ -258,6 +261,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

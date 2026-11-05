@@ -91,3 +91,14 @@ describe('BankTxAttachmentsModal viewing', () => {
     await vi.waitFor(() => expect(onCountChange).toHaveBeenLastCalledWith(1));
   });
 });
+
+describe('BankTxAttachmentsModal placement', () => {
+  it('renders into document.body, outside the layout column whose stacking context the top nav draws over', async () => {
+    const { container } = render(<main style={{ position: 'relative', zIndex: 0 }}>
+      <BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />
+    </main>);
+    const dialog = await screen.findByRole('dialog', { name: 'Attachments' });
+    expect(container.contains(dialog)).toBe(false);
+    expect(dialog.parentElement).toBe(document.body);
+  });
+});
