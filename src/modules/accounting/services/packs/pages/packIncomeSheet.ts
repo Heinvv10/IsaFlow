@@ -15,6 +15,7 @@ import { impossibleIncomeLinesSentence, incomeStatementTitle, largestMoverCaptio
 import { buildProfitWaterfallChart, profitBridgeAtHeight, shorterProfitBridge } from './packPageCharts';
 import { anchorRow } from './packStatementTables';
 import { bridgeSignFootnote, droppableCommentary, mustDisclose, note } from './packPageBlocks';
+import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { page, type UnnumberedPage } from './packFrontMatter';
 import { pageBoxMm, pageMm } from './packPageMetrics';
 import { periodWindowFootnotes } from './packTrendCrossReference';
@@ -63,7 +64,10 @@ export function mergedDisclosures(lines: PackPageBlock[], step: PackPageBlock[])
     // Every block merged is a required disclosure (`mustDisclose`): anything else would be promoted to
     // `neverTrim` here, which is not this function's to decide.
     if (block.kind !== 'disclosure' || block.disclosure.required !== true) {
-      throw new Error(`mergedDisclosures: only required disclosures merge, got a ${block.kind} block`);
+      throw new PackRefusal(
+        `mergedDisclosures: only required disclosures merge, got a ${block.kind} block on "Income statement"`,
+        'The "Income statement" page of this pack could not be composed. The pack has not been produced; please contact support with the period you asked for.',
+      );
     }
     return block.disclosure.notes;
   });

@@ -16,6 +16,8 @@ import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { mergedDisclosures } from '@/modules/accounting/services/packs/pages/packIncomeSheet';
+import { relaidNarrative } from '@/modules/accounting/services/packs/pages/packNarrativeLayout';
+import { fitRelaidPage } from '@/modules/accounting/services/packs/pages/packNarrativeFit';
 import { fitPageReport } from '@/modules/accounting/services/packs/pages/packPageFit';
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import type { PackPage, PackPageBlock } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -66,6 +68,7 @@ describe('mergedDisclosures', () => {
 
   it('refuses a block that is not a required disclosure rather than promote it to neverTrim', () => {
     const optional = { kind: 'disclosure', disclosure: { heading: 'O', notes: [{ heading: 'o', body: 'o' }] } } as PackPageBlock;
+    expect(() => mergedDisclosures([req('A', 'a1')], [optional])).toThrow(PackRefusal);
     expect(() => mergedDisclosures([req('A', 'a1')], [optional])).toThrow(/only required disclosures merge/);
     expect(() => mergedDisclosures([req('A', 'a1')], [{ kind: 'narrative', narrative: { status: 'derived', body: 'x', actions: [] } }])).toThrow(/only required disclosures merge/);
   });
@@ -118,5 +121,29 @@ describe('page 6', () => {
 
   it('keeps the heading of a lone disclosure', () => {
     expect(headings(p6Of({ k: 1, negative: false, loss: false, plug: 0.2, sg: [1, 1, 1, 1] }))).toEqual(['How much of this bridge is unexplained']);
+  });
+});
+
+describe('relaidNarrative is idempotent (incomeSheetWithBudget returns an already-relaid page, which fitBodyPage relays again)', () => {
+  const action = 'The board is asked to approve the funding of the working capital facility described in the matters page, and to note the exposure it carries into the next quarter.';
+  const narrativePage = (): Omit<PackPage, 'number'> => ({
+    ...page([
+      { kind: 'narrative', narrative: { status: 'derived', body: 'Revenue moved the most in money, down 450.', actions: [] }, boardActions: Array.from({ length: 14 }, () => action) } as PackPageBlock,
+      block('Reading', 1, { required: undefined }),
+    ]),
+    footnotes: [],
+  });
+
+  it('on a page whose board-action narrative is restacked, a second relay changes nothing', () => {
+    const once = relaidNarrative(narrativePage());
+    const narrative = once.blocks.find((b) => b.kind === 'narrative');
+    expect(narrative?.kind === 'narrative' && narrative.stackActions, 'the fixture is restacked by the first relay').toBe(true);
+    expect(relaidNarrative(once)).toBe(once);
+    expect(JSON.stringify(relaidNarrative(relaidNarrative(narrativePage())))).toBe(JSON.stringify(once));
+  });
+
+  it('and relaying the fitted page again is the same page (the fitter\'s own output is a fixed point)', () => {
+    const { page: fitted } = fitRelaidPage(narrativePage());
+    expect(fitRelaidPage(fitted).page).toBe(fitted);
   });
 });

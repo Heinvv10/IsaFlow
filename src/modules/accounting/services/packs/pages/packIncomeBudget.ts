@@ -19,7 +19,6 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import type { UnnumberedPage } from './packFrontMatter';
 import { buildIncomeStatementSheet } from './packIncomeSheet';
-import { fitPageToBox } from './packPageFit';
 import { fitRelaidPage } from './packNarrativeFit';
 import { warnCaptionDropped } from './packOmissionFootnote';
 import type { PackChartSpec, PackFootnote, PackTable } from './packPageModel';
@@ -67,7 +66,7 @@ export function incomeSheetWithBudget(
 
 function fitsItsSheet(sheet: UnnumberedPage): boolean {
   try {
-    fitPageToBox(sheet);
+    fitRelaidPage(sheet);
     return true;
   } catch (err) {
     if (!(err instanceof PackRefusal)) throw err;
