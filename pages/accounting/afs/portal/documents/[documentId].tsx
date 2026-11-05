@@ -9,6 +9,8 @@ import type { GetServerSidePropsContext, InferGetServerSidePropsType } from 'nex
 import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { verifyPortalToken } from '@/lib/auth/portalJwt';
 import { currentPortalSession } from '@/lib/auth/portalAuth';
+import { loadPortalDocument } from '@/modules/accounting/services/afs/portalDocumentService';
+import { log } from '@/lib/logger';
 import { PORTAL_ACCESS_RULES } from '@/modules/accounting/services/afs/afsTypes';
 
 interface NoteContentBlock {
@@ -52,25 +54,25 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
   if (!session) {
     return { redirect: { destination: '/accounting/afs/portal/login?error=expired', permanent: false } };
   }
-  // Encoded: a `..%2F` in the route param must not re-point this server-side fetch.
-  const documentId = encodeURIComponent(String(context.params?.documentId ?? ''));
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  // Straight from the service the portal API route uses, for the session just verified (no HTTP, so no URL to get
+  // wrong). A malformed id fails its uuid cast inside the service and goes back to the dashboard with the rest.
+  const documentId = String(context.params?.documentId ?? '');
   try {
-    const res = await fetch(`${baseUrl}/api/accounting/portal/documents/${documentId}`, {
-      headers: { Cookie: `portal_session=${cookie}` },
-    });
-    if (!res.ok) {
+    const outcome = await loadPortalDocument(session.companyId, session.role, documentId);
+    if (outcome.kind !== 'ok') {
       return { redirect: { destination: '/accounting/afs/portal/dashboard', permanent: false } };
     }
-    const json = (await res.json()) as { data?: { document: AfsDocument; sections: AfsSection[] } };
+    // JSON round trip: Date columns must reach the page as strings.
+    const { document, sections } = JSON.parse(JSON.stringify(outcome)) as { document: AfsDocument; sections: AfsSection[] };
     return {
       props: {
-        document: json.data!.document,
-        sections: json.data!.sections,
+        document,
+        sections,
         canAnnotate: PORTAL_ACCESS_RULES[session.role].canAnnotate,
       },
     };
-  } catch {
+  } catch (err) {
+    log.warn('Portal document page: could not load the document', { error: err, companyId: session.companyId }, 'portal-document-page');
     return { redirect: { destination: '/accounting/afs/portal/dashboard', permanent: false } };
   }
 }
