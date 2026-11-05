@@ -47,6 +47,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['afs/noteGenerators/primaryStatements/cashFlow.ts', 'CASH'],
   ['ap/supplierCreditNoteExpenseLines.ts', 'SUBLEDGER'],
   ['ap/supplierInvoiceBudgetProvisional.ts', 'BANK'], // P5-2: one bank line's own provisional journal, whose reclass a bill's budget check counts
+  ['ap/supplierInvoiceProvisionalDims.ts', 'BANK'], // P5-2b: one bank line's own provisional journal, whose lines' dimensions a slip bill's draft inherits
   ['ar/invoiceRevenuePosting.ts', 'SUBLEDGER'],
   ['ar/unappliedReceiptOrigin.ts', 'SUBLEDGER'],
   ['audit/checks/journalRiskChecks.ts', 'RAW'],

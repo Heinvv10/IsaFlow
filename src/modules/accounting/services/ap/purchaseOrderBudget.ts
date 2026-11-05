@@ -25,8 +25,8 @@ import {
   checkDocumentBudget, evaluateDocumentLines, labelBudgetLines, readCheckPolicy,
 } from '../budgets/budgetCheck';
 import type { DocumentLine, UnlabelledLine } from '../budgets/budgetCheckCore';
-import type {
-  BudgetCheckContext, BudgetCheckLine, BudgetCheckResult, BudgetGate, BudgetPolicy,
+import {
+  isFlaggedLine, type BudgetCheckContext, type BudgetCheckLine, type BudgetCheckResult, type BudgetGate, type BudgetPolicy,
 } from '../budgets/budgetCheckTypes';
 
 /** The statuses the Approve action accepts (the PUT's editable statuses; 246b's CHECK). */
@@ -92,7 +92,7 @@ function noAccountLines(lines: readonly DocumentLine[], month: string): Unlabell
     const k = `${l.cc1Id ?? ''}|${l.cc2Id ?? ''}|${l.buId ?? ''}`;
     const at = bySlice.get(k) ?? {
       glAccountId: '', month, grain: null, cc1Id: l.cc1Id, cc2Id: l.cc2Id, buId: l.buId, unassigned: false,
-      budget: null, actual: 0, committed: 0, remaining: null, amount: 0, over: false, cents: 0,
+      budget: null, actual: 0, committed: 0, remaining: null, amount: 0, over: false, offSlice: false, cents: 0,
     };
     at.cents += toCents(l.amount);
     bySlice.set(k, at);
@@ -121,6 +121,7 @@ export interface PoBudgetPreview {
   /** Whether the Approve action accepts this PO's status. */
   approvable: boolean;
   lines: BudgetCheckLine[];
+  /** Lines the check acts on: over budget or not in a budgeted slice (P5-2b). */
   overCount: number;
 }
 
@@ -138,5 +139,5 @@ export async function previewPurchaseOrderBudget(companyId: string, poId: string
   const { lines, noAccount, itemIds } = await readPoBudgetLines(companyId, po.id);
   const checked = await evaluateDocumentLines(companyId, lines, po.month, { excludePoItemIds: itemIds, labelAlways: true });
   const none = await labelBudgetLines(companyId, noAccountLines(noAccount, po.month));
-  return { policy, checks: true, status: po.status, approvable, lines: [...checked, ...none], overCount: checked.filter((l) => l.over).length };
+  return { policy, checks: true, status: po.status, approvable, lines: [...checked, ...none], overCount: checked.filter(isFlaggedLine).length };
 }

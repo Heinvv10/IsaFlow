@@ -151,7 +151,7 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
     'Approve and POST up to 100 DRAFT supplier invoices (bills) in ONE call — each posts DR Expense (per line) + DR VAT Input / CR Accounts Payable. Irreversible except by a reversing entry. Requires the write:post permission. '
     + 'Identify each bill by its invoice_id (from list_supplier_invoices or bulk_create_supplier_invoices). '
     + 'A bill that cannot be approved is SKIPPED, not a failure: not found, already approved, cancelled, or dated in a CLOSED fiscal period — each is listed in "skipped" with its reason and the rest of the batch still posts. '
-    + 'Budget check: under the company\'s block policy a bill over its remaining budget is skipped as "budget_exceeded" (an agent cannot override; a person can, on the bill in the app); under warn it posts and its over-budget lines come back as budget_warnings. '
+    + 'Budget check: under the company\'s block policy a bill over its remaining budget, or with a line outside every budgeted slice of a budgeted account, is skipped as "budget_exceeded" (an agent cannot override; a person can, on the bill in the app); under warn it posts and those lines come back as budget_warnings. '
     + 'ALL OR NOTHING for real faults: if a bill genuinely fails to post, the whole batch is rolled back, nothing is posted, and the error names the element. '
     + 'A repeated invoice_id is REFUSED (not skipped) — each bill may appear once. '
     + 'Every posting is attributed to the agent and visible in list_agent_postings. Use dry_run to see what would post and what would be skipped.',

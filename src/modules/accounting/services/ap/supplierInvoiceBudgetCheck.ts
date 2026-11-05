@@ -29,8 +29,8 @@ import type { DocumentLine } from '../budgets/budgetCheckCore';
 import { log } from '@/lib/logger';
 import type { ProvisionalClaim } from './provisionalSettlementClaim';
 import { peekProvisionalReclassLines, provisionalReclassLines } from './supplierInvoiceBudgetProvisional';
-import type {
-  BudgetCheckContext, BudgetCheckLine, BudgetCheckResult, BudgetGate, BudgetPolicy,
+import {
+  isFlaggedLine, type BudgetCheckContext, type BudgetCheckLine, type BudgetCheckResult, type BudgetGate, type BudgetPolicy,
 } from '../budgets/budgetCheckTypes';
 
 /** `opts.budget` of approve / Post to GL: the caller's channel and lock mode. */
@@ -97,6 +97,7 @@ export interface BillBudgetPreview {
   /** False when approving would post nothing new (a bill already carrying a journal), so nothing is checked. */
   checks: boolean;
   lines: BudgetCheckLine[];
+  /** Lines the check acts on: over budget or not in a budgeted slice (P5-2b). */
   overCount: number;
   /** The bill already carries a journal: approving reuses it (no check, no provisional claim). */
   reusesJournal: boolean;
@@ -124,7 +125,7 @@ export async function previewBillBudget(
   const checked = await evaluateDocumentLines(companyId, docLines, month, {
     excludeInvoiceId: invoice.id, alsoBilledInvoiceIds: opts.alsoBilledInvoiceIds, labelAlways: true,
   });
-  return { policy, checks: true, lines: checked, overCount: checked.filter((l) => l.over).length, reusesJournal: false };
+  return { policy, checks: true, lines: checked, overCount: checked.filter(isFlaggedLine).length, reusesJournal: false };
 }
 
 const BUDGET_REFUSALS = new Set(['BUDGET_EXCEEDED', 'BUDGET_REASON_REQUIRED', 'BUDGET_CHECK_LOCK_TIMEOUT']);

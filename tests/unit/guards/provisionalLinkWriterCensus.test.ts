@@ -85,9 +85,8 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
     lines: ['OR provisional_je_id IS NOT NULL) AS processed', 'AND provisional_je_id IS NULL'],
   },
   'src/modules/accounting/services/capture/evidenceAttachmentService.ts': {
-    why: 'reads only: joins on the link; writes status',
+    why: 'reads only: joins on the link (findAttachableProvisional, one query since P5-2b); writes status',
     lines: [
-      'JOIN bank_transactions bt ON bt.provisional_je_id = je.id',
       'JOIN bank_transactions bt ON bt.provisional_je_id = je.id',
     ],
   },
