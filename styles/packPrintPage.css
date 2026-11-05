@@ -254,8 +254,14 @@ html.print-mode .pack-pages {
    * `(1348.0%)` — one character wider, and page 3's tile row then ran past the
    * right edge of the paper, where content is not short but GONE. 23 and 21
    * were both printed; 22 is the largest that clears it on every fixture. */
-  font-size: 22pt; line-height: 25pt; font-weight: 500;
+  line-height: 25pt; font-weight: 500;
   white-space: nowrap;
+  /* AND 22pt IS THE LARGEST, NOT THE ONLY. The widest figure of each of the four columns sets that
+   * column's track (`nowrap` + `1fr`), so a net profit of (13 350 000) pulled the row wider than the
+   * 174mm measure and the last column went past the paper's edge. The component states the summed
+   * widths of those four figures in ems (`--pack-fit-ems`, `packFigureFit.ts`); the figure takes the
+   * smaller of 22pt and the size at which they fill the row. Figures that fit print at 22pt as before. */
+  font-size: min(22pt, calc((100cqw - 3 * var(--pack-gutter)) / var(--pack-fit-ems, 1)));
 }
 /* THE FOOTNOTES FOLLOW THE CONTENT THEY ANNOTATE. `margin-top: auto` pinned
  * them to the bottom margin of a flex column, which is invisible on a full
@@ -285,5 +291,8 @@ html.print-mode .pack-pages {
 .pack-kpi-delta.is-favourable { color: var(--pack-favourable, #1a7a4a); }
 .pack-kpi-delta.is-unfavourable { color: var(--pack-unfavourable, #b3261e); }
 .pack-kpi-delta-cue { font-size: 7pt; }
-.pack-kpi-sparkline svg { display: block; width: 100%; height: auto; }
+/* The sparkline's height follows its column (0.8 of the width), and a column the figures stretch is
+ * wider than a quarter of the row: 158px of a 142px quarter was 1.6mm of height per tile row, and page 3
+ * composes within half a millimetre of its box. `packKpiTileHeight` budgets 33mm (KPI_SPARKLINE_MM). */
+.pack-kpi-sparkline svg { display: block; width: 100%; height: auto; max-height: 33mm; }
 .pack-footnote-marker { font-size: 0.7em; vertical-align: super; line-height: 0; }
