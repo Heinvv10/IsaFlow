@@ -8,7 +8,7 @@ import { sdlYearToDate } from '@/modules/accounting/services/payroll/payrollSdlY
 
 describe('sdlYearToDate (SDL Act s3(4); SDL-GEN-01-G01 Rev 5 s6)', () => {
   it('no lines: nothing to date', () => {
-    expect(sdlYearToDate([], {})).toEqual({ sdlApplicable: 0, sdlLeviable: 0 });
+    expect(sdlYearToDate([], {})).toEqual({ sdlApplicable: 0, sdlLeviable: 0, sdlExemptDeduction: 0 });
   });
 
   it('pay less the deduction to date', () => {
@@ -16,7 +16,7 @@ describe('sdlYearToDate (SDL Act s3(4); SDL-GEN-01-G01 Rev 5 s6)', () => {
       { line: 'a', sdlApplicable: 20_000, retirement: 5_500 },
       { line: 'b', sdlApplicable: 20_000, retirement: 2_500 },
     ], {});
-    expect(r).toEqual({ sdlApplicable: 40_000, sdlLeviable: 32_000 });
+    expect(r).toEqual({ sdlApplicable: 40_000, sdlLeviable: 32_000, sdlExemptDeduction: 0 });
   });
 
   it('a deduction floored for want of pay is not levied, and the level never falls with a reversal', () => {
@@ -24,7 +24,7 @@ describe('sdlYearToDate (SDL Act s3(4); SDL-GEN-01-G01 Rev 5 s6)', () => {
       { line: 'a', sdlApplicable: 1_000, retirement: 5_775 },
       { line: 'b', sdlApplicable: 1_000, retirement: -5_775 },
     ], {});
-    expect(r).toEqual({ sdlApplicable: 2_000, sdlLeviable: 2_000 });
+    expect(r).toEqual({ sdlApplicable: 2_000, sdlLeviable: 2_000, sdlExemptDeduction: 0 });
     // A reversal after the level was reached does not lower what was levied.
     const after = sdlYearToDate([
       { line: 'a', sdlApplicable: 20_000, retirement: 0 },
@@ -39,8 +39,20 @@ describe('sdlYearToDate (SDL Act s3(4); SDL-GEN-01-G01 Rev 5 s6)', () => {
       { line: 'legacy', sdlApplicable: 30_000, retirement: null },
       { line: 'new', sdlApplicable: 30_000, retirement: 3_000 },
     ];
-    expect(sdlYearToDate(lines, { legacy: 1_000 })).toEqual({ sdlApplicable: 60_000, sdlLeviable: 56_000 });
+    expect(sdlYearToDate(lines, { legacy: 1_000 })).toEqual({ sdlApplicable: 60_000, sdlLeviable: 56_000, sdlExemptDeduction: 0 });
     // A legacy line the retirement record has nothing for deducted nothing.
-    expect(sdlYearToDate(lines, {})).toEqual({ sdlApplicable: 60_000, sdlLeviable: 57_000 });
+    expect(sdlYearToDate(lines, {})).toEqual({ sdlApplicable: 60_000, sdlLeviable: 57_000, sdlExemptDeduction: 0 });
+  });
+
+  it('an exempt line (nil levy stored where one was due) is left out of the levied pay, and keeps the deduction it absorbed', () => {
+    const exempt = { line: 'a', sdlApplicable: 20_000, retirement: 5_000, sdl: 0 };
+    expect(sdlYearToDate([exempt], {})).toEqual({ sdlApplicable: 0, sdlLeviable: 0, sdlExemptDeduction: 5_000 });
+    // Reversed in a liable month: the exempt share goes first, nothing comes off the liable pay.
+    expect(sdlYearToDate([exempt, { line: 'b', sdlApplicable: 20_000, retirement: -5_000, sdl: 200 }], {}))
+      .toEqual({ sdlApplicable: 20_000, sdlLeviable: 20_000, sdlExemptDeduction: 0 });
+    // A levied line, or one whose levy would round to nil, is levied as before.
+    expect(sdlYearToDate([{ line: 'c', sdlApplicable: 20_000, retirement: 5_000, sdl: 150 }], {}).sdlLeviable).toBe(15_000);
+    expect(sdlYearToDate([{ line: 'd', sdlApplicable: 1_000, retirement: 1_000, sdl: 0 }], {}))
+      .toEqual({ sdlApplicable: 1_000, sdlLeviable: 0, sdlExemptDeduction: 0 });
   });
 });

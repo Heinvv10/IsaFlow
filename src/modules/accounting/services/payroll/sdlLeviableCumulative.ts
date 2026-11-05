@@ -21,11 +21,12 @@
  * SDL-applicable pay, or recovered when no later month has any, is an over-levy
  * that is not refunded (no stored column carries it across years; a migration).
  *
- * Second known limit (REPRO 8): payroll_run_lines stores no leviable amount, so
- * a month whose employer was exempt (sdl = 0) is still counted as levied after
- * its deduction. A reversal after the employer turns liable in the same tax year
- * then adds back an amount that was never levied: an over-levy of 1% of the
- * reversed amount. A fix needs a stored column (a migration).
+ * An exempt employer's months (stored levy nil) are kept apart
+ * (payrollSdlYearToDate): their pay is not levied later, and the deduction their
+ * pay absorbed (`sdlExemptDeduction`) never comes off levied pay; a reversal of
+ * it restores the exempt pay, so a reversal after the employer turns liable
+ * levies only liable pay (REPRO 8). Like PAYE 4c, an over-levy is carried
+ * against later levy, never refunded within a line (no negative levy).
  *
  * Months costed before this rule levied SDL on gross. Their year-to-date
  * leviable amount is taken as if this rule had levied them (payrollSdlYearToDate),
@@ -33,6 +34,7 @@
  * earlier over-levy, which EMP201 already declared.
  */
 import type { PayeYearToDate } from './payrollTypes';
+import { standingExemptDeduction } from './payrollSdlYearToDate';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -59,19 +61,23 @@ export function sdlLeviableToDate(
     ytdSdlApplicable: ytd?.sdlApplicable ?? 0,
     ytdSdlLeviable: ytd?.sdlLeviable ?? 0,
     ytdRetirementDeduction: ytd?.retirementDeduction ?? 0,
+    // Absent = no exempt month to date.
+    ytdSdlExemptDeduction: ytd?.sdlExemptDeduction ?? 0,
   };
   for (const [name, value] of Object.entries(figures)) {
     if (!Number.isFinite(value)) {
       throw new Error(`SDL cannot be calculated for employee ${employeeId}: ${name} is not a finite number (${value})`);
     }
   }
-  // max(0, pay - deduction) to date, less what was levied, floored at nil: the inner floor is implied by the outer
-  // one (what was levied is never negative), so one floor serves.
+  // Levied pay to date less the deduction standing against it (exempt pay's share left out), less what was
+  // levied, floored at nil: the inner floor is implied by the outer one (what was levied is never negative).
+  const deductionToDate = figures.ytdRetirementDeduction + retirementDeduction;
+  const exemptDeduction = standingExemptDeduction(figures.ytdSdlExemptDeduction, deductionToDate);
   return Math.max(
     0,
     round2(
       figures.ytdSdlApplicable + sdlApplicable
-        - (figures.ytdRetirementDeduction + retirementDeduction)
+        - (deductionToDate - exemptDeduction)
         - figures.ytdSdlLeviable,
     ),
   );

@@ -39,7 +39,8 @@
  * - sdlApplicable / sdlLeviable: the SDL year to date (payrollSdlYearToDate), from
  *   the same lines in period order; payroll_run_lines stores no leviable amount,
  *   so it is rebuilt from each line's SDL-applicable pay (breakdown flag
- *   `isSdlApplicable`, else today's catalogue) and retirement_deduction.
+ *   `isSdlApplicable`, else today's catalogue), retirement_deduction and the
+ *   stored levy `sdl` (nil where the employer was exempt).
  *
  * Every query is scoped by company_id.
  */
@@ -75,7 +76,7 @@ export async function loadPayeYearToDate(
              r.periodic_before_deductions,
              r.annual_before_deductions,
              b.annual_3605, b.original_taxable, b.donations,
-             h.period_year, h.period_month, l.created_at AS line_created_at, l.retirement_deduction, b.sdl_applicable
+             h.period_year, h.period_month, l.created_at AS line_created_at, l.retirement_deduction, l.sdl, b.sdl_applicable
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
@@ -131,7 +132,7 @@ export async function loadPayeYearToDate(
            SUM(medical_credit)::numeric AS medical_credit,
            SUM(additional_medical_credit)::numeric AS additional_medical_credit,
            -- The lines in period order, for the SDL year to date (payrollSdlYearToDate).
-           jsonb_agg(jsonb_build_object('line', line_id, 'sdlApplicable', sdl_applicable, 'retirement', retirement_deduction)
+           jsonb_agg(jsonb_build_object('line', line_id, 'sdlApplicable', sdl_applicable, 'retirement', retirement_deduction, 'sdl', sdl)
              ORDER BY period_year, period_month, line_created_at, line_id) AS sdl_lines
     FROM split
     GROUP BY employee_id

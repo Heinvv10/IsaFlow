@@ -213,10 +213,12 @@ export interface PayeYearToDate {
   retirementDeduction?: number;
   /** Donations (4030) deducted on those lines as taxable deductions, for the s11F base; absent = none. */
   donations?: number;
-  /** SDL-applicable earnings on those lines (payrollSdlYearToDate); absent only when there are no earlier lines (the calculator throws otherwise). */
+  /** SDL-applicable earnings on those lines SDL was levied on (payrollSdlYearToDate; an exempt line's are left out); absent only when there are no earlier lines (the calculator throws otherwise). */
   sdlApplicable?: number;
   /** SDL leviable amount those lines carried, rebuilt by payrollSdlYearToDate (nothing stores it); absent only when there are no earlier lines (the calculator throws otherwise). */
   sdlLeviable?: number;
+  /** Retirement deduction to date absorbed by exempt lines' pay (payrollSdlYearToDate), never off levied pay; absent = none. */
+  sdlExemptDeduction?: number;
 }
 
 /** How a line's PAYE is made up (audit 2026-10-18 P3). */

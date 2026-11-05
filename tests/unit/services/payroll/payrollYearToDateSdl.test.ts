@@ -37,6 +37,7 @@ describe('loadPayeYearToDate: SDL year to date (SDL Act s3(4); SDL-GEN-01-G01 Re
     expect(query).toContain("COALESCE((item->>'isSdlApplicable')::boolean");
     expect(query).toContain("pc.component_type = 'earning' AND pc.is_sdl_applicable");
     expect(query).toContain('ORDER BY period_year, period_month, line_created_at, line_id) AS sdl_lines');
+    expect(query).toContain("'sdl', sdl)");
     // The SDL columns ride the one line set PAYE reads: no second WHERE.
     expect(query.match(/h\.status = ANY/g)).toHaveLength(1);
   });

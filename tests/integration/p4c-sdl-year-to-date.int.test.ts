@@ -4,7 +4,7 @@
  * pay and retirement_deduction. SDL-applicable pay is the breakdown items flagged `isSdlApplicable` as costed; an
  * item from before the flag is read by today's catalogue (an earning flagged is_sdl_applicable).
  *
- * Employee with three approved lines (no SDL column is read anywhere):
+ * Employee with three lines (the stored levy `sdl` tells a levied line from an exempt one):
  *   March (new flags): salary 20 000 (SDL), bonus 3 000 (flag false), RA 5 000 deducted; retirement_deduction 5 000.
  *   April (pre-flag items): catalogue earning flagged SDL 10 000, catalogue earning not flagged 4 000, a deduction
  *     component (is_sdl_applicable defaults true) 500, an item whose component is gone 999; retirement_deduction 2 000.
@@ -33,16 +33,16 @@ async function component(company: string, name: string, code: string, type: 'ear
 }
 
 async function line(
-  f: SeveranceFixture, month: number, status: string, retirementDeduction: number | null, breakdown: unknown[],
+  f: SeveranceFixture, month: number, status: string, retirementDeduction: number | null, breakdown: unknown[], sdl: number,
 ): Promise<void> {
   const run = (await pool.query(
     `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status) VALUES ($1, 2026, $2, $3) RETURNING id`,
     [f.company, month, status])).rows[0]!.id;
   await pool.query(
     `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, net_pay,
-                                    retirement_contributions, retirement_deduction, component_breakdown)
-     VALUES ($1, $2, 30000, 20000, 20000, 0, 0, 30000, $3, $3, $4)`,
-    [run, f.employee, retirementDeduction, JSON.stringify(breakdown)]);
+                                    retirement_contributions, retirement_deduction, component_breakdown, sdl)
+     VALUES ($1, $2, 30000, 20000, 20000, 0, 0, 30000, $3, $3, $4, $5)`,
+    [run, f.employee, retirementDeduction, JSON.stringify(breakdown), sdl]);
 }
 
 describe('SDL year to date (payrollSdlYearToDate)', () => {
@@ -58,14 +58,14 @@ describe('SDL year to date (payrollSdlYearToDate)', () => {
       item('s', '3601', 20_000, { isSdlApplicable: true }),
       item('b', '3601', 3_000, { isSdlApplicable: false }),
       item('r', '4006', 5_000, { isSdlApplicable: false, retirementContribution: true }),
-    ]);
+    ], 150);
     await line(f, 4, 'approved', 2_000, [
       item(sdlEarning, '3601', 10_000),
       item(plainEarning, '3713', 4_000),
       item(deduction, '4018', 500),
       item(crypto.randomUUID(), '3601', 999),
-    ]);
-    await line(f, 5, 'calculated', 0, [item('s', '3601', 50_000, { isSdlApplicable: true })]);
+    ], 80);
+    await line(f, 5, 'calculated', 0, [item('s', '3601', 50_000, { isSdlApplicable: true })], 500);
 
     const june = (await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 6 }, [f.employee])).get(f.employee)!;
     expect(june.sdlApplicable).toBe(30_000);
@@ -74,5 +74,15 @@ describe('SDL year to date (payrollSdlYearToDate)', () => {
     expect(june.retirementDeduction).toBe(7_000);
     expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 4 }, [f.employee])).get(f.employee))
       .toMatchObject({ sdlApplicable: 20_000, sdlLeviable: 15_000 });
+  });
+
+  it('reads the stored levy: an exempt month (nil levy) is left out of the levied pay and keeps the deduction it absorbed', async () => {
+    const f = await seedEmployee(pool, fixtures, 'P4c SDL year to date exempt', 20_000);
+    const item = (amount: number) => ({
+      componentId: 's', componentName: '3601', sarsSourceCode: '3601', amount, isTaxable: true, isUifApplicable: false, isSdlApplicable: true });
+    await line(f, 3, 'approved', 5_000, [item(20_000)], 0);
+    await line(f, 4, 'approved', -5_000, [item(20_000)], 200);
+    expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 5 }, [f.employee])).get(f.employee))
+      .toMatchObject({ sdlApplicable: 20_000, sdlLeviable: 20_000, sdlExemptDeduction: 0 });
   });
 });
