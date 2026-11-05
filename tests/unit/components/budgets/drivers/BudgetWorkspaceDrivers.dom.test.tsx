@@ -82,7 +82,9 @@ describe('drivers in the workspace', () => {
     fireEvent.mouseDown(mar);
     fireEvent.keyDown(mar, { key: '7' });
     expect(screen.queryByRole('textbox', { name: /Mar 2026 budget/ })).toBeNull();
-    expect(announced()).toBe(ACTUAL_REASON);
+    // The store announces at once; the live region's DOM is a React render behind it, and under load that render can still
+    // be queued behind the workspace's late loads when this line runs (6 of 400 passes, measured), so wait for it.
+    await waitFor(() => expect(announced()).toBe(ACTUAL_REASON));
     fireEvent.doubleClick(mar);
     expect(screen.queryByRole('textbox', { name: /Mar 2026 budget/ })).toBeNull();
     // An open month of the same row still takes typing.
