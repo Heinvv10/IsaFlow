@@ -71,6 +71,12 @@ describe('a plain fallback that fits untouched still says the columns are not pr
     const { page } = p6({ tr: 'none', budget: true, prior: true, negative: false, loss: false, k: 30000, plug: 0.2, sg: [1, 1, -1, 1] });
     expect(hasColumns(page)).toBe(false);
     expect(page.footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE)).toBe(true);
+    // The caption went to make room, so an omission note is printed beside the dropped-columns note: it
+    // names the columns and never claims every figure is complete (security review).
+    const omission = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))?.text;
+    expect(omission, 'the caption was dropped, so the page says so').toContain('1 derived caption');
+    expect(omission).toMatch(/; the Budget and Variance columns\./);
+    expect(omission).not.toContain('Every figure, table and chart');
   });
 });
 

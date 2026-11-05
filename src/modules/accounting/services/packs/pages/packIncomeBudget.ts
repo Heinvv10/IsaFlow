@@ -76,7 +76,12 @@ export function incomeSheetWithBudget(
   // is missing). A page that would have to drop a note or a footnote (anchored ones included) or is refused
   // for it is composed as it was without the note (the #1121 ruling): see `columnsLeftOut` below.
   const droppedNote: PackFootnote = { number: statementNotes.length + 1, text: BUDGET_COLUMNS_DROPPED_NOTE, required: true };
-  const noted = buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote]);
+  // `columnsLeftOut` here too: the page carries the dropped-columns note, but if the fit then has to print an
+  // omission note (the caption went) that note must not say every figure is complete either.
+  const noted: UnnumberedPage = {
+    ...buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote]),
+    columnsLeftOut: [PACK_TABLE_COLUMN_LABEL.budget, PACK_TABLE_COLUMN_LABEL.variance],
+  };
   try {
     const { page: fitted, dropped } = fitRelaidPage(noted);
     if (dropped.notes === 0 && dropped.footnotes === 0 && dropped.requiredNotes === 0) {
