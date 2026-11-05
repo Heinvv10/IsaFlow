@@ -43,9 +43,10 @@ describe('customers GET ?id=', () => {
     // The row, plus the company's default terms as the two plain fields the page reads (30 days from invoice when none is set).
     expect(body(res).data).toEqual({ id: CUSTOMER, name: 'Acme', company_default_payment_terms: 30, company_default_payment_terms_type: 'invoice_days' });
     expect(mocks.listCustomers).not.toHaveBeenCalled();
-    // The tenant scope is a bound value of the query itself: the id AND this company's id, nothing else.
+    // The tenant scope is a bound value of the query itself: the id AND this company's id; the other bound value is the
+    // settings key of the company default terms (COMPANY_DEFAULT_TERMS_KEY), nothing else.
     const bound = (mocks.sql.mock.calls[0] as unknown[]).slice(1);
-    expect(bound).toEqual([CUSTOMER, COMPANY]);
+    expect(bound).toEqual(['default_payment_terms', CUSTOMER, COMPANY]);
   });
 
   it('selects the terms, discount and VAT type the new-invoice page defaults from', async () => {
