@@ -36,6 +36,7 @@ describe('BankTxAttachmentsModal viewing', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close preview' }));
     expect(screen.queryByRole('dialog', { name: 'Attachment preview' })).toBeNull();
     expect(screen.getByRole('dialog', { name: 'Attachments' })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('dialog', { name: 'Attachments' }));
   });
 
   it('opens the file whose View was pressed, counting only the files it can show', async () => {

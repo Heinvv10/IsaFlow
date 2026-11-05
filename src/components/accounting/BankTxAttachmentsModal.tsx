@@ -42,6 +42,14 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [viewIndex, setViewIndex] = useState<number | null>(null);
+  // The View button that opened the viewer unmounted with the list, so the viewer cannot hand focus back to it:
+  // take it here instead, or a keyboard user lands on <body> behind the modal.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const wasViewing = useRef(false);
+  useEffect(() => {
+    if (viewIndex === null && wasViewing.current) dialogRef.current?.focus();
+    wasViewing.current = viewIndex !== null;
+  }, [viewIndex]);
   // Refs, so a parent's inline callback does not re-create fetchAttachments (and re-fetch) on every render.
   const countRef = useRef(onCountChange);
   countRef.current = onCountChange;
@@ -153,7 +161,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
     return <AttachmentViewer attachments={viewable} startIndex={viewIndex} onClose={() => setViewIndex(null)} />;
   }
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Attachments">
+    <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 outline-none" role="dialog" aria-modal="true" aria-label="Attachments">
       <div
         className="w-full max-w-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl flex flex-col max-h-[85vh]"
         onClick={e => e.stopPropagation()}

@@ -123,7 +123,8 @@ export function BankLineDrawerBody({ tx }: { tx: BankTx }) {
       </div>
       <section>
         <h3 className={HEADING}>Attachments</h3>
-        {/* Keyed by the grid's count: an upload or remove in the attachments modal re-reads the list here. */}
+        {/* Keyed by the grid's count: an upload or remove in the attachments modal re-reads the list here. A viewer open
+            here closes when the count changes under it, on purpose: its index would point into a list that has changed. */}
         <Attachments key={`${tx.id}:${tx.attachmentCount ?? ''}`} txId={tx.id} />
       </section>
       <section>
