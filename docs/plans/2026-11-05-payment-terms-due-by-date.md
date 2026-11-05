@@ -45,6 +45,8 @@ Code facts:
    Sage. The contact shows "Terms not confirmed — using company default (30 days from invoice date)".
    **Re-apply (PR 3) skips not-set contacts** and flags them. New contacts must CHOOSE terms (no
    pre-selection; "Use company default" is a valid choice and stores NULL/NULL).
+   Owner/admin only to change (`withRole('admin')`), and every change is recorded in the entity history (migration 959,
+   entity type `company_setting`: who, when, old → new).
    Stored in `accounting_settings` (key `default_payment_terms`, JSON): `companies` is column-level
    read-only for the app pools since migration 936, so a new column there would not be writable by a tenant.
 4. **`due_date_source`** on supplier and customer invoices: `terms | manual | document | legacy`
