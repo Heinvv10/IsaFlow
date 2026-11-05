@@ -116,15 +116,15 @@ describe('R-101: the importer reads the columns its source table actually has', 
     expect(rows[0]!.customer_id).toBe(live);
   });
 
-  it.each([[null, null], [45, '2026-08-14']])(
-    'derives the due date from the customer’s own terms (%s days → %s)',
+  it.each([[null, '2026-07-30'], [45, '2026-08-14']])(
+    'derives the due date from the customer’s own terms, else the company default of 30 days (%s days → %s)',
     async (terms, due) => {
       const t = tag('R101T');
       await addCustomer(companyA, `${t} Terms`, terms);
       await seedStaging(companyA, { sageId: `${t}-SAGE`, invoiceNumber: `${t}-INV`, customerName: `${t} Terms`, total: 100 });
       expect((await importA()).succeeded).toBe(1);
       const inv = (await invoicesFor(companyA, `${t}-SAGE`))[0]!;
-      expect(inv.due_date === null ? null : fmt(inv.due_date)).toBe(due);
+      expect(fmt(inv.due_date)).toBe(due);
     },
   );
 
@@ -164,15 +164,23 @@ describe('R-101: the importer reads the columns its source table actually has', 
 
   it('a row whose INSERT raises fails alone; the rest of the run still imports (per-row savepoint)', async () => {
     const t = tag('R101SP');
-    // invoice_date + 2,147,000,000 days is past the date range: the INSERT raises 22008.
-    await addCustomer(companyA, `${t} Forever`, 2_147_000_000);
-    const bad = await seedStaging(companyA, { sageId: `${t}-BAD`, invoiceNumber: `${t}-BAD`, customerName: `${t} Forever`, total: 10, invoiceDate: '2026-01-01' });
-    const good = await seedStaging(companyA, { sageId: `${t}-OK`, invoiceNumber: `${t}-OK`, customerName: CUSTOMER_NAME, total: 20, invoiceDate: '2026-12-31' });
-    const result = await importA();
-    expect(result.failed).toBe(1);
-    expect(result.succeeded).toBe(1);
-    expect((await staged(bad)).migration_status).toBe('failed');
-    expect((await staged(good)).migration_status).toBe('imported');
+    // A trigger that raises for one invoice number makes that row's INSERT raise (the due date is computed in the
+    // application now, so an out-of-range term no longer reaches SQL to do it).
+    await pool.query(`CREATE OR REPLACE FUNCTION public.r101_boom() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.invoice_number LIKE '%-BOOM' THEN RAISE EXCEPTION 'r101 boom'; END IF; RETURN NEW; END $$`);
+    await pool.query('CREATE TRIGGER r101_boom BEFORE INSERT ON customer_invoices FOR EACH ROW EXECUTE FUNCTION public.r101_boom()');
+    try {
+      const bad = await seedStaging(companyA, { sageId: `${t}-BAD`, invoiceNumber: `${t}-BOOM`, customerName: CUSTOMER_NAME, total: 10, invoiceDate: '2026-01-01' });
+      const good = await seedStaging(companyA, { sageId: `${t}-OK`, invoiceNumber: `${t}-OK`, customerName: CUSTOMER_NAME, total: 20, invoiceDate: '2026-12-31' });
+      const result = await importA();
+      expect(result.failed).toBe(1);
+      expect(result.succeeded).toBe(1);
+      expect((await staged(bad)).migration_status).toBe('failed');
+      expect((await staged(good)).migration_status).toBe('imported');
+    } finally {
+      await pool.query('DROP TRIGGER IF EXISTS r101_boom ON customer_invoices');
+      await pool.query('DROP FUNCTION IF EXISTS public.r101_boom()');
+    }
   });
 
   it('leaves another tenant’s pending rows alone and never books them into this company', async () => {

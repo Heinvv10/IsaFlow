@@ -166,7 +166,7 @@ describe('R-021: the importer reads the columns its source table actually has', 
     expect(bill[0]!.supplier_id).toBe(live);
   });
 
-  it('gives a supplier with no payment terms no due date rather than an invented one', async () => {
+  it('dates a supplier with no payment terms by the company default (30 days from invoice), not an invented date of its own', async () => {
     const tag = `R021T0-${randomUUID().slice(0, 8)}`;
     const name = `${tag} Termless`;
     await pool.query('INSERT INTO suppliers(company_id,name,payment_terms) VALUES($1,$2,NULL)', [companyA, name]);
@@ -176,7 +176,7 @@ describe('R-021: the importer reads the columns its source table actually has', 
     const bill = (await pool.query(
       'SELECT due_date FROM supplier_invoices WHERE company_id=$1 AND sage_invoice_id=$2', [companyA, `${tag}-SAGE`],
     )).rows[0]!;
-    expect(bill.due_date).toBeNull();
+    expect(fmt(bill.due_date)).toBe('2026-07-30');
   });
 
   it('uses the supplier’s own terms for the due date', async () => {
