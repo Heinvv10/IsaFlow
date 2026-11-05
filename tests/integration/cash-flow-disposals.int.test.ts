@@ -35,6 +35,44 @@ describeIfDb('cash flow disposals (the review\'s B1/B2/B3 and H)', () => {
     });
   });
 
+  describe('a disposal is detected by its source and by its gain/loss leg, end to end (F1-F3)', () => {
+    const both = (ind: IndirectCashFlow, dir: Awaited<ReturnType<typeof getCashFlowDirect>>) =>
+      [{ op: sec(ind, 'Operating'), inv: sec(ind, 'Investing') }, { op: dir.operatingTotal, inv: dir.investingTotal }];
+
+    it('F1 source path: an auto_asset_disposal journal at book value (no gain leg) with VAT: Operating 900, Investing 6000, on both methods', async () => {
+      await inTx(async ({ acct, j }) => {
+        const bank = await acct('asset', 'bank'), fa = await acct('asset', 'fixed_asset'), acc = await acct('asset', 'accumulated_depreciation', 'credit');
+        const vat = await acct('liability', 'vat_output');
+        await j('2026-11-15', [[bank, 6900, 0], [acc, 4000, 0], [fa, 0, 10000], [vat, 0, 900]], { source: 'auto_asset_disposal' });
+        const { ind, dir } = await tie(...P);
+        expect(both(ind, dir)).toEqual([{ op: 900, inv: 6000 }, { op: 900, inv: 6000 }]);
+      });
+    });
+
+    it('F3 its reversal the next month is the mirror: Operating -900, Investing -6000, on both methods', async () => {
+      await inTx(async ({ acct, j }) => {
+        const bank = await acct('asset', 'bank'), fa = await acct('asset', 'fixed_asset'), acc = await acct('asset', 'accumulated_depreciation', 'credit');
+        const vat = await acct('liability', 'vat_output');
+        await j('2026-11-15', [[bank, 6900, 0], [acc, 4000, 0], [fa, 0, 10000], [vat, 0, 900]], { source: 'auto_asset_disposal' });
+        await j('2026-12-03', [[bank, 0, 6900], [acc, 0, 4000], [fa, 10000, 0], [vat, 900, 0]], { source: 'auto_asset_disposal' });
+        const ind = await getIndirectCashFlow(CO, '2026-12-01', '2026-12-31');
+        const dir = await getCashFlowDirect(CO, '2026-12-01', '2026-12-31');
+        expect(both(ind, dir)).toEqual([{ op: -900, inv: -6000 }, { op: -900, inv: -6000 }]);
+      });
+    });
+
+    it('F2 gain-leg path: a MANUAL journal selling land at a gain (bank 12 000, asset 10 000, gain 2 000): Investing 12 000, on both methods', async () => {
+      await inTx(async ({ acct, j }) => {
+        const bank = await acct('asset', 'bank'), land = await acct('asset', 'fixed_asset'), gain = await acct('revenue', 'disposal_profit_loss');
+        await j('2026-11-15', [[bank, 12000, 0], [land, 0, 10000], [gain, 0, 2000]]);
+        const { ind, dir } = await tie(...P);
+        expect(both(ind, dir)).toEqual([{ op: 0, inv: 12000 }, { op: 0, inv: 12000 }]);
+        expect(line(ind, 'Net Income')).toBe(2000);
+        expect(line(ind, '(Gain) / Loss on Disposal of Assets')).toBe(-2000);
+      });
+    });
+  });
+
   it.fails('B3 (known limit) dividend declared to a current liability, paid next month: the payment is Financing', async () => {
     await inTx(async ({ acct, j }) => {
       const bank = await acct('asset', 'bank'), divs = await acct('equity', 'dividends', 'debit'), payable = await acct('liability', 'current_liability');
