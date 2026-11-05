@@ -105,7 +105,8 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
 
   if (doc.documentType === 'management_pack') {
     return (
-      <AppLayout>
+      // The URL is the same as an AFS document's; this is what lights "Management Packs", not "Annual Financial Statements".
+      <AppLayout navPath={`/accounting/afs/${documentId}?type=management_pack`}>
         <Head><title>{`${managementPackTitle(doc.period)} | ISAFlow`}</title></Head>
         <ManagementPackView doc={doc} periodStart={periodStart} periodEnd={periodEnd} />
       </AppLayout>

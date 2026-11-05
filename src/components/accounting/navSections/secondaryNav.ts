@@ -6,7 +6,7 @@
  * is "active" when any of its (possibly nested) links matches the current path.
  */
 import { isFlyout, type Tab, type NavItem } from './types';
-import { pathMatchesHref } from './activeTab';
+import { pathMatchesHref, hrefSpecificity, moreSpecific } from './activeTab';
 
 import { salesTab } from './sales';
 import { purchasesTab } from './purchases';
@@ -45,8 +45,31 @@ export function isSectionActive(sectionTab: Tab, asPath: string): boolean {
   return anyLinkActive(sectionTab.items ?? [], asPath);
 }
 
-/** Active section id for the whole module bar (or '' when none match). */
+/** The most specific matching link of a section (see hrefSpecificity), or null when none match. */
+function bestMatch(items: NavItem[], asPath: string): [number, number] | null {
+  let best: [number, number] | null = null;
+  for (const item of items) {
+    const found = isFlyout(item)
+      ? bestMatch(item.items, asPath)
+      : pathMatchesHref(item.href, asPath) ? hrefSpecificity(item.href) : null;
+    if (found && (!best || moreSpecific(found, best))) best = found;
+  }
+  return best;
+}
+
+/**
+ * Active section id for the whole module bar (or '' when none match). When several sections match, the one
+ * holding the most specific link wins and a tie goes to the earlier section: `/accounting/afs/<id>?type=management_pack`
+ * is under "All AFS Documents" (`/accounting/afs`) and "Pack Documents" (`/accounting/afs?type=management_pack`).
+ */
 export function getActiveSectionId(moduleTab: Tab, asPath: string): string {
-  const tabs = moduleSectionsToTabs(moduleTab);
-  return tabs.find((t) => isSectionActive(t, asPath))?.id ?? '';
+  let bestId = '';
+  let best: [number, number] | null = null;
+  for (const tab of moduleSectionsToTabs(moduleTab)) {
+    const score = tab.href
+      ? (pathMatchesHref(tab.href, asPath) ? hrefSpecificity(tab.href) : null)
+      : bestMatch(tab.items ?? [], asPath);
+    if (score && (!best || moreSpecific(score, best))) { best = score; bestId = tab.id; }
+  }
+  return bestId;
 }
