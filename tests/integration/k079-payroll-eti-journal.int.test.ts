@@ -269,6 +269,8 @@ describe('K-079: approving a run that claims ETI', () => {
     expect(res.statusCode).toBe(200);
     const h = await header(id);
     expect(h.status).toBe('approved');
+    // A grandfathered run has no approval request, so nobody DECIDED it: the executor is the only approver there is.
+    expect((await pool.query('SELECT approved_by::text AS by FROM payroll_run_headers WHERE id=$1', [id])).rows[0]!.by).toBe(admin);
     const j = await journal(h.journal_entry_id!);
     expect(j.debit).toBe(j.credit);
     expect(j.by('2140').map((l) => Number(l.credit))).toEqual([19500]);

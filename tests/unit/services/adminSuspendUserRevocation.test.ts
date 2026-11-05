@@ -33,6 +33,8 @@ vi.mock('@/lib/auth/oauth', () => ({
   revokeAllUserAuthorisations: (...a: unknown[]) => revokeAllUserAuthorisations(...a),
 }));
 
+const findStranded = vi.hoisted(() => vi.fn());
+vi.mock('@/modules/accounting/services/core/payRunApproverGuard', () => ({ assertPayRunApproverRetainedEverywhere: vi.fn(async () => undefined), findStrandedPayRunRequests: findStranded })); // judged on a real database: payroll-approver-guard-paths.int.test.ts
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { suspendUser } from '@/modules/admin/services/adminUserActionsService';
@@ -42,6 +44,7 @@ const USER = 'user-1';
 beforeEach(() => {
   vi.clearAllMocks();
   calls.length = 0;
+  findStranded.mockResolvedValue([]);
   sqlMock.mockImplementation(async (strings: TemplateStringsArray) => {
     const text = strings.join('?');
     if (/UPDATE users/i.test(text)) calls.push('FLAG');
@@ -79,5 +82,21 @@ describe('suspendUser — credential revocation', () => {
     expect(calls).toContain('FLAG');
     expect(revokeAllUserPats).toHaveBeenCalledWith(USER);
     expect(revokeAllUserAuthorisations).toHaveBeenCalledWith(USER);
+  });
+
+  it('is never stopped by a failed look-up of the pay-run approvals it strands: it logs, and revokes', async () => {
+    findStranded.mockRejectedValueOnce(new Error('migration_admin pool down'));
+
+    await expect(suspendUser(USER, 'compromised')).resolves.toEqual([]);
+
+    expect(calls).toContain('FLAG');
+    expect(revokeAllUserPats).toHaveBeenCalledWith(USER);
+  });
+
+  it('returns the pending pay-run approvals it leaves without another approver, for the admin audit row', async () => {
+    findStranded.mockResolvedValueOnce([{ companyId: 'c1', requestId: 'r1' }]);
+
+    await expect(suspendUser(USER, 'compromised')).resolves.toEqual([{ companyId: 'c1', requestId: 'r1' }]);
+    expect(calls).toContain('FLAG');
   });
 });

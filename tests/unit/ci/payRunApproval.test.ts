@@ -55,6 +55,26 @@ describe('clearPayRunApproval', () => {
     await expect(clearPayRunApproval(fakeApi(forbidden), 'http://x', 'run-1')).rejects.toThrow(/SELF_APPROVAL_FORBIDDEN.*E2E_APPROVER_EMAIL.*isaflow-deploy\.env/s);
   });
 
+  it('reportSelfRefusal: no approver and self-approval forbidden reports it instead of throwing', async () => {
+    const forbidden = new ApiError(403, FORBIDDEN_BODY, 'POST', URL);
+    await expect(clearPayRunApproval(fakeApi(forbidden), 'http://x', 'run-1', { reportSelfRefusal: true })).resolves.toBe('self-approval-refused');
+  });
+
+  it('reportSelfRefusal: a successful self-approval is cleared, other failures still throw', async () => {
+    await expect(clearPayRunApproval(fakeApi(), 'http://x', 'run-1', { reportSelfRefusal: true })).resolves.toBe('cleared');
+    const other = new ApiError(409, { error: { code: 'STALE_DIGEST' } }, 'POST', URL);
+    await expect(clearPayRunApproval(fakeApi(other), 'http://x', 'run-1', { reportSelfRefusal: true })).rejects.toBe(other);
+  });
+
+  it('reportSelfRefusal: a configured approver who is refused still throws', async () => {
+    vi.stubEnv('E2E_APPROVER_EMAIL', 'second@x');
+    vi.stubEnv('E2E_APPROVER_PASSWORD', 'pw');
+    vi.stubEnv('E2E_ADMIN_EMAIL', 'admin@x');
+    const second = fakeApi(new ApiError(403, FORBIDDEN_BODY, 'POST', URL));
+    vi.spyOn(Api, 'loginAs').mockResolvedValue(second);
+    await expect(clearPayRunApproval(fakeApi(), 'http://x', 'run-1', { reportSelfRefusal: true })).rejects.toThrow(/SELF_APPROVAL_FORBIDDEN/);
+  });
+
   it('does not rewrite other approve failures', async () => {
     const other = new ApiError(409, { error: { code: 'STALE_DIGEST' } }, 'POST', URL);
     await expect(clearPayRunApproval(fakeApi(other), 'http://x', 'run-1')).rejects.toBe(other);
@@ -66,7 +86,7 @@ describe('clearPayRunApproval', () => {
     const api = fakeApi();
     const second = fakeApi();
     const login = vi.spyOn(Api, 'loginAs').mockResolvedValue(second);
-    await clearPayRunApproval(api, 'http://x', 'run-1');
+    await expect(clearPayRunApproval(api, 'http://x', 'run-1')).resolves.toBe('cleared');
     expect(login).toHaveBeenCalledWith('http://x', { email: 'second@x', password: 'pw', companyId: 'co-1' });
     expect(api.post.mock.calls.map((c) => (c[1] as { action: string }).action)).toEqual(['request']);
     expect(second.post).toHaveBeenCalledWith(URL, DECISION);

@@ -17,6 +17,8 @@ import { lockCompanyPayrollApprovals, lockPayrollRunHeader, lockRunJournalForApp
 import { claimRunSeveranceDirectives } from './payrollRunDirectiveClaim';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertPayRunApproved } from './payRunApprovalControl';
+import { readPayRunDecision } from './payRunDecision';
+import { soleApproverAuditMetadata } from '../gl/approvalSelfApproval';
 import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 
 type Row = DbRow;
@@ -101,6 +103,10 @@ export async function approvePayrollRun(
 
   // R-035: clearance is for this exact locked plan and precedes the first write.
   await assertPayRunApproved(companyId, runId, gate.planHash);
+  // The header records who DECIDED the approval; the executor (this caller) is in the 'executed' audit event.
+  // No request to read (enforcement off) leaves the executor as the only approver there is.
+  const decision = await readPayRunDecision(companyId, runId, gate.planHash);
+  const approvedBy = decision?.decidedBy ?? userId;
 
   // The two writes a refusal may still follow, in ONE savepoint, so a refusal
   // from either leaves neither behind, whoever catches it (the MCP tool catches
@@ -134,7 +140,7 @@ export async function approvePayrollRun(
   const updatedRows = (await sql`
     UPDATE payroll_run_headers
     SET status      = 'approved',
-        approved_by = ${userId}::uuid,
+        approved_by = ${approvedBy}::uuid,
         approved_at = clock_timestamp(),
         lines_confirmed_at = clock_timestamp(),
         approved_plan_hash = ${gate.planHash},
@@ -165,7 +171,13 @@ export async function approvePayrollRun(
   const journalEntryId = await postPayrollRunJournal(companyId, runId, userId, { postingAgent: opts?.postingAgent, plan });
   await recordPayRunApprovalAudit({
     companyId, runId, actorId: userId, event: 'executed', planHash: gate.planHash,
-    metadata: { executor: opts?.postingAgent ?? 'human', journalEntryId },
+    metadata: {
+      executor: opts?.postingAgent ?? 'human', journalEntryId,
+      ...(decision ? {
+        decidedBy: decision.decidedBy, requestedBy: decision.requestedBy,
+        ...soleApproverAuditMetadata(decision.selfApprovedSoleApprover),
+      } : {}),
+    },
   });
 
   log.info('Payroll run approved and journal posted', { companyId, runId, journalEntryId }, 'payrollApproval');

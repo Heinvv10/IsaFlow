@@ -21,6 +21,9 @@ const CSV = [/Export CSV/];
 const SHORT_CSV = [/CSV/];
 const agingRow = { id: 'r1', invoice_number: 'INV-1', invoice_date: '2026-04-01', due_date: '2026-04-30',
   total_amount: 10, amount_paid: 0, balance_due: 10, days_overdue: 0, bucket: 'current' };
+const dueTotals = { overdueNow: 0, dueTodayToDate: 0, totalByDate: 0, dueLater: 0, noDueDate: 0, total: 0, disputed: 0 };
+const dueSide = (side: string) => ({ side, today: '2026-04-01', byDate: '2026-04-30', contacts: [], totals: dueTotals });
+const dueByDate = { today: '2026-04-01', byDate: '2026-04-30', ap: dueSide('ap'), ar: dueSide('ar'), netPosition: 0 };
 const aging = { rows: [{ ...agingRow, customer_name: 'A', supplier_name: 'A' }], summary: [], as_at_date: '2026-04-30' };
 const ledger = { customer_name: 'A', opening_balance: 0, closing_balance: 10, transactions: [
   { type: 'invoice', transaction_id: 't1', reference: 'INV-1', transaction_date: '2026-04-01', debit: 10, credit: 0, status: 'open', running_balance: 10 },
@@ -66,6 +69,7 @@ export const GATE_PAGES: GatePage[] = [
     data: ledger, prepare: runCustomerLedger },
   { file: 'customer-reports', load: () => import('@/../pages/accounting/reports/customer-reports'), dates: FROM_TO, actions: CSV,
     data: [{ clientId: 'c', clientName: 'A', invoiceCount: 1, totalInvoiced: 1, totalPaid: 0, balance: 1 }] },
+  { file: 'due-by-date', load: () => import('@/../pages/accounting/reports/due-by-date'), dates: ['Due by date'], actions: [/Export Excel/], data: dueByDate },
   { file: 'executive-dashboard', load: () => import('@/../pages/accounting/reports/executive-dashboard'), dates: FROM_TO, actions: [], data: {} },
   { file: 'general-ledger', load: () => import('@/../pages/accounting/reports/general-ledger'), dates: FROM_TO, actions: CSV, data: { accounts: [] } },
   { file: 'item-movement', load: () => import('@/../pages/accounting/reports/item-movement'), dates: FROM_TO, actions: SHORT_CSV },

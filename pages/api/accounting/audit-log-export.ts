@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
+import { trustedClientIp } from '@/lib/trustedClientIp';
 import {
   getAuditLog,
   logAuditOrThrow,
@@ -59,12 +60,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // Log the export action itself. Awaited deliberately: exporting the audit
       // trail without recording who did it is a compliance violation, so a failed
       // audit write fails the export (withErrorHandler -> 500).
-      // x-forwarded-for can be string[] (repeated header) or a comma-separated
-      // chain; bind only the client IP, never an array.
-      const forwardedFor = req.headers['x-forwarded-for'];
-      const clientIp =
-        (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor)?.split(',')[0]?.trim() ||
-        req.socket?.remoteAddress;
+      // The client address from what nginx guarantees (never the forgeable leftmost X-Forwarded-For entry); null when it is not an address.
+      const clientIp = trustedClientIp(req) ?? undefined;
       await logAuditOrThrow({
         companyId,
         userId: req.user.id,
