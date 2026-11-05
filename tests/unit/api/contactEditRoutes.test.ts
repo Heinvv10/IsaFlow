@@ -97,8 +97,8 @@ describe.each([
 describe('PUT supplier: what reaches the UPDATE', () => {
   // The supplier UPDATE binds name, then a (cleared?, value) pair per clearable text column: company_name 1-2,
   // email 3-4, ... terms mode/days/mode/type at 17-20.
-  it('clears a text field sent blank, leaves one that is not sent, and ignores a blank bank account number', async () => {
-    await suppliers(put({ id: ID, email: '', phone: '011 555', bank_account_number: '' }), response());
+  it('clears a text field sent blank and leaves one that is not sent', async () => {
+    await suppliers(put({ id: ID, email: '', phone: '011 555' }), response());
     const v = update()!.values;
     expect(v[3]).toBe(true);   // email: cleared
     expect(v[4]).toBeNull();
@@ -115,9 +115,28 @@ describe('PUT supplier: what reaches the UPDATE', () => {
     expect(update()!.values.slice(17, 21)).toEqual(['clear', null, 'clear', null]);
   });
 
-  it('never clears the bank account number, whatever is sent', async () => {
-    await suppliers(put({ id: ID, bank_account_number: null }), response());
-    expect(update()!.text).not.toMatch(/bank_account_number\s*= CASE WHEN \?/);
+  // Hein, 2026-11-05: the edit never changes bank details. Refused by name, never ignored, before any SQL, so the
+  // bank-details stamp cannot be reached.
+  it.each([
+    ['bank_account_number', '62000000001'], ['bank_name', 'FNB'], ['bank_branch_code', '250655'], ['bank_account_type', 'savings'],
+    ['bank_account_holder', 'Someone'], ['bankAccountNumber', '62000000001'], ['bank_account_number', ''], ['bank_name', null],
+  ])('a body with %s (%j) is a 400 naming the field, and nothing is written', async (field, value) => {
+    const res = response();
+    await suppliers(put({ id: ID, name: 'Acme', [field]: value }), res);
+    expect(status(res)).toBe(400);
+    expect(JSON.stringify(sent(res))).toContain(field);
+    expect(db.calls).toHaveLength(0);
+  });
+
+  it('names every bank field sent, not just the first', async () => {
+    const res = response();
+    await suppliers(put({ id: ID, bank_name: 'FNB', bank_account_number: '1' }), res);
+    expect(JSON.stringify(sent(res))).toContain('bank_name, bank_account_number');
+  });
+
+  it('the UPDATE it does run has no bank column bound to anything but its own value (no CASE clear)', async () => {
+    await suppliers(put({ id: ID, name: 'Acme' }), response());
+    expect(update()!.text).not.toMatch(/bank_\w+\s*= CASE/);
   });
 });
 

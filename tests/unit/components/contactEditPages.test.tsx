@@ -1,7 +1,7 @@
 /**
  * The supplier and customer edit pages: edit mode prefills the form from the stored record, hides the create-only
  * opening balance, lets the terms be cleared to "Not set", and Save sends PUT with the changes (blank text = clear;
- * a bank account number only when one is typed; a category only when the categories were read).
+ * never a bank field: the bank details are a read-only masked panel; a category only when the categories were read).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -35,8 +35,7 @@ const supplier = {
   id: SUPPLIER_ID, name: 'Cable Feeder Systems', company_name: 'CFS (Pty) Ltd', email: 'ap@cfs.example', phone: '011 555 0000',
   contact_person: 'Sam', vat_number: '4123456789', registration_number: '2020/1/07', payment_terms: 3,
   payment_terms_type: 'statement_months', address: '1 Main Rd', category: 'Materials', notes: 'Keep sweet',
-  is_active: true, subject_to_drc_vat: false, whatsapp_number: '+27820000000', bank_name: 'FNB',
-  bank_branch_code: '250655', bank_account_type: 'current', auto_allocate_strategy: 'oldest',
+  is_active: true, subject_to_drc_vat: false, whatsapp_number: '+27820000000', auto_allocate_strategy: 'oldest',
 };
 const customer = {
   id: CUSTOMER_ID, name: 'Herotel', email: 'ar@herotel.example', phone: '', mobile: '', fax: '', web_address: '',
@@ -63,17 +62,31 @@ describe('EditSupplierPage', () => {
     render(<EditSupplierPage />);
     expect(((await screen.findByLabelText(/^Supplier Name/)) as HTMLInputElement).value).toBe('Cable Feeder Systems');
     expect((screen.getByLabelText('Email Address') as HTMLInputElement).value).toBe('ap@cfs.example');
-    expect((screen.getByLabelText('Bank Name') as HTMLInputElement).value).toBe('FNB');
     expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe('Materials');
     expect((screen.getByLabelText(/Payment Terms/) as HTMLSelectElement).value).toBe('statement_months');
     expect((screen.getByLabelText('Number of days or months') as HTMLInputElement).value).toBe('3');
     expect(screen.getByText('3 months after statement')).toBeTruthy();
     expect(screen.queryByLabelText('Opening Balance')).toBeNull();
-    // The account number is never sent to the browser.
-    expect((screen.getByLabelText('Account Number') as HTMLInputElement).value).toBe('');
   });
 
-  it('Save sends PUT with the edits: terms cleared to not set, a blank field cleared, no bank account number', async () => {
+  it('renders no bank inputs: the bank details are the masked read-only panel', async () => {
+    serve(
+      on('GET', `suppliers-list?id=${SUPPLIER_ID}`, () => ok(supplier)),
+      on('GET', 'supplier-bank-verification', () => ok({
+        state: 'not_enforced', fingerprint: null, verifierRole: 'admin', canVerify: false, latest: null,
+        bank: { bankName: 'FNB', maskedAccount: '…4433', branchCode: '250655', accountType: 'current', holder: null },
+      })),
+    );
+    render(<EditSupplierPage />);
+    await screen.findByLabelText(/^Supplier Name/);
+    expect(await screen.findByText('…4433')).toBeTruthy();
+    for (const label of [/bank name/i, /account number/i, /branch code/i, /account type/i, /account holder/i]) {
+      expect(screen.queryByLabelText(label)).toBeNull();
+    }
+    expect(screen.getByText('Bank details cannot be changed on this page.')).toBeTruthy();
+  });
+
+  it('Save sends PUT with the edits: terms cleared to not set, a blank field cleared, no bank field', async () => {
     render(<EditSupplierPage />);
     const email = (await screen.findByLabelText('Email Address')) as HTMLInputElement;
     fireEvent.change(email, { target: { value: '' } });
@@ -81,20 +94,19 @@ describe('EditSupplierPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save Supplier/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
     const body = putBody();
-    expect(body).toMatchObject({ id: SUPPLIER_ID, name: 'Cable Feeder Systems', email: '', payment_terms_type: 'not_set', bank_name: 'FNB' });
+    expect(body).toMatchObject({ id: SUPPLIER_ID, name: 'Cable Feeder Systems', email: '', payment_terms_type: 'not_set' });
     expect(body).not.toHaveProperty('payment_terms');
-    expect(body).not.toHaveProperty('bank_account_number');
+    expect(Object.keys(body).filter((k) => /^bank/i.test(k))).toEqual([]);
     expect(body).not.toHaveProperty('opening_balance');
     await waitFor(() => expect(router.push).toHaveBeenCalledWith(`/accounting/suppliers/${SUPPLIER_ID}`));
   });
 
-  it('a typed bank account number is sent, and changed terms go as the pair', async () => {
+  it('changed terms go as the pair', async () => {
     render(<EditSupplierPage />);
     fireEvent.change(await screen.findByLabelText('Number of days or months'), { target: { value: '6' } });
-    fireEvent.change(screen.getByLabelText('Account Number'), { target: { value: '62000000001' } });
     fireEvent.click(screen.getByRole('button', { name: /Save Supplier/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
-    expect(putBody()).toMatchObject({ payment_terms: 6, payment_terms_type: 'statement_months', bank_account_number: '62000000001' });
+    expect(putBody()).toMatchObject({ payment_terms: 6, payment_terms_type: 'statement_months' });
   });
 
   it('does not save a blank name, and says why', async () => {

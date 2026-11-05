@@ -3,7 +3,7 @@
  * GET  /api/accounting/suppliers-list    - List suppliers (optional ?q= search)
  * POST /api/accounting/suppliers-list    - Create a new supplier
  * PATCH /api/accounting/suppliers-list   - Set { id, subject_to_drc_vat } (the DRC toggle on the detail page)
- * PUT   /api/accounting/suppliers-list   - Edit a supplier: { id, ...fields }; a blank text field is cleared
+ * PUT   /api/accounting/suppliers-list   - Edit a supplier: { id, ...fields }; a blank text field is cleared; any bank field is a 400
  *
  * Named suppliers-list.ts to avoid conflict with any existing suppliers route.
  */
@@ -38,7 +38,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const rows = (await sql`
           SELECT id, name, company_name, email, phone,
                  contact_person, is_active, vat_number, registration_number, address, category, notes, whatsapp_number,
-                 bank_name, bank_branch_code, bank_account_type, auto_allocate_strategy,
+                 auto_allocate_strategy,
                  payment_terms, payment_terms_type, subject_to_drc_vat, created_at
           FROM suppliers
           WHERE id = ${singleId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
@@ -107,9 +107,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // ─── PUT: Edit a supplier ───────────────────────────────────────────────────
-  // The same update the MCP update_supplier tool runs: the bank-details stamp (R-035 PR5) and the entity history row
-  // (entity_change_capture, a trigger) are written the same way, under this request's transaction, as this user.
-  // A bank account number is only ever replaced (blank leaves it); it is never returned by GET (the bank panel masks it).
+  // The general edit. Deliberately NOT a bank editor: a general update route would put bank details one request away
+  // from any writer, so a body naming any bank field is a 400 (supplierPatchFromBody), never ignored, and the bank-details
+  // stamp (R-035 PR5) cannot be reached for a bank change from here. Bank details change through MCP update_supplier or
+  // the migration import, each stamped. A rename still goes through updateSupplier's stamp (the payee name is in the
+  // payment digest, migration 923). The entity history row (entity_change_capture, a trigger) is written under this
+  // request's transaction, as this user.
   if (req.method === 'PUT') {
     const b = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
     const id = typeof b.id === 'string' ? b.id : '';

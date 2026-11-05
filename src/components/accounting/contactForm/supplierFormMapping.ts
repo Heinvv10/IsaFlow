@@ -1,4 +1,4 @@
-/** A stored supplier as the form's strings, and the form as the PUT body (blank text = clear that field). */
+/** A stored supplier as the form's strings, and the form as the PUT body (blank text = clear that field; no bank fields). */
 import { localISODate } from '@/lib/dateUtils';
 import { TERMS_NOT_SET, normalisePaymentTermsType } from '@/modules/accounting/services/shared/paymentTerms';
 import { paymentTermsBody } from '@/components/accounting/PaymentTermsField';
@@ -28,9 +28,8 @@ export function supplierToForm(row: Row): SupplierFormData {
     ...termsToForm(row.payment_terms, row.payment_terms_type),
     address: text(row, 'address'), category: text(row, 'category'), notes: text(row, 'notes'),
     is_active: row.is_active !== false,
-    bank_name: text(row, 'bank_name'),
-    bank_account_number: '', // never sent to the browser: blank means "keep the current account"
-    bank_branch_code: text(row, 'bank_branch_code'), bank_account_type: text(row, 'bank_account_type'),
+    // Bank details are not part of an edit: the form shows them read-only and masked (the bank panel), never as inputs.
+    bank_name: '', bank_account_number: '', bank_branch_code: '', bank_account_type: '',
     opening_balance: '', opening_balance_date: localISODate(),
     auto_allocate_strategy: strategyOf(row.auto_allocate_strategy),
     subject_to_drc_vat: row.subject_to_drc_vat === true,
@@ -44,8 +43,6 @@ export function supplierEditBody(form: SupplierFormData): Record<string, unknown
     whatsapp_number: t(form.whatsapp_number), phone: t(form.phone), contact_person: t(form.contact_person),
     category: t(form.category), vat_number: t(form.vat_number), registration_number: t(form.registration_number),
     address: t(form.address), notes: t(form.notes),
-    bank_name: t(form.bank_name), bank_account_type: t(form.bank_account_type), bank_branch_code: t(form.bank_branch_code),
-    ...(t(form.bank_account_number) ? { bank_account_number: t(form.bank_account_number) } : {}),
     is_active: form.is_active, subject_to_drc_vat: form.subject_to_drc_vat,
     auto_allocate_strategy: form.auto_allocate_strategy,
     ...paymentTermsBody(form.payment_terms, form.payment_terms_type),

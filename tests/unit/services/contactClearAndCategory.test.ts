@@ -42,8 +42,8 @@ describe('clearFlags', () => {
 });
 
 describe('what an update can clear', () => {
-  it('a supplier edit cannot clear the bank account number', async () => {
-    await expect(updateSupplier(COMPANY, ID, { clear: ['bankAccountNumber'] }, 'u')).rejects.toThrow('bankAccountNumber cannot be cleared');
+  it.each(['bankAccountNumber', 'bankName', 'bankBranchCode', 'bankAccountType'])('a supplier update cannot clear %s', async (field) => {
+    await expect(updateSupplier(COMPANY, ID, { clear: [field] }, 'u')).rejects.toThrow(`${field} cannot be cleared`);
     expect(mockSql).not.toHaveBeenCalled();
   });
   it('neither edit can clear the name', async () => {
@@ -86,7 +86,9 @@ describe('request body to service input', () => {
     expect(customerPatchFromBody(body)).not.toHaveProperty('openingBalance');
     expect(customerInputFromBody(body).openingBalance).toBe(100);
   });
-  it('a blank supplier bank account number is not a clear', () => {
-    expect(supplierPatchFromBody({ bank_account_number: '', bank_name: '' }).clear).toEqual(['bankName']);
+  it('a supplier edit body naming a bank field is refused, blank or not', () => {
+    expect(() => supplierPatchFromBody({ bank_account_number: '' })).toThrow('remove: bank_account_number');
+    expect(() => supplierPatchFromBody({ id: ID, bank_name: null, bankBranchCode: 'x' })).toThrow('bank_name, bankBranchCode');
+    expect(supplierPatchFromBody({ id: ID, email: '' }).clear).toEqual(['email']);
   });
 });

@@ -5,6 +5,7 @@
  * An edit differs in one respect: a text field sent blank (or null) means "clear it" and is named in `clear`; a field
  * not sent at all is left alone. Create ignores `clear`.
  */
+import { ContactValidationError } from './contactValidationError';
 import type { CustomerWriteInput, AutoAllocateStrategy as CustomerStrategy } from './customerWriteService';
 import { CUSTOMER_CLEARABLE } from './customerWriteService';
 import type { SupplierWriteInput } from './supplierWriteService';
@@ -29,8 +30,7 @@ const CUSTOMER_BODY_KEY: Record<(typeof CUSTOMER_CLEARABLE)[number], string> = {
 const SUPPLIER_BODY_KEY: Record<(typeof SUPPLIER_CLEARABLE)[number], string> = {
   companyName: 'company_name', email: 'email', phone: 'phone', vatNumber: 'vat_number',
   registrationNumber: 'registration_number', address: 'address', contactPerson: 'contact_person',
-  bankName: 'bank_name', bankBranchCode: 'bank_branch_code', bankAccountType: 'bank_account_type', notes: 'notes',
-  category: 'category', whatsappNumber: 'whatsapp_number',
+  notes: 'notes', category: 'category', whatsappNumber: 'whatsapp_number',
 };
 
 /** The input keys whose body field is present and blank or null. */
@@ -90,7 +90,21 @@ export function supplierInputFromBody(b: Body): SupplierWriteInput {
   };
 }
 
+/** The body keys that name a bank detail (the columns `bankDetailsChange` watches), snake_case and camelCase. */
+export const BANK_BODY_FIELDS = [
+  'bank_name', 'bank_account_number', 'bank_branch_code', 'bank_account_type', 'bank_account_holder',
+  'bankName', 'bankAccountNumber', 'bankBranchCode', 'bankAccountType', 'bankAccountHolder',
+] as const;
+
+/**
+ * A supplier EDIT never changes bank details (Hein, 2026-11-05): any bank field in the body, even blank or null,
+ * is refused by name, never ignored, so the bank-details stamp cannot be reached through the edit route.
+ */
 export function supplierPatchFromBody(b: Body): SupplierWriteInput {
+  const sent = BANK_BODY_FIELDS.filter((k) => k in b);
+  if (sent.length > 0) {
+    throw new ContactValidationError(`Bank details cannot be changed here; remove: ${sent.join(', ')}`);
+  }
   const { openingBalance: _ob, openingBalanceDate: _obd, ...rest } = supplierInputFromBody(b);
   return { ...rest, clear: blanked(b, SUPPLIER_BODY_KEY) };
 }

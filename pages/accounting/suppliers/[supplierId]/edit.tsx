@@ -89,7 +89,7 @@ export default function EditSupplierPage() {
       title={`Edit ${form.name || 'supplier'}`} subtitle="Change the supplier's details" backHref={`/accounting/suppliers/${supplierId}`}
       icon={Truck} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" saving={saving} onSubmit={() => { void save(); }} saveLabel="Save Supplier"
     >
-      <SupplierForm form={form} onChange={setForm} fieldErrors={fieldErrors} dates={dates} mode="edit" />
+      <SupplierForm form={form} onChange={setForm} fieldErrors={fieldErrors} dates={dates} mode="edit" supplierId={supplierId} />
     </ContactEditShell>
   );
 }

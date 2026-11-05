@@ -1,6 +1,7 @@
 /** The supplier form's cards (SupplierForm composes them; the allocation card is in SupplierAllocationSection). */
 import { Toggle } from '@/components/accounting/settings/settingsTypes';
 import { PaymentTermsField } from '@/components/accounting/PaymentTermsField';
+import { SupplierBankDetailsPanel } from '@/components/accounting/suppliers/SupplierBankDetailsPanel';
 import type { SupplierFormData } from '@/components/accounting/SupplierForm';
 import { Card, SectionTitle, SelectField, TextAreaField, TextField, inputClass, type SectionProps } from './formParts';
 
@@ -53,7 +54,17 @@ export function SupplierBasicSection({ form, set, patch, fieldErrors, mode }: Pr
   );
 }
 
-export function SupplierBankSection({ form, set, mode }: Props) {
+export function SupplierBankSection({ form, set, mode, supplierId }: Props & { supplierId?: string }) {
+  if (mode === 'edit') {
+    // Bank details are not edited here (they change through the stamped paths): the same masked panel as the detail page.
+    return (
+      <Card>
+        <SectionTitle>Bank Details</SectionTitle>
+        <p className="text-xs text-[var(--ff-text-tertiary)] -mt-2 mb-4">Bank details cannot be changed on this page.</p>
+        {supplierId && <SupplierBankDetailsPanel supplierId={supplierId} />}
+      </Card>
+    );
+  }
   return (
     <Card>
       <SectionTitle>Bank Details</SectionTitle>
@@ -63,9 +74,7 @@ export function SupplierBankSection({ form, set, mode }: Props) {
         <SelectField label="Account Type" value={form.bank_account_type} onChange={(v) => set('bank_account_type', v)}>
           {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </SelectField>
-        <TextField label="Account Number" value={form.bank_account_number} onChange={(v) => set('bank_account_number', v)}
-          placeholder={mode === 'edit' ? 'Unchanged' : '62012345678'}
-          hint={mode === 'edit' ? 'Leave blank to keep the current account. A new number is a bank-details change: it is recorded under your name and has to be verified again where bank verification is on.' : undefined} />
+        <TextField label="Account Number" value={form.bank_account_number} onChange={(v) => set('bank_account_number', v)} placeholder="62012345678" />
         <TextField label="Branch Code" value={form.bank_branch_code} onChange={(v) => set('bank_branch_code', v)} placeholder="250655" />
       </div>
     </Card>

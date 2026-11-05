@@ -59,33 +59,60 @@ describe('PUT supplier', () => {
     const id = await newSupplier(c);
     const res = await putSupplier(admin, c, {
       id, name: 'Edit Co (renamed)', email: '', phone: '011 555', payment_terms: 3, payment_terms_type: 'statement_months',
-      bank_account_number: '9999888877', whatsapp_number: '+27820000000',
+      whatsapp_number: '+27820000000',
     });
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect(dataOf(res)).toEqual({ id, name: 'Edit Co (renamed)', is_active: true });
-    expect(JSON.stringify(res.state.body)).not.toContain('9999888877');
 
     const stored = await row('suppliers', id);
     expect(stored).toMatchObject({
       name: 'Edit Co (renamed)', email: null, phone: '011 555', payment_terms: 3, payment_terms_type: 'statement_months',
-      bank_account_number: '9999888877', whatsapp_number: '+27820000000',
+      bank_account_number: '1111222233', whatsapp_number: '+27820000000',
     });
 
     const history = (await changesOf(pool, id)).filter((h) => h.op === 'update');
     expect(history).toHaveLength(1);
     expect(history[0]).toMatchObject({ company_id: c, entity_type: 'supplier', actor: admin, channel: 'session', db_role: 'app_user' });
     expect(history[0]!.changed).toEqual(expect.arrayContaining(
-      ['name', 'email', 'phone', 'payment_terms', 'payment_terms_type', 'bank_account_number', 'whatsapp_number']));
+      ['name', 'email', 'phone', 'payment_terms', 'payment_terms_type', 'whatsapp_number']));
     expect(history[0]!.after).toMatchObject({ payment_terms: 3, payment_terms_type: 'statement_months', email: null });
     expect(history[0]!.before).toMatchObject({ payment_terms: 30, payment_terms_type: 'invoice_days', email: 'old@x.test' });
   });
 
-  it('not_set clears the terms to NULL / NULL (the CHECK holds) and a blank bank account number keeps the account', async () => {
+  it('not_set clears the terms to NULL / NULL (the CHECK holds) and leaves the bank account alone', async () => {
     const c = await company();
     const id = await newSupplier(c);
-    const res = await putSupplier(admin, c, { id, payment_terms_type: 'not_set', bank_account_number: '' });
+    const res = await putSupplier(admin, c, { id, payment_terms_type: 'not_set' });
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect(await row('suppliers', id)).toMatchObject({ payment_terms: null, payment_terms_type: null, bank_account_number: '1111222233', email: 'old@x.test' });
+  });
+
+  it.each([
+    ['bank_account_number', '9999888877'], ['bank_name', 'Other Bank'], ['bank_branch_code', '000000'],
+    ['bank_account_type', 'savings'], ['bank_account_holder', 'Someone Else'], ['bank_account_number', ''], ['bank_name', null],
+  ])('refuses a body with %s (%j): 400 naming it; the row, bank_details_setters and history are unchanged', async (field, value) => {
+    const c = await company();
+    const id = await newSupplier(c);
+    await pool.query('UPDATE suppliers SET bank_name = $2, bank_details_setters = ARRAY[$3::uuid] WHERE id = $1', [id, 'FNB', other]);
+    const before = await row('suppliers', id);
+    const historyBefore = (await changesOf(pool, id)).length;
+    const res = await putSupplier(admin, c, { id, name: 'Edit Co (renamed)', [field]: value });
+    expect(res.state.statusCode).toBe(400);
+    expect(messageOf(res)).toContain(field);
+    const after = await row('suppliers', id);
+    expect(after).toEqual(before);
+    expect(after.bank_details_setters).toEqual([other]);
+    expect(after.name).toBe('Edit Co');
+    expect(await changesOf(pool, id)).toHaveLength(historyBefore);
+  });
+
+  it('an edit that touches no bank detail and no name leaves bank_details_setters alone (the stamp is not reached)', async () => {
+    const c = await company();
+    const id = await newSupplier(c);
+    await pool.query('UPDATE suppliers SET bank_details_setters = ARRAY[$2::uuid] WHERE id = $1', [id, other]);
+    const res = await putSupplier(admin, c, { id, email: 'new@x.test', payment_terms_type: 'not_set' });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(await row('suppliers', id)).toMatchObject({ email: 'new@x.test', bank_account_number: '1111222233', bank_details_setters: [other] });
   });
 
   it('refuses a bad pair with a 400 and changes nothing', async () => {
@@ -101,7 +128,7 @@ describe('PUT supplier', () => {
     const a = await company();
     const b = await otherCompany();
     const victim = await newSupplier(b);
-    const res = await putSupplier(admin, a, { id: victim, name: 'Hijacked', bank_account_number: '0000000000', payment_terms_type: 'not_set' });
+    const res = await putSupplier(admin, a, { id: victim, name: 'Hijacked', payment_terms_type: 'not_set' });
     expect(res.state.statusCode).toBe(404);
     expect(await row('suppliers', victim)).toMatchObject({
       name: 'Edit Co', bank_account_number: '1111222233', payment_terms: 30, payment_terms_type: 'invoice_days',

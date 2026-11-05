@@ -1,7 +1,7 @@
 /**
  * SupplierForm — the supplier form fields, for creating (pages/accounting/suppliers/new.tsx) and editing
  * (pages/accounting/suppliers/[supplierId]/edit.tsx, `mode="edit"`: no opening balance, terms may be cleared to
- * "Not set"). The cards are in contactForm/Supplier*Section.tsx.
+ * "Not set", bank details read-only and masked, never inputs). The cards are in contactForm/Supplier*Section.tsx.
  */
 
 import { localISODate } from '@/lib/dateUtils';
@@ -69,9 +69,11 @@ interface Props {
   fieldErrors?: Partial<Record<keyof SupplierFormData, string>>;
   dates: DateGate;
   mode?: FormMode;
+  /** Edit mode: the supplier whose masked bank details are shown (read-only). */
+  supplierId?: string;
 }
 
-export function SupplierForm({ form, onChange, fieldErrors = {}, dates, mode = 'create' }: Props) {
+export function SupplierForm({ form, onChange, fieldErrors = {}, dates, mode = 'create', supplierId }: Props) {
   const section = {
     form, fieldErrors, mode, dates,
     set: <K extends keyof SupplierFormData>(key: K, value: SupplierFormData[K]) => onChange({ ...form, [key]: value }),
@@ -81,7 +83,7 @@ export function SupplierForm({ form, onChange, fieldErrors = {}, dates, mode = '
     <>
       <SupplierBasicSection {...section} />
       <SupplierAllocationSection {...section} />
-      <SupplierBankSection {...section} />
+      <SupplierBankSection {...section} supplierId={supplierId} />
       <SupplierAdditionalSection {...section} />
     </>
   );

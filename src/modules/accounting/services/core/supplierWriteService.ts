@@ -66,10 +66,10 @@ export interface SupplierWriteInput {
   clear?: readonly string[];
 }
 
-/** Not bankAccountNumber: the account a payment run pays into is replaced, never blanked, by an edit. */
+/** No bank column: nothing that clears is a bank-details change (the edit route refuses bank fields outright). */
 export const SUPPLIER_CLEARABLE = [
-  'companyName', 'email', 'phone', 'vatNumber', 'registrationNumber', 'address', 'contactPerson', 'bankName',
-  'bankBranchCode', 'bankAccountType', 'notes', 'category', 'whatsappNumber',
+  'companyName', 'email', 'phone', 'vatNumber', 'registrationNumber', 'address', 'contactPerson', 'notes', 'category',
+  'whatsappNumber',
 ] as const;
 
 function trimmed(value: string | null | undefined): string | null {
@@ -233,8 +233,7 @@ export async function updateSupplier(
   // row actually replaced, even when a concurrent edit committed first.
   // A write naming a bank column, or the name (approval content since migration 923), may stamp the batches paying
   // this supplier: they are locked before the row.
-  const bankMayChange = [name, v.bankName, v.bankAccountNumber, v.bankBranchCode, v.bankAccountType].some((x) => x !== null)
-    || cl.bankName || cl.bankBranchCode || cl.bankAccountType;
+  const bankMayChange = [name, v.bankName, v.bankAccountNumber, v.bankBranchCode, v.bankAccountType].some((x) => x !== null);
   const before = await lockSupplierBankDetails(companyId, supplierId, bankMayChange);
   const rows = (await sql`
     UPDATE suppliers SET
@@ -249,10 +248,10 @@ export async function updateSupplier(
       whatsapp_number     = CASE WHEN ${cl.whatsappNumber} THEN NULL ELSE COALESCE(${trimmed(input.whatsappNumber)}, whatsapp_number) END,
       payment_terms       = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.days}::INT WHEN 'clear' THEN NULL ELSE payment_terms END,
       payment_terms_type  = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'clear' THEN NULL ELSE payment_terms_type END,
-      bank_name           = CASE WHEN ${cl.bankName} THEN NULL ELSE COALESCE(${v.bankName}, bank_name) END,
+      bank_name           = COALESCE(${v.bankName}, bank_name),
       bank_account_number = COALESCE(${v.bankAccountNumber}, bank_account_number),
-      bank_branch_code    = CASE WHEN ${cl.bankBranchCode} THEN NULL ELSE COALESCE(${v.bankBranchCode}, bank_branch_code) END,
-      bank_account_type   = CASE WHEN ${cl.bankAccountType} THEN NULL ELSE COALESCE(${v.bankAccountType}, bank_account_type) END,
+      bank_branch_code    = COALESCE(${v.bankBranchCode}, bank_branch_code),
+      bank_account_type   = COALESCE(${v.bankAccountType}, bank_account_type),
       is_active           = COALESCE(${input.isActive ?? null}, is_active),
       notes               = CASE WHEN ${cl.notes} THEN NULL ELSE COALESCE(${trimmed(input.notes)}, notes) END,
       category            = CASE WHEN ${cl.category} THEN NULL ELSE COALESCE(${v.category}, category) END,
