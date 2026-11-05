@@ -7,6 +7,7 @@ import type { Mock } from 'vitest';
 import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 import type { ManagementPackConfig, NoteContent, NoteContentTable } from '@/modules/accounting/services/afs/afsTypes';
 import type { BudgetTrackingReport, TrackingBand, TrackingLine } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
+import type { BalanceSheetReport, IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 
 const figures = { projected: 0, fyBudget: null, projVariance: null, projFavourable: null, unallocatedBudget: 0 };
 export const band = (key: TrackingBand['key'], label: string, actual: number, budget: number | null): TrackingBand => ({
@@ -39,6 +40,30 @@ export const AGGS: Record<string, Record<string, string>> = {
   '2026-08-01': { revenue: '1200.00', cogs: '300.00', net_profit: '250.00' },
   '2025-09-01': { revenue: '900.00', cogs: '100.00', net_profit: '200.00' },
 };
+
+/** The Reports screen's income statement for a window, from the same figures AGGS holds: one revenue and one cost-of-sales account. */
+export function incomeReportFor(start: string): IncomeStatementReport {
+  const a = AGGS[start] ?? { revenue: '0', cogs: '0', net_profit: '0' };
+  const revenue = Number(a.revenue), cogs = Number(a.cogs), net = Number(a.net_profit);
+  return {
+    periodStart: start, periodEnd: start,
+    revenue: revenue ? [{ accountCode: '4100', accountName: 'Sales', amount: revenue }] : [], otherIncome: [],
+    costOfSales: cogs ? [{ accountCode: '5100', accountName: 'Materials', amount: cogs }] : [],
+    operatingExpenses: revenue - cogs - net ? [{ accountCode: '5200', accountName: 'Labour', amount: revenue - cogs - net }] : [], otherExpenses: [],
+    totalRevenue: revenue, totalOtherIncome: 0, totalCostOfSales: cogs, totalOperatingExpenses: revenue - cogs - net, totalOtherExpenses: 0,
+    grossProfit: revenue - cogs, operatingProfit: net, netProfit: net,
+  } as IncomeStatementReport;
+}
+
+/** The Reports screen's balance sheet at a date: bank held against retained earnings, 1000 a month. */
+export function balanceReportFor(asAtDate: string): BalanceSheetReport {
+  const total = Number(asAtDate.slice(5, 7)) * 1000;
+  return {
+    asAtDate, assets: [{ accountCode: '1110', accountName: 'Bank', balance: total }], liabilities: [],
+    equity: [{ accountCode: '3200', accountName: 'Retained Earnings', balance: total }],
+    totalAssets: total, totalLiabilities: 0, totalEquity: total,
+  };
+}
 
 export const config = (mode: ManagementPackConfig['comparisonMode'], sections: string[]): ManagementPackConfig => ({
   id: 'c', companyId: 'co', enabled: true, generationDay: 5, deliveryDay: 10, reviewRequired: true,

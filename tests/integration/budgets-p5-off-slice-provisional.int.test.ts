@@ -66,8 +66,8 @@ async function enforceAndApproveRequest(bill: string): Promise<void> {
   [f.co, bill, f.manager, f.owner]);
 }
 const unenforce = async () => {
-  await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [f.co]);
-  await pool.query('DELETE FROM approval_rules WHERE company_id = $1', [f.co]);
+  await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [f.co]);
+  await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1", [f.co]);
 };
 
 describe('the draft write inherits; approve reads the stored lines', () => {

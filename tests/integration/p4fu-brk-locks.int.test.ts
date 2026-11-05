@@ -11,7 +11,7 @@ import type { Route } from './w3-01-payroll.helpers';
 import createRun from '../../pages/api/payroll/runs';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import {
-  approveRun, reopenRun, cleanSeveranceFixtures, runLine, type SeveranceFixture,
+  approveRun, authoriseRun, postRun, reopenRun, cleanSeveranceFixtures, runLine, type SeveranceFixture,
 } from './p3-severance.helpers';
 import { PERIODS, seedEmployee, setSalary } from './p4fu-cumulative.helpers';
 
@@ -41,9 +41,10 @@ describe('G4: calculate takes the company approval lock', () => {
       for (const p of PERIODS.slice(0, 5)) { const id = await mk(f, p.year, p.month); await calcOnly(f, id); if (p.month < 6) { if ((await approveRun(f, id)).statusCode !== 200) throw new Error('setup'); } ids.push(id); }
       const c = await mk(f, 2026, 8); const d = await mk(f, 2026, 9);
       await calcOnly(f, c);
+      await authoriseRun(f, c);
       const rs = await Promise.all([
         f.call(calculate as Route, 'POST', `/api/payroll/runs/${d}/calculate`, d),
-        approveRun(f, c),
+        postRun(f, c),
         reopenRun(f, ids[0]!),
         f.call(calculate as Route, 'POST', `/api/payroll/runs/${c}/calculate`, c),
       ]);

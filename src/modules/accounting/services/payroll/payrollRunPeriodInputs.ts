@@ -57,6 +57,8 @@ import { auditComponentChange, type ComponentChangeActor } from './payrollCompon
 import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import { getTaxYear, getTaxYearConfig, UnsupportedTaxYearError } from './taxTables';
+import { describePayRunApproval } from './payRunApprovalControl';
+import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 const EDITABLE_EARNING_CODES: ReadonlySet<string> = new Set(['3601', '3606', '3607']);
 /** Company-local codes only, never four digits (see the top of this file). Upper case. */
@@ -113,7 +115,7 @@ export interface RunInputRecurring {
 }
 
 export interface RunInputsState {
-  run: PayrollRunSummary & { lines: PayrollRunLine[] };
+  run: PayrollRunSummary & { lines: PayrollRunLine[]; approval: DocumentApprovalState | null };
   inputs: { components: RunInputComponent[]; employeeIds: string[]; amounts: RunInputAmount[]; recurring: RunInputRecurring[] };
 }
 
@@ -146,10 +148,12 @@ export async function getRunInputs(companyId: string, runId: string): Promise<Ru
   const period = { year: run.periodYear, month: run.periodMonth };
   // One after another: under withAuth these share the request's one connection.
   const lines = await getPayrollRunLines(runId, companyId);
+  const approval = run.status === 'draft' || run.status === 'calculated'
+    ? await describePayRunApproval(companyId, runId) : null;
   const employees = await listPayrollRunEmployees(companyId, period);
   const components = await listEditableComponents(companyId);
   const captured = await readAmounts(companyId, period, components.map((c) => c.id), employees.map((e) => e.id));
-  return { run: { ...run, lines }, inputs: { components, employeeIds: employees.map((e) => e.id), ...captured } };
+  return { run: { ...run, lines, approval }, inputs: { components, employeeIds: employees.map((e) => e.id), ...captured } };
 }
 
 function assertAmount(amount: number): void {
@@ -219,7 +223,7 @@ export async function setRunPeriodAmount(
   const rowId = row ? String(row.id) : null;
   await withTransaction(async (tx) => {
     // From a calculation, not the stored line: another writer may have moved the inputs since it was stored.
-    await calculatePayrollRun(runId, companyId);
+    await calculatePayrollRun(runId, companyId, actor.userId);
     const shortfallBefore = await shortfallOf(companyId, runId, employeeId);
     const window = { from, to, recurring: false };
     if (rowId && amount === 0) {
@@ -241,7 +245,7 @@ export async function setRunPeriodAmount(
       `) as DbRow[];
       await auditComponentChange(tx, companyId, String(inserted[0]!.id), null, window, 'run_input', actor);
     }
-    await calculatePayrollRun(runId, companyId);
+    await calculatePayrollRun(runId, companyId, actor.userId);
     // Only what this edit makes worse. Refusing every flagged line would refuse the edits that repair one.
     const shortfall = await shortfallOf(companyId, runId, employeeId);
     if (shortfall > shortfallBefore) {

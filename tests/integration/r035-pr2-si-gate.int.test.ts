@@ -52,8 +52,8 @@ describe('enabling supplier-invoice enforcement', () => {
     const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'POST',
       { documentType: 'supplier_invoice', enabled: true }, '/api/accounting/approval-enforcement');
     expect(res.state.statusCode).toBe(200);
-    const { rows } = await pool.query('SELECT document_type FROM approval_enforcement WHERE company_id = $1', [c]);
-    expect(rows.map((x) => x.document_type)).toEqual(['supplier_invoice']);
+    const { rows } = await pool.query('SELECT document_type FROM approval_enforcement WHERE company_id = $1 ORDER BY document_type', [c]);
+    expect(rows.map((x) => x.document_type)).toEqual(['pay_run', 'supplier_invoice']);
   });
 });
 

@@ -13,6 +13,9 @@ import { findReportingPeriod } from './afsReportingPeriod';
 import { afsDocumentTitle, isPackPeriod, packPeriodLabel, packPeriodPhrase } from './afsDocumentTitle';
 import type { AfsDocument, AfsSection, NoteContentBlock, NoteContent } from './afsTypes';
 import { renderNoteTable } from './docxTableRenderer';
+import { packSectionView } from './managementPackSectionView';
+import { normaliseBlocks } from './noteBlockNormalise';
+import { orderPackSections } from './managementPackSections';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -129,11 +132,16 @@ function buildTocChildren(): DocxChild[] {
 
 // ── section renderers ─────────────────────────────────────────────────────────
 
-function buildSectionChildren(section: AfsSection): DocxChild[] {
-  const blocks = resolveBlocks(section);
+function buildSectionChildren(section: AfsSection, isPack: boolean): DocxChild[] {
+  // A pack section prints as every pack surface does: vocabulary title, never empty, narrative under it.
+  const view = isPack ? packSectionView(section) : null;
+  if (isPack && !view) return [];
+  const blocks = view
+    ? [...view.blocks, ...(view.narrative ? [{ type: 'paragraph' as const, text: view.narrative }] : [])]
+    : resolveBlocks(section);
   if (!blocks) return [];
 
-  const title = resolveTitle(section);
+  const title = view ? view.title : resolveTitle(section);
   const children: DocxChild[] = [
     new Paragraph({
       text: title,
@@ -143,7 +151,7 @@ function buildSectionChildren(section: AfsSection): DocxChild[] {
     spacer(),
   ];
 
-  for (const block of blocks) {
+  for (const block of normaliseBlocks(blocks)) {
     children.push(...renderBlock(block));
   }
 
@@ -210,14 +218,16 @@ export async function renderToDocx(
     sectionCount: sections.length,
   });
 
-  const sorted = [...sections].sort((a, b) => a.sortOrder - b.sortOrder);
+  const sorted = document.documentType === 'management_pack'
+    ? orderPackSections(sections)
+    : [...sections].sort((a, b) => a.sortOrder - b.sortOrder);
 
   const documentTitle = afsDocumentTitle(document.documentType);
   const coverChildren = buildCoverChildren(await coverPeriodText(document), companyName, documentTitle);
   const tocChildren = buildTocChildren();
 
   const sectionParts = sorted
-    .map((s) => buildSectionChildren(s))
+    .map((s) => buildSectionChildren(s, document.documentType === 'management_pack'))
     .filter((children) => children.length > 0);
 
   const bodyChildren: DocxChild[] = [

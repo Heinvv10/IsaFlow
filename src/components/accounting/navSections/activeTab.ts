@@ -233,17 +233,29 @@ export function mostSpecificActiveHref(hrefs: string[], asPath: string): string 
   const [pagePath] = splitHref(asPath);
   for (const href of hrefs) {
     if (!pathMatchesHref(href, asPath)) continue;
-    const [itemPath, qs] = splitHref(href);
+    const [itemPath] = splitHref(href);
     if (EXACT_ONLY_PATHS.has(itemPath) && pagePath !== itemPath) continue;
-    // More path segments win; among equals the longer query wins. A link with
-    // no query scores 0, so any `?tab=` link on the same path beats it.
-    const score: [number, number] = [itemPath.split('/').length, qs.length];
-    if (score[0] > bestScore[0] || (score[0] === bestScore[0] && score[1] > bestScore[1])) {
+    const score = hrefSpecificity(href);
+    if (moreSpecific(score, bestScore)) {
       best = href;
       bestScore = score;
     }
   }
   return best;
+}
+
+/**
+ * How specifically a link names a page: more path segments win; among equals the longer query wins. A link
+ * with no query scores 0, so any `?tab=` link on the same path beats it.
+ */
+export function hrefSpecificity(href: string): [number, number] {
+  const [itemPath, qs] = splitHref(href);
+  return [itemPath.split('/').length, qs.length];
+}
+
+/** True when `a` is strictly more specific than `b` (a tie is not: the earlier link keeps it). */
+export function moreSpecific(a: [number, number], b: [number, number]): boolean {
+  return a[0] > b[0] || (a[0] === b[0] && a[1] > b[1]);
 }
 
 /** `mostSpecificActiveHref` over the plain links of a mixed link/section list. */
