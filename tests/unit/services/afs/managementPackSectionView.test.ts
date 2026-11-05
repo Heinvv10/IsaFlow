@@ -99,21 +99,44 @@ describe('a statement an older pack stored as JSON prints as a table', () => {
 });
 
 describe('an accepted AI narrative is printed once', () => {
-  // PUT .../ai-narrative freezes the narrative into overrides.blocks as a paragraph and leaves ai_narrative set.
+  // PUT .../ai-narrative copies the narrative into overrides.blocks as a paragraph, sets ai_narrative_accepted and leaves ai_narrative.
+  const accepted = (blocks: unknown[]) => sec('ai_executive_summary', {
+    aiNarrative: 'Revenue grew.', aiNarrativeAccepted: true,
+    overrides: { title: 'AI Executive Summary', blocks: blocks as never },
+  });
+
   it('not again beneath the blocks that already carry it', () => {
-    const v = packSectionView(sec('ai_executive_summary', {
-      aiNarrative: 'Revenue grew.',
-      overrides: { title: 'AI Executive Summary', blocks: [{ type: 'paragraph', text: 'Revenue grew.' }] },
-    }));
+    const v = packSectionView(accepted([{ type: 'paragraph', text: 'Revenue grew.' }]));
     expect(v?.blocks).toEqual([{ type: 'paragraph', text: 'Revenue grew.' }]);
     expect(v?.narrative).toBeNull();
   });
 
-  it('still prints a narrative the blocks do not carry', () => {
+  it('nor when the accountant edited that paragraph, nor when they deleted it', () => {
+    expect(packSectionView(accepted([{ type: 'paragraph', text: 'Revenue grew by 12%.' }]))?.narrative).toBeNull();
+    const deleted = packSectionView(accepted([]));
+    expect(deleted?.narrative).toBeNull();
+    expect(deleted?.blocks).toEqual([{ type: 'paragraph', text: 'No executive summary could be generated for this period.' }]);
+  });
+
+  it('a narrative that was not accepted still prints beneath edited blocks', () => {
     const v = packSectionView(sec('kpi_scorecard', {
-      aiNarrative: 'Margins fell.',
-      overrides: { blocks: [{ type: 'paragraph', text: 'Edited by the accountant.' }] },
+      aiNarrative: 'Margins fell.', overrides: { blocks: [{ type: 'paragraph', text: 'Edited by the accountant.' }] },
     }));
     expect(v?.narrative).toBe('Margins fell.');
+  });
+});
+
+describe('what an older pack stored in overrides', () => {
+  it('an override title that is the bare section key is ignored (accept copies the key in)', () => {
+    expect(packSectionView(sec('cash_flow', { overrides: { title: 'cash_flow', blocks: [{ type: 'paragraph', text: 'x' }] } }))?.title).toBe('Cash Flow');
+  });
+
+  it('an AI failure sentence frozen into the blocks is not printed', () => {
+    const v = packSectionView(sec('cash_flow', {
+      overrides: { blocks: [{ type: 'paragraph', text: AI_COMMENTARY_UNAVAILABLE }, { type: 'paragraph', text: 'Cash held.' }] },
+    }));
+    expect(v?.blocks).toEqual([{ type: 'paragraph', text: 'Cash held.' }]);
+    const only = packSectionView(sec('cash_flow', { overrides: { blocks: [{ type: 'paragraph', text: AI_SUMMARY_UNAVAILABLE }] } }));
+    expect(only?.blocks).toEqual([{ type: 'paragraph', text: SECTION_NOT_AVAILABLE }]);
   });
 });

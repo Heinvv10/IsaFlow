@@ -34,6 +34,7 @@ interface AfsSection {
   content: NoteContent | null;
   overrides?: { title?: unknown; blocks?: unknown } | null;
   ai_narrative: string | null;
+  ai_narrative_accepted?: boolean | null;
 }
 
 interface AfsDocument {
@@ -96,7 +97,7 @@ export default function PortalDocumentPage({
   // A pack section prints as it does in the PDF and the app (packSectionView): vocabulary title, never empty, tables, narrative.
   const shown = (isPack
     ? packSectionViews(sections.map((s) => ({
-      s, sectionType: s.section_type, sortOrder: s.sort_order, aiNarrative: s.ai_narrative,
+      s, sectionType: s.section_type, sortOrder: s.sort_order, aiNarrative: s.ai_narrative, aiNarrativeAccepted: s.ai_narrative_accepted,
       content: s.content as PackSectionInput['content'], overrides: s.overrides as PackSectionInput['overrides'],
     }))).map(({ section, view }) => ({ s: section.s, title: view.title, blocks: view.blocks as NoteContentBlock[], narrative: view.narrative }))
     : sections.map((s) => ({ s, title: s.section_type.replace(/_/g, ' '), blocks: s.content?.blocks ?? null, narrative: null as string | null })));

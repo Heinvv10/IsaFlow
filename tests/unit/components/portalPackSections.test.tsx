@@ -53,6 +53,15 @@ describe('portal document page, management pack', () => {
     expect(screen.getAllByText('Income Statement (restated)').length).toBeGreaterThan(0);
   });
 
+  it('an accepted AI narrative prints once: the narrative field stays quiet once its copy is in the blocks', () => {
+    show('management_pack', [sec('1', 'income_statement', [], 'Revenue was R9.', {
+      ai_narrative_accepted: true, overrides: { title: 'income_statement', blocks: [{ type: 'paragraph', text: 'Revenue was R10 (corrected).' }] },
+    })]);
+    expect(screen.getByText('Revenue was R10 (corrected).')).toBeTruthy();
+    expect(screen.queryByText('Revenue was R9.')).toBeNull();
+    expect(screen.getAllByText('Income Statement').length).toBeGreaterThan(0);
+  });
+
   it('lists the sections in print order whatever their stored sort_order, and survives a stored title or block of the wrong type', () => {
     const at = (n: number, id: string, type: string, extra: Record<string, unknown> = {}) => ({ ...sec(id, type, [{ type: 'paragraph', text: `body ${type}` }], null, extra), sort_order: n });
     show('management_pack', [
