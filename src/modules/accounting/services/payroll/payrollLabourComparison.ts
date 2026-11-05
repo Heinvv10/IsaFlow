@@ -41,6 +41,9 @@ export const NET_PAY_DESCRIPTION = 'Net pay — bank disbursement';
 /** Stands for "whichever account holds the bank role" on both sides of the comparison. */
 const BANK_ROLE = 'bank-role';
 
+/** A posted journal line as the comparison reads it: its `gl_journal_lines.description` says which line is net pay. */
+export type PostedFigureLine = FigureLine & { description: string | null };
+
 /**
  * Net pay's bank credit is ONE role, not an account (re-approval after the
  * bank role moved). The plan names today's holder; the journal in force names
@@ -50,20 +53,28 @@ const BANK_ROLE = 'bank-role';
  * would have credited a different bank than the cash left from. So both sides
  * key the net-pay credit as the role, and only its AMOUNT is compared.
  *
- * The plan's line is found by its description. The journal's is a credit-only
- * line on an account no other plan line uses: any other credit that differs
- * (PAYE, UIF, SDL, deductions on another account, or a line the plan no longer
- * has) lands in the bank bucket too, changes its amount, and is a difference.
+ * Exactly ONE line is folded on each side, found by its description
+ * (NET_PAY_DESCRIPTION, which the poster has written to `gl_journal_lines`
+ * since payroll journals existed, 0fffb05a5). Every other posted line stays
+ * keyed by its account, so a credit the recalculated plan no longer carries
+ * (PAYE, UIF, SDL or 2175 gone to zero — the builder drops zero lines) is a
+ * difference. Folding by "any credit on an account the plan does not use"
+ * instead moved that credit into the bank bucket; both journals balance, so the
+ * bucket's amount matched and a changed run re-locked onto its stale journal.
+ *
+ * A posted journal with no single net-pay line is not folded at all: both sides
+ * stay keyed by account, which is the comparison from before the bank role
+ * could move.
  */
 export function foldNetPayBank<P extends FigureLine & { description: string }>(
   plan: P[],
-  posted: FigureLine[],
+  posted: PostedFigureLine[],
 ): { plan: FigureLine[]; posted: FigureLine[] } {
-  const others = new Set(plan.filter((l) => l.description !== NET_PAY_DESCRIPTION).map((l) => l.glAccountId));
-  const isBank = (l: FigureLine) => cents(l.debit) === 0 && cents(l.credit) > 0 && l.glAccountId !== null && !others.has(l.glAccountId);
+  const netPay = posted.filter((l) => l.description === NET_PAY_DESCRIPTION && cents(l.debit) === 0 && cents(l.credit) > 0);
+  if (netPay.length !== 1) return { plan, posted };
   return {
     plan: plan.map((l) => (l.description === NET_PAY_DESCRIPTION ? { ...l, glAccountId: BANK_ROLE } : l)),
-    posted: posted.map((l) => (isBank(l) ? { ...l, glAccountId: BANK_ROLE } : l)),
+    posted: posted.map((l) => (l === netPay[0] ? { ...l, glAccountId: BANK_ROLE } : l)),
   };
 }
 

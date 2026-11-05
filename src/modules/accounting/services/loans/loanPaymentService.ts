@@ -104,12 +104,11 @@ async function resolveAccounts(
   }
   if (!debitInterest) throw new Error('Cannot resolve interest expense account (set on loan or add GL 5700)');
 
-  // Bank: override (checked) → loan.bank_account_id → the bank-role holder
+  // Bank: override → loan.bank_account_id → the bank-role holder. A stored id is checked like a supplied one
+  // (company, active, postable, bank subtype): it was valid when set, not necessarily now.
   const creditBank = bankAccountIdOverride
     ? await resolvePaymentBankAccount(companyId, bankAccountIdOverride)
-    : loanRow.bank_account_id != null
-      ? String(loanRow.bank_account_id)
-      : await resolvePaymentBankAccount(companyId);
+    : await resolvePaymentBankAccount(companyId, loanRow.bank_account_id != null ? String(loanRow.bank_account_id) : undefined, "The loan's bank account");
 
   return { debitLoan, debitInterest, creditBank };
 }

@@ -116,6 +116,18 @@ async function glByCode(companyId: string, code: string): Promise<string | null>
   return rows.length > 0 ? String(rows[0]!.id) : null;
 }
 
+/** The refusal for a directive with a payment row already (a pay run that paid it holds the same row), else null. */
+async function existingPayment(companyId: string, directiveId: string): Promise<TaxDirectiveAlreadyAppliedError | null> {
+  const now = (await sql`
+    SELECT id, payroll_run_id FROM tax_directive_payments
+    WHERE company_id = ${companyId} AND tax_directive_id = ${directiveId}
+    LIMIT 1
+  `) as Row[];
+  if (!now[0]) return null;
+  const run = now[0].payroll_run_id;
+  return new TaxDirectiveAlreadyAppliedError(directiveId, String(now[0].id), run == null ? null : String(run));
+}
+
 // ─── applyTaxDirective ────────────────────────────────────────────────────────
 
 export async function applyTaxDirective(
@@ -182,6 +194,10 @@ export async function applyTaxDirective(
     throw new Error('GL account 2140 (PAYE Payable) not found — ensure chart of accounts is seeded');
   }
 
+  // Already paid: "already applied" whatever the bank is now (a retry is not refused for a bank it never credits).
+  const applied = await existingPayment(companyId, directiveId);
+  if (applied) throw applied;
+
   // The supplied account, checked, else the bank-role holder; refused before the claim below.
   const bankAccountId = await resolvePaymentBankAccount(companyId, input.bankAccountId);
 
@@ -208,17 +224,8 @@ export async function applyTaxDirective(
     RETURNING id
   `) as Row[]);
   if (claimed.length === 0) {
-    // Re-read rather than trusting a row read before the INSERT: the loser of a
-    // double-click needs the payment the winner left behind.
-    // A payroll run that paid a severance directive holds this same row (its
-    // claim, payrollRunDirectiveClaim), so the run is refused here too.
-    const now = (await sql`
-      SELECT id, payroll_run_id FROM tax_directive_payments
-      WHERE company_id = ${companyId} AND tax_directive_id = ${directiveId}
-      LIMIT 1
-    `) as Row[];
-    const run = now[0]?.payroll_run_id;
-    throw new TaxDirectiveAlreadyAppliedError(directiveId, now[0] ? String(now[0].id) : null, run == null ? null : String(run));
+    // Re-read: the loser of a double-click needs the payment the winner left behind.
+    throw (await existingPayment(companyId, directiveId)) ?? new TaxDirectiveAlreadyAppliedError(directiveId, null);
   }
   const paymentId = String(claimed[0]!.id);
 

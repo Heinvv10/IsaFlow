@@ -26,13 +26,15 @@ const plan = (bank: string | null, net = 18_200): PlanLine[] => [
   planLine(UIF, 0, 2_000, 'UIF'),
   planLine(bank, 0, net, NET_PAY_DESCRIPTION),
 ];
-const journal = (bank: string, net = 18_200, paye = 2_000): FigureLine[] => [
-  { glAccountId: LABOUR, debit: 22_200, credit: 0, cc1Id: null },
-  { glAccountId: PAYE, debit: 0, credit: paye, cc1Id: null },
-  { glAccountId: UIF, debit: 0, credit: 2_000, cc1Id: null },
-  { glAccountId: bank, debit: 0, credit: net, cc1Id: null },
+/** The journal as the poster wrote it: each line keeps the plan's description (gl_journal_lines.description). */
+type PostedLine = FigureLine & { description: string };
+const journal = (bank: string, net = 18_200, paye = 2_000): PostedLine[] => [
+  { glAccountId: LABOUR, debit: 22_200, credit: 0, cc1Id: null, description: 'Labour' },
+  { glAccountId: PAYE, debit: 0, credit: paye, cc1Id: null, description: 'PAYE' },
+  { glAccountId: UIF, debit: 0, credit: 2_000, cc1Id: null, description: 'UIF' },
+  { glAccountId: bank, debit: 0, credit: net, cc1Id: null, description: NET_PAY_DESCRIPTION },
 ];
-const same = (p: PlanLine[], posted: FigureLine[], perAccount = false): boolean => {
+const same = (p: PlanLine[], posted: PostedLine[], perAccount = false): boolean => {
   const folded = foldNetPayBank(p, posted);
   return sameFigures(perAccount ? comparableLines(folded.plan, undefined, folded.posted) : folded, perAccount);
 };
@@ -64,8 +66,19 @@ describe.each([false, true])('re-approval onto an in-force journal (recalculated
   });
 
   it('a journal credit the plan no longer carries is a difference', () => {
-    const noUif = plan(NEW_BANK).filter((l) => l.glAccountId !== UIF);
+    // Balanced: the plan drops the UIF credit and net pay rises by it (22,200 = 2,000 PAYE + 20,200 bank).
+    const noUif = plan(NEW_BANK, 20_200).filter((l) => l.glAccountId !== UIF);
+    const credits = noUif.reduce((s, l) => s + l.credit, 0);
+    expect(credits).toBe(noUif.reduce((s, l) => s + l.debit, 0));
     expect(same(noUif, journal(OLD_BANK), perAccount)).toBe(false);
+  });
+});
+
+describe('a posted journal without the net-pay description', () => {
+  it('is compared account by account: no fold, so a moved role reads as a change', () => {
+    const noDescription = journal(OLD_BANK).map((l) => ({ ...l, description: 'Payroll' }));
+    expect(same(plan(NEW_BANK), noDescription)).toBe(false);
+    expect(same(plan(OLD_BANK), noDescription)).toBe(true);
   });
 });
 

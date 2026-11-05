@@ -157,6 +157,17 @@ describe('payroll net pay — no usable bank role', () => {
     expect(plan!.lines.map((l) => l.glAccountId)).not.toContain('acc-1110');
   });
 
+  it('does not block on the missing bank when net pay is zero: the net-pay line is dropped, no bank is credited', async () => {
+    routeMock(UNMOVED, { ...HEADER, total_net: 0 });
+    getSystemAccount.mockRejectedValue(new MissingSystemAccountError('bank', COMPANY, 'no_claimant', []));
+
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    expect(plan!.lines.some((l) => l.description === 'Net pay — bank disbursement')).toBe(false);
+    expect(plan!.blockers.map((b) => b.code)).not.toContain('missing_bank_account');
+    expect(plan!.blockers).toEqual([]);
+  });
+
   it('names the deactivated candidates when only deactivated accounts claim the role', async () => {
     routeMock(MOVED);
     getSystemAccount.mockRejectedValue(new MissingSystemAccountError('bank', COMPANY, 'deactivated_claimants_only', [

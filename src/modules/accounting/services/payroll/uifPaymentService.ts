@@ -13,7 +13,7 @@ import { resolvePaymentBankAccount } from '@/modules/accounting/services/gl/paym
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { claimUnderLockTimeout } from '@/modules/accounting/services/core/documentClaimLock';
-import { mapUifDeclaration, type UifPaymentResult } from './uifDeclarationService';
+import { mapUifDeclaration, type UifDeclaration, type UifPaymentResult } from './uifDeclarationService';
 
 type Row = DbRow;
 
@@ -21,6 +21,11 @@ async function resolveGlAccount(companyId: string, code: string, label: string):
   const acc = await getAccountByCode(companyId, code);
   if (!acc) throw new Error(`GL account ${code} (${label}) not found for company`);
   return acc.id;
+}
+
+function alreadyPaid(decl: UifDeclaration): UifPaymentResult {
+  log.info('UIF declaration already paid — idempotent', { companyId: decl.companyId, declarationId: decl.id }, 'uifDeclarationService');
+  return { id: decl.id, totalPaid: decl.totalUif, journalEntryId: decl.journalEntryId ?? '', status: 'paid' };
 }
 
 /** DR 2150 UIF Payable / CR Bank (`bankAccountId`, else the bank-role holder) — clears the month's UIF liability on payment to Labour Dept. */
@@ -37,6 +42,9 @@ export async function markUifDeclarationPaid(
   if (declRows.length === 0 || !declRows[0]) throw new Error(`UIF declaration ${declarationId} not found`);
   const decl = mapUifDeclaration(declRows[0]);
   const paymentDate = opts.paymentDate ?? new Date().toISOString().slice(0, 10);
+  // An already-paid declaration is idempotent whatever the bank role or the supplied account is now: a retry must
+  // not be refused for a bank it will never credit. The claim below decides the same for a rival that wins the race.
+  if (decl.status === 'paid') return alreadyPaid(decl);
   // Refused before the claim below: a payment with no bank to credit writes nothing.
   const bankAccId = await resolvePaymentBankAccount(companyId, opts.bankAccountId);
 
@@ -62,10 +70,7 @@ export async function markUifDeclarationPaid(
       WHERE id = ${declarationId}::uuid AND company_id = ${companyId}::uuid
     `) as Row[];
     const cur = nowRows[0] ? mapUifDeclaration(nowRows[0]) : null;
-    if (cur?.status === 'paid') {
-      log.info('UIF declaration already paid — idempotent', { companyId, declarationId }, 'uifDeclarationService');
-      return { id: cur.id, totalPaid: cur.totalUif, journalEntryId: cur.journalEntryId ?? '', status: 'paid' };
-    }
+    if (cur?.status === 'paid') return alreadyPaid(cur);
     throw new Error(`UIF declaration must be 'submitted' before paying (current: ${cur?.status ?? 'missing'})`);
   }
 

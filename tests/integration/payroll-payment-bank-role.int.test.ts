@@ -18,7 +18,7 @@ import { clearSystemAccountCache } from '../../src/modules/accounting/services/g
 import { BankAccountRefusedError } from '../../src/modules/accounting/services/gl/paymentBankAccount';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { markUifDeclarationPaid } from '../../src/modules/accounting/services/payroll/uifPaymentService';
-import { applyTaxDirective } from '../../src/modules/accounting/services/payroll/taxDirectivePaymentService';
+import { applyTaxDirective, TaxDirectiveAlreadyAppliedError } from '../../src/modules/accounting/services/payroll/taxDirectivePaymentService';
 import { recordLoanPayment } from '../../src/modules/accounting/services/loans/loanPaymentService';
 
 assertDisposable();
@@ -214,3 +214,40 @@ describe('no account holds the role', () => {
     await flag('1544331', { active: true });
   });
 });
+
+describe('a retry on a payment already made is answered as before, whatever the bank is now', () => {
+  it('UIF: a paid declaration stays idempotent after the role lost its holder', async () => {
+    await flag('1544331', { active: true });
+    const { d, p } = await payUif();
+    const first = await p;
+    await flag('1544331', { active: false });
+    const again = await inTx(() => markUifDeclarationPaid(company, d, { paymentDate: '2026-03-07' }, user));
+    expect(again).toMatchObject({ id: d, status: 'paid', journalEntryId: first.journalEntryId });
+    const supplied = await inTx(() => markUifDeclarationPaid(company, d, { paymentDate: '2026-03-07', bankAccountId: acct['other-1110']! }, user));
+    expect(supplied.status).toBe('paid');
+  });
+
+  it('directive: an applied directive is still "already applied" (409), not a bank refusal', async () => {
+    await flag('1544331', { active: true });
+    const d = await directive();
+    await inTx(() => applyTaxDirective(company, d, { paymentDate: '2026-03-10' }, user));
+    await flag('1544331', { active: false });
+    const err = await inTx(() => applyTaxDirective(company, d, { paymentDate: '2026-03-10' }, user)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TaxDirectiveAlreadyAppliedError);
+    expect(await directivePayments(d)).toBe(1);
+  });
+
+  it('loan: a stored bank_account_id deactivated since is refused like a supplied one, and nothing is recorded', async () => {
+    await flag('1544331', { active: true });
+    await pool.query('UPDATE loans SET bank_account_id = $2 WHERE id = $1', [loan, acct['1120']]);
+    await pool.query('UPDATE gl_accounts SET is_active = false WHERE id = $1', [acct['1120']]);
+    const before = await loanPayments();
+    const err = await payLoan().catch((e: unknown) => e);
+    await pool.query('UPDATE gl_accounts SET is_active = true WHERE id = $1', [acct['1120']]);
+    expect(err).toBeInstanceOf(BankAccountRefusedError);
+    expect((err as Error).message).toMatch(/1120 Savings is deactivated/);
+    expect(await loanPayments()).toBe(before);
+    await pool.query('UPDATE loans SET bank_account_id = NULL WHERE id = $1', [loan]);
+  });
+});
+

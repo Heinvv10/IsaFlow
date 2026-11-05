@@ -49,22 +49,31 @@ describe('recordLoanPayment — which bank it credits', () => {
   it('nothing supplied, loan has no bank: the bank-role holder', async () => {
     resolvePaymentBankAccount.mockResolvedValue('acct-holder');
     await pay();
-    expect(resolvePaymentBankAccount).toHaveBeenCalledWith(CO);
+    expect(resolvePaymentBankAccount.mock.calls[0]!.slice(0, 2)).toEqual([CO, undefined]);
     expect(credited()).toBe('acct-holder');
   });
 
-  it('nothing supplied, the loan names its bank: the loan\'s bank, with no role lookup', async () => {
+  it('nothing supplied, the loan names its bank: the loan\'s bank, checked like a supplied one', async () => {
     loanRow.bank_account_id = 'acct-loan-bank';
+    resolvePaymentBankAccount.mockResolvedValue('acct-loan-bank');
     await pay();
-    expect(resolvePaymentBankAccount).not.toHaveBeenCalled();
+    expect(resolvePaymentBankAccount).toHaveBeenCalledTimes(1);
+    expect(resolvePaymentBankAccount.mock.calls[0]!.slice(0, 2)).toEqual([CO, 'acct-loan-bank']);
     expect(credited()).toBe('acct-loan-bank');
+  });
+
+  it('the loan\'s stored bank is refused (deactivated, not a bank, other company): nothing is written', async () => {
+    loanRow.bank_account_id = 'acct-loan-bank';
+    resolvePaymentBankAccount.mockRejectedValue(new BankAccountRefusedError('1110 Bank is deactivated'));
+    await expect(pay()).rejects.toBeInstanceOf(BankAccountRefusedError);
+    expect(writes).toEqual([]);
   });
 
   it('a supplied bankAccountId is checked and beats the loan\'s bank', async () => {
     loanRow.bank_account_id = 'acct-loan-bank';
     resolvePaymentBankAccount.mockResolvedValue('acct-checked');
     await pay('some-id');
-    expect(resolvePaymentBankAccount).toHaveBeenCalledWith(CO, 'some-id');
+    expect(resolvePaymentBankAccount.mock.calls[0]!.slice(0, 2)).toEqual([CO, 'some-id']);
     expect(credited()).toBe('acct-checked');
   });
 

@@ -31,15 +31,15 @@ export function isBankAccountRefusal(err: unknown): err is BankAccountRefusedErr
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function checkSupplied(companyId: string, accountId: string): Promise<string> {
-  if (!UUID_RE.test(accountId)) throw new BankAccountRefusedError('bankAccountId must be a valid UUID');
+async function checkSupplied(companyId: string, accountId: string, what: string): Promise<string> {
+  if (!UUID_RE.test(accountId)) throw new BankAccountRefusedError(`${what} must be a valid UUID`);
   const rows = (await sql`
     SELECT id, account_code, account_name, account_subtype, is_active
     FROM gl_accounts
     WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID
   `) as Array<{ id: string; account_code: string; account_name: string; account_subtype: string | null; is_active: boolean | null }>;
   const acc = rows[0];
-  if (!acc) throw new BankAccountRefusedError('bankAccountId is not an account of this company');
+  if (!acc) throw new BankAccountRefusedError(`${what} is not an account of this company`);
   const label = `${acc.account_code} ${acc.account_name}`;
   if (!isBankSubtype(acc.account_subtype)) throw new BankAccountRefusedError(`${label} is not a bank account`);
   if (acc.is_active === false) throw new BankAccountRefusedError(`${label} is deactivated`);
@@ -53,11 +53,12 @@ async function checkSupplied(companyId: string, accountId: string): Promise<stri
 }
 
 /**
- * The GL account id to credit. `supplied` (a caller's `bankAccountId`) is
- * validated; absent, it is the bank-role holder. Throws BankAccountRefusedError.
+ * The GL account id to credit. `supplied` (a caller's `bankAccountId`, or a
+ * loan's stored one — `what` names it in the refusal) is validated; absent, it
+ * is the bank-role holder. Throws BankAccountRefusedError.
  */
-export async function resolvePaymentBankAccount(companyId: string, supplied?: string | null): Promise<string> {
-  if (supplied) return checkSupplied(companyId, supplied);
+export async function resolvePaymentBankAccount(companyId: string, supplied?: string | null, what = 'bankAccountId'): Promise<string> {
+  if (supplied) return checkSupplied(companyId, supplied, what);
   const { account, refusal } = await resolveBankRoleHolder(companyId);
   if (refusal) throw new BankAccountRefusedError(refusal.detail);
   if (!account.isActive) {

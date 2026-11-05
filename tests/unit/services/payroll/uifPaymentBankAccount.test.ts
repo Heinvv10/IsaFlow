@@ -7,13 +7,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const writes: string[] = [];
+let declStatus = 'submitted';
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: TemplateStringsArray) => {
     const q = strings.join('?');
-    if (/UPDATE uif_declarations SET status/.test(q)) { writes.push('claim'); return [{ id: DECL }]; }
+    if (/UPDATE uif_declarations SET status/.test(q)) { writes.push('claim'); return declStatus === 'submitted' ? [{ id: DECL }] : []; }
     if (/UPDATE uif_declarations SET journal_entry_id/.test(q)) { writes.push('link'); return []; }
     if (q.includes('FROM uif_declarations')) {
-      return [{ id: DECL, company_id: CO, period_year: 2026, period_month: 10, status: 'submitted',
+      return [{ id: DECL, company_id: CO, period_year: 2026, period_month: 10, status: declStatus,
         total_employee_contribution: 100, total_employer_contribution: 100 }];
     }
     return [];
@@ -44,7 +45,7 @@ const CO = 'aaaaaaaa-0000-4000-8000-000000000001';
 const DECL = 'dddddddd-0000-4000-8000-000000000002';
 const USER = 'cccccccc-0000-4000-8000-000000000003';
 
-beforeEach(() => { writes.length = 0; createJournalEntry.mockClear(); resolvePaymentBankAccount.mockReset(); });
+beforeEach(() => { declStatus = 'submitted'; writes.length = 0; createJournalEntry.mockClear(); resolvePaymentBankAccount.mockReset(); });
 
 const creditedAccount = (): string => {
   const input = createJournalEntry.mock.calls[0]![1] as { lines: Array<{ glAccountId: string; credit: number }> };
@@ -69,6 +70,17 @@ describe('markUifDeclarationPaid — which bank it credits', () => {
   it('a refusal happens before the declaration is claimed: nothing is written', async () => {
     resolvePaymentBankAccount.mockRejectedValue(new BankAccountRefusedError('No active account holds the company\'s bank role.'));
     await expect(markUifDeclarationPaid(CO, DECL, {}, USER)).rejects.toBeInstanceOf(BankAccountRefusedError);
+    expect(writes).toEqual([]);
+  });
+});
+
+describe('markUifDeclarationPaid — a retry on an already-paid declaration', () => {
+  it('returns the idempotent result without consulting the bank resolver, even if it would now refuse', async () => {
+    declStatus = 'paid';
+    resolvePaymentBankAccount.mockRejectedValue(new BankAccountRefusedError('the role moved'));
+    const out = await markUifDeclarationPaid(CO, DECL, { bankAccountId: 'deactivated-since' }, USER);
+    expect(out.status).toBe('paid');
+    expect(resolvePaymentBankAccount).not.toHaveBeenCalled();
     expect(writes).toEqual([]);
   });
 });

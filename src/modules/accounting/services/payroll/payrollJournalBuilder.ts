@@ -166,7 +166,8 @@ export async function buildPayrollJournalPlan(
       detail: `The company has no GL account for ${missing.join(', ')}. The payroll journal cannot be built without them.`,
     });
   }
-  if (bank.blocker) blockers.push(bank.blocker);
+  // Only when a net-pay line survives (zero lines are dropped below): a run paying no one credits no bank.
+  if (bank.blocker && round2(net) !== 0) blockers.push(bank.blocker);
   if (Math.abs(otherDeductions) > 0.005 && !accounts.has('2175')) {
     blockers.push({
       code: 'missing_other_deductions_account',
