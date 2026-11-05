@@ -55,7 +55,10 @@ function parseBody(body: unknown): unknown {
 function collector(): Collector {
   const headers = new Map<string, Header>();
   const chunks: string[] = [];
+  let status = 200;
   const c: Collector = {
+    // A real ServerResponse takes no status once its answer is out: a handler that threw late and an error handler
+    // answering over it must not turn the first answer into a 500. The accessor below enforces it.
     statusCode: 200, headersSent: false, writableEnded: false, destroyed: false, body: null,
     setHeader(name, value) { headers.set(name.toLowerCase(), value); return c; },
     getHeader(name) { return headers.get(name.toLowerCase()); },
@@ -70,10 +73,13 @@ function collector(): Collector {
       return c;
     },
     write(chunk) { chunks.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)); return true; },
-    json(body) { c.body = body; return c.end(); },
-    send(body) { c.body = parseBody(body); return c.end(); },
+    // Both answer through end(), so a deferred end (withAuth) buffers them like a real response's.
+    json(body) { return c.end(JSON.stringify(body) ?? ''); },
+    send(body) { return c.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body) ?? ''); },
     end(chunk) {
-      // A chunk is the answer even over an earlier json(): withAuth replaces a buffered 2xx with its own 500 body this way.
+      // The first end wins, as on a real response. (A buffered end that withAuth replays or replaces is the REAL end
+      // reached first, so its replaced 500 body still lands: nothing has ended yet when it runs.)
+      if (c.writableEnded) return c;
       if (chunk !== undefined) c.body = parseBody(chunks.join('') + (Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)));
       else if (chunks.length) c.body = parseBody(chunks.join(''));
       c.writableEnded = true;
@@ -81,6 +87,11 @@ function collector(): Collector {
     },
     destroy() { c.destroyed = true; },
   };
+  Object.defineProperty(c, 'statusCode', {
+    get: () => status,
+    set: (code: number) => { if (!c.writableEnded) status = code; },
+    enumerable: true,
+  });
   for (const name of UNSUPPORTED) {
     (c as unknown as Record<string, unknown>)[name] = () => { throw new Error(`callApiInProcess: res.${name} is not supported`); };
   }

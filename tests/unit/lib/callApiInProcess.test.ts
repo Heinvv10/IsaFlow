@@ -130,3 +130,29 @@ describe('callApiInProcess response surface', () => {
   });
 });
 
+describe('callApiInProcess keeps the FIRST answer, as a real ServerResponse does', () => {
+  const call = (h: (req: NextApiRequest, res: NextApiResponse) => unknown) => callApiInProcess(h, pageReq(), { url: '/api/x', query: {} });
+
+  it('an answer, then a handler error answered over it: the first answer stands (200, not the later 500)', async () => {
+    const out = await call((_req, res) => {
+      res.status(200).json({ success: true, data: { first: true } });
+      // what an error handler does after a handler that threw late: it tries to answer again
+      res.statusCode = 500;
+      res.status(500).json({ success: false, error: 'late' });
+    });
+    expect(out).toEqual({ status: 200, body: { success: true, data: { first: true } } });
+  });
+
+  it('a second end() or send() after the first changes nothing', async () => {
+    const out = await call((_req, res) => { res.status(201).json({ a: 1 }); res.end('{"b":2}'); res.send({ c: 3 }); });
+    expect(out).toEqual({ status: 201, body: { a: 1 } });
+  });
+
+  it('json and send answer through end (so a deferred end buffers them): a json body is stringified once', async () => {
+    const out = await call((_req, res) => { res.status(200).send({ viaSend: true }); });
+    expect(out).toEqual({ status: 200, body: { viaSend: true } });
+    const text = await call((_req, res) => { res.status(200).send('plain text'); });
+    expect(text.body).toBe('plain text');
+  });
+});
+
