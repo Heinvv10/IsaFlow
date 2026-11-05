@@ -20,6 +20,11 @@
  * that is a DRAFT with NO approval request bound to it (pending or approved) has its blank lines inherit from the
  * attached provisional; otherwise it is skipped and the attach says so, so no digest moves under a request (migration
  * 873 hashes the lines' dimensions). The capture routes raise their request after the attach, so it holds there too.
+ * A line carrying EXACTLY what the supplier's defaults give a blank line counts as blank there (Codex review of
+ * c5a5ded7f): a capture line that was blank took those defaults when no provisional was attached, and that original
+ * blankness is not stored, so without this a later manual attach would post the bill on the supplier-default slice
+ * while the settlement credits the provisional's. Such a line that inherits takes only the provisional's dimensions
+ * (as the automatic re-plan does); one that does not keeps its stored dimensions.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -28,6 +33,7 @@ import { log } from '@/lib/logger';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
+import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { inheritSlipDimensions, provisionalDimLines, type ProvisionalDimLine } from '../ap/supplierInvoiceProvisionalDims';
 import { withContentEditorStamp } from '../ap/supplierInvoiceContentEditor';
 import { lockSupplierInvoiceForUpdate } from '../ap/supplierInvoiceLock';
@@ -47,7 +53,7 @@ export interface CaptureSlipPlan {
 export type AttachInheritance = { invoiceId: string; inheritedLines: number } | { invoiceId: string; skipped: string };
 
 interface ItemRow { id: string; glAccountId: string | null; lineTotal: number; cc1Id?: string; cc2Id?: string; buId?: string; costCenterId?: string }
-type Header = { subtotal: number; totalAmount: number; taxRate: number; costCenterId: string | null };
+type Header = { subtotal: number; totalAmount: number; taxRate: number; costCenterId: string | null; supplierId: string | null };
 
 const opt = (v: unknown): string | undefined => (v == null ? undefined : String(v));
 
@@ -63,7 +69,8 @@ async function defaultExpenseOrNull(companyId: string): Promise<string | null> {
 /** The bill's header and every line (with its stored dimensions), company-scoped; null when it is not found. */
 async function readBill(companyId: string, invoiceId: string): Promise<{ head: Header; items: ItemRow[] } | null> {
   const [h] = (await sql`
-    SELECT subtotal::TEXT AS subtotal, total_amount::TEXT AS total, tax_rate::TEXT AS tax_rate, cost_center_id::TEXT AS cc
+    SELECT subtotal::TEXT AS subtotal, total_amount::TEXT AS total, tax_rate::TEXT AS tax_rate, cost_center_id::TEXT AS cc,
+           supplier_id::TEXT AS supplier
       FROM supplier_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!h) return null;
@@ -75,7 +82,8 @@ async function readBill(companyId: string, invoiceId: string): Promise<{ head: H
      ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}
   `) as DbRow[];
   return {
-    head: { subtotal: Number(h.subtotal), totalAmount: Number(h.total), taxRate: Number(h.tax_rate), costCenterId: h.cc ? String(h.cc) : null },
+    head: { subtotal: Number(h.subtotal), totalAmount: Number(h.total), taxRate: Number(h.tax_rate), costCenterId: h.cc ? String(h.cc) : null,
+      supplierId: h.supplier ? String(h.supplier) : null },
     items: rows.map((r) => ({
       id: String(r.id), glAccountId: r.gl_account_id ? String(r.gl_account_id) : null, lineTotal: Number(r.line_total),
       cc1Id: opt(r.cc1_id), cc2Id: opt(r.cc2_id), buId: opt(r.bu_id), costCenterId: opt(r.cost_center_id),
@@ -105,6 +113,26 @@ async function writeDims(companyId: string, invoiceId: string, lines: readonly I
     `) as DbRow[];
     if (updated.length !== 1) throw new Error(`Slip dimensions: line ${l.id} of supplier invoice ${invoiceId} was not updated`);
   }
+}
+
+const dimsKey = (l: ItemRow): string => [l.cc1Id, l.cc2Id, l.buId].map((v) => (v ?? '').toLowerCase()).join('|');
+
+/**
+ * Per line, whether it names dimensions (no legacy pick) that are exactly what the supplier's defaults give a blank
+ * line: the manual attach reads it as blank (see the header). A default the dimension rules now refuse matches nothing.
+ */
+async function carriesSupplierDefaults(companyId: string, supplierId: string | null, items: readonly ItemRow[]): Promise<boolean[]> {
+  const named = items.map((i) => Boolean(i.cc1Id || i.cc2Id || i.buId) && !i.costCenterId);
+  if (!supplierId || !named.some(Boolean)) return items.map(() => false);
+  const blanks: ItemRow[] = items.map((i) => ({ id: i.id, glAccountId: i.glAccountId, lineTotal: i.lineTotal }));
+  let defaults: ItemRow[];
+  try {
+    defaults = await resolveBillLineDimensions(companyId, supplierId, blanks);
+  } catch (err) {
+    if (err instanceof DimensionRefusal) return items.map(() => false);
+    throw err;
+  }
+  return items.map((i, k) => named[k] === true && defaults[k] !== undefined && dimsKey(i) === dimsKey(defaults[k]!));
 }
 
 /** Whether an approval request (pending or approved) binds the bill's digest: its lines are then never changed here. */
@@ -217,7 +245,9 @@ export async function inheritOnAttach(companyId: string, invoiceId: string, jeId
   }
   const bill = await readBill(companyId, invoiceId);
   if (!bill) return { invoiceId, skipped: 'not found' };
-  const items = bill.items.map((i) => (bill.head.costCenterId ? { ...i, costCenterId: bill.head.costCenterId } : i));
+  const picked = bill.items.map((i) => (bill.head.costCenterId ? { ...i, costCenterId: bill.head.costCenterId } : i));
+  const asBlank = await carriesSupplierDefaults(companyId, bill.head.supplierId, picked);
+  const items = picked.map((i, k) => (asBlank[k] ? { id: i.id, glAccountId: i.glAccountId, lineTotal: i.lineTotal } : i));
   const { lines, inherited } = await inheritSlipDimensions(companyId, items, bill.head,
     await attachedLines(companyId, jeId), await defaultExpenseOrNull(companyId));
   const changed = lines.filter((_, i) => inherited[i]);

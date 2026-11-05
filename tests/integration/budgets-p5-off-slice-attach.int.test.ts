@@ -89,6 +89,35 @@ describe('R3-4: the manual attach inherits on a draft slip bill with no approval
   });
 });
 
+describe('the manual attach: a line carrying exactly the supplier\'s defaults counts as blank (Codex review of c5a5ded7f)', () => {
+  /** A draft slip bill on `supplier` whose one 800 opex line carries CC1 `cc1` (what a capture with no provisional stores). */
+  async function slipDraftOn(supplier: string, date: string, cc1: string) {
+    const { bill, doc } = await slipDraft(date);
+    await pool.query('UPDATE supplier_invoices SET supplier_id = $2 WHERE id = $1', [bill, supplier]);
+    await pool.query('UPDATE supplier_invoice_items SET cc1_id = $2 WHERE supplier_invoice_id = $1', [bill, cc1]);
+    return { bill, doc };
+  }
+
+  it('supplier default HT on the line: it inherits the provisional\'s FT, so bill and reclass share a slice', async () => {
+    const SD = crypto.randomUUID();
+    await pool.query("INSERT INTO suppliers (id, company_id, name, is_active) VALUES ($1, $2, 'SD default HT', true)", [SD, f.co]);
+    await pool.query('INSERT INTO supplier_coding_rules (company_id, supplier_id, default_cc1_id) VALUES ($1, $2, $3)', [f.co, SD, f.cc.HT]);
+    const je = await seedUnevidencedProvisional(pool, f, '2026-03-10', [{ amount: 800, cc1: f.cc.FT }], SD);
+    const { bill, doc } = await slipDraftOn(SD, '2026-03-12', f.cc.HT);
+    const out = await asOwner(() => attachDocumentToProvisional(f.co, je, doc));
+    expect(out).toMatchObject({ kind: 'attached', slipInheritance: [{ invoiceId: bill, inheritedLines: 1 }] });
+    expect(await billLineCc1(pool, bill)).toEqual([f.cc.FT]);
+  });
+
+  it('a line naming a dimension that is not the supplier\'s default keeps it', async () => {
+    const je = await seedUnevidencedProvisional(pool, f, '2026-01-10', [{ amount: 800, cc1: f.cc.FT }], S0);
+    const { bill, doc } = await slipDraftOn(S0, '2026-01-12', f.cc.HT);
+    const out = await asOwner(() => attachDocumentToProvisional(f.co, je, doc));
+    expect(out).toMatchObject({ kind: 'attached', slipInheritance: [{ invoiceId: bill, inheritedLines: 0 }] });
+    expect(await billLineCc1(pool, bill)).toEqual([f.cc.HT]);
+  });
+});
+
 describe('R3-4: the manual attach leaves a bill that is not a draft alone', () => {
   it('an approved slip bill (no journal yet): not taken, nothing inherited, the digest unchanged', async () => {
     const je = await seedUnevidencedProvisional(pool, f, '2026-08-10', [{ amount: 800, cc1: f.cc.FT }], S0);
