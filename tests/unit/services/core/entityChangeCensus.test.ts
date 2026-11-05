@@ -105,6 +105,8 @@ const WRITERS: Record<string, string[]> = {
   approval_enforcement: [],
   // Tracked from 952. scripts/seed-payroll-data.ts sweeps it with the name in a variable, so it is not matched here.
   payroll_bank_details: [`${S}payroll/payrollBankDetailsService.ts`],
+  // Tracked from 959, for the one key default_payment_terms (narrow WHEN triggers); the other keys' writers are pinned all the same.
+  accounting_settings: [`${S}budgets/budgetAlertRuns.ts`, `${S}core/currencyService.ts`, `${S}core/paymentTermsResolver.ts`],
 };
 export const TRACKED = Object.keys(WRITERS);
 
@@ -133,7 +135,10 @@ const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.s
   '930_credential_membership_writes_off_app_pools.sql',
   // 952 (wave 3 K1): widens the entity_type CHECK and entity_changes_read for payroll_bank_detail and attaches the
   // capture, ENABLE ALWAYS, to payroll_bank_details. The capture itself is unchanged, so 930's registry is too.
-  '952_payroll_bank_details_tenant_history.sql'];
+  '952_payroll_bank_details_tenant_history.sql',
+  // 959 (payment terms): widens the entity_type CHECK for company_setting and attaches three narrow captures, ENABLE ALWAYS, to
+  // accounting_settings (only the default_payment_terms key). The capture itself is unchanged, so 930's registry is too.
+  '959_company_default_terms_history.sql'];
 /**
  * Matching only in their comments: 693 explains why ENABLE TRIGGER downgrades, 855 why it uses E'' under
  * standard_conforming_strings, 876 why TRUNCATE ... cascade.
@@ -279,7 +284,7 @@ describe('entity change history (census)', () => {
     const sql = readFileSync(path.join(ROOT, MIGRATIONS, HISTORY_FILE), 'utf8');
     const values = /FROM \(VALUES([\s\S]*?)\) v\(tbl, typ\)/.exec(sql)![1]!;
     const tables = [...values.matchAll(/\('(\w+)', '(\w+)'\)/g)].map((m) => m[1]);
-    expect([...tables, 'payroll_bank_details'].sort()).toEqual([...TRACKED].sort());
+    expect([...tables, 'payroll_bank_details', 'accounting_settings'].sort()).toEqual([...TRACKED].sort());
     expect(sql).toMatch(/ENABLE ALWAYS TRIGGER entity_change_capture/);
     const bank = readFileSync(path.join(ROOT, MIGRATIONS, '952_payroll_bank_details_tenant_history.sql'), 'utf8');
     expect(bank).toMatch(/ALTER TABLE payroll_bank_details ENABLE ALWAYS TRIGGER entity_change_capture;/);

@@ -9,11 +9,14 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('@/utils/toast', () => ({ notify: { ...toast, info: vi.fn(), warning: vi.fn() } }));
 
+const role = vi.hoisted(() => ({ current: 'owner' as string | null }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompanyRoleOrNull: () => role.current }));
+
 import { apiFetch } from '@/lib/apiFetch';
 import { DefaultPaymentTermsCard } from '@/components/accounting/settings/DefaultPaymentTermsCard';
 
 useApiJsonOverMock();
-beforeEach(() => { vi.mocked(apiFetch).mockReset(); toast.success.mockClear(); toast.error.mockClear(); });
+beforeEach(() => { role.current = 'owner'; vi.mocked(apiFetch).mockReset(); toast.success.mockClear(); toast.error.mockClear(); });
 afterEach(() => cleanup());
 
 const puts = () => vi.mocked(apiFetch).mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PUT');
@@ -64,4 +67,22 @@ describe('DefaultPaymentTermsCard', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(toast.success).not.toHaveBeenCalled();
   });
+});
+
+describe('who is offered the Save', () => {
+  it.each([['owner', true], ['admin', true], ['manager', false], ['accountant', false], ['viewer', false], [null, false]])(
+    'role %s: the form is %s', async (r, offered) => {
+      role.current = r;
+      serve(on('GET', 'type=payment-terms', () => ok({ payment_terms: 45, payment_terms_type: 'statement_days' })));
+      render(<DefaultPaymentTermsCard />);
+      if (offered) {
+        await waitFor(() => expect(kind().value).toBe('statement_days'));
+        expect(screen.getByRole('button', { name: /Save default terms/ })).toBeTruthy();
+      } else {
+        expect(await screen.findByText('45 days after statement')).toBeTruthy();
+        expect(screen.getByText('Only owners and admins can change the default payment terms.')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: /Save default terms/ })).toBeNull();
+        expect(screen.queryByLabelText(/payment terms/i)).toBeNull();
+      }
+    });
 });

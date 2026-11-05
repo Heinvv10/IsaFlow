@@ -1,12 +1,15 @@
 /**
  * "Default payment terms" on the company settings page: what a customer or supplier whose own terms are not set is
  * dated by on a NEW document (invoice, bill, recurring run, import). Saved on its own (PUT company-settings?type=payment-terms),
- * so it never rides on the page's company Save. Starts at 30 days from invoice for every company (migration 958).
+ * so it never rides on the page's company Save; owners and admins only (the route's withRole('admin') is the gate, this only
+ * decides what is offered), and each change is recorded in the entity history (migration 959). Starts at 30 days from invoice for every company (migration 958).
  */
 import { useEffect, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
+import { useCompanyRoleOrNull } from '@/contexts/CompanyContext';
+import { describePaymentTerms } from '@/modules/accounting/services/shared/paymentTerms';
 import { PaymentTermsField } from '@/components/accounting/PaymentTermsField';
 import { paymentTermsBody, paymentTermsFormError } from '@/components/accounting/paymentTermsForm';
 
@@ -14,6 +17,9 @@ const inputClass = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] borde
 const URL = '/api/accounting/company-settings?type=payment-terms';
 
 export function DefaultPaymentTermsCard() {
+  // Offered to owners and admins only (the server refuses anyone else, 403): fails closed with no role.
+  const role = useCompanyRoleOrNull();
+  const mayEdit = role === 'owner' || role === 'admin';
   const [terms, setTerms] = useState<{ days: string; type: string } | null>(null);
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -59,7 +65,13 @@ export function DefaultPaymentTermsCard() {
       </p>
       {loadError && <p className="text-sm text-red-500">{loadError}</p>}
       {!terms && !loadError && <Loader2 className="h-5 w-5 animate-spin text-teal-500" />}
-      {terms && (
+      {terms && !mayEdit && (
+        <p className="text-sm text-[var(--ff-text-primary)]">
+          {describePaymentTerms(Number(terms.days), terms.type)}
+          <span className="block text-xs text-[var(--ff-text-tertiary)] mt-1">Only owners and admins can change the default payment terms.</span>
+        </p>
+      )}
+      {terms && mayEdit && (
         <div className="max-w-md space-y-3">
           <PaymentTermsField days={terms.days} type={terms.type} error={error} inputClass={inputClass}
             onChange={(days, type) => setTerms({ days, type })} />

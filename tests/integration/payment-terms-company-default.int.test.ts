@@ -9,9 +9,11 @@ import companySettings from '../../pages/api/accounting/company-settings';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { dataOf, messageOf } from './r035-pr2.helpers';
-import { cleanupEntityChanges, members, newCompany } from './entity-changes.helpers';
+import { changesOf, cleanupEntityChanges, members, newCompany } from './entity-changes.helpers';
 import { inRequest } from './r035-pr5.helpers';
 import { dueDateForContact } from '../../src/modules/accounting/services/core/paymentTermsResolver';
+import entityChanges from '../../pages/api/accounting/entity-changes';
+import type { EntityChangePage } from '../../src/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { createDraftCustomerInvoice } from '../../src/modules/accounting/services/ar/customerInvoiceCreateService';
 import { createSupplierInvoice } from '../../src/modules/accounting/services/ap/supplierInvoiceService';
 
@@ -19,9 +21,9 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
-let admin = '', viewer = '', other = '';
+let admin = '', viewer = '', other = '', manager = '', accountant = '', owner = '';
 
-beforeAll(async () => { [admin, viewer, other] = await members(pool, tokens, 3); });
+beforeAll(async () => { [admin, viewer, other, manager, accountant, owner] = await members(pool, tokens, 6); });
 afterAll(async () => {
   // The creators above wrote invoices: they go before the companies do (the history goes with a company).
   await pool.query('DELETE FROM customer_invoice_items WHERE invoice_id IN (SELECT id FROM customer_invoices WHERE company_id = ANY($1))', [companies]);
@@ -30,10 +32,10 @@ afterAll(async () => {
   await pool.query('DELETE FROM supplier_invoices WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM accounting_settings WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM company_document_numbers WHERE company_id = ANY($1)', [companies]);
-  await cleanupEntityChanges(pool, companies, [admin, viewer, other]);
+  await cleanupEntityChanges(pool, companies, [admin, viewer, other, manager, accountant, owner]);
 });
 
-const company = () => newCompany(pool, [[admin, 'admin'], [viewer, 'viewer']], companies);
+const company = () => newCompany(pool, [[admin, 'admin'], [viewer, 'viewer'], [manager, 'manager'], [accountant, 'accountant'], [owner, 'owner']], companies);
 const otherCompany = () => newCompany(pool, [[other, 'admin']], companies);
 const call = (user: string, c: string, method: 'GET' | 'PUT', body?: unknown) =>
   callRoute(companySettings, tokens[user]!, c, method, body, '/api/accounting/company-settings', { type: 'payment-terms' });
@@ -70,10 +72,86 @@ describe('company default payment terms: the settings route', () => {
     expect(dataOf(await call(admin, c, 'GET'))).toEqual({ payment_terms: 30, payment_terms_type: 'invoice_days' });
   });
 
-  it('a viewer cannot change it', async () => {
+  it.each([['viewer'], ['manager'], ['accountant']])('a %s cannot change it: 403, the default and its history untouched', async (who) => {
     const c = await company();
-    expect((await call(viewer, c, 'PUT', { payment_terms: 5, payment_terms_type: 'invoice_days' })).state.statusCode).toBe(403);
-    expect(dataOf(await call(viewer, c, 'GET'))).toEqual({ payment_terms: 30, payment_terms_type: 'invoice_days' });
+    const user = { viewer, manager, accountant }[who]!;
+    const res = await call(user, c, 'PUT', { payment_terms: 5, payment_terms_type: 'invoice_days' });
+    expect(res.state.statusCode).toBe(403);
+    expect(dataOf(await call(user, c, 'GET'))).toEqual({ payment_terms: 30, payment_terms_type: 'invoice_days' }); // anyone may read it
+    expect((await pool.query("SELECT 1 FROM accounting_settings WHERE company_id = $1 AND key = 'default_payment_terms'", [c])).rows).toHaveLength(0);
+    expect((await pool.query("SELECT 1 FROM entity_changes WHERE company_id = $1 AND entity_type = 'company_setting'", [c])).rows).toHaveLength(0);
+  });
+
+  it('an owner can change it, as an admin can', async () => {
+    const c = await company();
+    expect((await call(owner, c, 'PUT', { payment_terms: 14, payment_terms_type: 'invoice_days' })).state.statusCode).toBe(200);
+    expect(dataOf(await call(admin, c, 'GET'))).toEqual({ payment_terms: 14, payment_terms_type: 'invoice_days' });
+  });
+});
+
+describe('every change to the default is recorded: who, when, old -> new (migration 959)', () => {
+  const settingId = async (c: string) =>
+    (await pool.query("SELECT id FROM accounting_settings WHERE company_id = $1 AND key = 'default_payment_terms'", [c])).rows[0].id as string;
+  const terms = (value: unknown) => JSON.parse(String(value)) as { days: number; type: string };
+
+  it('a first PUT records a create, the next an update with the old and the new value, under the admin\'s own session', async () => {
+    const c = await company();
+    expect((await call(admin, c, 'PUT', { payment_terms: 60, payment_terms_type: 'invoice_days' })).state.statusCode).toBe(200);
+    expect((await call(owner, c, 'PUT', { payment_terms: 2, payment_terms_type: 'statement_months' })).state.statusCode).toBe(200);
+    const history = await changesOf(pool, await settingId(c));
+    expect(history.map((h) => h.op)).toEqual(['create', 'update']);
+    const [created, updated] = history;
+    expect(created).toMatchObject({ company_id: c, entity_type: 'company_setting', actor: admin, channel: 'session', db_role: 'app_user' });
+    expect(terms(created!.after!.value)).toEqual({ days: 60, type: 'invoice_days' });
+    expect(created!.after).toMatchObject({ key: 'default_payment_terms', company_id: c });
+    expect(updated).toMatchObject({ company_id: c, entity_type: 'company_setting', actor: owner, channel: 'session' });
+    expect(updated!.changed).toEqual(['value']);
+    expect(terms(updated!.before!.value)).toEqual({ days: 60, type: 'invoice_days' });
+    expect(terms(updated!.after!.value)).toEqual({ days: 2, type: 'statement_months' });
+    expect(new Date(updated!.recorded_at as unknown as string).getTime()).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('an admin reads it through the history route (who, old -> new); a viewer does not', async () => {
+    const c = await company();
+    await call(admin, c, 'PUT', { payment_terms: 60, payment_terms_type: 'invoice_days' });
+    await call(admin, c, 'PUT', { payment_terms: 2, payment_terms_type: 'statement_months' });
+    const read = (user: string) => callRoute(entityChanges, tokens[user]!, c, 'GET', undefined, '/api/accounting/entity-changes', { entityType: 'company_setting' });
+    const ok = await read(admin);
+    expect(ok.state.statusCode, JSON.stringify(ok.state.body)).toBe(200);
+    const [latest] = dataOf<EntityChangePage>(ok).items;
+    expect(latest).toMatchObject({ entityType: 'company_setting', entityLabel: 'default_payment_terms', op: 'update', actor: admin });
+    const value = latest!.fields.find((f) => f.key === 'value')!;
+    expect(JSON.parse(String(value.before))).toEqual({ days: 60, type: 'invoice_days' });
+    expect(JSON.parse(String(value.after))).toEqual({ days: 2, type: 'statement_months' });
+    const denied = await read(viewer);
+    expect(denied.state.statusCode === 403 || (denied.state.statusCode === 200 && dataOf<EntityChangePage>(denied).items.length === 0)).toBe(true);
+  });
+
+  it('saving the same terms again records nothing', async () => {
+    const c = await company();
+    await call(admin, c, 'PUT', { payment_terms: 60, payment_terms_type: 'invoice_days' });
+    await call(admin, c, 'PUT', { payment_terms: 60, payment_terms_type: 'invoice_days' });
+    expect(await changesOf(pool, await settingId(c))).toHaveLength(1);
+  });
+
+  it('only this key is recorded: another setting\'s writes (a budget run marker, the reporting currency) add nothing', async () => {
+    const c = await company();
+    await pool.query("INSERT INTO accounting_settings(company_id, key, value) VALUES($1, 'reporting_currency', 'USD')", [c]);
+    await pool.query("UPDATE accounting_settings SET value = 'EUR' WHERE company_id = $1 AND key = 'reporting_currency'", [c]);
+    await pool.query("DELETE FROM accounting_settings WHERE company_id = $1 AND key = 'reporting_currency'", [c]);
+    expect((await pool.query("SELECT 1 FROM entity_changes WHERE company_id = $1 AND entity_type = 'company_setting'", [c])).rows).toHaveLength(0);
+  });
+
+  it('a delete of the setting is recorded, and the history is the company\'s own', async () => {
+    const a = await company();
+    const b = await otherCompany();
+    await call(admin, a, 'PUT', { payment_terms: 10, payment_terms_type: 'invoice_days' });
+    const id = await settingId(a);
+    await pool.query('DELETE FROM accounting_settings WHERE id = $1', [id]);
+    const history = await changesOf(pool, id);
+    expect(history.map((h) => h.op)).toEqual(['create', 'delete']);
+    expect(history.every((h) => h.company_id === a)).toBe(true);
+    expect((await pool.query("SELECT 1 FROM entity_changes WHERE company_id = $1 AND entity_type = 'company_setting'", [b])).rows).toHaveLength(0);
   });
 });
 

@@ -81,6 +81,8 @@ export function entityLabel(type: EntityType, row: Pick<EntityChangeRow, 'before
       return nameOf(p, 'document_type');
     case 'payroll_bank_detail':
       return nameOf(p, 'bank_name');
+    case 'company_setting':
+      return nameOf(p, 'key');
     default:
       return nameOf(p, 'name');
   }
