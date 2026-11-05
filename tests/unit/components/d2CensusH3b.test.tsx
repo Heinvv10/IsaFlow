@@ -34,6 +34,8 @@ vi.mock('@/components/accounting/banking/NoBankAccountWarning', () => ({ NoBankA
 vi.mock('@/lib/auth/portalJwt', () => ({ verifyPortalToken: async () => ({ role: 'client_admin' }) }));
 // The session is in standing (company live, contact active): standing itself is pinned by portalAuthStanding.
 vi.mock('@/lib/auth/portalAuth', () => ({ currentPortalSession: async (s: unknown) => s }));
+const listDocuments = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => [] as unknown[]));
+vi.mock('@/modules/accounting/services/afs/portalDocumentService', () => ({ listPortalDocuments: listDocuments, loadPortalDocument: vi.fn() }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import LoanNewPage from '../../../pages/accounting/loans/new';
@@ -117,26 +119,21 @@ describe.each(sites)('$name', (s) => {
 
 describe('AFS portal dashboard (server-side load)', () => {
   const ctx = { req: { cookies: { portal_session: 'tok' } } } as unknown as Parameters<typeof getServerSideProps>[0];
-  const page = async (answer: () => Response) => {
-    vi.stubGlobal('fetch', async () => answer());
+  const page = async (list: () => Promise<unknown[]>) => {
+    listDocuments.mockImplementation(list);
     const res = await getServerSideProps(ctx);
     if (!('props' in res)) throw new Error('expected props');
     render(<PortalDashboardPage {...(res.props as React.ComponentProps<typeof PortalDashboardPage>)} />);
   };
 
-  it('400: the server message is shown, not "No financial statements"', async () => {
-    await page(refuse);
-    expect(await screen.findByText(MSG, { exact: false })).toBeTruthy();
-  });
-
-  it('500 with an empty body: a plain sentence, not a JSON parse error', async () => {
-    await page(emptyBody);
+  it('a failed read: a plain sentence, not "No financial statements" and not an error page', async () => {
+    await page(async () => { throw new Error('db down'); });
     expect(await screen.findByText('Could not load your documents - try again')).toBeTruthy();
     expect(screen.queryByText(NO_JSON)).toBeNull();
   });
 
-  it('200: the documents render with no error', async () => {
-    await page(() => ok({ documents: [{ id: 'd1', fiscal_year: 2031, period: 'D2 Annual', document_type: 'afs', status: 'signed_off', created_at: '2031-01-01' }] }));
+  it('the documents render with no error', async () => {
+    await page(async () => [{ id: 'd1', fiscal_year: 2031, period: 'D2 Annual', document_type: 'afs', status: 'signed_off', created_at: new Date('2031-01-01') }]);
     expect(await screen.findByText('2031')).toBeTruthy();
     expect(screen.queryByText(/Could not load/)).toBeNull();
   });

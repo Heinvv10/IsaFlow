@@ -25,6 +25,11 @@ describe('public legal pages', () => {
     }
   });
 
+  it('privacy policy says invoice links record the viewer\'s IP address and browser, kept for 12 months for fraud protection', () => {
+    const text = read('pages/privacy.tsx').replace(/\s+/g, ' ');
+    expect(text).toMatch(/invoice link[^.]*IP address and browser[^.]*12 months[^.]*fraud/i);
+  });
+
   it('terms carry the ECTA s43 supplier details', () => {
     const source = read('pages/terms.tsx');
     expect(source).toContain('section 43');
