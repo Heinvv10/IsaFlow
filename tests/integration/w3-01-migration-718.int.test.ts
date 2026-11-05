@@ -19,7 +19,7 @@ import approve from '../../pages/api/payroll/runs/[id]/approve';
 import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
 assertDisposable();
 const MIGRATION = readFileSync(path.join(__dirname, '../../scripts/migrations/sql/718_payroll_run_approved_marker.sql'), 'utf8');
@@ -46,7 +46,7 @@ beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'W301 migration 718']);
   await seedPayrollCompany(pool, company);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
-  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, admin]);
 });
@@ -80,6 +80,7 @@ describe('migration 718 (W3-01 round 7)', () => {
     const id = await calculatedRun(call, 1);
     const url = (a: string) => `/api/payroll/runs/${id}/${a}`;
     const hash = (await call(journalPlan as Route, 'GET', url('journal-plan'), id)).body.data!.planHash;
+    await authorisePayRun(call, id);
     expect((await call(approve as Route, 'POST', url('approve'), id, { body: { expectedPlanHash: hash } })).statusCode).toBe(200);
     const read = async () => (await pool.query(
       'SELECT approved_by, approved_at IS NOT NULL AS approved, lines_confirmed_at FROM payroll_run_headers WHERE id = $1', [id])).rows[0]!;

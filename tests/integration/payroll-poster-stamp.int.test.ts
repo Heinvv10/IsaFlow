@@ -33,7 +33,7 @@ const journalCount = async (): Promise<number> => (await r.pool.query(
 it('does not overwrite a run\'s link, and posts no second journal, when the lock did not show it', async () => {
   const run = await r.calculatedRun(7);
   await r.pool.query(
-    "UPDATE payroll_run_headers SET status = 'approved', approved_by = $2, approved_at = clock_timestamp(), lines_confirmed_at = clock_timestamp() WHERE id = $1",
+    "UPDATE payroll_run_headers SET status = 'approved', approved_by = $2, approved_at = clock_timestamp(), lines_confirmed_at = clock_timestamp(), approval_grandfathered_at = clock_timestamp() WHERE id = $1",
     [run, r.admin]);
   const first = await inTx(() => postPayrollRunJournal(r.company, run, r.admin));
   expect((await r.header(run)).journal_entry_id).toBe(first);

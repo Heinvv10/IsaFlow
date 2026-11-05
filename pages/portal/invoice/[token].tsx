@@ -10,6 +10,8 @@ import { useMemo, useState } from 'react';
 import { FileText, Download, CreditCard, CheckCircle2, AlertTriangle, Clock, XCircle, MessageSquareWarning, Loader2 } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDateLong } from '@/utils/dateFormat';
+import { loadPortalInvoice } from '@/modules/accounting/services/ar/portalInvoiceService';
+import { log } from '@/lib/logger';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -521,19 +523,12 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
   }
 
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3101';
-    const res = await fetch(`${baseUrl}/api/portal/invoice/${token}`);
-
-    if (!res.ok) {
+    // In this process, with the visitor's own request (their address and user agent go in the read receipt).
+    const invoice = await loadPortalInvoice(token, context.req);
+    if (!invoice) {
       return { notFound: true };
     }
 
-    const json = await res.json() as { success: boolean; data: PortalInvoiceProps['invoice'] };
-    if (!json.success || !json.data) {
-      return { notFound: true };
-    }
-
-    const invoice = json.data;
     const isOverdue = Boolean(
       invoice.due_date &&
       new Date(invoice.due_date) < new Date() &&
@@ -543,7 +538,8 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     return {
       props: { invoice, token, isOverdue },
     };
-  } catch {
+  } catch (err) {
+    log.error('Portal invoice page: the lookup failed', { error: err }, 'portal-invoice-page');
     return { notFound: true };
   }
 };

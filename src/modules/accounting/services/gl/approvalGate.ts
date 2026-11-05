@@ -31,7 +31,7 @@ import { sql } from '@/lib/neon';
 import type { DocumentType } from './approvalService';
 import { checkApproval } from './approvalMatching';
 import { requiredRank } from './approvalAuthority';
-import { resolveApprovalDocument } from './approvalDocuments';
+import { resolveApprovalDocument, type ApprovalDocument } from './approvalDocuments';
 import { isEnforced } from './approvalEnforcement';
 import type { ApprovalState, DocumentApprovalState } from '../../types/approval.types';
 
@@ -59,6 +59,7 @@ const LABELS: Record<DocumentType, string> = {
   supplier_payment: 'Supplier payment',
   payment_batch: 'Payment batch',
   manual_journal: 'Manual journal',
+  pay_run: 'Pay run',
 };
 
 /** What the gate holds back: money leaving the business is PAID, every other document is posted (R-035 PR5). */
@@ -101,24 +102,32 @@ const STATE_OF: Record<ApprovalGateReason, ApprovalState> = {
   APPROVAL_REQUIRED: 'required', APPROVAL_PENDING: 'pending', APPROVAL_STALE: 'stale',
 };
 
-type Outcome =
-  | { enforced: false }
-  | { enforced: true; rule: null }
-  | { enforced: true; rule: { approverRole: string; name: string }; refusal: ApprovalGateRefusal | null; approvedId: string | null };
+/** One APPROVED request for a document, decided since enforcement was (last) switched on. */
+export interface ApprovedRequestRow {
+  id: string;
+  /** The digest the approval was bound to; null binds nothing and never clears. */
+  documentDigest: string | null;
+  /** The role the approval proves: the snapshot it was raised under, else its rule's today. */
+  effectiveRequiredRole: string | null;
+  requestedBy: string;
+  decidedBy: string | null;
+}
 
-async function gateOutcome(companyId: string, documentType: DocumentType, documentId: string): Promise<Outcome> {
-  if (!(await isEnforced(companyId, documentType))) return { enforced: false };
-
-  const document = await resolveApprovalDocument(companyId, documentType, documentId);
-  const check = await checkApproval(companyId, documentType, documentId, document.amount);
-  const rule = check.matchedRule;
-  if (!rule) return { enforced: true, rule: null };
-  const demanded = requiredRank(rule.approverRole);
-
-  // An unbound row (rule_id NULL, no snapshot) proves no rank and cannot clear.
-  // Only approvals decided since enforcement was (last) switched on count.
-  const approved = (await sql`
-    SELECT ar.id, ar.document_digest, COALESCE(ar.required_role, rl.approver_role) AS effective_required_role
+/**
+ * The approvals the gate clears a document on, newest first: approved requests for it, decided at or after
+ * `approval_enforcement.enabled_at` (one taken while the control was off, or before a disable and re-enable, clears
+ * nothing). The gate and anything that asks WHICH approval cleared a document read it through here. The gate then picks
+ * from the rank-filtered subset and a caller such as readPayRunDecision from this list; for a pay run (one fixed rule)
+ * no divergence is reachable, but another type with several rules could in principle pick differently.
+ */
+export async function approvedRequestsFor(
+  companyId: string,
+  documentType: DocumentType,
+  documentId: string,
+): Promise<ApprovedRequestRow[]> {
+  const rows = (await sql`
+    SELECT ar.id, ar.document_digest, COALESCE(ar.required_role, rl.approver_role) AS effective_required_role,
+           ar.requested_by::TEXT AS requested_by, ar.decided_by::TEXT AS decided_by
     FROM approval_requests ar
     JOIN approval_enforcement ae ON ae.company_id = ar.company_id AND ae.document_type = ar.document_type
     LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
@@ -127,11 +136,41 @@ async function gateOutcome(companyId: string, documentType: DocumentType, docume
       AND ar.decided_at >= ae.enabled_at
     ORDER BY ar.decided_at DESC NULLS LAST, ar.id
   `) as Row[];
-  const ranked = approved.filter((r) =>
-    r.effective_required_role != null && requiredRank(String(r.effective_required_role)) >= demanded);
+  return rows.map((r) => ({
+    id: String(r.id),
+    documentDigest: r.document_digest == null ? null : String(r.document_digest),
+    effectiveRequiredRole: r.effective_required_role == null ? null : String(r.effective_required_role),
+    requestedBy: String(r.requested_by),
+    decidedBy: r.decided_by == null ? null : String(r.decided_by),
+  }));
+}
+
+type Outcome =
+  | { enforced: false }
+  | { enforced: true; rule: null }
+  | { enforced: true; rule: { approverRole: string; name: string }; refusal: ApprovalGateRefusal | null; approvedId: string | null };
+
+async function gateOutcome(
+  companyId: string,
+  documentType: DocumentType,
+  documentId: string,
+  suppliedDocument?: ApprovalDocument,
+): Promise<Outcome> {
+  if (!(await isEnforced(companyId, documentType))) return { enforced: false };
+
+  const document = suppliedDocument ?? await resolveApprovalDocument(companyId, documentType, documentId);
+  const check = await checkApproval(companyId, documentType, documentId, document.amount);
+  const rule = check.matchedRule;
+  if (!rule) return { enforced: true, rule: null };
+  const demanded = requiredRank(rule.approverRole);
+
+  // An unbound row (rule_id NULL, no snapshot) proves no rank and cannot clear.
+  // Only approvals decided since enforcement was (last) switched on count.
+  const approved = await approvedRequestsFor(companyId, documentType, documentId);
+  const ranked = approved.filter((r) => r.effectiveRequiredRole != null && requiredRank(r.effectiveRequiredRole) >= demanded);
   const current = document.digest;
-  const match = current !== null ? ranked.find((r) => r.document_digest === current) : undefined;
-  if (match) return { enforced: true, rule, refusal: null, approvedId: String(match.id) };
+  const match = current !== null ? ranked.find((r) => r.documentDigest === current) : undefined;
+  if (match) return { enforced: true, rule, refusal: null, approvedId: match.id };
 
   const refusal = (reason: ApprovalGateReason, requestId: string | null): ApprovalGateRefusal => ({
     reason, requestId, requiredRole: rule.approverRole, ruleName: rule.name,
@@ -139,8 +178,40 @@ async function gateOutcome(companyId: string, documentType: DocumentType, docume
   });
   if (check.existingRequest) return { enforced: true, rule, approvedId: null, refusal: refusal('APPROVAL_PENDING', check.existingRequest.id) };
   // Approved at a sufficient rank, but for content the document no longer has.
-  if (ranked[0]) return { enforced: true, rule, approvedId: null, refusal: refusal('APPROVAL_STALE', String(ranked[0].id)) };
+  if (ranked[0]) return { enforced: true, rule, approvedId: null, refusal: refusal('APPROVAL_STALE', ranked[0].id) };
   return { enforced: true, rule, approvedId: null, refusal: refusal('APPROVAL_REQUIRED', null) };
+}
+
+/** Read-only gate evaluation against caller-derived facts (payroll's locked journal plan). */
+export async function describeApprovalGateForDocument(
+  companyId: string,
+  documentType: DocumentType,
+  documentId: string,
+  document: ApprovalDocument,
+): Promise<DocumentApprovalState> {
+  const outcome = await gateOutcome(companyId, documentType, documentId, document);
+  if (!outcome.enforced || !outcome.rule) {
+    return { state: 'not_required', enforced: outcome.enforced, requiredRole: null, ruleName: null, requestId: null };
+  }
+  const { rule, refusal } = outcome;
+  return {
+    state: refusal ? STATE_OF[refusal.reason] : 'approved',
+    enforced: true,
+    requiredRole: rule.approverRole,
+    ruleName: rule.name,
+    requestId: refusal ? refusal.requestId : outcome.approvedId,
+  };
+}
+
+/** Throws unless an approval clears the exact supplied document digest. */
+export async function assertApprovalClearedForDocument(
+  companyId: string,
+  documentType: DocumentType,
+  documentId: string,
+  document: ApprovalDocument,
+): Promise<void> {
+  const outcome = await gateOutcome(companyId, documentType, documentId, document);
+  if (outcome.enforced && outcome.rule && outcome.refusal) throw new ApprovalRequiredError(outcome.refusal);
 }
 
 /** Read-only. Null when the document may be posted, else why not. */

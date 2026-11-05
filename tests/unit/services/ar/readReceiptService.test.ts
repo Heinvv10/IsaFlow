@@ -64,6 +64,33 @@ describe('logCustomerInvoiceView', () => {
     expect(values).toContain(42);
   });
 
+  it('truncates the user agent to 256 characters (POPIA: what is kept is bounded)', async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await logCustomerInvoiceView({ invoiceId: INVOICE_ID, companyId: COMPANY_ID, viewSource: 'portal', userAgent: 'U'.repeat(5000) });
+    const ua = mockSql.mock.calls[0]!.slice(1).find((v) => typeof v === 'string' && v.startsWith('UUU')) as string;
+    expect(ua).toHaveLength(256);
+  });
+
+  it('a value that is not an IP address is stored as null, so a forged header cannot make the insert fail and drop the receipt', async () => {
+    for (const bad of ['not-an-ip', "1.1.1.1'; DROP TABLE x;--", '<script>', '203.0.113.9:443', '9'.repeat(300), '']) {
+      mockSql.mockClear();
+      mockSql.mockResolvedValueOnce([]);
+      await logCustomerInvoiceView({ invoiceId: INVOICE_ID, companyId: COMPANY_ID, viewSource: 'portal', ipAddress: bad });
+      const values = mockSql.mock.calls[0]!.slice(1);
+      expect(values, bad).not.toContain(bad || 'x-never');
+      expect(values.filter((v) => v === null).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('a valid IPv4 or IPv6 address is kept', async () => {
+    for (const good of ['203.0.113.9', '2001:db8::5']) {
+      mockSql.mockClear();
+      mockSql.mockResolvedValueOnce([]);
+      await logCustomerInvoiceView({ invoiceId: INVOICE_ID, companyId: COMPANY_ID, viewSource: 'portal', ipAddress: good });
+      expect(mockSql.mock.calls[0]!.slice(1)).toContain(good);
+    }
+  });
+
   it('accepts nullable ip/ua/session without blowing up', async () => {
     mockSql.mockResolvedValueOnce([]);
 

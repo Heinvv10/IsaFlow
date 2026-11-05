@@ -16,6 +16,10 @@ import { judgePayrollApproval, type PayrollApprovalGate } from './payrollApprova
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader, lockRunJournalForApproval } from './payrollRunLock';
 import { claimRunSeveranceDirectives } from './payrollRunDirectiveClaim';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertPayRunApproved } from './payRunApprovalControl';
+import { readPayRunDecision } from './payRunDecision';
+import { soleApproverAuditMetadata } from '../gl/approvalSelfApproval';
+import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 
 type Row = DbRow;
 
@@ -40,7 +44,7 @@ export async function previewPayrollApproval(companyId: string, runId: string): 
 
 /**
  * Approve a payroll run and post its GL journal entry.
- * Valid prior statuses: 'draft', 'calculated', 'processed'.
+ * Valid prior statuses: 'draft', 'calculated'.
  *
  * The run transitions to 'approved' then the GL journal is created and posted.
  * Every refusal comes BEFORE the status write, as PayrollApprovalRefusedError
@@ -97,6 +101,13 @@ export async function approvePayrollRun(
     throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
   }
 
+  // R-035: clearance is for this exact locked plan and precedes the first write.
+  await assertPayRunApproved(companyId, runId, gate.planHash);
+  // The header records who DECIDED the approval; the executor (this caller) is in the 'executed' audit event.
+  // No request to read (enforcement off) leaves the executor as the only approver there is.
+  const decision = await readPayRunDecision(companyId, runId, gate.planHash);
+  const approvedBy = decision?.decidedBy ?? userId;
+
   // The two writes a refusal may still follow, in ONE savepoint, so a refusal
   // from either leaves neither behind, whoever catches it (the MCP tool catches
   // it as a tool error, which releases its savepoint and commits):
@@ -129,9 +140,11 @@ export async function approvePayrollRun(
   const updatedRows = (await sql`
     UPDATE payroll_run_headers
     SET status      = 'approved',
-        approved_by = ${userId}::uuid,
+        approved_by = ${approvedBy}::uuid,
         approved_at = clock_timestamp(),
         lines_confirmed_at = clock_timestamp(),
+        approved_plan_hash = ${gate.planHash},
+        approval_plan_hash = ${gate.planHash},
         updated_at  = NOW()
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
@@ -156,6 +169,16 @@ export async function approvePayrollRun(
   // agent work as the token owner's own and hides it from list_agent_postings —
   // the same reason postPayrollRunJournal takes the stamp at all.
   const journalEntryId = await postPayrollRunJournal(companyId, runId, userId, { postingAgent: opts?.postingAgent, plan });
+  await recordPayRunApprovalAudit({
+    companyId, runId, actorId: userId, event: 'executed', planHash: gate.planHash,
+    metadata: {
+      executor: opts?.postingAgent ?? 'human', journalEntryId,
+      ...(decision ? {
+        decidedBy: decision.decidedBy, requestedBy: decision.requestedBy,
+        ...soleApproverAuditMetadata(decision.selfApprovedSoleApprover),
+      } : {}),
+    },
+  });
 
   log.info('Payroll run approved and journal posted', { companyId, runId, journalEntryId }, 'payrollApproval');
 

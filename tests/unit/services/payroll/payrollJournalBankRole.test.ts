@@ -17,13 +17,15 @@ import {
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
 
-vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values),
-}));
+vi.mock('@/lib/neon', () => {
+  const sql = (strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values);
+  return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
+});
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 // The poster locks the run header first (its own tests: payrollJournalPosterLock.test.ts); this file's neon mock has no withTransaction.
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
   lockPayrollRunHeader: vi.fn(async () => ({ id: 'run', journal_entry_id: null })),
+  lockCompanyPayrollApprovals: vi.fn(async () => undefined),
 }));
 vi.mock('@/modules/accounting/services/payroll/costCentreGlMappingService', () => ({
   getMappingLookup: vi.fn(async () => ({})),
@@ -118,7 +120,8 @@ describe('payroll net pay — the bank role holder', () => {
   });
 
   it('the live poster writes the resolved account id, not a code lookup', async () => {
-    routeMock(MOVED);
+    // A pre-R-035 approved run (migration 951): clears the approval gate without a plan hash.
+    routeMock(MOVED, { ...HEADER, approval_grandfathered_at: '2026-10-01T00:00:00Z' });
     getSystemAccount.mockResolvedValue(holder('acc-bank', '1544331', 'ABSA Cheque'));
 
     await postPayrollRunJournal(COMPANY, RUN, 'user-1');

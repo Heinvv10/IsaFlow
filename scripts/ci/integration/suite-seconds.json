@@ -92,6 +92,7 @@
   "tests/integration/numrace-service-numbers.int.test.ts": 11,
   "tests/integration/onboarding-complete-setup-edges-a.int.test.ts": 3,
   "tests/integration/onboarding-complete-setup-edges-b.int.test.ts": 3,
+  "tests/integration/payroll-approver-guard-race.int.test.ts": 6,
   "tests/integration/r035-pr5-lock.int.test.ts": 6,
   "tests/integration/r035-pr5-perf.int.test.ts": 3,
   "tests/integration/r051-vat-adjustment-approve.int.test.ts": 6,

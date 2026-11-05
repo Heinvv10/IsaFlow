@@ -1,7 +1,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { calculateSDL } from './sdlEngine';
+import { calculateSDL, isSdlExempt } from './sdlEngine';
 import type { PayrollPeriod } from './payrollTypes';
 
 /**
@@ -19,6 +19,18 @@ import type { PayrollPeriod } from './payrollTypes';
  *
  * So the basis is the company's own trailing twelve periods of remuneration: the
  * eleven periods before this run plus this run.
+ *
+ * The 1% itself is charged on each line's leviable amount AFTER the para 2(4)
+ * retirement deduction (payrollCalculator), but the threshold stays on
+ * remuneration before it. The SDL guide's registration test speaks of the
+ * "total leviable amount", so an after-deduction basis is arguably the stricter
+ * reading; it is not used because the run header stores only total_gross, so
+ * the trailing eleven periods could not be measured on that basis without a
+ * migration, and mixing an after-deduction current month with gross history
+ * would skew the estimate. Remuneration is never below the leviable amount, so
+ * the error, when there is one, is towards levying: an employer just over
+ * R500 000 whose leviable amount is not is still charged. Same proxy caveat as
+ * below.
  *
  * Remuneration, not cash gross. A non-cash fringe benefit (the 3801 low-interest
  * loan benefit) is remuneration (Fourth Schedule para 1 (a): para (i) of "gross
@@ -54,6 +66,8 @@ const TRAILING_PERIODS = 12;
 export interface SdlLine {
   sdl: number;
   sdlLeviable: number;
+  /** Set by applySdlToLines: the run was SDL-exempt (s4(b)), stored as sdl_exempt (migration 957). */
+  sdlExempt?: boolean;
 }
 
 function periodIndex(year: number, month: number): number {
@@ -122,7 +136,9 @@ export async function estimateAnnualRemuneration(
 /**
  * Charge the levy on each line's own leviable remuneration, once the employer's
  * annual remuneration has decided whether it is due at all. Returns the run
- * total. Mutates `sdl` on the lines, which is why the caller builds them first.
+ * total. Mutates `sdl` and `sdlExempt` on the lines (the threshold decision, kept
+ * with each line so the year to date knows which months were liable), which is
+ * why the caller builds them first.
  */
 export function applySdlToLines(
   lines: SdlLine[],
@@ -130,7 +146,9 @@ export function applySdlToLines(
   taxYear: number,
 ): number {
   let total = 0;
+  const exempt = isSdlExempt(annualRemunerationEstimate, taxYear);
   for (const line of lines) {
+    line.sdlExempt = exempt;
     line.sdl = calculateSDL(line.sdlLeviable, annualRemunerationEstimate, taxYear);
     total += line.sdl;
   }

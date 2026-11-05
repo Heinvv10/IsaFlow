@@ -84,7 +84,7 @@ describe('previewPayrollApproval', () => {
     vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan([notApproved], 'je-1', 'paid'));
     expect((await previewPayrollApproval('c1', 'r1'))?.blocker).toEqual({
       code: 'status_not_approvable',
-      detail: "Cannot approve payroll run with status 'paid' (expected one of: draft, calculated, processed)",
+      detail: "Cannot approve payroll run with status 'paid' (expected one of: draft, calculated)",
     });
   });
 
@@ -94,6 +94,7 @@ describe('previewPayrollApproval', () => {
   });
 
   it.each([
+    ['processed', null],
     ['paid', 'je-1'],
     ['approved', 'je-1'],
     ['cancelled', null],

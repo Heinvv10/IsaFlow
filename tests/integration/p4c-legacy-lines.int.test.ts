@@ -91,6 +91,10 @@ describe('pre-948 lines in the year to date', () => {
     // The legacy lines recorded only the RA the old calculator deducted (2 × 1 000): the record differs, the tax does not.
     expect({ ...b, retirementDeduction: 0 }).toEqual({ ...a, retirementDeduction: 0 });
     expect(b.retirementDeduction).toBe(2_000);
+    // SDL year to date: a one-employee R30 000 employer is under the s4(b) threshold, so every line is an exempt run's
+    // (stored sdl_exempt, or for the legacy lines a nil levy that their pay would have carried): nothing in the liable sums.
+    expect(a).toMatchObject({ sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 });
+    expect(b).toMatchObject({ sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 });
   });
 
   it('May\'s PAYE is the same, and so is the certificate (4001 9 000, 4006 3 000)', async () => {

@@ -25,7 +25,7 @@ beforeAll(async () => {
 afterAll(async () => { await r.teardown(); });
 
 describe('PASS 2 — the delta', () => {
-  it('P2-A: a run never recalculated after posting is not flagged "recalculated" (approve overlapping a no-change calculate)', async () => {
+  it('P2-A: a run recalculated before posting is not flagged "recalculated" after a fresh approval', async () => {
     const id = await r.calculatedRun(1);
     const hash = (await r.api.preview(id)).body.data!.planHash;
     // The approve request opens first and waits for the run row; a calculate (same figures) gets the row before it.
@@ -34,7 +34,11 @@ describe('PASS 2 — the delta', () => {
     const calc = r.api.calculate(id); await sleep(300);
     const appr = r.api.approveWith(id, hash); await sleep(1500);
     await holder.query('ROLLBACK'); holder.release();
-    const [c, a] = await Promise.all([calc, appr]);
+    const [c, raced] = await Promise.all([calc, appr]);
+    expect(c.statusCode).toBe(200);
+    expect(raced.statusCode).toBe(409); // recalculation rotated the R-035 approval revision
+    const a = await r.api.approve(id);
+    expect(a.statusCode).toBe(200);
     const j1 = String(a.body.data?.journalEntryId);
     const times = (await r.pool.query(
       `SELECT e.created_at AS journal_created, (SELECT max(created_at) FROM payroll_run_lines WHERE run_id = $2) AS lines_created FROM gl_journal_entries e WHERE e.id = $1`, [j1, id])).rows[0];
@@ -43,10 +47,10 @@ describe('PASS 2 — the delta', () => {
     await r.pool.query('UPDATE cost_centre_gl_mappings SET expense_account_id = $1 WHERE cost_centre_id = $2', [acctB, cc]);
     const p = await r.api.preview(id);
     const again = await r.api.approveWith(id, p.body.data?.planHash);
-    r.evidence('P2-A recalculated marker, approve overlapping a calculate', { calculate: c.statusCode, approve: a.statusCode, times,
+    r.evidence('P2-A recalculated marker, stale approval refused then re-reviewed', { calculate: c.statusCode,
+      staleApprove: raced.statusCode, approve: a.statusCode, times,
       afterReopenAndMappingChange: { blocker: p.body.data?.blocker?.code, reapprove: again.statusCode, message: r.msg(again)?.slice(0, 160) } });
     await r.pool.query('UPDATE cost_centre_gl_mappings SET expense_account_id = $1 WHERE cost_centre_id = $2', [acctA, cc]);
-    expect(a.statusCode).toBe(200);
     expect(p.body.data?.blocker ?? null).toBeNull();
   }, 30000);
 
@@ -70,7 +74,10 @@ describe('PASS 2 — the delta', () => {
     const calc = r.api.calculate(id); await sleep(300);
     const appr = r.api.approveWith(id, hash); await sleep(1500);
     await holder.query('ROLLBACK'); holder.release();
-    const [, a] = await Promise.all([calc, appr]);
+    const [c, raced] = await Promise.all([calc, appr]);
+    expect(c.statusCode).toBe(200);
+    expect(raced.statusCode).toBe(409);
+    const a = await r.api.approve(id);
     expect(a.statusCode).toBe(200);
     const journal = String(a.body.data!.journalEntryId);
     expect(await runRecalculatedSince(r.company, id, journal)).toBe(false);

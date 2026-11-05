@@ -82,10 +82,10 @@ export function RunHeaderActions({
             </button>
           )}
           {canApprove && (
-            <button onClick={openApprove}
+            <button onClick={openApprove} aria-label="Post approved run — Review & approve"
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium"
               title="Review the journal this run will post, then approve it">
-              <ShieldCheck className="h-4 w-4" /> Review &amp; approve
+              <ShieldCheck className="h-4 w-4" /> Post approved run
             </button>
           )}
         </div>
