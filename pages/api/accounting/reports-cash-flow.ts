@@ -26,6 +26,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const { companyId } = req;
 
+  // Deliberately BEFORE the period is read or validated: a request naming a cost centre is refused whatever its dates say.
   // No cost-centre cash flow: cash is held in bank accounts, which no cost centre owns. Refused, not ignored.
   if (req.query.cost_centre || req.query.cost_centre_id) return apiResponse.badRequest(res, COST_CENTRE_REFUSAL);
 
