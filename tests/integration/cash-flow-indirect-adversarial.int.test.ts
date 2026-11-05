@@ -1,79 +1,19 @@
-// Adversarial repros for PR #1156 (cashFlowIndirectService), ported from the review's isaflow_dev run to a disposable
-// database: one fresh company, every scenario inside BEGIN ... ROLLBACK on one client bound through ALS, so nothing
-// persists between cases. B1/B3 (liabilities with NO subtype: they read as current, on the balance sheet too) are KNOWN LIMITS (the data fix is the
-// chart's subtype, migration 958 for the seeded 2210; this test hand-makes an account with none):
-// they are `it.fails`, so they go green-and-loud the day the chart carries the subtype.
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { assertDisposableDb } from '../helpers/assertDisposableDb';
-import { Pool, type PoolClient } from 'pg';
+// Adversarial repros for the cash flow statement (cashFlowIndirectService), ported from the review's isaflow_dev run to a
+// disposable database: the tie to the ledger's cash (H1-H3, L1-L3), account flags that must not matter (A1) and the response
+// shape (S1). The disposal repros are in cash-flow-disposals.int.test.ts, cards and parity in cash-flow-cards-parity.int.test.ts.
+import { describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { als } from '@/lib/als';
-import { getIndirectCashFlow, type IndirectCashFlow } from '@/modules/accounting/services/reports/cashFlowIndirectService';
+import { getIndirectCashFlow } from '@/modules/accounting/services/reports/cashFlowIndirectService';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { getCashFlowDirect } from '@/modules/accounting/services/afs/cashFlowDirectService';
 import { getCashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { CO, OTHER_CO, describeIfDb, inTx, installCompanies, line, sec, tie, P, pool } from './helpers/cashFlowAdversarialFixture';
 
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
 
-const CO = randomUUID();
-const OTHER_CO = randomUUID();
-const LT_LOANS_2210 = randomUUID(); // the seeded "Long-term Loans" (2210), subtype NULL as in 60 of 64 dev charts
-const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
-beforeAll(async () => {
-  if (!process.env.DATABASE_URL) return;
-  assertDisposableDb('This test creates and deletes companies and accounts.');
-  for (const c of [CO, OTHER_CO]) await pool.query(`INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)`, [c, `CF adv ${c.slice(0, 6)}`]);
-  await pool.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance) VALUES ($1,$2,'2210','Long-term Loans','liability',NULL,'credit')`, [LT_LOANS_2210, CO]);
-}, 60_000);
-afterAll(async () => {
-  try {
-    for (const c of [CO, OTHER_CO]) {
-      await pool.query('DELETE FROM gl_journal_lines WHERE company_id = $1', [c]);
-      await pool.query('DELETE FROM gl_journal_entries WHERE company_id = $1', [c]);
-      await pool.query('DELETE FROM gl_accounts WHERE company_id = $1', [c]);
-      await pool.query('DELETE FROM companies WHERE id = $1', [c]);
-    }
-  } finally { await pool.end(); }
-});
-
-type Ctx = { c: PoolClient; acct: (t: string, s: string | null, nb?: string, parent?: string) => Promise<string>;
-  j: (date: string, legs: Array<[string, number, number]>, o?: { status?: string; source?: string; co?: string }) => Promise<string> };
-
-async function inTx<T>(fn: (x: Ctx) => Promise<T>): Promise<T> {
-  const c = await pool.connect();
-  await c.query('BEGIN');
-  try {
-    const acct: Ctx['acct'] = async (t, s, nb, parent) => {
-      const id = randomUUID();
-      await c.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance, parent_account_id)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [id, CO, `ADV${id.slice(0, 8)}`, `ADV ${t} ${s}`, t, s,
-        nb ?? (['asset', 'expense'].includes(t) ? 'debit' : 'credit'), parent ?? null]);
-      return id;
-    };
-    const j: Ctx['j'] = async (date, legs, o = {}) => {
-      const co = o.co ?? CO;
-      const e = await c.query(`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, source, created_by)
-        VALUES ($1,$2,$3,'adv1156','draft',$4,$1) RETURNING id`, [co, `ADV-${randomUUID().slice(0, 8)}`, date, o.source ?? 'manual']);
-      for (const [a, dr, cr] of legs) await c.query(`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,$4,$5)`, [co, e.rows[0].id, a, dr, cr]);
-      if ((o.status ?? 'posted') === 'posted') await c.query(`UPDATE gl_journal_entries SET status='posted' WHERE id=$1`, [e.rows[0].id]);
-      return e.rows[0].id as string;
-    };
-    return await als.run({ client: c, userId: CO, companyId: CO, claims: {} } as never, () => fn({ c, acct, j }));
-  } finally { await c.query('ROLLBACK'); c.release(); }
-}
-
-const line = (r: IndirectCashFlow, label: string) => r.sections.flatMap((s) => s.items).find((i) => i.label === label)?.amount ?? 0;
-const sec = (r: IndirectCashFlow, name: string) => r.sections.find((s) => s.section.startsWith(name))!.total;
-async function tie(start: string, end: string) {
-  const ind = await getIndirectCashFlow(CO, start, end);
-  const gl = (await getCashBalance(CO, end)).total;
-  const dir = await getCashFlowDirect(CO, start, end);
-  return { ind, gl, dir };
-}
-const P = ['2026-11-01', '2026-11-30'] as const;
+installCompanies();
 
 describeIfDb('PR #1156 adversarial: tie-out', () => {
   it('H1 mixed realistic month (VAT, cash+credit sale, receipt, supplier pay, VAT pay, payroll+PAYE, depreciation, asset buy, loan, dividends, drawings, interbank, FX bank, petty, null-subtype, draft, other co) ties to GL and to the direct method', async () => {
@@ -144,165 +84,6 @@ describeIfDb('PR #1156 adversarial: tie-out', () => {
       await c.query(`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,777,0),($1,$2,$4,0,777)`, [other, e.rows[0].id, ob, orv]);
       await c.query(`UPDATE gl_journal_entries SET status='posted' WHERE id=$1`, [e.rows[0].id]);
       expect(await getIndirectCashFlow(CO, ...P)).toEqual(before);
-    });
-  });
-});
-
-describeIfDb('PR #1156 adversarial: classification', () => {
-  it.fails('B1 (known limit: a liability with no subtype is current) loan drawdown on the SEEDED "Long-term Loans" account (2210, subtype NULL) belongs in Financing, not Operating', async () => {
-    await inTx(async ({ acct, j }) => {
-      const bank = await acct('asset', 'bank');
-      await j('2026-11-10', [[bank, 50000, 0], [LT_LOANS_2210, 0, 50000]]);
-      const { ind } = await tie(...P);
-      expect(sec(ind, 'Financing'), JSON.stringify(ind.sections)).toBe(50000);
-      expect(sec(ind, 'Operating')).toBe(0);
-    });
-  });
-
-  it('B2 asset disposal: proceeds in Investing, depreciation add-back not driven negative by the disposal', async () => {
-    await inTx(async ({ acct, j }) => {
-      const bank = await acct('asset', 'bank'), fa = await acct('asset', 'fixed_asset'), acc = await acct('asset', 'accumulated_depreciation', 'credit');
-      const gain = await acct('revenue', 'disposal_profit_loss');
-      // cost 10 000, accumulated depreciation 4 000, sold for 7 000 -> gain 1 000
-      await j('2026-11-15', [[bank, 7000, 0], [acc, 4000, 0], [fa, 0, 10000], [gain, 0, 1000]], { source: 'auto_asset_disposal' });
-      const { ind, dir } = await tie(...P);
-      void dir;
-      expect(sec(ind, 'Investing'), JSON.stringify(ind.sections)).toBe(7000);
-      expect(line(ind, 'Depreciation and Amortisation (non-cash)')).toBeGreaterThanOrEqual(0);
-      expect(sec(ind, 'Operating')).toBe(0);
-    });
-  });
-
-  it.fails('B3 (known limit) dividend declared to a current liability, paid next month: the payment is Financing', async () => {
-    await inTx(async ({ acct, j }) => {
-      const bank = await acct('asset', 'bank'), divs = await acct('equity', 'dividends', 'debit'), payable = await acct('liability', 'current_liability');
-      await j('2026-10-20', [[divs, 3000, 0], [payable, 0, 3000]]);
-      await j('2026-11-10', [[payable, 3000, 0], [bank, 0, 3000]]);
-      const { ind, dir } = await tie(...P);
-      expect(sec(ind, 'Financing'), JSON.stringify(ind.sections) + ' direct fin=' + dir.financingTotal).toBe(-3000);
-    });
-  });
-
-  it('B2b a disposal at a LOSS: proceeds in Investing, the loss out of Operating, both methods the same', async () => {
-    await inTx(async ({ acct, j }) => {
-      const bank = await acct('asset', 'bank'), fa = await acct('asset', 'fixed_asset'), acc = await acct('asset', 'accumulated_depreciation', 'credit');
-      const pl = await acct('revenue', 'disposal_profit_loss');
-      // cost 10 000, accumulated depreciation 4 000, sold for 5 000 -> loss 1 000
-      await j('2026-11-15', [[bank, 5000, 0], [acc, 4000, 0], [pl, 1000, 0], [fa, 0, 10000]], { source: 'auto_asset_disposal' });
-      const { ind, dir } = await tie(...P);
-      expect({ op: sec(ind, 'Operating'), inv: sec(ind, 'Investing'), fin: sec(ind, 'Financing') }).toEqual({ op: 0, inv: 5000, fin: 0 });
-      expect({ op: dir.operatingTotal, inv: dir.investingTotal }).toEqual({ op: 0, inv: 5000 });
-      expect(line(ind, '(Gain) / Loss on Disposal of Assets')).toBe(1000);
-    });
-  });
-
-  it('B2c ordinary depreciation is still added back in Operating next to a disposal', async () => {
-    await inTx(async ({ acct, j }) => {
-      const bank = await acct('asset', 'bank'), fa = await acct('asset', 'fixed_asset'), acc = await acct('asset', 'accumulated_depreciation', 'credit');
-      const gain = await acct('revenue', 'disposal_profit_loss'), dep = await acct('expense', 'depreciation_expense');
-      await j('2026-11-01', [[dep, 500, 0], [acc, 0, 500]]);
-      await j('2026-11-15', [[bank, 7000, 0], [acc, 4000, 0], [fa, 0, 10000], [gain, 0, 1000]], { source: 'auto_asset_disposal' });
-      const { ind } = await tie(...P);
-      expect(line(ind, 'Depreciation and Amortisation (non-cash)')).toBe(500);
-      expect(sec(ind, 'Investing')).toBe(7000);
-      expect(sec(ind, 'Operating')).toBe(7000 + 0 - 7000 + 0 + (-500 + 500) + 0); // net income 500 (gain 1000 - dep 500) + 500 add-back - 1000 gain = 0
-    });
-  });
-
-  it('B5 a credit card spelled with a bank subtype (a LIABILITY): spend and payoff in ONE period, both methods agree section by section', async () => {
-    await inTx(async ({ acct, j }) => {
-      const bank = await acct('asset', 'bank'), card = await acct('liability', 'bank_account'), opex = await acct('expense', 'operating_expense');
-      await j('2026-11-03', [[opex, 800, 0], [card, 0, 800]]);   // spend on the card: no cash
-      await j('2026-11-20', [[card, 800, 0], [bank, 0, 800]]);   // paid off from the bank
-      const { ind, dir } = await tie(...P);
-      expect({ op: sec(ind, 'Operating'), inv: sec(ind, 'Investing'), fin: sec(ind, 'Financing') })
-        .toEqual({ op: dir.operatingTotal, inv: dir.investingTotal, fin: dir.financingTotal });
-      expect(sec(ind, 'Financing')).toBe(-800);
-      // and the payoff alone, in its own period, is a financing outflow on both
-      const later = await getIndirectCashFlow(CO, '2026-11-20', '2026-11-20');
-      const laterDir = await getCashFlowDirect(CO, '2026-11-20', '2026-11-20');
-      expect(sec(later, 'Financing')).toBe(-800);
-      expect(laterDir.financingTotal).toBe(-800);
-    });
-  });
-
-  describe('accumulated depreciation moves to Investing only in a disposal journal (H)', () => {
-    const parity = (ind: IndirectCashFlow, dir: Awaited<ReturnType<typeof getCashFlowDirect>>) =>
-      expect({ op: sec(ind, 'Operating'), inv: sec(ind, 'Investing'), fin: sec(ind, 'Financing') }).toEqual({ op: dir.operatingTotal, inv: dir.investingTotal, fin: dir.financingTotal });
-
-    it('a depreciation charge and its reversal net to nothing: no made-up Operating +X / Investing -X', async () => {
-      await inTx(async ({ acct, j }) => {
-        const dep = await acct('expense', 'depreciation_expense'), acc = await acct('asset', 'accumulated_depreciation', 'credit');
-        await j('2026-11-03', [[dep, 500, 0], [acc, 0, 500]]);
-        await j('2026-11-04', [[acc, 500, 0], [dep, 0, 500]]);
-        const { ind, dir } = await tie(...P);
-        expect(sec(ind, 'Investing')).toBe(0);
-        expect(line(ind, 'Depreciation and Amortisation (non-cash)')).toBe(0);
-        parity(ind, dir);
-      });
-    });
-
-    it('a reclass between two accumulated-depreciation accounts moves nothing', async () => {
-      await inTx(async ({ acct, j }) => {
-        const a1 = await acct('asset', 'accumulated_depreciation', 'credit'), a2 = await acct('asset', 'accumulated_depreciation', 'credit');
-        await j('2026-11-05', [[a1, 300, 0], [a2, 0, 300]]);
-        const { ind } = await tie(...P);
-        expect(sec(ind, 'Investing')).toBe(0);
-        expect(sec(ind, 'Operating')).toBe(0);
-      });
-    });
-
-    it('a disposal reversed ALONE in the next month: Investing -7000 on both methods (the reversal copies the disposal source)', async () => {
-      await inTx(async ({ acct, j }) => {
-        const bank = await acct('asset', 'bank'), fa = await acct('asset', 'fixed_asset'), acc = await acct('asset', 'accumulated_depreciation', 'credit');
-        const gain = await acct('revenue', 'disposal_profit_loss');
-        await j('2026-11-15', [[bank, 7000, 0], [acc, 4000, 0], [fa, 0, 10000], [gain, 0, 1000]], { source: 'auto_asset_disposal' });
-        await j('2026-12-02', [[bank, 0, 7000], [acc, 0, 4000], [fa, 10000, 0], [gain, 1000, 0]], { source: 'auto_asset_disposal' });
-        const ind = await getIndirectCashFlow(CO, '2026-12-01', '2026-12-31');
-        const dir = await getCashFlowDirect(CO, '2026-12-01', '2026-12-31');
-        expect(sec(ind, 'Investing')).toBe(-7000);
-        expect(dir.investingTotal).toBe(-7000);
-        parity(ind, dir);
-      });
-    });
-
-    it('a disposal and its reversal in the same period net to zero, with no Unexplained Difference', async () => {
-      await inTx(async ({ acct, j }) => {
-        const bank = await acct('asset', 'bank'), fa = await acct('asset', 'fixed_asset'), acc = await acct('asset', 'accumulated_depreciation', 'credit');
-        const gain = await acct('revenue', 'disposal_profit_loss');
-        await j('2026-11-15', [[bank, 7000, 0], [acc, 4000, 0], [fa, 0, 10000], [gain, 0, 1000]], { source: 'auto_asset_disposal' });
-        await j('2026-11-16', [[bank, 0, 7000], [acc, 0, 4000], [fa, 10000, 0], [gain, 1000, 0]], { source: 'auto_asset_disposal' });
-        const { ind, dir } = await tie(...P);
-        expect(sec(ind, 'Investing')).toBe(0);
-        expect(ind.unexplainedDifference).toBe(0);
-        parity(ind, dir);
-      });
-    });
-
-    it('a disposal on credit (no cash) shows nothing in Investing: the sale is a non-cash item', async () => {
-      await inTx(async ({ acct, j }) => {
-        const ar = await acct('asset', 'receivable'), fa = await acct('asset', 'fixed_asset'), acc = await acct('asset', 'accumulated_depreciation', 'credit');
-        const gain = await acct('revenue', 'disposal_profit_loss');
-        await j('2026-11-15', [[ar, 7000, 0], [acc, 4000, 0], [fa, 0, 10000], [gain, 0, 1000]], { source: 'auto_asset_disposal' });
-        const { ind } = await tie(...P);
-        expect(sec(ind, 'Investing')).toBe(0);
-        expect(ind.unexplainedDifference).toBe(0);
-      });
-    });
-  });
-
-  it('B4 indirect section totals agree with the direct method section totals (same period, same books)', async () => {
-    await inTx(async ({ acct, j }) => {
-      const bank = await acct('asset', 'bank'), fa = await acct('asset', 'fixed_asset'), acc = await acct('asset', 'accumulated_depreciation', 'credit');
-      const gain = await acct('revenue', 'disposal_profit_loss');
-      await j('2026-11-15', [[bank, 7000, 0], [acc, 4000, 0], [fa, 0, 10000], [gain, 0, 1000]]);
-      await j('2026-11-16', [[bank, 20000, 0], [LT_LOANS_2210, 0, 20000]]);
-      const card = await acct('liability', 'bank_account'), opex = await acct('expense', 'operating_expense');
-      await j('2026-11-17', [[opex, 800, 0], [card, 0, 800]]);   // a card: spend and payoff in the same period
-      await j('2026-11-18', [[card, 800, 0], [bank, 0, 800]]);
-      const { ind, dir } = await tie(...P);
-      expect({ op: sec(ind, 'Operating'), inv: sec(ind, 'Investing'), fin: sec(ind, 'Financing') })
-        .toEqual({ op: dir.operatingTotal, inv: dir.investingTotal, fin: dir.financingTotal });
     });
   });
 });

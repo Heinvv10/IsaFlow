@@ -4,7 +4,9 @@
  * Opening cash is `cash.balance.v1` the day before the period; the period's movement is the credit-less-debit of every
  * posted NON-cash journal line in it, each classified once (`placeJournal`: only the cash a journal actually moved shows
  * as an investing or financing flow). Because a journal balances, that
- * sum IS the change in cash, so closing cash equals the ledger's cash balance by construction (and a test holds it),
+ * sum IS the change in cash, so on sound books closing cash equals the ledger's cash balance (a test holds it); when the
+ * ledger breaks that (a posted journal that does not balance, a cash leg on a year-end journal) the statement still closes
+ * on the ledger and shows the gap as its own `Unexplained Difference` section,
  * whatever the books carry. The year-end closing journal is ignored, both legs, as every statement does.
  *
  * Every query is scoped to `companyId`.
@@ -108,6 +110,10 @@ export const UNEXPLAINED_SECTION = 'Unexplained Difference';
 const UNEXPLAINED_LABEL = 'Unexplained difference: the ledger\'s cash does not follow from its posted journals';
 
 export async function getIndirectCashFlow(companyId: string, startDate: string, endDate: string): Promise<IndirectCashFlow> {
+  // Three reads, not one snapshot: under withAuth the request is already inside a READ COMMITTED transaction (the
+  // isolation level cannot be raised after its first statement), so a journal posted by ANOTHER session between the movement
+  // read and the ledger-cash read can show for one load as a small Unexplained Difference (and its warn log). It is transient
+  // by construction: the next load reads both after the posting, and nothing is stored from it.
   const [openingCash, rows, ledgerClosing] = await Promise.all([
     getCashBalance(companyId, startDate, { exclusive: true }).then((b) => b.total),
     fetchNonCashMovement(companyId, startDate, endDate),
