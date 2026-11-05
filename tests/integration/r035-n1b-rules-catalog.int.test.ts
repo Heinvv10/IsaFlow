@@ -188,20 +188,20 @@ describeIfDb('approval_rules / approval_enforcement catalogue (R-035 N1b B)', ()
     expect(Object.fromEntries(rows.map((x) => [x.fn.replace(/^(\w+)\.\1\./, '$1.'), x.md5])), BODY_CHANGED).toEqual(PINNED);
   });
 
-  it('no function body but the four writers names either table in a write (static SQL only — see LIMIT)', async () => {
+  it('only the four API writers and fixed pay-run seeder name either table in a write (static SQL only — see LIMIT)', async () => {
     const { rows } = await pool.query(`
       SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND p.prosrc ~* $1
       ORDER BY 1`, [WRITE_STATEMENT]);
     expect(rows.map((x) => x.proname)).toEqual([
-      'approval_enforcement_set', 'approval_rule_create', 'approval_rule_delete', 'approval_rule_update']);
+      'approval_enforcement_set', 'approval_rule_create', 'approval_rule_delete', 'approval_rule_update', 'seed_pay_run_approval']);
   });
 
   // Since 888 each table carries exactly the change-history capture: AFTER
   // INSERT OR UPDATE OR DELETE FOR EACH ROW (tgtype 29), ENABLE ALWAYS, its
   // function the SECURITY DEFINER that writes only entity_changes and returns
   // NULL — it cannot change the row a definer wrote. Nothing else.
-  it('neither table carries a trigger or a rewrite rule but 888\'s change-history capture', async () => {
+  it('both tables carry only change-history capture and fixed pay-run immutability triggers', async () => {
     const { rows } = await pool.query(`
       SELECT tgrelid::regclass::text AS t, tgname AS name, tgfoid::regprocedure::text AS fn, tgenabled AS enabled, tgtype AS type
       FROM pg_trigger
@@ -210,8 +210,12 @@ describeIfDb('approval_rules / approval_enforcement catalogue (R-035 N1b B)', ()
       SELECT ev_class::regclass::text, rulename, NULL, NULL, NULL FROM pg_rewrite WHERE ev_class = ANY ($1::regclass[])
       ORDER BY 1`,
     [TABLES.map((t) => `public.${t}`)]);
-    expect(rows).toEqual([...TABLES].sort().map((t) => (
-      { t, name: 'entity_change_capture', fn: 'entity_change_capture()', enabled: 'A', type: 29 })));
+    expect(rows).toEqual([
+      { t: 'approval_enforcement', name: 'entity_change_capture', fn: 'entity_change_capture()', enabled: 'A', type: 29 },
+      { t: 'approval_enforcement', name: 'trg_pay_run_enforcement_immutable', fn: 'refuse_pay_run_approval_disable()', enabled: 'O', type: 27 },
+      { t: 'approval_rules', name: 'entity_change_capture', fn: 'entity_change_capture()', enabled: 'A', type: 29 },
+      { t: 'approval_rules', name: 'trg_pay_run_rule_immutable', fn: 'refuse_pay_run_approval_disable()', enabled: 'O', type: 27 },
+    ]);
   });
 
   it.each(TABLES)('no view over %s — at any depth — lets another role write through its owner', async (table) => {

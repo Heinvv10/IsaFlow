@@ -16,6 +16,7 @@ import {
   getPayrollRunLines,
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { describePayRunApproval } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -29,7 +30,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (!run) return apiResponse.notFound(res, 'PayrollRun', id);
 
   const lines = await getPayrollRunLines(id, companyId);
-  return apiResponse.success(res, { ...run, lines });
+  const approval = run.status === 'draft' || run.status === 'calculated'
+    ? await describePayRunApproval(companyId, id) : null;
+  return apiResponse.success(res, { ...run, lines, approval });
 }
 
 export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

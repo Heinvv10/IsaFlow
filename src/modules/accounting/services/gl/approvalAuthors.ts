@@ -85,6 +85,12 @@ function wording(documentType: string | undefined) {
         + 'approver can approve the journal, or have someone',
     };
   }
+  if (documentType === 'pay_run') {
+    return {
+      created: 'you last calculated or edited the pay run',
+      deadEnd: 'Have someone',
+    };
+  }
   return { created: 'you created the document or made an edit that changed it', deadEnd: 'Cancel and re-enter the bill, or have someone' };
 }
 

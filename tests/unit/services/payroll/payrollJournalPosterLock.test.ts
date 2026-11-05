@@ -17,10 +17,15 @@ vi.mock('@/lib/neon', () => ({
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockPayrollRunHeader: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({ assertPayRunApproved: vi.fn() }));
+// The no-plan read (locks, hash match) is judged in payrollApprovedPlan.test.ts and payrollPostApprovedPlan.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollApprovedPlan', () => ({ readApprovedPlan: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn(async () => ({ id: 'je-new' })) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn(), reverseJournalEntry: vi.fn() }));
 
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+import { readApprovedPlan } from '@/modules/accounting/services/payroll/payrollApprovedPlan';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
 
@@ -43,6 +48,8 @@ beforeEach(() => {
   calls.length = 0;
   stampRows = [{ id: RUN }];
   vi.mocked(lockPayrollRunHeader).mockResolvedValue({ id: RUN, journal_entry_id: null });
+  vi.mocked(assertPayRunApproved).mockResolvedValue({ grandfathered: true, planHash: null });
+  vi.mocked(readApprovedPlan).mockResolvedValue({ header: { id: RUN, journal_entry_id: null }, plan: plan(null) });
 });
 
 describe('postPayrollRunJournal under the header lock', () => {
@@ -82,5 +89,40 @@ describe('postPayrollRunJournal under the header lock', () => {
 
     stampRows = [];
     await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).rejects.toThrow(/already carries a journal/);
+  });
+});
+
+describe('postPayrollRunJournal handed no plan (recovery posting)', () => {
+  it('reads the plan under the approval and header locks (readApprovedPlan, lock: true) and posts that plan', async () => {
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1')).resolves.toBe('je-new');
+    expect(vi.mocked(readApprovedPlan).mock.calls).toEqual([[COMPANY, RUN, { lock: true }]]);
+    expect(createJournalEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses, writing nothing, when the header it locked links a journal the plan read under the lock did not see', async () => {
+    vi.mocked(readApprovedPlan).mockResolvedValue({ header: { id: RUN, journal_entry_id: 'je-winner' }, plan: plan(null) });
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1')).rejects.toThrow(/already carries journal je-winner/);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses, writing nothing, when the plan no longer matches the approved one (readApprovedPlan throws)', async () => {
+    vi.mocked(readApprovedPlan).mockRejectedValue(new Error('no longer matches the journal plan that was approved'));
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1')).rejects.toThrow(/no longer matches/);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('answers a run not in the company as not found', async () => {
+    vi.mocked(readApprovedPlan).mockResolvedValue(null);
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1')).rejects.toThrow(/not found/);
+  });
+});
+
+describe('postPayrollRunJournal handed a plan', () => {
+  it('still requires the run to be approved, writing nothing when it is not', async () => {
+    vi.mocked(assertPayRunApproved).mockRejectedValue(new Error('Pay run is not approved, so it has no reviewed approval plan'));
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).rejects.toThrow(/not approved/);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+    expect(readApprovedPlan).not.toHaveBeenCalled();
   });
 });

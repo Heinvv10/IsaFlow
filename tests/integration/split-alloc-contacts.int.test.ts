@@ -205,8 +205,8 @@ describeIfDb('PR #711 — a bank line split onto suppliers and customers', () =>
       ], fx.userId));
       expect(await lineStatus(two)).toBe('allocated');
     } finally {
-      await sql`DELETE FROM approval_rules WHERE company_id = ${fx.companyId}::UUID`;
-      await sql`DELETE FROM approval_enforcement WHERE company_id = ${fx.companyId}::UUID`;
+      await sql`DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = ${fx.companyId}::UUID`;
+      await sql`DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = ${fx.companyId}::UUID`;
     }
   }, 120000);
 });

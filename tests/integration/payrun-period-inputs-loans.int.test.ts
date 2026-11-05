@@ -17,7 +17,7 @@ import {
 } from '../../src/modules/accounting/services/payroll/payrollBatchService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { inputsFixture } from './payrun-period-inputs.helpers';
-import type { Route } from './w3-01-payroll.helpers';
+import { authorisePayRun, type Route } from './w3-01-payroll.helpers';
 import { cashPayRegisterForRun } from '../../src/modules/accounting/services/payroll/cashPayRegisterService';
 import { postPayrollRunJournal } from '../../src/modules/accounting/services/payroll/payrollJournalPostingService';
 import { createExternalImport } from '../../src/modules/accounting/services/payroll/payrollExternalImportService';
@@ -111,12 +111,16 @@ describe('a loan instalment above pay', () => {
       parallelExport as Route, 'GET', `/api/payroll/parallel-run/export?importId=${external.id}`, undefined,
       { query: { importId: external.id } },
     )).statusCode).toBe(200);
-    await pool.query("UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1", [state.nov]);
+    // R-035: an approved run posts only under a person's clearance of its plan.
+    await authorisePayRun(call, state.nov, fx.approver);
+    await pool.query(
+      "UPDATE payroll_run_headers SET status = 'approved', approved_plan_hash = $2 WHERE id = $1", [state.nov, cleared.planHash],
+    );
     const mcpCleared = await postPayrollJournalTool.handler({
       run_id: state.nov, dry_run: true, idempotency_key: 'cleared',
     }, mcpContext);
     expect(mcpCleared.isError).not.toBe(true);
-    await pool.query("UPDATE payroll_run_headers SET status = 'calculated' WHERE id = $1", [state.nov]);
+    await pool.query("UPDATE payroll_run_headers SET status = 'calculated', approved_plan_hash = NULL WHERE id = $1", [state.nov]);
     expect((await doApprove(state.nov, cleared.planHash)).statusCode).toBe(200);
   });
 

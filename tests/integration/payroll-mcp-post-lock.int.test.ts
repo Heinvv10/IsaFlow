@@ -50,7 +50,7 @@ const approveService = (run: string) => withAlsTransaction({ companyId: r.compan
 async function strandedRun(month: number): Promise<string> {
   const id = await r.calculatedRun(month);
   await r.pool.query(
-    "UPDATE payroll_run_headers SET status = 'approved', approved_by = $2, approved_at = clock_timestamp(), lines_confirmed_at = clock_timestamp() WHERE id = $1",
+    "UPDATE payroll_run_headers SET status = 'approved', approved_by = $2, approved_at = clock_timestamp(), lines_confirmed_at = clock_timestamp(), approval_grandfathered_at = clock_timestamp() WHERE id = $1",
     [id, r.admin]);
   return id;
 }
