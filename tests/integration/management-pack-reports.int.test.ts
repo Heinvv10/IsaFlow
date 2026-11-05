@@ -152,7 +152,8 @@ describe('every cell is the report service\'s figure for the same company and mo
       const disputedCol = side === 'ar' ? ['Disputed'] : [];
       expect(rows.length).toBeGreaterThan(0);
       expect(t.headers.slice(1)).toEqual(['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days', ...disputedCol, 'Total']);
-      const owed = (b: (typeof rows)[number]) => Math.round((b.total + (b.disputed ?? 0)) * 100) / 100;
+      // Whether the service's total is net of the dispute or includes it, what is owed is the age columns plus the dispute.
+      const owed = (b: (typeof rows)[number]) => Math.round((AGES.reduce((s2, k) => s2 + b[k], 0) + (b.disputed ?? 0)) * 100) / 100;
       for (const b of rows) {
         expect(row(t, b.entityName)?.slice(1)).toEqual([...AGES.map((k) => m(b[k])), ...(side === 'ar' ? [m(b.disputed ?? 0)] : []), m(owed(b))]);
       }

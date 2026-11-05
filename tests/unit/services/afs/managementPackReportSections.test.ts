@@ -126,6 +126,14 @@ describe('ageing', () => {
     for (const r of t.rows) expect(cents(r[1]) + cents(r[2]) + cents(r[3]) + cents(r[4]) + cents(r[5]) + cents(r[6])).toBe(cents(r[7]));
   });
 
+  it('does not double-count: a service total that already includes the dispute gives the same row', () => {
+    const net = tableOf(ageingBlocks(ageing([bucket('A', 70, { current: 70, disputed: 30 })]), 'ar')).rows;
+    const gross = tableOf(ageingBlocks(ageing([bucket('A', 100, { current: 70, disputed: 30 })]), 'ar')).rows;
+    expect(gross).toEqual(net);
+    expect(gross.at(-1)?.at(-1)).toBe('R 100.00');
+    expect(ageingFigures(ageing([bucket('A', 100, { current: 70, disputed: 30 })]))).toMatchObject({ totals: { total: 100 }, largestBalances: [100] });
+  });
+
   it('a Disputed column only when debtors have disputes, and never for suppliers', () => {
     expect(tableOf(ageingBlocks(ageing([bucket('A', 100)]), 'ar')).headers).not.toContain('Disputed');
     expect(tableOf(ageingBlocks(ageing([bucket('A', 100, { disputed: 30 })]), 'ap')).headers).toEqual(['Supplier', ...AGEING_HEADERS]);

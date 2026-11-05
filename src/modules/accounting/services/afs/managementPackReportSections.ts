@@ -68,8 +68,14 @@ export interface AgeingData {
 type Cols = { current: number; days30: number; days60: number; days90: number; days120Plus: number; total: number; disputed?: number };
 const COLS = ['current', 'days30', 'days60', 'days90', 'days120Plus', 'total'] as const;
 const cents = (n: number) => Math.round(n * 100) / 100;
-/** What an entity owes: the service's total is net of disputed amounts (they are taken out of the buckets); they are still owed. */
-const owed = (b: AgingBucket): AgingBucket => ({ ...b, total: cents(b.total + (b.disputed ?? 0)) });
+/**
+ * What an entity owes: its five age columns plus what is in dispute. The service keeps disputed amounts out of the age buckets;
+ * its own `total` has been net of them (and, once the Aged Receivables fix lands, includes them), so the pack sums the columns
+ * and never adds `disputed` to a total that may already hold it.
+ */
+const owed = (b: AgingBucket): AgingBucket => ({
+  ...b, total: cents(b.current + b.days30 + b.days60 + b.days90 + b.days120Plus + (b.disputed ?? 0)),
+});
 const sumCols = (rows: readonly Cols[]): Cols => {
   const out: Cols = { current: 0, days30: 0, days60: 0, days90: 0, days120Plus: 0, total: 0, disputed: 0 };
   for (const r of rows) {
