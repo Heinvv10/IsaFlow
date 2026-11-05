@@ -6,6 +6,7 @@ import { employerContributionWarning, employerFundBenefitWarning, isEmployerFund
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
+import { sdlLeviableToDate } from './sdlLeviableCumulative';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import type {
   PayrollLineInput,
@@ -90,6 +91,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       // As the line was costed: a LOAN deduction is never taxable (below), whatever the catalogue says.
       isTaxable: component.isTaxable && !(component.componentType === 'deduction' && normaliseSarsCode(component.sarsSourceCode) === 'LOAN'),
       isUifApplicable: component.isUifApplicable,
+      // Counted toward the SDL-applicable remuneration below: the year to date rebuilds it from this (payrollSdlYearToDate).
+      isSdlApplicable: component.componentType === 'earning' && component.isSdlApplicable,
       ...(isNonCash ? { isNonCash: true } : {}),
       ...(directive ? { directive } : {}),
       // Marked on the line itself, so the certificate never re-reads today's components (payrollRetirementRecord).
@@ -194,22 +197,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
     : calculateUIF(uifLeviable, taxYear);
 
-  // SDL is levied on the balance of remuneration after the Fourth Schedule para 2(4) deductions (SDL Act s3(4);
-  // SARS SDL-GEN-01-G01 Rev 5 s6). The one that applies here is the retirement fund contribution (4001/4003/4006),
-  // limited by s11F: the very figure PAYE just allowed on this line (`retirementDeduction`: 27.5% and the year's
-  // cap, cumulative over the tax year from the year to date, so a late catch-up is capped by what is left of the
-  // year and an early excess is recovered from later headroom). It is not computed a second time, so SDL and PAYE
-  // cannot disagree about it. The record is SIGNED: a reversed contribution is negative and is added back, so the
-  // months of a year net to the deduction PAYE finally allowed. Only the line total is floored at nil, which
-  // loses a deduction larger than the line's SDL-applicable pay (e.g. a catch-up recovered in a month with none):
-  // KNOWN LIMIT, a small over-levy; carrying it forward would need a stored column (a migration), undecided.
-  // Every other taxable deduction (union fees, 4005 medical, garnishees) reduces PAYE only. Donations (4030) do not
-  // reduce SDL: the s18A receipt and approved organisation are not modelled. The s4(b) threshold stays on gross
-  // remuneration (sdlLeviabilityService).
-  if (!Number.isFinite(retirementDeduction)) {
-    throw new Error(`Retirement deduction for employee ${employee.id} is not a finite number (${retirementDeduction}); SDL cannot be calculated`);
-  }
-  const sdlLeviableAfterDeductions = round2(Math.max(0, sdlLeviable - retirementDeduction));
+  // SDL is levied on SDL-applicable pay less the para 2(4) retirement deduction PAYE allowed, over the tax year
+  // (sdlLeviableCumulative). Other taxable deductions and donations (4030: no s18A receipt modelled) reduce PAYE only;
+  // the s4(b) threshold stays on gross (sdlLeviabilityService).
+  const sdlLeviableAfterDeductions = sdlLeviableToDate(employee.id, sdlLeviable, retirementDeduction, input.ytd);
 
   // Leviability depends on the employer's twelve-month remuneration, not on
   // this line, so a caller costing a full run defers and applies the threshold

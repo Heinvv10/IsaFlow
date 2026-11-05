@@ -36,6 +36,11 @@
  *   (yearToDatePeriods). Production had no such line in
  *   tax year 2027 (read-only census 2026-10-26: 0 of 167 lines).
  *
+ * - sdlApplicable / sdlLeviable: the SDL year to date (payrollSdlYearToDate), from
+ *   the same lines in period order; payroll_run_lines stores no leviable amount,
+ *   so it is rebuilt from each line's SDL-applicable pay (breakdown flag
+ *   `isSdlApplicable`, else today's catalogue) and retirement_deduction.
+ *
  * Every query is scoped by company_id.
  */
 
@@ -47,6 +52,7 @@ import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
 import { loadMedicalRecord } from './payrollMedicalRecord';
 import { loadRetirementRecord } from './payrollRetirementRecord';
+import { sdlYearToDate, type SdlYearToDateLine } from './payrollSdlYearToDate';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -68,7 +74,8 @@ export async function loadPayeYearToDate(
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic,
              r.periodic_before_deductions,
              r.annual_before_deductions,
-             b.annual_3605, b.original_taxable, b.donations
+             b.annual_3605, b.original_taxable, b.donations,
+             h.period_year, h.period_month, l.created_at AS line_created_at, l.retirement_deduction, b.sdl_applicable
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
@@ -85,7 +92,15 @@ export async function loadPayeYearToDate(
                COALESCE(SUM((item->>'amount')::numeric) FILTER (
                  WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '4030'
                    AND (item->>'isTaxable')::boolean AND pc.component_type = 'deduction'
-               ), 0) AS donations
+               ), 0) AS donations,
+               -- SDL-applicable pay: the items the calculator counted (isSdlApplicable, as costed). An item from
+               -- before the flag by today's catalogue (an earning flagged is_sdl_applicable, or the leave and
+               -- notice pay of a termination); a component since deleted counts nothing.
+               COALESCE(SUM((item->>'amount')::numeric) FILTER (
+                 WHERE COALESCE((item->>'isSdlApplicable')::boolean,
+                   (pc.component_type = 'earning' AND pc.is_sdl_applicable)
+                   OR item->>'componentId' IN ('synthetic:termination:leave-payout', 'synthetic:termination:notice-pay'))
+               ), 0) AS sdl_applicable
         FROM jsonb_array_elements(l.component_breakdown) AS item
         LEFT JOIN payroll_components pc ON pc.id::text = item->>'componentId' AND pc.company_id = h.company_id
       ) b
@@ -114,7 +129,10 @@ export async function loadPayeYearToDate(
            SUM(paye - directive_paye)::numeric AS table_paye,
            -- SUM skips a line written before migration 926 (NULL: recorded nothing).
            SUM(medical_credit)::numeric AS medical_credit,
-           SUM(additional_medical_credit)::numeric AS additional_medical_credit
+           SUM(additional_medical_credit)::numeric AS additional_medical_credit,
+           -- The lines in period order, for the SDL year to date (payrollSdlYearToDate).
+           jsonb_agg(jsonb_build_object('line', line_id, 'sdlApplicable', sdl_applicable, 'retirement', retirement_deduction)
+             ORDER BY period_year, period_month, line_created_at, line_id) AS sdl_lines
     FROM split
     GROUP BY employee_id
   `) as DbRow[];
@@ -153,6 +171,7 @@ export async function loadPayeYearToDate(
       retirementContributions: fund?.contributions ?? 0,
       retirementDeduction: fund?.deduction ?? 0,
       donations: fund?.donations ?? 0,
+      ...sdlYearToDate((r.sdl_lines ?? []) as SdlYearToDateLine[], legacyTaxableByLine),
     }];
   }));
 }

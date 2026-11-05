@@ -174,6 +174,12 @@ export interface ComponentBreakdownItem {
   amount: number;
   isTaxable: boolean;
   isUifApplicable: boolean;
+  /**
+   * The item counted toward this line's SDL-applicable remuneration, as costed: an earning flagged
+   * is_sdl_applicable (payrollCalculator's sdlLeviable). Absent on a line costed before it existed;
+   * payrollYearToDate then reads today's catalogue instead.
+   */
+  isSdlApplicable?: boolean;
   /** True when the earning is taxable remuneration but is not paid in cash. */
   isNonCash?: true;
   directive?: DirectiveFigures;
@@ -207,6 +213,10 @@ export interface PayeYearToDate {
   retirementDeduction?: number;
   /** Donations (4030) deducted on those lines as taxable deductions, for the s11F base; absent = none. */
   donations?: number;
+  /** SDL-applicable earnings on those lines (payrollSdlYearToDate); absent = none. */
+  sdlApplicable?: number;
+  /** SDL leviable amount those lines carried, rebuilt by payrollSdlYearToDate (nothing stores it); absent = none. */
+  sdlLeviable?: number;
 }
 
 /** How a line's PAYE is made up (audit 2026-10-18 P3). */
@@ -248,9 +258,9 @@ export interface PayrollLineResult {
   uif: UifResult;
   sdl: number;
   /**
-   * This line's SDL leviable amount: SDL-applicable remuneration less the s11F retirement deduction PAYE allowed
-   * on the line (`retirementDeduction`, signed: a reversal is added back), the total never below nil (SDL Act s3(4))
-   * and rounded to the cent.
+   * This line's SDL leviable amount, cumulative over the tax year (sdlLeviableCumulative): the rise in
+   * max(0, SDL-applicable pay to date - the s11F retirement deduction PAYE allowed to date), never below nil
+   * (SDL Act s3(4)) and rounded to the cent.
    */
   sdlLeviable: number;
   eti: EtiResult;
