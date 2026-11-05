@@ -65,8 +65,10 @@ const PLURAL: Record<BulkAction, string> = { approve: 'approves', post_gl: 'GL p
 
 /** A reason without one closing full stop (an ellipsis is kept); never empty. */
 export function withoutClosingStop(reason: string): string {
-  const stripped = reason.trim().replace(/(?<!\.)\.$/, '').trim();
-  return stripped || reason.trim() || reason;
+  // No regex lookbehind: Safari before 16.4 cannot parse one, and this ships to the browser.
+  const t = reason.trim();
+  const stripped = t.endsWith('.') && !t.endsWith('..') ? t.slice(0, -1).trim() : t;
+  return stripped || t || reason;
 }
 
 /** Budgets P5-2: how many of the selected bills are over budget, each judged on its own. Null when it cannot be read. */
@@ -130,7 +132,7 @@ export function BulkActionBar({
         const byReason = new Map<string, { count: number; shown: string }>();
         for (const r of data.results) {
           if (r.ok) continue;
-          const shown = r.error || 'no reason was given';
+          const shown = r.error?.trim() || 'no reason was given';
           const key = withoutClosingStop(shown);
           const seen = byReason.get(key);
           byReason.set(key, { count: (seen?.count ?? 0) + 1, shown: seen?.shown ?? shown });

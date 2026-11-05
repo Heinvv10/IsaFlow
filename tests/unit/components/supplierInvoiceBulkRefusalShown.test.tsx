@@ -89,7 +89,7 @@ describe('BulkActionBar — a partly refused bulk action', () => {
       total: 3, succeeded: 0, failed: 3, results: [
         { invoiceId: 'b1', ok: false, error: 'Bill is locked.' },
         { invoiceId: 'b2', ok: false, error: 'Bill is locked' },
-        { invoiceId: 'b3', ok: false },
+        { invoiceId: 'b3', ok: false, error: '   ' },
       ],
     } }), { status: 200 }));
 
