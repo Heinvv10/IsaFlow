@@ -39,7 +39,7 @@ import {
   PayrollLoanLockTimeoutError,
   isLockTimeout,
   setLocalLockTimeout,
-} from './payrollRunLoanApplication';
+} from './payrollLoanLock';
 import { lockJournalChain } from './payrollJournalChain';
 import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
@@ -142,10 +142,26 @@ export const payrollApprovalLockScope = (companyId: string): string => `payroll_
  * caller with no outer transaction (a script) holds this lock, like the header
  * lock, only for withTransaction's own block, so it serialises nothing there.
  */
-export async function lockCompanyPayrollApprovals(runId: string | null, companyId: string): Promise<void> {
-  await withBoundedLockWait(runId, (tx) => tx`
+export async function lockCompanyPayrollApprovals(
+  runId: string | null,
+  companyId: string,
+  db?: TxSql,
+): Promise<void> {
+  const take = (tx: TxSql) => tx`
     SELECT pg_advisory_xact_lock(hashtextextended(${payrollApprovalLockScope(companyId)}, 0))
-  `);
+  `;
+  if (!db) {
+    await withBoundedLockWait(runId, take);
+    return;
+  }
+  const previousLockTimeout = await setLocalLockTimeout(db, '5s');
+  try {
+    await take(db);
+  } catch (err) {
+    if (isLockTimeout(err)) throw new PayrollLoanLockTimeoutError(runId);
+    throw err;
+  }
+  await setLocalLockTimeout(db, previousLockTimeout);
 }
 
 /**

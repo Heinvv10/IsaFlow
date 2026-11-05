@@ -65,7 +65,7 @@ describe('PayrollRunWarnings', () => {
 
   it.each([
     ['LOAN_DEDUCTION_MISSING', 'error'], ['LOAN_FRINGE_NOT_RECORDED', 'warning'], ['DEDUCTIONS_EXCEED_PAY', 'error'],
-    ['LOAN_INSTALMENT_EXCEEDS_PAY', 'warning'], ['SOMETHING_NEW', 'warning'],
+    ['LOAN_INSTALMENT_EXCEEDS_PAY', 'error'], ['SOMETHING_NEW', 'warning'],
   ] as const)('%s with ONE employee: their own message is on the page, not only in a tooltip', (code, severity) => {
     render(<PayrollRunWarnings lines={[line('e1', 'Zanele Grid', [result(code, LOAN_A, severity)])]} />);
     const row = screen.getByText('Zanele Grid').closest('li')!;

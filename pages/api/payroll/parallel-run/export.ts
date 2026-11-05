@@ -36,8 +36,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.badRequestFromError(res, err, 'Comparison failed');
   }
   if (!report) return apiResponse.notFound(res, 'Import not found');
-  if (!report.comparison) {
+  if (!report.comparison || !report.run) {
     return apiResponse.conflict(res, 'No IsaFlow payroll run exists for this period yet');
+  }
+  if (report.loanInstalmentBlocker) {
+    return apiResponse.badRequest(res, report.loanInstalmentBlocker.detail, {
+      code: 'LOAN_INSTALMENT_EXCEEDS_PAY',
+    });
   }
 
   const csv = buildParallelRunComparisonCsv(report.comparison);

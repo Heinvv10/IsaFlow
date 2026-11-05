@@ -7,11 +7,32 @@
  * either would post a GL or PAYE figure that is wrong.
  */
 import { formatMoney } from '@/lib/money/formatMoney';
+import type { TxSql } from '@/lib/neon';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
-import type { LoanPaymentOnPayslip, OverdrawnLine, WithheldLoanLine } from './payrollRunLines';
+import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
+import { findOverdrawnLines, type LoanPaymentOnPayslip, type OverdrawnLine, type WithheldLoanLine } from './payrollRunLines';
 
 export const overdrawnNames = (lines: OverdrawnLine[]) =>
-  lines.map((l) => `${l.employeeNumber} (${l.loans?.length ? `loan ${l.loans.join(', ')}, ` : ''}${formatMoney(l.shortfall)} over)`).join(', ');
+  lines.map((l) => `${l.employeeName ? `${l.employeeName} (${l.employeeNumber})` : l.employeeNumber} (${l.loans?.length ? `loan ${l.loans.join(', ')}, ` : ''}${formatMoney(l.shortfall)} over)`).join(', ');
+
+export function loanInstalmentBlocker(overdrawn: OverdrawnLine[]): PayrollJournalNote | null {
+  const blocked = overdrawn.filter((line) => line.fromLoan && !line.unreadable);
+  if (blocked.length === 0) return null;
+  const legacy = blocked.filter((line) => line.calculationVersion == null
+    || line.calculationVersion < PAYROLL_CALCULATION_VERSION);
+  if (legacy.length > 0) {
+    return {
+      code: 'loan_instalment_requires_recalculation',
+      detail: `The payslip for ${overdrawnNames(legacy)} was calculated by an earlier version of payroll that may have taken the loan instalment. `
+        + 'Recalculate this run before approving, posting, preparing the cash register, or exporting it.',
+    };
+  }
+  return {
+    code: 'loan_instalment_exceeds_pay',
+    detail: `The payslip is blocked for manual review for ${overdrawnNames(blocked)}. No loan instalment was taken and the loan is unchanged. `
+      + 'Adjust or pause the loan, fix the other deductions, then recalculate the run.',
+  };
+}
 
 const named = (lines: LoanPaymentOnPayslip[]) => {
   const seen = new Set<string>();
@@ -56,15 +77,8 @@ export function lineBlocker(
         + 'is coded 3801. Add the 3801 earning under Setup → Pay Components, then recalculate.',
     };
   }
-  const byLoan = overdrawn.filter((l) => l.fromLoan && !l.unreadable);
-  if (byLoan.length > 0) {
-    return {
-      code: 'loan_instalment_exceeds_pay',
-      detail: `The loan instalment exceeds pay for ${overdrawnNames(byLoan)}: net pay would be nil while the loan falls by the whole `
-        + 'instalment, so the deductions payable would be understated. Reduce or defer the instalment, close the loan, or pay the '
-        + "leaver's final pay first, then recalculate. A cap at final pay is coming.",
-    };
-  }
+  const loanBlocker = loanInstalmentBlocker(overdrawn);
+  if (loanBlocker) return loanBlocker;
   const blocked = overdrawn.filter((l) => !l.fromLoan);
   if (blocked.length === 0) return null;
   return {
@@ -72,4 +86,30 @@ export function lineBlocker(
     detail: `Deductions and tax exceed pay for ${overdrawnNames(blocked)}: net pay would be nil and the deductions payable understated. `
       + 'Reduce or end those deductions on the employee page, or add to the pay, then recalculate.',
   };
+}
+
+/** Shared approval, posting, cash-register and export check. */
+export async function payrollLoanInstalmentBlocker(
+  companyId: string,
+  runId: string,
+  db?: TxSql,
+): Promise<PayrollJournalNote | null> {
+  return loanInstalmentBlocker(await findOverdrawnLines(companyId, runId, db));
+}
+
+export class PayrollLineBlockedError extends Error {
+  readonly code = 'LOAN_INSTALMENT_EXCEEDS_PAY';
+  constructor(detail: string) {
+    super(detail);
+    this.name = 'PayrollLineBlockedError';
+  }
+}
+
+export async function assertNoLoanInstalmentBlock(
+  companyId: string,
+  runId: string,
+  db?: TxSql,
+): Promise<void> {
+  const blocker = await payrollLoanInstalmentBlocker(companyId, runId, db);
+  if (blocker) throw new PayrollLineBlockedError(blocker.detail);
 }
