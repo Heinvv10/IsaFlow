@@ -19,7 +19,7 @@ describe('company_setting history (the default payment terms)', () => {
   it('hides the company id, and names the entity by its key', () => {
     const fields = [{ key: 'company_id', before: null, after: 'c', masked: false }, { key: 'value', before: null, after: 'v', masked: false }];
     expect(visibleFields('company_setting', fields).map((f) => f.key)).toEqual(['value']);
-    expect(entityLabel('company_setting', { before: null, after: { key: 'default_payment_terms' }, subject_name: null })).toBe('default_payment_terms');
+    expect(entityLabel('company_setting', { before: null, after: { key: 'default_payment_terms' }, subject_name: null })).toBe('Default payment terms');
   });
 
   it('is readable by owner and admin only', () => {

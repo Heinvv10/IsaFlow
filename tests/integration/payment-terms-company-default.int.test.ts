@@ -119,7 +119,7 @@ describe('every change to the default is recorded: who, when, old -> new (migrat
     const ok = await read(admin);
     expect(ok.state.statusCode, JSON.stringify(ok.state.body)).toBe(200);
     const [latest] = dataOf<EntityChangePage>(ok).items;
-    expect(latest).toMatchObject({ entityType: 'company_setting', entityLabel: 'default_payment_terms', op: 'update', actor: admin });
+    expect(latest).toMatchObject({ entityType: 'company_setting', entityLabel: 'Default payment terms', op: 'update', actor: admin });
     const value = latest!.fields.find((f) => f.key === 'value')!;
     expect(JSON.parse(String(value.before))).toEqual({ days: 60, type: 'invoice_days' });
     expect(JSON.parse(String(value.after))).toEqual({ days: 2, type: 'statement_months' });

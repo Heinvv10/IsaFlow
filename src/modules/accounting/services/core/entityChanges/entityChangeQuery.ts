@@ -13,6 +13,7 @@
  */
 import { sql } from '@/lib/neon';
 import { changeFields } from './entityChangeMasking';
+import { COMPANY_DEFAULT_TERMS_KEY } from '../../shared/paymentTerms';
 import type { Channel, EntityChangePage, EntityChangeView, EntityType } from './entityChangeTypes';
 
 export interface EntityChangeRow {
@@ -81,8 +82,10 @@ export function entityLabel(type: EntityType, row: Pick<EntityChangeRow, 'before
       return nameOf(p, 'document_type');
     case 'payroll_bank_detail':
       return nameOf(p, 'bank_name');
-    case 'company_setting':
-      return nameOf(p, 'key');
+    case 'company_setting': {
+      const key = nameOf(p, 'key');
+      return key === COMPANY_DEFAULT_TERMS_KEY ? 'Default payment terms' : key; // the key is the only tracked one today
+    }
     default:
       return nameOf(p, 'name');
   }
