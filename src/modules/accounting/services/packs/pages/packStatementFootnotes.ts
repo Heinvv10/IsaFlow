@@ -169,6 +169,9 @@ export function priorColumnFootnote(
   };
 }
 
+/** How the Budget column's footnote begins -- what a test looks for rather than a second spelling of it. */
+export const BUDGET_COLUMN_NOTE_START = 'The budget column is ';
+
 /**
  * Page 6's Budget column, in one sentence (budgets P3 PR-E): which budget it is, what Variance
  * means, and the accounts whose budget counts as nil because none was set. Anchored on the
@@ -186,5 +189,5 @@ export function budgetColumnFootnote(budget: PackBudgetFigures | null, number: n
   const which = budget.version === null
     ? 'each financial year\'s primary budget for the months in it'
     : `the ${budget.version.kind} budget (${budget.version.status}) for these months`;
-  return [{ number, text: `The budget column is ${which}; variance is the actual less the budget.${nil}` }];
+  return [{ number, text: `${BUDGET_COLUMN_NOTE_START}${which}; variance is the actual less the budget.${nil}` }];
 }
