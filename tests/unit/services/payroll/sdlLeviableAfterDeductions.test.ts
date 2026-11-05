@@ -284,6 +284,29 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(rs[1]!.sdlLeviable + 20_000).toBeLessThanOrEqual(40_000);
   });
 
+  it('KNOWN LIMIT (3): a contribution capped by s11F in an exempt month has its catch-up credited on the next liable line: an under-levy', () => {
+    // M1 exempt (R400 000): R3 000 pay, RA R5 000 -> PAYE allows R825 (27.5%). M2 liable: R60 000 pay, no RA; PAYE records the
+    // R4 175 catch-up there, and SDL credits it against liable pay: R55 825 / R558.25 against R60 000 / R600 (R41.75 under).
+    // Accepted by Hein as a documented limit; the exempt month's capped excess is not distinguishable from a liable deduction.
+    const rs = year([[salary(3_000), ra(5_000)], [salary(60_000)]], true, [400_000, 1_000_000], 0);
+    expect(rs.map(r => [r.retirementDeduction, r.sdlLeviable, r.sdl])).toEqual([[825, 2_175, 0], [4_175, 55_825, 558.25]]);
+  });
+
+  it('KNOWN LIMIT (3), legacy variant: a month costed before 957 (levied on gross) with the same capped contribution', () => {
+    const rs = year([[salary(3_000), ra(5_000)], [salary(60_000)]], true, [], 1);
+    expect(rs.map(r => [r.retirementDeduction, r.sdlLeviable, r.sdl])).toEqual([[825, 2_175, 21.75], [4_175, 55_825, 558.25]]);
+  });
+
+  it('the SDL pay enters the cumulative maths as the cent figure the line stores (sub-cent component amounts)', () => {
+    const r = line([salary(1_000.006), pension(100.01)]);
+    expect(r.sdlApplicable).toBe(1_000.01);
+    expect(r.sdlLeviable).toBe(900);
+    // Three such months: the leviable amounts add up to the stored (rounded) pay less the deduction.
+    const rs = year([[salary(100.006)], [salary(100.006)], [salary(100.006)]]);
+    expect(rs.map(x => x.sdlApplicable)).toEqual([100.01, 100.01, 100.01]);
+    expect(totalLeviable(rs)).toBe(300.03);
+  });
+
   it('the line total is floored at nil: a deduction above the SDL-applicable pay leaves leviable and SDL nil (SDL Act s3(4))', () => {
     // R1 000 SDL-applicable + R20 000 taxable but SDL-excluded; RA R8 000. Base R21 000 x 27.5% = R5 775
     // allowed, more than the R1 000 that SDL can take it from. The excess is lost (documented limit).

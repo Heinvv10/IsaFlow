@@ -200,7 +200,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // SDL is levied on SDL-applicable pay less the para 2(4) retirement deduction PAYE allowed, over the tax year
   // (sdlLeviableCumulative). Other taxable deductions and donations (4030: no s18A receipt modelled) reduce PAYE only;
   // the s4(b) threshold stays on gross (sdlLeviabilityService).
-  const sdlLeviableAfterDeductions = sdlLeviableToDate(employee.id, sdlLeviable, retirementDeduction, input.ytd);
+  // The pay enters the cumulative maths as the cent figure the line stores (sdl_applicable), so the year to date and
+  // this line work from exactly the same numbers.
+  const sdlApplicable = round2(sdlLeviable);
+  const sdlLeviableAfterDeductions = sdlLeviableToDate(employee.id, sdlApplicable, retirementDeduction, input.ytd);
 
   // Leviability depends on the employer's twelve-month remuneration, not on
   // this line, so a caller costing a full run defers and applies the threshold
@@ -280,7 +283,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     uif,
     sdl: Math.round(sdl * 100) / 100,
     sdlLeviable: sdlLeviableAfterDeductions,
-    sdlApplicable: round2(sdlLeviable),
+    sdlApplicable,
     eti: etiRaw,
     netPay: Math.max(0, netPay),
     componentBreakdown: breakdown,

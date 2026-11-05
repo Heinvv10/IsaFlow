@@ -29,6 +29,10 @@
  * deduction, not which month's contribution a reversal undoes: a reversal in a
  * liable month of a contribution made in an exempt month counts against the
  * liable months' deduction (an over-levy by that amount, never an under-levy).
+ * (3) A contribution capped by s11F in an exempt (or legacy) month has its
+ * catch-up recorded by PAYE on the next liable line, and SDL credits it there:
+ * the only under-levy direction left (accepted by Hein as a documented limit).
+ * Pinned by the "KNOWN LIMIT (3)" tests.
  *
  * Lines costed before migration 957 were levied on gross, each EMP201 period right
  * as filed: the new rule starts with the first run after them. The year to date
