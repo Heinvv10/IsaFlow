@@ -131,3 +131,14 @@ describe('AttachmentViewer', () => {
     expect(outer).not.toHaveBeenCalled();
   });
 });
+
+describe('AttachmentViewer placement', () => {
+  it('renders into document.body, outside the layout column whose stacking context the top nav draws over', () => {
+    const { container } = render(<main style={{ position: 'relative', zIndex: 0 }}>
+      <AttachmentViewer attachments={FILES} startIndex={0} onClose={() => undefined} />
+    </main>);
+    const dialog = screen.getByRole('dialog', { name: 'Attachment preview' });
+    expect(container.contains(dialog)).toBe(false);
+    expect(dialog.parentElement).toBe(document.body);
+  });
+});

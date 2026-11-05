@@ -6,9 +6,13 @@
  * Focus is trapped in the viewer and put back on close (useFocusTrap, which also owns Escape and stops it there, so it
  * closes only the viewer). The arrow keys are handled on the dialog and stopped there too. When a step disables the
  * button that had focus (Next on the last file), focus moves to the dialog itself, so the keys keep arriving.
+ *
+ * Rendered into document.body: AppLayout's main column is `relative z-0`, a stacking context no z-index inside it can
+ * leave, so rendered in place the top nav (z-40) drew over the viewer. React events still bubble to the opener's tree.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Download, FileX, X } from 'lucide-react';
 import { useFocusTrap } from '@/components/ui/useFocusTrap';
 import { previewKind, dataUrlToBlob } from './attachmentPreview';
@@ -64,7 +68,8 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
     e.stopPropagation();
   };
 
-  return (
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-[60] flex flex-col bg-black/80 outline-none" role="dialog"
       aria-modal="true" aria-label="Attachment preview" onKeyDown={onKeyDown}>
       <div className="flex items-center gap-2 px-4 py-2 bg-[var(--ff-bg-secondary)] border-b border-[var(--ff-border-light)]">
@@ -103,6 +108,7 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
