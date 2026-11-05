@@ -65,7 +65,8 @@ function repairBlock(sectionType: string, block: NoteContentBlock): NoteContentB
 
 function storedBlocks(section: PackSectionInput): NoteContentBlock[] {
   const overridden = section.overrides?.blocks;
-  const blocks = Array.isArray(overridden) && overridden.length > 0 ? overridden : section.content?.blocks;
+  // An override array replaces the generated blocks, even an empty one: an accountant who cleared the section removed that content.
+  const blocks = Array.isArray(overridden) ? overridden : section.content?.blocks;
   // Stored content is free-form JSON (a tenant writes overrides): every surface reads it as strings.
   return normaliseBlocks(blocks);
 }
