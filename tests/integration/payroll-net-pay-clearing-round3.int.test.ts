@@ -51,7 +51,6 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await r.pool.query('DELETE FROM audit_log WHERE company_id = $1', [r.company]);
-  await r.pool.query('DELETE FROM mcp_idempotency WHERE company_id = $1', [r.company]).catch(() => undefined);
   await r.teardown();
 });
 

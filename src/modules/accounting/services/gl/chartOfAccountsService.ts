@@ -342,10 +342,7 @@ export async function renameAccountCode(
   return mapRow(rows[0]);
 }
 
-/** `actor` (the caller's role and user) gates and audits a reactivation that fills the empty bank role (systemRoleReactivation). */
-export async function updateAccount(
-  companyId: string, id: string, input: UpdateAccountInput, actor?: ReactivationActor,
-): Promise<GLAccount> {
+export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput, actor?: ReactivationActor): Promise<GLAccount> {
   try {
     const finish = await guardActiveChange(companyId, id, input, actor);
     const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}` as {
