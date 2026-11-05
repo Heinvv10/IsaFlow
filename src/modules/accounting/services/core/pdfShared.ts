@@ -7,7 +7,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { PrintedCompany } from './pdfPrintedCompany';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
-import { fitFontSize } from './pdfFitText';
+import { drawRefStripFields } from './pdfRefStripFields';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type JsPdfDoc = any;
@@ -478,19 +478,7 @@ export function renderRefStrip(
   doc.setLineWidth(0.3);
   doc.roundedRect(margin, y, contentW, STRIP_H, 1.5, 1.5, 'FD');
 
-  const colW = contentW / fields.length;
-  fields.forEach((field, i) => {
-    const cx = margin + colW * i + 5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6);
-    doc.setTextColor(...COLORS.TEXT_MUTED);
-    doc.text(field.label.toUpperCase(), cx, y + 5);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(fitFontSize(doc, field.value, colW - 8, 8, 6));
-    doc.setTextColor(...COLORS.TEXT_PRIMARY);
-    doc.text(field.value, cx, y + 11);
-  });
+  drawRefStripFields(doc, fields, margin, y, contentW / fields.length, COLORS);
 
   return y + STRIP_H + 6;
 }
