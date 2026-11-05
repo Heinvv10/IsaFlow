@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { localISODate } from '@/lib/dateUtils';
 import { Toggle } from '@/components/accounting/settings/settingsTypes';
 import { DateField } from '@/components/ui';
+import { IMMEDIATE_TERMS, PaymentTermsField } from '@/components/accounting/PaymentTermsField';
 
 export type AutoAllocateStrategy = 'off' | 'oldest' | 'newest';
 
@@ -20,6 +21,7 @@ export interface SupplierFormData {
   registration_number: string;
   contact_person: string;
   payment_terms: string;
+  payment_terms_type: string;
   address: string;
   category: string;
   notes: string;
@@ -43,7 +45,8 @@ export const INITIAL_SUPPLIER_FORM: SupplierFormData = {
   vat_number: '',
   registration_number: '',
   contact_person: '',
-  payment_terms: '30',
+  payment_terms: IMMEDIATE_TERMS.payment_terms,
+  payment_terms_type: IMMEDIATE_TERMS.payment_terms_type,
   address: '',
   category: '',
   notes: '',
@@ -224,15 +227,11 @@ export function SupplierForm({ form, onChange, fieldErrors = {}, dates }: Props)
               className={inputClass}
             />
           </Field>
-          <Field label="Payment Terms" hint="Days until payment is due" error={fieldErrors.payment_terms}>
-            <input
-              type="number"
-              min="0"
-              value={form.payment_terms}
-              onChange={(e) => set('payment_terms', e.target.value)}
-              className={inputClass}
-            />
-          </Field>
+          <PaymentTermsField
+            days={form.payment_terms} type={form.payment_terms_type} error={fieldErrors.payment_terms}
+            onChange={(days, type) => onChange({ ...form, payment_terms: days, payment_terms_type: type })}
+            inputClass={inputClass}
+          />
           <div className="sm:col-span-2">
             <Field label="Physical Address">
               <textarea

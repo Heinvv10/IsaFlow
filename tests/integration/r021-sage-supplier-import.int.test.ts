@@ -39,7 +39,7 @@ beforeAll(async () => {
   for (const id of [companyA, companyB]) {
     await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [id, user]);
     await pool.query(
-      'INSERT INTO suppliers(company_id,name,vat_number,payment_terms) VALUES($1,$2,$3,30)',
+      "INSERT INTO suppliers(company_id,name,vat_number,payment_terms,payment_terms_type) VALUES($1,$2,$3,30,'invoice_days')",
       [id, SUPPLIER_NAME, `41${id.slice(0, 8)}`],
     );
   }
@@ -182,7 +182,7 @@ describe('R-021: the importer reads the columns its source table actually has', 
   it('uses the supplier’s own terms for the due date', async () => {
     const tag = `R021T45-${randomUUID().slice(0, 8)}`;
     const name = `${tag} Net45`;
-    await pool.query('INSERT INTO suppliers(company_id,name,payment_terms) VALUES($1,$2,45)', [companyA, name]);
+    await pool.query("INSERT INTO suppliers(company_id,name,payment_terms,payment_terms_type) VALUES($1,$2,45,'invoice_days')", [companyA, name]);
     await seedStaging(companyA, { sageId: `${tag}-SAGE`, invoiceNumber: `${tag}-INV`, supplierName: name, total: 100 });
     await drive(companyA, () => importSupplierInvoices(companyA, user));
     const bill = (await pool.query(

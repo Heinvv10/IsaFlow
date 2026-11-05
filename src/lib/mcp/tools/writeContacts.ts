@@ -54,7 +54,7 @@ export const createCustomerTool: McpTool = {
     'Create a customer. Posts nothing to the ledger. name is required and is rejected over 255 '
     + 'characters. phone, mobile, vat_number, registration_number and default_vat_type are '
     + 'rejected over 50; other free-text fields are truncated to 255. '
-    + 'payment_terms defaults to 30 days and is_active to true. '
+    + 'payment_terms (with payment_terms_type) is stored as not set when omitted, and is_active defaults to true. '
     + 'Does NOT set an opening balance — use set_opening_balance, which posts a real journal, so '
     + 'that the trial balance and the customer agree. Does NOT check for an existing customer of '
     + 'the same name: list_customers first if you are migrating and might already have one. '
@@ -87,7 +87,8 @@ export const updateCustomerTool: McpTool = {
     + 'Only the fields you supply are changed; anything you leave out KEEPS ITS CURRENT VALUE. '
     + 'This tool therefore CANNOT clear a field back to empty — sending an empty string is the '
     + 'same as omitting it. That is deliberate: the alternative would let a call that simply '
-    + 'forgot to mention a VAT number wipe it. '
+    + 'forgot to mention a VAT number wipe it. The one exception is payment terms: '
+    + 'payment_terms_type "not_set" clears them. '
     + 'Cannot change opening_balance: that is the figure the books were opened with, and moving '
     + 'it silently restates every period since — correct it with a journal instead. Cannot delete '
     + 'a customer; set is_active false to retire one.',
@@ -133,8 +134,8 @@ export const createSupplierTool: McpTool = {
     'Create a supplier. Posts nothing to the ledger. name is required and is rejected over 255 '
     + 'characters. phone, vat_number, registration_number and bank_account_number are rejected over '
     + '50, bank_branch_code and bank_account_type over 20, bank_name and category over 100; other '
-    + 'free-text fields are truncated to 255. payment_terms defaults to 30 days and is_active to '
-    + 'true. Banking details are optional here and are what a payment run '
+    + 'free-text fields are truncated to 255. Payment terms are stored as not set when omitted '
+    + '(payment_terms with payment_terms_type) and is_active defaults to true. Banking details are optional here and are what a payment run '
     + 'pays into. '
     + 'Does NOT set an opening balance — use set_opening_balance, which posts a real journal. '
     + 'Does NOT check for an existing supplier of the same name: list_suppliers first if you are '
@@ -167,7 +168,7 @@ export const updateSupplierTool: McpTool = {
     + 'Only the fields you supply are changed; anything you leave out KEEPS ITS CURRENT VALUE, so '
     + 'this tool CANNOT clear a field back to empty — sending an empty string is the same as '
     + 'omitting it. That is deliberate: a call that simply forgot to mention bank_account_number '
-    + 'must not wipe it. '
+    + 'must not wipe it. The one exception is payment terms: payment_terms_type "not_set" clears them. '
     + 'Cannot change opening_balance, and cannot delete a supplier; set is_active false to retire '
     + 'one.',
   scope: SCOPE,

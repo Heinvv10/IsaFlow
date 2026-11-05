@@ -8,6 +8,7 @@ import {
   AUTO_ALLOCATE_STRATEGIES,
   type AutoAllocateStrategy,
 } from '@/modules/accounting/services/shared/autoAllocateStrategy';
+import { PAYMENT_TERMS_TYPES, TERMS_NOT_SET } from '@/modules/accounting/services/shared/paymentTerms';
 import { strArg } from './toolHelpers';
 
 // inputSchema.enum below is DOCUMENTATION ONLY — the MCP transport does not
@@ -22,6 +23,20 @@ const AUTO_ALLOCATE_STRATEGY_DESCRIPTION =
   + "to clear; 'oldest' applies it to the oldest open document first (FIFO), partially settling the "
   + "last one; 'newest' applies newest first. Supersedes the deprecated boolean below.";
 
+// inputSchema.enum is documentation only (see above): parseTermsWrite in the services is what refuses a bad pair.
+const PAYMENT_TERMS_DESCRIPTION =
+  'N for payment_terms_type: days, or months for statement_months (0 to 999). Sent alone it means invoice_days. '
+  + 'Omit both to leave terms unchanged (create: stored as not set).';
+const PAYMENT_TERMS_TYPE_DESCRIPTION =
+  "How payment_terms counts: 'invoice_days' (invoice date + N days; 0 = Immediate), 'statement_days' (month-end of "
+  + "the invoice month + N days), 'statement_months' (month-end of the Nth month after the invoice month). "
+  + "'not_set' (with no payment_terms) clears the terms: bills and invoices then get no derived due date.";
+const PAYMENT_TERMS_TYPE_FIELD = {
+  type: 'string',
+  enum: [...PAYMENT_TERMS_TYPES, TERMS_NOT_SET],
+  description: PAYMENT_TERMS_TYPE_DESCRIPTION,
+} as const;
+
 export const CUSTOMER_FIELDS = {
   name: { type: 'string', maxLength: 255, description: 'Trading name. Rejected over 255 characters — it identifies the record.' },
   email: { type: 'string' },
@@ -32,7 +47,8 @@ export const CUSTOMER_FIELDS = {
   billing_address: { type: 'string' },
   shipping_address: { type: 'string' },
   contact_person: { type: 'string' },
-  payment_terms: { type: 'number', description: 'Days. Default 30 on create.' },
+  payment_terms: { type: 'number', description: PAYMENT_TERMS_DESCRIPTION },
+  payment_terms_type: PAYMENT_TERMS_TYPE_FIELD,
   credit_limit: { type: 'number' },
   is_active: { type: 'boolean' },
   notes: { type: 'string' },
@@ -66,7 +82,8 @@ export const SUPPLIER_FIELDS = {
   registration_number: { type: 'string', maxLength: 50 },
   address: { type: 'string' },
   contact_person: { type: 'string' },
-  payment_terms: { type: 'number', description: 'Days. Default 30 on create.' },
+  payment_terms: { type: 'number', description: PAYMENT_TERMS_DESCRIPTION },
+  payment_terms_type: PAYMENT_TERMS_TYPE_FIELD,
   bank_name: { type: 'string', maxLength: 100 },
   bank_account_number: { type: 'string', maxLength: 50, description: 'What a payment run pays into. Change it deliberately.' },
   bank_branch_code: { type: 'string', maxLength: 20 },
@@ -105,6 +122,7 @@ export function customerInput(args: Record<string, unknown>): CustomerWriteInput
     shippingAddress: strArg(args, 'shipping_address'),
     contactPerson: strArg(args, 'contact_person'),
     paymentTerms: numArg(args, 'payment_terms'),
+    paymentTermsType: strArg(args, 'payment_terms_type'),
     creditLimit: numArg(args, 'credit_limit'),
     isActive: boolArg(args, 'is_active'),
     notes: strArg(args, 'notes'),
@@ -128,6 +146,7 @@ export function supplierInput(args: Record<string, unknown>): SupplierWriteInput
     address: strArg(args, 'address'),
     contactPerson: strArg(args, 'contact_person'),
     paymentTerms: numArg(args, 'payment_terms'),
+    paymentTermsType: strArg(args, 'payment_terms_type'),
     bankName: strArg(args, 'bank_name'),
     bankAccountNumber: strArg(args, 'bank_account_number'),
     bankBranchCode: strArg(args, 'bank_branch_code'),

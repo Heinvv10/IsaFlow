@@ -36,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (typeof singleId !== 'string' || !UUID_RE.test(singleId)) return apiResponse.badRequest(res, 'id must be a supplier id');
         const rows = (await sql`
           SELECT id, name, company_name, email, phone,
-                 contact_person, is_active, vat_number, payment_terms, subject_to_drc_vat, created_at
+                 contact_person, is_active, vat_number, payment_terms, payment_terms_type, subject_to_drc_vat, created_at
           FROM suppliers
           WHERE id = ${singleId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
         `) as Row[];
@@ -85,7 +85,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         email: str('email'), phone: str('phone'),
         vatNumber: str('vat_number'), registrationNumber: str('registration_number'),
         address: str('address'), contactPerson: str('contact_person'),
-        paymentTerms: num('payment_terms'),
+        paymentTerms: num('payment_terms'), paymentTermsType: str('payment_terms_type'),
         bankName: str('bank_name'), bankAccountNumber: str('bank_account_number'),
         bankBranchCode: str('bank_branch_code'), bankAccountType: str('bank_account_type'),
         isActive: bool('is_active'), notes: str('notes'), category: str('category'),

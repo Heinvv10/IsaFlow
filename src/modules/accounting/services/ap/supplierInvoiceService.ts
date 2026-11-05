@@ -28,6 +28,7 @@ import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaults';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
+import { dueDateFromTerms } from '../shared/paymentTerms';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
@@ -102,17 +103,19 @@ export async function createSupplierInvoice(
     // derived from each CC2, a conflicting CC1 refused — before any write (no dimension query when none is named).
     const computedItems = await resolveBillLineDimensions(companyId, input.supplierId, totalledItems, input.costCenterId);
 
-    const dueDate = input.dueDate || calculateDueDate(input.invoiceDate, input.paymentTerms);
-
     // The company's own currency at exactly 1 (R-035), a foreign one only once enabled (FX PR0).
     const { currencyCode, exchangeRate } = await resolveDocumentCurrency(companyId, input.currencyCode, input.exchangeRate, 'bill');
 
-    // Fetch supplier VAT number for duplicate fingerprint
-    const [supplierVatRow] = (await sql`
-      SELECT vat_number FROM suppliers
+    // The supplier's VAT number (duplicate fingerprint) and payment terms (due date), one company-scoped read.
+    const [supplierRow] = (await sql`
+      SELECT vat_number, payment_terms, payment_terms_type FROM suppliers
       WHERE id = ${input.supplierId}::UUID AND company_id = ${companyId}::UUID
     `) as Row[];
-    const supplierVatNumber: string | null = supplierVatRow?.vat_number ?? null;
+    const supplierVatNumber: string | null = supplierRow?.vat_number ?? null;
+    // A due date the caller gave wins; else the supplier's terms (migration 958); else the invoice's own "netNN" text.
+    const dueDate = input.dueDate
+      || dueDateFromTerms(input.invoiceDate, supplierRow?.payment_terms == null ? null : Number(supplierRow.payment_terms), supplierRow?.payment_terms_type)
+      || calculateDueDate(input.invoiceDate, input.paymentTerms);
     const fingerprint = computeFingerprint(supplierVatNumber, input.invoiceNumber, totalAmount);
 
     const invoiceRow = await withTransaction(async (tx) => {
@@ -193,9 +196,8 @@ function calculateDueDate(invoiceDate: string, paymentTerms?: string): string | 
   if (!paymentTerms) return null;
   const match = paymentTerms.match(/net(\d+)/i);
   if (!match) return null;
-  const date = new Date(invoiceDate);
-  date.setDate(date.getDate() + Number(match[1]));
-  return date.toISOString().split('T')[0]!;
+  // Local-date arithmetic: `new Date(iso)` is UTC midnight and `toISOString()` rolled the date back a day east of UTC.
+  return dueDateFromTerms(invoiceDate, Number(match[1]), 'invoice_days');
 }
 
 function mapItemRow(row: Row): SupplierInvoiceItem {

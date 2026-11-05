@@ -12,6 +12,7 @@ import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { ListEmpty } from '@/components/ui/ListEmpty';
 import { KpiStrip } from '@/components/ui';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { describePaymentTerms } from '@/modules/accounting/services/shared/paymentTerms';
 
 interface Customer {
   id: string;
@@ -19,7 +20,8 @@ interface Customer {
   email: string | null;
   phone: string | null;
   contact_person: string | null;
-  payment_terms: number;
+  payment_terms: number | null;
+  payment_terms_type: string | null;
   is_active: boolean;
   vat_number: string | null;
 }
@@ -192,7 +194,7 @@ export default function CustomersPage() {
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.phone ?? '-'}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.contact_person ?? '-'}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
-                        {c.payment_terms} day{c.payment_terms !== 1 ? 's' : ''}
+                        {describePaymentTerms(c.payment_terms, c.payment_terms_type)}
                       </td>
                       <td className="py-3 px-4">
                         <StatusBadge active={c.is_active} />

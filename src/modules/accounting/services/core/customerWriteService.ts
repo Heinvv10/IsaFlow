@@ -26,6 +26,10 @@ import {
   parseAutoAllocateStrategy,
   type AutoAllocateStrategy,
 } from '../shared/autoAllocateStrategy';
+import { ContactValidationError } from './contactValidationError';
+import { termsColumns } from './contactTerms';
+
+export { ContactValidationError };
 
 export type { AutoAllocateStrategy };
 
@@ -63,13 +67,6 @@ export interface CustomerWriteInput {
   subjectToDrcVat?: boolean;
   invoicesViewableOnline?: boolean;
   defaultPriceList?: string | null;
-}
-
-export class ContactValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ContactValidationError';
-  }
 }
 
 function trimmed(value: string | null | undefined): string | null {
@@ -148,6 +145,7 @@ export async function createCustomer(
 ): Promise<DbRow> {
   const name = assertName(input.name);
   const strategy = resolveStrategy(input.autoAllocateStrategy) ?? 'off';
+  const terms = termsColumns(input);
   const rows = (await sql`
     INSERT INTO customers (
       company_id, name, email, phone, mobile, fax, web_address,
@@ -172,8 +170,8 @@ export async function createCustomer(
       ${trimmed(input.billingAddress)},
       ${trimmed(input.shippingAddress)},
       ${trimmed(input.contactPerson)},
-      ${input.paymentTerms ?? 30},
-      ${boundedText(input.paymentTermsType, 'payment_terms_type', 30) ?? 'days'},
+      ${terms.days}::INT,
+      ${terms.type},
       ${input.creditLimit ?? null},
       ${input.isActive ?? true},
       ${trimmed(input.notes)},
@@ -230,6 +228,7 @@ export async function updateCustomer(
   // undefined = "leave it alone"; COALESCE below handles that the same way it
   // handles every other omitted field.
   const strategy = resolveStrategy(input.autoAllocateStrategy);
+  const terms = termsColumns(input);
 
   const rows = (await sql`
     UPDATE customers SET
@@ -244,8 +243,8 @@ export async function updateCustomer(
       billing_address = COALESCE(${trimmed(input.billingAddress)}, billing_address),
       shipping_address = COALESCE(${trimmed(input.shippingAddress)}, shipping_address),
       contact_person  = COALESCE(${trimmed(input.contactPerson)}, contact_person),
-      payment_terms   = COALESCE(${input.paymentTerms ?? null}, payment_terms),
-      payment_terms_type = COALESCE(${boundedText(input.paymentTermsType, 'payment_terms_type', 30)}, payment_terms_type),
+      payment_terms   = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.days}::INT WHEN 'clear' THEN NULL ELSE payment_terms END,
+      payment_terms_type = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'clear' THEN NULL ELSE payment_terms_type END,
       credit_limit    = COALESCE(${input.creditLimit ?? null}, credit_limit),
       is_active       = COALESCE(${input.isActive ?? null}, is_active),
       notes           = COALESCE(${trimmed(input.notes)}, notes),

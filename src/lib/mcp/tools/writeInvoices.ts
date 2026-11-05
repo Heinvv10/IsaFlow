@@ -74,7 +74,7 @@ export const createDraftInvoiceTool: McpTool = {
       items: { type: 'array', minItems: 1, items: CUSTOMER_INVOICE_LINE_SCHEMA },
       project_id: { type: 'string', description: 'The invoice\'s project, display only; tag lines to post by project (items[].project_id).' },
       invoice_date: { type: 'string', format: 'date' },
-      due_date: { type: 'string', format: 'date' },
+      due_date: { type: 'string', format: 'date', description: "When omitted: from the customer's payment terms (see list_customers); empty if the customer's terms are not set" },
       tax_rate: { type: 'number', minimum: 0 },
       notes: { type: 'string' },
       idempotency_key: { type: 'string' },

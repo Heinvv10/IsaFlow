@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { localISODate } from '@/lib/dateUtils';
 import { DateField } from '@/components/ui';
+import { IMMEDIATE_TERMS, PaymentTermsField } from '@/components/accounting/PaymentTermsField';
 
 export type AutoAllocateStrategy = 'off' | 'oldest' | 'newest';
 
@@ -50,8 +51,8 @@ export const INITIAL_CUSTOMER_FORM: CustomerFormData = {
   vat_number: '',
   registration_number: '',
   contact_person: '',
-  payment_terms: '30',
-  payment_terms_type: 'days',
+  payment_terms: IMMEDIATE_TERMS.payment_terms,
+  payment_terms_type: IMMEDIATE_TERMS.payment_terms_type,
   credit_limit: '',
   billing_address: '',
   shipping_address: '',
@@ -303,18 +304,11 @@ export function CustomerForm({ form, onChange, fieldErrors = {}, categories = []
               className={inputClass}
             />
           </Field>
-          <div>
-            <Field label="Due Date for Payment">
-              <div className="flex gap-2">
-                <input type="number" min="0" value={form.payment_terms} onChange={(e) => set('payment_terms', e.target.value)}
-                  className={`${inputClass} w-20`} />
-                <select value={form.payment_terms_type} onChange={(e) => set('payment_terms_type', e.target.value)} className={inputClass}>
-                  <option value="days">Days from Invoice</option>
-                  <option value="end_of_month">End of the current Month</option>
-                </select>
-              </div>
-            </Field>
-          </div>
+          <PaymentTermsField
+            days={form.payment_terms} type={form.payment_terms_type} error={fieldErrors.payment_terms}
+            onChange={(days, type) => onChange({ ...form, payment_terms: days, payment_terms_type: type })}
+            inputClass={inputClass}
+          />
         </div>
         <div className="mt-3 space-y-2">
           <Toggle checked={form.invoices_viewable_online} onChange={v => set('invoices_viewable_online', v)} label="Invoices can be viewed online" />

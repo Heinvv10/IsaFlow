@@ -17,6 +17,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { ContactValidationError, boundedText } from './customerWriteService';
+import { termsColumns } from './contactTerms';
 import {
   AUTO_ALLOCATE_STRATEGIES,
   parseAutoAllocateStrategy,
@@ -40,7 +41,10 @@ export interface SupplierWriteInput {
   registrationNumber?: string | null;
   address?: string | null;
   contactPerson?: string | null;
+  /** N for `paymentTermsType`; a number alone is read as invoice days. Both omitted: create stores "not set", update leaves it. */
   paymentTerms?: number | null;
+  /** invoice_days | statement_days | statement_months, or not_set to clear on update. */
+  paymentTermsType?: string | null;
   bankName?: string | null;
   bankAccountNumber?: string | null;
   bankBranchCode?: string | null;
@@ -119,11 +123,12 @@ export async function createSupplier(
 ): Promise<DbRow> {
   const name = assertName(input.name);
   const strategy = resolveStrategy(input.autoAllocateStrategy) ?? 'off';
+  const terms = termsColumns(input);
   const rows = (await sql`
     INSERT INTO suppliers (
       company_id, name, company_name, email, phone,
       vat_number, registration_number, address, contact_person,
-      payment_terms,
+      payment_terms, payment_terms_type,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
       opening_balance, opening_balance_date, subject_to_drc_vat,
@@ -138,7 +143,8 @@ export async function createSupplier(
       ${boundedText(input.registrationNumber, 'registration_number', 50)},
       ${trimmed(input.address)},
       ${trimmed(input.contactPerson)},
-      ${input.paymentTerms ?? 30},
+      ${terms.days}::INT,
+      ${terms.type},
       ${boundedText(input.bankName, 'bank_name', 100)},
       ${boundedText(input.bankAccountNumber, 'bank_account_number', 50)},
       ${boundedText(input.bankBranchCode, 'bank_branch_code', 20)},
@@ -155,7 +161,7 @@ export async function createSupplier(
     RETURNING
       id, name, company_name, email, phone,
       vat_number, registration_number, address, contact_person,
-      payment_terms,
+      payment_terms, payment_terms_type,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
       opening_balance, opening_balance_date,
@@ -196,6 +202,7 @@ export async function updateSupplier(
   // undefined = "leave it alone"; COALESCE below handles that the same way it
   // handles every other omitted field.
   const strategy = resolveStrategy(input.autoAllocateStrategy);
+  const terms = termsColumns(input);
   // Every value validated BEFORE the first statement: a refusal runs no SQL.
   const v = {
     phone: boundedText(input.phone, 'phone', 50),
@@ -225,7 +232,8 @@ export async function updateSupplier(
       registration_number = COALESCE(${v.registrationNumber}, registration_number),
       address             = COALESCE(${trimmed(input.address)}, address),
       contact_person      = COALESCE(${trimmed(input.contactPerson)}, contact_person),
-      payment_terms       = COALESCE(${input.paymentTerms ?? null}, payment_terms),
+      payment_terms       = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.days}::INT WHEN 'clear' THEN NULL ELSE payment_terms END,
+      payment_terms_type  = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'clear' THEN NULL ELSE payment_terms_type END,
       bank_name           = COALESCE(${v.bankName}, bank_name),
       bank_account_number = COALESCE(${v.bankAccountNumber}, bank_account_number),
       bank_branch_code    = COALESCE(${v.bankBranchCode}, bank_branch_code),
@@ -245,7 +253,7 @@ export async function updateSupplier(
     RETURNING
       id, name, company_name, email, phone,
       vat_number, registration_number, address, contact_person,
-      payment_terms,
+      payment_terms, payment_terms_type,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
       opening_balance, opening_balance_date,

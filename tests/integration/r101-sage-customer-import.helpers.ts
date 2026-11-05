@@ -28,7 +28,7 @@ export function sageCustomerStaging(pool: Pool) {
 
   async function addCustomer(companyId: string, name: string, paymentTerms: number | null = 30): Promise<string> {
     return (await pool.query<{ id: string }>(
-      'INSERT INTO customers(company_id,name,payment_terms) VALUES($1,$2,$3) RETURNING id',
+      "INSERT INTO customers(company_id,name,payment_terms,payment_terms_type) VALUES($1,$2,$3::int,CASE WHEN $3::int IS NULL THEN NULL ELSE 'invoice_days' END) RETURNING id",
       [companyId, name, paymentTerms],
     )).rows[0]!.id;
   }

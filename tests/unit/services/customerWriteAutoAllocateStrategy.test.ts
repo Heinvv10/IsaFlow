@@ -105,8 +105,8 @@ describe('createCustomer — auto_allocate_strategy', () => {
 });
 
 describe('updateCustomer — auto_allocate_strategy', () => {
-  const STRATEGY_INDEX = 22;
-  const BOOLEAN_INDEX = 23;
+  const STRATEGY_INDEX = 24;
+  const BOOLEAN_INDEX = 25;
 
   it('updates both columns in sync when a valid strategy is supplied', async () => {
     await updateCustomer(COMPANY_ID, CUSTOMER_ID, { autoAllocateStrategy: 'newest' });

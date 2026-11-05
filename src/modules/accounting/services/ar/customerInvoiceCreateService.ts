@@ -25,6 +25,7 @@ import { toFunctional } from '../shared/functionalAmounts';
 import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
+import { customerTermsDueDate } from './customerTermsDueDate';
 
 type Row = DbRow;
 
@@ -159,6 +160,8 @@ export async function createDraftCustomerInvoice(
   }
   const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
   const invDate = invoiceDate || today;
+  // No due date named: the customer's terms give it (migration 958); terms not set leave it empty.
+  const resolvedDueDate = dueDate || await customerTermsDueDate(companyId, clientId, invDate);
   const bpStart = billingPeriodStart || null;
   const bpEnd = billingPeriodEnd || null;
 
@@ -189,7 +192,7 @@ export async function createDraftCustomerInvoice(
           ${companyId}, ${number}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID,
           ${bpStart}, ${bpEnd},
           ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
-          ${dueDate || null}, ${notes || null}, 'draft', ${userId},
+          ${resolvedDueDate}, ${notes || null}, 'draft', ${userId},
           ${invCurrencyCode}, ${invExchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${invExchangeRate}::NUMERIC(18,6)),
           ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
         ) RETURNING id

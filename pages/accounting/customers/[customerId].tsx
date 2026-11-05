@@ -17,6 +17,7 @@ import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { describePaymentTerms } from '@/modules/accounting/services/shared/paymentTerms';
 
 interface Customer {
   id: string;
@@ -27,6 +28,7 @@ interface Customer {
   vat_number: string | null;
   registration_number: string | null;
   payment_terms: number | null;
+  payment_terms_type: string | null;
   credit_limit: number | null;
   is_active: boolean;
   created_at: string;
@@ -192,7 +194,7 @@ export default function CustomerDetailPage() {
     { label: 'Contact Person', value: customer.contact_person },
     { label: 'VAT Number', value: customer.vat_number },
     { label: 'Registration Number', value: customer.registration_number },
-    { label: 'Payment Terms', value: customer.payment_terms ? `${customer.payment_terms} days` : null },
+    { label: 'Payment Terms', value: describePaymentTerms(customer.payment_terms, customer.payment_terms_type) },
     {
       label: 'Credit Limit',
       value: customer.credit_limit != null

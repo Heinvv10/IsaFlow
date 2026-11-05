@@ -12,7 +12,7 @@
  * (useCustomerLookup, vatTypeWarning).
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { dueDateFromTerms } from '@/modules/accounting/services/ar/paymentTerms';
+import { dueDateFromTerms, normalisePaymentTermsType } from '@/modules/accounting/services/shared/paymentTerms';
 import type { InvoiceHeaderForm } from './invoiceHeaderForm';
 import type { InvoiceLine } from './InvoiceLineItemsTable';
 import { taxModeFromVatType, type TaxMode } from './taxMode';
@@ -34,8 +34,10 @@ export function editedLine<L extends InvoiceLine>(l: L, field: string, value: st
 }
 
 function termsLabel(d: ContactDefaults): string {
+  const kind = normalisePaymentTermsType(d.termsType);
+  if (kind === 'statement_months') return `end of month + ${d.terms} ${d.terms === 1 ? 'month' : 'months'}`;
   const days = `${d.terms} ${d.terms === 1 ? 'day' : 'days'}`;
-  return d.termsType === 'end_of_month' ? `end of month + ${days}` : days;
+  return kind === 'statement_days' ? `end of month + ${days}` : days;
 }
 
 interface Args<L extends InvoiceLine> {

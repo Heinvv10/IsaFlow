@@ -21,6 +21,7 @@ import { InvoiceNumberField } from '@/components/accounting/suppliers/InvoiceNum
 import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/SupplierInvoiceSummaryCard';
 import { localISODate } from '@/lib/dateUtils';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
+import { useSupplierTermsDueDate } from '@/components/accounting/supplier-invoices/useSupplierTermsDueDate';
 import { useSupplierDimensionDefaults } from '@/components/accounting/suppliers/useSupplierDimensionDefaults';
 import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
@@ -119,11 +120,17 @@ export default function NewSupplierInvoicePage() {
   // A new supplier drops the previous one's PO/GRN, exactly as a manual pick does.
   const { scan: matchVendor, notePick } = useVendorSupplierMatch(form.supplierId, id => setForm(f => ({ ...f, supplierId: id, purchaseOrderId: '', grnId: '', copyLinesFromPo: false })));
 
+  // The due date follows the supplier's terms until the user or a scanned document sets it.
+  const { claim: claimDueDate, note: dueDateNote } = useSupplierTermsDueDate({
+    supplierId: form.supplierId, invoiceDate: form.invoiceDate,
+    apply: due => { setForm(f => ({ ...f, dueDate: due })); dates.reset('dueDate'); },
+  });
+
   function handleExtracted(data: ExtractedDocument) {
     const updates: Partial<typeof form> = {};
     if (data.referenceNumber) updates.invoiceNumber = data.referenceNumber;
     if (data.date) { updates.invoiceDate = data.date; dates.reset('invoiceDate'); }
-    if (data.dueDate) { updates.dueDate = data.dueDate; dates.reset('dueDate'); }
+    if (data.dueDate) { updates.dueDate = data.dueDate; claimDueDate(); dates.reset('dueDate'); }
     if (data.purchaseOrderRef) updates.reference = data.purchaseOrderRef;
     if (data.vatRate !== null) updates.taxRate = data.vatRate;
     if (data.paymentTerms) {
@@ -228,7 +235,7 @@ export default function NewSupplierInvoicePage() {
                       })); }} />
                   </div>
                   <DateField label="Invoice Date" name="invoiceDate" required value={form.invoiceDate || null} resetKey={dates.resetKey('invoiceDate')} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
-                  <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => setForm(f => ({ ...f, dueDate: iso })), form.dueDate)} />
+                  <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => { claimDueDate(); setForm(f => ({ ...f, dueDate: iso })); }, form.dueDate)} />
                   <div>
                     <label htmlFor="supplier-invoices-new-payment-terms" className={lbl}>Payment Terms</label>
                     <select id="supplier-invoices-new-payment-terms" value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>
@@ -236,6 +243,7 @@ export default function NewSupplierInvoicePage() {
                     </select>
                   </div>
                   <div><label htmlFor="supplier-invoices-new-reference" className={lbl}>Reference</label><input id="supplier-invoices-new-reference" type="text" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className={inp} placeholder="Free-text ref or delivery note" /></div>
+                  {dueDateNote && <p className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">{dueDateNote}</p>}
                 </div>
 
                 {/* 3-Way match — PO + GRN selectors */}
