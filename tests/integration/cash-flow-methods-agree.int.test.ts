@@ -4,6 +4,7 @@
 // Repros from the adversarial review of #1176: journals with legs running both ways (bought partly on account, a loan repaid
 // from the proceeds in the same journal) where the direct method gave every leg its whole amount.
 import { describe, expect, it, vi } from 'vitest';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { CO, describeIfDb, inTx, installCompanies, sec, tie, P, type Ctx } from './helpers/cashFlowAdversarialFixture';
 
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
@@ -106,6 +107,16 @@ describeIfDb('cash flow: the indirect and direct methods agree on every journal'
       const k = await kit(x); const vin = await x.acct('asset', 'vat_input'), ap = await x.acct('liability', 'payable');
       await x.j('2026-11-15', [[k.fa, 10000, 0], [vin, 1500, 0], [ap, 0, 6500], [k.bank, 0, 5000]]);
       const { dir, gl } = await tie(...P);
+      expect(dir.closingCash).toBe(gl);
+    });
+  });
+
+  it('a cash leg on the year-end closing journal (a ledger fault): the direct statement still closes on the ledger cash', async () => {
+    await inTx(async (x) => {
+      const bank = await x.acct('asset', 'bank'), re = await x.acct('equity', 'retained_earnings');
+      await x.j('2026-11-30', [[bank, 400, 0], [re, 0, 400]], { source: YEAR_END_JOURNAL_SOURCE });
+      const { dir, gl } = await tie(...P);
+      expect(gl).toBe(400);
       expect(dir.closingCash).toBe(gl);
     });
   });
