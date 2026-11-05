@@ -28,10 +28,13 @@ export function useSupplierTermsDueDate({ supplierId, invoiceDate, apply }: Opti
   useEffect(() => {
     if (!UUID_RE.test(supplierId)) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const res = await apiFetch(`/api/accounting/suppliers-list?id=${encodeURIComponent(supplierId)}`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          log.warn('Supplier terms lookup answered an error', { status: res.status, supplierId }, 'supplier-invoices-new');
+          return;
+        }
         const json = await res.json();
         const row = (json.data ?? json) as { payment_terms?: unknown; payment_terms_type?: unknown };
         if (cancelled) return;

@@ -3,7 +3,7 @@
  * "Immediate" is pre-selected (suggested), the other kinds ask for N. The value is the form's own two strings
  * (`payment_terms` N, `payment_terms_type`), the shape the contact APIs take.
  */
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   PAYMENT_TERMS_TYPES, PaymentTermsError, describePaymentTerms, normalisePaymentTermsType, parseTermsWrite,
   type PaymentTermsType,

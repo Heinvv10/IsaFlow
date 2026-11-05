@@ -243,7 +243,7 @@ export default function NewSupplierInvoicePage() {
                     </select>
                   </div>
                   <div><label htmlFor="supplier-invoices-new-reference" className={lbl}>Reference</label><input id="supplier-invoices-new-reference" type="text" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className={inp} placeholder="Free-text ref or delivery note" /></div>
-                  {dueDateNote && <p className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">{dueDateNote}</p>}
+                  {dueDateNote && <p className="sm:col-span-2 text-xs text-ink-muted">{dueDateNote}</p>}
                 </div>
 
                 {/* 3-Way match — PO + GRN selectors */}
