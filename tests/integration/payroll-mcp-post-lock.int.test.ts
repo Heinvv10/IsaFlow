@@ -130,7 +130,8 @@ describe('post_payroll_journal: one journal per run, whoever gets there', () => 
     expect(posted.isError).toBe(false);
     expect(journals).toHaveLength(1); // whatever the approval answered, the month is in the ledger once
     expect(await linked(run)).toBe(journals[0]);
-    if (approved.ok) expect(approved.journal).toBe(journals[0]);
+    // The post won: the run carries a journal, so the approval is refused (it adds none), whatever its timing.
+    expect(approved).toEqual({ ok: false, message: expect.stringMatching(/Cannot approve payroll run with status 'approved'/) });
     expect(state).toBe('waiting'); // the second request queued behind the first's lock
   });
 });

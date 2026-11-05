@@ -23,6 +23,7 @@ vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ 
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
+import { PayrollJournalDeadlockError } from '@/modules/accounting/services/payroll/payrollJournalDeadlock';
 
 const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const RUN = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -74,11 +75,27 @@ describe('postPayrollRunJournal under the header lock', () => {
     expect(createJournalEntry).not.toHaveBeenCalled();
   });
 
-  it('stamps only a run with no journal, and refuses when the stamp matched no row', async () => {
-    await postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) });
-    expect(calls[0]).toContain('journal_entry_id IS NULL');
+  // That the stamp only lands on an unlinked run is proved against a real database:
+  // tests/integration/payroll-poster-stamp.int.test.ts.
+  it('stamps the run, and refuses when the stamp matched no row', async () => {
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).resolves.toBe('je-new');
+    expect(calls).toHaveLength(1);
 
     stampRows = [];
     await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).rejects.toThrow(/already carries a journal/);
+  });
+});
+
+describe('postPayrollRunJournal as a deadlock victim', () => {
+  it('answers a 40P01 from the journal numbering lock with the retryable PayrollJournalDeadlockError', async () => {
+    vi.mocked(createJournalEntry).mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).rejects.toBeInstanceOf(PayrollJournalDeadlockError);
+  });
+
+  it('answers a 40P01 from the header lock the same way, and leaves any other error alone', async () => {
+    vi.mocked(lockPayrollRunHeader).mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).rejects.toBeInstanceOf(PayrollJournalDeadlockError);
+    vi.mocked(createJournalEntry).mockRejectedValueOnce(new Error('boom'));
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1', { plan: plan(null) })).rejects.toThrow('boom');
   });
 });

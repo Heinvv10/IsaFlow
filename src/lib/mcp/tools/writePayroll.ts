@@ -22,6 +22,8 @@ import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/pay
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollLoanLock';
+import { PayrollRunBusyError } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
+import { PayrollJournalDeadlockError, isDeadlockDetected } from '@/modules/accounting/services/payroll/payrollJournalDeadlock';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import type { DryRunResult } from '../contracts';
 import { guardCastableArgs, NOT_FOUND, ok, toolError } from './toolHelpers';
@@ -136,7 +138,10 @@ export const postPayrollJournalTool: McpTool = {
       try {
         if (!(await lockPayrollRunHeader(runId, ctx.companyId))) return toolError(NOT_FOUND);
       } catch (err) {
-        if (err instanceof PayrollLoanLockTimeoutError) return toolError(err.message);
+        // The neutral wording: the holder may be an approval or another post, not a calculation.
+        if (err instanceof PayrollLoanLockTimeoutError) return toolError(new PayrollRunBusyError(runId).message);
+        // Victim of a batch's opposite-order locks: the lock's savepoint is rolled back, nothing is written.
+        if (isDeadlockDetected(err)) return toolError(new PayrollJournalDeadlockError(runId).message);
         throw err;
       }
     }

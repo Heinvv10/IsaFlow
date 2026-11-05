@@ -62,4 +62,19 @@ describe('a credit line retagged after posting', () => {
     expect((await r.api.preview(id)).body.data!.blocker).toMatchObject({ code: 'recalculated_after_posting' });
     await r.setSalary(salaryRow, 20000);
   });
+
+  it('a figure changed WITHOUT a recalculation is refused too (the run is compared as one total, not per cost centre)', async () => {
+    const id = await r.calculatedRun(4);
+    const journal = String((await r.api.approve(id)).body.data!.journalEntryId);
+    await tagCredit(journal, '2140');
+    expect((await r.api.reopen(id)).statusCode).toBe(200);
+    // No calculate: the lines keep their stamps, so the run reads as NOT recalculated since posting. Only the
+    // header figures the plan is built from move (PAYE up, net pay down by the same cents: still balanced).
+    await r.pool.query('UPDATE payroll_run_headers SET total_paye = total_paye + 100, total_net = total_net - 100 WHERE id = $1', [id]);
+    expect((await r.api.preview(id)).body.data!.blocker).toMatchObject({ code: 'recalculated_after_posting' });
+    const refused = await r.api.approve(id);
+    expect(refused.statusCode).not.toBe(200);
+    expect(await r.pool.query('SELECT 1 FROM gl_journal_entries WHERE company_id = $1 AND source = $2 AND description LIKE $3', [r.company, 'auto_payroll', '%2026-04%']))
+      .toMatchObject({ rowCount: 1 });
+  });
 });
