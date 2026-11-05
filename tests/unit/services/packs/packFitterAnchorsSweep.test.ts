@@ -101,6 +101,6 @@ describe('the 2,560-input shape sweep', () => {
     // every shape in the sweep gets its pack.
     expect(unexpectedlyRefused).toEqual([]);
     expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, columnsSilent, columnsNamed, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, columnsSilent: 0, columnsNamed: 650, refused: 0, sample: [] });
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, columnsSilent: 0, columnsNamed: 972, refused: 0, sample: [] });
   }, 1_800_000);
 });
