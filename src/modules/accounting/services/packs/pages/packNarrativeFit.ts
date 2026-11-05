@@ -9,39 +9,37 @@
  * assembler that knows it, so the message names the page the narrative
  * actually sits on rather than one this file believes.
  */
-import { log } from '@/lib/logger';
 import { PackRefusal } from '../packRefusal';
+import { warnCaptionDropped } from './packOmissionFootnote';
 import { fitPageReport } from './packPageFit';
 import { relaidNarrative } from './packNarrativeLayout';
 import type { MeasurablePage } from './packPageMetrics';
 
 /**
- * `droppable` is an instruction to the fitter, not part of the page: a caption that survived the fit
- * leaves the composer exactly as it was before the flag existed, so the document is unchanged where
- * nothing was dropped.
+ * `droppable` and `columnsLeftOut` are instructions to the fitter, not part of the page: a page that
+ * survived the fit leaves the composer exactly as it was before they existed, so the document is
+ * unchanged where nothing was dropped.
  */
-function withoutDroppableMarks<T extends MeasurablePage>(page: T): T {
-  if (!page.blocks.some((b) => b.kind === 'narrative' && b.droppable !== undefined)) return page;
+function withoutFitterMarks<T extends MeasurablePage>(page: T): T {
+  const marked = page.blocks.some((b) => b.kind === 'narrative' && b.droppable !== undefined);
+  if (!marked && page.columnsLeftOut === undefined) return page;
+  const { columnsLeftOut: unused, ...rest } = page;
   return {
-    ...page,
+    ...rest,
     blocks: page.blocks.map((b) => {
       if (b.kind !== 'narrative' || b.droppable === undefined) return b;
-      const { droppable: unused, ...rest } = b;
-      return rest;
+      const { droppable: unusedMark, ...bare } = b;
+      return bare;
     }),
-  };
+  } as T;
 }
 
 export function fitBodyPage<T extends MeasurablePage>(page: T, pageNumber: number): T {
   try {
     const { page: fitted, dropped } = fitPageReport(relaidNarrative(page));
-    // Logged here, for the page that is actually used: the fit is also run as a probe (see
-    // `incomeSheetWithBudget`) and a probe's page is thrown away.
-    if (dropped.captions > 0) {
-      log.warn(`board pack: "${page.navLabel}" cannot fit its sheet with its derived caption; the caption is not printed`,
-        { navLabel: page.navLabel, captions: dropped.captions }, 'packs');
-    }
-    return withoutDroppableMarks(fitted);
+    // Logged here, for the page that is actually used (see `warnCaptionDropped`).
+    warnCaptionDropped(page.navLabel, dropped);
+    return withoutFitterMarks(fitted);
   } catch (error) {
     const approved = page.blocks.some((b) => b.kind === 'narrative' && b.narrative.status === 'approved');
     if (!(error instanceof PackRefusal) || !approved) throw error;
