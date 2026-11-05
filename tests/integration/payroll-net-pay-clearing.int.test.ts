@@ -179,7 +179,7 @@ describe('(d) re-approving onto an in-force journal after the target changed', (
   const refused = async (id: string) => {
     const p = await r.api.preview(id);
     expect(p.body.data!.blocker).toMatchObject({ code: 'net_pay_target_changed' });
-    expect(String(p.body.data!.blocker.detail)).toMatch(/Reverse journal/);
+    expect(String(p.body.data!.blocker.detail)).toMatch(/reverse journal/);
     const again = await r.api.approveWith(id, p.body.data!.planHash);
     expect(again.statusCode).toBe(400);
     return p;

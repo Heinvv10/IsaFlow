@@ -23,6 +23,17 @@ export function canCancelApprovedPo(role: string | null | undefined): boolean {
   return (PO_CANCEL_ROLES as readonly string[]).includes(role ?? '');
 }
 
+/**
+ * The roles that may change where payroll net pay is credited (Default Accounts' `payroll_net_pay`): owner and admin.
+ * A manager may approve payroll, so one who could also redirect net pay could do both in a session (security review L1).
+ */
+export const PAYROLL_NET_PAY_ROLES = ['owner', 'admin'] as const;
+
+/** Whether a company role may change where payroll net pay is credited. */
+export function canSetPayrollNetPay(role: string | null | undefined): boolean {
+  return (PAYROLL_NET_PAY_ROLES as readonly string[]).includes(role ?? '');
+}
+
 /** A token scope that lets it change data. */
 export function isWriteScope(scope: string): boolean {
   return scope.startsWith('write:');

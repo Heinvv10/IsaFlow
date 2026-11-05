@@ -105,7 +105,8 @@ describe('the refusal names both sides and the way out', () => {
     expect(note?.code).toBe('net_pay_target_changed');
     expect(note?.detail).toContain('1110 Bank - Primary');
     expect(note?.detail).toContain('2170 Net Salaries Payable');
-    expect(note?.detail).toMatch(/Reverse journal JE-0042 first/);
+    expect(note?.detail).toMatch(/reverse journal JE-0042: approving then posts a new journal to the account the setting names at that time/);
+    expect(note?.detail).toMatch(/set Payroll net pay in Default Accounts back/);
   });
 
   it('clearing -> bank', () => {

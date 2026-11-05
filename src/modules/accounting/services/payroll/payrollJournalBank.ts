@@ -15,18 +15,21 @@
  * cached it reads as the `inactive_target_account` blocker (the builder).
  *
  * CLEARING. When Default Accounts' `payroll_net_pay` names an account
- * (payrollNetPayTargetRules), net pay is credited THERE and the bank role is not
- * consulted at all: Velocity Fibre pays salaries by bank lines allocated DR 2170
+ * (gl/netPayTargetRules: a payroll_liability account, none a loan uses), net pay is credited THERE and the bank role
+ * is not consulted at all: Velocity Fibre pays salaries by bank lines allocated DR 2170
  * Net Salaries Payable / CR bank, so a journal that credited the bank too would
  * count net pay twice. An account that fails the rules, or no longer exists,
  * BLOCKS the plan and never falls back to the bank, which would bring the double
- * count back with nothing to show for it.
+ * count back with nothing to show for it. The same for a setting row that cannot be read (`invalid_net_pay_setting`):
+ * read as "not set" it would credit the bank for a company that chose a clearing account.
  */
 import { sql } from '@/lib/neon';
 import { resolveBankRoleHolder, type BankRoleHolder } from '@/modules/accounting/services/gl/bankRoleHolder';
 import { assertNoHeaderAccountLines, isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
 import { NET_PAY_CLEARING_DESCRIPTION, NET_PAY_DESCRIPTION } from './payrollLabourComparison';
-import { PAYROLL_NET_PAY_KEY, netPayTargetRefusal } from './payrollNetPayTargetRules';
+import { ACCOUNT_UUID_PATTERN, DEFAULT_ACCOUNTS_SETTINGS_KEY, parseNetPayAccountId } from '@/modules/accounting/services/gl/netPaySetting';
+import { netPayTargetRefusal } from '@/modules/accounting/services/gl/netPayTargetRules';
+import { netPayLoanAccountRefusal } from '@/modules/accounting/services/gl/netPayLoanAccounts';
 import type { PayrollJournalPlanLine } from './payrollJournalBuilder';
 
 type Blocker = { code: string; detail: string };
@@ -38,26 +41,20 @@ export interface NetPayTarget {
   blocker: Blocker | null;
 }
 
-const SETTINGS_KEY = 'accounting_default_accounts';
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SET_IT = 'Choose another account for Payroll net pay in Default Accounts (or clear it to pay salaries from the bank); nothing falls back to the bank.';
 
-/** The `payroll_net_pay` account id the company set, or null. The stored row may be an object or a JSON string. */
-async function readNetPayAccountId(companyId: string): Promise<string | null> {
+/** What the company's `payroll_net_pay` row says: an account id, nothing, or a row that cannot be read (see parseNetPayAccountId). */
+async function readNetPayAccountId(companyId: string): Promise<ReturnType<typeof parseNetPayAccountId>> {
   const rows = (await sql`
-    SELECT value FROM app_settings WHERE key = ${SETTINGS_KEY} AND company_id = ${companyId}
+    SELECT value FROM app_settings WHERE key = ${DEFAULT_ACCOUNTS_SETTINGS_KEY} AND company_id = ${companyId}
   `) as Array<{ value: unknown }>;
-  const raw = rows[0]?.value;
-  const parsed: unknown = typeof raw === 'string' && raw !== '' ? JSON.parse(raw) : raw;
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  const id = (parsed as Record<string, unknown>)[PAYROLL_NET_PAY_KEY];
-  return typeof id === 'string' && id !== '' ? id : null;
+  return parseNetPayAccountId(rows[0]?.value);
 }
 
 const blocked = (code: string, detail: string): NetPayTarget => ({ kind: 'clearing', account: null, blocker: { code, detail } });
 
 async function resolveClearingAccount(companyId: string, accountId: string): Promise<NetPayTarget> {
-  const rows = UUID.test(accountId) ? (await sql`
+  const rows = ACCOUNT_UUID_PATTERN.test(accountId) ? (await sql`
     SELECT id, account_code, account_name, account_type, account_subtype, is_active
     FROM gl_accounts
     WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID
@@ -75,6 +72,8 @@ async function resolveClearingAccount(companyId: string, accountId: string): Pro
     subtype: row.account_subtype == null || row.account_subtype === '' ? null : String(row.account_subtype),
   }, { allowInactive: true });
   if (refusal) return blocked(refusal.code, `${refusal.message}. ${SET_IT}`);
+  const loan = await netPayLoanAccountRefusal(companyId, String(row.id), code);
+  if (loan) return blocked(loan.code, `${loan.message}. ${SET_IT}`);
   try {
     await assertNoHeaderAccountLines(companyId, [{ glAccountId: String(row.id) }]);
   } catch (err) {
@@ -86,8 +85,12 @@ async function resolveClearingAccount(companyId: string, accountId: string): Pro
 }
 
 export async function resolveNetPayTarget(companyId: string): Promise<NetPayTarget> {
-  const accountId = await readNetPayAccountId(companyId);
-  if (accountId !== null) return resolveClearingAccount(companyId, accountId);
+  const setting = await readNetPayAccountId(companyId);
+  if (!setting.ok) {
+    return blocked('invalid_net_pay_setting',
+      `The Payroll net pay setting in Default Accounts cannot be read: ${setting.reason}. Save the Default Accounts page again (or clear the setting) to repair it; nothing falls back to the bank.`);
+  }
+  if (setting.accountId !== null) return resolveClearingAccount(companyId, setting.accountId);
   const { account, refusal } = await resolveBankRoleHolder(companyId);
   return { kind: 'bank', account, blocker: refusal };
 }

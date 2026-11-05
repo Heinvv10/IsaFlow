@@ -8,7 +8,8 @@
  */
 import type { SystemAccountKey } from './systemAccountKeys';
 import { roleTargetRefusal } from './roleTargetRules';
-import { PAYROLL_NET_PAY_KEY, netPayCandidates } from '../payroll/payrollNetPayTargetRules';
+import { PAYROLL_NET_PAY_KEY } from './netPaySetting';
+import { netPayCandidates } from './netPayTargetRules';
 
 /** UI setting key → the role (system account subtype) it manages. */
 export const DEFAULT_ACCOUNT_ROLES: Readonly<Record<string, SystemAccountKey>> = {

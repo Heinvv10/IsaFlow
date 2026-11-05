@@ -42,7 +42,7 @@ const DEFAULT_MAPPINGS: Omit<DefaultAccountMapping, 'accountId'>[] = [
   // Payroll
   {
     key: 'payroll_net_pay', label: 'Payroll net pay', category: 'Payroll', emptyLabel: 'Bank account (pays salaries directly)',
-    description: 'Where a pay run credits net pay. Choose the net salaries payable account if you pay salaries by bank lines allocated to it; leave on the bank otherwise',
+    description: 'Where a pay run credits net pay. Choose the net salaries payable account (a payroll liability account) if you pay salaries by bank lines allocated to it; leave on the bank otherwise. Owner or admin only',
   },
   // Other
   { key: 'retained_earnings', label: 'Retained Earnings', description: 'Year-end closing account', category: 'Year-End' },
