@@ -37,10 +37,11 @@ Code facts:
    | not set (NULL) | no derived date |
    Statement = month-end of the invoice month. Legacy `end_of_month` = `statement_days`.
 3. **Default 30 → "Not set" → the company default (Hein, 2026-11-05 ruling).** Contacts still on the
-   column default are migrated to not set; Hein/Willie confirm real terms for the material suppliers. A
+   column default become not set in PR 1b (not in 960: see Expand / tighten); until then a legacy (30, 'days') contact reads as
+   30 days from invoice, which dates the same. Hein/Willie confirm real terms for the material suppliers. A
    not-set contact is dated by the **company default terms**, a per-company setting (Company settings →
    General → "Default payment terms"; same number + type shape; every company starts at 30 days from
-   invoice, so nothing moves at the migration). It applies to NEW documents everywhere: UI capture, the
+   invoice, so nothing moves when 1b runs). It applies to NEW documents everywhere: UI capture, the
    server fallbacks, recurring runs and templates, quote/order/time/WIP conversions, scanned bills, MCP and
    Sage. The contact shows "Terms not confirmed — using company default (30 days from invoice date)".
    **Re-apply (PR 3) skips not-set contacts** and flags them. New contacts must CHOOSE terms (no
@@ -71,48 +72,95 @@ report over wrong stored dates leaves aging, pay-run and forecast wrong too.
 ## Expand / tighten (PR 1 and PR 1b)
 
 The build that ships PR 1 runs beside the old code (the live colour during the build; a rollback is code-only), and the old
-code still writes the old shapes: `createSupplier` writes `(30, NULL)`, `createCustomer` writes `'days'`, the migration importer
-writes `?? 30`. So:
+code both writes and READS the old shapes. It writes: `createSupplier` `(30, NULL)` (it names only `payment_terms`),
+`createCustomer` `'days'`, the importers `?? 30`. It reads: master's `ar/paymentTerms.dueDateFromTerms` gives a due date only
+for `days` and `end_of_month`, and null for anything else, `NULL / NULL` and `invoice_days` included. So:
 
-- **960 (PR 1, expand).** Maps the data and DROPS the column DEFAULTs (30 / 'days'), so an insert that names no terms stores
-  not set: the importers (`migrationExecuteContacts`, `sageMigrationCommitService`, `scripts/import-sage-britech.ts`) also write NULL / NULL explicitly.
-  Dropping the default is safe beside the old code (every old writer that means terms names both columns). It adds NO CHECK. The new code reads every legacy shape
-  (`shared/paymentTerms.readTerms`: `'days'` = invoice_days, `'end_of_month'` = statement_days, a number with no type =
-  invoice_days; a negative, over-999 or unknown-type row is not terms). Tested by
-  `tests/integration/payment-terms-960-migration.int.test.ts` (every legacy shape, idempotent, old-code writes still succeed).
-- **PR 1b (tighten): NOT in this PR; its own migration, applied only after PR 1 is live and the old colour is gone.**
-  Take the next free prefix, then:
+- **960 (PR 1, expand): drops the column DEFAULTs (30 / 'days') and nothing else. It changes NO contact row.** A rewrite of
+  (30, 'days') to NULL / NULL, or of 'days' to 'invoice_days', would leave the old code dating nearly every new customer invoice
+  with no due date, silently, while the old colour serves and after a code-only rollback. The new code reads every legacy
+  shape through `shared/paymentTerms.readTerms` (`'days'` = invoice_days, `'end_of_month'` = statement_days, a number with no type =
+  invoice_days; a negative, over-999 or unknown-type row is not terms), so legacy rows keep working and date exactly as before
+  (the company default also starts at 30 days from invoice); only the "Terms not confirmed" wording arrives one deploy later.
+  An insert that names no terms now stores NULL / NULL: the importers (`migrationExecuteContacts`, `sageMigrationCommitService`,
+  `scripts/import-sage-britech.ts`) write NULL / NULL explicitly. Dropping the defaults is safe beside the old code: no old writer
+  relies on a default for the number. Tested by `tests/integration/payment-terms-960-migration.int.test.ts` (no row changes; the
+  old code's date for every legacy shape is unchanged; old-code writes still succeed; the defaults are gone).
+  The old version of 960 held the data mapping below, with a test of every legacy shape: `git show 045a41116:scripts/migrations/sql/960_payment_terms_model.sql`
+  and `git show 045a41116:tests/integration/payment-terms-960-migration.int.test.ts`.
+- **PR 1b (tighten): NOT in this PR; its own migration, applied only after PR 1 is live and the old colour is gone** (no
+  old-colour reader is left to be given a shape it cannot read). Take the next free prefix. It holds: default-30 -> not set in all
+  companies (Hein's ruling (a)), the type mapping, the bad values, the CHECK, and the VALIDATE of 961's `entity_changes`
+  constraint (961 leaves it NOT VALID; run in its own file, VALIDATE takes SHARE UPDATE EXCLUSIVE and lets writes through).
+  The data statements, exactly as 960 had them:
 
 ```sql
 SET LOCAL lock_timeout = '5s';
--- anything the old code wrote in the window, mapped as 960 maps it, EXCEPT the bare number: old createSupplier writes
--- (30, NULL) (payment_terms only, ?? 30), and new code never writes (N, NULL), so a (30, NULL) supplier row is a default
--- the old code stamped, not a choice: it becomes NULL / NULL (not set), never invoice_days 30. Any other (N, NULL) row has
--- no known writer: map it to invoice_days N as 960 does.
-UPDATE suppliers SET payment_terms = NULL, payment_terms_type = NULL WHERE payment_terms = 30 AND payment_terms_type IS NULL;
--- customers too: the old importCustomers wrote `payment_terms ?? 30` with no type, so a customer can hold (30, NULL) as well
-UPDATE customers SET payment_terms = NULL, payment_terms_type = NULL WHERE payment_terms = 30 AND payment_terms_type IS NULL;
-UPDATE suppliers SET payment_terms_type = CASE WHEN payment_terms_type IS NULL OR payment_terms_type = 'days' THEN 'invoice_days'
-  WHEN payment_terms_type = 'end_of_month' THEN 'statement_days' ELSE payment_terms_type END
-WHERE payment_terms IS NOT NULL AND payment_terms_type IN ('days', 'end_of_month') OR (payment_terms IS NOT NULL AND payment_terms_type IS NULL);
--- (the same second UPDATE for customers) then rows that are neither both-NULL nor a valid pair become NULL / NULL
+
+-- 1. Still on the default: not set.
+UPDATE suppliers SET payment_terms = NULL, payment_terms_type = NULL
+WHERE payment_terms = 30 AND COALESCE(payment_terms_type, 'days') = 'days';
+
+UPDATE customers SET payment_terms = NULL, payment_terms_type = NULL
+WHERE payment_terms = 30 AND COALESCE(payment_terms_type, 'days') = 'days';
+
+-- 2 and 3. Every other row not yet in the new shape. The right-hand sides read the OLD row, so both CASEs
+-- see the same legacy type.
+UPDATE suppliers SET
+  payment_terms_type = CASE
+    WHEN payment_terms IS NULL OR payment_terms < 0 OR payment_terms > 999 THEN NULL
+    WHEN payment_terms_type IS NULL OR payment_terms_type = 'days' THEN 'invoice_days'
+    WHEN payment_terms_type = 'end_of_month' THEN 'statement_days'
+    WHEN payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months') THEN payment_terms_type
+    ELSE NULL END,
+  payment_terms = CASE
+    WHEN payment_terms BETWEEN 0 AND 999 AND (payment_terms_type IS NULL OR payment_terms_type IN
+      ('days', 'end_of_month', 'invoice_days', 'statement_days', 'statement_months')) THEN payment_terms
+    ELSE NULL END
+WHERE ((payment_terms IS NULL AND payment_terms_type IS NULL)
+    OR (payment_terms BETWEEN 0 AND 999 AND payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months')))
+  IS NOT TRUE;
+
+UPDATE customers SET
+  payment_terms_type = CASE
+    WHEN payment_terms IS NULL OR payment_terms < 0 OR payment_terms > 999 THEN NULL
+    WHEN payment_terms_type IS NULL OR payment_terms_type = 'days' THEN 'invoice_days'
+    WHEN payment_terms_type = 'end_of_month' THEN 'statement_days'
+    WHEN payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months') THEN payment_terms_type
+    ELSE NULL END,
+  payment_terms = CASE
+    WHEN payment_terms BETWEEN 0 AND 999 AND (payment_terms_type IS NULL OR payment_terms_type IN
+      ('days', 'end_of_month', 'invoice_days', 'statement_days', 'statement_months')) THEN payment_terms
+    ELSE NULL END
+WHERE ((payment_terms IS NULL AND payment_terms_type IS NULL)
+    OR (payment_terms BETWEEN 0 AND 999 AND payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months')))
+  IS NOT TRUE;
+
+-- the CHECK, once nothing violates it (N <= 999 is what makes the DB and the forms agree):
 ALTER TABLE suppliers ADD CONSTRAINT suppliers_payment_terms_shape CHECK (
   (payment_terms IS NULL AND payment_terms_type IS NULL)
   OR (payment_terms BETWEEN 0 AND 999 AND payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months'))) NOT VALID;
 ALTER TABLE suppliers VALIDATE CONSTRAINT suppliers_payment_terms_shape;  -- and the same two statements for customers
+-- in its own file, after 961: ALTER TABLE entity_changes VALIDATE CONSTRAINT entity_changes_entity_type_check;
 ```
 
-  Old `createCustomer` writes (30, 'days') for both a default and a real "30 days" choice, so a customer's (30, 'days') cannot be
-  told apart from a choice: 960 already mapped those to not set when they were on the default and PR 1b cannot repeat that for
-  rows written in the window. They become invoice_days 30, which dates the same as the company default's start and is
-  visible on the contact. Suppliers differ only by the type column (NULL for the old writer, never written by the new code).
-
-  Accepted as transient (round 2, 2026-11-05): during the deploy window and after a code-only rollback the OLD colour reads a
-  contact with a new type value (`statement_days`, `statement_months`, or NULL / NULL) as no usable terms, so a customer invoice it
-  creates for that contact is undated. PR 1b waits until the old colour is gone for the same reason.
-
-  The 999 cap in the CHECK is what makes the DB and the forms agree (the forms and `dueDateFromTerms` already refuse more).
-  PR 1b ships with an integration test that the CHECK rejects bad pairs, and its own deploy check that no contact row violates it.
+  Notes for 1b:
+  - Step 1 also maps the `(30, NULL)` rows the old `createSupplier` and the old `importCustomers` (`payment_terms ?? 30`, no type;
+    its default type is gone after 960) write in the window: they are stamped defaults, not choices, so they become not set. New code
+    never writes `(N, NULL)`; any other `(N, NULL)` row has no known writer and step 2 maps it to invoice_days N.
+  - Old `createCustomer` writes `(30, 'days')` for a default and for a real "30 days" choice alike, so they cannot be told apart:
+    step 1 sets them all to not set (ruling (a)). A contact with a real 30 then follows the company default, which may by then not be
+    30 days from invoice: decide in 1b whether step 1 skips a company whose default has been changed.
+  - **1b's UPDATEs deliberately fire the `entity_change_capture` trigger** (migration 888; ENABLE ALWAYS on `suppliers` and
+    `customers`, AFTER UPDATE FOR EACH ROW). Its projection keeps every column but id, created_at, updated_at (and a supplier's
+    `bank_details_setters`), so `payment_terms` and `payment_terms_type` are recorded before and after in `entity_changes`, as channel
+    `system`. There is no other stored copy of the old values, so those rows ARE the undo path: do not disable the trigger for 1b, and
+    keep the `entity_changes` rows. Verified by `payment-terms-960-migration.int.test.ts` ("a contact UPDATE of the terms is recorded").
+  - Remaining transient after 960: a contact saved by the NEW code with a new type (`statement_days`, `statement_months`,
+    `invoice_days`, or NULL / NULL) is read as no terms by the old colour after a code-only rollback, so a customer invoice the old code
+    creates for that contact is undated. Nothing else: legacy rows are untouched until 1b.
+  - PR 1b ships with an integration test that the CHECK rejects bad pairs and that the mapping is idempotent, and its own deploy check
+    that no contact row violates the CHECK.
 
 ## Edit pages and bank details
 
@@ -125,8 +173,8 @@ field is a 400, and the form shows the bank details read-only and masked. A rena
 
 | PR | Scope | Depends on |
 |---|---|---|
-| 1 Terms model | migration 960 (expand: default-30 → not set, legacy names mapped; no CHECK), shared pure `dueDateFromTerms` + company default, supplier + customer forms and edit pages, every document creator dated by contact terms then company default, fix `calculateDueDate` UTC bug + hardcoded 30s, Sage import paths | — |
-| 1b Tighten | CHECK (N ≤ 999) on suppliers and customers; applied only after 1 is live | 1, deployed |
+| 1 Terms model | migration 960 (expand: drops the column defaults, changes no contact row), shared pure `dueDateFromTerms` + company default, supplier + customer forms and edit pages, every document creator dated by contact terms then company default, fix `calculateDueDate` UTC bug + hardcoded 30s, Sage import paths | — |
+| 1b Tighten | the data mapping (default-30 → not set, legacy names), CHECK (N ≤ 999) on suppliers and customers, VALIDATE of the `entity_changes` constraint; applied only after 1 is live and the old colour is gone | 1, deployed |
 | 2 Due-date source + edit | migration (`due_date_source`, due-date audit table), date-only edit route for approved/partially_paid bills | — (adversarial review: loosens approved-bill lock) |
 | 3 Re-apply terms | preview/confirm UI + API + MCP | 1, 2 |
 | 4 Due-by-date report | service, page, nav, Excel, MCP tool | — (reads due_date only) |
