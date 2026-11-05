@@ -34,6 +34,7 @@ vi.mock('@/modules/accounting/services/packs/pages/packPageFit', async (importOr
 });
 
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { BUDGET_COLUMN_NOTE_START } from '@/modules/accounting/services/packs/pages/packStatementFootnotes';
 import { fitterFaults, numberingFaults } from './fixtures/packAnchors';
 import { allPage6Shapes, page6Input } from './fixtures/page6Shapes';
 
@@ -57,7 +58,7 @@ describe('the 2,560-input shape sweep', () => {
           // renumbering moved it (it is found by text: its number may now belong to another note).
           const p6 = doc.pages.find((p) => p.navLabel === 'Income statement')!;
           const hasBudget = p6.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'));
-          if (hasBudget && !p6.footnotes.some((f) => f.text.startsWith('The budget column'))) budgetWithoutNote += 1;
+          if (hasBudget && !p6.footnotes.some((f) => f.text.startsWith(BUDGET_COLUMN_NOTE_START))) budgetWithoutNote += 1;
           for (const page of doc.pages) {
             const call = fitted.calls.find((c) => (c.after as PackPage).blocks === page.blocks);
             const found = call === undefined ? numberingFaults(page) : fitterFaults(call.before as PackPage, page);
