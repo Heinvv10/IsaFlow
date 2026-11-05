@@ -8,7 +8,6 @@
  * the answer says that, where GENERIC_FAILURE ("the operation failed") would not. No driver text, no SQL.
  */
 import { isLockNotAvailable, isDeadlockDetected } from '@/modules/accounting/services/core/lockContention';
-import { log } from '@/lib/logger';
 
 export function lockWaitErrorText(toolName: string, err: unknown): string | null {
   if (!isLockNotAvailable(err)) return null;
@@ -21,13 +20,10 @@ export function lockWaitErrorText(toolName: string, err: unknown): string | null
  * rolled the call back, so nothing was written and the identical call succeeds on its own. The usual cause is a
  * JSON-RPC batch (one transaction for all its calls) that holds one lock while it asks for another in the opposite
  * order of a second batch; the text does not claim that, because any two requests can do it. The driver error is
- * logged here, never shown: its text names processes and relations.
+ * never shown (its text names processes and relations); the registry's catch logs it with the tool name.
  */
 export function deadlockErrorText(toolName: string, err: unknown): string | null {
   if (!isDeadlockDetected(err)) return null;
-  log.warn('MCP tool call was the victim of a deadlock (40P01)', {
-    tool: toolName, error: err instanceof Error ? err.message : String(err),
-  }, 'mcp');
   return `${toolName}: another request holds locks this one needs (deadlock) — nothing was written; `
     + 'retry in a moment (inside a batch, send this call in its own request).';
 }

@@ -20,7 +20,6 @@ import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payr
 import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollLoanLock';
 import { postPayrollJournalTool } from '@/lib/mcp/tools/writePayroll';
 import { GENERIC_FAILURE, thrownToolErrorText } from '@/lib/mcp/thrownToolErrorText';
-import { log } from '@/lib/logger';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 const COMPANY = '22222222-2222-2222-2222-222222222222';
@@ -113,9 +112,7 @@ describe('a thrown 40P01 from ANY MCP tool (approve_pay_run\'s own locks include
     expect(out).not.toMatch(/40P01|deadlock detected|opposite orders/);
   });
 
-  it('logs the original driver error with the tool, and leaves other errors generic', () => {
-    thrownToolErrorText('approve_pay_run', deadlock);
-    expect(log.warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ tool: 'approve_pay_run', error: 'deadlock detected' }), 'mcp');
+  it('leaves other errors generic', () => {
     expect(thrownToolErrorText('approve_pay_run', new Error('boom'))).toBe(GENERIC_FAILURE);
   });
 });

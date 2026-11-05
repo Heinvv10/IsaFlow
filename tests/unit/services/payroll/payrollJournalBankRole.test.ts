@@ -21,6 +21,10 @@ vi.mock('@/lib/neon', () => ({
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+// The poster locks the run header first (its own tests: payrollJournalPosterLock.test.ts); this file's neon mock has no withTransaction.
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
+  lockPayrollRunHeader: vi.fn(async () => ({ id: 'run', journal_entry_id: null })),
+}));
 vi.mock('@/modules/accounting/services/payroll/costCentreGlMappingService', () => ({
   getMappingLookup: vi.fn(async () => ({})),
 }));
