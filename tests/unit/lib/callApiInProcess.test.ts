@@ -161,22 +161,25 @@ describe('callApiInProcess keeps the FIRST answer, as a real ServerResponse does
 
 /**
  * withAuth(withErrorHandler(handler)) for a handler that answers and then throws: deferEnd buffers the answer,
- * withErrorHandler's 500 lands in the full buffer (ignored) but sets the status, and withAuth replays the buffered
- * body after its ROLLBACK. The collector must not pair that 500 with the first answer's body.
+ * withErrorHandler's 500 lands in the full buffer (ignored) but sets the status, withAuth ROLLS BACK and replays the
+ * buffered body. The real route answers 500 (the write did not land); the collector must not restore the 2xx.
  */
-describe('callApiInProcess through withAuth(withErrorHandler(...)): an answer, then a throw', () => {
-  it('the first answer stands whole (its status AND its body), not a 500 carrying the success body', async () => {
+describe('callApiInProcess through withAuth(withErrorHandler(...)): a buffered success, then a transaction failure', () => {
+  it('comes back as the real route answers: 500, not the buffered 2xx', async () => {
     const { withErrorHandler } = await import('@/lib/api-error-handler');
     const inner = withErrorHandler(async (_req: NextApiRequest, res: NextApiResponse) => {
       res.status(200).json({ success: true, data: { first: true } });
       throw new Error('late');
     });
+    let rolledBack = false;
     const out = await callApiInProcess(async (req: NextApiRequest, res: NextApiResponse) => {
       const flush = deferEnd(res);
       await inner(req, res);
       // withAuth: a 5xx status rolls back, then replays the buffered end
-      replayEnd(res, flush, { source: 'test' }, res.statusCode >= 500);
+      rolledBack = res.statusCode >= 500;
+      replayEnd(res, flush, { source: 'test' }, rolledBack);
     }, pageReq(), { url: '/api/x', query: {} });
-    expect(out).toEqual({ status: 200, body: { success: true, data: { first: true } } });
+    expect(rolledBack).toBe(true);
+    expect(out.status).toBe(500);
   });
 });

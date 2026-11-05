@@ -56,14 +56,6 @@ function collector(): Collector {
   const headers = new Map<string, Header>();
   const chunks: string[] = [];
   let status = 200;
-  // The first json/send answer and the status it was given. Under withAuth that answer sits in deferEnd's buffer while
-  // an inner withErrorHandler, answering a late throw, sets 500 (its own body is dropped by the full buffer); the
-  // replay then ends with the FIRST body. That body goes out with the status it was answered with, not the later 500.
-  let answered: { chunk: string | Buffer; status: number } | null = null;
-  const answer = (chunk: string | Buffer) => {
-    if (!answered) answered = { chunk, status };
-    return c.end(chunk);
-  };
   const c: Collector = {
     // A real ServerResponse takes no status once its answer is out: a handler that threw late and an error handler
     // answering over it must not turn the first answer into a 500. The accessor below enforces it.
@@ -82,14 +74,15 @@ function collector(): Collector {
     },
     write(chunk) { chunks.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)); return true; },
     // Both answer through end(), so a deferred end (withAuth) buffers them like a real response's.
-    json(body) { return answer(JSON.stringify(body) ?? ''); },
-    send(body) { return answer(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body) ?? ''); },
+    json(body) { return c.end(JSON.stringify(body) ?? ''); },
+    send(body) { return c.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body) ?? ''); },
     end(chunk) {
       // The first end wins, as on a real response. (A buffered end that withAuth replays or replaces is the REAL end
       // reached first, so its replaced 500 body still lands: nothing has ended yet when it runs.)
       if (c.writableEnded) return c;
-      // The replayed first answer keeps its status; any other end (answerInstead's 500 body) keeps the current one.
-      if (answered && chunk === answered.chunk) status = answered.status;
+      // The status is whatever it is when the end reaches the wire. Under withAuth(withErrorHandler(...)) a handler
+      // that answered and then threw has its body buffered, withErrorHandler sets 500, withAuth rolls back and replays
+      // the buffered body: the real route answers that body with 500, so this does too (the write did not land).
       if (chunk !== undefined) c.body = parseBody(chunks.join('') + (Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)));
       else if (chunks.length) c.body = parseBody(chunks.join(''));
       c.writableEnded = true;
