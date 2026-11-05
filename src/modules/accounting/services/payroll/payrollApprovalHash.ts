@@ -28,3 +28,13 @@ export function hashOf(
     totals: Object.entries(plan.totals).map(([k, v]) => [k, cents(v)]),
   })).digest('hex');
 }
+
+/**
+ * Whether a FRESH journal plan rebuilt for an approved run is the plan its approval hashed. Approval hashed the run
+ * before its own status write, so the stored hash carries the status the run was approved from (draft, calculated,
+ * or a stranded 'approved'); a fresh post links no journal and replaces none. A run approved onto a journal it then
+ * replaced (`replaces`) cannot be told this way and does not match: that approval posted in the same transaction.
+ */
+export function matchesApprovedPlanHash(plan: PayrollJournalPlan, revision: string | null, approvedHash: string): boolean {
+  return ['draft', 'calculated', 'approved'].some((status) => hashOf({ ...plan, status }, null, null, revision) === approvedHash);
+}

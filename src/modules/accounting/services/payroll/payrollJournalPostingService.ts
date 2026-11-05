@@ -19,6 +19,8 @@ import { postJournalEntry, reverseJournalEntry } from '@/modules/accounting/serv
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { buildPayrollJournalPlan, type PayrollJournalPlan } from './payrollJournalBuilder';
 import { assertPayRunApproved } from './payRunApprovalControl';
+import { matchesApprovedPlanHash } from './payrollApprovalHash';
+import { lockCompanyPayrollApprovals, lockPayrollRunHeader } from './payrollRunLock';
 
 type Row = DbRow;
 
@@ -46,6 +48,10 @@ const BLOCKER_MESSAGES: Record<string, (detail: string) => string> = {
  * passes the plan its gate judged and its caller's hash described: a plan
  * rebuilt here could differ (a cost-centre mapping committed in between), and
  * would be posted under a hash that never described it (W3-01 breaker D).
+ * Without `opts.plan` (MCP recovery posting) the plan is built under the same
+ * locks approval takes and must hash to the run's approved plan hash, so a
+ * mapping, account or cost-centre change since approval refuses rather than
+ * posting a journal no one approved (lockedApprovedPlan).
  */
 export async function postPayrollRunJournal(
   companyId: string,
@@ -54,8 +60,13 @@ export async function postPayrollRunJournal(
   opts?: { postingAgent?: string; plan?: PayrollJournalPlan },
 ): Promise<string> {
   // Shared by UI approval, MCP recovery posting and every future payroll finaliser.
-  await assertPayRunApproved(companyId, runId);
-  const plan = opts?.plan ?? await buildPayrollJournalPlan(companyId, runId);
+  let plan: PayrollJournalPlan | null;
+  if (opts?.plan) {
+    await assertPayRunApproved(companyId, runId);
+    plan = opts.plan;
+  } else {
+    plan = await lockedApprovedPlan(companyId, runId);
+  }
   if (!plan) throw new Error(`Payroll run ${runId} not found`);
 
   // Already posted is not an error — the approval path re-runs on retry and
@@ -119,6 +130,26 @@ export async function postPayrollRunJournal(
     'payrollJournal',
   );
   return entry.id;
+}
+
+/**
+ * The plan to post when the caller has none: the company approval lock and the
+ * header lock first (approvePayrollRun's order), then the clearance and the
+ * plan, read under them. A non-grandfathered run's plan must be the one its
+ * approval hashed; the plan validated is the plan returned and posted.
+ */
+async function lockedApprovedPlan(companyId: string, runId: string): Promise<PayrollJournalPlan | null> {
+  await lockCompanyPayrollApprovals(runId, companyId);
+  const header = await lockPayrollRunHeader(runId, companyId);
+  if (!header) return null;
+  const clearance = await assertPayRunApproved(companyId, runId);
+  const plan = await buildPayrollJournalPlan(companyId, runId);
+  if (!plan || clearance.grandfathered || plan.alreadyPostedJournalId) return plan;
+  const revision = header.approval_revision == null ? null : String(header.approval_revision);
+  if (!clearance.planHash || !matchesApprovedPlanHash(plan, revision, clearance.planHash)) {
+    throw new Error('This payroll run no longer matches the journal plan that was approved. Reopen and re-approve it before posting.');
+  }
+  return plan;
 }
 
 // ── reversePayrollRunJournal ─────────────────────────────────────────────────
