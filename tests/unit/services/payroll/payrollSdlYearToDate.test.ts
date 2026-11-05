@@ -55,4 +55,19 @@ describe('sdlYearToDate (SDL Act s3(4); SDL-GEN-01-G01 Rev 5 s6)', () => {
     expect(sdlYearToDate([{ line: 'd', sdlApplicable: 1_000, retirement: 1_000, sdl: 0 }], {}))
       .toEqual({ sdlApplicable: 1_000, sdlLeviable: 0, sdlExemptDeduction: 0 });
   });
+
+  it('an exempt month after a levied one keeps its own deduction: later liable pay is levied in full', () => {
+    const r = sdlYearToDate([
+      { line: 'a', sdlApplicable: 20_000, retirement: 5_000, sdl: 150 },
+      { line: 'b', sdlApplicable: 20_000, retirement: 5_000, sdl: 0 },
+      { line: 'c', sdlApplicable: 20_000, retirement: 0, sdl: 200 },
+    ], {});
+    // Levied: 15 000 (a) + 20 000 (c); the exempt month's R5 000 deduction never comes off levied pay.
+    expect(r).toEqual({ sdlApplicable: 40_000, sdlLeviable: 35_000, sdlExemptDeduction: 5_000 });
+    // A deduction levied pay could not absorb before the exempt month is still absorbed by it.
+    expect(sdlYearToDate([
+      { line: 'a', sdlApplicable: 1_000, retirement: 3_000, sdl: 0 },
+      { line: 'b', sdlApplicable: 20_000, retirement: 1_000, sdl: 0 },
+    ], {})).toEqual({ sdlApplicable: 1_000, sdlLeviable: 0, sdlExemptDeduction: 3_000 });
+  });
 });

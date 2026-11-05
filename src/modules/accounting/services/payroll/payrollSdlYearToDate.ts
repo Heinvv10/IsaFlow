@@ -11,7 +11,8 @@
  *   (levied pay to date - the deduction standing against it), never below nil,
  *   so what was levied to date is the highest that figure has reached.
  * - sdlExemptDeduction: the part of the deduction to date that exempt lines'
- *   pay absorbed (only what levied pay had not). It never comes off levied pay,
+ *   pay absorbed: an exempt line's own deduction, and what levied pay before it
+ *   had not absorbed, up to the line's pay. It never comes off levied pay,
  *   and a later reversal undoes it first, as far as the deduction to date falls
  *   below it: the reversal of a deduction taken in an exempt month restores
  *   exempt pay, not levied pay (REPRO 8).
@@ -57,13 +58,17 @@ export function sdlYearToDate(
   let levied = 0;
   for (const l of lines) {
     const linePay = Number(l.sdlApplicable);
-    deduction += l.retirement === null ? (legacyRetirementByLine[l.line] ?? 0) : Number(l.retirement);
+    const lineDeduction = l.retirement === null ? (legacyRetirementByLine[l.line] ?? 0) : Number(l.retirement);
+    deduction += lineDeduction;
     exemptDeduction = standingExemptDeduction(exemptDeduction, deduction);
     const leviable = Math.max(0, round2(pay + linePay - (deduction - exemptDeduction) - levied));
     const exempt = l.sdl !== undefined && l.sdl !== null && Number(l.sdl) === 0 && round2(leviable * 0.01) > 0;
     if (exempt) {
-      // Exempt pay absorbs only the deduction levied pay has not.
-      exemptDeduction += Math.min(linePay, Math.max(0, deduction - exemptDeduction - pay));
+      // Exempt pay absorbs its own month's deduction, plus what levied pay could not absorb before it;
+      // never more than its pay, nor more than the deduction standing against levied pay.
+      const own = Math.max(0, lineDeduction);
+      const unabsorbed = Math.max(0, deduction - own - exemptDeduction - pay) + own;
+      exemptDeduction += Math.min(linePay, unabsorbed, Math.max(0, deduction - exemptDeduction));
     } else {
       pay += linePay;
       levied += leviable;
