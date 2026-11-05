@@ -74,7 +74,9 @@ The build that ships PR 1 runs beside the old code (the live colour during the b
 code still writes the old shapes: `createSupplier` writes `(30, NULL)`, `createCustomer` writes `'days'`, the migration importer
 writes `?? 30`. So:
 
-- **960 (PR 1, expand).** Maps the data, adds NO CHECK and drops NO DEFAULT. The new code reads every legacy shape
+- **960 (PR 1, expand).** Maps the data and DROPS the column DEFAULTs (30 / 'days'), so an insert that names no terms stores
+  not set: the importers (`migrationExecuteContacts`, `sageMigrationCommitService`, `scripts/import-sage-britech.ts`) also write NULL / NULL explicitly.
+  Dropping the default is safe beside the old code (every old writer that means terms names both columns). It adds NO CHECK. The new code reads every legacy shape
   (`shared/paymentTerms.readTerms`: `'days'` = invoice_days, `'end_of_month'` = statement_days, a number with no type =
   invoice_days; a negative, over-999 or unknown-type row is not terms). Tested by
   `tests/integration/payment-terms-960-migration.int.test.ts` (every legacy shape, idempotent, old-code writes still succeed).
@@ -88,12 +90,15 @@ UPDATE suppliers SET payment_terms_type = CASE WHEN payment_terms_type IS NULL O
   WHEN payment_terms_type = 'end_of_month' THEN 'statement_days' ELSE payment_terms_type END
 WHERE payment_terms IS NOT NULL AND payment_terms_type IN ('days', 'end_of_month') OR (payment_terms IS NOT NULL AND payment_terms_type IS NULL);
 -- (same for customers); then rows that are neither both-NULL nor a valid pair become NULL / NULL
-ALTER TABLE suppliers ALTER COLUMN payment_terms DROP DEFAULT, ALTER COLUMN payment_terms_type DROP DEFAULT;
 ALTER TABLE suppliers ADD CONSTRAINT suppliers_payment_terms_shape CHECK (
   (payment_terms IS NULL AND payment_terms_type IS NULL)
   OR (payment_terms BETWEEN 0 AND 999 AND payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months'))) NOT VALID;
 ALTER TABLE suppliers VALIDATE CONSTRAINT suppliers_payment_terms_shape;  -- and the same two statements for customers
 ```
+
+  Accepted as transient (round 2, 2026-11-05): during the deploy window and after a code-only rollback the OLD colour reads a
+  contact with a new type value (`statement_days`, `statement_months`, or NULL / NULL) as no usable terms, so a customer invoice it
+  creates for that contact is undated. PR 1b waits until the old colour is gone for the same reason.
 
   The 999 cap in the CHECK is what makes the DB and the forms agree (the forms and `dueDateFromTerms` already refuse more).
   PR 1b ships with an integration test that the CHECK rejects bad pairs, and its own deploy check that no contact row violates it.
@@ -110,7 +115,7 @@ field is a 400, and the form shows the bank details read-only and masked. A rena
 | PR | Scope | Depends on |
 |---|---|---|
 | 1 Terms model | migration 960 (expand: default-30 → not set, legacy names mapped; no CHECK), shared pure `dueDateFromTerms` + company default, supplier + customer forms and edit pages, every document creator dated by contact terms then company default, fix `calculateDueDate` UTC bug + hardcoded 30s, Sage import paths | — |
-| 1b Tighten | DROP DEFAULT + CHECK (N ≤ 999) on suppliers and customers; applied only after 1 is live | 1, deployed |
+| 1b Tighten | CHECK (N ≤ 999) on suppliers and customers; applied only after 1 is live | 1, deployed |
 | 2 Due-date source + edit | migration (`due_date_source`, due-date audit table), date-only edit route for approved/partially_paid bills | — (adversarial review: loosens approved-bill lock) |
 | 3 Re-apply terms | preview/confirm UI + API + MCP | 1, 2 |
 | 4 Due-by-date report | service, page, nav, Excel, MCP tool | — (reads due_date only) |

@@ -91,8 +91,8 @@ async function linkPracticeClients(): Promise<void> {
     if (c.link_customer_id) continue;
     const cid = randomUUID();
     await sql.query(
-      `INSERT INTO customers (id,company_id,name,is_active,created_at,updated_at)
-       VALUES ($1,$2,$3,true,NOW(),NOW()) ON CONFLICT DO NOTHING`,
+      `INSERT INTO customers (id,company_id,name,is_active,created_at,updated_at,payment_terms,payment_terms_type)
+       VALUES ($1,$2,$3,true,NOW(),NOW(),NULL,NULL) ON CONFLICT DO NOTHING`,
       [cid, COMPANY_ID, c.legal_name],
     );
     await sql.query(`UPDATE practice_clients SET link_customer_id=$1,updated_at=NOW() WHERE id=$2 AND company_id=$3`, [cid, c.id, COMPANY_ID]);

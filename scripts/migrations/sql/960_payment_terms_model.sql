@@ -9,10 +9,15 @@
 --
 -- This is the EXPAND half of an expand / tighten split. The build that ships it runs beside the old code (the live colour
 -- during the build, and after a code-only rollback), and the old code still writes the old shapes: createSupplier
--- writes (30, NULL), createCustomer (N, 'days'), the migration importer `?? 30`. So this file adds NO CHECK and drops NO
--- DEFAULT; the new code reads every legacy shape (shared/paymentTerms.readTerms: 'days' = invoice_days,
--- 'end_of_month' = statement_days, a number with no type = invoice_days). The tightening (DROP DEFAULT, a CHECK that
--- also caps N at 999) is PR 1b, applied only after the new code is live; see the plan doc.
+-- writes (30, NULL), createCustomer (N, 'days'), the migration importer `?? 30`. So this file adds NO CHECK; the new code
+-- reads every legacy shape (shared/paymentTerms.readTerms: 'days' = invoice_days, 'end_of_month' = statement_days, a
+-- number with no type = invoice_days). The tightening (a CHECK that also caps N at 999) is PR 1b, applied only after the
+-- new code is live; see the plan doc.
+--
+-- It DOES drop the column DEFAULTs (30 / 'days'): an insert that names no terms (the importers, a script) must store
+-- not set, not a confirmed-looking 30. That is safe beside the old code: every old writer that means terms names both
+-- columns (the old createSupplier / createCustomer / importer pass explicit values), and one that names neither now
+-- stores NULL / NULL, which the old code reads as no terms (its due-date fallbacks apply).
 --
 -- Data, all tenants on purpose (this is a column-semantics change, not tenant data):
 --   1. A row still on the column default (payment_terms = 30 with type 'days' or NULL) was never chosen: it becomes
@@ -26,7 +31,7 @@
 -- by Company settings; no row means 30 days from invoice, which is every company's start. (companies is column-level
 -- read-only for the app pools since 936, so a new column there would not be writable by a tenant.)
 --
--- Safe to re-run: step 1 only matches the legacy type names, so a row set to 30 invoice_days afterwards stays. Waits at
+-- Safe to re-run: DROP DEFAULT of a column with none is a no-op; step 1 only matches the legacy type names, so a row set to 30 invoice_days afterwards stays. Waits at
 -- most 5s for a table lock, so a busy table fails the deploy instead of queueing every request behind it.
 
 SET LOCAL lock_timeout = '5s';
@@ -70,11 +75,15 @@ WHERE ((payment_terms IS NULL AND payment_terms_type IS NULL)
     OR (payment_terms BETWEEN 0 AND 999 AND payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months')))
   IS NOT TRUE;
 
+-- 4. No column default: an insert that names no terms stores not set.
+ALTER TABLE suppliers ALTER COLUMN payment_terms DROP DEFAULT, ALTER COLUMN payment_terms_type DROP DEFAULT;
+ALTER TABLE customers ALTER COLUMN payment_terms DROP DEFAULT, ALTER COLUMN payment_terms_type DROP DEFAULT;
+
 COMMENT ON COLUMN suppliers.payment_terms IS
   'N for payment_terms_type (days or months). NULL with a NULL type: terms not set, the company default applies.';
 COMMENT ON COLUMN suppliers.payment_terms_type IS
-  'invoice_days | statement_days | statement_months; NULL = not set (migration 960). Old code still writes days / end_of_month until PR 1b.';
+  'invoice_days | statement_days | statement_months; NULL = not set (migration 960). Old code may still write days / end_of_month until PR 1b.';
 COMMENT ON COLUMN customers.payment_terms IS
   'N for payment_terms_type (days or months). NULL with a NULL type: terms not set, the company default applies.';
 COMMENT ON COLUMN customers.payment_terms_type IS
-  'invoice_days | statement_days | statement_months; NULL = not set (migration 960). Old code still writes days / end_of_month until PR 1b.';
+  'invoice_days | statement_days | statement_months; NULL = not set (migration 960). Old code may still write days / end_of_month until PR 1b.';

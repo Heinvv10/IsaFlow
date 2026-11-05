@@ -110,7 +110,7 @@ describe('migration 960 maps every legacy shape, and is safe to run again', () =
 });
 
 describe('after the expand step the OLD code\'s writes still succeed (it runs beside the new code, and after a code-only rollback)', () => {
-  it('accepts (30, NULL), (30, days), a bare 30 on the column defaults, a customer\'s free-text type, and N over 999', async () => {
+  it('accepts (30, NULL), (30, days), a bare 30, a customer\'s free-text type, and N over 999', async () => {
     await inTx(async (db) => {
       await db.query(MIGRATION);
       const writes: [string, unknown[]][] = [
@@ -122,7 +122,7 @@ describe('after the expand step the OLD code\'s writes still succeed (it runs be
         ["INSERT INTO customers(company_id, name, payment_terms, payment_terms_type) VALUES($1, $2, 14, 'end_of_month')", [company, 'old EOM']],
         // old migrationContactService: `?? 30`, nothing else
         ['INSERT INTO customers(company_id, name, payment_terms) VALUES($1, $2, 30)', [company, 'old importer customer']],
-        ['INSERT INTO customers(company_id, name) VALUES($1, $2)', [company, 'a row naming no terms at all']],
+        ['INSERT INTO customers(company_id, name) VALUES($1, $2)', [company, 'a row naming no terms at all']], // stores NULL / NULL now
         // old MCP update_customer wrote any 30-character string as the type
         ["INSERT INTO customers(company_id, name, payment_terms, payment_terms_type) VALUES($1, $2, 7, 'weekly')", [company, 'old free-text type']],
         ['INSERT INTO suppliers(company_id, name, payment_terms) VALUES($1, $2, 1500)', [company, 'old 1500']],
@@ -133,15 +133,14 @@ describe('after the expand step the OLD code\'s writes still succeed (it runs be
     });
   });
 
-  it('keeps the column defaults (30 and \'days\') and adds no CHECK on the contacts yet: that is PR 1b', async () => {
+  it('drops the column defaults (a bare insert is not set) and adds no CHECK on the contacts yet: that is PR 1b', async () => {
     const { rows: defaults } = await pool.query(
       `SELECT table_name, column_name, column_default FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name IN ('suppliers', 'customers') AND column_name IN ('payment_terms', 'payment_terms_type')
        ORDER BY table_name, column_name`);
     expect(defaults.map((r) => `${r.table_name}.${r.column_name}`)).toEqual([
       'customers.payment_terms', 'customers.payment_terms_type', 'suppliers.payment_terms', 'suppliers.payment_terms_type']);
-    for (const r of defaults) expect(String(r.column_default), `${r.table_name}.${r.column_name}`).not.toBe('null');
-    expect(defaults.find((r) => r.table_name === 'suppliers' && r.column_name === 'payment_terms')!.column_default).toBe('30');
+    for (const r of defaults) expect(r.column_default, `${r.table_name}.${r.column_name}`).toBeNull();
     const { rows: checks } = await pool.query(
       `SELECT conname FROM pg_constraint WHERE conrelid IN ('public.suppliers'::regclass, 'public.customers'::regclass)
          AND contype = 'c' AND pg_get_constraintdef(oid) ILIKE '%payment_terms%'`);
