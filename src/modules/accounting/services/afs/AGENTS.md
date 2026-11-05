@@ -25,7 +25,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/afs/*` and 
 - `enqueueGenerationJob(companyId, documentId, userId): Promise<AfsGenerationJob>` / `markJobStarted / markJobComplete`.
 - `generateSection(companyId, documentId, sectionKey): Promise<AfsSection>` / `generateAllSections(...)` — note-engine orchestrator.
 - `markSectionReviewed / signOffSection / submitDocumentForReview(companyId, documentId, userId)`.
-- `getCashFlowDirect(companyId, yearStart, yearEnd)` — direct-method cash flow.
+- `getCashFlowDirect(companyId, yearStart, yearEnd)` — direct-method cash flow. It places each journal by `reports/cashFlowIndirectClassification.journalSections` (the indirect statement's rule: only cash that moved is investing/financing), so the two methods agree on the section totals; see reports/.claude.md.
 - `runComplianceCheck(companyId, documentId)` — IFRS structural/math/disclosure.
 - `createMagicLink(contactId, documentId): Promise<{ token }>` / `verifyMagicLink(token)` — single-use, 30-min expiry, atomic consume.
 - `deliverPack(documentId, companyId)` / `scheduleDelivery(companyId, documentId, config)`.
