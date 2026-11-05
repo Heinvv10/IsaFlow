@@ -21,6 +21,7 @@ import { InvoiceNumberField } from '@/components/accounting/suppliers/InvoiceNum
 import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/SupplierInvoiceSummaryCard';
 import { localISODate } from '@/lib/dateUtils';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
+import { scannedPaymentTermsOption } from '@/components/accounting/supplier-invoices/scannedPaymentTerms';
 import { useSupplierTermsDueDate } from '@/components/accounting/supplier-invoices/useSupplierTermsDueDate';
 import { useSupplierDimensionDefaults } from '@/components/accounting/suppliers/useSupplierDimensionDefaults';
 import { PageHeader, DateField } from '@/components/ui';
@@ -133,13 +134,8 @@ export default function NewSupplierInvoicePage() {
     if (data.dueDate) { updates.dueDate = data.dueDate; claimDueDate(); dates.reset('dueDate'); }
     if (data.purchaseOrderRef) updates.reference = data.purchaseOrderRef;
     if (data.vatRate !== null) updates.taxRate = data.vatRate;
-    if (data.paymentTerms) {
-      const pt = data.paymentTerms.toLowerCase();
-      if (pt.includes('immediate') || pt.includes('cod') || pt.includes('0 day')) updates.paymentTerms = 'immediate';
-      else if (pt.includes('30')) updates.paymentTerms = 'net30';
-      else if (pt.includes('60')) updates.paymentTerms = 'net60';
-      else if (pt.includes('90')) updates.paymentTerms = 'net90';
-    }
+    const scannedTerms = data.paymentTerms ? scannedPaymentTermsOption(data.paymentTerms) : null;
+    if (scannedTerms) updates.paymentTerms = scannedTerms;
     setForm(f => ({ ...f, ...updates }));
     if (data.vendorName) {
       matchVendor(data.vendorName);
