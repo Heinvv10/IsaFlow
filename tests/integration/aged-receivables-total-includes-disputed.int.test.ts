@@ -20,6 +20,8 @@ import { getAgedReportTotal } from '@/modules/accounting/services/reconciliation
 import { getAgedBucketTotals } from '@/modules/accounting/services/reports/agedBucketTotals';
 import { getAgingReport } from '@/modules/accounting/services/reports/agingReportService';
 import { buildOpenItems } from '@/modules/accounting/services/reports/openItemsExport';
+import { reconcileSubledger } from '@/modules/accounting/services/reconciliation/subledgerReconciliationService';
+import { getSalesFigures } from '@/modules/accounting/services/workbench/monthEndSalesFigures';
 import { agedCreditorsTool, agedDebtorsTool } from '@/lib/mcp/tools/reportsAging';
 import type { McpToolContext } from '@/lib/mcp/types';
 import arAgingRoute from '../../pages/api/accounting/ar-aging';
@@ -142,6 +144,26 @@ describeIfDb('every receivables total includes the disputed amount', () => {
     expect(cents(out.summary.grossTotal)).toBe(cents(OWED));
     expect(cents(out.summary.controlTotal)).toBe(cents(out.summary.agedTotal));
     expect(out.summary.difference).toBe(0);
+  });
+
+  it('a book with a dispute foots: the aged total plus the aged_to_subledger bridge is the subledger total, with no disputed_amount item', async () => {
+    const rec = await reconcileSubledger(f.company, 'ar', TODAY);
+    const aged = rec.reconcilingItems.filter((i) => i.bridge === 'aged_to_subledger');
+    expect(aged.some((i) => i.type === 'disputed_amount')).toBe(false);
+    expect(cents(rec.agedTotal)).toBe(cents(OWED));
+    expect(cents(rec.subledgerTotal)).toBe(cents(OWED));
+    expect(cents((rec.agedTotal ?? 0) + aged.reduce((x, i) => x + i.amount, 0))).toBe(cents(rec.subledgerTotal));
+  });
+
+  it('the month-end Sales card states the same total in a past period and in the current one, disputes included', async () => {
+    const past = await getSalesFigures(f.company, shift(-1), TODAY);
+    const current = await getSalesFigures(f.company, TODAY, TODAY);
+    expect(past.past).toBe(true);
+    expect(current.past).toBe(false);
+    expect(cents(past.total)).toBe(cents(OWED));
+    expect(cents(current.total)).toBe(cents(OWED));
+    // The undisputed 300 of the 45-day invoice and the 15-day one are overdue; the dispute is not counted as overdue on either path.
+    expect(cents(past.overdue)).toBe(cents(current.overdue));
   });
 
   it("another tenant's debt reaches none of them", async () => {
