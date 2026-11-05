@@ -47,7 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           WHERE s.id = ${singleId}::UUID AND s.company_id = ${companyId} AND s.deleted_at IS NULL
         `) as Row[];
         if (rows.length === 0) return apiResponse.notFound(res, 'Supplier');
-        return apiResponse.success(res, withCompanyDefaultTerms(rows[0]!));
+        return apiResponse.success(res, withCompanyDefaultTerms(rows[0]!, companyId));
       }
 
       const limitRaw = Number(limitParam);

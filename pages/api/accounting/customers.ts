@@ -102,7 +102,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           WHERE c.id = ${id}::uuid AND c.company_id = ${companyId} AND c.deleted_at IS NULL
         `) as Row[];
         if (found.length === 0) return apiResponse.notFound(res, 'Customer');
-        return apiResponse.success(res, withCompanyDefaultTerms(found[0]!));
+        return apiResponse.success(res, withCompanyDefaultTerms(found[0]!, companyId));
       }
 
       const searchQuery = typeof q === 'string' ? q : null;
