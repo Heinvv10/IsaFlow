@@ -10,6 +10,7 @@ import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { verifyPortalToken } from '@/lib/auth/portalJwt';
 import { currentPortalSession } from '@/lib/auth/portalAuth';
 import { PORTAL_ACCESS_RULES } from '@/modules/accounting/services/afs/afsTypes';
+import { packSectionView, type PackSectionInput } from '@/modules/accounting/services/afs/managementPackSectionView';
 
 interface NoteContentBlock {
   type: string;
@@ -17,6 +18,7 @@ interface NoteContentBlock {
   items?: string[];
   headers?: string[];
   rows?: string[][];
+  rowKinds?: string[];
 }
 
 interface NoteContent {
@@ -88,6 +90,13 @@ export default function PortalDocumentPage({
 
   const isLocked = doc.status === 'signed_off' || doc.status === 'filed';
   const typeLabel = doc.document_type === 'afs' ? 'Annual Financial Statements' : 'Management Pack';
+  const isPack = doc.document_type === 'management_pack';
+  // A pack section prints as it does in the PDF and the app (packSectionView): vocabulary title, never empty, tables, narrative.
+  const shown = sections.flatMap((s) => {
+    if (!isPack) return [{ s, title: s.section_type.replace(/_/g, ' '), blocks: s.content?.blocks ?? null, narrative: null as string | null }];
+    const view = packSectionView({ sectionType: s.section_type, content: s.content as PackSectionInput['content'], aiNarrative: s.ai_narrative });
+    return view ? [{ s, title: view.title, blocks: view.blocks as NoteContentBlock[], narrative: view.narrative }] : [];
+  });
 
   async function submitComment(sectionId: string) {
     if (!commentText.trim()) return;
@@ -128,19 +137,19 @@ export default function PortalDocumentPage({
         <div style={{ display:'flex', maxWidth:'1200px', margin:'0 auto', padding:'2rem 1.5rem', gap:'2rem' }}>
           <aside style={{ width:'200px', flexShrink:0, position:'sticky', top:'60px', alignSelf:'flex-start' }}>
             <p style={{ fontSize:'0.75rem', fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.5rem' }}>Sections</p>
-            {sections.map((s) => (
-              <a key={s.id} href={`#s-${s.id}`} style={{ display:'block', padding:'0.3rem 0.4rem', fontSize:'0.875rem', color:'#475569', textDecoration:'none', textTransform:'capitalize', marginBottom:'0.1rem' }}>
-                {s.section_type.replace(/_/g,' ')}
+            {shown.map(({ s, title }) => (
+              <a key={s.id} href={`#s-${s.id}`} style={{ display:'block', padding:'0.3rem 0.4rem', fontSize:'0.875rem', color:'#475569', textDecoration:'none', textTransform: isPack ? 'none' : 'capitalize', marginBottom:'0.1rem' }}>
+                {title}
               </a>
             ))}
           </aside>
           <main style={{ flex:1, minWidth:0 }}>
-            {sections.map((s) => (
+            {shown.map(({ s, title, blocks, narrative }) => (
               <section key={s.id} id={`s-${s.id}`} style={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:'0.75rem', padding:'1.75rem', marginBottom:'1.5rem' }}>
-                <h2 style={{ fontSize:'1rem', fontWeight:700, color:'#0f172a', textTransform:'capitalize', marginBottom:'1rem' }}>{s.section_type.replace(/_/g,' ')}</h2>
-                {s.content && Array.isArray(s.content.blocks) ? (
+                <h2 style={{ fontSize:'1rem', fontWeight:700, color:'#0f172a', textTransform: isPack ? 'none' : 'capitalize', marginBottom:'1rem' }}>{title}</h2>
+                {blocks && Array.isArray(blocks) ? (
                   <div style={{ color: '#334155', lineHeight: 1.7 }}>
-                    {s.content.blocks.map((block, idx) => {
+                    {blocks.map((block, idx) => {
                       if ((block.type === 'paragraph' || block.type === 'heading') && block.text) {
                         return block.type === 'heading'
                           ? <h3 key={idx} style={{ fontSize: '1rem', fontWeight: 700, margin: '0.75rem 0 0.25rem' }}>{block.text}</h3>
@@ -153,11 +162,25 @@ export default function PortalDocumentPage({
                           </ul>
                         );
                       }
-                      // TODO: render 'table' blocks (headers + rows) in a future enhancement
+                      if (isPack && block.type === 'table' && Array.isArray(block.headers) && Array.isArray(block.rows)) {
+                        return (
+                          <div key={idx} style={{ overflowX: 'auto', margin: '0 0 0.75rem' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                              <thead><tr>{block.headers.map((h, i) => <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', padding: '0.4rem 0.6rem', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>{h}</th>)}</tr></thead>
+                              <tbody>{block.rows.map((row, r) => (
+                                <tr key={r} style={{ fontWeight: block.rowKinds?.[r] && block.rowKinds[r] !== 'line' ? 700 : 400, background: block.rowKinds?.[r] === 'total' ? '#e2e8f0' : block.rowKinds?.[r] === 'subtotal' ? '#f1f5f9' : undefined }}>
+                                  {row.map((cell, c) => <td key={c} style={{ textAlign: c === 0 ? 'left' : 'right', padding: '0.35rem 0.6rem', borderBottom: '1px solid #e2e8f0' }}>{cell}</td>)}
+                                </tr>
+                              ))}</tbody>
+                            </table>
+                          </div>
+                        );
+                      }
                       return null;
                     })}
+                    {narrative && <p style={{ margin: '0.5rem 0 0', fontStyle: 'italic', color: '#475569' }}>{narrative}</p>}
                   </div>
-                ) : s.ai_narrative ? (
+                ) : !isPack && s.ai_narrative ? (
                   <p style={{ color:'#334155', lineHeight:1.7, margin:0 }}>{s.ai_narrative}</p>
                 ) : null}
                 {canAnnotate && !isLocked && (

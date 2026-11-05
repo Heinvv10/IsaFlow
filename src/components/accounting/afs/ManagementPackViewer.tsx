@@ -1,25 +1,23 @@
 // src/components/accounting/afs/ManagementPackViewer.tsx
 // Read-only view of a management pack's stored sections, in sortOrder.
 // Pack section keys (budget_variance, ai_executive_summary, ...) extend beyond the AFS SectionType union,
-// so the key is treated as a plain string here.
+// so the key is treated as a plain string here. Titles, empty-section wording and old-pack repairs come
+// from packSectionView, the same view the PDF and the portal print.
 
 import React from 'react';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import { log } from '@/lib/logger';
-import type { AfsDocument, AfsSection, NoteContent, NoteContentBlock } from '@/modules/accounting/services/afs/afsTypes';
+import type { AfsDocument, AfsSection, NoteContentBlock } from '@/modules/accounting/services/afs/afsTypes';
 import { AfsStatusBadge } from './AfsStatusBadge';
+import { packSectionView } from '@/modules/accounting/services/afs/managementPackSectionView';
 
-function readable(key: string): string {
-  return key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-}
-
-/** A pack stores the section key as the title when the generator has no wording for it. */
-function sectionTitle(section: AfsSection): string {
-  const key: string = section.sectionType;
-  const title = section.overrides?.title ?? section.content?.title;
-  return title && title !== key ? title : readable(key);
-}
+const ROW_STYLE = {
+  line: '',
+  heading: 'font-semibold bg-slate-50 dark:bg-slate-900/40',
+  subtotal: 'font-semibold bg-slate-100 dark:bg-slate-700/40',
+  total: 'font-bold bg-slate-200 dark:bg-slate-700',
+} as const;
 
 function Block({ block }: { block: NoteContentBlock }) {
   switch (block.type) {
@@ -40,7 +38,7 @@ function Block({ block }: { block: NoteContentBlock }) {
             </thead>
             <tbody>
               {block.rows.map((row, r) => (
-                <tr key={r} className="border-b border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">
+                <tr key={r} className={`border-b border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 ${ROW_STYLE[block.rowKinds?.[r] ?? 'line']}`}>
                   {row.map((cell, c) => <td key={c} className={`py-1.5 pr-4 ${c > 0 ? 'text-right tabular-nums' : ''}`}>{String(cell ?? '')}</td>)}
                 </tr>
               ))}
@@ -57,24 +55,21 @@ function Block({ block }: { block: NoteContentBlock }) {
   }
 }
 
-function blocksOf(content: NoteContent | null): NoteContentBlock[] {
-  return Array.isArray(content?.blocks) ? content.blocks : [];
-}
-
 export function ManagementPackViewer({ sections }: { sections: AfsSection[] }) {
-  const ordered = [...sections].sort((a, b) => a.sortOrder - b.sortOrder);
-  if (ordered.length === 0) {
+  const views = [...sections]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .flatMap(section => { const view = packSectionView(section); return view ? [{ id: section.id, view }] : []; });
+  if (views.length === 0) {
     return <p className="text-sm text-ink-muted">This pack has no sections.</p>;
   }
   return (
     <div className="space-y-6">
-      {ordered.map(section => (
-        <section key={section.id} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 space-y-3">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-white">{sectionTitle(section)}</h2>
-          {blocksOf(section.overrides?.blocks ? { title: '', blocks: section.overrides.blocks } : section.content)
-            .map((block, i) => <Block key={i} block={block} />)}
-          {section.aiNarrative && (
-            <p className="text-sm italic text-slate-600 dark:text-slate-400">{section.aiNarrative}</p>
+      {views.map(({ id, view }) => (
+        <section key={id} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 space-y-3">
+          <h2 className="text-base font-semibold text-slate-900 dark:text-white">{view.title}</h2>
+          {view.blocks.map((block, i) => <Block key={i} block={block} />)}
+          {view.narrative && (
+            <p className="text-sm italic text-slate-600 dark:text-slate-400">{view.narrative}</p>
           )}
         </section>
       ))}

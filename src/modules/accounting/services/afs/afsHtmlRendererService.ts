@@ -3,7 +3,7 @@
 import type { AfsDocument, AfsSection, BrandProfile } from './afsTypes';
 import { renderCoverHtml } from './afsHtmlCoverTemplates';
 import { afsDocumentTitle, isPackPeriod, packPeriodPhrase } from './afsDocumentTitle';
-import { renderSectionContent, escapeHtml } from './afsHtmlTableRenderer';
+import { renderSectionContent, renderPackSectionContent, escapeHtml } from './afsHtmlTableRenderer';
 import type { AfsTemplateKey } from '@/lib/entityTypes';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -79,6 +79,13 @@ function buildCss(bp: BrandProfile): string {
     .note-heading { break-after: avoid; }
     p     { widows: 2; orphans: 2; }
     .section-start { break-before: right; }
+    /* A management pack flows section after section: a recto start per section left a blank page between each. */
+    .pack-section { margin-top: 1.6rem; }
+    .pack-section h2 { break-after: avoid; margin-top: 0; }
+    .pack-statement { break-before: page; margin-top: 0; }
+    .pack-section .financial-table { font-size: 9pt; break-inside: avoid; }
+    .pack-section .financial-table th:first-child, .pack-section .financial-table td:first-child { width: 34%; }
+    .ai-narrative { font-style: italic; color: #444444; margin-top: 0.8em; }
     @page landscape { size: A4 landscape; }
     .wide-table { page: landscape; }
     .section-chart { margin: 1.2em 0; break-inside: avoid; }
@@ -101,8 +108,9 @@ function buildCss(bp: BrandProfile): string {
     .financial-table th { background: var(--primary-colour); color: #ffffff; font-weight: bold; text-align: left; padding: 8px; border-bottom: 2px solid var(--primary-colour); }
     .financial-table td { padding: 6px 8px; border-bottom: 1px solid #e0e0e0; }
     .financial-table tr:nth-child(even) td { background: #f7f7f7; }
-    .financial-table .row-subtotal td { font-weight: bold; background: var(--primary-tint); }
-    .financial-table .row-total td { background: var(--primary-colour); color: #ffffff; font-weight: bold; }
+    .financial-table tr.row-subtotal td { font-weight: bold; background: var(--primary-tint); }
+    .financial-table tr.row-heading td { font-weight: bold; background: #ffffff; border-bottom: 1px solid var(--primary-colour); }
+    .financial-table tr.row-total td { background: var(--primary-colour); color: #ffffff; font-weight: bold; }
     .financial-table td:not(:first-child) { text-align: right; font-family: monospace; }
 
     /* Cover page base */
@@ -208,7 +216,7 @@ export function renderAfsToHtml(
   });
 
   const sectionsHtml = sections
-    .map((s) => renderSectionContent(s, charts?.[s.sectionType]))
+    .map((s) => (isPack ? renderPackSectionContent(s) : renderSectionContent(s, charts?.[s.sectionType])))
     .join('\n');
 
   const watermarkHtml = options?.watermark

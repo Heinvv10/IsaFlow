@@ -1,20 +1,25 @@
 // src/modules/accounting/services/afs/managementPackGeneratorService.ts
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { rawSubtypesFor } from '../gl/accountSubtypes';
 import { orderedEnabledSections } from './managementPackConfigService';
 import { createAfsDocument } from './afsDocumentService';
 import { createAfsSection, updateAfsSection } from './afsSectionService';
-import { fetchBalanceSnapshot, getKpiScorecard } from './afsKpiService';
+import { getKpiScorecard } from './afsKpiService';
+import { getBalanceSheet } from '../reports/balanceSheetService';
+import { getIncomeStatement } from '../reports/incomeStatementService';
+import { AI_COMMENTARY_UNAVAILABLE, AI_SUMMARY_UNAVAILABLE } from './managementPackSections';
+import {
+  commentaryInput, hasCommentary, renderSection, renderSnapshot, type PackData, type Periodic,
+} from './managementPackSectionContent';
 import { generateExecutiveSummary, generateSectionCommentary } from './packAiSummaryService';
 import { deliverPack } from './packDeliveryService';
 import {
-  budgetBandBlocks, budgetLineBlocks, budgetSnapshot, comparisonPlan, incomeStatementContent, isBudgetSection,
-  loadPackBudget, narrativePrior, samePeriodLastYear, type ComparisonPlan, type PackBudget,
+  comparisonPlan, isBudgetSection, loadPackBudget, narrativePrior, samePeriodLastYear,
 } from './managementPackComparison';
 import { loadPackVarianceNoteBlocks } from './managementPackVarianceNotes';
-import type { ManagementPackConfig, NoteContent, NoteContentBlock, KpiResult } from './afsTypes';
+import type { ManagementPackConfig } from './afsTypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type Row = DbRow;
@@ -38,45 +43,6 @@ export interface GeneratePackResult {
   sectionsGenerated: number;
   status: 'draft' | 'signed_off';
   deliveryScheduled: boolean;
-}
-
-interface PackData {
-  kpis: KpiResult[];
-  income: Record<string, unknown>;
-  balance: Record<string, unknown>;
-  priorIncome: Record<string, unknown>;
-  priorYearIncome: Record<string, unknown> | null;
-  plan: ComparisonPlan;
-  budget: PackBudget | null;
-  /** The approved variance notes printed under the budget_variance table (budgets P5). */
-  varianceNotes: NoteContentBlock[];
-  enabledSections: string[];
-}
-
-// ── Section renderers ────────────────────────────────────────────────────────
-
-function renderSection(sectionType: string, data: PackData): NoteContent {
-  switch (sectionType) {
-    case 'kpi_scorecard':
-      return {
-        title: 'KPI Scorecard',
-        blocks: [{
-          type: 'table',
-          headers: ['KPI', 'Value', 'Trend', 'RAG'],
-          rows: data.kpis.map(k => [k.label, k.formatted, k.trend, k.rag]),
-        }],
-      };
-    case 'income_statement':
-      return incomeStatementContent(data, data.plan, data.budget, data.enabledSections.includes('income_vs_budget'));
-    case 'balance_sheet':
-      return { title: 'Balance Sheet', blocks: [{ type: 'paragraph', text: JSON.stringify(data.balance) }] };
-    case 'income_vs_budget':
-      return { title: 'Income vs Budget', blocks: data.budget ? budgetBandBlocks(data.budget) : [] };
-    case 'budget_variance':
-      return { title: 'Budget Variance', blocks: data.budget ? budgetLineBlocks(data.budget, data.varianceNotes) : [] };
-    default:
-      return { title: sectionType, blocks: [] };
-  }
 }
 
 // ── Period helpers ───────────────────────────────────────────────────────────
@@ -194,27 +160,51 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     ),
   );
 
-  const [income, balance, priorIncome, priorYearIncome, kpiScorecard, companyName, topRevenue, topExpense] =
+  const wantsIncome = enabledSections.includes('income_statement');
+  const wantsBalance = enabledSections.includes('balance_sheet');
+  // The statements are the Reports screens' own: the same services, over the same windows. One that cannot be
+  // read (a company with no retained-earnings account fails its balance sheet) leaves its section saying so;
+  // it does not stop the pack. The savepoint keeps the failed query from aborting the request's transaction.
+  const periodic = async <R>(name: string, read: (w: { start: string; end: string }) => Promise<R>): Promise<Periodic<R> | null> => {
+    try {
+      return await withSavepoint(`mgmt_pack_${name}`, async () => {
+        const [current, priorR, yearAgo] = await Promise.all([
+          read({ start, end }),
+          plan.priorMonth ? read({ start: priorStart, end: priorEnd }) : null,
+          plan.priorYear ? read({ start: yearAgoStart, end: yearAgoEnd }) : null,
+        ]);
+        return { current, prior: priorR, yearAgo };
+      });
+    } catch (err) {
+      log.error('management pack: a statement could not be read; its section says so', {
+        companyId, period, statement: name, error: err instanceof Error ? err.message : String(err),
+      }, 'managementPackGeneratorService');
+      return null;
+    }
+  };
+
+  const [income, priorIncome, priorYearIncome, kpiScorecard, companyName, topRevenue, topExpense, incomeReports, balanceReports] =
     await Promise.all([
       fetchIncomeAgg(companyId, start, end),
-      fetchBalanceSnapshot(companyId, end),
       fetchIncomeAgg(companyId, priorStart, priorEnd),
       plan.priorYear ? fetchIncomeAgg(companyId, yearAgoStart, yearAgoEnd) : null,
       getKpiScorecard(companyId, period),
       fetchCompanyName(companyId),
       fetchTopMover(companyId, start, end, 'revenue'),
       fetchTopMover(companyId, start, end, 'expense'),
+      wantsIncome ? periodic('income', (w) => getIncomeStatement(companyId, w.start, w.end)) : null,
+      wantsBalance ? periodic('balance', (w) => getBalanceSheet(companyId, w.end)) : null,
     ]);
 
   const packData: PackData = {
-    kpis: kpiScorecard.kpis, income, balance, priorIncome, priorYearIncome, plan, budget, varianceNotes, enabledSections,
+    kpis: kpiScorecard.kpis, income, priorIncome, priorYearIncome, incomeReports, balanceReports, plan, budget, varianceNotes, enabledSections,
   };
   const narrative = narrativePrior(packData, plan);
 
   for (const section of sectionRows) {
     const content = renderSection(section.sectionType, packData);
     await updateAfsSection(section.id, doc.id, companyId, {
-      dataSnapshot: budget && isBudgetSection(section.sectionType) ? budgetSnapshot(budget) : income,
+      dataSnapshot: renderSnapshot(section.sectionType, packData),
       content, status: 'auto_generated',
     });
   }
@@ -239,17 +229,18 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   });
 
   const commentaryResults = await Promise.allSettled(
-    sectionRows.filter(section => !isBudgetSection(section.sectionType)).map(section =>
-      generateSectionCommentary({
-        sectionType: section.sectionType, sectionData: income,
-        companyName, period, priorData: narrative.priorData,
-      }).then(commentary => ({ sectionId: section.id, docId: doc.id, commentary })),
-    ),
+    sectionRows.filter(section => hasCommentary(section.sectionType, packData)).map(section => {
+      const { sectionData, priorData } = commentaryInput(section.sectionType, packData, narrative.priorData);
+      return generateSectionCommentary({ sectionType: section.sectionType, sectionData, companyName, period, priorData })
+        .then(commentary => ({ sectionId: section.id, docId: doc.id, commentary }));
+    }),
   );
 
   await Promise.all(
     commentaryResults.map(result => {
       if (result.status === 'fulfilled') {
+        // The AI call's failure sentence is not commentary: leave the section without a narrative.
+        if (result.value.commentary.trim() === '' || result.value.commentary === AI_COMMENTARY_UNAVAILABLE) return Promise.resolve();
         return updateAfsSection(result.value.sectionId, result.value.docId, companyId, {
           aiNarrative: result.value.commentary, status: 'ai_enhanced',
         });
@@ -264,7 +255,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   );
 
   const execSection = sectionRows.find(s => String(s.sectionType) === 'ai_executive_summary');
-  if (execSection) {
+  if (execSection && aiSummary.trim() !== '' && aiSummary !== AI_SUMMARY_UNAVAILABLE) {
     await updateAfsSection(execSection.id, doc.id, companyId, {
       aiNarrative: aiSummary, status: 'ai_enhanced',
     });

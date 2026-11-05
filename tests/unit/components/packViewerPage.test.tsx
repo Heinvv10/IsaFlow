@@ -39,12 +39,13 @@ const pack = {
 };
 
 describe('management pack on the AFS document page', () => {
-  it('opens and lists its sections in sortOrder, with section keys made readable', async () => {
+  it('opens and lists its sections in sortOrder, titled from the section vocabulary, without the cover section', async () => {
     load(pack);
     render(<AfsDocumentPage {...props} />);
     await screen.findByText('Budget Variance');
     const heads = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent);
-    expect(heads).toEqual(['Cover', 'Budget Variance', 'Ai Executive Summary']);
+    expect(heads).toEqual(['Budget Variance', 'AI Executive Summary']);
+    expect(screen.queryByText('Cover commentary')).toBeNull();
     expect(screen.getByText('4100 Sales Revenue')).toBeTruthy();
     expect(screen.getByText('Summary text')).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Management Pack September 2026');
@@ -83,13 +84,27 @@ describe('management pack on the AFS document page', () => {
     expect(tabMounts).not.toHaveBeenCalled();
   });
   it('an unknown block type and non-string cells render without throwing', async () => {
-    load({ ...pack, sections: [sec('cover', 0, { title: 'Cover', blocks: [
+    load({ ...pack, sections: [sec('kpi_scorecard', 0, { title: 'KPI Scorecard', blocks: [
       { type: 'chart', text: 'fallback text' }, { type: 'mystery' },
       { type: 'table', headers: ['A', 'B'], rows: [['x', 42], ['y', { v: 1 }], ['z', null]] },
     ] })] });
     render(<AfsDocumentPage {...props} />);
     expect(await screen.findByText('fallback text')).toBeTruthy();
     expect(screen.getByText('42')).toBeTruthy();
+  });
+  it('a section with nothing in it prints a sentence, an older pack\'s JSON statement prints as a table, an AI failure sentence is not shown', async () => {
+    load({ ...pack, sections: [
+      sec('cash_flow', 0, { title: 'cash_flow', blocks: [] }, 'AI commentary unavailable for this section.'),
+      sec('balance_sheet', 1, { title: 'Balance Sheet', blocks: [{ type: 'paragraph', text: '{"currentAssets":44600,"totalEquity":44600}' }] }),
+      sec('income_statement', 2, { title: 'Income Statement', blocks: [{ type: 'table', headers: ['', 'This month'], rows: [['Net profit', 'R 4.00']], rowKinds: ['total'] }] }),
+    ] });
+    render(<AfsDocumentPage {...props} />);
+    await screen.findByText('Cash Flow');
+    expect(screen.getByText('This section is not yet available in the management pack.')).toBeTruthy();
+    expect(screen.queryByText(/AI commentary unavailable/)).toBeNull();
+    expect(screen.getByText('Current assets')).toBeTruthy();
+    expect(screen.queryByText(/currentAssets/)).toBeNull();
+    expect(screen.getByText('Net profit').closest('tr')?.className).toContain('font-bold');
   });
   it('the title names the pack month, not an AFS year', async () => {
     load(pack);

@@ -1,6 +1,7 @@
 // src/modules/accounting/services/afs/afsHtmlTableRenderer.ts
 
-import type { AfsSection, NoteContent, NoteContentBlock } from './afsTypes';
+import type { AfsSection, NoteContent, NoteContentBlock, NoteTableRowKind } from './afsTypes';
+import { packSectionView } from './managementPackSectionView';
 
 // ── Block renderers ───────────────────────────────────────────────────────────
 
@@ -19,23 +20,25 @@ function renderBlock(block: NoteContentBlock): string {
       return `<ul>${block.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
 
     case 'table':
-      return renderTable(block.headers, block.rows);
+      return renderTable(block.headers, block.rows, block.rowKinds);
 
     default:
       return '';
   }
 }
 
-function renderTable(headers: string[], rows: string[][]): string {
+function renderTable(headers: string[], rows: string[][], rowKinds?: NoteTableRowKind[]): string {
   const theadCells = headers
     .map((h) => `<th>${escapeHtml(h)}</th>`)
     .join('');
   const thead = `<thead><tr>${theadCells}</tr></thead>`;
 
   const tbodyRows = rows
-    .map((row) => {
+    .map((row, i) => {
       const cells = row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('');
-      return `<tr>${cells}</tr>`;
+      // A statement row's kind (heading, subtotal, bottom line) is a class; a table without kinds prints plain rows.
+      const kind = rowKinds?.[i];
+      return kind && kind !== 'line' ? `<tr class="row-${kind}">${cells}</tr>` : `<tr>${cells}</tr>`;
     })
     .join('');
   const tbody = `<tbody>${tbodyRows}</tbody>`;
@@ -70,6 +73,26 @@ export function renderSectionContent(section: AfsSection, chartSvg?: string): st
 <h2>${escapeHtml(noteContent.title)}</h2>
 ${blocks}
 ${chart}
+</section>`;
+}
+
+/**
+ * A management pack section: titled from the section vocabulary, never empty (a section with nothing says
+ * so), with the AI's narrative printed under it, and flowing on from the section before it. The statements
+ * start a page of their own. A section the pack does not print (its cover page stands in) returns ''.
+ */
+const STATEMENT_SECTIONS: readonly string[] = ['income_statement', 'balance_sheet'];
+
+export function renderPackSectionContent(section: AfsSection): string {
+  const view = packSectionView(section);
+  if (!view) return '';
+  const blocks = view.blocks.map(renderBlock).join('\n');
+  const narrative = view.narrative ? `<p class="ai-narrative">${escapeHtml(view.narrative)}</p>` : '';
+  const cls = STATEMENT_SECTIONS.includes(view.key) ? 'pack-section pack-statement' : 'pack-section';
+  return `<section class="${cls}" id="section-${escapeHtml(section.id)}">
+<h2>${escapeHtml(view.title)}</h2>
+${blocks}
+${narrative}
 </section>`;
 }
 
