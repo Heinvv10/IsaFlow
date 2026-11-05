@@ -20,44 +20,70 @@ export interface InProcessAnswer {
   body: unknown;
 }
 
+type Header = string | number | string[];
+
 interface Collector {
   statusCode: number;
   headersSent: boolean;
   writableEnded: boolean;
   destroyed: boolean;
   body: unknown;
-  setHeader(name: string, value: unknown): Collector;
-  getHeader(name: string): unknown;
+  setHeader(name: string, value: Header): Collector;
+  getHeader(name: string): Header | undefined;
+  hasHeader(name: string): boolean;
+  getHeaders(): Record<string, Header>;
+  getHeaderNames(): string[];
   removeHeader(name: string): void;
   status(code: number): Collector;
+  writeHead(code: number, headers?: Record<string, Header>): Collector;
+  write(chunk: unknown): boolean;
   json(body: unknown): Collector;
   send(body: unknown): Collector;
   end(chunk?: unknown): Collector;
   destroy(): void;
 }
 
+/** ServerResponse features a route could reach for that this collector does not implement: they fail by name. */
+const UNSUPPORTED = ['flushHeaders', 'writeContinue', 'writeProcessing', 'addTrailers', 'appendHeader', 'pipe', 'on', 'once', 'emit', 'setTimeout', 'redirect'] as const;
+
 function parseBody(body: unknown): unknown {
-  if (typeof body !== 'string') return body ?? null;
-  try { return JSON.parse(body); } catch { return body; }
+  const text = Buffer.isBuffer(body) ? body.toString('utf8') : body;
+  if (typeof text !== 'string') return text ?? null;
+  try { return JSON.parse(text); } catch { return text; }
 }
 
 function collector(): Collector {
-  const headers = new Map<string, unknown>();
+  const headers = new Map<string, Header>();
+  const chunks: string[] = [];
   const c: Collector = {
     statusCode: 200, headersSent: false, writableEnded: false, destroyed: false, body: null,
     setHeader(name, value) { headers.set(name.toLowerCase(), value); return c; },
     getHeader(name) { return headers.get(name.toLowerCase()); },
+    hasHeader(name) { return headers.has(name.toLowerCase()); },
+    getHeaders() { return Object.fromEntries(headers); },
+    getHeaderNames() { return [...headers.keys()]; },
     removeHeader(name) { headers.delete(name.toLowerCase()); },
     status(code) { c.statusCode = code; return c; },
+    writeHead(code, extra) {
+      c.statusCode = code;
+      for (const [k, v] of Object.entries(extra ?? {})) headers.set(k.toLowerCase(), v);
+      return c;
+    },
+    write(chunk) { chunks.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)); return true; },
     json(body) { c.body = body; return c.end(); },
     send(body) { c.body = parseBody(body); return c.end(); },
     end(chunk) {
-      if (!c.writableEnded && chunk !== undefined && c.body === null) c.body = parseBody(chunk);
+      // A chunk is the answer even over an earlier json(): withAuth replaces a buffered 2xx with its own 500 body this way.
+      if (chunk !== undefined) c.body = parseBody(chunks.join('') + (Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)));
+      else if (chunks.length) c.body = parseBody(chunks.join(''));
       c.writableEnded = true;
       return c;
     },
     destroy() { c.destroyed = true; },
   };
+  for (const name of UNSUPPORTED) {
+    (c as unknown as Record<string, unknown>)[name] = () => { throw new Error(`callApiInProcess: res.${name} is not supported`); };
+  }
   return c;
 }
 
