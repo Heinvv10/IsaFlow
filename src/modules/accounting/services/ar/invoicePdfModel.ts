@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto';
 import { sql, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getCompanyDetailsFromCompany } from '../core/pdfShared';
-import { companyTermsFromSetting, describePaymentTerms, effectiveTerms } from '../shared/paymentTerms';
+import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, describePaymentTerms, dueDateFromTerms, effectiveTerms } from '../shared/paymentTerms';
 import type { PrintedCompany } from '../core/pdfPrintedCompany';
 
 /** The invoice row's own fields (all a draft PUT's lock covers), as printed or shown. */
@@ -30,7 +30,7 @@ const INVOICE_FIELDS = ['invoice_number', 'invoice_date', 'due_date', 'status', 
   'billing_period_end'] as const;
 /** Joined from other tables (the customer, the job), as printed. */
 const JOINED_FIELDS = ['project_name', 'client_name', 'client_address', 'client_contact', 'client_email', 'client_phone',
-  'client_vat', 'client_terms'] as const;
+  'client_vat', 'client_terms', 'client_terms_immediate'] as const;
 
 export type InvoicePdfHeader = Record<(typeof INVOICE_FIELDS)[number] | (typeof JOINED_FIELDS)[number], unknown>;
 export interface InvoicePdfLine { description: unknown; quantity: unknown; unit_price: unknown; amount: unknown; tax_rate: unknown }
@@ -64,7 +64,7 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     LEFT JOIN projects p ON p.id = ci.project_id AND p.company_id = ci.company_id
     LEFT JOIN companies co ON co.id = ci.company_id
-    LEFT JOIN accounting_settings ds ON ds.company_id = ci.company_id AND ds.key = 'default_payment_terms'
+    LEFT JOIN accounting_settings ds ON ds.company_id = ci.company_id AND ds.key = ${COMPANY_DEFAULT_TERMS_KEY}
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
   `) as Row[];
   const r = rows[0];
@@ -75,11 +75,20 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
     WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
     ORDER BY cii.line_position NULLS LAST, cii.created_at, cii.id -- the entry order (956); as the detail GET
   `) as InvoicePdfLine[];
-  // The terms printed: the customer's own, else the company default (migration 960). Shown digest only: the draft digest
-  // covers the invoice row, and a customer's terms edited meanwhile must not refuse a draft's autosave.
+  // The terms printed: the customer's own, else the company default (migration 960) — but only when they are what dated
+  // THIS invoice: the customer's CURRENT terms may have changed since (or the date was typed), and a PDF must not state
+  // terms its own due date contradicts. So the terms line prints only when the invoice date plus these terms gives exactly
+  // the stored due date; otherwise it is null and the PDF shows the due date alone. "On Receipt" follows the terms VALUE
+  // (0 days from invoice), not their wording. Shown digest only: the draft digest covers the invoice row, and a customer's
+  // terms edited meanwhile must not refuse a draft's autosave.
   const terms = effectiveTerms(r.contact_terms_days == null ? null : Number(r.contact_terms_days), r.contact_terms_type as string | null,
     companyTermsFromSetting(r.company_default_terms));
-  const invoice = { ...pick(r, INVOICE_FIELDS), ...pick(r, JOINED_FIELDS), client_terms: describePaymentTerms(terms.days, terms.type) };
+  const datedByTerms = r.due_date != null && dueDateFromTerms(String(r.invoice_date), terms.days, terms.type) === String(r.due_date);
+  const invoice = {
+    ...pick(r, INVOICE_FIELDS), ...pick(r, JOINED_FIELDS),
+    client_terms: datedByTerms ? describePaymentTerms(terms.days, terms.type) : null,
+    client_terms_immediate: terms.days === 0 && terms.type === 'invoice_days',
+  };
   const company = r.company_found ? companyOf(r) : await settingsCompany(companyId, invoiceId, forDigest);
   return { model: { company, invoice, items }, approvalDigest: text(r.approval_digest) };
 }

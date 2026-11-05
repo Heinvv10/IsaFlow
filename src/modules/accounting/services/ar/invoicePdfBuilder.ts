@@ -6,7 +6,6 @@
 import { log } from '@/lib/logger';
 import { loadInvoicePdfModel, type InvoicePdfLine, type InvoicePdfModel } from './invoicePdfModel';
 import { allocateVatToLines } from './vatLineAllocation';
-import { describePaymentTerms } from '../shared/paymentTerms';
 import {
   fmtZAR, fmtDate, COLORS,
   renderPageFooters,
@@ -15,8 +14,6 @@ import {
   renderTotalsBlock, renderPaymentDetails, renderNotesBlock,
   type TotalLine,
 } from '../core/pdfShared';
-
-const IMMEDIATE_WORDS = describePaymentTerms(0, 'invoice_days');
 
 /**
  * `given`: a model already loaded (the approval's, loaded once under its row lock and compared): rendered as it is,
@@ -109,15 +106,13 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
     },
     {
       label: 'Due Date',
-      // "On Receipt" only beside terms that say so; an undated invoice on other terms prints no date, never a contradiction.
+      // "On Receipt" only for an undated invoice whose terms ARE immediate (by value); on other terms no date, never a contradiction.
       value: inv.due_date
         ? fmtDate(inv.due_date as string | Date | null | undefined)
-        : (termsText === IMMEDIATE_WORDS ? 'On Receipt' : '—'),
+        : (inv.client_terms_immediate === true ? 'On Receipt' : '—'),
     },
-    {
-      label: 'Terms',
-      value: termsText || '—',
-    },
+    // The terms line is printed only when the model says these terms dated the invoice; otherwise the due date stands alone.
+    ...(termsText ? [{ label: 'Terms', value: termsText }] : []),
   ];
   y = renderRefStrip(doc, y, PAGE_W, MARGIN, refFields);
 

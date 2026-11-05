@@ -32,7 +32,7 @@ function model(over: Record<string, unknown>): InvoicePdfModel {
       subtotal: '100.00', tax_rate: '15.00', tax_amount: '15.00', total_amount: '115.00', amount_paid: '0', currency_code: 'ZAR',
       exchange_rate: '1', notes: null, billing_period_start: null, billing_period_end: null, project_name: null, client_name: 'Acme',
       client_address: null, client_contact: null, client_email: null, client_phone: null, client_vat: null,
-      client_terms: '30 days from invoice date', ...over },
+      client_terms: '30 days from invoice date', client_terms_immediate: false, ...over },
     items: [{ description: 'Line', quantity: '1.00', unit_price: '100.00', amount: '100.00', tax_rate: '15.00' }],
   } as unknown as InvoicePdfModel;
 }
@@ -51,22 +51,26 @@ describe('the PDF header strip', () => {
     expect(JSON.stringify(shown.fields)).not.toContain('30 Days');
   });
 
-  it('"On Receipt" only for an undated invoice whose terms are Immediate', async () => {
-    await generateInvoicePdf('co', 'inv', model({ due_date: null, client_terms: 'Immediate' }));
+  it('"On Receipt" follows the terms VALUE (0 days from invoice), not their wording', async () => {
+    await generateInvoicePdf('co', 'inv', model({ due_date: null, client_terms: null, client_terms_immediate: true }));
     expect(printed('Due Date')).toBe('On Receipt');
-    expect(printed('Terms')).toBe('Immediate');
+  });
+
+  it('the words "Immediate" do not make "On Receipt" when the value says otherwise', async () => {
+    await generateInvoicePdf('co', 'inv', model({ due_date: null, client_terms: 'Immediate', client_terms_immediate: false }));
+    expect(printed('Due Date')).toBe('—');
   });
 
   it('an undated invoice on other terms prints no date: never "On Receipt" beside a contradicting term', async () => {
-    await generateInvoicePdf('co', 'inv', model({ due_date: null, client_terms: '60 days from invoice date' }));
+    await generateInvoicePdf('co', 'inv', model({ due_date: null, client_terms: null }));
     expect(printed('Due Date')).toBe('—');
-    expect(printed('Terms')).toBe('60 days from invoice date');
     expect(JSON.stringify(shown.fields)).not.toContain('On Receipt');
   });
 
-  it('a model with no terms prints a dash, not a made-up 30 Days', async () => {
-    await generateInvoicePdf('co', 'inv', model({ client_terms: undefined }));
-    expect(printed('Terms')).toBe('—');
+  it('a model with no terms line prints no Terms field at all: the due date stands alone', async () => {
+    await generateInvoicePdf('co', 'inv', model({ client_terms: null }));
+    expect(shown.fields.map((f) => f.label)).toEqual(['Invoice #', 'Project', 'Issue Date', 'Due Date']);
+    expect(JSON.stringify(shown.fields)).not.toContain('30 Days');
   });
 });
 
@@ -80,16 +84,28 @@ describe('the model\'s client_terms', () => {
   beforeEach(() => { shown.rows = []; });
 
   it.each([
-    ['the customer\'s own terms', { contact_terms_days: 45, contact_terms_type: 'invoice_days' }, '45 days from invoice date'],
-    ['a legacy days row', { contact_terms_days: 45, contact_terms_type: 'days' }, '45 days from invoice date'],
-    ['statement months', { contact_terms_days: 3, contact_terms_type: 'statement_months' }, '3 months after statement'],
-    ['none: 30 days from invoice, the company\'s start', {}, '30 days from invoice date'],
-    ['none: the company\'s own default', { company_default_terms: '{"days":2,"type":"statement_months"}' }, '2 months after statement'],
-    ['own terms beat the company default', { contact_terms_days: 0, contact_terms_type: 'invoice_days', company_default_terms: '{"days":2,"type":"statement_months"}' }, 'Immediate'],
+    ['the customer\'s own terms', { contact_terms_days: 45, contact_terms_type: 'invoice_days', due_date: '2026-10-16' }, '45 days from invoice date'],
+    ['a legacy days row', { contact_terms_days: 45, contact_terms_type: 'days', due_date: '2026-10-16' }, '45 days from invoice date'],
+    ['statement months', { contact_terms_days: 3, contact_terms_type: 'statement_months', due_date: '2026-12-31' }, '3 months after statement'],
+    ['none: 30 days from invoice, the company\'s start', { due_date: '2026-10-01' }, '30 days from invoice date'],
+    ['none: the company\'s own default', { company_default_terms: '{"days":2,"type":"statement_months"}', due_date: '2026-11-30' }, '2 months after statement'],
+    ['own terms beat the company default', { contact_terms_days: 0, contact_terms_type: 'invoice_days', company_default_terms: '{"days":2,"type":"statement_months"}', due_date: '2026-09-01' }, 'Immediate'],
+    // The terms line is only printed when these terms dated THIS invoice: otherwise it would contradict the date beside it.
+    ['terms changed since: the stored date is not what the terms give', { contact_terms_days: 60, contact_terms_type: 'invoice_days', due_date: '2026-10-01' }, null],
+    ['a date someone typed', { contact_terms_days: 3, contact_terms_type: 'statement_months', due_date: '2026-11-11' }, null],
+    ['an undated invoice', { contact_terms_days: 45, contact_terms_type: 'invoice_days', due_date: null }, null],
   ])('%s', async (_why, over, words) => {
     shown.rows = [row(over)];
     const m = await loadInvoicePdfModel('co', 'inv');
     expect((m!.invoice as Record<string, unknown>).client_terms).toBe(words);
+  });
+
+  it.each([
+    [0, 'invoice_days', true], [0, 'statement_days', false], [1, 'invoice_days', false], [null, null, false],
+  ])('client_terms_immediate for (%s, %s) is %s: by value, whatever the words', async (days, type, immediate) => {
+    shown.rows = [row({ contact_terms_days: days, contact_terms_type: type, due_date: null })];
+    const m = await loadInvoicePdfModel('co', 'inv');
+    expect((m!.invoice as Record<string, unknown>).client_terms_immediate).toBe(immediate);
   });
 
   it('is in the shown digest and not in the draft digest', () => {
