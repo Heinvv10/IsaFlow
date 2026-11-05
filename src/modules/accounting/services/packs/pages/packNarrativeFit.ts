@@ -34,9 +34,18 @@ function withoutFitterMarks<T extends MeasurablePage>(page: T): T {
   } as T;
 }
 
+/**
+ * THE FIT EVERY BODY PAGE GOES THROUGH: the narrative layout first, then `fitPageReport`. Exported so that
+ * anything that PROBES whether a page fits (page 6's `incomeSheetWithBudget`, choosing between its
+ * compositions) asks exactly the question `fitBodyPage` will ask of the page it returns, and the two cannot drift.
+ */
+export function fitRelaidPage<T extends MeasurablePage>(page: T, reserveMm = 0): ReturnType<typeof fitPageReport<T>> {
+  return fitPageReport(relaidNarrative(page), reserveMm);
+}
+
 export function fitBodyPage<T extends MeasurablePage>(page: T, pageNumber: number): T {
   try {
-    const { page: fitted, dropped } = fitPageReport(relaidNarrative(page));
+    const { page: fitted, dropped } = fitRelaidPage(page);
     // Logged here, for the page that is actually used (see `warnCaptionDropped`).
     warnCaptionDropped(page.navLabel, dropped);
     return withoutFitterMarks(fitted);

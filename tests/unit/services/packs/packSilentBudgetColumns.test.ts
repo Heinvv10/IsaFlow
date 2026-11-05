@@ -14,6 +14,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
+import { BUDGET_COLUMNS_DROPPED_NOTE } from '@/modules/accounting/services/packs/pages/packIncomeBudget';
+import { fitRelaidPage } from '@/modules/accounting/services/packs/pages/packNarrativeFit';
+import { relaidNarrative } from '@/modules/accounting/services/packs/pages/packNarrativeLayout';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { input, type Shape } from './fixtures/page6Grid';
 
@@ -69,6 +72,22 @@ describe('the omission note on a budget company\'s page 6 that has no budget col
   it('the fitter\'s instruction does not reach the document', () => {
     const doc = buildBoardPackPages(input({ tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1, plug: 0.05, sg: [-1, 1, 1, 1] }));
     expect(JSON.stringify(doc.pages)).not.toContain('columnsLeftOut');
+  });
+});
+
+describe('a plain fallback that fits untouched still says the columns are not printed (the adversary\'s advSilentBudgetFits)', () => {
+  it('no trend panels, R30m, plug 20%: the dropped-columns footnote prints, the derived caption pays for it', () => {
+    const { page } = p6({ tr: 'none', budget: true, prior: true, negative: false, loss: false, k: 30000, plug: 0.2, sg: [1, 1, -1, 1] });
+    expect(hasColumns(page)).toBe(false);
+    expect(page.footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE)).toBe(true);
+  });
+});
+
+describe('the budget probe and the real body fit are one function', () => {
+  it('fitRelaidPage is what fitBodyPage applies: relaying changes nothing on page 6 (its caption has no board actions), so the probe and the real path agree', () => {
+    const page = p6({ tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1000, plug: 0.2, sg: [-1, 1, -1, -1] }).page;
+    expect(fitRelaidPage(page).page).toBe(page);
+    expect(relaidNarrative(page)).toBe(page);
   });
 });
 
