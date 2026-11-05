@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { clampLimit } from '@/lib/pagination';
 import { toFunctional } from '../shared/functionalAmounts';
+import { COMPANY_DEFAULT_TERMS_KEY } from '../shared/paymentTerms';
 
 type Row = DbRow;
 
@@ -165,6 +166,8 @@ export async function getSetting(key: string, companyId?: string): Promise<strin
 
 export async function setSetting(key: string, value: string, _userId: string, companyId?: string): Promise<void> {
   // DB schema uses 'key'/'value' columns, UNIQUE(company_id, key) — migration 255_fix_missing_schema
+  // The company default terms are owner/admin only and recorded: they are written by setCompanyDefaultTerms alone.
+  if (key === COMPANY_DEFAULT_TERMS_KEY) throw new Error('The default payment terms are set through setCompanyDefaultTerms only');
   if (companyId) {
     await sql`
       INSERT INTO accounting_settings (company_id, key, value)
