@@ -16,7 +16,7 @@ import {
 import { generateExecutiveSummary, generateSectionCommentary } from './packAiSummaryService';
 import { deliverPack } from './packDeliveryService';
 import {
-  capturePackFault, comparisonPlan, isBudgetSection, loadPackBudget, narrativePrior, samePeriodLastYear,
+  comparisonPlan, isBudgetSection, loadPackBudget, narrativePrior, samePeriodLastYear,
 } from './managementPackComparison';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { loadPackVarianceNoteBlocks } from './managementPackVarianceNotes';
@@ -141,14 +141,43 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const varianceNotes = budget?.kind === 'report' && enabledSections.includes('budget_variance')
     ? await loadPackVarianceNoteBlocks(companyId, budget.report) : [];
 
-  const doc = await createAfsDocument({
-    companyId, period, documentType: 'management_pack', reportingFramework: 'ifrs_smes',
-  });
-
   const { start, end } = periodBounds(period);
   const prior = priorPeriod(period);
   const { start: priorStart, end: priorEnd } = periodBounds(prior);
   const { start: yearAgoStart, end: yearAgoEnd } = periodBounds(samePeriodLastYear(period));
+
+  // The income statement also feeds the AI summary and the figures stored beside it, so they cannot disagree with the table.
+  const wantsIncome = enabledSections.includes('income_statement') || enabledSections.includes('ai_executive_summary');
+  const wantsBalance = enabledSections.includes('balance_sheet');
+  // The statements are the Reports screens' own: the same services, over the same windows. Only a refusal (no system
+  // account) leaves its section saying so and the pack generates. Any other fault (database, RLS, a bug) aborts the
+  // pack, so a review-free pack is never signed off and delivered incomplete; they are read before the document is
+  // created, so an aborted run leaves nothing that blocks the month's re-run. The savepoint keeps a refused query from
+  // aborting the request's transaction, so its reads run one after another: none can land after the ROLLBACK TO.
+  const periodic = async <R>(name: string, read: (w: { start: string; end: string }) => Promise<R>): Promise<Periodic<R> | null> => {
+    try {
+      return await withSavepoint(`mgmt_pack_${name}`, async () => {
+        const current = await read({ start, end });
+        const priorR = plan.priorMonth ? await read({ start: priorStart, end: priorEnd }) : null;
+        const yearAgo = plan.priorYear ? await read({ start: yearAgoStart, end: yearAgoEnd }) : null;
+        return { current, prior: priorR, yearAgo };
+      });
+    } catch (err) {
+      const fields = { companyId, period, statement: name, errorClass: err instanceof Error ? err.name : typeof err, error: err instanceof Error ? err.message : String(err) };
+      if (!(err instanceof MissingSystemAccountError)) {
+        log.error('management pack: a statement read failed; the pack is not generated', fields, 'managementPackGeneratorService');
+        throw err;
+      }
+      log.warn('management pack: a statement could not be read (no system account); its section says so', fields, 'managementPackGeneratorService');
+      return null;
+    }
+  };
+  const incomeReports = wantsIncome ? await periodic('income', (w) => getIncomeStatement(companyId, w.start, w.end)) : null;
+  const balanceReports = wantsBalance ? await periodic('balance', (w) => getBalanceSheet(companyId, w.end)) : null;
+
+  const doc = await createAfsDocument({
+    companyId, period, documentType: 'management_pack', reportingFramework: 'ifrs_smes',
+  });
 
   const sectionRows = await Promise.all(
     enabledSections.map((sectionType, idx) =>
@@ -160,35 +189,6 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
       }),
     ),
   );
-
-  // The income statement also feeds the AI summary and the figures stored beside it, so they cannot disagree with the table.
-  const wantsIncome = enabledSections.includes('income_statement') || enabledSections.includes('ai_executive_summary');
-  const wantsBalance = enabledSections.includes('balance_sheet');
-  // The statements are the Reports screens' own: the same services, over the same windows. One that cannot be read
-  // leaves its section saying so; it does not stop the pack (the budget path's rule: a refusal is a warning, any
-  // other fault is also reported to Bugsink). The savepoint keeps a failed query from aborting the request's
-  // transaction, so its reads run one after another: none can land after the ROLLBACK TO.
-  const periodic = async <R>(name: string, read: (w: { start: string; end: string }) => Promise<R>): Promise<Periodic<R> | null> => {
-    try {
-      return await withSavepoint(`mgmt_pack_${name}`, async () => {
-        const current = await read({ start, end });
-        const priorR = plan.priorMonth ? await read({ start: priorStart, end: priorEnd }) : null;
-        const yearAgo = plan.priorYear ? await read({ start: yearAgoStart, end: yearAgoEnd }) : null;
-        return { current, prior: priorR, yearAgo };
-      });
-    } catch (err) {
-      const fields = { companyId, period, statement: name, errorClass: err instanceof Error ? err.name : typeof err, error: err instanceof Error ? err.message : String(err) };
-      if (err instanceof MissingSystemAccountError) {
-        log.warn('management pack: a statement could not be read (no system account); its section says so', fields, 'managementPackGeneratorService');
-      } else {
-        log.error('management pack: a statement read failed; its section says so', fields, 'managementPackGeneratorService');
-        capturePackFault(err, companyId);
-      }
-      return null;
-    }
-  };
-  const incomeReports = wantsIncome ? await periodic('income', (w) => getIncomeStatement(companyId, w.start, w.end)) : null;
-  const balanceReports = wantsBalance ? await periodic('balance', (w) => getBalanceSheet(companyId, w.end)) : null;
 
   const [kpiScorecard, companyName, topRevenue, topExpense] = await Promise.all([
     getKpiScorecard(companyId, period),
