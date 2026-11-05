@@ -26,8 +26,8 @@ const ID = 'uuuuuuuu-0000-4000-8000-uuuuuuuuuuuu';
 // Parameter positions of the (days, type) pair in each statement, from the column order in the services.
 const CUSTOMER_CREATE = { days: 12, type: 13 };
 const SUPPLIER_CREATE = { days: 9, type: 10 };
-const CUSTOMER_UPDATE = { mode: 11, days: 12, type: 14 };
-const SUPPLIER_UPDATE = { mode: 8, days: 9, type: 11 };
+const CUSTOMER_UPDATE = { mode: 21, days: 22, type: 24 };
+const SUPPLIER_UPDATE = { mode: 17, days: 18, type: 20 };
 
 const params = (): unknown[] => mockSql.mock.calls[0]!.slice(1);
 

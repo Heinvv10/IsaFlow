@@ -104,9 +104,9 @@ describe('createSupplier — auto_allocate_strategy', () => {
 describe('updateSupplier — auto_allocate_strategy', () => {
   // Position confirmed against the current column order in supplierWriteService.ts:
   // ...category, auto_allocate_strategy, auto_allocate_payments, [updated_at=NOW() has no param], id, company_id
-  // After the payment-terms triple (mode, days, mode, type) the update binds, 958.
-  const STRATEGY_INDEX = 19;
-  const BOOLEAN_INDEX = 20;
+  // After each cleared-flag / value pair and the terms quartet the update binds (migration 958, edit page).
+  const STRATEGY_INDEX = 33;
+  const BOOLEAN_INDEX = 34;
 
   it('updates both columns in sync when a valid strategy is supplied', async () => {
     await updateSupplier(COMPANY_ID, SUPPLIER_ID, { autoAllocateStrategy: 'newest' });

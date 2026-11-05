@@ -2,6 +2,7 @@
  * Customers API
  * GET  /api/accounting/customers         - List customers (optional ?q= search)
  * POST /api/accounting/customers         - Create a new customer
+ * PUT  /api/accounting/customers         - Edit a customer: { id, ...fields }; a blank text field is cleared
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -10,9 +11,10 @@ import { apiResponse } from '@/lib/apiResponse';
 import { UUID_RE } from '@/lib/validation';
 import {
   createCustomer,
+  updateCustomer,
   ContactValidationError,
 } from '@/modules/accounting/services/core/customerWriteService';
-import type { AutoAllocateStrategy } from '@/modules/accounting/services/shared/autoAllocateStrategy';
+import { customerInputFromBody, customerPatchFromBody } from '@/modules/accounting/services/core/contactRequestInput';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -86,8 +88,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // not a UUID keeps its old answer (the list), which the detail page still filters itself.
       if (typeof id === 'string' && UUID_RE.test(id)) {
         const found = (await sql`
-          SELECT id, name, email, phone, contact_person, payment_terms, payment_terms_type, default_discount, default_vat_type,
-                 credit_limit, is_active, vat_number, registration_number, created_at
+          SELECT id, name, email, phone, mobile, fax, web_address, contact_person, payment_terms, payment_terms_type,
+                 default_discount, default_vat_type, default_price_list, credit_limit, is_active, cash_sale,
+                 accepts_electronic_invoices, invoices_viewable_online, subject_to_drc_vat, statement_distribution,
+                 auto_allocate_strategy, category_id, billing_address, shipping_address, notes,
+                 vat_number, registration_number, created_at
           FROM customers
           WHERE id = ${id}::uuid AND company_id = ${companyId} AND deleted_at IS NULL
         `) as Row[];
@@ -114,41 +119,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // ─── POST: Create customer ──────────────────────────────────────────────────
   if (req.method === 'POST') {
     try {
-      const b = req.body as Record<string, unknown>;
-      const s = (k: string) => (typeof b[k] === 'string' ? (b[k] as string) : undefined);
-      const n = (k: string) => {
-        const v = b[k];
-        return v !== undefined && v !== null && v !== '' ? Number(v) : undefined;
-      };
-      const bool = (k: string) => (typeof b[k] === 'boolean' ? (b[k] as boolean) : undefined);
-
-      // Field validation and the INSERT itself live in customerWriteService, so
-      // this route and create_customer over MCP cannot drift apart.
-      const rows = [await createCustomer(companyId, {
-        name: s('name'),
-        email: s('email'), phone: s('phone'), mobile: s('mobile'), fax: s('fax'),
-        webAddress: s('web_address'),
-        vatNumber: s('vat_number'), registrationNumber: s('registration_number'),
-        billingAddress: s('billing_address'), shippingAddress: s('shipping_address'),
-        contactPerson: s('contact_person'),
-        paymentTerms: n('payment_terms'), paymentTermsType: s('payment_terms_type'),
-        creditLimit: n('credit_limit'), isActive: bool('is_active'), notes: s('notes'),
-        categoryId: s('category_id'), cashSale: bool('cash_sale'),
-        openingBalance: n('opening_balance'), openingBalanceDate: s('opening_balance_date'),
-        acceptsElectronicInvoices: bool('accepts_electronic_invoices'),
-        // auto_allocate_strategy is the only field that decides this. The
-        // legacy boolean below is still ACCEPTED but no longer selects a
-        // strategy: an old client sending only `auto_allocate_receipts: true`
-        // gets no error and no effect. Deliberate — see the note on the
-        // supplier route and migration 614.
-        autoAllocateStrategy: s('auto_allocate_strategy') as AutoAllocateStrategy | undefined,
-        autoAllocateReceipts: bool('auto_allocate_receipts'),
-        statementDistribution: s('statement_distribution'),
-        defaultDiscount: n('default_discount'), defaultVatType: s('default_vat_type'),
-        subjectToDrcVat: bool('subject_to_drc_vat'),
-        invoicesViewableOnline: bool('invoices_viewable_online'),
-        defaultPriceList: s('default_price_list'),
-      })];
+      // Field validation and the INSERT itself live in customerWriteService, so this route, the edit (PUT) and
+      // create_customer over MCP cannot drift apart.
+      const rows = [await createCustomer(companyId, customerInputFromBody(req.body as Record<string, unknown>))];
 
       log.info('Customer created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
       return apiResponse.success(res, rows[0]);
@@ -162,7 +135,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
+  // ─── PUT: Edit a customer ───────────────────────────────────────────────────
+  // The same update the MCP update_customer tool runs, so the entity history row (entity_change_capture, a trigger)
+  // is written the same way: under this request's transaction, as this user.
+  if (req.method === 'PUT') {
+    const b = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+    const id = typeof b.id === 'string' ? b.id : '';
+    if (!UUID_RE.test(id)) return apiResponse.badRequest(res, 'id must be a customer id');
+    try {
+      const row = await updateCustomer(companyId, id, customerPatchFromBody(b));
+      if (!row) return apiResponse.notFound(res, 'Customer');
+      log.info('Customer updated', { id, module: 'accounting' });
+      return apiResponse.success(res, { id: String(row.id), name: String(row.name), is_active: row.is_active });
+    } catch (err: unknown) {
+      if (err instanceof ContactValidationError) return apiResponse.badRequest(res, err.message);
+      const message = err instanceof Error ? err.message : String(err);
+      log.error('customers PUT failed', { error: message, module: 'accounting' });
+      return apiResponse.internalError(res, err, 'Failed to update customer');
+    }
+  }
+
+  return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'PUT']);
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

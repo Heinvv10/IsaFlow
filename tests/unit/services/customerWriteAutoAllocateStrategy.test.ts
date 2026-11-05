@@ -105,8 +105,9 @@ describe('createCustomer — auto_allocate_strategy', () => {
 });
 
 describe('updateCustomer — auto_allocate_strategy', () => {
-  const STRATEGY_INDEX = 24;
-  const BOOLEAN_INDEX = 25;
+  // After each cleared-flag / value pair and the terms quartet the update binds (migration 958, edit page).
+  const STRATEGY_INDEX = 38;
+  const BOOLEAN_INDEX = 39;
 
   it('updates both columns in sync when a valid strategy is supplied', async () => {
     await updateCustomer(COMPANY_ID, CUSTOMER_ID, { autoAllocateStrategy: 'newest' });

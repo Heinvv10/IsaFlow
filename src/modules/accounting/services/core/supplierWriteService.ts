@@ -18,6 +18,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { ContactValidationError, boundedText } from './customerWriteService';
 import { termsColumns } from './contactTerms';
+import { clearFlags } from './contactClear';
 import {
   AUTO_ALLOCATE_STRATEGIES,
   parseAutoAllocateStrategy,
@@ -59,7 +60,17 @@ export interface SupplierWriteInput {
   autoAllocatePayments?: boolean;
   /** The supplier's supplies fall under the domestic reverse charge; the one thing DRC VAT eligibility reads. */
   subjectToDrcVat?: boolean;
+  /** Where invoice-chase messages go (WhatsApp). */
+  whatsappNumber?: string | null;
+  /** Update only: fields to set to NULL (see `contactClear`); a field in SUPPLIER_CLEARABLE. */
+  clear?: readonly string[];
 }
+
+/** Not bankAccountNumber: the account a payment run pays into is replaced, never blanked, by an edit. */
+export const SUPPLIER_CLEARABLE = [
+  'companyName', 'email', 'phone', 'vatNumber', 'registrationNumber', 'address', 'contactPerson', 'bankName',
+  'bankBranchCode', 'bankAccountType', 'notes', 'category', 'whatsappNumber',
+] as const;
 
 function trimmed(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
@@ -131,7 +142,7 @@ export async function createSupplier(
       payment_terms, payment_terms_type,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
-      opening_balance, opening_balance_date, subject_to_drc_vat,
+      opening_balance, opening_balance_date, subject_to_drc_vat, whatsapp_number,
       auto_allocate_strategy, auto_allocate_payments
     ) VALUES (
       ${companyId}::UUID,
@@ -155,6 +166,7 @@ export async function createSupplier(
       ${input.openingBalance ?? 0},
       ${trimmed(input.openingBalanceDate)}::DATE,
       ${input.subjectToDrcVat ?? false},
+      ${trimmed(input.whatsappNumber)},
       ${strategy},
       ${strategy !== 'off'}
     )
@@ -165,7 +177,7 @@ export async function createSupplier(
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
       opening_balance, opening_balance_date,
-      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat,
+      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat, whatsapp_number,
       created_at
   `) as DbRow[];
 
@@ -203,6 +215,7 @@ export async function updateSupplier(
   // handles every other omitted field.
   const strategy = resolveStrategy(input.autoAllocateStrategy);
   const terms = termsColumns(input);
+  const cl = clearFlags(input.clear, SUPPLIER_CLEARABLE, input);
   // Every value validated BEFORE the first statement: a refusal runs no SQL.
   const v = {
     phone: boundedText(input.phone, 'phone', 50),
@@ -220,27 +233,29 @@ export async function updateSupplier(
   // row actually replaced, even when a concurrent edit committed first.
   // A write naming a bank column, or the name (approval content since migration 923), may stamp the batches paying
   // this supplier: they are locked before the row.
-  const bankMayChange = [name, v.bankName, v.bankAccountNumber, v.bankBranchCode, v.bankAccountType].some((x) => x !== null);
+  const bankMayChange = [name, v.bankName, v.bankAccountNumber, v.bankBranchCode, v.bankAccountType].some((x) => x !== null)
+    || cl.bankName || cl.bankBranchCode || cl.bankAccountType;
   const before = await lockSupplierBankDetails(companyId, supplierId, bankMayChange);
   const rows = (await sql`
     UPDATE suppliers SET
       name                = COALESCE(${name}, name),
-      company_name        = COALESCE(${trimmed(input.companyName)}, company_name),
-      email               = COALESCE(${trimmed(input.email)}, email),
-      phone               = COALESCE(${v.phone}, phone),
-      vat_number          = COALESCE(${v.vatNumber}, vat_number),
-      registration_number = COALESCE(${v.registrationNumber}, registration_number),
-      address             = COALESCE(${trimmed(input.address)}, address),
-      contact_person      = COALESCE(${trimmed(input.contactPerson)}, contact_person),
+      company_name        = CASE WHEN ${cl.companyName} THEN NULL ELSE COALESCE(${trimmed(input.companyName)}, company_name) END,
+      email               = CASE WHEN ${cl.email} THEN NULL ELSE COALESCE(${trimmed(input.email)}, email) END,
+      phone               = CASE WHEN ${cl.phone} THEN NULL ELSE COALESCE(${v.phone}, phone) END,
+      vat_number          = CASE WHEN ${cl.vatNumber} THEN NULL ELSE COALESCE(${v.vatNumber}, vat_number) END,
+      registration_number = CASE WHEN ${cl.registrationNumber} THEN NULL ELSE COALESCE(${v.registrationNumber}, registration_number) END,
+      address             = CASE WHEN ${cl.address} THEN NULL ELSE COALESCE(${trimmed(input.address)}, address) END,
+      contact_person      = CASE WHEN ${cl.contactPerson} THEN NULL ELSE COALESCE(${trimmed(input.contactPerson)}, contact_person) END,
+      whatsapp_number     = CASE WHEN ${cl.whatsappNumber} THEN NULL ELSE COALESCE(${trimmed(input.whatsappNumber)}, whatsapp_number) END,
       payment_terms       = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.days}::INT WHEN 'clear' THEN NULL ELSE payment_terms END,
       payment_terms_type  = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'clear' THEN NULL ELSE payment_terms_type END,
-      bank_name           = COALESCE(${v.bankName}, bank_name),
+      bank_name           = CASE WHEN ${cl.bankName} THEN NULL ELSE COALESCE(${v.bankName}, bank_name) END,
       bank_account_number = COALESCE(${v.bankAccountNumber}, bank_account_number),
-      bank_branch_code    = COALESCE(${v.bankBranchCode}, bank_branch_code),
-      bank_account_type   = COALESCE(${v.bankAccountType}, bank_account_type),
+      bank_branch_code    = CASE WHEN ${cl.bankBranchCode} THEN NULL ELSE COALESCE(${v.bankBranchCode}, bank_branch_code) END,
+      bank_account_type   = CASE WHEN ${cl.bankAccountType} THEN NULL ELSE COALESCE(${v.bankAccountType}, bank_account_type) END,
       is_active           = COALESCE(${input.isActive ?? null}, is_active),
-      notes               = COALESCE(${trimmed(input.notes)}, notes),
-      category            = COALESCE(${v.category}, category),
+      notes               = CASE WHEN ${cl.notes} THEN NULL ELSE COALESCE(${trimmed(input.notes)}, notes) END,
+      category            = CASE WHEN ${cl.category} THEN NULL ELSE COALESCE(${v.category}, category) END,
       auto_allocate_strategy = COALESCE(${strategy ?? null}, auto_allocate_strategy),
       auto_allocate_payments = COALESCE(
         ${strategy !== undefined ? strategy !== 'off' : null}, auto_allocate_payments
@@ -257,7 +272,7 @@ export async function updateSupplier(
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
       opening_balance, opening_balance_date,
-      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat,
+      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat, whatsapp_number,
       created_at
   `) as DbRow[];
 
