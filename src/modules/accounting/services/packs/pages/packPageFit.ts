@@ -114,6 +114,7 @@ function lastTrimmableNote(blocks: PackPageBlock[], level: 'optional' | 'require
     if (block.kind !== 'disclosure') continue;
     const required = block.disclosure.required === true;
     if (required !== (level === 'required')) continue;
+    if (block.disclosure.neverTrim === true) continue;
     if (block.disclosure.notes.length > (required ? 1 : 0)) return i;
   }
   return null;

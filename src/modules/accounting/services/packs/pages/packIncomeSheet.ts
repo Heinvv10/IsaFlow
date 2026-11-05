@@ -44,6 +44,25 @@ const INCOME_LINE_SIDE: Record<string, 'income' | 'cost' | undefined> = {
   'is.otherExpenses': 'cost',
 };
 
+/**
+ * THE TWO REQUIRED DISCLOSURES UNDER ONE HEADING, WHERE THE PAGE CANNOT CARRY THEM APART.
+ *
+ * "Lines below zero" and "How much of this bridge is unexplained" each cost a heading and a gap;
+ * together they cost 9.8mm less, with every note kept word for word under its own note heading.
+ * Net-debit revenue with another line below zero and a material interest/tax step needs 256 to
+ * 261mm of 255mm as two blocks. Used only for that page (see `incomeSheetWithBudget`): a page that
+ * fits today keeps its two headings. `neverTrim`, because the tail is the unexplained-step
+ * sentence the integrity gate demands. Only when both are present; one alone keeps its heading.
+ */
+function mergedDisclosures(lines: PackPageBlock[], step: PackPageBlock[]): PackPageBlock[] {
+  const [a, b] = [lines[0], step[0]];
+  if (a?.kind !== 'disclosure' || b?.kind !== 'disclosure') return [...lines, ...step];
+  return [{
+    kind: 'disclosure',
+    disclosure: { heading: 'Required disclosures', required: true, neverTrim: true, notes: [...a.disclosure.notes, ...b.disclosure.notes] },
+  }];
+}
+
 /** Page 6, its bridge, and the rung the measured page chose for it. */
 export function buildIncomeStatementSheet(
   income: PackTable,
@@ -51,6 +70,8 @@ export function buildIncomeStatementSheet(
   scale: MoneyScale,
   panels: PackChartSpec[],
   statementNotes: PackFootnote[],
+  /** The lines-below-zero and unexplained-step disclosures under ONE heading -- see `mergedDisclosures`. */
+  mergeDisclosures = false,
 ): UnnumberedPage {
 // The profit bridge reaches net profit through a step nothing measured —
 // interest and tax, which no field carries. Where that step is a material
@@ -139,8 +160,7 @@ const incomeStatementSheet = (bridge: PackChartSpec): UnnumberedPage => {
     // The same treatment page 7 gives negative assets. Brightsphere heads
     // this page with revenue of (5 535) and said nothing about it, two
     // sheets before explaining a negative asset side at length.
-    ...negativeRevenueCaveat,
-    ...profitBridgeCaveat,
+    ...(mergeDisclosures ? mergedDisclosures(negativeRevenueCaveat, profitBridgeCaveat) : [...negativeRevenueCaveat, ...profitBridgeCaveat]),
     // The reciprocal of the trends page's own window note rides in this
     // page's FOOTNOTES, below — see `periodWindowFootnotes`.
   ], 'portrait', [

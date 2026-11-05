@@ -39,6 +39,12 @@ function withoutBudget(table: PackTable): PackTable {
   };
 }
 
+/**
+ * Page 6, composed as it always was; and, only where that page would be refused, once more with its two
+ * required disclosures under one heading. A page that fits today (trimming included) is returned as it
+ * was, byte for byte; a page refused either way is returned as the first composition so the refusal is
+ * the one it always was.
+ */
 export function incomeSheetWithBudget(
   income: PackTable,
   set: PackFigureSet,
@@ -46,10 +52,34 @@ export function incomeSheetWithBudget(
   panels: PackChartSpec[],
   statementNotes: PackFootnote[],
 ): UnnumberedPage {
+  const apart = composedIncomeSheet(income, set, scale, panels, statementNotes, false);
+  if (fitsItsSheet(apart)) return apart;
+  const merged = composedIncomeSheet(income, set, scale, panels, statementNotes, true);
+  return fitsItsSheet(merged) ? merged : apart;
+}
+
+function fitsItsSheet(sheet: UnnumberedPage): boolean {
+  try {
+    fitPageToBox(sheet);
+    return true;
+  } catch (err) {
+    if (!(err instanceof PackRefusal)) throw err;
+    return false;
+  }
+}
+
+function composedIncomeSheet(
+  income: PackTable,
+  set: PackFigureSet,
+  scale: MoneyScale,
+  panels: PackChartSpec[],
+  statementNotes: PackFootnote[],
+  merge: boolean,
+): UnnumberedPage {
   const budgetNotes = budgetColumnFootnote(set.budget, statementNotes.length + 1);
-  if (budgetNotes.length === 0) return buildIncomeStatementSheet(income, set, scale, panels, statementNotes);
+  if (budgetNotes.length === 0) return buildIncomeStatementSheet(income, set, scale, panels, statementNotes, merge);
   const sheet = buildIncomeStatementSheet(
-    anchorColumn(income, 'budget', budgetNotes[0]!.number), set, scale, panels, [...statementNotes, ...budgetNotes]);
+    anchorColumn(income, 'budget', budgetNotes[0]!.number), set, scale, panels, [...statementNotes, ...budgetNotes], merge);
   let diagnostic: string;
   try {
     const fitted = fitPageToBox(sheet);
@@ -64,11 +94,11 @@ export function incomeSheetWithBudget(
   // The note is printed only where the page carries it AND everything it carried before: a page the
   // fitter would trim for it (dropping anchored notes) or refuse is composed as it was without the note.
   const droppedNote: PackFootnote = { number: statementNotes.length + 1, text: BUDGET_COLUMNS_DROPPED_NOTE, required: true };
-  const noted = buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote]);
+  const noted = buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote], merge);
   try {
     if (!tookSomething(fitPageReport(noted).dropped)) return noted;
   } catch (err) {
     if (!(err instanceof PackRefusal)) throw err;
   }
-  return buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, statementNotes);
+  return buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, statementNotes, merge);
 }
