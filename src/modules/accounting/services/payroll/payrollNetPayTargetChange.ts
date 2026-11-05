@@ -29,6 +29,23 @@ const named = (code: string, name: string): string | undefined => (code ? `${cod
 const isNetPayCredit = (l: { description: string | null; debit: number; credit: number }): boolean =>
   l.description !== null && NET_PAY.has(l.description) && l.credit > 0 && l.debit === 0;
 
+/** The blocker codes of an unusable net-pay clearing account (payrollJournalBank#resolveClearingAccount, netPayTargetRules). */
+const CLEARING_BLOCKER_CODES = new Set([
+  'missing_net_pay_account', 'invalid_net_pay_setting', 'not_liability_net_pay_account', 'inactive_net_pay_account',
+  'header_net_pay_account', 'net_pay_account_conflict', 'not_payroll_liability_net_pay_account', 'loan_net_pay_account',
+]);
+
+/**
+ * For a journal in force: when the plan's clearing net-pay line has no account (the setting names an account that now
+ * fails the rules), that is the plan's own blocker to show, not a "target changed" and not a mere figures difference.
+ * Null when the clearing line resolved, or when there is none (a bank plan with no holder keeps re-locking: the bank
+ * role is one role on both sides, payrollLabourComparison#foldNetPayBank).
+ */
+export function unresolvedNetPayBlocker(plan: PlanLine[], blockers: PayrollJournalNote[]): PayrollJournalNote | null {
+  const unresolved = plan.some((l) => l.description === NET_PAY_CLEARING_DESCRIPTION && l.credit > 0 && l.glAccountId === null);
+  return unresolved ? blockers.find((b) => CLEARING_BLOCKER_CODES.has(b.code)) ?? null : null;
+}
+
 /**
  * `postedNames[i]` is "code name" of `posted[i]`'s account (the journal's own lines, index for index).
  * Null when net pay's target did not change.

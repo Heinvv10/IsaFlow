@@ -24,7 +24,7 @@ import {
 } from '@/modules/accounting/services/gl/accountReclassifyService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     try {
@@ -124,7 +124,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const updated = await updateAccount(companyId, id, {
         accountName, description, isActive, displayOrder, defaultVatCode,
         vatInputDenied: typeof vatInputDenied === 'boolean' ? vatInputDenied : undefined,
-      });
+      }, { role: companyRole, userId: user.id });
       return apiResponse.success(res, updated);
     } catch (err) {
       log.error('Failed to update account', { error: err }, 'accounting-api');

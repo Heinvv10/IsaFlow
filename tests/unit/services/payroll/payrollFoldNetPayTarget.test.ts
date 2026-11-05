@@ -79,8 +79,10 @@ describe.each([false, true])('§3 re-approval matrix (recalculated since posting
     expect(decide(toClearing(CLEAR, 18_300), toClearing(CLEAR), perAccount)).toBe('different');
   });
 
-  it('a clearing plan whose account no longer resolves (dangling id) still reads as moved off the bank', () => {
-    expect(decide(toClearing(null), toBank(BANK), perAccount)).toBe('target_changed');
+  it('a clearing plan whose account no longer resolves (dangling id) is NOT a target change: the plan\'s own blocker is shown (gate test)', () => {
+    expect(netPayTargetChanged(toClearing(null), toBank(BANK))).toBe(false);
+    expect(netPayTargetChanged(toClearing(null), toClearing(CLEAR))).toBe(false);
+    expect(decide(toClearing(null), toBank(BANK), perAccount)).toBe('different');
   });
 });
 

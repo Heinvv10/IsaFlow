@@ -223,8 +223,10 @@ export const updateGlAccountTool: McpTool = {
       return toolError('Nothing to update — pass at least one field besides account_id.');
     }
 
-    // Before any write: reactivating a former role holder beside the current one is refused.
-    const reactivation = isActive === true ? await reactivationRefusal(ctx.companyId, accountId) : null;
+    // Before any write: reactivating a former role holder beside the current one is refused, and a manager may not
+    // reactivate a system bank account into the empty bank role (it decides where net pay is credited).
+    const actor = { role: ctx.companyRole, userId: ctx.userId };
+    const reactivation = isActive === true ? await reactivationRefusal(ctx.companyId, accountId, actor) : null;
     if (reactivation) return toolError(reactivation);
     try {
       // Reclassification carries the structural guards (cycles, the leaf rule,
@@ -250,7 +252,7 @@ export const updateGlAccountTool: McpTool = {
         description,
         isActive,
         defaultVatCode: vatDefault as 'none' | 'standard' | 'zero_rated' | 'exempt' | undefined,
-      }),
+      }, actor),
     );
   },
 };

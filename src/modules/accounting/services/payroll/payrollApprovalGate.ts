@@ -45,7 +45,7 @@ import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { datedForReplacement } from './payrollReplacementDating';
 import { comparableLines, foldNetPayBank, predatesTagging, sameFigures, type PostedFigureLine } from './payrollLabourComparison';
-import { netPayReplacementAdvisories, netPayTargetChangeNote } from './payrollNetPayTargetChange';
+import { netPayReplacementAdvisories, netPayTargetChangeNote, unresolvedNetPayBlocker } from './payrollNetPayTargetChange';
 import { readJournalChain, runRecalculatedSince } from './payrollJournalChain';
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
@@ -227,6 +227,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
       // In force. The journal to reverse is the LAST of the chain: the run's own, or the one that re-booked it.
       const inForce = chain.journals[chain.journals.length - 1]!;
       const perAccount = await runRecalculatedSince(companyId, runId, linkedId);
+      // A clearing account that now fails the rules is the plan's blocker to show, not a change of target.
+      const unresolved = unresolvedNetPayBlocker(plan.lines, plan.blockers);
+      if (unresolved) return unresolved;
       // Net pay moved between the bank and a clearing account (or between two): reverse first, never re-lock.
       const moved = netPayTargetChangeNote(plan.lines, read!.current, linked.lines.map((l) => `${l.accountCode} ${l.accountName}`), inForce.entryNumber);
       if (moved) return moved;

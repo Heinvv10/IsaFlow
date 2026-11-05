@@ -87,7 +87,7 @@ export function foldNetPayBank<P extends FigureLine & { description: string }>(
 
 /**
  * Did net pay's TARGET change since the journal posted: one side credits the bank, the other the clearing account, or
- * both credit a clearing account but not the same one. A bank role that merely moved is NOT a change (both sides are
+ * both credit a clearing account but not the same one (never when the plan's clearing account has no id). A bank role that merely moved is NOT a change (both sides are
  * "the bank"). Checked before `sameFigures`, which would otherwise fold a bank journal and a clearing plan apart only
  * by accident of their descriptions and report the wrong cause (or none).
  */
@@ -101,6 +101,9 @@ export function netPayTargetChanged(
   const clearPlan = credit(plan, NET_PAY_CLEARING_DESCRIPTION);
   const bankPosted = credit(posted, NET_PAY_DESCRIPTION);
   const clearPosted = credit(posted, NET_PAY_CLEARING_DESCRIPTION);
+  // A clearing plan whose account does not resolve (it failed the rules: its line has no account id) names no target
+  // to have changed TO: the plan's own net-pay blocker is the answer (payrollNetPayTargetChange#unresolvedNetPayBlocker).
+  if (clearPlan.some((l) => l.glAccountId === null)) return false;
   if ((bankPlan.length > 0 && clearPosted.length > 0) || (clearPlan.length > 0 && bankPosted.length > 0)) return true;
   return clearPlan.length > 0 && clearPosted.length > 0
     && !clearPlan.every((p) => clearPosted.some((q) => q.glAccountId === p.glAccountId));

@@ -64,26 +64,26 @@ const NAMES: Record<string, [string, string]> = {
   [LABOUR]: ['5200', 'Labour'], [PAYE]: ['2140', 'PAYE'], [BANK]: ['1110', 'Bank - Primary'], [BANK_NEW]: ['1544331', 'New Bank'],
   [C2170]: ['2170', 'Net Salaries Payable'], [C2171]: ['2171', 'Net Salaries Payable 2'],
 };
-type Target = { account: string; description: string };
-const bank = (account = BANK): Target => ({ account, description: NET_PAY_DESCRIPTION });
-const clearing = (account = C2170): Target => ({ account, description: NET_PAY_CLEARING_DESCRIPTION });
+type Target = { account: string | null; description: string };
+const bank = (account: string | null = BANK): Target => ({ account, description: NET_PAY_DESCRIPTION });
+const clearing = (account: string | null = C2170): Target => ({ account, description: NET_PAY_CLEARING_DESCRIPTION });
 
 const planOf = (t: Target, net = 800) => [
   { glAccountId: LABOUR, accountCode: '5200', accountName: 'Labour', debit: 1000, credit: 0, description: 'gross', inactiveAccount: false, cc1Id: null },
   { glAccountId: PAYE, accountCode: '2140', accountName: 'PAYE', debit: 0, credit: 200, description: 'paye', inactiveAccount: false, cc1Id: null },
-  { glAccountId: t.account, accountCode: NAMES[t.account]![0], accountName: NAMES[t.account]![1], debit: 0, credit: net, description: t.description, inactiveAccount: false, cc1Id: null },
+  { glAccountId: t.account, accountCode: t.account ? NAMES[t.account]![0] : '', accountName: t.account ? NAMES[t.account]![1] : '', debit: 0, credit: net, description: t.description, inactiveAccount: false, cc1Id: null },
 ];
 const journalOf = (t: Target, net = 800, netDescription: string | null = t.description): JournalRow[] => [
   { gl_account_id: LABOUR, account_code: '5200', account_name: 'Labour', debit: 1000, credit: 0, description: 'gross' },
   { gl_account_id: PAYE, account_code: '2140', account_name: 'PAYE', debit: 0, credit: 200, description: 'paye' },
-  { gl_account_id: t.account, account_code: NAMES[t.account]![0], account_name: NAMES[t.account]![1], debit: 0, credit: net, description: netDescription },
+  { gl_account_id: t.account as string, account_code: NAMES[t.account!]![0], account_name: NAMES[t.account!]![1], debit: 0, credit: net, description: netDescription },
 ];
 
-function given(was: Target, now: Target, over: { state?: 'in_force' | 'out'; recalculated?: boolean; netDescription?: string | null } = {}): void {
+function given(was: Target, now: Target, over: { state?: 'in_force' | 'out'; recalculated?: boolean; netDescription?: string | null; blockers?: Array<{ code: string; detail: string }> } = {}): void {
   journalRows = journalOf(was, 800, over.netDescription === undefined ? was.description : over.netDescription);
   vi.mocked(buildPayrollJournalPlan).mockResolvedValue({
     runId: RUN, status: 'approved', alreadyPostedJournalId: JE, entryDate: '2026-10-31', description: 'Payroll run 2026-10',
-    blockers: [], advisories: [], lines: planOf(now), totals: {},
+    blockers: over.blockers ?? [], advisories: [], lines: planOf(now), totals: {},
   } as never);
   const head = { id: JE, entryNumber: 'JE-1', entryDate: '2026-10-31', status: 'posted', description: 'Payroll run 2026-10' };
   readJournalChain.mockResolvedValue(over.state === 'out'
@@ -123,6 +123,22 @@ describe.each([[false], [true]])('a journal in force, net pay target moved (run 
 
   it('bank journal, the bank role merely moved: still re-locks', async () => {
     given(bank(BANK), bank(BANK_NEW), { recalculated });
+    expect((await judgePayrollApproval(CO, RUN))?.blocker).toBeNull();
+  });
+});
+
+describe.each([[false], [true]])('a clearing plan whose account no longer resolves (recalculated since posting: %s)', (recalculated) => {
+  const dangling = [{ code: 'missing_net_pay_account', detail: 'The account set for Payroll net pay no longer exists. Choose another account.' }];
+
+  it.each([['a bank journal', bank()], ['a clearing journal', clearing()]])(
+    'against %s, the plan\'s own net-pay blocker is shown, not net_pay_target_changed and not "recalculated"', async (_n, was) => {
+      given(was, clearing(null), { recalculated, blockers: [{ code: 'missing_gl_accounts', detail: 'x' }, ...dangling] });
+      const gate = await judgePayrollApproval(CO, RUN);
+      expect(gate?.blocker).toEqual(dangling[0]);
+    });
+
+  it('a BANK plan with no holder still re-locks onto its bank journal (the bank role is one role on both sides)', async () => {
+    given(bank(), bank(null), { recalculated, blockers: [{ code: 'missing_bank_account', detail: 'no bank' }] });
     expect((await judgePayrollApproval(CO, RUN))?.blocker).toBeNull();
   });
 });

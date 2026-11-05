@@ -117,3 +117,20 @@ describe('a journal still in force', () => {
     expect(replacedNote(p.body.data!.plan.advisories)).toBeUndefined();
   });
 });
+
+describe('a journal in force on 2170 whose account has since failed the rules', () => {
+  it('the preview shows the plan\'s own net-pay blocker, not net_pay_target_changed or "recalculated"', async () => {
+    await setNetPay(c2170);
+    const id = await r.calculatedRun(10);
+    expect((await r.api.approve(id)).statusCode).toBe(200);
+    expect((await r.api.reopen(id)).statusCode).toBe(200);
+    await r.pool.query(`UPDATE gl_accounts SET account_subtype = 'tax' WHERE id = $1`, [c2170]);
+    try {
+      const p = await r.api.preview(id);
+      expect(p.body.data!.blocker).toMatchObject({ code: 'not_payroll_liability_net_pay_account' });
+    } finally {
+      await r.pool.query(`UPDATE gl_accounts SET account_subtype = 'payroll_liability' WHERE id = $1`, [c2170]);
+    }
+    expect((await r.api.preview(id)).body.data!.blocker).toBeNull();
+  });
+});
