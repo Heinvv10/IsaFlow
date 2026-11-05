@@ -55,6 +55,22 @@ describe('payroll_net_pay is owner/admin only', () => {
     expect(await post('manager', { mappings: { payroll_net_pay: '' }, loaded: {} })).toBe(403);
   });
 
+  it.each(['manager', 'accountant', 'viewer', undefined])('%s gets a 403 for primary_bank too: with payroll_net_pay unset, net pay credits the bank role holder', async (role) => {
+    expect(await post(role, { mappings: { primary_bank: ID }, loaded: { primary_bank: '' } })).toBe(403);
+    expect(svc.tx).not.toHaveBeenCalled();
+    expect(svc.save).not.toHaveBeenCalled();
+  });
+
+  it.each(['owner', 'admin'])('%s may move primary_bank', async (role) => {
+    expect(await post(role, { mappings: { primary_bank: ID }, loaded: { primary_bank: '' } })).toBe(200);
+    expect(svc.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('a manager naming primary_bank beside another key is refused as a whole', async () => {
+    expect(await post('manager', { mappings: { accounts_payable: ID, primary_bank: ID }, loaded: {} })).toBe(403);
+    expect(svc.save).not.toHaveBeenCalled();
+  });
+
   it.each(['manager', 'owner'])('the other keys behave as today for a %s', async (role) => {
     expect(await post(role, { mappings: { accounts_payable: ID }, loaded: { accounts_payable: '' } })).toBe(200);
     expect(svc.save).toHaveBeenCalledTimes(1);

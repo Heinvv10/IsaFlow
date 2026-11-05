@@ -24,7 +24,8 @@ export function canCancelApprovedPo(role: string | null | undefined): boolean {
 }
 
 /**
- * The roles that may change where payroll net pay is credited (Default Accounts' `payroll_net_pay`): owner and admin.
+ * The roles that may change where payroll net pay is credited (Default Accounts' `payroll_net_pay` and the bank role's
+ * `primary_bank`): owner and admin.
  * A manager may approve payroll, so one who could also redirect net pay could do both in a session (security review L1).
  */
 export const PAYROLL_NET_PAY_ROLES = ['owner', 'admin'] as const;

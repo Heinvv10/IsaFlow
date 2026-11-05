@@ -29,6 +29,15 @@ export function defaultAccountRole(uiKey: string): SystemAccountKey | undefined 
   return Object.hasOwn(DEFAULT_ACCOUNT_ROLES, uiKey) ? DEFAULT_ACCOUNT_ROLES[uiKey] : undefined;
 }
 
+/**
+ * The rows that decide where payroll net pay is credited: `payroll_net_pay` itself, and the row that manages the BANK role
+ * (`primary_bank`), because with `payroll_net_pay` unset net pay goes to the bank-role holder. Only an owner or admin may
+ * change them (canSetPayrollNetPay): a manager who can approve payroll must not also be able to redirect it.
+ */
+export function isNetPayControlKey(uiKey: string): boolean {
+  return uiKey === PAYROLL_NET_PAY_KEY || defaultAccountRole(uiKey) === 'bank';
+}
+
 /** The fields of a chart-of-accounts row the rule reads. */
 export interface CandidateAccount {
   id: string;

@@ -14,7 +14,7 @@ import {
 } from '@/modules/accounting/services/gl/netPayTargetRules';
 import { PAYROLL_NET_PAY_KEY } from '@/modules/accounting/services/gl/netPaySetting';
 import { ALL_RAW_SUBTYPES, canonicalSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
-import { roleCandidates } from '@/modules/accounting/services/gl/defaultAccountRoles';
+import { isNetPayControlKey, roleCandidates } from '@/modules/accounting/services/gl/defaultAccountRoles';
 import { REQUIRED_PAYROLL_ACCOUNT_CODES, OPTIONAL_PAYROLL_ACCOUNT_CODES } from '@/modules/accounting/services/payroll/payrollJournalParts';
 
 const acct = (over: Partial<NetPayTargetAccount> = {}): NetPayTargetAccount => ({
@@ -123,5 +123,12 @@ describe('the page offers exactly what the save accepts', () => {
       });
       expect(offered.has(a.id), a.accountCode).toBe(refusal === null);
     }
+  });
+});
+
+describe('the rows that decide where net pay goes', () => {
+  it('are payroll_net_pay and the row that manages the bank role (primary_bank), and no other', () => {
+    const keys = ['payroll_net_pay', 'primary_bank', 'accounts_payable', 'accounts_receivable', 'sales_discount', 'petty_cash', 'rounding', 'constructor', '__proto__'];
+    expect(keys.filter(isNetPayControlKey)).toEqual(['payroll_net_pay', 'primary_bank']);
   });
 });
