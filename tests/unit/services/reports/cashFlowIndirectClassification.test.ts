@@ -68,6 +68,13 @@ describe('what the screen used to leave out', () => {
     expect(b('equity', 'retained_earnings')).toBe('retained_earnings');
     for (const bucket of ['debt', 'equity', 'retained_earnings'] as const) expect(bucketSection(bucket)).toBe('financing');
   });
+  it('a liability spelled bank or cash is a credit card: debt, as in the direct method', () => {
+    for (const s of ['bank', 'bank_account', 'cash', 'petty_cash']) expect(b('liability', s), s).toBe('debt');
+    expect(b('asset', 'bank_account')).toBe('other_operating'); // (an asset of that spelling is cash and never reaches the classifier)
+  });
+  it('accumulated depreciation is classified as the add-back; the service splits its releases (debits) into investing', () => {
+    expect(b('asset', 'accumulated_depreciation')).toBe('depreciation');
+  });
   it('revenue and expense are net income whatever their subtype', () => {
     expect(b('revenue', 'disposal_profit_loss')).toBe('net_income');
     expect(b('expense', 'default_expense')).toBe('net_income');

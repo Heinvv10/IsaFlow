@@ -11,7 +11,8 @@
 
 import { sql } from '@/lib/neon';
 import { toMoney } from '@/lib/money/decimalSum';
-import { CASH_SUBTYPES, type AccountType } from '@/modules/accounting/services/gl/accountSubtypes';
+import { CASH_SUBTYPES, isDisposalGainLossSubtype, type AccountType } from '@/modules/accounting/services/gl/accountSubtypes';
+import { log } from '@/lib/logger';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import {
@@ -26,7 +27,14 @@ export interface IndirectCashFlow {
   openingCash: number;
   sections: IndirectCashFlowSection[];
   netChange: number;
+  /** Always the ledger's cash balance at the end date (`cash.balance.v1`). */
   closingCash: number;
+  /**
+   * Closing cash less what the posted journals' movements explain (opening + the sections before this line). Zero on a
+   * sound ledger; non-zero is a ledger fault (a posted journal that does not balance, a cash leg on a year-end journal)
+   * and is shown as its own section, never absorbed into a line.
+   */
+  unexplainedDifference: number;
 }
 
 interface MovementRow { account_type: AccountType; account_subtype: string | null; debit: string | number | null; credit: string | number | null }
@@ -37,6 +45,7 @@ const LINES: Record<IndirectBucket, { label: string; always: boolean }> = {
   receivable: { label: 'Change in Accounts Receivable', always: true },
   payable: { label: 'Change in Accounts Payable', always: true },
   depreciation: { label: 'Depreciation and Amortisation (non-cash)', always: false },
+  disposal_adjustment: { label: '(Gain) / Loss on Disposal of Assets', always: false },
   inventory: { label: 'Change in Inventory', always: false },
   vat: { label: 'Change in VAT Control', always: false },
   other_operating: { label: 'Change in Other Operating Assets and Liabilities', always: false },
@@ -72,17 +81,39 @@ async function fetchNonCashMovement(companyId: string, startDate: string, endDat
   `) as MovementRow[];
 }
 
+/** The label of the section that carries a difference the journals do not explain. */
+export const UNEXPLAINED_SECTION = 'Unexplained Difference';
+const UNEXPLAINED_LABEL = 'Unexplained difference: the ledger\'s cash does not follow from its posted journals';
+
+/** Adds one movement row's amounts to the lines: where it belongs, plus the disposal presentation. */
+function place(byBucket: Map<IndirectBucket, number>, r: MovementRow): void {
+  const credit = Number(r.credit ?? 0);
+  const debit = Number(r.debit ?? 0);
+  const add = (b: IndirectBucket, v: number) => byBucket.set(b, byBucket.get(b)! + v);
+  const bucket = classifyIndirectLine(r.account_type, r.account_subtype);
+  if (bucket === 'depreciation') {
+    // The charge (a credit) is added back; a RELEASE (a debit: the asset was sold or scrapped) leaves with the asset, in investing.
+    add('depreciation', credit);
+    add('investing', -debit);
+    return;
+  }
+  add(bucket, credit - debit);
+  if (bucket === 'net_income' && isDisposalGainLossSubtype(r.account_subtype)) {
+    // The gain is in net income; the proceeds are investing. Take it out of operating and put it with the proceeds.
+    add('disposal_adjustment', -(credit - debit));
+    add('investing', credit - debit);
+  }
+}
+
 export async function getIndirectCashFlow(companyId: string, startDate: string, endDate: string): Promise<IndirectCashFlow> {
-  const [openingCash, rows] = await Promise.all([
+  const [openingCash, rows, ledgerClosing] = await Promise.all([
     getCashBalance(companyId, startDate, { exclusive: true }).then((b) => b.total),
     fetchNonCashMovement(companyId, startDate, endDate),
+    getCashBalance(companyId, endDate).then((b) => b.total),
   ]);
 
   const byBucket = new Map<IndirectBucket, number>(INDIRECT_BUCKETS.map((b) => [b, 0]));
-  for (const r of rows) {
-    const bucket = classifyIndirectLine(r.account_type, r.account_subtype);
-    byBucket.set(bucket, byBucket.get(bucket)! + (Number(r.credit ?? 0) - Number(r.debit ?? 0)));
-  }
+  for (const r of rows) place(byBucket, r);
 
   const sections: IndirectCashFlowSection[] = SECTIONS.map(({ key, title }) => {
     const items = INDIRECT_BUCKETS
@@ -93,6 +124,17 @@ export async function getIndirectCashFlow(companyId: string, startDate: string, 
     return { section: title, items, total: toMoney(items.reduce((s, i) => s + i.amount, 0)) };
   });
 
-  const netChange = toMoney(sections.reduce((s, x) => s + x.total, 0));
-  return { periodStart: startDate, periodEnd: endDate, openingCash, sections, netChange, closingCash: toMoney(openingCash + netChange) };
+  const explained = toMoney(sections.reduce((s, x) => s + x.total, 0));
+  // By double entry the journals' movements ARE the change in cash. When the ledger's own cash says otherwise, say so
+  // as a line of its own: the statement still closes on the ledger, and the reader sees how much it could not explain.
+  const unexplainedDifference = toMoney(ledgerClosing - openingCash - explained);
+  if (unexplainedDifference !== 0) {
+    sections.push({ section: UNEXPLAINED_SECTION, items: [{ label: UNEXPLAINED_LABEL, amount: unexplainedDifference }], total: unexplainedDifference });
+    log.warn('Cash flow statement does not tie to the ledger cash', { companyId, startDate, endDate, openingCash, explained, ledgerClosing, unexplainedDifference }, 'cash-flow-indirect');
+  }
+
+  return {
+    periodStart: startDate, periodEnd: endDate, openingCash, sections,
+    netChange: toMoney(explained + unexplainedDifference), closingCash: toMoney(ledgerClosing), unexplainedDifference,
+  };
 }
