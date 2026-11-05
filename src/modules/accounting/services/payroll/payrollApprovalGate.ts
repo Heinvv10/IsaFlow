@@ -42,7 +42,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
-import { comparableLines, predatesTagging, sameFigures, type FigureLine } from './payrollLabourComparison';
+import { comparableLines, foldNetPayBank, predatesTagging, sameFigures, type FigureLine } from './payrollLabourComparison';
 import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
@@ -248,9 +248,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
       // In force. The journal to reverse is the LAST of the chain: the run's own, or the one that re-booked it.
       const inForce = chain.journals[chain.journals.length - 1]!;
       const perAccount = await runRecalculatedSince(companyId, runId, linkedId);
-      const compared = perAccount
-        ? comparableLines(plan.lines, plan.labourBySourceCentre, read!.asPosted)
-        : { plan: plan.lines, posted: linked.lines };
+      // Net pay's bank credit is one role on both sides, so a bank role that moved since posting is not a change.
+      const folded = foldNetPayBank(plan.lines, perAccount ? read!.asPosted : linked.lines);
+      const compared = perAccount ? comparableLines(folded.plan, plan.labourBySourceCentre, folded.posted) : folded;
       if (!sameFigures(compared, perAccount)) {
         const cause = perAccount && predatesTagging(plan.lines, read!.asPosted)
           ? 'the journal predates cost-centre tagging and this run now tags its labour by cost centre'

@@ -40,6 +40,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // raised (gl/approvalDocumentErrors). Names the caller's own document type
   // and id; nothing is written. No MCP tool raises requests (Q6).
   'APPROVAL_RULES_CHANGED',
+  // gl/paymentBankAccount: the UIF, SARS directive and loan payments found no usable bank account to credit (no active
+  // bank-role holder, two claimants, or a supplied bankAccountId that is not an active bank account of the company). Names
+  // only the company's own account codes and names; raised before any write. No MCP tool makes these payments today.
+  'BANK_ACCOUNT_REFUSED',
   'BANK_ALLOCATION_REFUSED',
   // sync_bank_dimensions / the tag write-through (gl/dimensions/dimensionBankSync): a window over the row cap, a bank row
   // changed while the sync ran (rolled back), an idempotency key that names a batch of the other kind or window. Names

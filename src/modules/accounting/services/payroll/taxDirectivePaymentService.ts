@@ -8,7 +8,7 @@
  *                                (payrollCostCentreTags: allocations, mapping,
  *                                default 5200, the employee's CC1 on each line)
  *   CR 2140 PAYE Payable       = paye_amount
- *   CR 1110 Bank (or override) = net_amount
+ *   CR Bank = net_amount (`bankAccountId`, else the bank-role holder: gl/paymentBankAccount)
  *
  * All queries scoped by company_id (multi-tenant).
  */
@@ -20,6 +20,7 @@ import { log } from '@/lib/logger';
 import { claimUnderLockTimeout } from '@/modules/accounting/services/core/documentClaimLock';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { resolvePaymentBankAccount } from '@/modules/accounting/services/gl/paymentBankAccount';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { directivePaye } from './payrollSeveranceDirective';
 import { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
@@ -35,7 +36,7 @@ type Row = DbRow;
 
 export interface ApplyDirectiveInput {
   paymentDate: string;     // YYYY-MM-DD
-  bankAccountId?: string;  // override GL 1110 Bank
+  bankAccountId?: string;  // override the bank-role holder; must be an active bank account of the company
 }
 
 export interface ApplyDirectiveResult {
@@ -181,16 +182,8 @@ export async function applyTaxDirective(
     throw new Error('GL account 2140 (PAYE Payable) not found — ensure chart of accounts is seeded');
   }
 
-  let bankAccountId: string | null = input.bankAccountId ?? null;
-  if (!bankAccountId) {
-    bankAccountId = await glByCode(companyId, '1110');
-    if (bankAccountId) {
-      log.warn('No bankAccountId supplied — using GL 1110 (Bank)', { companyId, directiveId }, 'taxDirective');
-    }
-  }
-  if (!bankAccountId) {
-    throw new Error('Cannot resolve bank GL account — supply bankAccountId or add GL account 1110');
-  }
+  // The supplied account, checked, else the bank-role holder; refused before the claim below.
+  const bankAccountId = await resolvePaymentBankAccount(companyId, input.bankAccountId);
 
   // 4. Describe the journal; its labour lines are built after the claim wait.
   const employeeName = String(dir.employee_name);

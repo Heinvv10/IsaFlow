@@ -14,6 +14,7 @@ import {
   getUifDeclaration,
   markUifSubmitted,
 } from '@/modules/accounting/services/payroll/uifDeclarationService';
+import { isBankAccountRefusal } from '@/modules/accounting/services/gl/paymentBankAccount';
 import { markUifDeclarationPaid } from '@/modules/accounting/services/payroll/uifPaymentService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
@@ -42,17 +43,23 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const body = (req.body ?? {}) as PatchBody;
 
     if (body.markPaid === true) {
-      const result = await withJournalDateRefusal(res, () => markUifDeclarationPaid(
-        companyId,
-        id,
-        {
-          paymentDate: body.paymentDate,
-          bankAccountId: body.bankAccountId,
-        },
-        user.id,
-      ));
-      if (result === JOURNAL_DATE_REFUSED) return;
-      return apiResponse.success(res, result);
+      try {
+        const result = await withJournalDateRefusal(res, () => markUifDeclarationPaid(
+          companyId,
+          id,
+          {
+            paymentDate: body.paymentDate,
+            bankAccountId: body.bankAccountId,
+          },
+          user.id,
+        ));
+        if (result === JOURNAL_DATE_REFUSED) return;
+        return apiResponse.success(res, result);
+      } catch (err) {
+        // Raised before the declaration is claimed (uifPaymentService), inside the journal-date savepoint.
+        if (isBankAccountRefusal(err)) return apiResponse.badRequest(res, err.message);
+        throw err;
+      }
     }
 
     if (body.markSubmitted === true) {

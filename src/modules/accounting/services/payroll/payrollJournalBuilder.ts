@@ -40,12 +40,12 @@ import type { DbRow } from '@/lib/neon';
 import {
   REQUIRED_PAYROLL_ACCOUNT_CODES,
   buildLabourLines,
-  closedPeriodBlocker,
   lastDayOfMonthIso,
   resolveAccounts,
   resolveAccountsById,
 } from './payrollJournalParts';
 import { bankNetPayLine, resolveBankAccount } from './payrollJournalBank';
+import { judgeJournalLines } from './payrollJournalBlockers';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
 
@@ -252,43 +252,10 @@ export async function buildPayrollJournalPlan(
     });
   }
 
-  const inactive = [...new Set(lines.filter((l) => l.inactiveAccount).map((l) => l.accountCode))];
-  if (inactive.length > 0) {
-    blockers.push({
-      code: 'inactive_target_account',
-      detail: `This journal posts into deactivated accounts: ${inactive.join(', ')}. The ledger refuses a posting to a deactivated account; reactivate them before posting.`,
-    });
-  }
-
-  // The GL poster refuses both of these; saying so here lets the dry run and
-  // approval refuse BEFORE anything is written, with the reason (K-079).
-  if (lines.length === 0) {
-    blockers.push({
-      code: 'nothing_to_post',
-      detail: 'The run has no amounts to post — every journal line is zero. Calculate the run first.',
-    });
-  }
-  const negative = lines.filter((l) => l.debit < 0 || l.credit < 0);
-  if (negative.length > 0) {
-    blockers.push({
-      code: 'negative_amount',
-      detail: `The run totals give a negative amount on ${negative.map((l) => l.accountCode || l.glAccountId).join(', ')}, which a journal line cannot carry. Check the run's totals.`,
-    });
-  }
   const entryDate = lastDayOfMonthIso(periodYear, periodMonth);
-  const closed = await closedPeriodBlocker(companyId, entryDate);
-  if (closed) blockers.push(closed);
-
-  const totalDebit = round2(lines.reduce((s, l) => s + l.debit, 0));
-  const totalCredit = round2(lines.reduce((s, l) => s + l.credit, 0));
-  // Exact to the cent, as the GL's validateJournalEntry is: a 1-cent tolerance
-  // here let a plan pass that the live post then refused.
-  if (Math.round((totalDebit - totalCredit) * 100) !== 0) {
-    blockers.push({
-      code: 'unbalanced',
-      detail: `Payroll journal unbalanced by ${(totalDebit - totalCredit).toFixed(2)} (DR ${totalDebit.toFixed(2)} vs CR ${totalCredit.toFixed(2)}).`,
-    });
-  }
+  const judged = await judgeJournalLines(companyId, lines, entryDate);
+  blockers.push(...judged.blockers);
+  const { totalDebit, totalCredit } = judged;
 
   const mm = String(periodMonth).padStart(2, '0');
   return {

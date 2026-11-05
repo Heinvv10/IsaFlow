@@ -36,6 +36,37 @@ export interface LabourSourceBucket {
 
 const cents = (n: number): number => Math.round(n * 100);
 
+/** The description of the plan's net-pay credit (payrollJournalBank#bankNetPayLine): how the comparison finds it. */
+export const NET_PAY_DESCRIPTION = 'Net pay — bank disbursement';
+/** Stands for "whichever account holds the bank role" on both sides of the comparison. */
+const BANK_ROLE = 'bank-role';
+
+/**
+ * Net pay's bank credit is ONE role, not an account (re-approval after the
+ * bank role moved). The plan names today's holder; the journal in force names
+ * whoever held the role when it posted, and the cash left from THAT account.
+ * Keyed by account id, an unchanged run read as `recalculated_after_posting`
+ * once the role moved (or had no holder), and the advised reverse-and-approve
+ * would have credited a different bank than the cash left from. So both sides
+ * key the net-pay credit as the role, and only its AMOUNT is compared.
+ *
+ * The plan's line is found by its description. The journal's is a credit-only
+ * line on an account no other plan line uses: any other credit that differs
+ * (PAYE, UIF, SDL, deductions on another account, or a line the plan no longer
+ * has) lands in the bank bucket too, changes its amount, and is a difference.
+ */
+export function foldNetPayBank<P extends FigureLine & { description: string }>(
+  plan: P[],
+  posted: FigureLine[],
+): { plan: FigureLine[]; posted: FigureLine[] } {
+  const others = new Set(plan.filter((l) => l.description !== NET_PAY_DESCRIPTION).map((l) => l.glAccountId));
+  const isBank = (l: FigureLine) => cents(l.debit) === 0 && cents(l.credit) > 0 && l.glAccountId !== null && !others.has(l.glAccountId);
+  return {
+    plan: plan.map((l) => (l.description === NET_PAY_DESCRIPTION ? { ...l, glAccountId: BANK_ROLE } : l)),
+    posted: posted.map((l) => (isBank(l) ? { ...l, glAccountId: BANK_ROLE } : l)),
+  };
+}
+
 export function figures(lines: FigureLine[], perAccount: boolean): Map<string, number> {
   const m = new Map<string, number>();
   for (const l of lines) {

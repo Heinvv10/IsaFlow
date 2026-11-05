@@ -9,6 +9,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getAccountByCode } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { resolvePaymentBankAccount } from '@/modules/accounting/services/gl/paymentBankAccount';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { claimUnderLockTimeout } from '@/modules/accounting/services/core/documentClaimLock';
@@ -22,7 +23,7 @@ async function resolveGlAccount(companyId: string, code: string, label: string):
   return acc.id;
 }
 
-/** DR 2150 UIF Payable / CR 1110 Bank — clears the month's UIF liability on payment to Labour Dept. */
+/** DR 2150 UIF Payable / CR Bank (`bankAccountId`, else the bank-role holder) — clears the month's UIF liability on payment to Labour Dept. */
 export async function markUifDeclarationPaid(
   companyId: string,
   declarationId: string,
@@ -36,6 +37,8 @@ export async function markUifDeclarationPaid(
   if (declRows.length === 0 || !declRows[0]) throw new Error(`UIF declaration ${declarationId} not found`);
   const decl = mapUifDeclaration(declRows[0]);
   const paymentDate = opts.paymentDate ?? new Date().toISOString().slice(0, 10);
+  // Refused before the claim below: a payment with no bank to credit writes nothing.
+  const bankAccId = await resolvePaymentBankAccount(companyId, opts.bankAccountId);
 
   // CLAIM the declaration before anything is posted. What this replaced read
   // `decl.status` in JS and then posted DR 2150 / CR Bank and rewrote the row
@@ -67,7 +70,6 @@ export async function markUifDeclarationPaid(
   }
 
   const uifPayableId = await resolveGlAccount(companyId, '2150', 'UIF Payable');
-  const bankAccId = opts.bankAccountId ?? await resolveGlAccount(companyId, '1110', 'Bank - Primary');
   const totalPaid = Math.round((decl.totalEmployeeContribution + decl.totalEmployerContribution) * 100) / 100;
   const narrative = `UIF payment ${decl.periodYear}-${String(decl.periodMonth).padStart(2, '0')}`;
   const entry = await createJournalEntry(companyId, {

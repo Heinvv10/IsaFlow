@@ -71,4 +71,36 @@ describe('payroll net pay and the bank system role', () => {
     const h = await r.header(id);
     expect([h.status, h.journal_entry_id]).toEqual(['calculated', null]);
   });
+
+  it('two active accounts claim the role: refused naming both, nothing posted', async () => {
+    const id = await r.calculatedRun(4);
+    await r.pool.query("UPDATE gl_accounts SET is_active = true WHERE company_id = $1 AND account_code = '1544331'", [r.company]);
+    await r.pool.query(
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, account_subtype, is_system_account)
+       VALUES ($1, '1555', 'Nedbank Cheque', 'asset', 'debit', 1, 'bank', true)`, [r.company]);
+    clearSystemAccountCache(r.company);
+
+    const preview = await r.api.preview(id);
+    expect(preview.body.data!.blocker).toMatchObject({ code: 'ambiguous_bank_account' });
+    const detail = JSON.stringify(preview.body.data!.blocker);
+    expect(detail).toContain('1544331');
+    expect(detail).toContain('1555');
+    expect((await r.api.approve(id)).statusCode).toBeGreaterThanOrEqual(400);
+    expect((await r.header(id)).journal_entry_id).toBeNull();
+    await r.pool.query("DELETE FROM gl_accounts WHERE company_id = $1 AND account_code = '1555'", [r.company]);
+  });
+
+  it('the holder is a header with sub-accounts: refused up front, as the poster would refuse it', async () => {
+    const id = await r.calculatedRun(5);
+    const parent = (await r.pool.query("SELECT id FROM gl_accounts WHERE company_id = $1 AND account_code = '1544331'", [r.company])).rows[0]!.id;
+    await r.pool.query(
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, parent_account_id, account_subtype)
+       VALUES ($1, '1544331-1', 'ABSA sub', 'asset', 'debit', 2, $2, 'other')`, [r.company, parent]);
+    clearSystemAccountCache(r.company);
+
+    const preview = await r.api.preview(id);
+    expect(preview.body.data!.blocker).toMatchObject({ code: 'header_bank_account' });
+    expect((await r.api.approve(id)).statusCode).toBeGreaterThanOrEqual(400);
+    expect((await r.header(id)).journal_entry_id).toBeNull();
+  });
 });

@@ -10,6 +10,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
+import {
+  answerHeaderGuard, glAccount, selectGlAccounts, type GlAccountRow,
+} from '../../../helpers/glAccountsTableMock';
 
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
@@ -39,6 +42,7 @@ vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({
 }));
 
 const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const OTHER = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const RUN = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
 const HEADER = {
@@ -47,8 +51,8 @@ const HEADER = {
   total_sdl: 1000, total_eti: 0, total_net: 76000, employee_count: 4,
 };
 
-const acc = (code: string, id: string, name: string, active = true) =>
-  ({ account_code: code, id, account_name: name, is_active: active });
+const acc = (code: string, id: string, name: string, over: Partial<GlAccountRow> = {}, company = COMPANY): GlAccountRow =>
+  glAccount({ id, company_id: company, account_code: code, account_name: name, ...over });
 
 const PAYROLL_ACCOUNTS = [
   acc('5200', 'acc-5200', 'Labour Costs'),
@@ -57,15 +61,27 @@ const PAYROLL_ACCOUNTS = [
   acc('2160', 'acc-2160', 'SDL Payable'),
   acc('2175', 'acc-2175', 'Other Employee Deductions Payable'),
 ];
+const bank = (code: string, id: string, name: string, over: Partial<GlAccountRow> = {}) =>
+  acc(code, id, name, { account_subtype: 'bank', is_system_account: true, ...over });
+/** Another tenant, in the same table: a query that drops its company filter finds these. */
+const OTHER_TENANT = [
+  ...PAYROLL_ACCOUNTS.map((a) => acc(a.account_code, `other-${a.id}`, a.account_name, {}, OTHER)),
+  bank('1110', 'other-bank', 'Other Bank', {}),
+  bank('1999999', 'other-bank-2', 'Other Bank 2', {}),
+].map((a) => ({ ...a, company_id: OTHER }));
 /** Velocity Fibre after 2026-10-27: 1110 deactivated, 1544331 holds the bank role. */
-const MOVED = [...PAYROLL_ACCOUNTS, acc('1110', 'acc-1110', 'Bank - Primary', false), acc('1544331', 'acc-bank', 'ABSA Cheque')];
-const UNMOVED = [...PAYROLL_ACCOUNTS, acc('1110', 'acc-1110', 'Bank - Primary')];
+const MOVED = [...PAYROLL_ACCOUNTS, bank('1110', 'acc-1110', 'Bank - Primary', { is_active: false }), bank('1544331', 'acc-bank', 'ABSA Cheque')];
+const UNMOVED = [...PAYROLL_ACCOUNTS, bank('1110', 'acc-1110', 'Bank - Primary')];
 
-function routeMock(accounts: unknown[]) {
-  mockImpl = (strings) => {
+function routeMock(accounts: GlAccountRow[], header: Record<string, unknown> = HEADER) {
+  const table = [...accounts, ...OTHER_TENANT];
+  mockImpl = (strings, ...values) => {
     const q = strings.join('?');
-    if (q.includes('payroll_run_headers')) return Promise.resolve([HEADER]);
-    if (q.includes('FROM gl_accounts')) return Promise.resolve(accounts);
+    if (q.includes('payroll_run_headers')) {
+      return Promise.resolve(values.includes(RUN) && values.includes(COMPANY) ? [header] : []);
+    }
+    if (q.includes('parent_account_id')) return Promise.resolve(answerHeaderGuard(table, strings, values));
+    if (q.includes('FROM gl_accounts')) return Promise.resolve(selectGlAccounts(table, strings, values));
     return Promise.resolve([]);
   };
 }
@@ -155,7 +171,7 @@ describe('payroll net pay — no usable bank role', () => {
   });
 
   it('blocks as inactive_target_account when the holder was deactivated after the resolver cached it', async () => {
-    routeMock([...PAYROLL_ACCOUNTS, acc('1544331', 'acc-bank', 'ABSA Cheque', false)]);
+    routeMock([...PAYROLL_ACCOUNTS, bank('1544331', 'acc-bank', 'ABSA Cheque', { is_active: false })]);
     getSystemAccount.mockResolvedValue(holder('acc-bank', '1544331', 'ABSA Cheque'));
 
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
@@ -177,5 +193,102 @@ describe('payroll net pay — no usable bank role', () => {
 
     await expect(postPayrollRunJournal(COMPANY, RUN, 'user-1')).rejects.toThrow(/bank/i);
     expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+});
+
+describe('payroll net pay — the holder is re-read, not trusted from the resolver cache', () => {
+  const stale = () => getSystemAccount.mockResolvedValue(holder('acc-1110', '1110', 'Bank - Primary'));
+
+  it('blocks when the role moved off the cached holder within the cache window, and posts nothing', async () => {
+    // The resolver still answers 1110; the table now flags 1544331 and no longer flags 1110.
+    routeMock([...PAYROLL_ACCOUNTS, bank('1110', 'acc-1110', 'Bank - Primary', { is_system_account: false }), bank('1544331', 'acc-bank', 'ABSA Cheque')]);
+    stale();
+
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    const blocker = plan!.blockers.find((b) => b.code === 'missing_bank_account');
+    expect(blocker?.detail).toMatch(/1110 Bank - Primary no longer holds/);
+    expect(plan!.lines.map((l) => l.glAccountId)).not.toContain('acc-1110');
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'user-1')).rejects.toThrow(/no longer holds/);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('blocks when the cached holder was deactivated and another account took the role', async () => {
+    routeMock(MOVED);
+    stale();
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+    expect(plan!.blockers.map((b) => b.code)).toContain('missing_bank_account');
+    expect(plan!.blockers.map((b) => b.code)).not.toContain('inactive_target_account');
+  });
+
+  it('blocks when the cached holder row is gone', async () => {
+    routeMock(PAYROLL_ACCOUNTS);
+    stale();
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+    expect(plan!.blockers.find((b) => b.code === 'missing_bank_account')?.detail).toMatch(/no longer holds/);
+  });
+});
+
+describe('payroll net pay — two accounts claim the bank role', () => {
+  it('refuses, naming both, instead of taking the resolver\'s pick', async () => {
+    routeMock([...UNMOVED, bank('1544331', 'acc-bank', 'ABSA Cheque')]);
+    getSystemAccount.mockResolvedValue(holder('acc-bank', '1544331', 'ABSA Cheque'));
+
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    const blocker = plan!.blockers.find((b) => b.code === 'ambiguous_bank_account');
+    expect(blocker?.detail).toContain('1110 Bank - Primary');
+    expect(blocker?.detail).toContain('1544331 ABSA Cheque');
+    expect(plan!.lines.find((l) => l.credit === 76000)?.glAccountId).toBeNull();
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'user-1')).rejects.toThrow(/1110 Bank - Primary; 1544331 ABSA Cheque|1544331 ABSA Cheque; 1110 Bank - Primary/);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('does not count a deactivated or unflagged claimant', async () => {
+    routeMock([...MOVED, bank('1200', 'acc-1200', 'Old unflagged', { is_system_account: false })]);
+    getSystemAccount.mockResolvedValue(holder('acc-bank', '1544331', 'ABSA Cheque'));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+    expect(plan!.blockers).toEqual([]);
+  });
+});
+
+describe('payroll net pay — the holder must be postable', () => {
+  const HDR = 'dddddddd-dddd-dddd-dddd-dddddddddddd'; // the guard judges UUID ids only
+  it('blocks a holder that is a header with sub-accounts, as the poster would refuse it', async () => {
+    routeMock([
+      ...PAYROLL_ACCOUNTS,
+      bank('1544331', HDR, 'ABSA Cheque', { level: 1 }),
+      acc('1544331-1', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'ABSA sub', { parent_account_id: HDR, level: 2 }),
+    ]);
+    getSystemAccount.mockResolvedValue(holder(HDR, '1544331', 'ABSA Cheque'));
+
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    expect(plan!.blockers.find((b) => b.code === 'header_bank_account')?.detail).toMatch(/is a header with sub-accounts/);
+    expect(plan!.lines.find((l) => l.credit === 76000)?.glAccountId).toBeNull();
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'user-1')).rejects.toThrow(/header/);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('accepts a leaf holder that has a parent', async () => {
+    routeMock([
+      ...PAYROLL_ACCOUNTS,
+      acc('1500', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'Bank accounts', { level: 2 }),
+      bank('1544331', HDR, 'ABSA Cheque', { level: 3, parent_account_id: 'ffffffff-ffff-ffff-ffff-ffffffffffff' }),
+    ]);
+    getSystemAccount.mockResolvedValue(holder(HDR, '1544331', 'ABSA Cheque'));
+    expect((await buildPayrollJournalPlan(COMPANY, RUN))!.blockers).toEqual([]);
+  });
+});
+
+describe('payroll net pay — negative_amount names a line with no account', () => {
+  it('labels net pay by its description when no bank holder gives it a code', async () => {
+    routeMock(UNMOVED, { ...HEADER, total_net: -500 });
+    getSystemAccount.mockRejectedValue(new MissingSystemAccountError('bank', COMPANY, 'no_claimant', []));
+
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    const negative = plan!.blockers.find((b) => b.code === 'negative_amount');
+    expect(negative?.detail).toContain('Net pay — bank disbursement');
   });
 });

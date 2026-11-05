@@ -180,8 +180,10 @@ export const postPayrollJournalTool: McpTool = {
     // Past this point the poster may have written. Every failure RETHROWS — a
     // returned toolError releases the savepoint, commits the partial write AND
     // frees the key for a retry that writes a second time.
+    // The plan reported above is the plan that posts: rebuilt here, the bank role could be read a second time and differ.
     const journalId = await postPayrollRunJournal(ctx.companyId, runId, ctx.userId, {
       postingAgent: POST_TOOL_AGENT,
+      plan,
     });
 
     return ok({
