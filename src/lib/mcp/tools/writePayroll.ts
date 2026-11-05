@@ -17,16 +17,14 @@
  */
 import type { McpTool } from '../types';
 import { createPayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
-import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
+import { PayrollPlanChangedSinceApprovalError, readApprovedPlan } from '@/modules/accounting/services/payroll/payrollApprovedPlan';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
-import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollLoanLock';
 import { PayrollRunBusyError } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import type { DryRunResult } from '../contracts';
 import { guardCastableArgs, NOT_FOUND, ok, toolError } from './toolHelpers';
-import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 
 const POST_TOOL_AGENT = 'mcp:post_payroll_journal:v1';
@@ -128,42 +126,28 @@ export const postPayrollJournalTool: McpTool = {
     if (guard) return guard;
     const runId = String(args.run_id);
 
-    // A live post locks the run's header BEFORE it reads the plan: the idempotency
-    // key serialises only calls that share it, so two posts under different keys,
-    // or a post beside an approval, would both read a run with no journal and each
-    // post one. Behind the lock the plan reads the winner's link and refuses
-    // (already_posted). A dry run takes no lock. Nothing is written yet, so a
-    // lock timeout is a plain, retryable refusal. Ownership: the lock is
+    // A live post takes the company approval lock then the run's header (payrollRunLock.ts order) BEFORE it reads
+    // the plan, inside readApprovedPlan: the idempotency key serialises only calls that share it, so two posts under
+    // different keys, or a post beside an approval, would both read a run with no journal and each post one. Behind
+    // the locks the plan reads the winner's link and refuses (already_posted). A dry run takes no lock but judges the
+    // same things (approved; plan hash-matched to the approved plan), so it cannot greenlight a call the live path
+    // refuses. Nothing is written yet, so a lock timeout is a plain, retryable refusal. Ownership: both reads are
     // company-scoped and a run of another tenant reads as a miss.
-    if (args.dry_run !== true) {
-      try {
-        if (!(await lockPayrollRunHeader(runId, ctx.companyId))) return toolError(NOT_FOUND);
-      } catch (err) {
-        // The neutral wording: the holder may be an approval or another post, not a calculation.
-        if (err instanceof PayrollLoanLockTimeoutError) return toolError(new PayrollRunBusyError(runId).message);
-        throw err;
+    const live = args.dry_run !== true;
+    let read: Awaited<ReturnType<typeof readApprovedPlan>>;
+    try {
+      read = await readApprovedPlan(ctx.companyId, runId, { lock: live });
+    } catch (err) {
+      // The neutral wording: the holder may be an approval or another post, not a calculation.
+      if (err instanceof PayrollLoanLockTimeoutError) return toolError(new PayrollRunBusyError(runId).message);
+      if (err instanceof PayrollPlanChangedSinceApprovalError) return toolError(err.message);
+      if (err instanceof ApprovalRequiredError || (err instanceof Error && err.message.includes('reviewed approval plan'))) {
+        return toolError('A person must approve this pay run in ISAFlow before the connector can post it.');
       }
+      throw err;
     }
-
-    // Ownership is the handler's job: the plan builder is company-scoped and
-    // returns null for a run in another tenant, which must read identically to
-    // a genuine miss.
-    const plan = await buildPayrollJournalPlan(ctx.companyId, runId);
-    if (!plan) return toolError(NOT_FOUND);
-
-    // A blocker of the plan's own (a loan above pay) is named before the
-    // approval question: a person's approval would not clear it.
-    const ownBlocker = plan.blockers.some((b) => b.code !== 'run_not_approved');
-    if (!ownBlocker) {
-      try {
-        await assertPayRunApproved(ctx.companyId, runId);
-      } catch (err) {
-        if (err instanceof ApprovalRequiredError || (err instanceof Error && err.message.includes('reviewed approval plan'))) {
-          return toolError('A person must approve this pay run in ISAFlow before the connector can post it.');
-        }
-        throw err;
-      }
-    }
+    if (!read) return toolError(NOT_FOUND);
+    const { plan } = read;
 
     if (plan.blockers.length > 0) {
       const detail = plan.blockers.map((b) => `${b.code}: ${b.detail}`).join(' ');

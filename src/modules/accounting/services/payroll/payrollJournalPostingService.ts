@@ -17,10 +17,10 @@ import { log } from '@/lib/logger';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
-import { buildPayrollJournalPlan, type PayrollJournalPlan } from './payrollJournalBuilder';
+import type { PayrollJournalPlan } from './payrollJournalBuilder';
 import { assertPayRunApproved } from './payRunApprovalControl';
-import { matchesApprovedPlanHash } from './payrollApprovalHash';
-import { lockCompanyPayrollApprovals, lockPayrollRunHeader } from './payrollRunLock';
+import { readApprovedPlan } from './payrollApprovedPlan';
+import { lockPayrollRunHeader } from './payrollRunLock';
 
 type Row = DbRow;
 
@@ -48,10 +48,13 @@ const BLOCKER_MESSAGES: Record<string, (detail: string) => string> = {
  * passes the plan its gate judged and its caller's hash described: a plan
  * rebuilt here could differ (a cost-centre mapping committed in between), and
  * would be posted under a hash that never described it (W3-01 breaker D).
- * Without `opts.plan` (MCP recovery posting) the plan is built under the same
- * locks approval takes and must hash to the run's approved plan hash, so a
- * mapping, account or cost-centre change since approval refuses rather than
- * posting a journal no one approved (lockedApprovedPlan).
+ * post_payroll_journal also passes one, but only the plan it reported, read by
+ * `readApprovedPlan` (payrollApprovedPlan.ts) under the approval and header
+ * locks and hash-matched to the approved plan: every `opts.plan` is either
+ * approval's own or an approved-and-hash-matched read. Without `opts.plan`
+ * the poster performs that same read itself, so a mapping, account or
+ * cost-centre change since approval refuses rather than posting a journal no
+ * one approved.
  */
 export async function postPayrollRunJournal(
   companyId: string,
@@ -63,19 +66,23 @@ export async function postPayrollRunJournal(
   // The run's header is locked FOR UPDATE (5s wait, then a retryable PayrollLoanLockTimeoutError, nothing written)
   // BEFORE the plan is read or the link judged: the idempotency lock of an MCP call covers one key only, so two
   // posts under different keys, or a post beside an approval, each saw a run with no journal and each posted one.
-  // With opts.plan the caller is approvePayrollRun, which already holds this lock in the same transaction (returns
-  // at once). Without it, lockedApprovedPlan takes the company approval lock then this header lock (approval's
-  // order) and reads the plan under them, so no new lock order is added on either path.
-  let plan: PayrollJournalPlan | null;
+  // With opts.plan the caller (approvePayrollRun, or the MCP tool after readApprovedPlan) already holds the company
+  // approval lock and this one in the same transaction, so this returns at once. Without it, readApprovedPlan takes
+  // the company approval lock then this header lock (approval's order) and reads the plan under them. Lock order on
+  // every path: 1 company approval, 2 header (payrollRunLock.ts); no path takes 2 before 1.
+  let plan: PayrollJournalPlan;
+  let locked: DbRow;
   if (opts?.plan) {
-    const locked = await lockPayrollRunHeader(runId, companyId);
-    if (!locked) throw new Error(`Payroll run ${runId} not found`);
+    const header = await lockPayrollRunHeader(runId, companyId);
+    if (!header) throw new Error(`Payroll run ${runId} not found`);
+    locked = header;
     await assertPayRunApproved(companyId, runId);
     plan = opts.plan;
   } else {
-    plan = await lockedApprovedPlan(companyId, runId);
+    const read = await readApprovedPlan(companyId, runId, { lock: true });
+    if (!read) throw new Error(`Payroll run ${runId} not found`);
+    ({ header: locked, plan } = read);
   }
-  if (!plan) throw new Error(`Payroll run ${runId} not found`);
 
   // Re-checked under the lock: a link the plan did not see (a plan built before the lock, or handed in by a caller
   // that did not hold it) means a peer posted first. Refused before anything is written.
@@ -153,31 +160,6 @@ export async function postPayrollRunJournal(
     'payrollJournal',
   );
   return entry.id;
-}
-
-/**
- * The plan to post when the caller has none: the company approval lock and the
- * header lock first (approvePayrollRun's order), then the clearance and the
- * plan, read under them. A non-grandfathered run's plan must be the one its
- * approval hashed; the plan validated is the plan returned and posted.
- */
-async function lockedApprovedPlan(companyId: string, runId: string): Promise<PayrollJournalPlan | null> {
-  await lockCompanyPayrollApprovals(runId, companyId);
-  const header = await lockPayrollRunHeader(runId, companyId);
-  if (!header) return null;
-  const plan = await buildPayrollJournalPlan(companyId, runId);
-  if (!plan) return null;
-  // A plan blocked for a reason of its own (a loan above pay, a run to
-  // recalculate) is refused with that reason by the caller, before any write:
-  // approval would not clear it, so "not approved" would send a person the wrong way.
-  if (!plan.alreadyPostedJournalId && plan.blockers.some((b) => b.code !== 'run_not_approved')) return plan;
-  const clearance = await assertPayRunApproved(companyId, runId);
-  if (clearance.grandfathered || plan.alreadyPostedJournalId) return plan;
-  const revision = header.approval_revision == null ? null : String(header.approval_revision);
-  if (!clearance.planHash || !matchesApprovedPlanHash(plan, revision, clearance.planHash)) {
-    throw new Error('This payroll run no longer matches the journal plan that was approved. Reopen and re-approve it before posting.');
-  }
-  return plan;
 }
 
 // ── reversePayrollRunJournal ─────────────────────────────────────────────────

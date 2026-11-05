@@ -25,6 +25,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 // The poster locks the run header first (its own tests: payrollJournalPosterLock.test.ts); this file's neon mock has no withTransaction.
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
   lockPayrollRunHeader: vi.fn(async () => ({ id: 'run', journal_entry_id: null })),
+  lockCompanyPayrollApprovals: vi.fn(async () => undefined),
 }));
 vi.mock('@/modules/accounting/services/payroll/costCentreGlMappingService', () => ({
   getMappingLookup: vi.fn(async () => ({})),

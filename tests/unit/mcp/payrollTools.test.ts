@@ -42,11 +42,14 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalBuilder', () => ({
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', () => ({
   postPayrollRunJournal: vi.fn(),
 }));
+// The dry run reads the run's header unlocked (readApprovedPlan); the plan hash is judged in payrollPostApprovedPlan.test.ts.
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => [{ id: 'run', journal_entry_id: null, approval_revision: null }]) }));
 vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({
   assertPayRunApproved: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
   lockPayrollRunHeader: vi.fn(async () => ({ id: 'run', journal_entry_id: null })),
+  lockCompanyPayrollApprovals: vi.fn(async () => undefined),
 }));
 
 import { listPayrollEmployeesPage } from '@/modules/accounting/services/payroll/payrollEmployeeQueryService';
@@ -132,7 +135,7 @@ beforeEach(() => {
   vi.mocked(getPayrollRun).mockResolvedValue(RUN_ROW);
   vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan());
   vi.mocked(postPayrollRunJournal).mockResolvedValue('je-new');
-  vi.mocked(assertPayRunApproved).mockResolvedValue({ grandfathered: false, planHash: 'plan-a' });
+  vi.mocked(assertPayRunApproved).mockResolvedValue({ grandfathered: true, planHash: null });
   vi.mocked(createPayrollRun).mockResolvedValue({ ...RUN_ROW, status: 'draft' });
 });
 
