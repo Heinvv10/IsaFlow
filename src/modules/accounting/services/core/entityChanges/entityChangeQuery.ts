@@ -36,6 +36,8 @@ export interface ListEntityChangesOptions {
   types: readonly EntityType[];
   entityType?: EntityType;
   entityId?: string;
+  /** payroll_bank_detail only: every row of this employee's bank details, retired ones too (a change retires a row and inserts a new id). */
+  employeeId?: string;
   /** Only changes older than this change id (the previous page's nextCursor). */
   before?: string;
   /** Only changes recorded after this instant (an audit snapshot's taken_at). */
@@ -106,7 +108,7 @@ export function toView(row: EntityChangeRow, reveal = false): EntityChangeView {
  * members (approval_company_member_name); a script's 'db:<role>' has none.
  */
 export async function selectEntityChanges(companyId: string, opts: {
-  types: readonly EntityType[]; entityType?: EntityType; entityId?: string; before?: string; changeId?: string; since?: string;
+  types: readonly EntityType[]; entityType?: EntityType; entityId?: string; employeeId?: string; before?: string; changeId?: string; since?: string;
   limit: number;
 }): Promise<EntityChangeRow[]> {
   return (await sql`
@@ -122,6 +124,7 @@ export async function selectEntityChanges(companyId: string, opts: {
       AND ec.entity_type = ANY(${[...opts.types]}::TEXT[])
       AND (${opts.entityType ?? null}::TEXT IS NULL OR ec.entity_type = ${opts.entityType ?? null}::TEXT)
       AND (${opts.entityId ?? null}::UUID IS NULL OR ec.entity_id = ${opts.entityId ?? null}::UUID)
+      AND (${opts.employeeId ?? null}::TEXT IS NULL OR lower(COALESCE(ec.after, ec.before) ->> 'employee_id') = lower(${opts.employeeId ?? null}::TEXT))
       AND (${opts.changeId ?? null}::UUID IS NULL OR ec.id = ${opts.changeId ?? null}::UUID)
       AND (${opts.since ?? null}::TIMESTAMPTZ IS NULL OR ec.recorded_at > ${opts.since ?? null}::TIMESTAMPTZ)
       AND (${opts.before ?? null}::UUID IS NULL OR (ec.recorded_at, ec.id) < (

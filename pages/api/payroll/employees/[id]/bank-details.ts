@@ -1,7 +1,8 @@
 /**
  * GET /api/payroll/employees/[id]/bank-details — the employee's active details, or null; in full for owner / admin,
  *     else the account number to its last four, branch code to its last two and holder to its first letter. A full
- *     read is recorded in audit_log (`export`).
+ *     read is recorded in audit_log (`export`). `?view=masked` asks for the masked view whatever the role (the profile
+ *     card shows only that, so it never holds a full number and never writes an audit row).
  * The request log masks branchCode and accountHolder (maskBodyKeys); the account number is redacted by key anyway.
  * PUT — enter or change them: { bankName, branchCode, accountNumber, accountType, accountHolder? }. The first entry:
  *     owner / admin / manager. A change to existing details: owner / admin only (403 CHANGE_REQUIRES_ADMIN). The same
@@ -43,7 +44,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     await assertHumanSession('read or change employee bank details');
     if (req.method === 'GET') {
       if (!(await employeeExists(companyId, employeeId))) return apiResponse.notFound(res, 'Employee');
-      const details = await getEmployeeBankDetails(companyId, employeeId, companyRole);
+      // An undefined role is masked: the card asks for the view it shows, not the one that is audited.
+      const details = await getEmployeeBankDetails(companyId, employeeId, req.query.view === 'masked' ? undefined : companyRole);
       if (details && !details.masked) {
         await auditBankDetailsRead(companyId, { userId: user.id, userEmail: user.email, ip: getClientIp(req), userAgent: req.headers['user-agent'] }, details);
       }
