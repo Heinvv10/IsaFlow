@@ -33,7 +33,8 @@ describe('PaymentTermsField', () => {
     render(<Harness onValue={vi.fn()} />);
     expect(kind().value).toBe('immediate');
     expect(screen.queryByLabelText('Number of days or months')).toBeNull();
-    expect(screen.getByText('Immediate')).toBeTruthy();
+    // The summary line under the picker, not the option of the same name.
+    expect(screen.getByText('Immediate', { selector: 'p' })).toBeTruthy();
   });
 
   it.each([
