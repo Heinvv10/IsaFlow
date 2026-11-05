@@ -25,7 +25,7 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 import { refusesUnattendedApproval } from '@/modules/accounting/services/core/unattendedPostingGate';
 import { computeFingerprint, findDuplicate } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { getRule, recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
-import { insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
+import { extractedBillDueDate, insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
 import { respondCapturedDocumentRefusal } from '@/modules/accounting/services/capture/capturePostingClaim';
 import {
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
@@ -41,7 +41,6 @@ import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierI
 import { attachEvidenceAndSettleApproved } from '@/modules/accounting/services/capture/provisionalAttachSettle';
 import { resolvePendingAlertForInvoice } from '@/modules/accounting/services/capture/alertResolutionService';
 import { raiseUnattendedApproval, unattendedBillStatus } from '@/modules/accounting/services/gl/approvalUnattended';
-import { billDueDate } from '@/modules/accounting/services/ap/billDueDate';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -199,11 +198,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return respondCapturedDocumentRefusal(res, claimRefusal);
   }
 
-  // Due date: the document's printed one, else the supplier's confirmed terms, the scan's terms text, the company default (960).
-  const dueDate = await billDueDate(companyId, supplierMatch.supplierId, invoiceInput.invoiceDate, {
-    dueDate: invoiceInput.dueDate, scannedTerms: invoiceInput.paymentTerms, // the scan's terms text ranks BELOW the supplier's confirmed terms
-  });
-
+  const dueDate = await extractedBillDueDate(companyId, supplierMatch.supplierId, invoiceInput); // the scan's terms rank last
   // Create supplier invoice (evidence columns stamped; hash backfilled by worker).
   const [invoice] = (await sql`
     INSERT INTO supplier_invoices (

@@ -9,7 +9,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
 const ROOT = resolve(__dirname, '../../..');
-const DERIVATIONS = /\b(dueDateForContact|billDueDate|dueDateWithDefault|ownTermsDueDate)\b/;
+const DERIVATIONS = /\b(dueDateForContact|billDueDate|extractedBillDueDate|dueDateWithDefault|ownTermsDueDate)\b/;
 const WRITES = /INSERT\s+INTO\s+(customer_invoices|supplier_invoices)\b/;
 
 const OWN_DATE: Record<string, string> = {

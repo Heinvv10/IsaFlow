@@ -26,13 +26,12 @@ import { decide } from '@/modules/accounting/services/capture/autoPublishGateSer
 import { raiseUnattendedApproval, unattendedBillStatus } from '@/modules/accounting/services/gl/approvalUnattended';
 import { isCaptureEventPostable } from '@/modules/accounting/services/capture/captureEventLock';
 import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
-import { insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
+import { extractedBillDueDate, insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
 import {
   runCapturePostFollowUps,
   type PublishedDecision,
 } from '@/modules/accounting/services/capture/capturePostFollowUps';
 import { respondCapturedDocumentRefusal } from '@/modules/accounting/services/capture/capturePostingClaim';
-import { billDueDate } from '@/modules/accounting/services/ap/billDueDate';
 import {
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   claimCapturedDocumentForPosting,
@@ -224,11 +223,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     invoiceInput.totalAmount,
   );
 
-  // Due date: the document's printed one, else the supplier's confirmed terms, the scan's terms text, the company default (960).
-  const dueDate = await billDueDate(companyId, supplierMatch.supplierId, invoiceInput.invoiceDate, {
-    dueDate: invoiceInput.dueDate, scannedTerms: invoiceInput.paymentTerms, // the scan's terms text ranks BELOW the supplier's confirmed terms
-  });
-
+  const dueDate = await extractedBillDueDate(companyId, supplierMatch.supplierId, invoiceInput); // the scan's terms rank last
   // Create supplier invoice.
   const [invoice] = await sql`
     INSERT INTO supplier_invoices (
