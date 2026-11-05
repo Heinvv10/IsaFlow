@@ -18,6 +18,7 @@
 import {
   canonicalSubtype,
   isCashEquivalent,
+  isDisposalGainLossSubtype,
   type AccountType,
 } from '@/modules/accounting/services/gl/accountSubtypes';
 
@@ -54,7 +55,14 @@ export function classifyCashGroup(
   // share issues, buybacks and distributions all land here.
   if (accountType === 'equity') return 'financing';
 
+  // The gain or loss on selling an asset is part of the proceeds: with the asset's cost and its accumulated depreciation,
+  // all three are investing (a pro-rata split of the bank leg otherwise sent the gain to operating).
+  if (isDisposalGainLossSubtype(subtype)) return 'investing';
+
   const canon = canonicalSubtype(subtype);
+
+  // A LIABILITY spelled bank / cash is a credit card (cash.balance.v1 does not count it as cash): financing, as credit_card.
+  if (accountType === 'liability' && (canon === 'bank' || canon === 'cash')) return 'financing';
 
   switch (canon) {
     case 'receivable':
