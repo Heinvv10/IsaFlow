@@ -41,6 +41,10 @@ describe('billDueDate precedence', () => {
     supplier(3, 'statement_months');
     expect(await due({ paymentTerms: 'net30', scannedTerms: 'Net 90' })).toBe('2026-10-16');
   });
+  it('a caller\'s own terms text with statement wording ("Net 90 EOM") is not invoice + 90: the confirmed supplier terms date the bill', async () => {
+    supplier(3, 'statement_months');
+    expect(await due({ paymentTerms: 'Net 90 EOM' })).toBe('2026-12-31');
+  });
   it('a due date given (typed, or printed on the document) beats every terms input', async () => {
     supplier(3, 'statement_months');
     expect(await due({ dueDate: '2026-11-01', paymentTerms: 'net30', scannedTerms: 'Net 90' })).toBe('2026-11-01');

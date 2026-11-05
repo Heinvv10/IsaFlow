@@ -7,7 +7,10 @@ describe('scannedPaymentTermsOption', () => {
     ['Net 30 days', 'net30'], ['60 days from invoice', 'net60'], ['Payable within 90 days', 'net90'],
     ['by arrangement', null], ['', null],
     ['COD on delivery', 'immediate'], ['cash (C.O.D.)', null], ['pay on collection of the barcode scanner', null],
-    ['decode and pay', null], ['pay immediately', 'immediate'], ['Immediate settlement', 'immediate'], ['0 day', 'immediate'], ['10 days', null],
+    ['decode and pay', null], ['pay immediately', 'immediate'], ['Immediate settlement', 'immediate'], ['0 day', 'immediate'],
+    // any net N and any explicit N days up to 999, not only 30 / 60 / 90
+    ['10 days', 'net10'], ['Net 45', 'net45'], ['net7', 'net7'], ['14 days from invoice', 'net14'], ['120 days', 'net120'], ['Net 999', 'net999'],
+    ['Net 0', 'immediate'], ['Net 1000', null], ['1000 days', null], ['net365000', null],
   ])('%j reads %s', (text, option) => {
     expect(scannedPaymentTermsOption(text)).toBe(option);
   });
@@ -17,12 +20,15 @@ describe('statement wording is never a netNN (it counts from the month-end, not 
   it.each([
     '90 days after statement', '60 days from statement', 'Net 30 days EOM', '30 days end of month', '30 days from end of the month',
     '30 days month-end', '60 days from statement date', 'Net 30 on statement',
+    '30 days from end of next month', 'Net 60 end of month following', 'Net 90 EOM', '45 days EOM',
   ])('%j is ignored', (text) => {
     expect(scannedPaymentTermsOption(text)).toBeNull();
   });
-  it('a number inside a longer number is not terms', () => {
-    expect(scannedPaymentTermsOption('130 days')).toBeNull();
-    expect(scannedPaymentTermsOption('Internet 7 days')).toBeNull();
+  it('"net" inside a word, a number inside a longer number, and "N days" beside other words are not terms', () => {
+    expect(scannedPaymentTermsOption('1300 days')).toBeNull();
+    for (const text of ['Internet 7 days', 'Internet 30', 'Cabinet 30', 'Internet access, 30 days contract', 'Subnet 24']) {
+      expect(scannedPaymentTermsOption(text), text).toBeNull();
+    }
   });
 });
 

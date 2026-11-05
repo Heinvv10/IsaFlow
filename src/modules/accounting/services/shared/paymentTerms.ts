@@ -119,9 +119,18 @@ export function dueDateFromTerms(
   return localDateFromISO(due) === null ? null : due;
 }
 
-/** A bill's OWN terms text ("net30", "Net 45", "immediate") as a due date; null for anything else (including none). */
+/**
+ * Wording that counts from a month-end or a statement, never from the invoice date ("90 days after statement", "30 days
+ * EOM", "end of next month"). Terms text with it is never a netNN: the caller ignores it, or maps it to a statement type.
+ */
+export const STATEMENT_WORDING = /\b(statements?|stmt|eom|month[\s-]*end|end\s+of)\b/i;
+
+/**
+ * A bill's OWN terms text ("net30", "Net 45", "immediate") as a due date; null for anything else (including none, and
+ * statement wording such as "Net 90 EOM", which counts from the month-end and so is not invoice + 90).
+ */
 export function ownTermsDueDate(invoiceDateIso: string, paymentTerms?: string | null): string | null {
-  if (!paymentTerms) return null;
+  if (!paymentTerms || STATEMENT_WORDING.test(paymentTerms)) return null;
   if (/^\s*immediate\s*$/i.test(paymentTerms)) return dueDateFromTerms(invoiceDateIso, 0, 'invoice_days');
   // \bnet: "Internet 7 days" is not terms; at most three digits: net365000 is not terms either.
   const match = paymentTerms.match(/\bnet\s*(\d{1,3})\b/i);
