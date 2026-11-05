@@ -43,7 +43,9 @@ export const updateSupplierInvoiceTool: McpTool = {
     + 'the supplier already has a live bill with that number; or the '
     + 'stored lines carry a purchase-order link, project, cost centre or VAT classification that replacing '
     + 'them would drop. A line that leaves out cc1 / cc2 / bu keeps the value every stored line shares; when '
-    + 'the stored lines differ on one, name it on every line. due_date is never re-derived from payment_terms — '
+    + 'the stored lines differ on one, name it on every line. A line of a bill raised from a bank-first slip that '
+    + 'still names no cc1 / cc2 / bu takes the slip\'s provisional journal\'s dimensions when they match it; the '
+    + 'result lists those as inherited_dimensions. due_date is never re-derived from payment_terms — '
     + 'send it when the dates change.',
   scope: 'write:invoices',
   write: true,
@@ -143,6 +145,12 @@ export const updateSupplierInvoiceTool: McpTool = {
           ? { cc1_id: l.cc1Id ?? null, cc2_id: l.cc2Id ?? null, bu_id: l.buId ?? null } : {}),
       })),
       ...(warnings.length > 0 ? { dimension_warnings: warnings } : {}),
+      // Budgets P5-2b: blank lines of a slip bill that took the bank-first provisional's dimensions at this write.
+      ...(plan.lines?.inheritedDimensions.length ? {
+        inherited_dimensions: plan.lines.inheritedDimensions.map((d) => ({
+          line: d.line, cc1_id: d.cc1Id, cc2_id: d.cc2Id, bu_id: d.buId, provisional_id: d.provisionalId,
+        })),
+      } : {}),
     });
   },
 };
