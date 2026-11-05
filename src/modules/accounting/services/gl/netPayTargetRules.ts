@@ -27,13 +27,13 @@
  * it is `netPayLoanAccountRefusal` (gl/netPayLoanAccounts), asked by the save and the plan.
  */
 import type { CandidateAccount } from './defaultAccountRoles';
-import { canonicalSubtype } from './accountSubtypes';
+import { canonicalSubtype, type CanonicalSubtype } from './accountSubtypes';
 
 /** The accounts the payroll journal credits besides net pay (payrollJournalParts' required and optional codes, bar labour). */
 export const NET_PAY_CONFLICT_CODES: readonly string[] = ['2140', '2150', '2160', '2175'];
 
 /** The one subtype a net-pay target may carry (after `canonicalSubtype`). */
-export const NET_PAY_TARGET_SUBTYPE = 'payroll_liability';
+export const NET_PAY_TARGET_SUBTYPE: CanonicalSubtype = 'payroll_liability';
 
 export interface NetPayTargetAccount {
   code: string;

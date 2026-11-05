@@ -1,8 +1,9 @@
 /**
  * The Default Accounts "Payroll net pay" row: where a pay run credits net pay.
  * Its empty option is a real choice (the bank, today's behaviour), not "Not
- * configured"; it offers only what the save accepts (a leaf, active liability
- * that the payroll journal does not already credit and no system role holds);
+ * configured"; it offers only what the save accepts (a leaf, active liability on
+ * the payroll_liability subtype that the payroll journal does not already credit:
+ * not a tax, payable or no-subtype account);
  * choosing one sends `payroll_net_pay` with the holder the page loaded.
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -22,7 +23,9 @@ const ACCOUNTS = [
   acct('2170', 'liability', 'payroll_liability'),
   acct('2171', 'liability', 'payroll_liability', { isActive: false }),
   acct('2200', 'liability', undefined, { level: 1 }),
-  acct('2210', 'liability', undefined, { parentAccountId: '2200' }),
+  acct('2210', 'liability', 'payroll_liability', { parentAccountId: '2200' }),
+  acct('2125', 'liability', 'tax'),
+  acct('2300', 'liability', undefined),
 ];
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
