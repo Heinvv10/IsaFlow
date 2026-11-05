@@ -1,7 +1,8 @@
 // Adversarial repros for PR #1156 (cashFlowIndirectService), ported from the review's isaflow_dev run to a disposable
 // database: one fresh company, every scenario inside BEGIN ... ROLLBACK on one client bound through ALS, so nothing
-// persists between cases. B1/B3 (accounts with no subtype) are KNOWN LIMITS reported in the PR (a data fix, not code):
-// they are `it.fails`, so they go green-and-loud the day the chart carries the subtype.
+// persists between cases. B1 (the seeded Long-term Loans) went green with migration 958. B3 (a dividend declared to a GENERIC
+// current_liability) stays a KNOWN LIMIT, no dividend liability account is seeded: it is `it.fails`, so it goes
+// green-and-loud the day such an account carries a subtype.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { assertDisposableDb } from '../helpers/assertDisposableDb';
 import { Pool, type PoolClient } from 'pg';
@@ -17,14 +18,16 @@ vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h:
 
 const CO = randomUUID();
 const OTHER_CO = randomUUID();
-const LT_LOANS_2210 = randomUUID(); // the seeded "Long-term Loans" (2210), subtype NULL as in 60 of 64 dev charts
+const LT_LOANS_2210 = randomUUID(); // the seeded "Long-term Loans" (2210), as seed_company_chart_of_accounts creates it (958: long_term_liability)
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) return;
   assertDisposableDb('This test creates and deletes companies and accounts.');
   for (const c of [CO, OTHER_CO]) await pool.query(`INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)`, [c, `CF adv ${c.slice(0, 6)}`]);
-  await pool.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance) VALUES ($1,$2,'2210','Long-term Loans','liability',NULL,'credit')`, [LT_LOANS_2210, CO]);
+  // The seeded chart itself, not a hand-made row: this is the account a new company really gets.
+  await pool.query('SELECT public.seed_company_chart_of_accounts($1)', [CO]);
+  await pool.query(`UPDATE gl_accounts SET id = $1 WHERE company_id = $2 AND account_code = '2210'`, [LT_LOANS_2210, CO]);
 }, 60_000);
 afterAll(async () => {
   try {
@@ -147,7 +150,7 @@ describeIfDb('PR #1156 adversarial: tie-out', () => {
 });
 
 describeIfDb('PR #1156 adversarial: classification', () => {
-  it.fails('B1 loan drawdown on the SEEDED "Long-term Loans" account (2210, subtype NULL) belongs in Financing, not Operating', async () => {
+  it('B1 loan drawdown on the SEEDED "Long-term Loans" account (2210, subtype long_term_liability since 958) belongs in Financing, not Operating', async () => {
     await inTx(async ({ acct, j }) => {
       const bank = await acct('asset', 'bank');
       await j('2026-11-10', [[bank, 50000, 0], [LT_LOANS_2210, 0, 50000]]);
