@@ -13,13 +13,16 @@
  * the money lands there, but `postJournalEntry` refuses a deactivated account
  * (`assertNoInactiveAccountLines`), so a preview that passed it greenlit a post
  * the live path refused (K-079 review). Brightsphere carries all five payroll
- * accounts deactivated and Velocity Fibre 1110: they must reactivate or remap.
+ * accounts deactivated: they must reactivate or remap.
+ *
+ * NET PAY'S BANK ACCOUNT is the holder of the BANK system role (payrollJournalBank),
+ * resolved once here; no holder is a `missing_bank_account` blocker, never a 1110 fallback.
  *
  * Balance formula:
  *   DR 5200 Labour = gross + employer UIF + SDL − ETI used, split by cost centre
  *     (the mapping picks the account; the centre is the line's CC1 — payrollJournalParts#buildLabourLines)
  *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
- *   CR 2175 deductions, or DR 2175 for a net reversal   CR 1110 Bank (net pay)
+ *   CR 2175 deductions, or DR 2175 for a net reversal   CR bank-role account (net pay)
  *
  * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
  * it reduces the 2140 credit, and it is presented net of labour cost. Only the
@@ -37,11 +40,12 @@ import type { DbRow } from '@/lib/neon';
 import {
   REQUIRED_PAYROLL_ACCOUNT_CODES,
   buildLabourLines,
-  closedPeriodBlocker,
   lastDayOfMonthIso,
   resolveAccounts,
   resolveAccountsById,
 } from './payrollJournalParts';
+import { bankNetPayLine, resolveBankAccount } from './payrollJournalBank';
+import { judgeJournalLines } from './payrollJournalBlockers';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
 import { payrollLoanInstalmentBlocker } from './payrollLineBlockers';
@@ -149,6 +153,7 @@ export async function buildPayrollJournalPlan(
   const labourDebit = round2(gross + employerUif + sdl - etiUsed);
 
   const accounts = await resolveAccounts(companyId);
+  const bank = await resolveBankAccount(companyId);
   const blockers: PayrollJournalNote[] = [];
   const advisories: PayrollJournalNote[] = [];
   const blockedLoan = await payrollLoanInstalmentBlocker(companyId, runId);
@@ -161,6 +166,8 @@ export async function buildPayrollJournalPlan(
       detail: `The company has no GL account for ${missing.join(', ')}. The payroll journal cannot be built without them.`,
     });
   }
+  // Only when a net-pay line survives (zero lines are dropped below): a run paying no one credits no bank.
+  if (bank.blocker && round2(net) !== 0) blockers.push(bank.blocker);
   if (Math.abs(otherDeductions) > 0.005 && !accounts.has('2175')) {
     blockers.push({
       code: 'missing_other_deductions_account',
@@ -233,7 +240,7 @@ export async function buildPayrollJournalPlan(
   built.push(line('2140', 0, paye - etiUsed, 'PAYE payable, net of ETI'));
   built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
   built.push(line('2160', 0, sdl, 'SDL payable'));
-  built.push(line('1110', 0, net, 'Net pay — bank disbursement'));
+  built.push(bankNetPayLine(bank.account, round2(net)));
   if (otherDeductions > 0.005) {
     built.push(line('2175', 0, otherDeductions, 'Other employee deductions (medical aid, pension, RA, etc.)'));
   } else if (otherDeductions < -0.005) {
@@ -249,43 +256,10 @@ export async function buildPayrollJournalPlan(
     });
   }
 
-  const inactive = [...new Set(lines.filter((l) => l.inactiveAccount).map((l) => l.accountCode))];
-  if (inactive.length > 0) {
-    blockers.push({
-      code: 'inactive_target_account',
-      detail: `This journal posts into deactivated accounts: ${inactive.join(', ')}. The ledger refuses a posting to a deactivated account; reactivate them before posting.`,
-    });
-  }
-
-  // The GL poster refuses both of these; saying so here lets the dry run and
-  // approval refuse BEFORE anything is written, with the reason (K-079).
-  if (lines.length === 0) {
-    blockers.push({
-      code: 'nothing_to_post',
-      detail: 'The run has no amounts to post — every journal line is zero. Calculate the run first.',
-    });
-  }
-  const negative = lines.filter((l) => l.debit < 0 || l.credit < 0);
-  if (negative.length > 0) {
-    blockers.push({
-      code: 'negative_amount',
-      detail: `The run totals give a negative amount on ${negative.map((l) => l.accountCode || l.glAccountId).join(', ')}, which a journal line cannot carry. Check the run's totals.`,
-    });
-  }
   const entryDate = lastDayOfMonthIso(periodYear, periodMonth);
-  const closed = await closedPeriodBlocker(companyId, entryDate);
-  if (closed) blockers.push(closed);
-
-  const totalDebit = round2(lines.reduce((s, l) => s + l.debit, 0));
-  const totalCredit = round2(lines.reduce((s, l) => s + l.credit, 0));
-  // Exact to the cent, as the GL's validateJournalEntry is: a 1-cent tolerance
-  // here let a plan pass that the live post then refused.
-  if (Math.round((totalDebit - totalCredit) * 100) !== 0) {
-    blockers.push({
-      code: 'unbalanced',
-      detail: `Payroll journal unbalanced by ${(totalDebit - totalCredit).toFixed(2)} (DR ${totalDebit.toFixed(2)} vs CR ${totalCredit.toFixed(2)}).`,
-    });
-  }
+  const judged = await judgeJournalLines(companyId, lines, entryDate);
+  blockers.push(...judged.blockers);
+  const { totalDebit, totalCredit } = judged;
 
   const mm = String(periodMonth).padStart(2, '0');
   return {

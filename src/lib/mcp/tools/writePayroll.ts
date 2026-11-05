@@ -104,7 +104,7 @@ export const postPayrollJournalTool: McpTool = {
   description:
     'Post the general-ledger journal for an APPROVED payroll run: debit labour cost with gross pay plus the employer UIF and SDL the company owes on top of it, and credit PAYE payable, UIF payable (both halves), SDL payable, any voluntary deductions, and net pay. ' +
     'This is the entry that is missing from these books. Today net pay alone is coded to Salaries & Wages, so employment cost is understated by every employer contribution and no PAYE, UIF or SDL liability is ever raised. ' +
-    'ALWAYS call it with dry_run: true first. The preview returns the complete journal — every line, both totals, the fiscal period the date falls in, and the run totals it was derived from — and it applies every check the live call applies: the run must be approved, it must not already carry a journal, the five required GL accounts (5200 labour, 2140 PAYE, 2150 UIF, 2160 SDL, 1110 bank) must exist, account 2175 must exist if there are voluntary deductions, no target account may be deactivated (inactive_target_account — the ledger refuses the posting; it does not activate them), the fiscal period covering the date must be open, the run must have something to post, and the journal must balance to the cent. If any of those fails, BOTH the preview and the live call refuse and name the reason. ' +
+    'ALWAYS call it with dry_run: true first. The preview returns the complete journal — every line, both totals, the fiscal period the date falls in, and the run totals it was derived from — and it applies every check the live call applies: the run must be approved, it must not already carry a journal, the four required GL accounts (5200 labour, 2140 PAYE, 2150 UIF, 2160 SDL) must exist, an active account must hold the bank system role of the company (net pay is credited to it, whatever its code; missing_bank_account otherwise), account 2175 must exist if there are voluntary deductions, no target account may be deactivated (inactive_target_account — the ledger refuses the posting; it does not activate them), the fiscal period covering the date must be open, the run must have something to post, and the journal must balance to the cent. If any of those fails, BOTH the preview and the live call refuse and name the reason. ' +
     'It also does not calculate or approve the run, does not pay anyone, and does not file an EMP201. ETI is booked net of labour cost and against PAYE payable, capped at the PAYE of the run: the labour debit and the PAYE credit both fall by min(ETI, PAYE), so the PAYE credit equals the EMP201 PAYE payable. ETI beyond PAYE is not booked and is reported as an eti_beyond_paye advisory. ' +
     'Reverse a posted payroll journal in the app; this tool will refuse a run that already has one rather than post a second.',
   scope: 'write:payroll',
@@ -196,8 +196,10 @@ export const postPayrollJournalTool: McpTool = {
     // Past this point the poster may have written. Every failure RETHROWS — a
     // returned toolError releases the savepoint, commits the partial write AND
     // frees the key for a retry that writes a second time.
+    // The plan reported above is the plan that posts: rebuilt here, the bank role could be read a second time and differ.
     const journalId = await postPayrollRunJournal(ctx.companyId, runId, ctx.userId, {
       postingAgent: POST_TOOL_AGENT,
+      plan,
     });
 
     return ok({

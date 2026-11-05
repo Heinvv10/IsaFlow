@@ -115,8 +115,10 @@ export async function rig(label: string) {
   async function account(code: string, c = company): Promise<string> {
     const type = code.startsWith('5') ? 'expense' : code === '1110' ? 'asset' : 'liability';
     return (await pool.query(
-      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
-       VALUES ($1,$2,$3,$4,$5,1) RETURNING id`, [c, code, `BRK ${code}`, type, type === 'liability' ? 'credit' : 'debit'])).rows[0]!.id;
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, account_subtype, is_system_account)
+       VALUES ($1,$2,$3,$4,$5,1,$6,$7) RETURNING id`,
+      // 1110 holds the company's bank system role: net pay is credited to the role holder, not to the code.
+      [c, code, `BRK ${code}`, type, type === 'liability' ? 'credit' : 'debit', code === '1110' ? 'bank' : null, code === '1110'])).rows[0]!.id;
   }
   let empSeq = 0;
   /** An employee with a Basic Salary. Returns { employee, salaryRow }. */

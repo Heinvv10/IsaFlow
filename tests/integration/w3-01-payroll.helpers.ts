@@ -20,8 +20,10 @@ export async function seedPayrollCompany(pool: Pool, company: string, salary = 2
   for (const code of REQUIRED_GL) {
     const type = code === '5200' ? 'expense' : code === '1110' ? 'asset' : 'liability';
     await pool.query(
-      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
-       VALUES ($1,$2,$3,$4,$5,1)`, [company, code, `W301 ${code}`, type, type === 'liability' ? 'credit' : 'debit']);
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, account_subtype, is_system_account)
+       VALUES ($1,$2,$3,$4,$5,1,$6,$7)`,
+      // 1110 holds the company's bank system role: net pay is credited to the role holder, not to the code.
+      [company, code, `W301 ${code}`, type, type === 'liability' ? 'credit' : 'debit', code === '1110' ? 'bank' : null, code === '1110']);
   }
   const emp = (await pool.query<{ id: string }>(
     `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number, medical_aid_main_member)

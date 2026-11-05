@@ -119,8 +119,10 @@ beforeAll(async () => {
       const type = code === '5200' ? 'expense' : code === '1110' ? 'asset' : 'liability';
       const normal = type === 'liability' ? 'credit' : 'debit';
       await pool.query(
-        `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
-         VALUES ($1,$2,$3,$4,$5,1)`, [id, code, `K079 ${code}`, type, normal]);
+        `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, account_subtype, is_system_account)
+         VALUES ($1,$2,$3,$4,$5,1,$6,$7)`,
+        // 1110 holds the company's bank system role: net pay is credited to the role holder.
+        [id, code, `K079 ${code}`, type, normal, code === '1110' ? 'bank' : null, code === '1110']);
     }
   }
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
