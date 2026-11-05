@@ -24,7 +24,10 @@ export type GenerationJobStatus = 'queued' | 'running' | 'completed' | 'failed';
 // ── NoteContent ──────────────────────────────────────────────────────────────
 
 export interface NoteContentParagraph { type: 'paragraph'; text: string }
-export interface NoteContentTable     { type: 'table'; headers: string[]; rows: string[][] }
+/** How a statement row prints: a group heading, an account line, a subtotal or the bottom line. */
+export type NoteTableRowKind = 'heading' | 'line' | 'subtotal' | 'total';
+/** `rowKinds[i]` styles `rows[i]`; absent (every older table) prints every row as a plain line. */
+export interface NoteContentTable     { type: 'table'; headers: string[]; rows: string[][]; rowKinds?: NoteTableRowKind[] }
 export interface NoteContentList      { type: 'list'; items: string[] }
 export interface NoteContentHeading   { type: 'heading'; text: string; level: 2 | 3 }
 

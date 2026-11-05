@@ -10,11 +10,15 @@ import type { DbRow } from '@/lib/neon';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import type { SupplierInvoiceItemInput } from '../../types/ap.types';
 import { billLineAccountRefusal } from './billLineAccountGuard';
-import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
+import { SUPPLIER_INVOICE_LINE_ORDER_BY, storedLineOrder } from './supplierInvoiceLineOrder';
 import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
+import { getSystemAccountId } from '../gl/systemAccountResolver';
+import { MissingSystemAccountError } from '../gl/systemAccountKeys';
+import { inheritSlipDimensions, provisionalDimLines } from './supplierInvoiceProvisionalDims';
+import { standingProvisionalRef } from './supplierInvoiceBudgetProvisional';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -22,6 +26,34 @@ import {
   type ComputedSupplierInvoiceItem,
   type SupplierInvoiceTotals,
 } from './supplierInvoiceTotals';
+
+/** The lines with the dimensions of the provisional behind the bill's slip, when it has a standing one (read only). */
+async function slipBillLines(
+  companyId: string, invoiceId: string, computed: SupplierInvoiceTotals, taxRate: number,
+): Promise<{ items: ComputedSupplierInvoiceItem[]; inherited: InheritedDimension[] }> {
+  const prov = await standingProvisionalRef(companyId, invoiceId);
+  if (!prov) return { items: computed.items, inherited: [] };
+  let defaultExpense: string | null = null;
+  try {
+    defaultExpense = await getSystemAccountId('default_expense', companyId);
+  } catch (err) {
+    if (!(err instanceof MissingSystemAccountError)) throw err; // no role: a line with no account matches nothing
+  }
+  const header = { subtotal: computed.subtotal, totalAmount: computed.totalAmount, taxRate };
+  // Matched in the order the replaced lines will be read back for posting (breaker R6-1), as the apply writes them.
+  const order = await storedLineOrder(computed.items.map((i) => ({
+    id: i.id ?? null, description: i.description, glAccountId: i.glAccountId ?? null, quantity: i.quantity, unitPrice: i.unitPrice, taxRate: i.taxRate,
+    taxAmount: i.taxAmount, lineTotal: i.lineTotal, vatClassification: defaultVatClassification(i.taxRate),
+  })));
+  const out = await inheritSlipDimensions(companyId, computed.items, header,
+    await provisionalDimLines(companyId, prov.jeId, prov.bankAccountId), defaultExpense, undefined, order);
+  const inherited = out.lines.flatMap((l, i) => (out.inherited[i]
+    ? [{ line: i + 1, cc1Id: l.cc1Id ?? null, cc2Id: l.cc2Id ?? null, buId: l.buId ?? null, provisionalId: prov.jeId }] : []));
+  return { items: out.lines, inherited };
+}
+
+/** A sent line (1-based) that took the slip's provisional's dimensions at this draft write (P5-2b round 4). */
+export interface InheritedDimension { line: number; cc1Id: string | null; cc2Id: string | null; buId: string | null; provisionalId: string }
 
 /** A refusal whose message is safe to show the caller. Raised before any write. */
 export class SupplierInvoiceDraftUpdateRefusal extends Error {
@@ -45,7 +77,7 @@ export async function planLines(
   number: string,
   items: SupplierInvoiceItemInput[],
   taxRate: number,
-): Promise<(SupplierInvoiceTotals & { taxRate: number }) | null> {
+): Promise<(SupplierInvoiceTotals & { taxRate: number; inheritedDimensions: InheritedDimension[] }) | null> {
   try {
     assertSupplierInvoiceLines(items, false);
   } catch (err) {
@@ -59,11 +91,18 @@ export async function planLines(
     FROM supplier_invoice_items sii
     WHERE supplier_invoice_id = ${invoiceId}::UUID
     ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}`) as DbRow[];
+  let inheritedDimensions: InheritedDimension[] = [];
   let totals: SupplierInvoiceTotals;
   try {
-    const computed = computeSupplierInvoiceTotals(keepStoredDimensions(items, kept), taxRate, false);
+    const totalled = computeSupplierInvoiceTotals(keepStoredDimensions(items, kept), taxRate, false);
+    // Row ids chosen here and written by the apply (P5-2b round 8): `storedLineOrder` then knows the stored lines'
+    // full posting order, even for lines identical on every other sort column.
+    const computed = { ...totalled, items: totalled.items.map((i) => ({ ...i, id: crypto.randomUUID() })) };
+    // Budgets P5-2b: a blank line of a slip bill takes the standing provisional's dimensions, at this draft write.
+    const slip = await slipBillLines(companyId, invoiceId, computed, taxRate);
+    inheritedDimensions = slip.inherited;
     // CC1 derived from each line's CC2; a conflicting CC1 is refused (no query without a CC2).
-    totals = { ...computed, items: await deriveLineDimensions(companyId, computed.items) };
+    totals = { ...computed, items: await deriveLineDimensions(companyId, slip.items) };
     await assertDocumentDimensions(companyId, totals.items);
   } catch (err) {
     if (isDimensionRefusal(err)) throw new SupplierInvoiceDraftUpdateRefusal(err.message);
@@ -99,7 +138,7 @@ export async function planLines(
       + 'Edit it in the app instead, or cancel and re-enter it.',
     );
   }
-  return { ...totals, taxRate };
+  return { ...totals, taxRate, inheritedDimensions };
 }
 
 /** Migration 646's index — (company, supplier, number) on live, non-blank rows — as a worded refusal. */

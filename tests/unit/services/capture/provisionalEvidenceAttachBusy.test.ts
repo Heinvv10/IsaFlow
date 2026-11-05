@@ -45,3 +45,20 @@ describe('attachDocumentToProvisional: the claim refusal', () => {
     expect(await attachDocumentToProvisional('c', 'je', 'd')).toMatchObject({ kind: 'refused' });
   });
 });
+
+describe('attachDocumentToProvisional: a bill raised from the slip held by another transaction', () => {
+  it('-> contended before the claim or any write (a committed attach could never inherit on retry)', async () => {
+    vi.mocked(sql).mockImplementation((async (strings: TemplateStringsArray) => {
+      const t = strings.join('?');
+      if (t.includes('needs_evidence') && t.includes('FOR UPDATE')) return [{ needs_evidence: true, stands: true }];
+      if (t.includes('SELECT id FROM supplier_invoices')) return [{ id: 'bill-1' }];
+      if (t.includes('SKIP LOCKED')) return []; // held by a peer
+      if (t.includes('SELECT 1 FROM supplier_invoices')) return [{ '?column?': 1 }]; // but it exists
+      return [];
+    }) as never);
+    expect(await attachDocumentToProvisional('c', 'je', 'd')).toMatchObject({ kind: 'contended' });
+    expect(claimCapturedDocumentForPosting).not.toHaveBeenCalled();
+    const writes = vi.mocked(sql).mock.calls.map(([s]) => (s as unknown as string[]).join('?')).filter((t) => /^\s*(UPDATE|INSERT|DELETE)\s/.test(t));
+    expect(writes).toEqual([]);
+  });
+});

@@ -37,7 +37,7 @@ import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import jeAction from '../../pages/api/accounting/journal-entries-action';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -66,7 +66,7 @@ beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'W301 approve race']);
   await seedPayrollCompany(pool, company);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
-  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, admin]);
 });
@@ -85,6 +85,7 @@ describe('approve vs approve (W3-01 round 3)', () => {
     const url = (a: string) => `/api/payroll/runs/${id}/${a}`;
     const p = await call(journalPlan as Route, 'GET', url('journal-plan'), id);
     const body = { expectedPlanHash: p.body.data!.planHash };
+    await authorisePayRun(call, id);
 
     let release!: () => void;
     gate.hold = new Promise<void>((r) => { release = r; });
@@ -121,7 +122,9 @@ describe('approve vs approve (W3-01 round 3)', () => {
       const id = await calculatedRun(call, month);
       const url = (a: string) => `/api/payroll/runs/${id}/${a}`;
       const plan = () => call(journalPlan as Route, 'GET', url('journal-plan'), id);
-      const j1 = String((await call(approve as Route, 'POST', url('approve'), id, { body: { expectedPlanHash: (await plan()).body.data!.planHash } })).body.data!.journalEntryId);
+      const planHash = (await plan()).body.data!.planHash;
+      await authorisePayRun(call, id);
+      const j1 = String((await call(approve as Route, 'POST', url('approve'), id, { body: { expectedPlanHash: planHash } })).body.data!.journalEntryId);
       expect((await call(reopen as Route, 'POST', url('reopen'), id, { body: { reason: 'w301 journal lock' } })).statusCode).toBe(200);
       return { id, j1, plan };
     };
@@ -143,6 +146,7 @@ describe('approve vs approve (W3-01 round 3)', () => {
     it('re-approving onto a live journal: a reversal of it waits, then is refused — the run is approved', async () => {
       const { id, j1, plan } = await approved(9);
       const hash = (await plan()).body.data!.planHash; // before parking: the preview runs the gate too
+      await authorisePayRun(call, id);
       const { release, entered } = park();
       const apprP = call(approve as Route, 'POST', `/api/payroll/runs/${id}/approve`, id, { body: { expectedPlanHash: hash } });
       await entered; // judged "in force, same figures"; nothing written yet
@@ -166,6 +170,7 @@ describe('approve vs approve (W3-01 round 3)', () => {
       const contra = String((await pool.query('SELECT id FROM gl_journal_entries WHERE reversal_of_id = $1', [j1])).rows[0]!.id);
       const p = await plan();
       expect(p.body.data!.replaces).toMatchObject({ journalEntryId: j1 });
+      await authorisePayRun(call, id);
 
       const { release, entered } = park();
       const apprP = call(approve as Route, 'POST', `/api/payroll/runs/${id}/approve`, id, { body: { expectedPlanHash: p.body.data!.planHash } });
@@ -205,6 +210,7 @@ describe('approve vs approve (W3-01 round 3)', () => {
     const p = await call(journalPlan as Route, 'GET', url('journal-plan'), id);
     const previewed = (p.body.data!.plan.lines as Array<{ accountCode: string; debit: number }>).filter((l) => l.debit > 0);
     expect(previewed.map((l) => l.accountCode)).toEqual(['5240']);
+    await authorisePayRun(call, id);
 
     let release!: () => void;
     gate.hold = new Promise<void>((r) => { release = r; });

@@ -16,6 +16,7 @@ import { assertMayDemand, assertMayEditRule, type RuleActor } from './approvalRu
 import { deleteRuleRow, insertRuleRow, updateRuleRow } from './approvalRuleWrites';
 import { withRuleRefusals } from './approvalRuleRefusals';
 import { lockApprovalRequestForUpdate } from './approvalRequestLock';
+import { SOLE_APPROVER } from './approvalSelfApproval';
 import { decideRequestRow } from './approvalRequestWrites';
 import { assertRuleDocumentTypeCreatable } from './approvalDocumentTypes';
 import { assertRuleDocumentTypeOffered, assertRuleInput } from './approvalRuleInput';
@@ -32,7 +33,8 @@ export { requestApproval } from './approvalDocuments';
 
 // `credit_note` / `payment` / `journal_entry` are legacy (never enforceable); a note's type follows credit_notes.type (approvalDocumentTypes.ts).
 export type DocumentType = 'customer_invoice' | 'supplier_invoice' | 'payment' | 'journal_entry' | 'credit_note'
-  | 'customer_credit_note' | 'supplier_credit_note' | 'supplier_payment' | 'payment_batch' | 'manual_journal';
+  | 'customer_credit_note' | 'supplier_credit_note' | 'supplier_payment' | 'payment_batch' | 'manual_journal'
+  | 'pay_run';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 
 export interface ApprovalRule {
@@ -94,7 +96,9 @@ export {
 export async function listRules(companyId?: string): Promise<ApprovalRule[]> {
   if (!companyId) return [];
   const rows = (await sql`
-    SELECT * FROM approval_rules WHERE company_id = ${companyId} ORDER BY priority ASC, name ASC
+    SELECT * FROM approval_rules
+    WHERE company_id = ${companyId} AND document_type <> 'pay_run'
+    ORDER BY priority ASC, name ASC
   `) as Record<string, unknown>[];
   return rows.map(mapRule);
 }
@@ -205,7 +209,7 @@ export async function decideRequest(companyId: string,
   const rows = await decideRequestRow(companyId, requestId, decision, decidedBy, notes || null, expectedDigest);
   if (!rows[0]) throw new ApprovalRequestNotFoundError(requestId);
   log.info('Approval decided', {
-    id: requestId, decision, soleApproverSelfApproval: selfApproval?.selfApproval === 'sole_approver',
+    id: requestId, decision, soleApproverSelfApproval: selfApproval?.selfApproval === SOLE_APPROVER,
   }, 'accounting');
   return mapRequest(rows[0]);
 }

@@ -20,6 +20,7 @@ import { log } from '@/lib/logger';
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { OwnerProtectedError, OWNER_GRANT_REFUSED, ownerLockKey } from './ownerLock';
 import { VALID_ROLES } from './userInvitationService';
+import { refuseLastPayRunApprover } from './payRunApproverGuard';
 
 
 /** RC001 on the migration_admin pool: the actor is not an owner or admin of the company. Routes answer 403. */
@@ -92,6 +93,7 @@ export async function updateCompanyUserRole(
     if (await authorize(client, companyId, userId, actorUserId, newRole === 'owner') && newRole !== 'owner') {
       await refuseLastOwner(client, companyId, userId, 'Cannot change role: this is the last owner of the company.');
     }
+    await refuseLastPayRunApprover(client, companyId, userId, newRole);
     await client.query('UPDATE company_users SET role = $3 WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId, newRole]);
   });
   log.info('Company user role updated', { companyId, userId, newRole }, 'accounting');
@@ -103,6 +105,7 @@ export async function removeCompanyUser(companyId: string, userId: string, actor
     if (await authorize(client, companyId, userId, actorUserId, false)) {
       await refuseLastOwner(client, companyId, userId, 'Cannot remove the last owner of the company.');
     }
+    await refuseLastPayRunApprover(client, companyId, userId, null);
     await client.query('DELETE FROM company_users WHERE company_id = $1::UUID AND user_id = $2', [companyId, userId]);
   });
   log.info('Company user removed', { companyId, userId }, 'accounting');

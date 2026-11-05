@@ -8,7 +8,7 @@ import { useState } from 'react';
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...await orig<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
 
 import { apiFetch } from '@/lib/apiFetch';
-import { BulkActionBar } from '@/components/accounting/supplier-invoices/BulkActionBar';
+import { BulkActionBar, withoutClosingStop } from '@/components/accounting/supplier-invoices/BulkActionBar';
 
 const REASON = 'Supplier invoice SIV-1 is allocated on draft payment SP-1. Remove it from that payment first.';
 
@@ -62,5 +62,53 @@ describe('BulkActionBar — a partly refused bulk action', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(await screen.findByText(`Failed to load supplier invoices — 1 of 1 cancels failed: ${REASON}`)).toBeTruthy();
+  });
+
+  it('joins several reasons into one sentence: no ".;", one closing full stop', async () => {
+    vi.stubGlobal('confirm', () => true);
+    const other = 'Supplier invoice SIV-2 is already cancelled.';
+    vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: {
+      total: 3, succeeded: 0, failed: 3, results: [
+        { invoiceId: 'b1', ok: false, error: REASON },
+        { invoiceId: 'b2', ok: false, error: REASON },
+        { invoiceId: 'b3', ok: false, error: other },
+      ],
+    } }), { status: 200 }));
+
+    render(<Page onReload={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(await screen.findByText(
+      `3 of 3 cancels failed: 2× ${REASON.slice(0, -1)}; 1× ${other.slice(0, -1)}.`,
+    )).toBeTruthy();
+  });
+
+  it('groups a reason with and without its full stop, and joins the no-reason fallback', async () => {
+    vi.stubGlobal('confirm', () => true);
+    vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: {
+      total: 3, succeeded: 0, failed: 3, results: [
+        { invoiceId: 'b1', ok: false, error: 'Bill is locked.' },
+        { invoiceId: 'b2', ok: false, error: 'Bill is locked' },
+        { invoiceId: 'b3', ok: false, error: '   ' },
+      ],
+    } }), { status: 200 }));
+
+    render(<Page onReload={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(await screen.findByText('3 of 3 cancels failed: 2× Bill is locked; 1× no reason was given.')).toBeTruthy();
+  });
+});
+
+describe('withoutClosingStop', () => {
+  it.each([
+    ['Bill is locked.', 'Bill is locked'],
+    ['Bill is locked', 'Bill is locked'],
+    ['Bill is locked .', 'Bill is locked'],
+    ['Still loading...', 'Still loading...'],
+    ['...', '...'],
+    ['.', '.'],
+  ])('%j -> %j', (input, expected) => {
+    expect(withoutClosingStop(input)).toBe(expected);
   });
 });

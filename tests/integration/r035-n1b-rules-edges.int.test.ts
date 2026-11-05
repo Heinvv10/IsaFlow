@@ -62,14 +62,18 @@ describe('the bank control in the definer (adversarial review of PR #690)', () =
     const { company: c } = await bankCompany(pool, [[u.owner, 'owner'], [u.admin, 'admin']], companies);
     expect((await bankSwitch(c, u.owner, true)).rowCount).toBe(1);
     expect(await outcome(bankSwitch(c, u.admin, false))).toBe('RB011');
-    expect((await pool.query("SELECT 1 FROM approval_enforcement WHERE company_id = $1", [c])).rowCount).toBe(1);
+    expect((await pool.query(
+      "SELECT 1 FROM approval_enforcement WHERE company_id = $1 AND document_type = 'supplier_bank_details'", [c],
+    )).rowCount).toBe(1);
   });
 
   it('an enabled flag of NULL is refused (RB020), never read as off (REPRO 3)', async () => {
     const { company: c } = await bankCompany(pool, [[u.owner, 'owner']], companies);
     await bankSwitch(c, u.owner, true);
     expect(await outcome(bankSwitch(c, u.owner, null))).toBe('RB020');
-    expect((await pool.query("SELECT 1 FROM approval_enforcement WHERE company_id = $1", [c])).rowCount).toBe(1);
+    expect((await pool.query(
+      "SELECT 1 FROM approval_enforcement WHERE company_id = $1 AND document_type = 'supplier_bank_details'", [c],
+    )).rowCount).toBe(1);
   });
 
   it('after a first switch-on that baselined nobody, switching off and on again baselines nobody either (REPRO 5)', async () => {

@@ -51,21 +51,24 @@ import {
 import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 import { brokenChainMessage, findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
 import { openStampOnly } from '@/modules/accounting/services/bank/reconciliationSessionLock';
+import { inheritOnAttach, lockSlipBillsOrBusy, type AttachInheritance } from './captureSlipReplan';
 
 export type ProvisionalAttachResult =
-  | { kind: 'attached'; bankTxId: string | null }
+  | { kind: 'attached'; bankTxId: string | null; slipInheritance: AttachInheritance[] }
   | { kind: 'not_found'; what: 'Journal entry' | 'Captured document'; id: string }
   | { kind: 'refused'; message: string }
   | { kind: 'reading'; message: string }
   | { kind: 'contended'; message: string };
 
 const CONTENDED = 'This journal or document is being changed by another request — retry in a moment.';
+const BILL_CONTENDED = 'A bill raised from this document is being processed by another request — retry in a moment.';
 
 export async function attachDocumentToProvisional(
   companyId: string,
   jeId: string,
   documentId: string,
 ): Promise<ProvisionalAttachResult> {
+  let slipBills: string[] = [];
   try {
     // (1) The bank line(s) first. The peek is unlocked; the UPDATE below re-checks
     // provisional_je_id, so a line unlinked while this waited for its lock is skipped. (A line
@@ -119,6 +122,17 @@ export async function attachDocumentToProvisional(
     throw err;
   }
 
+  // (4) Budgets P5-2b: the DRAFT bills raised from this slip, locked last (after the bank line, journal and document:
+  // the order above) and without waiting, after the read-only refusals so an attach refused anyway answers 400, not
+  // 503 (review round 7). A held bill is contended, decided HERE before the first write (the claim below):
+  // committing the attach and skipping the bill would leave it un-inheritable (a retry is refused as already
+  // evidenced). The claim's own refusals (already claimed, rejected) still follow it: a contended retry then gets them.
+  // Outside the contention try above on purpose: SKIP LOCKED never waits, so it can neither time out nor deadlock;
+  // a held bill comes back as 'busy' and is answered contended here.
+  const locked = await lockSlipBillsOrBusy(companyId, documentId);
+  if (locked === 'busy') return { kind: 'contended', message: BILL_CONTENDED };
+  slipBills = locked;
+
   // The claim: one predicated UPDATE, so a refusal (already claimed, or rejected) writes nothing.
   // An evidence attach books nothing new, so it neither checks nor stamps posted content (R-088).
   const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'evidence' });
@@ -157,5 +171,11 @@ export async function attachDocumentToProvisional(
         extraction_confidence = COALESCE(${docConfidence}, extraction_confidence)
     WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID`;
 
-  return { kind: 'attached', bankTxId: bankRow ? String(bankRow.id) : null };
+  // (5) Budgets P5-2b (breaker R3-4): a bill already raised from this slip inherits the provisional's dimensions on
+  // its blank lines, while a draft with no approval request bound (`inheritOnAttach`). Each bill is already locked
+  // by this transaction (step 4), so none is skipped as busy here.
+  const slipInheritance: AttachInheritance[] = [];
+  for (const id of slipBills) slipInheritance.push(await inheritOnAttach(companyId, id, jeId));
+
+  return { kind: 'attached', bankTxId: bankRow ? String(bankRow.id) : null, slipInheritance };
 }

@@ -17,14 +17,25 @@ vi.mock('@/lib/neon', () => ({
   },
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+// The bank role's holder is this chart's 1110 (the holder is judged in payrollJournalBankRole.test.ts).
+vi.mock('@/modules/accounting/services/gl/bankRoleHolder', () => ({
+  resolveBankRoleHolder: vi.fn(async () => ({ account: { id: 'acc-1110', code: '1110', name: 'Bank - Primary', isActive: true }, refusal: null })),
+}));
 vi.mock('@/modules/accounting/services/payroll/costCentreGlMappingService', () => ({ getMappingLookup: vi.fn(async () => ({})) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn(async () => ({ id: 'je-1' })) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn(), reverseJournalEntry: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({ assertPayRunApproved: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
+  lockCompanyPayrollApprovals: vi.fn(),
+  lockPayrollRunHeader: vi.fn(async () => ({ id: 'run', approval_revision: 'rev-1' })),
+}));
 
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
 import { getMappingLookup } from '@/modules/accounting/services/payroll/costCentreGlMappingService';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
+import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+import { hashOf } from '@/modules/accounting/services/payroll/payrollApprovalHash';
 
 const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const RUN = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -46,7 +57,7 @@ function route(lines: unknown[], allocations: unknown[] = []) {
     { match: 'payroll_employee_cost_allocations', rows: allocations },
     { match: 'payroll_run_lines prl', rows: lines },
     { match: 'FROM cost_centres cc', rows: CENTRES },
-    { match: 'id = ANY', rows: [{ id: 'acc-5210', account_code: '5210', account_name: 'Site labour', is_active: true }] },
+    { match: 'id = ANY', rows: [{ id: 'acc-5210', account_code: '5210', account_name: 'Site labour', is_active: true }, { id: 'acc-1110', account_code: '1110', account_name: 'Bank - Primary', is_active: true }] },
     { match: 'FROM gl_accounts', rows: ACCOUNTS },
   ];
   mockImpl = (strings) => Promise.resolve(routes.find((r) => strings.join('?').includes(r.match))?.rows ?? []);
@@ -98,10 +109,30 @@ describe('payroll journal plan — CC1 on the labour lines', () => {
       { employee_id: 'e1', gross_pay: 30000, eti: 0, cost_centre_id: 'cc-a' },
       { employee_id: 'e2', gross_pay: 10000, eti: 0, cost_centre_id: null },
     ]);
+    vi.mocked(assertPayRunApproved).mockResolvedValueOnce({ grandfathered: true, planHash: null });
     await postPayrollRunJournal(COMPANY, RUN, 'u1');
 
     const input = vi.mocked(createJournalEntry).mock.calls[0]![1];
     expect(input.lines.filter((l) => l.debit > 0).map((l) => [l.glAccountId, l.cc1Id])).toEqual([['acc-5210', 'cc-a'], ['acc-5200', undefined]]);
     expect(input.lines.filter((l) => l.credit > 0).every((l) => !('cc1Id' in l))).toBe(true);
+  });
+
+  it('recovery posting (no plan passed) posts only the plan its approval hashed', async () => {
+    const lines = [{ employee_id: 'e1', gross_pay: 40000, eti: 0, cost_centre_id: 'cc-a' }];
+    vi.mocked(getMappingLookup).mockResolvedValueOnce({ 'cc-a': 'acc-5210' });
+    route(lines);
+    const approved = await buildPayrollJournalPlan(COMPANY, RUN);
+    const approvedHash = hashOf({ ...approved!, status: 'calculated' }, null, null, 'rev-1');
+
+    // The mapping moved after approval: the rebuilt plan debits 5200, not 5210 — refused, nothing created.
+    vi.mocked(assertPayRunApproved).mockResolvedValueOnce({ grandfathered: false, planHash: approvedHash });
+    await expect(postPayrollRunJournal(COMPANY, RUN, 'u1')).rejects.toThrow('no longer matches the journal plan that was approved');
+    expect(createJournalEntry).not.toHaveBeenCalled();
+
+    // Unchanged since approval: posts.
+    vi.mocked(getMappingLookup).mockResolvedValueOnce({ 'cc-a': 'acc-5210' });
+    vi.mocked(assertPayRunApproved).mockResolvedValueOnce({ grandfathered: false, planHash: approvedHash });
+    await postPayrollRunJournal(COMPANY, RUN, 'u1');
+    expect(vi.mocked(createJournalEntry).mock.calls[0]![1].lines.filter((l) => l.debit > 0).map((l) => l.glAccountId)).toEqual(['acc-5210']);
   });
 });

@@ -24,14 +24,13 @@ import type { DbRow } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { withRowLockBudget } from '../core/rowLockBudget';
-import { monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { MAX_REMAINING_KEYS, remainingFor, remainingKeysProblem } from './remainingBudget';
 import type { RemainingResult } from './remainingBudgetCore';
 import {
   decideBudgetOutcome, distinctKeys, mustRetryForLock, sliceLines, type DocumentLine, type UnlabelledLine,
 } from './budgetCheckCore';
 import {
-  BudgetCheckLockTimeoutError, BudgetExceededError, BudgetReasonRequiredError, isBudgetPolicy,
+  budgetLineKind, BudgetCheckLockTimeoutError, BudgetExceededError, BudgetReasonRequiredError, isBudgetPolicy,
   type BudgetCheckContext, type BudgetCheckLine, type BudgetCheckResult, type BudgetDocumentType, type BudgetGate,
   type BudgetLockMode, type BudgetOutcome, type BudgetPolicy, type BudgetRefusalEvent,
 } from './budgetCheckTypes';
@@ -113,11 +112,14 @@ export async function labelBudgetLines(companyId: string, lines: readonly Unlabe
  */
 interface BilledAs { excludeInvoiceId?: string | null; alsoBilledInvoiceIds?: readonly string[]; excludePoItemIds?: readonly string[] }
 
-/** Remaining per slice for one month's lines. Skips every read when no primary version budgets these accounts that month. */
+/**
+ * Remaining per slice for one month's lines. Skips every read when no primary version holds a row for these accounts
+ * in ANY month: a budgeted account's line can be off-slice (P5-2b) in a month its slices have no row for.
+ */
 async function sliceMonth(companyId: string, lines: readonly DocumentLine[], month: string, billedAs: BilledAs): Promise<UnlabelledLine[]> {
   const keys = distinctKeys(lines, month);
   const noBudget = (): RemainingResult[] => keys.map((key) => ({
-    key, versionId: null, grain: null, slice: { cc1Id: null, cc2Id: null, buId: null }, unassigned: false,
+    key, versionId: null, grain: null, slice: { cc1Id: null, cc2Id: null, buId: null }, unassigned: false, offSlice: false,
     budget: null, actual: 0, committed: 0, remaining: null,
   }));
   // A date outside the bounds the reader accepts cannot carry a budget (and approve refuses it anyway).
@@ -126,7 +128,7 @@ async function sliceMonth(companyId: string, lines: readonly DocumentLine[], mon
     SELECT EXISTS (
       SELECT 1 FROM budget_month_amounts b JOIN budget_versions v ON v.id = b.version_id AND v.company_id = b.company_id
        WHERE b.company_id = ${companyId}::UUID AND v.is_primary
-         AND b.gl_account_id = ANY(${keys.map((k) => k.glAccountId)}::UUID[]) AND b.month = ${monthKeyToDate(month)}::DATE
+         AND b.gl_account_id = ANY(${keys.map((k) => k.glAccountId)}::UUID[])
     ) AS any
   `) as DbRow[];
   if (any[0]?.any !== true) return sliceLines(lines, keys, noBudget());
@@ -158,8 +160,9 @@ export async function evaluateDocumentLines(
   const sliced: UnlabelledLine[] = [];
   for (const [m, ls] of [...byMonth].sort(([a], [b]) => a.localeCompare(b))) sliced.push(...await sliceMonth(companyId, ls, m, opts));
   const kept = sliced.filter((l) => l.budget !== null || l.amount > 0);
-  // Nothing checked (every line "No budget"): an approval records nothing, so it reads no names; a preview asks for them.
-  if (!opts.labelAlways && kept.every((l) => l.budget === null)) return kept.map((l) => ({ ...l, accountLabel: '', sliceLabel: '' }));
+  // Nothing checked (every line "No budget", none off-slice): an approval records nothing, so it reads no names; a
+  // preview asks for them.
+  if (!opts.labelAlways && kept.every((l) => l.budget === null && !l.offSlice)) return kept.map((l) => ({ ...l, accountLabel: '', sliceLabel: '' }));
   return labelBudgetLines(companyId, kept);
 }
 
@@ -215,11 +218,12 @@ export async function checkDocumentBudget(
 }
 
 /**
- * The event's `lines` as stored: an override the actor asked for (and was refused) is marked on every line
+ * The event's `lines` as stored: each line's `kind` (over / off_slice / within / no_budget, P5-2b: audits tell an
+ * off-slice refusal from an over one), and an override the actor asked for (and was refused) marked on every line
  * (`overrideRequested: true`), so the record says so without a column of its own (review round 3).
  */
 const storedLines = (e: BudgetRefusalEvent): string =>
-  JSON.stringify(e.overrideRequested ? e.lines.map((l) => ({ ...l, overrideRequested: true })) : e.lines);
+  JSON.stringify(e.lines.map((l) => ({ ...l, kind: budgetLineKind(l), ...(e.overrideRequested ? { overrideRequested: true } : {}) })));
 
 /** One `budget_check_events` row and its `audit_log` row (entity `budget`), on the current transaction. */
 export async function recordBudgetCheckEvent(e: BudgetRefusalEvent, outcome: BudgetOutcome): Promise<void> {
@@ -236,7 +240,8 @@ export async function recordBudgetCheckEvent(e: BudgetRefusalEvent, outcome: Bud
       fields: [],
       metadata: {
         budgetCheck: outcome, policy: e.policy, channel: e.channel, documentType: e.documentType,
-        overLines: String(over.length), checkedLines: String(e.lines.filter((l) => l.budget !== null).length),
+        overLines: String(over.length), offSliceLines: String(e.lines.filter((l) => l.offSlice).length),
+        checkedLines: String(e.lines.filter((l) => l.budget !== null).length),
         ...(e.reason ? { reason: e.reason } : {}),
         ...(e.overrideRequested ? { overrideRequested: 'true' } : {}),
       },

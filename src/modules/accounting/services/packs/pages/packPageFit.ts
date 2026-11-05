@@ -45,6 +45,7 @@ import {
 import { PackRefusal } from '../packRefusal';
 import type { PackFootnote, PackPageBlock } from './packPageModel';
 import { NOTHING, omissionFootnote, tookSomething, type Dropped } from './packOmissionFootnote';
+import { withoutFootnotes } from './packFootnoteRenumber';
 
 /** What a page left out and the footnote that says so live in
  *  `packOmissionFootnote.ts`, split out for the 300-line cap. Re-exported
@@ -166,6 +167,7 @@ export function fitPageReport<T extends MeasurablePage>(
   const blocks: PackPageBlock[] = [...page.blocks];
   const footnotes: PackFootnote[] = [...page.footnotes];
   const dropped: Dropped = { ...NOTHING, from: [] };
+  const droppedNumbers = new Set<number>();
   // THE PAGE IS MEASURED WITH THE FOOTNOTE THAT EXPLAINS THE TRIMMING ON IT.
   // A budget that reserves a flat allowance instead over-trims a page that
   // needed one note off, and under-trims the page where the allowance turns
@@ -193,7 +195,12 @@ export function fitPageReport<T extends MeasurablePage>(
     // note reconciling the table's (3 717) with the bridge's 3 717 — see
     // `PackFootnote.required`.
     const trimmable = lastIndex(footnotes, (f) => f.required !== true);
-    if (trimmable !== null) { footnotes.splice(trimmable, 1); dropped.footnotes += 1; continue; }
+    if (trimmable !== null) {
+      droppedNumbers.add(footnotes[trimmable]!.number);
+      footnotes.splice(trimmable, 1);
+      dropped.footnotes += 1;
+      continue;
+    }
     const required = lastTrimmableNote(blocks, 'required');
     if (required !== null) { dropNote(blocks, required, dropped); dropped.requiredNotes += 1; continue; }
     break;
@@ -214,7 +221,14 @@ export function fitPageReport<T extends MeasurablePage>(
     return { page, dropped: NOTHING };
   }
 
-  const fitted = { ...page, blocks, footnotes: [...footnotes, omissionFootnote(dropped, footnotes)] };
+  // A dropped footnote takes its superscript with it, and the survivors close up to 1..n BEFORE the
+  // omission note is numbered, so it can neither share a number with an anchor nor leave a gap.
+  const renumbered = withoutFootnotes(blocks, footnotes, droppedNumbers);
+  const fitted = {
+    ...page,
+    blocks: renumbered.blocks,
+    footnotes: [...renumbered.footnotes, omissionFootnote(dropped, renumbered.footnotes)],
+  };
   assertFits(page, fitted, reserveMm);
   return { page: fitted, dropped };
 }

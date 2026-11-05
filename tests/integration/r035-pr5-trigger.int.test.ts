@@ -118,7 +118,8 @@ describe('supplier_payments', () => {
     const p = await plantPayment(pool, c, u.a, bank);
     expect(await attempt(c, 'app_user', setStatus(p.id, 'approved'))).toBe('written');
     const { c: c2, bank: bank2 } = await enforced();
-    await pool.query("UPDATE approval_rules SET condition_operator = 'greater_than', condition_value = 5000 WHERE company_id = $1", [c2]);
+    await pool.query(`UPDATE approval_rules SET condition_operator = 'greater_than', condition_value = 5000
+      WHERE company_id = $1 AND document_type = 'supplier_payment'`, [c2]);
     const q = await plantPayment(pool, c2, u.a, bank2);
     expect(await attempt(c2, 'app_user', setStatus(q.id, 'approved'))).toBe('written');
   });
