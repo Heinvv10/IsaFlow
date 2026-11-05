@@ -1,16 +1,15 @@
-import { sql } from '@/lib/neon';
 import { getCashBalance } from '../bank/cashBalanceService';
-import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { toMoney } from '@/lib/money/decimalSum';
 import { failedReadLabel } from '@/modules/accounting/services/packs/packFailedRead';
-import { CASH_SUBTYPES, type AccountType } from '@/modules/accounting/services/gl/accountSubtypes';
+import { journalSections } from '@/modules/accounting/services/reports/cashFlowIndirectClassification';
+import { fetchCashFlowJournals, type CashFlowJournal } from '@/modules/accounting/services/reports/cashFlowJournals';
 import {
   apportionBankLeg,
+  OPERATING_GROUPS,
   type CashGroup,
   type ContraLine,
 } from './cashFlowClassification';
-
-type Row = DbRow;
 
 export interface DirectCashFlowItem {
   cashGroup: string;
@@ -62,90 +61,28 @@ async function fetchOpeningCash(companyId: string, beforeDate: string): Promise<
   return cash.total;
 }
 
-interface BankLegRow {
-  bank_line_id: string;
-  bank_amount: string | number;
-  contra_account_type: string | null;
-  contra_account_subtype: string | null;
-  contra_amount: string | number | null;
-}
-
 /**
- * Every cash movement in the period, with the contra lines that explain it.
+ * Collapse the period's journals into one signed amount per cash group.
  *
- * Returns one row per (cash leg x contra line). The cash leg's amount repeats
- * across those rows and MUST be counted once — `groupAllocations` does that by
- * keying on `bank_line_id`. The previous implementation summed the cash leg
- * per contra row inside SQL, which is where the double-count came from.
- *
- * This covers every posted cash journal line in the period, whether or not a
- * bank feed matched it. The old version ran one query for lines matched to
- * `bank_transactions` and a second for unmatched ones, dumping the entire
- * unmatched population into `other_operating` — so whether a movement was
- * classified at all depended on bank-feed reconciliation state rather than on
- * the accounting.
+ * Each journal's cash is split by `journalSections`, the rule the indirect statement places the same journal by: only the
+ * cash that actually moved is investing or financing (a part bought on account or on a loan in the same journal is not),
+ * and the rest is operating. The operating cash is distributed exactly once, over the journal's operating legs, by
+ * `apportionBankLeg`'s signed weights. So the two methods always agree on the three section totals.
  */
-async function fetchCashLegsWithContras(
-  companyId: string,
-  periodStart: string,
-  periodEnd: string,
-): Promise<BankLegRow[]> {
-  return (await sql`
-    SELECT
-      jl_cash.id                          AS bank_line_id,
-      (jl_cash.debit - jl_cash.credit)    AS bank_amount,
-      ga_contra.account_type              AS contra_account_type,
-      ga_contra.account_subtype           AS contra_account_subtype,
-      (jl_contra.debit - jl_contra.credit) AS contra_amount
-    FROM gl_journal_lines jl_cash
-    JOIN gl_journal_entries je ON je.id = jl_cash.journal_entry_id
-    JOIN gl_accounts ga_cash   ON ga_cash.id = jl_cash.gl_account_id
-    LEFT JOIN gl_journal_lines jl_contra
-      ON jl_contra.journal_entry_id = jl_cash.journal_entry_id
-     AND jl_contra.id <> jl_cash.id
-     AND jl_contra.company_id = ${companyId}::UUID
-    LEFT JOIN gl_accounts ga_contra
-      ON ga_contra.id = jl_contra.gl_account_id
-     AND ga_contra.company_id = ${companyId}::UUID
-    WHERE ga_cash.account_subtype = ANY(${CASH_SUBTYPES as string[]})
-      AND ga_cash.account_type = 'asset'
-      AND je.status     = 'posted'
-      AND jl_cash.company_id = ${companyId}::UUID
-      AND je.company_id      = ${companyId}::UUID
-      AND ga_cash.company_id = ${companyId}::UUID
-      AND je.entry_date >= ${periodStart}
-      AND je.entry_date <= ${periodEnd}
-  `) as unknown as BankLegRow[];
-}
-
-/**
- * Collapse the (cash leg x contra) rows into one signed amount per cash group,
- * distributing each cash leg exactly once.
- */
-function groupAllocations(rows: BankLegRow[]): Map<CashGroup, number> {
-  const legs = new Map<string, { amount: number; contras: ContraLine[] }>();
-
-  for (const r of rows) {
-    const id = String(r.bank_line_id);
-    let leg = legs.get(id);
-    if (!leg) {
-      leg = { amount: Number(r.bank_amount), contras: [] };
-      legs.set(id, leg);
-    }
-    // A cash leg with no contra line at all yields a single row of NULLs.
-    if (r.contra_account_type != null) {
-      leg.contras.push({
-        accountType: r.contra_account_type as AccountType,
-        accountSubtype: r.contra_account_subtype,
-        amount: Number(r.contra_amount ?? 0),
-      });
-    }
-  }
-
+function groupAllocations(journals: readonly CashFlowJournal[]): Map<CashGroup, number> {
   const totals = new Map<CashGroup, number>();
-  for (const leg of legs.values()) {
-    for (const alloc of apportionBankLeg(leg.amount, leg.contras)) {
-      totals.set(alloc.cashGroup, (totals.get(alloc.cashGroup) ?? 0) + alloc.amount);
+  const add = (group: CashGroup, amount: number) => { if (amount !== 0) totals.set(group, (totals.get(group) ?? 0) + amount); };
+  for (const { legs, netCash, disposal } of journals) {
+    const sections = journalSections(legs, netCash, disposal);
+    add('investing', sections.investing);
+    add('financing', sections.financing);
+    if (sections.operating === 0) continue;
+    // `ContraLine.amount` is debit less credit; a journal leg carries credit less debit.
+    const contras: ContraLine[] = sections.operatingLegs.map((l) => ({ accountType: l.accountType, accountSubtype: l.subtype ?? null, amount: -l.creditLessDebit }));
+    // The operating cash stays operating whatever the direct classification says of a leg (accumulated depreciation is
+    // an investing account there, but a charge's other leg is an operating add-back in the indirect statement).
+    for (const alloc of apportionBankLeg(sections.operating, contras)) {
+      add(OPERATING_GROUPS.has(alloc.cashGroup) ? alloc.cashGroup : 'other_operating', alloc.amount);
     }
   }
   return totals;
@@ -157,17 +94,27 @@ export async function getCashFlowDirect(
   periodEnd: string,
 ): Promise<CashFlowDirectReport> {
   try {
-    const [openingCash, legRows] = await Promise.all([
+    const [openingCash, journals] = await Promise.all([
       fetchOpeningCash(companyId, periodStart),
-      fetchCashLegsWithContras(companyId, periodStart, periodEnd),
+      // The closing journal's cash legs stay (a ledger fault, but the statement still closes on the ledger's cash).
+      fetchCashFlowJournals(companyId, periodStart, periodEnd, { includeYearEnd: true, cashJournalsOnly: true }),
     ]);
 
-    const amountByGroup = groupAllocations(legRows);
+    const amountByGroup = groupAllocations(journals);
 
+    // The operating cash of a journal is split pro rata, in fractions of a cent; each line rounds to the cent and the
+    // largest line takes the residue, so the lines still add to the exact operating cash (the indirect statement's figure).
+    const operatingRaw = OPERATING_ORDER.map((g) => amountByGroup.get(g) ?? 0);
+    const operatingCents = operatingRaw.map(toMoney);
+    const residue = toMoney(toMoney(operatingRaw.reduce((s, a) => s + a, 0)) - operatingCents.reduce((s, a) => s + a, 0));
+    if (residue !== 0) {
+      const largest = operatingCents.reduce((best, a, i) => (Math.abs(a) > Math.abs(operatingCents[best]!) ? i : best), 0);
+      operatingCents[largest] = toMoney(operatingCents[largest]! + residue);
+    }
     const toItem = (group: CashGroup): DirectCashFlowItem => ({
       cashGroup: group,
       label:     CASH_GROUP_LABELS[group],
-      amount:    amountByGroup.get(group) ?? 0,
+      amount:    OPERATING_GROUPS.has(group) ? operatingCents[OPERATING_ORDER.indexOf(group)]! : toMoney(amountByGroup.get(group) ?? 0),
     });
 
     // OPERATING_ORDER is the four members of OPERATING_GROUPS in presentation
@@ -179,10 +126,10 @@ export async function getCashFlowDirect(
     const investingItems = [toItem('investing')].filter((i) => i.amount !== 0);
     const financingItems = [toItem('financing')].filter((i) => i.amount !== 0);
 
-    const operatingTotal = operatingItems.reduce((s, i) => s + i.amount, 0);
-    const investingTotal = investingItems.reduce((s, i) => s + i.amount, 0);
-    const financingTotal = financingItems.reduce((s, i) => s + i.amount, 0);
-    const netChange = operatingTotal + investingTotal + financingTotal;
+    const operatingTotal = toMoney(operatingItems.reduce((s, i) => s + i.amount, 0));
+    const investingTotal = toMoney(investingItems.reduce((s, i) => s + i.amount, 0));
+    const financingTotal = toMoney(financingItems.reduce((s, i) => s + i.amount, 0));
+    const netChange = toMoney(operatingTotal + investingTotal + financingTotal);
 
     return {
       periodStart,
@@ -195,7 +142,7 @@ export async function getCashFlowDirect(
       financingItems,
       financingTotal,
       netChange,
-      closingCash: openingCash + netChange,
+      closingCash: toMoney(openingCash + netChange),
     };
   } catch (err) {
     // Class and SQLSTATE only: the driver's message can carry SQL and values.

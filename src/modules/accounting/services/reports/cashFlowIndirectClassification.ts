@@ -167,3 +167,34 @@ export function placeJournal(legs: readonly JournalLeg[], netCash: number, dispo
   }
   return placed;
 }
+
+export interface JournalSections {
+  /** What the journal's cash did, by section: the three sum to `netCash`. */
+  operating: number;
+  investing: number;
+  financing: number;
+  /** The legs whose own nature is operating and so share `operating` between them (the direct statement's lines). */
+  operatingLegs: JournalLeg[];
+}
+
+/**
+ * One journal's cash by section: the single rule both cash flow methods follow. Investing and financing are only the
+ * cash the journal actually moved through the cash accounts (`placeJournal`: a part settled on account or by a loan in the
+ * same journal is non-cash, IAS 7.43); operating is the rest of the journal's cash. The indirect statement lists the
+ * placed amounts; the direct one splits `operating` over `operatingLegs`.
+ */
+export function journalSections(legs: readonly JournalLeg[], netCash: number, disposal = false): JournalSections {
+  let investing = 0;
+  let financing = 0;
+  for (const { bucket, amount } of placeJournal(legs, netCash, disposal)) {
+    const section = SECTION[bucket];
+    if (section === 'investing') investing += amount;
+    else if (section === 'financing') financing += amount;
+  }
+  const operatingLegs = legs.filter((leg) => {
+    if (disposal && isDisposalGainLossSubtype(leg.subtype)) return false;
+    const bucket = classifyIndirectLine(leg.accountType, leg.subtype, leg.isLoanCurrentPortion);
+    return SECTION[bucket] === 'operating' && !(disposal && bucket === 'depreciation');
+  });
+  return { operating: toMoney(netCash - toMoney(investing) - toMoney(financing)), investing: toMoney(investing), financing: toMoney(financing), operatingLegs };
+}
