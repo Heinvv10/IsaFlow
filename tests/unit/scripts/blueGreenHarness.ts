@@ -27,7 +27,8 @@ export class Box {
     // systemctl: logs. isaflow.service is "active" while $root/old-active exists. A colour isaflow@P is a node
     // process whose pid is in $root/pid-P: stop/disable --now kill it, restart replaces it.
     this.stub('systemctl', `echo "systemctl $*" >> "${this.root}/calls"
-kill_colour() { [ -f "${this.root}/pid-$1" ] && { kill "$(cat "${this.root}/pid-$1")" 2>/dev/null; rm -f "${this.root}/pid-$1"; sleep 0.3; }; true; }
+# systemd's stop returns when the unit has exited, however long that takes: wait for the process (up to 20 s), never guess.
+kill_colour() { [ -f "${this.root}/pid-$1" ] && { pid=$(cat "${this.root}/pid-$1"); kill "$pid" 2>/dev/null; rm -f "${this.root}/pid-$1"; for _ in $(seq 1 400); do kill -0 "$pid" 2>/dev/null || break; sleep 0.05; done; }; true; }
 case "$*" in
   "is-active --quiet isaflow.service") [ -f "${this.root}/old-active" ];;
   "disable --now isaflow.service") rm -f "${this.root}/old-active";;
@@ -38,7 +39,7 @@ case "$*" in
   "disable --now isaflow@"*) kill_colour "\${3#isaflow@}";;
   "restart isaflow@"*) port=\${2#isaflow@}; kill_colour "$port"
     nohup "${process.execPath}" -e "require('http').createServer((q,s)=>s.end('ok')).listen($port,'127.0.0.1')" >/dev/null 2>&1 8>&- 9>&- &
-    echo $! > "${this.root}/pid-$port"; sleep 0.5;;
+    echo $! > "${this.root}/pid-$port"; for _ in $(seq 1 200); do curl -sf "http://127.0.0.1:$port/" >/dev/null && break; sleep 0.05; done;;
 esac`);
     this.env = {
       PATH: `${join(this.root, 'bin')}:${process.env.PATH}`, HOME: this.root, BG_SUDO: '', BG_OWNER: `${process.getuid!()}`,
@@ -114,6 +115,18 @@ esac`);
     const port = await this.freePort();
     this.bash(`nohup "${process.execPath}" -e "require('http').createServer((q,s)=>s.end('ok')).listen(${port},'127.0.0.1')" >/dev/null 2>&1 &
 echo $! > "${this.root}/pid-${port}"; for i in $(seq 1 50); do curl -sf "http://127.0.0.1:${port}/" >/dev/null && break; sleep 0.1; done`);
+    return port;
+  }
+
+  /**
+   * A colour stand-in that takes `exitMs` to exit after SIGTERM (a loaded box, a server draining): until then it still
+   * listens. The stub systemctl's `stop` must wait for it, as systemd does, not guess how long an exit takes.
+   */
+  async slowColour(exitMs: number): Promise<number> {
+    const port = await this.freePort();
+    const js = `process.on('SIGTERM', () => setTimeout(() => process.exit(0), ${exitMs})); require('http').createServer((q,s)=>s.end('ok')).listen(${port},'127.0.0.1')`;
+    this.bash(`nohup "${process.execPath}" -e "${js}" >/dev/null 2>&1 &
+echo $! > "${this.root}/pid-${port}"; for i in $(seq 1 100); do curl -sf "http://127.0.0.1:${port}/" >/dev/null && break; sleep 0.1; done`);
     return port;
   }
 
