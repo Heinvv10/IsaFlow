@@ -134,4 +134,15 @@ describe('paymentTermsFormError / paymentTermsBody', () => {
     'refuses %j / %s',
     (days, type) => { expect(paymentTermsFormError(days, type)).toBeTruthy(); },
   );
+
+  it('reads the company default only when it offers "Use company default"', async () => {
+    const { apiFetch } = await import('@/lib/apiFetch');
+    vi.mocked(apiFetch).mockClear();
+    const off = render(<Harness onValue={vi.fn()} allowDefault={false} />);
+    await new Promise((r) => { setTimeout(r, 20); });
+    expect(apiFetch).not.toHaveBeenCalled();
+    off.unmount();
+    render(<Harness onValue={vi.fn()} allowDefault />);
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+  });
 });

@@ -1,12 +1,16 @@
-/** The company's default payment terms (what a contact with none uses), read once per mount; null until read or when it fails. */
+/**
+ * The company's default payment terms (what a contact with none uses), read once per mount; null until read or when it
+ * fails. `enabled` false reads nothing (a field that does not offer "Use company default" has no use for it).
+ */
 import { useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { readTerms, type Terms } from '@/modules/accounting/services/shared/paymentTerms';
 
-export function useCompanyDefaultTerms(): Terms | null {
+export function useCompanyDefaultTerms(enabled = true): Terms | null {
   const [terms, setTerms] = useState<Terms | null>(null);
   useEffect(() => {
+    if (!enabled) return undefined;
     let cancelled = false;
     void (async () => {
       try {
@@ -23,6 +27,6 @@ export function useCompanyDefaultTerms(): Terms | null {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [enabled]);
   return terms;
 }

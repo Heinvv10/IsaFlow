@@ -44,7 +44,7 @@ export function PaymentTermsField({ days, type, onChange, error: parentError, in
   const error = parentError && paymentTermsFormError(days, type) ? parentError : undefined;
   const kind = normalisePaymentTermsType(type) ?? 'invoice_days';
   const [mode, setMode] = useState<Mode>(initialMode(days, type));
-  const companyDefault = useCompanyDefaultTerms();
+  const companyDefault = useCompanyDefaultTerms(allowDefault);
 
   function pick(next: Mode) {
     setMode(next);
