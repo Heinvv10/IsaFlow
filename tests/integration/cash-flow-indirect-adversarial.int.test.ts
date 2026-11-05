@@ -357,6 +357,7 @@ describeIfDb('PR #1156 adversarial: by-construction tie assumptions', () => {
       const { ind, gl } = await tie(...P);
       expect(ind.closingCash).toBe(gl);
       expect(ind.unexplainedDifference).toBe(250);
+      expect(ind.sections.find((x) => x.section === 'Unexplained Difference')!.total).toBe(250);
       expect(ind.openingCash + ind.netChange).toBeCloseTo(ind.closingCash, 2);
     });
   });
