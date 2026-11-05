@@ -20,6 +20,9 @@ import { createPayrollRun } from '@/modules/accounting/services/payroll/payrollR
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
+import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollLoanLock';
+import { PayrollRunBusyError } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import type { DryRunResult } from '../contracts';
 import { guardCastableArgs, NOT_FOUND, ok, toolError } from './toolHelpers';
@@ -122,6 +125,23 @@ export const postPayrollJournalTool: McpTool = {
     const guard = guardCastableArgs(args, { uuid: ['run_id'] });
     if (guard) return guard;
     const runId = String(args.run_id);
+
+    // A live post locks the run's header BEFORE it reads the plan: the idempotency
+    // key serialises only calls that share it, so two posts under different keys,
+    // or a post beside an approval, would both read a run with no journal and each
+    // post one. Behind the lock the plan reads the winner's link and refuses
+    // (already_posted). A dry run takes no lock. Nothing is written yet, so a
+    // lock timeout is a plain, retryable refusal. Ownership: the lock is
+    // company-scoped and a run of another tenant reads as a miss.
+    if (args.dry_run !== true) {
+      try {
+        if (!(await lockPayrollRunHeader(runId, ctx.companyId))) return toolError(NOT_FOUND);
+      } catch (err) {
+        // The neutral wording: the holder may be an approval or another post, not a calculation.
+        if (err instanceof PayrollLoanLockTimeoutError) return toolError(new PayrollRunBusyError(runId).message);
+        throw err;
+      }
+    }
 
     // Ownership is the handler's job: the plan builder is company-scoped and
     // returns null for a run in another tenant, which must read identically to
