@@ -45,7 +45,7 @@ describe('a droppable caption', () => {
     expect(() => fitPageReport(page([required(27), caption()]))).toThrow(PackRefusal);
   });
 
-  it('is dropped when nothing else is left, the page fits, and the page says so', () => {
+  it('is dropped when nothing else is left, the page fits, and the page says so (without logging)', () => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     try {
       const { page: fitted, dropped } = fitPageReport(subject);
@@ -54,9 +54,10 @@ describe('a droppable caption', () => {
       expect(dropped.footnotes).toBe(3);
       expect(pageMm(fitted)).toBeLessThanOrEqual(pageBoxMm(fitted));
       const said = fitted.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
-      expect(said?.text).toContain('3 footnotes, 1 derived caption');
+      expect(said?.text).toContain('3 footnotes; 1 derived caption');
       expect(said?.text).toContain('Every figure, table and chart on the page is complete');
-      expect(warn.mock.calls.some((c) => String(c[0]).includes('Income statement') && String(c[0]).includes('caption'))).toBe(true);
+      // The fit does not log: it is also run as a probe whose page is thrown away. The caller logs the page it uses.
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
     }
@@ -95,5 +96,22 @@ describe('a droppable caption on a page with no footnote to take first', () => {
     expect(dropped).toMatchObject({ captions: 1, footnotes: 0, notes: 0, requiredNotes: 0 });
     expect(pageMm(fitted)).toBeLessThanOrEqual(pageBoxMm(fitted));
     expect(fitted.footnotes.map((f) => f.text).join(' ')).toContain('1 derived caption');
+  });
+});
+
+describe('the omission note when a caption and a note tail go together', () => {
+  it('attaches the disclosure heading to the notes and leaves the caption unattributed', () => {
+    const subject = {
+      ...page([
+        { kind: 'disclosure', disclosure: { heading: 'Commentary', notes: Array.from({ length: 3 }, (unused, i) => ({ heading: `N${i}`, body: SENTENCE })) } },
+        required(26), caption({ droppable: true }),
+      ]),
+      footnotes: [],
+    };
+    const { page: fitted, dropped } = fitPageReport(subject);
+    expect(dropped.notes).toBeGreaterThan(0);
+    expect(dropped.captions).toBe(1);
+    const text = fitted.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))!.text;
+    expect(text).toMatch(/^Not printed on this page: \d explanatory notes?, from \u201cCommentary\u201d; 1 derived caption\./);
   });
 });

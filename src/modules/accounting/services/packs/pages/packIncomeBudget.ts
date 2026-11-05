@@ -7,6 +7,12 @@
  * fits the sheet: `fitPageToBox` would refuse the WHOLE pack. A budget is a comparison the pack can
  * do without; the pack is not. So the sheet is tried with the columns and, when it cannot be made
  * to fit, composed without them, and that is logged.
+ *
+ * THE CAPTION AND THE COLUMNS DO NOT TRADE PLACES. `fitPageToBox` takes page 6's derived caption only as its
+ * last lever, after every ordinary footnote, and the footnote that names the Budget columns is one of them:
+ * a page that has lost its caption has lost that note, `incomeSheetWithBudget` sees it gone and composes the
+ * page without the columns. So a company whose budget attempt used to be refused still loses the columns (and
+ * the caption), never the caption alone; pinned over the 2,560-shape sweep by `packFitterAnchorsSweep`.
  */
 import { log } from '@/lib/logger';
 import type { MoneyScale } from '@/lib/format/money';

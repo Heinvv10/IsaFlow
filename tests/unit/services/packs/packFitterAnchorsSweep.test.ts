@@ -48,6 +48,7 @@ describe('the 2,560-input shape sweep', () => {
     let refused = 0;
     const unexpectedlyRefused: string[] = [];
     let budgetWithoutNote = 0;
+    let captionDroppedBudgetKept = 0;
     let trimmedPages = 0;
     try {
       for (const shape of shapes) {
@@ -60,6 +61,10 @@ describe('the 2,560-input shape sweep', () => {
           const p6 = doc.pages.find((p) => p.navLabel === 'Income statement')!;
           const hasBudget = p6.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'));
           if (hasBudget && !p6.footnotes.some((f) => f.text.startsWith(BUDGET_COLUMN_NOTE_START))) budgetWithoutNote += 1;
+          // The caption is the fitter's LAST lever, so a page that lost it has lost every ordinary footnote,
+          // including the one that explains the Budget columns: those pages leave the columns out (the
+          // figures and the caption do not trade places). Pinned, not assumed.
+          if (hasBudget && !p6.blocks.some((b) => b.kind === 'narrative')) captionDroppedBudgetKept += 1;
           for (const page of doc.pages) {
             const call = fitted.calls.find((c) => (c.after as PackPage).blocks === page.blocks);
             const found = call === undefined ? numberingFaults(page) : fitterFaults(call.before as PackPage, page);
@@ -89,7 +94,7 @@ describe('the 2,560-input shape sweep', () => {
     // page 6's last lever; renumbering footnotes changed none of them). They are the shapes whose
     // required disclosures are longer still: net-debit revenue AND another line below zero.
     expect(unexpectedlyRefused).toEqual([]);
-    expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, refused: 322, sample: [] });
+    expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, refused, sample: printed.slice(0, 3) }).toEqual(
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 0, refused: 322, sample: [] });
   }, 1_800_000);
 });

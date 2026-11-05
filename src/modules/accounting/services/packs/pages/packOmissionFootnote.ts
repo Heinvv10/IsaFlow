@@ -82,24 +82,25 @@ export function tookSomething(dropped: Dropped): boolean {
 export const OMISSION_MARK = 'Not printed on this page';
 
 function omissionText(dropped: Dropped): string {
-  const parts: string[] = [];
+  // The disclosure headings name where NOTES were taken from, so the clause is attached to the note
+  // parts and the parts with no heading (footnotes, captions) follow it, set apart by semicolons:
+  // "2 explanatory notes, from “Commentary”; 3 footnotes; 1 derived caption".
+  const noteParts: string[] = [];
   if (dropped.notes > 0) {
-    parts.push(`${dropped.notes} explanatory ${dropped.notes === 1 ? 'note' : 'notes'}`);
-  }
-  if (dropped.footnotes > 0) {
-    parts.push(`${dropped.footnotes} ${dropped.footnotes === 1 ? 'footnote' : 'footnotes'}`);
-  }
-  if (dropped.captions > 0) {
-    parts.push(`${dropped.captions} derived ${dropped.captions === 1 ? 'caption' : 'captions'}`);
+    noteParts.push(`${dropped.notes} explanatory ${dropped.notes === 1 ? 'note' : 'notes'}`);
   }
   if (dropped.requiredNotes > 0) {
-    parts.push(`${dropped.requiredNotes} ${dropped.requiredNotes === 1 ? 'note' : 'notes'} from a `
+    noteParts.push(`${dropped.requiredNotes} ${dropped.requiredNotes === 1 ? 'note' : 'notes'} from a `
       + 'disclosure this pack is required to make');
   }
   const where = dropped.from.length === 0
     ? ''
     : `, from ${dropped.from.map((h) => `\u201c${h}\u201d`).join(' and ')}`;
-  return `${OMISSION_MARK}: ${parts.join(', ')}${where}. `
+  const parts: string[] = [];
+  if (noteParts.length > 0) parts.push(`${noteParts.join(', ')}${where}`);
+  if (dropped.footnotes > 0) parts.push(`${dropped.footnotes} ${dropped.footnotes === 1 ? 'footnote' : 'footnotes'}`);
+  if (dropped.captions > 0) parts.push(`${dropped.captions} derived ${dropped.captions === 1 ? 'caption' : 'captions'}`);
+  return `${OMISSION_MARK}: ${parts.join('; ')}. `
     + 'Every figure, table and chart on the page is complete — what is missing is prose '
     + 'about them, and it can be asked for.';
 }
