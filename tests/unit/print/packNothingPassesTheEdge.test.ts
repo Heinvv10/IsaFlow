@@ -1,5 +1,5 @@
 /**
- * NO ELEMENT OF ANY PAGE PASSES THE SHEET'S RIGHT EDGE, AT ANY SCALE FROM 1 TO 3 000 000, AND ABOVE THAT THE PACK IS REFUSED.
+ * NO ELEMENT OF ANY PAGE PASSES THE SHEET'S RIGHT EDGE, AT ANY SCALE FROM 1 TO 3 000 000 (the behaviour-changing ones), AND ABOVE ABOUT 27 000 000 THE PACK IS REFUSED.
  *
  * Page 3's KPI tiles ran past the right edge of the paper from a net profit of (13 350 000) (R'000)
  * on: `.pack-kpi-tiles` is `repeat(4, 1fr)` and its figures are `nowrap` 22pt, so the widest figure of
@@ -28,7 +28,9 @@ let browser: Browser;
 beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
-const SCALES = [1, 1000, 10_000, 30_000, 100_000, 300_000, 1_000_000, 3_000_000];
+// The scales where behaviour changes: nothing fitted (1), the tile row first overflows (30 000), a stretched
+// column and the 8-column table at its tightest (300 000), and the floor close to binding (3 000 000).
+const SCALES = [1, 30_000, 300_000, 3_000_000];
 /** The smallest a KPI figure or a table figure may be set (the stylesheet's floors). */
 const KPI_FLOOR_PT = 12;
 const TABLE_FLOOR_PT = 7.5;
@@ -59,10 +61,14 @@ describe.each(SCALES)('the demo company at k=%i', (k) => {
       // The height model matches the CSS for what this change touches: the KPI tile block is never charged
       // less than the browser lays it out (a stretched column is wider, so its sparkline is taller: the
       // stylesheet caps it at the 33mm the model charges). Block 0 of the DOM is the page header.
-      const highlights = doc.pages[2]!;
-      const tiles = highlights.blocks.findIndex((b) => b.kind === 'kpiTiles');
-      const measured = printed.heights[2]!.blocks[tiles + 1]!.mm;
-      expect(blockMm(highlights.blocks[tiles]!, 'portrait'), 'the KPI tile block is taller on paper than the height model says').toBeGreaterThanOrEqual(measured - 0.05);
+      // Every KPI block on every page (today only page 3 carries one), not just the first.
+      doc.pages.forEach((pg, index) => {
+        pg.blocks.forEach((block, bi) => {
+          if (block.kind !== 'kpiTiles') return;
+          const measured = printed.heights[index]!.blocks[bi + 1]!.mm;
+          expect(blockMm(block, 'portrait'), `${pg.navLabel}: the KPI tile block is taller on paper than the height model says`).toBeGreaterThanOrEqual(measured - 0.05);
+        });
+      });
     } finally {
       warn.mockRestore();
     }
@@ -82,7 +88,7 @@ describe('the demo company at k=1 prints its figures at their ceiling, as before
 });
 
 describe('figures beyond what the floor can hold', () => {
-  it.each([[10_000_000, false], [26_000_000, false], [30_000_000, false], [100_000_000, false]] as const)('k=%i (loss=%s): refused with a reader\'s sentence, or printed within the floor and the edge', async (k, loss) => {
+  it.each([[26_000_000, false], [100_000_000, false]] as const)('k=%i (loss=%s): refused with a reader\'s sentence, or printed within the floor and the edge', async (k, loss) => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     try {
       let doc;

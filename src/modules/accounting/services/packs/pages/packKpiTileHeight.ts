@@ -22,6 +22,10 @@ const KPI_SPARKLINE_MM = 33;
 const QUARTER_MM = (PAGE_WIDTH_MM.portrait - 3 * GUTTER_MM) / 4;
 /** The delta line's first line is 17px, not the 16px of its 12pt leading: the arrow cue sits in a 7pt run. */
 export const KPI_DELTA_CUE_MM = 0.27;
+// DERIVATION (measured in Chromium, `packNothingPassesTheEdge`'s harness, every demo tile at every scale
+// 1 to 3e6): a delta line is 17px on the paper for one line and 33px for two, never 16px and 32px, so the
+// 12pt leading (16px) under-reads by ONE device pixel per delta, once, however many lines it wraps to
+// (the 7pt arrow cue sits in a taller line box). One px = 25.4/96 = 0.2646mm, rounded up to 0.27.
 
 /**
  * The words a tile's delta line is charged for: THE WORDS THE TILE PRINTS.
@@ -81,6 +85,9 @@ export function kpiTileHeight(tile: KpiTile, columnMm: number = QUARTER_MM): num
   // period". See `deltaWords`.
   const delta = tile.delta === null ? 0
     : 1 + KPI_DELTA_CUE_MM + lines(wrappedLines(`X ${deltaWords(tile.delta)} ${tile.delta.basis}`, 9, deltaMm), 12);
+  // 0.8 is the sparkline's own aspect ratio, 48mm over 60mm (`SPARKLINE_SIZE` in packHighlights.ts), as the
+  // stylesheet draws it at `width: 100%; height: auto`, capped at 33mm; the 0.1mm is device-pixel rounding
+  // (the browser rounds the svg's height to whole pixels, half a pixel being 0.13mm).
   const spark = tile.sparklineSvg === null ? 0 : 1 + Math.min(KPI_SPARKLINE_MM, 0.8 * Math.max(columnMm, QUARTER_MM) + 0.1);
   return label + 1 + figure + delta + spark;
 }

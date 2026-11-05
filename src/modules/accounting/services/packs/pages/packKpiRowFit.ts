@@ -15,6 +15,7 @@
  */
 import { figureTextEms } from '@/components/accounting/packs/primitives/packFigureFit';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
+import { KPI_FIGURE_FLOOR_PT, KPI_FIGURE_MAX_PT } from './packFigureFloor';
 import { GUTTER_MM } from './packDisclosureHeight';
 import type { PackPageBlock } from './packPageModel';
 import { PACK_SCALE } from './packScale';
@@ -23,9 +24,6 @@ import { PAGE_WIDTH_MM, PT_MM, type PageOrientation } from './packTextMetrics';
 type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
 
 export const KPI_COLUMNS = 4;
-/** `.pack-kpi-value`: 22pt, never below 12pt. */
-const FIGURE_MAX_PT = 22;
-const FIGURE_MIN_PT = 12;
 
 /** The width of each of the four columns, in millimetres. */
 export function kpiColumnWidthsMm(tiles: readonly KpiTile[], orientation: PageOrientation = 'portrait'): number[] {
@@ -38,8 +36,8 @@ export function kpiColumnWidthsMm(tiles: readonly KpiTile[], orientation: PageOr
   });
   const totalEms = widestEms.reduce((sum, ems) => sum + ems, 0);
   const emMm = totalEms === 0
-    ? FIGURE_MAX_PT * PT_MM
-    : Math.min(FIGURE_MAX_PT * PT_MM, Math.max(FIGURE_MIN_PT * PT_MM, roomMm / totalEms));
+    ? KPI_FIGURE_MAX_PT * PT_MM
+    : Math.min(KPI_FIGURE_MAX_PT * PT_MM, Math.max(KPI_FIGURE_FLOOR_PT * PT_MM, roomMm / totalEms));
   // `minmax(auto, 1fr)`: a column whose figure is wider than the fair share keeps its figure's width,
   // and the rest share what that leaves.
   const base = widestEms.map((ems) => ems * emMm);

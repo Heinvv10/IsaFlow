@@ -22,8 +22,9 @@ import { PAGE_WIDTH_MM, PT_MM, type PageOrientation } from './packTextMetrics';
 
 export const KPI_FIGURE_FLOOR_PT = 12;
 export const TABLE_FIGURE_FLOOR_PT = 7.5;
-const KPI_FIGURE_MAX_PT = 22;
-const TABLE_FIGURE_MAX_PT = 9;
+/** The sizes figures print at where they fit. ONE source with the stylesheet: `packFigureSizesAgree.test.ts` reads the CSS. */
+export const KPI_FIGURE_MAX_PT = 22;
+export const TABLE_FIGURE_MAX_PT = 9;
 const KPI_COLUMNS = 4;
 
 /**
