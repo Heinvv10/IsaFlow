@@ -130,11 +130,13 @@ describe('buildDueByDateSide', () => {
     const t = side.totals;
     // The aging total is everything owed: the columns are net of a dispute, `disputed` is its own figure.
     expect(t.overdueNow + t.dueTodayToDate + t.dueLater + t.noDueDate + t.disputed).toBeCloseTo(agingTotal, 2);
-    expect(t.total + t.disputed).toBeCloseTo(agingTotal, 2);
+    // `total` is everything owed, as on the Aged Debtors screen: the columns and the dispute together.
+    expect(t.total).toBeCloseTo(agingTotal, 2);
+    expect(t.total).toBeCloseTo(t.overdueNow + t.dueTodayToDate + t.dueLater + t.noDueDate + t.disputed, 2);
     // and per contact
     for (const c of side.contacts) {
       const a = aging.find((r) => r.entityId === c.contactId)!;
-      expect(c.total + c.disputed).toBeCloseTo(a.total, 2);
+      expect(c.total).toBeCloseTo(a.total, 2);
       expect(c.disputed).toBeCloseTo(a.disputed ?? 0, 2);
     }
   });

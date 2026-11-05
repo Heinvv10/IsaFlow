@@ -157,9 +157,9 @@ describeIfDb('Due by date foots to the AR / AP aging', () => {
     const ar = await getDueByDate(A, 'ar', BY);
     const aging = await getARAging(A);
     expect(cents(columns(ar)) + cents(ar.totals.disputed)).toBe(cents(agingTotal(aging)));
-    expect(cents(ar.totals.total) + cents(ar.totals.disputed)).toBe(cents(agingTotal(aging)));
+    expect(cents(ar.totals.total)).toBe(cents(agingTotal(aging)));
     const agedContact = aging.find((b) => b.entityId === customer)!;
-    expect(cents(ar.contacts[0]!.total) + cents(ar.contacts[0]!.disputed)).toBe(cents(agedContact.total));
+    expect(cents(ar.contacts[0]!.total)).toBe(cents(agedContact.total));
     expect(cents(ar.contacts[0]!.disputed)).toBe(cents(agedContact.disputed ?? 0));
   });
 
