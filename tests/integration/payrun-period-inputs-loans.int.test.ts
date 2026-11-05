@@ -8,12 +8,20 @@ import { Pool } from 'pg';
 import components from '../../pages/api/payroll/employees/[id]/components';
 import applyPackage from '../../pages/api/payroll/employees/[id]/apply-package';
 import postBatch from '../../pages/api/payroll/batches/[id]/post';
+import parallelExport from '../../pages/api/payroll/parallel-run/export';
+import cashRegister from '../../pages/api/payroll/runs/[id]/cash-register';
+import { postPayrollJournalTool } from '../../src/lib/mcp/tools/writePayroll';
+import type { McpToolContext } from '../../src/lib/mcp/types';
 import {
   addBatchLines, createBatch, validateBatch,
 } from '../../src/modules/accounting/services/payroll/payrollBatchService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { inputsFixture } from './payrun-period-inputs.helpers';
 import type { Route } from './w3-01-payroll.helpers';
+import { cashPayRegisterForRun } from '../../src/modules/accounting/services/payroll/cashPayRegisterService';
+import { postPayrollRunJournal } from '../../src/modules/accounting/services/payroll/payrollJournalPostingService';
+import { createExternalImport } from '../../src/modules/accounting/services/payroll/payrollExternalImportService';
+import { createLoan } from '../../src/modules/accounting/services/payroll/payrollLoanService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -45,19 +53,116 @@ describe('judged against a fresh calculation, not the stored line', () => {
 });
 
 describe('a loan instalment above pay', () => {
-  it('blocks approval (Hein, until the loan cap ships), naming the employee, the loan, the shortfall and the ways out', async () => {
-    await addLoan(30000);
+  it('blocks every issue and posting gate before taking the loan, then clears after the instalment is paused and recalculated', async () => {
+    const loan = await addLoan(30000);
     await recalculate(state.nov);
     const l = await line(state.nov);
-    expect(l.net).toBe(0);
+    expect(l.net).toBeGreaterThan(0);
     expect(codes(l)).toEqual(['LOAN_INSTALMENT_EXCEEDS_PAY']);
+    expect(l.validation_results[0]!.message).toContain('Wanda Test');
     const { blocker, plan, planHash } = (await preview(state.nov)).body.data!;
     expect(blocker).toMatchObject({ code: 'loan_instalment_exceeds_pay' });
     const detail = (blocker.detail as string).replace(/\s/g, ' ');
-    for (const part of ['W301-1', 'R-LOAN', 'R 11 916.12', 'defer', 'close the loan', 'final pay', 'cap']) expect(detail).toContain(part);
+    for (const part of ['Wanda Test', 'W301-1', 'R-LOAN', 'blocked for manual review']) expect(detail).toContain(part);
     expect(plan.advisories.find((a: { code: string }) => a.code === 'loan_instalment_exceeds_pay')).toBeUndefined();
     expect((await doApprove(state.nov, planHash)).statusCode).toBe(400);
+    const cashRefused = await call(
+      cashRegister as Route, 'GET', `/api/payroll/runs/${state.nov}/cash-register`, state.nov,
+    );
+    expect(cashRefused.statusCode).toBe(400);
+    expect(cashRefused.body.error).toMatchObject({
+      details: { code: 'LOAN_INSTALMENT_EXCEEDS_PAY' },
+    });
+    expect(cashRefused.body.error?.message).toMatch(/blocked for manual review.*W301-1/i);
+    await expect(cashPayRegisterForRun(state.coA, state.nov)).rejects.toThrow(/blocked for manual review.*W301-1/i);
+    await expect(postPayrollRunJournal(state.coA, state.nov, fx.admin)).rejects.toThrow(/blocked for manual review.*W301-1/i);
+    const mcpContext: McpToolContext = {
+      userId: fx.admin, companyId: state.coA, companyRole: 'admin',
+      scopes: ['write:payroll', 'write:post'], tokenJti: 'loan-block-test', oauthAppId: null,
+    };
+    const mcpRefused = await postPayrollJournalTool.handler({
+      run_id: state.nov, dry_run: true, idempotency_key: 'blocked',
+    }, mcpContext);
+    expect(mcpRefused.isError).toBe(true);
+    expect(mcpRefused.content[0]!.text).toContain('loan_instalment_exceeds_pay');
+    const external = await createExternalImport(state.coA, {
+      periodMonth: 11, periodYear: 2026, source: 'test', fileName: 'blocked.csv',
+      componentsPresent: ['net'], rows: [{ employeeNumber: 'W301-1', employeeName: 'Worker One', amounts: { net: 0 } }],
+      createdBy: fx.admin,
+    });
+    expect((await call(
+      parallelExport as Route, 'GET', `/api/payroll/parallel-run/export?importId=${external.id}`, undefined,
+      { query: { importId: external.id } },
+    )).statusCode).toBe(400);
     expect(await header(state.nov)).toMatchObject({ status: 'calculated', journal_entry_id: null });
+    expect((await pool.query('SELECT id FROM payroll_loan_payments WHERE loan_id = $1', [loan])).rows).toEqual([]);
+    expect((await pool.query('SELECT paid_flag FROM payroll_loan_schedule WHERE loan_id = $1', [loan])).rows).toEqual([{ paid_flag: false }]);
+    expect((await pool.query('SELECT outstanding_balance::float8 AS balance FROM payroll_loans WHERE id = $1', [loan])).rows).toEqual([{ balance: 30000 }]);
+
+    await pool.query('UPDATE payroll_loan_schedule SET due_period_month = 12 WHERE loan_id = $1', [loan]);
+    await recalculate(state.nov);
+    const cleared = (await preview(state.nov)).body.data!;
+    expect(cleared.blocker?.code).not.toBe('loan_instalment_exceeds_pay');
+    await expect(cashPayRegisterForRun(state.coA, state.nov)).resolves.toMatchObject({ runId: state.nov });
+    expect((await call(
+      cashRegister as Route, 'GET', `/api/payroll/runs/${state.nov}/cash-register`, state.nov,
+    )).statusCode).toBe(200);
+    expect((await call(
+      parallelExport as Route, 'GET', `/api/payroll/parallel-run/export?importId=${external.id}`, undefined,
+      { query: { importId: external.id } },
+    )).statusCode).toBe(200);
+    await pool.query("UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1", [state.nov]);
+    const mcpCleared = await postPayrollJournalTool.handler({
+      run_id: state.nov, dry_run: true, idempotency_key: 'cleared',
+    }, mcpContext);
+    expect(mcpCleared.isError).not.toBe(true);
+    await pool.query("UPDATE payroll_run_headers SET status = 'calculated' WHERE id = $1", [state.nov]);
+    expect((await doApprove(state.nov, cleared.planHash)).statusCode).toBe(200);
+  });
+
+  it('legacy warning-only runs tell every direct gate to recalculate without claiming the loan is unchanged', async () => {
+    const loan = await addLoan(1000);
+    await recalculate(state.nov);
+    expect((await pool.query('SELECT id FROM payroll_loan_payments WHERE loan_id = $1', [loan])).rows).toHaveLength(1);
+    await pool.query('UPDATE payroll_run_headers SET calculation_version = 1 WHERE id = $1', [state.nov]);
+    await pool.query(
+      `UPDATE payroll_run_lines
+          SET validation_results = $2::jsonb
+        WHERE run_id = $1`,
+      [state.nov, JSON.stringify([{
+        code: 'LOAN_INSTALMENT_EXCEEDS_PAY', severity: 'warning', rawNet: -100, loans: ['R-LOAN'],
+        message: 'Legacy warning-only line',
+      }])],
+    );
+
+    const approval = (await preview(state.nov)).body.data!;
+    expect(approval.blocker).toMatchObject({ code: 'recalculate_required' });
+    const approvalRefusal = await doApprove(state.nov, approval.planHash);
+    expect(approvalRefusal.statusCode).toBe(400);
+    expect(JSON.stringify(approvalRefusal.body)).toMatch(/recalculate/i);
+    expect(JSON.stringify(approvalRefusal.body)).not.toMatch(/loan is unchanged/i);
+
+    const cashRefusal = await cashPayRegisterForRun(state.coA, state.nov).catch((error: unknown) => error);
+    expect(cashRefusal).toBeInstanceOf(Error);
+    expect((cashRefusal as Error).message).toMatch(/earlier version.*recalculate/i);
+    expect((cashRefusal as Error).message).not.toMatch(/loan is unchanged/i);
+    const journalRefusal = await postPayrollRunJournal(state.coA, state.nov, fx.admin).catch((error: unknown) => error);
+    expect(journalRefusal).toBeInstanceOf(Error);
+    expect((journalRefusal as Error).message).toMatch(/earlier version.*recalculate/i);
+    expect((journalRefusal as Error).message).not.toMatch(/loan is unchanged/i);
+
+    const external = await createExternalImport(state.coA, {
+      periodMonth: 11, periodYear: 2026, source: 'test', fileName: 'legacy-warning.csv',
+      componentsPresent: ['net'], rows: [{ employeeNumber: 'W301-1', employeeName: 'Worker One', amounts: { net: 0 } }],
+      createdBy: fx.admin,
+    });
+    const exportRefusal = await call(
+      parallelExport as Route, 'GET', `/api/payroll/parallel-run/export?importId=${external.id}`, undefined,
+      { query: { importId: external.id } },
+    );
+    expect(exportRefusal.statusCode).toBe(400);
+    expect(JSON.stringify(exportRefusal.body)).toMatch(/earlier version.*recalculate/i);
+    expect(JSON.stringify(exportRefusal.body)).not.toMatch(/loan is unchanged/i);
   });
 
   it('the grid still refuses an edit that makes it worse', async () => {
@@ -67,14 +172,99 @@ describe('a loan instalment above pay', () => {
     expect((await set(state.nov, comp.overtime!, 100)).statusCode).toBe(200);
   });
 
-  it('a shortfall that survives without the instalment stays a blocker, and says what can be changed', async () => {
-    await addLoan(1000);
+  it('does not take the loan when other deductions already leave pay negative', async () => {
+    const loan = await addLoan(1000);
     await addRow(comp.union!, 30000, '2026-01-01', null, true);
     await recalculate(state.nov);
-    const { blocker } = (await preview(state.nov)).body.data!;
-    expect(blocker).toMatchObject({ code: 'deductions_exceed_pay' });
-    expect(blocker.detail).toContain('W301-1');
-    expect(blocker.detail).toContain('on the employee page');
+    expect(codes(await line(state.nov))).toEqual(expect.arrayContaining([
+      'DEDUCTIONS_EXCEED_PAY', 'LOAN_INSTALMENT_EXCEEDS_PAY',
+    ]));
+    expect((await pool.query('SELECT id FROM payroll_loan_payments WHERE loan_id = $1', [loan])).rows).toEqual([]);
+    expect((await pool.query('SELECT outstanding_balance::float8 AS balance FROM payroll_loans WHERE id = $1', [loan])).rows)
+      .toEqual([{ balance: 1000 }]);
+    await expect(postPayrollRunJournal(state.coA, state.nov, fx.admin)).rejects.toThrow(/blocked for manual review/i);
+    const mcpRefused = await postPayrollJournalTool.handler({
+      run_id: state.nov, dry_run: true, idempotency_key: 'negative-other-deductions',
+    }, {
+      userId: fx.admin, companyId: state.coA, companyRole: 'admin',
+      scopes: ['write:payroll', 'write:post'], tokenJti: 'negative-other-deductions', oauthAppId: null,
+    });
+    expect(mcpRefused.isError).toBe(true);
+    expect(mcpRefused.content[0]!.text).toContain('loan_instalment_exceeds_pay');
+  });
+
+  it('blocks the rounded principal plus interest even when the stored instalment equals available pay', async () => {
+    await fx.addComponent(state.coA, 'Loan fringe', '3801', 'earning', true);
+    const initialOtherDeduction = 30000;
+    await addRow(comp.union!, initialOtherDeduction, '2026-01-01', null, true);
+    const loan = await createLoan({
+      companyId: state.coA, employeeId: state.employee, loanNumber: 'R-ROUND', description: 'Rounding regression',
+      principal: 20000, annualInterestRate: 0.01, termMonths: 3, method: 'straight_line',
+      startDate: new Date('2026-11-01T00:00:00.000Z'), firstPeriodYear: 2026, firstPeriodMonth: 11,
+      userId: fx.admin,
+    });
+    await recalculate(state.nov);
+    const overdrawn = (await line(state.nov)).validation_results.find(
+      (result: { code: string }) => result.code === 'DEDUCTIONS_EXCEED_PAY',
+    ) as { rawNet: number };
+    await pool.query(
+      'UPDATE payroll_employee_components SET amount = $1 WHERE employee_id = $2 AND component_id = $3',
+      [initialOtherDeduction - (6683.33 - overdrawn.rawNet), state.employee, comp.union],
+    );
+    await recalculate(state.nov);
+
+    expect((await pool.query(
+      `SELECT principal::float8, interest::float8, installment::float8, paid_flag
+         FROM payroll_loan_schedule WHERE loan_id = $1 AND sequence = 1`, [loan.id],
+    )).rows).toEqual([{ principal: 6666.67, interest: 16.67, installment: 6683.33, paid_flag: false }]);
+    const blocked = await line(state.nov);
+    expect(blocked.validation_results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'LOAN_INSTALMENT_EXCEEDS_PAY', rawNet: -0.01 }),
+    ]));
+    expect((await pool.query('SELECT id FROM payroll_loan_payments WHERE loan_id = $1', [loan.id])).rows).toEqual([]);
+    expect((await pool.query(
+      'SELECT outstanding_balance::float8 AS balance FROM payroll_loans WHERE id = $1', [loan.id],
+    )).rows).toEqual([{ balance: 20000 }]);
+  });
+
+  it('does not say a blocked instalment was taken when its fringe benefit cannot be recorded', async () => {
+    await addLoan(30000, 'R-FRINGE-BLOCKED', 0.01, 30000);
+    await recalculate(state.nov);
+    const warning = (await line(state.nov)).validation_results.find(
+      (result: { code: string }) => result.code === 'LOAN_FRINGE_NOT_RECORDED',
+    );
+    expect(warning?.message).toMatch(/instalment was not taken/i);
+    expect(warning?.message).not.toMatch(/instalment was taken/i);
+  });
+
+  it('keeps PAYE, UIF and SDL identical when only the cash instalment becomes blocked', async () => {
+    await fx.addComponent(state.coA, 'Loan fringe', '3801', 'earning', true);
+    const loan = await addLoan(1000, 'R-TAX', 0, 30000);
+    await recalculate(state.nov);
+    const collected = await line(state.nov);
+    await pool.query('UPDATE payroll_loan_schedule SET principal = 30000, installment = 30000 WHERE loan_id = $1', [loan]);
+    await recalculate(state.nov);
+    const blocked = await line(state.nov);
+    expect(codes(blocked)).toEqual(['LOAN_INSTALMENT_EXCEEDS_PAY']);
+    expect({ paye: blocked.paye, uif: blocked.uif, uifEmployer: blocked.uifEmployer, sdl: blocked.sdl })
+      .toEqual({ paye: collected.paye, uif: collected.uif, uifEmployer: collected.uifEmployer, sdl: collected.sdl });
+    expect((blocked.component_breakdown as Array<{ sarsSourceCode: string; isNonCash?: boolean }>)
+      .some((item) => item.sarsSourceCode === '3801' && item.isNonCash === true)).toBe(true);
+  });
+
+  it('allows an instalment exactly equal to available pay', async () => {
+    const available = (await line(state.nov)).net as number;
+    const loan = await addLoan(available);
+    await recalculate(state.nov);
+    expect(await line(state.nov)).toMatchObject({ net: 0, validation_results: [] });
+    expect((await pool.query('SELECT principal_paid::float8 AS paid FROM payroll_loan_payments WHERE loan_id = $1', [loan])).rows)
+      .toEqual([{ paid: available }]);
+  });
+
+  it('allows an instalment below available pay unchanged', async () => {
+    await addLoan(1000);
+    await recalculate(state.nov);
+    expect(codes(await line(state.nov))).toEqual([]);
   });
 
   it('an edit recalculates twice and takes the instalment once', async () => {

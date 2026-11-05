@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { judgePayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalGate';
+import { PAYROLL_CALCULATION_VERSION } from '@/modules/accounting/services/payroll/payrollCalculationVersion';
 import { findPaidTerminationRun } from '@/modules/accounting/services/payroll/payrollTerminationPaidCheck';
 
 assertDisposable();
@@ -53,8 +54,8 @@ beforeAll(async () => {
   await pool.query(
     // March carries the calculation stamp a calculation writes (migration 953), so recalculate_required stays out of the way.
     `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,calculated_at,calculation_version)
-     VALUES($1,$3,2,2026,'approved',NULL,NULL),($2,$3,3,2026,'calculated',now(),1)`,
-    [febRun, marchRun, company],
+     VALUES($1,$3,2,2026,'approved',NULL,NULL),($2,$3,3,2026,'calculated',now(),$4)`,
+    [febRun, marchRun, company, PAYROLL_CALCULATION_VERSION],
   );
   // February (approved) paid E-TWICE's notice pay; March was calculated before
   // that and carries it again. E-ONCE's is only in March.

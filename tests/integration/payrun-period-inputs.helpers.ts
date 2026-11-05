@@ -49,7 +49,8 @@ export function inputsFixture(pool: Pool) {
     recalculate: (run: string) => call(calculate as Route, 'POST', `/api/payroll/runs/${run}/calculate`, run),
     line: async (run: string, employeeId = state.employee) => (await pool.query(
       `SELECT gross_pay::float8 AS gross, taxable_income::float8 AS taxable, paye::float8 AS paye,
-              uif_employee::float8 AS uif, sdl::float8 AS sdl, net_pay::float8 AS net, validation_results
+              uif_employee::float8 AS uif, uif_employer::float8 AS "uifEmployer",
+              sdl::float8 AS sdl, net_pay::float8 AS net, component_breakdown, validation_results
          FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2`, [run, employeeId])).rows[0]!,
     header: async (run: string) => (await pool.query(
       `SELECT status, journal_entry_id, total_gross::float8 AS gross, total_net::float8 AS net FROM payroll_run_headers WHERE id = $1`, [run])).rows[0]!,
@@ -63,16 +64,16 @@ export function inputsFixture(pool: Pool) {
       `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
        VALUES ($1, $2, $3, $4, $5, $6)`, [employeeId, component, amount, from, to, recurring]),
     /** A loan with one instalment due in November, as the loan service schedules it. */
-    addLoan: async (instalment: number, loanNumber = 'R-LOAN') => {
+    addLoan: async (instalment: number, loanNumber = 'R-LOAN', annualRate = 0.085, openingBalance = instalment) => {
       const loan = crypto.randomUUID();
       await pool.query(
         `INSERT INTO payroll_loans (id, company_id, employee_id, loan_number, description, principal, annual_interest_rate, term_months,
            method, start_date, first_deduction_period_year, first_deduction_period_month, status, outstanding_balance)
-         VALUES ($1, $2, $3, $4, 'Staff loan', $5, 0.085, 1, 'straight_line', '2026-11-01', 2026, 11, 'active', $5)`,
-        [loan, state.coA, state.employee, loanNumber, instalment]);
+         VALUES ($1, $2, $3, $4, 'Staff loan', $5, $6, 1, 'straight_line', '2026-11-01', 2026, 11, 'active', $5)`,
+        [loan, state.coA, state.employee, loanNumber, openingBalance, annualRate]);
       await pool.query(
         `INSERT INTO payroll_loan_schedule (loan_id, sequence, due_period_year, due_period_month, opening_balance, interest, principal, installment, closing_balance, paid_flag)
-         VALUES ($1, 1, 2026, 11, $2, 0, $2, $2, 0, false)`, [loan, instalment]);
+         VALUES ($1, 1, 2026, 11, $2, 0, $3, $3, 0, false)`, [loan, openingBalance, instalment]);
       return loan;
     },
     /** Waiting on this advisory lock itself: classid and objid are the key's high and low 32 bits. */

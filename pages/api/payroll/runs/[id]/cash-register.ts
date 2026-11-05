@@ -13,6 +13,7 @@ import {
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { cashPayRegisterForRun } from '@/modules/accounting/services/payroll/cashPayRegisterService';
+import { PayrollLineBlockedError } from '@/modules/accounting/services/payroll/payrollLineBlockers';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -24,6 +25,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const reg = await cashPayRegisterForRun(companyId, id);
     return apiResponse.success(res, reg);
   } catch (err) {
+    if (err instanceof PayrollLineBlockedError) {
+      return apiResponse.badRequest(res, err.message, { code: err.code });
+    }
     if (err instanceof Error && /not found/i.test(err.message)) {
       return apiResponse.notFound(res, err.message);
     }

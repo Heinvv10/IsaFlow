@@ -24,6 +24,7 @@ import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
 import { laterPeriodsWarnings, loadPayeYearToDate } from './payrollYearToDate';
 import { judgePayrollApproval } from './payrollApprovalGate';
 import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
+import { blockedLoanValidation, judgeLoanApplications } from './payrollRunLoanDecision';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -160,30 +161,6 @@ export async function calculatePayrollRun(
 
   const lineInserts: LineInsert[] = [];
 
-  // Undo the loan deductions THIS run already applied, then re-apply the
-  // instalments due — one locked transaction, so a recalculation reproduces
-  // the same payslip instead of dropping the deduction while keeping the
-  // reduced balance. See payrollRunLoanApplication.ts. A loan the payslip has no component for is
-  // not taken at all (payrollLoanWithholding); its line is marked instead.
-  const loanComponents = await loadLoanComponents(companyId);
-  const withheld: WithheldLoan[] = [];
-  const loansByEmployee = await applyRunLoans({
-    companyId,
-    runId,
-    periodYear: period.year,
-    periodMonth: period.month,
-    officialRate: runOfficialRate(),
-    // Only a journal whose amounts are in the ledger blocks loan work (round 5).
-    journalEntryId: await journalInForceOrNull(companyId, run.journal_entry_id),
-    // Only the run's own employees: an instalment taken from someone with no
-    // line here would reduce the loan with no deduction on any payslip.
-    employeeIds: new Set(employees.map(e => e.id)),
-    components: { deduction: loanComponents.deduction != null, fringe: loanComponents.fringe != null },
-    onWithheld: (w) => withheld.push(w),
-  });
-  const withheldResults = withheldLineResults(withheld);
-  const fringeWarnings = fringeNotRecordedResults(loansByEmployee, loanComponents);
-
   // Leavers from earlier periods whose severance directive this run may pay:
   // the severance line alone, no salary, recurring components or loans, and so
   // no UIF or SDL (audit 2026-10-18 P3, payrollSeveranceDirective.ts).
@@ -198,20 +175,42 @@ export async function calculatePayrollRun(
   // Recurring rows the last-day read pays in full or drops: flagged on the line, refused at approval.
   const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));
 
+  type Prepared = { employee: PayrollEmployee; severanceOnly: boolean; components: EmployeeComponent[]; terminationWarnings: ValidationResult[] };
+  const prepared: Prepared[] = [];
   for (const { employee, severanceOnly: onlySeverance } of population) {
     const terminationWarnings: ValidationResult[] = [];
-    let componentsWithLoans: EmployeeComponent[];
-    if (onlySeverance) {
-      componentsWithLoans = await severanceOnlyComponents(companyId, runId, employee, period, terminationWarnings);
-      if (componentsWithLoans.length === 0) continue;
-    } else {
-      const components = await getEmployeeComponents(employee.id, companyId, readDate);
-      const componentsWithTermination = await appendTerminationIfEndingThisPeriod(
-        companyId, runId, employee, components, period, terminationWarnings,
+    const components = onlySeverance
+      ? await severanceOnlyComponents(companyId, runId, employee, period, terminationWarnings)
+      : await appendTerminationIfEndingThisPeriod(
+        companyId, runId, employee, await getEmployeeComponents(employee.id, companyId, readDate), period, terminationWarnings,
       );
-      const loanApplications: ApplyLoanResult[] = loansByEmployee.get(employee.id) ?? [];
-      componentsWithLoans = appendLoanComponents(componentsWithTermination, loanApplications, loanComponents);
-    }
+    if (onlySeverance && components.length === 0) continue;
+    prepared.push({ employee, severanceOnly: onlySeverance, components, terminationWarnings });
+  }
+
+  // Preview all due loans before any payment write. A blocked employee takes none of them.
+  const loanComponents = await loadLoanComponents(companyId);
+  const withheld: WithheldLoan[] = [];
+  const blockedLoans = new Map<string, { applications: ApplyLoanResult[]; rawNet: number }>();
+  const preparedByEmployee = new Map(prepared.map((item) => [item.employee.id, item]));
+  const loansByEmployee = await applyRunLoans({
+    companyId, runId, periodYear: period.year, periodMonth: period.month, officialRate: runOfficialRate(),
+    journalEntryId: await journalInForceOrNull(companyId, run.journal_entry_id),
+    employeeIds: new Set(employees.map(e => e.id)),
+    components: { deduction: loanComponents.deduction != null, fringe: loanComponents.fringe != null },
+    onWithheld: (w) => withheld.push(w),
+    judgePay: (employeeId, applications) => judgeLoanApplications({
+      basis: preparedByEmployee.get(employeeId), applications, loanComponents, period, taxYear,
+      ytd: ytdByEmployee.get(employeeId),
+    }),
+    onPayBlocked: (employeeId, applications, rawNet) => blockedLoans.set(employeeId, { applications, rawNet }),
+  });
+  const withheldResults = withheldLineResults(withheld);
+  const fringeWarnings = fringeNotRecordedResults(loansByEmployee, loanComponents);
+
+  for (const { employee, severanceOnly: onlySeverance, components, terminationWarnings } of prepared) {
+    const loanApplications: ApplyLoanResult[] = onlySeverance ? [] : loansByEmployee.get(employee.id) ?? [];
+    const componentsWithLoans = appendLoanComponents(components, loanApplications, loanComponents);
 
     const line = calculatePayrollLine({
       employee,
@@ -254,6 +253,10 @@ export async function calculatePayrollRun(
       validationResults: JSON.stringify([
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
         ...line.validationResults, ...terminationWarnings, ...(withheldResults.get(employee.id) ?? []), ...(fringeWarnings.has(employee.id) ? [fringeWarnings.get(employee.id)!] : []),
+        ...(blockedLoans.has(employee.id) ? [blockedLoanValidation(
+          blockedLoans.get(employee.id)!.applications, blockedLoans.get(employee.id)!.rawNet,
+          `${employee.firstName} ${employee.lastName}`.trim(),
+        )] : []),
         // Remuneration before taxable deductions feeds later months even when a deduction reduced this line to nil.
         ...((line.periodicRemuneration > 0 || line.annualPaymentRemuneration > 0) && laterApproved.has(employee.id)
           ? [laterApproved.get(employee.id)!] : []),
