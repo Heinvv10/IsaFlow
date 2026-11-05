@@ -17,7 +17,7 @@
  *    each entity, from shared/unappliedDocuments (the rows
  *    agedNetting.getUnappliedByEntity sums). A refund carries its own sign.
  *
- * Σ Outstanding equals the aged report's net `total` to the cent. `agedTotal`
+ * Σ Outstanding + Σ Disputed (a disputed amount is still owed) equals the aged report's net `total` to the cent. `agedTotal`
  * is that total computed through the aged tools' own functions
  * (calculateAgingBuckets → netAgingRows over aggregateUnappliedByEntity), and
  * `difference` is controlTotal − agedTotal. Both read the SAME fetched data,
@@ -73,13 +73,13 @@ export interface OpenItemsSummary {
   asAt: string;
   rowCount: number;
   invoiceCount: number;
-  /** Σ Outstanding over invoice rows — the aged report's gross_total. */
+  /** Σ (Outstanding + Disputed) over invoice rows — everything the invoices still owe, the aged report's gross_total. */
   grossTotal: number;
   /** Σ Outstanding over credit-note and unapplied-cash rows (negative). */
   unappliedTotal: number;
-  /** Σ Disputed over invoice rows: what grossTotal leaves out of the documents' balances (AR; 0 on AP). */
+  /** Σ Disputed over invoice rows: the part of grossTotal held out of the Outstanding column (AR; 0 on AP). */
   disputedTotal: number;
-  /** Σ Outstanding over every row. */
+  /** Σ (Outstanding + Disputed) over every row. */
   controlTotal: number;
   /** The aged report's net total, computed through its own functions. */
   agedTotal: number;
@@ -214,7 +214,9 @@ export async function buildOpenItems(
   rows.sort(byKey);
 
   const agedTotal = money(netted.reduce((s, r) => s + cents(r.net), 0));
-  const controlTotal = money(grossCents + unappliedCents);
+  // Outstanding is each invoice's balance WITHOUT its open dispute, the Disputed column carries that part, and both are still
+  // owed: the gross figure the aged report totals is their sum.
+  const controlTotal = money(grossCents + disputedCents + unappliedCents);
   return {
     columns: OPEN_ITEMS_COLUMNS[side],
     rows,
@@ -224,7 +226,7 @@ export async function buildOpenItems(
       asAt: asAtStr,
       rowCount: rows.length,
       invoiceCount: invoices.length,
-      grossTotal: money(grossCents),
+      grossTotal: money(grossCents + disputedCents),
       unappliedTotal: money(unappliedCents),
       disputedTotal: money(disputedCents),
       controlTotal,
