@@ -17,7 +17,7 @@ const errorOf = (raw: unknown): string => {
 describe('blog frontmatter schema', () => {
   it('accepts a valid post and applies the defaults', () => {
     const fm = parseFrontmatter(valid(), FILE);
-    expect(fm.author).toBe('ISAFlow Team');
+    expect(fm.author).toBe('IsaFlow Team');
     expect(fm.tags).toEqual([]);
     expect(fm.draft).toBe(false);
     expect(fm.ogImage).toBeUndefined();

@@ -21,11 +21,11 @@ export default function HelpIndexPage({ documents }: HelpIndexProps) {
   return (
     <>
       <BlogHead
-        title="Help centre | ISAFlow Help"
+        title="Help centre | IsaFlow Help"
         description={HELP_DESCRIPTION}
         canonical={HELP_URL}
         image={`${SITE_URL}/landing-pitch-dark.png`}
-        imageAlt="ISAFlow"
+        imageAlt="IsaFlow"
         type="website"
         jsonLd={[breadcrumbJsonLd([
           { name: 'Home', url: `${SITE_URL}/` },

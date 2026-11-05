@@ -38,7 +38,7 @@ export function BlogHead({ title, description, canonical, image, imageAlt, type,
       <link rel="alternate" type="application/rss+xml" title={BLOG_TITLE} href={`${SITE_URL}${BLOG_RSS_PATH}`} />
       {noindex && <meta name="robots" content="noindex, nofollow" />}
 
-      <meta property="og:site_name" content="ISAFlow" />
+      <meta property="og:site_name" content="IsaFlow" />
       <meta property="og:locale" content="en_ZA" />
       <meta property="og:type" content={type} />
       <meta property="og:title" content={title} />

@@ -14,7 +14,9 @@ interface Props {
 const NAV_LINKS = [
   { label: 'Features', href: '/#features' },
   { label: 'Pricing', href: '/pricing' },
+  { label: 'Blog', href: '/blog' },
   { label: 'FAQ', href: '/#faq' },
+  { label: 'Contact', href: '/contact' },
 ];
 
 export function LandingNavbar({ scrolled, mobileMenuOpen, onToggleMobile, onCloseMobile }: Props) {
@@ -27,7 +29,7 @@ export function LandingNavbar({ scrolled, mobileMenuOpen, onToggleMobile, onClos
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 lg:h-20">
           <Link href="/" className="flex items-center">
-            <img src="/logo.png" alt="ISAFlow" className="h-8 sm:h-10 w-auto brightness-0 invert" />
+            <img src="/logo.png" alt="IsaFlow" className="h-8 sm:h-10 w-auto brightness-0 invert" />
           </Link>
 
           <div className="hidden lg:flex items-center gap-8">

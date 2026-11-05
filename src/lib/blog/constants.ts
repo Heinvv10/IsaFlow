@@ -8,11 +8,11 @@ export const SITE_URL = 'https://isaflow.co.za';
 export const BLOG_PATH = '/blog';
 export const BLOG_URL = `${SITE_URL}${BLOG_PATH}`;
 export const BLOG_RSS_PATH = `${BLOG_PATH}/rss.xml`;
-export const BLOG_TITLE = 'ISAFlow Blog';
+export const BLOG_TITLE = 'IsaFlow Blog';
 export const BLOG_DESCRIPTION =
-  'Practical guides on accounting, VAT, payroll and running a South African business, from the ISAFlow team.';
-export const DEFAULT_AUTHOR = 'ISAFlow Team';
-export const PUBLISHER_NAME = 'ISAFlow';
+  'Practical guides on accounting, VAT, payroll and running a South African business, from the IsaFlow team.';
+export const DEFAULT_AUTHOR = 'IsaFlow Team';
+export const PUBLISHER_NAME = 'IsaFlow';
 export const PUBLISHER_LOGO = `${SITE_URL}/logo.png`;
 
 /** ISR window for blog pages: a scheduled post goes live within this many seconds of its publishDate. */

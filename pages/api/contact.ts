@@ -29,7 +29,7 @@ const handler: NextApiHandler = async (req, res) => {
     return apiResponse.badRequest(res, result.error);
   }
 
-  // Second, tighter limit keyed on the submitter's email — stops one address
+  // Second, tighter limit keyed on the submitter's email stops one address
   // flooding the inbox from many IPs (the withRateLimit wrapper covers per-IP).
   const emailAllowed = await checkRateLimit(`contact:email:${result.data.email}`, {
     max: 3,
@@ -37,13 +37,16 @@ const handler: NextApiHandler = async (req, res) => {
   });
   if (!emailAllowed) {
     log.warn('contact form rate limit (email)', { email: result.data.email, ip: getClientIp(req) }, 'contact');
-    // Generic success — do not reveal the limit to a spammer.
-    return apiResponse.success(res, null);
+    return apiResponse.tooManyRequests(
+      res,
+      'Too many enquiries from this email address. Please try again later.',
+    );
   }
 
   const { subject, html } = buildContactEmail(result.data);
   const sent = await sendEmail({
     to: CONTACT_INBOX,
+    replyTo: result.data.email,
     subject,
     html: emailLayout(emailContentRow(html)),
     _log: { companyId: null, emailType: 'other', sentBy: null },
@@ -61,10 +64,10 @@ const handler: NextApiHandler = async (req, res) => {
     );
   }
 
-  return apiResponse.success(res, null, 'Thanks — we will be in touch shortly.');
+  return apiResponse.success(res, null, 'Thanks. We will be in touch shortly.');
 };
 
-// Cap the request body — a contact form never needs more than a few KB, and it
+// Cap the request body. A contact form never needs more than a few KB, and it
 // bounds the unbounded honeypot field cheaply.
 export const config = { api: { bodyParser: { sizeLimit: '16kb' } } };
 

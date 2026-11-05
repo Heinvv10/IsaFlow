@@ -40,8 +40,8 @@ export default function LandingPage({ stats }: Props) {
     <>
       <PageHead
         path="/"
-        title="ISAFlow: Cloud Accounting Software for South African Businesses"
-        description="Cloud accounting for South Africa: invoicing, bank reconciliation, VAT201 and SARS compliance, and payroll with PAYE, UIF and SDL. Try it free for 30 days."
+        title="IsaFlow: Cloud Accounting Software for South African Businesses"
+        description="Cloud accounting for South Africa: invoicing, bank statement import and reconciliation, VAT201 preparation, and payroll with PAYE, UIF and SDL. Try it free for 30 days."
       />
 
       <LandingJsonLd />
