@@ -18,6 +18,7 @@ import { claimRunSeveranceDirectives } from './payrollRunDirectiveClaim';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertPayRunApproved } from './payRunApprovalControl';
 import { readPayRunDecision } from './payRunDecision';
+import { soleApproverAuditMetadata } from '../gl/approvalSelfApproval';
 import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 
 type Row = DbRow;
@@ -174,7 +175,7 @@ export async function approvePayrollRun(
       executor: opts?.postingAgent ?? 'human', journalEntryId,
       ...(decision ? {
         decidedBy: decision.decidedBy, requestedBy: decision.requestedBy,
-        ...(decision.selfApprovedSoleApprover ? { selfApproval: 'sole_approver' } : {}),
+        ...soleApproverAuditMetadata(decision.selfApprovedSoleApprover),
       } : {}),
     },
   });

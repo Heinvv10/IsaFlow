@@ -6,28 +6,39 @@
  * only one left. Such a demotion or removal by a company or platform admin is refused (409) until the request is
  * decided or withdrawn.
  *
- * Eligible = in good standing (an active, unsuspended account) and ranked at or above what the request demands
- * (the ratchet: the higher of the role it was raised under and the bound rule's role today, as assertMayDecide
- * judges), and not the request's own requester. Ranks come from gl/approvalRank, the ladder assertMayDecide uses.
+ * Eligible = exactly who approval_request_decide (migration 872) would let approve it: in good standing (an active,
+ * unsuspended account), ranked at or above what the request demands (the ratchet: the higher of the role it was raised
+ * under and the bound rule's role today), not the request's requester, and not an author of the content (the run's
+ * `prepared_by` and the request's `content_authors` snapshot; RA001). A pay run always has a header, so the
+ * "earlier requester" branch of RA001, which applies only to a type with no author tracking, never applies.
+ * Ranks come from gl/approvalRank, the ladder assertMayDecide uses.
  *
  * ONE judgement (`strandedPayRunRequests`) serves every path. Callers: memberWrites (company role change, removal),
  * companyMembershipService (platform-admin role change, removal) and adminUserActionsService (onboarding reset).
  * Suspension and user deletion are NEVER refused (emergency revocation must always land): they only report what
- * they strand (`findStrandedPayRunRequests`, logged and put on the admin audit row). A pending request whose last
- * other approver is suspended or deleted cannot be self-approved either: the sole-approver fallback also requires
- * the roster to be unchanged since the request was raised (approval_roster_snapshot holds every other member's role,
- * standing and suspension), so it is refused with "the company members or roles changed" until the requester raises
- * a new request on the new roster. Accepting an invitation that re-roles an existing member is not guarded: it needs
- * that member's own credentials.
+ * they strand (`findStrandedPayRunRequests`, logged and put on the admin audit row). The stranded request itself
+ * cannot be self-approved as it stands: the sole-approver fallback also requires the roster to be unchanged since the
+ * request was raised (approval_roster_snapshot holds every other member's role, standing and suspension), so it is
+ * refused with "the company members or roles changed". It does NOT stay that way for ever: withdrawing and raising
+ * again, or a content change plus recalculation and a re-request (migration 872 re-stamps the SAME request with a
+ * fresh roster, v_changed), takes a new roster snapshot and the fallback then applies. That is by design under the
+ * ruling to keep the fallback; the audit flag and the run note are what make it visible. Accepting an invitation that
+ * re-roles an existing member is not guarded: it needs that member's own credentials (the snapshot still blocks
+ * self-approval of anything pending).
  *
  * LOCK: the check and the write must not interleave with another member write of the same company (two admins
  * demoting the two other approvers at once would each see the other still eligible). So the check takes the
  * transaction-scoped advisory lock `pay_run_approvers:<company id>` first, on the SAME transaction as the write,
  * held to its COMMIT. It is a leaf in payrollRunLock.ts's order: nothing in the pay-run, approval or posting code
  * takes it, and it is always taken AFTER the member rows and the owner lock (memberWrites: rows, owner lock, this;
- * the platform service calls it after assertAnotherOwner). A change spanning companies takes them in company-id order.
+ * the platform service calls it after assertAnotherOwner; the onboarding reset locks the user's rows and owner
+ * locks first, in company-id order, for the same reason). A change spanning companies takes them in company-id order.
  * The check itself may run on another connection (a platform-admin write is on the platform pool): it reads committed
- * data, and a peer that held the lock has committed before it is granted.
+ * data, and a peer that held the lock has committed before it is granted. That connection is a migration_admin one
+ * (pool max 4) while the request holds the lock on its own transaction: if the pool is exhausted the wait ends with
+ * the 5 s lock_timeout and a retryable refusal, nothing written. Judging on the platform transaction itself was not
+ * done: platform_admin's access to these tables is not what the member writes already rely on, and a request it could
+ * not see would read as "no pending request", failing open; migration_admin (BYPASSRLS) is the known reader.
  *
  * Limit, by design (the sole-approver fallback is kept and logged): this guards the window while a request is
  * pending. A demotion made BEFORE a request is raised is in the request's roster snapshot, and a requester can
@@ -61,10 +72,16 @@ type Member = { user_id: string; role: string; in_good_standing: boolean };
  * requester if `userId` became `newRole` (null: left the company). Reads only; no lock.
  */
 async function strandedRequestIds(client: PoolClient, companyId: string, userId: string, newRole: string | null): Promise<string[]> {
-  const pending = (await client.query<{ id: string; requested_by: string; required_role: string | null; rule_role: string | null }>(
-    `SELECT ar.id::TEXT AS id, ar.requested_by::TEXT AS requested_by, ar.required_role, rl.approver_role AS rule_role
+  const pending = (await client.query<{
+    id: string; requested_by: string; required_role: string | null; rule_role: string | null; authors: string[];
+  }>(
+    // authors: approval_document_authors for a pay run (the run's last preparer) and the snapshot taken when the request
+    // was raised or re-stamped (approval_request_decide: RA001, 'you authored the content it covers').
+    `SELECT ar.id::TEXT AS id, ar.requested_by::TEXT AS requested_by, ar.required_role, rl.approver_role AS rule_role,
+            array_remove(ARRAY[h.prepared_by::TEXT] || COALESCE(ar.content_authors::TEXT[], '{}'::TEXT[]), NULL) AS authors
        FROM approval_requests ar
        LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
+       LEFT JOIN payroll_run_headers h ON h.id = ar.document_id AND h.company_id = ar.company_id
       WHERE ar.company_id = $1::UUID AND ar.document_type = 'pay_run' AND ar.status = 'pending'`,
     [companyId],
   )).rows;
@@ -85,7 +102,11 @@ async function strandedRequestIds(client: PoolClient, companyId: string, userId:
     // assertMayDecide's ratchet: the higher of the role the request was raised under and the bound rule's role today.
     const demand = Math.max(requiredRank(request.rule_role ?? 'admin'), request.required_role == null ? 0 : requiredRank(request.required_role));
     const requester = request.requested_by.toLowerCase();
-    const eligible = (m: Member): boolean => m.in_good_standing && m.user_id.toLowerCase() !== requester && actorRank(m.role) >= demand;
+    const authors = new Set(request.authors.map((a) => a.toLowerCase()));
+    const eligible = (m: Member): boolean => {
+      const id = m.user_id.toLowerCase();
+      return m.in_good_standing && id !== requester && !authors.has(id) && actorRank(m.role) >= demand;
+    };
     if (!eligible(target) || after >= demand) continue;
     if (!members.some((m) => m !== target && eligible(m))) stranded.push(request.id);
   }
@@ -127,7 +148,7 @@ export async function assertPayRunApproverRetained(companyId: string, userId: st
   await judgeOnMigrationAdmin([[companyId, newRole]], userId);
 }
 
-/** Companies where `userId` is a member and a pay_run request is pending, in company-id order. */
+/** Companies where `userId` is a member and a pay_run request is pending, in company-id order. Read only. */
 async function companiesWithPendingRequests(userId: string): Promise<string[]> {
   return migrationAdminTx('list pay-run approver companies', async (client) => (await client.query<{ company_id: string }>(
     `SELECT DISTINCT cu.company_id::TEXT AS company_id
@@ -140,11 +161,26 @@ async function companiesWithPendingRequests(userId: string): Promise<string[]> {
 }
 
 /**
- * The same, for a change that takes `userId` out of EVERY company they belong to (onboarding reset): the approver
- * locks of the companies with a pending request, in company-id order, then each judged as a removal.
+ * The same, for a change that takes `userId` out of EVERY company they belong to (onboarding reset). In the order
+ * every member writer takes its locks (rows, owner lock, approver lock; see the header), companies in id order:
+ * the user's membership rows, then the owner lock of each company they own, then the approver lock of EACH company
+ * they belong to, and only then the companies are judged, each as a removal. Locking before listing means a request
+ * raised meanwhile is judged, and taking rows first keeps a concurrent role change of the same user from meeting
+ * this one in the opposite order (it waits on the rows, before it holds the approver lock).
  */
 export async function assertPayRunApproverRetainedEverywhere(userId: string): Promise<void> {
-  const companies = await companiesWithPendingRequests(userId);
+  const memberships = await sql<{ company_id: string; is_owner: boolean }>`
+    SELECT company_id::TEXT AS company_id, lower(btrim(role)) = 'owner' AS is_owner
+      FROM company_users
+     WHERE lower(user_id::TEXT) = lower(${userId})
+     ORDER BY company_id, id
+       FOR UPDATE
+  `;
+  const companies = [...new Set(memberships.map((m) => m.company_id))];
+  const owned = new Set(memberships.filter((m) => m.is_owner).map((m) => m.company_id));
+  for (const companyId of companies) {
+    if (owned.has(companyId)) await sql`SELECT pg_advisory_xact_lock(hashtextextended('company_owners:' || ${companyId}::uuid::text, 0))`;
+  }
   for (const companyId of companies) await sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(companyId)}, 0))`;
   await judgeOnMigrationAdmin(companies.map((c): [string, string | null] => [c, null]), userId);
 }

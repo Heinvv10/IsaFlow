@@ -25,6 +25,7 @@ import {
   ApprovalDocumentChangedError, ApprovalExpectedDigestRequiredError,
 } from '@/modules/accounting/services/gl/approvalDecideDocument';
 import { ApprovalRequestStaleError } from '@/modules/accounting/services/gl/approvalDocumentErrors';
+import { isSoleApproverApproval, soleApproverAuditMetadata } from '@/modules/accounting/services/gl/approvalSelfApproval';
 import { isUuidParam } from '@/lib/validation';
 import { preparePayRunApprovalRequest } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 import { sql } from '@/lib/neon';
@@ -160,10 +161,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             event: decision === 'approved' ? 'authorised' : 'declined',
             planHash: result.documentDigest,
             // Approving a request you raised yourself is the sole-approver fallback (decision Q2): say so on the pay run's trail.
-            metadata: {
-              requestId: result.id,
-              ...(decision === 'approved' && result.requestedBy === result.decidedBy ? { selfApproval: 'sole_approver' } : {}),
-            },
+            metadata: { requestId: result.id, ...soleApproverAuditMetadata(decision === 'approved' && isSoleApproverApproval(result)) },
           });
         }
         return apiResponse.success(res, result);

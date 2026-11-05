@@ -28,6 +28,12 @@
  *      (lockRunJournalForApproval, payrollJournalChain), then the severance
  *      directive rows (FOR SHARE) and their payment row (payrollRunDirectiveClaim).
  * The generic journal reversal takes 2 then 3 and never 1, so no cycle.
+ * Outside this order, a LEAF: the member writers' approver lock `pay_run_approvers:<company id>`
+ * (core/payRunApproverGuard: company and platform-admin role changes and removals, the onboarding reset). It is
+ * taken after the member rows and the owner lock and nothing in 1-3 (calculate, approve, reopen, post) ever takes it
+ * or waits on a member row while holding one of them, so it can sit in no cycle with them. A platform-admin write
+ * holds it on its own transaction while judging on a migration_admin connection (pool max 4): a wait for that
+ * connection ends with the 5 s lock_timeout and a retryable refusal, nothing written.
  * One company-wide lock rather than one per tax year (PAYE 4a follow-ups
  * round 2, R2): approvals need the company-wide one anyway
  * (termination_already_paid reads runs of any year), and a calculation holds

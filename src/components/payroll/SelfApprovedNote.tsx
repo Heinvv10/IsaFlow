@@ -3,13 +3,9 @@
  * fallback: nobody else in the company could approve). Visible to everyone who can open the run.
  */
 import { AlertTriangle } from 'lucide-react';
+import type { PayRunDecisionSummary } from '@/modules/accounting/types/payRunDecision.types';
 
-export interface PayRunDecisionNote {
-  selfApprovedSoleApprover: boolean;
-  preparedByDecider: boolean;
-}
-
-export function SelfApprovedNote({ decision }: { decision: PayRunDecisionNote | null | undefined }) {
+export function SelfApprovedNote({ decision }: { decision: PayRunDecisionSummary | null | undefined }) {
   if (!decision?.selfApprovedSoleApprover) return null;
   return (
     <div role="status" data-testid="self-approved-note"

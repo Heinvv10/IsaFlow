@@ -33,12 +33,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const lines = await getPayrollRunLines(id, companyId);
   const approval = run.status === 'draft' || run.status === 'calculated'
     ? await describePayRunApproval(companyId, id) : null;
-  // Who decided the approval (not who pressed approve), and whether it was the requester's own sole-approver self-approval.
-  const approvalDecision = await describePayRunDecision(companyId, id);
-  return apiResponse.success(res, {
-    ...run, lines, approval, approvalDecision,
-    selfApprovedSoleApprover: approvalDecision?.selfApprovedSoleApprover ?? false,
-  });
+  // Whether the approval was decided by the requester's own sole-approver self-approval (no ids leave the server).
+  const approvalDecision = await describePayRunDecision(companyId, id, run.status);
+  return apiResponse.success(res, { ...run, lines, approval, approvalDecision });
 }
 
 export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

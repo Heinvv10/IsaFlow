@@ -66,8 +66,8 @@ describe('who approved: the decider is on the header, the executor in the trail'
     expect(executed.decided_by).toBe(r.approver);
     expect(executed.self).toBeNull();
     const run = (await detail(id)).body.data!;
-    expect(run.selfApprovedSoleApprover).toBe(false);
-    expect(run.approvalDecision).toMatchObject({ decidedBy: r.approver, selfApprovedSoleApprover: false, preparedByDecider: false });
+    expect(run.approvalDecision).toEqual({ selfApprovedSoleApprover: false, preparedByDecider: false }); // no ids leave the server
+    expect(run.selfApprovedSoleApprover).toBeUndefined();
   }, 60000);
 });
 
@@ -87,8 +87,7 @@ describe('the sole-approver fallback is kept and recorded', () => {
     expect(events.find((e) => e.event === 'authorised')).toMatchObject({ self: 'sole_approver', actor: r.admin });
     expect(events.find((e) => e.event === 'executed')).toMatchObject({ self: 'sole_approver', decided_by: r.admin });
     const run = (await detail(id)).body.data!;
-    expect(run.selfApprovedSoleApprover).toBe(true);
-    expect(run.approvalDecision).toMatchObject({ decidedBy: r.admin, requestedBy: r.admin, preparedBy: r.admin, preparedByDecider: true });
+    expect(run.approvalDecision).toEqual({ selfApprovedSoleApprover: true, preparedByDecider: true });
     const requestAudit = await r.pool.query(
       `SELECT 1 FROM audit_log WHERE company_id = $1 AND entity_type = 'approval_request' AND entity_id = $2
           AND changes->'metadata'->>'selfApproval' = 'sole_approver'`, [r.company, request.id]);
