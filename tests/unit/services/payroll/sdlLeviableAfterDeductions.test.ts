@@ -276,6 +276,24 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(rs[1]!.sdl).toBe(200);
   });
 
+  it('KNOWN LIMIT (REPRO 9): a liable month whose deduction absorbed all its pay stores a nil levy like an exempt one, so a later reversal can over-levy', () => {
+    // M1 liable: R20 000, levied R200. M2/M3 exempt (R400 000): RAs of R1 448 and R7 737. M4 liable, no SDL pay,
+    // reversal of R7 904. M3's leviable amount is nil (its pay is absorbed), so its nil levy reads as levied, not exempt,
+    // and part of the exempt-period deduction stands against levied pay; M4's reversal then adds R1 719 back.
+    // The liable months' SDL pay is R20 000, already levied in M1: M4 should levy nothing, it levies R17.19.
+    // Never an under-levy. An exact fix needs a stored per-line exempt flag (a migration). Pinned, not endorsed.
+    const rs = year([
+      [salary(20_000)],
+      [salary(60_000), ra(1_448)],
+      [salary(3_000), ra(7_737)],
+      [nonSdl('3713', 15_000), ra(-7_904)],
+    ], true, [1_000_000, 400_000, 400_000, 1_000_000]);
+    expect(rs.map(r => [r.retirementDeduction, r.sdlLeviable, r.sdl])).toEqual([
+      [0, 20_000, 200], [1_448, 58_552, 0], [7_737, 0, 0], [-7_904, 1_719, 17.19],
+    ]);
+    expect(rs[0]!.sdlLeviable + rs[3]!.sdlLeviable).toBeGreaterThan(20_000);
+  });
+
   it('an exempt month\'s pay is not levied later, and the deduction it absorbed does not come off liable pay', () => {
     // M1 exempt: R20 000 pay, RA R5 000 (absorbed by the exempt pay). M2 liable: R20 000, no RA -> R200.
     const kept = year([[salary(20_000), ra(5_000)], [salary(20_000)]], true, [400_000, 1_000_000]);

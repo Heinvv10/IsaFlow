@@ -16,6 +16,12 @@
  *   below it: the reversal of a deduction taken in an exempt month restores
  *   exempt pay, not levied pay (REPRO 8).
  *
+ * Limits (no stored per-line exempt flag; an exact fix is a migration): the
+ * exempt reading is a heuristic (REPRO 9: a liable month whose deduction
+ * absorbed all its pay also stores a nil levy), so in mixed sequences a later
+ * reversal can over-levy, never under-levy; and standingExemptDeduction
+ * attributes a reversal LIFO, to the most recent share first.
+ *
  * A line is exempt when it stores a nil levy although, levied, it would have
  * carried one of at least a cent: an employer under the s4(b) threshold, or one
  * with the levy switched off. A line whose levy would round to nil reads as

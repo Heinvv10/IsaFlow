@@ -28,6 +28,15 @@
  * levies only liable pay (REPRO 8). Like PAYE 4c, an over-levy is carried
  * against later levy, never refunded within a line (no negative levy).
  *
+ * Remaining limits of the exempt handling (no stored per-line exempt flag; an
+ * exact fix is a migration): (a) REPRO 9 - a stored nil levy cannot tell an
+ * exempt month from a liable month whose deduction absorbed all its pay, so
+ * exempt detection is a heuristic (`sdl === 0 && round2(leviable * 0.01) > 0`);
+ * in mixed exempt/liable sequences part of an exempt-period deduction can stand
+ * against levied pay and a later reversal over-levies (never under-levies).
+ * (b) LIFO attribution in standingExemptDeduction: a reversal is assumed to
+ * undo the most recent share of the deduction first.
+ *
  * Months costed before this rule levied SDL on gross. Their year-to-date
  * leviable amount is taken as if this rule had levied them (payrollSdlYearToDate),
  * so the first month after it takes only its own deduction: no credit for the
