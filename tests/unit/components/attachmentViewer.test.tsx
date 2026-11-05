@@ -95,6 +95,34 @@ describe('AttachmentViewer', () => {
     expect(revoked).toContain('blob:test/1');
   });
 
+  it('moves focus to the dialog when a step disables the focused button, so the keys keep working', () => {
+    const onClose = vi.fn();
+    render(<AttachmentViewer attachments={FILES} startIndex={1} onClose={onClose} />);
+    const next = screen.getByRole('button', { name: 'Next attachment' });
+    next.focus();
+    fireEvent.click(next);
+    expect(next).toBeDisabled();
+    expect(document.activeElement).toBe(screen.getByRole('dialog'));
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowLeft' });
+    expect(screen.getByTitle('invoice.pdf')).toBeTruthy();
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('traps Tab inside the viewer and puts focus back on its opener when it closes', () => {
+    const { rerender } = render(<><button>opener</button></>);
+    const opener = screen.getByRole('button', { name: 'opener' });
+    opener.focus();
+    rerender(<><button>opener</button><AttachmentViewer attachments={FILES} startIndex={0} onClose={() => undefined} /></>);
+    const close = screen.getByRole('button', { name: 'Close preview' });
+    close.focus();
+    fireEvent.keyDown(close, { key: 'Tab' });
+    expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(close);
+    rerender(<><button>opener</button></>);
+    expect(document.activeElement).toBe(opener);
+  });
+
   it('keeps its keys to itself, so Escape does not reach the modal or grid behind it', () => {
     const outer = vi.fn();
     render(<div onKeyDown={outer}><AttachmentViewer attachments={FILES} startIndex={0} onClose={() => undefined} /></div>);

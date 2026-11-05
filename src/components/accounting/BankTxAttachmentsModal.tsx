@@ -57,7 +57,8 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       );
       await assertOk(res, 'Could not load attachments');
       const json = await res.json() as { success: boolean; data: Attachment[] };
-      if (!json.success) throw new ApiEnvelopeError('Could not load attachments'); setAttachments(json.data);
+      if (!json.success) throw new ApiEnvelopeError('Could not load attachments');
+      setAttachments(json.data);
       // Only a successful read reports a count: a failed one must not clear the row's highlight.
       countRef.current?.(json.data.length);
       if (openFirstRef.current && json.data.some(a => previewKind(a.file_url) !== 'none')) setViewIndex(0);

@@ -33,6 +33,12 @@ describe('the attachment button', () => {
     expect(plain.textContent).toBe('');
   });
 
+  it('caps the badge at 9+ and keeps the full count in its name', () => {
+    render(<BankTxTable {...tableProps({ transactions: withCounts({ a: 12 }) })} />);
+    const many = screen.getByRole('button', { name: `12 attachments - view, ${label('a')}` });
+    expect(many.textContent).toBe('9+');
+  });
+
   it('highlights reviewed rows the same way', () => {
     render(<BankTxTable {...tableProps({ tab: 'reviewed', transactions: withCounts({ d: 3, e: 1 }) })} />);
     expect(screen.getByRole('button', { name: `3 attachments - view, ${label('d')}` })).toBeTruthy();

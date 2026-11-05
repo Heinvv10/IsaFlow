@@ -38,6 +38,24 @@ describe('BankTxAttachmentsModal viewing', () => {
     expect(screen.getByRole('dialog', { name: 'Attachments' })).toBeTruthy();
   });
 
+  it('opens the file whose View was pressed, counting only the files it can show', async () => {
+    const third = { ...FILES[0]!, id: 'a3', file_name: 'till.png' };
+    vi.mocked(apiFetch).mockImplementation(async () => ok([...FILES, third]));
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'View till.png' }));
+    expect(screen.getByRole('img', { name: 'till.png' })).toBeTruthy();
+    expect(screen.getByText('2 of 2')).toBeTruthy();
+  });
+
+  it('reports no count, and opens nothing, when the list cannot be read', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify({ success: false, error: { message: 'down' } }), { status: 500 }));
+    const onCountChange = vi.fn();
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" openFirst onCountChange={onCountChange} onClose={() => undefined} />);
+    expect(await screen.findByText('No attachments yet')).toBeTruthy();
+    expect(onCountChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'Attachment preview' })).toBeNull();
+  });
+
   it('offers no View button for a file it will not preview', async () => {
     render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />);
     await screen.findByRole('button', { name: 'View slip.png' });

@@ -123,7 +123,8 @@ export function BankLineDrawerBody({ tx }: { tx: BankTx }) {
       </div>
       <section>
         <h3 className={HEADING}>Attachments</h3>
-        <Attachments txId={tx.id} />
+        {/* Keyed by the grid's count: an upload or remove in the attachments modal re-reads the list here. */}
+        <Attachments key={`${tx.id}:${tx.attachmentCount ?? ''}`} txId={tx.id} />
       </section>
       <section>
         <h3 className={HEADING}>Matched journal</h3>

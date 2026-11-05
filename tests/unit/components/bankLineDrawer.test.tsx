@@ -80,6 +80,16 @@ describe('BankLineDrawerBody', () => {
     vi.restoreAllMocks();
   });
 
+  it('re-reads its attachments when the grid\'s count for the line changes', async () => {
+    serve();
+    const { rerender } = render(<BankLineDrawerBody tx={{ ...TX, attachmentCount: 2 }} />);
+    await screen.findByRole('link', { name: 'slip.pdf' });
+    const reads = () => urls().filter((u) => u.includes('bank-tx-attachments')).length;
+    expect(reads()).toBe(1);
+    rerender(<BankLineDrawerBody tx={{ ...TX, attachmentCount: 3 }} />);
+    await vi.waitFor(() => expect(reads()).toBe(2));
+  });
+
   it('a line with no journal reads none and asks for none', async () => {
     serve();
     const { matchedJournalEntryId: _, ...unmatched } = TX;

@@ -3,11 +3,14 @@
  * across the list, a Download of the shown file, and Escape / arrow keys. Each file is shown from a blob: URL made
  * from its data URL and freed when the viewer moves on or closes (see ./attachmentPreview for what is previewable).
  *
- * Keys are handled on the dialog and stopped there, so Escape closes only the viewer, never the modal or grid behind.
+ * Focus is trapped in the viewer and put back on close (useFocusTrap, which also owns Escape and stops it there, so it
+ * closes only the viewer). The arrow keys are handled on the dialog and stopped there too. When a step disables the
+ * button that had focus (Next on the last file), focus moves to the dialog itself, so the keys keep arriving.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, FileX, X } from 'lucide-react';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 import { previewKind, dataUrlToBlob } from './attachmentPreview';
 
 export interface ViewableAttachment {
@@ -26,7 +29,7 @@ const NAV = 'p-1.5 rounded text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg
 
 export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
   const [index, setIndex] = useState(startIndex);
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const file = attachments[index];
   const kind = file ? previewKind(file.file_url) : 'none';
 
@@ -42,15 +45,19 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
     return () => URL.revokeObjectURL(url);
   }, [blob]);
   const blobUrl = shown && shown.blob === blob ? shown.url : null;
-  useEffect(() => { closeRef.current?.focus(); }, []);
+  useFocusTrap(dialogRef, true, onClose);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const focused = document.activeElement;
+    if (dialog && (!dialog.contains(focused) || (focused instanceof HTMLButtonElement && focused.disabled))) dialog.focus();
+  }, [index]);
 
   if (!file) return null;
   const hasPrev = index > 0;
   const hasNext = index < attachments.length - 1;
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') onClose();
-    else if (e.key === 'ArrowLeft' && hasPrev) setIndex(index - 1);
+    if (e.key === 'ArrowLeft' && hasPrev) setIndex(index - 1);
     else if (e.key === 'ArrowRight' && hasNext) setIndex(index + 1);
     else return;
     e.preventDefault();
@@ -58,8 +65,8 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-black/80" role="dialog" aria-modal="true"
-      aria-label="Attachment preview" onKeyDown={onKeyDown}>
+    <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-[60] flex flex-col bg-black/80 outline-none" role="dialog"
+      aria-modal="true" aria-label="Attachment preview" onKeyDown={onKeyDown}>
       <div className="flex items-center gap-2 px-4 py-2 bg-[var(--ff-bg-secondary)] border-b border-[var(--ff-border-light)]">
         <p className="flex-1 min-w-0 truncate text-sm font-medium text-[var(--ff-text-primary)]">{file.file_name}</p>
         <span className="text-xs text-[var(--ff-text-tertiary)]">{index + 1} of {attachments.length}</span>
@@ -77,7 +84,7 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
             <Download className="h-4 w-4" aria-hidden="true" />
           </a>
         )}
-        <button ref={closeRef} type="button" className={NAV} onClick={onClose} aria-label="Close preview" title="Close preview">
+        <button type="button" className={NAV} onClick={onClose} aria-label="Close preview" title="Close preview">
           <X className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
