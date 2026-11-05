@@ -4,6 +4,7 @@
  * and re-exports `Dropped` and `OMISSION_MARK`, so every caller still
  * imports them there.
  */
+import { log } from '@/lib/logger';
 import type { PackFootnote } from './packPageModel';
 
 /** What a page had to leave out, for the note that says so. */
@@ -25,6 +26,8 @@ export interface Dropped {
   footnotes: number;
   /** Derived captions taken off a page that had nothing else left to give -- see `PackPageBlock.droppable`. */
   captions: number;
+  /** Figures the page was composed without (`PackPage.columnsLeftOut`), named in the note. */
+  columns: string[];
   /**
    * The headings of the disclosures notes were taken from, in the order they
    * were taken, without repeats.
@@ -38,7 +41,7 @@ export interface Dropped {
   from: string[];
 }
 
-export const NOTHING: Dropped = { notes: 0, requiredNotes: 0, footnotes: 0, captions: 0, from: [] };
+export const NOTHING: Dropped = { notes: 0, requiredNotes: 0, footnotes: 0, captions: 0, columns: [], from: [] };
 
 /** Did this page give anything up? */
 export function tookSomething(dropped: Dropped): boolean {
@@ -100,9 +103,12 @@ function omissionText(dropped: Dropped): string {
   if (noteParts.length > 0) parts.push(`${noteParts.join(', ')}${where}`);
   if (dropped.footnotes > 0) parts.push(`${dropped.footnotes} ${dropped.footnotes === 1 ? 'footnote' : 'footnotes'}`);
   if (dropped.captions > 0) parts.push(`${dropped.captions} derived ${dropped.captions === 1 ? 'caption' : 'captions'}`);
+  // THE COLUMNS A PAGE WAS COMPOSED WITHOUT ARE FIGURES, so the note that names them cannot go on to say
+  // every figure is printed: "every OTHER figure" is what is true.
+  if (dropped.columns.length > 0) parts.push(`the ${dropped.columns.join(' and ')} columns`);
   return `${OMISSION_MARK}: ${parts.join('; ')}. `
-    + 'Every figure, table and chart on the page is complete — what is missing is prose '
-    + 'about them, and it can be asked for.';
+    + `Every ${dropped.columns.length > 0 ? 'other ' : ''}figure, table and chart on the page is complete`
+    + ` — what ${dropped.columns.length > 0 ? 'else ' : ''}is missing is prose about them, and it can be asked for.`;
 }
 
 /**
@@ -115,4 +121,15 @@ function omissionText(dropped: Dropped): string {
  */
 export function omissionFootnote(dropped: Dropped, footnotes: PackFootnote[]): PackFootnote {
   return { number: Math.max(0, ...footnotes.map((f) => f.number)) + 1, text: omissionText(dropped) };
+}
+
+/**
+ * Said in the log, once, for the page that is actually used: a derived caption was taken to make the
+ * page fit. The fit also runs as a probe whose page is thrown away, so the callers that use a fitted
+ * page call this and the fit itself stays silent.
+ */
+export function warnCaptionDropped(navLabel: string, dropped: Dropped): void {
+  if (dropped.captions === 0) return;
+  log.warn(`board pack: "${navLabel}" cannot fit its sheet with its derived caption; the caption is not printed`,
+    { navLabel, captions: dropped.captions }, 'packs');
 }

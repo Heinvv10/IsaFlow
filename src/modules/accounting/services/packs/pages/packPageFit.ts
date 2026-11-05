@@ -169,7 +169,7 @@ export function fitPageReport<T extends MeasurablePage>(
 
   const blocks: PackPageBlock[] = [...page.blocks];
   const footnotes: PackFootnote[] = [...page.footnotes];
-  const dropped: Dropped = { ...NOTHING, from: [] };
+  const dropped: Dropped = { ...NOTHING, columns: [...(page.columnsLeftOut ?? [])], from: [] };
   const droppedNumbers = new Set<number>();
   // THE PAGE IS MEASURED WITH THE FOOTNOTE THAT EXPLAINS THE TRIMMING ON IT.
   // A budget that reserves a flat allowance instead over-trims a page that

@@ -19,9 +19,10 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import type { UnnumberedPage } from './packFrontMatter';
 import { buildIncomeStatementSheet } from './packIncomeSheet';
-import { fitPageReport, fitPageToBox } from './packPageFit';
-import { tookSomething } from './packOmissionFootnote';
+import { fitPageReport } from './packPageFit';
+import { tookSomething, warnCaptionDropped } from './packOmissionFootnote';
 import type { PackChartSpec, PackFootnote, PackTable } from './packPageModel';
+import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
 import { budgetColumnFootnote } from './packStatementFootnotes';
 import { anchorColumn } from './packStatementTables';
 
@@ -57,8 +58,12 @@ export function incomeSheetWithBudget(
     anchorColumn(income, 'budget', budgetNotes[0]!.number), set, scale, panels, [...statementNotes, ...budgetNotes]);
   let diagnostic: string;
   try {
-    const fitted = fitPageToBox(sheet);
-    if (fitted.footnotes.some((note) => note.text === budgetNotes[0]!.text)) return fitted;
+    const { page: fitted, dropped } = fitPageReport(sheet);
+    if (fitted.footnotes.some((note) => note.text === budgetNotes[0]!.text)) {
+      // This fitted page is the one used, so a caption it dropped is logged here.
+      warnCaptionDropped('Income statement', dropped);
+      return fitted;
+    }
     diagnostic = 'fitPageToBox removed the footnote that explains the Budget and Variance columns';
   } catch (err) {
     if (!(err instanceof PackRefusal)) throw err;
@@ -75,5 +80,10 @@ export function incomeSheetWithBudget(
   } catch (err) {
     if (!(err instanceof PackRefusal)) throw err;
   }
-  return buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, statementNotes);
+  // The columns are figures left out of this page: if the fitter has to print an omission note on it, the
+  // note names them (`PackPage.columnsLeftOut`).
+  return {
+    ...buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, statementNotes),
+    columnsLeftOut: [PACK_TABLE_COLUMN_LABEL.budget, PACK_TABLE_COLUMN_LABEL.variance],
+  };
 }

@@ -34,6 +34,7 @@ vi.mock('@/modules/accounting/services/packs/pages/packPageFit', async (importOr
 });
 
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
 import { BUDGET_COLUMN_NOTE_START } from '@/modules/accounting/services/packs/pages/packStatementFootnotes';
 import { fitterFaults, numberingFaults } from './fixtures/packAnchors';
 import { allPage6Shapes, page6Input } from './fixtures/page6Shapes';
@@ -49,6 +50,8 @@ describe('the 2,560-input shape sweep', () => {
     const unexpectedlyRefused: string[] = [];
     let budgetWithoutNote = 0;
     let captionDroppedBudgetKept = 0;
+    let columnsNamed = 0;
+    let columnsSilent = 0;
     let trimmedPages = 0;
     try {
       for (const shape of shapes) {
@@ -64,6 +67,12 @@ describe('the 2,560-input shape sweep', () => {
           // The caption is the fitter's FIRST lever, so a page that lost it can still carry the footnote that
           // names the Budget columns, and with it the columns: counted, and pinned below.
           if (hasBudget && !p6.blocks.some((b) => b.kind === 'narrative')) captionDroppedBudgetKept += 1;
+          // Every input has a budget: a page 6 without the columns that prints an omission note names them.
+          const omission = p6.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
+          if (!hasBudget && omission !== undefined) {
+            if (/; the Budget and Variance columns\./.test(omission.text) && !omission.text.includes('Every figure')) columnsNamed += 1;
+            else columnsSilent += 1;
+          }
           for (const page of doc.pages) {
             const call = fitted.calls.find((c) => (c.after as PackPage).blocks === page.blocks);
             const found = call === undefined ? numberingFaults(page) : fitterFaults(call.before as PackPage, page);
@@ -93,7 +102,7 @@ describe('the 2,560-input shape sweep', () => {
     // page 6's last lever; renumbering footnotes changed none of them). They are the shapes whose
     // required disclosures are longer still: net-debit revenue AND another line below zero.
     expect(unexpectedlyRefused).toEqual([]);
-    expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, refused: 322, sample: [] });
+    expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, columnsSilent, columnsNamed, refused, sample: printed.slice(0, 3) }).toEqual(
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, columnsSilent: 0, columnsNamed: 650, refused: 322, sample: [] });
   }, 1_800_000);
 });
