@@ -5,6 +5,8 @@
  *    keys, the same way the MCP update tools are (same service);
  *  - terms are stored as the pair, cleared to NULL / NULL on not_set, and a blank text field is cleared;
  *  - company A cannot edit company B's supplier or customer (404, the row and its history unchanged);
+ *  - the same without row-level security: the services' own company_id predicate (the routes above also have RLS behind
+ *    them, so they cannot tell a missing predicate from a present one; `inRequest` runs as the table owner);
  *  - a viewer cannot edit; a customer category from another company is refused.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -15,6 +17,9 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { dataOf, messageOf } from './r035-pr2.helpers';
 import { changesOf, cleanupEntityChanges, members, newCompany } from './entity-changes.helpers';
+import { inRequest } from './r035-pr5.helpers';
+import { updateSupplier } from '../../src/modules/accounting/services/core/supplierWriteService';
+import { updateCustomer } from '../../src/modules/accounting/services/core/customerWriteService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -155,5 +160,25 @@ describe('PUT customer', () => {
     expect(res.state.statusCode).toBe(404);
     expect(await row('customers', victim)).toMatchObject({ name: 'Edit Cust', email: 'old@c.test' });
     expect((await changesOf(pool, victim)).filter((h) => h.op === 'update')).toHaveLength(0);
+  });
+});
+
+describe('the services\' company_id predicate on its own (no row-level security: the table owner runs them)', () => {
+  it('updateSupplier of company B\'s supplier, asked as company A, finds nothing and changes nothing', async () => {
+    const a = await company();
+    const b = await otherCompany();
+    const victim = await newSupplier(b);
+    const out = await inRequest(pool, admin, a, () => updateSupplier(a, victim, { name: 'Hijacked', clear: ['email'] }, admin));
+    expect(out).toBeNull();
+    expect(await row('suppliers', victim)).toMatchObject({ name: 'Edit Co', email: 'old@x.test' });
+  });
+
+  it('updateCustomer of company B\'s customer, asked as company A, finds nothing and changes nothing', async () => {
+    const a = await company();
+    const b = await otherCompany();
+    const victim = await newCustomer(b);
+    const out = await inRequest(pool, admin, a, () => updateCustomer(a, victim, { name: 'Hijacked', clear: ['email'] }));
+    expect(out).toBeNull();
+    expect(await row('customers', victim)).toMatchObject({ name: 'Edit Cust', email: 'old@c.test' });
   });
 });
