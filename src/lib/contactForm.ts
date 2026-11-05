@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Public contact / "book a demo" form — pure validation + email builder.
+ * Public contact / "book a demo" form with pure validation and an email builder.
  *
  * Kept free of I/O so it can be unit-tested and reused by the API route
  * (`pages/api/contact.ts`). The route adds rate-limiting + email delivery.
@@ -11,12 +11,13 @@ export const contactSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(100, 'Name is too long'),
   email: z.string().trim().toLowerCase().email('A valid email is required').max(160, 'Email is too long'),
   company: z.string().trim().max(120, 'Company is too long').optional(),
+  phone: z.string().trim().max(40, 'Phone number is too long').optional(),
   message: z
     .string()
     .trim()
     .min(10, 'Please add a little more detail (at least 10 characters)')
     .max(2000, 'Message is too long (max 2000 characters)'),
-  /** Honeypot — real users leave this empty; bots fill every field. */
+  /** Honeypot: real users leave this empty; bots fill every field. */
   website: z.string().optional(),
 });
 
@@ -33,7 +34,7 @@ export function validateContactSubmission(body: unknown): ContactValidation {
     return { ok: false, error: first?.message ?? 'Invalid submission' };
   }
   const { website, ...data } = parsed.data;
-  // Honeypot tripped → silently treat as spam (the route still returns a
+  // Honeypot tripped, so silently treat as spam (the route still returns a
   // generic success so bots get no signal).
   if (website && website.trim().length > 0) {
     return { ok: false, error: 'spam' };
@@ -52,13 +53,15 @@ function escapeHtml(str: string): string {
 }
 
 export function buildContactEmail(data: ContactSubmission): { subject: string; html: string } {
-  const company = data.company?.trim() ? escapeHtml(data.company) : '—';
-  const subject = `New demo/contact request — ${data.name}`;
+  const company = data.company?.trim() ? escapeHtml(data.company) : '-';
+  const phone = data.phone?.trim() ? escapeHtml(data.phone) : '-';
+  const subject = `New demo/contact request: ${data.name}`;
   const html = `
     <h2>New contact request from isaflow.co.za</h2>
     <table cellpadding="6" style="border-collapse:collapse;font-family:sans-serif;font-size:14px;">
       <tr><td style="color:#64748b;">Name</td><td><strong>${escapeHtml(data.name)}</strong></td></tr>
       <tr><td style="color:#64748b;">Email</td><td>${escapeHtml(data.email)}</td></tr>
+      <tr><td style="color:#64748b;">Phone</td><td>${phone}</td></tr>
       <tr><td style="color:#64748b;">Company</td><td>${company}</td></tr>
     </table>
     <p style="color:#64748b;font-family:sans-serif;font-size:14px;margin-top:16px;">Message</p>

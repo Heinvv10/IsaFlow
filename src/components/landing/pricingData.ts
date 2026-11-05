@@ -1,5 +1,5 @@
 /**
- * /pricing page data — Phase 6 commercial wedge.
+ * /pricing page data: Phase 6 commercial wedge.
  *
  * Scenario C ("Premium-locked"), selected by Hein 2026-07-06 via AskUserQuestion.
  * Canonical spec: docs/commercial/pricing-skus.md. The direct SMB tiers live in
@@ -19,7 +19,7 @@ export interface BureauSku {
   features: string[];
 }
 
-/** The firm cockpit is free — bureaus pay only per active client. */
+/** The firm cockpit is free. Bureaus pay only per active client. */
 export const BUREAU_FIRM_PORTAL_FREE = true;
 
 /**
@@ -70,7 +70,7 @@ export const BUREAU_SKUS: BureauSku[] = [
     desc: 'Write-up and compliance clients.',
     features: [
       'General ledger & trial balance',
-      'VAT201 & tax compliance',
+      'VAT201 prepared for eFiling',
       'Annual Financial Statements export',
       'Compliance calendar in your cockpit',
     ],
@@ -82,10 +82,10 @@ export const BUREAU_SKUS: BureauSku[] = [
     desc: 'Full-service clients you run end to end.',
     features: [
       'Everything in Ledger, plus:',
-      'Full books — invoicing, AR & AP',
+      'Full books: invoicing, AR & AP',
       'Bank reconciliation & statement import (CSV, OFX, QFX, QIF, MT940, PDF)',
       'Payslip-ready payroll data',
-      'One flat rate per client — full books included',
+      'One flat rate per client, full books included',
     ],
   },
 ];
@@ -117,7 +117,7 @@ export const PAYROLL_ADDON: AddOn = {
   name: 'Payroll',
   price: 'R 20',
   unit: 'per employee / month',
-  desc: 'Full VIP-parity payroll — PAYE, UIF, SDL, payslips and IRP5s.',
+  desc: 'Full VIP-parity payroll: PAYE, UIF, SDL, payslips and IRP5s.',
   bullets: [
     'PAYE / UIF / SDL calculated and posted',
     'Payslips + IRP5 / EMP201-ready data',
@@ -142,12 +142,12 @@ export interface PriceLock {
   points: string[];
 }
 
-/** The signature promise — CPI-capped increases, forever (Hein's choice). */
+/** The signature promise: CPI-capped increases, forever (Hein's choice). */
 export const PRICE_LOCK: PriceLock = {
   headline: "Your price won't jump. Ever.",
   body: 'While you stay on your plan, we will never raise your monthly price by more than South African headline CPI (inflation). No surprise double-digit hikes.',
   points: [
-    'IsaFlow is capped at inflation — a promise, not a launch discount.',
+    'IsaFlow is capped at inflation, a promise, not a launch discount.',
     'Move from Sage, Xero or QuickBooks and keep your rate.',
   ],
 };

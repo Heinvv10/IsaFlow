@@ -14,6 +14,9 @@ describe('help FAQ structured data', () => {
     expect(items).toHaveLength(headingCount);
     expect(jsonLd.mainEntity).toHaveLength(headingCount);
     expect(items.map((item) => item.question)).toContain('How do I sign up?');
+    expect(items.map((item) => item.question)).toContain(
+      'Can I connect an AI assistant like Claude, Cursor or Grok Bot?',
+    );
     expect(items.find((item) => item.question === 'Can one client company ever see another client\'s data?')?.answer)
       .toContain('Something looks wrong?');
     expect(items.every((item) => !/[\[\]*`]/.test(item.answer))).toBe(true);

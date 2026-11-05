@@ -63,12 +63,12 @@ describe('contact (route: POST /api/contact -> { success, data: null } | { succe
     fireEvent.submit(container.querySelector('form') as HTMLFormElement);
     return fetchMock;
   };
-  it('success: posts the four fields and confirms the message was sent', async () => {
+  it('success: posts an empty optional phone and confirms the message was sent', async () => {
     const f = await send(() => ok(null));
-    expect(await screen.findByText('Thanks — message sent')).toBeDefined();
+    expect(await screen.findByText('Thanks. Message sent.')).toBeDefined();
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('/api/contact');
-    expect(JSON.parse(init.body as string)).toMatchObject({ name: 'D2 Sender', email: 'd2@sender.test', company: 'D2 Co', message: 'D2 hello there' });
+    expect(JSON.parse(init.body as string)).toMatchObject({ name: 'D2 Sender', email: 'd2@sender.test', company: 'D2 Co', phone: '', message: 'D2 hello there' });
   });
   it('a 400 shows the server message; an empty 500 a plain sentence; neither says sent', async () => {
     await send(() => refuse());

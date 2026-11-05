@@ -13,7 +13,7 @@ export function WaitlistSuccessCard() {
           You&apos;re on the list
         </h2>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          Thanks for your interest in ISAFlow. We&apos;re putting the finishing
+          Thanks for your interest in IsaFlow. We&apos;re putting the finishing
           touches on the platform and will be in touch closer to launch to get you set up.
         </p>
         <Link

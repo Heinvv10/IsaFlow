@@ -30,8 +30,8 @@ function buildJsonLd(entry: CompareEntry): Record<string, unknown> {
       {
         '@type': 'BreadcrumbList',
         itemListElement: [
-          { '@type': 'ListItem', position: 1, name: 'ISAFlow', item: `${BRAND.url}/` },
-          { '@type': 'ListItem', position: 2, name: `ISAFlow vs ${entry.name}`, item: url },
+          { '@type': 'ListItem', position: 1, name: 'IsaFlow', item: `${BRAND.url}/` },
+          { '@type': 'ListItem', position: 2, name: `IsaFlow vs ${entry.name}`, item: url },
         ],
       },
       buildFaqPage(`${url}#faq`, entry.faq),
@@ -79,7 +79,7 @@ export function ComparePage({ entry }: { entry: CompareEntry }) {
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <p className="text-sm font-semibold text-teal-400 tracking-widest uppercase mb-4">Compare</p>
             <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight mb-4">
-              ISAFlow vs {entry.product}
+              IsaFlow vs {entry.product}
             </h1>
             <p className="text-lg text-white/70">{entry.intro}</p>
           </div>
@@ -93,7 +93,7 @@ export function ComparePage({ entry }: { entry: CompareEntry }) {
                 <thead className="hidden sm:table-header-group">
                   <tr className="border-b border-gray-200 text-left">
                     <th className="py-3 pr-4 font-semibold">Topic</th>
-                    <th className="py-3 px-4 font-semibold text-teal-700">ISAFlow</th>
+                    <th className="py-3 px-4 font-semibold text-teal-700">IsaFlow</th>
                     <th className="py-3 pl-4 font-semibold">{entry.name}</th>
                   </tr>
                 </thead>
@@ -102,7 +102,7 @@ export function ComparePage({ entry }: { entry: CompareEntry }) {
                     <tr key={row.topic} className="block sm:table-row border-b border-gray-100 py-3 sm:py-0 align-top">
                       <th scope="row" className="block sm:table-cell sm:py-3 sm:pr-4 text-left font-semibold sm:font-medium">{row.topic}</th>
                       <td className="block sm:table-cell sm:py-3 sm:px-4 pt-1 text-gray-700">
-                        <span className="sm:hidden font-semibold text-teal-700">ISAFlow: </span>{row.isaflow}
+                        <span className="sm:hidden font-semibold text-teal-700">IsaFlow: </span>{row.isaflow}
                       </td>
                       <td className="block sm:table-cell sm:py-3 sm:pl-4 pt-1 text-gray-700">
                         <span className="sm:hidden font-semibold">{entry.name}: </span>{row.other}
@@ -124,10 +124,10 @@ export function ComparePage({ entry }: { entry: CompareEntry }) {
           </section>
 
           <section>
-            <h2 className="text-2xl font-bold mb-4">Where ISAFlow may suit you better</h2>
+            <h2 className="text-2xl font-bold mb-4">Where IsaFlow may suit you better</h2>
             <List items={entry.isaflowStrengths} />
             <p className="mt-4 text-gray-700">
-              {starterPrice ? `ISAFlow plans start at ${starterPrice} a month, VAT included. ` : ''}See the{' '}
+              {starterPrice ? `IsaFlow plans start at ${starterPrice} a month, VAT included. ` : ''}See the{' '}
               <Link href="/pricing" className="text-teal-700 underline">pricing page</Link> for every plan.
             </p>
           </section>
@@ -150,7 +150,7 @@ export function ComparePage({ entry }: { entry: CompareEntry }) {
           </section>
 
           <section className="rounded-2xl bg-gray-50 p-6">
-            <h2 className="text-xl font-bold mb-2">Try ISAFlow free for {BRAND.freeTrialDays} days</h2>
+            <h2 className="text-xl font-bold mb-2">Try IsaFlow free for {BRAND.freeTrialDays} days</h2>
             <p className="text-gray-700 mb-4">No credit card needed.</p>
             <a
               href={`${APP_URL}/register`}
@@ -163,7 +163,7 @@ export function ComparePage({ entry }: { entry: CompareEntry }) {
               {others.map((o, i) => (
                 <span key={o.slug}>
                   {i > 0 && ', '}
-                  <Link href={`/compare/${o.slug}`} className="text-teal-700 underline">ISAFlow vs {o.name}</Link>
+                  <Link href={`/compare/${o.slug}`} className="text-teal-700 underline">IsaFlow vs {o.name}</Link>
                 </span>
               ))}
             </p>

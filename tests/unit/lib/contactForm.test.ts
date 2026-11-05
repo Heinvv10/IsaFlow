@@ -6,6 +6,7 @@ describe('validateContactSubmission', () => {
     name: '  Thandi Molefe ',
     email: '  Thandi@Example.CO.ZA ',
     company: ' Acme (Pty) Ltd ',
+    phone: ' +27 82 123 4567 ',
     message: 'We would like to book a demo for our practice.',
     website: '',
   };
@@ -17,6 +18,7 @@ describe('validateContactSubmission', () => {
       expect(r.data.name).toBe('Thandi Molefe');
       expect(r.data.email).toBe('thandi@example.co.za');
       expect(r.data.company).toBe('Acme (Pty) Ltd');
+      expect(r.data.phone).toBe('+27 82 123 4567');
     }
   });
 
@@ -24,6 +26,16 @@ describe('validateContactSubmission', () => {
     const { company: _drop, ...rest } = valid;
     void _drop;
     expect(validateContactSubmission(rest).ok).toBe(true);
+  });
+
+  it('allows a missing phone (optional)', () => {
+    const { phone: _drop, ...rest } = valid;
+    void _drop;
+    expect(validateContactSubmission(rest).ok).toBe(true);
+  });
+
+  it('rejects a phone number longer than 40 characters', () => {
+    expect(validateContactSubmission({ ...valid, phone: '1'.repeat(41) }).ok).toBe(false);
   });
 
   it('rejects a missing name', () => {
@@ -58,6 +70,7 @@ describe('buildContactEmail', () => {
     name: 'Priya Naidoo',
     email: 'priya@firm.co.za',
     company: 'Naidoo & Associates',
+    phone: '+27 82 555 0101',
     message: 'Interested in the bureau plan.',
   };
 
@@ -65,9 +78,10 @@ describe('buildContactEmail', () => {
     expect(buildContactEmail(data).subject).toContain('Priya Naidoo');
   });
 
-  it('includes the sender email and message in the body', () => {
+  it('includes the sender email, phone and message in the body', () => {
     const { html } = buildContactEmail(data);
     expect(html).toContain('priya@firm.co.za');
+    expect(html).toContain('+27 82 555 0101');
     expect(html).toContain('Interested in the bureau plan.');
   });
 

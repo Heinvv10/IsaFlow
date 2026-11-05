@@ -1,7 +1,7 @@
 ---
-title: "ISAFlow help: frequently asked questions"
+title: "IsaFlow help: frequently asked questions"
 slug: "faq"
-description: "Answers to common questions about ISAFlow sign-up, users and roles, bureaus, payroll, migration from Sage, SARS returns, billing and security."
+description: "Answers to common questions about IsaFlow sign-up, users and roles, bureaus, payroll, migration from Sage, SARS returns, billing and security."
 order: 0
 updated: "2026-10-31"
 ---
@@ -41,75 +41,84 @@ Only the bureau owner can link a client company, and only for companies where th
 No. Each company's books are kept separate. If you ever see a name, figure or document you don't recognise, **stop and tell us straight away** (see [Something looks wrong?](/help/something-looks-wrong)). We treat this as urgent.
 
 ### Can I switch between companies and do group consolidation?
-Yes. There's a company switcher, and ISAFlow supports groups, consolidation, intercompany transactions and eliminations. These are on the Premium plan (see https://isaflow.co.za/pricing).
+Yes. There's a company switcher, and IsaFlow supports groups, consolidation, intercompany transactions and eliminations. These are on the Premium plan (see https://isaflow.co.za/pricing).
 
 ## Payroll
 
-### What does ISAFlow payroll calculate?
+### What does IsaFlow payroll calculate?
 Pay runs calculate PAYE, UIF and SDL from versioned SARS tax tables, apply ETI (Employment Tax Incentive) where you've set it up, and post the payroll journal to your general ledger. You still check ETI eligibility yourself.
 
 ### Can I import my employees or year-to-date payroll figures from Sage or VIP?
-Not at the moment. ISAFlow doesn't import employees, payroll history or year-to-date totals, and PAYE year-to-date builds only from pay runs done in ISAFlow. You set up employees under Payroll, Employees. That's why we suggest moving payroll at the start of a tax year (1 March). Please check the timing with your tax practitioner.
+Not at the moment. IsaFlow doesn't import employees, payroll history or year-to-date totals, and PAYE year-to-date builds only from pay runs done in IsaFlow. You set up employees under Payroll, Employees. That's why we suggest moving payroll at the start of a tax year (1 March). Please check the timing with your tax practitioner.
 
-### Can I check ISAFlow's payroll against my old system before switching?
-Yes. The **parallel run** lets you import a payslip CSV from Sage or VIP and compare it with the ISAFlow run, employee by employee. It's a comparison tool only. It doesn't bring in payroll history.
+### Can I check IsaFlow's payroll against my old system before switching?
+Yes. The **parallel run** lets you import a payslip CSV from Sage or VIP and compare it with the IsaFlow run, employee by employee. It's a comparison tool only. It doesn't bring in payroll history.
 
 ### Who can run payroll?
 Users with the owner, admin or manager role.
 
 ## Accounting
 
-### What accounting does ISAFlow cover?
+### What accounting does IsaFlow cover?
 Chart of accounts, journals (manual and recurring), customers and invoicing (quotes, invoices, credit notes, receipts, statements), suppliers and payments, bank reconciliation, VAT201 preparation, budgets and a full set of reports, including income statement, balance sheet, trial balance, cash flow and aging. Some extras depend on your plan; see https://isaflow.co.za/pricing.
 
 ### Which bank statement formats can I import?
-CSV, OFX, QFX, QIF, MT940 and PDF. CSV and PDF statements from ABSA, FNB, Nedbank, Capitec and Standard Bank are detected automatically. ISAFlow doesn't have live bank feeds from banks.
+CSV, OFX, QFX, QIF, MT940 and PDF. Statements from major South African banks are detected automatically and imported for reconciliation.
 
-### Why won't ISAFlow let me post to a particular account?
-If an account is a *header* with sub-accounts under it, ISAFlow won't post to it. That's by design, to keep your reports clean. Choose one of its sub-accounts instead.
+### Why won't IsaFlow let me post to a particular account?
+If an account is a *header* with sub-accounts under it, IsaFlow won't post to it. That's by design, to keep your reports clean. Choose one of its sub-accounts instead.
 
 ### Why is there no calendar popup on date fields?
 Dates are typed in full, day first: DD/MM/YYYY (for example 05/11/2026). That's by design. If a date isn't valid, the form won't save until it's fixed.
 
 ## Moving from Sage (or another package)
 
-### Can I move my books from Sage to ISAFlow?
+### Can I move my books from Sage to IsaFlow?
 Yes. The **migration wizard** (Accounting, Migration) brings in your chart of accounts, customers, suppliers, opening balances from a trial balance, and unpaid customer and supplier invoices, then runs a validation check. It works from files you export from Sage Business Cloud, Sage 50 / Pastel Partner, Xero, QuickBooks Online and others. See [Migrating a client from Sage](/help/migrating-a-client-from-sage).
 
 ### Can I upload Excel files?
 Please upload **CSV files**. If your export is an Excel file, open it and use *Save As, CSV UTF-8 (comma delimited)*, then upload the CSV.
 
-### Can ISAFlow connect directly to my Sage account?
+### Can IsaFlow connect directly to my Sage account?
 Not today. Migration is file-based: you export from Sage and upload the files. We'll never ask for your Sage username, password or any other Sage login details.
 
 ## SARS returns
 
-### Does ISAFlow submit my returns to SARS?
-No. ISAFlow **prepares** your EMP201, EMP501, IRP5/IT3(a) and VAT201 and gives you the figures and export files to file on SARS eFiling yourself (or with e@syFile Employer for the EMP501 and IRP5s).
+### Does IsaFlow submit my returns to SARS?
+No. IsaFlow **prepares** your EMP201, EMP501, IRP5/IT3(a) and VAT201 and gives you the figures and export files to file on SARS eFiling yourself (or with e@syFile Employer for the EMP501 and IRP5s).
 
 ### What does the button for recording a filing do?
-After you've filed on eFiling, **Record as filed on eFiling** (on older screens, **Mark as Submitted to SARS**) records in ISAFlow that the return was filed, along with the SARS reference you type in. It doesn't send anything to SARS, and it doesn't lock the VAT period. Locking is a separate step (see [Preparing SARS returns for eFiling](/help/preparing-sars-returns-for-efiling)).
+After you've filed on eFiling, **Record as filed on eFiling** (on older screens, **Mark as Submitted to SARS**) records in IsaFlow that the return was filed, along with the SARS reference you type in. It doesn't send anything to SARS, and it doesn't lock the VAT period. Locking is a separate step (see [Preparing SARS returns for eFiling](/help/preparing-sars-returns-for-efiling)).
 
 ### When are my returns due, and what are the current rates?
 Please check the SARS tax calendar at https://www.sars.gov.za, and your tax practitioner for anything specific to your business. We can't give tax advice.
 
 ## Billing
 
-### How much does ISAFlow cost?
+### How much does IsaFlow cost?
 Current plans and prices (VAT inclusive) are on https://isaflow.co.za/pricing. For anything not shown there, such as volume or bureau pricing, [contact us](https://isaflow.co.za/contact) and we'll come back to you.
 
 ### How do I pay, change plan or cancel?
 Subscriptions are paid by card through Paystack. To change your plan, update your card or cancel, [contact us](https://isaflow.co.za/contact).
 
+You can cancel anytime. There are no refunds for part months.
+
 ## Security
 
-### Does ISAFlow support two-factor authentication?
-Yes, and we recommend it. Each user can switch it on for their own login under **My Account**, in the **Two-factor authentication** section: scan the QR code with an authenticator app (such as Google Authenticator, 1Password or Authy) and enter the code it shows. After that, ISAFlow asks for a code each time you log in. If you lose your phone, [contact us](https://isaflow.co.za/contact) and we'll help you reset it once we've confirmed who you are. Never send us the code itself.
+### Does IsaFlow support two-factor authentication?
+Yes, and we recommend it. Each user can switch it on for their own login under **My Account**, in the **Two-factor authentication** section: scan the QR code with an authenticator app (such as Google Authenticator, 1Password or Authy) and enter the code it shows. After that, IsaFlow asks for a code each time you log in. If you lose your phone, [contact us](https://isaflow.co.za/contact) and we'll help you reset it once we've confirmed who you are. Never send us the code itself.
 
 ## Getting help
+
+Our support hours are weekdays 08:00-17:00 SAST, and we reply within 1 business day.
 
 ### Something looks wrong, or I think I've found a bug. What should I do?
 Tell us at https://isaflow.co.za/contact. Say what you were doing, the page, what you expected and what happened (the exact error message helps a lot), and attach a screenshot with ID numbers, bank details and salaries blurred out. **If you see another company's data, or you can't log in, mark your message URGENT.** See [Something looks wrong?](/help/something-looks-wrong).
 
-### Can I use ISAFlow on my phone?
+### Can I use IsaFlow on my phone?
 You can log in on a phone, but for now some screens (especially journal entries, the chart of accounts and long tables) work much better on a laptop or desktop. We're working on the mobile layout.
+
+## AI assistants
+
+### 33. Can I connect an AI assistant like Claude, Cursor or Grok Bot?
+Yes, through IsaFlow's MCP connector. It's in pilot and switched on per company, so ask us to enable it for your company first. It's read-only unless you give it more permission, and it can only post to your ledger if you specifically tick the posting permission when you connect.

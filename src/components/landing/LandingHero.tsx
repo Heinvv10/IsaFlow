@@ -17,7 +17,7 @@ export function LandingHero({ stats }: Props) {
     <>
       {/* ── Video Hero ── */}
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-        {/* Video background — plays once, no loop */}
+        {/* Video background plays once, with no loop. */}
         <video
           autoPlay
           muted
@@ -43,13 +43,13 @@ export function LandingHero({ stats }: Props) {
           }}
         />
 
-        {/* ISAFlow logo — slides in when video ends, sits in top 25% */}
+        {/* IsaFlow logo slides in when the video ends and sits in the top 25%. */}
         <div
           className={`absolute inset-x-0 top-0 h-[42%] z-[5] flex items-center justify-center pointer-events-none transition-all duration-1000 ease-out ${ logoVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4' }`}
         >
           <img
             src="/BI/logo-primary-transparent.png"
-            alt="ISAFlow"
+            alt="IsaFlow"
             className="w-56 sm:w-80 lg:w-96 drop-shadow-2xl"
           />
         </div>
@@ -70,7 +70,7 @@ export function LandingHero({ stats }: Props) {
 
           {/* Subheadline */}
           <p className="text-lg sm:text-xl text-white/60 leading-relaxed max-w-2xl mx-auto mb-10">
-            Invoicing, bank reconciliation, tax compliance and payroll —
+            Invoicing, bank statement import and reconciliation, VAT return preparation and payroll:
             everything your business needs in one platform.
           </p>
 
@@ -94,7 +94,7 @@ export function LandingHero({ stats }: Props) {
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/45">
             <span>✓ 30-day free trial</span>
             <span>✓ No credit card required</span>
-            <span>✓ Full tax compliance</span>
+            <span>✓ VAT and payroll returns prepared</span>
           </div>
         </div>
 
