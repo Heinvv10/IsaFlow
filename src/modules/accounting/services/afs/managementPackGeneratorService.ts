@@ -1,5 +1,5 @@
 // src/modules/accounting/services/afs/managementPackGeneratorService.ts
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { rawSubtypesFor } from '../gl/accountSubtypes';
@@ -16,9 +16,12 @@ import {
 import { generateExecutiveSummary, generateSectionCommentary } from './packAiSummaryService';
 import { deliverPack } from './packDeliveryService';
 import {
-  capturePackFault, comparisonPlan, isBudgetSection, loadPackBudget, narrativePrior, samePeriodLastYear,
+  comparisonPlan, isBudgetSection, loadPackBudget, narrativePrior, samePeriodLastYear,
 } from './managementPackComparison';
-import { MissingSystemAccountError } from '../gl/systemAccountKeys';
+import { readSafely } from './managementPackReads';
+import { getCashFlowDirect } from './cashFlowDirectService';
+import { getAgingReport } from '../reports/agingReportService';
+import { getReconciliations } from '../bank/bankReconciliationService';
 import { loadPackVarianceNoteBlocks } from './managementPackVarianceNotes';
 import type { ManagementPackConfig } from './afsTypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
@@ -164,31 +167,21 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   // The income statement also feeds the AI summary and the figures stored beside it, so they cannot disagree with the table.
   const wantsIncome = enabledSections.includes('income_statement') || enabledSections.includes('ai_executive_summary');
   const wantsBalance = enabledSections.includes('balance_sheet');
-  // The statements are the Reports screens' own: the same services, over the same windows. One that cannot be read
-  // leaves its section saying so; it does not stop the pack (the budget path's rule: a refusal is a warning, any
-  // other fault is also reported to Bugsink). The savepoint keeps a failed query from aborting the request's
-  // transaction, so its reads run one after another: none can land after the ROLLBACK TO.
-  const periodic = async <R>(name: string, read: (w: { start: string; end: string }) => Promise<R>): Promise<Periodic<R> | null> => {
-    try {
-      return await withSavepoint(`mgmt_pack_${name}`, async () => {
-        const current = await read({ start, end });
-        const priorR = plan.priorMonth ? await read({ start: priorStart, end: priorEnd }) : null;
-        const yearAgo = plan.priorYear ? await read({ start: yearAgoStart, end: yearAgoEnd }) : null;
-        return { current, prior: priorR, yearAgo };
-      });
-    } catch (err) {
-      const fields = { companyId, period, statement: name, errorClass: err instanceof Error ? err.name : typeof err, error: err instanceof Error ? err.message : String(err) };
-      if (err instanceof MissingSystemAccountError) {
-        log.warn('management pack: a statement could not be read (no system account); its section says so', fields, 'managementPackGeneratorService');
-      } else {
-        log.error('management pack: a statement read failed; its section says so', fields, 'managementPackGeneratorService');
-        capturePackFault(err, companyId);
-      }
-      return null;
-    }
-  };
+  // The sections are the Reports' own figures: the same services, over the same windows (managementPackReads.readSafely).
+  const ctx = { companyId, period };
+  const periodic = <R>(name: string, read: (w: { start: string; end: string }) => Promise<R>): Promise<Periodic<R> | null> =>
+    readSafely(ctx, name, async () => {
+      const current = await read({ start, end });
+      const priorR = plan.priorMonth ? await read({ start: priorStart, end: priorEnd }) : null;
+      const yearAgo = plan.priorYear ? await read({ start: yearAgoStart, end: yearAgoEnd }) : null;
+      return { current, prior: priorR, yearAgo };
+    });
   const incomeReports = wantsIncome ? await periodic('income', (w) => getIncomeStatement(companyId, w.start, w.end)) : null;
   const balanceReports = wantsBalance ? await periodic('balance', (w) => getBalanceSheet(companyId, w.end)) : null;
+  const cashFlowReports = enabledSections.includes('cash_flow') ? await periodic('cash_flow', (w) => getCashFlowDirect(companyId, w.start, w.end)) : null;
+  const debtorsAging = enabledSections.includes('debtors_ageing') ? await readSafely(ctx, 'debtors_ageing', () => getAgingReport(companyId, 'ar', end)) : null;
+  const creditorsAging = enabledSections.includes('creditors_ageing') ? await readSafely(ctx, 'creditors_ageing', () => getAgingReport(companyId, 'ap', end)) : null;
+  const reconciliations = enabledSections.includes('bank_reconciliation') ? await readSafely(ctx, 'bank_reconciliation', () => getReconciliations(companyId)) : null;
 
   const [kpiScorecard, companyName, topRevenue, topExpense] = await Promise.all([
     getKpiScorecard(companyId, period),
@@ -202,7 +195,9 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const priorYearIncome = incomeReports?.yearAgo ? incomeAggregate(incomeReports.yearAgo) : null;
 
   const packData: PackData = {
-    kpis: kpiScorecard.kpis, income, priorIncome, priorYearIncome, incomeReports, balanceReports, plan, budget, varianceNotes, enabledSections,
+    kpis: kpiScorecard.kpis, income, priorIncome, priorYearIncome, incomeReports, balanceReports,
+    cashFlowReports, debtorsAging, creditorsAging, reconciliations, periodEnd: end,
+    plan, budget, varianceNotes, enabledSections,
   };
   const narrative = narrativePrior(packData, plan);
 

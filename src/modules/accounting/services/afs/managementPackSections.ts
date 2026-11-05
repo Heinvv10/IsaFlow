@@ -50,9 +50,10 @@ export const SECTION_NOT_AVAILABLE = 'This section is not yet available in the m
 export const NO_ACTIVITY = {
   income_statement: 'No income or expenses were posted in this period.',
   balance_sheet: 'No balances are held at this date.',
+  cash_flow: 'No cash moved in this period.',
 } as const;
 
-/** Printed when a statement's report could not be read; the real error is logged. */
+/** Printed when a section's report could not be read; the real error is logged. */
 export const STATEMENT_UNAVAILABLE = 'This statement could not be produced for this period.';
 
 /** The row kinds a statement table may carry; the only values that ever reach a class attribute or a style lookup. */
@@ -76,3 +77,5 @@ export function orderPackSections<T extends { sectionType: string; sortOrder: nu
   };
   return [...sections].sort((a, b) => rank(a.sectionType) - rank(b.sectionType) || a.sortOrder - b.sortOrder);
 }
+
+export const REPORT_UNAVAILABLE = 'This report could not be produced for this period.';

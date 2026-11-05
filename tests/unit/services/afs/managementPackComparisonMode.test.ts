@@ -13,6 +13,9 @@ const m = vi.hoisted(() => ({
   buildReport: vi.fn(),
   incomeReport: vi.fn(),
   balanceReport: vi.fn(),
+  cashFlow: vi.fn(),
+  aging: vi.fn(),
+  recs: vi.fn(),
   createSection: vi.fn(),
   updateSection: vi.fn(),
   commentary: vi.fn(),
@@ -28,6 +31,9 @@ vi.mock('@sentry/nextjs', () => ({ captureException: m.capture }));
 vi.mock('@/modules/accounting/services/budgets/tracking/budgetTrackingService', () => ({ buildBudgetTrackingReport: m.buildReport }));
 vi.mock('@/modules/accounting/services/reports/incomeStatementService', () => ({ getIncomeStatement: m.incomeReport }));
 vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({ getBalanceSheet: m.balanceReport }));
+vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({ getCashFlowDirect: m.cashFlow }));
+vi.mock('@/modules/accounting/services/reports/agingReportService', () => ({ getAgingReport: m.aging }));
+vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({ getReconciliations: m.recs }));
 vi.mock('@/modules/accounting/services/afs/afsDocumentService', () => ({ createAfsDocument: vi.fn(async () => ({ id: 'doc-1' })) }));
 vi.mock('@/modules/accounting/services/afs/afsSectionService', () => ({ createAfsSection: m.createSection, updateAfsSection: m.updateSection }));
 vi.mock('@/modules/accounting/services/afs/afsKpiService', () => ({
@@ -48,6 +54,19 @@ import { BudgetVersionError } from '@/modules/accounting/services/budgets/budget
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { buildExecutiveSummaryPrompt } from '@/modules/accounting/services/afs/packAiSummaryService';
 
+const cashReport = (start: string, end: string) => ({
+  periodStart: start, periodEnd: end, openingCash: 1000, operatingItems: [{ cashGroup: 'cash_received_from_customers', label: 'Cash received from customers', amount: 500 }],
+  operatingTotal: 500, investingItems: [], investingTotal: 0, financingItems: [], financingTotal: 0, netChange: 500, closingCash: 1500,
+});
+const agingReport = (side: string, asAt: string) => ({
+  asAt, buckets: [{ entityId: 'e', entityName: side === 'ar' ? 'Customer A' : 'Supplier A', current: 100, days30: 0, days60: 0, days90: 0, days120Plus: 0, total: 100 }],
+  totals: { current: 100, days30: 0, days60: 0, days90: 0, days120Plus: 0, disputed: 0, total: 100 }, excluded: [], excludedTotal: 0, entityUniverse: 1,
+  unappliedReceipts: 0, subledgerTotal: 100, postedThrough: null,
+});
+const reconciliation = () => ({
+  id: 'r', bankAccountId: 'a', statementDate: '2026-09-30', statementBalance: 900, glBalance: 905, reconciledBalance: 900, difference: 5, status: 'completed',
+  startedBy: 'u', startedAt: 's', createdAt: 'c', updatedAt: 'u', bankAccountName: 'Main',
+});
 const generate = (mode: ManagementPackConfig['comparisonMode'], sections: string[]) => generateWith(m.updateSection, mode, sections);
 
 beforeEach(() => {
@@ -65,6 +84,9 @@ beforeEach(() => {
   m.buildReport.mockResolvedValue(report());
   m.incomeReport.mockImplementation(async (_co: string, start: string) => incomeReportFor(start));
   m.balanceReport.mockImplementation(async (_co: string, asAt: string) => balanceReportFor(asAt));
+  m.cashFlow.mockImplementation(async (_co: string, start: string, end: string) => cashReport(start, end));
+  m.aging.mockImplementation(async (_co: string, side: string, asAt: string) => agingReport(side, asAt));
+  m.recs.mockResolvedValue([reconciliation()]);
   m.withSavepoint.mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn());
 });
 
@@ -161,9 +183,9 @@ describe('the other pack sections', () => {
   });
 
   it('every section is titled from the vocabulary; a section without a generator has no commentary and no figures', async () => {
-    const out = await generate('prior_month', ['cover', 'ai_executive_summary', 'cash_flow', 'debtors_ageing']);
+    const out = await generate('prior_month', ['cover', 'ai_executive_summary', 'revenue_analysis', 'vat_dashboard']);
     expect(Object.fromEntries(Object.entries(out).map(([k, v]) => [k, v.title]))).toEqual({
-      cover: 'Cover Page', ai_executive_summary: 'AI Executive Summary', cash_flow: 'Cash Flow', debtors_ageing: 'Debtors Ageing',
+      cover: 'Cover Page', ai_executive_summary: 'AI Executive Summary', revenue_analysis: 'Revenue Analysis', vat_dashboard: 'VAT Dashboard',
     });
     expect(m.commentary).not.toHaveBeenCalled();
     expect(m.balanceReport).not.toHaveBeenCalled();
@@ -421,5 +443,61 @@ describe('what a failed statement read reports (the budget path\'s rule)', () =>
     await generate('all_three', ['income_statement']);
     expect(m.incomeReport).toHaveBeenCalledTimes(3);
     expect(max).toBe(1);
+  });
+});
+
+describe('the cash flow, ageing and bank reconciliation sections', () => {
+  const SECTIONS = ['cash_flow', 'debtors_ageing', 'creditors_ageing', 'bank_reconciliation'];
+
+  it('read each report for the pack month: windows, as-at dates and sides', async () => {
+    const out = await generate('all_three', SECTIONS);
+    expect(m.cashFlow.mock.calls.map((c) => c.slice(0, 3))).toEqual([
+      ['co', '2026-09-01', '2026-09-30'], ['co', '2026-08-01', '2026-08-31'], ['co', '2025-09-01', '2025-09-30'],
+    ]);
+    expect(m.aging.mock.calls.map((c) => c.slice(0, 3))).toEqual([['co', 'ar', '2026-09-30'], ['co', 'ap', '2026-09-30']]);
+    expect(m.recs).toHaveBeenCalledWith('co');
+    expect(table(out.cash_flow).headers).toEqual(['', 'This month', 'Prior month', 'Same month last year', 'Change on last year']);
+    expect(table(out.debtors_ageing).rows[0]?.[0]).toBe('Customer A');
+    expect(table(out.creditors_ageing).rows[0]?.[0]).toBe('Supplier A');
+    expect(table(out.bank_reconciliation).rows[0]).toEqual(['Main', '30 September 2026', 'R 900.00', 'R 905.00', 'R 5.00', 'Completed']);
+    for (const [k, title] of [['cash_flow', 'Cash Flow'], ['debtors_ageing', 'Debtors Ageing'], ['creditors_ageing', 'Creditors Ageing'], ['bank_reconciliation', 'Bank Reconciliation']] as const) {
+      expect(out[k]?.title).toBe(title);
+    }
+  });
+
+  it('read nothing when the sections are off', async () => {
+    await generate('prior_month', ['kpi_scorecard']);
+    expect(m.cashFlow).not.toHaveBeenCalled();
+    expect(m.aging).not.toHaveBeenCalled();
+    expect(m.recs).not.toHaveBeenCalled();
+  });
+
+  it('the snapshot and the AI commentary carry each section\'s own figures', async () => {
+    await generate('prior_month', SECTIONS);
+    const told = Object.fromEntries((m.commentary.mock.calls as { sectionType: string; sectionData: Record<string, unknown>; priorData: unknown }[][]).map((c) => [c[0]?.sectionType, c[0]]));
+    expect(Object.keys(told).sort()).toEqual([...SECTIONS].sort());
+    expect(told.cash_flow?.sectionData).toMatchObject({ openingCash: 1000, closingCash: 1500, netChange: 500 });
+    expect(told.cash_flow?.priorData).toMatchObject({ closingCash: 1500 });
+    expect(told.debtors_ageing?.sectionData).toMatchObject({ asAt: '2026-09-30', totals: { total: 100 }, largest: [{ name: 'Customer A', total: 100 }] });
+    expect(told.creditors_ageing?.sectionData).toMatchObject({ largest: [{ name: 'Supplier A', total: 100 }] });
+    expect(told.bank_reconciliation?.sectionData).toMatchObject({ accounts: [{ name: 'Main', difference: 5 }] });
+    expect(told.debtors_ageing?.priorData).toBeNull();
+    const snap = (id: string) => (m.updateSection.mock.calls as [string, string, string, { dataSnapshot?: Record<string, unknown> }][]).find((c) => c[0] === id && c[3].dataSnapshot)?.[3].dataSnapshot;
+    expect(snap('cash_flow')).toMatchObject({ closingCash: 1500 });
+    expect(snap('creditors_ageing')).toMatchObject({ totals: { total: 100 } });
+  });
+
+  it.each([
+    ['cash_flow', () => m.cashFlow, 'This statement could not be produced for this period.'],
+    ['debtors_ageing', () => m.aging, 'This report could not be produced for this period.'],
+    ['creditors_ageing', () => m.aging, 'This report could not be produced for this period.'],
+    ['bank_reconciliation', () => m.recs, 'This report could not be produced for this period.'],
+  ] as const)('%s that cannot be read says so, gets no commentary, and the rest of the pack is whole', async (section, mock, sentence) => {
+    mock().mockRejectedValue(new Error('boom'));
+    const out = await generate('prior_month', [...SECTIONS, 'kpi_scorecard']);
+    expect(out[section]?.blocks).toEqual([{ type: 'paragraph', text: sentence }]);
+    expect((m.commentary.mock.calls as { sectionType: string }[][]).map((c) => c[0]?.sectionType)).not.toContain(section);
+    expect(out.kpi_scorecard?.title).toBe('KPI Scorecard');
+    expect(m.withSavepoint.mock.calls.map((c) => c[0])).toContain(`mgmt_pack_${section}`);
   });
 });
