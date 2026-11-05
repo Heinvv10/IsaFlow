@@ -59,7 +59,7 @@ function cashFlow(operatingTotal: number, investingTotal: number, financingTotal
   return {
     periodStart: '2026-03-01', periodEnd: '2026-08-31', openingCash: 1_000,
     operatingItems: [], operatingTotal, investingItems: [], investingTotal,
-    financingItems: [], financingTotal, netChange, closingCash: 1_000 + netChange,
+    financingItems: [], financingTotal, netChange, unexplainedDifference: 0, closingCash: 1_000 + netChange,
   };
 }
 
@@ -176,6 +176,16 @@ describe('getReportPackInput carries the cash flows of the window it was asked f
     expect(input.investingCashFlow).toBe(-98_765.43);
     expect(input.financingCashFlow).toBe(12_345.67);
     expect(input.cashFlowUnavailable).toBeNull();
+  });
+
+  it('keeps a ledger fault out of operating cash: operating is the explained movement, the difference travels beside it', async () => {
+    // The statement closes on the ledger, so its netChange includes 400 the journals cannot explain.
+    cashFlowMock.mockResolvedValue({ ...cashFlow(1_000, -200, 50), unexplainedDifference: 400, netChange: 1_250, closingCash: 2_250 });
+    const input = await getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31');
+    expect(input.operatingCashFlow).toBe(1_000);
+    expect(input.investingCashFlow).toBe(-200);
+    expect(input.financingCashFlow).toBe(50);
+    expect(input.cashFlowUnexplained).toBe(400);
   });
 
   it('does not call net investing "capital expenditure"', async () => {
