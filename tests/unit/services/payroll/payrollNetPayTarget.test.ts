@@ -18,12 +18,14 @@ import {
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
 
-vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values),
-}));
+vi.mock('@/lib/neon', () => {
+  const sql = (strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values);
+  return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
+});
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
   lockPayrollRunHeader: vi.fn(async () => ({ id: 'run', journal_entry_id: null })),
+  lockCompanyPayrollApprovals: vi.fn(async () => undefined),
 }));
 vi.mock('@/modules/accounting/services/payroll/costCentreGlMappingService', () => ({
   getMappingLookup: vi.fn(async () => ({})),
@@ -55,6 +57,8 @@ const HEADER = {
   id: RUN, company_id: COMPANY, period_month: 10, period_year: 2026, status: 'approved',
   journal_entry_id: null, total_gross: 100000, total_paye: 20000, total_uif: 2000,
   total_sdl: 1000, total_eti: 0, total_net: 76000, employee_count: 4,
+  // A pre-R-035 approved run (migration 951): clears the approval gate (assertPayRunApproved) without a plan hash.
+  approval_grandfathered_at: '2026-10-01T00:00:00Z',
 };
 
 const acc = (code: string, id: string, name: string, over: Partial<GlAccountRow> = {}, company = COMPANY): GlAccountRow =>
