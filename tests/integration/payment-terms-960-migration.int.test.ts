@@ -1,39 +1,48 @@
 /**
- * Migration 960 (payment terms, the EXPAND half) against every legacy shape a contact can carry, and against what the
- * OLD code still writes after it ran (the build runs beside the old code, and a rollback is code-only, so the old
- * writers (createSupplier (30, NULL), createCustomer 'days', the migration importer `?? 30`) must keep working).
+ * Migration 960 (payment terms, the EXPAND half) changes NO contact row: it only drops the column defaults. The build that
+ * ships it runs beside the OLD code (and a rollback is code-only), and master's ar/paymentTerms.dueDateFromTerms gives a
+ * date only for `days` and `end_of_month`: rewriting (30, 'days') to NULL / NULL, or 'days' to 'invoice_days', would leave
+ * the old code dating nearly every new customer invoice with no due date. The data mapping is PR 1b's (plan doc).
  *
- * The harness has already applied 960 once. This test seeds the legacy shapes, runs the file's SQL again inside one
- * transaction (it is written to be re-run), asserts what each shape became, runs it a third time to prove the mapping
- * is idempotent, then ROLLS BACK: nothing it seeded, and nothing the re-run touched in other suites' rows, survives.
+ * The harness has already applied 960 once. This test seeds every legacy shape, runs the file's SQL again inside one
+ * transaction, asserts no row changed and that the OLD code's date for each is the same as before, runs it twice more, then
+ * ROLLS BACK: nothing it seeded survives. Also: the old code's writes still succeed after it, the defaults are gone, and a
+ * contact UPDATE (as PR 1b's will be) is recorded in entity_changes with the terms before and after.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { addDaysISO, localDateFromISO, monthEndISO } from '../../src/lib/dateUtils';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const MIGRATION = readFileSync(resolve(__dirname, '../../scripts/migrations/sql/960_payment_terms_model.sql'), 'utf8');
 
-type Shape = [label: string, n: number | null, type: string | null, expectN: number | null, expectType: string | null];
+/** Master's ar/paymentTerms.dueDateFromTerms, verbatim: what the OLD code (the live colour, a rolled-back build) makes of a stored row. */
+function oldDueDate(invoiceDateIso: string, days: number | null, type: string | null): string | null {
+  const invoiceDate = localDateFromISO(invoiceDateIso);
+  if (invoiceDate === null || days === null || !Number.isInteger(days) || days < 0) return null;
+  if (type === 'days') return addDaysISO(invoiceDateIso, days);
+  if (type === 'end_of_month') return addDaysISO(monthEndISO(invoiceDate), days);
+  return null;
+}
+
+type Shape = [label: string, n: number | null, type: string | null, oldDate: string | null];
+/** Every legacy shape a contact can carry, and the due date the old code gives it for an invoice dated 2026-10-15. */
 const SHAPES: Shape[] = [
-  ['30 days (the column default: never chosen)', 30, 'days', null, null],
-  ['30 with no type (what old createSupplier wrote)', 30, null, null, null],
-  ['45 days', 45, 'days', 45, 'invoice_days'],
-  ['45 with no type', 45, null, 45, 'invoice_days'],
-  ['0 days (Immediate)', 0, 'days', 0, 'invoice_days'],
-  ['14 end_of_month', 14, 'end_of_month', 14, 'statement_days'],
-  ['30 end_of_month (30, but a chosen type)', 30, 'end_of_month', 30, 'statement_days'],
-  ['nothing', null, null, null, null],
-  ['a type with no number', null, 'days', null, null],
-  ['-1 days', -1, 'days', null, null],
-  ['30 junk', 30, 'junk', null, null],
-  ['1500 days (over the 999 the forms accept)', 1500, 'days', null, null],
-  ['already new: 3 statement_months', 3, 'statement_months', 3, 'statement_months'],
-  ['already new: 60 invoice_days', 60, 'invoice_days', 60, 'invoice_days'],
-  ['already new: 30 invoice_days (chosen after 960, kept)', 30, 'invoice_days', 30, 'invoice_days'],
+  ['30 days (the old column default)', 30, 'days', '2026-11-14'],
+  ['30 with no type (what old createSupplier wrote)', 30, null, null],
+  ['45 days', 45, 'days', '2026-11-29'],
+  ['0 days (Immediate)', 0, 'days', '2026-10-15'],
+  ['14 end_of_month', 14, 'end_of_month', '2026-11-14'],
+  ['nothing', null, null, null],
+  ['-1 days', -1, 'days', null],
+  ['30 junk', 30, 'junk', null],
+  ['1500 days (over the 999 the forms accept)', 1500, 'days', '2030-11-23'],
+  ['already new: 3 statement_months', 3, 'statement_months', null],
+  ['already new: 60 invoice_days', 60, 'invoice_days', null],
 ];
 
 let company = '';
@@ -57,8 +66,9 @@ async function inTx<T>(fn: (db: PoolClient) => Promise<T>): Promise<T> {
   }
 }
 
-async function seed(db: PoolClient): Promise<Map<string, { table: 'suppliers' | 'customers'; id: string }>> {
-  const ids = new Map<string, { table: 'suppliers' | 'customers'; id: string }>();
+type Ids = Map<string, { table: 'suppliers' | 'customers'; id: string }>;
+async function seed(db: PoolClient): Promise<Ids> {
+  const ids: Ids = new Map();
   for (const table of ['suppliers', 'customers'] as const) {
     for (const [label, n, type] of SHAPES) {
       const { rows } = await db.query(
@@ -70,7 +80,7 @@ async function seed(db: PoolClient): Promise<Map<string, { table: 'suppliers' | 
   return ids;
 }
 
-async function stored(db: PoolClient, ids: Map<string, { table: 'suppliers' | 'customers'; id: string }>) {
+async function stored(db: PoolClient, ids: Ids) {
   const out = new Map<string, [number | null, string | null]>();
   for (const [name, { table, id }] of ids) {
     const { rows } = await db.query(`SELECT payment_terms, payment_terms_type FROM ${table} WHERE id = $1`, [id]);
@@ -79,20 +89,49 @@ async function stored(db: PoolClient, ids: Map<string, { table: 'suppliers' | 'c
   return out;
 }
 
-describe('migration 960 maps every legacy shape, and is safe to run again', () => {
-  it('maps each shape on both tables, and a second and third run change nothing', async () => {
+describe('migration 960 leaves every contact row exactly as it was, and is safe to run again', () => {
+  it('changes no row of either table, and the old code still dates each legacy shape as before', async () => {
     await inTx(async (db) => {
       const ids = await seed(db);
+      const before = await stored(db, ids);
       await db.query(MIGRATION);
-      const first = await stored(db, ids);
+      const after = await stored(db, ids);
+      expect(after).toEqual(before);
       for (const table of ['suppliers', 'customers']) {
-        for (const [label, , , expectN, expectType] of SHAPES) {
-          expect(first.get(`${table}: ${label}`), `${table}: ${label}`).toEqual([expectN, expectType]);
+        for (const [label, n, type, oldDate] of SHAPES) {
+          const row = after.get(`${table}: ${label}`)!;
+          expect(row, `${table}: ${label}`).toEqual([n, type]);
+          expect(oldDueDate('2026-10-15', row[0], row[1]), `${table}: ${label} (old code)`).toBe(oldDate);
         }
       }
       await db.query(MIGRATION);
       await db.query(MIGRATION);
-      expect(await stored(db, ids)).toEqual(first);
+      expect(await stored(db, ids)).toEqual(before);
+    });
+  });
+
+  it('the old code still dates a (30, \'days\') customer: 960 did not rewrite it to NULL / NULL', async () => {
+    await inTx(async (db) => {
+      const { rows } = await db.query("INSERT INTO customers(company_id, name, payment_terms, payment_terms_type) VALUES($1, 'Legacy', 30, 'days') RETURNING id", [company]);
+      await db.query(MIGRATION);
+      const { rows: after } = await db.query('SELECT payment_terms, payment_terms_type FROM customers WHERE id = $1', [rows[0].id]);
+      expect(oldDueDate('2026-10-15', after[0].payment_terms, after[0].payment_terms_type)).toBe('2026-11-14');
+    });
+  });
+
+  it('a contact UPDATE of the terms (what PR 1b will do) is recorded in entity_changes: before and after, both columns', async () => {
+    await inTx(async (db) => {
+      const ids = await seed(db);
+      for (const table of ['suppliers', 'customers'] as const) {
+        const { id } = ids.get(`${table}: 30 days (the old column default)`)!;
+        await db.query(`UPDATE ${table} SET payment_terms = NULL, payment_terms_type = NULL WHERE id = $1`, [id]);
+        const { rows } = await db.query(
+          "SELECT op, changed, before, after FROM entity_changes WHERE entity_id = $1 AND op = 'update'", [id]);
+        expect(rows, table).toHaveLength(1);
+        expect(rows[0].changed, table).toEqual(['payment_terms', 'payment_terms_type']);
+        expect(rows[0].before).toMatchObject({ payment_terms: 30, payment_terms_type: 'days' });
+        expect(rows[0].after).toMatchObject({ payment_terms: null, payment_terms_type: null });
+      }
     });
   });
 

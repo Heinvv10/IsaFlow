@@ -16,21 +16,21 @@ const SQL = readFileSync(path.join(ROOT, 'scripts/migrations/sql/888_entity_chan
 /** 952 restates the CHECK and the read policy with payroll_bank_detail: it is what the database holds now. */
 const SQL_952 = readFileSync(path.join(ROOT, 'scripts/migrations/sql/952_payroll_bank_details_tenant_history.sql'), 'utf8');
 /** 961 restates the CHECK with company_setting (the read policy stays 952's). */
-const SQL_959 = readFileSync(path.join(ROOT, 'scripts/migrations/sql/961_company_default_terms_history.sql'), 'utf8');
+const SQL_961 = readFileSync(path.join(ROOT, 'scripts/migrations/sql/961_company_default_terms_history.sql'), 'utf8');
 const quoted = (block: string) => [...block.matchAll(/'(\w+)'/g)].map((m) => m[1]!);
 
 describe('888, 952, 961 and their TypeScript agree', () => {
   it('entity types: the CHECK, the trigger list and ENTITY_TYPES', () => {
-    const check = /ADD CONSTRAINT entity_changes_entity_type_check CHECK \(entity_type IN \(([\s\S]*?)\)\)/.exec(SQL_959)![1]!;
+    const check = /ADD CONSTRAINT entity_changes_entity_type_check CHECK \(entity_type IN \(([\s\S]*?)\)\)/.exec(SQL_961)![1]!;
     expect(quoted(check).sort()).toEqual([...ENTITY_TYPES].sort());
     const values = /FROM \(VALUES([\s\S]*?)\) v\(tbl, typ\)/.exec(SQL)![1]!;
     const tracked = [...values.matchAll(/\('\w+', '(\w+)'\)/g)].map((m) => m[1]!);
     expect([...tracked, 'payroll_bank_detail', 'company_setting'].sort()).toEqual([...ENTITY_TYPES].sort());
     // 961: the company default's own captures, one per operation, narrowed to its key, ENABLE ALWAYS.
-    expect(SQL_959).toMatch(/AFTER INSERT ON accounting_settings\s+FOR EACH ROW WHEN \(NEW\.key = 'default_payment_terms'\)\s+EXECUTE FUNCTION public\.entity_change_capture\('company_setting'\)/);
-    expect(SQL_959).toMatch(/AFTER UPDATE ON accounting_settings\s+FOR EACH ROW WHEN \(OLD\.key = 'default_payment_terms' OR NEW\.key = 'default_payment_terms'\)\s+EXECUTE FUNCTION public\.entity_change_capture\('company_setting'\)/);
-    expect(SQL_959).toMatch(/AFTER DELETE ON accounting_settings\s+FOR EACH ROW WHEN \(OLD\.key = 'default_payment_terms'\)\s+EXECUTE FUNCTION public\.entity_change_capture\('company_setting'\)/);
-    for (const op of ['ins', 'upd', 'del']) expect(SQL_959).toContain(`ALTER TABLE accounting_settings ENABLE ALWAYS TRIGGER entity_change_capture_${op};`);
+    expect(SQL_961).toMatch(/AFTER INSERT ON accounting_settings\s+FOR EACH ROW WHEN \(NEW\.key = 'default_payment_terms'\)\s+EXECUTE FUNCTION public\.entity_change_capture\('company_setting'\)/);
+    expect(SQL_961).toMatch(/AFTER UPDATE ON accounting_settings\s+FOR EACH ROW WHEN \(OLD\.key = 'default_payment_terms' OR NEW\.key = 'default_payment_terms'\)\s+EXECUTE FUNCTION public\.entity_change_capture\('company_setting'\)/);
+    expect(SQL_961).toMatch(/AFTER DELETE ON accounting_settings\s+FOR EACH ROW WHEN \(OLD\.key = 'default_payment_terms'\)\s+EXECUTE FUNCTION public\.entity_change_capture\('company_setting'\)/);
+    for (const op of ['ins', 'upd', 'del']) expect(SQL_961).toContain(`ALTER TABLE accounting_settings ENABLE ALWAYS TRIGGER entity_change_capture_${op};`);
     expect(SQL_952).toMatch(/AFTER INSERT OR UPDATE OR DELETE ON payroll_bank_details\s+FOR EACH ROW EXECUTE FUNCTION public\.entity_change_capture\('payroll_bank_detail'\)/);
   });
 

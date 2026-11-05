@@ -15,11 +15,11 @@
 -- Expand-only and safe beside the old code: the old code never writes this key, and a write to any other key fires no
 -- trigger. A rollback of code alone leaves a harmless trigger.
 --
--- Lock: the entity_type CHECK is replaced NOT VALID then validated (the repo's pattern, as 952). The apply step runs a file in
--- ONE transaction (scripts/lib/migrationFiles.ts applyOne), so the ACCESS EXCLUSIVE lock the DROP / ADD takes on
--- entity_changes is held to the commit, through the VALIDATE scan: NOT VALID does not shorten it here, so the scan's length is
--- the table's row count (check it before deploying). lock_timeout limits only the WAIT for the lock: not granted within 5s,
--- the migration aborts and has changed nothing.
+-- Constraint: the entity_type CHECK is replaced and left NOT VALID. The new list is a strict superset of the old one, so
+-- every existing row satisfies it by construction and a VALIDATE scan would add nothing; it would only hold the lock the
+-- DROP / ADD takes on entity_changes (ACCESS EXCLUSIVE, held to the commit because the apply step runs a file in one
+-- transaction: scripts/lib/migrationFiles.ts applyOne) through a full scan. NOT VALID still checks every NEW row. A lock
+-- not granted within 5s aborts the migration, which has then changed nothing.
 
 SET LOCAL lock_timeout = '5s';
 
@@ -28,7 +28,6 @@ ALTER TABLE entity_changes ADD CONSTRAINT entity_changes_entity_type_check CHECK
   'supplier', 'customer', 'gl_account', 'payroll_employee', 'company_user', 'company_invitation',
   'company_user_permission', 'company', 'approval_rule', 'approval_enforcement', 'payroll_bank_detail',
   'company_setting')) NOT VALID;
-ALTER TABLE entity_changes VALIDATE CONSTRAINT entity_changes_entity_type_check;
 
 DROP TRIGGER IF EXISTS entity_change_capture_ins ON accounting_settings;
 CREATE TRIGGER entity_change_capture_ins AFTER INSERT ON accounting_settings
