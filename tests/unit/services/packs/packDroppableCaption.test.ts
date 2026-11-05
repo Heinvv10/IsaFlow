@@ -81,3 +81,19 @@ describe('a droppable caption', () => {
     expect(out.dropped.captions).toBe(0);
   });
 });
+
+describe('a droppable caption on a page with no footnote to take first', () => {
+  // A caption long enough that dropping it pays for the omission note on its own.
+  const longCaption = (): PackPageBlock =>
+    ({ kind: 'narrative', droppable: true, narrative: { status: 'derived', body: SENTENCE.repeat(3), actions: [] } }) as PackPageBlock;
+  const bare = (blocks: PackPageBlock[]): Omit<PackPage, 'number'> => ({ ...page(blocks), footnotes: [] });
+
+  it('is dropped, and the page owns the omission even though it had no footnote or note to lose', () => {
+    const subject = bare([required(24), longCaption()]);
+    expect(pageMm(subject)).toBeGreaterThan(pageBoxMm(subject));
+    const { page: fitted, dropped } = fitPageReport(subject);
+    expect(dropped).toMatchObject({ captions: 1, footnotes: 0, notes: 0, requiredNotes: 0 });
+    expect(pageMm(fitted)).toBeLessThanOrEqual(pageBoxMm(fitted));
+    expect(fitted.footnotes.map((f) => f.text).join(' ')).toContain('1 derived caption');
+  });
+});
