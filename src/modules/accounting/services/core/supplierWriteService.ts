@@ -248,7 +248,7 @@ export async function updateSupplier(
       contact_person      = CASE WHEN ${cl.contactPerson} THEN NULL ELSE COALESCE(${trimmed(input.contactPerson)}, contact_person) END,
       whatsapp_number     = CASE WHEN ${cl.whatsappNumber} THEN NULL ELSE COALESCE(${trimmed(input.whatsappNumber)}, whatsapp_number) END,
       payment_terms       = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.days}::INT WHEN 'days_only' THEN ${terms.days}::INT WHEN 'clear' THEN NULL ELSE payment_terms END,
-      payment_terms_type  = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'days_only' THEN COALESCE(NULLIF(payment_terms_type, ''), 'invoice_days') WHEN 'clear' THEN NULL ELSE payment_terms_type END,
+      payment_terms_type  = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'days_only' THEN CASE WHEN payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months', 'days', 'end_of_month') THEN payment_terms_type ELSE 'invoice_days' END WHEN 'clear' THEN NULL ELSE payment_terms_type END,
       bank_name           = COALESCE(${v.bankName}, bank_name),
       bank_account_number = COALESCE(${v.bankAccountNumber}, bank_account_number),
       bank_branch_code    = COALESCE(${v.bankBranchCode}, bank_branch_code),
