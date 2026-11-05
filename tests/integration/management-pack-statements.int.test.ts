@@ -123,7 +123,8 @@ describe('the pack\'s statements are the Reports screens\' figures', () => {
     expect(sections.get('balance_sheet')?.content.blocks).toEqual([{ type: 'paragraph', text: 'This statement could not be produced for this period.' }]);
     // The request's transaction survived the failed read (the SELECT above ran in it) and the section after it is whole.
     expect(tableOf(sections.get('income_statement')?.content).rows.length).toBeGreaterThan(3);
-    expect(sections.get('cash_flow')?.content).toEqual({ title: 'Cash Flow', blocks: [] });
+    // The section after it is whole too (the cash flow generates from its own report).
+    expect(tableOf(sections.get('cash_flow')?.content).rows.map((r) => r[0])).toContain('Closing cash');
   });
 
   it('the scorecard, the stored snapshot, the section commentary and the executive summary all use the statement\'s turnover, not turnover plus the other income', async () => {
