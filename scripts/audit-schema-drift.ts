@@ -168,4 +168,9 @@ function parseAllowlist(): Allowlist {
   console.error('  --allow=table_name:col_name     (single column)');
   console.error('  --allow=t1:c1,t2:*,t3:c3        (combine, comma-separated)');
   process.exit(1);
-})();
+})().catch((err: unknown) => {
+  // Any failure the steps above did not name (the allowlist, the comparison): the same ERROR line and exit 2 as
+  // a parse or live-schema failure, never an unhandled rejection with a stack trace.
+  console.error('ERROR:', err instanceof Error ? err.message : String(err));
+  process.exit(2);
+});

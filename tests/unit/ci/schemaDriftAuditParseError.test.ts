@@ -14,9 +14,9 @@ import { join, resolve } from 'node:path';
 const SCRIPT = resolve(__dirname, '../../../scripts/audit-schema-drift.ts');
 let dir: string;
 
-function audit(sql: string, env: Record<string, string> = {}) {
+function audit(sql: string, env: Record<string, string> = {}, preload?: string) {
   writeFileSync(join(dir, 'scripts/migrations/sql/001_t.sql'), sql);
-  return spawnSync('bun', [SCRIPT], {
+  return spawnSync('bun', [...(preload ? ['--preload', preload] : []), SCRIPT], {
     cwd: dir, encoding: 'utf8', timeout: 60_000,
     // A live URL that would fail fast: the parse must fail before it is ever used.
     env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', DATABASE_URL: 'postgresql://x@127.0.0.1:1/none', ...env },
@@ -45,5 +45,22 @@ describe('audit-schema-drift: a migration the parser cannot read', () => {
     const r = audit('CREATE TABLE ok_t (id uuid);\n', { DATABASE_URL: '' });
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('ERROR: DATABASE_URL is not set');
+  });
+
+  // Any other failure inside the audit must also leave as `ERROR: <message>` with exit 2, not an unhandled rejection.
+  // parseAllowlist cannot be made to throw from outside (it swallows a missing file), so a preload makes its one
+  // `process.argv.find(...)` throw; nothing else in the script reads argv that way.
+  it('a failure after the parse (a throwing parseAllowlist) is also ERROR: <message> and exit 2', () => {
+    const preload = join(dir, 'throwOnArgvFind.ts');
+    writeFileSync(preload, `const find = Array.prototype.find;
+Array.prototype.find = function (this: unknown[], ...a: Parameters<typeof find>) {
+  if (this === process.argv) throw new Error('allowlist unreadable (test)');
+  return find.apply(this, a);
+} as typeof Array.prototype.find;
+`);
+    const r = audit('CREATE TABLE ok_t (id uuid);\n', {}, preload);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/^ERROR: allowlist unreadable \(test\)/);
+    expect(r.stderr).not.toMatch(/\n\s+at /);
   });
 });
