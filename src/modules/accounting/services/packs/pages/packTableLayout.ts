@@ -113,7 +113,8 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
  *    half of it. Borders are snapped to device pixels (0.2646mm): the rule above a subtotal, total or grand total is
  *    1pt = 1px, the double rule under a grand total 3pt = 4px, the heading's rule under it 1px. So a lone total after
  *    a line is 6.983 + 0.5px, two grand totals in a row are 6.983 + 4px each (8.041mm), and a row of plain lines
- *    carries no border at all (6.983).
+ *    carries no border at all (6.983). The rule under the LAST row is shared with the table's edge: the row carries half
+ *    and the table the other half (a grand total last adds 2px, 0.53mm).
  * Each is charged rounded up to the hundredth.
  *
  * It replaces a flat 8mm heading and 8.15mm per row, which over-charged a table that does not wrap by about 4.4mm
@@ -144,7 +145,9 @@ export function statementTableBodyMm(table: PackTable, scale: MoneyScale, orient
   const body = table.rows.reduce((sum, row, i) => sum
     + ROW_BASE_MM + ((boundaryPx(table.rows, i) + boundaryPx(table.rows, i + 1)) / 2) * BORDER_PX_MM
     + (layout.labelLines[i]! - 1) * LABEL_LINE_MM, 0);
-  return CAPTION_MM + HEAD_MM + (layout.headingLines - 1) * HEAD_LINE_MM + body;
+  // The rule under the last row is shared with the table's own edge: the row carries half, the table the other half.
+  const tail = (boundaryPx(table.rows, table.rows.length) / 2) * BORDER_PX_MM;
+  return CAPTION_MM + HEAD_MM + (layout.headingLines - 1) * HEAD_LINE_MM + body + tail;
 }
 
 /** A statement table's height as the page carries it: the table, and the reasons list printed under it. */
