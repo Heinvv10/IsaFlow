@@ -184,12 +184,12 @@ export async function importARInvoices(
           companyId, userId, open: status !== 'paid', documentType: 'customer_invoice',
         }, () => sql`
           INSERT INTO customer_invoices (
-            company_id, customer_id, invoice_number, invoice_date, due_date,
+            company_id, customer_id, invoice_number, invoice_date, due_date, due_date_source,
             subtotal, tax_amount, total_amount, amount_paid,
             status, external_ref, external_system, created_by
           ) VALUES (
             ${companyId}::UUID, ${customerId}::UUID, ${inv.invoiceNumber},
-            ${inv.invoiceDate}::DATE, ${inv.dueDate}::DATE,
+            ${inv.invoiceDate}::DATE, ${inv.dueDate}::DATE, 'document',
             ${inv.subtotal}, ${inv.taxAmount}, ${inv.totalAmount},
             ${amountPaid}, ${status},
             ${inv.reference ?? null}, ${inv.reference ? sourceSystem : null}, ${userId}::UUID

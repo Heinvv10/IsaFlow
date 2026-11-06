@@ -64,6 +64,15 @@ describe('checkAutoRateLimit (R-175)', () => {
     expect(await checkAutoRateLimit('/api/accounting/reports-html', 'co-1')).toBe(false);
   });
 
+  it('charges each member\'s own captured-file bucket, and refuses past it', async () => {
+    const url = '/api/accounting/captured-document-file?id=22222222-2222-4222-8222-222222222222';
+    expect(await checkAutoRateLimit(url, 'co-1', 'user-1', 'GET')).toBe(true);
+    expect(check).toHaveBeenLastCalledWith('captured-file:co-1:user-1', { max: 60, windowSecs: 60 });
+    check.mockResolvedValue(false);
+    expect(await checkAutoRateLimit(url, 'co-1', 'user-2', 'GET')).toBe(false);
+    expect(check).toHaveBeenLastCalledWith('captured-file:co-1:user-2', { max: 60, windowSecs: 60 });
+  });
+
   it('charges nothing for a route with no bucket', async () => {
     expect(await checkAutoRateLimit('/api/accounting/customers', 'co-1')).toBe(true);
     expect(await checkAutoRateLimit(undefined, 'co-1')).toBe(true);
@@ -75,6 +84,7 @@ describe('checkAutoRateLimit (R-175)', () => {
   it('is the only table: both wrappers call it and neither keeps a copy', () => {
     expect(AUTO_RATE_LIMIT.map(({ prefix, key, max, windowSecs, perUser }) => ({ prefix, key, max, windowSecs, perUser }))).toEqual([
       { prefix: '/api/accounting/reports-', key: 'reports', max: 60, windowSecs: 60, perUser: undefined },
+      { prefix: '/api/accounting/captured-document-file', key: 'captured-file', max: 60, windowSecs: 60, perUser: true },
       ...['audit-snapshots', 'audit-comparisons', 'audit-check-runs', 'audit-exports'].map((r) =>
         ({ prefix: `/api/accounting/${r}`, key: 'audit', max: 30, windowSecs: 60, perUser: true }))]);
     for (const file of ['src/lib/auth/withAuth.ts', 'src/lib/auth/bearerPipeline.ts']) {

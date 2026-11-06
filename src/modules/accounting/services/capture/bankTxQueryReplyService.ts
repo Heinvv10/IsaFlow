@@ -6,6 +6,7 @@
  * query flips to 'replied'.
  */
 
+import { uploadFileName } from '../bank/bankLineDocumentSql';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
@@ -97,9 +98,10 @@ export async function attachReplyMedia(
   // Retry-dedupe: fileName embeds the Twilio MessageSid, so a webhook retry
   // would re-attach the identical file. Skip silently and return true so the
   // caller still marks the query replied.
+  const fileName = uploadFileName(media.fileName);
   const [dup] = (await sql`
     SELECT id FROM bank_transaction_attachments
-    WHERE bank_transaction_id = ${query.bankTransactionId}::uuid AND file_name = ${media.fileName}
+    WHERE bank_transaction_id = ${query.bankTransactionId}::uuid AND file_name = ${fileName}
     LIMIT 1
   `) as Row[];
   if (dup) {
@@ -114,7 +116,7 @@ export async function attachReplyMedia(
     INSERT INTO bank_transaction_attachments
       (bank_transaction_id, file_url, file_name, file_size, uploaded_by)
     VALUES
-      (${query.bankTransactionId}::uuid, ${dataUrl}, ${media.fileName},
+      (${query.bankTransactionId}::uuid, ${dataUrl}, ${fileName},
        ${media.buffer.length}, NULL)
   `;
   log.info('bankTxQueryReply: media attached to bank tx', {

@@ -21,9 +21,10 @@
  * from a capture.
  *
  * VAT-gaps batch item 2: `has_bank_attachment` is true when the bank line
- * behind the journal (the same one `bank_amount` sums) carries a row in
- * `bank_transaction_attachments` — PRESENCE only, it carries no extracted VAT
- * to compare against the claim.
+ * behind the journal (the same one `bank_amount` sums) carries a supporting
+ * document — a row in `bank_transaction_attachments` or a captured document
+ * linked to the line (bank/bankLineDocumentSql) — PRESENCE only, it carries no
+ * extracted VAT to compare against the claim.
  *
  * BREAKER ROUND 2 (item 1): `document_claimed_vat` sums every root that has
  * EVER been tied to the document — via the immutable `source_document_id`, or
@@ -59,6 +60,7 @@
  * that calls `sql` to build a piece of a bigger query is only safe to use
  * inside code no low-level `sql`-mocked test exercises.
  */
+import { hasBankLineDocumentSql } from '../bank/bankLineDocumentSql';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
@@ -157,12 +159,14 @@ export async function queryInputVatSupport(
           AND (bt.provisional_je_id = a.doc_je_id
             OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
                  WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))) AS bank_amount,
-      -- Item 2: an invoice attached to that SAME bank line counts as a tax
-      -- invoice on file — presence only, no VAT amount to compare.
+      -- Item 2: a document on that SAME bank line counts as a tax invoice on
+      -- file — presence only, no VAT amount to compare. "A document" is the
+      -- grid's own definition (bank/bankLineDocumentSql): an upload, or a
+      -- captured document linked to the line (one over 2 MB has no upload).
       EXISTS (
         SELECT 1 FROM bank_transactions bt
-        JOIN bank_transaction_attachments bta ON bta.bank_transaction_id = bt.id
         WHERE bt.company_id = ${companyId}::UUID
+          AND ${sql.unsafe(hasBankLineDocumentSql('bt'))}
           AND (bt.provisional_je_id = a.doc_je_id
             OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
                  WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))

@@ -2,14 +2,17 @@
  * Bank Transaction Attachments API
  *
  * GET  /api/accounting/bank-tx-attachments?bankTransactionId=<uuid>
- *   → List all attachments for a bank transaction, newest first.
+ *   → List the line's supporting documents, newest first: uploads, and each linked captured document once
+ *     (capture/capturedAttachmentLinks; document_id marks a linked one).
  *
  * POST /api/accounting/bank-tx-attachments
  *   Body: { bankTransactionId, fileName, fileData (base64 data URL), fileSize? }
  *   → Store an attachment. Small receipts (≤ 2 MB) are kept as data URLs in file_url.
  *
  * DELETE /api/accounting/bank-tx-attachments?id=<uuid>
- *   → Remove a single attachment record.
+ *   → Remove a single attachment record. 409 for the copy of a linked captured document (unlink it instead).
+ * DELETE /api/accounting/bank-tx-attachments?documentId=<uuid>&bankTransactionId=<uuid>
+ *   → Unlink a captured document from the line, deleting its copy there.
  */
 
 import type { NextApiResponse } from 'next';
@@ -25,6 +28,10 @@ import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { runAfterCommit } from '@/lib/afterCommit';
+import { listBankLineAttachments, unlinkCapturedDocFromBankTx } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
+import { isCopyOfSql, linkedCapturedDocSql, uploadFileName } from '@/modules/accounting/services/bank/bankLineDocumentSql';
+import { isValidUUID } from '@/lib/validation';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 
 // ── Local Types ───────────────────────────────────────────────────────────────
 
@@ -84,22 +91,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     ` as SqlRow[];
     if (!btOwner) return apiResponse.forbidden(res, 'Bank transaction does not belong to your company');
 
-    const rows = (await sql`
-      SELECT
-        bta.id,
-        bta.bank_transaction_id,
-        bta.file_url,
-        bta.file_name,
-        bta.file_size,
-        bta.uploaded_by,
-        bta.created_at
-      FROM bank_transaction_attachments bta
-      JOIN bank_transactions bt ON bt.id = bta.bank_transaction_id
-      WHERE bta.bank_transaction_id = ${bankTransactionId}::UUID
-        AND bt.company_id = ${companyId}
-      ORDER BY bta.created_at DESC
-    `) as SqlRow[];
-
+    // Uploads, and each linked captured document once (capture/capturedAttachmentLinks).
+    const rows = await listBankLineAttachments(companyId, bankTransactionId);
     log.info('Listed bank tx attachments', { bankTransactionId, count: rows.length }, 'bank-tx-attachments');
     return apiResponse.success(res, rows);
   }
@@ -110,7 +103,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!parsed.success) {
       return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
-    const { bankTransactionId, fileName, fileData } = parsed.data;
+    const { bankTransactionId, fileData } = parsed.data;
+    const fileName = uploadFileName(parsed.data.fileName);
 
     // Verify ownership before insert
     const [btCheck] = await sql`
@@ -167,10 +161,39 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // ── DELETE ─────────────────────────────────────────────────────────────────
   if (req.method === 'DELETE') {
-    const { id } = req.query;
+    const { id, documentId, bankTransactionId } = req.query;
 
-    if (!id || typeof id !== 'string') {
-      return apiResponse.badRequest(res, 'id query param is required');
+    // Remove on a linked captured document unlinks it from the line, copy included (Hein, 2026-11-06).
+    if (documentId !== undefined) {
+      if (typeof documentId !== 'string' || !isValidUUID(documentId)
+        || typeof bankTransactionId !== 'string' || !isValidUUID(bankTransactionId)) {
+        return apiResponse.badRequest(res, 'documentId and bankTransactionId must be ids');
+      }
+      let outcome: Awaited<ReturnType<typeof unlinkCapturedDocFromBankTx>>;
+      try {
+        outcome = await unlinkCapturedDocFromBankTx(companyId, documentId, bankTransactionId);
+      } catch (err) {
+        if (respondIfLockTimeout(res, err)) return;
+        throw err;
+      }
+      if (outcome === 'not_linked') return apiResponse.notFound(res, 'Linked document', documentId);
+      return apiResponse.success(res, { unlinked: documentId });
+    }
+
+    if (!id || typeof id !== 'string' || !isValidUUID(id)) {
+      return apiResponse.badRequest(res, 'id query param must be an attachment id');
+    }
+
+    // Deleting only the copy of a linked captured document would bring the document back as uncopied on the next
+    // read, so that copy is removed by unlinking the document.
+    const [linkedCopy] = (await sql`
+      SELECT cd.id FROM bank_transaction_attachments bta
+        JOIN bank_transactions bt ON bt.id = bta.bank_transaction_id AND bt.company_id = ${companyId}
+        JOIN captured_documents cd ON ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND ${sql.unsafe(isCopyOfSql('bta', 'cd'))}
+       WHERE bta.id = ${id}::UUID
+    `) as SqlRow[];
+    if (linkedCopy) {
+      return apiResponse.conflict(res, 'This file is a captured document linked to the line. Remove it with documentId to unlink it.');
     }
 
     // Verify ownership via bank_transactions before delete

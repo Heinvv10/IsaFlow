@@ -86,6 +86,9 @@ export function entityLabel(type: EntityType, row: Pick<EntityChangeRow, 'before
       const key = nameOf(p, 'key');
       return key === COMPANY_DEFAULT_TERMS_KEY ? 'Default payment terms' : key; // the key is the only tracked one today
     }
+    case 'supplier_invoice':
+    case 'customer_invoice':
+      return nameOf(p, 'invoice_number');
     default:
       return nameOf(p, 'name');
   }
