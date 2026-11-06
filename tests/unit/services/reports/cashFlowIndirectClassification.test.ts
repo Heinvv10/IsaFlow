@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_RAW_SUBTYPES, isCashEquivalent, type AccountType } from '@/modules/accounting/services/gl/accountSubtypes';
 import {
-  classifyIndirectLine, placeJournal, INDIRECT_BUCKETS, bucketSection, type IndirectBucket, type JournalLeg,
+  classifyIndirectLine, isDisposalJournal, placeJournal, INDIRECT_BUCKETS, bucketSection, type IndirectBucket, type JournalLeg,
 } from '@/modules/accounting/services/reports/cashFlowIndirectClassification';
 
 const TYPES: AccountType[] = ['asset', 'liability', 'equity', 'revenue', 'expense'];
@@ -165,5 +165,39 @@ describe('only the cash a journal moved is an investing or financing flow', () =
       for (const f of flows) expect(Math.sign(f.amount)).toBe(Math.sign(netCash));
       expect(Math.abs(total(flows))).toBeLessThanOrEqual(Math.abs(Math.round(netCash * 100)) + flows.length);
     }
+  });
+});
+
+describe('disposal journals (the review\'s B2/H)', () => {
+  const out = (legs: JournalLeg[], netCash: number, disposal: boolean) => {
+    const by: Record<string, number> = {};
+    for (const { bucket, amount } of placeJournal(legs, netCash, disposal)) by[bucket] = Math.round(((by[bucket] ?? 0) + amount) * 100) / 100;
+    return by;
+  };
+  // cost 10 000, accumulated depreciation 4 000 released, proceeds 7 000, gain 1 000 (credits positive)
+  const legs: JournalLeg[] = [
+    { accountType: 'asset', subtype: 'fixed_asset', creditLessDebit: 10000 },
+    { accountType: 'asset', subtype: 'accumulated_depreciation', creditLessDebit: -4000 },
+    { accountType: 'revenue', subtype: 'disposal_profit_loss', creditLessDebit: 1000 },
+  ];
+  it('in a disposal journal investing is the proceeds, the gain is taken back out of operating, the add-back is untouched', () => {
+    expect(out(legs, 7000, true)).toEqual({ investing: 7000, net_income: 1000, disposal_adjustment: -1000 });
+  });
+  it('the same legs as an ordinary journal send accumulated depreciation to the add-back (netted), not to investing', () => {
+    const by = out([{ accountType: 'asset', subtype: 'accumulated_depreciation', creditLessDebit: -500 }, { accountType: 'asset', subtype: 'accumulated_depreciation', creditLessDebit: 500 }], 0, false);
+    expect(by).toEqual({ depreciation: 0 });
+  });
+  it('a disposal on credit has no cash, so none of it is investing', () => {
+    const by = out(legs, 0, true);
+    expect(by.investing).toBeUndefined();
+    expect(by.non_cash).toBe(7000);
+  });
+  it('isDisposalJournal: by source (a reversal copies it) or by a disposal gain/loss leg only', () => {
+    expect(isDisposalJournal('auto_asset_disposal', [])).toBe(true);
+    expect(isDisposalJournal('manual', legs)).toBe(true);
+    expect(isDisposalJournal('manual', [legs[1]!])).toBe(false);
+  });
+  it('a liability spelled bank or cash is a credit card: debt', () => {
+    for (const s of ['bank', 'bank_account', 'cash', 'petty_cash']) expect(classifyIndirectLine('liability', s), s).toBe('debt');
   });
 });
