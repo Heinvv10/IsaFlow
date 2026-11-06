@@ -30,9 +30,9 @@ const day = (s: string) => String(s).slice(0, 10);
 /** A running salary: an active, recurring, taxable earning that overlaps the month of `today`. */
 function paysInMonth(a: ReadinessAssignment, today: string): boolean {
   if (a.componentType !== 'earning' || !a.isTaxable || !a.isRecurring || !a.componentActive) return false;
-  const start = `${today.slice(0, 7)}-01`;
-  const [y, m] = [Number(today.slice(0, 4)), Number(today.slice(5, 7))];
-  const end = `${today.slice(0, 7)}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+  const month = today.slice(0, 7);
+  // Any day of the month sorts at or before "-31", so no calendar arithmetic is needed to find the month's end.
+  const [start, end] = [`${month}-01`, `${month}-31`];
   return day(a.effectiveFrom) <= end && (!a.effectiveTo || day(a.effectiveTo) >= start);
 }
 

@@ -47,7 +47,7 @@ export function useEmployeeDetail(employeeId: string) {
       setComponents((cJson.data ?? cJson) as Component[]);
       setAssignments((aJson.data ?? aJson) as Assignment[]);
     } catch (err) {
-      setEmployee(null); setComponents([]); setAssignments([]);
+      setEmployee(null); setSavedTaxNumber(undefined); setComponents([]); setAssignments([]);
       setError(apiErrorMessage(err, 'Could not load this employee - try again'));
     } finally {
       setIsLoading(false);
