@@ -242,6 +242,15 @@ export type PackPageBlock =
        * is what page 4 was designed around and it is kept wherever it fits.
        */
       stackActions?: boolean;
+      /**
+       * A DERIVED CAPTION THE FITTER TAKES FIRST.
+       *
+       * Set on a one-line caption that only restates a row of the table above it (page 6's "largest
+       * mover"). `fitPageToBox` takes it before any note or footnote when the page is over its sheet,
+       * and the page then says so in its omission footnote. Never set on approved commentary or on a
+       * block that carries something the pack owes the reader.
+       */
+      droppable?: true;
     }
   // Spec §4.A page 11 is a TABLE — issue, quantum, owner, movement, decision
   // — and `PackTable`'s column keys are financial (actual/prior/change/…),

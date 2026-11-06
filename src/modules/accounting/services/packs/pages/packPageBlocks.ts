@@ -22,7 +22,7 @@ import {
 import type { PackCashBridge } from './packPageCharts';
 import type { SelectedMatters } from './packMattersPrinted';
 import { matterSourcesInWords } from './packDerivedMatters';
-import { commentary, disclose, mustDisclose, note } from './packBlockBuilders';
+import { commentary, disclose, droppableCommentary, mustDisclose, note } from './packBlockBuilders';
 import type { MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { TOTAL_EQUITY_AND_LIABILITIES_KEY } from './packStatementTables';
@@ -37,7 +37,7 @@ import type {
 /** The four block constructors live in `packBlockBuilders.ts` — a leaf, so a
  *  page module this file imports can build a block without importing this
  *  file back. Re-exported because every existing caller imports them here. */
-export { commentary, disclose, mustDisclose, note };
+export { commentary, disclose, droppableCommentary, mustDisclose, note };
 
 /** Pages 3 and 10 and page 6's bridge footnote split to their own modules
  *  for the 300-line cap — `packHighlightsBlocks.ts`, `packTrendBlocks.ts`
