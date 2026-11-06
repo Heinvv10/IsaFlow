@@ -110,12 +110,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           INSERT INTO customer_invoices (
             company_id, invoice_number, customer_id, client_id,
             subtotal, tax_rate, tax_amount, total_amount,
-            invoice_date, due_date, status, created_by,
+            invoice_date, due_date, due_date_source, status, created_by,
             currency_code, exchange_rate, functional_total
           ) VALUES (
             ${companyId}, ${number}, ${customerId}::UUID, ${customerId}::UUID,
             ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount},
-            ${invDate!}, ${dueDate}, 'draft', ${userId},
+            ${invDate!}, ${dueDate}, 'terms', 'draft', ${userId},
             'ZAR', 1.0, ${totalAmount}
           ) RETURNING id
         `) as Row[];

@@ -39,6 +39,7 @@ export default function NewSupplierInvoicePage() {
   const dates = useDateGate();
   const [scanBanner, setScanBanner] = useState<string | null>(null);
   const [scannedTerms, setScannedTerms] = useState('');
+  const [dueFromScan, setDueFromScan] = useState(false); // the scan printed the due date and nobody has changed it (migration 962)
 
   const [form, setForm] = useState({
     invoiceNumber: '',
@@ -116,7 +117,7 @@ export default function NewSupplierInvoicePage() {
   const { scan: matchVendor, notePick } = useVendorSupplierMatch(form.supplierId, id => setForm(f => ({ ...f, supplierId: id, purchaseOrderId: '', grnId: '', copyLinesFromPo: false })));
 
   // The due date follows the supplier's terms until the user or a scanned document sets it.
-  const { claim: claimDueDate, note: dueDateNote } = useSupplierTermsDueDate({
+  const { claim: claimDueDate, note: dueDateNote, source: dueDateSource } = useSupplierTermsDueDate({
     supplierId: form.supplierId, invoiceDate: form.invoiceDate, invoiceTerms: form.paymentTerms, scannedTerms,
     apply: due => { setForm(f => ({ ...f, dueDate: due })); dates.reset('dueDate'); },
   });
@@ -125,7 +126,7 @@ export default function NewSupplierInvoicePage() {
     const updates: Partial<typeof form> = {};
     if (data.referenceNumber) updates.invoiceNumber = data.referenceNumber;
     if (data.date) { updates.invoiceDate = data.date; dates.reset('invoiceDate'); }
-    if (data.dueDate) { updates.dueDate = data.dueDate; claimDueDate(); dates.reset('dueDate'); }
+    if (data.dueDate) { updates.dueDate = data.dueDate; claimDueDate(); setDueFromScan(true); dates.reset('dueDate'); }
     if (data.purchaseOrderRef) updates.reference = data.purchaseOrderRef;
     if (data.vatRate !== null) updates.taxRate = data.vatRate;
     setScannedTerms(data.paymentTerms ?? ''); // a lower-ranked input than the select, which only the user fills
@@ -162,6 +163,7 @@ export default function NewSupplierInvoicePage() {
           purchaseOrderId: form.purchaseOrderId || undefined,
           grnId: form.grnId || undefined,
           invoiceDate: form.invoiceDate, dueDate: form.dueDate || undefined,
+          dueDateGivenAs: form.dueDate && (dueFromScan || dueDateSource === 'scan') ? 'document' : undefined,
           paymentTerms: form.paymentTerms || undefined,
           reference: form.reference || undefined,
           notes: form.notes || undefined, taxRate: form.taxRate,
@@ -229,7 +231,7 @@ export default function NewSupplierInvoicePage() {
                       })); }} />
                   </div>
                   <DateField label="Invoice Date" name="invoiceDate" required value={form.invoiceDate || null} resetKey={dates.resetKey('invoiceDate')} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
-                  <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => { claimDueDate(); setForm(f => ({ ...f, dueDate: iso })); }, form.dueDate)} />
+                  <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => { claimDueDate(); setDueFromScan(false); setForm(f => ({ ...f, dueDate: iso })); }, form.dueDate)} />
                   <div>
                     <label htmlFor="supplier-invoices-new-payment-terms" className={lbl}>Payment Terms</label>
                     <select id="supplier-invoices-new-payment-terms" value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>

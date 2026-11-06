@@ -3,6 +3,7 @@
  * field labels, values, the op and channel badges, and SAST times.
  */
 import { companyTermsFromSetting, describePaymentTerms } from '@/modules/accounting/services/shared/paymentTerms';
+import { DUE_DATE_SOURCE_LABELS, isDueDateSource } from '@/modules/accounting/services/shared/dueDateSource';
 import type { Channel, EntityChangeField, EntityType } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
 
@@ -63,6 +64,9 @@ export function displayValue(type: EntityType, key: string, value: unknown): str
   if (type === 'company_setting' && key === 'value' && typeof value === 'string') {
     const t = companyTermsFromSetting(value);
     return describePaymentTerms(t.days, t.type);
+  }
+  if ((type === 'supplier_invoice' || type === 'customer_invoice') && key === 'due_date_source' && isDueDateSource(value)) {
+    return DUE_DATE_SOURCE_LABELS[value];
   }
   return formatValue(value);
 }

@@ -1,6 +1,7 @@
 /**
  * One file in BankTxAttachmentsModal: icon, name and size, then View (only for a file the viewer can show, see
- * ./attachmentPreview), Download (only for a url ./attachmentPreview's canDownload allows) and Remove.
+ * ./attachmentPreview), Download (only for a url ./attachmentPreview's canDownload allows) and Remove, which on a
+ * linked captured document unlinks it from the line.
  */
 
 import { Eye, FileImage, FileText, Loader2, Paperclip, Trash2, Upload } from 'lucide-react';
@@ -34,11 +35,12 @@ export function BankTxAttachmentRow({ att, deleting, onView, onDelete }: Props) 
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium text-[var(--ff-text-primary)] truncate">{att.file_name}</p>
         <p className="text-xs text-[var(--ff-text-tertiary)]">
+          {att.source === 'captured' ? 'Captured document · ' : ''}
           {formatBytes(att.file_size)}{att.file_size ? ' · ' : ''}{formatDisplayDate(att.created_at)}
         </p>
       </div>
 
-      {previewKind(att.file_url) !== 'none' && (
+      {previewKind(att.file_url, att.content_type) !== 'none' && (
         <button type="button" onClick={onView} title="View" aria-label={`View ${att.file_name}`}
           className={`${ICON_BTN} hover:bg-blue-500/10 hover:text-blue-400`}>
           <Eye className="h-3.5 w-3.5" aria-hidden="true" />
@@ -47,7 +49,7 @@ export function BankTxAttachmentRow({ att, deleting, onView, onDelete }: Props) 
 
       {/* Download link — only rendered when the URL is a safe scheme */}
       {canDownload(att.file_url) ? (
-        <a href={att.file_url} download={safeDownloadName(att.file_url, att.file_name)} target="_blank" rel="noopener noreferrer"
+        <a href={att.file_url} download={safeDownloadName(att.file_url, att.file_name, att.content_type)} target="_blank" rel="noopener noreferrer"
           className={`${ICON_BTN} hover:bg-blue-500/10 hover:text-blue-400`}
           title="Download" aria-label={`Download ${att.file_name}`} onClick={e => e.stopPropagation()}>
           <Upload className="h-3.5 w-3.5 rotate-180" />
@@ -58,7 +60,10 @@ export function BankTxAttachmentRow({ att, deleting, onView, onDelete }: Props) 
         </span>
       )}
 
-      <button type="button" disabled={deleting} onClick={onDelete} title="Remove" aria-label={`Remove ${att.file_name}`}
+      {/* On a linked captured document Remove unlinks it from this line; the document stays in document capture. */}
+      <button type="button" disabled={deleting} onClick={onDelete}
+        title={att.document_id ? 'Remove from this line (unlinks the captured document)' : 'Remove'}
+        aria-label={`Remove ${att.file_name}`}
         className={`${ICON_BTN} hover:bg-red-500/10 hover:text-red-400 disabled:opacity-40`}>
         {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
       </button>
