@@ -47,6 +47,8 @@ describe('draftTotals: the totals cap create and the preview share', () => {
   it('refuses a total of 1e13 or more', () => {
     expect(() => draftTotals([1e13], 0, 1)).toThrow(InvoiceLineValidationError);
     expect(() => draftTotals([1e13], 0, 1)).toThrow('The invoice total is too large');
+    // A rate under 1 shrinks the functional amount: the document total's own cap still holds.
+    expect(() => draftTotals([1e13], 0, 0.5)).toThrow('The invoice total is too large');
     expect(draftTotals([9_999_999_999_999.99], 0, 1).total).toBe(9_999_999_999_999.99);
   });
 
