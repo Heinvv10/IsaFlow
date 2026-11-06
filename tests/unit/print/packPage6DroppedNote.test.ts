@@ -31,8 +31,8 @@ describe('regression: the dropped-columns footnote must not refuse a pack the ol
   });
 });
 
-/** Net-debit revenue and a net-credit operating expense with a 3% interest/tax step at demo scale: dropping the caption does not make room for the columns, so page 6 falls back to the old layout. */
-const CROWDED = { k: 1, negative: true, loss: false, plug: 0.03, sg: [1, -1, 1, 1] };
+/** Net-debit revenue, three lines below zero and a 5% interest/tax step at demo scale: dropping the caption does not make room for the columns, so page 6 falls back to the old layout. */
+const CROWDED = { k: 1, negative: true, loss: false, plug: 0.05, sg: [1, -1, -1, -1] };
 
 describe('a crowded page 6 falls back to the old layout rather than refuse the pack', () => {
   it('drops the columns, prints no dropped-columns note, still builds, and logs the warning', () => {

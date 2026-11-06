@@ -9,7 +9,7 @@
  *  - a break is allowed at a space, and AFTER every hyphen (also before a digit: "2024-25" breaks after "2024-", and
  *    so does "abc-5", where UAX 14's HY x NU would not), except a hyphen that opens the word and is followed by a
  *    digit ("-5", a sign);
- *  - after an en dash, and before and after an em dash;
+ *  - after an en dash, and before and after an em dash (but not between two em dashes: a run of them is one piece);
  *  - NOT after a slash ("abc/def" is one word, "Fy2024/25" too), a dot, a comma, a colon, an ampersand or a plus.
  */
 
@@ -31,7 +31,7 @@ function wordPieces(word: string): string[] {
     const next = chars[i + 1];
     if (next === undefined) return;
     const afterHyphen = ch === HYPHEN && !(i === 0 && /\d/.test(next));
-    const afterDash = ch === EN_DASH || ch === EM_DASH;
+    const afterDash = ch === EN_DASH || (ch === EM_DASH && next !== EM_DASH);
     const beforeEm = next === EM_DASH && ch !== EM_DASH;
     if (afterHyphen || afterDash || beforeEm) {
       pieces.push(chars.slice(start, i + 1).join(''));
