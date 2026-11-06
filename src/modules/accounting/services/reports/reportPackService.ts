@@ -134,11 +134,15 @@ function buildSectionData(
       // opening cash wrong by the whole investing flow.
       const invCF = input.investingCashFlow ?? -(input.capitalExpenditure ?? 0);
       const finCF = input.financingCashFlow ?? 0;
-      const netCF = opCF + invCF + finCF;
+      // A LEDGER FAULT IS NOT OPENING CASH. Operating is the movement the journals explain, so closing less the three flows
+      // alone would put the gap in Opening Cash, which then no longer matches the prior period's close. It is its own line.
+      const unexplained = input.cashFlowUnexplained ?? 0;
+      const netCF = opCF + invCF + finCF + unexplained;
       return {
         operatingCashFlow: opCF,
         investingCashFlow: invCF,
         financingCashFlow: finCF,
+        cashFlowUnexplained: unexplained,
         netCashFlow: netCF,
         openingCash: input.cash - netCF,
         closingCash: input.cash,

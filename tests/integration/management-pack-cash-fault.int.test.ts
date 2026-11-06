@@ -15,6 +15,8 @@ import { sql } from '@/lib/neon';
 import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 import { getCashFlowDirect } from '@/modules/accounting/services/afs/cashFlowDirectService';
 import { getReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
+import { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
+import { cashFlowPackRows } from '@/modules/accounting/services/reports/packUnstatedRows';
 import type { ManagementPackConfig, NoteContent, NoteContentTable } from '@/modules/accounting/services/afs/afsTypes';
 
 const told = vi.hoisted(() => ({ sections: [] as Array<{ sectionType: string; sectionData: Record<string, unknown> }> }));
@@ -74,5 +76,17 @@ describe('a cash flow ledger fault reaches both packs', () => {
     expect(input.cashFlowUnexplained).toBe(GAP);
     expect(input.operatingCashFlow).toBe(direct.operatingTotal); // not operatingTotal + 250
     expect(cents(input.operatingCashFlow!) + cents(input.investingCashFlow!) + cents(input.financingCashFlow!) + cents(input.cashFlowUnexplained!)).toBe(cents(direct.netChange));
+  });
+
+  it("the report pack's cash flow section keeps the true opening cash and prints the gap as its own line", async () => {
+    const { direct, input } = await asRequest(pool, f.a, f.userA, async () => ({
+      direct: await getCashFlowDirect(f.a, START, END),
+      input: await getReportPackInput(f.a, 'Fixture Co', START, END),
+    }), { appUser: true, before: seedFault });
+    const d = buildReportPack('management', input, START, END).sections.find((s) => s.type === 'cash_flow')!.data as Record<string, unknown>;
+    expect(cents(d.openingCash as number)).toBe(cents(direct.openingCash)); // not opening + 250
+    expect(cents(d.netCashFlow as number)).toBe(cents(direct.netChange));
+    expect(cents(d.closingCash as number)).toBe(cents(direct.closingCash));
+    expect(cashFlowPackRows(d).find((r) => r.label === 'Unexplained movement')?.value).toBe(GAP);
   });
 });

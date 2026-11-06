@@ -29,7 +29,7 @@ import type { WaterfallStep } from '@/modules/accounting/services/reports/waterf
 import type { PackTrendPoint } from './packTrendService';
 import { isLandscapeSection, isPackSectionType, packSectionTitle, type PackSectionType } from './packSections';
 import {
-  CASH_FLOW_FIELDS, cashFlowLabel, packToCashFlow, packToCashFlowUnavailable, packToCommentary,
+  CASH_FLOW_FIELDS, cashFlowLabel, cashFlowLinePrints, packToCashFlow, packToCashFlowUnavailable, packToCommentary,
   packToRatioReasons, packToScorecard, packToWaterfallSteps,
 } from './packSectionData';
 
@@ -158,7 +158,7 @@ function blocksFor(sectionType: PackSectionType, section: PackSection, trend: Pa
       const unavailable = packToCashFlowUnavailable(d);
       return [{
         kind: 'kv',
-        items: CASH_FLOW_FIELDS.map((field): PackKvItem => {
+        items: CASH_FLOW_FIELDS.filter((field) => cashFlowLinePrints(d, field)).map((field): PackKvItem => {
           const reason = unavailable[field];
           return reason === undefined
             ? { label: cashFlowLabel(field), value: cashFlow[field], format: 'money' }
