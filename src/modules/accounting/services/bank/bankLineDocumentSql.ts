@@ -31,7 +31,7 @@ export function isCopyOfSql(m: Alias, cd: Alias = 'cd'): string {
 }
 
 /** The captured document id a copy's file name carries, as a uuid, or NULL for any other name (a primary-key probe). */
-function copiedDocIdSql(x: Alias): string {
+export function copiedDocIdSql(x: Alias): string {
   return `(CASE WHEN ${x}.file_name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_'`
     + ` THEN lower(left(${x}.file_name, 36))::uuid END)`;
 }
