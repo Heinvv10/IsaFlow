@@ -151,6 +151,8 @@ export interface CumulativePayeResult {
   additionalMedicalCredit: number;
   /** The retirement fund deduction this line records (see the header). */
   retirementDeduction: number;
+  /** The retirement fund deduction to date that came off periodic pay, for the room a donation has (payrollLinePaye). */
+  retirementOffPeriodicToDate: number;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -212,6 +214,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
       additionalMedicalCredit: Math.min(
         0, round2(toDate(c => c.additionalMedicalCreditUsed) - ytd.additionalMedicalCredit)),
       retirementDeduction: Math.min(0, round2(periodicToDate + offAnnual - (ytd.retirementDeduction ?? 0))),
+      retirementOffPeriodicToDate: periodicToDate,
     };
   }
   const taxAE = atAE.annualTax;
@@ -229,5 +232,6 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
     medicalCredit: round2(toDate(c => c.medicalCreditUsed) - ytd.medicalCredit),
     additionalMedicalCredit: round2(toDate(c => c.additionalMedicalCreditUsed) - ytd.additionalMedicalCredit),
     retirementDeduction: round2(periodicToDate + offAnnual - (ytd.retirementDeduction ?? 0)),
+    retirementOffPeriodicToDate: periodicToDate,
   };
 }

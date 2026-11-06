@@ -253,13 +253,13 @@ export const updateEmployeeTool: McpTool = {
     const endDate = strArg(args, 'end_date');
     const dateOfBirth = strArg(args, 'date_of_birth');
 
-    // The same check the create path makes. Without it a fractional count
-    // reaches an INTEGER column, pg raises, and the agent gets the registry's
-    // generic failure instead of the specific refusal create_employee gives.
     if (args.s18a_receipt_held !== undefined && typeof args.s18a_receipt_held !== 'boolean') {
       return toolError('s18a_receipt_held must be true or false');
     }
 
+    // The same check the create path makes. Without it a fractional count
+    // reaches an INTEGER column, pg raises, and the agent gets the registry's
+    // generic failure instead of the specific refusal create_employee gives.
     const dependants = args.medical_aid_dependants_count;
     if (dependants !== undefined && dependants !== null) {
       const n = Number(dependants);

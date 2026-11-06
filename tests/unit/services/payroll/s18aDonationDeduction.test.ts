@@ -55,7 +55,9 @@ function next(l: PayrollLineResult, before?: PayeYearToDate): PayeYearToDate {
     donationDeduction: (before?.donationDeduction ?? 0) + l.donationDeduction,
     sdlApplicable: (before?.sdlApplicable ?? 0) + l.sdlApplicable,
     sdlLeviable: (before?.sdlLeviable ?? 0) + l.sdlLeviable,
-    sdlRetirementDeduction: (before?.sdlRetirementDeduction ?? 0) + l.retirementDeduction + l.donationDeduction,
+    sdlRetirementDeduction: (before?.sdlRetirementDeduction ?? 0) - (before?.sdlDonationDeduction ?? 0) + l.retirementDeduction
+      + Math.max(0, (before?.sdlDonationDeduction ?? 0) + l.donationDeduction),
+    sdlDonationDeduction: Math.max(0, (before?.sdlDonationDeduction ?? 0) + l.donationDeduction),
   };
 }
 
@@ -178,6 +180,44 @@ describe('4030 is cumulative over the tax year', () => {
     const without = line([salary(1_000), bonus(100_000), ra(30_000)]);
     expect([withDonation.donationDeduction, withDonation.retirementDeduction]).toEqual([0, without.retirementDeduction]);
     expect(withDonation.sdlLeviable).toBe(without.sdlLeviable);
+  });
+
+  it('a negative retirement deduction adds no room: a R10 000 line takes at most R10 000', () => {
+    let ytd: PayeYearToDate | undefined;
+    for (let i = 0; i < 6; i++) { const l = line([salary(100_000), ra(8_000)], true, ytd); ytd = next(l, ytd); }
+    const short = line([salary(10_000), ra(-8_000), donation(20_000)], true, ytd);
+    expect([short.donationDeduction, short.periodicTaxable]).toEqual([10_000, 0]);
+    expect(line([ra(-3_000), donation(5_000)]).donationDeduction).toBe(0);
+  });
+
+  it('a small salary and a big bonus: the donation leaves the retirement deduction and PAYE as they were', () => {
+    // R3 000 + R200 000 bonus, R30 000 RA: the deduction takes all the periodic pay to date, so nothing is left to give.
+    const m1 = line([salary(3_000), bonus(200_000), ra(30_000), donation(20_000)]);
+    const m1Without = line([salary(3_000), bonus(200_000), ra(30_000)]);
+    expect([m1.donationDeduction, m1.retirementDeduction]).toEqual([0, m1Without.retirementDeduction]);
+    const m2 = line([salary(5_000)], true, next(m1));
+    const m2Without = line([salary(5_000)], true, next(m1Without));
+    expect([m2.donationDeduction, m2.retirementDeduction, m2.paye.monthlyPaye])
+      .toEqual([0, m2Without.retirementDeduction, m2Without.paye.monthlyPaye]);
+  });
+
+  it('a clawback past the periodic pay records no take-back the nil floor would swallow; the next line bears it', () => {
+    const m1 = line([salary(30_000), donation(1_000)]);
+    expect(m1.donationDeduction).toBe(1_000);
+    const m2 = line([salary(8_000), bonus(-60_000)], true, next(m1));
+    expect([m2.donationDeduction, m2.taxableIncome]).toEqual([0, 0]);
+  });
+
+  it('a new donation after a reversal of what never reduced SDL still gets its SDL credit', () => {
+    const ytd: PayeYearToDate = {
+      periods: 1, retirementCapPeriods: 1, periodicTaxable: 19_000, annualPayments: 0, tablePaye: 0, medicalCredit: 0,
+      additionalMedicalCredit: 0, medicalSchemeFees: 0, retirementContributions: 0, retirementDeduction: 0,
+      donations: 1_000, donationReceipted: 0, donationBase: 0, donationDeduction: 0,
+      sdlApplicable: 20_000, sdlLeviable: 20_000, sdlRetirementDeduction: 0, sdlDonationDeduction: 0,
+    };
+    const reversal = line([salary(20_000), donation(-1_000)], true, ytd);
+    const after = line([salary(20_000), donation(500)], true, next(reversal, ytd));
+    expect(after.sdlLeviable).toBe(19_500);
   });
 
   it('a no-pay month moves neither PAYE nor SDL', () => {

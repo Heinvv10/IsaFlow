@@ -7,8 +7,8 @@
  *
  *   base to date    = taxable remuneration to date (a bonus clawback lowers it) - retirement deduction to date
  *   allowed to date = min(receipted to date, 5% of base to date)
- *   this line       = allowed to date - allowed on earlier lines, at most the periodic pay left after the line's other
- *                     taxable deductions and its retirement deduction
+ *   this line       = allowed to date - allowed on earlier lines, at most the periodic pay left on this line and,
+ *                     to date, after the retirement deduction that comes off periodic pay
  *
  * A donation comes off that periodic pay only: the rest waits for a later line, and at year end for the assessment.
  * So the add-back to the s11F base (payeCumulative, which annualises it) is right, the retirement deduction is the
@@ -33,7 +33,7 @@ export interface S18aDonationResult {
   base: number;
   /** The deduction this line allows (signed): off PAYE. */
   deduction: number;
-  /** Its part that moves SDL: what it adds to the allowed figure above nil (a pre-959 line never reduced SDL). */
+  /** Its part that moves SDL: the rise in the liable lines' donations, kept above nil (a pre-959 line never reduced SDL). */
   sdlDeduction: number;
   warnings: ValidationResult[];
 }
@@ -44,8 +44,10 @@ export function s18aDonationForLine(input: {
   donations: number;
   /** This line's taxable remuneration before any deduction, net of a bonus clawback (signed). */
   remuneration: number;
-  /** The periodic taxable pay left on this line after its other taxable deductions and retirement deduction. */
+  /** The periodic taxable pay left on this line after its other taxable deductions (signed: a clawback can pass it). */
   periodicLeft: number;
+  /** The periodic pay to date left for donations on this line, after earlier donations and the retirement deduction. */
+  roomToDate: number;
   /** The retirement deduction recorded on this line (signed). */
   retirementDeduction: number;
   ytd: PayeYearToDate | undefined;
@@ -60,8 +62,11 @@ export function s18aDonationForLine(input: {
   const receiptedToDate = round2(earlierReceipted + receipted);
   const limitToDate = round2(DONATION_LIMIT * Math.max(0, (ytd?.donationBase ?? 0) + base));
   const allowedToDate = Math.min(receiptedToDate, receiptHeld ? limitToDate : earlierAllowed);
-  const deduction = round2(Math.min(allowedToDate - earlierAllowed, Math.max(0, input.periodicLeft)));
-  const sdlDeduction = round2(Math.max(0, earlierAllowed + deduction) - Math.max(0, earlierAllowed));
+  const wanted = Math.min(allowedToDate - earlierAllowed, Math.max(0, input.periodicLeft), Math.max(0, input.roomToDate));
+  // Under a clawback past the periodic pay the nil floor would swallow a take-back: it waits for a line that can bear it.
+  const deduction = round2(input.periodicLeft < 0 ? Math.max(0, wanted) : wanted);
+  const earlierSdl = ytd?.sdlDonationDeduction ?? 0;
+  const sdlDeduction = round2(Math.max(0, earlierSdl + deduction) - earlierSdl);
 
   const warnings: ValidationResult[] = [];
   if (donations > 0 && !receiptHeld) {

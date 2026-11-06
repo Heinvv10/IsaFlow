@@ -2,7 +2,8 @@
  * A line's cumulative PAYE with its donations (4030) allowed. Extracted from payrollCalculator (300-line cap).
  *
  * The donation's 5% is after the retirement deduction, whose own base is before the donation (G21 (2027) p. 10), so
- * PAYE is costed twice: first without the donation for that deduction, then with what s18aDonation allows.
+ * PAYE is costed twice: first without the donation for that deduction and the periodic pay it leaves, then with what
+ * s18aDonation allows.
  * Taxable deductions come off regular pay first, any excess off the annual payments. Pure.
  */
 import { calculateCumulativePaye, type CumulativePayeInput } from './payeCumulative';
@@ -31,13 +32,15 @@ export function costPayeWithDonations(input: {
       ...calculateCumulativePaye({ ...payeInput, regularTaxable, annualPayments: annualTaxable, donations: deductedDonations }),
     };
   };
-  const { retirementDeduction } = costed(0);
+  const before = costed(0);
   const donation = s18aDonationForLine({
     receiptHeld: input.receiptHeld,
     donations: input.donations,
     remuneration: periodicTaxable + annualPayments,
-    periodicLeft: periodicTaxable - taxableDeductions - retirementDeduction,
-    retirementDeduction,
+    periodicLeft: periodicTaxable - taxableDeductions,
+    // Earlier lines' periodic taxable is already net of their donations, so this is the room for this line's.
+    roomToDate: (input.ytd?.periodicTaxable ?? 0) + before.regularTaxable - before.retirementOffPeriodicToDate,
+    retirementDeduction: before.retirementDeduction,
     ytd: input.ytd,
   });
   return { donation, ...costed(donation.deduction) };

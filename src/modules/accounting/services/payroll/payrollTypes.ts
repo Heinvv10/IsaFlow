@@ -230,6 +230,8 @@ export interface PayeYearToDate {
   sdlLeviable?: number;
   /** The retirement and donation deductions recorded on those liable lines; absent only when there are no earlier lines. */
   sdlRetirementDeduction?: number;
+  /** The donation part of sdlRetirementDeduction, in line order and kept above nil; absent = none. */
+  sdlDonationDeduction?: number;
 }
 
 /** How a line's PAYE is made up (audit 2026-10-18 P3). */

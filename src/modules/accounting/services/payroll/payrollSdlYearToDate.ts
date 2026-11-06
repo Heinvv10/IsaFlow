@@ -45,6 +45,7 @@ export interface SdlYearToDate {
   sdlApplicable: number;
   sdlLeviable: number;
   sdlRetirementDeduction: number;
+  sdlDonationDeduction: number;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -63,8 +64,9 @@ export function sdlYearToDate(lines: readonly SdlYearToDateLine[]): SdlYearToDat
     // A line costed before 957 deducted nothing from its SDL: its recorded deduction is not credited later.
     if (l.sdlApplicable != null) {
       deduction += Number(l.retirement ?? 0);
-      donations += Number(l.donation ?? 0);
+      // In line order, above nil: a reversal of what never reduced SDL must not eat a later donation's credit.
+      donations = Math.max(0, donations + Number(l.donation ?? 0));
     }
   }
-  return { sdlApplicable: round2(pay), sdlLeviable: round2(leviable), sdlRetirementDeduction: round2(deduction + Math.max(0, donations)) };
+  return { sdlApplicable: round2(pay), sdlLeviable: round2(leviable), sdlRetirementDeduction: round2(deduction + donations), sdlDonationDeduction: round2(donations) };
 }

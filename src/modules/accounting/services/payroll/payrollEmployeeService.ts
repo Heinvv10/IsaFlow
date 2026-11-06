@@ -137,7 +137,7 @@ export async function updatePayrollEmployee(
   log.info('Updating payroll employee', { id, companyId }, 'payrollEmployeeService');
 
   const beforeRows = (await sql`
-    SELECT employment_type FROM payroll_employees
+    SELECT employment_type, s18a_receipt_held FROM payroll_employees
      WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
      LIMIT 1
   `) as Row[];
@@ -172,7 +172,8 @@ export async function updatePayrollEmployee(
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `;
-  const rows = (endIso === null && data.s18aReceiptHeld === undefined ? await write(sql) : await withTransaction(async (tx) => {
+  const tickMoved = data.s18aReceiptHeld !== undefined && data.s18aReceiptHeld !== before?.s18a_receipt_held;
+  const rows = (endIso === null && !tickMoved ? await write(sql) : await withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
     return write(tx as typeof sql);
   })) as Row[];

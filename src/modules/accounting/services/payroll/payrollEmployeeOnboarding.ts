@@ -70,7 +70,6 @@ function dependantsOf(value: unknown): number {
   return value;
 }
 
-/** Boolean('false') is true: anything but a boolean is refused, so a string cannot take someone out of UIF. */
 /** The flag buys a PAYE and SDL deduction: no receipt on record means none, and anything but a boolean is refused. */
 function s18aReceiptHeldOf(value: unknown): boolean {
   if (value === undefined || value === null) return false;
@@ -78,6 +77,7 @@ function s18aReceiptHeldOf(value: unknown): boolean {
   return value;
 }
 
+/** Boolean('false') is true: anything but a boolean is refused, so a string cannot take someone out of UIF. */
 function uifExcludedOf(value: unknown): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value !== 'boolean') throw new EmployeeOnboardingRefused('uifExcluded must be true or false');
