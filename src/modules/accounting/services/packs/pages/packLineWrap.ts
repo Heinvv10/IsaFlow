@@ -60,7 +60,7 @@ export const totalPx = (runs: readonly Run[]): number => runs.reduce((sum, r) =>
  * 1px of Chromium's and Chromium works in 1/64px, so a piece that fits with less than this to spare may not. The side
  * it errs on is a line too many, which makes the height model taller, never shorter.
  */
-export const WRAP_GUARD_PX = 0.5;
+export const WRAP_GUARD_PX = 0.1;
 
 /**
  * A greedy fill of `runs` into lines of `avail` pixels; `marker` is a footnote mark that stays with the last run.
