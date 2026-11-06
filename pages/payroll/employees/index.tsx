@@ -159,7 +159,7 @@ export default function EmployeesListPage() {
                       onClick={ev => { if (!(ev.target as HTMLElement).closest('a, button')) setSelected(e); }}
                       className="cursor-pointer border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]"
                     >
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)] font-mono text-xs">{e.employeeNumber}</td>
+                      <td className="py-3 px-4 text-[var(--ff-text-secondary)] font-id text-xs">{e.employeeNumber}</td>
                       <td className="py-3 px-4">
                         <Link
                           href={`/payroll/employees/${e.id}`}

@@ -145,7 +145,7 @@ export default function PayPackageEditPage() {
         <div className="flex items-center gap-3">
           <Package className="h-6 w-6 text-sky-500" />
           <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">
-            <span className="font-mono mr-2">{pkg.code}</span>{pkg.name}
+            <span className="font-id mr-2">{pkg.code}</span>{pkg.name}
           </h1>
         </div>
 

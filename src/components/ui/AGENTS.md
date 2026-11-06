@@ -20,3 +20,4 @@ The shared controls and page furniture every screen is built from: `Button`, `In
 
 ## Recent changes
 - 2026-11-02: master plan wave 3, PR V. The last 15 banner pages moved to `PageHeader`, the banner rule left `styles/themeContrast.css`, and `font-id` was added.
+- 2026-11-06: master plan wave 4, VC. Label case applied: the 19 files on `uppercase tracking-wider mb-1.5` moved to the kit label (`text-sm font-medium`, sentence case) and `tests/unit/ci/labelCaseCensus.test.ts` refuses the pattern in ts/tsx. Payroll `font-mono` moved to `font-id` (identifiers) or `tabular-nums` (sequences, period labels); `PayrollRunLinesTable.tsx` and `employees/[id].tsx` stay on the allowlist.
