@@ -18,6 +18,7 @@ import { storeCapturedBytes } from '@/lib/documentStorage';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { sql } from '@/lib/neon';
 import { listReconciliations } from '@/modules/accounting/services/capture/supplierStatementReconService';
+import { insertStatementDocument } from '@/modules/accounting/services/capture/supplierStatementDocument';
 import { createReconciliation } from '@/modules/accounting/services/capture/supplierStatementLifecycle';
 
 export const config = { api: { bodyParser: false } };
@@ -102,23 +103,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse, companyId: 
     }
 
     // Create a captured_documents row first, then store bytes
-    const [docRow] = (await sql`
-      INSERT INTO captured_documents
-        (company_id, file_name, file_type, mime_type, source, status, created_by)
-      VALUES (
-        ${companyId},
-        ${file.originalFilename ?? `supplier-statement-${Date.now()}`},
-        ${mimeType === 'application/pdf' ? 'pdf' : mimeType.split('/')[1]},
-        ${mimeType},
-        'manual_upload',
-        'pending',
-        ${userId}::uuid
-      )
-      RETURNING id
-    `) as DbRow[];
-
-    if (!docRow) throw new Error('Failed to create captured_documents row');
-    const documentId = docRow.id as string;
+    const documentId = await insertStatementDocument(
+      companyId,
+      userId,
+      file.originalFilename ?? `supplier-statement-${Date.now()}`,
+      mimeType,
+    );
 
     const stored = await storeCapturedBytes(companyId, documentId, buffer, mimeType);
 
