@@ -130,6 +130,7 @@ export function Select(props: SelectProps) {
   function clearSelection(e: React.MouseEvent) {
     e.stopPropagation();
     isMulti ? (props as MultiSelectProps).onChange([]) : (props as SingleSelectProps).onChange(null);
+    triggerRef.current?.focus(); // the clear button unmounts while focused; keep keyboard focus on the trigger
   }
 
   const { onTriggerKeyDown, onListKeyDown } = useSelectKeyboard({

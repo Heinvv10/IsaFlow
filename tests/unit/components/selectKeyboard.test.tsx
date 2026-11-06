@@ -153,6 +153,25 @@ describe('kit Select keyboard: review findings', () => {
     expect(activeLabel()).toBe('Alpha');
   });
 
+  it('type-ahead on a closed trigger starts after the selected option, not from the top', () => {
+    render(<Host options={[{ value: 'a', label: 'Alpha' }, { value: 'bank charges', label: 'Bank charges' }, { value: 'beta', label: 'Beta' }]} value="bank charges" />);
+    key('b');
+    expect(activeLabel()).toBe('Beta');
+  });
+
+  it('Enter on the clear button clears the value and leaves focus on the trigger', () => {
+    const Clearable = () => {
+      const [v, setV] = useState<string | null>('c');
+      return <><Select label="Letter" options={BANKS} value={v} onChange={setV} clearable /><output data-testid="picked">{v ?? 'none'}</output></>;
+    };
+    render(<Clearable />);
+    const clear = screen.getByRole('button', { name: 'Clear selection' });
+    clear.focus();
+    fireEvent.click(clear); // a keyboard Enter on a button fires click
+    expect(picked()).toBe('none');
+    expect(document.activeElement).toBe(trigger());
+  });
+
   it('the open trigger names the active option (aria-activedescendant), by an id with no whitespace', () => {
     render(<Host />);
     key('Enter'); key('ArrowDown'); key('ArrowDown');
