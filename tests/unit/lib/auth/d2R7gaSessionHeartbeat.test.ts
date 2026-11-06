@@ -82,6 +82,48 @@ describe('sessionHeartbeat background refresh', () => {
     expect(refreshes()).toBe(1);
   });
 
+  it('a refresh time in the future does not switch the refresh off', async () => {
+    localStorage.setItem('isaflow_last_refresh_at', String(Date.now() + 3 * 60 * 60 * 1000));
+    await minutes(55);
+    expect(refreshes()).toBe(1);
+  });
+
+  it('an activity time in the future does not switch the idle bounce off', async () => {
+    stop();
+    stop = startSessionHeartbeat({ idleTimeoutMinutes: 60 });
+    localStorage.setItem('isaflow_last_activity_at', String(Date.now() + 3 * 60 * 60 * 1000));
+    await minutes(70);
+    expect(window.location.href).toBe('/login?reason=idle-timeout');
+  });
+
+  it('a tab refreshes on its own: no other tab has to be alive or visible', async () => {
+    const otherTab = startSessionHeartbeat({ idleTimeoutMinutes: 480 });
+    otherTab();
+    await minutes(50);
+    expect(refreshes()).toBe(1);
+  });
+
+  it('a hidden tab does not tick', async () => {
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    await minutes(50);
+    expect(refreshes()).toBe(0);
+    hidden.mockRestore();
+  });
+
+  it('a second open tab finds the refresh already done', async () => {
+    const otherTab = startSessionHeartbeat({ idleTimeoutMinutes: 480 });
+    await minutes(50);
+    expect(refreshes()).toBe(1);
+    otherTab();
+  });
+
+  it('starts when localStorage throws', () => {
+    stop();
+    const denied = () => { throw new DOMException('denied', 'SecurityError'); };
+    vi.stubGlobal('localStorage', { getItem: denied, setItem: denied, removeItem: denied });
+    expect(() => { stop = startSessionHeartbeat({ idleTimeoutMinutes: 480 }); }).not.toThrow();
+  });
+
   it('an idle bounce fires within a tick of the limit and logs out once', async () => {
     stop();
     stop = startSessionHeartbeat({ idleTimeoutMinutes: 60 });

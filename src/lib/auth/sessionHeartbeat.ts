@@ -11,15 +11,15 @@
  *      localStorage. If idle exceeds the company's idle_timeout_minutes, force
  *      logout instead of refreshing.
  *
- * Multi-tab coordination: leader election via BroadcastChannel ensures only one
- * tab fires the heartbeat. Activity timestamp is shared across tabs through
- * localStorage so a click in any tab counts as activity for all of them.
+ * Multi-tab: both timestamps are shared through localStorage, so a click in any tab
+ * counts for all of them and a refresh in one holds the others off. Any visible tab
+ * may tick. Two refreshing at once is safe: GoTrue answers a rotated token with the
+ * current one.
  */
 
 import { clearTenantClientState } from './clearTenantClientState';
 import { log } from '@/lib/logger';
 
-const CHANNEL_NAME = 'isaflow_auth';
 const ACTIVITY_KEY = 'isaflow_last_activity_at';
 const REFRESH_URL = '/api/auth/refresh';
 const REFRESH_KEY = 'isaflow_last_refresh_at';
@@ -52,12 +52,24 @@ function recordRefresh(): void {
   }
 }
 
+function hasTimestamp(key: string): boolean {
+  try {
+    return Boolean(localStorage.getItem(key));
+  } catch {
+    return false; // storage blocked: the record calls are best-effort too
+  }
+}
+
 function readTimestamp(key: string): number {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return Date.now();
     const n = Number(raw);
-    return Number.isFinite(n) ? n : Date.now();
+    if (!Number.isFinite(n)) return Date.now();
+    if (n <= Date.now()) return n;
+    // In the future (a clock set back, a stray value): reset it, or the wait never ends.
+    localStorage.setItem(key, String(Date.now()));
+    return Date.now();
   } catch {
     return Date.now();
   }
@@ -74,8 +86,8 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
   const logoutHref = opts.logoutHref ?? '/login?reason=idle-timeout';
 
   // Seed activity so the first heartbeat after fresh login isn't immediately idle.
-  if (!localStorage.getItem(ACTIVITY_KEY)) recordActivity();
-  if (!localStorage.getItem(REFRESH_KEY)) recordRefresh();
+  if (!hasTimestamp(ACTIVITY_KEY)) recordActivity();
+  if (!hasTimestamp(REFRESH_KEY)) recordRefresh();
 
   // --- Activity tracking (throttled to avoid hammering localStorage) ---
   let lastWrite = 0;
@@ -89,49 +101,6 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
   for (const ev of activityEvents) {
     document.addEventListener(ev, onActivity, { passive: true });
   }
-
-  // --- Multi-tab leader election ---
-  // Each tab posts a claim with its random id; highest id wins. On stop, the
-  // leader posts a `resign` so survivors elect a new leader instead of being
-  // stuck pointing at a dead tab id (which would freeze the heartbeat for
-  // everyone — exactly the silent-logout bug this module is meant to prevent).
-  const myId = Math.random().toString(36).slice(2);
-  let leaderId = myId;
-  let channel: BroadcastChannel | null = null;
-
-  const broadcastClaim = (): void => {
-    try {
-      channel?.postMessage({ type: 'leader-claim', id: myId });
-    } catch {
-      // Channel may have been closed — ignore.
-    }
-  };
-
-  try {
-    channel = new BroadcastChannel(CHANNEL_NAME);
-    channel.onmessage = (e: MessageEvent) => {
-      const data = e.data as { type?: string; id?: string } | undefined;
-      if (!data || typeof data.id !== 'string') return;
-      if (data.type === 'leader-claim') {
-        // Higher-id tab wins. If we lose, we step back to follower; if we're
-        // already higher, re-broadcast so the late-joiner learns about us.
-        if (data.id > leaderId) {
-          leaderId = data.id;
-        } else if (data.id < leaderId && leaderId === myId) {
-          broadcastClaim();
-        }
-      } else if (data.type === 'leader-resign' && data.id === leaderId) {
-        // Current leader stepping down — reset and re-elect.
-        leaderId = myId;
-        broadcastClaim();
-      }
-    };
-    broadcastClaim();
-  } catch {
-    // BroadcastChannel not supported — proceed without leader election.
-  }
-
-  const isLeader = (): boolean => leaderId === myId;
 
   // Clears auth cookies server-side so the next visitor on this browser doesn't
   // auto-resume the session. Uses `keepalive: true` so the request survives the
@@ -164,7 +133,6 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
 
   // --- Heartbeat tick ---
   const tick = async (): Promise<void> => {
-    if (!isLeader()) return;
     if (document.hidden) return;
 
     const idleFor = Date.now() - readTimestamp(ACTIVITY_KEY);
@@ -201,15 +169,6 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
     window.clearInterval(intervalId);
     for (const ev of activityEvents) {
       document.removeEventListener(ev, onActivity);
-    }
-    if (channel) {
-      // Step down so a surviving tab can take over the heartbeat.
-      try {
-        if (isLeader()) channel.postMessage({ type: 'leader-resign', id: myId });
-      } catch {
-        // Channel may already be closed — ignore.
-      }
-      channel.close();
     }
   };
 }

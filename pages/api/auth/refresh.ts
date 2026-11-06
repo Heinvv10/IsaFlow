@@ -110,7 +110,8 @@ const handler: NextApiHandler = async (req, res) => {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
     expiresIn,
-    persistent,
+    // A session-only cookie has no Max-Age, so it would ignore the limit set above.
+    persistent: actor === 'impersonation' || persistent,
     preserveImpersonation: true,
   });
 

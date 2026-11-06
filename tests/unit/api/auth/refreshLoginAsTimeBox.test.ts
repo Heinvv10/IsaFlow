@@ -90,6 +90,11 @@ describe('/api/auth/refresh', () => {
     expect(await refreshWith('sb-refresh-token=r1')).toEqual({ status: 200, renewed: true, clearedRefresh: false });
   });
 
+  it('an ordinary session-only login stays session-only', async () => {
+    await refreshWith('sb-refresh-token=r1; isaflow_remember_me=0');
+    expect(accessMaxAge()).toBeNaN();
+  });
+
   it('an ordinary session keeps the full access cookie lifetime', async () => {
     await refreshWith('sb-refresh-token=r1');
     expect(accessMaxAge()).toBe(3600);
@@ -111,6 +116,11 @@ describe('/api/auth/refresh', () => {
     it('a renewal gets an access cookie that dies with the proof, not an hour later', async () => {
       await refreshWith(`sb-refresh-token=r1; sb-impersonation-proof=${await proof()}`);
       expect(accessMaxAge()).toBeGreaterThan(590);
+      expect(accessMaxAge()).toBeLessThanOrEqual(600);
+    });
+
+    it('the limit holds on a session-only login too', async () => {
+      await refreshWith(`sb-refresh-token=r1; isaflow_remember_me=0; sb-impersonation-proof=${await proof()}`);
       expect(accessMaxAge()).toBeLessThanOrEqual(600);
     });
 
