@@ -235,6 +235,10 @@ describe('listEmployeeComponentAssignments', () => {
       isTaxable: false,
     });
     expect(listCallSql()).toContain('pc.is_taxable');
+    // The join is scoped to the caller's company: another company's component of the same id never joins.
+    const joined = sqlCalls.find(c => c.sql.includes('JOIN payroll_components'))!;
+    expect(joined.sql).toMatch(/JOIN payroll_components pc ON pc\.id = pec\.component_id AND pc\.company_id = \?::uuid/);
+    expect(joined.values).toContain(COMPANY_ID);
 
     // Verify the list query uses a JOIN
     const listCall = sqlCalls.find(c => c.sql.includes('JOIN payroll_components'));

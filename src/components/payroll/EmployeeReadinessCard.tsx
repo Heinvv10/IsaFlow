@@ -4,7 +4,7 @@
  */
 import { useEffect, useState } from 'react';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
-import { loadBankState } from './employeeBankState';
+import { loadBankState, loadRunMonth } from './employeeBankState';
 import { employeeReadiness, readinessSummary, type BankState, type ReadinessAssignment } from './employeeReadiness';
 
 interface Props {
@@ -25,15 +25,15 @@ function goTo(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
 }
 
 export function EmployeeReadinessCard({ employeeId, employee, assignments, refreshKey = 0 }: Props) {
-  const [bank, setBank] = useState<BankState | null>(null);
+  const [read, setRead] = useState<{ bank: BankState; runMonth: string } | null>(null);
   useEffect(() => {
     let stale = false;
-    void loadBankState(employeeId).then(s => { if (!stale) setBank(s); });
+    void Promise.all([loadBankState(employeeId), loadRunMonth()]).then(([bank, runMonth]) => { if (!stale) setRead({ bank, runMonth }); });
     return () => { stale = true; };
   }, [employeeId, refreshKey]);
 
-  if (bank === null) return <p className="text-sm text-[var(--ff-text-secondary)]" role="status">Checking…</p>;
-  const result = employeeReadiness({ employee, components: assignments, bank });
+  if (read === null) return <p className="text-sm text-[var(--ff-text-secondary)]" role="status">Checking…</p>;
+  const result = employeeReadiness({ employee, components: assignments, bank: read.bank, runMonth: read.runMonth });
   const Icon = result.ready ? CheckCircle2 : AlertTriangle;
   const tone = result.ready
     ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300'

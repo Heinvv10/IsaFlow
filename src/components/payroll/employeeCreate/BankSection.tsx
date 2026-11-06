@@ -1,6 +1,6 @@
 import { FormSection } from '@/components/ui/FormSection';
 import { BankFields } from './BankFields';
-import { bankIsBlank, type BankErrors, BankForm, BankKey } from './bankDetails';
+import { bankIsBlank, type BankErrors, type BankForm, type BankKey } from './bankDetails';
 
 interface Props {
   bank: BankForm;

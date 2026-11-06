@@ -30,9 +30,13 @@ function serve(bank: Response) {
 beforeEach(() => { fetchMock.mockReset(); push.mockClear(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-// A blank bank section is unstarred; the star appears after the first keystroke (employeeBankLabels.test.tsx).
-const fill = (label: string, value: string) =>
-  fireEvent.change(screen.queryByLabelText(label) ?? screen.getByLabelText(label.replace(/ \*$/, '')), { target: { value } });
+// The bank labels are starred only once the section has something in it (employeeBankLabels.test.tsx): `fill` takes the
+// exact label the field has at that moment, with no fallback to the other spelling.
+const fill = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+/** The first bank field typed makes the other two starred, so the first is typed unstarred and the rest starred. */
+function fillBank(name: string, branch: string, account: string) {
+  fill('Bank name', name); fill('Branch code *', branch); fill('Account number *', account);
+}
 function fillEmployee() {
   fill('First name *', 'Kay'); fill('Last name *', 'One'); fill('Employee number *', 'K2-1');
 }
@@ -43,7 +47,7 @@ describe('bank details on create', () => {
     serve(ok({ id: 'b1' }));
     render(<NewEmployeePage />);
     fillEmployee();
-    fill('Bank name *', 'FNB'); fill('Branch code *', '250655'); fill('Account number *', '62000123456');
+    fillBank('FNB', '250655', '62000123456');
     submit();
     await waitFor(() => expect(push).toHaveBeenCalledWith(`/payroll/employees/${EMP}`));
     const [url, init] = sent('PUT', '/bank-details')[0]!;
@@ -68,7 +72,8 @@ describe('bank details on create', () => {
     serve(ok({ id: 'b1' }));
     render(<NewEmployeePage />);
     fillEmployee();
-    for (const [label, value] of Object.entries(typed)) fill(label, value);
+    // The first key typed starts the section, so it still reads unstarred; the rest are starred by then.
+    Object.entries(typed).forEach(([label, value], i) => fill(i === 0 ? label.replace(/ \*$/, '') : label, value));
     submit();
     await waitFor(() => { for (const l of invalid) expect(screen.getByLabelText(l).getAttribute('aria-invalid')).toBe('true'); });
     expect(sent('POST', '/api/payroll/employees')).toHaveLength(0);
@@ -78,7 +83,7 @@ describe('bank details on create', () => {
     serve(refusal('Account number must be 6 to 16 digits'));
     render(<NewEmployeePage />);
     fillEmployee();
-    fill('Bank name *', 'FNB'); fill('Branch code *', '250655'); fill('Account number *', '62000123456');
+    fillBank('FNB', '250655', '62000123456');
     submit();
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Employee saved; bank details not saved: Account number must be 6 to 16 digits. Add them on the profile.');
@@ -95,7 +100,7 @@ describe('bank details on create', () => {
     serve(refusal('Only an owner or admin can enter bank details.'));
     render(<NewEmployeePage />);
     fillEmployee();
-    fill('Bank name *', 'FNB'); fill('Branch code *', '250655'); fill('Account number *', '62000123456');
+    fillBank('FNB', '250655', '62000123456');
     submit();
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('bank details not saved: Only an owner or admin can enter bank details. Add them on the profile.');
