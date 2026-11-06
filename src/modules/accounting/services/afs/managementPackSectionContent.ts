@@ -37,7 +37,7 @@ export interface PackData {
   periodEnd: string;
   plan: ComparisonPlan;
   budget: PackBudget | null;
-  /** The approved variance notes printed under the budget_variance table (budgets P5). */
+  /** The approved variance notes: under the budget_variance table, else under income_vs_budget (budgets P5). */
   varianceNotes: NoteContentBlock[];
   enabledSections: string[];
 }
@@ -93,7 +93,8 @@ export function renderSection(sectionType: string, data: PackData): NoteContent 
     case 'bank_reconciliation':
       return { title, blocks: data.reconciliations ? bankReconciliationBlocks(data.reconciliations, data.periodEnd) : [{ type: 'paragraph', text: REPORT_UNAVAILABLE }] };
     case 'income_vs_budget':
-      return { title, blocks: data.budget ? budgetBandBlocks(data.budget) : [] };
+      // budget_variance is off by default: an approved note must not vanish with it, so it prints here instead.
+      return { title, blocks: data.budget ? budgetBandBlocks(data.budget, data.enabledSections.includes('budget_variance') ? [] : data.varianceNotes) : [] };
     case 'budget_variance':
       return { title, blocks: data.budget ? budgetLineBlocks(data.budget, data.varianceNotes) : [] };
     default:
