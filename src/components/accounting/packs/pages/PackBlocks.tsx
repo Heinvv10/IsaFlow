@@ -29,6 +29,7 @@ import { NarrativeColumns } from '../primitives/NarrativeColumns';
 import { StatTile } from '../primitives/StatTile';
 import { formatFigureText } from '../primitives/packFigureText';
 import { fitAttributes, kpiFit } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import type { PageOrientation } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { MattersTable } from '../primitives/MattersTable';
 import { PackChartBlock, PackSmallMultiples } from './PackChartBlock';
 import { PackDefinitionsBlock, PackDisclosureBlock } from './PackNoteBlocks';
@@ -44,12 +45,14 @@ export interface PackBlockViewProps {
    *  this tree for the reason `formatFigureText` gives: an optional scale
    *  makes the 1000x misread the default path. */
   scale: MoneyScale;
+  /** The sheet the block prints on (the figure fit measures against its width). */
+  orientation?: PageOrientation;
 }
 
-export function PackBlockView({ block, scale }: PackBlockViewProps) {
+export function PackBlockView({ block, scale, orientation = 'portrait' }: PackBlockViewProps) {
   switch (block.kind) {
     case 'kpiTiles': {
-      const fit = fitAttributes(kpiFit(block.tiles, scale));
+      const fit = fitAttributes(kpiFit(block.tiles, scale, orientation));
       return (
         <div className={fit.className === undefined ? 'pack-kpi-tiles' : `pack-kpi-tiles ${fit.className}`} style={fit.style}>
           {block.tiles.map((tile, index) => (
@@ -74,7 +77,7 @@ export function PackBlockView({ block, scale }: PackBlockViewProps) {
         </div>
       );
     case 'table':
-      return <ComparativeTable table={block.table} scale={scale} />;
+      return <ComparativeTable table={block.table} scale={scale} orientation={orientation} />;
     case 'scorecard':
       return <ScorecardTable groups={block.groups} scale={scale} priorFootnote={block.priorFootnote ?? null} />;
     case 'chart':
@@ -117,7 +120,7 @@ export function PackBlocks({ page, scale }: PackBlocksProps) {
         // off — a block split across a page boundary is the failure it
         // exists to prevent, and nothing emitted it until now.
         <div key={`${block.kind}-${index}`} data-pack-block className="pack-block">
-          <PackBlockView block={block} scale={scale} />
+          <PackBlockView block={block} scale={scale} orientation={page.orientation} />
         </div>
       ))}
     </>
