@@ -151,7 +151,7 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
     const f = await seedEmployee(pool, fixtures, 'R1 fully donated salary', 20_000);
     const donation = String((await pool.query(
       `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
-       VALUES ($1, 'Full donation', '4030', 'deduction', true) RETURNING id`, [f.company])).rows[0]!.id);
+       VALUES ($1, 'Full taxable deduction', '4018', 'deduction', true) RETURNING id`, [f.company])).rows[0]!.id);
     await pool.query(
       `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to)
        VALUES ($1, $2, 20000, '2027-01-01', '2027-01-31')`, [f.employee, donation]);
