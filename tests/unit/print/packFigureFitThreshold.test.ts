@@ -115,12 +115,16 @@ describe('a KPI row whose tile holds its column open with a word longer than its
   const fitsAt = (digits: number) => kpiFit(withWidenedKpi(demoWithoutBudget(), digits, label).tiles, SCALE);
   const range = Array.from({ length: 30 }, (unused, i) => i + 4);
 
-  it('the label sets the column: the row fits fewer digits than the same row with its ordinary labels', () => {
-    const widest = (fits: (d: number) => boolean) => range.filter(fits).pop()!;
-    const withLabel = widest((d) => fitsAt(d).fits);
-    const ordinary = widest((d) => kpiFit(withWidenedKpi(demoWithoutBudget(), d).tiles, SCALE).fits);
-    expect(withLabel).toBeLessThanOrEqual(ordinary);
+  it('the label sets the column: the row is fitted to a smaller size than with its ordinary labels', () => {
+    const ordinary = kpiFit(withWidenedKpi(demoWithoutBudget(), 8).tiles, SCALE).px!;
+    expect(fitsAt(8).px!).toBeLessThan(ordinary);
   });
+
+  it.each([8, 9, 10])('%i digits: fitted to the size the label allows, it prints inside the sheet', async (digits) => {
+    const labelled = withWidenedKpi(demoWithoutBudget(), digits, label);
+    expect(fitsAt(digits).px).not.toBeNull();
+    expect(await overflowOf(labelled.doc, labelled.index)).toEqual([]);
+  }, 300_000);
 
   it('prints clean at the widest the model fits, and runs past the edge one digit wider', async () => {
     const floor = range.filter((d) => fitsAt(d).fits).pop()!;
