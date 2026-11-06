@@ -10,7 +10,7 @@ import type { GLAccount, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { isBankSubtype } from './accountSubtypes';
 import { assertParentUsable } from './accountParentRules';
-import { boundedRowWait, ChartRefusal, clearSystemAccountCacheAfterCommit, guardActiveChange, lockBeforeChartWrite, refuseSystemAccountDelete } from './systemRoleReactivation';
+import { boundedRowWait, ChartRefusal, clearSystemAccountCacheAfterCommit, guardActiveChange, lockBeforeChartWrite, refuseSystemAccountDelete, type ReactivationActor } from './systemRoleReactivation';
 
 export interface CreateAccountInput {
   accountCode: string;
@@ -342,9 +342,9 @@ export async function renameAccountCode(
   return mapRow(rows[0]);
 }
 
-export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
+export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput, actor?: ReactivationActor): Promise<GLAccount> {
   try {
-    const finish = await guardActiveChange(companyId, id, input);
+    const finish = await guardActiveChange(companyId, id, input, actor);
     const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}` as {
       is_system_account: boolean;
       account_name: string;

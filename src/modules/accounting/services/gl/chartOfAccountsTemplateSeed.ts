@@ -12,25 +12,29 @@ import { HOLDER_NO_CHILDREN_TYPES } from './roleTargetRules';
 import { BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES } from './isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from './glAccountLock';
 import { getTemplateLines, type CoaTemplate, type TemplateLine } from './chartOfAccountsImportService';
+import { auditBankRoleFilled, bankRoleHolderId } from './bankRoleFilledAudit';
 
 /**
  * Seed a Chart of Accounts for a newly-created company from the chosen template.
  * Two-pass insert: first without parent_account_id, then wire up parents.
+ * `actorUserId` (the coa-seed route's user): a seed that gives an EMPTY bank role its holder is audited as the bank role
+ * filled (bankRoleFilledAudit). A new company's own setup passes none: there is no earlier holder to have replaced.
  */
-export function seedChartOfAccountsFromTemplate(companyId: string, template: CoaTemplate): Promise<number> {
+export function seedChartOfAccountsFromTemplate(companyId: string, template: CoaTemplate, actorUserId?: string): Promise<number> {
   // Bounded: every statement it runs while it holds the role lock waits at most 5s for any lock.
-  return boundedRowWait(() => seedUnderLock(companyId, template));
+  return boundedRowWait(() => seedUnderLock(companyId, template, actorUserId));
 }
 
 /** Bounds the level pass below: a template deeper than this would be a bug in the template. */
 const MAX_SEED_DEPTH = 8;
 
 /** Returns how many accounts it inserted: codes the company already has are skipped and left as they are. */
-async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<number> {
+async function seedUnderLock(companyId: string, template: CoaTemplate, actorUserId?: string): Promise<number> {
   const lines = getTemplateLines(template);
   if (lines.length === 0) return 0; // 'blank' — no seeding
   // The template flags system accounts: serialise with every writer of role flags.
   await lockSystemRoleWrites(companyId);
+  const bankBefore = actorUserId ? await bankRoleHolderId(companyId) : null;
   // A role the company already holds is not seeded again: the template's row
   // for it is SKIPPED (as a row whose code is taken is), never added as a
   // second holder for the resolver to choose between.
@@ -124,6 +128,7 @@ async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<
     if (moved.length === 0) break;
   }
 
+  if (actorUserId) await auditBankRoleFilled(companyId, actorUserId, bankBefore);
   clearSystemAccountCacheAfterCommit(companyId);
   log.info('COA seeded from template', { companyId, template, inserted: inserted.length }, 'accounting');
   return inserted.length;

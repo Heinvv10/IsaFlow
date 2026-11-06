@@ -16,6 +16,7 @@ import { BANK_SUBTYPES, isBankSubtype } from '@/modules/accounting/services/gl/a
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { boundedRowWait, lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRoleReactivation';
+import { auditBankRoleFilled } from '@/modules/accounting/services/gl/bankRoleFilledAudit';
 import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl/systemRoleInvariant';
 import { holderAsParentRefusal, roleBarringChildren } from '@/modules/accounting/services/gl/roleTargetRules';
 import { hasChildAccounts, isSubjectToLeafRule } from '@/modules/accounting/services/gl/isReportVisibleLeaf';
@@ -119,7 +120,7 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId, user } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
 
   if (req.method === 'PUT') {
     try {
@@ -156,7 +157,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (acct?.is_system_account && !b.isActive) {
           return apiResponse.badRequest(res, 'Cannot deactivate the primary bank account — choose another primary bank in Default Accounts first');
         }
-        const refusal = b.isActive ? await reactivationRefusal(companyId, id) : null;
+        const refusal = b.isActive ? await reactivationRefusal(companyId, id, { role: companyRole, userId: user.id }) : null;
         if (refusal) return apiResponse.badRequest(res, refusal);
       }
 
@@ -184,6 +185,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `);
       if (inFlight) await recordPayingAccountEdit(companyId, id, user.id, inFlight);
       if (roles) await assertRolesKept(companyId, roles);
+      // A reactivation that gave the empty bank role its holder decides where net pay goes: recorded.
+      if (roles && b.isActive === true) await auditBankRoleFilled(companyId, user.id, roles.holders.get('bank') ?? null);
       clearSystemAccountCacheAfterCommit(companyId);   // the resolver caches the holder's name and active state
       return apiResponse.success(res, { updated: true });
     } catch (err) {

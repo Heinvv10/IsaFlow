@@ -91,21 +91,20 @@ describe('cash-flow-export classification', () => {
     }
   });
 
-  it('classifies cash, receivables, payables and investing assets by subtype', async () => {
+  it('leaves the cash accounts out of the movement by subtype (every spelling) and scopes it to the company', async () => {
     const { req, res } = mockReqRes();
     await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);
 
-    const subtypeQueries = queryTexts().filter((t) => t.includes('account_subtype = ANY('));
-    expect(subtypeQueries.length).toBeGreaterThanOrEqual(4);
-
-    const params = sqlMock.mock.calls.flatMap((c) => c.slice(1)).filter(Array.isArray).flat();
-    expect(params).toContain('bank');
-    expect(params).toContain('cash');
-    expect(params).toContain('receivable');
-    expect(params).toContain('payable');
-    expect(params).toContain('fixed_asset');
-    // The plural spelling is 30 accounts in production.
-    expect(params).toContain('fixed_assets');
+    // One query over the non-cash accounts, per journal; the classification into lines is in TypeScript through the
+    // subtype vocabulary (cashFlowIndirectClassification.test.ts walks it, the plural fixed_assets included).
+    const movement = queryTexts().filter((t) => t.includes('GROUP BY l.journal_entry_id, jc.net_cash, l.account_type, l.account_subtype'));
+    expect(movement).toHaveLength(1);
+    expect(movement[0]).toMatch(/\(ga\.account_type = 'asset' AND COALESCE\(ga\.account_subtype = ANY\(/);
+    expect(movement[0]).toMatch(/WHERE NOT l\.is_cash/);
+    const params = sqlMock.mock.calls.flatMap((c) => c.slice(1));
+    const lists = params.filter(Array.isArray).flat();
+    for (const spelling of ['bank', 'bank_account', 'cash', 'petty_cash']) expect(lists).toContain(spelling);
+    expect(params).toContain('co-1');
   });
 
   it('surfaces a query fault instead of answering with downgraded numbers', async () => {

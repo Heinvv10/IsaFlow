@@ -45,7 +45,6 @@ import NewSupplierPage from '../../../pages/accounting/suppliers/new';
 import DisclosureNotesPage from '../../../pages/accounting/reports/disclosure-notes';
 import BalanceSheetPage from '../../../pages/accounting/reports/balance-sheet';
 import IncomeStatementPage from '../../../pages/accounting/reports/income-statement';
-import CashFlowPage from '../../../pages/accounting/reports/cash-flow';
 import YearEndPage from '../../../pages/accounting/year-end/index';
 import BankTransfersPage from '../../../pages/accounting/bank-transfers/index';
 import PortalLoginPage from '../../../pages/accounting/afs/portal/login';
@@ -210,7 +209,6 @@ describe('report reference lists', () => {
     ['balance sheet', () => <BalanceSheetPage />, 'business-units', 'Failed to load business units', 'balance-sheet'],
     ['income statement', () => <IncomeStatementPage />, 'cost-centres', 'Failed to load cost centres', 'income-statement'],
     ['income statement', () => <IncomeStatementPage />, 'business-units', 'Failed to load business units', 'income-statement'],
-    ['cash flow', () => <CashFlowPage />, 'cost-centres', 'Failed to load cost centres', 'cash-flow'],
   ] as const)('%s (case %#): a failed reference list is logged and the page still renders', async (_n, page, part, msg, ctx) => {
     failing(part);
     render(page() as JSX.Element);

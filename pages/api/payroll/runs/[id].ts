@@ -17,6 +17,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { describePayRunApproval } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+import { describePayRunDecision } from '@/modules/accounting/services/payroll/payRunDecision';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -32,7 +33,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const lines = await getPayrollRunLines(id, companyId);
   const approval = run.status === 'draft' || run.status === 'calculated'
     ? await describePayRunApproval(companyId, id) : null;
-  return apiResponse.success(res, { ...run, lines, approval });
+  // Whether the approval was decided by the requester's own sole-approver self-approval (no ids leave the server).
+  const approvalDecision = await describePayRunDecision(companyId, id, run.status);
+  return apiResponse.success(res, { ...run, lines, approval, approvalDecision });
 }
 
 export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

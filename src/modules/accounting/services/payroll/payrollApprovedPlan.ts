@@ -55,9 +55,11 @@ export async function readApprovedPlan(
   if (!header) return null;
   const plan = await buildPayrollJournalPlan(companyId, runId);
   if (!plan) return null;
-  // A plan blocked for a reason of its own (a loan above pay, a run to recalculate) is refused with that reason
-  // by the caller, before any write: approval would not clear it, so "not approved" would send a person the wrong way.
-  if (!plan.alreadyPostedJournalId && plan.blockers.some((b) => b.code !== 'run_not_approved')) return { header, plan };
+  // A plan blocked for a reason of its own (a loan above pay, a run to recalculate, a journal it already carries,
+  // even on a reopened run) is refused with that reason by the caller, before any write: approval would not clear
+  // it, so "not approved" would send a person the wrong way. An already-posted plan posts nothing (the poster
+  // returns the link; the MCP tool reports already_posted).
+  if (plan.blockers.some((b) => b.code !== 'run_not_approved')) return { header, plan };
   const clearance = await assertPayRunApproved(companyId, runId);
   if (clearance.grandfathered || plan.alreadyPostedJournalId) return { header, plan };
   const revision = header.approval_revision == null ? null : String(header.approval_revision);

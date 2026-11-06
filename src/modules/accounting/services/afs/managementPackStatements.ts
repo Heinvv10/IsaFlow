@@ -7,14 +7,14 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import type { BalanceSheetReport, IncomeStatementReport } from '../../types/gl.types';
 import type { NoteContentTable, NoteTableRowKind } from './afsTypes';
 
-interface Line { accountCode: string; accountName: string; amount: number }
+export interface Line { accountCode: string; accountName: string; amount: number }
 
 /** One printed column: its header and the report behind it. */
 export interface StatementColumn<R> { label: string; report: R }
 
-interface GroupSpec<R> { heading: string; lines: (r: R) => Line[]; totalLabel: string; total: (r: R) => number }
-interface SubtotalSpec<R> { label: string; value: (r: R) => number; kind: 'subtotal' | 'total' }
-type Spec<R> = { group: GroupSpec<R> } | { subtotal: SubtotalSpec<R> };
+export interface GroupSpec<R> { heading: string; lines: (r: R) => Line[]; totalLabel: string; total: (r: R) => number; lineLabel?: (l: Line) => string }
+export interface SubtotalSpec<R> { label: string; value: (r: R) => number; kind: 'subtotal' | 'total' }
+export type Spec<R> = { group: GroupSpec<R> } | { subtotal: SubtotalSpec<R> };
 
 const ISL = (xs: Array<{ accountCode: string; accountName: string; amount: number }>): Line[] => xs;
 const BSL = (xs: Array<{ accountCode: string; accountName: string; balance: number }>): Line[] =>
@@ -38,7 +38,7 @@ const BALANCE_SPEC: Spec<BalanceSheetReport>[] = [
   { subtotal: { label: 'Total liabilities and equity', value: (r) => r.totalLiabilities + r.totalEquity, kind: 'total' } },
 ];
 
-interface Built { rows: string[][]; kinds: NoteTableRowKind[]; empty: boolean }
+export interface Built { rows: string[][]; kinds: NoteTableRowKind[]; empty: boolean }
 
 /** Account lines of a group across every column, in first-seen order (the pack month's accounts first). */
 function unionLines<R>(group: GroupSpec<R>, columns: StatementColumn<R>[]): Line[] {
@@ -49,7 +49,7 @@ function unionLines<R>(group: GroupSpec<R>, columns: StatementColumn<R>[]): Line
   return [...seen.values()];
 }
 
-function build<R>(spec: Spec<R>[], columns: StatementColumn<R>[], change: boolean): Built {
+export function build<R>(spec: Spec<R>[], columns: StatementColumn<R>[], change: boolean): Built {
   const rows: string[][] = [];
   const kinds: NoteTableRowKind[] = [];
   let anyLine = false;
@@ -74,7 +74,7 @@ function build<R>(spec: Spec<R>[], columns: StatementColumn<R>[], change: boolea
     push(group.heading, 'heading', blank);
     for (const line of lines) {
       const byCode = columns.map((c) => group.lines(c.report).find((l) => l.accountCode === line.accountCode)?.amount ?? 0);
-      push(`${line.accountCode} ${line.accountName}`, 'line', cells(byCode));
+      push(group.lineLabel ? group.lineLabel(line) : `${line.accountCode} ${line.accountName}`, 'line', cells(byCode));
     }
     push(group.totalLabel, 'subtotal', cells(columns.map((c) => group.total(c.report))));
   }

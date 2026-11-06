@@ -22,6 +22,8 @@
  * concatenated in JavaScript.
  */
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
+import { DEFAULT_ACCOUNTS_SETTINGS_KEY, PAYROLL_NET_PAY_KEY, parseNetPayAccountId } from './netPaySetting';
 
 export interface ConfigurationReference {
   table: string;
@@ -60,7 +62,39 @@ export const CONFIGURATION_REFERENCE_EXCLUSIONS: readonly { table: string; colum
   { table: 'capture_events', column: 'resolved_gl_account_id' },
 ];
 
+/**
+ * The Default Accounts settings that name an account by id inside `app_settings.value` (TEXT holding JSON), which no
+ * foreign key sees: `payroll_net_pay`. Merging that account away would leave the setting dangling, and the payroll
+ * journal then blocks (`missing_net_pay_account`) instead of crediting the account the merge folded it into.
+ *
+ * The row is read and parsed HERE, with the parser the payroll plan uses (`parseNetPayAccountId`: a string-encoded
+ * row is read through), not cast in SQL: a cast can raise on a malformed value and 500 every merge of the company,
+ * and `->>` reads NULL from a double-encoded string, which would let the merge orphan the setting. A row that cannot
+ * be read names no account (the plan is blocked by `invalid_net_pay_setting` until it is repaired), so it does not
+ * stop a merge.
+ */
+async function findSettingReferences(companyId: string, accountId: string): Promise<ConfigurationReference[]> {
+  const rows = (await sql`
+    SELECT value FROM app_settings
+    WHERE key = ${DEFAULT_ACCOUNTS_SETTINGS_KEY} AND company_id = ${companyId}
+  `) as Array<{ value: unknown }>;
+  const read = parseNetPayAccountId(rows[0]?.value);
+  if (!read.ok) {
+    log.warn('Default Accounts setting unreadable; the account merge cannot tell whether it names the account', { companyId, reason: read.reason }, 'accountMerge');
+    return [];
+  }
+  // The plan resolves the id as a UUID, which ignores case; so does this.
+  if (read.accountId === null || read.accountId.toLowerCase() !== accountId.toLowerCase()) return [];
+  return [{ table: 'app_settings', column: `${DEFAULT_ACCOUNTS_SETTINGS_KEY}.${PAYROLL_NET_PAY_KEY}`, rows: 1 }];
+}
+
 export async function findConfigurationReferences(
+  companyId: string, accountId: string,
+): Promise<ConfigurationReference[]> {
+  return [...await findForeignKeyReferences(companyId, accountId), ...await findSettingReferences(companyId, accountId)];
+}
+
+async function findForeignKeyReferences(
   companyId: string, accountId: string,
 ): Promise<ConfigurationReference[]> {
   const excludedTables = CONFIGURATION_REFERENCE_EXCLUSIONS.map((e) => e.table);

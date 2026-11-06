@@ -23,7 +23,7 @@ import {
 } from '@/modules/accounting/services/gl/chartOfAccountsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   const id = (req.query.id || req.body?.id) as unknown;
   if (id !== undefined && (typeof id !== 'string' || (id !== '' && !UUID_RE.test(id)))) {
     return apiResponse.badRequest(res, 'id must be a single account id');
@@ -47,7 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (bodyError) return apiResponse.badRequest(res, bodyError);
     try {
       const { accountName, description, isActive, displayOrder } = req.body;
-      const account = await updateAccount(companyId, id, { accountName, description, isActive, displayOrder });
+      const account = await updateAccount(companyId, id, { accountName, description, isActive, displayOrder }, { role: companyRole, userId: user.id });
       return apiResponse.success(res, account);
     } catch (err) {
       log.error('Failed to update account', { id, error: err }, 'accounting-api');

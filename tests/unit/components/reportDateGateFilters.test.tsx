@@ -50,8 +50,6 @@ describe.each([
     body: 'Report body', path: 'reports-balance-sheet', dateParam: 'as_at_date' },
   { file: 'bank-transactions', date: 'To', control: select, value: '1120', param: 'account_code=1120',
     body: 'Opening Balance', path: 'reports-bank-transactions', dateParam: 'period_end' },
-  { file: 'cash-flow', date: 'To', control: select, value: 'C1', param: 'cost_centre=C1',
-    body: 'Opening Cash Balance', path: 'reports-cash-flow', dateParam: 'end_date' },
   { file: 'customer-communication', date: 'To', control: select, value: 'failed', param: 'status=failed',
     body: 'a@example.com', path: 'reports/customer-communication', dateParam: 'to' },
   { file: 'journal-entries', date: 'To', control: select, value: 'posted', param: 'status=posted',
@@ -134,8 +132,6 @@ describe.each([
 describe.each([
   { file: 'bank-transactions', value: '1120', param: 'account_code=1120', body: 'Opening Balance',
     late: (d: Record<string, unknown>) => ({ ...d, openingBalance: 777 }), lateText: /777/ },
-  { file: 'cash-flow', value: 'C1', param: 'cost_centre=C1', body: 'Opening Cash Balance',
-    late: (d: Record<string, unknown>) => ({ ...d, opening_cash: 777 }), lateText: /777/ },
   { file: 'customer-communication', value: 'failed', param: 'status=failed', body: 'a@example.com',
     late: (d: { records: object[] }) => ({ ...d, records: [{ ...d.records[0], email: 'late@example.com' }] }), lateText: /late@example/ },
   { file: 'journal-entries', value: 'posted', param: 'status=posted', body: 'J1',

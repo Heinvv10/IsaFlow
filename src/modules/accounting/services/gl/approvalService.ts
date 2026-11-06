@@ -16,6 +16,7 @@ import { assertMayDemand, assertMayEditRule, type RuleActor } from './approvalRu
 import { deleteRuleRow, insertRuleRow, updateRuleRow } from './approvalRuleWrites';
 import { withRuleRefusals } from './approvalRuleRefusals';
 import { lockApprovalRequestForUpdate } from './approvalRequestLock';
+import { SOLE_APPROVER } from './approvalSelfApproval';
 import { decideRequestRow } from './approvalRequestWrites';
 import { assertRuleDocumentTypeCreatable } from './approvalDocumentTypes';
 import { assertRuleDocumentTypeOffered, assertRuleInput } from './approvalRuleInput';
@@ -208,7 +209,7 @@ export async function decideRequest(companyId: string,
   const rows = await decideRequestRow(companyId, requestId, decision, decidedBy, notes || null, expectedDigest);
   if (!rows[0]) throw new ApprovalRequestNotFoundError(requestId);
   log.info('Approval decided', {
-    id: requestId, decision, soleApproverSelfApproval: selfApproval?.selfApproval === 'sole_approver',
+    id: requestId, decision, soleApproverSelfApproval: selfApproval?.selfApproval === SOLE_APPROVER,
   }, 'accounting');
   return mapRequest(rows[0]);
 }
