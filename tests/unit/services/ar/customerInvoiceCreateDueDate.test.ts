@@ -40,8 +40,9 @@ import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/cus
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const USER = '22222222-2222-4222-8222-222222222222';
 const CLIENT = '33333333-3333-4333-8333-333333333333';
-// INSERT customer_invoices values: company, number, project, customer, client, bpStart, bpEnd, subtotal, rate, tax, total, invoice_date, due_date
+// INSERT customer_invoices values: company, number, project, customer, client, bpStart, bpEnd, subtotal, rate, tax, total, invoice_date, due_date, due_date_source
 const DUE_DATE_INDEX = 12;
+const SOURCE_INDEX = 13;
 
 const draft = (dueDate?: string) => createDraftCustomerInvoice(COMPANY, USER, {
   clientId: CLIENT, invoiceDate: '2026-08-16', ...(dueDate ? { dueDate } : {}),
@@ -83,10 +84,16 @@ describe('createDraftCustomerInvoice due date', () => {
     expect(state.insert[DUE_DATE_INDEX]).toBe('2026-08-30');
   });
 
-  it('a due date the caller names is kept and the terms are not read', async () => {
+  // Migration 962: the terms are read to say where a named date came from: the terms' own date is `terms`, another `manual`.
+  it('a due date the caller names is kept, and recorded as manual unless the terms give the same date', async () => {
     state.terms = [{ payment_terms: 3, payment_terms_type: 'statement_months' }];
     await draft('2026-09-01');
     expect(state.insert[DUE_DATE_INDEX]).toBe('2026-09-01');
-    expect(state.termsLookup).toEqual([]);
+    expect(state.insert[SOURCE_INDEX]).toBe('manual');
+    expect(state.termsLookup).toEqual([CLIENT, COMPANY, COMPANY, 'default_payment_terms']);
+    await draft('2026-11-30');
+    expect(state.insert[SOURCE_INDEX]).toBe('terms');
+    await draft();
+    expect(state.insert[SOURCE_INDEX]).toBe('terms');
   });
 });

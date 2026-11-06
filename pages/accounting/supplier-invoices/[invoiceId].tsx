@@ -26,6 +26,7 @@ import { SupplierInvoiceApprovalPanel } from '@/components/accounting/ap/Supplie
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 import { useDateGate } from '@/hooks/useDateGate';
 import { BudgetApproveDialog } from '@/components/accounting/ap/BudgetApproveDialog';
+import { BillDueDateEditor } from '@/components/accounting/ap/BillDueDateEditor';
 import { useBudgetApprove } from '@/components/accounting/ap/useBudgetApprove';
 
 function StatusBadge({ status }: { status: string }) {
@@ -201,6 +202,10 @@ export default function SupplierInvoiceDetailPage() {
             editForm={editForm}
             onEditFormChange={(patch) => setEditForm(p => ({ ...p, ...patch }))}
             dates={dates}
+          />
+          <BillDueDateEditor
+            invoiceId={invoiceId as string} status={invoice.status} invoiceDate={invoice.invoiceDate}
+            dueDate={invoice.dueDate} dueDateSource={invoice.dueDateSource} onSaved={loadInvoice}
           />
 
           {/* GL Journal link — body anchor for discoverability */}
