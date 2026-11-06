@@ -14,6 +14,9 @@ export const PREVIEW_MAX_BYTES = 64 * 1024;
 export const PREVIEW_MAX_LINES = 200;
 export const PREVIEW_MAX_TEXT_CHARS = 2000;
 export const PREVIEW_MAX_TEXT_LINE_BREAKS = 20;
+/** Body-wide: the per-line caps alone allow 200 lines x 20 breaks (63 pages) or 30 x 2,000 characters (34 pages). */
+export const PREVIEW_MAX_TOTAL_LINE_BREAKS = 400;
+export const PREVIEW_MAX_TOTAL_DESCRIPTION_CHARS = 60000;
 
 /**
  * The preview's rate-limit name: each member's own bucket within the company (checkReportRateLimit stores it as
@@ -56,12 +59,14 @@ function optionalDate(v: unknown, field: string): string | null {
   return v;
 }
 
+const lineBreaks = (text: string): number => text.match(/\r\n|\r|\n/g)?.length ?? 0;
+
 /** `text` within the caps, or a PreviewBodyError opening with `tooLong` ("The notes are") or `tooManyLines` ("The notes have"). */
 function capText(text: string, tooLong: string, tooManyLines: string): void {
   if (text.length > PREVIEW_MAX_TEXT_CHARS) {
     throw new PreviewBodyError(`${tooLong} too long to preview (over ${PREVIEW_MAX_TEXT_CHARS} characters)`);
   }
-  if ((text.match(/\r\n|\r|\n/g)?.length ?? 0) > PREVIEW_MAX_TEXT_LINE_BREAKS) {
+  if (lineBreaks(text) > PREVIEW_MAX_TEXT_LINE_BREAKS) {
     throw new PreviewBodyError(`${tooManyLines} too many lines to preview (over ${PREVIEW_MAX_TEXT_LINE_BREAKS} line breaks)`);
   }
 }
@@ -86,16 +91,29 @@ export function parsePreviewBody(raw: unknown): PreviewBody {
   if (typeof clientId !== 'string' || !UUID_RE.test(clientId)) throw new PreviewBodyError('Select a client');
   if (!Array.isArray(items) || items.length === 0) throw new PreviewBodyError('Add at least one line item');
   if (items.length > PREVIEW_MAX_LINES) throw new PreviewBodyError(`The preview takes at most ${PREVIEW_MAX_LINES} lines`);
+  let totalChars = 0;
+  let totalBreaks = 0;
   const lines = items.map((item: unknown, i): PreviewLine => {
     if (!isRecord(item)) throw new PreviewBodyError(`Line ${i + 1} is not a line item`);
     if (typeof item.description !== 'string') throw new PreviewBodyError(`Line ${i + 1} needs a description`);
     capText(item.description, `Line ${i + 1}'s description is`, `Line ${i + 1}'s description has`);
+    totalChars += item.description.length;
+    totalBreaks += lineBreaks(item.description);
     return { description: item.description, quantity: item.quantity, unitPrice: item.unitPrice, discount: item.discount };
   });
   // null is create's default (15), as `taxRate ?? 15` takes it.
   if (!(taxRate === undefined || taxRate === null || typeof taxRate === 'number')) throw new PreviewBodyError('taxRate must be a number');
   if (!(blank(notes) || typeof notes === 'string')) throw new PreviewBodyError('notes must be text');
-  if (typeof notes === 'string') capText(notes, 'The notes are', 'The notes have');
+  if (typeof notes === 'string') {
+    capText(notes, 'The notes are', 'The notes have');
+    totalBreaks += lineBreaks(notes);
+  }
+  if (totalChars > PREVIEW_MAX_TOTAL_DESCRIPTION_CHARS) {
+    throw new PreviewBodyError(`The descriptions are too long to preview (over ${PREVIEW_MAX_TOTAL_DESCRIPTION_CHARS} characters in all)`);
+  }
+  if (totalBreaks > PREVIEW_MAX_TOTAL_LINE_BREAKS) {
+    throw new PreviewBodyError(`The descriptions and notes have too many line breaks to preview (over ${PREVIEW_MAX_TOTAL_LINE_BREAKS} in all)`);
+  }
   if (!(blank(exchangeRate) || (typeof exchangeRate === 'number' && Number.isFinite(exchangeRate) && exchangeRate > 0))) {
     throw new PreviewBodyError('exchangeRate must be a positive number');
   }

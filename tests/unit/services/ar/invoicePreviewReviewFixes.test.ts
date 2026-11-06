@@ -22,7 +22,7 @@ import {
   createDraftCustomerInvoice, draftTotals, InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import {
-  parsePreviewBody, PREVIEW_MAX_TEXT_CHARS, PREVIEW_MAX_TEXT_LINE_BREAKS, PreviewBodyError,
+  parsePreviewBody, PREVIEW_MAX_TOTAL_DESCRIPTION_CHARS, PREVIEW_MAX_TOTAL_LINE_BREAKS, PREVIEW_MAX_TEXT_CHARS, PREVIEW_MAX_TEXT_LINE_BREAKS, PreviewBodyError,
 } from '@/modules/accounting/services/ar/invoicePreviewBody';
 import { buildInvoicePreviewModel } from '@/modules/accounting/services/ar/invoicePreviewModel';
 
@@ -119,6 +119,26 @@ describe('the text caps (page amplification)', () => {
   it('counts \\r\\n as one line break', () => {
     expect(parsePreviewBody(withDescription('a\r\n'.repeat(20))).items[0]!.description).toContain('a');
     expect(() => parsePreviewBody(withDescription('a\r\n'.repeat(21)))).toThrow(/too many lines/);
+  });
+});
+
+describe('the body-wide text caps (amplification across lines)', () => {
+  const lines = (n: number, description: string) => Array.from({ length: n }, () => ({ description, quantity: 1, unitPrice: 1 }));
+  const body = (items: unknown[], notes?: string) => ({ clientId: CLIENT, items, ...(notes === undefined ? {} : { notes }) });
+
+  it('caps the total line breaks across descriptions and notes at 400', () => {
+    expect(PREVIEW_MAX_TOTAL_LINE_BREAKS).toBe(400);
+    const twenty = `${'\n'.repeat(20)}x`;
+    expect(parsePreviewBody(body(lines(20, twenty))).items).toHaveLength(20); // 400 exactly
+    expect(() => parsePreviewBody(body(lines(20, twenty), '\n'))).toThrow(/too many line breaks to preview/);
+    expect(() => parsePreviewBody(body([...lines(20, twenty), { description: 'a\r\nb' }]))).toThrow(PreviewBodyError);
+    expect(parsePreviewBody(body(lines(19, twenty), twenty)).notes).toHaveLength(21);
+  });
+
+  it('caps the total description characters at 60,000', () => {
+    expect(PREVIEW_MAX_TOTAL_DESCRIPTION_CHARS).toBe(60000);
+    expect(parsePreviewBody(body(lines(30, 'x'.repeat(2000)))).items).toHaveLength(30);
+    expect(() => parsePreviewBody(body([...lines(30, 'x'.repeat(2000)), { description: 'y' }]))).toThrow(/descriptions are too long to preview/);
   });
 });
 
