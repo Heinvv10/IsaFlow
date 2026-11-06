@@ -32,16 +32,16 @@ export const KPI_FIGURE_FLOOR_PT = 12;
 export const TABLE_FIGURE_MAX_PT = 9;
 export const TABLE_FIGURE_FLOOR_PT = 7.5;
 
-const MM_PX = 96 / 25.4;
+export const MM_PX = 96 / 25.4;
 /** One pixel of slack on the measure: Chromium lays tables out in 1/64px units and rounds. */
 const GUARD_PX = 0.5;
 /** `.pack-table td` / `th`: 2mm either side. */
-const CELL_SIDE_PX = 2 * MM_PX;
+export const CELL_SIDE_PX = 2 * MM_PX;
 /** `.pack-table td:first-child` indents by `level x 4mm` (`INDENT_MM_PER_LEVEL`). */
-const INDENT_PX_PER_LEVEL = 4 * MM_PX;
+export const INDENT_PX_PER_LEVEL = 4 * MM_PX;
 /** A footnote marker (`.pack-footnote-marker`, 0.7em, a digit) after a heading at 8pt: measured 4.64px; after a label at 9pt: 5px. */
-const HEADING_MARKER_PX = 5;
-const LABEL_MARKER_PX = 5;
+export const HEADING_MARKER_PX = 5;
+export const LABEL_MARKER_PX = 5;
 /** A not-meaningful cell is "n/m" and a one-letter mark at 0.7em (`.pack-table-note-mark`). */
 const NOT_MEANINGFUL = 'n/m a';
 
@@ -65,7 +65,7 @@ export interface FigureFit {
 const measurePx = (orientation: PageOrientation): number => PAGE_WIDTH_MM[orientation] * MM_PX - GUARD_PX;
 
 /** The weight a row is set in (`packPrintTablesAndProse.css`): subtotal 500, total and grand total 600. */
-const ROW_WEIGHT: Readonly<Record<PackTableRow['role'], FigureWeight>> = { line: 400, subtotal: 500, total: 600, grandTotal: 600 };
+export const ROW_WEIGHT: Readonly<Record<PackTableRow['role'], FigureWeight>> = { line: 400, subtotal: 500, total: 600, grandTotal: 600 };
 
 export interface FigureCell { text: string; weight: FigureWeight }
 
@@ -83,7 +83,7 @@ export function tableColumnCells(table: PackTable, scale: MoneyScale): FigureCel
   }));
 }
 
-function cellPx(cell: FigureCell, fontPx: number): number {
+export function cellPx(cell: FigureCell, fontPx: number): number {
   if (cell.text === NOT_MEANINGFUL) return textPx('n/m', fontPx, cell.weight) + LABEL_MARKER_PX;
   return textPx(cell.text, fontPx, cell.weight);
 }
