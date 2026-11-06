@@ -10,7 +10,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
-import { hasNoCopySql, linkedCapturedDocSql } from '../bank/bankLineDocumentSql';
+import { attachmentCountsSql, hasNoCopySql, linkedCapturedDocSql } from '../bank/bankLineDocumentSql';
 
 export interface BankAttachmentRow {
   id: string;
@@ -56,6 +56,7 @@ export async function listBankAttachments(companyId: string, f: AttachmentFilter
          WHERE bt.company_id = ${companyId}::UUID
            AND bt.transaction_date >= ${f.from}::DATE AND bt.transaction_date <= ${f.to}::DATE
            AND (${txId}::TEXT IS NULL OR a.bank_transaction_id::TEXT = ${txId})
+           AND ${sql.unsafe(attachmentCountsSql('a', 'bt'))}
         UNION ALL
         SELECT cd.id, 'captured_document'::text, bt.id, cd.file_name, COALESCE(cd.raw_bytes_size, cd.file_size),
                NULL::uuid, cd.created_at

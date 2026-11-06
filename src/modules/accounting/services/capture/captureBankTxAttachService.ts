@@ -37,7 +37,7 @@ export async function attachCapturedDocToBankTx(
   userId: string | null,
 ): Promise<AttachToBankTxResult> {
   const [doc] = (await sql`
-    SELECT id, file_name, file_type
+    SELECT id, file_name, file_type, matched_bank_tx_id
       FROM captured_documents
      WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid
   `) as Row[];
@@ -62,6 +62,17 @@ export async function attachCapturedDocToBankTx(
   // The copy's name starts with the document's id as the database prints it (lower-case, hyphenated), never the
   // request's spelling: bank/bankLineDocumentSql recognises a copy by that prefix, and an upper-case or brace-wrapped
   // id would make the document count twice.
+  // A relink moves the document: its copy on the line it leaves would otherwise keep supporting that line.
+  const previous = doc.matched_bank_tx_id ? String(doc.matched_bank_tx_id) : null;
+  if (previous && previous !== bankTxId) {
+    await sql`
+      DELETE FROM bank_transaction_attachments bta
+       USING bank_transactions bt
+       WHERE bta.bank_transaction_id = bt.id AND bt.id = ${previous}::uuid AND bt.company_id = ${companyId}::uuid
+         AND lower(left(bta.file_name, 37)) = ${String(doc.id)} || '_'
+    `;
+  }
+
   const mirrored = await mirrorIntoAttachments(
     companyId, String(doc.id), bankTxId, String(doc.file_name), String(doc.file_type), userId,
   );

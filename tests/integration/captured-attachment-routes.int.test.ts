@@ -15,6 +15,8 @@ import attachmentsRoute from '../../pages/api/accounting/bank-tx-attachments';
 import fileRoute from '../../pages/api/accounting/captured-document-file';
 import { callRoute, createUser, newCompany } from './r035-approval.helpers';
 import { listBankAttachments, listTransactionsWithoutDocuments } from '@/modules/accounting/services/core/documentQueryService';
+import { getBankTxAttachment } from '@/modules/accounting/services/bank/bankTxAttachmentService';
+import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
 
 const url = process.env.DATABASE_URL ?? '';
 const describeIfDb = url && !url.includes('dummy') && process.env.JWT_SECRET ? describe : describe.skip;
@@ -27,6 +29,9 @@ let outsider = '';
 let company = '';
 let other = '';
 const [bank, bankB, t1, t2, tb] = [uuid(), uuid(), uuid(), uuid(), uuid()];
+// On 2026-06-02, so the cases above keep their own figures: T3 a rejected document WITH a copy, T4/T5 a relink, T6 an
+// empty storage_path.
+const [t3, t4, t5, t6, d7, c7, d8, c8, d9] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
 const [u1, c2, d1, d2, d3, d4, d5, d6, db] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
 const ATT = '/api/accounting/bank-tx-attachments';
 const FILE = '/api/accounting/captured-document-file';
@@ -54,11 +59,21 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
       `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance)
        VALUES($1,$3,'CRB','CR Bank','asset','bank','debit'),($2,$4,'CRB','CR Bank B','asset','bank','debit')`,
       [bank, bankB, company, other]);
-    for (const [id, co, acct, amount] of [[t1, company, bank, -12000], [t2, company, bank, -11000], [tb, other, bankB, -5]] as const) {
+    for (const [id, co, acct, amount, date] of [[t1, company, bank, -12000, '2026-06-01'], [t2, company, bank, -11000, '2026-06-01'],
+      [tb, other, bankB, -5, '2026-06-01'], [t3, company, bank, -13000, '2026-06-02'], [t4, company, bank, -14000, '2026-06-02'],
+      [t5, company, bank, -15000, '2026-06-02'], [t6, company, bank, -16000, '2026-06-02']] as const) {
       await pool.query(
         `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
-         VALUES($1,$2,$3,'2026-06-01',$4,'captured routes fixture','imported')`, [id, co, acct, amount]);
+         VALUES($1,$2,$3,$5,$4,'captured routes fixture','imported')`, [id, co, acct, amount, date]);
     }
+    await doc(d7, company, t3, 'rejected');
+    await doc(d8, company, t4, 'matched');
+    await doc(d9, company, t6, 'matched');
+    await pool.query("UPDATE captured_documents SET storage_path = '' WHERE id = $1", [d9]);
+    await pool.query(
+      `INSERT INTO bank_transaction_attachments(id, bank_transaction_id, file_url, file_name, file_size)
+       VALUES($1, $2, 'data:application/pdf;base64,JVBERi0=', $3, 5), ($4, $5, 'data:application/pdf;base64,JVBERi0=', $6, 5)`,
+      [c7, t3, `${d7}_scan.pdf`, c8, t4, `${d8}_scan.pdf`]);
     await doc(d1, company, t1, 'matched');
     await doc(d2, company, t1, 'matched');
     await doc(d3, company, t1, 'rejected');
@@ -75,7 +90,7 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
 
   afterAll(async () => {
     try {
-      await pool.query('DELETE FROM bank_transaction_attachments WHERE bank_transaction_id = ANY($1::uuid[])', [[t1, t2, tb]]);
+      await pool.query('DELETE FROM bank_transaction_attachments WHERE bank_transaction_id = ANY($1::uuid[])', [[t1, t2, tb, t3, t4, t5, t6]]);
       await pool.query('DELETE FROM captured_documents WHERE company_id = ANY($1::uuid[])', [companies]);
       await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1::uuid[])', [companies]);
       await pool.query('DELETE FROM gl_accounts WHERE company_id = ANY($1::uuid[])', [companies]);
@@ -169,5 +184,34 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
     expect((await call('DELETE', { documentId: db, bankTransactionId: tb })).state.statusCode).toBe(404);
     expect(await docState(db)).toEqual({ matched_bank_tx_id: tb, status: 'matched' });
     expect((await call('DELETE', { documentId: d1 })).state.statusCode).toBe(400);
+  });
+
+  const day2Unsupported = async () => (await listTransactionsWithoutDocuments(company,
+    { from: '2026-06-02', to: '2026-06-02', minAmount: 10000, limit: 50 })).rows.map((r) => r.id).sort();
+
+  it('counts a copy only while its document is linked to the line and not rejected; an empty storage_path is not stored', async () => {
+    // T3's copy belongs to a rejected document: no support, not listed. T6's document has storage_path ''.
+    expect(await day2Unsupported()).toEqual([t3, t5, t6].sort());
+    expect((body(await call('GET', { bankTransactionId: t3 })).data as unknown[])).toEqual([]);
+    expect((body(await call('GET', { bankTransactionId: t6 })).data as unknown[])).toEqual([]);
+    const items = body(await call('GET', { bankTransactionId: t4 })).data as { id: string; document_id?: string }[];
+    expect(items).toEqual([expect.objectContaining({ id: c8, document_id: d8 })]);
+  });
+
+  it('a relink moves the document: its copy on the line it left is removed', async () => {
+    const moved = await attachCapturedDocToBankTx(company, d8, t5, null);
+    expect(moved.ok).toBe(true);
+    expect((await pool.query('SELECT 1 FROM bank_transaction_attachments WHERE id = $1', [c8])).rowCount).toBe(0);
+    expect(await docState(d8)).toMatchObject({ matched_bank_tx_id: t5 });
+    // The fixture has no storage object, so no new copy: D8 supports T5 as an uncopied linked document.
+    expect(await day2Unsupported()).toEqual([t3, t4, t6].sort());
+  });
+
+  it('get_document reads a linked captured document of the caller\'s company only', async () => {
+    expect(await getBankTxAttachment(company, d1)).toMatchObject({ id: d1, store: 'captured_document', bankTransactionId: t1 });
+    expect(await getBankTxAttachment(other, d1)).toBeNull();
+    expect(await getBankTxAttachment(company, d3)).toBeNull();
+    expect(await getBankTxAttachment(company, db)).toBeNull();
+    expect(await getBankTxAttachment(company, d9)).toBeNull();
   });
 });

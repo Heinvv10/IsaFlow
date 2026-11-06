@@ -9,7 +9,7 @@
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { hasNoCopySql, isCopyOfSql, linkedCapturedDocSql } from '../bank/bankLineDocumentSql';
+import { attachmentCountsSql, hasNoCopySql, isCopyOfSql, linkedCapturedDocSql } from '../bank/bankLineDocumentSql';
 import { mimeForCapturedFileType } from './capturedFileTypes';
 import { lockCapturedDocumentForUpdate } from './captureRowLock';
 
@@ -44,6 +44,7 @@ export async function listBankLineAttachments(companyId: string, bankTxId: strin
       LEFT JOIN captured_documents cd
         ON ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND ${sql.unsafe(isCopyOfSql('bta', 'cd'))}
      WHERE bta.bank_transaction_id = ${bankTxId}::uuid AND bt.company_id = ${companyId}::uuid
+       AND ${sql.unsafe(attachmentCountsSql('bta', 'bt'))}
   `) as Row[];
   const uncopied = (await sql`
     SELECT cd.id, cd.file_name, cd.file_type, COALESCE(cd.raw_bytes_size, cd.file_size) AS size, cd.created_at
