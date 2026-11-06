@@ -102,7 +102,7 @@ export default function ReapplyTermsPage() {
               {result.skipped.length > 0 && ` Skipped ${result.skipped.length}: ${[...new Set(result.skipped.map((s) => SKIP_WORDS[s.reason] ?? s.reason))].join(', ')}.`}
             </div>
           )}
-          {loading || !preview ? (
+          {!preview || (loading && !result) ? (
             <div className="flex items-center justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-teal-500" /></div>
           ) : (
             <>

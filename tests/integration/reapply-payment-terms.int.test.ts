@@ -12,7 +12,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { dataOf, messageOf } from './r035-pr2.helpers';
 import { changesOf, cleanupEntityChanges, members, newCompany } from './entity-changes.helpers';
-import type { ReapplyPreview, ReapplyResult } from '../../src/modules/accounting/services/ap/reapplyTerms';
+import { REAPPLY_MAX, type ReapplyPreview, type ReapplyResult } from '../../src/modules/accounting/services/ap/reapplyTerms';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -200,5 +200,17 @@ describe('review round 1', () => {
     }
     expect(await dueOf(first!)).toEqual({ d: '2026-12-15', s: 'legacy' });
     expect(await changesOf(pool, first!)).toHaveLength(0);
+  });
+
+  it('lists at most REAPPLY_MAX bills and says the list is cut short', { timeout: 30_000 }, async () => {
+    const c = await company();
+    const s = await supplier(c, 'Many', 3, 'statement_months');
+    await pool.query(
+      `INSERT INTO supplier_invoices(company_id, invoice_number, supplier_id, invoice_date, due_date, subtotal, tax_amount, total_amount, status, created_by)
+       SELECT $1, 'MANY-' || g, $2, DATE '2026-09-16', DATE '2026-12-15', 1000, 150, 1150, 'approved', $3 FROM generate_series(1, $4::INT) g`,
+      [c, s, admin, REAPPLY_MAX + 1]);
+    const p = await preview(admin, c);
+    expect(p.rows).toHaveLength(REAPPLY_MAX);
+    expect(p.truncated).toBe(true);
   });
 });
