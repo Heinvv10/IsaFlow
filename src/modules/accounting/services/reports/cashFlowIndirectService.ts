@@ -4,7 +4,9 @@
  * Opening cash is `cash.balance.v1` the day before the period; the period's movement is the credit-less-debit of every
  * posted NON-cash journal line in it, each classified once (`placeJournal`: only the cash a journal actually moved shows
  * as an investing or financing flow). Because a journal balances, that
- * sum IS the change in cash, so closing cash equals the ledger's cash balance by construction (and a test holds it),
+ * sum IS the change in cash, so on sound books closing cash equals the ledger's cash balance (a test holds it); when the
+ * ledger breaks that (a posted journal that does not balance, a cash leg on a year-end journal) the statement still closes
+ * on the ledger and shows the gap as its own `Unexplained Difference` section,
  * whatever the books carry. The year-end closing journal is ignored, both legs, as every statement does.
  *
  * Every query is scoped to `companyId`.
@@ -14,9 +16,10 @@ import { sql } from '@/lib/neon';
 import { toMoney } from '@/lib/money/decimalSum';
 import { CASH_SUBTYPES, type AccountType } from '@/modules/accounting/services/gl/accountSubtypes';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
+import { log } from '@/lib/logger';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import {
-  bucketSection, INDIRECT_BUCKETS, placeJournal, SEEDED_CURRENT_PORTION_CODE, type IndirectBucket, type IndirectSection,
+  bucketSection, INDIRECT_BUCKETS, isDisposalJournal, placeJournal, SEEDED_CURRENT_PORTION_CODE, type IndirectBucket, type IndirectSection,
 } from './cashFlowIndirectClassification';
 
 export interface IndirectCashFlowItem { label: string; amount: number }
@@ -27,11 +30,18 @@ export interface IndirectCashFlow {
   openingCash: number;
   sections: IndirectCashFlowSection[];
   netChange: number;
+  /** Always the ledger's cash balance at the end date (`cash.balance.v1`). */
   closingCash: number;
+  /**
+   * Closing cash less what the posted journals' movements explain (opening + the sections before the Unexplained
+   * Difference). Zero on a sound ledger; non-zero is a ledger fault (a posted journal that does not balance, a cash leg
+   * on a year-end journal) and is shown as its own section, never absorbed into a line.
+   */
+  unexplainedDifference: number;
 }
 
 interface MovementRow {
-  journal_entry_id: string; net_cash: string | number | null; account_type: AccountType; account_subtype: string | null;
+  journal_entry_id: string; source: string | null; net_cash: string | number | null; account_type: AccountType; account_subtype: string | null;
   is_loan_current_portion: boolean; debit: string | number | null; credit: string | number | null;
 }
 
@@ -41,6 +51,7 @@ const LINES: Record<IndirectBucket, { label: string; always: boolean }> = {
   receivable: { label: 'Change in Accounts Receivable', always: true },
   payable: { label: 'Change in Accounts Payable', always: true },
   depreciation: { label: 'Depreciation and Amortisation (non-cash)', always: false },
+  disposal_adjustment: { label: '(Gain) / Loss on Disposal of Assets', always: false },
   inventory: { label: 'Change in Inventory', always: false },
   vat: { label: 'Change in VAT Control', always: false },
   other_operating: { label: 'Change in Other Operating Assets and Liabilities', always: false },
@@ -65,7 +76,7 @@ const SECTIONS: Array<{ key: IndirectSection; title: string }> = [
 async function fetchNonCashMovement(companyId: string, startDate: string, endDate: string): Promise<MovementRow[]> {
   return (await sql`
     WITH lines AS (
-      SELECT ga.account_type, ga.account_subtype, jl.debit, jl.credit, jl.journal_entry_id,
+      SELECT ga.account_type, ga.account_subtype, jl.debit, jl.credit, jl.journal_entry_id, je.source,
              -- The cash accounts are what is being explained (the same predicate as cash.balance.v1).
              (ga.account_type = 'asset' AND COALESCE(ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}), false)) AS is_cash,
              (ga.account_type = 'liability' AND (
@@ -83,33 +94,43 @@ async function fetchNonCashMovement(companyId: string, startDate: string, endDat
     ), journal_cash AS (
       SELECT journal_entry_id, SUM(COALESCE(debit, 0) - COALESCE(credit, 0)) AS net_cash FROM lines WHERE is_cash GROUP BY journal_entry_id
     )
-    SELECT l.journal_entry_id, COALESCE(jc.net_cash, 0)::numeric AS net_cash,
+    SELECT l.journal_entry_id, l.source, COALESCE(jc.net_cash, 0)::numeric AS net_cash,
            l.account_type, l.account_subtype, l.is_loan_current_portion,
            COALESCE(SUM(l.debit), 0)::numeric  AS debit,
            COALESCE(SUM(l.credit), 0)::numeric AS credit
     FROM lines l
     LEFT JOIN journal_cash jc ON jc.journal_entry_id = l.journal_entry_id
     WHERE NOT l.is_cash
-    GROUP BY l.journal_entry_id, jc.net_cash, l.account_type, l.account_subtype, l.is_loan_current_portion
+    GROUP BY l.journal_entry_id, l.source, jc.net_cash, l.account_type, l.account_subtype, l.is_loan_current_portion
   `) as MovementRow[];
 }
 
+/** The section that carries a difference the journals do not explain. */
+export const UNEXPLAINED_SECTION = 'Unexplained Difference';
+const UNEXPLAINED_LABEL = 'Unexplained difference: the ledger\'s cash does not follow from its posted journals';
+
 export async function getIndirectCashFlow(companyId: string, startDate: string, endDate: string): Promise<IndirectCashFlow> {
-  const [openingCash, rows] = await Promise.all([
+  // Three reads, not one snapshot: under withAuth the request is already inside a READ COMMITTED transaction (the
+  // isolation level cannot be raised after its first statement), so a journal posted by ANOTHER session between the movement
+  // read and the ledger-cash read can show for one load as a small Unexplained Difference (and its warn log). It is transient
+  // by construction: the next load reads both after the posting, and nothing is stored from it.
+  const [openingCash, rows, ledgerClosing] = await Promise.all([
     getCashBalance(companyId, startDate, { exclusive: true }).then((b) => b.total),
     fetchNonCashMovement(companyId, startDate, endDate),
+    getCashBalance(companyId, endDate).then((b) => b.total),
   ]);
 
   const byBucket = new Map<IndirectBucket, number>(INDIRECT_BUCKETS.map((b) => [b, 0]));
   const journals = new Map<string, MovementRow[]>();
   for (const r of rows) journals.set(r.journal_entry_id, [...(journals.get(r.journal_entry_id) ?? []), r]);
   for (const legs of journals.values()) {
-    const placed = placeJournal(legs.map((r) => ({
+    const journalLegs = legs.map((r) => ({
       accountType: r.account_type,
       subtype: r.account_subtype,
       isLoanCurrentPortion: r.is_loan_current_portion === true,
       creditLessDebit: toMoney(Number(r.credit ?? 0) - Number(r.debit ?? 0)),
-    })), toMoney(Number(legs[0]!.net_cash ?? 0)));
+    }));
+    const placed = placeJournal(journalLegs, toMoney(Number(legs[0]!.net_cash ?? 0)), isDisposalJournal(legs[0]!.source, journalLegs));
     for (const { bucket, amount } of placed) byBucket.set(bucket, byBucket.get(bucket)! + amount);
   }
 
@@ -122,6 +143,16 @@ export async function getIndirectCashFlow(companyId: string, startDate: string, 
     return { section: title, items, total: toMoney(items.reduce((s, i) => s + i.amount, 0)) };
   });
 
-  const netChange = toMoney(sections.reduce((s, x) => s + x.total, 0));
-  return { periodStart: startDate, periodEnd: endDate, openingCash, sections, netChange, closingCash: toMoney(openingCash + netChange) };
+  const explained = toMoney(sections.reduce((s, x) => s + x.total, 0));
+  // By double entry the journals' movements ARE the change in cash. When the ledger's own cash says otherwise, say so as
+  // a section of its own: the statement still closes on the ledger, and the reader sees how much it could not explain.
+  const unexplainedDifference = toMoney(ledgerClosing - openingCash - explained);
+  if (unexplainedDifference !== 0) {
+    sections.push({ section: UNEXPLAINED_SECTION, items: [{ label: UNEXPLAINED_LABEL, amount: unexplainedDifference }], total: unexplainedDifference });
+    log.warn('Cash flow statement does not tie to the ledger cash', { companyId, startDate, endDate, openingCash, explained, ledgerClosing, unexplainedDifference }, 'cash-flow-indirect');
+  }
+  return {
+    periodStart: startDate, periodEnd: endDate, openingCash, sections,
+    netChange: toMoney(explained + unexplainedDifference), closingCash: toMoney(ledgerClosing), unexplainedDifference,
+  };
 }

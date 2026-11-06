@@ -22,6 +22,7 @@ import type { Quote } from './quoteService';
 import { assertLineAccountIds } from './invoiceLineCodingGuard';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 import { dueDateForContact } from '../core/paymentTermsResolver';
+import { todayInSast } from '@/lib/saDateParser';
 
 type Row = DbRow;
 
@@ -201,8 +202,10 @@ export async function convertToInvoice(
   // walked straight into historical INV-xxxxx rows (uq violation, found live
   // 2026-07-05). Same savepoint-isolated retry as the create path: a clash
   // with a legacy number must not poison the request transaction.
+  // The invoice is dated the day it is raised, editable while it is a draft; the quote keeps the date it was given (Hein, 2026-11-06).
+  const invoiceDate = todayInSast();
   // The customer's terms, else the company default (migration 960): not the quote's expiry, which is how long the offer stands.
-  const dueDate = (await dueDateForContact(companyId, 'customer', quote.clientId || null, String(quote.quoteDate))) ?? quote.quoteDate;
+  const dueDate = (await dueDateForContact(companyId, 'customer', quote.clientId || null, invoiceDate)) ?? invoiceDate;
   const invoiceId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'quote_conv_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const invRows = (await sql`
@@ -212,7 +215,7 @@ export async function convertToInvoice(
           notes, status, created_by
         ) VALUES (
           ${companyId}::UUID, ${invoiceNumber}, ${quote.clientId || null}, ${quote.clientId || null},
-          ${quote.quoteDate}, ${dueDate},
+          ${invoiceDate}, ${dueDate},
           ${quote.subtotal}, ${quote.taxAmount}, ${quote.total},
           ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null}
         ) RETURNING id
