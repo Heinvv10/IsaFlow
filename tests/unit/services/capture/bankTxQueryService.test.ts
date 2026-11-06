@@ -5,10 +5,11 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
   () => Promise.resolve([]);
 
 vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+  // unsafe returns its text: the shared attachment-count fragment shows up among a call's values.
+  sql: Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => {
     sqlCalls.push({ sql: strings.join('?'), values });
     return mockImpl(strings, ...values);
-  },
+  }, { unsafe: (text: string) => text }),
 }));
 
 const sendMock = vi.fn(async (_to: string, _body: string): Promise<{ sent: boolean; reason?: string; sid?: string }> => ({ sent: true }));

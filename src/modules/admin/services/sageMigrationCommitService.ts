@@ -172,11 +172,11 @@ export async function commitARInvoice(
   const inserted = (await withApprovalGateExempt({ companyId, userId, open, documentType: 'customer_invoice' }, () => sql`
     INSERT INTO customer_invoices (
       company_id, invoice_number, customer_id, client_id,
-      invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
+      invoice_date, due_date, due_date_source, subtotal, tax_rate, tax_amount, total_amount,
       amount_paid, status, notes, created_by, currency_code, exchange_rate, functional_total
     ) VALUES (
       ${companyId}::UUID, ${inv.invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
-      ${inv.invoiceDate}, ${dueDate},
+      ${inv.invoiceDate}, ${dueDate}, ${inv.dueDate ? 'document' : 'terms'},
       ${inv.subtotal}, ${taxRate}, ${inv.taxAmount}, ${inv.totalAmount},
       ${amountPaid}, 'approved', ${inv.reference ?? null}, ${userId}, 'ZAR', 1.0, ${inv.totalAmount}
     ) RETURNING id
@@ -222,7 +222,7 @@ export async function commitAPInvoice(
   const created = await createSupplierInvoice(companyId, {
     trustSourceTax: true,
     supplierId, invoiceNumber: inv.invoiceNumber, invoiceDate: inv.invoiceDate,
-    dueDate: inv.dueDate ?? undefined, taxRate, reference: inv.reference,
+    dueDate: inv.dueDate ?? undefined, dueDateGivenAs: 'document', taxRate, reference: inv.reference,
     // taxAmount, not just taxRate: `taxRate` is rounded to 2 dp above, and
     // re-deriving the tax from it moves the stored total off Sage's by cents —
     // which put the row and the journal posted for the SAME bill R0.44 apart on
