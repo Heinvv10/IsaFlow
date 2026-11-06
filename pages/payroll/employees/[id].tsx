@@ -23,6 +23,9 @@ import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
 
+/** The readiness links land here when the card has no field drawn yet; the kit's focus ring shows where focus went. */
+const ANCHOR = 'rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2';
+
 export default function EmployeeDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -106,7 +109,7 @@ export default function EmployeeDetailPage() {
               saving={savingProfile}
             />
 
-            <div id="employee-pay">
+            <div id="employee-pay" className={ANCHOR}>
             <EmployeeComponentsCard
               components={components}
               assignments={assignments}
@@ -151,7 +154,7 @@ export default function EmployeeDetailPage() {
               />
             )}
 
-            {employeeId && <div id="employee-bank"><EmployeeBankCard employeeId={employeeId} onChanged={() => setBankVersion(v => v + 1)} /></div>}
+            {employeeId && <div id="employee-bank" className={ANCHOR}><EmployeeBankCard employeeId={employeeId} onChanged={() => setBankVersion(v => v + 1)} /></div>}
 
             {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
 
