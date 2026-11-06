@@ -14,10 +14,10 @@ const h = vi.hoisted(() => ({
   actor: 'self' as string | Error,
   accessToken: '',
   logout: vi.fn(async (_token: string, _scope: string) => undefined),
-  deleteStash: vi.fn(async (_id: string) => undefined),
+  deleteEndedStashes: vi.fn(async (_input: unknown) => 1),
   audit: vi.fn(async (_strings: TemplateStringsArray, ..._values: unknown[]) => []),
 }));
-vi.mock('@/modules/admin/services/userImpersonationService', () => ({ deleteStash: h.deleteStash }));
+vi.mock('@/modules/admin/services/userImpersonationService', () => ({ deleteEndedStashes: h.deleteEndedStashes }));
 vi.mock('@/lib/neon', () => ({ sql: h.audit }));
 vi.mock('@/lib/auth/impersonationSessions', () => ({
   impersonationPartiesOf: async (sessionId: string) =>
@@ -77,7 +77,8 @@ beforeEach(async () => {
   vi.stubEnv('JWT_SECRET', JWT_KEY);
   h.actor = 'self';
   h.logout.mockReset();
-  h.deleteStash.mockReset();
+  h.deleteEndedStashes.mockReset();
+  h.deleteEndedStashes.mockResolvedValue(1);
   h.audit.mockClear();
   h.accessToken = await new SignJWT({ sub: TARGET, session_id: SESSION }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(JWT_KEY));
@@ -117,16 +118,27 @@ describe('/api/auth/refresh', () => {
       expect(await refreshWith(`sb-refresh-token=r1; ${STASH_COOKIE}=stash-1`))
         .toEqual({ status: 401, renewed: false, clearedRefresh: true });
       expect(h.logout).toHaveBeenCalledExactlyOnceWith(h.accessToken, 'local');
-      expect(h.deleteStash).toHaveBeenCalledExactlyOnceWith('stash-1');
+      expect(h.deleteEndedStashes).toHaveBeenCalledExactlyOnceWith({ adminUserId: 'admin-1', targetUserId: 'target-1', stashId: 'stash-1' });
       expect(clearedCookie(STASH_COOKIE)).toBe(true);
       expect(clearedCookie('sb-impersonation-proof')).toBe(true);
       const [strings, ...values] = h.audit.mock.calls[0]!;
       expect(strings.join('?')).toContain('admin_audit_log');
-      expect(values.slice(0, 3)).toEqual(['admin-1', 'target-1', expect.stringContaining('proof_expired')]);
+      expect(values.slice(0, 3)).toEqual(['admin-1', 'target-1', JSON.stringify({ reason: 'proof_expired', stashes_removed: 1 })]);
+    });
+
+    it('still removes the stash when the stash cookie has already expired', async () => {
+      await refreshWith('sb-refresh-token=r1');
+      expect(h.deleteEndedStashes).toHaveBeenCalledExactlyOnceWith({ adminUserId: 'admin-1', targetUserId: 'target-1', stashId: undefined });
+    });
+
+    it('a failed stash removal is still audited, as unknown', async () => {
+      h.deleteEndedStashes.mockRejectedValueOnce(new Error('down'));
+      await refreshWith('sb-refresh-token=r1');
+      expect(h.audit.mock.calls[0]!.slice(1, 4)).toEqual(['admin-1', 'target-1', JSON.stringify({ reason: 'proof_expired', stashes_removed: null })]);
     });
 
     it.each([
-      ['the stash removal', () => h.deleteStash.mockRejectedValueOnce(new Error('down'))],
+      ['the stash removal', () => h.deleteEndedStashes.mockRejectedValueOnce(new Error('down'))],
       ['the audit row', () => h.audit.mockRejectedValueOnce(new Error('down'))],
     ])('still refuses and clears when %s fails', async (_label, fail) => {
       fail();
