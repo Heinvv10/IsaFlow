@@ -204,6 +204,8 @@ export async function applySupplierInvoiceDraftUpdate(
         invoice_number = ${plan.invoiceNumber},
         invoice_date = ${plan.invoiceDate}::DATE,
         due_date = ${plan.dueDate}::DATE,
+        -- Migration 962: a due date this edit moves is a hand-set one (the SET reads the stored due_date).
+        due_date_source = CASE WHEN ${plan.dueDate}::DATE IS DISTINCT FROM due_date THEN 'manual' ELSE due_date_source END,
         payment_terms = ${plan.paymentTerms},
         reference = ${plan.reference},
         notes = ${plan.notes},

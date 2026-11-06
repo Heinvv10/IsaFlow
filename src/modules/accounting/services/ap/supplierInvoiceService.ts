@@ -29,6 +29,7 @@ import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaul
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
 import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault, ownTermsDueDate } from '../shared/paymentTerms';
+import { dueDateSourceOf } from '../shared/dueDateSource';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
@@ -117,19 +118,25 @@ export async function createSupplierInvoice(
     const supplierVatNumber: string | null = supplierRow?.vat_number ?? null;
     // Precedence: a due date the caller gave; the bill's own terms when the user or API caller chose them ("net30",
     // "immediate"; never a silent default); the supplier's terms; the company default (migration 960).
-    const dueDate = input.dueDate
-      || ownTermsDueDate(input.invoiceDate, input.paymentTerms)
-      || dueDateWithDefault(
-        input.invoiceDate, supplierRow?.payment_terms == null ? null : Number(supplierRow.payment_terms),
-        supplierRow?.payment_terms_type, companyTermsFromSetting(supplierRow?.company_default_terms, companyId),
-      );
+    const termsDate = dueDateWithDefault(
+      input.invoiceDate, supplierRow?.payment_terms == null ? null : Number(supplierRow.payment_terms),
+      supplierRow?.payment_terms_type, companyTermsFromSetting(supplierRow?.company_default_terms, companyId),
+    );
+    const ownDate = ownTermsDueDate(input.invoiceDate, input.paymentTerms);
+    const dueDate = input.dueDate || ownDate || termsDate;
+    // Where it came from (migration 962). A bill's own chosen terms are a choice, so a date they give is manual; a
+    // document's date stays `document` even where the terms agree (it is what the document says).
+    const givenAs = input.dueDateGivenAs ?? 'manual';
+    const dueDateSource = input.dueDate || ownDate
+      ? dueDateSourceOf(dueDate, givenAs === 'document' ? null : termsDate, givenAs)
+      : 'terms';
     const fingerprint = computeFingerprint(supplierVatNumber, input.invoiceNumber, totalAmount);
 
     const invoiceRow = await withTransaction(async (tx) => {
       const rows = (await tx`
         INSERT INTO supplier_invoices (
           company_id, invoice_number, supplier_id, purchase_order_id, grn_id,
-          invoice_date, due_date, subtotal, tax_rate, tax_amount,
+          invoice_date, due_date, due_date_source, subtotal, tax_rate, tax_amount,
           total_amount, payment_terms, reference, project_id,
           cost_center_id, notes, created_by,
           currency_code, exchange_rate, functional_total,
@@ -137,7 +144,7 @@ export async function createSupplierInvoice(
         ) VALUES (
           ${companyId}::UUID, ${input.invoiceNumber}, ${input.supplierId},
           ${input.purchaseOrderId || null}, ${input.grnId || null},
-          ${input.invoiceDate}, ${dueDate || null},
+          ${input.invoiceDate}, ${dueDate || null}, ${dueDateSource},
           ${subtotal}, ${invoiceTaxRate}, ${totalTax}, ${totalAmount},
           ${input.paymentTerms || null}, ${input.reference || null},
           ${input.projectId || null}, ${input.costCenterId || null},
