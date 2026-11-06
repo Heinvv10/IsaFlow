@@ -32,7 +32,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     if (err instanceof BillDueDateEditRefusal) {
-      return err.status === 404 ? apiResponse.notFound(res, 'Supplier invoice', body.id) : apiResponse.badRequest(res, err.message);
+      if (err.status === 404) return apiResponse.notFound(res, 'Supplier invoice', body.id);
+      return err.status === 409 ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
     }
     if (err instanceof SupplierInvoiceLockTimeoutError) return apiResponse.conflict(res, err.message);
     throw err;

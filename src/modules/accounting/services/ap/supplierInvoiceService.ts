@@ -127,9 +127,9 @@ export async function createSupplierInvoice(
     // Where it came from (migration 962). A bill's own chosen terms are a choice, so a date they give is manual; a
     // document's date stays `document` even where the terms agree (it is what the document says).
     const givenAs = input.dueDateGivenAs ?? 'manual';
-    const dueDateSource = input.dueDate || ownDate
-      ? dueDateSourceOf(dueDate, givenAs === 'document' ? null : termsDate, givenAs)
-      : 'terms';
+    const dueDateSource = input.dueDate && input.dueDate !== ownDate
+      ? dueDateSourceOf(input.dueDate, givenAs === 'document' ? null : termsDate, givenAs)
+      : ownDate ? 'manual' : 'terms';
     const fingerprint = computeFingerprint(supplierVatNumber, input.invoiceNumber, totalAmount);
 
     const invoiceRow = await withTransaction(async (tx) => {

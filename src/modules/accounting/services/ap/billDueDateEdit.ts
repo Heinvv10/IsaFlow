@@ -19,7 +19,7 @@ import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 export const DUE_DATE_EDITABLE_STATUSES = ['approved', 'partially_paid'] as const;
 
 export class BillDueDateEditRefusal extends Error {
-  constructor(message: string, readonly status: 400 | 404) {
+  constructor(message: string, readonly status: 400 | 404 | 409) {
     super(message);
     this.name = 'BillDueDateEditRefusal';
   }
@@ -72,6 +72,6 @@ export async function setApprovedBillDueDate(
      RETURNING due_date_source
   `) as DbRow[];
   // Unreachable while the row lock holds; refuse rather than report a write that did not happen.
-  if (!updated) throw new BillDueDateEditRefusal(`Supplier invoice ${number} changed while saving; reload and try again.`, 400);
+  if (!updated) throw new BillDueDateEditRefusal(`Supplier invoice ${number} changed while saving; reload and try again.`, 409);
   return { id: invoiceId, invoiceNumber: number, dueDate, previousDueDate, dueDateSource: String(updated.due_date_source), changed: true };
 }

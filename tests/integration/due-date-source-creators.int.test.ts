@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import supplierInvoicesDetail from '../../pages/api/accounting/supplier-invoices-detail';
+import supplierInvoicesRoute from '../../pages/api/accounting/supplier-invoices';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { messageOf } from './r035-pr2.helpers';
@@ -54,6 +55,10 @@ describe('a new supplier bill', () => {
     ['the terms\' own date given', { dueDate: '2026-10-25' }, '2026-10-25', 'terms'],
     ['another date given', { dueDate: '2026-11-30' }, '2026-11-30', 'manual'],
     ['the bill\'s own chosen terms', { paymentTerms: 'net7' }, '2026-10-22', 'manual'],
+    // Breaker REPRO 1: own terms that land on the supplier's date are still the bill's own choice.
+    ['the bill\'s own terms, same date as the supplier\'s', { paymentTerms: 'net10' }, '2026-10-25', 'manual'],
+    ['the bill\'s own terms and their date, as the new-bill page sends them', { paymentTerms: 'net10', dueDate: '2026-10-25' }, '2026-10-25', 'manual'],
+    ['the bill\'s own terms, a different date typed', { paymentTerms: 'net10', dueDate: '2026-11-30' }, '2026-11-30', 'manual'],
     ['a document\'s date', { dueDate: '2026-11-30', dueDateGivenAs: 'document' }, '2026-11-30', 'document'],
     ['a document\'s date the terms agree with', { dueDate: '2026-10-25', dueDateGivenAs: 'document' }, '2026-10-25', 'document'],
   ])('%s', async (_name, extra, due, source) => {
@@ -114,5 +119,20 @@ describe('a scanned bill and the draft-bill edit route', () => {
     res = await putDetail({ id, dueDate: '2026-12-01' });
     expect(res.state.statusCode, messageOf(res)).toBe(200);
     expect(await stored('supplier_invoices', id)).toEqual({ due: '2026-12-01', source: 'manual' });
+  });
+});
+
+describe('the new-bill POST route', () => {
+  // Breaker REPRO 2: the page marks a date the scan printed (or its terms gave) as the document's; anything else it sends is ignored.
+  it.each([['document', 'document'], ['terms', 'manual'], [undefined, 'manual']])('dueDateGivenAs %s -> %s', async (givenAs, source) => {
+    const c = await company();
+    const s = await contact('suppliers', c, null, null);
+    const res = await callRoute(supplierInvoicesRoute, tokens[admin]!, c, 'POST', {
+      supplierId: s, invoiceNumber: `P-${crypto.randomUUID().slice(0, 8)}`, invoiceDate: '2026-10-15', dueDate: '2026-10-29',
+      ...(givenAs ? { dueDateGivenAs: givenAs } : {}), items: [line],
+    }, '/api/accounting/supplier-invoices');
+    expect(res.state.statusCode, messageOf(res)).toBe(201);
+    const id = (res.state.body as { data: { id: string } }).data.id;
+    expect(await stored('supplier_invoices', id)).toEqual({ due: '2026-10-29', source });
   });
 });

@@ -167,7 +167,7 @@ export async function createDraftCustomerInvoice(
   // what the terms give (the new-invoice page prefills it) is recorded as the terms' (migration 962).
   const termsDueDate = await dueDateForContact(companyId, 'customer', clientId, invDate);
   const resolvedDueDate = dueDate || termsDueDate;
-  const dueDateSource = dueDateSourceOf(dueDate, termsDueDate, dueDateGivenAs ?? 'manual');
+  const dueDateSource = dueDateSourceOf(dueDate, dueDateGivenAs === 'document' ? null : termsDueDate, dueDateGivenAs ?? 'manual');
   const bpStart = billingPeriodStart || null;
   const bpEnd = billingPeriodEnd || null;
 

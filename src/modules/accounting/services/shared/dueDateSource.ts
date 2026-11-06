@@ -2,7 +2,9 @@
  * Where a document's due date came from (migration 962; payment-terms programme PR 2). Re-apply terms (PR 3)
  * overwrites `terms` and `legacy` dates on open documents and lists `manual` and `document` ones unticked.
  *   terms     the contact's terms, else the company default, gave it;
- *   manual    a person or API caller chose it (a typed date, a bill's own "net30", an edit after approval);
+ *   manual    a person or API caller chose it (a typed date that differs from the terms', a bill's own "net30", an edit
+ *             after approval). A given date equal to the terms' date is recorded as `terms`, whoever gave it: the pages
+ *             prefill it, so the server cannot tell a prefill from a choice (named limit; Re-apply previews before it writes);
  *   document  the source document gave it (a scanned bill's printed due date or terms, an imported row's date);
  *   legacy    written before 962, or by code that names no source (the column default).
  */
