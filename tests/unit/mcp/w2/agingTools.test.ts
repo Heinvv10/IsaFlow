@@ -104,7 +104,7 @@ describe('aged_debtors', () => {
 
     // The whole point. The audit had to sum ten rows by hand.
     expect(body.total).toBe(750);
-    expect(body.buckets).toEqual({ current: 100, days30: 250, days60: 0, days90: 0, days120Plus: 400 });
+    expect(body.buckets).toEqual({ current: 100, days30: 250, days60: 0, days90: 0, days120Plus: 400, disputed: 0 });
     expect(body.entityCount).toBe(2);
     expect(body.rowsTotal).toBe(2);
   });

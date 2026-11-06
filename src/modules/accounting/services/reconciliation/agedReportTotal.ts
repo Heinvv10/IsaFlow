@@ -15,11 +15,12 @@
  * consumes them and sums what they returned. It deliberately does no
  * arithmetic of its own beyond the sum: anything else would be a third opinion.
  *
- * NOTE on what the sum includes. `AgingBucket.total` is net of `disputed` on
- * AR, and `calculateAgingBuckets` drops rows whose balance is <= 0, so an
- * unallocated credit note never reaches a bucket. Both are real differences
- * between the aged report and the subledger, and both are named as reconciling
- * items on the `aged_to_subledger` bridge rather than smoothed over here.
+ * NOTE on what the sum includes. `AgingBucket.total` is everything owed on AR
+ * (the buckets are net of `disputed`, which is shown beside them and added back
+ * into `total`), so disputes are IN this figure. `calculateAgingBuckets` drops
+ * rows whose balance is <= 0, so an unallocated credit note never reaches a
+ * bucket: that one real difference between the aged report and the subledger is
+ * named as a reconciling item on the `aged_to_subledger` bridge.
  */
 
 import { log } from '@/lib/logger';

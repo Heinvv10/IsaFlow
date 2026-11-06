@@ -5,9 +5,10 @@
  * Payables tiles both read it, so the donut (five age buckets plus Disputed),
  * the tile and the report's total are one figure by construction.
  *
- * Disputed amounts leave the age buckets here, as calculateAgingBuckets does,
- * and come back as their own "Disputed" segment. The report keeps them in their
- * age bucket, so each age bucket here plus its disputed share is the report's.
+ * The rule, here and on the aging report alike: the age buckets are net of disputes, Disputed is a column (here a segment)
+ * beside them, and the total is the buckets plus Disputed, everything owed. A dispute leaves its age bucket as
+ * calculateAgingBuckets does and comes back as its own "Disputed" figure, so this donut's segments add up to the Aged
+ * Debtors screen's Total.
  */
 import { calculateAgingBuckets, getAgingBucket, type OpenAgingInvoice } from '../../utils/aging';
 import { fetchARAgingInvoices } from '../ar/arAgingInvoices';

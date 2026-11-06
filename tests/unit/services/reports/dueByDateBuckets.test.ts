@@ -116,7 +116,7 @@ describe('buildDueByDateSide', () => {
     expect(side.totals.totalByDate).toBe(0.3);
   });
 
-  it('FOOTING: overdue + due-to-date + later + no-due-date equals the aging total', () => {
+  it('FOOTING: overdue + due-to-date + later + no-due-date, plus the dispute held apart, equals the aging total (which includes disputes)', () => {
     const mixed: OpenAgingInvoice[] = [
       ...rows,
       inv({ entityId: 'b', entityName: 'Beta', dueDate: '2026-08-01', balance: 1234.56, disputedAmount: 34.56 }),
@@ -128,8 +128,11 @@ describe('buildDueByDateSide', () => {
     const aging = calculateAgingBuckets(mixed, new Date(`${TODAY}T00:00:00`));
     const agingTotal = aging.reduce((s, r) => s + r.total, 0);
     const t = side.totals;
-    expect(t.overdueNow + t.dueTodayToDate + t.dueLater + t.noDueDate).toBeCloseTo(agingTotal, 2);
+    // The aging total is everything owed: the columns are net of a dispute, `disputed` is its own figure.
+    expect(t.overdueNow + t.dueTodayToDate + t.dueLater + t.noDueDate + t.disputed).toBeCloseTo(agingTotal, 2);
+    // `total` is everything owed, as on the Aged Debtors screen: the columns and the dispute together.
     expect(t.total).toBeCloseTo(agingTotal, 2);
+    expect(t.total).toBeCloseTo(t.overdueNow + t.dueTodayToDate + t.dueLater + t.noDueDate + t.disputed, 2);
     // and per contact
     for (const c of side.contacts) {
       const a = aging.find((r) => r.entityId === c.contactId)!;

@@ -7,7 +7,7 @@
  *
  * TWO BRIDGES, not one. Re-deriving Brightsphere showed the specification had
  * conflated them:
- *   aged → subledger      what the aged report drops (null due dates, disputes)
+ *   aged → subledger      what the aged report drops (unallocated credit; a dispute is IN its total)
  *   subledger → control   what the GL and the subledger disagree about
  * The R1,058,000 null-due-date invoice sits on the FIRST bridge; the unapplied
  * cash sits on the second. Adding them into one number is how the audit's
@@ -173,9 +173,8 @@ describe('reconcileSubledger — AR', () => {
   });
 
   it('reports the aged report’s OWN total, and names the gap to the subledger', async () => {
-    // Disputes and unallocated credit are the two things the aged report
-    // genuinely does not show: bucket totals are net of disputes, and a row
-    // with a balance of zero or less never reaches a bucket at all.
+    // Unallocated credit is the one thing the aged report genuinely does not show: a row with a balance of zero or
+    // less never reaches a bucket at all. A dispute is NOT a gap: the aged total is everything owed, disputes included.
     const disputed = doc({ id: 'inv-d', documentNumber: 'INV-D', balance: 4000 });
     const cn = doc({ id: 'cn-1', documentNumber: 'CN0001', balance: -250 });
     vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 3750 })]);
@@ -186,19 +185,17 @@ describe('reconcileSubledger — AR', () => {
         disputes: new Map([['inv-d', 900]]),
       }) as never,
     );
-    vi.mocked(getAgedReportTotal).mockResolvedValue(3100); // 4000 − 900 dispute
+    vi.mocked(getAgedReportTotal).mockResolvedValue(4000); // the whole 4000 owed, the 900 dispute included
 
     const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
     const aged = rec.reconcilingItems.filter((i) => i.bridge === 'aged_to_subledger');
-    expect(aged.map((i) => i.type)).toEqual(['disputed_amount', 'unallocated_credit_note']);
-    expect(aged.find((i) => i.type === 'disputed_amount')).toMatchObject({
-      amount: 900, documentIds: ['inv-d'],
-    });
+    expect(aged.map((i) => i.type)).toEqual(['unallocated_credit_note']);
+    expect(aged.some((i) => i.type === 'disputed_amount')).toBe(false); // a dispute is in the aged total: no bridge item
     expect(aged.find((i) => i.type === 'unallocated_credit_note')).toMatchObject({
       amount: -250, documentIds: ['cn-1'],
     });
     // The identity this bridge exists to satisfy.
-    expect(aged.reduce((s, i) => s + i.amount, 0)).toBe(3750 - 3100);
+    expect(aged.reduce((s, i) => s + i.amount, 0)).toBe(3750 - 4000);
     // And it does NOT touch the GL difference: those documents' own journals
     // are already on the control account.
     expect(rec.difference).toBe(0);

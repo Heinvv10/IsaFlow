@@ -12,10 +12,10 @@
  *                   date; here the raw NULL decides, so they are not guessed)
  * `totalByDate` = overdueNow + dueTodayToDate: what must be settled by `byDate`.
  *
- * FOOTING: the four columns add to what calculateAgingBuckets reports as the
- * total. That means the aging's own rules are mirrored on purpose: balances <= 0
- * are dropped, and an AR open dispute is taken out of the columns and reported
- * apart as `disputed` (aging total + disputed = the gross balance). Unallocated
+ * FOOTING: the four columns plus `disputed` add to `total`, which is what calculateAgingBuckets reports as the
+ * total (everything owed, disputes included). That means the aging's own rules are mirrored
+ * on purpose: balances <= 0 are dropped, and an AR open dispute is taken out of the columns
+ * and reported apart as `disputed` (columns + disputed = the aging total = the gross balance). Unallocated
  * AR credit notes carry a negative balance, which aging drops, so they are not
  * here either.
  *
@@ -34,7 +34,7 @@ export interface DueByDateTotals {
   totalByDate: number;
   dueLater: number;
   noDueDate: number;
-  /** The four columns: equals the aging total for the same contacts. */
+  /** Everything owed: the four columns plus `disputed`; equals the aging total for the same contacts (the Aged Debtors / Creditors total). */
   total: number;
   /** Open dispute held out of the columns (AR only; always 0 for AP). */
   disputed: number;
@@ -128,7 +128,7 @@ function finish(c: CentsTotals): DueByDateTotals {
     totalByDate: fromCents(c.overdueNow + c.dueTodayToDate),
     dueLater: fromCents(c.dueLater),
     noDueDate: fromCents(c.noDueDate),
-    total: fromCents(c.overdueNow + c.dueTodayToDate + c.dueLater + c.noDueDate),
+    total: fromCents(c.overdueNow + c.dueTodayToDate + c.dueLater + c.noDueDate + c.disputed),
     disputed: fromCents(c.disputed),
   };
 }

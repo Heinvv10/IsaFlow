@@ -30,7 +30,7 @@ A browser download (signed-in session) works exactly as before and needs no toke
 | `lines` | One row per journal line (`?date_from`, `?date_to`, `?status=all\|posted`) | `X-Control-Total` (Σ posted amounts, must be 0.00), `X-Unbalanced-Txn-Count` |
 | `accounts`, `cost_centres`, `business_units` | Dimension masters | — |
 | `counterparties` | Customers and suppliers (needs `read:contacts`) | — |
-| `ap_open_items` | Open supplier bills, plus unconsumed supplier credit notes and unapplied supplier payments as negative rows, as at today | `X-Control-Total` = Σ Outstanding; `X-Aged-Total` = the aged creditors net total; `X-Control-Difference`; `X-Disputed-Total` |
+| `ap_open_items` | Open supplier bills, plus unconsumed supplier credit notes and unapplied supplier payments as negative rows, as at today | `X-Control-Total` = Σ Outstanding + Σ Disputed; `X-Aged-Total` = the aged creditors net total; `X-Control-Difference`; `X-Disputed-Total` = Σ Disputed, already inside `X-Control-Total` |
 | `ar_open_items` | The same for customer invoices, customer credit notes and unapplied receipts | as above, against aged debtors |
 | `bank_accounts` | One row per bank or card account (needs `read:bank-tx`) | `X-Control-Total` = Σ Ledger_Balance; `X-No-Ledger-Balance-Count` |
 
@@ -43,9 +43,10 @@ Every file also carries `X-Export-Timestamp` and `X-Schema-Version`. The compute
 `Doc_ID, Doc_Type, Doc_No, Supplier_Ref` (AR: `Customer_Ref`)`, Counterparty_ID, Counterparty_Name, Doc_Date, Due_Date, Days_Overdue, Age_Bucket, Total_Incl_VAT, Outstanding, Disputed, CC1_Code, CC2_Code, BU_Code, Has_Document, Schema_Version`
 
 - `Doc_Type`: `invoice`, `credit_note`, `unapplied_payment` (AP) or `unapplied_receipt` (AR).
-- `Outstanding` is positive for what is owed and negative for credit and on-account cash, so the column sums to the aged report's net total. A refund carries its own sign.
+- `Outstanding` is positive for what is owed and negative for credit and on-account cash, so together with `Disputed` the column sums to the aged report's net total: Σ `Outstanding` + Σ `Disputed` = `X-Control-Total` = `X-Aged-Total`. A refund carries its own sign.
 - `Due_Date` is the date the invoice is aged from: its due date, or its invoice date when it has none. `Age_Bucket` is `current`, `30`, `60`, `90` or `120+`, bucketed as the aged report does. Only invoice rows are aged: credit and cash rows have a blank `Due_Date`, `Days_Overdue` and `Age_Bucket`. So a pivot of `Outstanding` by `Age_Bucket` gives exactly the report's gross buckets, plus one blank-bucket line holding the unapplied total.
-- `Disputed` is the part of an AR invoice under an open dispute. It is out of `Outstanding`, as it is out of the aged buckets, so **`Outstanding` + `Disputed` is what the invoice still owes**, and Σ `Outstanding` is less than the receivable in the ledger by `X-Disputed-Total`. Add `X-Disputed-Total` back for the amount customers legally owe.
+- `Disputed` is the part of an AR invoice under an open dispute. It is out of `Outstanding`, as it is out of the aged buckets, so **`Outstanding` + `Disputed` is what the invoice still owes**, and Σ `Outstanding` is less than `X-Control-Total` by `X-Disputed-Total`. A disputed amount is still owed, so `X-Control-Total` already includes it and is the amount customers owe: do not add `X-Disputed-Total` to it. Check a load by comparing Σ `Outstanding` + Σ `Disputed` with `X-Control-Total`.
+- `Schema_Version` (and `X-Schema-Version`) is `isaflow-open-items-1.1` from the change that put disputed amounts into `X-Control-Total`. Under `1.0`, `X-Control-Total` was Σ `Outstanding` alone. The columns and the meaning of `Outstanding` and `Disputed` did not change.
 - On `ap_open_items`, `Disputed` is always `0`: the aged creditors report has no dispute concept, so a supplier bill in status `disputed` is open at its full balance in `Outstanding`, as the report carries it.
 - `CC1_Code`, `CC2_Code` and `BU_Code` come from the invoice's lines when every line has the same value; otherwise they read `MIXED`. Credit notes use their header values.
 - `Has_Document` is `true` when a supporting document is filed against the document.
