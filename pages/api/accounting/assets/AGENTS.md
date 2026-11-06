@@ -52,6 +52,7 @@ Sub-routes for the dual-track FAR (policy/IFRS vs tax/SARS). Register CRUD itsel
 - `src/modules/accounting/services/items/fleetRecordsService.ts`, `assetBankLinksService.ts` — fleet records and the asset's linked bank lines
 
 ## Recent changes
+- 2026-11-07: `dispose` refuses a type `assets.disposal_type` cannot store (400, before any write) and logs `asset_disposals`; `scrap`/`insurance_claim` are no longer offered (file as `write_off`/`loss`). Earlier disposals have no log row (no backfill)
 - 2026-10-05 (round 2): unlink of an absent kind 409; bounded asset lock on create; date range / NUL refused 422
 - 2026-10-05: mig 853 — fleet fuel / service records (`fuel`, `service`), `bank-links`, and the asset / fleet link routes rebuilt as annotations
 - 2026-09-09: K-026 — `below-threshold` POST gained `withWriteAccess`, a row lock and an already-expensed guard

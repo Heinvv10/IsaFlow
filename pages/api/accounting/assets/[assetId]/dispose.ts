@@ -153,6 +153,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     notes,
   }, userId);
 
+  // A null id means the hook found no asset to post for. The lock above makes
+  // that unreachable today; if it ever happens, fail (5xx rolls everything
+  // back) rather than log a disposal with no journal, which is exactly what
+  // the fixed-asset reconciliation reports as an unposted disposal.
+  if (!entryId) throw new Error(`Asset ${assetId} disposal posted no journal`);
+
   // The disposal log GET /api/accounting/assets-disposals lists. Written after
   // the journal so it always carries one; the same request transaction rolls
   // it back with everything else if anything here throws.

@@ -114,12 +114,41 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('asset dis
     expect(listed[0]).toMatchObject({ disposal_method: 'sale', journal_entry_id: journalEntryId });
   });
 
-  it('a disposal sent without a type is logged as unspecified, not refused', async () => {
-    const id = await asset();
-    const out = await callAs(c, token, disposeRoute, 'POST', { proceeds: 0, disposalDate: '2026-06-21' }, { assetId: id });
-    expect(out.status, out.body).toBe(200);
-    expect(await state(id)).toMatchObject({ status: 'disposed', disposal_type: null, disposal_rows: 1 });
-    const m = (await sql`SELECT disposal_method FROM asset_disposals WHERE asset_id = ${id}::UUID`) as Row[];
-    expect(m).toEqual([{ disposal_method: 'unspecified' }]);
+  it.each([['absent', {}], ['empty', { disposalType: '' }]])('a disposal with the type %s is logged as unspecified, not refused',
+    async (_label, extra) => {
+      const id = await asset();
+      const out = await callAs(c, token, disposeRoute, 'POST', { proceeds: 0, disposalDate: '2026-06-21', ...extra },
+        { assetId: id });
+      expect(out.status, out.body).toBe(200);
+      expect(await state(id)).toMatchObject({ status: 'disposed', disposal_type: null, disposal_rows: 1 });
+      const m = (await sql`SELECT disposal_method FROM asset_disposals WHERE asset_id = ${id}::UUID`) as Row[];
+      expect(m).toEqual([{ disposal_method: 'unspecified' }]);
+    });
+
+  // The user is a member of BOTH companies, so RLS on assets (membership) lets the other one's rows through and
+  // only the route's company_id filter keeps them out of this company's list.
+  it("the Disposals list never shows another company's disposal, even one the user also belongs to", async () => {
+    const other = crypto.randomUUID();
+    await sql`INSERT INTO companies (id, name, registration_number)
+      VALUES (${other}::UUID, ${`ADT other ${c.fx.tag}`}, ${`ADT-${other.slice(0, 8)}`})`;
+    await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${other}::UUID, ${c.fx.userId}, 'admin')`;
+    try {
+      const foreign = String(((await sql`
+        INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price, useful_life_years, status)
+        VALUES (${other}::UUID, 'ADT-FOREIGN', 'Foreign asset', '2026-01-10', 1000, 5, 'disposed')
+        RETURNING id`) as Row[])[0]!.id);
+      await sql`INSERT INTO asset_disposals (asset_id, disposal_date, disposal_method, book_value_at_disposal, gain_loss)
+        VALUES (${foreign}::UUID, '2026-06-01', 'sale', 1000, 0)`;
+      const list = await callAs(c, token, disposalsList as Route, 'GET', {}, {});
+      expect(list.status, list.body).toBe(200);
+      const rows = list.data as Row[];
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.filter((r) => r.asset_id === foreign)).toEqual([]);
+    } finally {
+      await sql`DELETE FROM asset_disposals WHERE asset_id IN (SELECT id FROM assets WHERE company_id = ${other}::UUID)`;
+      await sql`DELETE FROM assets WHERE company_id = ${other}::UUID`;
+      await sql`DELETE FROM company_users WHERE company_id = ${other}::UUID`;
+      await sql`DELETE FROM companies WHERE id = ${other}::UUID`;
+    }
   });
 });
