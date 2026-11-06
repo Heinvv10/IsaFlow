@@ -16,6 +16,13 @@
 #                          VERIFY_SKIP_INTEGRITY=1)
 #   E2E_ADMIN_EMAIL/_PASSWORD   Demo login for the golden suite; if unset,
 #                          sourced from /home/hein/isaflow-deploy.env (0600)
+#   E2E_APPROVER_EMAIL/_PASSWORD   OPTIONAL second Demo user (owner/admin of the
+#                          same company) who approves the golden payroll run:
+#                          prod Demo has several approvers, so the admin cannot
+#                          approve its own request (SELF_APPROVAL_FORBIDDEN).
+#                          Read from the same file; both or neither (one alone FAILs).
+#   Precedence: per key, an exported variable beats the creds file, so a half-exported
+#                          admin pair mixes sources; a key repeated in the file is last-wins.
 #   VERIFY_BASELINE        integrity baseline file (default: the prod baseline)
 #   VERIFY_SKIP_INTEGRITY  =1 skips step 3 (drills against a dev server that
 #                          shares the workspace .env.local DB)
@@ -74,15 +81,25 @@ echo "OK: public-host redirects and the admin rewrite stay on their host"
 
 # ── 2. Golden-paths suite ────────────────────────────────────────────────────
 echo "[2/3] Golden-paths E2E suite..."
-if [ -z "$E2E_ADMIN_EMAIL" ] || [ -z "$E2E_ADMIN_PASSWORD" ]; then
-  if [ -f "$CREDS_FILE" ]; then
-    # Read only the two expected keys, literally — never `.`/source, which
-    # shell-parses values ($, backticks, quotes) and would silently mangle a
-    # generated password (same hazard deploy.sh documents for .env.local).
-    while IFS= read -r line; do
-      [ -n "$line" ] && export "$line"
-    done < <(grep -E '^E2E_ADMIN_(EMAIL|PASSWORD)=' "$CREDS_FILE" || true)
-  fi
+if [ -f "$CREDS_FILE" ]; then
+  # Read only the expected keys, literally — never `.`/source, which
+  # shell-parses values ($, backticks, quotes) and would silently mangle a
+  # generated password (same hazard deploy.sh documents for .env.local).
+  # A variable already exported wins over the file; a key repeated in the file is last-wins.
+  PRE_EXPORTED=" "
+  for key in E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD E2E_APPROVER_EMAIL E2E_APPROVER_PASSWORD; do
+    [ -n "${!key}" ] && PRE_EXPORTED="$PRE_EXPORTED$key "
+  done
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    key="${line%%=*}"
+    case "$PRE_EXPORTED" in *" $key "*) continue ;; esac
+    export "$line"
+  done < <(grep -E '^E2E_(ADMIN|APPROVER)_(EMAIL|PASSWORD)=' "$CREDS_FILE" || true)
+fi
+if [ -n "$E2E_APPROVER_EMAIL" ] && [ -z "$E2E_APPROVER_PASSWORD" ] || { [ -z "$E2E_APPROVER_EMAIL" ] && [ -n "$E2E_APPROVER_PASSWORD" ]; }; then
+  echo "FAIL: only one of E2E_APPROVER_EMAIL/E2E_APPROVER_PASSWORD is set — set both or neither."
+  exit 1
 fi
 if [ -z "$E2E_ADMIN_EMAIL" ] || [ -z "$E2E_ADMIN_PASSWORD" ]; then
   echo "FAIL: E2E_ADMIN_EMAIL/E2E_ADMIN_PASSWORD not set and $CREDS_FILE missing —"

@@ -30,6 +30,8 @@ export interface ModuleNavProps {
   tabs?: Tab[];
   getActiveTabId: (pathname: string, query: Record<string, string | string[] | undefined>) => string;
   accentColor: AccentColor;
+  /** Mark the open menu's items as if the page were at this path (the router's own when absent): see AppLayout's navPath. */
+  navPath?: string;
 }
 
 const hasMenu = (t: Tab) => (t.items?.length ?? 0) > 0;
@@ -45,7 +47,7 @@ const isHoverPointer = (e: { pointerType: string }) => e.pointerType === 'mouse'
  * @param getActiveTabId  Route-to-tab resolver for the owning module
  * @param accentColor     Tailwind color token used for active-state highlights
  */
-export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps) {
+export function ModuleNav({ tabs, getActiveTabId, accentColor, navPath }: ModuleNavProps) {
   const router = useRouter();
   const [openTab, setOpenTab] = useState<string | null>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -128,7 +130,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
   const borderCls = (t: Tab) => `border-b-2 ${activeTab === t.id ? accent.activeBorder : 'border-transparent'}`;
 
   const dropdown = (t: Tab, id: string) => {
-    const props = { asPath: router.asPath, onClose: () => setOpenTab(null), accent, id };
+    const props = { asPath: navPath ?? router.asPath, onClose: () => setOpenTab(null), accent, id };
     return hasFlyout(t)
       ? <FlyoutDropdown tab={t} {...props} />
       : <FlatDropdown items={t.items as DropdownItem[]} {...props} />;
