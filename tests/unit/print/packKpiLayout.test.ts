@@ -23,15 +23,20 @@ afterAll(async () => { await browser?.close(); });
 
 /** Rounding: the constants are the measured leadings rounded up to the hundredth. */
 const SLACK = 0.02;
-/** Observed over-charge on the sample is 0.02 to 0.12mm (the leadings are rounded up to the hundredth); an extra millimetre is a regression. */
-const MOST_OVER = 0.25;
+/**
+ * The most the model may read over the print. Its only excess is the leadings rounded up to the hundredth (12pt is
+ * 4.233mm, charged 4.24; 25pt 8.819, charged 8.83) and the sparkline's 0.01mm, a few hundredths a row: over all
+ * 11,520 packs of the adversarial grid the block read 0.018 to 0.117mm over Chromium's. A line or a gap too many is
+ * 4mm or 1mm; a leading off by 0.05mm is 0.1mm on a two-row block. Both go red here.
+ */
+const MOST_OVER = 0.15;
 const SHAPES: Shape[] = [];
 for (const k of [1, 30, 1000, 30000, 300000, 3e7, 2.7e8]) for (const negative of [false, true]) for (const loss of [false, true])
   for (const sg of [[1, 1, 1, 1], [-1, -1, 1, 1], [1, -1, -1, 1]]) for (const tr of ['demo', 'none'] as const)
     for (const [budget, prior] of [[true, true], [false, false]] as const) SHAPES.push({ k, negative, loss, plug: 0.05, sg, budget, prior, tr });
 
 describe('the KPI block of a stratified sample of packs', () => {
-  it(`${SHAPES.length} packs: columns within 1px, rows and the block never short, and within 0.25mm`, async () => {
+  it(`${SHAPES.length} packs: columns within 1px, rows and the block never short, and within ${MOST_OVER}mm`, async () => {
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
     let blocks = 0;
@@ -84,7 +89,8 @@ describe('the block as the page prints it (the adversary\'s two cases, measured 
     const model = kpiBlockMm(block.tiles, doc.numberConvention.scale, page.orientation);
     const out = await printBoardPack(doc, browser);
     const printed = out.heights[i]!.blocks.filter((b) => !b.what.startsWith('header') && !b.what.startsWith('ol.'))[page.blocks.indexOf(block)]!.mm;
-    expect(model - printed, `model ${model.toFixed(2)}mm, print ${printed}mm`).toBeGreaterThanOrEqual(-0.05);
-    expect(model - printed, `model ${model.toFixed(2)}mm, print ${printed}mm`).toBeLessThanOrEqual(MOST_OVER);
+    // `printBoardPack` reports a block's height to the tenth of a millimetre: half of that either way is rounding.
+    expect(model - printed, `model ${model.toFixed(2)}mm, print ${printed}mm`).toBeGreaterThanOrEqual(-SLACK - 0.05);
+    expect(model - printed, `model ${model.toFixed(2)}mm, print ${printed}mm`).toBeLessThanOrEqual(MOST_OVER + 0.05);
   }, 300_000);
 });
