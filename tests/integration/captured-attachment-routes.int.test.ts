@@ -236,4 +236,19 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
     expect(await attachCapturedDocToBankTx(company, d11, t4, null)).toEqual({ ok: true, mirrored: true });
     expect((await pool.query('SELECT id FROM bank_transaction_attachments WHERE bank_transaction_id = $1', [t4])).rows.map((r) => r.id)).toEqual([c11]);
   });
+
+  it('answers 503 with Retry-After, and unlinks nothing, while another transaction holds the document row', async () => {
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM captured_documents WHERE id = $1 FOR UPDATE', [d1]);
+      const r = await call('DELETE', { documentId: d1, bankTransactionId: t1 });
+      expect(r.state.statusCode).toBe(503);
+      expect(r.headers.get('retry-after')).toBe('2');
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(await docState(d1)).toMatchObject({ matched_bank_tx_id: t1 });
+  }, 30000);
 });

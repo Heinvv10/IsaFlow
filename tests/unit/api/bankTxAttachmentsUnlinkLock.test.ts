@@ -43,7 +43,7 @@ describe('DELETE bank-tx-attachments?documentId= (unlink)', () => {
     unlink.mockRejectedValue(new CaptureRowLockTimeoutError(DOC));
     const r = await del();
     expect(r.code).toBe(503);
-    expect(r.headers['retry-after']).toBeDefined();
+    expect(r.headers['retry-after']).toBe('2');
   });
 
   it('lets any other failure reach the error handler', async () => {
