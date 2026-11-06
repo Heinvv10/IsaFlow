@@ -230,6 +230,8 @@ export async function editDraftCustomerInvoice(
          SET notes = COALESCE(${notes ?? null}, notes),
              internal_notes = COALESCE(${internalNotes ?? null}, internal_notes),
              due_date = COALESCE(${dueDate ?? null}, due_date),
+             due_date_source = CASE WHEN ${dueDate ?? null}::DATE IS DISTINCT FROM due_date AND ${dueDate ?? null}::DATE IS NOT NULL
+                                    THEN 'manual' ELSE due_date_source END, -- 962: a moved due date is hand-set
              customer_id = COALESCE(${clientId ?? null}::UUID, customer_id),
              client_id = COALESCE(${clientId ?? null}::UUID, client_id),
              invoice_date = COALESCE(${invoiceDate ?? null}, invoice_date),

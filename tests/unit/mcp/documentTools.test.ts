@@ -49,16 +49,21 @@ describe('list_documents', () => {
   it('lists bank attachments over a date range when no entity is named', async () => {
     vi.mocked(listBankAttachments).mockResolvedValue({
       rows: [{
-        id: 'a1', bankTransactionId: 'tx1', fileName: 'slip.pdf', fileSize: 100,
+        id: 'a1', store: 'bank_attachment', bankTransactionId: 'tx1', fileName: 'slip.pdf', fileSize: 100,
         uploadedBy: null, createdAt: '2026-09-01T00:00:00.000Z', transactionDate: '2026-09-01',
         amount: -12000, transactionDescription: 'Makro', reference: 'R1',
+      }, {
+        id: 'd1', store: 'captured_document', bankTransactionId: 'tx1', fileName: 'scan.pdf', fileSize: 7400000,
+        uploadedBy: null, createdAt: '2026-09-02T00:00:00.000Z', transactionDate: '2026-09-01',
+        amount: -12000, transactionDescription: 'Makro', reference: 'R1',
       }],
-      rowsTotal: 1, postedThrough: '2026-09-01T00:00:00.000Z',
+      rowsTotal: 2, postedThrough: '2026-09-01T00:00:00.000Z',
     });
     const env = payload(await listDocumentsTool.handler({ from: '2026-09-01', to: '2026-09-30' }, ctx) as never);
     assertEnvelopeSound(env as never);
     expect(vi.mocked(listBankAttachments).mock.calls[0]![0]).toBe(ctx.companyId);
-    expect((env.rows as Record<string, unknown>[])[0]!.store).toBe('bank_attachment');
+    // Each row carries its own store: an upload, or a linked captured document with no upload.
+    expect((env.rows as Record<string, unknown>[]).map((r) => r.store)).toEqual(['bank_attachment', 'captured_document']);
     expect(env.posted_through).toBe('2026-09-01T00:00:00.000Z');
   });
 

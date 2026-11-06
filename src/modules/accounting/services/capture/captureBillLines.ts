@@ -28,7 +28,8 @@
  * with the lines, before an approval request can bind the draft's digest.
  */
 import { sql } from '@/lib/neon';
-import { billDueDate } from '../ap/billDueDate';
+import { billDueDateSourced } from '../ap/billDueDate';
+import type { DueDateSource } from '../shared/dueDateSource';
 import type { SupplierRule } from './supplierRulesService';
 import type { PipelineInvoiceInput } from '../core/aiInvoicePipelineService';
 import { billLineAccountRefusal } from '../ap/billLineAccountGuard';
@@ -188,11 +189,14 @@ export async function insertCaptureBillLines(invoiceId: string, lines: readonly 
 /**
  * A bill built from a scanned / extracted document (capture post, the AI pipeline): the document's printed due date, else
  * the supplier's confirmed terms, else the terms text the scan read, else the company default. The scan's terms text ranks
- * BELOW a confirmed supplier and never counts as terms the user picked.
+ * BELOW a confirmed supplier and never counts as terms the user picked. The printed date and the scan's terms are
+ * recorded as the document's (migration 962).
  */
 export function extractedBillDueDate(
   companyId: string, supplierId: string,
   extracted: { invoiceDate: string; dueDate?: string | null; paymentTerms?: string | null },
-): Promise<string | null> {
-  return billDueDate(companyId, supplierId, extracted.invoiceDate, { dueDate: extracted.dueDate, scannedTerms: extracted.paymentTerms });
+): Promise<{ dueDate: string | null; source: DueDateSource }> {
+  return billDueDateSourced(
+    companyId, supplierId, extracted.invoiceDate, { dueDate: extracted.dueDate, scannedTerms: extracted.paymentTerms }, 'document',
+  );
 }

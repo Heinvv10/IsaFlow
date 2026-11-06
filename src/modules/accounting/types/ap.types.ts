@@ -41,6 +41,7 @@ export interface SupplierInvoice {
   grnId?: string;
   invoiceDate: string;
   dueDate?: string;
+  dueDateSource?: string; // migration 962: terms | manual | document | legacy
   receivedDate?: string;
   subtotal: number;
   taxRate: number;
@@ -102,6 +103,7 @@ export interface SupplierInvoiceCreateInput {
   grnId?: string;
   invoiceDate: string;
   dueDate?: string;
+  dueDateGivenAs?: 'manual' | 'document'; // migration 962: who gave `dueDate` (default manual)
   taxRate?: number;
   paymentTerms?: string;
   reference?: string;

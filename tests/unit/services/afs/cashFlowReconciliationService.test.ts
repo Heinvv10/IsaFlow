@@ -43,6 +43,7 @@ const DIRECT_REPORT = {
   financingItems: [],
   financingTotal: 5000,
   netChange: 7000,
+  unexplainedDifference: 0,
   closingCash: 22000,
 };
 
@@ -60,6 +61,18 @@ describe('cashFlowReconciliationService', () => {
     expect(result.bankBalance).toBeCloseTo(22000, 2);
     expect(result.variance).toBeCloseTo(0, 2);
     expect(result.isReconciled).toBe(true);
+  });
+
+  it('flags a direct statement that does not tie to the ledger cash: it closes on the ledger, its journals reach less', async () => {
+    mockGetDirect.mockResolvedValueOnce({ ...DIRECT_REPORT, netChange: 7400, unexplainedDifference: 400, closingCash: 22400 });
+    mockGetIndirect.mockResolvedValue(statement(22400, 400));
+    mockGetCash.mockResolvedValue(cash(22400));
+
+    const result = await getCashFlowReconciliation(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(result.directClosing).toBeCloseTo(22000, 2);
+    expect(result.isReconciled).toBe(false);
+    expect(result.variance).toBeCloseTo(400, 2);
   });
 
   it('marks isReconciled false and reports variance when figures differ', async () => {
