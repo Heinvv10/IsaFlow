@@ -16,7 +16,7 @@
 import type { MoneyScale } from '@/lib/format/money';
 import { GUTTER_MM } from './packDisclosureHeight';
 import {
-  DELTA_CUE_PX, deltaText, kpiColumnMinPx, kpiFit, KPI_GAP_PX, KPI_FIGURE_MAX_PT, LABEL_MARKER_PX, MM_PX, type KpiTile,
+  DELTA_CUE_PX, deltaText, kpiColumnMinPx, kpiFit, KPI_GAP_PX, KPI_FIGURE_MAX_PT, labelMarkPx, MM_PX, type KpiTile,
 } from './packFigureFit';
 import { ptToPx, textPx } from './packFigureWidth';
 import { linesFor, runsOf } from './packLineWrap';
@@ -62,16 +62,19 @@ export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orien
 /** One tile's height in a column `columnPx` wide. */
 export function kpiTileMm(tile: KpiTile, columnPx: number): number {
   const label = linesFor(runsOf(tile.label, (run) => textPx(run, TEXT_PX, 400), textPx(' ', TEXT_PX, 400)),
-    tile.trendFootnote === null ? 0 : LABEL_MARKER_PX, columnPx) * LABEL_LINE_MM;
+    labelMarkPx(tile.trendFootnote), columnPx) * LABEL_LINE_MM;
   const reason = tile.figure.unavailable ?? '';
   const figure = tile.figure.value === null
     ? linesFor(runsOf(reason, reasonPx, REASON_SPACE_PX), 0, columnPx) * REASON_LINE_MM
     : FIGURE_LINE_MM;
   const parts = [label, figure];
   if (tile.delta !== null) {
-    const runs = runsOf(deltaText(tile), (run) => textPx(run, TEXT_PX, 400), textPx(' ', TEXT_PX, 400));
-    const first = runs[0];
-    if (first !== undefined) runs[0] = { ...first, w: first.w + DELTA_CUE_PX };
+    // The arrow cue is a run of its own, a space before the words (`</span>{' '}`).
+    const space = textPx(' ', TEXT_PX, 400);
+    const words = runsOf(deltaText(tile), (run) => textPx(run, TEXT_PX, 400), space);
+    const first = words[0];
+    if (first !== undefined) words[0] = { ...first, gap: space };
+    const runs = [{ w: DELTA_CUE_PX, gap: 0 }, ...words];
     parts.push(linesFor(runs, 0, columnPx) * LABEL_LINE_MM + DELTA_CUE_MM);
   }
   if (tile.sparklineSvg !== null) {

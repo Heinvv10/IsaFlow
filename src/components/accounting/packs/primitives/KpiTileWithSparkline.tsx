@@ -20,7 +20,7 @@
 import { formatFigureText } from './packFigureText';
 import type { MoneyScale } from '@/lib/format/money';
 import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
-import { deltaRoundsToNil } from '@/modules/accounting/services/packs/narrative/derivedTileCaptions';
+import { deltaDirection, type DeltaDirection } from '@/modules/accounting/services/packs/narrative/derivedTileCaptions';
 import { FootnoteMarker } from './FootnoteMarker';
 import type { PackKpiDelta, PackKpiTile } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -28,17 +28,6 @@ export interface KpiTileWithSparklineProps {
   tile: PackKpiTile;
   /** The document's `numberConvention.scale` — see `formatFigureText`. */
   scale: MoneyScale;
-}
-
-type DeltaDirection = 'up' | 'down' | 'flat';
-
-/** Sign of the delta, independent of `favourable` — a shrinking expense is a
- *  favourable DOWN, not an up; the glyph tracks arithmetic direction and the
- *  colour class (below) carries favourable/unfavourable separately. */
-function deltaDirection(delta: PackKpiDelta): DeltaDirection {
-  // As printed: a movement of 0.04% prints 0.0%, and has no direction.
-  if (deltaRoundsToNil(delta)) return 'flat';
-  return delta.value > 0 ? 'up' : 'down';
 }
 
 /**

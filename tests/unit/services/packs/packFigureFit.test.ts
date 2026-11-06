@@ -33,10 +33,10 @@ describe('tableFit', () => {
     expect(tableFit(narrow, SCALE).fits && tableFit(marked, SCALE).fits).toBe(true);
   });
 
-  it('a not-meaningful cell is charged as "n/m" and its mark', () => {
+  it('a not-meaningful cell is charged as "n/m" and the mark of its note', () => {
     const { table } = withWidenedTable(demoWithoutBudget(), 6);
     const nm = { ...table, rows: table.rows.map((r) => ({ ...r, figures: { actual: { ...r.figures.actual!, value: null, unavailable: 'x' } } })) };
-    expect(tableColumnCells(nm, SCALE)[0]!.every((c) => c.text === 'n/m a')).toBe(true);
+    expect(tableColumnCells(nm, SCALE)[0]!.every((c) => c.text === 'n/m' && c.mark === 'a')).toBe(true);
   });
 
   it('a derived cell of a row whose actual is not meaningful is measured as the "n/m" the table prints, not as a dash', () => {
@@ -47,9 +47,9 @@ describe('tableFit', () => {
       rows: [{ ...row, figures: { actual: { ...row.figures.actual!, value: null, unavailable: 'no base' } } }, { ...table.rows[1]!, figures: { actual: table.rows[1]!.figures.actual!, prior: table.rows[1]!.figures.actual! } }],
     };
     const [actual, prior] = tableColumnCells(half, SCALE);
-    expect(actual![0]!.text).toBe('n/m a');
-    expect(prior![0]!.text, 'the prior cell of that row prints n/m').toBe('n/m a');
-    expect(prior![1]!.text, 'a row with its own prior prints it').not.toBe('n/m a');
+    expect(actual![0]).toMatchObject({ text: 'n/m', mark: 'a' });
+    expect(prior![0], 'the prior cell of that row prints n/m with the same mark').toMatchObject({ text: 'n/m', mark: 'a' });
+    expect(prior![1]!.text, 'a row with its own prior prints it').not.toBe('n/m');
   });
 
   it('weights follow the row role: subtotal 500, total and grand total 600, a line 400', () => {
