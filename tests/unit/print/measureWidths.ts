@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import type { Browser } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { printStylesheet } from './renderPackPdf';
 
 const ROOT = path.resolve(__dirname, '../../..');
@@ -15,11 +15,11 @@ export type Probe = 'td' | 'kpi' | 'th' | 'label';
 
 export interface Measurement { probe: Probe; text: string; fontPx: number | null; widthPx: number }
 
-/** Widths of each text under each probe, at each font size (null = the stylesheet's own size). */
-export async function measure(
-  browser: Browser,
-  items: ReadonlyArray<{ probe: Probe; text: string; fontPx?: number; html?: string; weight?: number; rowClass?: string }>,
-): Promise<Measurement[]> {
+/**
+ * A page holding the probes under the real print stylesheet, its faces served from `public/fonts` and loaded (the
+ * caller closes it).
+ */
+export async function openProbePage(browser: Browser): Promise<Page> {
   const body = '<div class="pack-pages"><div class="pack-page"><table class="pack-table"><thead><tr><th id="th">x</th></tr></thead>'
     + '<tbody><tr><td id="label">x</td><td id="td">x</td></tr></tbody></table><span class="pack-kpi-value" id="kpi">x</span></div></div>';
   const html = '<!doctype html><html class="print-mode"><head><meta charset="utf-8"><style>' + printStylesheet()
@@ -45,6 +45,20 @@ export async function measure(
       ]);
       await document.fonts.ready;
     });
+    return page;
+  } catch (err) {
+    await page.close();
+    throw err;
+  }
+}
+
+/** Widths of each text under each probe, at each font size (null = the stylesheet's own size). */
+export async function measure(
+  browser: Browser,
+  items: ReadonlyArray<{ probe: Probe; text: string; fontPx?: number; html?: string; weight?: number; rowClass?: string }>,
+): Promise<Measurement[]> {
+  const page = await openProbePage(browser);
+  try {
     return await page.evaluate((list) => list.map((item) => {
       const el = document.getElementById(item.probe)!;
       if (el.parentElement?.tagName === 'TR') el.parentElement.className = item.rowClass ?? '';

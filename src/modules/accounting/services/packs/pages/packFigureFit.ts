@@ -111,16 +111,21 @@ export function cellPx(cell: FigureCell, fontPx: number): number {
   return textPx(cell.text, fontPx, cell.weight) + (cell.mark === undefined ? 0 : markPx(cell.mark, fontPx, cell.weight));
 }
 
-/** The narrowest a row label can be set: its longest word at 9pt (it wraps), its indent, its marker, its right padding. */
+/**
+ * The narrowest a 9pt label (a statement row's, a KPI tile's) can be set: its widest piece, with the footnote mark
+ * after the LAST piece, not the longest. Chromium never breaks between a word and the `<sup>` after it, so the mark
+ * wraps with the last piece (`packLabelMark.test.ts`).
+ */
+export function labelWidestPiecePx(label: string, footnote: number | null | undefined, weight: FigureWeight): number {
+  const widths = breakable(label).map((piece) => textPx(piece, Math.round(ptToPx(TABLE_FIGURE_MAX_PT)), weight));
+  const mark = labelMarkPx(footnote, weight);
+  return Math.max(0, ...widths.map((w, i) => (i === widths.length - 1 ? w + mark : w)));
+}
+
+/** The narrowest a row label can be set: its widest piece and marker (it wraps), its indent, its right padding. */
 function labelMinPx(table: PackTable): number {
-  const labelFontPx = Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
-  return Math.max(0, ...table.rows.map((row) => {
-    // The footnote mark sits after the LAST piece, not the longest.
-    const widths = breakable(row.label).map((piece) => textPx(piece, labelFontPx, ROW_WEIGHT[row.role]));
-    const mark = labelMarkPx(row.footnote, ROW_WEIGHT[row.role]);
-    const widest = Math.max(0, ...widths.map((w, i) => (i === widths.length - 1 ? w + mark : w)));
-    return row.level * INDENT_PX_PER_LEVEL + widest + CELL_SIDE_PX;
-  }));
+  return Math.max(0, ...table.rows.map((row) => row.level * INDENT_PX_PER_LEVEL
+    + labelWidestPiecePx(row.label, row.footnote, ROW_WEIGHT[row.role]) + CELL_SIDE_PX));
 }
 
 /** The total of the columns' min-content widths for a table whose figures are set at `fontPx`. */
@@ -169,8 +174,7 @@ function longestRunPx(text: string, fontPx: number, weight: FigureWeight): numbe
  * holds its column open (the adversary's net-debit Debt-to-equity tile: 50px of figure under a 56px label).
  */
 function tileOtherMinPx(tile: KpiTile): number {
-  const labelWidths = breakable(tile.label).map((piece) => textPx(piece, 12, 400));
-  const labelPx = Math.max(0, ...labelWidths.map((w, i) => (i === labelWidths.length - 1 ? w + labelMarkPx(tile.trendFootnote) : w)));
+  const labelPx = labelWidestPiecePx(tile.label, tile.trendFootnote, 400);
   const reasonWidth = tile.figure.value === null && tile.figure.unavailable !== undefined && tile.figure.unavailable !== null
     ? Math.max(0, ...breakable(tile.figure.unavailable).map(reasonPx)) : 0;
   // The arrow cue is a run of its own (`</span>{' '}` after it is a break opportunity): it never holds a column open
