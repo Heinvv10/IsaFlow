@@ -54,6 +54,7 @@ describe('the 2,560-input shape sweep', () => {
     let columnsNamed = 0;
     let columnsSilent = 0;
     let falseCompleteness = 0;
+    let columnsTwice = 0;
     let trimmedPages = 0;
     try {
       for (const shape of shapes) {
@@ -76,6 +77,8 @@ describe('the 2,560-input shape sweep', () => {
           if (!hasBudget) {
             const said = p6.footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE
               || (f.text.startsWith(OMISSION_MARK) && /; the Budget and Variance columns\./.test(f.text) && !f.text.includes('Every figure')));
+            // Said once: a page carrying the dropped-columns footnote does not also name them in its omission note.
+            if (p6.footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE) && omission !== undefined && /Budget and Variance/.test(omission.text)) columnsTwice += 1;
             if (said) columnsNamed += 1;
             else columnsSilent += 1;
           }
@@ -108,7 +111,7 @@ describe('the 2,560-input shape sweep', () => {
     // page 6's last lever; renumbering footnotes changed none of them). They are the shapes whose
     // required disclosures are longer still: net-debit revenue AND another line below zero.
     expect(unexpectedlyRefused).toEqual([]);
-    expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, columnsSilent, falseCompleteness, columnsNamed, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, columnsSilent: 0, falseCompleteness: 0, columnsNamed: 1163, refused: 322, sample: [] });
+    expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, columnsSilent, falseCompleteness, columnsTwice, columnsNamed, refused, sample: printed.slice(0, 3) }).toEqual(
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, columnsSilent: 0, falseCompleteness: 0, columnsTwice: 0, columnsNamed: 1163, refused: 322, sample: [] });
   }, 1_800_000);
 });

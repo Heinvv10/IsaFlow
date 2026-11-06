@@ -74,6 +74,12 @@ export interface PackPage {
    * Stripped from the page once it has been fitted.
    */
   columnsLeftOut?: readonly string[];
+  /**
+   * Another instruction to `fitPageToBox`: the page itself already says `columnsLeftOut` are not printed (page
+   * 6's dropped-columns footnote), so an omission note it prints must not say it a second time, only that every
+   * OTHER figure is complete. Stripped from the page once it has been fitted.
+   */
+  columnsSaid?: true;
 }
 
 /** Spec §7.1 criterion 8's ONE number convention for the whole pack.

@@ -28,6 +28,8 @@ export interface Dropped {
   captions: number;
   /** Figures the page was composed without (`PackPage.columnsLeftOut`), named in the note. */
   columns: string[];
+  /** The page already says `columns` are not printed (`PackPage.columnsSaid`): the note says "other", not the columns again. */
+  columnsSaid?: boolean;
   /**
    * The headings of the disclosures notes were taken from, in the order they
    * were taken, without repeats.
@@ -105,7 +107,8 @@ function omissionText(dropped: Dropped): string {
   if (dropped.captions > 0) parts.push(`${dropped.captions} derived ${dropped.captions === 1 ? 'caption' : 'captions'}`);
   // THE COLUMNS A PAGE WAS COMPOSED WITHOUT ARE FIGURES, so the note that names them cannot go on to say
   // every figure is printed: "every OTHER figure" is what is true.
-  if (dropped.columns.length > 0) parts.push(`the ${dropped.columns.join(' and ')} columns`);
+  // Said ONCE: where the page's own footnote already says they are not printed, this one does not repeat it.
+  if (dropped.columns.length > 0 && dropped.columnsSaid !== true) parts.push(`the ${dropped.columns.join(' and ')} columns`);
   return `${OMISSION_MARK}: ${parts.join('; ')}. `
     + `Every ${dropped.columns.length > 0 ? 'other ' : ''}figure, table and chart on the page is complete`
     + ` — what ${dropped.columns.length > 0 ? 'else ' : ''}is missing is prose about them, and it can be asked for.`;
