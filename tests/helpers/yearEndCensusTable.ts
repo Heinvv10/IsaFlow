@@ -43,7 +43,6 @@ export const entries: Array<[string, Category, string?]> = [
   ['pages/api/accounting/opening-balances-export.ts', 'OPENING'],
   ['pages/api/accounting/reports-journal-entries.ts', 'RAW'],
   ['pages/api/accounting/reports-waterfall.ts', 'CASH'],
-  ['afs/cashFlowDirectService.ts', 'CASH'],
   ['afs/noteGenerators/primaryStatements/cashFlow.ts', 'CASH'],
   ['ap/supplierCreditNoteExpenseLines.ts', 'SUBLEDGER'],
   ['ap/supplierInvoiceBudgetProvisional.ts', 'BANK'], // P5-2: one bank line's own provisional journal, whose reclass a bill's budget check counts

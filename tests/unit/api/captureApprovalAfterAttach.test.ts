@@ -46,7 +46,7 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () =>
 vi.mock('@/modules/accounting/services/capture/alertResolutionService', () => ({ resolvePendingAlertForInvoice: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/capture/captureBillLines', () => ({
   planCaptureBillLines: vi.fn(async () => ({ lines: [] })),
-  extractedBillDueDate: vi.fn(async () => '2026-10-16'), // dated by the supplier's terms: tests/unit/services/ap/billDueDate.test.ts
+  extractedBillDueDate: vi.fn(async () => ({ dueDate: '2026-10-16', source: 'terms' })), // dated by the supplier's terms: tests/unit/services/ap/billDueDate.test.ts
   insertCaptureBillLines: vi.fn(async () => { order.push('insertLines'); return SLIP; }),
 }));
 vi.mock('@/modules/accounting/services/gl/approvalUnattended', () => ({

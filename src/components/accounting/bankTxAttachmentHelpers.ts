@@ -8,6 +8,12 @@ export interface Attachment {
   file_size: number | null;
   uploaded_by: string | null;
   created_at: string;
+  /** A captured document linked to the line (copied or not). Remove unlinks it rather than deleting a copy. */
+  document_id?: string;
+  /** 'captured': a linked captured document. With no copy its file_url is the route that serves its bytes. */
+  source?: 'captured';
+  /** The type a captured document claims. Decides View and the download extension; the viewer trusts only its bytes. */
+  content_type?: string | null;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────

@@ -30,6 +30,52 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-06 — Auth Session Hardening, Cash Flow Alignment, Payroll s18A, Board Pack Fixes
+
+**Auth — Session Hardening**
+
+- "Keep me signed in" now survives the default idle limit on return; expired access cookie no longer signs the user out (#1183, #1184)
+- Login-as may end only with the initiating admin; stale admin stash cannot be reused; missing hint not counted as tick (#1185, #1186)
+- Idle limit enforced before input can reset it; heartbeat repairs corrupt timestamps and survives bad stamps / hidden tabs (#1192, #1194, #1197)
+- Sign Out ends only this device's session (#1170)
+
+**Cash Flow / Reports**
+
+- Direct and indirect cash flow methods now read the same journals; each journal placed by one rule (#1176)
+- Direct cash flow reads cash-only journals and closes on the ledger with an Unexplained Difference row (#1172, #1174, #1175, #1177, #1178)
+- Cash flow ledger fault excluded from pack's operating cash and printed on page 8 (#1188)
+- Due-by-date total includes disputed, equal to the Aged Debtors total; open-items export contract updated
+
+**Management Pack / Board Pack**
+
+- Board pack merged disclosures shipped (#1154)
+- Pack cash flow shows direct statement's unexplained difference; whole-cent and ledger-tie checks (#1149)
+- Suppressed section stops a rebuild; accepted / overridden / locked draft preserved; rebuild replaces only an unacted draft (#1191)
+- Dropped-columns page says its columns once; approved variance notes always reach the pack (#1195)
+
+**Payroll**
+
+- s18A donations require a receipt and are capped at 5% of income (migration 959)
+- Retirement deduction split on pay before donations; only s18A-rule donations count in the retirement split
+- `invalid_net_pay_setting` blocker message corrected (needs support repair, not a re-save)
+
+**AR**
+
+- Invoice converted from a quote or sales order is dated today (#1190)
+
+**AP**
+
+- Bills copied from a PO now link to that PO and show it on the bill; abandoned PO copy leaves no spinner (#1182)
+- Review's paths back to an unlinked bill restored (#1183)
+
+**CI**
+
+- Hosted runner apt mirrors: fail or retry fast when a mirror stalls; new apt step pinned in workflow-runs-ci rule
+
+Migrations: **957** (`payroll_run_line_sdl_state`), **958** (`seeded_long_term_loans_subtype`), **959** (`s18a_donation_deduction`), **960** (`payment_terms_model`), **961** (`company_default_terms_history`)
+
+---
+
 ## 2026-11-05 — Payroll Approval, Management Pack Hardening, AP Refusal Fixes
 
 **Payroll — Pay-Run Approval**

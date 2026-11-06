@@ -8,7 +8,7 @@ import { verifyToken } from './gotrue';
 import { respondIfAuthUnavailable } from './authUpstream';
 import { authenticatePrintToken } from './withAuthPrint';
 import { getAuthPool } from './authPool';
-import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
+import { parseCookies, clearAuthCookies, clearCookiesForRefusedToken, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit, settleAfterRollback } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
@@ -75,7 +75,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       if (outcome.kind === 'rejected') {
         if (outcome.clearCookies) {
           log.warn('withAuth: invalid token', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
-          clearAuthCookies(res);
+          clearCookiesForRefusedToken(res, err);
         } else {
           // A genuine print token bound elsewhere — AppLayout's own background
           // calls present the same cookie. Clearing here wiped the render's

@@ -77,7 +77,8 @@ export async function loadPayeYearToDate(
              r.annual_before_deductions,
              b.annual_3605, b.original_taxable, b.donations,
              h.period_year, h.period_month, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,
-             l.sdl_applicable AS stored_sdl_applicable, l.sdl_leviable, l.sdl_exempt, b.sdl_applicable AS rebuilt_sdl_applicable
+             l.sdl_applicable AS stored_sdl_applicable, l.sdl_leviable, l.sdl_exempt, b.sdl_applicable AS rebuilt_sdl_applicable,
+             l.donation_receipted, l.donation_base, l.donation_deduction
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
@@ -132,10 +133,14 @@ export async function loadPayeYearToDate(
            -- SUM skips a line written before migration 926 (NULL: recorded nothing).
            SUM(medical_credit)::numeric AS medical_credit,
            SUM(additional_medical_credit)::numeric AS additional_medical_credit,
+           -- SUM skips a line written before migration 959: the 5% limit starts after it (s18aDonation).
+           SUM(donation_receipted)::numeric AS donation_receipted,
+           SUM(donation_base)::numeric AS donation_base,
+           SUM(donation_deduction)::numeric AS donation_deduction,
            -- The lines in period order, for the SDL year to date (payrollSdlYearToDate).
            jsonb_agg(jsonb_build_object('line', line_id, 'sdl', sdl, 'sdlApplicable', stored_sdl_applicable,
                'rebuiltApplicable', rebuilt_sdl_applicable, 'sdlLeviable', sdl_leviable, 'sdlExempt', sdl_exempt,
-               'retirement', retirement_deduction)
+               'retirement', retirement_deduction, 'donation', donation_deduction)
              ORDER BY period_year, period_month, line_created_at, line_id) AS sdl_lines
     FROM split
     GROUP BY employee_id
@@ -175,6 +180,9 @@ export async function loadPayeYearToDate(
       retirementContributions: fund?.contributions ?? 0,
       retirementDeduction: fund?.deduction ?? 0,
       donations: fund?.donations ?? 0,
+      donationReceipted: round2(Number(r.donation_receipted ?? 0)),
+      donationBase: round2(Number(r.donation_base ?? 0)),
+      donationDeduction: round2(Number(r.donation_deduction ?? 0)),
       ...sdlYearToDate((r.sdl_lines ?? []) as SdlYearToDateLine[]),
     }];
   }));

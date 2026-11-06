@@ -45,16 +45,16 @@ function Attachments({ txId }: { txId: string }) {
   if (loading) return <p className={MUTED}>Loading attachments…</p>;
   if (error || !data) return <p role="alert" className={FAILED}>{error}</p>;
   if (data.length === 0) return <p className={MUTED}>No attachments.</p>;
-  const viewable = data.filter(a => previewKind(a.file_url) !== 'none');
+  const viewable = data.filter(a => previewKind(a.file_url, a.content_type) !== 'none');
   return (
     <>
       <ul className="space-y-1">
         {data.map((a) => (
           <li key={a.id} className="flex items-baseline justify-between gap-3">
             {canDownload(a.file_url)
-              ? <a href={a.file_url} target="_blank" rel="noopener noreferrer" download={safeDownloadName(a.file_url, a.file_name)} title={a.file_name} className={`min-w-0 truncate ${LINK}`}>{a.file_name}</a>
+              ? <a href={a.file_url} target="_blank" rel="noopener noreferrer" download={safeDownloadName(a.file_url, a.file_name, a.content_type)} title={a.file_name} className={`min-w-0 truncate ${LINK}`}>{a.file_name}</a>
               : <span title={a.file_name} className={`min-w-0 truncate ${MUTED}`}>{a.file_name}</span>}
-            {previewKind(a.file_url) !== 'none' && (
+            {previewKind(a.file_url, a.content_type) !== 'none' && (
               <button type="button" onClick={() => setViewIndex(viewable.indexOf(a))} aria-label={`View ${a.file_name}`}
                 className={`shrink-0 ${LINK}`}>View</button>
             )}
