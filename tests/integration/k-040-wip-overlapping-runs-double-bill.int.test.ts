@@ -140,6 +140,10 @@ describe('K-040 overlapping WIP invoice runs', () => {
       await b.query('BEGIN');
       const bPid = Number((await b.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
       runB = runInvoice(b, companyId, clientId, [entryId]);
+      // B's refusal can land before A's COMMIT returns, when nothing is awaiting runB
+      // yet: Node would report it as unhandled and fail the run. The assertion below
+      // still awaits runB and checks the refusal.
+      runB.catch(() => undefined);
       await waitUntilBlocked(bPid);
 
       await a.query('COMMIT');

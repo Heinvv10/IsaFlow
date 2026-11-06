@@ -139,7 +139,7 @@ describe('driver writes through the real fetchers', () => {
     await rowActions('1010', 'Spread across months…');
     const notice = (await screen.findByText(/cells need a look/)).closest('[role="status"]')!;
     expect(notice).toHaveTextContent(FY_CLOSED_REASON);
-    expect(screen.getByTestId('grid-announcement')).toHaveTextContent(FY_CLOSED_REASON);
+    await waitFor(() => expect(screen.getByTestId('grid-announcement')).toHaveTextContent(FY_CLOSED_REASON)); // a React render behind the store's announcement
     expect(screen.queryByTestId('spread-note')).toBeNull();
   });
 
