@@ -167,3 +167,40 @@ export function placeJournal(legs: readonly JournalLeg[], netCash: number, dispo
   }
   return placed;
 }
+
+export interface JournalSections {
+  /**
+   * What the journal's legs place in each section: the three sum to the journal's legs, which is its `netCash` on a
+   * balanced journal. On one that is not balanced (a leg added to a posted journal) the difference stays out of the
+   * sections and surfaces as the statement's Unexplained Difference, in both methods.
+   */
+  operating: number;
+  investing: number;
+  financing: number;
+  /** The legs whose own nature is operating and so share `operating` between them (the direct statement's lines). */
+  operatingLegs: JournalLeg[];
+}
+
+/**
+ * One journal's cash by section: the single rule both cash flow methods follow. Investing and financing are only the
+ * cash the journal actually moved through the cash accounts (`placeJournal`: a part settled on account or by a loan in the
+ * same journal is non-cash, IAS 7.43); operating is the rest of the journal's cash. The indirect statement lists the
+ * placed amounts; the direct one splits `operating` over `operatingLegs`.
+ */
+export function journalSections(legs: readonly JournalLeg[], netCash: number, disposal = false): JournalSections {
+  let operating = 0;
+  let investing = 0;
+  let financing = 0;
+  for (const { bucket, amount } of placeJournal(legs, netCash, disposal)) {
+    const section = SECTION[bucket];
+    if (section === 'investing') investing += amount;
+    else if (section === 'financing') financing += amount;
+    else operating += amount;
+  }
+  const operatingLegs = legs.filter((leg) => {
+    if (disposal && isDisposalGainLossSubtype(leg.subtype)) return false;
+    const bucket = classifyIndirectLine(leg.accountType, leg.subtype, leg.isLoanCurrentPortion);
+    return SECTION[bucket] === 'operating' && !(disposal && bucket === 'depreciation');
+  });
+  return { operating: toMoney(operating), investing: toMoney(investing), financing: toMoney(financing), operatingLegs };
+}

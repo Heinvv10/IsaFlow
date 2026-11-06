@@ -76,7 +76,7 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
   if (changed.length > 0) {
     return {
       code: 'components_changed_after_calculation',
-      detail: `Pay component dates, an end date or termination details changed after this run was calculated for ${[...new Set(changed.map((r) => String(r.employee_number)))].sort().join(', ')}: `
+      detail: `Pay component dates, an end date, termination details or an s18A receipt tick changed after this run was calculated for ${[...new Set(changed.map((r) => String(r.employee_number)))].sort().join(', ')}: `
         + 'the run still holds the old figures. Recalculate this run, then approve it.',
     };
   }

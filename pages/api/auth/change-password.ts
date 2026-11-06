@@ -69,7 +69,7 @@ const handler: NextApiHandler = async (req, res) => {
   // surviving fresh session so their current browser stays signed in.
   try {
     const fresh = await rotateSessionRevokingOthers(email, newPassword);
-    const persistent = parseCookies(req)[REMEMBER_ME_COOKIE] !== '0';
+    const persistent = parseCookies(req)[REMEMBER_ME_COOKIE] === '1';
     setAuthCookies(res, {
       accessToken: fresh.access_token,
       refreshToken: fresh.refresh_token,

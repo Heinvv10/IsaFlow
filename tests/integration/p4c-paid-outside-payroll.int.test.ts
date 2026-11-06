@@ -61,6 +61,14 @@ afterAll(async () => {
   try { await cleanSeveranceFixtures(pool, fixtures); } finally { await pool.end(); }
 });
 
+describe('POST /api/payroll/components: sarsSourceCode', () => {
+  it.each(['4030\u00A0', '\u200B4030', '40 30', '4030.'])('refuses %j: it would hide from rules keyed on the code', async (code) => {
+    const out = await createComponent({ name: `Odd code ${code}`, sarsSourceCode: code, componentType: 'deduction' });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(JSON.stringify(out.body)).toMatch(/only letters and digits/);
+  });
+});
+
 describe('POST /api/payroll/components: paidOutsidePayroll', () => {
   it('only a deduction coded 4001/4003/4006 takes it; the rest are 400 and nothing is written', async () => {
     const before = await componentNames();

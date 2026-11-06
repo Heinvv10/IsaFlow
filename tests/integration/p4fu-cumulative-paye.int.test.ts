@@ -173,7 +173,9 @@ describe('G4: the year-to-date', () => {
       // PAYE 4c (migration 948): a line before it recorded no retirement fund contribution or deduction.
       retirementContributions: 0, retirementDeduction: 0, donations: 0,
       // SDL year to date: the items carry no isSdlApplicable (before it) and are no catalogue component, so no SDL pay.
-      sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 });
+      sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0, sdlDonationDeduction: 0,
+      // Migration 959: a line before it adds nothing to the s18A sums.
+      donationReceipted: 0, donationBase: 0, donationDeduction: 0 });
     // April: a severance-only line on an approved run (no periodic pay: not a period worked);
     // May: a run only calculated (not declarable: not in it).
     const april = (await pool.query(
@@ -193,7 +195,9 @@ describe('G4: the year-to-date', () => {
       // PAYE 4c (migration 948): a line before it recorded no retirement fund contribution or deduction.
       retirementContributions: 0, retirementDeduction: 0, donations: 0,
       // SDL year to date: the items carry no isSdlApplicable (before it) and are no catalogue component, so no SDL pay.
-      sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0 });
+      sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0, sdlDonationDeduction: 0,
+      // Migration 959: a line before it adds nothing to the s18A sums.
+      donationReceipted: 0, donationBase: 0, donationDeduction: 0 });
     // Not before the period itself, and not other tax years.
     expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 3 }, [f.employee])).get(f.employee)).toBeUndefined();
     expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2027, month: 3 }, [f.employee])).get(f.employee)).toBeUndefined();

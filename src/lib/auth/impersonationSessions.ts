@@ -61,6 +61,16 @@ export async function currentSessionActor(): Promise<SessionActor> {
   return row.impersonated ? 'impersonation' : 'self';
 }
 
+/** Who a recorded Login-as session belongs to. Same pool and reason as sessionActorOfToken below. */
+export async function impersonationPartiesOf(
+  sessionId: string,
+): Promise<{ actorUserId: string; targetUserId: string } | null> {
+  const { rows } = await getPlatformAdminPool().query<{ actor_user_id: string; target_user_id: string }>(
+    'SELECT actor_user_id, target_user_id FROM impersonation_sessions WHERE session_id = $1', [sessionId],
+  );
+  return rows[0] ? { actorUserId: rows[0].actor_user_id, targetUserId: rows[0].target_user_id } : null;
+}
+
 /**
  * For routes outside withAuth — no request transaction, so no
  * `request.jwt.claims` for `currentSessionActor` to read: classify the session

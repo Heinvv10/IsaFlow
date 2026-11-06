@@ -24,7 +24,7 @@ const cash = (over: Partial<CashFlowDirectReport> = {}): CashFlowDirectReport =>
   periodStart: '2026-09-01', periodEnd: '2026-09-30', openingCash: 1000,
   operatingItems: [{ cashGroup: 'cash_received_from_customers', label: 'Cash received from customers', amount: 5000 }, { cashGroup: 'cash_paid_to_suppliers', label: 'Cash paid to suppliers', amount: -2000 }],
   operatingTotal: 3000, investingItems: [{ cashGroup: 'investing', label: 'Net investing cash flows', amount: -500 }], investingTotal: -500,
-  financingItems: [], financingTotal: 0, netChange: 2500, closingCash: 3500, ...over,
+  financingItems: [], financingTotal: 0, unexplainedDifference: 0, netChange: 2500, closingCash: 3500, ...over,
 });
 
 describe('cash flow', () => {
@@ -38,6 +38,33 @@ describe('cash flow', () => {
       ['Net change in cash', 'R 2 500.00'], ['Closing cash', 'R 3 500.00'],
     ]);
     expect(t.rowKinds).toEqual(['subtotal', 'heading', 'line', 'line', 'subtotal', 'heading', 'line', 'subtotal', 'subtotal', 'total']);
+  });
+
+  it('prints a ledger fault as its own group between financing and the net change, only when there is one, so the table adds up', () => {
+    const faulty = cash({ unexplainedDifference: 400, netChange: 2900, closingCash: 3900 });
+    const t = tableOf(cashFlowBlocks([{ label: 'This month', report: faulty }], false));
+    expect(t.rows.slice(-5)).toEqual([
+      ['Unexplained difference', ''], ['The ledger\'s cash does not follow from its posted journals', 'R 400.00'], ['Total unexplained difference', 'R 400.00'],
+      ['Net change in cash', 'R 2 900.00'], ['Closing cash', 'R 3 900.00'],
+    ]);
+    expect(cashFlowFigures(faulty)).toMatchObject({ unexplainedDifference: 400, netChange: 2900 });
+    expect(tableOf(cashFlowBlocks([{ label: 'This month', report: cash() }], false)).rows.map((r) => r[0])).not.toContain('Unexplained difference');
+  });
+
+  it('in a pack with a faulty month and a clean one the group shows in both columns (400 and 0), whichever month is faulty', () => {
+    const faulty = cash({ unexplainedDifference: 400, netChange: 2900, closingCash: 3900 });
+    for (const [columns, cells] of [
+      [[{ label: 'This month', report: faulty }, { label: 'Last month', report: cash() }], ['R 400.00', 'R 0.00']],
+      [[{ label: 'This month', report: cash() }, { label: 'Last month', report: faulty }], ['R 0.00', 'R 400.00']],
+    ] as const) {
+      const t = tableOf(cashFlowBlocks([...columns], false));
+      expect(t.headers).toEqual(['', 'This month', 'Last month']);
+      const at = t.rows.findIndex((r) => r[0] === 'Unexplained difference');
+      expect(at).toBeGreaterThan(-1);
+      expect(t.rows[at]).toEqual(['Unexplained difference', '', '']);
+      expect(t.rows[at + 1]).toEqual(['The ledger\'s cash does not follow from its posted journals', ...cells]);
+      expect(t.rows[at + 2]).toEqual(['Total unexplained difference', ...cells]);
+    }
   });
 
   it('says it is the direct method', () => {

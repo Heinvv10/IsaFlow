@@ -103,6 +103,9 @@ it('L4: accepting an invitation does not revert an established profile email', a
   await getAccept()(acceptRequest(l4Token, L4_PASSWORD, '127.0.0.95'), result.res);
 
   expect(result.state.statusCode).toBe(200);
+  // The acceptance page has no "Keep me signed in" box, so the idle rule must not read this session as ticked.
+  const setCookies = ([] as unknown[]).concat(result.res.getHeader('set-cookie') ?? []).map(String);
+  expect(setCookies.find((c) => c.startsWith('isaflow_remember_me='))).toMatch(/^isaflow_remember_me=0;/);
   // `DO UPDATE SET email = EXCLUDED.email` rewrote this to the invited address
   // on every acceptance, silently undoing a profile email the user had changed.
   const profile = await pool.query('SELECT email FROM users WHERE id=$1', [l4User]);

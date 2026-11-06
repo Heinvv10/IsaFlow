@@ -95,6 +95,7 @@ export default function EmployeeDetailPage() {
           uifExcluded: employee.uifExcluded,
           medicalAidMainMember: employee.medicalAidMainMember,
           medicalAidDependantsCount: employee.medicalAidDependantsCount,
+          s18aReceiptHeld: employee.s18aReceiptHeld,
         }),
       });
       await assertOk(res, 'Could not save the employee - try again');

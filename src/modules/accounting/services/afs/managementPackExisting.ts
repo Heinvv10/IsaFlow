@@ -3,7 +3,7 @@
  * approved, a section turned on) could never show it.
  *
  * Only a draft nobody has acted on goes. A signed-off pack is a record, and so is a draft that was reviewed, signed
- * off section by section, accepted or overridden, commented on or emailed (delivering leaves the status 'draft'; its
+ * off section by section, accepted, overridden or suppressed, commented on or emailed (delivering leaves the status 'draft'; its
  * email links to this document id). Sections, comments and the generation log cascade (migrations 334, 336), so this
  * is the last look. "Emailed" reads email_log by subject, so any sent pack email for the month counts: it fails closed.
  */
@@ -45,7 +45,8 @@ export async function removeDraftPack(companyId: string, period: string, actorUs
   const acted = (await sql`
     SELECT
       EXISTS (SELECT 1 FROM afs_sections s WHERE s.document_id = ${draft.id}::UUID AND s.company_id = ${companyId}::UUID
-              AND (s.reviewed_at IS NOT NULL OR s.signed_off_at IS NOT NULL OR s.ai_narrative_accepted OR s.overrides IS NOT NULL)) AS reviewed,
+              AND (s.reviewed_at IS NOT NULL OR s.signed_off_at IS NOT NULL OR s.ai_narrative_accepted OR s.overrides IS NOT NULL
+                   OR COALESCE(s.data_snapshot, '{}'::jsonb) ? 'suppressReason')) AS reviewed,
       EXISTS (SELECT 1 FROM afs_section_comments c JOIN afs_sections s ON s.id = c.section_id AND s.company_id = c.company_id
               WHERE s.document_id = ${draft.id}::UUID AND c.company_id = ${companyId}::UUID) AS commented,
       EXISTS (SELECT 1 FROM email_log e WHERE e.company_id = ${companyId}::UUID AND e.status = 'sent'

@@ -10,6 +10,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildReportPack, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
+import { cashFlowPackRows } from '@/modules/accounting/services/reports/packUnstatedRows';
+import { buildPackDocument, type PackKvItem } from '@/modules/accounting/services/packs/packDocument';
+import { CASH_UNCAPTURED_LABEL } from '@/modules/accounting/services/packs/packSectionData';
 
 const OPENING = 1_787_567.21;
 const OPERATING = 345_678.12;
@@ -60,5 +63,67 @@ describe('the report pack cash flow section', () => {
     const d = cashFlowSection({ ...INPUT, capitalExpenditure: 150_000 });
     expect(d.investingCashFlow).toBe(INVESTING);
     expect(cents(d.openingCash!)).toBe(cents(OPENING));
+  });
+});
+
+/**
+ * A LEDGER FAULT DOES NOT MOVE OPENING CASH. Operating is the movement the journals explain and the gap travels beside it
+ * (`readCashFlows`). Taking opening cash from closing less the three flows alone put the gap in Opening Cash, which then no
+ * longer matched the prior period's close. Probe A: 250 of bank debit added to a posted 500 receipt, true opening cash 0.
+ */
+describe('the report pack cash flow section on a ledger fault', () => {
+  const FAULT: ReportPackInput = { ...INPUT, cash: 750, operatingCashFlow: 500, investingCashFlow: 0, financingCashFlow: 0, cashFlowUnexplained: 250 };
+  const pack = (input: ReportPackInput) => buildReportPack('management', input, '2026-03-01', '2026-08-31');
+  const blob = (input: ReportPackInput) => cashFlowSection(input) as Record<string, unknown>;
+  const docItems = (input: ReportPackInput) => {
+    const section = buildPackDocument(pack(input), []).sections.find((s) => s.type === 'cash_flow')!;
+    return (section.blocks.find((b) => b.kind === 'kv') as { items: PackKvItem[] }).items;
+  };
+
+  it('opening cash is the true opening, and the net movement is the ledger movement', () => {
+    const d = cashFlowSection(FAULT);
+    expect(d.operatingCashFlow).toBe(500);
+    expect(d.cashFlowUnexplained).toBe(250);
+    expect(d.netCashFlow).toBe(750);
+    expect(d.openingCash).toBe(0);
+    expect(d.closingCash).toBe(750);
+  });
+
+  it('the HTML and PDF row list prints the gap between financing and the net, so the column adds up', () => {
+    const rows = cashFlowPackRows(blob(FAULT));
+    expect(rows.map((r) => r.label)).toEqual([
+      'Operating Cash Flow', 'Investing Cash Flow', 'Financing Cash Flow', CASH_UNCAPTURED_LABEL,
+      'Net Cash Flow', 'Opening Cash', 'Closing Cash',
+    ]);
+    expect(rows.map((r) => r.value)).toEqual([500, 0, 0, 250, 750, 0, 750]);
+  });
+
+  it('the pack document, which the PDF and the deck print, prints the same row', () => {
+    const items = docItems(FAULT);
+    expect(items.map((i) => i.value)).toEqual([500, 0, 0, 250, 750, 0, 750]);
+    expect(items[3]).toMatchObject({ label: CASH_UNCAPTURED_LABEL, format: 'money' });
+  });
+
+  it('prints no such row on a sound ledger', () => {
+    for (const gap of [0, undefined]) {
+      const input = { ...INPUT, cashFlowUnexplained: gap };
+      expect(cashFlowPackRows(blob(input)).map((r) => r.label)).not.toContain(CASH_UNCAPTURED_LABEL);
+      expect(docItems(input).map((i) => i.label)).not.toContain(CASH_UNCAPTURED_LABEL);
+      expect(cents(cashFlowSection(input).openingCash!)).toBe(cents(OPENING));
+    }
+  });
+
+  it('a section saved before the field existed still prints, with no row', () => {
+    const { cashFlowUnexplained: _dropped, ...saved } = blob(INPUT);
+    expect(cashFlowPackRows(saved).map((r) => r.label)).not.toContain(CASH_UNCAPTURED_LABEL);
+    const stored = pack(INPUT);
+    const old = { ...stored, sections: stored.sections.map((s) => (s.type === 'cash_flow' ? { ...s, data: saved } : s)) };
+    expect(() => buildPackDocument(old, [])).not.toThrow();
+  });
+
+  it('a gap that is not a number is refused, not printed as nil', () => {
+    const stored = pack(FAULT);
+    const bad = { ...stored, sections: stored.sections.map((s) => (s.type === 'cash_flow' ? { ...s, data: { ...s.data, cashFlowUnexplained: '250' } } : s)) };
+    expect(() => buildPackDocument(bad, [])).toThrow(/cashFlowUnexplained/);
   });
 });
