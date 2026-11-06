@@ -26,6 +26,9 @@ const SHAPES: Shape[] = [
   ['30 with no type (what old createSupplier wrote)', 30, null, null, null],
   ['45 days', 45, 'days', 45, 'invoice_days'],
   ['45 with no type', 45, null, 45, 'invoice_days'],
+  // An empty type is read as no type (readTerms): it dated as invoice days, so it must keep doing so (blind review M1).
+  ['45 with an empty type', 45, '', 45, 'invoice_days'],
+  ['30 with an empty type (read as the stamped default)', 30, '', null, null],
   ['0 days (Immediate)', 0, 'days', 0, 'invoice_days'],
   ['14 end_of_month', 14, 'end_of_month', 14, 'statement_days'],
   ['30 end_of_month (30, but a chosen type)', 30, 'end_of_month', 30, 'statement_days'],
@@ -41,6 +44,7 @@ const SHAPES: Shape[] = [
 const CHANGED: Record<string, [number | null, string | null]> = {
   '30 days (the column default: never chosen)': [30, 'invoice_days'],
   '30 with no type (what old createSupplier wrote)': [30, 'invoice_days'],
+  '30 with an empty type (read as the stamped default)': [30, 'invoice_days'],
 };
 
 const companies: string[] = [];
