@@ -108,6 +108,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse, companyId: 
       userId,
       file.originalFilename ?? `supplier-statement-${Date.now()}`,
       mimeType,
+      buffer.length,
     );
 
     const stored = await storeCapturedBytes(companyId, documentId, buffer, mimeType);
@@ -119,7 +120,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse, companyId: 
           raw_bytes_sha256 = ${stored.hash},
           raw_bytes_size   = ${stored.size},
           status           = 'ready'
-      WHERE id = ${documentId}::uuid
+      WHERE id = ${documentId}::uuid AND company_id = ${companyId}
     `;
 
     log.info('Supplier statement uploaded, queueing reconciliation', {
@@ -152,7 +153,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = authed.user?.id ?? '';
 
   if (req.method === 'GET') return handleGet(req, res, companyId);
-  if (req.method === 'POST') return handlePost(req, res, companyId, userId);
+  if (req.method === 'POST') {
+    if (!userId) return apiResponse.unauthorized(res);
+    return handlePost(req, res, companyId, userId);
+  }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }

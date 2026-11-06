@@ -23,15 +23,15 @@ describeIfDb('supplier statement upload — captured_documents insert', () => {
   });
 
   it('inserts a PDF and an image statement row scoped to the company and uploader', async () => {
-    const pdf = await insertStatementDocument(ids.A, ids.USER, 'a.pdf', 'application/pdf');
-    const png = await insertStatementDocument(ids.A, ids.USER, 'b.png', 'image/png');
+    const pdf = await insertStatementDocument(ids.A, ids.USER, 'a.pdf', 'application/pdf', 1234);
+    const png = await insertStatementDocument(ids.A, ids.USER, 'b.png', 'image/png', 56);
     const { rows } = await fx.pool.query(
-      'SELECT id, file_type, document_type, status, uploaded_by, company_id FROM captured_documents WHERE company_id = $1 ORDER BY file_name',
+      'SELECT id, file_type, file_size, document_type, status, uploaded_by, company_id FROM captured_documents WHERE company_id = $1',
       [ids.A]);
-    expect(rows.map((r) => [r.id, r.file_type, r.document_type, r.status, r.uploaded_by, r.company_id]))
-      .toEqual([
-        [pdf, 'pdf', 'statement', 'pending', ids.USER, ids.A],
-        [png, 'png', 'statement', 'pending', ids.USER, ids.A],
-      ]);
+    const got = Object.fromEntries(rows.map((r) => [r.id, [r.file_type, r.file_size, r.document_type, r.status, r.uploaded_by, r.company_id]]));
+    expect(got).toEqual({
+      [pdf]: ['pdf', 1234, 'statement', 'pending', ids.USER, ids.A],
+      [png]: ['png', 56, 'statement', 'pending', ids.USER, ids.A],
+    });
   });
 });

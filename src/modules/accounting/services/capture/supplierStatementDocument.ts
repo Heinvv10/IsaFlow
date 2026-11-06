@@ -10,12 +10,13 @@ export async function insertStatementDocument(
   userId: string,
   fileName: string,
   mimeType: string,
+  fileSize: number,
 ): Promise<string> {
   const fileType = mimeType === 'application/pdf' ? 'pdf' : (mimeType.split('/')[1] ?? 'bin');
   const rows = (await sql`
     INSERT INTO captured_documents
-      (company_id, file_name, file_type, document_type, status, uploaded_by)
-    VALUES (${companyId}, ${fileName}, ${fileType}, 'statement', 'pending', ${userId}::uuid)
+      (company_id, file_name, file_type, file_size, document_type, status, uploaded_by)
+    VALUES (${companyId}, ${fileName}, ${fileType}, ${fileSize}, 'statement', 'pending', ${userId}::uuid)
     RETURNING id
   `) as Array<{ id: string }>;
   const row = rows[0];
