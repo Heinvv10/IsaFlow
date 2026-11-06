@@ -206,7 +206,7 @@ export async function listCustomers(
   return (await sql`
     SELECT
       id, name, email, phone, contact_person,
-      payment_terms, credit_limit, is_active,
+      payment_terms, payment_terms_type, credit_limit, is_active,
       vat_number, registration_number,
       created_at
     FROM customers
@@ -250,7 +250,7 @@ export async function listSuppliers(
         SELECT
           id, name, company_name, email, phone,
           contact_person, is_active,
-          vat_number, payment_terms,
+          vat_number, payment_terms, payment_terms_type,
           created_at
         FROM suppliers
         WHERE company_id = ${companyId}
@@ -280,7 +280,7 @@ export async function listSuppliers(
       SELECT
         id, name, company_name, email, phone,
         contact_person, is_active,
-        vat_number, payment_terms,
+        vat_number, payment_terms, payment_terms_type,
         created_at
       FROM suppliers
       WHERE company_id = ${companyId}

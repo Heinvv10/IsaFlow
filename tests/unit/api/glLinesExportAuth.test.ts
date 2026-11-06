@@ -118,7 +118,7 @@ beforeEach(() => {
     columns: ['Doc_ID', 'Outstanding'],
     rows: [{ Doc_ID: 'd1', Outstanding: 100.5 }, { Doc_ID: 'd2', Outstanding: -0.5 }],
     summary: {
-      table: 'ap_open_items', schemaVersion: 'isaflow-open-items-1.0', asAt: '2026-10-22', rowCount: 2,
+      table: 'ap_open_items', schemaVersion: 'isaflow-open-items-1.1', asAt: '2026-10-22', rowCount: 2,
       controlTotal: 100, agedTotal: 100, difference: 0, disputedTotal: 12.5,
     },
   });
@@ -175,7 +175,7 @@ describe('gl-lines-export with a Personal Access Token', () => {
     expect(res.statusCode).toBe(200);
     expect(h.buildComputed).toHaveBeenCalledWith(TOKEN_COMPANY, 'ap_open_items');
     expect(res.headers).toMatchObject({
-      'X-Schema-Version': 'isaflow-open-items-1.0', 'X-As-At': '2026-10-22', 'X-Row-Count': '2',
+      'X-Schema-Version': 'isaflow-open-items-1.1', 'X-As-At': '2026-10-22', 'X-Row-Count': '2',
       'X-Control-Total': '100.00', 'X-Aged-Total': '100.00', 'X-Control-Difference': '0.00', 'X-Disputed-Total': '12.50',
     });
     expect(res.headers).not.toHaveProperty('X-No-Ledger-Balance-Count');
@@ -223,7 +223,7 @@ describe('gl-lines-export with a Personal Access Token', () => {
     expect(res.statusCode).toBe(200);
     const body = res.body as { data: Record<string, unknown> };
     expect(body.data).toMatchObject({ controlTotal: 100, agedTotal: 100, difference: 0, rowCount: 2 });
-    expect(res.headers['X-Schema-Version']).toBe('isaflow-open-items-1.0');
+    expect(res.headers['X-Schema-Version']).toBe('isaflow-open-items-1.1');
     expect(res.chunks.join('')).not.toContain('Doc_ID,');
   });
 });

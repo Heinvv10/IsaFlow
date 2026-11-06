@@ -1,7 +1,9 @@
 /**
  * Accounting Settings API
  * GET  ?key=reporting_currency — get setting value
- * PUT  { key, value } — update one of WRITABLE_SETTING_KEYS (anything else is a 400)
+ * PUT  { key, value } — update one of WRITABLE_SETTING_KEYS (anything else is a 400). Every other key has its own route
+ *      with its own gate: default_payment_terms is owner/admin only on company-settings?type=payment-terms, auto-post on
+ *      bank-auto-post. A generic write would bypass those gates.
  */
 
 import type { NextApiResponse } from 'next';
@@ -40,6 +42,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     if (typeof key !== 'string' || !WRITABLE_SETTING_KEYS.includes(key)) {
       return apiResponse.badRequest(res, 'This setting cannot be written here (settings with their own page, such as Default Accounts, are saved there)');
     }
+    if (typeof value !== 'string') return apiResponse.badRequest(res, 'value must be text');
     await setSetting(key, value, userId, companyId);
     return apiResponse.success(res, { updated: true });
   }

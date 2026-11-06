@@ -1,6 +1,6 @@
 /**
- * ap_open_items / ar_open_items — the control: Σ Outstanding equals the
- * aged_creditors / aged_debtors net `total` to the cent.
+ * ap_open_items / ar_open_items — the control: Σ Outstanding + Σ Disputed
+ * equals the aged_creditors / aged_debtors net `total` to the cent.
  *
  * The two sides are computed by DIFFERENT code from the SAME fixture: the aged
  * tools run their own path (getAPAging / getARAging → calculateAgingBuckets,
@@ -153,11 +153,11 @@ describe('ap_open_items: the control against aged_creditors', () => {
 });
 
 describe('ar_open_items: the control against aged_debtors', () => {
-  it('Σ Outstanding equals aged_debtors total; a disputed amount is out of Outstanding and stated', async () => {
+  it('Σ Outstanding + Σ Disputed equals aged_debtors total (a disputed amount is still owed: its own column, in the total)', async () => {
     const out = await buildOpenItems(CTX.companyId, 'ar', AS_AT);
     const aged = payload(await agedDebtorsTool.handler({ as_at: AS_AT }, CTX));
 
-    expect(out.rows.reduce((s, r) => s + cents(r.Outstanding), 0)).toBe(cents(aged.total));
+    expect(out.rows.reduce((s, r) => s + cents(r.Outstanding) + cents(r.Disputed ?? 0), 0)).toBe(cents(aged.total));
     expect(cents(out.summary.controlTotal)).toBe(cents(aged.total));
     expect(cents(out.summary.grossTotal)).toBe(cents(aged.gross_total));
     expect(out.summary.difference).toBe(0);
@@ -166,8 +166,8 @@ describe('ar_open_items: the control against aged_debtors', () => {
     const c1 = out.rows.find((r) => r.Doc_ID === 'c-1')!;
     expect(c1).toMatchObject({ Outstanding: 60, Disputed: 40 });
     expect(out.rows.find((r) => r.Doc_ID === 'rc-1')).toMatchObject({ Doc_Type: 'unapplied_receipt', Outstanding: -500 });
-    // 60 + 59.99 + 1234.56 − 34.56 − 500.
-    expect(out.summary.controlTotal).toBe(819.99);
+    // 60 + 59.99 + 1234.56 − 34.56 − 500, plus the 40 in dispute that is still owed.
+    expect(out.summary.controlTotal).toBe(859.99);
   });
 });
 
@@ -194,13 +194,21 @@ describe('open items: what a dashboard does with the file', () => {
     expect(b.days90).toBe(0);
   });
 
-  it('states the disputed total, so Σ Outstanding + disputedTotal is what the invoices still owe', async () => {
+  it('states the disputed total: grossTotal is what the invoices still owe, Σ Outstanding + disputedTotal', async () => {
     const ar = await buildOpenItems(CTX.companyId, 'ar', AS_AT);
     expect(ar.summary.disputedTotal).toBe(40);
     const balances = fx.ar.reduce((s: number, i) => s + cents((i as OpenAgingInvoice).balance), 0);
-    expect(cents(ar.summary.grossTotal) + cents(ar.summary.disputedTotal)).toBe(balances);
+    expect(cents(ar.summary.grossTotal)).toBe(balances);
     // AP has no dispute concept.
     expect((await buildOpenItems(CTX.companyId, 'ap', AS_AT)).summary.disputedTotal).toBe(0);
+  });
+
+  it('a dispute is already in controlTotal: Σ Outstanding falls short of it by disputedTotal, and schema 1.1 says so', async () => {
+    const ar = await buildOpenItems(CTX.companyId, 'ar', AS_AT);
+    const sumOutstanding = ar.rows.reduce((s, r) => s + cents(r.Outstanding), 0);
+    expect(cents(ar.summary.controlTotal) - sumOutstanding).toBe(cents(ar.summary.disputedTotal));
+    expect(ar.summary.schemaVersion).toBe('isaflow-open-items-1.1');
+    expect(new Set(ar.rows.map((r) => r.Schema_Version))).toEqual(new Set(['isaflow-open-items-1.1']));
   });
 });
 

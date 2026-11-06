@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { request } from '@playwright/test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { retryDropped, type Running } from '../../e2e/helpers/droppedConnection';
+import { failOnManifestRace, retryDropped, type Running } from '../../e2e/helpers/droppedConnection';
 
 let server: Server | undefined;
 afterEach(() => { server?.close(); server?.closeAllConnections(); server = undefined; });
@@ -82,5 +82,54 @@ describe('retryDropped', () => {
       expect(d.calls()).toBe(1);
       expect(notes).toEqual([]);
     });
+  });
+});
+
+describe('failOnManifestRace', () => {
+  const RACE_PAGE = '<!DOCTYPE html>{"err":{"name":"SyntaxError","message":"Unexpected end of JSON input",'
+    + '"stack":"at loadManifest (node_modules/next/dist/server/load-manifest.external.js:43:25)"}}';
+
+  /** Answers 500 with `body` for the first `bad` requests, then 200. */
+  async function serverOf(body: string, bad: number): Promise<{ url: string; hits: () => number }> {
+    let hits = 0;
+    server = createServer((_req, res) => {
+      hits += 1;
+      res.statusCode = hits <= bad ? 500 : 200;
+      res.end(hits <= bad ? body : 'ok');
+    });
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
+    return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, hits: () => hits };
+  }
+
+  it('re-sends after the half-written-manifest 500 and returns the real response', async () => {
+    const { url, hits } = await serverOf(RACE_PAGE, 2);
+    const ctx = await request.newContext({ baseURL: url });
+    const res = await retryDropped(async () => failOnManifestRace(await ctx.post('/x')), 5000, null);
+    expect(res.status()).toBe(200);
+    expect(hits()).toBe(3);
+    await ctx.dispose();
+  });
+
+  it.each([
+    ['another 500', 'boom'],
+    ['a JSON error that names no manifest', 'Unexpected end of JSON input'],
+    ['a manifest error that is not the race', 'ENOENT load-manifest'],
+  ])('%s goes straight to the caller, once', async (_name, body) => {
+    const { url, hits } = await serverOf(body, 1);
+    const ctx = await request.newContext({ baseURL: url });
+    const res = await retryDropped(async () => failOnManifestRace(await ctx.post('/x')), 5000, null);
+    expect(res.status()).toBe(500);
+    expect(await res.text()).toBe(body);
+    expect(hits()).toBe(1);
+    await ctx.dispose();
+  });
+
+  it('does not re-send against a non-local host: on production this 500 is an outage signal', async () => {
+    const { url, hits } = await serverOf(RACE_PAGE, 1);
+    const ctx = await request.newContext({ baseURL: url });
+    const prod: Running = { title: 't', baseURL: 'https://app.isaflow.co.za', note: () => undefined };
+    await expect(retryDropped(async () => failOnManifestRace(await ctx.post('/x')), 5000, prod)).rejects.toThrow(/next-dev-manifest-race/);
+    expect(hits()).toBe(1);
+    await ctx.dispose();
   });
 });

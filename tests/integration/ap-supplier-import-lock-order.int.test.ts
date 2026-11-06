@@ -132,7 +132,7 @@ describe('importSuppliers (overwrite)', () => {
     let result: Result | undefined;
     const out = await startWriter(t.c, async () => {
       result = await importSuppliers(t.c, t.session, [
-        { name: 'Brand New Supplier', paymentTerms: 'abc' as unknown as number }, // INSERT fails (22P02)
+        { name: 'Brand New Supplier', bankBranchCode: 'x'.repeat(40) }, // INSERT fails (22001: value too long for varchar(20)); a bad paymentTerms no longer does, it imports as not set
         { name: t.names.hi, bankAccountNumber: NEW_ACCOUNT },
       ], 'overwrite', user);
     }).outcome;
