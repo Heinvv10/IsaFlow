@@ -55,9 +55,10 @@ export async function getSupplierInvoiceById(
 ): Promise<(SupplierInvoice & { items: SupplierInvoiceItem[] }) | null> {
   try {
     const rows = (await sql`
-      SELECT si.*, COALESCE(s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name, NULL::text AS po_number
+      SELECT si.*, COALESCE(s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name, po.po_number
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
+      LEFT JOIN purchase_orders po ON po.id = si.purchase_order_id AND po.company_id = si.company_id
       WHERE si.id = ${id} AND si.company_id = ${companyId}::UUID
     `) as Row[];
     if (rows.length === 0) return null;

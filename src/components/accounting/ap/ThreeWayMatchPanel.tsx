@@ -7,41 +7,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, AlertCircle, RefreshCw, CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import type { ThreeWayMatchState } from '@/modules/accounting/services/ap/threeWayMatchState';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ─── API shape ────────────────────────────────────────────────────────────────
-
-interface MatchItemResult {
-  invoiceItemId: string;
-  description: string;
-  poQuantity: number;
-  invoiceQuantity: number;
-  grnQuantityReceived: number;
-  poUnitPrice: number;
-  invoiceUnitPrice: number;
-  qtyVariancePct: number;
-  priceVariancePct: number;
-  lineMatchStatus: 'unmatched' | 'po_matched' | 'grn_matched' | 'fully_matched';
-  mismatches: string[];
-}
-
-interface ThreeWayMatchState {
-  invoiceId: string;
-  matchStatus: 'unmatched' | 'po_matched' | 'grn_matched' | 'fully_matched';
-  paymentMatched: boolean;
-  paymentMatchedAt: string | null;
-  hasPurchaseOrder: boolean;
-  summary: {
-    totalLines: number;
-    fullyMatched: number;
-    priceMismatches: number;
-    quantityMismatches: number;
-    grnMismatches: number;
-  };
-  itemResults: MatchItemResult[];
-  tolerancesApplied: { qtyTolerancePct: number; priceTolerancePct: number };
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -114,7 +84,7 @@ function VarianceCell({ pct, tolerance }: { pct: number; tolerance: number }) {
   return <span className={`tabular-nums font-medium ${cls}`}>{fmtPct(pct)}</span>;
 }
 
-function LineStatusBadge({ status }: { status: MatchItemResult['lineMatchStatus'] }) {
+function LineStatusBadge({ status }: { status: ThreeWayMatchState['itemResults'][number]['lineMatchStatus'] }) {
   const cfg = {
     fully_matched: 'bg-green-500/20 text-green-400',
     po_matched:    'bg-blue-500/20 text-blue-400',
