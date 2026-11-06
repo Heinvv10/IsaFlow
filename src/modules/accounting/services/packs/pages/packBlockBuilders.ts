@@ -53,3 +53,13 @@ export const commentary = (body: string): PackPageBlock => ({
   kind: 'narrative',
   narrative: { status: 'derived', body, actions: [] },
 });
+
+/**
+ * A derived caption that only restates a row of the table above it, which `fitPageToBox` drops
+ * first on a page that is over its sheet -- see `PackPageBlock`'s `droppable`.
+ */
+export const droppableCommentary = (body: string): PackPageBlock => ({
+  kind: 'narrative',
+  narrative: { status: 'derived', body, actions: [] },
+  droppable: true,
+});

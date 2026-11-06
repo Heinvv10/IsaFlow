@@ -22,6 +22,9 @@
  * (page 11's table has its own budget, spent before the page is built). What
  * is trimmed is the pack's prose ABOUT the page, cheapest first:
  *
+ *   0. a derived caption flagged `droppable` (page 6's largest-mover line,
+ *      which restates a row of its own table): the cheapest prose on the
+ *      page to lose and the tallest to keep;
  *   1. the trailing notes of a disclosure the pack does not have to make;
  *   2. page footnotes, last first;
  *   3. the trailing notes of a REQUIRED disclosure, never its first — §3.5's
@@ -166,7 +169,7 @@ export function fitPageReport<T extends MeasurablePage>(
 
   const blocks: PackPageBlock[] = [...page.blocks];
   const footnotes: PackFootnote[] = [...page.footnotes];
-  const dropped: Dropped = { ...NOTHING, from: [] };
+  const dropped: Dropped = { ...NOTHING, columns: [...(page.columnsLeftOut ?? [])], columnsSaid: page.columnsSaid === true, from: [] };
   const droppedNumbers = new Set<number>();
   // THE PAGE IS MEASURED WITH THE FOOTNOTE THAT EXPLAINS THE TRIMMING ON IT.
   // A budget that reserves a flat allowance instead over-trims a page that
@@ -188,6 +191,13 @@ export function fitPageReport<T extends MeasurablePage>(
   }) > box;
 
   while (over()) {
+    // THE FIRST LEVER: a derived caption that only restates a row of the table beside it is worth less
+    // than any footnote or note on the page, and on page 6 it is what lets a budget company keep its
+    // Budget and Variance columns and their footnote. It also costs the most to keep: 13.7mm against
+    // 4mm for a footnote. Only blocks flagged `droppable` are candidates (page 6's largest-mover
+    // caption); the omission note this buys is sized by `over()` like every other drop.
+    const caption = lastIndex(blocks, (b) => b.kind === 'narrative' && b.droppable === true);
+    if (caption !== null) { blocks.splice(caption, 1); dropped.captions += 1; continue; }
     const optional = lastTrimmableNote(blocks, 'optional');
     if (optional !== null) { dropNote(blocks, optional, dropped); dropped.notes += 1; continue; }
     // LAST-FIRST, PAST THE ONES THAT EXPLAIN A FIGURE. `footnotes.pop()` took
