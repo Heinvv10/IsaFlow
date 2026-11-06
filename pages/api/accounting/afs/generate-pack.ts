@@ -14,6 +14,7 @@ import { generateManagementPack, DuplicatePackError } from '@/modules/accounting
 
 const BodySchema = z.object({
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'period must be YYYY-MM (e.g., 2026-04)'),
+  replaceDraft: z.boolean().optional(),
 }).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -25,7 +26,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const parsed = BodySchema.safeParse(req.body);
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
-  const { period } = parsed.data;
+  const { period, replaceDraft } = parsed.data;
 
   log.info('Manual pack generation triggered', { companyId, period }, 'generate-pack-api');
 
@@ -37,6 +38,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       period,
       config,
       triggeredBy: 'manual',
+      replaceDraft,
     });
     return apiResponse.success(res, { result });
   } catch (err) {
