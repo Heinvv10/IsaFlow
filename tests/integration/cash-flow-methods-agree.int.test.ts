@@ -193,6 +193,33 @@ describeIfDb('cash flow: the indirect and direct methods agree on every journal'
     });
   });
 
+  it('probe L: a 10 cash sale, an accrual (expense 100 / payables 100) and a stray payables credit of 50 on the accrual: both methods 60 operating, -50 unexplained, closing 10', async () => {
+    await inTx(async (x) => {
+      const bank = await x.acct('asset', 'bank'), rev = await x.acct('revenue', 'revenue'), opex = await x.acct('expense', 'operating_expense'), ap = await x.acct('liability', 'payable');
+      await x.j('2026-11-02', [[bank, 10, 0], [rev, 0, 10]]);
+      const je = await x.j('2026-11-12', [[opex, 100, 0], [ap, 0, 100]]);
+      await x.c.query(`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,0,50)`, [CO, je, ap]);
+      const t = await totals(P[0], P[1], { fault: true });
+      for (const [method, op, unexplained, close] of [['indirect', t.ind.op, t.ind_full.unexplainedDifference, t.ind_full.closingCash], ['direct', t.dir.op, t.dir_full.unexplainedDifference, t.dir_full.closingCash]] as const) {
+        expect({ method, op, unexplained, close }).toEqual({ method, op: 60, unexplained: -50, close: 10 });
+      }
+    });
+  });
+
+  it('probe M: a cent of cash shared 0.005/0.005 over two operating groups, three times: the lines are whole cents, add to their section, and the statement foots and closes on the ledger', async () => {
+    await inTx(async (x) => {
+      const bank = await x.acct('asset', 'bank'), opex = await x.acct('expense', 'operating_expense'), sal = await x.acct('expense', 'payroll_expense'), fa = await x.acct('asset', 'fixed_asset');
+      for (const day of ['14', '15', '16']) await x.j(`2026-11-${day}`, [[opex, 1, 0], [sal, 1, 0], [fa, 0, 1.99], [bank, 0, 0.01]]);
+      const t = await totals();
+      const cents = (n: number) => Math.round(n * 100);
+      expect(near(t.ind)).toEqual({ op: -0.03, inv: 0, fin: 0 });
+      expect(near(t.dir)).toEqual({ op: -0.03, inv: 0, fin: 0 });
+      expect(cents(t.dir_full.operatingItems.reduce((a, i) => a + i.amount, 0))).toBe(-3);
+      for (const i of t.dir_full.operatingItems) expect(Math.abs(i.amount * 100 - cents(i.amount))).toBeLessThan(1e-6);
+      expect(t.dir_full.closingCash).toBe(-0.03);
+    });
+  });
+
   it('a cash leg on the year-end closing journal (a ledger fault) is ignored by both methods: the direct statement closes on the ledger and shows the gap, the reconciliation flags it', async () => {
     await inTx(async (x) => {
       const bank = await x.acct('asset', 'bank'), re = await x.acct('equity', 'retained_earnings');

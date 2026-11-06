@@ -150,9 +150,24 @@ describe('cashFlowDirectService', () => {
       expect(result.closingCash).toBe(1.3);
     }
   });
-  // "net change and closing cash stay tied to the ledger when apportioned groups round apart" (the same-named test of c3259763b,
-  // which fed one 0.01 cash leg split 0.005/0.005) is the 'foots to the cent' test above, on a journal whose ledger amounts are
-  // real cents and which asserts the sections, the items and the closing cash, with a mutant that turns it red.
+  it('keeps net change and closing cash tied to the ledger when apportioned groups round apart', async () => {
+    // The adversarial review's probe M, in real cents: three journals of 0.01 of cash out against expense 1.00 and salary 1.00 (asset
+    // credited 1.99). The 0.01 is shared 0.005 / 0.005 over suppliers and employees; each group's three shares add to -0.015, which
+    // rounds apart to -0.02 + -0.02 = -0.04 against the -0.03 the cash moved. The lines and totals must still foot to the cent.
+    const journal = (id: string) => [mv(id, -0.01, 'expense', 'operating_expense', 1, 0), mv(id, -0.01, 'expense', 'payroll_expense', 1, 0), mv(id, -0.01, 'asset', 'fixed_asset', 0, 1.99)];
+    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce([...journal('M1'), ...journal('M2'), ...journal('M3')])
+      .mockResolvedValueOnce([{ ...OPENING_ROWS[0]!, gl_debit: 14999.97 }]);
+
+    const r = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    const cents = (n: number) => Math.round(n * 100);
+    expect(r.netChange).toBe(-0.03);
+    expect(r.closingCash).toBe(14999.97);
+    expect(r.unexplainedDifference).toBe(0);
+    expect(cents(r.operatingTotal)).toBe(-3);
+    expect(cents(r.operatingItems.reduce((a, i) => a + i.amount, 0))).toBe(-3);
+    expect(cents(r.operatingTotal) + cents(r.investingTotal) + cents(r.financingTotal)).toBe(cents(r.netChange));
+  });
 
   it('returns zero cash when no cash movements exist', async () => {
     mockSql
