@@ -19,6 +19,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -46,19 +47,24 @@ const TableDensityContext = createContext<TableDensityContextType | undefined>(u
 export function TableDensityProvider({ children }: { children: ReactNode }) {
   const [density, setDensityState] = useState<Density>('comfortable');
 
+  // The ONE root switch: styles/globals.css reads html[data-density] and compacts standard cells of every
+  // non-exempt table. public/density-init.js has already marked the saved value before first paint, so this
+  // must not write the provider's default ('comfortable') over it before storage has been read below.
+  // Declared before the hydrate effect so, on the first commit, it still sees ready=false and skips.
+  const ready = useRef(false);
+  useEffect(() => {
+    if (ready.current) document.documentElement.dataset.density = density;
+  }, [density]);
+
   // Hydrate from localStorage on mount (client-only).
   useEffect(() => {
+    ready.current = true;
     const saved = localStorage.getItem(STORAGE_KEY) as Density | null;
     if (saved === 'comfortable' || saved === 'compact') {
       setDensityState(saved);
     }
+    document.documentElement.dataset.density = saved === 'compact' ? 'compact' : 'comfortable';
   }, []);
-
-  // The ONE root switch: styles/globals.css reads html[data-density] and
-  // compacts every non-exempt table's cells (exempt: [data-density-exempt], table[role=grid]).
-  useEffect(() => {
-    document.documentElement.dataset.density = density;
-  }, [density]);
 
   const setDensity = useCallback((next: Density) => {
     setDensityState(next);

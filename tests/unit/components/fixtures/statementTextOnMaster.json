@@ -1,0 +1,30 @@
+{
+  "bsFull": [
+    ["", "Actual", "Prior", "Δ Prior", "Variance", "Δ%", "Budget", "Δ Budget", "Variance", "Δ%"],
+    ["Assets", "", "", "", "", "", "", "", "", ""],
+    ["No asset balances", "", "", "", "", "", "", "", "", ""],
+    ["1000Bank", "250 000", "200 000", "+50 000", "", "+25.0%", "", "", "", ""]
+  ],
+  "bsOff": [
+    ["", "Actual"],
+    ["Assets", ""],
+    ["No asset balances", ""],
+    ["1000Bank", "250 000"]
+  ],
+  "isFull": [
+    ["", "Actual", "Prior", "Δ Prior", "Variance", "Δ%", "Budget", "Δ Budget", "Variance", "Δ%"],
+    ["Turnover", "", "", "", "", "", "", "", "", ""],
+    ["Sales", "5 000 000", "4 100 000", "+900 000", "", "+22.0%", "4 800 000", "+200 000", "", "+4.2%"],
+    ["Other sales", "–", "", "", "", "", "–", "–", "", ""],
+    ["Total Turnover", "5 000 000", "4 100 000", "", "", "", "", "", "", ""],
+    ["Net Profit / (Loss)", "(120 000)", "50 000", "", "", "", "", "", "", ""]
+  ],
+  "isOff": [
+    ["", "Actual"],
+    ["Turnover", ""],
+    ["Sales", "5 000 000"],
+    ["Other sales", "–"],
+    ["Total Turnover", "5 000 000"],
+    ["Net Profit / (Loss)", "(120 000)"]
+  ]
+}

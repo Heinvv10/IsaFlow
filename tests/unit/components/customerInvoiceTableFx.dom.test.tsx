@@ -16,6 +16,12 @@ describe('invoice list amounts', () => {
     expect(text).toMatch(/US\$|USD|\$/);
     expect(text).not.toMatch(/R\s?1[\s ]?500/);
   });
+  it.each(['zar', ' ZAR '])('keeps a Rand invoice coded %j as Rand', (code) => {
+    const { container } = render(
+      <CustomerInvoiceTable invoices={[row({ currency_code: code })]} page={1} limit={25} total={1} onPage={() => {}} onOpen={() => {}} />,
+    );
+    expect(container.querySelector('tbody')!.textContent).toMatch(/R\s?1[\s ]?500/);
+  });
   it('keeps a Rand invoice as Rand', () => {
     const { container } = render(
       <CustomerInvoiceTable invoices={[row({ currency_code: 'ZAR' })]} page={1} limit={25} total={1} onPage={() => {}} onOpen={() => {}} />,

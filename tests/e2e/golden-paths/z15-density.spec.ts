@@ -4,9 +4,9 @@
  *
  * READ-ONLY, Demo company, dev only. The header toggle (`isaflow.tableDensity`) flips html[data-density]; in compact
  * the first body row of an ordinary list table is <= 34 px (py-1 cells), in comfortable it is the authored 49 px
- * for invoices, and it returns to 49 px when restored. Bank transaction and employee rows shrink. A management-pack
- * viewer row (exempt) is the same height in both modes (skipped only when Demo has no management pack). The income
- * statement's 4 px-grid share (the lfprobe `grid4` measure: padding/margin/gap values that are multiples of 4) is
+ * for invoices, and it returns to 49 px when restored. Bank transaction and employee rows shrink. The income
+ * statement's exempt grid row is the same height in both modes (it always runs: the P&L is exempt). Fixture tables in the
+ * page assert the rule's reach by computed padding. The income statement's 4 px-grid share (the lfprobe `grid4` measure: padding/margin/gap values that are multiples of 4) is
  * >= 80 % in both themes, and its Export Excel button is the secondary button, not a second green.
  * Nothing is written.
  */
@@ -50,19 +50,60 @@ test.describe('Table density and P&L grid', () => {
     });
   }
 
-  test('an exempt pack/AFS viewer row is the same height in both modes', async ({ page }) => {
-    await open(page, '/accounting/afs', 'comfortable');
-    const link = page.locator('a[href^="/accounting/afs/"]').first();
-    if (!(await link.isVisible({ timeout: 15_000 }).catch(() => false))) test.skip(true, 'Demo has no pack or AFS document');
-    const href = (await link.getAttribute('href'))!;
-    await page.goto(href, { waitUntil: 'domcontentloaded' });
-    const table = page.locator('table[data-density-exempt] tbody tr').first();
-    await expect(table).toBeVisible({ timeout: 30_000 });
-    const comfortable = (await table.boundingBox())!.height;
-    await open(page, href, 'compact');
-    const t2 = page.locator('table[data-density-exempt] tbody tr').first();
-    await expect(t2).toBeVisible({ timeout: 30_000 });
-    expect((await t2.boundingBox())!.height).toBe(comfortable);
+  test('an exempt statement grid row (the income statement) is the same height in both modes', async ({ page }) => {
+    const rowHeight = async (density: 'comfortable' | 'compact'): Promise<number> => {
+      await open(page, '/accounting/reports/income-statement', density);
+      const row = page.locator('table[data-density-exempt] tbody tr').first();
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      return (await row.boundingBox())!.height;
+    };
+    const comfortable = await rowHeight('comfortable');
+    expect(Math.abs((await rowHeight('compact')) - comfortable)).toBeLessThanOrEqual(1);
+  });
+
+  // Real stylesheet, real computed style: fixture tables are mounted in the loaded page, so the production CSS
+  // (compiled Tailwind utilities + the density rule) decides, not a source grep.
+  test.describe('compact rule reach (computed padding in the loaded page)', () => {
+    const FIXTURE = `<div id="dg-fixture">
+      <table><thead><tr><th id="hd" class="py-3 px-4">H</th></tr></thead><tbody>
+        <tr><td id="row" class="py-3 px-4">ordinary</td></tr>
+        <tr><td id="empty" colspan="3" class="py-8 text-center">No rows</td></tr>
+        <tr><td id="own" class="py-10 px-4">own padding</td></tr>
+        <tr><td id="outer" class="py-3 px-4"><table data-density-exempt><tbody><tr><td id="nested" class="py-3 px-4">nested exempt</td></tr></tbody></table></td></tr>
+      </tbody></table>
+      <table data-density-exempt><tbody><tr><td id="exempt" class="py-3 px-4">exempt</td></tr></tbody></table>
+      <table role="grid"><tbody><tr><td id="grid" class="py-3 px-4">grid</td></tr></tbody></table></div>`;
+    const padding = async (page: Page): Promise<Record<string, number>> => page.evaluate(() => {
+      const out: Record<string, number> = {};
+      for (const id of ['hd', 'row', 'empty', 'own', 'outer', 'nested', 'exempt', 'grid']) {
+        const cs = getComputedStyle(document.getElementById(id)!);
+        out[id] = parseFloat(cs.paddingTop);
+      }
+      return out;
+    });
+    const mount = async (page: Page, density: 'comfortable' | 'compact'): Promise<Record<string, number>> => {
+      await open(page, '/accounting/customer-invoices', density);
+      await page.evaluate((html) => document.body.insertAdjacentHTML('beforeend', html), FIXTURE);
+      return padding(page);
+    };
+
+    test('compact: ordinary rows shrink; empty-state, own-padding, nested-exempt and exempt cells keep theirs', async ({ page }) => {
+      const p = await mount(page, 'compact');
+      expect(p.row).toBe(4);
+      expect(p.hd).toBe(8);
+      expect(p.empty).toBe(32);
+      expect(p.own).toBe(40);
+      expect(p.outer).toBe(4);
+      expect(p.nested).toBe(12);
+      expect(p.exempt).toBe(12);
+      expect(p.grid).toBe(12);
+    });
+
+    test('comfortable: every cell keeps the authored padding', async ({ page }) => {
+      const p = await mount(page, 'comfortable');
+      expect([p.row, p.hd, p.outer, p.nested, p.exempt, p.grid]).toEqual([12, 12, 12, 12, 12, 12]);
+      expect([p.empty, p.own]).toEqual([32, 40]);
+    });
   });
 
   for (const theme of ['light', 'dark']) {
