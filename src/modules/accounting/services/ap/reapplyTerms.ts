@@ -7,8 +7,8 @@
  *   - the new date is the SUPPLIER's own terms (`shared/paymentTerms.dueDateFromTerms`), never the company default: a
  *     supplier whose terms are not set is skipped and listed, so a default nobody chose never moves a real bill;
  *   - a bill whose date came from terms or before sources were recorded (`terms`, `legacy`) is pre-ticked; one set by
- *     hand or by its document (`manual`, `document`) is listed unticked; so is every bill of a supplier still on the old
- *     column default shape (30 with no type, or the legacy 'days'), which may be a stamped default, not real terms;
+ *     hand or by its document (`manual`, `document`) is listed unticked (since migration 963 no supplier can hold the old
+ *     stamped default (30, NULL / 'days'): it is not set, or an explicit 30 days from invoice);
  *   - bills whose date would not change are counted, not listed.
  * Apply takes the pairs the person confirmed, each with the due date and source the preview showed. Each bill is locked
  * in id order (the order every other bill locker uses), re-read, and written only when it is still open, its due date
@@ -61,14 +61,6 @@ export interface ReapplyPreview {
   truncated: boolean;
 }
 
-/**
- * The old column default's shape, (30, NULL) or (30, 'days'): the old createSupplier / createCustomer stamped it on
- * contacts nobody gave terms, so it may not be terms someone chose (PR 1b maps it to not set).
- */
-export function looksLikeStampedDefault(days: number | null, type: string | null): boolean {
-  return days === 30 && (type === null || type === 'days');
-}
-
 const fmtTerms = (days: number | null, type: string | null): string => {
   const t = readTerms(days, type);
   return t ? describePaymentTerms(t.days, t.type) : 'Not set';
@@ -109,16 +101,13 @@ export async function previewReapplyTerms(companyId: string, opts: { supplierId?
     const current = r.due_date == null ? null : String(r.due_date);
     if (current === newDue) { unchanged += 1; continue; }
     const source: DueDateSource = isDueDateSource(r.due_date_source) ? r.due_date_source : 'legacy';
-    const stamped = looksLikeStampedDefault(days, type);
     const handSet = source === 'manual' || source === 'document';
     out.push({
       id: String(r.id), invoiceNumber: String(r.invoice_number), supplierId: String(r.supplier_id),
       supplierName: String(r.supplier_name), status: String(r.status), invoiceDate: String(r.invoice_date), balance,
       currentDueDate: current, currentSource: source, newDueDate: newDue, terms: fmtTerms(days, type),
-      preselected: !handSet && !stamped,
-      note: handSet
-        ? (source === 'manual' ? 'Due date was set by hand' : 'Due date came from the document')
-        : stamped ? 'Supplier terms may be the old default (30 days): confirm them on the supplier first' : null,
+      preselected: !handSet,
+      note: handSet ? (source === 'manual' ? 'Due date was set by hand' : 'Due date came from the document') : null,
     });
   }
   return {
