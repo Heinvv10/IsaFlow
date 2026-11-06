@@ -16,11 +16,18 @@ export const SCALE = "R'000" as const;
 export const money = (digits: number): number => Number(`9${'0'.repeat(digits - 1)}`) * 1000;
 const widen = (figure: PackFigure, digits: number): PackFigure => (figure.format === 'money' && figure.value !== null ? { ...figure, value: money(digits) } : figure);
 
-export function withWidenedTable(doc: PackPagesDocument, digits: number, longLabel?: string): { doc: PackPagesDocument; table: PackTable; index: number } {
+export interface TableMarks {
+  /** Row 0 carries a footnote marker after its label. */
+  labelMarker?: boolean;
+  /** Row 0's actual is not meaningful (a reason, so an `n/m` cell with its note mark). */
+  notMeaningful?: boolean;
+}
+
+export function withWidenedTable(doc: PackPagesDocument, digits: number, longLabel?: string, marks: TableMarks = {}): { doc: PackPagesDocument; table: PackTable; index: number } {
   const index = doc.pages.findIndex((p) => p.navLabel === 'Income statement');
   const page = doc.pages[index]!;
   const blocks = page.blocks.map((b) => (b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue')
-    ? { ...b, table: { ...b.table, rows: b.table.rows.map((r, i) => ({ ...r, ...(longLabel !== undefined && i === 0 ? { label: longLabel, level: 2 as const } : {}), figures: Object.fromEntries(Object.entries(r.figures).map(([c, f]) => [c, widen(f, digits)])) })) } }
+    ? { ...b, table: { ...b.table, rows: b.table.rows.map((r, i) => ({ ...r, ...(longLabel !== undefined && i === 0 ? { label: longLabel, level: 2 as const } : {}), ...(marks.labelMarker === true && i === 0 ? { footnote: 1 } : {}), figures: Object.fromEntries(Object.entries(r.figures).map(([c, f]) => [c, marks.notMeaningful === true && i === 0 && c === 'actual' ? { ...f, value: null, unavailable: 'no base period' } : widen(f, digits)])) })) } }
     : b));
   const table = (blocks.find((b) => b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue')) as { table: PackTable }).table;
   const pages = doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p));

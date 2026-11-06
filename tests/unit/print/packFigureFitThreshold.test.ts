@@ -68,6 +68,26 @@ describe('a statement table with a long label word (the label column cannot be n
   }, 300_000);
 });
 
+describe('a statement table whose long-labelled row carries a footnote marker and an n/m cell', () => {
+  const marks = { labelMarker: true, notMeaningful: true };
+  const range = Array.from({ length: 30 }, (unused, i) => i + 4);
+
+  it.each(['Telecommunications', 'Administrative'])('%s: the threshold is exact in Chromium both ways', async (label) => {
+    const fitsAt = (digits: number) => tableFit(withWidenedTable(demoWithoutBudget(), digits, label, marks).table, SCALE);
+    const floor = range.filter((d) => fitsAt(d).fits).pop()!;
+    expect(fitsAt(floor + 1).fits).toBe(false);
+    const fit = withWidenedTable(demoWithoutBudget(), floor, label, marks);
+    expect(await overflowOf(fit.doc, fit.index), `${floor} digits`).toEqual([]);
+    const over = withWidenedTable(demoWithoutBudget(), floor + 1, label, marks);
+    expect((await overflowOf(over.doc, over.index)).length, `${floor + 1} digits`).toBeGreaterThan(0);
+  }, 300_000);
+
+  it('the marker costs room: the row with it never fits more digits than the same row without', () => {
+    const widest = (m: object) => range.filter((d) => tableFit(withWidenedTable(demoWithoutBudget(), d, 'Telecommunications', m).table, SCALE).fits).pop()!;
+    expect(widest(marks)).toBeLessThanOrEqual(widest({}));
+  });
+});
+
 describe('a table whose HEADINGS set its widths (tiny figures, a footnote marker on every heading or on none)', () => {
   const ORDER = ['monthOperatingExpenses', 'variance', 'revenue', 'budget', 'otherIncome', 'netProfit', 'actual', 'prior', 'change', 'changePct', 'pctOfRevenue', 'otherExpenses', 'costOfSales'] as const;
   const boundary = (marked: boolean) => Array.from({ length: 13 }, (unused, i) => i + 1)
