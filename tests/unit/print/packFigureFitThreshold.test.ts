@@ -72,15 +72,22 @@ describe('a statement table whose long-labelled row carries a footnote marker an
   const marks = { labelMarker: true, notMeaningful: true };
   const range = Array.from({ length: 30 }, (unused, i) => i + 4);
 
-  it.each(['Telecommunications', 'Administrative'])('%s: the threshold is exact in Chromium both ways', async (label) => {
-    const fitsAt = (digits: number) => tableFit(withWidenedTable(demoWithoutBudget(), digits, label, marks).table, SCALE);
-    const floor = range.filter((d) => fitsAt(d).fits).pop()!;
-    expect(fitsAt(floor + 1).fits).toBe(false);
-    const fit = withWidenedTable(demoWithoutBudget(), floor, label, marks);
-    expect(await overflowOf(fit.doc, fit.index), `${floor} digits`).toEqual([]);
-    const over = withWidenedTable(demoWithoutBudget(), floor + 1, label, marks);
-    expect((await overflowOf(over.doc, over.index)).length, `${floor + 1} digits`).toBeGreaterThan(0);
-  }, 300_000);
+  // The marker is a few pixels and a digit is dozens, so one label length per threshold would almost never
+  // put the marker across it: sweep the label's length a character at a time and hold every threshold to Chromium.
+  it('the threshold is exact in Chromium both ways, at every label length from 10 to 40 characters', async () => {
+    const wrong: string[] = [];
+    for (let n = 10; n <= 40; n += 1) {
+      const label = 'n'.repeat(n);
+      const fitsAt = (digits: number) => tableFit(withWidenedTable(demoWithoutBudget(), digits, label, marks).table, SCALE).fits;
+      const floor = range.filter(fitsAt).pop();
+      if (floor === undefined || floor === range[range.length - 1]) continue;
+      const fit = withWidenedTable(demoWithoutBudget(), floor, label, marks);
+      if ((await overflowOf(fit.doc, fit.index)).length > 0) wrong.push(`${n} chars: ${floor} digits overflow (kept a row that overflows)`);
+      const over = withWidenedTable(demoWithoutBudget(), floor + 1, label, marks);
+      if ((await overflowOf(over.doc, over.index)).length === 0) wrong.push(`${n} chars: ${floor + 1} digits would fit (refused a table that fits)`);
+    }
+    expect(wrong).toEqual([]);
+  }, 600_000);
 
   it('the marker costs room: the row with it never fits more digits than the same row without', () => {
     const widest = (m: object) => range.filter((d) => tableFit(withWidenedTable(demoWithoutBudget(), d, 'Telecommunications', m).table, SCALE).fits).pop()!;
