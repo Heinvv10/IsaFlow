@@ -107,7 +107,7 @@ async function seriousAxe(page: Page): Promise<string[]> {
 
 test('calculated run: DRAFT payslip; R-035 by two people, approve: final, "Payslips are ready"', async ({ page, context, baseURL }) => {
   expect(readApprover(process.env), 'z10 needs E2E_APPROVER_EMAIL / E2E_APPROVER_PASSWORD (the second sandbox approver)').not.toBeNull();
-  const { api, runId, employeeId } = await sandbox(context, baseURL!);
+  const { api, sandboxId, runId, employeeId } = await sandbox(context, baseURL!);
   let approved = false;
   try {
     const net = (await api.get<{ lines: Array<{ employeeId: string; netPay: number }> }>(`/api/payroll/runs/${runId}`))
@@ -116,14 +116,19 @@ test('calculated run: DRAFT payslip; R-035 by two people, approve: final, "Paysl
 
     await openRun(page, runId);
     await openDrawer(page);
-    await snap(page, 'payslip-drawer-draft', 'light');
+    await snap(page, 'payslip-drawer-draft', 'session-theme');
     const draft = await slipText(page, runId, employeeId);
     expect(draft).toContain('DRAFT: this run is not approved');
     expect(draft).toContain(netText);
     expect(draft).toContain('account ending 3456');
     expect(draft).not.toContain(ACCOUNT);
 
-    await clearPayRunApproval(api, baseURL!, runId); // requested by reporting-qa, decided by the approver
+    // Requested by reporting-qa, decided by the approver, who must be a member of the sandbox.
+    await clearPayRunApproval(api, baseURL!, runId).catch((err: Error) => {
+      if (!/not a member/.test(err.message)) throw err;
+      throw new Error(`${process.env.E2E_APPROVER_EMAIL} is not a member of "${SANDBOX_NAME}" (${sandboxId}). One-time manual dev `
+        + 'setup: add it to that company as an admin (company_users) on isaflow_dev; this spec cannot. ' + err.message);
+    });
     const plan = await api.get<{ planHash: string }>(`/api/payroll/runs/${runId}/journal-plan`);
     expect((await api.post<Run>(`/api/payroll/runs/${runId}/approve`, { expectedPlanHash: plan.planHash })).status).toBe('approved');
     approved = true;
@@ -133,7 +138,7 @@ test('calculated run: DRAFT payslip; R-035 by two people, approve: final, "Paysl
     const final = await slipText(page, runId, employeeId);
     expect(final).not.toContain('DRAFT');
     expect(final).toContain(netText);
-    await snap(page, 'payslip-ready', 'light');
+    await snap(page, 'payslip-ready', 'session-theme');
   } finally {
     if (approved) await api.post(`/api/payroll/runs/${runId}/reopen`, { reason: 'z10 golden sandbox reset' });
     await api.dispose();
