@@ -114,4 +114,28 @@ describe('InvoicePdfPreview, unsaved', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/^Customer not found/);
     expect(frame()).toBeNull();
   });
+  it('Retry after a refusal sends one request, not two', async () => {
+    apiFetch.mockImplementationOnce(async () => refusal(429, 'Too many previews. Please try again shortly.'));
+    render(<InvoicePdfPreview unsaved={body('a')} />);
+    fireEvent.click(toggle());
+    await flush();
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: /retry pdf preview/i }));
+    await advance(10_000);
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+    expect(frame()?.getAttribute('src')).toBe('blob:preview-1');
+  });
+
+  it('says that the account, project and dimension checks happen on save', async () => {
+    render(<InvoicePdfPreview unsaved={body('a')} />);
+    fireEvent.click(toggle());
+    await flush();
+    expect(screen.getByText('Account, project and dimension checks happen when you save.')).toBeTruthy();
+  });
+
+  it('the edit page\'s preview (a saved invoice) does not say it', async () => {
+    render(<InvoicePdfPreview invoiceId="inv-1" version={1} />);
+    await flush();
+    expect(screen.queryByText(/dimension checks happen when you save/)).toBeNull();
+  });
 });

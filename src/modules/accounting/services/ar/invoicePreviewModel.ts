@@ -3,7 +3,7 @@
  * create takes, for POST /api/accounting/invoice-pdf-preview. Read-only: one SELECT, no row written, no number taken,
  * nothing metered.
  *
- * - Priced by create's own code (`priceDraftLines`, `draftTaxRate`, `invoiceTotals`), so a preview and a create of the
+ * - Priced by create's own code (`priceDraftLines`, `draftTaxRate`, `draftTotals`), so a preview and a create of the
  *   same body agree to the cent. The client's own totals are never read.
  * - Every id is resolved within the company, in the one statement: the customer (another company's, or none → null,
  *   which the route answers 404) and the header job (another company's, or none → printed as no job, with a note).
@@ -16,8 +16,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault } from '../shared/paymentTerms';
 import { checkDocumentCurrency } from '../shared/documentCurrency';
-import { draftTaxRate, priceDraftLines } from './customerInvoiceCreateService';
-import { invoiceTotals } from './invoiceLineAmount';
+import { draftTaxRate, draftTotals, priceDraftLines } from './customerInvoiceCreateService';
 import { companyOf, printedTerms, settingsCompany, type InvoicePdfHeader, type InvoicePdfModel } from './invoicePdfModel';
 import type { PreviewBody } from './invoicePreviewBody';
 
@@ -56,7 +55,8 @@ export async function buildInvoicePreviewModel(companyId: string, body: PreviewB
     { functionalCurrency: r.functional_currency ? String(r.functional_currency) : 'ZAR', fxDocumentsEnabled: r.fx_documents_enabled === true },
     body.currencyCode, body.exchangeRate, 'invoice',
   );
-  const { subtotal, tax, total } = invoiceTotals(priced.map((p) => p.amount), rate);
+  // Create's totals cap too (1e13, on the total and its functional amount): a 400 here as there.
+  const { subtotal, tax, total } = draftTotals(priced.map((p) => p.amount), rate, currency.exchangeRate);
 
   const invoiceDate = body.invoiceDate ?? fmtDate(new Date());
   const dueDate = body.dueDate ?? dueDateWithDefault(invoiceDate,

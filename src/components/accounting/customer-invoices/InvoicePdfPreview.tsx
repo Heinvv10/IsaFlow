@@ -136,6 +136,8 @@ export function InvoicePdfPreview(props: Props) {
             {problem !== null ? `${sentence(problem)}${doc ? ' What is shown is the last version that could be drawn.' : ''}`
               : failed ? '' : !doc ? 'Loading preview…' : doc.version !== version ? 'Updating preview…' : ''}
           </p>
+          {/* The preview prices and prints the form; it does not run create's line-coding checks. */}
+          {unsaved && <p className="text-xs text-[var(--ff-text-tertiary)]">Account, project and dimension checks happen when you save.</p>}
           {doc && (
             // A new iframe per document (key), never a new src on the same one: an iframe navigating adds a history
             // entry, so each refresh would put one between the editor and Back (and spoil a Back the editor asks about).

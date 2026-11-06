@@ -8,7 +8,8 @@
  * - another company's customer is a 404;
  * - a body naming company B's job, account, item and VAT code prints none of B's names, and says the job was not
  *   recognised; a foreign currency the company has not enabled is a 400;
- * - the preview has its own rate-limit bucket: using it up (120 in 15 min) leaves invoice-pdf downloads working.
+ * - the preview's rate-limit bucket is each member's own (300 in 15 min): one member using theirs up leaves a
+ *   colleague's previews and invoice-pdf downloads working.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -16,7 +17,8 @@ import invoicePdfPreview from '../../pages/api/accounting/invoice-pdf-preview';
 import invoicePdf from '../../pages/api/accounting/invoice-pdf';
 import customerInvoicesCreate from '../../pages/api/accounting/customer-invoices-create';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
-import { clearRateLimitCache, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
+import { clearRateLimitCache } from '@/lib/rateLimit';
+import { PREVIEW_RATE_LIMIT, previewRateLimitName } from '@/modules/accounting/services/ar/invoicePreviewBody';
 import { JOB_NOT_RECOGNISED } from '@/modules/accounting/services/ar/invoicePreviewModel';
 import { PREVIEW_WATERMARK } from '@/modules/accounting/services/ar/invoicePdfPreviewMarks';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -29,6 +31,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
 let owner = '';
+const users: string[] = [];
 let company = '';
 let customer = '';
 let createdPlan: string | null = null;
@@ -65,6 +68,7 @@ const meter = async () => ({
 
 beforeAll(async () => {
   owner = await createUser(pool, tokens);
+  users.push(owner);
   company = await invoiceCompany(pool, [[owner, 'owner']], companies);
   customer = crypto.randomUUID();
   await pool.query('INSERT INTO customers(id, company_id, name) VALUES($1, $2, $3)', [customer, company, 'Preview Customer']);
@@ -91,7 +95,7 @@ afterAll(async () => {
   await pool.query('DELETE FROM items WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM projects WHERE company_id = ANY($1)', [companies]);
   await pool.query(`DELETE FROM rate_limit_counters WHERE key LIKE ANY($1)`, [companies.map((id) => `%${id}%`)]);
-  await cleanupPr4(pool, companies, [owner]);
+  await cleanupPr4(pool, companies, users);
 });
 
 describe('invoice preview before the first save', () => {
@@ -150,17 +154,25 @@ describe('invoice preview before the first save', () => {
     expect((await preview({ ...BODY(), items: Array.from({ length: 201 }, () => line) })).state.statusCode).toBe(400);
   });
 
-  it('using up the preview limit leaves invoice-pdf downloads working', async () => {
-    const c = await invoiceCompany(pool, [[owner, 'owner']], companies);
+  it('one member using up their preview limit leaves a colleague\'s previews and invoice-pdf downloads working', async () => {
+    const colleague = await createUser(pool, tokens);
+    users.push(colleague);
+    const c = await invoiceCompany(pool, [[owner, 'owner'], [colleague, 'owner']], companies);
     const theirCustomer = crypto.randomUUID();
     await pool.query('INSERT INTO customers(id, company_id, name) VALUES($1, $2, $3)', [theirCustomer, c, 'Limit Customer']);
     const stored = await plantInvoice(pool, c, owner);
     clearRateLimitCache();
+    // The owner's bucket one short of full (300 renders would take minutes): checkReportRateLimit stores it as
+    // report:<name>:co:<company>.
+    await pool.query(`INSERT INTO rate_limit_counters (key, count, window_start) VALUES ($1, $2, NOW())`,
+      [`report:${previewRateLimitName(owner)}:co:${c}`, PREVIEW_RATE_LIMIT.max - 1]);
     const body = { ...BODY(), clientId: theirCustomer };
-    for (let i = 0; i < INTERACTIVE_REPORT_LIMIT.max; i++) expect((await preview(body, c)).state.statusCode).toBe(200);
+    expect((await preview(body, c)).state.statusCode).toBe(200);
     expect((await preview(body, c)).state.statusCode).toBe(429);
+    const theirs = await callRoute(invoicePdfPreview, tokens[colleague]!, c, 'POST', body, '/api/accounting/invoice-pdf-preview');
+    expect(theirs.state.statusCode, JSON.stringify(theirs.state.body)).toBe(200);
     const download = await callRoute(invoicePdf, tokens[owner]!, c, 'GET', undefined, '/api/accounting/invoice-pdf',
       { invoiceId: stored.id, disposition: 'inline' });
     expect(download.state.statusCode, JSON.stringify(download.state.body)).toBe(200);
-  }, 180_000);
+  }, 60_000);
 });

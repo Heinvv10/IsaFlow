@@ -12,6 +12,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { DATE_RE, isRealCalendarDate } from '@/lib/validation';
 import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
@@ -21,7 +22,7 @@ import {
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { invoiceLineAmount, invoiceTotals, isDiscountPercent, toColumnCents } from './invoiceLineAmount';
-import { toFunctional } from '../shared/functionalAmounts';
+import { NotADecimalError, toFunctional } from '../shared/functionalAmounts';
 import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -118,6 +119,41 @@ export function draftTaxRate(taxRate: number | undefined): number {
   return requestedRate;
 }
 
+/**
+ * The invoice's subtotal, VAT and total (invoiceLineAmount.ts), refused when the total or its functional amount would
+ * not fit numeric(15,2): 1e13 or more. Shared with the unsaved preview, so it refuses what create refuses.
+ * A rate toFunctional cannot read (1e21 or more: no plain decimal) is a 400 too, where it was a 500.
+ */
+export function draftTotals(amounts: readonly number[], rate: number, exchangeRate: number): { subtotal: number; tax: number; total: number } {
+  const totals = invoiceTotals(amounts, rate);
+  // numeric(15,2): the total, and functional_total = fx_functional(total, rate), must fit.
+  if (totals.total >= 1e13 || functionalOf(totals.total, exchangeRate) >= 1e13) {
+    throw new InvoiceLineValidationError('The invoice total is too large');
+  }
+  return totals;
+}
+
+function functionalOf(total: number, exchangeRate: number): number {
+  try {
+    return toFunctional(total, exchangeRate);
+  } catch (err) {
+    if (err instanceof NotADecimalError) throw new InvoiceLineValidationError('The exchange rate is too large');
+    throw err;
+  }
+}
+
+/**
+ * A YYYY-MM-DD date that is not on the calendar (2026-02-30) is refused as a 400 before the first write: Postgres
+ * would throw 22008 at the INSERT, a 500. Other shapes are left to the column as before. Shared with the preview.
+ */
+export function assertDraftDates(dates: Record<string, unknown>): void {
+  for (const [field, value] of Object.entries(dates)) {
+    if (typeof value === 'string' && DATE_RE.test(value) && !isRealCalendarDate(value)) {
+      throw new InvoiceLineValidationError(`${field} is not a real date: ${value}`);
+    }
+  }
+}
+
 export async function createDraftCustomerInvoice(
   companyId: string,
   userId: string,
@@ -128,6 +164,7 @@ export async function createDraftCustomerInvoice(
     clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
     taxRate, notes, currencyCode, exchangeRate,
   } = input;
+  assertDraftDates({ invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd });
 
   // R-067: the tenant fence, BEFORE the first write. insertWithReservedNumber
   // below UPDATEs the company's counter, and withAuth COMMITs a 4xx returned
@@ -170,11 +207,7 @@ export async function createDraftCustomerInvoice(
   // Calculate totals (in foreign currency) — invoiceLineAmount.ts, as the draft
   // edit and the new-invoice preview compute them.
   const rate = requestedRate;
-  const { subtotal, tax: taxAmount, total: totalAmount } = invoiceTotals(priced.map((p) => p.amount), rate);
-  // numeric(15,2): the total, and functional_total = fx_functional(total, rate), must fit.
-  if (totalAmount >= 1e13 || toFunctional(totalAmount, invExchangeRate) >= 1e13) {
-    throw new InvoiceLineValidationError('The invoice total is too large');
-  }
+  const { subtotal, tax: taxAmount, total: totalAmount } = draftTotals(priced.map((p) => p.amount), rate, invExchangeRate);
   const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
   const invDate = invoiceDate || today;
   // No due date named: the customer's terms give it, else the company default (migration 960).

@@ -121,9 +121,10 @@ describe('the body\'s caps and shape', () => {
   });
 
   it('refuses a body over 64 KB', () => {
-    const notes = 'n'.repeat(PREVIEW_MAX_BYTES);
-    expect(() => parsePreviewBody({ clientId: CLIENT, items: items(1), notes })).toThrow(/too large to preview/);
-    expect(parsePreviewBody({ clientId: CLIENT, items: items(1), notes: 'n'.repeat(PREVIEW_MAX_BYTES - 200) }).notes).toHaveLength(PREVIEW_MAX_BYTES - 200);
+    // Each line within the text caps (2,000 characters); it is their sum that is too large.
+    const long = (n: number) => Array.from({ length: n }, () => ({ description: 'd'.repeat(2000), quantity: 1, unitPrice: 1 }));
+    expect(() => parsePreviewBody({ clientId: CLIENT, items: long(Math.ceil(PREVIEW_MAX_BYTES / 2000)) })).toThrow(/too large to preview/);
+    expect(parsePreviewBody({ clientId: CLIENT, items: long(30) }).items).toHaveLength(30);
   });
 
   it.each([

@@ -5,7 +5,8 @@
  *
  * Stateless: it never calls create, writes no row, takes no number and is not metered (create is: withFlowMeter).
  * Every id in the body is resolved within the company (invoicePreviewModel): another company's customer is a 404.
- * Its own rate-limit bucket, per company, so typing under an open preview cannot use up `invoice-pdf` downloads.
+ * Its own rate-limit bucket, per member within the company (300 per 15 min, the 3 s refetch's ceiling): typing under
+ * an open preview cannot use up a colleague's previews, or anyone's `invoice-pdf` downloads.
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -13,22 +14,22 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
+import { checkReportRateLimit } from '@/lib/rateLimit';
 import { generateInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfService';
-import { parsePreviewBody, PreviewBodyError, previewRateLimitName } from '@/modules/accounting/services/ar/invoicePreviewBody';
+import { parsePreviewBody, PREVIEW_RATE_LIMIT, PreviewBodyError, previewRateLimitName } from '@/modules/accounting/services/ar/invoicePreviewBody';
 import { buildInvoicePreviewModel } from '@/modules/accounting/services/ar/invoicePreviewModel';
 import { InvoiceLineValidationError } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
 
   try {
     // The shape and the caps first: a refused body costs no rate-limit unit and no query.
     const body = parsePreviewBody(req.body);
-    if (!(await checkReportRateLimit(companyId, previewRateLimitName(companyId), INTERACTIVE_REPORT_LIMIT))) {
-      log.warn('Invoice PDF preview rate limit exceeded', { companyId }, 'rateLimit');
+    if (!(await checkReportRateLimit(companyId, previewRateLimitName(user.id), PREVIEW_RATE_LIMIT))) {
+      log.warn('Invoice PDF preview rate limit exceeded', { companyId, userId: user.id }, 'rateLimit');
       return apiResponse.tooManyRequests(res, 'Too many previews. Please try again shortly.');
     }
     const preview = await buildInvoicePreviewModel(companyId, body);
@@ -47,7 +48,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 }
 
-// The caps are judged on the parsed body (64 KB); this only stops a far larger one before it is parsed.
-export const config = { api: { bodyParser: { sizeLimit: '256kb' } } };
+// The parser stops at the preview's own cap (PREVIEW_MAX_BYTES); parsePreviewBody judges the parsed body again.
+export const config = { api: { bodyParser: { sizeLimit: '64kb' } } };
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
