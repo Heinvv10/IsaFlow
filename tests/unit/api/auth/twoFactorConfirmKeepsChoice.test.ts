@@ -45,6 +45,7 @@ describe('/api/auth/2fa-confirm', () => {
   it.each([
     ['unticked stays unticked', 'sb-access-token=t; isaflow_remember_me=0', 'isaflow_remember_me=0'],
     ['ticked stays ticked', 'sb-access-token=t; isaflow_remember_me=1', 'isaflow_remember_me=1'],
+    ['no hint counts as not ticked', 'sb-access-token=t', 'isaflow_remember_me=0'],
   ])('%s', async (_label, cookie, hint) => {
     const answer = await confirm(cookie);
     expect(answer.status, JSON.stringify(answer.body)).toBe(200);

@@ -32,7 +32,7 @@ const handler: NextApiHandler = async (req, res) => {
     const challengeId = await challengeFactor(factor_id, token);
     const aal2 = await verifyFactor(factor_id, challengeId, code, token);
     // Enrolling a factor is not a sign-in: the "Keep me signed in" choice stands.
-    const persistent = parseCookies(req)[REMEMBER_ME_COOKIE] !== '0';
+    const persistent = parseCookies(req)[REMEMBER_ME_COOKIE] === '1';
     setAuthCookies(res, { accessToken: aal2.access_token, refreshToken: aal2.refresh_token, expiresIn: aal2.expires_in, persistent });
     return res.status(200).json({ success: true });
   } catch (err) {

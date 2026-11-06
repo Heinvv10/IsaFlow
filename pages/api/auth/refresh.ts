@@ -101,10 +101,9 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   // Preserve the original "Keep me signed in" choice by reading the hint cookie.
-  // Default to true: a session-cookie user whose browser is still open clearly
-  // wants the session to continue; the rotated refresh cookie behaves the same
-  // way as the original (session-only when hint = '0', persistent otherwise).
-  const persistent = cookies[REMEMBER_ME_COOKIE] !== '0';
+  // Unknown counts as not ticked: the rotated cookies are session-only, and the session
+  // continues while the browser stays open.
+  const persistent = cookies[REMEMBER_ME_COOKIE] === '1';
 
   setAuthCookies(res, {
     accessToken: token.access_token,

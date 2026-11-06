@@ -90,7 +90,10 @@ export function setAuthCookies(
 ): void {
   const domain = cookieDomain();
   const persistent = params.persistent ?? true;
-  if (!params.preserveImpersonation) clearImpersonationProofCookie(res);
+  if (!params.preserveImpersonation) {
+    clearImpersonationProofCookie(res);
+    clearImpersonatingMarker(res); // a sign-in over a Login-as must not inherit its idle exemption
+  }
   // When not persistent ("Keep me signed in" unchecked), BOTH cookies must be
   // session-only. If only the refresh cookie is session-only, a browser close
   // and reopen within ~1h leaves the access cookie alive and the user signed

@@ -45,7 +45,8 @@ describe('cookies', () => {
     // be HttpOnly + SameSite=Lax. The hint is HttpOnly because it's only consumed
     // server-side at /api/auth/refresh; exposing it would let XSS upgrade a
     // session-only login to a 30-day persistent one.
-    for (const c of cookies) {
+    // The one exception is clearing the readable is_impersonating marker: it carries no value.
+    for (const c of cookies.filter((c) => !c.startsWith('is_impersonating=;'))) {
       expect(c).toMatch(/HttpOnly/i);
       expect(c).toMatch(/SameSite=Lax/i);
     }
@@ -58,7 +59,7 @@ describe('cookies', () => {
     // Both auth credentials AND the remember-me hint must be session-only.
     // A Max-Age would survive browser close, defeating the rememberMe=false intent.
     expect(cookies.find((c) => c.startsWith('sb-impersonation-proof='))).toMatch(/Max-Age=0/);
-    for (const c of cookies.filter((c) => !c.startsWith('sb-impersonation-proof='))) {
+    for (const c of cookies.filter((c) => !c.startsWith('sb-impersonation-proof=') && !c.startsWith('is_impersonating='))) {
       expect(c).not.toMatch(/Max-Age=/i);
       expect(c).toMatch(/HttpOnly/i);
       expect(c).toMatch(/SameSite=Lax/i);
@@ -113,7 +114,7 @@ describe('cookies', () => {
     setAuthCookies(res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600 });
     setActiveCompanyCookie(res, '00000000-0000-0000-0000-00000000abcd');
     // access + refresh + remember_me hint + active_company
-    expect(headers['set-cookie']).toHaveLength(5); // credentials/hint + expired proof + company
+    expect(headers['set-cookie']).toHaveLength(6); // credentials/hint + expired proof + company
     expect(
       headers['set-cookie'].some((c) =>
         c.startsWith('active_company_id=00000000-0000-0000-0000-00000000abcd;')
@@ -142,7 +143,7 @@ describe('cookies', () => {
       const { res, headers } = mkRes();
       setAuthCookies(res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600 });
       setActiveCompanyCookie(res, 'cid-1');
-      for (const c of headers['set-cookie'].filter((c) => !c.startsWith('sb-impersonation-proof='))) {
+      for (const c of headers['set-cookie'].filter((c) => !c.startsWith('sb-impersonation-proof=') && !c.startsWith('is_impersonating='))) {
         expect(c).toMatch(/Domain=\.isaflow\.co\.za/);
       }
     });
@@ -178,4 +179,7 @@ it('ordinary session replacement clears delegation while refresh preserves it', 
   const refresh = mkRes();
   setAuthCookies(refresh.res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600, preserveImpersonation: true });
   expect(refresh.headers['set-cookie'].some((c) => c.startsWith('sb-impersonation-proof='))).toBe(false);
+  // The readable marker goes the same way, or a sign-in over a Login-as inherits its idle exemption.
+  expect(ordinary.headers['set-cookie'].find((c) => c.startsWith('is_impersonating='))).toMatch(/Max-Age=0/);
+  expect(refresh.headers['set-cookie'].some((c) => c.startsWith('is_impersonating='))).toBe(false);
 });

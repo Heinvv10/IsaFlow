@@ -95,8 +95,14 @@ describe('/api/auth/refresh', () => {
     expect(accessMaxAge()).toBeNaN();
   });
 
-  it('an ordinary session keeps the full access cookie lifetime', async () => {
+  it('no hint counts as not ticked: the renewal does not write ticked', async () => {
     await refreshWith('sb-refresh-token=r1');
+    expect(lastSetCookies.find((c) => c.startsWith('isaflow_remember_me='))).toMatch(/^isaflow_remember_me=0;/);
+    expect(accessMaxAge()).toBeNaN();
+  });
+
+  it('an ordinary session keeps the full access cookie lifetime', async () => {
+    await refreshWith('sb-refresh-token=r1; isaflow_remember_me=1');
     expect(accessMaxAge()).toBe(3600);
   });
 
