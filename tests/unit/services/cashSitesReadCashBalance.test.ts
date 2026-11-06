@@ -35,12 +35,18 @@ const getCashBalanceMock = vi.fn(async (_companyId: string, asAt: string, option
 vi.mock('@/modules/accounting/services/bank/cashBalanceService', () => ({
   getCashBalance: (...a: Parameters<typeof getCashBalanceMock>) => getCashBalanceMock(...a),
 }));
+// The real service (the report and export routes run it), spied so the reconciliation test can state its closing.
+vi.mock('@/modules/accounting/services/reports/cashFlowIndirectService', async (orig) => {
+  const real = await orig<typeof import('@/modules/accounting/services/reports/cashFlowIndirectService')>();
+  return { ...real, getIndirectCashFlow: vi.fn(real.getIndirectCashFlow) };
+});
 vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({
   getCashFlowDirect: vi.fn(async () => ({ openingCash: OPENING, closingCash: CLOSING })),
 }));
 
 import { fetchOpeningCash, fetchClosingCash } from '@/modules/accounting/services/afs/afsKpiCash';
 import { getCashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
+import { getIndirectCashFlow } from '@/modules/accounting/services/reports/cashFlowIndirectService';
 import reportsCashFlow from '../../../pages/api/accounting/reports-cash-flow';
 import cashFlowExport from '../../../pages/api/accounting/cash-flow-export';
 
@@ -79,12 +85,13 @@ describe('afsKpiCash reads cash.balance.v1', () => {
 });
 
 describe('cashFlowReconciliationService reads cash.balance.v1', () => {
-  it('states the bank balance and the indirect closing as closing cash at period end', async () => {
+  it('states the bank balance as closing cash at period end (the indirect closing is the statement\'s own)', async () => {
+    vi.mocked(getIndirectCashFlow).mockResolvedValueOnce({ closingCash: CLOSING, unexplainedDifference: 0 } as Awaited<ReturnType<typeof getIndirectCashFlow>>);
     const recon = await getCashFlowReconciliation(COMPANY, START, END);
     expect(recon.bankBalance).toBe(CLOSING);
     expect(recon.indirectClosing).toBe(CLOSING);
     expect(recon.isReconciled).toBe(true);
-    expect(getCashBalanceMock.mock.calls.every((c) => c[0] === COMPANY && c[1] === END && c[2] === undefined)).toBe(true);
+    expect(getCashBalanceMock.mock.calls.every((c) => c[0] === COMPANY && c[1] === END && c[2] === undefined)).toBe(true); // the statement is stubbed here, so the only reads are the bank balance's
   });
 });
 
