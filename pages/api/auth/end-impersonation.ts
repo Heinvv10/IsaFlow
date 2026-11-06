@@ -16,7 +16,7 @@ import {
 import { ADMIN_STASH_COOKIE, clearImpersonationCookies } from '@/lib/auth/impersonation-cookies';
 import { loadStash, deleteStash } from '@/modules/admin/services/userImpersonationService';
 import { verifyTokenSignature } from '@/lib/auth/gotrue';
-import { sessionActorOfToken } from '@/lib/auth/impersonationSessions';
+import { impersonationPartiesOf } from '@/lib/auth/impersonationSessions';
 import { verifyCsrf } from '@/lib/auth/csrf';
 import { pickInitialCompanyId } from '@/lib/auth/liveCompanies';
 import { sql } from '@/lib/neon';
@@ -57,11 +57,13 @@ const handler: NextApiHandler = async (req, res) => {
   // withPlatformAdmin. The other end is closed too — userImpersonationService
   // refuses to START impersonation of an inactive target (TARGET_INACTIVE).
   let callerId: string;
+  let sessionId: unknown;
   try {
     // Restoring the owned admin stash must work even when the target needs MFA.
     // The restored session is subject to the normal completed-session gate.
     const claims = await verifyTokenSignature(accessToken);
     callerId = claims.sub;
+    sessionId = claims.session_id;
   } catch {
     clearAuthCookies(res);
     clearImpersonationCookies(res);
@@ -84,9 +86,13 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorised to end this impersonation' } });
   }
 
-  // The stash holds the admin's tokens, so a target's own session may not spend it: only the session the Login-as
-  // minted may. The record cannot be deleted by a browser (R-032); a lookup failure throws and restores nothing.
-  if (callerId === stash.target_user_id && (await sessionActorOfToken(accessToken)) !== 'impersonation') {
+  // The stash holds the admin's tokens, so a target's own session may not spend it: only the session this admin's
+  // Login-as minted may. The record cannot be deleted by a browser (R-032); a lookup failure throws and restores nothing.
+  const parties = callerId === stash.target_user_id && typeof sessionId === 'string'
+    ? await impersonationPartiesOf(sessionId)
+    : null;
+  if (callerId === stash.target_user_id
+    && (parties?.actorUserId !== stash.admin_user_id || parties.targetUserId !== stash.target_user_id)) {
     log.warn('end-impersonation refused: not the Login-as session', { callerId, stashAdmin: stash.admin_user_id }, 'Admin');
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorised to end this impersonation' } });
   }

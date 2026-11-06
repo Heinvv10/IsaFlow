@@ -4,7 +4,9 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 const fixture = vi.hoisted(() => ({ loadStash: vi.fn(), deleteStash: vi.fn() }));
 vi.mock('@/modules/admin/services/userImpersonationService', () => fixture);
 vi.mock('@/lib/neon', () => ({ sql: async () => [] }));
-vi.mock('@/lib/auth/impersonationSessions', () => ({ sessionActorOfToken: async () => 'impersonation' }));
+vi.mock('@/lib/auth/impersonationSessions', () => ({
+  impersonationPartiesOf: async () => ({ actorUserId: 'admin-user', targetUserId: 'target-user' }),
+}));
 vi.mock('@/lib/auth/csrf', () => ({ verifyCsrf: () => true }));
 import handler from '../../../pages/api/auth/end-impersonation';
 import { ADMIN_STASH_COOKIE } from '@/lib/auth/impersonation-cookies';
@@ -21,7 +23,7 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
 it.each(['target-user', 'unrelated-user'])('restoring the admin session retains stash ownership checks: %s', async (sub) => {
-  const token = await new SignJWT({ sub, aal: 'aal1' }).setProtectedHeader({ alg: 'HS256' })
+  const token = await new SignJWT({ sub, aal: 'aal1', session_id: 'login-as-session' }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   const headers = new Map<string, unknown>();
   const res = {

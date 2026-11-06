@@ -5,9 +5,12 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/auth/csrf', () => ({ verifyCsrf: () => true }));
-vi.mock('@/lib/auth/gotrue', () => ({ verifyTokenSignature: async () => ({ sub: 'target-1' }) }));
-const actor = vi.hoisted(() => ({ value: 'impersonation' }));
-vi.mock('@/lib/auth/impersonationSessions', () => ({ sessionActorOfToken: async () => actor.value }));
+vi.mock('@/lib/auth/gotrue', () => ({ verifyTokenSignature: async () => ({ sub: 'target-1', session_id: 'session-1' }) }));
+const LOGIN_AS = { actorUserId: 'admin-1', targetUserId: 'target-1' };
+const record = vi.hoisted(() => ({ parties: null as { actorUserId: string; targetUserId: string } | null, asked: [] as string[] }));
+vi.mock('@/lib/auth/impersonationSessions', () => ({
+  impersonationPartiesOf: async (sessionId: string) => { record.asked.push(sessionId); return record.parties; },
+}));
 vi.mock('@/lib/auth/liveCompanies', () => ({ pickInitialCompanyId: async () => null }));
 vi.mock('@/lib/neon', () => ({ sql: async () => [] }));
 vi.mock('@/modules/admin/services/userImpersonationService', () => ({
@@ -19,8 +22,12 @@ vi.mock('@/modules/admin/services/userImpersonationService', () => ({
 
 import handler from '../../../../pages/api/auth/end-impersonation';
 
-it.each(['self', 'unknown', 'invalid'])("refuses a target's session the record calls %s, and restores nothing", async (value) => {
-  actor.value = value;
+it.each([
+  ['no Login-as on record', null],
+  ["another admin's Login-as of the same target", { actorUserId: 'admin-2', targetUserId: 'target-1' }],
+  ["this admin's Login-as of someone else", { actorUserId: 'admin-1', targetUserId: 'target-2' }],
+])('refuses a target session with %s, and restores nothing', async (_label, parties) => {
+  record.parties = parties;
   const headers = new Map<string, unknown>();
   const state = { status: 0 };
   const res = {
@@ -34,10 +41,11 @@ it.each(['self', 'unknown', 'invalid'])("refuses a target's session the record c
   expect(state.status).toBe(403);
   const set = ([] as unknown[]).concat(headers.get('set-cookie') ?? []).map(String);
   expect(set.some((c) => c.startsWith('sb-access-token=admin-a'))).toBe(false);
-  actor.value = 'impersonation';
 });
 
 it('restores the admin as not ticked, with a session-only refresh cookie', async () => {
+  record.parties = LOGIN_AS;
+  record.asked = [];
   const headers = new Map<string, unknown>();
   const state = { status: 0 };
   const res = {
@@ -51,6 +59,7 @@ it('restores the admin as not ticked, with a session-only refresh cookie', async
     { method: 'POST', headers: { cookie } } as unknown as NextApiRequest, res);
   const set = ([] as unknown[]).concat(headers.get('set-cookie') ?? []).map(String);
   expect(state.status).toBe(200);
+  expect(record.asked).toEqual(['session-1']);
   expect(set.find((c) => c.startsWith('isaflow_remember_me='))).toMatch(/^isaflow_remember_me=0;/);
   expect(set.find((c) => c.startsWith('sb-refresh-token='))).not.toMatch(/Max-Age/);
 });
