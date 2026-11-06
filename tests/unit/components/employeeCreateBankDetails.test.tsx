@@ -30,7 +30,9 @@ function serve(bank: Response) {
 beforeEach(() => { fetchMock.mockReset(); push.mockClear(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-const fill = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+// A blank bank section is unstarred; the star appears after the first keystroke (employeeBankLabels.test.tsx).
+const fill = (label: string, value: string) =>
+  fireEvent.change(screen.queryByLabelText(label) ?? screen.getByLabelText(label.replace(/ \*$/, '')), { target: { value } });
 function fillEmployee() {
   fill('First name *', 'Kay'); fill('Last name *', 'One'); fill('Employee number *', 'K2-1');
 }

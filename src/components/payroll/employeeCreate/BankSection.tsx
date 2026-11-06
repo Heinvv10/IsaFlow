@@ -1,6 +1,6 @@
 import { FormSection } from '@/components/ui/FormSection';
 import { BankFields } from './BankFields';
-import type { BankErrors, BankForm, BankKey } from './bankDetails';
+import { bankIsBlank, type BankErrors, BankForm, BankKey } from './bankDetails';
 
 interface Props {
   bank: BankForm;
@@ -12,8 +12,8 @@ interface Props {
 /** Section 5 of the create form. Posted as a second call once the employee exists. */
 export function BankSection(props: Props) {
   return (
-    <FormSection number={5} title="Bank details" description="Optional. Where the salary is paid. Leave it blank and add the details on the profile later.">
-      <BankFields {...props} />
+    <FormSection number={5} title="Bank details" description="Optional. Once you type any bank detail, the bank name, branch code and account number are needed.">
+      <BankFields {...props} required={!bankIsBlank(props.bank)} />
     </FormSection>
   );
 }
