@@ -33,7 +33,8 @@ const hasColumns = (page: PackPage) => page.blocks.some((b) => b.kind === 'table
 
 describe('the omission note on a budget company\'s page 6 that has no budget columns', () => {
   it.each<[string, Shape]>([
-    ['net-debit revenue, the #1148 rescue', { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1, plug: 0.05, sg: [-1, 1, 1, 1] }],
+    // (k=1 with sg [-1,1,1,1] no longer drops its columns once the table is modelled at its exact height.)
+    ['net-debit revenue, the #1148 rescue', { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1, plug: 0.05, sg: [-1, 1, -1, -1] }],
   ])('%s: names the columns, and does not say every figure is complete', (unused, shape) => {
     const { page } = p6(shape);
     expect(hasColumns(page)).toBe(false);
@@ -45,7 +46,7 @@ describe('the omission note on a budget company\'s page 6 that has no budget col
   });
 
   it('merged disclosures, the #1154 rescue: names the columns too', () => {
-    const { page } = p6({ tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1000, plug: 0.05, sg: [1, -1, -1, -1] });
+    const { page } = p6({ tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 300000, plug: 0.05, sg: [-1, 1, -1, 1] });
     expect(hasColumns(page)).toBe(false);
     expect(page.blocks.some((b) => b.kind === 'disclosure' && b.disclosure.heading === 'Required disclosures')).toBe(true);
     const note = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))?.text;

@@ -104,9 +104,10 @@ describe('the 2,560-input shape sweep', () => {
     expect(trimmedPages, 'no page was trimmed anywhere in the sweep').toBeGreaterThan(0);
     // `refused` is pinned at 0 (953 before the derived caption became page 6's last lever, 322 before
     // net-debit revenue with another line below zero got its two required disclosures under one heading):
-    // every shape in the sweep gets its pack.
+    // every shape in the sweep gets its pack. A statement table modelled at its exact height gets the Budget columns
+    // on more shapes and drops the caption (596, was 367) rather than the columns (1,116 name them, was 1,485).
     expect(unexpectedlyRefused).toEqual([]);
     expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, columnsSilent, falseCompleteness, columnsNamed, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, columnsSilent: 0, falseCompleteness: 0, columnsNamed: 1485, refused: 0, sample: [] });
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 596, columnsSilent: 0, falseCompleteness: 0, columnsNamed: 1116, refused: 0, sample: [] });
   }, 1_800_000);
 });
