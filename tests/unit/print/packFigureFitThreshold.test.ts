@@ -13,7 +13,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
 import { chromium } from 'playwright';
-import { kpiFit, tableFit } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { KPI_GAP_PX, kpiColumnMinPx, kpiFit, tableFit } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { demoWithoutBudget, SCALE, withHeadingColumns, withWidenedKpi, withWidenedTable } from '../services/packs/fixtures/widenedFigures';
 import { printBoardPack } from './renderPackPdf';
@@ -161,5 +161,30 @@ describe('a KPI row whose tile holds its column open with a word longer than its
     expect(fitsAt(floor + 1).fits).toBe(false);
     expect((await overflowOf(over.doc, over.index)).length, `${floor + 1} digits`).toBeGreaterThan(0);
   }, 300_000);
+});
+
+describe('a KPI row whose tile\'s not-meaningful reason, or delta line, holds its column open', () => {
+  const range = Array.from({ length: 30 }, (unused, i) => i + 4);
+  // The sweep is on the word's length, a character at a time: a reason is set in 11pt italic and a delta in 9pt after
+  // its arrow, and each is charged as a bound, so only a sweep puts the model's charge across a digit's threshold.
+  it.each([['reason', (n: number) => ({ reason: 'n'.repeat(n) })], ['delta basis', (n: number) => ({ basis: 'n'.repeat(n) })]] as const)(
+    'the %s: the threshold is exact in Chromium both ways, at every word length from 12 to 40 characters',
+    async (unused, words) => {
+      const wrong: string[] = [];
+      for (let n = 12; n <= 40; n += 1) {
+        const fitsAt = (digits: number) => kpiFit(withWidenedKpi(demoWithoutBudget(), digits, words(n)).tiles, SCALE).fits;
+        const floor = range.filter(fitsAt).pop();
+        if (floor === undefined || floor === range[range.length - 1]) continue;
+        const fit = withWidenedKpi(demoWithoutBudget(), floor, words(n));
+        if ((await overflowOf(fit.doc, fit.index)).length > 0) wrong.push(`${n} chars: ${floor} digits overflow (kept a row that overflows)`);
+        const over = withWidenedKpi(demoWithoutBudget(), floor + 1, words(n));
+        // The harness lays the page out at 658px, the print at 174mm = 657.6: a row the model puts less than a pixel
+        // past the print's measure fits the harness, and is not a refusal of a row that fits.
+        const total = kpiColumnMinPx(over.tiles, SCALE, 16).reduce((a, b) => a + b, 0) + 3 * KPI_GAP_PX;
+        if (total <= 658) continue;
+        if ((await overflowOf(over.doc, over.index)).length === 0) wrong.push(`${n} chars: ${floor + 1} digits would fit (refused a row that fits)`);
+      }
+      expect(wrong).toEqual([]);
+    }, 900_000);
 });
 

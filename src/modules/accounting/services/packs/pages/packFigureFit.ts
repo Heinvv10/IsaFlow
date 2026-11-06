@@ -23,6 +23,7 @@ import { formatFigureText } from '@/components/accounting/packs/primitives/packF
 import type { MoneyScale } from '@/lib/format/money';
 import { GUTTER_MM } from './packDisclosureHeight';
 import { type FigureWeight, ptToPx, textPx } from './packFigureWidth';
+import { reasonPx } from './packReasonWidth';
 import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
 import type { PackPageBlock, PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
@@ -75,7 +76,12 @@ export function tableColumnCells(table: PackTable, scale: MoneyScale): FigureCel
   return columns.map((col) => table.rows.map((row) => {
     const figure = row.figures[col];
     const weight = ROW_WEIGHT[row.role];
-    if (figure === undefined) return { text: '–', weight };
+    if (figure === undefined) {
+      // The table prints "n/m" (and its mark) in a derived cell of a row whose actual is not meaningful, not the dash.
+      const actual = row.figures.actual;
+      const notMeaningful = col !== 'actual' && actual !== undefined && actual.value === null;
+      return { text: notMeaningful ? NOT_MEANINGFUL : '–', weight };
+    }
     return {
       text: figure.value === null ? NOT_MEANINGFUL : formatFigureText(figure, scale, col === 'changePct' ? 'change' : 'level'),
       weight,
@@ -129,23 +135,30 @@ function deltaText(tile: KpiTile): string {
   return `${deltaWithWord(delta, direction, direction, 'pp', 'flat on')} ${delta.basis}`;
 }
 
-/** The longest unbreakable run of `text`: it breaks at spaces and after hyphens. */
+/** The runs of `text` a line may break between: at spaces, and after a hyphen. */
+function runsOf(text: string): string[] {
+  return text.split(/\s+/).filter((word) => word !== '').flatMap((word) => word.split(/(?<=-)/));
+}
+
+/** The longest unbreakable run of `text`. */
 function longestRunPx(text: string, fontPx: number, weight: FigureWeight): number {
-  return Math.max(0, ...text.split(/\s+/).flatMap((word) => word.split(/(?<=-)/)).map((run) => textPx(run, fontPx, weight)));
+  return Math.max(0, ...runsOf(text).map((run) => textPx(run, fontPx, weight)));
 }
 
 /**
  * The narrowest a tile can be set apart from its figure: its label's longest run at 9pt (with its footnote marker),
- * its not-meaningful reason's at 11pt (italic, charged as regular plus a tenth) and its delta line's at 9pt after
+ * its not-meaningful reason's at 11pt (italic: its own advances, `packReasonWidth.ts`) and its delta line's at 9pt after
  * the 7pt arrow. A `1fr` grid column is never narrower than any of them, so a short figure under a long word still
  * holds its column open (the adversary's net-debit Debt-to-equity tile: 50px of figure under a 56px label).
  */
 function tileOtherMinPx(tile: KpiTile): number {
   const labelPx = longestRunPx(tile.label, 12, 400) + (tile.trendFootnote === null ? 0 : LABEL_MARKER_PX);
-  const reasonPx = tile.figure.value === null && tile.figure.unavailable !== undefined && tile.figure.unavailable !== null
-    ? Math.ceil(longestRunPx(tile.figure.unavailable, 15, 400) * 1.1) : 0;
-  const deltaPx = tile.delta === null ? 0 : longestRunPx(deltaText(tile), 12, 400) + DELTA_CUE_PX;
-  return Math.max(labelPx, reasonPx, deltaPx);
+  const reasonWidth = tile.figure.value === null && tile.figure.unavailable !== undefined && tile.figure.unavailable !== null
+    ? Math.max(0, ...runsOf(tile.figure.unavailable).map(reasonPx)) : 0;
+  // The arrow cue sits on the FIRST run ("↑ up"): a long word later in the line wraps onto a line of its own.
+  const deltaRuns = tile.delta === null ? [] : runsOf(deltaText(tile)).map((run) => textPx(run, 12, 400));
+  const deltaPx = Math.max(0, ...deltaRuns.map((w, i) => (i === 0 ? w + DELTA_CUE_PX : w)));
+  return Math.max(labelPx, reasonWidth, deltaPx);
 }
 /** The arrow cue before a delta (7pt) and its space, charged generously. */
 const DELTA_CUE_PX = 12;

@@ -12,6 +12,7 @@ import { chromium } from 'playwright';
 import { HEADING_WORD_PX } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { advancePx, effectivePx, textPx, type FigureWeight } from '@/modules/accounting/services/packs/pages/packFigureWidth';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packTableModel';
+import { reasonPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
 import { measure, type Probe } from './measureWidths';
 
 let browser: Browser;
@@ -83,3 +84,26 @@ describe('the longest word of each column heading', () => {
     expect(marked!.widthPx - plain!.widthPx).toBeGreaterThan(3);
   });
 });
+
+describe('a KPI tile\'s not-meaningful reason (11pt italic, `.pack-kpi-unavailable`)', () => {
+  const reasonChars = [...'0123456789 .,;:\'"()-/%&+\u2013abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'];
+
+  it('every glyph is the whole-pixel advance the italic face sets, to the pixel and never short', async () => {
+    const asClass = (text: string) => ({ probe: 'label' as const, text, html: `<span class="pack-kpi-unavailable">${text}</span>` });
+    const res = await measure(browser, [asClass('||'), ...reasonChars.map((c) => asClass(`|${c}|`))]);
+    const bar = res[0]!.widthPx;
+    const wrong = reasonChars.filter((c, i) => {
+      const measured = res[i + 1]!.widthPx - bar;
+      return reasonPx(c) < measured - 0.01 || reasonPx(c) > measured + 1;
+    }).map((c) => `${c}: model ${reasonPx(c)}`);
+    expect(wrong).toEqual([]);
+  });
+
+  it('whole words, as the tile sets them, are the model\'s sum within a pixel a word and never short', async () => {
+    const words = ['unavailable', 'Insufficientdata', 'nnnnnnnnnnnnnnnnnnnn', 'abcdefghijklmnopqrstuvwxyz', 'Nobasis', 'Currentperiod', 'Notmeaningful'];
+    const res = await measure(browser, words.map((w) => ({ probe: 'label' as const, text: w, html: `<span class="pack-kpi-unavailable">${w}</span>` })));
+    const wrong = words.filter((w, i) => reasonPx(w) < res[i]!.widthPx - 0.01 || reasonPx(w) > res[i]!.widthPx + 2).map((w) => w);
+    expect(wrong).toEqual([]);
+  });
+});
+

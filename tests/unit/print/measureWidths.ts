@@ -39,7 +39,10 @@ export async function measure(
     // Fonts load on first use: a weight no text has used yet is not loaded, and measuring it falls back to a
     // synthetic face. Load the three the pack's figures are set in before measuring anything.
     await page.evaluate(async () => {
-      await Promise.all([400, 500, 600].map((w) => document.fonts.load(`${w} 16px "IBM Plex Sans"`)));
+      await Promise.all([
+        ...[400, 500, 600].map((w) => document.fonts.load(`${w} 16px "IBM Plex Sans"`)),
+        document.fonts.load('italic 400 16px "IBM Plex Sans"'),
+      ]);
       await document.fonts.ready;
     });
     return await page.evaluate((list) => list.map((item) => {
