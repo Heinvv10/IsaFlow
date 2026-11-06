@@ -3,7 +3,7 @@ import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import { verifyToken } from './gotrue';
 import { respondIfAuthUnavailable } from './authUpstream';
-import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from './cookies';
+import { parseCookies, clearAuthCookies, clearCookiesForRefusedToken, ACCESS_COOKIE, REFRESH_COOKIE } from './cookies';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } from './userAccountStatus';
@@ -23,7 +23,9 @@ export function withUserAuth(handler: Handler): NextApiHandler {
     const cookies = parseCookies(req);
     const token = cookies[ACCESS_COOKIE];
     if (!token) {
-      return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      // `renewable: false` spares a signed-out visitor's browser a pointless refresh call (useSessionCheck).
+      const renewable = Boolean(cookies[REFRESH_COOKIE]);
+      return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required', renewable } });
     }
     let claims;
     try {
@@ -32,7 +34,7 @@ export function withUserAuth(handler: Handler): NextApiHandler {
       // D9: GoTrue could not answer. Not a verdict on the token: 503, cookies kept.
       if (respondIfAuthUnavailable(res, err, 'withUserAuth')) return;
       log.warn('withUserAuth: invalid token', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
-      clearAuthCookies(res);
+      clearCookiesForRefusedToken(res, err);
       return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
     }
 

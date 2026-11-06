@@ -81,7 +81,7 @@ export interface ReportPackFigures extends ReportPackInput {
 
 type PackCashFlows = Pick<
   ReportPackFigures,
-  'operatingCashFlow' | 'investingCashFlow' | 'financingCashFlow' | 'cashFlowUnavailable'
+  'operatingCashFlow' | 'investingCashFlow' | 'financingCashFlow' | 'cashFlowUnexplained' | 'cashFlowUnavailable'
 >;
 
 /** What a reader is told where the statement could not be read. */
@@ -125,8 +125,11 @@ async function readCashFlows(companyId: string, from: string, to: string): Promi
   // rounding.
   const investingCashFlow = round2(cashFlow.investingTotal);
   const financingCashFlow = round2(cashFlow.financingTotal);
-  const operatingCashFlow = round2(round2(cashFlow.netChange) - investingCashFlow - financingCashFlow);
-  return { operatingCashFlow, investingCashFlow, financingCashFlow, cashFlowUnavailable: null };
+  // THE UNEXPLAINED DIFFERENCE IS NOT OPERATING CASH. `netChange` includes it (the statement closes on the ledger), so
+  // operating is taken from the movement the journals explain; the difference travels beside the three and page 8 prints it.
+  const cashFlowUnexplained = round2(cashFlow.unexplainedDifference);
+  const operatingCashFlow = round2(round2(cashFlow.netChange - cashFlow.unexplainedDifference) - investingCashFlow - financingCashFlow);
+  return { operatingCashFlow, investingCashFlow, financingCashFlow, cashFlowUnexplained, cashFlowUnavailable: null };
 }
 
 /** What a reader is told of each ratio whose inputs could not be read. */

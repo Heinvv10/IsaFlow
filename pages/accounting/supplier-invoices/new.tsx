@@ -17,6 +17,7 @@ import { PoGrnSelector } from '@/components/accounting/suppliers/PoGrnSelector';
 import type { PoLineItem } from '@/components/accounting/suppliers/PoGrnSelector';
 import { BillLineItemsTable } from '@/components/accounting/suppliers/BillLineItemsTable';
 import type { BillLineItem, GLAccount } from '@/components/accounting/suppliers/BillLineItemsTable';
+import { billLineFromPo, mergePoAccounts } from '@/components/accounting/suppliers/poBillLines';
 import { InvoiceNumberField } from '@/components/accounting/suppliers/InvoiceNumberField';
 import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/SupplierInvoiceSummaryCard';
 import { localISODate } from '@/lib/dateUtils';
@@ -89,15 +90,8 @@ export default function NewSupplierInvoicePage() {
 
   function handlePoLineItems(items: PoLineItem[]) {
     if (items.length === 0) return;
-    setLines(items.map(item => ({
-      key: crypto.randomUUID(),
-      description: item.description,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      taxRate: item.taxRate,
-      glAccountId: '',
-      ...supplierDims,
-    })));
+    setGLAccounts(prev => mergePoAccounts(prev, items));
+    setLines(items.map(item => billLineFromPo(item, supplierDims, crypto.randomUUID())));
   }
 
   const addLine = () => setLines(prev => [
@@ -106,7 +100,7 @@ export default function NewSupplierInvoicePage() {
   ]);
 
   const updateLine = (key: string, field: keyof BillLineItem, value: string | number) =>
-    setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
+    setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value, ...(field === 'cc2Id' ? { cc1Id: undefined } : {}) } : l));
 
   const removeLine = (key: string) => {
     if (lines.length <= 1) return;
@@ -140,6 +134,8 @@ export default function NewSupplierInvoicePage() {
       matchVendor(data.vendorName);
     }
     if (data.lineItems.length > 0) {
+      // The scan's lines replace any copied from the PO, so the form must stop saying they were.
+      setForm(f => ({ ...f, copyLinesFromPo: false }));
       setLines(data.lineItems.map(li => ({
         key: crypto.randomUUID(), description: li.description,
         quantity: li.quantity ?? 1, unitPrice: li.unitPrice ?? 0,
@@ -173,6 +169,9 @@ export default function NewSupplierInvoicePage() {
             description: l.description, quantity: l.quantity,
             unitPrice: l.unitPrice, taxRate: l.taxRate,
             glAccountId: l.glAccountId || undefined,
+            // Only while the lines are the selected PO's: unticking the copy or changing the PO unlinks them.
+            poItemId: form.copyLinesFromPo && form.purchaseOrderId ? l.poItemId : undefined,
+            cc1Id: l.cc1Id || undefined,
             cc2Id: l.cc2Id || undefined,
             buId: l.buId || undefined,
           })),

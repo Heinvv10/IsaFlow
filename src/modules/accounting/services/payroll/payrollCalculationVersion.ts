@@ -6,5 +6,6 @@
  *
  * 1: components read on the period's last day; once-offs inside the month; pro-rata and termination-base flags.
  * 2: an unaffordable loan keeps its taxable 3801 benefit while omitting the cash instalment.
+ * 3: s18A donations need a receipt and stop at 5%, off PAYE and SDL (migration 959).
  */
-export const PAYROLL_CALCULATION_VERSION = 2;
+export const PAYROLL_CALCULATION_VERSION = 3;

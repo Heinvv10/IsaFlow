@@ -5,7 +5,7 @@ import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import { verifyToken } from './gotrue';
 import { respondIfAuthUnavailable } from './authUpstream';
-import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from './cookies';
+import { parseCookies, clearAuthCookies, clearCookiesForRefusedToken, ACCESS_COOKIE } from './cookies';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
@@ -63,7 +63,7 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
         { message: err instanceof Error ? err.message : String(err) },
         'Auth'
       );
-      clearAuthCookies(res);
+      clearCookiesForRefusedToken(res, err);
       return res.status(401).json({
         success: false,
         error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' },

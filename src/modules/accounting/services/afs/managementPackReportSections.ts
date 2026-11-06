@@ -24,6 +24,9 @@ const CASH_SPEC: Spec<CashFlowDirectReport>[] = [
   { group: { heading: 'Operating activities', lines: (r) => cashItems(r.operatingItems), lineLabel: labelOnly, totalLabel: 'Net cash from operating activities', total: (r) => r.operatingTotal } },
   { group: { heading: 'Investing activities', lines: (r) => cashItems(r.investingItems), lineLabel: labelOnly, totalLabel: 'Net cash from investing activities', total: (r) => r.investingTotal } },
   { group: { heading: 'Financing activities', lines: (r) => cashItems(r.financingItems), lineLabel: labelOnly, totalLabel: 'Net cash from financing activities', total: (r) => r.financingTotal } },
+  // A ledger fault (a cash leg on the year-end journal, a posted journal that does not balance), shown only when there is one:
+  // without it the sections would not add to the net change the statement closes on.
+  { group: { heading: 'Unexplained difference', lines: (r) => (r.unexplainedDifference ? [{ accountCode: 'unexplained', accountName: 'The ledger\'s cash does not follow from its posted journals', amount: r.unexplainedDifference }] : []), lineLabel: labelOnly, totalLabel: 'Total unexplained difference', total: (r) => r.unexplainedDifference } },
   { subtotal: { label: 'Net change in cash', value: (r) => r.netChange, kind: 'subtotal' } },
   { subtotal: { label: 'Closing cash', value: (r) => r.closingCash, kind: 'total' } },
 ];
@@ -43,7 +46,7 @@ export function cashFlowBlocks(columns: StatementColumn<CashFlowDirectReport>[],
 export function cashFlowFigures(r: CashFlowDirectReport | undefined): Record<string, unknown> {
   return r ? {
     periodStart: r.periodStart, periodEnd: r.periodEnd, openingCash: r.openingCash, operatingTotal: r.operatingTotal,
-    investingTotal: r.investingTotal, financingTotal: r.financingTotal, netChange: r.netChange, closingCash: r.closingCash,
+    investingTotal: r.investingTotal, financingTotal: r.financingTotal, unexplainedDifference: r.unexplainedDifference, netChange: r.netChange, closingCash: r.closingCash,
   } : {};
 }
 

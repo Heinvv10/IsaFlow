@@ -18,7 +18,7 @@ import { log } from '@/lib/logger';
 import { ratioLines, UnknownRatioError, type RatioLine } from '@/modules/accounting/services/reports/ratioPresentation';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { ProfitWaterfall } from '@/components/accounting/charts/ProfitWaterfall';
-import { MissingPackFieldError, packToCashFlowUnavailable, packToWaterfallSteps } from '@/modules/accounting/services/packs/packSectionData';
+import { CASH_UNCAPTURED_LABEL, cashFlowLinePrints, MissingPackFieldError, packToCashFlowUnavailable, packToWaterfallSteps } from '@/modules/accounting/services/packs/packSectionData';
 import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -145,6 +145,7 @@ const CASH_FLOW_LINES: Array<[string, string]> = [
   ['operatingCashFlow', 'Operating CF'],
   ['investingCashFlow', 'Investing CF'],
   ['financingCashFlow', 'Financing CF'],
+  ['cashFlowUnexplained', CASH_UNCAPTURED_LABEL],
   ['netCashFlow', 'Net Cash Flow'],
   ['openingCash', 'Opening Cash'],
   ['closingCash', 'Closing Cash'],
@@ -157,7 +158,7 @@ function CashFlowItems({ d }: { d: Record<string, unknown> }) {
   const unavailable = reasonsOrNone(d, 'unavailable', () => packToCashFlowUnavailable(d), 'cash_flow');
   return (
     <>
-      {CASH_FLOW_LINES.map(([field, label]) => (
+      {CASH_FLOW_LINES.filter(([field]) => cashFlowLinePrints(d, field)).map(([field, label]) => (
         <KVItem key={field} label={label} value={unavailable[field] ?? fmt(d[field])} />
       ))}
     </>
