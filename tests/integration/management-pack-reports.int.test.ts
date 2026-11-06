@@ -15,6 +15,7 @@ import { sql } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 import { getCashFlowDirect } from '@/modules/accounting/services/afs/cashFlowDirectService';
+import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { getUnappliedByEntity } from '@/modules/accounting/services/shared/agedNetting';
@@ -116,6 +117,7 @@ async function pack(sections: string[], before?: (c: PoolClient) => Promise<unkn
     ` as { section_type: string; content: NoteContent; data_snapshot: Record<string, unknown> }[];
     const reports = readReports ? {
       cash: await getCashFlowDirect(f.a, START, END),
+      ledgerCash: (await getCashBalance(f.a, END)).total,
       ar: await getARAging(f.a, END),
       ap: await getAPAging(f.a, END),
       arUnapplied: await getUnappliedByEntity(f.a, 'ar', END),
@@ -151,6 +153,9 @@ describe('every cell is the report service\'s figure for the same company and mo
     expect(m(cash.openingCash + cash.netChange)).toBe(row(t, 'Closing cash')?.[1]);
     expect(JSON.stringify(sections.get('cash_flow')?.content.blocks)).toContain('Direct method');
     expect(sections.get('cash_flow')?.data_snapshot).toMatchObject({ openingCash: cash.openingCash, closingCash: cash.closingCash, netChange: cash.netChange });
+    // whole cents all through the stored figures, and the closing cash is the ledger's
+    for (const v of Object.values(sections.get('cash_flow')!.data_snapshot).filter((x): x is number => typeof x === 'number')) expect(Math.abs(v * 100 - Math.round(v * 100))).toBeLessThan(1e-6);
+    expect(sections.get('cash_flow')?.data_snapshot).toMatchObject({ unexplainedDifference: 0, closingCash: reports!.ledgerCash });
   });
 
   const AGES = ['current', 'days30', 'days60', 'days90', 'days120Plus'] as const;
