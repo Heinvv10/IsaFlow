@@ -5,7 +5,7 @@
  * 3.8mm; 13 sheets for 35 of them) before a statement table was modelled at the lines Chromium sets it in; the
  * other 4 (k=300,000) printed clean then and must keep doing so.
  * WAS_REFUSED: every 45th of the 1344 packs that were refused ("fitPageToBox ... nothing left that may be dropped")
- * and compose now that the table is no longer charged 4.4mm too tall.
+ * before #1148 and the exact table (on the base before #1148), all of which compose now.
  */
 import type { Shape } from './packGridInputs';
 
