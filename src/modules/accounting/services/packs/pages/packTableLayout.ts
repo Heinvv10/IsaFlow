@@ -125,7 +125,7 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
  * (`packTableLayout.test.ts` holds each to it, and the table's height is exactly the sum of its parts):
  * the caption 4.585mm; the heading row 7.359mm, 4.233 more for every extra line (12pt leading); a body row 6.98
  * to 7.115mm (a line, a total), 7.247 (a subtotal: a heavier rule), 8.04 (a grand total: a double rule), and
- * 4.453 more for every extra line of its label (13pt leading). Each is charged rounded up to the hundredth.
+ * up to 4.585 more for every extra line of its label (13pt leading; a wrapped row measures 11.567 or 11.700). Each is charged rounded up to the hundredth.
  *
  * It replaces a flat 8mm heading and 8.15mm per row, which over-charged a table that does not wrap by about
  * 4.4mm and, because the caption and the extra lines were charged nowhere, still under-charged one that does.
@@ -133,13 +133,18 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
 const CAPTION_MM = 4.59;
 const HEAD_MM = 7.36;
 const HEAD_LINE_MM = 4.24;
-const LABEL_LINE_MM = 4.46;
+const LABEL_LINE_MM = 4.59;
 const ROW_MM: Readonly<Record<PackTableRow['role'], number>> = { line: 7.12, subtotal: 7.25, total: 7.12, grandTotal: 8.05 };
 
-/** A statement table's height: its caption, its headings and its rows at the lines Chromium sets them in, and its reasons list. */
-export function statementTableMm(table: PackTable, scale: MoneyScale, orientation: PageOrientation, widthMm: number): number {
+/** The `table` element's own height: its caption, its headings and its rows at the lines Chromium sets them in. */
+export function statementTableBodyMm(table: PackTable, scale: MoneyScale, orientation: PageOrientation): number {
   const layout = tableLayout(table, scale, orientation);
   const body = table.rows.reduce((sum, row, i) => sum + ROW_MM[row.role] + (layout.labelLines[i]! - 1) * LABEL_LINE_MM, 0);
+  return CAPTION_MM + HEAD_MM + (layout.headingLines - 1) * HEAD_LINE_MM + body;
+}
+
+/** A statement table's height as the page carries it: the table, and the reasons list printed under it. */
+export function statementTableMm(table: PackTable, scale: MoneyScale, orientation: PageOrientation, widthMm: number): number {
   const figures = table.rows.flatMap((r) => table.columns.map((c) => r.figures[c]));
-  return CAPTION_MM + HEAD_MM + (layout.headingLines - 1) * HEAD_LINE_MM + body + notMeaningfulNotesMm(figures, widthMm);
+  return statementTableBodyMm(table, scale, orientation) + notMeaningfulNotesMm(figures, widthMm);
 }

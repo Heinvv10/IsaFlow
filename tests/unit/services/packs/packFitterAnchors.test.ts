@@ -50,7 +50,9 @@ function crowdedPage(): PackPage {
   const footnotes: PackFootnote[] = [1, 2, 3, 4, 5].map((n) => ({ number: n, text: text(n), ...(n === 5 ? { required: true as const } : {}) }));
   return {
     number: 6, title: 'Income statement', navLabel: 'Income statement', section: 'Financials', orientation: 'portrait', density: 'high',
-    blocks: [tableAnchoredAt({ 0: 1, 1: 2, 2: 3, 3: 3, 4: 4 }, [{ column: 'prior', footnote: 5 }]), requiredBlock(10)],
+    // 11 notes: the table is modelled at its exact height (the lines Chromium sets it in), so ten no longer
+    // crowd the sheet enough to make the fitter drop an ordinary footnote.
+    blocks: [tableAnchoredAt({ 0: 1, 1: 2, 2: 3, 3: 3, 4: 4 }, [{ column: 'prior', footnote: 5 }]), requiredBlock(11)],
     footnotes,
   };
 }

@@ -81,10 +81,11 @@ describe('the 2,560-input shape sweep', () => {
     }
     // The sweep must exercise the trimming path, or a green result proves nothing.
     expect(trimmedPages, 'no page was trimmed anywhere in the sweep').toBeGreaterThan(0);
-    // `refused` is pinned: renumbering must not turn a pack into a refusal or a refusal into a pack
-    // (953 of the 2,560 shapes are refused before and after; page 6 with net-debit revenue and an
-    // interest/tax step is the cause, and has its own fix).
+    // `refused` is pinned: renumbering must not turn a pack into a refusal or a refusal into a pack. 953 of the
+    // 2,560 shapes were refused (page 6 with net-debit revenue and an interest/tax step); 307 of them compose
+    // now that a statement table is modelled at its exact height rather than 4.4mm too tall (every one of
+    // those prints inside its sheet in Chromium: `packPage6ExactTable`), leaving 646.
     expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, refused: 953, sample: [] });
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, refused: 646, sample: [] });
   }, 1_800_000);
 });

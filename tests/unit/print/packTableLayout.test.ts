@@ -12,7 +12,7 @@ import { chromium } from 'playwright';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
-import { tableLayout, HEADING_SPACE_PX, HEADING_WORDS_PX } from '@/modules/accounting/services/packs/pages/packTableLayout';
+import { HEADING_SPACE_PX, HEADING_WORDS_PX, statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packTableModel';
 import { input, type Shape } from '../services/packs/fixtures/advInputs';
 import { measure } from './measureWidths';
@@ -44,10 +44,14 @@ for (const k of [1, 30, 1000, 30000, 300000]) for (const negative of [false, tru
     SHAPES.push({ k, negative, loss, plug: 0.05, sg, budget, prior: true, tr: 'demo' });
 
 describe('the layout of every statement table of a stratified sample of packs', () => {
-  it(`${SHAPES.length} packs: columns within 1px, label lines and heading lines equal`, async () => {
+  it(`${SHAPES.length} packs: columns within 1px, label lines and heading lines equal, height never short`, async () => {
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
     let tables = 0;
+    let wrappedLabels = 0;
+    let wrappedHeadings = 0;
+    let tallest = -Infinity;
+    let shortest = Infinity;
     for (const shape of SHAPES) {
       let doc;
       try { doc = buildBoardPackPages(input(shape)); } catch (e) { if (e instanceof PackRefusal) continue; throw e; }
@@ -64,11 +68,24 @@ describe('the layout of every statement table of a stratified sample of packs', 
           const label = `${JSON.stringify(shape)} page ${page.number} table ${i}`;
           model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > 1) wrong.push(`${label} column ${c}: model ${px.toFixed(1)} vs ${real.columnsPx[c]!.toFixed(1)}`); });
           if (model.labelLines.join() !== real.labelLines.join()) wrong.push(`${label} label lines: model ${model.labelLines} vs ${real.labelLines}`);
+          wrappedLabels += real.labelLines.filter((l) => l > 1).length;
+          if (real.headingLines > 1) wrappedHeadings += 1;
+          const gap = statementTableBodyMm(block.table, doc.numberConvention.scale, page.orientation) - real.heightMm;
+          tallest = Math.max(tallest, gap);
+          shortest = Math.min(shortest, gap);
+
           if (model.headingLines !== real.headingLines) wrong.push(`${label} heading lines: model ${model.headingLines} vs ${real.headingLines}`);
         });
       }
     }
     expect(tables).toBeGreaterThan(300);
+    // Non-vacuous: the sample must contain the wraps the model exists to see.
+    expect(wrappedLabels, 'no wrapped label in the sample').toBeGreaterThan(20);
+    expect(wrappedHeadings, 'no two-line heading in the sample').toBeGreaterThan(5);
+    // The height of the table is never short of Chromium's, and over by at most the roundings up (measured over this
+    // sample: 0.31 to 1.53mm, the top end a table whose rows nearly all wrap).
+    expect(shortest, 'a table modelled shorter than it printed').toBeGreaterThanOrEqual(0);
+    expect(tallest, "a table modelled taller than it printed").toBeLessThanOrEqual(1.6);
     expect(wrong.slice(0, 12)).toEqual([]);
   }, 1_200_000);
 });
