@@ -22,7 +22,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { HEADER_HTML, PDF_MARGIN_MM, mm } from '@/lib/pdf/pdfTransport';
 import { buildFooterHtml, PACK_CONFIDENTIALITY, shortPeriod } from '@/lib/pdf/printFurniture';
 import { PACK_FOOTER_FACE_FILE, PACK_FOOTER_FONT_FAMILY, packFooterFaceCss } from '@/lib/charts/packFont';
@@ -49,7 +50,7 @@ interface Word { text: string; xMin: number; xMax: number; yMin: number; yMax: n
 let browser: Browser;
 let dir: string;
 beforeAll(async () => {
-  browser = await chromium.launch();
+  browser = await launchPrintChromium();
   dir = mkdtempSync(path.join(tmpdir(), 'pack-footer-'));
 }, 120_000);
 afterAll(async () => {

@@ -18,6 +18,7 @@ export const VELO_MACHINE_FILES = [
   'tests/unit/lib/xlsxNormaliseScanNames.test.ts', // /usr/bin/soffice (LibreOffice)
   'tests/unit/ci/integrationLifecycle.test.ts', // PostgreSQL 16 initdb/pg_ctl
   'tests/unit/scripts/blueGreenNginx.test.ts', // /usr/sbin/nginx
+  'tests/unit/printParity/packEngineParity.test.ts', // docker + the production Gotenberg image, pdftotext (velo)
 ];
 
 export default defineConfig(({ mode }) => {

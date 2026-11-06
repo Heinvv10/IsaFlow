@@ -21,7 +21,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { wrappedLines } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { readPackPrintCss } from './packPrintCss';
 
@@ -61,7 +62,7 @@ const SAMPLES: Array<[string, string]> = [
 const MEASURES: Array<[number, number]> = [[9.5, 174], [9.5, 116], [7.5, 168], [9, 34]];
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 120_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
 afterAll(async () => { await browser?.close(); });
 
 describe('the pack text ruler', () => {
