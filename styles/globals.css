@@ -425,3 +425,17 @@ html[data-sidebar-collapsed="true"] [data-shell-side] {
   background-color: #fff;
   background-image: linear-gradient(rgb(240 253 250 / 0.6), rgb(240 253 250 / 0.6));
 }
+
+/* ── Table density: the ONE root switch (TableDensityContext sets html[data-density]) ──
+   Compact: body cells py-1 (4 px), header cells py-2 (8 px), both on the 4 px grid.
+   Comfortable sets no rule, so it renders exactly as authored.
+   Exempt: any table marked data-density-exempt (statement grids, management-pack and AFS
+   viewers) and the budget grid (table[role=grid]). */
+html[data-density='compact'] table:not([data-density-exempt], [role='grid']) td {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+html[data-density='compact'] table:not([data-density-exempt], [role='grid']) th {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}

@@ -71,7 +71,7 @@ function ChangesInEquitySection({ report, periodMonths }: { report: ChangesInEqu
     <section className="mb-8">
       <SectionHeading>Statement of Changes in Equity</SectionHeading>
       <div className="overflow-x-auto rounded-lg border border-slate-300 dark:border-slate-700">
-        <table className="w-full text-sm border-collapse">
+        <table className="w-full text-sm border-collapse" data-density-exempt>
           <thead>
             <tr className="bg-slate-200 dark:bg-slate-700">
               <th className="text-left px-4 py-3 font-semibold text-slate-800 dark:text-slate-200 w-48">Movement</th>
@@ -115,7 +115,7 @@ function DirectCashFlowSection({ report }: { report: CashFlowDirectReport }) {
     <section className="mb-8">
       <SectionHeading>Statement of Cash Flows — Direct Method</SectionHeading>
       <div className="rounded-lg border border-slate-300 dark:border-slate-700 overflow-hidden">
-        <table className="w-full text-sm border-collapse">
+        <table className="w-full text-sm border-collapse" data-density-exempt>
           <thead>
             <tr className="bg-slate-200 dark:bg-slate-700">
               <th className="text-left px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">Description</th>
@@ -165,7 +165,7 @@ function ReconciliationSection({ rec }: { rec: CashFlowReconciliation }) {
     <section className="mb-8">
       <SectionHeading>Cash Flow Reconciliation</SectionHeading>
       <div className={`border rounded-lg p-6 ${ok ? 'bg-green-900/20 border-green-800' : 'bg-red-900/20 border-red-800'}`}>
-        <table className="w-full text-sm">
+        <table className="w-full text-sm" data-density-exempt>
           <tbody>
             {[
               { label: 'Direct method closing cash',   val: rec.directClosing },

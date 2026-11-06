@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { Eye } from 'lucide-react';
 import { StatusPill } from '@/components/ui';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { toBucketKey, relativeTimeSince } from '@/components/invoices/ARFilters';
 import { BUCKET_COLORS, BUCKET_LABELS } from '@/lib/format/aging';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
@@ -29,6 +30,8 @@ export interface CustomerInvoiceRow {
   view_count?: number;
   days_overdue?: number | null;
   aging_bucket?: string | null;
+  /** ISO code the amounts are held in; absent or ZAR renders as Rand. */
+  currency_code?: string | null;
 }
 
 interface Props {
@@ -41,6 +44,9 @@ interface Props {
   onOpen: (invoiceId: string) => void;
 }
 
+/** An invoice in a foreign currency shows in that currency, never as Rand. */
+const money = (inv: CustomerInvoiceRow, n: number) =>
+  inv.currency_code && inv.currency_code !== 'ZAR' ? formatCurrencyAmount(n, inv.currency_code) : formatCurrency(n);
 const invoicePath = (id: string) => `/accounting/customer-invoices/${id}`;
 const onLink = (e: MouseEvent) => (e.target as Element).closest('a') !== null;
 const withModifier = (e: MouseEvent) => e.ctrlKey || e.metaKey || e.shiftKey;
@@ -87,10 +93,10 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onO
                   {inv.reference || inv.project_name || '-'}
                 </td>
                 <td className="py-3 px-4 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
-                <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(inv.total_amount))}</td>
+                <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{money(inv, Number(inv.total_amount))}</td>
                 {showsARBalance(inv.status, outstanding) ? (
                   <td className={`py-3 px-4 text-right tabular-nums ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
-                    {formatCurrency(outstanding)}
+                    {money(inv, outstanding)}
                   </td>
                 ) : (
                   <td className="py-3 px-4 text-right text-[var(--ff-text-tertiary)]">—</td>
