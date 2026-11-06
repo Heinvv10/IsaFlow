@@ -18,6 +18,23 @@ const contra = (
   amount: number,
 ): ContraLine => ({ accountType, accountSubtype, amount });
 
+describe('classifyCashGroup: disposals and credit cards', () => {
+  it('the gain or loss on disposal is investing, with the asset\'s cost and accumulated depreciation (not other income)', () => {
+    expect(classifyCashGroup('revenue', 'disposal_profit_loss')).toBe('investing');
+    expect(classifyCashGroup('expense', 'Disposal Profit Loss')).toBe('investing');
+    expect(classifyCashGroup('asset', 'accumulated_depreciation')).toBe('investing');
+    expect(classifyCashGroup('revenue', 'other_income')).toBe('cash_received_from_customers');
+  });
+  it('a LIABILITY spelled bank or cash is a credit card: financing, as credit_card', () => {
+    for (const s of ['bank', 'bank_account', 'cash', 'petty_cash', 'credit_card']) expect(classifyCashGroup('liability', s), s).toBe('financing');
+  });
+  it('a disposal at a gain puts the whole bank leg in investing', () => {
+    const out = apportionBankLeg(7000, [contra('asset', 'accumulated_depreciation', 4000), contra('asset', 'fixed_asset', -10000), contra('revenue', 'disposal_profit_loss', -1000)]);
+    expect(out.map((o) => o.cashGroup)).toEqual(['investing', 'investing', 'investing']);
+    expect(Math.round(out.reduce((x, o) => x + o.amount, 0))).toBe(7000);
+  });
+});
+
 describe('classifyCashGroup', () => {
   it('classifies the subtype spellings production charts actually use', () => {
     // Every one of these fell through to `other_operating` under the previous
