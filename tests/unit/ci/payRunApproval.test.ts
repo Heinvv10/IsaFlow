@@ -1,0 +1,144 @@
+// How the golden payroll specs clear a pay run's R-035 approval: a second approver when E2E_APPROVER_* is set (prod
+// Demo has several eligible approvers), else the sole-approver self-approval (CI slots). Half-set must fail loudly.
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Api, ApiError } from '../../e2e/golden-paths/_api';
+import { clearPayRunApproval, readApprover } from '../../e2e/golden-paths/helpers/payRunApproval';
+
+const REQUEST = { id: 'req-1', documentDigest: 'dig-1' };
+const DECISION = { action: 'approve', requestId: 'req-1', expectedDigest: 'dig-1' };
+// The real 403 body (pages/api/accounting/approval-requests.ts): the reason is in error.details.
+const FORBIDDEN_BODY = { success: false, error: { code: 'FORBIDDEN', message: 'self approval', details: { reason: 'SELF_APPROVAL_FORBIDDEN' } } };
+const URL = '/api/accounting/approval-requests';
+
+function fakeApi(approveError?: Error) {
+  const post = vi.fn(async (_path: string, body: { action: string }) => {
+    if (body.action === 'approve' && approveError) throw approveError;
+    return REQUEST;
+  });
+  const get = vi.fn(async () => ({ activeCompanyId: 'co-1' }));
+  const dispose = vi.fn(async () => undefined);
+  return { post, get, dispose } as unknown as Api & { post: typeof post; get: typeof get; dispose: typeof dispose };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
+
+describe('readApprover', () => {
+  it('is null when neither is set, empty counts as unset', () => {
+    expect(readApprover({})).toBeNull();
+    expect(readApprover({ E2E_APPROVER_EMAIL: '', E2E_APPROVER_PASSWORD: '' })).toBeNull();
+  });
+  it('returns both when both are set', () => {
+    expect(readApprover({ E2E_APPROVER_EMAIL: 'a@x', E2E_APPROVER_PASSWORD: 'p' })).toEqual({ email: 'a@x', password: 'p' });
+  });
+  it('fails loudly when exactly one is set', () => {
+    expect(() => readApprover({ E2E_APPROVER_EMAIL: 'a@x' })).toThrow(/E2E_APPROVER_PASSWORD/);
+    expect(() => readApprover({ E2E_APPROVER_PASSWORD: 'p' })).toThrow(/E2E_APPROVER_EMAIL/);
+  });
+});
+
+describe('clearPayRunApproval', () => {
+  it('self-approves with the suite user when no approver is configured', async () => {
+    const api = fakeApi();
+    const login = vi.spyOn(Api, 'loginAs');
+    await clearPayRunApproval(api, 'http://x', 'run-1');
+    expect(api.post.mock.calls.map((c) => c[1])).toEqual([
+      { action: 'request', documentType: 'pay_run', documentId: 'run-1' }, DECISION,
+    ]);
+    expect(login).not.toHaveBeenCalled();
+  });
+
+  it('names E2E_APPROVER_* in /home/hein/isaflow-deploy.env when self-approval is forbidden', async () => {
+    const forbidden = new ApiError(403, FORBIDDEN_BODY, 'POST', URL);
+    await expect(clearPayRunApproval(fakeApi(forbidden), 'http://x', 'run-1')).rejects.toThrow(/SELF_APPROVAL_FORBIDDEN.*E2E_APPROVER_EMAIL.*isaflow-deploy\.env/s);
+  });
+
+  it('reportSelfRefusal: no approver and self-approval forbidden reports it instead of throwing', async () => {
+    const forbidden = new ApiError(403, FORBIDDEN_BODY, 'POST', URL);
+    await expect(clearPayRunApproval(fakeApi(forbidden), 'http://x', 'run-1', { reportSelfRefusal: true })).resolves.toBe('self-approval-refused');
+  });
+
+  it('reportSelfRefusal: a successful self-approval is cleared, other failures still throw', async () => {
+    await expect(clearPayRunApproval(fakeApi(), 'http://x', 'run-1', { reportSelfRefusal: true })).resolves.toBe('cleared');
+    const other = new ApiError(409, { error: { code: 'STALE_DIGEST' } }, 'POST', URL);
+    await expect(clearPayRunApproval(fakeApi(other), 'http://x', 'run-1', { reportSelfRefusal: true })).rejects.toBe(other);
+  });
+
+  it('reportSelfRefusal: the reason alone on a non-403 is not a self-approval refusal', async () => {
+    const notForbidden = new ApiError(409, FORBIDDEN_BODY, 'POST', URL);
+    await expect(clearPayRunApproval(fakeApi(notForbidden), 'http://x', 'run-1', { reportSelfRefusal: true })).rejects.toBe(notForbidden);
+  });
+
+  it('reportSelfRefusal: a configured approver who is refused still throws', async () => {
+    vi.stubEnv('E2E_APPROVER_EMAIL', 'second@x');
+    vi.stubEnv('E2E_APPROVER_PASSWORD', 'pw');
+    vi.stubEnv('E2E_ADMIN_EMAIL', 'admin@x');
+    const second = fakeApi(new ApiError(403, FORBIDDEN_BODY, 'POST', URL));
+    vi.spyOn(Api, 'loginAs').mockResolvedValue(second);
+    await expect(clearPayRunApproval(fakeApi(), 'http://x', 'run-1', { reportSelfRefusal: true })).rejects.toThrow(/SELF_APPROVAL_FORBIDDEN/);
+  });
+
+  it('does not rewrite other approve failures', async () => {
+    const other = new ApiError(409, { error: { code: 'STALE_DIGEST' } }, 'POST', URL);
+    await expect(clearPayRunApproval(fakeApi(other), 'http://x', 'run-1')).rejects.toBe(other);
+  });
+
+  it('with an approver: requests as the suite user, approves as the approver in the same company, disposes', async () => {
+    vi.stubEnv('E2E_APPROVER_EMAIL', 'second@x');
+    vi.stubEnv('E2E_APPROVER_PASSWORD', 'pw');
+    const api = fakeApi();
+    const second = fakeApi();
+    const login = vi.spyOn(Api, 'loginAs').mockResolvedValue(second);
+    await expect(clearPayRunApproval(api, 'http://x', 'run-1')).resolves.toBe('cleared');
+    expect(login).toHaveBeenCalledWith('http://x', { email: 'second@x', password: 'pw', companyId: 'co-1' });
+    expect(api.post.mock.calls.map((c) => (c[1] as { action: string }).action)).toEqual(['request']);
+    expect(second.post).toHaveBeenCalledWith(URL, DECISION);
+    expect(second.dispose).toHaveBeenCalled();
+  });
+
+  it('half-set approver fails before raising any request', async () => {
+    vi.stubEnv('E2E_APPROVER_EMAIL', 'second@x');
+    vi.stubEnv('E2E_APPROVER_PASSWORD', '');
+    const api = fakeApi();
+    await expect(clearPayRunApproval(api, 'http://x', 'run-1')).rejects.toThrow(/together/);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('selfApprove: a refusal names the company, not E2E_APPROVER_* (which it ignores)', async () => {
+    const forbidden = new ApiError(403, FORBIDDEN_BODY, 'POST', URL);
+    const run = clearPayRunApproval(fakeApi(forbidden), 'http://x', 'run-1', { selfApprove: true });
+    await expect(run).rejects.toThrow(/SELF_APPROVAL_FORBIDDEN.*always self-approves/s);
+    await expect(clearPayRunApproval(fakeApi(forbidden), 'http://x', 'run-1', { selfApprove: true })).rejects.not.toThrow(/isaflow-deploy\.env/);
+  });
+
+  it('ignores a configured approver when selfApprove is set (z6 sandbox company)', async () => {
+    vi.stubEnv('E2E_APPROVER_EMAIL', 'second@x');
+    vi.stubEnv('E2E_APPROVER_PASSWORD', 'pw');
+    const api = fakeApi();
+    const login = vi.spyOn(Api, 'loginAs');
+    await clearPayRunApproval(api, 'http://x', 'run-1', { selfApprove: true });
+    expect(login).not.toHaveBeenCalled();
+    expect(api.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses an approver who is the E2E_ADMIN user, before any request', async () => {
+    vi.stubEnv('E2E_APPROVER_EMAIL', 'Admin@x');
+    vi.stubEnv('E2E_APPROVER_PASSWORD', 'pw');
+    vi.stubEnv('E2E_ADMIN_EMAIL', 'admin@x');
+    const api = fakeApi();
+    await expect(clearPayRunApproval(api, 'http://x', 'run-1')).rejects.toThrow(/E2E_ADMIN user/);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('gives the same hint when the approver is refused too, and still disposes', async () => {
+    vi.stubEnv('E2E_APPROVER_EMAIL', 'second@x');
+    vi.stubEnv('E2E_APPROVER_PASSWORD', 'pw');
+    vi.stubEnv('E2E_ADMIN_EMAIL', 'admin@x');
+    const second = fakeApi(new ApiError(403, FORBIDDEN_BODY, 'POST', URL));
+    vi.spyOn(Api, 'loginAs').mockResolvedValue(second);
+    await expect(clearPayRunApproval(fakeApi(), 'http://x', 'run-1')).rejects.toThrow(/SELF_APPROVAL_FORBIDDEN.*isaflow-deploy\.env/s);
+    expect(second.dispose).toHaveBeenCalled();
+  });
+});

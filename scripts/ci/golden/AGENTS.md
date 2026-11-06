@@ -43,6 +43,13 @@ Playwright command sees the slot's login (`GOLDEN_COMPANY_ID`, `GOLDEN_USER_EMAI
 `GOLDEN_USER_PASSWORD`, read by `tests/e2e/golden-paths/helpers/goldenSlot.ts`); the
 suite switches into the slot through `/api/auth/switch-company`. With none set (prod
 post-deploy verify, local runs) it is the old E2E_ADMIN_* / default-company path.
+Pay-run approval (R-035): a CI slot has one member, so `h-payroll-run` and `z6` approve their own request through the
+sole-approver exception. Prod Demo has several approvers, so post-deploy verify needs a second user: optional
+`E2E_APPROVER_EMAIL`/`E2E_APPROVER_PASSWORD` (owner/admin of the Demo company, not the E2E_ADMIN user, and without MFA: login withholds the session for an MFA user) in `/home/hein/isaflow-deploy.env`,
+read by `scripts/verify-deploy.sh`. Set, `helpers/payRunApproval.ts` logs that user in separately (company switched to
+the suite's active one) and approves with it; one of the two alone fails `h-payroll-run`. Unset, self-approval is used (CI slots); where it is
+refused (prod Demo), `h-payroll-run` proves the two-person gate instead (annotated `two-person-gate`, not a failure). `z6` always
+self-approves, set or not (its sandbox company is not the approver's); a refusal there fails and says the approver vars cannot help.
 
 **Rules:**
 - The company id for a slot comes from `GOLDEN_SLOT_n_COMPANY_ID` and must be one of that slot's own ids

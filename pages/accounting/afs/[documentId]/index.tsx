@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import type { NextPage, GetServerSideProps } from 'next';
 import Head from 'next/head';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -25,6 +26,12 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   const [loadError, setLoadError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState('');
+  // An AFS document and a management pack share /accounting/afs/<id>. The loaded document says which it is; until it
+  // loads (and on the error pages) a pack's own URL (?type=management_pack) does, so a pack never flashes "AFS".
+  const router = useRouter();
+  const packNavPath = `/accounting/afs/${documentId}?type=management_pack`;
+  const packFromUrl = router?.query?.type === 'management_pack';
+  const loadingNavPath = packFromUrl ? packNavPath : undefined;
 
   const loadDoc = useCallback(async () => {
     setActionError(''); setLoadError('');
@@ -78,7 +85,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
 
   if (periodError) {
     return (
-      <AppLayout>
+      <AppLayout navPath={loadingNavPath}>
         <div role="alert" className="max-w-xl mx-auto mt-16 p-4 rounded-lg bg-red-900/20 border border-red-800 text-sm text-red-400">
           {periodError} <Link href="/accounting/afs" className="underline">Back to AFS</Link>
         </div>
@@ -89,7 +96,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   // Nothing document-type-specific renders (no tabs, no tab fetches, no actions) until the document is known.
   if (!doc) {
     return (
-      <AppLayout>
+      <AppLayout navPath={loadingNavPath}>
         <Head><title>Document | ISAFlow</title></Head>
         {loadError ? (
           <div role="alert" className="max-w-xl mx-auto mt-16 p-4 rounded-lg bg-red-900/20 border border-red-800 text-sm text-red-400">
@@ -108,7 +115,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   if (doc.documentType === 'management_pack') {
     return (
       // The URL is the same as an AFS document's; this is what lights "Management Packs", not "Annual Financial Statements".
-      <AppLayout navPath={`/accounting/afs/${documentId}?type=management_pack`}>
+      <AppLayout navPath={packNavPath}>
         <Head><title>{`${managementPackTitle(doc.period)} | ISAFlow`}</title></Head>
         <ManagementPackView doc={doc} periodStart={periodStart} periodEnd={periodEnd} />
       </AppLayout>
@@ -117,7 +124,8 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
 
   const hasPeriod = periodStart !== '' && periodEnd !== '';
   return (
-    <AppLayout>
+    // Explicit, not the router's: an AFS document opened at ?type=management_pack must still light AFS, not Management Packs.
+    <AppLayout navPath={`/accounting/afs/${documentId}`}>
       <Head><title>{`AFS ${doc.fiscalYear ?? periodStart.slice(0, 4)} | ISAFlow`}</title></Head>
       <div className="min-h-screen bg-white dark:bg-slate-900">
 

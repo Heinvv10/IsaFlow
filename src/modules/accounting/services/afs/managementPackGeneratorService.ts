@@ -1,5 +1,5 @@
 // src/modules/accounting/services/afs/managementPackGeneratorService.ts
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { rawSubtypesFor } from '../gl/accountSubtypes';
@@ -18,7 +18,8 @@ import { deliverPack } from './packDeliveryService';
 import {
   comparisonPlan, isBudgetSection, loadPackBudget, narrativePrior, samePeriodLastYear,
 } from './managementPackComparison';
-import { MissingSystemAccountError } from '../gl/systemAccountKeys';
+import { readAgeing, readReconciliations, readSafely, unproducedSections } from './managementPackReads';
+import { getCashFlowDirect } from './cashFlowDirectService';
 import { loadPackVarianceNoteBlocks } from './managementPackVarianceNotes';
 import type { ManagementPackConfig } from './afsTypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
@@ -149,31 +150,35 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   // The income statement also feeds the AI summary and the figures stored beside it, so they cannot disagree with the table.
   const wantsIncome = enabledSections.includes('income_statement') || enabledSections.includes('ai_executive_summary');
   const wantsBalance = enabledSections.includes('balance_sheet');
-  // The statements are the Reports screens' own: the same services, over the same windows. Only a refusal (no system
-  // account) leaves its section saying so and the pack generates. Any other fault (database, RLS, a bug) aborts the
-  // pack, so a review-free pack is never signed off and delivered incomplete; they are read before the document is
-  // created, so an aborted run leaves nothing that blocks the month's re-run. The savepoint keeps a refused query from
-  // aborting the request's transaction, so its reads run one after another: none can land after the ROLLBACK TO.
-  const periodic = async <R>(name: string, read: (w: { start: string; end: string }) => Promise<R>): Promise<Periodic<R> | null> => {
-    try {
-      return await withSavepoint(`mgmt_pack_${name}`, async () => {
-        const current = await read({ start, end });
-        const priorR = plan.priorMonth ? await read({ start: priorStart, end: priorEnd }) : null;
-        const yearAgo = plan.priorYear ? await read({ start: yearAgoStart, end: yearAgoEnd }) : null;
-        return { current, prior: priorR, yearAgo };
-      });
-    } catch (err) {
-      const fields = { companyId, period, statement: name, errorClass: err instanceof Error ? err.name : typeof err, error: err instanceof Error ? err.message : String(err) };
-      if (!(err instanceof MissingSystemAccountError)) {
-        log.error('management pack: a statement read failed; the pack is not generated', fields, 'managementPackGeneratorService');
-        throw err;
-      }
-      log.warn('management pack: a statement could not be read (no system account); its section says so', fields, 'managementPackGeneratorService');
-      return null;
-    }
-  };
+  // The sections are the Reports' own figures: the same services, over the same windows (managementPackReads.readSafely).
+  // Only a refusal (no system account) leaves its section saying so; any other fault aborts the pack. All reads come before the
+  // document is created, so an aborted run leaves nothing that blocks the month's re-run.
+  const ctx = { companyId, period };
+  const periodic = <R>(name: string, read: (w: { start: string; end: string }) => Promise<R>): Promise<Periodic<R> | null> =>
+    readSafely(ctx, name, async () => {
+      const current = await read({ start, end });
+      const priorR = plan.priorMonth ? await read({ start: priorStart, end: priorEnd }) : null;
+      const yearAgo = plan.priorYear ? await read({ start: yearAgoStart, end: yearAgoEnd }) : null;
+      return { current, prior: priorR, yearAgo };
+    });
   const incomeReports = wantsIncome ? await periodic('income', (w) => getIncomeStatement(companyId, w.start, w.end)) : null;
   const balanceReports = wantsBalance ? await periodic('balance', (w) => getBalanceSheet(companyId, w.end)) : null;
+  const cashFlowReports = enabledSections.includes('cash_flow') ? await periodic('cash_flow', (w) => getCashFlowDirect(companyId, w.start, w.end)) : null;
+  const debtorsAging = enabledSections.includes('debtors_ageing') ? await readAgeing(ctx, 'ar', end) : null;
+  const creditorsAging = enabledSections.includes('creditors_ageing') ? await readAgeing(ctx, 'ap', end) : null;
+  const reconciliations = enabledSections.includes('bank_reconciliation') ? await readReconciliations(ctx, end) : null;
+
+  // A section whose report was refused says so; a pack with such a section (or a budget-engine fault) is not signed off and sent on its own.
+  const unproduced = unproducedSections([
+    { name: 'income statement', wanted: wantsIncome, report: incomeReports },
+    { name: 'balance sheet', wanted: wantsBalance, report: balanceReports },
+    { name: 'cash flow', wanted: enabledSections.includes('cash_flow'), report: cashFlowReports },
+    { name: 'debtors ageing', wanted: enabledSections.includes('debtors_ageing'), report: debtorsAging },
+    { name: 'creditors ageing', wanted: enabledSections.includes('creditors_ageing'), report: creditorsAging },
+    { name: 'bank reconciliation', wanted: enabledSections.includes('bank_reconciliation'), report: reconciliations },
+    // The budget engine refusing a month (no budget, out of window) is an expected sentence; failing is not.
+    { name: 'budget', wanted: budget?.kind === 'unavailable' && budget.fault, report: null },
+  ]);
 
   const doc = await createAfsDocument({
     companyId, period, documentType: 'management_pack', reportingFramework: 'ifrs_smes',
@@ -202,7 +207,9 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const priorYearIncome = incomeReports?.yearAgo ? incomeAggregate(incomeReports.yearAgo) : null;
 
   const packData: PackData = {
-    kpis: kpiScorecard.kpis, income, priorIncome, priorYearIncome, incomeReports, balanceReports, plan, budget, varianceNotes, enabledSections,
+    kpis: kpiScorecard.kpis, income, priorIncome, priorYearIncome, incomeReports, balanceReports,
+    cashFlowReports, debtorsAging, creditorsAging, reconciliations, periodEnd: end,
+    plan, budget, varianceNotes, enabledSections,
   };
   const narrative = narrativePrior(packData, plan);
 
@@ -267,7 +274,12 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     });
   }
 
-  const finalStatus: 'draft' | 'signed_off' = config.reviewRequired ? 'draft' : 'signed_off';
+  const heldForReview = config.reviewRequired || unproduced.length > 0;
+  if (unproduced.length > 0 && !config.reviewRequired) {
+    log.warn('management pack: held for review, not signed off or delivered: a section could not be produced',
+      { companyId, period, documentId: doc.id, sections: unproduced }, 'managementPackGeneratorService');
+  }
+  const finalStatus: 'draft' | 'signed_off' = heldForReview ? 'draft' : 'signed_off';
 
   await sql`
     UPDATE afs_documents SET status = ${finalStatus}, updated_at = NOW()
@@ -275,7 +287,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   `;
 
   let deliveryScheduled = false;
-  if (!config.reviewRequired) {
+  if (!heldForReview) {
     await deliverPack(doc.id, companyId);
     deliveryScheduled = true;
   }

@@ -8,6 +8,8 @@
  */
 import type { SystemAccountKey } from './systemAccountKeys';
 import { roleTargetRefusal } from './roleTargetRules';
+import { PAYROLL_NET_PAY_KEY } from './netPaySetting';
+import { netPayCandidates } from './netPayTargetRules';
 
 /** UI setting key → the role (system account subtype) it manages. */
 export const DEFAULT_ACCOUNT_ROLES: Readonly<Record<string, SystemAccountKey>> = {
@@ -27,6 +29,15 @@ export function defaultAccountRole(uiKey: string): SystemAccountKey | undefined 
   return Object.hasOwn(DEFAULT_ACCOUNT_ROLES, uiKey) ? DEFAULT_ACCOUNT_ROLES[uiKey] : undefined;
 }
 
+/**
+ * The rows that decide where payroll net pay is credited: `payroll_net_pay` itself, and the row that manages the BANK role
+ * (`primary_bank`), because with `payroll_net_pay` unset net pay goes to the bank-role holder. Only an owner or admin may
+ * change them (canSetPayrollNetPay): a manager who can approve payroll must not also be able to redirect it.
+ */
+export function isNetPayControlKey(uiKey: string): boolean {
+  return uiKey === PAYROLL_NET_PAY_KEY || defaultAccountRole(uiKey) === 'bank';
+}
+
 /** The fields of a chart-of-accounts row the rule reads. */
 export interface CandidateAccount {
   id: string;
@@ -42,9 +53,10 @@ export interface CandidateAccount {
  * (inactive rows included: a child that is inactive still makes its parent a
  * header), plus `current` — the holder the page shows, kept even when it would
  * not pass today so the select still names it. A row that manages no role
- * offers every active account.
+ * offers every active account; payroll net pay offers what its own rule accepts.
  */
 export function roleCandidates<T extends CandidateAccount>(uiKey: string, accounts: readonly T[], current?: string): T[] {
+  if (uiKey === PAYROLL_NET_PAY_KEY) return netPayCandidates(accounts, current);
   const role = defaultAccountRole(uiKey);
   if (!role) return accounts.filter((a) => a.isActive === true || a.id === current);
   const parents = new Set(accounts.map((a) => a.parentAccountId).filter(Boolean));

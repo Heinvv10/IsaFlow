@@ -14,7 +14,8 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/lib/rateLimit', () => ({ checkAiRateLimit: vi.fn(async () => true) }));
 vi.mock('@/lib/neon', () => ({ sql: m.sql }));
 vi.mock('@/lib/apiResponse', () => ({ apiResponse: m.apiResponse }));
-vi.mock('@/modules/accounting/services/afs/noteAiService', () => ({ generateNoteNarrative: vi.fn() }));
+const gen = vi.hoisted(() => ({ narrative: vi.fn() }));
+vi.mock('@/modules/accounting/services/afs/noteAiService', () => ({ generateNoteNarrative: gen.narrative }));
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — pages/ is outside src/
 import handler from '../../../../pages/api/accounting/afs/[documentId]/sections/[sectionId]/ai-narrative';
@@ -40,5 +41,17 @@ describe('accepting an AI narrative', () => {
     expect(m.apiResponse.badRequest).not.toHaveBeenCalled();
     expect(m.apiResponse.success).toHaveBeenCalledWith(expect.anything(), { accepted: true });
     expect(m.sql).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('regenerating an AI narrative', () => {
+  it('writes the new narrative and clears the accepted flag, so the new text prints (its words are not in the blocks)', async () => {
+    gen.narrative.mockResolvedValue('A fresh narrative.');
+    m.sql.mockResolvedValueOnce([{ section_type: 'cash_flow', content: { title: 'Cash Flow', blocks: [] }, company_name: 'Co', framework: 'ifrs_smes', fiscal_year: 2026, ai_prompt_template: 'tpl' }]).mockResolvedValue([]);
+    const req = { method: 'POST', query: { documentId: '33333333-3333-4333-8333-333333333333', sectionId: '44444444-4444-4444-8444-444444444444' }, companyId: 'c' } as unknown as NextApiRequest;
+    await (handler as unknown as (a: NextApiRequest, b: NextApiResponse) => Promise<void>)(req, {} as NextApiResponse);
+    const update = (m.sql.mock.calls as [TemplateStringsArray, ...unknown[]][]).map((c) => c[0].join('?')).find((t) => t.includes('UPDATE afs_sections'));
+    expect(update).toMatch(/SET ai_narrative = \?[\s\S]*ai_narrative_accepted = false/);
+    expect(m.apiResponse.success).toHaveBeenCalledWith(expect.anything(), { narrative: 'A fresh narrative.' });
   });
 });

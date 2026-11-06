@@ -18,7 +18,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
   const template = (req.body?.template ?? 'isaflow_standard') as CoaTemplate;
 
   if (!VALID_TEMPLATES.includes(template)) {
@@ -27,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // `inserted`: accounts the template added. Codes the company already has are left exactly as they are
   // (name, parent, level), so a re-run over an existing chart adds what is missing and changes nothing else.
-  const inserted = await seedChartOfAccountsFromTemplate(companyId, template);
+  const inserted = await seedChartOfAccountsFromTemplate(companyId, template, user.id);
   return apiResponse.success(res, { seeded: true, template, inserted });
 }
 

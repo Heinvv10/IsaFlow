@@ -49,6 +49,18 @@ if [ "$rc" -ne 0 ]; then echo "DEPLOY-FAILED rc=$rc"; exit 1; fi`, env);
     });
   }, 30_000);
 
+  it('an idle colour that is slow to exit is waited for: its port is free when the stop returns (systemd waits; a fixed sleep guessed)', async () => {
+    const [A, B, front] = [await b.colour(), await b.slowColour(1500), await b.front()];
+    Object.assign(b.env, { BG_PORTS: `${A} ${B}`, BG_FRONT_URL: `http://127.0.0.1:${front}`, BG_PUBLIC_HEALTH: `http://127.0.0.1:${front}/api/health` });
+    b.upstream(A);
+    b.release(A, 'live-sha');
+    b.release(B, 'old-sha');
+    writeFileSync(b.env.BG_UNIT_FILE, '# unit before');
+    const out = deploy(b.build('N1', ['chunks/n.js']));
+    expect(out).not.toMatch(/still listens|DEPLOY-FAILED/);
+    expect(b.live()).toBe(`[${B}]`);
+  }, 60_000);
+
   it('a failed verification retires the idle colour, puts the unit back, and users never move', async () => {
     const { A, B } = await world();
     expect(() => deploy(b.build('N1', ['chunks/n.js']), 'return 1')).toThrow(/VERIFICATION FAILED — users stay on isaflow@[\s\S]*DEPLOY-FAILED/);

@@ -36,8 +36,15 @@ export interface LabourSourceBucket {
 
 const cents = (n: number): number => Math.round(n * 100);
 
-/** The description of the plan's net-pay credit (payrollJournalBank#bankNetPayLine): how the comparison finds it. */
+/** The description of the plan's net-pay credit (payrollJournalBank#netPayLine): how the comparison finds it. */
 export const NET_PAY_DESCRIPTION = 'Net pay — bank disbursement';
+/**
+ * The description of the plan's net-pay credit when the company's `payroll_net_pay` setting sends it to a clearing
+ * liability (payrollJournalBank#netPayLine). It MUST differ from NET_PAY_DESCRIPTION: `foldNetPayBank` finds the bank
+ * credit by that text, so a clearing line sharing it would fold with a posted BANK credit into one key, re-lock, and
+ * leave net pay counted twice once the salary bank lines are allocated to the clearing account.
+ */
+export const NET_PAY_CLEARING_DESCRIPTION = 'Net pay — net salaries payable';
 /** Stands for "whichever account holds the bank role" on both sides of the comparison. */
 const BANK_ROLE = 'bank-role';
 
@@ -76,6 +83,30 @@ export function foldNetPayBank<P extends FigureLine & { description: string }>(
     plan: plan.map((l) => (l.description === NET_PAY_DESCRIPTION ? { ...l, glAccountId: BANK_ROLE } : l)),
     posted: posted.map((l) => (l === netPay[0] ? { ...l, glAccountId: BANK_ROLE } : l)),
   };
+}
+
+/**
+ * Did net pay's TARGET change since the journal posted: one side credits the bank, the other the clearing account, or
+ * both credit a clearing account but not the same one (never when the plan's clearing account has no id). A bank role that merely moved is NOT a change (both sides are
+ * "the bank"). Checked before `sameFigures`, which would otherwise fold a bank journal and a clearing plan apart only
+ * by accident of their descriptions and report the wrong cause (or none).
+ */
+export function netPayTargetChanged(
+  plan: Array<FigureLine & { description: string }>,
+  posted: PostedFigureLine[],
+): boolean {
+  const credit = <T extends FigureLine & { description: string | null }>(lines: T[], description: string): T[] =>
+    lines.filter((l) => l.description === description && cents(l.debit) === 0 && cents(l.credit) > 0);
+  const bankPlan = credit(plan, NET_PAY_DESCRIPTION);
+  const clearPlan = credit(plan, NET_PAY_CLEARING_DESCRIPTION);
+  const bankPosted = credit(posted, NET_PAY_DESCRIPTION);
+  const clearPosted = credit(posted, NET_PAY_CLEARING_DESCRIPTION);
+  // A clearing plan whose account does not resolve (it failed the rules: its line has no account id) names no target
+  // to have changed TO: the plan's own net-pay blocker is the answer (payrollNetPayTargetChange#unresolvedNetPayBlocker).
+  if (clearPlan.some((l) => l.glAccountId === null)) return false;
+  if ((bankPlan.length > 0 && clearPosted.length > 0) || (clearPlan.length > 0 && bankPosted.length > 0)) return true;
+  return clearPlan.length > 0 && clearPosted.length > 0
+    && !clearPlan.every((p) => clearPosted.some((q) => q.glAccountId === p.glAccountId));
 }
 
 export function figures(lines: FigureLine[], perAccount: boolean): Map<string, number> {

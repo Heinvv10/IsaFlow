@@ -152,6 +152,8 @@ export interface BankTransaction {
   transferJournalEntryId?: string;
   /** The asset / fleet record this line is annotated with (mig 853) — never a posting. */
   link?: BankTxLink;
+  /** Files in bank_transaction_attachments (TX_SELECT only); > 0 highlights the row's paperclip. */
+  attachmentCount?: number;
 }
 
 export type BankTxLinkKind = 'asset' | 'fuel' | 'service';

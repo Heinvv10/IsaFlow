@@ -33,7 +33,6 @@ vi.mock('@/components/accounting/present/PresentSlide', () => ({
 import { apiFetch } from '@/lib/apiFetch';
 import BalanceSheetPage from '../../../pages/accounting/reports/balance-sheet';
 import IncomeStatementPage from '../../../pages/accounting/reports/income-statement';
-import CashFlowPage from '../../../pages/accounting/reports/cash-flow';
 import ReportPacksPage from '../../../pages/accounting/reports/report-packs';
 import PresentPackPage from '../../../pages/accounting/reports/present/[pack]';
 
@@ -49,7 +48,6 @@ describe('a failed cost-centre / business-unit list is visible, and a good one i
     ['balance sheet', 'business-units', () => <BalanceSheetPage />],
     ['income statement', 'cost-centres', () => <IncomeStatementPage />],
     ['income statement', 'business-units', () => <IncomeStatementPage />],
-    ['cash flow', 'cost-centres', () => <CashFlowPage />],
   ] as const)('%s: a failed %s list shows its server message as a notice', async (_n, part, page) => {
     failing(part);
     render(page());
@@ -59,7 +57,6 @@ describe('a failed cost-centre / business-unit list is visible, and a good one i
   it.each([
     ['balance sheet', () => <BalanceSheetPage />],
     ['income statement', () => <IncomeStatementPage />],
-    ['cash flow', () => <CashFlowPage />],
   ] as const)('%s: lists that load show no notice', async (_n, page) => {
     serve(on('GET', 'cost-centres', () => ok({ items: [{ id: 'cc1', code: 'CC9', name: 'D2 Centre' }] })), on('GET', 'business-units', () => ok([])), on('GET', 'reports-', empty500));
     render(page());

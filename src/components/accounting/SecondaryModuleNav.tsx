@@ -29,7 +29,7 @@ export function SecondaryModuleNav({ moduleId, navPath }: { moduleId: string; na
         <span className="py-2">{moduleTab.label}</span>
         {/* flex-1 + w-full: the nav carries its own bottom border, which otherwise stops where its tabs do */}
         <div className="flex-1 min-w-0 [&>nav]:w-full">
-          <ModuleNav tabs={tabs} getActiveTabId={() => activeId} accentColor="slate" />
+          <ModuleNav tabs={tabs} getActiveTabId={() => activeId} accentColor="slate" navPath={navPath} />
         </div>
       </div>
     </div>
