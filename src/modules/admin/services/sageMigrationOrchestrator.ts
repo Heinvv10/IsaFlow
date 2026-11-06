@@ -13,6 +13,9 @@ import { commitARInvoice, commitAPInvoice, upsertCustomer, upsertSupplier } from
 import type { Row, CommitPayload, CommitSummary } from './sageMigrationTypes';
 import { sageAccountSubtype } from './sageAccountSubtype';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
+import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl/systemRoleInvariant';
+import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 
 export async function commitSageMigration(payload: CommitPayload): Promise<CommitSummary> {
@@ -40,7 +43,14 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
       }, 'sage-migration');
     });
 
-  // Chart of Accounts
+  // Chart of Accounts. The records may flag system accounts (role holders), so the writes run under the role-write lock
+  // every other role writer takes, and end on the post-condition: every role held before still has exactly one usable
+  // holder (a second flagged row would leave the resolver choosing by heap order). Today the rows it writes carry only
+  // revenue / expense subtypes (sageAccountSubtype), so none can hold a role and nothing here fills the bank role; the lock
+  // and the post-condition keep that true if the subtype mapping ever widens.
+  const accountRecords = pulled.accounts?.records ?? [];
+  if (accountRecords.length > 0) await lockSystemRoleWrites(companyId);
+  const rolesBefore = accountRecords.length > 0 ? await snapshotRoles(companyId) : null;
   let ai = 0;
   for (const a of pulled.accounts?.records ?? []) {
     await sp(`acc_${ai++}`, async () => {
@@ -56,6 +66,11 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
         throw err;
       }
     });
+  }
+
+  if (rolesBefore) {
+    await assertRolesKept(companyId, rolesBefore);
+    clearSystemAccountCacheAfterCommit(companyId); // the resolver caches each holder
   }
 
   // Customers

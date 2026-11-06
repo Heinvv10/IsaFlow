@@ -153,10 +153,10 @@ describeIfDb('Due by date foots to the AR / AP aging', () => {
     expect(ar.contacts[0]!.invoices.find((i) => i.invoiceNumber.endsWith('-NODUE'))).toMatchObject({ dueDate: null, bucket: 'noDueDate' });
   });
 
-  it('AR: the four columns equal the aging total, in all and for the contact', async () => {
+  it('AR: the four columns plus the dispute held apart equal the aging total (disputes included), in all and for the contact', async () => {
     const ar = await getDueByDate(A, 'ar', BY);
     const aging = await getARAging(A);
-    expect(cents(columns(ar))).toBe(cents(agingTotal(aging)));
+    expect(cents(columns(ar)) + cents(ar.totals.disputed)).toBe(cents(agingTotal(aging)));
     expect(cents(ar.totals.total)).toBe(cents(agingTotal(aging)));
     const agedContact = aging.find((b) => b.entityId === customer)!;
     expect(cents(ar.contacts[0]!.total)).toBe(cents(agedContact.total));
@@ -183,7 +183,7 @@ describeIfDb('Due by date foots to the AR / AP aging', () => {
     const ar = await getDueByDate(A, 'ar', TODAY);
     expect(ar.totals.dueTodayToDate).toBe(250);
     expect(ar.totals.dueLater).toBe(777.77);
-    expect(cents(columns(ar))).toBe(cents(agingTotal(await getARAging(A))));
+    expect(cents(columns(ar)) + cents(ar.totals.disputed)).toBe(cents(agingTotal(await getARAging(A))));
   });
 
   it("never reads another tenant's documents", async () => {

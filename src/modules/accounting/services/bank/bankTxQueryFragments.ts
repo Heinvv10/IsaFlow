@@ -162,6 +162,10 @@ export const TX_SELECT = `
     COALESCE(ss.company_name, ss.name) AS suggested_supplier_name,
     sc.name AS suggested_client_name,
     pv.posted_vat_code, pv.posted_vat_amount,
+    -- The grid highlights the paperclip of a line with files. One idx_bta_tx probe per row. Tenant scope comes from bt:
+    -- the child has no company_id and is reached only through this row's own id.
+    (SELECT COUNT(*)::INT FROM bank_transaction_attachments bta
+      WHERE bta.bank_transaction_id = bt.id) AS attachment_count,
     bt.linked_asset_id, bt.linked_fleet_fuel_id, bt.linked_fleet_service_id,
     lnk_a.id AS link_asset_id, lnk_a.name AS link_asset_name,
     lnk_f.fill_date AS link_fill_date, lnk_f.amount AS link_fuel_amount,

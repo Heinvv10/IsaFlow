@@ -136,6 +136,24 @@ describe('cashFlowDirectService', () => {
     expect(result.closingCash).toBeCloseTo(result.openingCash + result.netChange, 2);
   });
 
+  it('gives totals in whole cents whatever order the journals arrive in', async () => {
+    const journal = (id: string, amount: number) => mv(id, amount, 'revenue', 'sales', 0, amount);
+    // 0.1 + 0.2 + 0.7 and 0.7 + 0.2 + 0.1 are different binary floats. The query has no ORDER BY.
+    for (const rows of [[journal('L1', 0.1), journal('L2', 0.2), journal('L3', 0.7)], [journal('L3', 0.7), journal('L2', 0.2), journal('L1', 0.1)]]) {
+      mockSql.mockResolvedValueOnce([{ ...OPENING_ROWS[0], gl_debit: 0.3, gl_credit: 0 }]).mockResolvedValueOnce(rows)
+        .mockResolvedValueOnce([{ ...OPENING_ROWS[0], gl_debit: 1.3, gl_credit: 0 }]);
+
+      const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+      expect(result.operatingTotal).toBe(1);
+      expect(result.netChange).toBe(1);
+      expect(result.closingCash).toBe(1.3);
+    }
+  });
+  // "net change and closing cash stay tied to the ledger when apportioned groups round apart" (the same-named test of c3259763b,
+  // which fed one 0.01 cash leg split 0.005/0.005) is the 'foots to the cent' test above, on a journal whose ledger amounts are
+  // real cents and which asserts the sections, the items and the closing cash, with a mutant that turns it red.
+
   it('returns zero cash when no cash movements exist', async () => {
     mockSql
       .mockResolvedValueOnce([

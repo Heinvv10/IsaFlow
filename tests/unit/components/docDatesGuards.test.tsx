@@ -8,6 +8,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+import { chooseTerms } from '../helpers/contactTerms';
 import { ok } from '../helpers/d2CensusG4';
 import { typeDate } from '../helpers/dateFields';
 
@@ -131,6 +132,7 @@ describe.each([['customers/new', <CustomerNew />, 'e\\.g\\. Acme Corporation'], 
     route.query = {};
     render(ui);
     fireEvent.change(await screen.findByPlaceholderText(new RegExp(nameLabel)), { target: { value: 'Acme' } });
+    chooseTerms();
     typeDate(box('Opening Balance as At'), 'zz');
     fireEvent.submit(document.querySelector('form')!);
     expect(writes()).toHaveLength(0);

@@ -11,11 +11,16 @@
  * Dev and CI localhost only. Against any other host (playwright-prod.config.ts runs tests/e2e at app.isaflow.co.za) a
  * reset is an outage signal, so the call runs once and fails as before. Every re-send is logged on stderr and added to
  * the test's annotations (test, error code, attempt), so a rising rate stays visible.
+ *
+ * `failOnManifestRace` adds one HTTP case: `next dev` answers 500 from its own error page when it reads a build manifest
+ * another compile is still writing (`SyntaxError: Unexpected end of JSON input` in load-manifest.external.js). The
+ * request never reached the handler, so it is the same as a dropped connection. Any other 500 goes to the caller.
  */
 
 import { test } from '@playwright/test';
 
-const DROPPED = /\b(ECONNRESET|ECONNREFUSED|EPIPE)\b|socket hang up/;
+const MANIFEST_RACE = 'next-dev-manifest-race';
+const DROPPED = new RegExp(`\\b(ECONNRESET|ECONNREFUSED|EPIPE)\\b|socket hang up|${MANIFEST_RACE}`);
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 export const DROPPED_CALL_BUDGET_MS = 30_000;
@@ -44,6 +49,16 @@ function mayResend(ctx: Running | null): boolean {
   } catch {
     return false;
   }
+}
+
+/** Throw a retryable error for the dev server's half-written-manifest 500 (see the header); return anything else untouched. */
+export async function failOnManifestRace<R extends { status(): number; text(): Promise<string> }>(res: R): Promise<R> {
+  if (res.status() !== 500) return res;
+  const body = await res.text();
+  if (body.includes('Unexpected end of JSON input') && body.includes('load-manifest')) {
+    throw new Error(`${MANIFEST_RACE}: next dev read a build manifest mid-write`);
+  }
+  return res;
 }
 
 /** `ctx` is the running test; the default reads it from Playwright, the parameter lets a unit test stand in for one. */

@@ -147,7 +147,7 @@ describe('BankTxAttachmentsModal', () => {
       const method = methodOf(init);
       return method === 'POST' || method === 'DELETE' ? onWrite(method) : list();
     });
-    const { container } = render(<BankTxAttachmentsModal bankTransactionId="tx-1" onClose={vi.fn()} />);
+    const { baseElement: container } = render(<BankTxAttachmentsModal bankTransactionId="tx-1" onClose={vi.fn()} />); // portal: in document.body
     await screen.findByText('slip.pdf');
     return container;
   };
@@ -225,7 +225,7 @@ describe('success paths (200 envelope { success:true, data })', () => {
   it('success: BankTxAttachmentsModal renders the data it received and upload completes', async () => {
     const att = { id: 'a1', bank_transaction_id: 'tx-1', file_url: 'https://x.invalid/f.pdf', file_name: 'distinctive-slip-9931.pdf', file_size: 10, uploaded_by: null, created_at: '2026-09-01T00:00:00Z' };
     vi.mocked(apiFetch).mockImplementation(async (_url, init) => okBody(methodOf(init) === 'POST' ? {} : [att]));
-    const { container } = render(<BankTxAttachmentsModal bankTransactionId="tx-1" onClose={vi.fn()} />);
+    const { baseElement: container } = render(<BankTxAttachmentsModal bankTransactionId="tx-1" onClose={vi.fn()} />); // portal: in document.body
     await screen.findByText('distinctive-slip-9931.pdf');
     fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] } });
     await waitFor(() => expect(notify.success).toHaveBeenCalledWith('photo.png uploaded'));

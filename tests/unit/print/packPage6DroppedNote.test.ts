@@ -4,6 +4,7 @@ import { BUDGET_COLUMNS_DROPPED_NOTE } from '@/modules/accounting/services/packs
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import { demoInput, demoSet } from '../services/packs/fixtures/boardPackInputs';
+import { page6Input } from '../services/packs/fixtures/page6Shapes';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/packBoardPackInput';
 
 /** Demo figures at demo scale, with cost of sales a net credit and an unexplained interest/tax step of 20% of operating profit. */
@@ -23,16 +24,23 @@ describe('regression: the dropped-columns footnote must not refuse a pack the ol
     const doc = buildBoardPackPages(creditCostOfSalesWithTax(true));
     expect(() => assertPackIntegrity(doc)).not.toThrow();
     const p6 = doc.pages.find((p) => p.navLabel === 'Income statement')!;
-    expect(p6.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'))).toBe(false);
+    // The derived caption goes first now, so at demo scale the page keeps its Budget and Variance columns
+    // (before, it had already thrown away their footnote and left the columns out).
+    expect(p6.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'))).toBe(true);
+    expect(p6.blocks.some((b) => b.kind === 'narrative')).toBe(false);
   });
 });
+
+/** Net-debit revenue and a net-credit operating expense with a 3% interest/tax step at demo scale: dropping the caption does not make room for the columns, so page 6 falls back to the old layout. */
+const CROWDED = { k: 1, negative: true, loss: false, plug: 0.03, sg: [1, -1, 1, 1] };
 
 describe('a crowded page 6 falls back to the old layout rather than refuse the pack', () => {
   it('drops the columns, prints no dropped-columns note, still builds, and logs the warning', () => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     try {
-      const doc = buildBoardPackPages(creditCostOfSalesWithTax(true));
+      const doc = buildBoardPackPages(page6Input(CROWDED));
       const p6 = doc.pages.find((p) => p.navLabel === 'Income statement')!;
+      expect(p6.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'))).toBe(false);
       expect(p6.footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE)).toBe(false);
       expect(warn.mock.calls.some((c) => String(c[0]).includes('cannot fit the Budget and Variance columns'))).toBe(true);
     } finally {

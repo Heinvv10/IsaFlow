@@ -151,6 +151,8 @@ export async function getCashFlowDirect(
       periodEnd,
       openingCash,
       operatingItems,
+      // Whole cents all through (items, totals, net change, closing cash): the sums are binary floats of rows that arrive in
+      // no fixed order, so unrounded they differ by run (808.31 or 808.3099999999998) and the management pack stores them.
       operatingTotal,
       investingItems,
       investingTotal,

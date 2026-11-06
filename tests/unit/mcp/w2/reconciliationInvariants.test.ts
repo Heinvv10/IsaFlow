@@ -194,7 +194,7 @@ describe('checkInvariants', () => {
     const out = checkInvariants({
       subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
       unexplained: 0,
-      items: [item(), item({ bridge: 'aged_to_subledger', type: 'disputed_amount', amount: 5000, citedGross: 1, citedAbsAmount: 5000 })],
+      items: [item(), item({ bridge: 'aged_to_subledger', type: 'unallocated_credit_note', amount: 5000, citedGross: 1, citedAbsAmount: 5000 })],
     });
     expect(out.every((i) => i.holds)).toBe(true);
   });

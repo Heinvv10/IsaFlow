@@ -27,10 +27,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const total60 = buckets.reduce((s, r) => s + r.days60, 0);
     const total90 = buckets.reduce((s, r) => s + r.days90, 0);
     const total120Plus = buckets.reduce((s, r) => s + r.days120Plus, 0);
+    const totalDisputed = buckets.reduce((s, r) => s + (r.disputed ?? 0), 0);
     const grandTotal = buckets.reduce((s, r) => s + r.total, 0);
 
     const csvLines = [
-      'Customer,Current,30 Days,60 Days,90 Days,120+ Days,Total',
+      'Customer,Current,30 Days,60 Days,90 Days,120+ Days,Disputed,Total',
       ...buckets.map(r =>
         [
           csvCell(r.entityName),
@@ -39,6 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           r.days60.toFixed(2),
           r.days90.toFixed(2),
           r.days120Plus.toFixed(2),
+          (r.disputed ?? 0).toFixed(2),
           r.total.toFixed(2),
         ].join(',')
       ),
@@ -49,6 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         total60.toFixed(2),
         total90.toFixed(2),
         total120Plus.toFixed(2),
+        totalDisputed.toFixed(2),
         grandTotal.toFixed(2),
       ].join(','),
     ];

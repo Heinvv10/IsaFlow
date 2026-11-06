@@ -12,6 +12,8 @@ import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, withRunRecovery } from './sageMigrationService';
 import { lockMigrationImport } from './migrationPostingSupport';
 import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
+import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault } from '../shared/paymentTerms';
+import { fmtDate } from '@/lib/fmtDate';
 import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 
 type RowOutcome = 'imported' | 'already_in_ar' | 'credit_note' | 'failed';
@@ -28,8 +30,8 @@ const IN_AR_STATUSES = new Set(['approved', 'sent', 'paid', 'partially_paid', 'o
  * of R-021, and mapped the same way:
  *   - customer: the ONE live customer of that name (case-insensitive, ends
  *     trimmed). None, or more than one, fails the row.
- *   - due date: invoice date plus the customer's payment_terms days; no terms,
- *     no due date.
+ *   - due date: what the customer's payment terms give the invoice date
+ *     (`shared/paymentTerms`); terms not set use the company default (migration 960).
  *   - VAT: none stated, so none recorded and the invoice flagged (R-089).
  *   - payment state: unpaid and 'approved'. Staging carries no payment.
  *   - a negative total is a Sage credit note. It is not booked and not
@@ -92,11 +94,12 @@ export async function importCustomerInvoices(companyId: string, userId: string):
 
           const customerName = String(inv.customer_name ?? '').trim();
           const customers = (await sql`
-            SELECT id, payment_terms
-            FROM customers
-            WHERE company_id = ${companyId}::UUID
-              AND deleted_at IS NULL
-              AND lower(btrim(name)) = lower(${customerName})
+            SELECT c.id, c.payment_terms, c.payment_terms_type, d.value AS company_default_terms
+            FROM customers c
+            LEFT JOIN accounting_settings d ON d.company_id = c.company_id AND d.key = ${COMPANY_DEFAULT_TERMS_KEY}
+            WHERE c.company_id = ${companyId}::UUID
+              AND c.deleted_at IS NULL
+              AND lower(btrim(c.name)) = lower(${customerName})
             LIMIT 2
           `) as DbRow[];
           if (customers.length !== 1) {
@@ -128,7 +131,10 @@ export async function importCustomerInvoices(companyId: string, userId: string):
           } else {
             const vat = deriveSageVat(null, null, totalAmount);
             rowVatNotStated = vat.vatNotStated;
-            const paymentTerms = customer.payment_terms == null ? null : Number(customer.payment_terms);
+            const dueDate = dueDateWithDefault(
+              fmtDate(inv.invoice_date), customer.payment_terms == null ? null : Number(customer.payment_terms),
+              customer.payment_terms_type, companyTermsFromSetting(customer.company_default_terms, companyId),
+            );
             // R-035 Q1: issued in Sage, so exempt from the approval backstop.
             const newInv = (await withApprovalGateExempt({ companyId, userId, open: true, documentType: 'customer_invoice' }, () => sql`
               INSERT INTO customer_invoices (
@@ -137,7 +143,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
                 external_ref, external_document_number, external_system, notes, created_by
               ) VALUES (
                 ${companyId}::UUID, ${invNumber}, ${customerId}::UUID,
-                ${inv.invoice_date}, ${inv.invoice_date}::DATE + ${paymentTerms}::INT,
+                ${inv.invoice_date}, ${dueDate}::DATE,
                 ${vat.subtotal.toFixed(2)}, ${vat.taxRate}, ${vat.taxAmount.toFixed(2)}, ${totalAmount},
                 0, 'approved',
                 ${sageId}, ${inv.invoice_number ?? null}, ${sageId ? 'sage' : null},

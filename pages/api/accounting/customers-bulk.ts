@@ -17,6 +17,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { escapeCsv } from '@/lib/csv';
+import { describePaymentTerms } from '@/modules/accounting/services/shared/paymentTerms';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 
 type BulkAction = 'activate' | 'deactivate' | 'export';
@@ -35,13 +36,14 @@ export interface CustomerRow {
   name: string;
   email: string | null;
   phone: string | null;
-  payment_terms: number;
+  payment_terms: number | null;
+  payment_terms_type?: string | null;
   credit_limit: number | null;
   is_active: boolean;
 }
 
 export function buildCsv(rows: CustomerRow[]): string {
-  const header = ['Name', 'Email', 'Phone', 'Payment Terms (days)', 'Credit Limit', 'Active'];
+  const header = ['Name', 'Email', 'Phone', 'Payment Terms', 'Credit Limit', 'Active'];
   const lines: string[] = [header.join(',')];
   for (const r of rows) {
     lines.push(
@@ -49,7 +51,7 @@ export function buildCsv(rows: CustomerRow[]): string {
         escapeCsv(r.name),
         escapeCsv(r.email),
         escapeCsv(r.phone),
-        escapeCsv(r.payment_terms),
+        escapeCsv(describePaymentTerms(r.payment_terms, r.payment_terms_type)),
         escapeCsv(r.credit_limit),
         escapeCsv(r.is_active ? 'Yes' : 'No'),
       ].join(','),
@@ -118,7 +120,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const rows = (await sql`
       SELECT
         id, name, email, phone,
-        payment_terms, credit_limit, is_active
+        payment_terms, payment_terms_type, credit_limit, is_active
       FROM customers
       WHERE id        = ANY(${ids}::uuid[])
         AND company_id = ${companyId}

@@ -14,7 +14,7 @@ import { disproportionatePlugSentence } from '@/modules/accounting/services/pack
 import { impossibleIncomeLinesSentence, incomeStatementTitle, largestMoverCaption } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { buildProfitWaterfallChart, profitBridgeAtHeight, shorterProfitBridge } from './packPageCharts';
 import { anchorRow } from './packStatementTables';
-import { bridgeSignFootnote, commentary, mustDisclose, note } from './packPageBlocks';
+import { bridgeSignFootnote, droppableCommentary, mustDisclose, note } from './packPageBlocks';
 import { page, type UnnumberedPage } from './packFrontMatter';
 import { pageBoxMm, pageMm } from './packPageMetrics';
 import { periodWindowFootnotes } from './packTrendCrossReference';
@@ -135,7 +135,7 @@ const incomeStatementSheet = (bridge: PackChartSpec): UnnumberedPage => {
   return page(incomeStatementTitle(set, scale), 'Income statement', 'Financials', 'high', [
     { kind: 'table', table: incomeTable },
     { kind: 'chart', chart: bridge },
-    commentary(largestMoverCaption(income.rows, scale)),
+    droppableCommentary(largestMoverCaption(income.rows, scale)),
     // The same treatment page 7 gives negative assets. Brightsphere heads
     // this page with revenue of (5 535) and said nothing about it, two
     // sheets before explaining a negative asset side at length.

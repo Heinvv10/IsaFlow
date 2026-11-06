@@ -27,8 +27,8 @@ import { sql } from '@/lib/neon';
 import {
   createCustomer,
   updateCustomer,
-  ContactValidationError,
 } from '@/modules/accounting/services/core/customerWriteService';
+import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 
@@ -105,8 +105,9 @@ describe('createCustomer — auto_allocate_strategy', () => {
 });
 
 describe('updateCustomer — auto_allocate_strategy', () => {
-  const STRATEGY_INDEX = 22;
-  const BOOLEAN_INDEX = 23;
+  // After each cleared-flag / value pair and the terms quartet the update binds (migration 960, edit page).
+  const STRATEGY_INDEX = 39;
+  const BOOLEAN_INDEX = 40;
 
   it('updates both columns in sync when a valid strategy is supplied', async () => {
     await updateCustomer(COMPANY_ID, CUSTOMER_ID, { autoAllocateStrategy: 'newest' });
