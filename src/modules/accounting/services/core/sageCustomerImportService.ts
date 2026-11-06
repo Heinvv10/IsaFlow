@@ -138,12 +138,12 @@ export async function importCustomerInvoices(companyId: string, userId: string):
             // R-035 Q1: issued in Sage, so exempt from the approval backstop.
             const newInv = (await withApprovalGateExempt({ companyId, userId, open: true, documentType: 'customer_invoice' }, () => sql`
               INSERT INTO customer_invoices (
-                company_id, invoice_number, customer_id, invoice_date, due_date,
+                company_id, invoice_number, customer_id, invoice_date, due_date, due_date_source,
                 subtotal, tax_rate, tax_amount, total_amount, amount_paid, status,
                 external_ref, external_document_number, external_system, notes, created_by
               ) VALUES (
                 ${companyId}::UUID, ${invNumber}, ${customerId}::UUID,
-                ${inv.invoice_date}, ${dueDate}::DATE,
+                ${inv.invoice_date}, ${dueDate}::DATE, 'terms',
                 ${vat.subtotal.toFixed(2)}, ${vat.taxRate}, ${vat.taxAmount.toFixed(2)}, ${totalAmount},
                 0, 'approved',
                 ${sageId}, ${inv.invoice_number ?? null}, ${sageId ? 'sage' : null},

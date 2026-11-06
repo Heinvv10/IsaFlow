@@ -2,12 +2,15 @@
 import type { NextApiHandler } from 'next';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { sql } from '@/lib/neon';
-import { parseCookies, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
+import { parseCookies, ACTIVE_COMPANY_COOKIE, REMEMBER_ME_COOKIE } from '@/lib/auth/cookies';
 import { listLiveCompanyMemberships } from '@/lib/auth/liveCompanies';
 
 const handler: NextApiHandler = async (req, res) => {
   const user = (req as UserAuthedRequest).user;
-  const activeCompanyId = parseCookies(req)[ACTIVE_COMPANY_COOKIE] ?? null;
+  const cookies = parseCookies(req);
+  const activeCompanyId = cookies[ACTIVE_COMPANY_COOKIE] ?? null;
+  // The cookie stays HttpOnly so script cannot upgrade a session. The heartbeat only reads this answer.
+  const rememberMe = cookies[REMEMBER_ME_COOKIE] === '1';
 
   const profile = await sql<{
     id: string; email: string; first_name: string | null; last_name: string | null;
@@ -40,8 +43,9 @@ const handler: NextApiHandler = async (req, res) => {
         ? {
             ...profileRow,
             onboarding_completed: profileRow.onboarding_completed ?? null,
+            rememberMe,
           }
-        : { id: user.id, email: user.email ?? '', onboarding_completed: null },
+        : { id: user.id, email: user.email ?? '', onboarding_completed: null, rememberMe },
       memberships,
       activeCompanyId,
     },

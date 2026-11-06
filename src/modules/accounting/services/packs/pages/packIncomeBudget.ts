@@ -21,15 +21,13 @@ import type { UnnumberedPage } from './packFrontMatter';
 import { buildIncomeStatementSheet } from './packIncomeSheet';
 import { unreadableBlock } from './packFigureFloor';
 import { fitRelaidPage } from './packNarrativeFit';
-import { warnCaptionDropped } from './packOmissionFootnote';
+import { BUDGET_COLUMNS_DROPPED_NOTE, warnCaptionDropped } from './packOmissionFootnote';
 import type { PackChartSpec, PackFootnote, PackTable } from './packPageModel';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
 import { budgetColumnFootnote } from './packStatementFootnotes';
 import { anchorColumn } from './packStatementTables';
 
-/** Printed on page 6 when the columns are left out: the pack says what it left off rather than only logging it. */
-export const BUDGET_COLUMNS_DROPPED_NOTE =
-  'The Budget and Variance columns are left out of this page because the figures are too wide to fit it.';
+export { BUDGET_COLUMNS_DROPPED_NOTE };
 
 const BUDGET_COLUMNS = new Set(['budget', 'variance']);
 
@@ -46,6 +44,12 @@ function withoutBudget(table: PackTable): PackTable {
   };
 }
 
+/**
+ * Page 6, composed as it always was; and, only where that page would be refused, once more with its two
+ * required disclosures under one heading. A page that fits today (trimming included) is returned as it
+ * was, byte for byte; a page refused either way is returned as the first composition so the refusal is
+ * the one it always was.
+ */
 export function incomeSheetWithBudget(
   income: PackTable,
   set: PackFigureSet,
@@ -53,10 +57,34 @@ export function incomeSheetWithBudget(
   panels: PackChartSpec[],
   statementNotes: PackFootnote[],
 ): UnnumberedPage {
+  const apart = composedIncomeSheet(income, set, scale, panels, statementNotes, false);
+  if (fitsItsSheet(apart)) return apart;
+  const merged = composedIncomeSheet(income, set, scale, panels, statementNotes, true);
+  return fitsItsSheet(merged) ? merged : apart;
+}
+
+function fitsItsSheet(sheet: UnnumberedPage): boolean {
+  try {
+    fitRelaidPage(sheet);
+    return true;
+  } catch (err) {
+    if (!(err instanceof PackRefusal)) throw err;
+    return false;
+  }
+}
+
+function composedIncomeSheet(
+  income: PackTable,
+  set: PackFigureSet,
+  scale: MoneyScale,
+  panels: PackChartSpec[],
+  statementNotes: PackFootnote[],
+  merge: boolean,
+): UnnumberedPage {
   const budgetNotes = budgetColumnFootnote(set.budget, statementNotes.length + 1);
-  if (budgetNotes.length === 0) return buildIncomeStatementSheet(income, set, scale, panels, statementNotes);
+  if (budgetNotes.length === 0) return buildIncomeStatementSheet(income, set, scale, panels, statementNotes, merge);
   const sheet = buildIncomeStatementSheet(
-    anchorColumn(income, 'budget', budgetNotes[0]!.number), set, scale, panels, [...statementNotes, ...budgetNotes]);
+    anchorColumn(income, 'budget', budgetNotes[0]!.number), set, scale, panels, [...statementNotes, ...budgetNotes], merge);
   let diagnostic: string;
   try {
     const { page: fitted, dropped } = fitRelaidPage(sheet);
@@ -85,9 +113,8 @@ export function incomeSheetWithBudget(
   // `columnsLeftOut` here too: the page carries the dropped-columns note, but if the fit then has to print an
   // omission note (the caption went) that note must not say every figure is complete either.
   const noted: UnnumberedPage = {
-    ...buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote]),
+    ...buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote], merge),
     columnsLeftOut: [PACK_TABLE_COLUMN_LABEL.budget, PACK_TABLE_COLUMN_LABEL.variance],
-    columnsSaid: true,
   };
   try {
     const { page: fitted, dropped } = fitRelaidPage(noted);
@@ -101,7 +128,7 @@ export function incomeSheetWithBudget(
   // The columns are figures left out of this page: if the fitter has to print an omission note on it, the
   // note names them (`PackPage.columnsLeftOut`).
   return {
-    ...buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, statementNotes),
+    ...buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, statementNotes, merge),
     columnsLeftOut: [PACK_TABLE_COLUMN_LABEL.budget, PACK_TABLE_COLUMN_LABEL.variance],
   };
 }

@@ -257,6 +257,7 @@ describeIfDb('VAT-gaps item 2: an invoice attached to the bank line', () => {
   afterAll(async () => {
     await sql`DELETE FROM bank_transaction_attachments WHERE bank_transaction_id IN
       (SELECT id FROM bank_transactions WHERE company_id = ${bankFx.companyId}::UUID)`;
+    await sql`DELETE FROM captured_documents WHERE company_id = ${bankFx.companyId}::UUID`;
     await sql`DELETE FROM bank_transactions WHERE company_id = ${bankFx.companyId}::UUID`;
     await sql`DELETE FROM gl_journal_lines WHERE company_id = ${bankFx.companyId}::UUID`;
     await sql`DELETE FROM gl_journal_entries WHERE company_id = ${bankFx.companyId}::UUID`;
@@ -291,5 +292,29 @@ describeIfDb('VAT-gaps item 2: an invoice attached to the bank line', () => {
     await sql`DELETE FROM bank_transaction_attachments WHERE id = ${attachmentId}::UUID`;
     support = await inTx(bankFx, () => findInputVatSupport(bankFx.companyId, PERIOD_START, PERIOD_END));
     expect(support.withoutTaxInvoice.some((l) => l.journalEntryId === journalId)).toBe(true);
+  });
+
+  // A captured document linked to the line with no uploaded copy (one over 2 MB) is the same tax invoice on file as an
+  // upload (bank/bankLineDocumentSql); a rejected one is not; unlinking it returns the flag.
+  it('a linked captured document with no copy clears "no tax invoice on file"; rejected or unlinked does not', async () => {
+    const { txId, journalId } = await allocateAndFindJournal();
+    const flagged = async () => (await inTx(bankFx, () => findInputVatSupport(bankFx.companyId, PERIOD_START, PERIOD_END)))
+      .withoutTaxInvoice.some((l) => l.journalEntryId === journalId);
+    expect(await flagged()).toBe(true);
+
+    const [{ id: docId }] = (await sql`
+      INSERT INTO captured_documents (company_id, file_name, file_type, file_size, status, matched_bank_tx_id,
+        storage_bucket, storage_path)
+      VALUES (${bankFx.companyId}::UUID, 'big-invoice.pdf', 'application/pdf', 7400000, 'rejected', ${txId}::UUID,
+        'captured-documents', ${`${bankFx.companyId}/big-invoice.pdf`})
+      RETURNING id`) as Row[];
+    expect(await flagged()).toBe(true);
+
+    await sql`UPDATE captured_documents SET status = 'matched' WHERE id = ${docId}::UUID`;
+    expect(await flagged()).toBe(false);
+
+    await sql`UPDATE captured_documents SET matched_bank_tx_id = NULL WHERE id = ${docId}::UUID`;
+    expect(await flagged()).toBe(true);
+    await sql`DELETE FROM captured_documents WHERE id = ${docId}::UUID`;
   });
 });

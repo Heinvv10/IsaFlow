@@ -24,7 +24,7 @@ import {
   tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT,
 } from './packFigureFit';
 import { ptToPx, textPx } from './packFigureWidth';
-import { linesFor, runsOf, totalPx, type Run } from './packLineWrap';
+import { linesFor, minPx, runsOf, totalPx, type Run } from './packLineWrap';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
 
@@ -51,10 +51,10 @@ export interface TableLayout {
   headingLines: number;
 }
 
-/** The runs a label may break between: at spaces (a space apart), and after a hyphen (touching). */
+/** The runs a label may break between (`packLineWrap.ts`). */
 function labelRuns(row: PackTableRow, space: number): Run[] {
   const weight = ROW_WEIGHT[row.role];
-  return runsOf(row.label, (run) => textPx(run, LABEL_FONT_PX, weight), space);
+  return runsOf(row.label, (piece) => textPx(piece, LABEL_FONT_PX, weight), space);
 }
 
 export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation): TableLayout {
@@ -64,11 +64,11 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
   const space = textPx(' ', LABEL_FONT_PX, 400);
   const labelBox = table.rows.map((row) => {
     const runs = labelRuns(row, space);
-    const marker = labelMarkPx(row.footnote);
+    const marker = labelMarkPx(row.footnote, ROW_WEIGHT[row.role]);
     const indent = row.level * INDENT_PX_PER_LEVEL;
     return {
       indent, marker, runs,
-      min: indent + Math.max(0, ...runs.map((r) => r.w)) + marker + CELL_SIDE_PX,
+      min: indent + minPx(runs, marker) + CELL_SIDE_PX,
       max: indent + totalPx(runs) + marker + CELL_SIDE_PX,
     };
   });
@@ -81,7 +81,7 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
     const full = words.reduce((sum, w) => sum + w, 0) + HEADING_SPACE_PX * (words.length - 1) + marker;
     return {
       col, words, marker,
-      min: Math.max(figures, Math.max(...words) + marker) + 2 * CELL_SIDE_PX,
+      min: Math.max(figures, minPx(words.map((w) => ({ w, gap: 0 })), marker)) + 2 * CELL_SIDE_PX,
       max: Math.max(figures, full) + 2 * CELL_SIDE_PX,
     };
   });
@@ -104,26 +104,50 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
 }
 
 /**
- * WHAT A STATEMENT TABLE'S PARTS COST ON PAPER, measured in Chromium over 864 tables of the pack grid
- * (`packTableLayout.test.ts` holds each to it, and the table's height is exactly the sum of its parts):
- * the caption 4.585mm; the heading row 7.359mm, 4.233 more for every extra line (12pt leading); a body row 6.98
- * to 7.115mm (a line, a total), 7.247 (a subtotal: a heavier rule), 8.04 (a grand total: a double rule), and
- * up to 4.585 more for every extra line of its label (13pt leading; a wrapped row measures 11.567 or 11.700). Each is charged rounded up to the hundredth.
+ * WHAT A STATEMENT TABLE'S PARTS COST ON PAPER, measured in Chromium (`packTableLayout.test.ts` holds each to it over
+ * hundreds of tables, and the table's height is exactly the sum of its parts):
+ *  - the caption 4.585mm; the heading row 7.359mm, 4.233 more for every extra line (12pt leading);
+ *  - a body row is 6.983mm of padding and one 13pt line, 4.586 more for every extra line of its label, PLUS half of
+ *    each border it shares with its neighbours. The table is `border-collapse: collapse`, so two rows meet at ONE
+ *    border, as wide as the wider of the bottom of the row above and the top of the row below, and each row carries
+ *    half of it. Borders are snapped to device pixels (0.2646mm): the rule above a subtotal, total or grand total is
+ *    1pt = 1px, the double rule under a grand total 3pt = 4px, the heading's rule under it 1px. So a lone total after
+ *    a line is 6.983 + 0.5px, two grand totals in a row are 6.983 + 4px each (8.041mm), and a row of plain lines
+ *    carries no border at all (6.983). The rule under the LAST row is shared with the table's edge: the row carries half
+ *    and the table the other half (a grand total last adds 2px, 0.53mm).
+ * Each is charged rounded up to the hundredth.
  *
- * It replaces a flat 8mm heading and 8.15mm per row, which over-charged a table that does not wrap by about
- * 4.4mm and, because the caption and the extra lines were charged nowhere, still under-charged one that does.
+ * It replaces a flat 8mm heading and 8.15mm per row, which over-charged a table that does not wrap by about 4.4mm
+ * and, because the caption, the extra lines and the shared rules were charged nowhere, still under-charged one that does.
  */
 const CAPTION_MM = 4.59;
 const HEAD_MM = 7.36;
 const HEAD_LINE_MM = 4.24;
 const LABEL_LINE_MM = 4.59;
-const ROW_MM: Readonly<Record<PackTableRow['role'], number>> = { line: 7.12, subtotal: 7.25, total: 7.12, grandTotal: 8.05 };
+const ROW_BASE_MM = 6.99;
+const BORDER_PX_MM = 0.2646;
+/** The rule above a subtotal / total / grand total (1pt), and the double rule under a grand total (3pt), in pixels. */
+const TOP_RULE_PX: Readonly<Record<PackTableRow['role'], number>> = { line: 0, subtotal: 1, total: 1, grandTotal: 1 };
+const BOTTOM_RULE_PX: Readonly<Record<PackTableRow['role'], number>> = { line: 0, subtotal: 0, total: 0, grandTotal: 4 };
+/** The heading row's rule over the first body row. */
+const HEAD_RULE_PX = 1;
+
+/** The border (px) at the boundary above row `i`: the wider of what ends the row above and what starts this one. */
+function boundaryPx(rows: readonly PackTableRow[], i: number): number {
+  const above = i === 0 ? HEAD_RULE_PX : BOTTOM_RULE_PX[rows[i - 1]!.role];
+  const below = i === rows.length ? 0 : TOP_RULE_PX[rows[i]!.role];
+  return Math.max(above, below);
+}
 
 /** The `table` element's own height: its caption, its headings and its rows at the lines Chromium sets them in. */
 export function statementTableBodyMm(table: PackTable, scale: MoneyScale, orientation: PageOrientation): number {
   const layout = tableLayout(table, scale, orientation);
-  const body = table.rows.reduce((sum, row, i) => sum + ROW_MM[row.role] + (layout.labelLines[i]! - 1) * LABEL_LINE_MM, 0);
-  return CAPTION_MM + HEAD_MM + (layout.headingLines - 1) * HEAD_LINE_MM + body;
+  const body = table.rows.reduce((sum, row, i) => sum
+    + ROW_BASE_MM + ((boundaryPx(table.rows, i) + boundaryPx(table.rows, i + 1)) / 2) * BORDER_PX_MM
+    + (layout.labelLines[i]! - 1) * LABEL_LINE_MM, 0);
+  // The rule under the last row is shared with the table's own edge: the row carries half, the table the other half.
+  const tail = (boundaryPx(table.rows, table.rows.length) / 2) * BORDER_PX_MM;
+  return CAPTION_MM + HEAD_MM + (layout.headingLines - 1) * HEAD_LINE_MM + body + tail;
 }
 
 /** A statement table's height as the page carries it: the table, and the reasons list printed under it. */

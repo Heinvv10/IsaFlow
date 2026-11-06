@@ -14,6 +14,10 @@
  * select one of the inert types: a file that merely starts like a PDF still goes to the PDF viewer, never an HTML
  * renderer. tiff is recognised only to name its download.
  *
+ * A captured document linked to a line but not copied (over 2 MB) has a same-origin file_url that serves its bytes as
+ * application/octet-stream. Its claimed type decides whether View is offered and the download extension; the viewer
+ * fetches the bytes and shows them only if their own first bytes are an inert type (bytesToBlob).
+ *
  * Every row the grid counts must be openable, so an untyped row the viewer cannot show still downloads: as .tif when its
  * bytes say so, otherwise under a neutral .bin. Other data: types (text/html) get no link at all.
  */
@@ -23,6 +27,13 @@ export type PreviewKind = 'image' | 'pdf' | 'none';
 
 const TYPED = /^data:(image\/(?:jpe?g|png|webp)|application\/pdf);base64,/;
 const UNTYPED = /^data:application\/octet-stream;base64,/;
+const CAPTURED = /^\/api\/accounting\/captured-document-file\?id=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const INERT = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
+
+/** Whether this attachment's bytes come from the captured-document route rather than a stored data URL. */
+export function isCapturedFile(fileUrl: string): boolean {
+  return CAPTURED.test(fileUrl);
+}
 /** 16 base64 characters decode to the 12 bytes the longest signature below needs. */
 const SNIFF_CHARS = 16;
 
@@ -53,10 +64,24 @@ function resolve(fileUrl: string): { mime: string; start: number } | null {
   return mime && mime !== 'image/tiff' ? { mime, start } : null;
 }
 
-export function previewKind(fileUrl: string): PreviewKind {
+export function previewKind(fileUrl: string, contentType?: string | null): PreviewKind {
+  if (CAPTURED.test(fileUrl)) {
+    if (!contentType || !INERT.has(contentType)) return 'none';
+    return contentType === 'application/pdf' ? 'pdf' : 'image';
+  }
   const found = resolve(fileUrl);
   if (!found) return 'none';
   return found.mime === 'application/pdf' ? 'pdf' : 'image';
+}
+
+/** A Blob of fetched bytes, typed from their own first bytes; null unless that is an inert type. */
+export function bytesToBlob(buffer: ArrayBuffer): Blob | null {
+  const bytes = new Uint8Array(buffer);
+  let head = '';
+  for (let i = 0; i < Math.min(bytes.length, 12); i += 1) head += String.fromCharCode(bytes[i]!);
+  const mime = sniffMime(btoa(head));
+  if (!mime || !INERT.has(mime)) return null;
+  return new Blob([buffer], { type: mime });
 }
 
 /** Decode a previewable data URL into a Blob of its own type; null for anything else or bad base64. */
@@ -86,11 +111,12 @@ const EXTENSIONS: Record<string, string[]> = {
 
 /** Whether the stored value may be a download link: SAFE_HREF, an inert type the viewer shows, or an untyped row. */
 export function canDownload(fileUrl: string): boolean {
-  return SAFE_HREF.test(fileUrl) || resolve(fileUrl) !== null || UNTYPED.test(fileUrl);
+  return SAFE_HREF.test(fileUrl) || resolve(fileUrl) !== null || UNTYPED.test(fileUrl) || CAPTURED.test(fileUrl);
 }
 
 /** The type a download is named for: what the viewer shows it as, else what its label or bytes say. */
-function downloadMime(fileUrl: string): string | null {
+function downloadMime(fileUrl: string, contentType?: string | null): string | null {
+  if (CAPTURED.test(fileUrl)) return contentType && EXTENSIONS[contentType] ? contentType : 'application/octet-stream';
   const shown = resolve(fileUrl)?.mime;
   if (shown) return shown;
   if (fileUrl.startsWith('data:image/tiff;base64,')) return 'image/tiff';
@@ -105,8 +131,8 @@ function downloadMime(fileUrl: string): string | null {
  * an "invoice.html" that begins %PDF- must not reach the disk as .html, where opening it runs its script. The name keeps
  * its text and gains the extension of the type it was shown as.
  */
-export function safeDownloadName(fileUrl: string, fileName: string): string {
-  const mime = downloadMime(fileUrl);
+export function safeDownloadName(fileUrl: string, fileName: string, contentType?: string | null): string {
+  const mime = downloadMime(fileUrl, contentType);
   const allowed = mime ? EXTENSIONS[mime] : undefined;
   if (!allowed) return fileName;
   const dot = fileName.lastIndexOf('.');

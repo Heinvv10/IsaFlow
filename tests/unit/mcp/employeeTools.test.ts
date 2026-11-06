@@ -217,6 +217,35 @@ describe('update_employee', () => {
   });
 });
 
+describe('s18a_receipt_held', () => {
+  it('update_employee stores a boolean and leaves it alone when absent', async () => {
+    vi.mocked(getPayrollEmployee).mockResolvedValue({ id: EMPLOYEE } as never);
+    vi.mocked(updatePayrollEmployee).mockResolvedValue({ id: EMPLOYEE, firstName: 'A', lastName: 'B' } as never);
+    await updateEmployeeTool.handler({ employee_id: EMPLOYEE, s18a_receipt_held: false, ...KEY }, ctx());
+    expect(vi.mocked(updatePayrollEmployee).mock.lastCall![2]).toMatchObject({ s18aReceiptHeld: false });
+    await updateEmployeeTool.handler({ employee_id: EMPLOYEE, last_name: 'C', ...KEY }, ctx());
+    expect(vi.mocked(updatePayrollEmployee).mock.lastCall![2]).not.toHaveProperty('s18aReceiptHeld');
+  });
+
+  it('create_employee refuses a non-boolean before the write', async () => {
+    vi.mocked(createPayrollEmployee).mockClear();
+    const r = await createEmployeeTool.handler({
+      employee_number: 'E9', first_name: 'A', last_name: 'B', employment_type: 'permanent', start_date: '2026-03-01',
+      s18a_receipt_held: 'true', ...KEY,
+    }, ctx());
+    expect(errText(r)).toMatch(/s18a_receipt_held/);
+    expect(createPayrollEmployee).not.toHaveBeenCalled();
+  });
+
+  it('update_employee refuses a non-boolean before the write: the string "true" must not clear it', async () => {
+    vi.mocked(getPayrollEmployee).mockResolvedValue({ id: EMPLOYEE } as never);
+    vi.mocked(updatePayrollEmployee).mockClear();
+    const r = await updateEmployeeTool.handler({ employee_id: EMPLOYEE, s18a_receipt_held: 'true', ...KEY }, ctx());
+    expect(errText(r)).toMatch(/s18a_receipt_held/);
+    expect(updatePayrollEmployee).not.toHaveBeenCalled();
+  });
+});
+
 describe('assign_employee_component', () => {
   beforeEach(() => {
     vi.clearAllMocks();

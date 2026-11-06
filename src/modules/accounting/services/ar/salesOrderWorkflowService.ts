@@ -106,13 +106,13 @@ export async function convertSalesOrderToInvoice(
       const invRows = (await sql`
         INSERT INTO customer_invoices (
           company_id, invoice_number, customer_id, client_id,
-          invoice_date, due_date,
+          invoice_date, due_date, due_date_source,
           subtotal, tax_amount, total_amount,
           notes, status, created_by
         ) VALUES (
           ${companyId}, ${invoiceNumber},
           ${order.customerId || null}, ${order.customerId || null},
-          ${invoiceDate}, ${dueDate},
+          ${invoiceDate}, ${dueDate}, 'terms',
           ${order.subtotal}, ${order.taxAmount}, ${order.totalAmount},
           ${'Converted from ' + order.orderNumber}, 'draft', ${userId}
         ) RETURNING id
