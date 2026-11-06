@@ -62,7 +62,7 @@
  * that calls `sql` to build a piece of a bigger query is only safe to use
  * inside code no low-level `sql`-mocked test exercises.
  */
-import { attachmentCountsSql, copiedDocIdSql, linkedCapturedDocSql } from '../bank/bankLineDocumentSql';
+import { hasBankLineDocumentSql } from '../bank/bankLineDocumentSql';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
@@ -167,23 +167,17 @@ export async function queryInputVatSupport(
       -- captured document linked to the line (one over 2 MB has no upload).
       -- One tax invoice backs one claim (Hein, 2026-11-07): a captured
       -- document, linked or as its copy, does not count here while it backs a
-      -- DIFFERENT chain that still claims VAT (doc_history: source_document_id
-      -- or any link row). The grid and MCP keep counting it as a file on the
-      -- line. A plain upload is no captured document, so the rule never
-      -- reaches it.
+      -- claim on a DIFFERENT underlying journal (doc_je_id) that still claims
+      -- VAT (doc_history: source_document_id or any link row). A late-claim
+      -- companion shares its original's doc_je_id, so the two never knock out
+      -- each other. The grid and MCP keep counting it as a file on the line.
       EXISTS (
         SELECT 1 FROM bank_transactions bt
         WHERE bt.company_id = ${companyId}::UUID
-          AND (
-            EXISTS (SELECT 1 FROM bank_transaction_attachments x
-              WHERE x.bank_transaction_id = bt.id AND ${sql.unsafe(attachmentCountsSql('x', 'bt'))}
-                AND NOT EXISTS (SELECT 1 FROM doc_history dh JOIN roots ro ON ro.root = dh.root
-                  WHERE dh.document_id = ${sql.unsafe(copiedDocIdSql('x'))} AND dh.root <> a.root
-                    AND ABS(ro.claimed_to_date) > ${cent}))
-            OR EXISTS (SELECT 1 FROM captured_documents cd WHERE ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))}
-                AND NOT EXISTS (SELECT 1 FROM doc_history dh JOIN roots ro ON ro.root = dh.root
-                  WHERE dh.document_id = cd.id AND dh.root <> a.root AND ABS(ro.claimed_to_date) > ${cent}))
-          )
+          AND ${sql.unsafe(hasBankLineDocumentSql('bt', (documentId) => `EXISTS (SELECT 1 FROM doc_history dh
+              JOIN roots ro ON ro.root = dh.root JOIN attributed a2 ON a2.root = dh.root
+              WHERE dh.document_id = ${documentId} AND a2.doc_je_id <> a.doc_je_id
+                AND ABS(ro.claimed_to_date) > ${Number(cent)})`))}
           AND (bt.provisional_je_id = a.doc_je_id
             OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
                  WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))
