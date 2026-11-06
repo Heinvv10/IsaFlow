@@ -13,9 +13,10 @@ import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { HEADING_SPACE_PX, HEADING_WORDS_PX, statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
+import { WRAP_GUARD_PX } from '@/modules/accounting/services/packs/pages/packLineWrap';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packTableModel';
 import { input, type Shape } from '../services/packs/fixtures/packGridInputs';
-import { demoWithoutBudget, withWidenedTable } from '../services/packs/fixtures/widenedFigures';
+import { demoWithoutBudget, withWidenedStatement, withWidenedTable } from '../services/packs/fixtures/widenedFigures';
 import { measure } from './measureWidths';
 import { measureTables } from './measureTables';
 
@@ -45,6 +46,9 @@ const SHAPES: Shape[] = [];
 for (const k of [1, 30, 1000, 30000, 300000, 1e6, 3e6]) for (const negative of [false, true]) for (const loss of [false, true])
   for (const sg of [[1, 1, 1, 1], [-1, -1, 1, 1], [1, -1, -1, 1]]) for (const budget of [true, false])
     for (const [prior, tr] of [[true, 'demo'], [false, 'none'], [true, 'zero']] as const) SHAPES.push({ k, negative, loss, plug: 0.05, sg, budget, prior, tr });
+
+/** The ends of the range of wrap guards that set Chromium's lines on every table (`packLineWrap.ts`). */
+const BAND = [-0.2, 0.12];
 
 describe('the layout of every statement table of a stratified sample of packs', () => {
   it(`${SHAPES.length} packs (prior and trend panels on and off, k to 3e6): columns within 1px, label lines and heading lines equal, height never short`, async () => {
@@ -78,6 +82,11 @@ describe('the layout of every statement table of a stratified sample of packs', 
           shortest = Math.min(shortest, gap);
 
           if (model.headingLines !== real.headingLines) wrong.push(`${label} heading lines: model ${model.headingLines} vs ${real.headingLines}`);
+          // The wrap guard's measured range (`packLineWrap.ts`): either end sets the same lines as Chromium too.
+          for (const guard of BAND) {
+            const at = tableLayout(block.table, doc.numberConvention.scale, page.orientation, guard);
+            if (at.labelLines.join() !== real.labelLines.join() || at.headingLines !== real.headingLines) wrong.push(`${label} guard ${guard}: lines ${at.labelLines}/${at.headingLines} vs ${real.labelLines}/${real.headingLines}`);
+          }
         });
       }
     }
@@ -106,7 +115,7 @@ describe('a footnote mark sits on the LAST word of a label', () => {
         const real = (await measureTables(doc, browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;
         const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
         model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > 1) wrong.push(`${n} chars, ${digits} digits: column ${c} model ${px.toFixed(1)} vs ${real.columnsPx[c]!.toFixed(1)}`); });
-        // Never fewer lines than Chromium; one more is the wrap guard's half pixel on a tie, counted below.
+        // Never fewer lines than Chromium; one more is the wrap guard's tenth of a pixel on a tie, counted below.
         if (model.labelLines.some((l, r) => l < real.labelLines[r]!)) wrong.push(`${n} chars, ${digits} digits: lines ${model.labelLines} vs ${real.labelLines}`);
         if (model.labelLines.some((l, r) => l > real.labelLines[r]!)) ties += 1;
         if (statementTableBodyMm(table, doc.numberConvention.scale, 'portrait') < real.heightMm) wrong.push(`${n} chars, ${digits} digits: height short`);
@@ -161,5 +170,23 @@ describe('a label that fits its column to within a fraction of a pixel (the adve
     const gap = statementTableBodyMm(block.table, doc.numberConvention.scale, page.orientation) - real.heightMm;
     expect(gap).toBeGreaterThanOrEqual(0);
     expect(gap).toBeLessThanOrEqual(0.2);
+  }, 120_000);
+});
+
+describe('near ties off page 6: the balance sheet and the cash table, labels ending a fraction of a pixel inside their column', () => {
+  // Found by sweeping the label and the figures' width: each row's label ends 0.18 to 0.37px inside its column, where
+  // the guard decides. The guard sets Chromium's lines on every one; a half-pixel guard sets a line too many.
+  const NEAR_TIES = [
+    ['Balance sheet', 18, 'Trade receivables netiiiiii'], ['Balance sheet', 15, 'Prepayments depositsiiiiiiiiiii'],
+    ['Cash', 18, 'Opening cash balance'], ['Cash', 18, 'Other current assets'],
+  ] as const;
+
+  it.each(NEAR_TIES)('%s, %i digits, "%s": the model\'s lines are Chromium\'s, and a half-pixel guard would add one', async (nav, digits, label) => {
+    const { doc, table, index } = withWidenedStatement(demoWithoutBudget(), nav, digits, label);
+    const page = doc.pages[index]!;
+    expect(page.number).not.toBe(6);
+    const real = (await measureTables(doc, browser)).filter((t) => t.page === page.number)[0]!;
+    expect(tableLayout(table, doc.numberConvention.scale, page.orientation).labelLines).toEqual(real.labelLines);
+    expect(tableLayout(table, doc.numberConvention.scale, page.orientation, 0.5).labelLines, 'not a near tie').not.toEqual(real.labelLines);
   }, 120_000);
 });

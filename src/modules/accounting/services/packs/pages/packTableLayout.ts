@@ -24,7 +24,7 @@ import {
   tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT,
 } from './packFigureFit';
 import { ptToPx, textPx } from './packFigureWidth';
-import { linesFor, minPx, runsOf, totalPx, type Run } from './packLineWrap';
+import { linesFor, minPx, runsOf, totalPx, WRAP_GUARD_PX, type Run } from './packLineWrap';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
 
@@ -57,7 +57,7 @@ function labelRuns(row: PackTableRow, space: number): Run[] {
   return runsOf(row.label, (piece) => textPx(piece, LABEL_FONT_PX, weight), space);
 }
 
-export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation): TableLayout {
+export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number = WRAP_GUARD_PX): TableLayout {
   const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
   const fitPx = tableFit(table, scale, orientation).px ?? Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
   const cells = tableColumnCells(table, scale);
@@ -97,9 +97,9 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
     return min + ((sheet - sumMin) * (max - min)) / (sumMax - sumMin);
   });
   const labelPx = columnsPx[0]!;
-  const labelLines = labelBox.map((b) => linesFor(b.runs, b.marker, labelPx - b.indent - CELL_SIDE_PX));
+  const labelLines = labelBox.map((b) => linesFor(b.runs, b.marker, labelPx - b.indent - CELL_SIDE_PX, guardPx));
   const headingLines = Math.max(1, ...data.map((d, i) => linesFor(
-    d.words.map((w, j) => ({ w, gap: j === 0 ? 0 : HEADING_SPACE_PX })), d.marker, columnsPx[i + 1]! - 2 * CELL_SIDE_PX)));
+    d.words.map((w, j) => ({ w, gap: j === 0 ? 0 : HEADING_SPACE_PX })), d.marker, columnsPx[i + 1]! - 2 * CELL_SIDE_PX, guardPx)));
   return { columnsPx, labelLines, headingLines };
 }
 
