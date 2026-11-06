@@ -15,6 +15,7 @@ import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { kpiBlockMm, kpiColumnsPx, kpiTileMm } from '@/modules/accounting/services/packs/pages/packKpiLayout';
 import { input, type Shape } from '../services/packs/fixtures/packGridInputs';
 import { measureKpiBlocks } from './measureKpi';
+import { printBoardPack } from './renderPackPdf';
 
 let browser: Browser;
 beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
@@ -22,13 +23,15 @@ afterAll(async () => { await browser?.close(); });
 
 /** Rounding: the constants are the measured leadings rounded up to the hundredth. */
 const SLACK = 0.02;
+/** Observed over-charge on the sample is 0.02 to 0.12mm (the leadings are rounded up to the hundredth); an extra millimetre is a regression. */
+const MOST_OVER = 0.25;
 const SHAPES: Shape[] = [];
 for (const k of [1, 30, 1000, 30000, 300000, 3e7, 2.7e8]) for (const negative of [false, true]) for (const loss of [false, true])
   for (const sg of [[1, 1, 1, 1], [-1, -1, 1, 1], [1, -1, -1, 1]]) for (const tr of ['demo', 'none'] as const)
     for (const [budget, prior] of [[true, true], [false, false]] as const) SHAPES.push({ k, negative, loss, plug: 0.05, sg, budget, prior, tr });
 
 describe('the KPI block of a stratified sample of packs', () => {
-  it(`${SHAPES.length} packs: columns within 1px, rows and the block never short, and close`, async () => {
+  it(`${SHAPES.length} packs: columns within 1px, rows and the block never short, and within 0.25mm`, async () => {
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
     let blocks = 0;
@@ -54,7 +57,7 @@ describe('the KPI block of a stratified sample of packs', () => {
           const gap = model - r.heightMm;
           shortest = Math.min(shortest, gap);
           tallest = Math.max(tallest, gap);
-          if (gap < -SLACK || gap > 1.5) wrong.push(`${label} block: model ${model.toFixed(2)} vs ${r.heightMm.toFixed(2)}`);
+          if (gap < -SLACK || gap > MOST_OVER) wrong.push(`${label} block: model ${model.toFixed(2)} vs ${r.heightMm.toFixed(2)}`);
           const rows = r.rowsMm.map((mm, row) => ({ mm, model: Math.max(...block.tiles.slice(row * 4, row * 4 + 4).map((t, j) => kpiTileMm(t, columns[j]!))) }));
           rows.forEach((row, n) => { if (row.model < row.mm - SLACK) wrong.push(`${label} row ${n}: model ${row.model.toFixed(2)} vs ${row.mm.toFixed(2)}`); });
         });
@@ -65,4 +68,23 @@ describe('the KPI block of a stratified sample of packs', () => {
     expect(wrong.slice(0, 12)).toEqual([]);
     process.stdout.write(`KPIGAP ${shortest.toFixed(3)} ${tallest.toFixed(3)} blocks=${blocks} squeezed=${squeezed}\n`);
   }, 1_800_000);
+});
+
+describe('the block as the page prints it (the adversary\'s two cases, measured in the page laid out at the print\'s width)', () => {
+  it.each<[string, Shape]>([
+    ['a reason in column 2 wraps one line fewer than a narrower page would set it (92 packs read 5mm tall)', { tr: 'none', budget: true, prior: true, negative: true, loss: true, k: 30000, plug: 0.05, sg: [-1, -1, 1, -1] }],
+    ['a pack the model read 0.07mm short of the print', { tr: 'demo', budget: false, prior: false, negative: true, loss: false, k: 30000, plug: 0.2, sg: [-1, 1, -1, -1] }],
+  ])('%s', async (unused, shape) => {
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const doc = buildBoardPackPages(input(shape));
+    const i = doc.pages.findIndex((p) => p.navLabel === 'Highlights');
+    const page = doc.pages[i]!;
+    const block = page.blocks.find((b) => b.kind === 'kpiTiles')!;
+    if (block.kind !== 'kpiTiles') throw new Error('no tiles');
+    const model = kpiBlockMm(block.tiles, doc.numberConvention.scale, page.orientation);
+    const out = await printBoardPack(doc, browser);
+    const printed = out.heights[i]!.blocks.filter((b) => !b.what.startsWith('header') && !b.what.startsWith('ol.'))[page.blocks.indexOf(block)]!.mm;
+    expect(model - printed, `model ${model.toFixed(2)}mm, print ${printed}mm`).toBeGreaterThanOrEqual(-0.05);
+    expect(model - printed, `model ${model.toFixed(2)}mm, print ${printed}mm`).toBeLessThanOrEqual(MOST_OVER);
+  }, 300_000);
 });
