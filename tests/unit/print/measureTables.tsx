@@ -52,6 +52,8 @@ export async function measureTables(document: PackPagesDocument, browser: Browse
       await Promise.all([400, 500, 600].map((w) => document.fonts.load(`${w} 16px "IBM Plex Sans"`)));
       await document.fonts.ready;
     });
+    // The print lays the page out at 174mm = 657.6px; the viewport is a whole 658. Measure at the print's width.
+    await page.evaluate(() => { document.documentElement.style.width = '657.6px'; });
     return await page.evaluate((pxMm) => {
       const linesOf = (cell: Element | undefined): number => {
         const text = cell === undefined ? null : Array.from(cell.childNodes).find((n) => n.nodeType === 3);
