@@ -1,46 +1,57 @@
 /**
- * THE WIDTHS OF A KPI TILE ROW'S FOUR COLUMNS, WHERE THE FIGURES STRETCH THEM.
+ * THE WIDTHS OF A KPI TILE ROW'S FOUR COLUMNS, AS THE PRINT STYLESHEET LAYS THEM OUT.
  *
- * `.pack-kpi-tiles` is `repeat(4, 1fr)` (`minmax(auto, 1fr)`) and its figures are `nowrap`, so a column is as wide
- * as its widest figure when that is more than a quarter of the row, and the others share what is left. The
- * figures are measured as Chromium lays them out (`packFigureWidth.ts`) at the size `packFigureFit.ts` sets.
- * A tile's delta line wraps at its column's width and its sparkline is 0.8 of it (capped at 33mm in the
- * stylesheet), so a stretched row is taller than a row of quarters.
+ * `.pack-kpi-tiles` is `repeat(4, 1fr)` and its figures are `nowrap`, so a column is as wide as its
+ * widest figure when that is more than a quarter of the row, and the others share what is left. The
+ * figures themselves shrink to fit the row (`font-size: max(12pt, min(22pt, room / --pack-fit-ems))`,
+ * `packFigureFit.ts`). This repeats that arithmetic for the height model: a tile's delta line wraps at
+ * its column's width and its sparkline is 0.8 of it (capped at 33mm in the stylesheet), so a row of
+ * stretched columns is taller than a row of quarters. The model used to charge every tile as if it sat
+ * in a quarter and the sparkline at its 33mm cap, which hid a latent shortfall until a stretched column
+ * took the slack back.
  *
- * Returns null for a row nothing stretches: the model then charges it as it always has, which is what keeps a
- * pack that fits printing the notes it printed.
+ * The figure's text is `formatFigureText`'s, the same call the tile makes, at the pack's one scale
+ * (as `tableLabelShare` does for the statement tables).
  */
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
-import { KPI_FIGURE_MAX_PT, KPI_GAP_PX, kpiColumnFigurePx, kpiFit } from './packFigureFit';
-import { ptToPx } from './packFigureWidth';
+import { GUTTER_MM } from './packDisclosureHeight';
 import type { PackPageBlock } from './packPageModel';
 import { PACK_SCALE } from './packScale';
-import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
+import { PAGE_WIDTH_MM, PT_MM, textWidthEms, type PageOrientation } from './packTextMetrics';
 
 type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
 
-const MM_PX = 96 / 25.4;
+export const KPI_COLUMNS = 4;
+/** `.pack-kpi-value`: 22pt, never below 12pt. */
+const FIGURE_MAX_PT = 22;
+const FIGURE_MIN_PT = 12;
 
-/** The width of each of the four columns in millimetres, or null where every column is a quarter. */
-export function kpiColumnWidthsMm(tiles: readonly KpiTile[], orientation: PageOrientation = 'portrait'): number[] | null {
-  const texts = tiles.map((t) => (t.figure.value === null ? null : formatFigureText(t.figure, PACK_SCALE)));
-  const fit = kpiFit(texts, orientation);
-  const figurePx = kpiColumnFigurePx(texts, fit.px ?? ptToPx(KPI_FIGURE_MAX_PT));
-  const roomPx = PAGE_WIDTH_MM[orientation] * MM_PX - 3 * KPI_GAP_PX;
-  const quarter = roomPx / 4;
-  if (figurePx.every((px) => px <= quarter)) return null;
-  // `minmax(auto, 1fr)`: a column whose figure is wider than the fair share keeps its figure's width, and the
-  // rest share what that leaves.
-  const frozen = figurePx.map(() => false);
-  let share = quarter;
+/** The width of each of the four columns, in millimetres. */
+export function kpiColumnWidthsMm(tiles: readonly KpiTile[], orientation: PageOrientation = 'portrait'): number[] {
+  const roomMm = PAGE_WIDTH_MM[orientation] - (KPI_COLUMNS - 1) * GUTTER_MM;
+  const widestEms = Array.from({ length: KPI_COLUMNS }, () => 0);
+  tiles.forEach((tile, i) => {
+    if (tile.figure.value === null) return;
+    const column = i % KPI_COLUMNS;
+    widestEms[column] = Math.max(widestEms[column]!, textWidthEms(formatFigureText(tile.figure, PACK_SCALE)));
+  });
+  const totalEms = widestEms.reduce((sum, ems) => sum + ems, 0);
+  const emMm = totalEms === 0
+    ? FIGURE_MAX_PT * PT_MM
+    : Math.min(FIGURE_MAX_PT * PT_MM, Math.max(FIGURE_MIN_PT * PT_MM, roomMm / totalEms));
+  // `minmax(auto, 1fr)`: a column whose figure is wider than the fair share keeps its figure's width,
+  // and the rest share what that leaves.
+  const base = widestEms.map((ems) => ems * emMm);
+  const frozen = base.map(() => false);
+  let share = roomMm / KPI_COLUMNS;
   for (let again = true; again;) {
     again = false;
     const free = frozen.filter((f) => !f).length;
-    const left = roomPx - figurePx.reduce((sum, px, i) => sum + (frozen[i] ? px : 0), 0);
+    const left = roomMm - base.reduce((sum, b, i) => sum + (frozen[i] ? b : 0), 0);
     share = free === 0 ? 0 : left / free;
-    figurePx.forEach((px, i) => {
-      if (!frozen[i] && px > share) { frozen[i] = true; again = true; }
+    base.forEach((b, i) => {
+      if (!frozen[i] && b > share) { frozen[i] = true; again = true; }
     });
   }
-  return figurePx.map((px, i) => (frozen[i] ? px : share) / MM_PX);
+  return base.map((b, i) => (frozen[i] ? b : share));
 }

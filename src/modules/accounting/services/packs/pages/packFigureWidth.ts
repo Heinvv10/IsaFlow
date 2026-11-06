@@ -122,20 +122,3 @@ export function textPx(text: string, fontPx: number, weight: FigureWeight): numb
 
 /** The pixel size a point size is set at. */
 export const ptToPx = (pt: number): number => (pt * 96) / 72;
-
-/**
- * The lines `text` wraps to in a box `widthPx` wide at `fontPx` and `weight`, breaking at ordinary spaces only (a
- * no-break space inside a figure holds it together), a word wider than the box overflowing on a line of its own.
- */
-export function wrappedLinesPx(text: string, widthPx: number, fontPx: number, weight: FigureWeight): number {
-  const space = advancePx(' ', fontPx, weight);
-  let lines = 1;
-  let used = 0;
-  for (const word of text.split(' ').filter((w) => w !== '')) {
-    const w = textPx(word, fontPx, weight);
-    if (used === 0) used = w;
-    else if (used + space + w <= widthPx) used += space + w;
-    else { lines += 1; used = w; }
-  }
-  return lines;
-}

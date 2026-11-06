@@ -114,7 +114,7 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       let total = 0;
       for (let i = 0; i < block.tiles.length; i += 4) {
         total += (i === 0 ? 0 : GUTTER_MM)
-          + Math.max(0, ...block.tiles.slice(i, i + 4).map((tile, j) => kpiTileHeight(tile, columns?.[j])));
+          + Math.max(0, ...block.tiles.slice(i, i + 4).map((tile, j) => kpiTileHeight(tile, columns[j])));
       }
       return total;
     }
