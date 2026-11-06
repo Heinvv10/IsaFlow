@@ -1,30 +1,36 @@
 // pages/api/auth/logout.ts
 import type { NextApiHandler } from 'next';
-import { logout as gotrueLogout } from '@/lib/auth/gotrue';
-import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
+import { logout as gotrueLogout, refresh } from '@/lib/auth/gotrue';
+import { parseCookies, clearAuthCookies, ACCESS_COOKIE, REFRESH_COOKIE } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { sessionActorOfToken } from '@/lib/auth/impersonationSessions';
+
+const noteFailure = (err: unknown) =>
+  log.info('gotrue logout non-fatal error', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
+
+/**
+ * This browser's session only: the global default would sign the account's other
+ * devices out (and, R-032 (f), an impersonated target's own sessions). Revoking every
+ * session belongs to password change and reset (sessionRevocation.ts). With the access
+ * token gone or expired, the refresh cookie is the only way left to name the session.
+ */
+async function endThisSession(accessToken?: string, refreshToken?: string): Promise<void> {
+  if (accessToken) {
+    try { return await gotrueLogout(accessToken, 'local'); }
+    catch (err) { noteFailure(err); }
+  }
+  if (refreshToken) {
+    try { await gotrueLogout((await refresh(refreshToken)).access_token, 'local'); }
+    catch (err) { noteFailure(err); }
+  }
+}
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
   }
-  const token = parseCookies(req)[ACCESS_COOKIE];
-  if (token) {
-    // R-032 (f): a Login-as session ends only itself — the global default would
-    // revoke every session of the target it is impersonating. If the session
-    // store cannot be read, sign out narrowly: this route has no error handler,
-    // and the cookies below must be cleared whatever happens.
-    let scope: 'local' | 'global' = 'local';
-    try {
-      scope = (await sessionActorOfToken(token)) === 'impersonation' ? 'local' : 'global';
-    } catch (err) {
-      log.error('logout: session lookup failed, signing out locally', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
-    }
-    try { await gotrueLogout(token, scope); }
-    catch (err) { log.info('gotrue logout non-fatal error', { message: err instanceof Error ? err.message : String(err) }, 'Auth'); }
-  }
+  const cookies = parseCookies(req);
+  await endThisSession(cookies[ACCESS_COOKIE], cookies[REFRESH_COOKIE]);
   clearAuthCookies(res);
   return res.status(200).json({ success: true, data: null });
 };

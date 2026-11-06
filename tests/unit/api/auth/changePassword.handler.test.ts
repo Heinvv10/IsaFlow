@@ -13,6 +13,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 // R-032 (f): the Login-as refusal reads the session store first; it is covered
 // by tests/integration/r-032-account-security.int.test.ts.
+const requestCookies = vi.hoisted(() => ({ value: { isaflow_remember_me: '1' } as Record<string, string> }));
 vi.mock('@/lib/auth/impersonationGuard', () => ({ refuseImpersonatedSession: async () => false }));
 vi.mock('@/lib/rateLimit', () => ({
   withRateLimit: (h: unknown) => h,
@@ -52,7 +53,7 @@ vi.mock('@/lib/auth/sessionRevocation', () => ({
 const setAuthCookies = vi.fn();
 vi.mock('@/lib/auth/cookies', () => ({
   setAuthCookies: (...a: unknown[]) => setAuthCookies(...a),
-  parseCookies: () => ({}),
+  parseCookies: () => requestCookies.value,
   REMEMBER_ME_COOKIE: 'isaflow_remember_me',
 }));
 
@@ -97,6 +98,25 @@ describe('POST /api/auth/change-password', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.body.success).toBe(true);
+  });
+
+  it('a session with no hint stays not ticked after the change', async () => {
+    requestCookies.value = {};
+    const { req, res } = mockReqRes({ currentPassword: CUR, newPassword: NEW });
+    await (changePasswordHandler as unknown as Handler)(req, res);
+    expect(adminUpdateUser).toHaveBeenCalledWith('user-1', { password: NEW });
+    // The revocation fires, keyed to the caller's account + new password.
+    expect(rotateSessionRevokingOthers).toHaveBeenCalledWith('user@example.com', NEW);
+    // The surviving fresh session is written back so the caller stays signed in.
+    expect(setAuthCookies).toHaveBeenCalledWith(res, {
+      accessToken: 'fresh-access',
+      refreshToken: 'fresh-refresh',
+      expiresIn: 3600,
+      persistent: false,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    requestCookies.value = { isaflow_remember_me: '1' };
   });
 
   it('SECURITY: fails closed (500) when revocation fails after the password changed', async () => {

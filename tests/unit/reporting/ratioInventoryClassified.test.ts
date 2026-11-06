@@ -29,7 +29,7 @@ vi.mock('@/modules/accounting/services/gl/financialFiguresService', async (orig)
   getFinancialFigures: (...a: unknown[]) => getFinancialFiguresMock(...a),
 }));
 vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({
-  getCashFlowDirect: vi.fn(async () => ({ operatingTotal: 0, investingTotal: 0, financingTotal: 0, netChange: 0 })),
+  getCashFlowDirect: vi.fn(async () => ({ operatingTotal: 0, investingTotal: 0, financingTotal: 0, netChange: 0, unexplainedDifference: 0 })),
 }));
 
 import { calculateExtendedRatios, type FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';

@@ -24,7 +24,7 @@ const { getFinancialFigures, getBudgetVariance, getCashFlowDirect, warn, info } 
   warn: vi.fn(),
   info: vi.fn(),
 }));
-const NO_CASH_FLOWS = { operatingTotal: 0, investingTotal: 0, financingTotal: 0, netChange: 0 };
+const NO_CASH_FLOWS = { operatingTotal: 0, investingTotal: 0, financingTotal: 0, netChange: 0, unexplainedDifference: 0 };
 
 vi.mock('@/modules/accounting/services/gl/financialFiguresService', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -403,7 +403,7 @@ describe('a degrading read inside the request transaction', () => {
     // figures and before the comparative.
     getCashFlowDirect.mockImplementation(async (_c: string, from: string) => {
       await touchLedger(from === '2026-03-01' ? 'cashflow' : 'priorcashflow');
-      return { operatingTotal: 70, investingTotal: -20, financingTotal: 5, netChange: 55 };
+      return { operatingTotal: 70, investingTotal: -20, financingTotal: 5, netChange: 55, unexplainedDifference: 0 };
     });
     const tx = fakeRequestTx(failing('cashflow'));
 
