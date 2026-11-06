@@ -14,7 +14,6 @@ import { log } from '@/lib/logger';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
-import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import { previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
@@ -31,16 +30,14 @@ import { useInvoiceDraftOwner, type LocalDraftData } from '@/components/accounti
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
 import { KeptDraftOffer, NewInvoiceActions } from '@/components/accounting/customer-invoices/NewInvoiceParts';
 import { stashApproveRefusal, useApproveAndEmail, type SavedInvoice } from '@/components/accounting/customer-invoices/useApproveAndEmail';
+import { useScannedClientMatch } from '@/components/accounting/customer-invoices/useScannedClientMatch';
 
-interface Client { id: string; name: string }
 type LineItem = InvoiceLine;
-const SCAN_LOOKUP_TIMEOUT = 'Could not find the scanned customer in time - pick the client yourself';
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 const BLANK_LINE = { description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, discountFromDefault: true, ...UNCODED };
 
 export default function NewCustomerInvoicePage() {
   const router = useRouter();
-  const [scanned, setScanned] = useState<Client | null>(null); // the client a scan matched, so the picker need not look it up
   const [currencies, setCurrencies] = useState<InvoiceCurrency[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [saveAndNew, setSaveAndNew] = useState(false);
@@ -52,6 +49,7 @@ export default function NewCustomerInvoicePage() {
   const [resetKey, setResetKey] = useState(0);
   const [form, setForm] = useState<InvoiceHeaderForm>({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([{ key: '1', ...BLANK_LINE }]);
+  const { scanned, lookupSeq, scanLookup, setScanLookup, matchScannedClient } = useScannedClientMatch(setForm, setError);
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive');
   const contact = useContactDefaults({ clientId: form.clientId, invoiceDate: form.invoiceDate, setForm, setLines, setTaxMode });
   const pickTaxMode = (mode: TaxMode) => { contact.touch('taxMode'); setLines(ls => linesForModeChange(ls, taxMode, mode, form.taxRate)); setTaxMode(mode); };
@@ -81,33 +79,6 @@ export default function NewCustomerInvoicePage() {
   const isFx = form.currencyCode !== 'ZAR';
   // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
   const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;
-
-  // The picker searches for itself; the full list is only needed here, to match a scanned name, so it is fetched on demand.
-  // Bumped by every scan, every client the user picks and every form reset: a lookup answers only if none of them happened since.
-  const lookupSeq = useRef(0);
-  // Create and Approve & email wait for a scan's lookup (it must not land on a created invoice's form, or the next one),
-  // saying so, for 15 s at most, and not once the user picked a customer themselves (which also voids the lookup).
-  const [scanLookup, setScanLookup] = useState<number | null>(null);
-  async function matchScannedClient(name: string, seq: number) {
-    setScanLookup(seq);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let timedOut = false;
-    try {
-      const res = await Promise.race([
-        apiFetch('/api/accounting/customers', { credentials: 'include' }),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => { timedOut = true; reject(new Error('scan lookup timed out')); }, 15_000); }),
-      ]);
-      await assertOk(res, 'Could not load clients - try again');
-      const json = await res.json();
-      if (lookupSeq.current !== seq) return;
-      const d = json.data || json;
-      const clients: Client[] = Array.isArray(d) ? d : d.clients || [];
-      const match = fuzzyMatchClient(name, clients);
-      const hit = match ? clients.find(c => String(c.id) === String(match.id)) : undefined;
-      if (hit) { setForm(f => ({ ...f, clientId: String(hit.id) })); setScanned({ id: String(hit.id), name: hit.name }); }
-    } catch (err) { if (lookupSeq.current === seq) setError(timedOut ? SCAN_LOOKUP_TIMEOUT : apiErrorMessage(err, 'Could not load clients - try again')); }
-    finally { clearTimeout(timer); setScanLookup(s => (s === seq ? null : s)); }
-  }
 
   const [rateEditing, setRateEditing] = useState(false);
   // A kept draft comes back whole: its mode with its prices, and nothing the customer's defaults may then overwrite.
