@@ -12,12 +12,20 @@
  * The rules live in defaultAccountsService: GET shows the live role holders;
  * a save moves only the roles it changes and refuses (rolled back) anything
  * that would leave a role on an account the user did not choose.
+ *
+ * `payroll_net_pay` (where a pay run credits net pay) and `primary_bank` (the bank
+ * role, which net pay credits when `payroll_net_pay` is unset) may be set by an owner
+ * or admin only: managers can approve payroll, and one who could also redirect net
+ * pay could do both in a session. A manager naming either gets a 403 and nothing
+ * is saved; the other keys behave as for any writer.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
+import { canSetPayrollNetPay } from '@/lib/auth/writeRoles';
+import { isNetPayControlKey } from '@/modules/accounting/services/gl/defaultAccountRoles';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withTransaction } from '@/lib/neon';
@@ -29,7 +37,7 @@ import {
 } from '@/modules/accounting/services/gl/defaultAccountsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     try {
@@ -51,9 +59,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, '`loaded` must be an object of the holders the page showed');
     }
 
+    const controlKey = Object.keys(mappings).find(isNetPayControlKey);
+    if (controlKey !== undefined && !canSetPayrollNetPay(companyRole)) {
+      return apiResponse.forbidden(res, `Your role (${companyRole ?? 'unknown'}) cannot change '${controlKey}', which decides where payroll net pay is credited: only an owner or admin can.`);
+    }
+
     try {
       await withTransaction((tx) => saveDefaultAccountMappings(
-        tx, companyId, mappings as Record<string, unknown>, plainMapping(loaded)));
+        tx, companyId, mappings as Record<string, unknown>, plainMapping(loaded), user.id));
     } catch (err) {
       if (err instanceof DefaultAccountsRefusal) {
         return err.status === 409 ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
