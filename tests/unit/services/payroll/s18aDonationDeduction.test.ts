@@ -201,6 +201,29 @@ describe('4030 is cumulative over the tax year', () => {
       .toEqual([0, m2Without.retirementDeduction, m2Without.paye.monthlyPaye]);
   });
 
+  it('a big bonus and RA after allowed donations: the retirement deduction is what it would be without them', () => {
+    // R20 000 a month, R500 donated, then a R1 000 000 bonus and R400 000 RA in month 7, and the employee leaves.
+    const year = (giving: boolean) => {
+      let ytd: PayeYearToDate | undefined;
+      let last: PayrollLineResult | undefined;
+      for (let m = 1; m <= 7; m++) {
+        const big = m === 7 ? [bonus(1_000_000), ra(400_000)] : [];
+        last = line([salary(20_000), ...big, ...(giving ? [donation(500)] : [])], true, ytd);
+        ytd = next(last, ytd);
+      }
+      return { ytd: ytd!, last: last! };
+    };
+    const given = year(true);
+    const without = year(false);
+    expect(given.ytd.retirementDeduction).toBe(without.ytd.retirementDeduction);
+    expect(given.ytd.retirementDeduction).toBe(241_000);
+    // Months 1-6 give R3 000; in month 7 the deduction takes all the periodic pay, so that R500 waits.
+    // Leviable 1 140 000 − 241 000 − 3 000; taxable income for PAYE is the same 896 000.
+    expect(given.ytd.sdlLeviable).toBe(896_000);
+    expect(given.ytd.donationDeduction).toBe(3_000);
+    expect(given.ytd.tablePaye).toBeCloseTo(245_653, 2);
+  });
+
   it('a clawback past the periodic pay records no take-back the nil floor would swallow; the next line bears it', () => {
     const m1 = line([salary(30_000), donation(1_000)]);
     expect(m1.donationDeduction).toBe(1_000);

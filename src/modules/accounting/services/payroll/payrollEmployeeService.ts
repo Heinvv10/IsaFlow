@@ -154,6 +154,8 @@ export async function updatePayrollEmployee(
   // An end date moves who a run pays and the termination base, and the s18A tick moves PAYE and SDL: under the
   // company's payroll-approval lock, as every change the approval gate re-checks (payrollRunRecalcGate). Other fields
   // need no lock.
+  // Read before the lock, so only a tick seen to move is written: an "unchanged" one read stale writes nothing.
+  const tickMoved = data.s18aReceiptHeld !== undefined && data.s18aReceiptHeld !== before?.s18a_receipt_held;
   const write = (db: typeof sql) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
@@ -167,12 +169,11 @@ export async function updatePayrollEmployee(
       uif_excluded                 = COALESCE(${data.uifExcluded ?? null}, uif_excluded),
       medical_aid_main_member      = COALESCE(${data.medicalAidMainMember ?? null}, medical_aid_main_member),
       medical_aid_dependants_count = COALESCE(${data.medicalAidDependantsCount ?? null}, medical_aid_dependants_count),
-      s18a_receipt_held            = COALESCE(${data.s18aReceiptHeld ?? null}, s18a_receipt_held),
+      s18a_receipt_held            = COALESCE(${tickMoved ? data.s18aReceiptHeld ?? null : null}, s18a_receipt_held),
       updated_at                   = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `;
-  const tickMoved = data.s18aReceiptHeld !== undefined && data.s18aReceiptHeld !== before?.s18a_receipt_held;
   const rows = (endIso === null && !tickMoved ? await write(sql) : await withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
     return write(tx as typeof sql);
