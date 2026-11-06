@@ -21,6 +21,7 @@ import {
 import { readAgeing, readReconciliations, readSafely, unproducedSections } from './managementPackReads';
 import { getCashFlowDirect } from './cashFlowDirectService';
 import { loadPackVarianceNoteBlocks } from './managementPackVarianceNotes';
+import { checkExisting, removeDraftPack } from './managementPackExisting';
 import type { ManagementPackConfig } from './afsTypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
@@ -38,6 +39,8 @@ export interface GeneratePackOptions {
   period: string;       // 'YYYY-MM'
   config: ManagementPackConfig;
   triggeredBy: 'cron' | 'manual';
+  /** A person asked to rebuild this month: its untouched draft is replaced (`removeDraftPack`), and the new pack is held for review. */
+  replaceDraft?: { actorUserId: string };
 }
 
 export interface GeneratePackResult {
@@ -115,21 +118,14 @@ async function fetchCompanyName(companyId: string): Promise<string> {
   return String(rows[0]?.name ?? 'Unknown Company');
 }
 
-async function checkExisting(companyId: string, period: string): Promise<boolean> {
-  const rows = (await sql`
-    SELECT id FROM afs_documents
-    WHERE company_id = ${companyId}::UUID AND document_type = 'management_pack' AND period = ${period}
-    LIMIT 1
-  `) as Row[];
-  return rows.length > 0;
-}
-
 // ── Main export ──────────────────────────────────────────────────────────────
 
 export async function generateManagementPack(options: GeneratePackOptions): Promise<GeneratePackResult> {
-  const { companyId, period, config, triggeredBy } = options;
+  const { companyId, period, config, triggeredBy, replaceDraft } = options;
   log.info('Starting management pack generation', { companyId, period, triggeredBy }, 'managementPackGeneratorService');
 
+  // In the caller's transaction: a generation that then fails puts the draft back.
+  if (replaceDraft) await removeDraftPack(companyId, period, replaceDraft.actorUserId);
   if (await checkExisting(companyId, period)) {
     throw new DuplicatePackError(`Management pack already generated for period ${period}`);
   }
@@ -139,7 +135,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const plan = comparisonPlan(config.comparisonMode);
   // Before the document: a fault here must not leave a half-made pack that blocks the month's re-run.
   const budget = plan.budget || enabledSections.some(isBudgetSection) ? await loadPackBudget(companyId, period) : null;
-  const varianceNotes = budget?.kind === 'report' && enabledSections.includes('budget_variance')
+  const varianceNotes = budget?.kind === 'report' && enabledSections.some(isBudgetSection)
     ? await loadPackVarianceNoteBlocks(companyId, budget.report) : [];
 
   const { start, end } = periodBounds(period);
@@ -274,7 +270,8 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     });
   }
 
-  const heldForReview = config.reviewRequired || unproduced.length > 0;
+  // A rebuild never signs itself off and sends: only Deliver, on the list, sends it.
+  const heldForReview = config.reviewRequired || unproduced.length > 0 || replaceDraft !== undefined;
   if (unproduced.length > 0 && !config.reviewRequired) {
     log.warn('management pack: held for review, not signed off or delivered: a section could not be produced',
       { companyId, period, documentId: doc.id, sections: unproduced }, 'managementPackGeneratorService');

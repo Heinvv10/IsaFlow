@@ -331,8 +331,8 @@ describe('the budget sections', () => {
 
   it('reads the budget inside a savepoint, so a failed query cannot abort the request transaction the pack is written in', async () => {
     await generate('budget', ['income_vs_budget']);
-    expect(m.withSavepoint).toHaveBeenCalledTimes(1);
-    expect(m.withSavepoint.mock.calls[0]?.[0]).toBe('mgmt_pack_budget');
+    // The approved notes read in a savepoint of their own: they print here when budget_variance is off.
+    expect(m.withSavepoint.mock.calls.map((c) => c[0])).toEqual(['mgmt_pack_budget', 'mgmt_pack_variance_notes']);
     expect(m.buildReport).toHaveBeenCalledTimes(1);
   });
 

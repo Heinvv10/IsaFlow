@@ -11,9 +11,11 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { getManagementPackConfig } from '@/modules/accounting/services/afs/managementPackConfigService';
 import { generateManagementPack, DuplicatePackError } from '@/modules/accounting/services/afs/managementPackGeneratorService';
+import { PackNotReplaceableError } from '@/modules/accounting/services/afs/managementPackExisting';
 
 const BodySchema = z.object({
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'period must be YYYY-MM (e.g., 2026-04)'),
+  replaceDraft: z.boolean().optional(),
 }).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -25,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const parsed = BodySchema.safeParse(req.body);
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
-  const { period } = parsed.data;
+  const { period, replaceDraft } = parsed.data;
 
   log.info('Manual pack generation triggered', { companyId, period }, 'generate-pack-api');
 
@@ -37,10 +39,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       period,
       config,
       triggeredBy: 'manual',
+      replaceDraft: replaceDraft ? { actorUserId: (req as CompanyAuthedRequest).user.id } : undefined,
     });
     return apiResponse.success(res, { result });
   } catch (err) {
-    if (err instanceof DuplicatePackError) {
+    if (err instanceof DuplicatePackError || err instanceof PackNotReplaceableError) {
       return apiResponse.badRequest(res, err.message);
     }
     throw err;
