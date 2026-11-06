@@ -3,6 +3,7 @@
  * Remove (document capture owns the link), viewable when it claims an inert type, and shown only if its fetched bytes
  * are that type. A claimed PDF whose bytes are HTML shows "Preview not available" and downloads as octet-stream.
  */
+import { StrictMode } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -87,6 +88,33 @@ describe('the viewer on a captured document', () => {
     const link = screen.getByRole('link', { name: 'Download evil.html' });
     expect(link.getAttribute('href')).toBe(URL_);
     expect(link.getAttribute('download')).toBe('evil.html.pdf');
+  });
+
+  it('shows Loading…, never the previous document, while the next one is fetched', async () => {
+    const DOC2 = '33333333-3333-4333-8333-333333333333';
+    const second = captured({ id: `captured-${DOC2}`, file_url: `/api/accounting/captured-document-file?id=${DOC2}`, file_name: 'second.pdf' });
+    vi.mocked(apiFetch).mockImplementation((u) => (String(u) === URL_ ? Promise.resolve(bytes(PDF)) : new Promise<Response>(() => undefined)));
+    render(<AttachmentViewer attachments={[captured(), second]} startIndex={0} onClose={() => undefined} />);
+    expect(await screen.findByTitle('scan.pdf')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Next attachment' }));
+    expect(screen.getByText('Loading…')).toBeTruthy();
+    expect(document.querySelector('iframe')).toBeNull();
+  });
+
+  it('fetches each document once while open, stepping back included, and under StrictMode', async () => {
+    const DOC2 = '33333333-3333-4333-8333-333333333333';
+    const U2 = `/api/accounting/captured-document-file?id=${DOC2}`;
+    const second = captured({ id: `captured-${DOC2}`, file_url: U2, file_name: 'second.pdf' });
+    vi.mocked(apiFetch).mockImplementation(async () => bytes(PDF));
+    render(<StrictMode><AttachmentViewer attachments={[captured(), second]} startIndex={0} onClose={() => undefined} /></StrictMode>);
+    await screen.findByTitle('scan.pdf');
+    fireEvent.click(screen.getByRole('button', { name: 'Next attachment' }));
+    await screen.findByTitle('second.pdf');
+    fireEvent.click(screen.getByRole('button', { name: 'Previous attachment' }));
+    await screen.findByTitle('scan.pdf');
+    const calls = vi.mocked(apiFetch).mock.calls.map(([u]) => String(u));
+    expect(calls.filter((u) => u === URL_)).toHaveLength(1);
+    expect(calls.filter((u) => u === U2)).toHaveLength(1);
   });
 
   it('says so when the bytes cannot be fetched', async () => {
