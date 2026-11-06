@@ -13,9 +13,13 @@ const RESUME_COOLDOWN_MS = 60_000;
 export function useResumeRenewedSession(isAuthenticated: boolean, returnTo: string | null): void {
   useEffect(() => {
     if (!isAuthenticated || !returnTo) return;
-    const last = Number(sessionStorage.getItem(LAST_RESUME_KEY));
-    if (Date.now() - last < RESUME_COOLDOWN_MS) return;
-    sessionStorage.setItem(LAST_RESUME_KEY, String(Date.now()));
+    try {
+      const last = Number(sessionStorage.getItem(LAST_RESUME_KEY));
+      if (Date.now() - last < RESUME_COOLDOWN_MS) return;
+      sessionStorage.setItem(LAST_RESUME_KEY, String(Date.now()));
+    } catch {
+      return; // storage blocked: the loop guard cannot work, so stay on the form
+    }
     window.location.replace(returnTo);
   }, [isAuthenticated, returnTo]);
 }

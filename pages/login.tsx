@@ -207,8 +207,14 @@ function TwoFactorScreen({
 
 // ── Safe Redirect ─────────────────────────────────────────────────────────────
 
+/** Parsed, not pattern-matched: URL parsing strips tabs and newlines, so `/<tab>/evil.example` leaves the site. */
 function isSafeRedirect(url: string): boolean {
-  return url.startsWith('/') && !url.startsWith('//') && !url.startsWith('/\\');
+  const base = 'https://same-origin.invalid';
+  try {
+    return url.startsWith('/') && new URL(url, base).origin === base;
+  } catch {
+    return false; // unparseable, e.g. `//[`: refuse it rather than crash the login page
+  }
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────

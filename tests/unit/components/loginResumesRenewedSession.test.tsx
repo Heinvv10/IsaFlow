@@ -52,10 +52,22 @@ describe('/login with a renewed session', () => {
     ['no returnTo', {}],
     ['an off-site returnTo', { returnTo: 'https://evil.example/x' }],
     ['a protocol-relative returnTo', { returnTo: '//evil.example/x' }],
+    ['an unparseable returnTo', { returnTo: '//[' }],
+    ['a backslash returnTo', { returnTo: '/\\evil.example/x' }],
+    ['a returnTo hiding // behind a tab', { returnTo: '/\t/evil.example/x' }],
+    ['a returnTo hiding // behind a newline', { returnTo: '/\n/evil.example/x' }],
     ['an invitation, where the visitor may be signing in as someone else', { invite: 't', returnTo: '/invite/t' }],
   ])('stays on the form with %s', (_label, query) => {
     h.query = query as Record<string, string>;
     render(<LoginPage />);
+    expect(h.replaceLocation).not.toHaveBeenCalled();
+  });
+
+  it('stays on the form when storage is blocked, because the loop guard cannot work', () => {
+    h.query = { returnTo: AFS };
+    const denied = () => { throw new DOMException('denied', 'SecurityError'); };
+    vi.stubGlobal('sessionStorage', { getItem: denied, setItem: denied });
+    expect(() => render(<LoginPage />)).not.toThrow();
     expect(h.replaceLocation).not.toHaveBeenCalled();
   });
 

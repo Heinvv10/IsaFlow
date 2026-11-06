@@ -11,7 +11,7 @@
 //   - Rate-limited per IP (refresh tokens are scoped to the browser, so per-IP
 //     bounding is the right granularity before we know who the caller is).
 import type { NextApiHandler } from 'next';
-import { refresh } from '@/lib/auth/gotrue';
+import { refresh, verifyTokenSignature } from '@/lib/auth/gotrue';
 import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import {
   setAuthCookies,
@@ -22,6 +22,9 @@ import {
 } from '@/lib/auth/cookies';
 import { withRateLimit } from '@/lib/rateLimit';
 import { requireActiveAccount } from '@/lib/auth/requireActiveAccount';
+import { validateImpersonationProof } from '@/lib/auth/impersonationAssurance';
+import { IMPERSONATION_PROOF_COOKIE } from '@/lib/auth/impersonation-cookies';
+import { sessionActorOfToken } from '@/lib/auth/impersonationSessions';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -68,6 +71,19 @@ const handler: NextApiHandler = async (req, res) => {
     log.warn('auth refresh refused — account not in good standing', { userId: token.user.id }, 'Auth');
     clearAuthCookies(res);
     return res.status(403).json({ success: false, error: refusal });
+  }
+
+  // A Login-as session is time-boxed by its proof, but its refresh cookie lasts 30
+  // days: without this, a later page load could renew it long after the box ended.
+  if ((await sessionActorOfToken(token.access_token)) === 'impersonation') {
+    const proof = cookies[IMPERSONATION_PROOF_COOKIE];
+    if (!proof || !(await validateImpersonationProof(proof, await verifyTokenSignature(token.access_token)))) {
+      log.info('auth refresh refused: Login-as session has outlived its proof', { userId: token.user.id }, 'Auth');
+      clearAuthCookies(res);
+      return res
+        .status(401)
+        .json({ success: false, error: { code: 'REFRESH_FAILED', message: 'Session expired. Please sign in.' } });
+    }
   }
 
   // Preserve the original "Keep me signed in" choice by reading the hint cookie.
