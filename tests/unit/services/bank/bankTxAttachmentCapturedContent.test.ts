@@ -56,6 +56,15 @@ describe('get_document on a captured document', () => {
     expect(doc!.content).toBeUndefined();
   });
 
+  it('returns content at exactly the limit', async () => {
+    const exact = Buffer.concat([PDF, Buffer.alloc(MAX_CAPTURED_CONTENT_BYTES - PDF.length)]);
+    serve(docRow(MAX_CAPTURED_CONTENT_BYTES));
+    fetchRaw.mockResolvedValue({ buffer: exact, hash: 'h', storedHash: 'h', size: exact.length, fileType: 'pdf' });
+    const doc = await getBankTxAttachment('co-1', DOC, true);
+    expect(doc!.contentOmitted).toBeUndefined();
+    expect(doc!.content).toHaveLength(Math.ceil(exact.length / 3) * 4);
+  });
+
   it('says the content is missing when the stored object is gone', async () => {
     serve(docRow(10));
     fetchRaw.mockResolvedValue(null);

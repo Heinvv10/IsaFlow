@@ -32,6 +32,9 @@ const [bank, bankB, t1, t2, tb] = [uuid(), uuid(), uuid(), uuid(), uuid()];
 // On 2026-06-02, so the cases above keep their own figures: T3 a rejected document WITH a copy, T4/T5 a relink, T6 an
 // empty storage_path.
 const [t3, t4, t5, t6, d7, c7, d8, c8, d9] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
+// C10: a copy of D1 left on T6, a line D1 is not linked to (as a relink before attach removed copies left behind).
+// D11: linked to T4 later, with a copy whose id prefix is upper-case.
+const [c10, d11, c11] = [uuid(), uuid(), uuid()];
 const [u1, c2, d1, d2, d3, d4, d5, d6, db] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
 const ATT = '/api/accounting/bank-tx-attachments';
 const FILE = '/api/accounting/captured-document-file';
@@ -74,6 +77,9 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
       `INSERT INTO bank_transaction_attachments(id, bank_transaction_id, file_url, file_name, file_size)
        VALUES($1, $2, 'data:application/pdf;base64,JVBERi0=', $3, 5), ($4, $5, 'data:application/pdf;base64,JVBERi0=', $6, 5)`,
       [c7, t3, `${d7}_scan.pdf`, c8, t4, `${d8}_scan.pdf`]);
+    await pool.query(
+      `INSERT INTO bank_transaction_attachments(id, bank_transaction_id, file_url, file_name, file_size)
+       VALUES($1, $2, 'data:application/pdf;base64,JVBERi0=', $3, 5)`, [c10, t6, `${d1}_old.pdf`]);
     await doc(d1, company, t1, 'matched');
     await doc(d2, company, t1, 'matched');
     await doc(d3, company, t1, 'rejected');
@@ -190,8 +196,14 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
     { from: '2026-06-02', to: '2026-06-02', minAmount: 10000, limit: 50 })).rows.map((r) => r.id).sort();
 
   it('counts a copy only while its document is linked to the line and not rejected; an empty storage_path is not stored', async () => {
-    // T3's copy belongs to a rejected document: no support, not listed. T6's document has storage_path ''.
+    // T3's copy belongs to a rejected document; T6 holds only a document with storage_path '' and C10, a copy of D1,
+    // which is linked to T1, not T6. None of them supports its line or is listed.
     expect(await day2Unsupported()).toEqual([t3, t5, t6].sort());
+    const day2 = await listBankAttachments(company, { from: '2026-06-02', to: '2026-06-02', limit: 50 });
+    expect(day2.rows.map((r) => r.id)).toEqual([c8]);
+    expect(await getBankTxAttachment(company, c10)).toBeNull();
+    expect(await getBankTxAttachment(company, c7)).toBeNull();
+    expect(await getBankTxAttachment(company, c8)).toMatchObject({ id: c8 });
     expect((body(await call('GET', { bankTransactionId: t3 })).data as unknown[])).toEqual([]);
     expect((body(await call('GET', { bankTransactionId: t6 })).data as unknown[])).toEqual([]);
     const items = body(await call('GET', { bankTransactionId: t4 })).data as { id: string; document_id?: string }[];
@@ -213,5 +225,15 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
     expect(await getBankTxAttachment(company, d3)).toBeNull();
     expect(await getBankTxAttachment(company, db)).toBeNull();
     expect(await getBankTxAttachment(company, d9)).toBeNull();
+  });
+
+  it('re-linking to the same line keeps its copy, found whatever case its id prefix was written in', async () => {
+    await doc(d11, company, t4, 'matched');
+    await pool.query(
+      `INSERT INTO bank_transaction_attachments(id, bank_transaction_id, file_url, file_name, file_size)
+       VALUES($1, $2, 'data:application/pdf;base64,JVBERi0=', $3, 5)`, [c11, t4, `${d11.toUpperCase()}_scan.pdf`]);
+    // The fixture has no storage object: only finding the existing copy can report it mirrored.
+    expect(await attachCapturedDocToBankTx(company, d11, t4, null)).toEqual({ ok: true, mirrored: true });
+    expect((await pool.query('SELECT id FROM bank_transaction_attachments WHERE bank_transaction_id = $1', [t4])).rows.map((r) => r.id)).toEqual([c11]);
   });
 });

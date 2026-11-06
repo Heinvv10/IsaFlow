@@ -17,7 +17,7 @@ import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
 import { detectMimeFromMagic, magicBytesMatchMime } from '@/lib/fileMagic';
 import { fetchRawBytes } from '@/lib/documentStorage';
-import { linkedCapturedDocSql, uploadFileName } from './bankLineDocumentSql';
+import { attachmentCountsSql, linkedCapturedDocSql, uploadFileName } from './bankLineDocumentSql';
 import { mimeForCapturedFileType } from '../capture/capturedFileTypes';
 
 export const ATTACHMENT_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'] as const;
@@ -126,7 +126,10 @@ export async function getBankTxAttachment(
     FROM bank_transaction_attachments a
     JOIN bank_transactions bt ON bt.id = a.bank_transaction_id
     WHERE a.id = ${attachmentId}::UUID AND bt.company_id = ${companyId}::UUID
+      AND ${sql.unsafe(attachmentCountsSql('a', 'bt'))}
   `) as DbRow[];
+  // A copy that no longer counts (left on a line its document has left, or of a rejected document) is not served by
+  // id either, as list_documents no longer lists it.
   if (!row) return getLinkedCapturedDocument(companyId, attachmentId, includeContent);
 
   const url = String(row.file_url ?? '');

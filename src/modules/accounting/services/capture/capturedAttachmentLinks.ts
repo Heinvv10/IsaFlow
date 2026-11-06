@@ -97,7 +97,7 @@ export type UnlinkResult = 'unlinked' | 'not_linked';
 /**
  * Detach a captured document from a bank line: clear the link and delete its copy on that line. The document row is
  * locked the way every posting path locks it (captureRowLock, 5 s, then CaptureRowLockTimeoutError: the route answers
- * 409), then its copies, as attaching takes them, so the two cannot deadlock.
+ * 503 with Retry-After, via respondIfLockTimeout), then its copies, as attaching takes them, so the two cannot deadlock.
  *
  * Status is NOT changed. 'matched' has several writers with nothing posted (the bank link, a duplicate supplier
  * invoice, a sent invoice, a dunning or outbound email) and the status before linking is not recorded, so no reset is
