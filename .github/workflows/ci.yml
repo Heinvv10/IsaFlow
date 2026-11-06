@@ -102,7 +102,8 @@ jobs:
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
           sudo apt-get update -q
-          sudo apt-get install -y -qq --no-install-recommends ghostscript
+          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends ghostscript && break
+            [ "$i" = 2 ] && exit 1; echo '::warning::apt install stalled or failed; retrying once'; sudo dpkg --configure -a; done
 
       # --ignore-scripts: bun install otherwise runs lifecycle scripts of the
       # root, workspace members and trusted dependencies, any of which could
@@ -113,7 +114,9 @@ jobs:
       # Chromium for the unit tests that launch it, at the revision the locked
       # playwright expects. Velo's runners already have it.
       - if: ${{ runner.environment == 'github-hosted' }}
-        run: bunx playwright install --with-deps chromium
+        run: |
+          for i in 1 2; do timeout 900 bunx playwright install --with-deps chromium && break
+            [ "$i" = 2 ] && exit 1; echo '::warning::playwright install stalled or failed; retrying once'; sudo dpkg --configure -a; done
 
       # The gate list lives in ONE place: scripts/ci/run-ci.sh (R-052); this
       # job runs its static group, `velo` below runs the rest, and
@@ -192,7 +195,8 @@ jobs:
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
           sudo apt-get update -q
-          sudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils
+          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils && break
+            [ "$i" = 2 ] && exit 1; echo '::warning::apt install stalled or failed; retrying once'; sudo dpkg --configure -a; done
           sudo locale-gen en_US.UTF-8
 
       # As in static.
@@ -201,7 +205,9 @@ jobs:
 
       # As in static: Chromium for browser-tests.
       - if: ${{ runner.environment == 'github-hosted' }}
-        run: bunx playwright install --with-deps chromium
+        run: |
+          for i in 1 2; do timeout 900 bunx playwright install --with-deps chromium && break
+            [ "$i" = 2 ] && exit 1; echo '::warning::playwright install stalled or failed; retrying once'; sudo dpkg --configure -a; done
 
       - name: CI gate (scripts/ci/run-ci.sh velo)
         run: bun run ci velo
@@ -383,7 +389,8 @@ jobs:
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
           sudo apt-get update -q
-          sudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector
+          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector && break
+            [ "$i" = 2 ] && exit 1; echo '::warning::apt install stalled or failed; retrying once'; sudo dpkg --configure -a; done
           sudo locale-gen en_US.UTF-8
 
       - name: Install dependencies
@@ -392,7 +399,9 @@ jobs:
 
       # Hosted only: Chromium and the system libraries it needs (velo has them).
       - if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
-        run: bunx playwright install --with-deps chromium
+        run: |
+          for i in 1 2; do timeout 900 bunx playwright install --with-deps chromium && break
+            [ "$i" = 2 ] && exit 1; echo '::warning::playwright install stalled or failed; retrying once'; sudo dpkg --configure -a; done
 
       # Hosted only: the database, GoTrue and Demo company this run owns, and
       # the generated .env.local. Fails the job if any of it cannot be built.
