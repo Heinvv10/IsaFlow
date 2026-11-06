@@ -87,9 +87,7 @@ describe('the 2,560-input shape sweep', () => {
         } catch (err) {
           if (!(err instanceof PackRefusal)) throw err;
           refused += 1;
-          // What is still refused is net-debit revenue with ANOTHER line below zero as well: every
-          // other shape, including net-debit revenue with a material interest/tax step, gets its pack.
-          if (!(shape.negative && shape.sg.includes(-1))) unexpectedlyRefused.push(JSON.stringify(shape));
+          unexpectedlyRefused.push(JSON.stringify(shape));
         }
         if (faults.size > 0) printed.push(`${JSON.stringify(shape)} :: ${[...faults].join(' | ')}`);
         const inFitter = new Set<string>();
@@ -104,11 +102,11 @@ describe('the 2,560-input shape sweep', () => {
     }
     // The sweep must exercise the trimming path, or a green result proves nothing.
     expect(trimmedPages, 'no page was trimmed anywhere in the sweep').toBeGreaterThan(0);
-    // `refused` is pinned: 322 of the 2,560 shapes are refused (953 before the derived caption became
-    // page 6's last lever; renumbering footnotes changed none of them). They are the shapes whose
-    // required disclosures are longer still: net-debit revenue AND another line below zero.
+    // `refused` is pinned at 0 (953 before the derived caption became page 6's last lever, 322 before
+    // net-debit revenue with another line below zero got its two required disclosures under one heading):
+    // every shape in the sweep gets its pack.
     expect(unexpectedlyRefused).toEqual([]);
     expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, columnsSilent, falseCompleteness, columnsNamed, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, columnsSilent: 0, falseCompleteness: 0, columnsNamed: 1163, refused: 322, sample: [] });
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, columnsSilent: 0, falseCompleteness: 0, columnsNamed: 1485, refused: 0, sample: [] });
   }, 1_800_000);
 });

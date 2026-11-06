@@ -11,8 +11,8 @@
 //   - Rate-limited per IP (refresh tokens are scoped to the browser, so per-IP
 //     bounding is the right granularity before we know who the caller is).
 import type { NextApiHandler } from 'next';
-import { refresh } from '@/lib/auth/gotrue';
-import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
+import { refresh, verifyTokenSignature } from '@/lib/auth/gotrue';
+import { AUTH_RETRY_AFTER_SECS, AUTH_UNAVAILABLE_ERROR, respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import {
   setAuthCookies,
   clearAuthCookies,
@@ -22,6 +22,10 @@ import {
 } from '@/lib/auth/cookies';
 import { withRateLimit } from '@/lib/rateLimit';
 import { requireActiveAccount } from '@/lib/auth/requireActiveAccount';
+import { endExpiredLoginAs } from '@/lib/auth/endExpiredLoginAs';
+import { proofSecondsLeft, validateImpersonationProof } from '@/lib/auth/impersonationAssurance';
+import { ADMIN_STASH_COOKIE, IMPERSONATION_PROOF_COOKIE } from '@/lib/auth/impersonation-cookies';
+import { sessionActorOfToken } from '@/lib/auth/impersonationSessions';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -70,24 +74,50 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(403).json({ success: false, error: refusal });
   }
 
+  // A Login-as session is time-boxed by its proof, but its refresh cookie lasts 30
+  // days: without this, a later page load could renew it long after the box ended.
+  // A renewal inside the box gets a cookie that dies with the proof. GoTrue sets the
+  // JWT's own lifetime, so a copy of that one token stays valid until its exp.
+  let expiresIn = token.expires_in;
+  let actor: Awaited<ReturnType<typeof sessionActorOfToken>>;
+  try {
+    actor = await sessionActorOfToken(token.access_token);
+  } catch (err) {
+    // No verdict on the session: keep the cookies. GoTrue accepts the old refresh token again on the retry.
+    log.error('auth refresh: session lookup failed', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
+    res.setHeader('Retry-After', String(AUTH_RETRY_AFTER_SECS));
+    return res.status(503).json({ success: false, error: AUTH_UNAVAILABLE_ERROR });
+  }
+  if (actor === 'impersonation') {
+    const proof = cookies[IMPERSONATION_PROOF_COOKIE];
+    if (!proof || !(await validateImpersonationProof(proof, await verifyTokenSignature(token.access_token)))) {
+      log.info('auth refresh refused: Login-as session has outlived its proof', { userId: token.user.id }, 'Auth');
+      await endExpiredLoginAs(res, token.access_token, cookies[ADMIN_STASH_COOKIE]);
+      return res
+        .status(401)
+        .json({ success: false, error: { code: 'REFRESH_FAILED', message: 'Session expired. Please sign in.' } });
+    }
+    expiresIn = Math.min(expiresIn, proofSecondsLeft(proof));
+  }
+
   // Preserve the original "Keep me signed in" choice by reading the hint cookie.
-  // Default to true: a session-cookie user whose browser is still open clearly
-  // wants the session to continue; the rotated refresh cookie behaves the same
-  // way as the original (session-only when hint = '0', persistent otherwise).
-  const persistent = cookies[REMEMBER_ME_COOKIE] !== '0';
+  // Unknown counts as not ticked: the rotated cookies are session-only, and the session
+  // continues while the browser stays open.
+  const persistent = cookies[REMEMBER_ME_COOKIE] === '1';
 
   setAuthCookies(res, {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
-    expiresIn: token.expires_in,
-    persistent,
+    expiresIn,
+    // A session-only cookie has no Max-Age, so it would ignore the limit set above.
+    persistent: actor === 'impersonation' || persistent,
     preserveImpersonation: true,
   });
 
   return res.status(200).json({
     success: true,
     data: {
-      expiresAt: new Date(Date.now() + token.expires_in * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
     },
   });
 };

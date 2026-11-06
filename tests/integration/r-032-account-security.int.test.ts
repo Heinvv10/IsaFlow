@@ -87,10 +87,10 @@ describe('R-032 (f) — a Login-as session changes none of the target\'s credent
     expect(reasonOf(result), JSON.stringify(result.state.body)).not.toBe('IMPERSONATION_FORBIDDEN');
   });
 
-  it('still signs the target\'s own session out globally', async () => {
+  it('signs the target\'s own session out of this device only', async () => {
     const callsBefore = fx.gotrueCalls.length;
     const result = await fx.call(logout, await fx.ownSession(), { body: {} });
     expect(result.state.statusCode).toBe(200);
-    expect(fx.gotrueCalls.slice(callsBefore)).toEqual(['POST /logout?scope=global']);
+    expect(fx.gotrueCalls.slice(callsBefore)).toEqual(['POST /logout?scope=local']);
   });
 });

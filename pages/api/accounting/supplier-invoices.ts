@@ -49,7 +49,7 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
   const { companyId } = req as CompanyAuthedRequest;
   try {
     const { invoiceNumber, useSequence, supplierId, purchaseOrderId, grnId, invoiceDate,
-      dueDate, taxRate, paymentTerms, reference, projectId, costCenterId,
+      dueDate, dueDateGivenAs, taxRate, paymentTerms, reference, projectId, costCenterId,
       notes, items, currencyCode, exchangeRate } = req.body;
 
     if (!supplierId || !invoiceDate || !items || !Array.isArray(items) || items.length === 0) {
@@ -98,6 +98,8 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     const invoice = await createSupplierInvoice(companyId, {
       invoiceNumber: resolvedInvoiceNumber, supplierId: String(supplierId), purchaseOrderId, grnId,
       invoiceDate, dueDate, taxRate: taxRate ? Number(taxRate) : undefined,
+      // Migration 962: only 'document' is meaningful from the page (a date the scan printed or its terms gave); else manual.
+      dueDateGivenAs: dueDateGivenAs === 'document' ? 'document' : undefined,
       paymentTerms, reference, projectId, costCenterId, notes, items: safeItems,
       currencyCode: typeof currencyCode === 'string' ? currencyCode : undefined,
       exchangeRate: exchangeRate ? Number(exchangeRate) : undefined,

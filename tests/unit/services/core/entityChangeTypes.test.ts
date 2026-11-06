@@ -17,15 +17,22 @@ const SQL = readFileSync(path.join(ROOT, 'scripts/migrations/sql/888_entity_chan
 const SQL_952 = readFileSync(path.join(ROOT, 'scripts/migrations/sql/952_payroll_bank_details_tenant_history.sql'), 'utf8');
 /** 961 restates the CHECK with company_setting (the read policy stays 952's). */
 const SQL_961 = readFileSync(path.join(ROOT, 'scripts/migrations/sql/961_company_default_terms_history.sql'), 'utf8');
+/** 962 restates the CHECK, the read policy and the projection with the two invoice types: what the database holds now. */
+const SQL_962 = readFileSync(path.join(ROOT, 'scripts/migrations/sql/962_due_date_source_and_history.sql'), 'utf8');
 const quoted = (block: string) => [...block.matchAll(/'(\w+)'/g)].map((m) => m[1]!);
 
-describe('888, 952, 961 and their TypeScript agree', () => {
+describe('888, 952, 961, 962 and their TypeScript agree', () => {
   it('entity types: the CHECK, the trigger list and ENTITY_TYPES', () => {
-    const check = /ADD CONSTRAINT entity_changes_entity_type_check CHECK \(entity_type IN \(([\s\S]*?)\)\)/.exec(SQL_961)![1]!;
+    const check = /ADD CONSTRAINT entity_changes_entity_type_check CHECK \(entity_type IN \(([\s\S]*?)\)\)/.exec(SQL_962)![1]!;
     expect(quoted(check).sort()).toEqual([...ENTITY_TYPES].sort());
     const values = /FROM \(VALUES([\s\S]*?)\) v\(tbl, typ\)/.exec(SQL)![1]!;
     const tracked = [...values.matchAll(/\('\w+', '(\w+)'\)/g)].map((m) => m[1]!);
-    expect([...tracked, 'payroll_bank_detail', 'company_setting'].sort()).toEqual([...ENTITY_TYPES].sort());
+    expect([...tracked, 'payroll_bank_detail', 'company_setting', 'supplier_invoice', 'customer_invoice'].sort()).toEqual([...ENTITY_TYPES].sort());
+    // 962: an invoice's capture fires only on an UPDATE that moves its due date or the date's source, ENABLE ALWAYS.
+    for (const [tbl, typ] of [['supplier_invoices', 'supplier_invoice'], ['customer_invoices', 'customer_invoice']]) {
+      expect(SQL_962).toMatch(new RegExp(`AFTER UPDATE OF due_date, due_date_source ON ${tbl}\\s+FOR EACH ROW WHEN \\(OLD\\.due_date IS DISTINCT FROM NEW\\.due_date OR OLD\\.due_date_source IS DISTINCT FROM NEW\\.due_date_source\\)\\s+EXECUTE FUNCTION public\\.entity_change_capture\\('${typ}'\\)`));
+      expect(SQL_962).toContain(`ALTER TABLE ${tbl} ENABLE ALWAYS TRIGGER entity_change_capture_due_date;`);
+    }
     // 961: the company default's own captures, one per operation, narrowed to its key, ENABLE ALWAYS.
     expect(SQL_961).toMatch(/AFTER INSERT ON accounting_settings\s+FOR EACH ROW WHEN \(NEW\.key = 'default_payment_terms'\)\s+EXECUTE FUNCTION public\.entity_change_capture\('company_setting'\)/);
     expect(SQL_961).toMatch(/AFTER UPDATE ON accounting_settings\s+FOR EACH ROW WHEN \(OLD\.key = 'default_payment_terms' OR NEW\.key = 'default_payment_terms'\)\s+EXECUTE FUNCTION public\.entity_change_capture\('company_setting'\)/);
@@ -40,7 +47,7 @@ describe('888, 952, 961 and their TypeScript agree', () => {
   });
 
   it('who reads what: the RLS policy and mayReadType', () => {
-    const policy = /CREATE POLICY entity_changes_read[\s\S]*?END\);/.exec(SQL_952)![0];
+    const policy = /CREATE POLICY entity_changes_read[\s\S]*?END\);/.exec(SQL_962)![0];
     const memberTypes = quoted(/WHEN entity_type IN \(([^)]*)\) THEN true/.exec(policy)![1]!);
     const payrollRoles = quoted(/'payroll_employee'\s+THEN COALESCE\(public\.company_member_actor_role\(company_id\) IN \(([^)]*)\)/.exec(policy)![1]!);
     const bankRoles = quoted(/'payroll_bank_detail'\s+THEN COALESCE\(public\.company_member_actor_role\(company_id\) IN \(([^)]*)\)/.exec(policy)![1]!);
@@ -63,6 +70,18 @@ describe('888, 952, 961 and their TypeScript agree', () => {
     for (const fields of Object.values(SENSITIVE_FIELDS)) for (const f of fields) expect(dropped).not.toContain(f);
     const companyAllow = /e\.key = ANY \(ARRAY\[([\s\S]*?)\]::pg_catalog\.text\[\]\)/.exec(SQL)![1]!;
     for (const f of SENSITIVE_FIELDS.company) expect(quoted(companyAllow)).toContain(f);
+  });
+
+  it('962 restates 888\'s projection and adds only the invoice allow-lists', () => {
+    const fn = (sql: string) => /CREATE OR REPLACE FUNCTION public\.entity_change_projection[\s\S]*?\n\$\$;/.exec(sql)![0];
+    const arms = /    -- 962:[\s\S]*?(?=    ELSE p_row)/;
+    const p962 = fn(SQL_962);
+    expect(p962.replace(arms, '')).toBe(fn(SQL));
+    const invoiceArms = arms.exec(p962)![0];
+    for (const typ of ['supplier_invoice', 'customer_invoice']) {
+      const arm = new RegExp(`WHEN '${typ}' THEN([\\s\\S]*?)(?=WHEN|$)`).exec(invoiceArms)![1]!;
+      expect(quoted(arm).sort()).toEqual(['due_date', 'due_date', 'due_date_source', 'due_date_source', 'invoice_number', 'invoice_number']);
+    }
   });
 
   // Blind review r2 L-1: the whole allow-list is pinned, so dropping any column fails here (not only the five the
@@ -104,6 +123,8 @@ describe('888, 952, 961 and their TypeScript agree', () => {
       approval_enforcement: [],
       payroll_bank_detail: ['account_number', 'branch_code', 'account_holder'],
       company_setting: [],
+      supplier_invoice: [],
+      customer_invoice: [],
     });
   });
 

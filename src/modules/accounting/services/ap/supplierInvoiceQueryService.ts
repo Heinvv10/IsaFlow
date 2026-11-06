@@ -68,7 +68,7 @@ export const SUPPLIER_INVOICE_EXPORT_CAP = 10_000;
 const INVOICE_COLUMNS = `
   si.id, si.company_id, si.invoice_number, si.supplier_id,
   si.purchase_order_id, si.grn_id,
-  si.invoice_date, si.due_date, si.received_date,
+  si.invoice_date, si.due_date, si.due_date_source, si.received_date,
   si.subtotal, si.tax_rate, si.tax_amount, si.total_amount,
   si.amount_paid, si.balance, si.payment_terms,
   si.currency, si.reference, si.status, si.match_status,

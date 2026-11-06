@@ -27,6 +27,7 @@ export const listDocumentsTool: McpTool = {
   description:
     'Supporting documents on file. THERE ARE TWO SEPARATE STORES and this reads whichever one you address. ' +
     'Give from and to (and optionally bank_transaction_id) to list the receipts, slips and invoice scans attached to BANK TRANSACTIONS — the read side of attach_document. ' +
+    'Those rows carry store "bank_attachment" (an uploaded file) or "captured_document" (a captured document linked to the bank line that has no uploaded copy, e.g. one over 2 MB); both count as the line\'s supporting documents. ' +
     'Give entity_type and entity_id instead to list the documents filed against one accounting document (' + VALID_ENTITY_TYPES.join(', ') + '), including documents cross-linked from another entity, which come back with source "linked" and a link_reason. ' +
     'DOES NOT COVER: a company-wide listing of the entity store. Those rows carry no company id and are fenced by their parent document, so they can only be read one entity at a time — there is no "all documents for this company" query, and asking for one would silently cross tenants. ' +
     'Nor does it return file bytes; use get_document for a single file. ' +
@@ -107,7 +108,7 @@ export const listDocumentsTool: McpTool = {
       });
       return ok(buildEnvelope({
         rows: page.rows.map((r) => ({
-          store: 'bank_attachment',
+          store: r.store,
           id: r.id,
           bank_transaction_id: r.bankTransactionId,
           file_name: r.fileName,
@@ -138,7 +139,7 @@ export const listUnsupportedTransactionsTool: McpTool = {
     'Bank transactions with NO supporting document attached — the "which transactions over R10,000 have no receipt" audit test. ' +
     'min_amount is compared against the ABSOLUTE amount, so a R12,000 payment out is caught as readily as one in. Rows come back largest first. ' +
     'transactions_in_scope is every transaction in the range over the threshold; transactions_with_a_document is how many of those do have one, so the two figures size the exposure rather than merely listing it. ' +
-    'LIMIT: "supporting document" here means a file attached to the BANK TRANSACTION itself (attach_document). A transaction whose evidence was filed against the related invoice instead is still reported as unsupported — those two stores are not linked. Treat the result as a list to check, not a list of failures.',
+    'LIMIT: "supporting document" here means a document on the BANK TRANSACTION itself: a file attached to it (attach_document) or a captured document linked to it. A transaction whose evidence was filed against the related invoice instead is still reported as unsupported — those two stores are not linked. Treat the result as a list to check, not a list of failures.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
@@ -200,7 +201,8 @@ export const listUnsupportedTransactionsTool: McpTool = {
 export const getDocumentTool: McpTool = {
   name: 'get_document',
   description:
-    'One bank-transaction attachment by id, with its file name, size, mime type and the transaction it supports. ' +
+    'One bank-transaction document by id (store "bank_attachment" or "captured_document" from list_documents), with its file name, size, mime type and the transaction it supports. ' +
+    'A captured document\'s content is returned only up to 4 MB; past that content_omitted says "too_large". ' +
     'Set include_content to also get the file as base64 — omit it unless you will actually read the bytes, since a scan can be several hundred kilobytes of response. ' +
     'DOES NOT COVER the entity document store (documents filed against an invoice or credit note): those are held in external file storage rather than inline, so list_documents returns their metadata and they must be fetched through the application.',
   scope: 'read:reports',
@@ -208,7 +210,7 @@ export const getDocumentTool: McpTool = {
   inputSchema: {
     type: 'object',
     properties: {
-      document_id: { type: 'string', description: 'The attachment id from list_documents (store "bank_attachment").' },
+      document_id: { type: 'string', description: 'The id from list_documents (store "bank_attachment" or "captured_document").' },
       include_content: { type: 'boolean', description: 'Return the file bytes as base64. Default false.' },
     },
     required: ['document_id'],
@@ -224,13 +226,14 @@ export const getDocumentTool: McpTool = {
       if (!doc) return toolError(NOT_FOUND);
       return ok({
         id: doc.id,
-        store: 'bank_attachment',
+        store: doc.store ?? 'bank_attachment',
         bank_transaction_id: doc.bankTransactionId,
         file_name: doc.fileName,
         file_size: doc.fileSize,
         mime_type: doc.mimeType,
         uploaded_at: doc.createdAt,
         ...(doc.content === undefined ? {} : { content: doc.content }),
+        ...(doc.contentOmitted === undefined ? {} : { content_omitted: doc.contentOmitted }),
       });
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to read the document.'));

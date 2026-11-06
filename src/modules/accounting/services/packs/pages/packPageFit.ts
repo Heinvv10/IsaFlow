@@ -116,6 +116,7 @@ function lastTrimmableNote(blocks: PackPageBlock[], level: 'optional' | 'require
     if (block.kind !== 'disclosure') continue;
     const required = block.disclosure.required === true;
     if (required !== (level === 'required')) continue;
+    if (block.disclosure.neverTrim === true) continue;
     if (block.disclosure.notes.length > (required ? 1 : 0)) return i;
   }
   return null;
@@ -169,7 +170,7 @@ export function fitPageReport<T extends MeasurablePage>(
 
   const blocks: PackPageBlock[] = [...page.blocks];
   const footnotes: PackFootnote[] = [...page.footnotes];
-  const dropped: Dropped = { ...NOTHING, columns: [...(page.columnsLeftOut ?? [])], columnsSaid: page.columnsSaid === true, from: [] };
+  const dropped: Dropped = { ...NOTHING, columns: [...(page.columnsLeftOut ?? [])], from: [] };
   const droppedNumbers = new Set<number>();
   // THE PAGE IS MEASURED WITH THE FOOTNOTE THAT EXPLAINS THE TRIMMING ON IT.
   // A budget that reserves a flat allowance instead over-trims a page that

@@ -56,7 +56,7 @@ export function BankDetailsEditor({ employeeId, start, holderRequired, onSaved, 
   return (
     <form onSubmit={submit} noValidate className="space-y-4">
       {error && <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">{error}</p>}
-      <BankFields bank={bank} errors={errors} onChange={change} fieldRef={k => el => { refs.current[k] = el; }}
+      <BankFields required bank={bank} errors={errors} onChange={change} fieldRef={k => el => { refs.current[k] = el; }}
         holderDisabled={clearHolder}
         hint={start ? 'Type the full number again; the current one is never shown here.' : undefined} />
       {holderRequired && (

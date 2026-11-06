@@ -44,7 +44,8 @@ export async function getCashFlowReconciliation(
       fetchBankBalance(companyId, periodEnd),
     ]);
 
-    const directClosing = directReport.closingCash;
+    // Both statements close on the ledger's cash; what their journals reach is the closing less what they could not explain.
+    const directClosing = toMoney(directReport.closingCash - directReport.unexplainedDifference);
     const variance = Math.max(
       Math.abs(directClosing - bankBalance),
       Math.abs(indirectClosing - bankBalance),

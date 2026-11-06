@@ -21,9 +21,11 @@ export interface Employee {
   uifExcluded: boolean;
   medicalAidMainMember: boolean;
   medicalAidDependantsCount: number;
+  s18aReceiptHeld: boolean;
   costCentreId?: string | null;
   payScaleId?: string | null;
   occupationalLevelId?: string | null;
+  paymentMethod?: 'eft' | 'cash';
 }
 
 interface Props {
@@ -90,6 +92,11 @@ export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Prop
           <input type="checkbox" checked={employee.medicalAidMainMember}
             onChange={e => onChange({ ...employee, medicalAidMainMember: e.target.checked })} />
           Medical aid main member
+        </label>
+        <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+          <input type="checkbox" checked={employee.s18aReceiptHeld}
+            onChange={e => onChange({ ...employee, s18aReceiptHeld: e.target.checked })} />
+          s18A donation receipt held
         </label>
         <div>
           <label htmlFor="employee-dependants" className={label}>Medical aid dependants</label>

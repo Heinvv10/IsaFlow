@@ -12,15 +12,11 @@
  * Every query is scoped to `companyId`.
  */
 
-import { sql } from '@/lib/neon';
 import { toMoney } from '@/lib/money/decimalSum';
-import { CASH_SUBTYPES, type AccountType } from '@/modules/accounting/services/gl/accountSubtypes';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { log } from '@/lib/logger';
-import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
-import {
-  bucketSection, INDIRECT_BUCKETS, isDisposalJournal, placeJournal, SEEDED_CURRENT_PORTION_CODE, type IndirectBucket, type IndirectSection,
-} from './cashFlowIndirectClassification';
+import { bucketSection, INDIRECT_BUCKETS, placeJournal, type IndirectBucket, type IndirectSection } from './cashFlowIndirectClassification';
+import { fetchCashFlowJournals } from './cashFlowJournals';
 
 export interface IndirectCashFlowItem { label: string; amount: number }
 export interface IndirectCashFlowSection { section: string; items: IndirectCashFlowItem[]; total: number }
@@ -38,11 +34,6 @@ export interface IndirectCashFlow {
    * on a year-end journal) and is shown as its own section, never absorbed into a line.
    */
   unexplainedDifference: number;
-}
-
-interface MovementRow {
-  journal_entry_id: string; source: string | null; net_cash: string | number | null; account_type: AccountType; account_subtype: string | null;
-  is_loan_current_portion: boolean; debit: string | number | null; credit: string | number | null;
 }
 
 /** Label per line; `always` lines show at zero (the screen's long-standing layout), the others only when they moved. */
@@ -68,43 +59,6 @@ const SECTIONS: Array<{ key: IndirectSection; title: string }> = [
   { key: 'financing', title: 'Financing Activities' },
 ];
 
-/**
- * Posted debits and credits of every non-cash account in the period, per journal and account kind, with the journal's
- * net movement on its cash accounts. An account is the current portion of debt when it is the seeded system account or a
- * loan of this company names it (`loans.current_portion_account_id`, what a repayment debits).
- */
-async function fetchNonCashMovement(companyId: string, startDate: string, endDate: string): Promise<MovementRow[]> {
-  return (await sql`
-    WITH lines AS (
-      SELECT ga.account_type, ga.account_subtype, jl.debit, jl.credit, jl.journal_entry_id, je.source,
-             -- The cash accounts are what is being explained (the same predicate as cash.balance.v1).
-             (ga.account_type = 'asset' AND COALESCE(ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}), false)) AS is_cash,
-             (ga.account_type = 'liability' AND (
-               (ga.is_system_account AND ga.account_code = ${SEEDED_CURRENT_PORTION_CODE})
-               OR EXISTS (SELECT 1 FROM loans ln WHERE ln.company_id = ${companyId}::UUID AND ln.current_portion_account_id = ga.id)
-             )) AS is_loan_current_portion
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-        AND je.company_id = ${companyId}::UUID
-        AND jl.company_id = ${companyId}::UUID
-        AND ga.company_id = ${companyId}::UUID
-        AND je.entry_date BETWEEN ${startDate} AND ${endDate}
-    ), journal_cash AS (
-      SELECT journal_entry_id, SUM(COALESCE(debit, 0) - COALESCE(credit, 0)) AS net_cash FROM lines WHERE is_cash GROUP BY journal_entry_id
-    )
-    SELECT l.journal_entry_id, l.source, COALESCE(jc.net_cash, 0)::numeric AS net_cash,
-           l.account_type, l.account_subtype, l.is_loan_current_portion,
-           COALESCE(SUM(l.debit), 0)::numeric  AS debit,
-           COALESCE(SUM(l.credit), 0)::numeric AS credit
-    FROM lines l
-    LEFT JOIN journal_cash jc ON jc.journal_entry_id = l.journal_entry_id
-    WHERE NOT l.is_cash
-    GROUP BY l.journal_entry_id, l.source, jc.net_cash, l.account_type, l.account_subtype, l.is_loan_current_portion
-  `) as MovementRow[];
-}
-
 /** The section that carries a difference the journals do not explain. */
 export const UNEXPLAINED_SECTION = 'Unexplained Difference';
 const UNEXPLAINED_LABEL = 'Unexplained difference: the ledger\'s cash does not follow from its posted journals';
@@ -114,24 +68,15 @@ export async function getIndirectCashFlow(companyId: string, startDate: string, 
   // isolation level cannot be raised after its first statement), so a journal posted by ANOTHER session between the movement
   // read and the ledger-cash read can show for one load as a small Unexplained Difference (and its warn log). It is transient
   // by construction: the next load reads both after the posting, and nothing is stored from it.
-  const [openingCash, rows, ledgerClosing] = await Promise.all([
+  const [openingCash, journals, ledgerClosing] = await Promise.all([
     getCashBalance(companyId, startDate, { exclusive: true }).then((b) => b.total),
-    fetchNonCashMovement(companyId, startDate, endDate),
+    fetchCashFlowJournals(companyId, startDate, endDate),
     getCashBalance(companyId, endDate).then((b) => b.total),
   ]);
 
   const byBucket = new Map<IndirectBucket, number>(INDIRECT_BUCKETS.map((b) => [b, 0]));
-  const journals = new Map<string, MovementRow[]>();
-  for (const r of rows) journals.set(r.journal_entry_id, [...(journals.get(r.journal_entry_id) ?? []), r]);
-  for (const legs of journals.values()) {
-    const journalLegs = legs.map((r) => ({
-      accountType: r.account_type,
-      subtype: r.account_subtype,
-      isLoanCurrentPortion: r.is_loan_current_portion === true,
-      creditLessDebit: toMoney(Number(r.credit ?? 0) - Number(r.debit ?? 0)),
-    }));
-    const placed = placeJournal(journalLegs, toMoney(Number(legs[0]!.net_cash ?? 0)), isDisposalJournal(legs[0]!.source, journalLegs));
-    for (const { bucket, amount } of placed) byBucket.set(bucket, byBucket.get(bucket)! + amount);
+  for (const { legs, netCash, disposal } of journals) {
+    for (const { bucket, amount } of placeJournal(legs, netCash, disposal)) byBucket.set(bucket, byBucket.get(bucket)! + amount);
   }
 
   const sections: IndirectCashFlowSection[] = SECTIONS.map(({ key, title }) => {
