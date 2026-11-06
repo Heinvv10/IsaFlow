@@ -158,6 +158,29 @@ describeIfDb('cash flow: the indirect and direct methods agree on every journal'
     });
   });
 
+  // The adversarial review's probes A, B and D: a posted journal that no longer balances. Each method puts what its legs place in
+  // the sections and the rest of the ledger's cash in Unexplained Difference: the same figures in both, never absorbed into operating.
+  it.each([
+    ['A: a 250 bank debit added to a posted 500 receipt', 500, 250, 750],
+    ['B: only the bank line of a 100 receipt left (its revenue line deleted)', 0, 100, 100],
+    ['D: a 250 revenue credit added to a posted 500 receipt', 750, -250, 500],
+  ] as const)('%s', async (name, operating, unexplained, ledgerCash) => {
+    await inTx(async (x) => {
+      const bank = await x.acct('asset', 'bank'), rev = await x.acct('revenue', 'revenue');
+      const gap = (je: string, account: string, debit: number, credit: number) => x.c.query(
+        `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,$4,$5)`, [CO, je, account, debit, credit]);
+      if (name.startsWith('A')) await gap(await x.j('2026-11-12', [[bank, 500, 0], [rev, 0, 500]]), bank, 250, 0);
+      if (name.startsWith('B')) {
+        const je = await x.j('2026-11-12', [[bank, 100, 0], [rev, 0, 100]]);
+        await x.c.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = $1 AND gl_account_id = $2', [je, rev]);
+      }
+      if (name.startsWith('D')) await gap(await x.j('2026-11-12', [[bank, 500, 0], [rev, 0, 500]]), rev, 0, 250);
+      const t = await totals(P[0], P[1], { fault: true });
+      expect({ op: t.ind.op, unexplained: t.ind_full.unexplainedDifference, close: t.ind_full.closingCash }).toEqual({ op: operating, unexplained, close: ledgerCash });
+      expect({ op: t.dir.op, unexplained: t.dir_full.unexplainedDifference, close: t.dir_full.closingCash }).toEqual({ op: operating, unexplained, close: ledgerCash });
+    });
+  });
+
   it('a cash leg on the year-end closing journal (a ledger fault) is ignored by both methods: the direct statement closes on the ledger and shows the gap, the reconciliation flags it', async () => {
     await inTx(async (x) => {
       const bank = await x.acct('asset', 'bank'), re = await x.acct('equity', 'retained_earnings');

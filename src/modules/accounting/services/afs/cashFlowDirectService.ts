@@ -136,7 +136,9 @@ export async function getCashFlowDirect(
     const financingTotal = toMoney(financingItems.reduce((s, i) => s + i.amount, 0));
     const explained = toMoney(operatingTotal + investingTotal + financingTotal);
     // The statement closes on the ledger's cash (`cash.balance.v1`). What the journals' movements do not explain (a cash leg
-    // on the year-end closing journal, a posted journal that does not balance) is shown as its own figure, never absorbed.
+    // on the year-end closing journal, a posted journal that does not balance) is shown as its own figure, never absorbed:
+    // `journalSections` places only what a journal's legs place, so a gap between a journal's cash and its legs is left here,
+    // as it is in the indirect statement, and not in an operating line.
     const unexplainedDifference = toMoney(ledgerClosing - openingCash - explained);
     if (unexplainedDifference !== 0) {
       log.warn('Direct cash flow does not tie to the ledger cash',
