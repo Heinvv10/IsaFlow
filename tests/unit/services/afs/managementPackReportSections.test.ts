@@ -51,6 +51,22 @@ describe('cash flow', () => {
     expect(tableOf(cashFlowBlocks([{ label: 'This month', report: cash() }], false)).rows.map((r) => r[0])).not.toContain('Unexplained difference');
   });
 
+  it('in a pack with a faulty month and a clean one the group shows in both columns (400 and 0), whichever month is faulty', () => {
+    const faulty = cash({ unexplainedDifference: 400, netChange: 2900, closingCash: 3900 });
+    for (const [columns, cells] of [
+      [[{ label: 'This month', report: faulty }, { label: 'Last month', report: cash() }], ['R 400.00', 'R 0.00']],
+      [[{ label: 'This month', report: cash() }, { label: 'Last month', report: faulty }], ['R 0.00', 'R 400.00']],
+    ] as const) {
+      const t = tableOf(cashFlowBlocks([...columns], false));
+      expect(t.headers).toEqual(['', 'This month', 'Last month']);
+      const at = t.rows.findIndex((r) => r[0] === 'Unexplained difference');
+      expect(at).toBeGreaterThan(-1);
+      expect(t.rows[at]).toEqual(['Unexplained difference', '', '']);
+      expect(t.rows[at + 1]).toEqual(['The ledger\'s cash does not follow from its posted journals', ...cells]);
+      expect(t.rows[at + 2]).toEqual(['Total unexplained difference', ...cells]);
+    }
+  });
+
   it('says it is the direct method', () => {
     expect(texts(cashFlowBlocks([{ label: 'This month', report: cash() }], false))).toEqual(['Direct method: the cash received and paid in the month, grouped by what it was for.']);
   });

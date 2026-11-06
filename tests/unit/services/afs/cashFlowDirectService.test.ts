@@ -104,18 +104,24 @@ describe('cashFlowDirectService', () => {
   });
 
   it('foots to the cent when a journal\'s operating cash is split into fractions of a cent: items add to their section, sections to net change', async () => {
-    // 0.01 of net cash over a customers leg and a suppliers leg that each take 0.005: rounded apart each is 0.01, 0.02 in all.
-    const rows = [mv('S1', 0.01, 'revenue', 'sales', 0, 0.005), mv('S1', 0.01, 'liability', 'payable', 0, 0.005)];
-    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(rows).mockResolvedValueOnce([{ ...OPENING_ROWS[0]!, gl_debit: 15000.01 }]);
+    // 1.00 of cash in, 2.00 of fixed asset bought (it runs against the cash, so draws none), 3.00 credited to sales, payables
+    // and payroll: the 1.00 is shared 0.3333.. over customers, suppliers and employees. Rounded apart that is 0.99.
+    const rows = [
+      mv('S1', 1, 'asset', 'fixed_asset', 2, 0), mv('S1', 1, 'revenue', 'sales', 0, 1),
+      mv('S1', 1, 'liability', 'payable', 0, 1), mv('S1', 1, 'liability', 'payroll_liability', 0, 1),
+    ];
+    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(rows).mockResolvedValueOnce([{ ...OPENING_ROWS[0]!, gl_debit: 15001 }]);
 
     const r = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
 
     const cents = (n: number) => Math.round(n * 100);
-    expect(cents(r.operatingTotal)).toBe(1);
+    expect(r.operatingItems.map((i) => cents(i.amount)).sort()).toEqual([33, 33, 34]);
+    expect(cents(r.operatingTotal)).toBe(100);
     expect(cents(r.operatingTotal) + cents(r.investingTotal) + cents(r.financingTotal) + cents(r.unexplainedDifference)).toBe(cents(r.netChange));
     expect(cents(r.operatingItems.reduce((a, i) => a + i.amount, 0))).toBe(cents(r.operatingTotal));
     for (const i of [...r.operatingItems, ...r.investingItems, ...r.financingItems]) expect(Math.abs(i.amount * 100 - cents(i.amount))).toBeLessThan(1e-6);
-    expect(r.closingCash).toBe(15000.01);
+    expect(r.unexplainedDifference).toBe(0);
+    expect(r.closingCash).toBe(15001);
   });
 
   it('net change always equals the sum of the three activity totals', async () => {

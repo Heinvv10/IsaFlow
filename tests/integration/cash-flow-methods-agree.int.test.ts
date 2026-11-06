@@ -6,19 +6,33 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getCashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
-import { CO, describeIfDb, inTx, installCompanies, sec, tie, P, type Ctx } from './helpers/cashFlowAdversarialFixture';
+import { CO, OTHER_CO, describeIfDb, inTx, installCompanies, sec, tie, P, type Ctx } from './helpers/cashFlowAdversarialFixture';
 
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
 
 installCompanies();
 
-async function totals(start = P[0], end = P[1]) {
-  const { ind, dir } = await tie(start, end);
-  return {
+/**
+ * Both statements for the period, with what must hold on SOUND books checked independently of how they are built:
+ * nothing is left unexplained, and the closing cash is the opening cash plus the statement's own three sections (summed
+ * here, not read from `netChange`) and the ledger's cash (`getCashBalance`, not the statement's `closingCash`).
+ * `fault` marks the one-off cases that post a ledger fault on purpose.
+ */
+async function totals(start = P[0], end = P[1], { fault = false } = {}) {
+  const { ind, dir, gl } = await tie(start, end);
+  const t = {
     ind: { op: sec(ind, 'Operating'), inv: sec(ind, 'Investing'), fin: sec(ind, 'Financing') },
     dir: { op: dir.operatingTotal, inv: dir.investingTotal, fin: dir.financingTotal },
-    ind_full: ind, dir_full: dir,
+    ind_full: ind, dir_full: dir, gl,
   };
+  if (!fault) {
+    const cents = (n: number) => Math.round(n * 100);
+    expect(ind.unexplainedDifference).toBe(0);
+    expect(dir.unexplainedDifference).toBe(0);
+    expect(cents(ind.openingCash + t.ind.op + t.ind.inv + t.ind.fin)).toBe(cents(gl));
+    expect(cents(dir.openingCash + t.dir.op + t.dir.inv + t.dir.fin)).toBe(cents(gl));
+  }
+  return t;
 }
 const near = (o: { op: number; inv: number; fin: number }) => ({ op: Math.round(o.op * 100) / 100 || 0, inv: Math.round(o.inv * 100) / 100 || 0, fin: Math.round(o.fin * 100) / 100 || 0 });
 
@@ -103,15 +117,6 @@ describeIfDb('cash flow: the indirect and direct methods agree on every journal'
     });
   });
 
-  it('the direct statement closes on the ledger cash', async () => {
-    await inTx(async (x) => {
-      const k = await kit(x); const vin = await x.acct('asset', 'vat_input'), ap = await x.acct('liability', 'payable');
-      await x.j('2026-11-15', [[k.fa, 10000, 0], [vin, 1500, 0], [ap, 0, 6500], [k.bank, 0, 5000]]);
-      const { dir, gl } = await tie(...P);
-      expect(dir.closingCash).toBe(gl);
-    });
-  });
-
   it('a payroll run (legs of mixed sign) keeps its operating lines: employees -70 000, not a magnitude-weighted split', async () => {
     await inTx(async (x) => {
       const bank = await x.acct('asset', 'bank'), salary = await x.acct('expense', 'payroll_expense'), paye = await x.acct('liability', 'payroll_liability');
@@ -134,17 +139,22 @@ describeIfDb('cash flow: the indirect and direct methods agree on every journal'
     });
   });
 
-  it('a one-sided cash journal (a ledger fault) is kept by the direct statement as other operating, and it closes on the ledger cash', async () => {
+  it('a journal whose cash and legs do not match (a line added to a POSTED journal, the balance trigger fires on the status change only): the mismatch is the Unexplained Difference in BOTH methods', async () => {
     await inTx(async (x) => {
-      const bank = await x.acct('asset', 'bank'), other = await x.acct('asset', 'bank');
-      // The balance trigger fires on the status change only: a line added to a POSTED journal leaves it unbalanced, here with cash legs only.
-      const je = await x.j('2026-11-15', [[bank, 250, 0], [other, 0, 250]]);
-      await x.c.query(`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,250,0)`, [CO, je, bank]);
-      const { dir, gl } = await tie(...P);
-      expect(gl).toBe(250);
-      expect(dir.operatingItems).toEqual([expect.objectContaining({ cashGroup: 'other_operating', amount: 250 })]);
-      expect(dir.unexplainedDifference).toBe(0);
-      expect(dir.closingCash).toBe(gl);
+      const bank = await x.acct('asset', 'bank'), other = await x.acct('asset', 'bank'), rev = await x.acct('revenue', 'revenue');
+      const add = (je: string, account: string, debit: number, credit: number) => x.c.query(
+        `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,$4,$5)`, [CO, je, account, debit, credit]);
+      // cash legs only, one-sided: the ledger holds 250 of cash no leg explains
+      await add(await x.j('2026-11-15', [[bank, 250, 0], [other, 0, 250]]), bank, 250, 0);
+      // a receipt of 100 with 130 of revenue: 30 of leg no cash explains
+      await add(await x.j('2026-11-16', [[bank, 100, 0], [rev, 0, 100]]), rev, 0, 30);
+      const t = await totals(P[0], P[1], { fault: true });
+      expect(t.gl).toBe(350);
+      expect(t.dir_full.unexplainedDifference).toBe(220); // 250 cash with no leg, less 30 of leg with no cash
+      expect(t.ind_full.unexplainedDifference).toBe(220);
+      expect(near(t.dir)).toEqual(near(t.ind));
+      expect(t.dir_full.closingCash).toBe(350);
+      expect(t.ind_full.closingCash).toBe(350);
     });
   });
 
@@ -152,7 +162,7 @@ describeIfDb('cash flow: the indirect and direct methods agree on every journal'
     await inTx(async (x) => {
       const bank = await x.acct('asset', 'bank'), re = await x.acct('equity', 'retained_earnings');
       await x.j('2026-11-30', [[bank, 400, 0], [re, 0, 400]], { source: YEAR_END_JOURNAL_SOURCE });
-      const t = await totals();
+      const t = await totals(P[0], P[1], { fault: true });
       expect(near(t.ind)).toEqual({ op: 0, inv: 0, fin: 0 });
       expect(near(t.dir)).toEqual({ op: 0, inv: 0, fin: 0 });
       expect(t.dir_full.unexplainedDifference).toBe(400);
@@ -161,6 +171,24 @@ describeIfDb('cash flow: the indirect and direct methods agree on every journal'
       const rec = await getCashFlowReconciliation(CO, ...P);
       expect(rec.bankBalance).toBe(400);
       expect(rec.isReconciled).toBe(false);
+    });
+  });
+
+  it('every cash spelling is cash and only this company\'s journals count', async () => {
+    await inTx(async (x) => {
+      const rev = await x.acct('revenue', 'revenue');
+      for (const spelling of ['bank', 'bank_account', 'cash', 'petty_cash']) {
+        const cashAccount = await x.acct('asset', spelling);
+        await x.j('2026-11-15', [[cashAccount, 100, 0], [rev, 0, 100]]);
+      }
+      // another company's cash journal, in the same period, must not reach this company's statements
+      const theirs = (await x.c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance)
+        VALUES ($1,'TH-1','Their bank','asset','bank','debit'), ($1,'TH-2','Their sales','revenue','revenue','credit') RETURNING id`, [OTHER_CO])).rows.map((r) => r.id as string);
+      await x.j('2026-11-15', [[theirs[0]!, 9999, 0], [theirs[1]!, 0, 9999]], { co: OTHER_CO });
+      const t = await totals();
+      expect(near(t.ind)).toEqual({ op: 400, inv: 0, fin: 0 });
+      expect(near(t.dir)).toEqual({ op: 400, inv: 0, fin: 0 });
+      expect(t.gl).toBe(400);
     });
   });
 });

@@ -169,7 +169,11 @@ export function placeJournal(legs: readonly JournalLeg[], netCash: number, dispo
 }
 
 export interface JournalSections {
-  /** What the journal's cash did, by section: the three sum to `netCash`. */
+  /**
+   * What the journal's legs place in each section: the three sum to the journal's legs, which is its `netCash` on a
+   * balanced journal. On one that is not balanced (a leg added to a posted journal) the difference stays out of the
+   * sections and surfaces as the statement's Unexplained Difference, in both methods.
+   */
   operating: number;
   investing: number;
   financing: number;
@@ -184,17 +188,19 @@ export interface JournalSections {
  * placed amounts; the direct one splits `operating` over `operatingLegs`.
  */
 export function journalSections(legs: readonly JournalLeg[], netCash: number, disposal = false): JournalSections {
+  let operating = 0;
   let investing = 0;
   let financing = 0;
   for (const { bucket, amount } of placeJournal(legs, netCash, disposal)) {
     const section = SECTION[bucket];
     if (section === 'investing') investing += amount;
     else if (section === 'financing') financing += amount;
+    else operating += amount;
   }
   const operatingLegs = legs.filter((leg) => {
     if (disposal && isDisposalGainLossSubtype(leg.subtype)) return false;
     const bucket = classifyIndirectLine(leg.accountType, leg.subtype, leg.isLoanCurrentPortion);
     return SECTION[bucket] === 'operating' && !(disposal && bucket === 'depreciation');
   });
-  return { operating: toMoney(netCash - toMoney(investing) - toMoney(financing)), investing: toMoney(investing), financing: toMoney(financing), operatingLegs };
+  return { operating: toMoney(operating), investing: toMoney(investing), financing: toMoney(financing), operatingLegs };
 }

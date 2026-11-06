@@ -91,22 +91,8 @@ describe('cash-flow-export classification', () => {
     }
   });
 
-  it('leaves the cash accounts out of the movement by subtype (every spelling) and scopes it to the company', async () => {
-    const { req, res } = mockReqRes();
-    await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);
-
-    // One query over the non-cash accounts, per journal; the classification into lines is in TypeScript through the
-    // subtype vocabulary (cashFlowIndirectClassification.test.ts walks it, the plural fixed_assets included).
-    const movement = queryTexts().filter((t) => t.includes('GROUP BY jc.journal_entry_id, jc.source, jc.net_cash, l.account_type, l.account_subtype'));
-    expect(movement).toHaveLength(1);
-    expect(movement[0]).toMatch(/\(ga\.account_type = 'asset' AND COALESCE\(ga\.account_subtype = ANY\(/);
-    // every journal comes back (one row each), joined to its NON-cash lines only: the cash accounts are what is explained
-    expect(movement[0]).toMatch(/LEFT JOIN lines l ON l\.journal_entry_id = jc\.journal_entry_id AND NOT l\.is_cash/);
-    const params = sqlMock.mock.calls.flatMap((c) => c.slice(1));
-    const lists = params.filter(Array.isArray).flat();
-    for (const spelling of ['bank', 'bank_account', 'cash', 'petty_cash']) expect(lists).toContain(spelling);
-    expect(params).toContain('co-1');
-  });
+  // The cash spellings and the company scoping of the movement read are held against a real ledger, not by its SQL text:
+  // tests/integration/cash-flow-methods-agree.int.test.ts, 'every cash spelling is cash and only this company's journals count'.
 
   it('surfaces a query fault instead of answering with downgraded numbers', async () => {
     sqlMock.mockImplementation(async () => {

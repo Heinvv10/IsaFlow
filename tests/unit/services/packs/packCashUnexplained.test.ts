@@ -1,13 +1,12 @@
 /**
  * PAGE 8 AND A LEDGER FAULT. The operating figure is the cash movement the cash flow statement's journals explain; what they
  * cannot explain (a cash leg on the year-end journal, a posted journal that does not balance) is its own row, shown only when
- * there is one, and the bridge draws the same gap as its unexplained step. It is never folded into operating cash.
+ * there is one, It is never folded into operating cash.
  */
 import { describe, expect, it } from 'vitest';
-import { buildCashWaterfallChart, CASH_UNCAPTURED_LABEL } from '@/modules/accounting/services/packs/pages/packPageCharts';
+import { CASH_UNCAPTURED_LABEL } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { buildCashTable } from '@/modules/accounting/services/packs/pages/packStatementTables';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
-import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { demoSet, figures } from './fixtures/boardPackInputs';
 
@@ -34,10 +33,11 @@ describe('page 8 with a cash movement the journals do not explain', () => {
     }
   });
 
-  it('the bridge draws the gap as its unexplained step', () => {
-    const bridge = buildCashWaterfallChart(withUnexplained(400), PACK_SCALE);
-    if (!bridge.drawn) throw new Error(`no bridge was drawn: ${bridge.why}`);
-    expect(bridge.residual).toBeCloseTo(400, 2);
-    expect(bridge.chart.waterfallBars!.map((b) => b.label)).toContain(CASH_UNCAPTURED_LABEL);
+  it('carries the comparative period\'s own unexplained difference in the prior column', () => {
+    const set: PackFigureSet = { ...withUnexplained(400), prior: figures({ cash: 5_000, cashFlowUnexplained: 100 }) };
+    const row = buildCashTable(set, new PackFigureProvenance()).rows.find((r) => r.label === CASH_UNCAPTURED_LABEL)!;
+    expect(JSON.stringify(row)).toContain('400');
+    expect(JSON.stringify(row)).toContain('100');
+    expect(JSON.stringify(row)).not.toContain('The comparative period carries no unexplained difference figure');
   });
 });

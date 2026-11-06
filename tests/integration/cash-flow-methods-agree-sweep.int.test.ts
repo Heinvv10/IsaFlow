@@ -21,6 +21,16 @@ const CHART: Array<[string, string, string | undefined]> = [
   ['asset', 'inventory', undefined], ['asset', 'non_current_asset', undefined], ['asset', 'prepaid_expense', undefined],
 ];
 
+type Both = Awaited<ReturnType<typeof tie>>;
+const cents = (n: number) => Math.round(n * 100);
+/** Sound books: nothing unexplained in either method, and closing = opening + the statement's own three sections = the ledger's cash. */
+function expectSound({ ind, dir, gl }: Both): void {
+  expect(ind.unexplainedDifference).toBe(0);
+  expect(dir.unexplainedDifference).toBe(0);
+  expect(cents(ind.openingCash + sec(ind, 'Operating') + sec(ind, 'Investing') + sec(ind, 'Financing'))).toBe(cents(gl));
+  expect(cents(dir.openingCash + dir.operatingTotal + dir.investingTotal + dir.financingTotal)).toBe(cents(gl));
+}
+
 describeIfDb('cash flow: indirect and direct agree on random journals', () => {
   for (const seed of Array.from({ length: 20 }, (_, i) => i + 1)) {
     it(`seed ${seed}: 28 journals, one a day, every day and the month agree`, async () => {
@@ -53,6 +63,7 @@ describeIfDb('cash flow: indirect and direct agree on random journals', () => {
         for (let day = 1; day <= 28; day++) {
           const d = `2026-11-${String(day).padStart(2, '0')}`;
           const t = await tie(d, d);
+          expectSound(t);
           expect({ d, op: sec(t.ind, 'Operating'), inv: sec(t.ind, 'Investing'), fin: sec(t.ind, 'Financing') })
             .toEqual({ d, op: expect.closeTo(t.dir.operatingTotal, 2), inv: expect.closeTo(t.dir.investingTotal, 2), fin: expect.closeTo(t.dir.financingTotal, 2) });
         }
@@ -60,8 +71,9 @@ describeIfDb('cash flow: indirect and direct agree on random journals', () => {
         expect({ op: sec(month.ind, 'Operating'), inv: sec(month.ind, 'Investing'), fin: sec(month.ind, 'Financing') })
           .toEqual({ op: month.dir.operatingTotal, inv: month.dir.investingTotal, fin: month.dir.financingTotal });
         expect(month.dir.closingCash).toBe(month.gl);
+        expectSound(month);
         // the direct statement foots to the cent: items to their section, sections (and the unexplained gap) to the net change
-        const cents = (n: number) => Math.round(n * 100), d = month.dir;
+        const d = month.dir;
         expect(cents(d.operatingTotal) + cents(d.investingTotal) + cents(d.financingTotal) + cents(d.unexplainedDifference)).toBe(cents(d.netChange));
         for (const [items, total] of [[d.operatingItems, d.operatingTotal], [d.investingItems, d.investingTotal], [d.financingItems, d.financingTotal]] as const) {
           expect(cents(items.reduce((a, i) => a + i.amount, 0))).toBe(cents(total));
