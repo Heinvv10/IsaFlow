@@ -116,17 +116,19 @@ describe('EmployeeDrawerBody readiness line', () => {
     expect(await screen.findByText('1 thing before the first pay run: Could not check bank details')).toBeTruthy();
   });
 
-  it('asks for pay and bank together, before either answers', async () => {
+  it('asks for pay and bank together, before pay answers, and renders once both have', async () => {
     let release: (r: Response) => void = () => undefined;
     fetchMock.mockImplementation(async (u: string) => {
       if (u.endsWith('/components')) return new Promise<Response>(r => { release = r; });
-      if (u.includes('/bank-details')) return ok(null);
+      if (u.includes('/bank-details')) return ok({ id: 'b1' });
       if (u.endsWith('/api/payroll/runs')) return ok([]);
       return ok(employee);
     });
     render(<EmployeeDrawerBody employeeId={EMP} mayWrite />);
     await waitFor(() => expect(urls().some(u => u.includes('bank-details'))).toBe(true));
-    release(ok([]));
+    expect(screen.queryByText('Ready to pay')).toBeNull(); // pay has not answered
+    release(ok([{ ...salary, id: 'x', componentId: 'c', componentName: 'Basic', amount: 100 }]));
+    expect(await screen.findByText('Ready to pay')).toBeTruthy();
   });
 
   it('shows no line, and reads no bank, for a names-only role', async () => {

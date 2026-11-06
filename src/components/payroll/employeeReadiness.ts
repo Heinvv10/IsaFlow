@@ -30,12 +30,11 @@ const day = (s: string) => String(s).slice(0, 10);
 /** The run states that mean a month has been worked out: the next run is the month after the latest of these. */
 const WORKED_OUT = new Set(['calculated', 'approved', 'paid']);
 
-/** The month after the company's latest calculated / approved run, or the current month when there is none. */
+/** The later of the month after the company's latest calculated / approved run and the current month (an old latest run never pulls it into the past). */
 export function nextRunMonth(runs: Array<{ periodYear: number; periodMonth: number; status: string }>, today: string = todayInSast()): string {
+  const current = Number(today.slice(0, 4)) * 12 + (Number(today.slice(5, 7)) - 1);
   const done = runs.filter(r => WORKED_OUT.has(r.status));
-  if (done.length === 0) return today.slice(0, 7);
-  const last = Math.max(...done.map(r => r.periodYear * 12 + (r.periodMonth - 1)));
-  const next = last + 1;
+  const next = done.length === 0 ? current : Math.max(current, Math.max(...done.map(r => r.periodYear * 12 + (r.periodMonth - 1))) + 1);
   return `${Math.floor(next / 12)}-${String((next % 12) + 1).padStart(2, '0')}`;
 }
 

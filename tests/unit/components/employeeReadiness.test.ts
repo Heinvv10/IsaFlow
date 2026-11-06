@@ -75,6 +75,9 @@ describe('nextRunMonth', () => {
     expect(nextRunMonth([run(2026, 10, 'approved'), run(2026, 9, 'paid')], '2026-11-06')).toBe('2026-11');
     expect(nextRunMonth([run(2026, 11, 'calculated')], '2026-11-28')).toBe('2026-12');
   });
+  it('an old latest run never pulls the month into the past', () => {
+    expect(nextRunMonth([run(2026, 8, 'approved')], '2026-11-06')).toBe('2026-11');
+  });
   it('rolls the year over', () => {
     expect(nextRunMonth([run(2026, 12, 'approved')], '2026-12-30')).toBe('2027-01');
   });
