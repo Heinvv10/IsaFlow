@@ -26,7 +26,7 @@ import { decide } from '@/modules/accounting/services/capture/autoPublishGateSer
 import { raiseUnattendedApproval, unattendedBillStatus } from '@/modules/accounting/services/gl/approvalUnattended';
 import { isCaptureEventPostable } from '@/modules/accounting/services/capture/captureEventLock';
 import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
-import { insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
+import { extractedBillDueDate, insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
 import {
   runCapturePostFollowUps,
   type PublishedDecision,
@@ -223,7 +223,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     invoiceInput.totalAmount,
   );
 
-  // Create supplier invoice
+  const dueDate = await extractedBillDueDate(companyId, supplierMatch.supplierId, invoiceInput); // the scan's terms rank last
+  // Create supplier invoice.
   const [invoice] = await sql`
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,
@@ -232,10 +233,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       duplicate_fingerprint, source_document_id
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
-      ${invoiceInput.invoiceDate}::date, ${invoiceInput.dueDate ?? null}::date,
+      ${invoiceInput.invoiceDate}::date, ${dueDate}::date,
       ${invoiceInput.totalAmount - invoiceInput.taxAmount}, ${invoiceInput.taxRate},
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
-      ${invoiceInput.paymentTerms ?? 'net30'}, ${invoiceInput.reference ?? null},
+      ${invoiceInput.paymentTerms ?? null}, ${invoiceInput.reference ?? null},
       ${approval.status}, ${userId}, ${invoiceInput.notes ?? null},
       ${captureFingerprint}, ${documentId}::uuid
     )

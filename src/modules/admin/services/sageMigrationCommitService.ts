@@ -18,6 +18,7 @@ import { assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/jou
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { recomputeInvoiceStatus } from '@/modules/accounting/services/ar/invoiceStatusRecompute';
 import { assertMayImportOpenBills, withApprovalGateExempt } from '@/modules/accounting/services/gl/approvalGateExempt';
+import { dueDateForContact } from '@/modules/accounting/services/core/paymentTermsResolver';
 import type {
   Row,
   MappedCustomer,
@@ -49,12 +50,12 @@ export async function upsertCustomer(companyId: string, c: MappedCustomer): Prom
   `) as Row[];
   if (existing.length) return String(existing[0]!.id);
   const inserted = (await sql`
-    INSERT INTO customers (company_id, name, email, phone, vat_number, contact_person, credit_limit, is_active)
+    INSERT INTO customers (company_id, name, email, phone, vat_number, contact_person, credit_limit, is_active, payment_terms, payment_terms_type)
     VALUES (
       ${companyId}::UUID, ${c.name.trim()},
       ${c.email?.trim() ?? null}, ${c.phone?.trim() ?? null},
       ${c.vatNumber?.trim() ?? null}, ${c.contactPerson?.trim() ?? null},
-      ${c.creditLimit ?? 0}, TRUE
+      ${c.creditLimit ?? 0}, TRUE, NULL, NULL
     ) RETURNING id
   `) as Row[];
   return String(inserted[0]!.id);
@@ -67,12 +68,12 @@ export async function upsertSupplier(companyId: string, s: MappedSupplier): Prom
   `) as Row[];
   if (existing.length) return String(existing[0]!.id);
   const inserted = (await sql`
-    INSERT INTO suppliers (company_id, name, email, phone, vat_number, contact_person, is_active)
+    INSERT INTO suppliers (company_id, name, email, phone, vat_number, contact_person, is_active, payment_terms, payment_terms_type)
     VALUES (
       ${companyId}::UUID, ${s.name.trim()},
       ${s.email?.trim() ?? null}, ${s.phone?.trim() ?? null},
       ${s.vatNumber?.trim() ?? null}, ${s.contactPerson?.trim() ?? null},
-      TRUE
+      TRUE, NULL, NULL
     ) RETURNING id
   `) as Row[];
   return String(inserted[0]!.id);
@@ -165,6 +166,8 @@ export async function commitARInvoice(
   const open = amountPaid < Number(inv.totalAmount);
   if (open) await assertMayImportOpenBills(companyId, userId, 'customer_invoice');
 
+  // The source's due date; none: the customer's terms, else the company default (migration 960).
+  const dueDate = inv.dueDate ?? await dueDateForContact(companyId, 'customer', customerId, String(inv.invoiceDate));
   // R-035 Q1: issued in Sage, so exempt from the approval backstop.
   const inserted = (await withApprovalGateExempt({ companyId, userId, open, documentType: 'customer_invoice' }, () => sql`
     INSERT INTO customer_invoices (
@@ -173,7 +176,7 @@ export async function commitARInvoice(
       amount_paid, status, notes, created_by, currency_code, exchange_rate, functional_total
     ) VALUES (
       ${companyId}::UUID, ${inv.invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
-      ${inv.invoiceDate}, ${inv.dueDate ?? null},
+      ${inv.invoiceDate}, ${dueDate},
       ${inv.subtotal}, ${taxRate}, ${inv.taxAmount}, ${inv.totalAmount},
       ${amountPaid}, 'approved', ${inv.reference ?? null}, ${userId}, 'ZAR', 1.0, ${inv.totalAmount}
     ) RETURNING id

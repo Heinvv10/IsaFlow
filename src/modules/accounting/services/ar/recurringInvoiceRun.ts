@@ -14,6 +14,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { todayInSast } from '@/lib/saDateParser';
 import { advanceDate } from '@/modules/accounting/services/gl/recurringSchedule';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -25,6 +26,7 @@ import { evaluateApprovalGate } from '../gl/approvalGate';
 import { raiseUnattendedApproval } from '../gl/approvalUnattended';
 import { stampUpstreamAuthors } from './customerInvoiceUpstreamAuthors';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
+import { companyTermsFromSetting, dueDateWithDefault } from '../shared/paymentTerms';
 
 type Row = DbRow;
 
@@ -124,6 +126,13 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
   // configured width. The helper reserves, and retries past a number some
   // legacy row already holds under its own savepoint — without that, a single
   // such row stalls this template on every future run.
+  // The customer's terms, else the company default (migration 960), from the invoice date this run writes. The
+  // template row carries both (recurringInvoiceLock joins them), so there is no query of its own.
+  const invoiceDate = todayInSast(); // the same South African day recurringInvoiceLock's is_due used
+  const dueDate = dueDateWithDefault(
+    invoiceDate, ri.contact_payment_terms == null ? null : Number(ri.contact_payment_terms),
+    ri.contact_payment_terms_type, companyTermsFromSetting(ri.company_default_terms, companyId),
+  );
   const invoiceId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'rec_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const inv = (await sql`
@@ -134,7 +143,7 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
         ) VALUES (
           ${companyId}::UUID, ${invoiceNumber}, ${ri.client_id}::UUID, ${ri.client_id}::UUID,
           ${ri.project_id || null},
-          CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
+          ${invoiceDate}::DATE, ${dueDate}::DATE,
           ${totals.subtotal}, ${taxRate}, ${totals.taxAmount}, ${totals.totalAmount},
           'draft', ${ri.description || ri.template_name}, ${userId}::UUID
         ) RETURNING id

@@ -231,3 +231,30 @@ it('refuses an entry the practice WIP path has already billed', async () => {
   expect.soft(still.rows[0].invoiced).toBe(false);
   expect(still.rows[0].invoice_id).toBeNull();
 });
+
+// Payment terms (migration 960): this route used to write NO due date. It dates the invoice by the customer's terms, else
+// the company default (30 days from invoice when none is set). Intended; pinned here so it cannot silently go back.
+it.each([
+  ['a customer with no terms: the company default, 30 days from invoice', null, null, 30],
+  ['a customer on 14 days from invoice', 14, 'invoice_days', 14],
+])('dates the invoice it mints: %s', async (_why, days, type, plusDays) => {
+  const cust = crypto.randomUUID();
+  await pool.query('INSERT INTO customers(id,company_id,name,payment_terms,payment_terms_type) VALUES($1,$2,$3,$4,$5)', [cust, company, 'K107 dated', days, type]);
+  const entry = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO time_entries(id,company_id,user_id,task_description,entry_date,hours,rate,billable,invoiced,status,customer_id,origin)
+     VALUES($1,$2,$3,'Advisory','2026-02-10',1,100,true,false,'approved',$4,'manual')`, [entry, company, user, cust]);
+  const client = await pool.connect();
+  let invoiceId: string;
+  try {
+    await client.query('BEGIN');
+    const res = makeRes();
+    await als.run(ctxFor(client), () => handler({ ...post([entry]), body: { timeEntryIds: [entry], customerId: cust } } as unknown as NextApiRequest, res));
+    expect(res.statusCode).toBe(201);
+    invoiceId = (res.body as { data: { invoiceId: string } }).data.invoiceId;
+    await client.query('COMMIT');
+  } finally { client.release(); }
+  const { rows } = await pool.query(
+    "SELECT due_date IS NOT NULL AS dated, (due_date - invoice_date)::int AS gap FROM customer_invoices WHERE id=$1", [invoiceId]);
+  expect(rows[0]).toEqual({ dated: true, gap: plusDays });
+});

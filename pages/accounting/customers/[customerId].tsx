@@ -3,20 +3,21 @@
  * Tabs: Overview | Delivery Addresses | Contacts
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, User, MapPin, Users, Activity, History, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
+import { ArrowLeft, User, MapPin, Users, Activity, History, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2, Pencil } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { formatCurrency } from '@/utils/formatters';
+import { CustomerTransactionsTab } from '@/components/accounting/customers/CustomerTransactionsTab';
 import { DeliveryAddressesTab } from '@/components/accounting/customers/DeliveryAddressesTab';
 import { ContactsTab } from '@/components/accounting/customers/ContactsTab';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { companyTermsFromFields, describeContactTerms } from '@/modules/accounting/services/shared/paymentTerms';
 
 interface Customer {
   id: string;
@@ -27,6 +28,9 @@ interface Customer {
   vat_number: string | null;
   registration_number: string | null;
   payment_terms: number | null;
+  payment_terms_type: string | null;
+  company_default_payment_terms?: number | null;
+  company_default_payment_terms_type?: string | null;
   credit_limit: number | null;
   is_active: boolean;
   created_at: string;
@@ -42,40 +46,6 @@ const TABS: { id: Tab; label: string; icon: typeof User }[] = [
   { id: 'history', label: 'History', icon: History },
 ];
 
-interface ActivityRow {
-  id: string;
-  reference: string;
-  date: Date | string;
-  due_date?: Date | string | null;
-  total_amount: number | string;
-  status: string;
-  type: 'invoice' | 'payment' | 'credit_note';
-}
-
-const TYPE_LABELS: Record<ActivityRow['type'], string> = {
-  invoice: 'Invoice',
-  payment: 'Payment',
-  credit_note: 'Credit Note',
-};
-
-const TYPE_COLORS: Record<ActivityRow['type'], string> = {
-  invoice: 'bg-blue-500/20 text-blue-400',
-  payment: 'bg-teal-500/20 text-teal-400',
-  credit_note: 'bg-orange-500/20 text-orange-400',
-};
-
-const TYPE_PATHS: Record<ActivityRow['type'], string> = {
-  invoice: '/accounting/customer-invoices',
-  payment: '/accounting/customer-payments',
-  credit_note: '/accounting/credit-notes',
-};
-
-function toDateStr(val: Date | string | null | undefined): string {
-  if (!val) return '—';
-  if (val instanceof Date) return formatDisplayDate(val);
-  return formatDisplayDate(String(val));
-}
-
 export default function CustomerDetailPage() {
   const router = useRouter();
   const { customerId } = router.query;
@@ -84,39 +54,11 @@ export default function CustomerDetailPage() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<Tab>('overview');
 
-  const [activity, setActivity] = useState<ActivityRow[]>([]);
-  const [activityLoading, setActivityLoading] = useState(false);
-  const [activityError, setActivityError] = useState('');
-  const [activityLoaded, setActivityLoaded] = useState(false);
-
   useEffect(() => {
     if (!customerId) return;
     void loadCustomer();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId]);
-
-  const loadActivity = useCallback(async () => {
-    if (!customerId || activityLoaded) return;
-    setActivityLoading(true);
-    setActivityError('');
-    try {
-      const res = await apiFetch(`/api/accounting/customers?id=${customerId as string}&include=activity`); await assertOk(res, 'Could not load activity - try again');
-      const json = await res.json() as { data?: ActivityRow[] } | ActivityRow[];
-      const data = (json as { data?: ActivityRow[] }).data ?? (json as ActivityRow[]);
-      setActivity(Array.isArray(data) ? data : []);
-      setActivityLoaded(true);
-    } catch (err) {
-      setActivityError(apiErrorMessage(err, 'Could not load activity - try again'));
-    } finally {
-      setActivityLoading(false);
-    }
-  }, [customerId, activityLoaded]);
-
-  useEffect(() => {
-    if (activeTab === 'activity') {
-      void loadActivity();
-    }
-  }, [activeTab, loadActivity]);
 
   const [deleting, setDeleting] = useState(false);
 
@@ -192,7 +134,7 @@ export default function CustomerDetailPage() {
     { label: 'Contact Person', value: customer.contact_person },
     { label: 'VAT Number', value: customer.vat_number },
     { label: 'Registration Number', value: customer.registration_number },
-    { label: 'Payment Terms', value: customer.payment_terms ? `${customer.payment_terms} days` : null },
+    { label: 'Payment Terms', value: describeContactTerms(customer.payment_terms, customer.payment_terms_type, companyTermsFromFields(customer.company_default_payment_terms, customer.company_default_payment_terms_type)) },
     {
       label: 'Credit Limit',
       value: customer.credit_limit != null
@@ -225,7 +167,14 @@ export default function CustomerDetailPage() {
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${customer.is_active ? 'bg-teal-500/20 text-teal-400' : 'bg-gray-500/20 text-gray-400'}`}>
               {customer.is_active ? 'Active' : 'Inactive'}
             </span>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <Link
+                href={`/accounting/customers/${customer.id}/edit`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit
+              </Link>
               <button
                 type="button"
                 onClick={handleDelete}
@@ -299,65 +248,7 @@ export default function CustomerDetailPage() {
             <EntityHistoryTimeline entityType="customer" entityId={customerId} />
           )}
 
-          {activeTab === 'activity' && (
-            <div>
-              {activityLoading && (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
-                </div>
-              )}
-              {activityError && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
-                  <AlertCircle className="h-4 w-4" /> {activityError}
-                </div>
-              )}
-              {!activityLoading && activity.length === 0 && !activityError && (
-                <div className="text-center py-12 text-[var(--ff-text-secondary)]">
-                  No transactions yet
-                </div>
-              )}
-              {!activityLoading && activity.length > 0 && (
-                <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-[var(--ff-border-light)]">
-                        <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Date</th>
-                        <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Type</th>
-                        <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Reference</th>
-                        <th className="text-right px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Amount</th>
-                        <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activity.map(row => (
-                        <tr
-                          key={`${row.type}-${row.id}`}
-                          className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors cursor-pointer"
-                          onClick={() => { void router.push(`${TYPE_PATHS[row.type]}/${row.id}`); }}
-                        >
-                          <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{toDateStr(row.date)}</td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_COLORS[row.type]}`}>
-                              {TYPE_LABELS[row.type]}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 font-mono text-[var(--ff-text-primary)]">{row.reference}</td>
-                          <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
-                            {formatCurrency(Number(row.total_amount))}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/20 text-gray-600 dark:text-gray-400">
-                              {row.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
+          {activeTab === 'activity' && typeof customerId === 'string' && <CustomerTransactionsTab customerId={customerId} />}
         </div>
       </div>
     </AppLayout>

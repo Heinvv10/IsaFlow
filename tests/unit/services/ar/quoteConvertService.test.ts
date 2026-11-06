@@ -13,6 +13,10 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // Migration 874: the quote-line account check has its own real-PG suite
 // (invoice-line-revenue-quotes.int.test.ts); here every account is accepted.
+// The due date's terms lookup is its own tested unit (paymentTermsResolver); these tests are about column names.
+vi.mock('@/modules/accounting/services/core/paymentTermsResolver', () => ({
+  dueDateForContact: vi.fn(async () => '2026-12-05'), companyTermsOf: vi.fn(), getCompanyDefaultTerms: vi.fn(), contactTerms: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/ar/invoiceLineCodingGuard', () => ({ assertLineAccountIds: vi.fn(async () => undefined) }));
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });

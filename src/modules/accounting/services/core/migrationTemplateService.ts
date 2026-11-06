@@ -185,7 +185,7 @@ const DATES_AND_AMOUNTS = 'Dates: DD/MM/YYYY or YYYY-MM-DD (day first). Amounts:
 
 const GUIDANCE: Record<MigrationStep, string> = {
   'chart-of-accounts': COA_GUIDANCE,
-  customers: 'name is required. vat_number: 10-digit SA format. payment_terms: days (default 30).',
+  customers: 'name is required. vat_number: 10-digit SA format. payment_terms: days from the invoice (a blank is imported as not set: the default terms of the company apply).',
   suppliers: 'name is required. Bank fields are optional but recommended for EFT payments.',
   'opening-balances': 'Enter your trial balance as at your migration date; total debits must equal total credits. '
     + 'Headers such as "Account Code", "Debit", "Credit" (or a single "Balance" column, negative for credits) are recognised. '
