@@ -143,6 +143,10 @@ export const createEmployeeTool: McpTool = {
       return toolError('tax_number must be a valid SARS tax reference (10 digits, starting 0, 1, 2, 3 or 9)');
     }
 
+    if (args.s18a_receipt_held !== undefined && typeof args.s18a_receipt_held !== 'boolean') {
+      return toolError('s18a_receipt_held must be true or false');
+    }
+
     const dependants = args.medical_aid_dependants_count;
     let dependantsCount = 0;
     if (dependants !== undefined && dependants !== null) {
@@ -252,6 +256,10 @@ export const updateEmployeeTool: McpTool = {
     // The same check the create path makes. Without it a fractional count
     // reaches an INTEGER column, pg raises, and the agent gets the registry's
     // generic failure instead of the specific refusal create_employee gives.
+    if (args.s18a_receipt_held !== undefined && typeof args.s18a_receipt_held !== 'boolean') {
+      return toolError('s18a_receipt_held must be true or false');
+    }
+
     const dependants = args.medical_aid_dependants_count;
     if (dependants !== undefined && dependants !== null) {
       const n = Number(dependants);

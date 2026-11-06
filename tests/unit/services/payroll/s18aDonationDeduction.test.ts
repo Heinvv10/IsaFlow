@@ -146,6 +146,69 @@ describe('4030 is cumulative over the tax year', () => {
     expect(l.donationDeduction).toBe(500);
   });
 
+  it('reversing a donation that never had a receipt takes nothing back: PAYE and SDL stay on all the pay', () => {
+    const m1 = line([salary(30_000), donation(1_000)], false);
+    const m2 = line([salary(30_000), donation(-1_000)], false, next(m1));
+    expect([m2.donationDeduction, m2.donationReceipted, m2.taxableIncome, m2.sdlLeviable]).toEqual([0, 0, 30_000, 30_000]);
+    // Nor once the receipt is ticked: that R1 000 never counted.
+    expect(line([salary(30_000), donation(-1_000)], true, next(m1)).donationDeduction).toBe(0);
+  });
+
+  it('a bonus clawback lowers the 5% base', () => {
+    // March R30 000 + R100 000 bonus: 5% × 130 000 = 6 500. April R30 000 − R20 000 clawback: 5% × 140 000 = 7 000.
+    const m1 = line([salary(30_000), bonus(100_000), donation(25_000)]);
+    expect(m1.donationDeduction).toBe(6_500);
+    expect(line([salary(30_000), bonus(-20_000)], true, next(m1)).donationDeduction).toBe(500);
+  });
+
+  it('with the tick cleared nothing further comes off, and what earlier lines allowed stands', () => {
+    const m1 = line([salary(20_000), donation(10_000)]);
+    expect(m1.donationDeduction).toBe(1_000);
+    const m2 = line([salary(20_000)], false, next(m1));
+    expect([m2.donationDeduction, m2.taxableIncome, m2.sdlLeviable]).toEqual([0, 20_000, 20_000]);
+  });
+
+  it('comes off periodic pay only: an annual-only month waits, and the retirement deduction is not inflated', () => {
+    const annualOnly = line([bonus(100_000), donation(5_000)]);
+    expect([annualOnly.donationDeduction, annualOnly.annualTaxable]).toEqual([0, 100_000]);
+    expect(line([salary(30_000)], true, next(annualOnly)).donationDeduction).toBe(5_000);
+    // R1 000 + R100 000 bonus, R30 000 RA, R5 000 donated: the retirement deduction uses all the periodic pay, so the
+    // donation waits and the deduction is what it would be without one.
+    const withDonation = line([salary(1_000), bonus(100_000), ra(30_000), donation(5_000)]);
+    const without = line([salary(1_000), bonus(100_000), ra(30_000)]);
+    expect([withDonation.donationDeduction, withDonation.retirementDeduction]).toEqual([0, without.retirementDeduction]);
+    expect(withDonation.sdlLeviable).toBe(without.sdlLeviable);
+  });
+
+  it('a no-pay month moves neither PAYE nor SDL', () => {
+    const l = line([donation(500)]);
+    expect([l.donationDeduction, l.sdlLeviable]).toEqual([0, 0]);
+  });
+
+  it('a deduction above the taxable pay left waits for a later line: taxable + deduction = pay, and SDL agrees', () => {
+    const nonTaxable: EmployeeComponent = { component: comp('3702', { isTaxable: false, isSdlApplicable: false }), amount: 25_000 };
+    let ytd: PayeYearToDate | undefined;
+    for (let i = 0; i < 6; i++) { const l = line([salary(100_000)], true, ytd); ytd = next(l, ytd); }
+    // Limit 5% × 610 000 = 30 500, but only R10 000 of taxable pay: R10 000 now, the other R10 000 next month.
+    const short = line([salary(10_000), nonTaxable, donation(20_000)], true, ytd);
+    expect([short.donationDeduction, short.taxableIncome, short.sdlLeviable]).toEqual([10_000, 0, 0]);
+    const after = line([salary(100_000)], true, next(short, ytd));
+    expect([after.donationDeduction, after.taxableIncome, after.sdlLeviable]).toEqual([10_000, 90_000, 90_000]);
+  });
+
+  it('reversing a donation from before the rule leaves SDL alone: that line never reduced it', () => {
+    const ytd: PayeYearToDate = {
+      periods: 1, retirementCapPeriods: 1, periodicTaxable: 19_000, annualPayments: 0, tablePaye: 0, medicalCredit: 0,
+      additionalMedicalCredit: 0, medicalSchemeFees: 0, retirementContributions: 0, retirementDeduction: 0,
+      donations: 1_000, donationReceipted: 0, donationBase: 0, donationDeduction: 0,
+      sdlApplicable: 20_000, sdlLeviable: 20_000, sdlRetirementDeduction: 0,
+    };
+    const l = line([salary(20_000), donation(-1_000)], true, ytd);
+    expect([l.taxableIncome, l.sdlLeviable]).toEqual([21_000, 20_000]);
+    // With a retirement deduction the SDL cap at pay does not hide it: 40 000 − 3 000 − the R20 000 carried.
+    expect(line([salary(20_000), ra(3_000), donation(-1_000)], true, ytd).sdlLeviable).toBe(17_000);
+  });
+
   it('reversing a donation from before the rule still takes it back', () => {
     const ytd: PayeYearToDate = {
       periods: 1, retirementCapPeriods: 1, periodicTaxable: 19_000, annualPayments: 0, tablePaye: 0, medicalCredit: 0,

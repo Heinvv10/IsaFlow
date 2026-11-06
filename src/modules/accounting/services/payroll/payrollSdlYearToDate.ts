@@ -20,7 +20,8 @@
  *   stays right as filed, so the retirement deduction PAYE recorded on it is not
  *   credited against later months (Hein: no credit). A later reversal of such a
  *   contribution is capped at the liable pay (sdlLeviableCumulative).
- * A line with stored figures contributes the retirement_deduction and donation_deduction it recorded.
+ * A line with stored figures contributes the retirement_deduction it recorded and, net and above nil, the
+ * donation_deduction (reversing a pre-959 donation goes negative, and that line never reduced SDL).
  */
 export interface SdlYearToDateLine {
   line: string;
@@ -52,6 +53,7 @@ export function sdlYearToDate(lines: readonly SdlYearToDateLine[]): SdlYearToDat
   let pay = 0;
   let leviable = 0;
   let deduction = 0;
+  let donations = 0;
   for (const l of lines) {
     const linePay = l.sdlApplicable == null ? Number(l.rebuiltApplicable ?? 0) : Number(l.sdlApplicable);
     const exempt = l.sdlExempt ?? (Number(l.sdl ?? 0) === 0 && round2(linePay * 0.01) > 0);
@@ -59,7 +61,10 @@ export function sdlYearToDate(lines: readonly SdlYearToDateLine[]): SdlYearToDat
     pay += linePay;
     leviable += l.sdlLeviable == null ? linePay : Number(l.sdlLeviable);
     // A line costed before 957 deducted nothing from its SDL: its recorded deduction is not credited later.
-    if (l.sdlApplicable != null) deduction += Number(l.retirement ?? 0) + Number(l.donation ?? 0);
+    if (l.sdlApplicable != null) {
+      deduction += Number(l.retirement ?? 0);
+      donations += Number(l.donation ?? 0);
+    }
   }
-  return { sdlApplicable: round2(pay), sdlLeviable: round2(leviable), sdlRetirementDeduction: round2(deduction) };
+  return { sdlApplicable: round2(pay), sdlLeviable: round2(leviable), sdlRetirementDeduction: round2(deduction + Math.max(0, donations)) };
 }

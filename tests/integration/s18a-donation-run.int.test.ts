@@ -8,6 +8,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanSeveranceFixtures, type SeveranceFixture } from './p3-severance.helpers';
 import { seedEmployee } from './p4fu-cumulative.helpers';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
+import { payrollTermsChangedSinceCalculation } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import { getPayrollEmployee, updatePayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 
 assertDisposable();
@@ -60,6 +61,22 @@ describe('the receipt flag', () => {
   });
 });
 
+describe('the approval gate', () => {
+  it.each([[true, false], [false, true]])('a tick moved from %j to %j after calculation sends the run back', async (from, to) => {
+    const f = await seedEmployee(pool, fixtures, `s18a gate ${from}`, 20_000);
+    await updatePayrollEmployee(f.employee, f.company, { s18aReceiptHeld: from });
+    await donate(f, 3, 500);
+    const id = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO payroll_run_headers (id, company_id, period_month, period_year, status) VALUES ($1, $2, 3, 2026, 'draft')`,
+      [id, f.company]);
+    await calculatePayrollRun(id, f.company);
+    expect(await payrollTermsChangedSinceCalculation(f.company, id, [f.employee])).toEqual([]);
+    await updatePayrollEmployee(f.employee, f.company, { s18aReceiptHeld: to });
+    expect(await payrollTermsChangedSinceCalculation(f.company, id, [f.employee])).toEqual([f.employee]);
+  });
+});
+
 describe('stored lines and the year to date (migration 959)', () => {
   it('no receipt: nothing deducted, warned', async () => {
     const f = await seedEmployee(pool, fixtures, 's18a no receipt', 20_000);
@@ -67,6 +84,15 @@ describe('stored lines and the year to date (migration 959)', () => {
     const line = await run(f, 3);
     expect([line.receipted, line.deduction, line.taxable, line.leviable]).toEqual([0, 0, 20_000, 20_000]);
     expect(line.warnings.map(w => w.code)).toContain('DONATION_WITHOUT_S18A_RECEIPT');
+  });
+
+  it('a reversal of a no-receipt donation takes nothing back', async () => {
+    const f = await seedEmployee(pool, fixtures, 's18a no receipt reversal', 20_000);
+    await donate(f, 3, 500);
+    await run(f, 3);
+    await donate(f, 4, -500);
+    const april = await run(f, 4);
+    expect([april.receipted, april.deduction, april.taxable, april.leviable]).toEqual([0, 0, 20_000, 20_000]);
   });
 
   it('with a receipt: capped in March, the excess comes off in April as the 5% grows, then none in May', async () => {
@@ -79,6 +105,19 @@ describe('stored lines and the year to date (migration 959)', () => {
     expect([april.receipted, april.base, april.deduction, april.taxable, april.leviable]).toEqual([0, 20_000, 1_000, 19_000, 19_000]);
     const may = await run(f, 5);
     expect([may.deduction, may.taxable, may.leviable]).toEqual([0, 20_000, 20_000]);
+  });
+
+  it('a donation reversed from before migration 959 is read from its breakdown: PAYE takes it back, SDL does not', async () => {
+    const f = await seedEmployee(pool, fixtures, 's18a legacy reversal', 20_000);
+    await updatePayrollEmployee(f.employee, f.company, { s18aReceiptHeld: true });
+    await donate(f, 3, 1_000);
+    await run(f, 3);
+    await pool.query(
+      `UPDATE payroll_run_lines SET donation_receipted = NULL, donation_base = NULL, donation_deduction = NULL
+        WHERE employee_id = $1`, [f.employee]);
+    await donate(f, 4, -1_000);
+    const april = await run(f, 4);
+    expect([april.receipted, april.deduction, april.taxable, april.leviable]).toEqual([-1_000, -1_000, 21_000, 20_000]);
   });
 
   it('a line from before migration 959 (NULL) gives no credit and no clawback', async () => {

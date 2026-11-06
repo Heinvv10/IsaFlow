@@ -199,7 +199,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // The pay enters the cumulative maths as the cent figure the line stores (sdl_applicable), so the year to date and
   // this line work from exactly the same numbers.
   const sdlApplicable = round2(sdlLeviable);
-  const sdlLeviableAfterDeductions = sdlLeviableToDate(employee.id, sdlApplicable, round2(retirementDeduction + donation.deduction), input.ytd);
+  const sdlLeviableAfterDeductions = sdlLeviableToDate(employee.id, sdlApplicable, round2(retirementDeduction + donation.sdlDeduction), input.ytd);
 
   // Leviability depends on the employer's twelve-month remuneration, not on
   // this line, so a caller costing a full run defers and applies the threshold

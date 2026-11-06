@@ -151,8 +151,9 @@ export async function updatePayrollEmployee(
   const todayIso = new Date().toISOString().split('T')[0]!;
   const status = endIso && endIso <= todayIso ? 'terminated' : null;
 
-  // An end date moves who a run pays and the termination base: under the company's payroll-approval lock, as every
-  // change the approval gate re-checks (payrollRunRecalcGate). Other fields need no lock.
+  // An end date moves who a run pays and the termination base, and the s18A tick moves PAYE and SDL: under the
+  // company's payroll-approval lock, as every change the approval gate re-checks (payrollRunRecalcGate). Other fields
+  // need no lock.
   const write = (db: typeof sql) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
@@ -171,7 +172,7 @@ export async function updatePayrollEmployee(
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `;
-  const rows = (endIso === null ? await write(sql) : await withTransaction(async (tx) => {
+  const rows = (endIso === null && data.s18aReceiptHeld === undefined ? await write(sql) : await withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
     return write(tx as typeof sql);
   })) as Row[];

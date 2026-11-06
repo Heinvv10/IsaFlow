@@ -71,6 +71,13 @@ function dependantsOf(value: unknown): number {
 }
 
 /** Boolean('false') is true: anything but a boolean is refused, so a string cannot take someone out of UIF. */
+/** The flag buys a PAYE and SDL deduction: no receipt on record means none, and anything but a boolean is refused. */
+function s18aReceiptHeldOf(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value !== 'boolean') throw new EmployeeOnboardingRefused('s18aReceiptHeld must be true or false');
+  return value;
+}
+
 function uifExcludedOf(value: unknown): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value !== 'boolean') throw new EmployeeOnboardingRefused('uifExcluded must be true or false');
@@ -100,8 +107,7 @@ function employeeOf(body: Body): NewEmployee {
     // so a default of true under-deducts PAYE for everyone captured without medical aid.
     medicalAidMainMember: body.medicalAidMainMember === true,
     medicalAidDependantsCount: dependantsOf(body.medicalAidDependantsCount),
-    // Only an explicit true: the flag buys a PAYE and SDL deduction, so no receipt on record means none.
-    s18aReceiptHeld: body.s18aReceiptHeld === true,
+    s18aReceiptHeld: s18aReceiptHeldOf(body.s18aReceiptHeld),
   };
 }
 

@@ -31,11 +31,13 @@ export function costPayeWithDonations(input: {
       ...calculateCumulativePaye({ ...payeInput, regularTaxable, annualPayments: annualTaxable, donations: deductedDonations }),
     };
   };
+  const { retirementDeduction } = costed(0);
   const donation = s18aDonationForLine({
     receiptHeld: input.receiptHeld,
     donations: input.donations,
-    remuneration: payeInput.periodicRemuneration + payeInput.annualPaymentRemuneration,
-    retirementDeduction: costed(0).retirementDeduction,
+    remuneration: periodicTaxable + annualPayments,
+    periodicLeft: periodicTaxable - taxableDeductions - retirementDeduction,
+    retirementDeduction,
     ytd: input.ytd,
   });
   return { donation, ...costed(donation.deduction) };
