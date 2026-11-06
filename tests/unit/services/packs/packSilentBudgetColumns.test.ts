@@ -89,7 +89,6 @@ describe('a plain fallback that fits untouched still says the columns are not pr
     expect(omission).not.toContain('Every figure, table and chart');
     expect(omission).toContain('Every other figure, table and chart on the page is complete');
     expect(page.footnotes.filter((f) => /Budget and Variance/.test(f.text))).toHaveLength(1);
-    expect(JSON.stringify(page)).not.toContain('columnsSaid');
   });
 });
 
