@@ -1,4 +1,4 @@
-// A draft pack can be rebuilt from the list; the confirmation says what is lost, and what would be sent.
+// A draft pack can be rebuilt from the list; the confirmation says what is lost.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -40,7 +40,7 @@ describe('Regenerate on the management pack list', () => {
     expect(buttons).toHaveLength(1);
     fireEvent.click(buttons[0]!);
     await waitFor(() => expect(posts).toEqual([{ period: '2026-11', replaceDraft: true }]));
-    expect(String((ask.mock.calls as unknown as string[][])[0]?.[0])).not.toContain('recipients');
+    expect(String((ask.mock.calls as unknown as string[][])[0]?.[0])).toContain('any edits');
   });
 
   it('sends nothing when the person declines', async () => {
@@ -52,13 +52,5 @@ describe('Regenerate on the management pack list', () => {
     expect(posts).toEqual([]);
   });
 
-  it('warns when the rebuilt pack would go to recipients', async () => {
-    serve({ reviewRequired: false, recipients: [{ name: 'A', email: 'a@example.com' }] });
-    const ask = vi.fn(() => false);
-    vi.stubGlobal('confirm', ask);
-    await openHistory();
-    fireEvent.click(await screen.findByRole('button', { name: 'Regenerate' }));
-    await waitFor(() => expect(ask).toHaveBeenCalled());
-    expect(String((ask.mock.calls as unknown as string[][])[0]?.[0])).toContain('recipients');
-  });
+
 });

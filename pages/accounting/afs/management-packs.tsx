@@ -82,10 +82,7 @@ export default function ManagementPacksPage() {
   }
 
   async function handleRegenerate(period: string) {
-    const sends = config && !config.reviewRequired && config.recipients.length > 0;
-    const message = `Replace the ${period} draft, and any edits to it, with a new pack built from today's figures and settings?`
-      + (sends ? ' With review off, the new pack goes to its recipients unless it is held back.' : '');
-    if (!window.confirm(message)) return;
+    if (!window.confirm(`Replace the ${period} draft, and any edits to it, with a new draft built from today's figures and settings?`)) return;
     await generate(period, true);
   }
 

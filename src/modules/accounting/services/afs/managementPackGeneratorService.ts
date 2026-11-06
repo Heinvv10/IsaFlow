@@ -39,8 +39,8 @@ export interface GeneratePackOptions {
   period: string;       // 'YYYY-MM'
   config: ManagementPackConfig;
   triggeredBy: 'cron' | 'manual';
-  /** A person asked to rebuild this month: its DRAFT pack is replaced. Any other pack still refuses as a duplicate. */
-  replaceDraft?: boolean;
+  /** A person asked to rebuild this month: its untouched draft is replaced (`removeDraftPack`), and the new pack is held for review. */
+  replaceDraft?: { actorUserId: string };
 }
 
 export interface GeneratePackResult {
@@ -125,7 +125,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   log.info('Starting management pack generation', { companyId, period, triggeredBy }, 'managementPackGeneratorService');
 
   // In the caller's transaction: a generation that then fails puts the draft back.
-  if (replaceDraft) await removeDraftPack(companyId, period);
+  if (replaceDraft) await removeDraftPack(companyId, period, replaceDraft.actorUserId);
   if (await checkExisting(companyId, period)) {
     throw new DuplicatePackError(`Management pack already generated for period ${period}`);
   }
@@ -270,7 +270,8 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     });
   }
 
-  const heldForReview = config.reviewRequired || unproduced.length > 0;
+  // A rebuild never signs itself off and sends: only Deliver, on the list, sends it.
+  const heldForReview = config.reviewRequired || unproduced.length > 0 || replaceDraft !== undefined;
   if (unproduced.length > 0 && !config.reviewRequired) {
     log.warn('management pack: held for review, not signed off or delivered: a section could not be produced',
       { companyId, period, documentId: doc.id, sections: unproduced }, 'managementPackGeneratorService');

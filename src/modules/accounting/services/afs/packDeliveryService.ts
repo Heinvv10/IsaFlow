@@ -152,6 +152,9 @@ async function sendToRecipient(
 
 // ── Public interface ──────────────────────────────────────────────────────────
 
+/** How a pack email's subject ends: with email_log, the only record that a month's pack was sent. */
+export const packEmailSubjectEnd = (period: string): string => ` — Management Accounts ${period}`;
+
 export async function deliverPack(documentId: string, companyId: string): Promise<void> {
   log.info('Delivering management pack', { documentId, companyId }, 'packDeliveryService');
 
@@ -178,7 +181,7 @@ export async function deliverPack(documentId: string, companyId: string): Promis
   const kpis: KpiResult[] = scorecard?.kpis ?? [];
 
   const portalUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za'}/accounting/afs/management-packs/${documentId}`;
-  const subject = `${companyName} — Management Accounts ${period}`;
+  const subject = `${companyName}${packEmailSubjectEnd(period)}`;
   const html = buildPackEmailHtml({ companyName, period, kpis, portalUrl });
 
   const pdfBuffer = await generatePackPdf(documentId, companyId);

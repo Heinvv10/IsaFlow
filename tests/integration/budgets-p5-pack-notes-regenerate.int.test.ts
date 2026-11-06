@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { DuplicatePackError, generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
+import { PackNotReplaceableError } from '@/modules/accounting/services/afs/managementPackExisting';
 import type { ManagementPackConfig, NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { varianceParamsHash } from '@/modules/accounting/services/reports/varianceParamsHash';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -87,8 +88,8 @@ describe('an approved variance note reaches the pack', () => {
 describe('rebuilding a month\'s pack', () => {
   const documents = (co: string) => sql`SELECT id::TEXT AS id FROM afs_documents
     WHERE company_id = ${co}::UUID AND document_type = 'management_pack' AND period = '2026-08'` as Promise<{ id: string }[]>;
-  const generate = (replaceDraft?: boolean) => generateManagementPack({
-    companyId: f.a, period: '2026-08', config: config({ income_vs_budget: true }), triggeredBy: 'manual', replaceDraft,
+  const generate = (replace?: boolean, sections: Record<string, unknown> = {}) => generateManagementPack({
+    companyId: f.a, period: '2026-08', config: { ...config({ income_vs_budget: true }), ...sections }, triggeredBy: 'manual', replaceDraft: replace ? { actorUserId: f.userA } : undefined,
   });
 
   it('refuses without the flag; with it, replaces the draft and its sections, and shows a note approved since', async () => {
@@ -109,6 +110,61 @@ describe('rebuilding a month\'s pack', () => {
       await sql`UPDATE afs_documents SET status = 'signed_off' WHERE id = ${first.documentId}::UUID AND company_id = ${f.a}::UUID`;
       await expect(generate(true)).rejects.toBeInstanceOf(DuplicatePackError);
       expect((await documents(f.a)).map((d) => d.id)).toEqual([first.documentId]);
+    }, { appUser: true });
+  });
+
+  const refusedAfter = (act: (doc: string) => Promise<unknown>, why: RegExp) => asRequest(pool, f.a, f.userA, async () => {
+    const first = await generate();
+    await act(first.documentId);
+    await expect(generate(true)).rejects.toThrow(why);
+    await expect(generate(true)).rejects.toBeInstanceOf(PackNotReplaceableError);
+    expect((await documents(f.a)).map((d) => d.id)).toEqual([first.documentId]);
+  }, { appUser: true });
+
+  it('refuses a draft with a reviewed section', () => refusedAfter((doc) => sql`
+    UPDATE afs_sections SET reviewed_by = ${f.userA}, reviewed_at = now() WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /reviewed or signed off/));
+
+  it('refuses a draft with a signed-off section', () => refusedAfter((doc) => sql`
+    UPDATE afs_sections SET signed_off_by = ${f.userA}, signed_off_at = now() WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /reviewed or signed off/));
+
+  it('refuses a draft with a comment', () => refusedAfter(async (doc) => {
+    const [section] = await sql`SELECT id FROM afs_sections WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID LIMIT 1` as { id: string }[];
+    await sql`INSERT INTO afs_section_comments (section_id, company_id, author_id, body) VALUES (${section!.id}::UUID, ${f.a}::UUID, ${f.userA}, 'Check this')`;
+  }, /has comments/));
+
+  it('refuses a draft emailed for that month, not one whose email failed or was another month\'s', async () => {
+    const mail = (subject: string, status: string) => sql`INSERT INTO email_log (company_id, recipient_email, subject, email_type, status)
+      VALUES (${f.a}::UUID, 'a@example.com', ${subject}, 'other', ${status})`;
+    await asRequest(pool, f.a, f.userA, async () => {
+      await generate();
+      await mail('Co — Management Accounts 2026-08', 'failed');
+      await mail('Co — Management Accounts 2026-07', 'sent');
+      const second = await generate(true);
+      await mail('Co — Management Accounts 2026-08', 'sent');
+      await expect(generate(true)).rejects.toThrow(/has been emailed/);
+      expect((await documents(f.a)).map((d) => d.id)).toEqual([second.documentId]);
+    });
+  });
+
+  it('sees the sent email as the request\'s own role does (app_user, RLS on email_log)', async () => {
+    await asRequest(pool, f.a, f.userA, async () => {
+      await generate();
+      await expect(generate(true)).rejects.toThrow(/has been emailed/);
+    }, {
+      appUser: true,
+      before: (c) => c.query(`INSERT INTO email_log (company_id, recipient_email, subject, email_type, status)
+        VALUES ($1, 'a@example.com', 'Co — Management Accounts 2026-08', 'other', 'sent')`, [f.a]),
+    });
+  });
+
+  it('holds the rebuilt pack for review even with review off and recipients set, and audits the replacement', async () => {
+    await asRequest(pool, f.a, f.userA, async () => {
+      const first = await generate();
+      const rebuilt = await generate(true, { reviewRequired: false, recipients: [{ name: 'A', email: 'a@example.com', receives: 'both' }] });
+      expect(rebuilt).toMatchObject({ status: 'draft', deliveryScheduled: false });
+      const audit = await sql`SELECT user_id::TEXT AS user_id, action FROM audit_log
+        WHERE company_id = ${f.a}::UUID AND entity_type = 'management_pack' AND entity_id = ${first.documentId}::UUID` as { user_id: string; action: string }[];
+      expect(audit).toEqual([{ user_id: f.userA, action: 'delete' }]);
     }, { appUser: true });
   });
 
