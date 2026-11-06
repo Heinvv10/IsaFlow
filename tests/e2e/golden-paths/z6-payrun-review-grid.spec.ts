@@ -61,8 +61,12 @@ async function sandboxRun(api: Api): Promise<{ runId: string; overtimeId: string
 async function open(page: Page, runId: string): Promise<void> {
   await page.goto(`/payroll/runs/${runId}`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Payroll Run — Nov 2026' })).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByLabel('Once-off earning component')).toBeVisible({ timeout: 30_000 });
-  await page.getByLabel('Once-off earning component').selectOption({ label: 'Overtime (3607)' });
+  const picker = page.getByRole('combobox', { name: 'Once-off earning component' });
+  await expect(picker).toBeVisible({ timeout: 30_000 });
+  // The kit Select (wave 4 PS): open the picker, choose the option by its label.
+  await picker.click();
+  await page.getByRole('option', { name: 'Overtime (3607)' }).click();
+  await expect(picker).toHaveText('Overtime (3607)');
   await settle(page);
 }
 

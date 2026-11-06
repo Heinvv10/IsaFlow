@@ -183,7 +183,9 @@ describe('what holds the approval preview', () => {
     type(input, '1,234');
     fireEvent.blur(input);
     await waitFor(() => expect(input.getAttribute('aria-invalid')).toBe('true'));
-    fireEvent.change(screen.getByLabelText('Once-off earning component'), { target: { value: commission.id } });
+    // The kit Select (wave 4 PS): open it, press the option.
+    fireEvent.click(screen.getByRole('combobox', { name: 'Once-off earning component' }));
+    fireEvent.click(screen.getByRole('option', { name: `${commission.name} (${commission.sarsSourceCode})` }));
     await waitFor(async () => expect((await cell('Riaan Smit')).value).toBe(''));
     pressApprove();
     expect(await screen.findByRole('dialog')).toBeTruthy();
