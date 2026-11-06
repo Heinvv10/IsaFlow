@@ -118,6 +118,19 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
     expect((await call('GET', { id: db }, fileRoute, FILE, outsider, other)).state.statusCode).not.toBe(404);
   });
 
+  it('stores an upload named like a linked document\'s copy under a name that cannot pass for one', async () => {
+    const r = await callRoute(attachmentsRoute as never, tokens[user]!, company, 'POST',
+      { bankTransactionId: t1, fileName: `${d1}_fake.png`, fileData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==' }, ATT);
+    expect(r.state.statusCode).toBe(201);
+    const stored = (await pool.query('SELECT id, file_name FROM bank_transaction_attachments WHERE bank_transaction_id = $1 AND file_name LIKE $2',
+      [t1, `%${d1}_fake.png`])).rows;
+    expect(stored.map((x) => x.file_name)).toEqual([`upload_${d1}_fake.png`]);
+    const items = body(await call('GET', { bankTransactionId: t1 })).data as { id: string; document_id?: string }[];
+    expect(items.find((i) => i.id === `captured-${d1}`)?.document_id).toBe(d1);
+    expect(items.find((i) => i.id === stored[0]!.id)?.document_id).toBeUndefined();
+    await pool.query('DELETE FROM bank_transaction_attachments WHERE id = $1', [stored[0]!.id]);
+  });
+
   it('refuses to delete the copy of a linked document by id, and deletes a plain upload', async () => {
     const refused = await call('DELETE', { id: c2 });
     expect(refused.state.statusCode).toBe(409);

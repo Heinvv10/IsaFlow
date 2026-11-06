@@ -48,3 +48,14 @@ export function hasBankLineDocumentSql(bt: Alias = 'bt'): string {
   return `(EXISTS (SELECT 1 FROM bank_transaction_attachments x WHERE x.bank_transaction_id = ${bt}.id)`
     + ` OR EXISTS (SELECT 1 FROM captured_documents cd WHERE ${linkedCapturedDocSql(bt, 'cd')}))`;
 }
+
+const COPY_PREFIX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_/i;
+
+/**
+ * A file name any writer OTHER than the captured-document copy may store. A name shaped like a copy's
+ * ("<uuid>_…") would make an upload pass for a linked document's copy and hide that document, so it gains an
+ * "upload_" prefix. Every writer of bank_transaction_attachments but captureBankTxAttachService calls this.
+ */
+export function uploadFileName(name: string): string {
+  return COPY_PREFIX.test(name) ? `upload_${name}` : name;
+}

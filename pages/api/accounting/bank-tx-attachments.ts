@@ -29,7 +29,7 @@ import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { listBankLineAttachments, unlinkCapturedDocFromBankTx } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
-import { isCopyOfSql, linkedCapturedDocSql } from '@/modules/accounting/services/bank/bankLineDocumentSql';
+import { isCopyOfSql, linkedCapturedDocSql, uploadFileName } from '@/modules/accounting/services/bank/bankLineDocumentSql';
 import { isValidUUID } from '@/lib/validation';
 
 // ── Local Types ───────────────────────────────────────────────────────────────
@@ -102,7 +102,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!parsed.success) {
       return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
-    const { bankTransactionId, fileName, fileData } = parsed.data;
+    const { bankTransactionId, fileData } = parsed.data;
+    const fileName = uploadFileName(parsed.data.fileName);
 
     // Verify ownership before insert
     const [btCheck] = await sql`

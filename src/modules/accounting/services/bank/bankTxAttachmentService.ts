@@ -17,7 +17,7 @@ import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
 import { detectMimeFromMagic, magicBytesMatchMime } from '@/lib/fileMagic';
 import { fetchRawBytes } from '@/lib/documentStorage';
-import { linkedCapturedDocSql } from './bankLineDocumentSql';
+import { linkedCapturedDocSql, uploadFileName } from './bankLineDocumentSql';
 import { mimeForCapturedFileType } from '../capture/capturedFileTypes';
 
 export const ATTACHMENT_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'] as const;
@@ -82,7 +82,7 @@ export async function addBankTxAttachment(
     INSERT INTO bank_transaction_attachments
       (bank_transaction_id, file_url, file_name, file_size, uploaded_by)
     VALUES
-      (${input.bankTransactionId}::UUID, ${dataUrl}, ${input.fileName}, ${bytes.length}, ${uploadedBy}::UUID)
+      (${input.bankTransactionId}::UUID, ${dataUrl}, ${uploadFileName(input.fileName)}, ${bytes.length}, ${uploadedBy}::UUID)
     RETURNING id, bank_transaction_id, file_name, file_size, created_at
   `) as DbRow[];
 

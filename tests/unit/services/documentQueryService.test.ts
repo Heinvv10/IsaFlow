@@ -119,3 +119,15 @@ describe('listTransactionsWithoutDocuments', () => {
     }
   });
 });
+
+describe('uploadFileName', () => {
+  it('prefixes a name shaped like a captured-document copy, and leaves every other name alone', async () => {
+    const { uploadFileName } = await import('@/modules/accounting/services/bank/bankLineDocumentSql');
+    const id = '22222222-2222-4222-8222-222222222222';
+    expect(uploadFileName(`${id}_scan.pdf`)).toBe(`upload_${id}_scan.pdf`);
+    expect(uploadFileName(`${id.toUpperCase()}_scan.pdf`)).toBe(`upload_${id.toUpperCase()}_scan.pdf`);
+    expect(uploadFileName('slip.png')).toBe('slip.png');
+    expect(uploadFileName(`x${id}_scan.pdf`)).toBe(`x${id}_scan.pdf`);
+    expect(uploadFileName(`${id}.pdf`)).toBe(`${id}.pdf`);
+  });
+});
