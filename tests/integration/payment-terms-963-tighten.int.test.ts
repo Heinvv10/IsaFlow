@@ -93,10 +93,12 @@ describe('migration 963', () => {
     ['the default the app writes for 30 days from invoice', DEFAULT_30],
     ['a changed default (2 months after statement)', '{"days":2,"type":"statement_months"}'],
     ['an unreadable default', 'not json'],
+    ['an empty default', ''],
+    ['a NULL default value', 'NULL'],
   ])('maps every legacy shape (%s), idempotently', async (_why, setting) => {
     await inTx(async (db) => {
       const c = companies[0]!;
-      if (setting !== null) await db.query("INSERT INTO accounting_settings(company_id, key, value) VALUES($1, 'default_payment_terms', $2)", [c, setting]);
+      if (setting !== null) await db.query("INSERT INTO accounting_settings(company_id, key, value) VALUES($1, 'default_payment_terms', $2)", [c, setting === 'NULL' ? null : setting]);
       const ids = await seed(db, c);
       const changed = setting !== null && setting !== DEFAULT_30;
       for (let run = 0; run < 2; run++) {
