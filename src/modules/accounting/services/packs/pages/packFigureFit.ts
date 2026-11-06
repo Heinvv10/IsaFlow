@@ -125,10 +125,10 @@ export function tableFit(table: PackTable, scale: MoneyScale, orientation: PageO
   return { px: floor, fits: false };
 }
 
-type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
+export type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
 
 /** The words a KPI tile's delta line prints (the same call the tile makes): "up 12.0% prior period". */
-function deltaText(tile: KpiTile): string {
+export function deltaText(tile: KpiTile): string {
   const delta = tile.delta;
   if (delta === null) return '';
   const direction = delta.value > 0 ? 'up' : 'down';
@@ -160,8 +160,8 @@ function tileOtherMinPx(tile: KpiTile): number {
   const deltaPx = Math.max(0, ...deltaRuns.map((w, i) => (i === 0 ? w + DELTA_CUE_PX : w)));
   return Math.max(labelPx, reasonWidth, deltaPx);
 }
-/** The arrow cue before a delta (7pt) and its space, charged generously. */
-const DELTA_CUE_PX = 12;
+/** The arrow cue before a delta (7pt) and its space: 10px, measured with the first word ("↑ up" is 24px, "up" 14). */
+export const DELTA_CUE_PX = 10;
 
 /** The width of each of a KPI row's four columns at `fontPx`: the widest of its figure and its tile's other content. */
 export function kpiColumnMinPx(tiles: readonly KpiTile[], scale: MoneyScale, fontPx: number): number[] {

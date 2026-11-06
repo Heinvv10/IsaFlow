@@ -24,6 +24,7 @@ import {
   tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT,
 } from './packFigureFit';
 import { ptToPx, textPx } from './packFigureWidth';
+import { linesFor, runsOf, totalPx, type Run } from './packLineWrap';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
 
@@ -50,27 +51,10 @@ export interface TableLayout {
   headingLines: number;
 }
 
-/** One breakable piece of text: its width, and the gap before it where it does not follow a hyphen. */
-interface Run { w: number; gap: number }
-
 /** The runs a label may break between: at spaces (a space apart), and after a hyphen (touching). */
 function labelRuns(row: PackTableRow, space: number): Run[] {
   const weight = ROW_WEIGHT[row.role];
-  return row.label.split(/\s+/).filter((word) => word !== '').flatMap((word, wi) => word.split(/(?<=-)/)
-    .map((run, ri) => ({ w: textPx(run, LABEL_FONT_PX, weight), gap: wi > 0 && ri === 0 ? space : 0 })));
-}
-
-const totalPx = (runs: readonly Run[]): number => runs.reduce((sum, r) => sum + r.gap + r.w, 0);
-
-/** A greedy fill of `runs` into lines of `avail`; `marker` is a footnote mark that stays with the last run. */
-function linesFor(runs: readonly Run[], marker: number, avail: number): number {
-  let lines = 1;
-  let used = 0;
-  runs.forEach((run, i) => {
-    const w = run.w + (i === runs.length - 1 ? marker : 0);
-    if (i > 0 && used + run.gap + w > avail + 0.01) { lines += 1; used = w; } else used += run.gap + w;
-  });
-  return lines;
+  return runsOf(row.label, (run) => textPx(run, LABEL_FONT_PX, weight), space);
 }
 
 export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation): TableLayout {
