@@ -20,11 +20,14 @@
  * at every scale in `tests/unit/print/packNothingPassesTheEdge.test.ts`.
  */
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
+import { collectReasons, noteMark } from '@/components/accounting/packs/primitives/notMeaningfulNotes';
+import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { MoneyScale } from '@/lib/format/money';
 import { GUTTER_MM } from './packDisclosureHeight';
-import { type FigureWeight, ptToPx, textPx } from './packFigureWidth';
+import { type FigureWeight, ptToPx, textPx, textPxUnsnapped } from './packFigureWidth';
 import { reasonPx } from './packReasonWidth';
 import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
+import { deltaDirection } from '@/modules/accounting/services/packs/narrative/derivedTileCaptions';
 import type { PackPageBlock, PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
 
@@ -40,11 +43,21 @@ const GUARD_PX = 0.5;
 export const CELL_SIDE_PX = 2 * MM_PX;
 /** `.pack-table td:first-child` indents by `level x 4mm` (`INDENT_MM_PER_LEVEL`). */
 export const INDENT_PX_PER_LEVEL = 4 * MM_PX;
-/** A footnote marker (`.pack-footnote-marker`, 0.7em, a digit) after a heading at 8pt: measured 4.64px; after a label at 9pt: 5px. */
-export const HEADING_MARKER_PX = 5;
-export const LABEL_MARKER_PX = 5;
-/** A not-meaningful cell is "n/m" and a one-letter mark at 0.7em (`.pack-table-note-mark`). */
-const NOT_MEANINGFUL = 'n/m a';
+/** A not-meaningful cell is "n/m" and the mark of its note (`.pack-table-note-mark`). */
+const NOT_MEANINGFUL = 'n/m';
+
+/**
+ * A FOOTNOTE MARK, MEASURED AT THE SIZE IT IS SET AT. `.pack-footnote-marker` and `.pack-table-note-mark` are 0.7em
+ * superscripts, and Chromium rounds that size to a whole pixel and each glyph's advance after it: after a 9pt (12px)
+ * label a digit is 5px and two digits 10px; "m" is 7px, "w" 6px, "aa" 8px, "mw" 13px; at a 10px figure a digit is
+ * 4px. (A flat 5px was 5px short from the 10th note and 1px over at the floor.) `packFigureWidth.test.ts` re-measures
+ * them.
+ */
+const markPx = (text: string, hostPx: number, weight: FigureWeight): number => textPxUnsnapped(text, 0.7 * hostPx, weight);
+/** A row's or KPI tile's footnote number after its 9pt label. */
+export const labelMarkPx = (number: number | null | undefined): number => (number === null || number === undefined ? 0 : markPx(String(number), 12, 400));
+/** A heading's footnote number: the 8pt heading's 7px digits (4px) plus its 0.06em letter-spacing (0.64px) each. */
+export const headingMarkPx = (number: number | undefined): number => (number === undefined ? 0 : String(number).length * 4.65);
 
 /**
  * The longest word of each column heading, in pixels, as `.pack-table th` sets it (8pt, uppercase, 0.06em
@@ -68,11 +81,17 @@ const measurePx = (orientation: PageOrientation): number => PAGE_WIDTH_MM[orient
 /** The weight a row is set in (`packPrintTablesAndProse.css`): subtotal 500, total and grand total 600. */
 export const ROW_WEIGHT: Readonly<Record<PackTableRow['role'], FigureWeight>> = { line: 400, subtotal: 500, total: 600, grandTotal: 600 };
 
-export interface FigureCell { text: string; weight: FigureWeight }
+export interface FigureCell { text: string; weight: FigureWeight; /** A not-meaningful cell's mark: "a", "b", ... "aa". */ mark?: string }
 
 /** What each data column of a statement table prints, cell by cell, and the weight it is set in. */
 export function tableColumnCells(table: PackTable, scale: MoneyScale): FigureCell[][] {
   const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
+  // The marks are the table's own, in the order its reasons are first met (as `ComparativeTable` numbers them).
+  const reasons = collectReasons(table.rows.flatMap((row) => columns.map((col) => row.figures[col])));
+  const markOf = (figure: PackFigure): string => {
+    const at = figure.unavailable ? reasons.indexOf(figure.unavailable) : -1;
+    return at >= 0 ? noteMark(at) : '';
+  };
   return columns.map((col) => table.rows.map((row) => {
     const figure = row.figures[col];
     const weight = ROW_WEIGHT[row.role];
@@ -80,18 +99,15 @@ export function tableColumnCells(table: PackTable, scale: MoneyScale): FigureCel
       // The table prints "n/m" (and its mark) in a derived cell of a row whose actual is not meaningful, not the dash.
       const actual = row.figures.actual;
       const notMeaningful = col !== 'actual' && actual !== undefined && actual.value === null;
-      return { text: notMeaningful ? NOT_MEANINGFUL : '–', weight };
+      return notMeaningful ? { text: NOT_MEANINGFUL, weight, mark: markOf(actual) } : { text: '–', weight };
     }
-    return {
-      text: figure.value === null ? NOT_MEANINGFUL : formatFigureText(figure, scale, col === 'changePct' ? 'change' : 'level'),
-      weight,
-    };
+    if (figure.value === null) return { text: NOT_MEANINGFUL, weight, mark: markOf(figure) };
+    return { text: formatFigureText(figure, scale, col === 'changePct' ? 'change' : 'level'), weight };
   }));
 }
 
 export function cellPx(cell: FigureCell, fontPx: number): number {
-  if (cell.text === NOT_MEANINGFUL) return textPx('n/m', fontPx, cell.weight) + LABEL_MARKER_PX;
-  return textPx(cell.text, fontPx, cell.weight);
+  return textPx(cell.text, fontPx, cell.weight) + (cell.mark === undefined ? 0 : markPx(cell.mark, fontPx, cell.weight));
 }
 
 /** The narrowest a row label can be set: its longest word at 9pt (it wraps), its indent, its marker, its right padding. */
@@ -99,7 +115,7 @@ function labelMinPx(table: PackTable): number {
   const labelFontPx = Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
   return Math.max(0, ...table.rows.map((row) => {
     const longest = Math.max(0, ...row.label.split(/\s+/).map((word) => textPx(word, labelFontPx, ROW_WEIGHT[row.role])));
-    return row.level * INDENT_PX_PER_LEVEL + longest + (row.footnote === undefined ? 0 : LABEL_MARKER_PX) + CELL_SIDE_PX;
+    return row.level * INDENT_PX_PER_LEVEL + longest + labelMarkPx(row.footnote) + CELL_SIDE_PX;
   }));
 }
 
@@ -107,10 +123,9 @@ function labelMinPx(table: PackTable): number {
 function tableMinPx(table: PackTable, scale: MoneyScale, fontPx: number): number {
   const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
   const texts = tableColumnCells(table, scale);
-  const notes = new Set((table.columnNotes ?? []).map((n) => n.column));
   const dataPx = columns.reduce((sum, col, i) => {
     const figures = Math.max(0, ...texts[i]!.map((t) => cellPx(t, fontPx)));
-    const heading = HEADING_WORD_PX[col] + (notes.has(col) ? HEADING_MARKER_PX : 0);
+    const heading = HEADING_WORD_PX[col] + headingMarkPx(table.columnNotes?.find((n) => n.column === col)?.footnote);
     return sum + Math.max(figures, heading) + 2 * CELL_SIDE_PX;
   }, 0);
   return labelMinPx(table) + dataPx;
@@ -125,13 +140,13 @@ export function tableFit(table: PackTable, scale: MoneyScale, orientation: PageO
   return { px: floor, fits: false };
 }
 
-type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
+export type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
 
 /** The words a KPI tile's delta line prints (the same call the tile makes): "up 12.0% prior period". */
-function deltaText(tile: KpiTile): string {
+export function deltaText(tile: KpiTile): string {
   const delta = tile.delta;
   if (delta === null) return '';
-  const direction = delta.value > 0 ? 'up' : 'down';
+  const direction = deltaDirection(delta);
   return `${deltaWithWord(delta, direction, direction, 'pp', 'flat on')} ${delta.basis}`;
 }
 
@@ -152,16 +167,16 @@ function longestRunPx(text: string, fontPx: number, weight: FigureWeight): numbe
  * holds its column open (the adversary's net-debit Debt-to-equity tile: 50px of figure under a 56px label).
  */
 function tileOtherMinPx(tile: KpiTile): number {
-  const labelPx = longestRunPx(tile.label, 12, 400) + (tile.trendFootnote === null ? 0 : LABEL_MARKER_PX);
+  const labelPx = longestRunPx(tile.label, 12, 400) + (labelMarkPx(tile.trendFootnote));
   const reasonWidth = tile.figure.value === null && tile.figure.unavailable !== undefined && tile.figure.unavailable !== null
     ? Math.max(0, ...runsOf(tile.figure.unavailable).map(reasonPx)) : 0;
-  // The arrow cue sits on the FIRST run ("↑ up"): a long word later in the line wraps onto a line of its own.
-  const deltaRuns = tile.delta === null ? [] : runsOf(deltaText(tile)).map((run) => textPx(run, 12, 400));
-  const deltaPx = Math.max(0, ...deltaRuns.map((w, i) => (i === 0 ? w + DELTA_CUE_PX : w)));
+  // The arrow cue is a run of its own (`</span>{' '}` after it is a break opportunity): it never holds a column open
+  // past the words it precedes.
+  const deltaPx = tile.delta === null ? 0 : Math.max(DELTA_CUE_PX, longestRunPx(deltaText(tile), 12, 400));
   return Math.max(labelPx, reasonWidth, deltaPx);
 }
-/** The arrow cue before a delta (7pt) and its space, charged generously. */
-const DELTA_CUE_PX = 12;
+/** The arrow cue before a delta, a 7pt glyph: 7px ("↑" alone; with its space and "up" the line measures 24px). */
+export const DELTA_CUE_PX = 7;
 
 /** The width of each of a KPI row's four columns at `fontPx`: the widest of its figure and its tile's other content. */
 export function kpiColumnMinPx(tiles: readonly KpiTile[], scale: MoneyScale, fontPx: number): number[] {

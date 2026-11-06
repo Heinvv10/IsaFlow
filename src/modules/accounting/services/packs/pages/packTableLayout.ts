@@ -20,7 +20,7 @@
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
 import {
-  CELL_SIDE_PX, cellPx, HEADING_MARKER_PX, INDENT_PX_PER_LEVEL, LABEL_MARKER_PX, MM_PX, ROW_WEIGHT,
+  CELL_SIDE_PX, cellPx, headingMarkPx, INDENT_PX_PER_LEVEL, labelMarkPx, MM_PX, ROW_WEIGHT,
   tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT,
 } from './packFigureFit';
 import { ptToPx, textPx } from './packFigureWidth';
@@ -77,11 +77,10 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
   const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
   const fitPx = tableFit(table, scale, orientation).px ?? Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
   const cells = tableColumnCells(table, scale);
-  const notes = new Set((table.columnNotes ?? []).map((n) => n.column));
   const space = textPx(' ', LABEL_FONT_PX, 400);
   const labelBox = table.rows.map((row) => {
     const runs = labelRuns(row, space);
-    const marker = row.footnote === undefined ? 0 : LABEL_MARKER_PX;
+    const marker = labelMarkPx(row.footnote);
     const indent = row.level * INDENT_PX_PER_LEVEL;
     return {
       indent, marker, runs,
@@ -93,7 +92,7 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
   const labelMax = Math.max(0, ...labelBox.map((b) => b.max));
   const data = columns.map((col, i) => {
     const figures = Math.max(0, ...cells[i]!.map((cell) => cellPx(cell, fitPx)));
-    const marker = notes.has(col) ? HEADING_MARKER_PX : 0;
+    const marker = headingMarkPx(table.columnNotes?.find((n) => n.column === col)?.footnote);
     const words = HEADING_WORDS_PX[col];
     const full = words.reduce((sum, w) => sum + w, 0) + HEADING_SPACE_PX * (words.length - 1) + marker;
     return {

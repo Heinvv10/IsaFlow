@@ -49,6 +49,18 @@ export function deltaRoundsToNil(delta: PackKpiDelta): boolean {
   return Number(Math.abs(delta.value).toFixed(1)) === 0;
 }
 
+export type DeltaDirection = 'up' | 'down' | 'flat';
+
+/**
+ * Sign of the delta, independent of `favourable` — a shrinking expense is a favourable DOWN, not an up; the glyph
+ * tracks arithmetic direction and the colour class carries favourable/unfavourable separately. As printed: a movement
+ * of 0.04% prints 0.0%, and has no direction. The tile and the fit model's measure of its words both read it here.
+ */
+export function deltaDirection(delta: PackKpiDelta): DeltaDirection {
+  if (deltaRoundsToNil(delta)) return 'flat';
+  return delta.value > 0 ? 'up' : 'down';
+}
+
 /**
  * One derived line per highlight tile — spec §4.A page 3's "derived one-liner
  * per tile".
