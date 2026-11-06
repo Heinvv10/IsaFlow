@@ -18,11 +18,13 @@
  *      chain exists:
  *        in force → the run is re-approved onto it, posting nothing, but only
  *                   while its figures match what the run would post now
- *                   (`sameFigures`), else `recalculated_after_posting`; step 3
+ *                   (`sameFigures`), else `recalculated_after_posting`, or `net_pay_target_changed` when net pay's
+ *                   target moved between the bank and the clearing account (payrollNetPayTargetChange); step 3
  *                   (pro-rata, the line refusals) is not judged: nothing new posts;
  *        out      → nothing of the run is in the ledger: approval unlinks the
  *                   journal and posts a FRESH one (`replaces`), dated by
- *                   `datedForReplacement`;
+ *                   `datedForReplacement` (payrollReplacementDating), with an advisory when
+ *                   net pay's target differs from the replaced journal's (payrollNetPayTargetChange);
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
  *   3. for a fresh journal, termination pay-outs another approved or paid run
  *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then a
@@ -41,9 +43,10 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
-import { closedPeriodBlocker } from './payrollJournalParts';
+import { datedForReplacement } from './payrollReplacementDating';
 import { comparableLines, foldNetPayBank, predatesTagging, sameFigures, type PostedFigureLine } from './payrollLabourComparison';
-import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
+import { netPayReplacementAdvisories, netPayTargetChangeNote, unresolvedNetPayBlocker } from './payrollNetPayTargetChange';
+import { readJournalChain, runRecalculatedSince } from './payrollJournalChain';
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
@@ -164,36 +167,6 @@ async function readPostedJournal(companyId: string, journalId: string): Promise<
   return { journal, asPosted, current };
 }
 
-/**
- * The plan for a journal that REPLACES a reversed one.
- *
- * ACCOUNTING RULING NEEDED (W3-01 round 5, C1-E) — implemented as recommended,
- * pending the owner's decision. When the reversal that took the old journal
- * out is not dated in the run's month (the month was closed, so the reversal
- * fell on a later date), the replacement is dated ON THAT REVERSAL'S DATE. The
- * reversal and the replacement then net in one period, and the run's own month
- * keeps the figures it reported. Dated in the run's month instead, that month
- * would carry the run twice and the later one a negative.
- * The alternative — re-date into the original month — needs that period
- * reopened and the reversal moved into it; it is not done here.
- */
-async function datedForReplacement(companyId: string, plan: PayrollJournalPlan, chain: JournalChain): Promise<PayrollJournalPlan> {
-  const reversal = chain.journals[chain.journals.length - 1];
-  if (!reversal || chain.journals.length < 2 || reversal.entryDate.slice(0, 7) === plan.entryDate.slice(0, 7)) return plan;
-  const closed = await closedPeriodBlocker(companyId, reversal.entryDate);
-  return {
-    ...plan,
-    entryDate: reversal.entryDate,
-    blockers: [...plan.blockers.filter((b) => b.code !== 'closed_period'), ...(closed ? [closed] : [])],
-    advisories: [...plan.advisories, {
-      code: 'replacement_dated_on_reversal',
-      detail: `The journal this run posted was reversed by ${reversal.entryNumber} on ${reversal.entryDate}, outside ${plan.entryDate.slice(0, 7)}. `
-        + `The new journal is dated ${reversal.entryDate} as well, so the reversal and the new journal fall in the same period and `
-        + `${plan.entryDate.slice(0, 7)} keeps the figures it reported.`,
-    }],
-  };
-}
-
 /** Null when the run is not in this company. Read-only. */
 export async function judgePayrollApproval(companyId: string, runId: string): Promise<PayrollApprovalGate | null> {
   const built = await buildPayrollJournalPlan(companyId, runId);
@@ -217,7 +190,10 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const loanPayments = await findLoanPaymentsOffPayslip(companyId, runId);
   const plan = {
     ...dated,
-    advisories: [...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId), ...yearToDate.advisories],
+    advisories: [
+      ...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId), ...yearToDate.advisories,
+      ...(replaces && read ? netPayReplacementAdvisories(dated.lines, read.current, replaces) : []),
+    ],
   };
 
   const blocker = await (async (): Promise<PayrollJournalNote | null> => {
@@ -251,6 +227,12 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
       // In force. The journal to reverse is the LAST of the chain: the run's own, or the one that re-booked it.
       const inForce = chain.journals[chain.journals.length - 1]!;
       const perAccount = await runRecalculatedSince(companyId, runId, linkedId);
+      // A clearing account that now fails the rules is the plan's blocker to show, not a change of target.
+      const unresolved = unresolvedNetPayBlocker(plan.lines, plan.blockers);
+      if (unresolved) return unresolved;
+      // Net pay moved between the bank and a clearing account (or between two): reverse first, never re-lock.
+      const moved = netPayTargetChangeNote(plan.lines, read!.current, linked.lines.map((l) => `${l.accountCode} ${l.accountName}`), inForce.entryNumber);
+      if (moved) return moved;
       // Net pay's bank credit is one role on both sides, so a bank role that moved since posting is not a change.
       const folded = foldNetPayBank(plan.lines, perAccount ? read!.asPosted : read!.current);
       const compared = perAccount ? comparableLines(folded.plan, plan.labourBySourceCentre, folded.posted) : folded;

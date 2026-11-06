@@ -23,8 +23,10 @@ import { holderParentConflicts, mappedHolders, roleMapConflicts, validateSystemA
 import { assertRolesKept, snapshotRoles, SystemRoleInvariantError } from '../gl/systemRoleInvariant';
 import { resolveCoaImportRows, type RawCoaImportRow } from './accountTypeAliases';
 import { ParentAccountError, assertParentUsable } from '../gl/accountParentRules';
+import { assertActorMayMoveRoles, auditRoleMoves, roleMapMoves, type CoaImportActor } from './migrationCoaRoleMoves';
 
 export { validateSystemAccountMap };
+export { CoaRoleChangeForbiddenError, type CoaImportActor } from './migrationCoaRoleMoves';
 
 
 export interface AccountImportRow {
@@ -56,6 +58,7 @@ export async function importChartOfAccounts(
   sessionId: string,
   rawAccounts: Array<AccountImportRow | RawCoaImportRow>,
   systemAccountMap: SystemAccountMap,
+  actor?: CoaImportActor,
 ): Promise<ImportResult> {
   // Sage / Pastel type labels ("Current Assets", "Cost of Sales") are translated
   // and a blank normal balance derived from the type; an unknown label is a
@@ -91,6 +94,9 @@ export async function importChartOfAccounts(
     const conflicts = [...await roleMapConflicts(companyId, systemAccountMap, accounts), ...await holderParentConflicts(companyId, systemAccountMap, accounts)];
     if (conflicts.length > 0) return conflicts;
     const roles = await snapshotRoles(companyId);
+    // Before any write: a manager may not move the bank role (CoaRoleChangeForbiddenError, the route's 403).
+    const moves = await roleMapMoves(companyId, roles, systemAccountMap as unknown as Record<string, unknown>);
+    assertActorMayMoveRoles(actor, moves);
     try {
       // Bounded: every statement below waits at most 5s for any lock while this import holds the role lock.
       await boundedRowWait(() => withSavepoint('coa_import_vat_lock', async () => {
@@ -246,6 +252,7 @@ export async function importChartOfAccounts(
         // held before, or mapped, has exactly one usable holder — else the
         // savepoint is rolled back and the import refused whole.
         await assertRolesKept(companyId, roles, await mappedHolders(companyId, systemAccountMap));
+        await auditRoleMoves(companyId, actor, moves);
       }));
       return null;
     } catch (err) {
