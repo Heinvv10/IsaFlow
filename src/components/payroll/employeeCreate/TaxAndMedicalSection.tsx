@@ -19,6 +19,10 @@ export function TaxAndMedicalSection({ form, errors, set, fieldRef, checkField }
           <input type="checkbox" checked={form.medicalAidMainMember} onChange={e => set('medicalAidMainMember', e.target.checked)} />
           Medical aid main member
         </label>
+        <label className="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+          <input type="checkbox" checked={form.s18aReceiptHeld} onChange={e => set('s18aReceiptHeld', e.target.checked)} />
+          s18A donation receipt held
+        </label>
       </div>
     </FormSection>
   );

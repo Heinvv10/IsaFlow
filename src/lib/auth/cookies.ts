@@ -1,4 +1,4 @@
-import { clearImpersonationProofCookie } from './impersonation-cookies';
+import { clearImpersonationCookies, clearImpersonationProofCookie } from './impersonation-cookies';
 // src/lib/auth/cookies.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 
@@ -90,7 +90,7 @@ export function setAuthCookies(
 ): void {
   const domain = cookieDomain();
   const persistent = params.persistent ?? true;
-  if (!params.preserveImpersonation) clearImpersonationProofCookie(res);
+  if (!params.preserveImpersonation) clearImpersonationCookies(res);
   // When not persistent ("Keep me signed in" unchecked), BOTH cookies must be
   // session-only. If only the refresh cookie is session-only, a browser close
   // and reopen within ~1h leaves the access cookie alive and the user signed
@@ -105,6 +105,21 @@ export function setAuthCookies(
   // Hint cookie mirrors the persistent flag and is HttpOnly (server-only read).
   const hintFlags = persistent ? cookieFlags(60 * 60 * 24 * 30, domain) : sessionCookieFlags(domain);
   appendSetCookie(res, `${REMEMBER_ME_COOKIE}=${persistent ? '1' : '0'}; ${hintFlags}`);
+}
+
+/**
+ * After an access token is refused. An expired one says nothing about the session:
+ * only its own cookie goes, so the client can still renew from the refresh cookie.
+ * Any other refusal clears everything.
+ */
+export function clearCookiesForRefusedToken(res: NextApiResponse, err: unknown): void {
+  if ((err as { code?: unknown } | null)?.code !== 'ERR_JWT_EXPIRED') {
+    clearAuthCookies(res);
+    return;
+  }
+  const domain = cookieDomain();
+  appendSetCookie(res, `${ACCESS_COOKIE}=; ${cookieFlags(0)}`);
+  if (domain) appendSetCookie(res, `${ACCESS_COOKIE}=; ${cookieFlags(0, domain)}`);
 }
 
 export function setActiveCompanyCookie(res: NextApiResponse, companyId: string): void {
@@ -157,7 +172,7 @@ export function clearPendingRememberCookie(res: NextApiResponse): void {
  * invalidation on the server side (e.g. rotate JWT_SECRET).
  */
 export function clearAuthCookies(res: NextApiResponse): void {
-  clearImpersonationProofCookie(res);
+  clearImpersonationCookies(res);
   const domain = cookieDomain();
   for (const name of [ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE, ONBOARDING_DONE_COOKIE, PENDING_MFA_COOKIE, PENDING_REMEMBER_COOKIE, REMEMBER_ME_COOKIE]) {
     appendSetCookie(res, `${name}=; ${cookieFlags(0)}`);

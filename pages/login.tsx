@@ -14,10 +14,12 @@ import Image from 'next/image';
 import { Eye, EyeOff, Building2, ShieldCheck, Lock, Mail } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
+import { markSignedIn } from '@/lib/auth/sessionHeartbeat';
 import { ApiEnvelopeError, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LoginBrandPanel } from '@/components/auth/LoginBrandPanel';
+import { useResumeRenewedSession } from '@/components/auth/useResumeRenewedSession';
 
 type LoginStep = 'credentials' | 'totp';
 
@@ -206,8 +208,14 @@ function TwoFactorScreen({
 
 // ── Safe Redirect ─────────────────────────────────────────────────────────────
 
+/** Parsed, not pattern-matched: URL parsing strips tabs and newlines, so `/<tab>/evil.example` leaves the site. */
 function isSafeRedirect(url: string): boolean {
-  return url.startsWith('/') && !url.startsWith('//') && !url.startsWith('/\\');
+  const base = 'https://same-origin.invalid';
+  try {
+    return url.startsWith('/') && new URL(url, base).origin === base;
+  } catch {
+    return false; // unparseable, e.g. `//[`: refuse it rather than crash the login page
+  }
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
@@ -279,6 +287,14 @@ export default function LoginPage() {
       : inviteToken
         ? `/invite/${encodeURIComponent(inviteToken)}`
         : defaultRedirect;
+
+  // Not on an invitation: there the visitor may be signing in as someone else.
+  useResumeRenewedSession(
+    isAuthenticated,
+    !inviteToken && typeof router.query.returnTo === 'string' && isSafeRedirect(router.query.returnTo)
+      ? router.query.returnTo
+      : null,
+  );
 
   useEffect(() => {
     if (!inviteToken) return;
@@ -361,6 +377,7 @@ export default function LoginPage() {
         return;
       }
 
+      markSignedIn();
       // No 2FA — full-page navigate to the authenticated shell. We use
       // window.location.assign rather than router.push so every provider
       // (AuthContext, CompanyContext) re-mounts against the new session
@@ -408,6 +425,7 @@ export default function LoginPage() {
       setLockoutExpiresAt(null);
 
       await readAuthReply(res, 'That code was not accepted - try again');
+      markSignedIn();
       // Full-page reload to drop any provider state from the /login render —
       // see the no-MFA path for the rationale.
       const target = await postLoginRedirect();

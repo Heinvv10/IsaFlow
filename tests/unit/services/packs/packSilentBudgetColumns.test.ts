@@ -13,11 +13,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
+import { fitPageReport, OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
 import { BUDGET_COLUMNS_DROPPED_NOTE } from '@/modules/accounting/services/packs/pages/packIncomeBudget';
 import { fitRelaidPage } from '@/modules/accounting/services/packs/pages/packNarrativeFit';
 import { relaidNarrative } from '@/modules/accounting/services/packs/pages/packNarrativeLayout';
-import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
+import type { PackPage, PackPageBlock } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { input, type Shape } from './fixtures/page6Grid';
 
 const p6 = (shape: Shape): { page: PackPage; warnings: string[] } => {
@@ -42,6 +42,15 @@ describe('the omission note on a budget company\'s page 6 that has no budget col
     expect(note).toMatch(/; the Budget and Variance columns\./);
     expect(note).not.toContain('Every figure, table and chart');
     expect(note).toContain('Every other figure, table and chart on the page is complete');
+  });
+
+  it('merged disclosures, the #1154 rescue: names the columns too', () => {
+    const { page } = p6({ tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1000, plug: 0.05, sg: [1, -1, -1, -1] });
+    expect(hasColumns(page)).toBe(false);
+    expect(page.blocks.some((b) => b.kind === 'disclosure' && b.disclosure.heading === 'Required disclosures')).toBe(true);
+    const note = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))?.text;
+    expect(note).toMatch(/; the Budget and Variance columns\./);
+    expect(note).not.toContain('Every figure, table and chart');
   });
 
   it('a company with no budget is not told about columns it never had', () => {
@@ -80,7 +89,6 @@ describe('a plain fallback that fits untouched still says the columns are not pr
     expect(omission).not.toContain('Every figure, table and chart');
     expect(omission).toContain('Every other figure, table and chart on the page is complete');
     expect(page.footnotes.filter((f) => /Budget and Variance/.test(f.text))).toHaveLength(1);
-    expect(JSON.stringify(page)).not.toContain('columnsSaid');
   });
 });
 
@@ -109,5 +117,33 @@ describe('a dropped caption is logged once, for the page used', () => {
     const { page, warnings } = p6(shape);
     expect(page.footnotes.some((f) => f.text.includes('1 derived caption'))).toBe(true);
     expect(warnings.filter((w) => w.includes('derived caption'))).toHaveLength(1);
+  });
+});
+
+describe('the column absence is said once on ANY path that puts the standalone note on the page', () => {
+  // A hand-built page: the dropped-columns footnote and `columnsLeftOut`, set by no composer and with no
+  // other flag, then crowded so the fit prints an omission note. The omission note must read the page.
+  const SENTENCE = 'The prior column is the comparative period the basis page states, and a movement is never '
+    + 'shown as a move from zero where that period carries no value for the measure.';
+  const required: PackPageBlock = {
+    kind: 'disclosure',
+    disclosure: { heading: 'Lines below zero', required: true, notes: [{ heading: 'What this means', body: SENTENCE.repeat(27) }] },
+  };
+  const pageWith = (notes: string[]) => ({
+    title: 'Revenue is below zero.', navLabel: 'Income statement', section: 'Financials' as const, orientation: 'portrait' as const, density: 'high' as const,
+    blocks: [required], footnotes: notes.map((text, i) => ({ number: i + 1, text, ...(text === BUDGET_COLUMNS_DROPPED_NOTE ? { required: true as const } : {}) })),
+    columnsLeftOut: ['Budget', 'Variance'],
+  });
+
+  it('names the columns once when the page carries the standalone note, and in the omission note when it does not', () => {
+    const withNote = fitPageReport(pageWith([SENTENCE, SENTENCE, BUDGET_COLUMNS_DROPPED_NOTE]));
+    const said = withNote.page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))?.text ?? '';
+    expect(withNote.dropped.footnotes, 'the fixture must make the fitter take an ordinary footnote').toBeGreaterThan(0);
+    expect(withNote.page.footnotes.filter((f) => /Budget and Variance/.test(f.text))).toHaveLength(1);
+    expect(said).not.toContain('Budget');
+    expect(said).toContain('Every other figure, table and chart on the page is complete');
+    const without = fitPageReport(pageWith([SENTENCE, SENTENCE, SENTENCE]));
+    const named = without.page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))?.text ?? '';
+    expect(named).toMatch(/; the Budget and Variance columns\./);
   });
 });

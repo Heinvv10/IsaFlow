@@ -18,6 +18,9 @@ function check(yamlText: string, scripts: unknown = SCRIPTS): string[] {
   return checkWorkflowRunsCi(load(yamlText), scripts, WORKFLOW_FILES);
 }
 
+/** The hosted apt steps' first two lines (apt timeouts, then update), as ci.yml writes them. */
+const APT_HEAD = `          echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null\n          sudo apt-get update -q\n`;
+
 function edit(from: string, to: string): string {
   expect(REAL.split(from).length - 1, `fixture anchor must occur once: ${from}`).toBe(1);
   return REAL.replace(from, to);
@@ -289,7 +292,7 @@ describe('the required check passes only when both gate groups passed', () => {
     ['static timeout no longer pinned', edit("    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 40 || 75 }}\n", '    timeout-minutes: 1\n')],
     ['static no longer needs route (its runs-on reads route\'s output)', edit(`${STATIC_HEADER}    needs: route\n`, STATIC_HEADER)],
     ['velo no longer needs route', edit(`${VELO_HEADER}    needs: route\n`, VELO_HEADER)],
-    ['velo apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends postgresql-16", '      - run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends postgresql-16')],
+    ['velo apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n" + APT_HEAD + '          sudo apt-get install -y -qq --no-install-recommends postgresql-16', '      - run: |\n' + APT_HEAD + '          sudo apt-get install -y -qq --no-install-recommends postgresql-16')],
     ['velo without its browser install (browser-tests cannot launch Chromium)', edit("      # As in static: Chromium for browser-tests.\n      - if: ${{ runner.environment == 'github-hosted' }}\n        run: bunx playwright install --with-deps chromium\n", '')],
     ['a hosted setup step that runs on velo too (static)', editNth("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n', 0)],
     ['a hosted setup step that runs on velo too (velo)', editNth("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n', 1)],
@@ -306,7 +309,7 @@ describe('the required check passes only when both gate groups passed', () => {
     ['static renamed to the required check', edit('    name: Static gates\n', '    name: Type Check, Lint & Test\n')],
     ['golden-paths renamed (its required check never reports)', edit('    name: Golden Paths E2E (blocking)\n', '    name: Golden Paths E2E\n')],
     ['a decoy whose name renders as the required check through an expression', edit('    name: Golden Paths lane\n', "    name: \"Type Check, Lint ${{ '&' }} Test\"\n")],
-    ['the apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends ghostscript", '      - run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends ghostscript')],
+    ['the apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n" + APT_HEAD + '          sudo apt-get install -y -qq --no-install-recommends ghostscript', '      - run: |\n' + APT_HEAD + '          sudo apt-get install -y -qq --no-install-recommends ghostscript')],
     ['the browser step rewriting what the gate runs', edit('        run: bunx playwright install --with-deps chromium\n\n      # The gate list', '        run: bunx playwright install --with-deps chromium && printf "exit 0\\n" > scripts/ci/run-ci.sh\n\n      # The gate list')],
     ['TZ set to dodge the local-day tests', edit('          # day, and a hosted runner is UTC.\n          TZ: Africa/Johannesburg\n', '          # day, and a hosted runner is UTC.\n          TZ: UTC\n')],
     ['route taking a concurrency group', edit('    name: CI route\n', '    name: CI route\n    concurrency:\n      group: ci-${{ github.ref }}\n')],

@@ -9,6 +9,7 @@ import {
 } from 'react';
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
+import { markSignedIn } from '@/lib/auth/sessionHeartbeat';
 import { log } from '@/lib/logger';
 import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useSessionCheck } from './useSessionCheck';
@@ -28,6 +29,8 @@ export interface AuthUser {
   profilePicture?: string | null;
   department?: string;
   onboardingCompleted?: boolean;
+  /** "Keep me signed in" was ticked for this session (/api/auth/me). */
+  rememberMe?: boolean;
 }
 
 interface AuthContextType {
@@ -84,6 +87,7 @@ function mapApiUser(raw: Record<string, unknown>): AuthUser {
     profilePicture: (raw.profilePicture as string) || (raw.profile_picture as string) || null,
     department: (raw.department as string) || undefined,
     onboardingCompleted: raw.onboardingCompleted === true || raw.onboarding_completed === true,
+    rememberMe: raw.rememberMe === true,
   };
 }
 
@@ -175,6 +179,7 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
         return true;
       }
 
+      markSignedIn();
       const raw = data.data?.user ?? data.data ?? data.user;
       setUser(raw ? mapApiUser(raw) : null);
       return false;

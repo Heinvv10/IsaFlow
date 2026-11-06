@@ -68,6 +68,23 @@ export async function loadStash(stashId: string): Promise<StashRow | null> {
   };
 }
 
+/**
+ * For a Login-as that ended without "Return to my session": the parties come from the
+ * session record, not from a cookie. Removes the stash the session named and any of
+ * theirs already expired, never a newer live one. Returns how many rows went.
+ */
+export async function deleteEndedStashes(input: {
+  adminUserId: string; targetUserId: string; stashId?: string;
+}): Promise<number> {
+  const { rowCount } = await migrationAdminPool().query(
+    `DELETE FROM admin_impersonation_stash
+      WHERE admin_user_id = $1 AND target_user_id = $2
+        AND (stash_id::text = $3 OR expires_at <= NOW())`,
+    [input.adminUserId, input.targetUserId, input.stashId ?? null],
+  );
+  return rowCount ?? 0;
+}
+
 export async function deleteStash(stashId: string): Promise<void> {
   await migrationAdminPool().query('DELETE FROM admin_impersonation_stash WHERE stash_id = $1::uuid', [stashId]);
 }
