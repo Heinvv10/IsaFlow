@@ -1,38 +1,10 @@
 /**
- * WHERE THE MODEL MAY BREAK A LABEL IS WHERE CHROMIUM BREAKS IT.
- *
- * `packLineWrap.pieces` splits text at spaces, after hyphens (also before a digit, but not a hyphen opening a signed
- * number), after an en dash and around an em dash, and nowhere else (not at a slash, dot, comma, colon, ampersand
- * or plus). For each text, Chromium's min-content width of the label is the widest of its pieces, each measured
- * on its own.
+ * THE FILL OVER EXACT WIDTHS: the greedy line count with its safe-side guard, and where a footnote mark sits. (Where
+ * text may break is held to Chromium by `packLineBreaks.test.ts`.)
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Browser } from 'playwright';
-import { chromium } from 'playwright';
-import { linesFor, minPx, pieces, runsOf } from '@/modules/accounting/services/packs/pages/packLineWrap';
+import { describe, expect, it } from 'vitest';
+import { linesFor, minPx, runsOf } from '@/modules/accounting/services/packs/pages/packLineWrap';
 import { textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
-import { measure } from './measureWidths';
-
-let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
-afterAll(async () => { await browser?.close(); });
-
-const TEXTS = [
-  '2024-25', 'abc-def', 'abc-5', 'abc/def', 'abc/5', '1/2', 'abc–def', '5–6', 'abc—def', '-5', '-abc', '(abc-def)',
-  'abc--def', 'a-b-c', 'Fy2024/25', 'abc.def', 'abc,def', 'abc:def', 'abc;def', 'abc_def', 'abc&def', 'abc+def', 'R&D',
-  'Revenue from contracts', 'Non-operating-income-from-associates', 'Property, plant and equipment (net)',
-];
-
-describe('the pieces of a label', () => {
-  it.each(TEXTS)('%s: Chromium\'s narrowest width is the widest of the pieces the model breaks it into', async (text) => {
-    const probes = [
-      { probe: 'label' as const, text, html: `<span style="display:inline-block;width:min-content;white-space:normal">${text}</span>` },
-      ...pieces(text).map((piece) => ({ probe: 'label' as const, text: piece.text, html: `<span style="white-space:nowrap">${piece.text}</span>` })),
-    ];
-    const res = await measure(browser, probes);
-    expect(res[0]!.widthPx).toBeCloseTo(Math.max(...res.slice(1).map((r) => r.widthPx)), 0);
-  });
-});
 
 describe('the fill', () => {
   const runs = runsOf('Operating expenses', (piece) => textPx(piece, 12, 400), 3);

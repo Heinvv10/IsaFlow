@@ -144,3 +144,22 @@ describe('adjacent heavy rows share their rules', () => {
     expect(tightest).toBeGreaterThanOrEqual(0);
   }, 600_000);
 });
+
+describe('a label that fits its column to within a fraction of a pixel (the adversary\'s six over-trimmed packs)', () => {
+  // k=30,000, net-credit revenue, plug 0 and an other-expenses line below zero: "Cost of sales" and "Other income"
+  // measure 74.5px against a 74.6px column. With a half-pixel guard the model wrapped both (9.3mm over the print);
+  // the guard is a tenth of a pixel now, and the layout's columns are Chromium's to the hundredth.
+  it('the model sets the same lines as Chromium and reads the table within 0.2mm', async () => {
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const doc = buildBoardPackPages(input({ tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 30000, plug: 0, sg: [1, 1, 1, -1] }));
+    const page = doc.pages.find((p) => p.navLabel === 'Income statement')!;
+    const block = page.blocks.find((b) => b.kind === 'table')!;
+    if (block.kind !== 'table') throw new Error('no table');
+    const real = (await measureTables(doc, browser)).find((t) => t.page === page.number)!;
+    const model = tableLayout(block.table, doc.numberConvention.scale, page.orientation);
+    expect(model.labelLines).toEqual(real.labelLines);
+    const gap = statementTableBodyMm(block.table, doc.numberConvention.scale, page.orientation) - real.heightMm;
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(gap).toBeLessThanOrEqual(0.2);
+  }, 120_000);
+});
