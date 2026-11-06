@@ -26,13 +26,21 @@ const EVIDENCE = process.env.INVOICE_EVIDENCE_DIR;
 // Every save here goes to this sandbox company, never to Demo (Willie uses Demo for QA).
 const SANDBOX_NAME = '0GP Golden Invoice Form Sandbox';
 const SANDBOX_ONBOARDING_ID = 'd6630d3e-22b5-4c1f-b872-262d940a869a'; // y1's company: one sandbox for the invoice form
-const TERMS = { name: '0GP-Golden-Terms-Customer', payment_terms: 30, payment_terms_type: 'days', default_discount: 10, default_vat_type: 'standard' };
-const ZERO = { name: '0GP-Golden-Zero-Customer', payment_terms: 0, payment_terms_type: 'end_of_month', default_discount: 0, default_vat_type: 'zero' };
-const PLAIN = { name: '0GP-Golden-Plain-Customer', payment_terms: 0, payment_terms_type: 'days', default_discount: 0, default_vat_type: 'standard' };
+const TERMS = { name: '0GP-Golden-Terms-Customer', payment_terms: 30, payment_terms_type: 'invoice_days', default_discount: 10, default_vat_type: 'standard' };
+const ZERO = { name: '0GP-Golden-Zero-Customer', payment_terms: 0, payment_terms_type: 'statement_days', default_discount: 0, default_vat_type: 'zero' };
+const PLAIN = { name: '0GP-Golden-Plain-Customer', payment_terms: 0, payment_terms_type: 'invoice_days', default_discount: 0, default_vat_type: 'standard' };
 
+/**
+ * Found or created, and its terms PUT on every run: migration 960 turned the customers that still carried the old
+ * default 30 / 'days' into "not set" (the company default then dates their documents), so a fixture that is only created
+ * once would lose the 30 days these assertions are about on the next database it meets.
+ */
 async function fixtureCustomer(api: Api, fields: typeof TERMS): Promise<void> {
-  const found = await api.get<{ name: string }[]>(`/api/accounting/customers?q=${encodeURIComponent(fields.name)}`);
-  if (!found.some((c) => c.name === fields.name)) await api.post('/api/accounting/customers', fields);
+  const found = await api.get<{ id: string; name: string }[]>(`/api/accounting/customers?q=${encodeURIComponent(fields.name)}`);
+  const existing = found.find((c) => c.name === fields.name);
+  if (!existing) { await api.post('/api/accounting/customers', fields); return; }
+  const { name: _name, ...settings } = fields;
+  await api.put('/api/accounting/customers', { id: existing.id, ...settings });
 }
 
 async function sandbox(context: BrowserContext, baseURL: string): Promise<Api> {
@@ -89,7 +97,7 @@ test('a customer with terms and a discount fills the form; 115 incl stores unit_
 
   const expectedDue = addDaysISO(todayInSast(), 30);
   await expect(page.getByLabel('Due date')).not.toHaveValue('');
-  await expect(page.getByText('Customer terms: 30 days')).toBeVisible();
+  await expect(page.getByText('Customer terms: 30 days from invoice date')).toBeVisible();
   await expect(page.getByLabel('Discount %')).toHaveValue('10');
   await expect(page.getByText('10% discount from customer')).toBeVisible();
 
@@ -226,7 +234,7 @@ for (const theme of THEMES) {
     await page.setViewportSize({ width: 1568, height: 900 });
     await open(page);
     await pickClient(page, TERMS.name);
-    await expect(page.getByText('Customer terms: 30 days')).toBeVisible();
+    await expect(page.getByText('Customer terms: 30 days from invoice date')).toBeVisible();
     await page.getByPlaceholder('Item description').fill('Three at ten');
     await page.getByLabel('Unit price').fill('10');
     await expect(page.getByText('-10%')).toBeVisible();

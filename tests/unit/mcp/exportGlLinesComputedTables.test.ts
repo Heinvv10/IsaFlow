@@ -33,13 +33,19 @@ const ROWS = [
   ...[3, 4, 5, 6].map((n) => ({ Doc_ID: uuid(n), Doc_Type: 'invoice', Outstanding: n * 100 })),
   { Doc_ID: uuid(7), Doc_Type: 'unapplied_payment', Outstanding: -7 },
 ];
-const SUMMARY = { table: 'ap_open_items', schemaVersion: 'isaflow-open-items-1.0', asAt: '2026-10-22', controlTotal: 1790, agedTotal: 1790, difference: 0 };
+const SUMMARY = { table: 'ap_open_items', schemaVersion: 'isaflow-open-items-1.1', asAt: '2026-10-22', controlTotal: 1790, agedTotal: 1790, difference: 0 };
 
 beforeEach(() => {
   build.mockReset().mockResolvedValue({ columns: ['Doc_ID', 'Doc_Type', 'Outstanding'], rows: ROWS, summary: SUMMARY });
 });
 
 describe('export_gl_lines computed tables', () => {
+  it('tells an agent controlTotal already includes disputedTotal, so it is not added again', () => {
+    expect(exportGlLinesTool.description).toContain('controlTotal (Σ Outstanding + Σ Disputed');
+    expect(exportGlLinesTool.description).not.toContain('controlTotal (Σ Outstanding)');
+    expect(exportGlLinesTool.description).toContain('already inside controlTotal and grossTotal');
+  });
+
   it('lists the three tables in the enum', () => {
     const table = (exportGlLinesTool.inputSchema as { properties: { table: { enum: string[] } } }).properties.table;
     expect(table.enum).toEqual(expect.arrayContaining(['ap_open_items', 'ar_open_items', 'bank_accounts']));

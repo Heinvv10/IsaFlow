@@ -93,6 +93,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
   );
 
   // ── Reference Strip ───────────────────────────────────────────────────────
+  const termsText = inv.client_terms ? String(inv.client_terms) : '';
   const refFields = [
     { label: 'Invoice #', value: String(inv.invoice_number || '—') },
     {
@@ -105,12 +106,13 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
     },
     {
       label: 'Due Date',
-      value: inv.due_date ? fmtDate(inv.due_date as string | Date | null | undefined) : 'On Receipt',
+      // "On Receipt" only for an undated invoice whose terms ARE immediate (by value); on other terms no date, never a contradiction.
+      value: inv.due_date
+        ? fmtDate(inv.due_date as string | Date | null | undefined)
+        : (inv.client_terms_immediate === true ? 'On Receipt' : '—'),
     },
-    {
-      label: 'Terms',
-      value: inv.payment_terms ? String(inv.payment_terms) : '30 Days',
-    },
+    // The terms line is printed only when the model says these terms dated the invoice; otherwise the due date stands alone.
+    ...(termsText ? [{ label: 'Terms', value: termsText }] : []),
   ];
   y = renderRefStrip(doc, y, PAGE_W, MARGIN, refFields);
 

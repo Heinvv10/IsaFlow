@@ -31,8 +31,8 @@ import { createSupplier, updateSupplier } from '@/modules/accounting/services/co
 import {
   createCustomer,
   updateCustomer,
-  ContactValidationError,
 } from '@/modules/accounting/services/core/customerWriteService';
+import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 
@@ -90,7 +90,6 @@ describe('createCustomer — narrow columns', () => {
     ['registrationNumber', 'registration_number', 50],
     ['defaultVatType', 'default_vat_type', 50],
     ['defaultPriceList', 'default_price_list', 100],
-    ['paymentTermsType', 'payment_terms_type', 30],
     ['statementDistribution', 'statement_distribution', 20],
   ] as const)('refuses %s → %s over %i characters, before any SQL', async (key, field, max) => {
     const err = await createCustomer(COMPANY_ID, { name: 'ACME', [key]: '9'.repeat(max + 1) })

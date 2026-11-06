@@ -18,6 +18,7 @@ import { assertNonNegativeDocumentTotal, NegativeDocumentTotalError } from '@/mo
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import { lockTimeEntries, TimeEntriesNotClaimedError } from '@/modules/accounting/services/practice/timeEntryLock';
 import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
+import { dueDateForContact } from '@/modules/accounting/services/core/paymentTermsResolver';
 
 type Row = Record<string, unknown>;
 
@@ -100,6 +101,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // domain — it never advanced company_document_numbers — retrying on a message
     // containing "unique" with no savepoint, so a real 23505 left the request
     // transaction aborted and every later attempt failed 25P02 instead.
+    // The customer's terms, else the company default (migration 960).
+    const dueDate = await dueDateForContact(companyId, 'customer', customerId, invDate!);
     const { invoiceId, invoiceNumber } = await insertWithReservedNumber(
       companyId, 'customer_invoice', 'te_inv_', 'uq_customer_invoices_company_number',
       async (number) => {
@@ -107,12 +110,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           INSERT INTO customer_invoices (
             company_id, invoice_number, customer_id, client_id,
             subtotal, tax_rate, tax_amount, total_amount,
-            invoice_date, status, created_by,
+            invoice_date, due_date, status, created_by,
             currency_code, exchange_rate, functional_total
           ) VALUES (
             ${companyId}, ${number}, ${customerId}::UUID, ${customerId}::UUID,
             ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount},
-            ${invDate!}, 'draft', ${userId},
+            ${invDate!}, ${dueDate}, 'draft', ${userId},
             'ZAR', 1.0, ${totalAmount}
           ) RETURNING id
         `) as Row[];

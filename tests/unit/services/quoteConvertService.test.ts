@@ -17,6 +17,10 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 const sqlTexts: string[] = [];
 const sqlResults: unknown[][] = [];
 
+// The due date's terms lookup is its own tested unit (paymentTermsResolver); these tests are about column names.
+vi.mock('@/modules/accounting/services/core/paymentTermsResolver', () => ({
+  dueDateForContact: vi.fn(async () => '2026-12-05'), companyTermsOf: vi.fn(), getCompanyDefaultTerms: vi.fn(), contactTerms: vi.fn(),
+}));
 vi.mock('@/lib/neon', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/neon')>();
   const sqlMock = Object.assign(

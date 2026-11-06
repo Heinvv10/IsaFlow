@@ -99,7 +99,8 @@ export function calculateAgingBuckets(
     const entry = grouped.get(inv.entityId)!;
     entry[bucket] += nonDisputedBalance;
     entry.disputed = (entry.disputed ?? 0) + disputed;
-    entry.total += nonDisputedBalance;
+    // A disputed amount is still owed: the Total is everything outstanding, and the five buckets plus `disputed` foot to it.
+    entry.total += inv.balance;
   }
 
   // Sort by total descending

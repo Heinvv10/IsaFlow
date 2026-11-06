@@ -17,7 +17,6 @@ export interface TemplateForm {
   endDate: string;
   description: string;
   taxRate: number;
-  paymentTerms: string;
 }
 
 const INITIAL_FORM: TemplateForm = {
@@ -28,7 +27,6 @@ const INITIAL_FORM: TemplateForm = {
   endDate: '',
   description: '',
   taxRate: 15,
-  paymentTerms: '30 days',
 };
 
 export const newLine = (): LineItem => ({
@@ -68,7 +66,6 @@ export function useRecurringTemplateLoad(id: string) {
           ...loadedDates.current,
           description: String(found.description ?? ''),
           taxRate: Number(found.taxRate ?? found.tax_rate ?? 15),
-          paymentTerms: String(found.paymentTerms ?? found.payment_terms ?? '30 days'),
         });
         if (rows.length > 0) setLines(rows);
         setLoaded(true);
