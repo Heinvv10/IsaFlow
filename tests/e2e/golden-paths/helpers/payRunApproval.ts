@@ -37,6 +37,11 @@ export const APPROVER_HINT =
 
 export type PayRunClearance = 'cleared' | 'self-approval-refused';
 
+// selfApprove ignores E2E_APPROVER_*, so APPROVER_HINT's advice cannot help a spec that sets it.
+export const SELF_APPROVE_HINT =
+  'This spec always self-approves (selfApprove ignores E2E_APPROVER_*): its company now has other eligible approvers, '
+  + 'so it must run in a company where the suite user is the only one.';
+
 class SelfApprovalRefused extends Error {}
 
 function isSelfApproval(err: unknown): err is ApiError {
@@ -44,11 +49,11 @@ function isSelfApproval(err: unknown): err is ApiError {
     && (err.body as { error?: { details?: { reason?: string } } })?.error?.details?.reason === 'SELF_APPROVAL_FORBIDDEN';
 }
 
-async function approve(api: Api, decision: object): Promise<void> {
+async function approve(api: Api, decision: object, hint = APPROVER_HINT): Promise<void> {
   try {
     await api.post('/api/accounting/approval-requests', decision);
   } catch (err) {
-    if (isSelfApproval(err)) throw new SelfApprovalRefused(`pay run approval refused as SELF_APPROVAL_FORBIDDEN. ${APPROVER_HINT} (${err.message})`);
+    if (isSelfApproval(err)) throw new SelfApprovalRefused(`pay run approval refused as SELF_APPROVAL_FORBIDDEN. ${hint} (${err.message})`);
     throw err;
   }
 }
@@ -79,7 +84,7 @@ export async function clearPayRunApproval(
   const decision = { action: 'approve', requestId: request.id, expectedDigest: request.documentDigest };
   if (!approver) {
     try {
-      await approve(api, decision);
+      await approve(api, decision, opts.selfApprove ? SELF_APPROVE_HINT : APPROVER_HINT);
       return 'cleared';
     } catch (err) {
       if (opts.reportSelfRefusal && err instanceof SelfApprovalRefused) return 'self-approval-refused';
