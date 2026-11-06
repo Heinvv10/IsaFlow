@@ -9,12 +9,14 @@
  * them off the page. Nothing in it depends on which engine runs it, so equal lines are an equal layout.
  */
 import path from 'node:path';
+import * as fontkit from 'fontkit';
+import { PRINT_CONTENT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { printStylesheet } from '../print/renderPackPdf';
 
 const ROOT = path.resolve(__dirname, '../../..');
 
-/** The print's content width (174mm), as `printBoardPack`'s viewport sets it. */
-export const PARITY_WIDTH_PX = 658;
+/** The width production prints a page's content at (`PRINT_CONTENT_PX`): both engines lay the page out at it. */
+export const PARITY_WIDTH_PX = PRINT_CONTENT_PX.portrait;
 
 export interface FontFile { name: string; file: string }
 
@@ -78,3 +80,21 @@ export function parseReport(text: string): Map<string, string> {
 export function inTableCell(id: string, cellStyle: string, inner: string): string {
   return `<div class="pack-pages"><div class="pack-page"><table class="pack-table"><tbody><tr><td data-parity="${id}" style="${cellStyle}">${inner}</td></tr></tbody></table></div></div>`;
 }
+
+/**
+ * Every code point a self-hosted face of the print stylesheet has a glyph for (the union over its woff2 files), from
+ * U+0020: Chromium sets these from the same file on every host, so the two engines must agree on each.
+ */
+export function selfHostedCodePoints(): number[] {
+  const cps = new Set<number>();
+  for (const font of flatStylesheet().fonts) {
+    const face = fontkit.openSync(font.file) as unknown as { characterSet: number[] };
+    for (const cp of face.characterSet) if (cp >= 0x20) cps.add(cp);
+  }
+  return [...cps].sort((a, b) => a - b);
+}
+
+/** Who answers for the code points outside the self-hosted faces, which each host sets in its own fallback fonts. */
+export const FALLBACK_OWNER = 'every other code point is set in the render host\'s fallback fonts; its width is owned by the tables '
+  + 'measured in the production Gotenberg image (packReasonWidth\'s fallback blocks, the label-glyph table) and held to that '
+  + 'image by the render-time fingerprint guard';

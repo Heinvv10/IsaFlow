@@ -56,8 +56,8 @@ export async function startGotenberg(): Promise<Gotenberg> {
   }
 }
 
-/** Gotenberg's report on `html`: the text of the PDF it prints. */
-export async function gotenbergReport(gotenberg: Gotenberg, html: string, fonts: readonly FontFile[]): Promise<string> {
+/** The PDF Gotenberg prints `html` as, with the production transport's paper, margins and media. */
+export async function gotenbergPdf(gotenberg: Gotenberg, html: string, fonts: readonly FontFile[], waitForExpression?: string): Promise<Buffer> {
   const form = new FormData();
   form.append('files', new Blob([html], { type: 'text/html' }), 'index.html');
   for (const font of fonts) form.append('files', new Blob([readFileSync(font.file)], { type: 'font/woff2' }), font.name);
@@ -66,24 +66,35 @@ export async function gotenbergReport(gotenberg: Gotenberg, html: string, fonts:
     marginTop: mmToIn(PDF_MARGIN_MM.top), marginBottom: mmToIn(PDF_MARGIN_MM.bottom),
     marginLeft: mmToIn(PDF_MARGIN_MM.left), marginRight: mmToIn(PDF_MARGIN_MM.right),
     printBackground: 'true', emulatedMediaType: 'print', skipNetworkIdleEvent: 'true',
-    waitForExpression: 'window.parityDone === true',
+    ...(waitForExpression === undefined ? {} : { waitForExpression }),
   };
   for (const [key, value] of Object.entries(fields)) form.append(key, value);
   const res = await fetch(`${gotenberg.url}/forms/chromium/convert/html`, { method: 'POST', body: form });
   if (!res.ok) throw new Error(`Gotenberg ${res.status}: ${await res.text()}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/** Runs `read` on `pdf` written to a temporary file, and removes it. */
+export function withPdfFile<T>(pdf: Buffer, read: (file: string) => T): T {
   const dir = mkdtempSync(path.join(tmpdir(), 'isaflow-parity-'));
   try {
-    const pdf = path.join(dir, 'report.pdf');
-    writeFileSync(pdf, Buffer.from(await res.arrayBuffer()));
-    return execFileSync('pdftotext', ['-raw', pdf, '-'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+    const file = path.join(dir, 'print.pdf');
+    writeFileSync(file, pdf);
+    return read(file);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
+/** Gotenberg's report on `html`: the text of the PDF it prints. */
+export async function gotenbergReport(gotenberg: Gotenberg, html: string, fonts: readonly FontFile[]): Promise<string> {
+  const pdf = await gotenbergPdf(gotenberg, html, fonts, 'window.parityDone === true');
+  return withPdfFile(pdf, (file) => execFileSync('pdftotext', ['-raw', file, '-'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }));
+}
+
 /** The print tests' Chromium's report on `html`, laid out as Gotenberg lays it out: print media, the same width. */
 export async function playwrightReport(browser: Browser, html: string, fonts: readonly FontFile[]): Promise<string> {
-  const page = await browser.newPage({ viewport: { width: PARITY_WIDTH_PX, height: 1000 } });
+  const page = await browser.newPage({ viewport: { width: Math.ceil(PARITY_WIDTH_PX) + 1, height: 1000 } });
   try {
     const files = new Map(fonts.map((f) => [`/${f.name}`, f.file]));
     await page.route(`${HOST}**`, async (route) => {
