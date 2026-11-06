@@ -13,7 +13,10 @@ import { parse as pgParse } from 'pg-connection-string';
 import { RubricGuardError } from './_rubricGuard';
 
 export const DEV_DATABASE = 'isaflow_dev';
-/** Dev Supabase (the IsaFlow stack on velo-server). */
+/**
+ * Dev Supabase (the IsaFlow stack on velo-server), hardcoded. Named limit: if the dev database moves, the guard refuses
+ * every server (it fails closed) until these and DEV_DB_SERVER_PORT are updated by hand.
+ */
 export const DEV_DB_HOST = '100.96.203.105';
 export const DEV_DB_PORT = 7772;
 /**
@@ -78,31 +81,54 @@ export function parseProcEnviron(text: string): Record<string, string> {
 /** `next dev|start` flags that take a value (so the value is not the project dir). */
 const VALUE_FLAGS = ['-p', '--port', '-H', '--hostname', '--keepAliveTimeout', '--experimental-https-key',
   '--experimental-https-cert', '--experimental-https-ca', '--experimental-upload-trace'];
+/** The next CLI as a token: `next`, `.../.bin/next`, `.../next/dist/bin/next.js`. */
+const NEXT_BIN = /(^|\/)next(\.js)?$/;
 
 /**
- * The project dir a `next dev|start` command line names, or undefined (none named, or not a next CLI). Arguments are
- * split on whitespace too, so `sh -c "next dev ../x"` is read. An unknown flag's value reads as a dir: fails closed.
+ * The next CLI a command line runs: its subcommand (the word after the CLI; undefined when a flag or nothing follows, as in a bare `next`)
+ * and, for `dev|start`, the project dir it names. Arguments are split on whitespace too, so `sh -c "next dev ../x"` is
+ * read. An unknown flag's value reads as a dir: fails closed.
  */
-export function nextProjectDir(argv: readonly string[]): string | undefined {
+export function nextCommand(argv: readonly string[]): { command?: string; dir?: string } | undefined {
   const tokens = argv.flatMap((a) => a.split(/\s+/)).filter(Boolean);
-  const bin = tokens.findIndex((t, i) => /(^|\/)next$/.test(t) && ['dev', 'start'].includes(tokens[i + 1] ?? ''));
+  const isCli = (i: number) => NEXT_BIN.test(tokens[i]!);
+  const isWord = (i: number) => /^[a-z][a-z-]*$/.test(tokens[i] ?? '');
+  // The first next CLI followed by a subcommand (`cd /x/next && next dev` is `next dev`), else the first next CLI.
+  let bin = tokens.findIndex((_, i) => isCli(i) && isWord(i + 1));
+  if (bin < 0) bin = tokens.findIndex((_, i) => isCli(i));
   if (bin < 0) return undefined;
+  const command = isWord(bin + 1) ? tokens[bin + 1] : undefined;
+  if (command !== 'dev' && command !== 'start') return { command };
   for (let i = bin + 2; i < tokens.length; i++) {
     const t = tokens[i]!;
     if (/^[0-9]*[<>|&;]/.test(t)) break; // a shell operator or redirect ends the command
     if (VALUE_FLAGS.includes(t)) { i++; continue; }
     if (t.startsWith('-')) continue;
-    return t;
+    return { command, dir: t };
   }
-  return undefined;
+  return { command };
 }
 
-/** Next loads its env from the project dir, so a server whose command line names another dir than its cwd is refused. */
+/** The project dir a `next dev|start` command line names, or undefined (none named, or not a next CLI). */
+export const nextProjectDir = (argv: readonly string[]): string | undefined => nextCommand(argv)?.dir;
+
+/**
+ * The listener's process chain is a `next dev` server whose project dir is its cwd. `next start` (or any other next
+ * subcommand) is refused: it loads `.env.production*`, which the env rebuild models only in depth. A chain where no
+ * `next dev` can be read (a custom server, a bare `next`, an ancestor /proc would not show) is refused too.
+ */
 export function assertProjectDirs(chain: ReadonlyArray<{ argv: readonly string[]; cwd: string }>, serverDir: string): void {
+  let dev = false;
   for (const { argv, cwd } of chain) {
-    const dir = nextProjectDir(argv);
-    if (dir !== undefined && resolve(cwd, dir) !== resolve(serverDir)) {
-      throw new RubricGuardError(`project dir ${resolve(cwd, dir)} (from "${argv.join(' ')}") is not the server's cwd ${serverDir}`);
+    const cli = nextCommand(argv);
+    if (!cli?.command) continue; // not a next CLI, or one whose subcommand cannot be read: no next dev seen here
+    if (cli.command !== 'dev') {
+      throw new RubricGuardError(`the server was started with "next ${cli.command}" ("${argv.join(' ')}"); only next dev is allowed`);
+    }
+    dev = true;
+    if (cli.dir !== undefined && resolve(cwd, cli.dir) !== resolve(serverDir)) {
+      throw new RubricGuardError(`project dir ${resolve(cwd, cli.dir)} (from "${argv.join(' ')}") is not the server's cwd ${serverDir}`);
     }
   }
+  if (!dev) throw new RubricGuardError(`no "next dev" in the listener's process chain (${chain.map((c) => c.argv.join(' ')).join(' <- ')})`);
 }

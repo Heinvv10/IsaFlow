@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { assertDevDatabases } from '../../e2e/rubric/_rubricDatabaseGuard';
+import { RubricGuardError } from '../../e2e/rubric/_rubricGuard';
 import { nextEnvModule, serverDatabaseEnv } from '../../e2e/rubric/_rubricServerEnv';
 
 const DEV = 'postgresql://u@100.96.203.105:7772/isaflow_dev';
@@ -68,5 +69,31 @@ describe('dotenv parsing, as Next does it (parseEnvFile used to diverge)', () =>
 
   it('CRLF: accepted as the dev URL it is', () => {
     expect(seen({ '.env.local': `DATABASE_URL=${DEV}\r\n` }).DATABASE_URL).toBe(DEV);
+  });
+});
+
+/**
+ * Round 2 of the security review (PR #1209): the server must be `next dev` (assertProjectDirs), and in depth the env
+ * files a production-mode load would read are judged too, so a prod URL in `.env.production*` is refused either way.
+ */
+describe('production env files, judged beside the dev ones', () => {
+  it.each<Record<string, string>>([{}, { NODE_ENV: 'production' }])('refuses a prod DATABASE_URL in .env.production.local (environ %j)', (environ) => {
+    const env = seen({ '.env.local': `DATABASE_URL=${DEV}\n`, '.env.production.local': `DATABASE_URL=${PROD}\n` }, environ);
+    expect(env.DATABASE_URL).toBe(DEV);
+    expect(() => assertDevDatabases(env)).toThrow(/production:DATABASE_URL: .*not isaflow_dev/);
+  });
+
+  it('refuses a prod SERVICE_DATABASE_URL in .env.production', () => {
+    const env = seen({ '.env.local': `DATABASE_URL=${DEV}\n`, '.env.production': `SERVICE_DATABASE_URL=${PROD}\n` });
+    expect(() => assertDevDatabases(env)).toThrow(/production:SERVICE_DATABASE_URL: .*not isaflow_dev/);
+  });
+
+  it('adds no production key when both loads agree', () => {
+    expect(seen({ '.env.local': `DATABASE_URL=${DEV}\n`, '.env.production': `DATABASE_URL=${DEV}\n` })).toEqual({ DATABASE_URL: DEV });
+  });
+
+  it('fails closed when the env cannot be rebuilt (NODE_OPTIONS requires a file that is gone)', () => {
+    expect(() => seen({ '.env.local': `DATABASE_URL=${DEV}\n` }, { NODE_OPTIONS: '--require /nonexistent/rubric-x.js' }))
+      .toThrow(RubricGuardError);
   });
 });

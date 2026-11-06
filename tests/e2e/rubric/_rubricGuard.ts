@@ -138,6 +138,17 @@ export const isEmailRoute = (rawUrl: string): boolean => hasPath(rawUrl, EMAIL_R
  */
 export const isSwitchCompanyRoute = (rawUrl: string): boolean => hasPath(rawUrl, SWITCH_COMPANY_ROUTE);
 
+/**
+ * A harness Api write goes to a path on the harness server: one leading `/`, no backslash. Playwright resolves an
+ * absolute URL, a protocol-relative `//host/...`, or `/\\host/...` (a WHATWG parser reads `\\` as `/`) to another
+ * host, past the base URL the guard judged.
+ */
+export function assertServerPath(path: string): void {
+  if (!/^\/(?!\/)/.test(path) || path.includes('\\')) {
+    throw new RubricGuardError(`"${path}" is not a path on the harness server (one leading /, no backslash)`);
+  }
+}
+
 /** The harness Api never calls the email route: the browser intercept is the only way the harness reaches it. */
 export function assertNotEmailRoute(path: string): void {
   if (isEmailRoute(path)) throw new RubricGuardError(`the harness never calls the email route (${path})`);
@@ -149,7 +160,7 @@ type WriteMethod = (typeof WRITE_METHODS)[number];
 type Writer = { [M in WriteMethod]: (path: string, ...rest: never[]) => Promise<unknown> };
 
 /**
- * Every write through `api` first refuses the email route, then awaits `beforeWrite` (the session-scope check), and
+ * Every write through `api` first refuses a path off the harness server and the email route, then awaits `beforeWrite` (the session-scope check), and
  * only then sends. Replaces the methods on this instance: the golden Api's constructor is private, so it cannot be
  * extended, and its helpers (fixtureCustomer...) call `this.post`, which now resolves here.
  */
@@ -157,6 +168,7 @@ export function guardWrites<T extends Writer>(api: T, beforeWrite: (method: Writ
   for (const method of WRITE_METHODS) {
     const send = api[method].bind(api) as (path: string, ...rest: unknown[]) => Promise<unknown>;
     (api as Record<WriteMethod, unknown>)[method] = async (path: string, ...rest: unknown[]) => {
+      assertServerPath(path);
       assertNotEmailRoute(path);
       await beforeWrite(method, path);
       return send(path, ...rest);
@@ -186,13 +198,18 @@ export class EmailInterceptTally {
   }
 }
 
-/** The pids listening on `port`, from `ss -ltnpH`. */
+/**
+ * The pids listening on `port`, from `ss -ltnpH`. ss shows no pid for a socket this user may not inspect (another
+ * user's server): such a line is refused, since the server behind it cannot be judged.
+ */
 export function listenerPids(ssOutput: string, port: number): number[] {
   const pids = new Set<number>();
   for (const line of ssOutput.split('\n')) {
     const local = line.trim().split(/\s+/)[3] ?? '';
     if (!local.endsWith(`:${port}`)) continue;
-    for (const m of line.matchAll(/pid=(\d+)/g)) pids.add(Number(m[1]));
+    const found = [...line.matchAll(/pid=(\d+)/g)].map((m) => Number(m[1]));
+    if (found.length === 0) throw new RubricGuardError(`a listener on :${port} shows no pid (another user's process?): ${line.trim()}`);
+    for (const pid of found) pids.add(pid);
   }
   return [...pids];
 }

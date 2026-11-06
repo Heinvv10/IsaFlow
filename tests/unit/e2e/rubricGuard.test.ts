@@ -246,7 +246,7 @@ describe('harness API writes', () => {
   it.each(['post', 'postRaw', 'put', 'del', 'postMultipart'] as const)('%s refuses the email route in any spelling', async (method) => {
     const { api, calls } = fakeApi();
     guardWrites(api, async () => undefined);
-    for (const path of ['/api/accounting/invoice-email', '//api/accounting/invoice-email/', '/api/accounting/invoice%2Demail?x=1']) {
+    for (const path of ['/api/accounting/invoice-email', '/api//accounting/./invoice-email/', '/api/accounting/invoice%2Demail?x=1']) {
       await expect(api[method](path, {} as never)).rejects.toThrow(/email route/);
     }
     expect(calls).toEqual([]);

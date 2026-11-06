@@ -43,6 +43,33 @@ describe('one database URL', () => {
   ])('refuses %s', (url, msg) => {
     refused(() => assertDevDatabase(url), msg);
   });
+
+  // Round 2 of the security review (PR #1209): spellings that still name dev are accepted, the rest refused.
+  const H = `${DEV_DB_HOST}:${DEV_DB_PORT}`;
+  const PG = 'postgresql://'; // split off: the pre-commit secret scan reads `scheme://x:y@` as a password
+  it.each([
+    `${PG}u@prod:5432@${H}/isaflow_dev`, // the last @ ends the userinfo, for WHATWG and pg alike
+    `postgresql://u@${DEV_DB_HOST}:07772/isaflow_dev`,
+    `postgresql://u@${H}/isaflow%5Fdev`,
+    `postgresql://u@${H}/isaflow_dev#host=prod`,
+    `postgresql://u@${H}/isaflow_dev?sslmode=disable&sslmode=x`,
+  ])('accepts %s (still dev, as both parsers read it)', (url) => {
+    expect(() => assertDevDatabase(url)).not.toThrow();
+  });
+
+  it.each([
+    [`postgresql://u@${H}@prod:5432/isaflow_dev`, /host is "prod"/],
+    [`postgresql://u@${H},prod:5432/isaflow_dev`, /not a URL/],
+    [`postgresql://u@${H}/isaflow_dev?application_name=x&host=prod`, /parameter "host"/],
+    [`postgresql://u@${H}/isaflow_dev?Host=prod`, /parameter "Host"/],
+    [`postgresql://u@${H}/isaflow_dev?%68ost=prod`, /parameter "host"/],
+    [`postgresql://u@${H}/isaflow_dev%3Fhost%3Dprod`, /database is "isaflow_dev\?host=prod"/],
+    [`postgresql://u@[::ffff:100.96.203.105]:7772/isaflow_dev`, /host is "\[::ffff:6460:cb69\]"/],
+    [`postgresql://u@${H}/isaflow_dev?sslmode=disable&sslcert=/x`, /parameter "sslcert"/],
+    [`postgresql://u@${H}/isaflow_dev?connect_timeout=1&sslrootcert=system`, /parameter "sslrootcert"/],
+  ])('refuses %s', (url, msg) => {
+    refused(() => assertDevDatabase(url), msg);
+  });
 });
 
 describe('every *DATABASE_URL the server sees', () => {
@@ -98,6 +125,9 @@ describe('the server project dir', () => {
     [['bash', '-c', 'cd /x && nohup node_modules/.bin/next dev -p 3277 > $SCR/log 2>&1 &'], undefined],
     [['bash', '-c', 'next dev -p 3277 2>&1 | tee log'], undefined],
     [['bash', '-c', 'next dev -p 3277 ../other > log'], '../other'],
+    [['node', '/t/node_modules/next/dist/bin/next.js', 'dev', '../other'], '../other'],
+    [['node', '/t/node_modules/.bin/next', 'dev', '--turbo', '../other'], '../other'],
+    [['node', '/t/node_modules/.bin/next', 'dev', '-p3277', '../other'], '../other'],
   ])('%j names %s', (argv, dir) => {
     expect(nextProjectDir(argv)).toBe(dir);
   });
@@ -115,5 +145,37 @@ describe('the server project dir', () => {
   ])('refuses %j run from %s', (argv, cwd) => {
     refused(() => assertProjectDirs([{ argv: ['next-server (v15.5.28)'], cwd: '/srv/base' }, { argv, cwd }], '/srv/base'),
       /project dir .* is not the server's cwd/);
+  });
+});
+
+/** `next start` loads .env.production*: only a server started with `next dev` is the server the env rebuild models. */
+describe('only a next dev server', () => {
+  const server = { argv: ['next-server (v15.5.28)'], cwd: '/srv/base' };
+  it.each([
+    [['node', '/srv/base/node_modules/.bin/next', 'start']],
+    [['node', '/srv/base/node_modules/.bin/next', 'start', '-p', '3277', '.']],
+    [['node', '/srv/base/node_modules/next/dist/bin/next.js', 'start']],
+    [['sh', '-c', 'next start -p 3277']],
+  ])('refuses %j', (argv) => {
+    refused(() => assertProjectDirs([server, { argv, cwd: '/srv/base' }], '/srv/base'), /started with "next start"/);
+  });
+
+  it('refuses next start even beside a next dev in the chain', () => {
+    refused(() => assertProjectDirs([server, { argv: ['next', 'start'], cwd: '/srv/base' }, { argv: ['next', 'dev'], cwd: '/srv/base' }],
+      '/srv/base'), /started with "next start"/);
+  });
+
+  it.each([
+    [[server]],
+    [[{ argv: ['node', 'server.js'], cwd: '/srv/base' }]],
+    [[server, { argv: ['node', '/srv/base/node_modules/.bin/next', '-p', '3277'], cwd: '/srv/base' }]],
+    [[server, { argv: ['bash', '-c', 'cd /srv/base && bun run dev'], cwd: '/srv/base' }]],
+  ])('refuses a chain with no recognisable next dev: %j', (chain) => {
+    refused(() => assertProjectDirs(chain, '/srv/base'), /no "next dev" in the listener's process chain/);
+  });
+
+  it('accepts next.js dev', () => {
+    expect(() => assertProjectDirs([server, { argv: ['node', '/srv/base/node_modules/next/dist/bin/next.js', 'dev'], cwd: '/srv/base' }],
+      '/srv/base')).not.toThrow();
   });
 });

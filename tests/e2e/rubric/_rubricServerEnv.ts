@@ -19,14 +19,21 @@ export function nextEnvModule(serverDir: string): string {
   return createRequire(nextPackage).resolve('@next/env');
 }
 
-/** Run in the child: argv ends with the @next/env path and the project dir; prints the *DATABASE_URL* keys as JSON. */
+/**
+ * Run in the child: argv ends with the @next/env path and the project dir; prints the *DATABASE_URL* keys as JSON. The
+ * server is `next dev` (assertProjectDirs refuses anything else), but the keys a production-mode load sees (the
+ * `.env.production*` files) are judged too, as `production:<KEY>`, where they differ from the dev load's.
+ */
 const LOADER = `
 const [mod, dir] = process.argv.slice(-2);
 const { loadEnvConfig } = require(mod);
 const log = { info() {}, error(...args) { process.stderr.write(args.join(' ') + '\\n'); } };
-const { combinedEnv } = loadEnvConfig(dir, true, log, true);
-const out = {};
-for (const [key, value] of Object.entries(combinedEnv)) if (key.includes('DATABASE_URL')) out[key] = value;
+const pick = (env) => Object.fromEntries(Object.entries(env).filter(([key]) => key.includes('DATABASE_URL')));
+const out = pick(loadEnvConfig(dir, true, log, true).combinedEnv);
+// In depth: what a production-mode load (next start) would see, kept where it differs. forceReload resets process.env.
+for (const [key, value] of Object.entries(pick(loadEnvConfig(dir, false, log, true).combinedEnv))) {
+  if (out[key] !== value) out['production:' + key] = value;
+}
 process.stdout.write(JSON.stringify(out));
 `;
 
