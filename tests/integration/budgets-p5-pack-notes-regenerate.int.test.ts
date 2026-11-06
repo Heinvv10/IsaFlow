@@ -122,10 +122,19 @@ describe('rebuilding a month\'s pack', () => {
   }, { appUser: true });
 
   it('refuses a draft with a reviewed section', () => refusedAfter((doc) => sql`
-    UPDATE afs_sections SET reviewed_by = ${f.userA}, reviewed_at = now() WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /reviewed or signed off/));
+    UPDATE afs_sections SET reviewed_by = ${f.userA}, reviewed_at = now() WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /reviewed, signed off or edited/));
 
   it('refuses a draft with a signed-off section', () => refusedAfter((doc) => sql`
-    UPDATE afs_sections SET signed_off_by = ${f.userA}, signed_off_at = now() WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /reviewed or signed off/));
+    UPDATE afs_sections SET signed_off_by = ${f.userA}, signed_off_at = now() WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /reviewed, signed off or edited/));
+
+  it('refuses a draft with an accepted narrative', () => refusedAfter((doc) => sql`
+    UPDATE afs_sections SET ai_narrative_accepted = true WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /signed off or edited/));
+
+  it('refuses a draft with an override', () => refusedAfter((doc) => sql`
+    UPDATE afs_sections SET overrides = '{"suppressed": true}'::jsonb WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /signed off or edited/));
+
+  it('refuses a locked draft by saying so', () => refusedAfter((doc) => sql`
+    UPDATE afs_documents SET locked_at = now() WHERE id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /is locked/));
 
   it('refuses a draft with a comment', () => refusedAfter(async (doc) => {
     const [section] = await sql`SELECT id FROM afs_sections WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID LIMIT 1` as { id: string }[];

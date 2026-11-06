@@ -15,6 +15,7 @@ type PackDoc = {
   id: string;
   period: string;
   status: string;
+  locked_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -82,7 +83,7 @@ export default function ManagementPacksPage() {
   }
 
   async function handleRegenerate(period: string) {
-    if (!window.confirm(`Replace the ${period} draft, and any edits to it, with a new draft built from today's figures and settings?`)) return;
+    if (!window.confirm(`Replace the ${period} draft, and any edits to it, with a new draft built from today's figures and settings? It is charged as a new pack.`)) return;
     await generate(period, true);
   }
 
@@ -182,7 +183,7 @@ export default function ManagementPacksPage() {
                     className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-zinc-200 dark:border-slate-700 rounded-lg text-zinc-700 dark:text-slate-300 hover:bg-zinc-50 dark:hover:bg-slate-800">
                     <Eye className="w-3.5 h-3.5" /> View
                   </a>
-                  {pack.status === 'draft' && (
+                  {pack.status === 'draft' && !pack.locked_at && (
                     <button onClick={() => void handleRegenerate(pack.period)} disabled={generating}
                       className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-zinc-200 dark:border-slate-700 text-zinc-700 dark:text-slate-300 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors">
                       <RefreshCw className="w-3.5 h-3.5" /> Regenerate

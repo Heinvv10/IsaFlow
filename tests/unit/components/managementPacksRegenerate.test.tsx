@@ -21,7 +21,7 @@ function serve(config: Record<string, unknown>) {
     if (url.includes('management-pack-config')) {
       return json({ config: { enabled: false, generationDay: 5, deliveryDay: 10, sectionsEnabled: {}, packStyle: 'detailed', comparisonMode: 'budget', currencyDisplay: 'full', ...config } });
     }
-    return json({ documents: [doc('2026-11', 'draft'), doc('2026-10', 'signed_off')] });
+    return json({ documents: [doc('2026-11', 'draft'), doc('2026-10', 'signed_off'), { ...doc('2026-09', 'draft'), locked_at: '2026-11-01' }] });
   });
 }
 async function openHistory() {
@@ -31,7 +31,7 @@ async function openHistory() {
 afterEach(() => { vi.mocked(apiFetch).mockReset(); vi.unstubAllGlobals(); });
 
 describe('Regenerate on the management pack list', () => {
-  it('is offered on a draft only, and asks to replace that month\'s draft', async () => {
+  it('is offered on an unlocked draft only, and asks to replace that month\'s draft', async () => {
     serve({ reviewRequired: true, recipients: [] });
     const ask = vi.fn(() => true);
     vi.stubGlobal('confirm', ask);
@@ -41,6 +41,7 @@ describe('Regenerate on the management pack list', () => {
     fireEvent.click(buttons[0]!);
     await waitFor(() => expect(posts).toEqual([{ period: '2026-11', replaceDraft: true }]));
     expect(String((ask.mock.calls as unknown as string[][])[0]?.[0])).toContain('any edits');
+    expect(String((ask.mock.calls as unknown as string[][])[0]?.[0])).toContain('charged');
   });
 
   it('sends nothing when the person declines', async () => {
