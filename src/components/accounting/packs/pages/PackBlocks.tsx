@@ -49,7 +49,7 @@ export interface PackBlockViewProps {
 export function PackBlockView({ block, scale }: PackBlockViewProps) {
   switch (block.kind) {
     case 'kpiTiles': {
-      const fit = fitAttributes(kpiFit(block.tiles.map((tile) => (tile.figure.value === null ? null : formatFigureText(tile.figure, scale)))));
+      const fit = fitAttributes(kpiFit(block.tiles, scale));
       return (
         <div className={fit.className === undefined ? 'pack-kpi-tiles' : `pack-kpi-tiles ${fit.className}`} style={fit.style}>
           {block.tiles.map((tile, index) => (

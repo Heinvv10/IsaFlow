@@ -88,7 +88,7 @@ describe('a table whose HEADINGS set its widths (tiny figures, a footnote marker
 });
 
 describe('a KPI row', () => {
-  const fitsAt = (digits: number) => kpiFit(withWidenedKpi(demoWithoutBudget(), digits).texts);
+  const fitsAt = (digits: number) => kpiFit(withWidenedKpi(demoWithoutBudget(), digits).tiles, SCALE);
   const range = Array.from({ length: 30 }, (unused, i) => i + 4);
 
   it('prints clean at the widest the model fits at the floor, and runs past the edge one digit wider', async () => {
@@ -105,7 +105,30 @@ describe('a KPI row', () => {
     const fit = withWidenedKpi(demoWithoutBudget(), ordinary);
     expect(await overflowOf(fit.doc, fit.index), `${ordinary} digits`).toEqual([]);
     const wider = withWidenedKpi(demoWithoutBudget(), ordinary + 1);
-    expect(kpiFit(wider.texts).px).not.toBeNull();
+    expect(kpiFit(wider.tiles, SCALE).px).not.toBeNull();
     expect(await overflowOf(wider.doc, wider.index), 'fitted, it prints clean').toEqual([]);
   }, 300_000);
 });
+
+describe('a KPI row whose tile holds its column open with a word longer than its figure', () => {
+  const label = 'Debtservicecoveragemultiple';
+  const fitsAt = (digits: number) => kpiFit(withWidenedKpi(demoWithoutBudget(), digits, label).tiles, SCALE);
+  const range = Array.from({ length: 30 }, (unused, i) => i + 4);
+
+  it('the label sets the column: the row fits fewer digits than the same row with its ordinary labels', () => {
+    const widest = (fits: (d: number) => boolean) => range.filter(fits).pop()!;
+    const withLabel = widest((d) => fitsAt(d).fits);
+    const ordinary = widest((d) => kpiFit(withWidenedKpi(demoWithoutBudget(), d).tiles, SCALE).fits);
+    expect(withLabel).toBeLessThanOrEqual(ordinary);
+  });
+
+  it('prints clean at the widest the model fits, and runs past the edge one digit wider', async () => {
+    const floor = range.filter((d) => fitsAt(d).fits).pop()!;
+    const fit = withWidenedKpi(demoWithoutBudget(), floor, label);
+    expect(await overflowOf(fit.doc, fit.index), `${floor} digits`).toEqual([]);
+    const over = withWidenedKpi(demoWithoutBudget(), floor + 1, label);
+    expect(fitsAt(floor + 1).fits).toBe(false);
+    expect((await overflowOf(over.doc, over.index)).length, `${floor + 1} digits`).toBeGreaterThan(0);
+  }, 300_000);
+});
+

@@ -23,7 +23,8 @@ import { formatFigureText } from '@/components/accounting/packs/primitives/packF
 import type { MoneyScale } from '@/lib/format/money';
 import { GUTTER_MM } from './packDisclosureHeight';
 import { type FigureWeight, ptToPx, textPx } from './packFigureWidth';
-import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
+import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
+import type { PackPageBlock, PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
 
 export const KPI_FIGURE_MAX_PT = 22;
@@ -118,21 +119,53 @@ export function tableFit(table: PackTable, scale: MoneyScale, orientation: PageO
   return { px: floor, fits: false };
 }
 
-/** The width of each of a KPI row's four columns at `fontPx`: the widest figure in the column. */
-export function kpiColumnFigurePx(texts: ReadonlyArray<string | null>, fontPx: number): number[] {
+type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
+
+/** The words a KPI tile's delta line prints (the same call the tile makes): "up 12.0% prior period". */
+function deltaText(tile: KpiTile): string {
+  const delta = tile.delta;
+  if (delta === null) return '';
+  const direction = delta.value > 0 ? 'up' : 'down';
+  return `${deltaWithWord(delta, direction, direction, 'pp', 'flat on')} ${delta.basis}`;
+}
+
+/** The longest unbreakable run of `text`: it breaks at spaces and after hyphens. */
+function longestRunPx(text: string, fontPx: number, weight: FigureWeight): number {
+  return Math.max(0, ...text.split(/\s+/).flatMap((word) => word.split(/(?<=-)/)).map((run) => textPx(run, fontPx, weight)));
+}
+
+/**
+ * The narrowest a tile can be set apart from its figure: its label's longest run at 9pt (with its footnote marker),
+ * its not-meaningful reason's at 11pt (italic, charged as regular plus a tenth) and its delta line's at 9pt after
+ * the 7pt arrow. A `1fr` grid column is never narrower than any of them, so a short figure under a long word still
+ * holds its column open (the adversary's net-debit Debt-to-equity tile: 50px of figure under a 56px label).
+ */
+function tileOtherMinPx(tile: KpiTile): number {
+  const labelPx = longestRunPx(tile.label, 12, 400) + (tile.trendFootnote === null ? 0 : LABEL_MARKER_PX);
+  const reasonPx = tile.figure.value === null && tile.figure.unavailable !== undefined && tile.figure.unavailable !== null
+    ? Math.ceil(longestRunPx(tile.figure.unavailable, 15, 400) * 1.1) : 0;
+  const deltaPx = tile.delta === null ? 0 : longestRunPx(deltaText(tile), 12, 400) + DELTA_CUE_PX;
+  return Math.max(labelPx, reasonPx, deltaPx);
+}
+/** The arrow cue before a delta (7pt) and its space, charged generously. */
+const DELTA_CUE_PX = 12;
+
+/** The width of each of a KPI row's four columns at `fontPx`: the widest of its figure and its tile's other content. */
+export function kpiColumnMinPx(tiles: readonly KpiTile[], scale: MoneyScale, fontPx: number): number[] {
   const widest = [0, 0, 0, 0];
-  texts.forEach((text, i) => {
-    if (text !== null) widest[i % 4] = Math.max(widest[i % 4]!, textPx(text, fontPx, 500));
+  tiles.forEach((tile, i) => {
+    const figure = tile.figure.value === null ? 0 : textPx(formatFigureText(tile.figure, scale), fontPx, 500);
+    widest[i % 4] = Math.max(widest[i % 4]!, figure, tileOtherMinPx(tile));
   });
   return widest;
 }
 
 export const KPI_GAP_PX = GUTTER_MM * MM_PX;
 
-export function kpiFit(texts: ReadonlyArray<string | null>, orientation: PageOrientation = 'portrait'): FigureFit {
+export function kpiFit(tiles: readonly KpiTile[], scale: MoneyScale, orientation: PageOrientation = 'portrait'): FigureFit {
   const ceilingPx = ptToPx(KPI_FIGURE_MAX_PT);
   const floor = Math.round(ptToPx(KPI_FIGURE_FLOOR_PT));
-  const total = (px: number) => kpiColumnFigurePx(texts, px).reduce((a, b) => a + b, 0) + 3 * KPI_GAP_PX;
+  const total = (px: number) => kpiColumnMinPx(tiles, scale, px).reduce((a, b) => a + b, 0) + 3 * KPI_GAP_PX;
   if (total(ceilingPx) <= measurePx(orientation)) return { px: null, fits: true };
   for (let px = Math.floor(ceilingPx); px >= floor; px -= 1) {
     if (total(px) <= measurePx(orientation)) return { px, fits: true };

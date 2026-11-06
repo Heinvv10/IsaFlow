@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  fitAttributes, HEADING_WORD_PX, kpiColumnFigurePx, kpiFit, tableColumnCells, tableFit,
+  fitAttributes, HEADING_WORD_PX, kpiColumnMinPx, kpiFit, tableColumnCells, tableFit,
 } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { demoWithoutBudget, SCALE, withWidenedKpi, withWidenedTable } from './fixtures/widenedFigures';
 
@@ -50,19 +50,21 @@ describe('tableFit', () => {
 
 describe('kpiFit', () => {
   it('sets nothing for the demo company\'s tiles', () => {
-    const { texts } = withWidenedKpi(demoWithoutBudget(), 6);
-    expect(kpiFit(texts)).toEqual({ px: null, fits: true });
+    const { tiles } = withWidenedKpi(demoWithoutBudget(), 6);
+    expect(kpiFit(tiles, SCALE)).toEqual({ px: null, fits: true });
   });
 
   it('puts tile i in column i % 4 and takes the widest of each column', () => {
-    const widest = kpiColumnFigurePx(['1', '22', '333', '4444', '(55 555)', null, '7', '8'], 20);
-    expect(widest[0]).toBeGreaterThan(widest[2]!);
-    expect(widest[1]).toBeGreaterThan(0);
-    expect(widest[3]).toBeGreaterThan(0);
+    const { tiles } = withWidenedKpi(demoWithoutBudget(), 6);
+    const widest = kpiColumnMinPx(tiles, SCALE, 20);
+    expect(widest).toHaveLength(4);
+    expect(widest.every((w) => w > 0)).toBe(true);
+    const wider = kpiColumnMinPx(withWidenedKpi(demoWithoutBudget(), 9).tiles, SCALE, 20);
+    expect(wider[0]).toBeGreaterThan(widest[0]!);
   });
 
   it('steps down from the ordinary size toward the 16px floor, then does not fit', () => {
-    const sizes = Array.from({ length: 24 }, (unused, i) => i + 6).map((d) => kpiFit(withWidenedKpi(demoWithoutBudget(), d).texts));
+    const sizes = Array.from({ length: 24 }, (unused, i) => i + 6).map((d) => kpiFit(withWidenedKpi(demoWithoutBudget(), d).tiles, SCALE));
     const px = sizes.filter((f) => f.fits).map((f) => f.px ?? 29.33);
     expect(px).toEqual([...px].sort((a, b) => b - a));
     expect(Math.min(...px)).toBeGreaterThanOrEqual(16);

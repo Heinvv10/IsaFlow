@@ -3,13 +3,14 @@
  * run on it), for the tests that take the width of a figure row to its thresholds without needing a revenue
  * beyond JavaScript's safe integers.
  */
-import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import { log } from '@/lib/logger';
 import { vi } from 'vitest';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPage, PackPagesDocument, PackTable, PackTableColumnKey } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { demoInput } from './boardPackInputs';
+
+type KpiTiles = Array<(PackPage['blocks'][number] & { kind: 'kpiTiles' })['tiles'][number]>;
 
 export const SCALE = "R'000" as const;
 export const money = (digits: number): number => Number(`9${'0'.repeat(digits - 1)}`) * 1000;
@@ -26,16 +27,15 @@ export function withWidenedTable(doc: PackPagesDocument, digits: number, longLab
   return { doc: { ...doc, pages }, table, index };
 }
 
-export function withWidenedKpi(doc: PackPagesDocument, digits: number): { doc: PackPagesDocument; texts: Array<string | null>; index: number } {
+export function withWidenedKpi(doc: PackPagesDocument, digits: number, longLabel?: string): { doc: PackPagesDocument; tiles: KpiTiles; index: number } {
   const index = doc.pages.findIndex((p) => p.navLabel === 'Highlights');
   const page = doc.pages[index]!;
   const blocks = page.blocks.map((b) => (b.kind === 'kpiTiles'
-    ? { ...b, tiles: b.tiles.map((t, i) => (i < 4 ? { ...t, figure: { ...t.figure, format: 'money' as const, value: money(digits) } } : t)) }
+    ? { ...b, tiles: b.tiles.map((t, i) => (i < 4 ? { ...t, ...(longLabel !== undefined && i === 1 ? { label: longLabel } : {}), figure: { ...t.figure, format: 'money' as const, value: money(digits) } } : t)) }
     : b));
-  const kpi = blocks.find((b) => b.kind === 'kpiTiles') as { tiles: Array<{ figure: PackFigure }> };
-  const texts = kpi.tiles.map((t) => (t.figure.value === null ? null : formatFigureText(t.figure, SCALE)));
+  const tiles = (blocks.find((b) => b.kind === 'kpiTiles') as { tiles: KpiTiles }).tiles;
   const pages = doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p));
-  return { doc: { ...doc, pages }, texts, index };
+  return { doc: { ...doc, pages }, tiles, index };
 }
 
 export function demoWithoutBudget(): PackPagesDocument {

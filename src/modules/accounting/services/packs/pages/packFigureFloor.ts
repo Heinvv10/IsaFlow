@@ -6,7 +6,6 @@
  * cannot be shortened and the 12 sheets cannot grow, so the only alternatives are printing them past the
  * sheet's edge (content gone, silently) or smaller than the pack's smallest text.
  */
-import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import type { MoneyScale } from '@/lib/format/money';
 import { PackRefusal } from '../packRefusal';
 import { kpiFit, tableFit } from './packFigureFit';
@@ -21,8 +20,7 @@ export function unreadableBlock(page: Omit<PackPage, 'number'>, scale: MoneyScal
   for (const block of page.blocks) {
     if (block.kind === 'table' && !tableFit(block.table, scale, page.orientation).fits) return { kind: 'table' };
     if (block.kind === 'kpiTiles') {
-      const texts = block.tiles.map((t) => (t.figure.value === null ? null : formatFigureText(t.figure, scale)));
-      if (!kpiFit(texts, page.orientation).fits) return { kind: 'kpi' };
+      if (!kpiFit(block.tiles, scale, page.orientation).fits) return { kind: 'kpi' };
     }
   }
   return null;
