@@ -4,6 +4,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import {
   Settings, History, Plus, Send, Eye, AlertCircle, CheckCircle,
   Clock, Loader2, BarChart3,
+  RefreshCw,
 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ManagementPackConfigTab } from '@/components/accounting/management-packs/ManagementPackConfigTab';
@@ -14,6 +15,7 @@ type PackDoc = {
   id: string;
   period: string;
   status: string;
+  locked_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -77,12 +79,21 @@ export default function ManagementPacksPage() {
 
   async function handleGenerate() {
     if (!genPeriod || !/^\d{4}-\d{2}$/.test(genPeriod)) return;
+    await generate(genPeriod, false);
+  }
+
+  async function handleRegenerate(period: string) {
+    if (!window.confirm(`Replace the ${period} draft, and any edits to it, with a new draft built from today's figures and settings? It is charged as a new pack.`)) return;
+    await generate(period, true);
+  }
+
+  async function generate(period: string, replaceDraft: boolean) {
     setGenerating(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/afs/generate-pack', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ period: genPeriod }),
+        body: JSON.stringify({ period, ...(replaceDraft ? { replaceDraft } : {}) }),
       });
       await assertOk(res, 'Could not generate the pack - try again');
       await load();
@@ -172,6 +183,12 @@ export default function ManagementPacksPage() {
                     className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-zinc-200 dark:border-slate-700 rounded-lg text-zinc-700 dark:text-slate-300 hover:bg-zinc-50 dark:hover:bg-slate-800">
                     <Eye className="w-3.5 h-3.5" /> View
                   </a>
+                  {pack.status === 'draft' && !pack.locked_at && (
+                    <button onClick={() => void handleRegenerate(pack.period)} disabled={generating}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-zinc-200 dark:border-slate-700 text-zinc-700 dark:text-slate-300 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors">
+                      <RefreshCw className="w-3.5 h-3.5" /> Regenerate
+                    </button>
+                  )}
                   {(pack.status === 'draft' || pack.status === 'signed_off') && (
                     <button onClick={() => handleDeliver(pack.id)} disabled={deliveringId === pack.id}
                       className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-brand-600 hover:bg-brand-700 text-white rounded-lg disabled:opacity-50">
