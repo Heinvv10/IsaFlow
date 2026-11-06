@@ -1,4 +1,4 @@
-import { clearImpersonatingMarker, clearImpersonationProofCookie } from './impersonation-cookies';
+import { clearImpersonationCookies, clearImpersonationProofCookie } from './impersonation-cookies';
 // src/lib/auth/cookies.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 
@@ -90,10 +90,7 @@ export function setAuthCookies(
 ): void {
   const domain = cookieDomain();
   const persistent = params.persistent ?? true;
-  if (!params.preserveImpersonation) {
-    clearImpersonationProofCookie(res);
-    clearImpersonatingMarker(res); // a sign-in over a Login-as must not inherit its idle exemption
-  }
+  if (!params.preserveImpersonation) clearImpersonationCookies(res);
   // When not persistent ("Keep me signed in" unchecked), BOTH cookies must be
   // session-only. If only the refresh cookie is session-only, a browser close
   // and reopen within ~1h leaves the access cookie alive and the user signed
@@ -175,8 +172,7 @@ export function clearPendingRememberCookie(res: NextApiResponse): void {
  * invalidation on the server side (e.g. rotate JWT_SECRET).
  */
 export function clearAuthCookies(res: NextApiResponse): void {
-  clearImpersonationProofCookie(res);
-  clearImpersonatingMarker(res);
+  clearImpersonationCookies(res);
   const domain = cookieDomain();
   for (const name of [ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE, ONBOARDING_DONE_COOKIE, PENDING_MFA_COOKIE, PENDING_REMEMBER_COOKIE, REMEMBER_ME_COOKIE]) {
     appendSetCookie(res, `${name}=; ${cookieFlags(0)}`);

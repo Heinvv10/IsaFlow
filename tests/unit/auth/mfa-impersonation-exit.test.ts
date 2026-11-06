@@ -4,6 +4,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 const fixture = vi.hoisted(() => ({ loadStash: vi.fn(), deleteStash: vi.fn() }));
 vi.mock('@/modules/admin/services/userImpersonationService', () => fixture);
 vi.mock('@/lib/neon', () => ({ sql: async () => [] }));
+vi.mock('@/lib/auth/impersonationSessions', () => ({ sessionActorOfToken: async () => 'impersonation' }));
 vi.mock('@/lib/auth/csrf', () => ({ verifyCsrf: () => true }));
 import handler from '../../../pages/api/auth/end-impersonation';
 import { ADMIN_STASH_COOKIE } from '@/lib/auth/impersonation-cookies';

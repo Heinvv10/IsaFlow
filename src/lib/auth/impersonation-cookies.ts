@@ -42,6 +42,10 @@ export function setImpersonationCookies(res: NextApiResponse, stashId: string, p
   append(res, `${IS_IMPERSONATING_COOKIE}=1; ${buildFlags(ONE_HOUR_SECS, { httpOnly: false, domain })}`);
 }
 
+/**
+ * Everything that marks a Login-as. Also called whenever a session ends or a new one replaces it: a stash cookie left
+ * behind lets the target restore the admin's session, and the marker exempts the next sign-in from the idle rule.
+ */
 export function clearImpersonationCookies(res: NextApiResponse): void {
   const domain = cookieDomain();
   for (const name of [ADMIN_STASH_COOKIE, IS_IMPERSONATING_COOKIE, IMPERSONATION_PROOF_COOKIE]) {
@@ -50,13 +54,6 @@ export function clearImpersonationCookies(res: NextApiResponse): void {
       append(res, `${name}=; ${buildFlags(0, { httpOnly: name !== IS_IMPERSONATING_COOKIE, domain })}`);
     }
   }
-}
-
-/** Left behind when a session ends, the readable marker would exempt the next sign-in here from the idle rule. */
-export function clearImpersonatingMarker(res: NextApiResponse): void {
-  append(res, `${IS_IMPERSONATING_COOKIE}=; ${buildFlags(0, { httpOnly: false })}`);
-  const domain = cookieDomain();
-  if (domain) append(res, `${IS_IMPERSONATING_COOKIE}=; ${buildFlags(0, { httpOnly: false, domain })}`);
 }
 
 export function clearImpersonationProofCookie(res: NextApiResponse): void {

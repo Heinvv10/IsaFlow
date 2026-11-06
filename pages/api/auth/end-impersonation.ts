@@ -16,6 +16,7 @@ import {
 import { ADMIN_STASH_COOKIE, clearImpersonationCookies } from '@/lib/auth/impersonation-cookies';
 import { loadStash, deleteStash } from '@/modules/admin/services/userImpersonationService';
 import { verifyTokenSignature } from '@/lib/auth/gotrue';
+import { sessionActorOfToken } from '@/lib/auth/impersonationSessions';
 import { verifyCsrf } from '@/lib/auth/csrf';
 import { pickInitialCompanyId } from '@/lib/auth/liveCompanies';
 import { sql } from '@/lib/neon';
@@ -80,6 +81,13 @@ const handler: NextApiHandler = async (req, res) => {
       stashAdmin: stash.admin_user_id,
       stashTarget: stash.target_user_id,
     }, 'Admin');
+    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorised to end this impersonation' } });
+  }
+
+  // The stash holds the admin's tokens, so a target's own session may not spend it: only the session the Login-as
+  // minted may. The record cannot be deleted by a browser (R-032); a lookup failure throws and restores nothing.
+  if (callerId === stash.target_user_id && (await sessionActorOfToken(accessToken)) !== 'impersonation') {
+    log.warn('end-impersonation refused: not the Login-as session', { callerId, stashAdmin: stash.admin_user_id }, 'Admin');
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorised to end this impersonation' } });
   }
 
