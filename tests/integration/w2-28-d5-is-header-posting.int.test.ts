@@ -46,14 +46,18 @@ describeIfDb('D5: automatic postings through an income-statement role held by a 
     await account('5010', 'expense', 'operating_expense', 2, ids.cosHeader);
     const expense = String(((await sql`SELECT id FROM gl_accounts WHERE company_id = ${fx.companyId}::UUID
       AND account_subtype = 'default_expense'`) as Row[])[0]!.id);
+    // The save writes its audit row (audit_log.user_id references users), so the saving user must exist.
+    await fx.pool.query("INSERT INTO users(id, email, role, is_active) VALUES ($1, $2, 'admin', true)", [fx.userId, `${fx.userId}@test.local`]);
     await inTx(fx, () => withTransaction((tx) => saveDefaultAccountMappings(tx, fx.companyId,
-      { sales_revenue: ids.salesHeader, cost_of_sales: ids.cosHeader }, { sales_revenue: null, cost_of_sales: expense })));
+      { sales_revenue: ids.salesHeader, cost_of_sales: ids.cosHeader }, { sales_revenue: null, cost_of_sales: expense }, fx.userId)));
     clearSystemAccountCache(fx.companyId);
   });
   afterAll(async () => {
     if (!fx) return;
     await sql`DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (
       SELECT id FROM supplier_invoices WHERE company_id = ${fx.companyId}::UUID)`;
+    await fx.pool.query('DELETE FROM audit_log WHERE company_id = $1', [fx.companyId]);
+    await fx.pool.query('DELETE FROM users WHERE id = $1', [fx.userId]);
     await dropFixture(fx);
   });
 

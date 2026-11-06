@@ -4,11 +4,14 @@
  * so this shows the journal as it stands and does not call any of its lines the contra.
  */
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { StatusPill } from '@/components/ui';
 import { useDrawerRead } from '@/components/ui/useDrawerRead';
 import type { BankTx } from '@/components/accounting/BankTxTable';
-import { SAFE_HREF, type Attachment } from '@/components/accounting/bankTxAttachmentHelpers';
+import type { Attachment } from '@/components/accounting/bankTxAttachmentHelpers';
+import { AttachmentViewer } from '@/components/accounting/AttachmentViewer';
+import { canDownload, previewKind, safeDownloadName } from '@/components/accounting/attachmentPreview';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
@@ -38,19 +41,30 @@ function Field({ label, value }: { label: string; value?: string }) {
 function Attachments({ txId }: { txId: string }) {
   const { data, error, loading } = useDrawerRead<Attachment[]>(
     `/api/accounting/bank-tx-attachments?bankTransactionId=${txId}`, 'Could not load the attachments - try again');
+  const [viewIndex, setViewIndex] = useState<number | null>(null);
   if (loading) return <p className={MUTED}>Loading attachments…</p>;
   if (error || !data) return <p role="alert" className={FAILED}>{error}</p>;
   if (data.length === 0) return <p className={MUTED}>No attachments.</p>;
+  const viewable = data.filter(a => previewKind(a.file_url) !== 'none');
   return (
-    <ul className="space-y-1">
-      {data.map((a) => (
-        <li key={a.id} className="break-words">
-          {SAFE_HREF.test(a.file_url)
-            ? <a href={a.file_url} target="_blank" rel="noopener noreferrer" download={a.file_name} className={LINK}>{a.file_name}</a>
-            : <span className={MUTED}>{a.file_name}</span>}
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="space-y-1">
+        {data.map((a) => (
+          <li key={a.id} className="flex items-baseline justify-between gap-3">
+            {canDownload(a.file_url)
+              ? <a href={a.file_url} target="_blank" rel="noopener noreferrer" download={safeDownloadName(a.file_url, a.file_name)} title={a.file_name} className={`min-w-0 truncate ${LINK}`}>{a.file_name}</a>
+              : <span title={a.file_name} className={`min-w-0 truncate ${MUTED}`}>{a.file_name}</span>}
+            {previewKind(a.file_url) !== 'none' && (
+              <button type="button" onClick={() => setViewIndex(viewable.indexOf(a))} aria-label={`View ${a.file_name}`}
+                className={`shrink-0 ${LINK}`}>View</button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {viewIndex !== null && (
+        <AttachmentViewer attachments={viewable} startIndex={viewIndex} onClose={() => setViewIndex(null)} />
+      )}
+    </>
   );
 }
 

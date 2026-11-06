@@ -233,6 +233,7 @@ export default function ClientQueriesPage() {
         <BankTxAttachmentsModal
           bankTransactionId={attachTxId}
           transactionDescription={attachDesc}
+          onCountChange={n => setRows(rs => rs.map(r => (r.bank_transaction_id === attachTxId ? { ...r, attachment_count: n } : r)))}
           onClose={() => { setAttachTxId(null); setAttachDesc(undefined); }}
         />
       )}
