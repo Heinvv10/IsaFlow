@@ -24,6 +24,7 @@ export function mapPayrollEmployeeRow(r: Row): PayrollEmployee {
     uifExcluded: Boolean(r.uif_excluded),
     medicalAidMainMember: Boolean(r.medical_aid_main_member),
     medicalAidDependantsCount: Number(r.medical_aid_dependants_count) || 0,
+    s18aReceiptHeld: r.s18a_receipt_held === true,
     costCentreId: r.cost_centre_id == null ? null : String(r.cost_centre_id),
     payScaleId: r.pay_scale_id == null ? null : String(r.pay_scale_id),
     occupationalLevelId: r.occupational_level_id == null ? null : String(r.occupational_level_id),
@@ -112,14 +113,14 @@ export async function createPayrollEmployee(
     INSERT INTO payroll_employees (
       company_id, employee_number, first_name, last_name,
       id_number, tax_number, employment_type, start_date, end_date,
-      date_of_birth, uif_excluded, medical_aid_main_member, medical_aid_dependants_count
+      date_of_birth, uif_excluded, medical_aid_main_member, medical_aid_dependants_count, s18a_receipt_held
     ) VALUES (
       ${companyId}::uuid, ${data.employeeNumber}, ${data.firstName}, ${data.lastName},
       ${data.idNumber ?? null}, ${data.taxNumber ?? null},
       ${data.employmentType}, ${fmtDate(data.startDate)},
       ${data.endDate ? fmtDate(data.endDate) : null},
       ${data.dateOfBirth ? fmtDate(data.dateOfBirth) : null},
-      ${data.uifExcluded}, ${data.medicalAidMainMember}, ${data.medicalAidDependantsCount}
+      ${data.uifExcluded}, ${data.medicalAidMainMember}, ${data.medicalAidDependantsCount}, ${data.s18aReceiptHeld}
     )
     RETURNING *
   `) as Row[];
@@ -165,6 +166,7 @@ export async function updatePayrollEmployee(
       uif_excluded                 = COALESCE(${data.uifExcluded ?? null}, uif_excluded),
       medical_aid_main_member      = COALESCE(${data.medicalAidMainMember ?? null}, medical_aid_main_member),
       medical_aid_dependants_count = COALESCE(${data.medicalAidDependantsCount ?? null}, medical_aid_dependants_count),
+      s18a_receipt_held            = COALESCE(${data.s18aReceiptHeld ?? null}, s18a_receipt_held),
       updated_at                   = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *

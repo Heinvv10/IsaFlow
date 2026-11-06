@@ -15,6 +15,8 @@ export interface PayrollEmployee {
   uifExcluded: boolean;
   medicalAidMainMember: boolean;
   medicalAidDependantsCount: number;
+  /** The employer holds the employee's s18A receipt: donations (4030) may reduce PAYE and SDL (migration 959). */
+  s18aReceiptHeld: boolean;
   costCentreId?: string | null;
   payScaleId?: string | null;
   occupationalLevelId?: string | null;
@@ -211,8 +213,14 @@ export interface PayeYearToDate {
   retirementContributions?: number;
   /** Retirement fund deduction those lines recorded (retirement_deduction; payeCumulative); absent = none. */
   retirementDeduction?: number;
-  /** Donations (4030) deducted on those lines as taxable deductions, for the s11F base; absent = none. */
+  /** Donations (4030) those lines deducted from taxable income, for the s11F base; absent = none. */
   donations?: number;
+  /** Lines since migration 959 (s18aDonation): 4030 counted toward the limit; absent = none. */
+  donationReceipted?: number;
+  /** Likewise: remuneration less retirement deduction; absent = none. */
+  donationBase?: number;
+  /** Likewise: the donation deduction allowed; absent = none. */
+  donationDeduction?: number;
   /**
    * SDL-applicable earnings on those lines the employer was LIABLE for (payrollSdlYearToDate: an exempt line's are
    * left out); absent only when there are no earlier lines (the calculator throws otherwise).
@@ -220,7 +228,7 @@ export interface PayeYearToDate {
   sdlApplicable?: number;
   /** The leviable amount those liable lines carried (stored: sdl_leviable); absent only when there are no earlier lines. */
   sdlLeviable?: number;
-  /** The retirement deduction recorded on those liable lines (retirement_deduction); absent only when there are no earlier lines. */
+  /** The retirement and donation deductions recorded on those liable lines; absent only when there are no earlier lines. */
   sdlRetirementDeduction?: number;
 }
 
@@ -264,12 +272,16 @@ export interface PayrollLineResult {
   sdl: number;
   /**
    * This line's SDL leviable amount, cumulative over the tax year's liable months (sdlLeviableCumulative): the rise
-   * in max(0, SDL-applicable pay to date - the s11F retirement deduction PAYE allowed to date), capped at that pay,
+   * in max(0, SDL-applicable pay to date - the s11F retirement and s18A donation deductions allowed to date), capped at that pay,
    * never below nil (SDL Act s3(4)) and rounded to the cent.
    */
   sdlLeviable: number;
   /** This line's SDL-applicable earnings (earnings flagged is_sdl_applicable), before any deduction, to the cent. */
   sdlApplicable: number;
+  /** s18aDonation: 4030 counted toward the limit, this line's base, and the deduction it allowed (migration 959). */
+  donationReceipted: number;
+  donationBase: number;
+  donationDeduction: number;
   eti: EtiResult;
   netPay: number;
   componentBreakdown: ComponentBreakdownItem[];

@@ -12,8 +12,7 @@
  * `TaxYearConfig.retirementDeductionCap`). SDL applies it to the year, not the
  * line (sdlLeviableCumulative): leviable to date = max(0, SDL-applicable pay to
  * date - deduction to date), a line takes the rise. Every other taxable
- * deduction reduces PAYE only. Donations (4030) do not reduce SDL: payroll models no s18A
- * receipt or approved organisation.
+ * deduction reduces PAYE only. Donations (4030) reduce SDL only as allowed: s18aDonationDeduction.test.ts.
  */
 import { describe, it, expect } from 'vitest';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
@@ -497,9 +496,9 @@ describe('SDL over a tax year: invariants over random liable/exempt years with c
 });
 
 describe('SDL: deductions outside the para 2(4) retirement allowlist (SDL-GEN-01-G01 Rev 5 s6)', () => {
-  it('does not deduct 4030 without a modelled s18A receipt and approved organisation', () => {
+  it('does not deduct 4030 from SDL without an s18A receipt', () => {
     const r = line([salary(30_000), donation(10_000)]);
-    expect(r.taxableIncome).toBe(20_000);
+    expect(r.taxableIncome).toBe(30_000);
     expect(r.sdlLeviable).toBe(30_000);
     expect(r.sdl).toBe(300);
   });

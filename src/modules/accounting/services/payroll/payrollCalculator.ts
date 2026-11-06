@@ -1,7 +1,7 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import { getAge } from './payeEngine';
 import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
-import { calculateCumulativePaye } from './payeCumulative';
+import { costPayeWithDonations } from './payrollLinePaye';
 import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode } from './retirementFund';
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
@@ -132,8 +132,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       if (contribution) retirementContributions += amount;
       // A loan instalment is never a tax deduction, whatever the component says (Hein: a taxable LOAN is refused).
       else if (component.isTaxable && normaliseSarsCode(component.sarsSourceCode) !== 'LOAN') {
-        taxableDeductions += amount;
+        // A donation reduces the taxable figure only as s18aDonation allows, below.
         if (normaliseSarsCode(component.sarsSourceCode) === '4030') donations += amount;
+        else taxableDeductions += amount;
       }
       if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
       if (normaliseSarsCode(component.sarsSourceCode) === 'LOAN') loanInstalments += amount;
@@ -156,8 +157,6 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   }
   const periodicRemuneration = remuneration.periodic;
   const annualPaymentRemuneration = remuneration.annualPayment;
-  const regularTaxable = Math.max(0, periodicTaxable - taxableDeductions);
-  const annualTaxable = Math.max(0, annualPayments - Math.max(0, taxableDeductions - periodicTaxable));
 
   const medicalBeneficiaries = employee.medicalAidMainMember
     ? 1 + employee.medicalAidDependantsCount
@@ -174,19 +173,17 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         + 'was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
     });
   }
-  const { regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit, retirementDeduction } = calculateCumulativePaye({
-    regularTaxable,
-    annualPayments: annualTaxable,
-    periodicRemuneration,
-    annualPaymentRemuneration,
-    ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
-    taxYear,
-    rebateAge,
-    monthlyMedicalBeneficiaries: medicalBeneficiaries,
-    medicalSchemeFees,
-    retirementContributions,
-    donations,
+  const { donation, regularTaxable, annualTaxable, regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit, retirementDeduction } = costPayeWithDonations({
+    periodicTaxable, annualPayments, taxableDeductions, donations,
+    receiptHeld: employee.s18aReceiptHeld === true,
+    payeInput: {
+      periodicRemuneration, annualPaymentRemuneration,
+      ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
+      taxYear, rebateAge, monthlyMedicalBeneficiaries: medicalBeneficiaries, medicalSchemeFees, retirementContributions,
+    },
+    ytd: input.ytd,
   });
+  warnings.push(...donation.warnings);
   // Taxable remuneration BEFORE the retirement fund deduction, which is its own figure (retirementDeduction): a
   // line's record can exceed its pay (a catch-up contribution), and taxable_income must not go negative.
   const taxableIncome = regularTaxable + annualTaxable;
@@ -197,13 +194,12 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
     : calculateUIF(uifLeviable, taxYear);
 
-  // SDL is levied on SDL-applicable pay less the para 2(4) retirement deduction PAYE allowed, over the tax year
-  // (sdlLeviableCumulative). Other taxable deductions and donations (4030: no s18A receipt modelled) reduce PAYE only;
-  // the s4(b) threshold stays on gross (sdlLeviabilityService).
+  // SDL is levied on SDL-applicable pay less the para 2(4) retirement and donation deductions allowed, over the tax
+  // year (sdlLeviableCumulative). Other taxable deductions reduce PAYE only; the s4(b) threshold stays on gross.
   // The pay enters the cumulative maths as the cent figure the line stores (sdl_applicable), so the year to date and
   // this line work from exactly the same numbers.
   const sdlApplicable = round2(sdlLeviable);
-  const sdlLeviableAfterDeductions = sdlLeviableToDate(employee.id, sdlApplicable, retirementDeduction, input.ytd);
+  const sdlLeviableAfterDeductions = sdlLeviableToDate(employee.id, sdlApplicable, round2(retirementDeduction + donation.deduction), input.ytd);
 
   // Leviability depends on the employer's twelve-month remuneration, not on
   // this line, so a caller costing a full run defers and applies the threshold
@@ -284,6 +280,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     sdl: Math.round(sdl * 100) / 100,
     sdlLeviable: sdlLeviableAfterDeductions,
     sdlApplicable,
+    donationReceipted: donation.receipted,
+    donationBase: donation.base,
+    donationDeduction: donation.deduction,
     eti: etiRaw,
     netPay: Math.max(0, netPay),
     componentBreakdown: breakdown,

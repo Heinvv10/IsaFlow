@@ -105,6 +105,7 @@ export const createEmployeeTool: McpTool = {
       uif_excluded: { type: 'boolean', description: 'Default false. True only where UIF genuinely does not apply.' },
       medical_aid_main_member: { type: 'boolean' },
       medical_aid_dependants_count: { type: 'number', minimum: 0 },
+      s18a_receipt_held: { type: 'boolean', description: 'The employer holds the s18A receipt: donations (4030) may reduce PAYE and SDL' },
       idempotency_key: { type: 'string' },
     },
     required: ['employee_number', 'first_name', 'last_name', 'employment_type', 'start_date', 'idempotency_key'],
@@ -168,6 +169,7 @@ export const createEmployeeTool: McpTool = {
         uifExcluded: args.uif_excluded === true,
         medicalAidMainMember: args.medical_aid_main_member === true,
         medicalAidDependantsCount: dependantsCount,
+        s18aReceiptHeld: args.s18a_receipt_held === true,
       });
       return ok({
         id: employee.id,
@@ -210,6 +212,7 @@ export const updateEmployeeTool: McpTool = {
       uif_excluded: { type: 'boolean' },
       medical_aid_main_member: { type: 'boolean' },
       medical_aid_dependants_count: { type: 'number', minimum: 0 },
+      s18a_receipt_held: { type: 'boolean', description: 'The employer holds the s18A receipt: donations (4030) may reduce PAYE and SDL' },
       idempotency_key: { type: 'string' },
     },
     required: ['employee_id', 'idempotency_key'],
@@ -270,6 +273,7 @@ export const updateEmployeeTool: McpTool = {
         ? {} : { medicalAidMainMember: args.medical_aid_main_member === true }),
       ...(dependants === undefined || dependants === null
         ? {} : { medicalAidDependantsCount: Number(dependants) }),
+      ...(args.s18a_receipt_held === undefined ? {} : { s18aReceiptHeld: args.s18a_receipt_held === true }),
     }, ctx.userId);
 
     if (!updated) return toolError(NOT_FOUND);

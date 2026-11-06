@@ -6,7 +6,7 @@
  * s4(b)); the sums are over those lines:
  * - sdlApplicable: their SDL-applicable earnings;
  * - sdlLeviable: the leviable amount they carried;
- * - sdlRetirementDeduction: the retirement deduction they recorded.
+ * - sdlRetirementDeduction: the retirement and donation deductions they recorded.
  *
  * Each line's figures are the ones the run stored (migration 957: sdl_applicable,
  * sdl_leviable, sdl_exempt). A line from before it (NULL; costed on gross) is read
@@ -20,7 +20,7 @@
  *   stays right as filed, so the retirement deduction PAYE recorded on it is not
  *   credited against later months (Hein: no credit). A later reversal of such a
  *   contribution is capped at the liable pay (sdlLeviableCumulative).
- * A line with stored figures contributes the retirement_deduction it recorded.
+ * A line with stored figures contributes the retirement_deduction and donation_deduction it recorded.
  */
 export interface SdlYearToDateLine {
   line: string;
@@ -36,6 +36,8 @@ export interface SdlYearToDateLine {
   sdlExempt: boolean | null;
   /** The line's retirement_deduction; counted only for a line with stored SDL figures (migration 957). */
   retirement: number | null;
+  /** The line's donation_deduction (migration 959); null before it, when a donation did not reduce SDL. */
+  donation?: number | null;
 }
 
 export interface SdlYearToDate {
@@ -57,7 +59,7 @@ export function sdlYearToDate(lines: readonly SdlYearToDateLine[]): SdlYearToDat
     pay += linePay;
     leviable += l.sdlLeviable == null ? linePay : Number(l.sdlLeviable);
     // A line costed before 957 deducted nothing from its SDL: its recorded deduction is not credited later.
-    if (l.sdlApplicable != null) deduction += Number(l.retirement ?? 0);
+    if (l.sdlApplicable != null) deduction += Number(l.retirement ?? 0) + Number(l.donation ?? 0);
   }
   return { sdlApplicable: round2(pay), sdlLeviable: round2(leviable), sdlRetirementDeduction: round2(deduction) };
 }

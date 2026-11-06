@@ -100,6 +100,8 @@ function employeeOf(body: Body): NewEmployee {
     // so a default of true under-deducts PAYE for everyone captured without medical aid.
     medicalAidMainMember: body.medicalAidMainMember === true,
     medicalAidDependantsCount: dependantsOf(body.medicalAidDependantsCount),
+    // Only an explicit true: the flag buys a PAYE and SDL deduction, so no receipt on record means none.
+    s18aReceiptHeld: body.s18aReceiptHeld === true,
   };
 }
 
@@ -198,6 +200,9 @@ function changedEndDate(value: unknown, current: Pick<PayrollEmployee, 'startDat
 export function employeeChangesOf<T extends Body>(
   body: T, current: Pick<PayrollEmployee, 'taxNumber' | 'idNumber' | 'startDate' | 'endDate'>,
 ): T {
+  if (body.s18aReceiptHeld !== undefined && typeof body.s18aReceiptHeld !== 'boolean') {
+    throw new EmployeeOnboardingRefused('s18aReceiptHeld must be true or false');
+  }
   return {
     ...body,
     dateOfBirth: patchedDay(body.dateOfBirth, 'dateOfBirth'),
