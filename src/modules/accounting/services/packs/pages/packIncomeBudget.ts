@@ -20,15 +20,13 @@ import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import type { UnnumberedPage } from './packFrontMatter';
 import { buildIncomeStatementSheet } from './packIncomeSheet';
 import { fitRelaidPage } from './packNarrativeFit';
-import { warnCaptionDropped } from './packOmissionFootnote';
+import { BUDGET_COLUMNS_DROPPED_NOTE, warnCaptionDropped } from './packOmissionFootnote';
 import type { PackChartSpec, PackFootnote, PackTable } from './packPageModel';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
 import { budgetColumnFootnote } from './packStatementFootnotes';
 import { anchorColumn } from './packStatementTables';
 
-/** Printed on page 6 when the columns are left out: the pack says what it left off rather than only logging it. */
-export const BUDGET_COLUMNS_DROPPED_NOTE =
-  'The Budget and Variance columns are left out of this page because the figures are too wide to fit it.';
+export { BUDGET_COLUMNS_DROPPED_NOTE };
 
 const BUDGET_COLUMNS = new Set(['budget', 'variance']);
 
@@ -111,7 +109,6 @@ function composedIncomeSheet(
   const noted: UnnumberedPage = {
     ...buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote], merge),
     columnsLeftOut: [PACK_TABLE_COLUMN_LABEL.budget, PACK_TABLE_COLUMN_LABEL.variance],
-    columnsSaid: true,
   };
   try {
     const { page: fitted, dropped } = fitRelaidPage(noted);
