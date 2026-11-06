@@ -15,6 +15,7 @@ import { impossibleIncomeLinesSentence, incomeStatementTitle, largestMoverCaptio
 import { buildProfitWaterfallChart, profitBridgeAtHeight, shorterProfitBridge } from './packPageCharts';
 import { anchorRow } from './packStatementTables';
 import { bridgeSignFootnote, droppableCommentary, mustDisclose, note } from './packPageBlocks';
+import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { page, type UnnumberedPage } from './packFrontMatter';
 import { pageBoxMm, pageMm } from './packPageMetrics';
 import { periodWindowFootnotes } from './packTrendCrossReference';
@@ -44,6 +45,38 @@ const INCOME_LINE_SIDE: Record<string, 'income' | 'cost' | undefined> = {
   'is.otherExpenses': 'cost',
 };
 
+/**
+ * THE TWO REQUIRED DISCLOSURES UNDER ONE HEADING, WHERE THE PAGE CANNOT CARRY THEM APART.
+ *
+ * "Lines below zero" and "How much of this bridge is unexplained" each cost a heading and a gap;
+ * together they cost 9.8mm less, with every note kept word for word under its own note heading.
+ * Net-debit revenue with another line below zero and a material interest/tax step needs 256 to
+ * 261mm of 255mm as two blocks. Used only for that page (see `incomeSheetWithBudget`): a page that
+ * fits today keeps its two headings; where it is used, "Lines below zero" and "How much of this bridge is
+ * unexplained" are replaced by "Required disclosures" over the same two note headings. `neverTrim`, because
+ * the tail is the unexplained-step sentence the integrity gate demands. Every disclosure block is merged;
+ * a lone one keeps its heading.
+ */
+export function mergedDisclosures(lines: PackPageBlock[], step: PackPageBlock[]): PackPageBlock[] {
+  const blocks = [...lines, ...step];
+  if (blocks.length < 2) return blocks;
+  const notes = blocks.flatMap((block) => {
+    // Every block merged is a required disclosure (`mustDisclose`): anything else would be promoted to
+    // `neverTrim` here, which is not this function's to decide.
+    if (block.kind !== 'disclosure' || block.disclosure.required !== true) {
+      throw new PackRefusal(
+        `mergedDisclosures: only required disclosures merge, got a ${block.kind} block on "Income statement"`,
+        'The "Income statement" page of this pack could not be composed. The pack has not been produced; please contact support with the period you asked for.',
+      );
+    }
+    return block.disclosure.notes;
+  });
+  return [{
+    kind: 'disclosure',
+    disclosure: { heading: 'Required disclosures', required: true, neverTrim: true, notes },
+  }];
+}
+
 /** Page 6, its bridge, and the rung the measured page chose for it. */
 export function buildIncomeStatementSheet(
   income: PackTable,
@@ -51,6 +84,8 @@ export function buildIncomeStatementSheet(
   scale: MoneyScale,
   panels: PackChartSpec[],
   statementNotes: PackFootnote[],
+  /** The lines-below-zero and unexplained-step disclosures under ONE heading -- see `mergedDisclosures`. */
+  mergeDisclosures = false,
 ): UnnumberedPage {
 // The profit bridge reaches net profit through a step nothing measured —
 // interest and tax, which no field carries. Where that step is a material
@@ -139,8 +174,7 @@ const incomeStatementSheet = (bridge: PackChartSpec): UnnumberedPage => {
     // The same treatment page 7 gives negative assets. Brightsphere heads
     // this page with revenue of (5 535) and said nothing about it, two
     // sheets before explaining a negative asset side at length.
-    ...negativeRevenueCaveat,
-    ...profitBridgeCaveat,
+    ...(mergeDisclosures ? mergedDisclosures(negativeRevenueCaveat, profitBridgeCaveat) : [...negativeRevenueCaveat, ...profitBridgeCaveat]),
     // The reciprocal of the trends page's own window note rides in this
     // page's FOOTNOTES, below — see `periodWindowFootnotes`.
   ], 'portrait', [
