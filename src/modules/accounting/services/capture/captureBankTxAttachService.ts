@@ -9,31 +9,20 @@
  * against companyId before any write. The attachments table has no company_id —
  * scoping is via the verified bank_transaction_id (same as bankTxQueryReplyService).
  *
+ * A document over 2 MB, or one whose copy fails, stays linked without a copy: capturedAttachmentLinks lists and
+ * counts it as an attachment of the line and serves its bytes, so it is not invisible.
+ *
  * Known debt: attachments carry no captured_document_id FK — provenance/dedupe rides on the filename prefix; a follow-up migration should add a nullable captured_document_id column.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fetchRawBytes } from '@/lib/documentStorage';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
+import { mimeForCapturedFileType } from './capturedFileTypes';
+
+export { mimeForCapturedFileType };
 
 const MAX_MIRROR_BYTES = 2 * 1024 * 1024;
-
-// captured_documents.file_type is a short name from most writers and a full MIME type from the email mirror
-// (imapMirrorIngest). Both must land on the same type: a miss stores application/octet-stream.
-const MIME_BY_FILE_TYPE: Record<string, string> = {
-  pdf: 'application/pdf',
-  'application/pdf': 'application/pdf',
-  jpeg: 'image/jpeg',
-  jpg: 'image/jpeg',
-  'image/jpeg': 'image/jpeg',
-  'image/jpg': 'image/jpeg',
-  png: 'image/png',
-  'image/png': 'image/png',
-  webp: 'image/webp',
-  'image/webp': 'image/webp',
-  tiff: 'image/tiff',
-  'image/tiff': 'image/tiff',
-};
 
 export type AttachToBankTxResult =
   | { ok: true; mirrored: boolean }
@@ -48,7 +37,7 @@ export async function attachCapturedDocToBankTx(
   userId: string | null,
 ): Promise<AttachToBankTxResult> {
   const [doc] = (await sql`
-    SELECT id, file_name, file_type
+    SELECT id, file_name, file_type, matched_bank_tx_id
       FROM captured_documents
      WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid
   `) as Row[];
@@ -70,8 +59,22 @@ export async function attachCapturedDocToBankTx(
      WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid
   `;
 
+  // The copy's name starts with the document's id as the database prints it (lower-case, hyphenated), never the
+  // request's spelling: bank/bankLineDocumentSql recognises a copy by that prefix, and an upper-case or brace-wrapped
+  // id would make the document count twice.
+  // A relink moves the document: its copy on the line it leaves would otherwise keep supporting that line.
+  const previous = doc.matched_bank_tx_id ? String(doc.matched_bank_tx_id) : null;
+  if (previous && previous !== bankTxId) {
+    await sql`
+      DELETE FROM bank_transaction_attachments bta
+       USING bank_transactions bt
+       WHERE bta.bank_transaction_id = bt.id AND bt.id = ${previous}::uuid AND bt.company_id = ${companyId}::uuid
+         AND lower(left(bta.file_name, 37)) = ${String(doc.id)} || '_'
+    `;
+  }
+
   const mirrored = await mirrorIntoAttachments(
-    companyId, documentId, bankTxId, String(doc.file_name), String(doc.file_type), userId,
+    companyId, String(doc.id), bankTxId, String(doc.file_name), String(doc.file_type), userId,
   );
 
   log.info('Captured document attached to bank transaction', {
@@ -96,9 +99,11 @@ async function mirrorIntoAttachments(
     // that happen to share a file name (e.g. image.jpg) both mirror.
     // TENANT-SAFETY: bank_transaction_attachments has no company_id; isolation rides on bankTxId being preflighted above — keep that ordering.
     const storedFileName = `${documentId}_${fileName}`;
+    // Any copy of this document on this line, whatever case its id prefix was written in (bank/bankLineDocumentSql
+    // recognises a copy case-insensitively, so an exact-name check here would insert a second one).
     const [dup] = (await sql`
       SELECT id FROM bank_transaction_attachments
-       WHERE bank_transaction_id = ${bankTxId}::uuid AND file_name = ${storedFileName}
+       WHERE bank_transaction_id = ${bankTxId}::uuid AND lower(left(file_name, 37)) = ${documentId.toLowerCase()} || '_'
        LIMIT 1
     `) as Row[];
     if (dup) return true;
@@ -119,7 +124,7 @@ async function mirrorIntoAttachments(
 
     // file_type can be whatever an email claimed, so a label only stands when the bytes agree with it. The upload route
     // refuses a mismatch; here the link is already made, so the file is kept under the type that makes no claim.
-    const claimed = MIME_BY_FILE_TYPE[fileType.toLowerCase()];
+    const claimed = mimeForCapturedFileType(fileType);
     const mime = claimed && magicBytesMatchMime(raw.buffer, claimed) ? claimed : 'application/octet-stream';
     const dataUrl = `data:${mime};base64,${raw.buffer.toString('base64')}`;
     await sql`

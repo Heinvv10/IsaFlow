@@ -107,6 +107,7 @@ async function refreshCustomerInvoices(): Promise<number> {
       UPDATE customer_invoices ci
       SET
         due_date = dated.refreshed_due_date,
+        due_date_source = 'manual', -- migration 962: a demo date set by this script, not by terms
         invoice_date = dated.refreshed_due_date - 30,
         updated_at = NOW()
       FROM dated
@@ -143,6 +144,7 @@ async function refreshSupplierInvoices(): Promise<number> {
       UPDATE supplier_invoices si
       SET
         due_date = dated.refreshed_due_date,
+        due_date_source = 'manual', -- migration 962: a demo date set by this script, not by terms
         invoice_date = dated.refreshed_due_date - 30,
         updated_at = NOW()
       FROM dated
