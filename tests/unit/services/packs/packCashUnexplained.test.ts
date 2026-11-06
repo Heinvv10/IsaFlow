@@ -40,4 +40,11 @@ describe('page 8 with a cash movement the journals do not explain', () => {
     expect(JSON.stringify(row)).toContain('100');
     expect(JSON.stringify(row)).not.toContain('The comparative period carries no unexplained difference figure');
   });
+
+  it('prints the row when only the comparative period has a gap, the current period cell being nil', () => {
+    const set: PackFigureSet = { ...withUnexplained(0), prior: figures({ cash: 5_000, cashFlowUnexplained: 100 }) };
+    const row = buildCashTable(set, new PackFigureProvenance()).rows.find((r) => r.label === CASH_UNCAPTURED_LABEL);
+    expect(row).toBeDefined();
+    expect(JSON.stringify(row)).toContain('100');
+  });
 });

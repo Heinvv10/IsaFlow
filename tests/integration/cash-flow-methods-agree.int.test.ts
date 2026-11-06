@@ -181,6 +181,18 @@ describeIfDb('cash flow: the indirect and direct methods agree on every journal'
     });
   });
 
+  it('an unbalanced journal with NO cash leg (a stray 100 revenue credit on a receivable/revenue journal): both methods show +100 operating and -100 unexplained', async () => {
+    await inTx(async (x) => {
+      const ar = await x.acct('asset', 'receivable'), rev = await x.acct('revenue', 'revenue');
+      const je = await x.j('2026-11-12', [[ar, 500, 0], [rev, 0, 500]]);
+      await x.c.query(`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,0,100)`, [CO, je, rev]);
+      const t = await totals(P[0], P[1], { fault: true });
+      expect(t.gl).toBe(0);
+      expect({ op: t.ind.op, unexplained: t.ind_full.unexplainedDifference }).toEqual({ op: 100, unexplained: -100 });
+      expect({ op: t.dir.op, unexplained: t.dir_full.unexplainedDifference }).toEqual({ op: 100, unexplained: -100 });
+    });
+  });
+
   it('a cash leg on the year-end closing journal (a ledger fault) is ignored by both methods: the direct statement closes on the ledger and shows the gap, the reconciliation flags it', async () => {
     await inTx(async (x) => {
       const bank = await x.acct('asset', 'bank'), re = await x.acct('equity', 'retained_earnings');

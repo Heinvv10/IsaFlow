@@ -28,19 +28,12 @@ export interface CashFlowJournal {
   legs: JournalLeg[];
 }
 
-export interface JournalFetchOptions {
-  /** Only journals with a leg on a cash account (all the direct statement needs). */
-  cashJournalsOnly?: boolean;
-}
-
 /**
  * Posted debits and credits of every non-cash account in the period, per journal and account kind, with the journal's
  * net movement on its cash accounts. An account is the current portion of debt when it is the seeded system account or a
  * loan of this company names it (`loans.current_portion_account_id`, what a repayment debits).
  */
-async function fetchNonCashMovement(
-  companyId: string, startDate: string, endDate: string, { cashJournalsOnly = false }: JournalFetchOptions,
-): Promise<MovementRow[]> {
+async function fetchNonCashMovement(companyId: string, startDate: string, endDate: string): Promise<MovementRow[]> {
   return (await sql`
     WITH lines AS (
       SELECT ga.account_type, ga.account_subtype, jl.debit, jl.credit, jl.journal_entry_id, je.source,
@@ -58,17 +51,11 @@ async function fetchNonCashMovement(
         AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID
         AND je.entry_date BETWEEN ${startDate} AND ${endDate}
-        -- The direct statement only needs journals that touch a cash account: leave the rest out before aggregating.
-        AND (NOT ${cashJournalsOnly}::boolean OR EXISTS (
-          SELECT 1 FROM gl_journal_lines cl JOIN gl_accounts ca ON ca.id = cl.gl_account_id
-          WHERE cl.journal_entry_id = je.id AND cl.company_id = ${companyId}::UUID AND ca.company_id = ${companyId}::UUID
-            AND ca.account_type = 'asset' AND COALESCE(ca.account_subtype = ANY(${CASH_SUBTYPES as string[]}), false)))
     ), journal_cash AS (
       -- One row per journal, cash legs or not: a journal whose legs are all cash (or one-sided) has no non-cash line to
       -- come back through, and must still return its cash movement.
       SELECT journal_entry_id, MIN(source) AS source,
-             COALESCE(SUM(COALESCE(debit, 0) - COALESCE(credit, 0)) FILTER (WHERE is_cash), 0) AS net_cash,
-             COALESCE(bool_or(is_cash), false) AS has_cash
+             COALESCE(SUM(COALESCE(debit, 0) - COALESCE(credit, 0)) FILTER (WHERE is_cash), 0) AS net_cash
       FROM lines GROUP BY journal_entry_id
     )
     SELECT jc.journal_entry_id, jc.source, jc.net_cash::numeric AS net_cash,
@@ -77,16 +64,13 @@ async function fetchNonCashMovement(
            COALESCE(SUM(l.credit), 0)::numeric AS credit
     FROM journal_cash jc
     LEFT JOIN lines l ON l.journal_entry_id = jc.journal_entry_id AND NOT l.is_cash
-    WHERE (NOT ${cashJournalsOnly}::boolean OR jc.has_cash)
     GROUP BY jc.journal_entry_id, jc.source, jc.net_cash, l.account_type, l.account_subtype, l.is_loan_current_portion
   `) as MovementRow[];
 }
 
 /** The period's posted journals, each with its cash movement and non-cash legs. */
-export async function fetchCashFlowJournals(
-  companyId: string, startDate: string, endDate: string, options: JournalFetchOptions = {},
-): Promise<CashFlowJournal[]> {
-  const rows = await fetchNonCashMovement(companyId, startDate, endDate, options);
+export async function fetchCashFlowJournals(companyId: string, startDate: string, endDate: string): Promise<CashFlowJournal[]> {
+  const rows = await fetchNonCashMovement(companyId, startDate, endDate);
   const byJournal = new Map<string, MovementRow[]>();
   for (const r of rows) byJournal.set(r.journal_entry_id, [...(byJournal.get(r.journal_entry_id) ?? []), r]);
   return [...byJournal.values()].map((legRows) => {

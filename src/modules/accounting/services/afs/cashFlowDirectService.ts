@@ -101,7 +101,7 @@ export async function getCashFlowDirect(
     // for one load as a small Unexplained Difference; the next load reads both after the posting.
     const [openingCash, journals, ledgerClosing] = await Promise.all([
       fetchOpeningCash(companyId, periodStart),
-      fetchCashFlowJournals(companyId, periodStart, periodEnd, { cashJournalsOnly: true }),
+      fetchCashFlowJournals(companyId, periodStart, periodEnd),
       getCashBalance(companyId, periodEnd).then((b) => b.total),
     ]);
 

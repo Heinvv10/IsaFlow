@@ -39,7 +39,7 @@ afterAll(async () => { try { await dropTrackingFixture(pool, f); } finally { awa
 
 /** 250 of bank debit added to a posted March journal of company A: cash with no leg behind it. */
 async function seedFault(c: PoolClient): Promise<void> {
-  const je = (await c.query(`SELECT id FROM gl_journal_entries WHERE company_id = $1 AND status = 'posted' AND entry_date BETWEEN $2 AND $3 LIMIT 1`, [f.a, START, END])).rows[0]!.id as string;
+  const je = (await c.query(`SELECT id FROM gl_journal_entries WHERE company_id = $1 AND status = 'posted' AND entry_date BETWEEN $2 AND $3 ORDER BY entry_date, entry_number, id LIMIT 1`, [f.a, START, END])).rows[0]!.id as string;
   await c.query('INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES ($1,$2,$3,$4,0)', [f.a, je, f.acc.bank, GAP]);
 }
 const cents = (n: number) => Math.round(n * 100);
