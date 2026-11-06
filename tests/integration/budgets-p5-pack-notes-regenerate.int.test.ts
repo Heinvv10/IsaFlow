@@ -131,7 +131,11 @@ describe('rebuilding a month\'s pack', () => {
     UPDATE afs_sections SET ai_narrative_accepted = true WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /signed off or edited/));
 
   it('refuses a draft with an override', () => refusedAfter((doc) => sql`
-    UPDATE afs_sections SET overrides = '{"suppressed": true}'::jsonb WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /signed off or edited/));
+    UPDATE afs_sections SET overrides = '{"title": "Edited"}'::jsonb WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /signed off or edited/));
+
+  it('refuses a draft with a suppressed section', () => refusedAfter((doc) => sql`
+    UPDATE afs_sections SET data_snapshot = COALESCE(data_snapshot, '{}'::jsonb) || '{"suppressReason": "Not relevant"}'::jsonb, status = 'pending'
+    WHERE document_id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /signed off or edited/));
 
   it('refuses a locked draft by saying so', () => refusedAfter((doc) => sql`
     UPDATE afs_documents SET locked_at = now() WHERE id = ${doc}::UUID AND company_id = ${f.a}::UUID`, /is locked/));
