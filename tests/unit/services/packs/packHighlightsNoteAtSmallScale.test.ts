@@ -1,10 +1,13 @@
-/** ADVERSARIAL REPRO (#1169): at a small scale (figures at their 22pt ceiling) the new KPI ruler changes
- *  page 3's height model and the fitter now drops notes master printed -- and master's page fits in Chromium
- *  (vover=[] in adv1148-out/r4/printD-base.txt). */
-import { expect, it, vi } from 'vitest';
+/**
+ * AT A SMALL SCALE (figures at their 22pt ceiling) PAGE 3 KEEPS THE NOTES MASTER'S MODEL KEPT: the figure fit
+ * must not change page 3's height model, which printed these packs inside the sheet.
+ */
+import { afterEach, expect, it, vi } from 'vitest';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { input } from './fixtures/advInputs';
+import { input } from './fixtures/packGridInputs';
+
+afterEach(() => { vi.restoreAllMocks(); });
 
 it('k=30, zero-revenue trend: Highlights prints what master printed (no omission note)', () => {
   vi.spyOn(log, 'warn').mockImplementation(() => undefined);

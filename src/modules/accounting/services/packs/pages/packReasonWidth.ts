@@ -1,0 +1,95 @@
+/**
+ * THE WIDTH OF A KPI TILE'S NOT-MEANINGFUL REASON, IN DEVICE PIXELS, AS CHROMIUM LAYS IT OUT.
+ *
+ * `.pack-kpi-unavailable` is 11pt (14.667px) italic, and the pack's italic cut of IBM Plex Sans is a real face with
+ * its own advances ("nnnnnnnnnnnnnnnnnnnn" is 160px in it and 180px in the regular face the figure ruler uses at
+ * 15px). Each glyph's advance is a whole number of pixels at this one size, measured between two bars through the
+ * class itself; `packFigureWidth.test.ts` re-measures every entry and fails if one drifts. A glyph not in the
+ * table is charged 14px, an upper bound.
+ */
+const ADVANCE_PX: Readonly<Record<string, number>> = {
+  '0': 9,
+  '1': 9,
+  '2': 9,
+  '3': 9,
+  '4': 9,
+  '5': 9,
+  '6': 9,
+  '7': 9,
+  '8': 9,
+  '9': 9,
+  ' ': 3,
+  '.': 4,
+  ',': 4,
+  ';': 4,
+  ':': 4,
+  '\'': 4,
+  '"': 6,
+  '(': 5,
+  ')': 5,
+  '-': 6,
+  '/': 6,
+  '%': 14,
+  '&': 10,
+  '+': 9,
+  '–': 9,
+  'a': 8,
+  'b': 9,
+  'c': 7,
+  'd': 9,
+  'e': 8,
+  'f': 5,
+  'g': 8,
+  'h': 8,
+  'i': 4,
+  'j': 4,
+  'k': 8,
+  'l': 4,
+  'm': 13,
+  'n': 8,
+  'o': 8,
+  'p': 9,
+  'q': 9,
+  'r': 5,
+  's': 7,
+  't': 5,
+  'u': 8,
+  'v': 7,
+  'w': 11,
+  'x': 7,
+  'y': 7,
+  'z': 7,
+  'A': 9,
+  'B': 10,
+  'C': 9,
+  'D': 10,
+  'E': 9,
+  'F': 8,
+  'G': 10,
+  'H': 10,
+  'I': 6,
+  'J': 7,
+  'K': 9,
+  'L': 7,
+  'M': 12,
+  'N': 10,
+  'O': 10,
+  'P': 9,
+  'Q': 10,
+  'R': 9,
+  'S': 9,
+  'T': 8,
+  'U': 10,
+  'V': 9,
+  'W': 13,
+  'X': 9,
+  'Y': 9,
+  'Z': 9,
+};
+const UNKNOWN_PX = 14;
+
+export function reasonPx(text: string): number {
+  let px = 0;
+  for (const ch of text) px += ADVANCE_PX[ch] ?? UNKNOWN_PX;
+  return px;
+}

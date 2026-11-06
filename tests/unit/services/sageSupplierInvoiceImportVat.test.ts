@@ -87,16 +87,51 @@ describe('importSupplierInvoices — wired to deriveSageVat, never the inline /1
     const run = await importSupplierInvoices('company-1', 'user-1');
 
     const args = findCall('INSERT INTO supplier_invoices');
-    // Bound order: company_id, invoice_number, supplier_id, invoice_date,
-    // invoice_date (due base), payment_terms, subtotal, tax_rate, tax_amount, total, ...
-    expect(args[6]).toBe('1150.00');
-    expect(args[7]).toBe(0);
-    expect(args[8]).toBe('0.00');
+    // Bound order: company_id, invoice_number, supplier_id, invoice_date, due_date,
+    // subtotal, tax_rate, tax_amount, total, ...
+    expect(args[5]).toBe('1150.00');
+    expect(args[6]).toBe(0);
+    expect(args[7]).toBe('0.00');
     // The old defect: subtotal 1000.00, taxAmount 150.00.
-    expect(args[6]).not.toBe('1000.00');
-    expect(args[8]).not.toBe('150.00');
+    expect(args[5]).not.toBe('1000.00');
+    expect(args[7]).not.toBe('150.00');
     expect(args).toContain(SAGE_VAT_NOT_STATED_NOTE);
     expect(run.vatNotStated).toBe(1);
+  });
+});
+
+describe('importSupplierInvoices — due date from the supplier terms (migration 960)', () => {
+  const DUE_DATE_ARG = 4;
+  async function dueDateFor(terms: Record<string, unknown>): Promise<unknown> {
+    sqlMock.mockReset();
+    sqlMock
+      .mockResolvedValueOnce([stagedRow]) // SELECT staging
+      .mockResolvedValueOnce([{ ...supplier, ...terms }]) // SELECT suppliers by name
+      .mockResolvedValueOnce([]) // SELECT existing bill by Sage id or number
+      .mockResolvedValueOnce([{ id: 'new-inv-1' }]) // INSERT ... RETURNING id
+      .mockResolvedValueOnce([]); // UPDATE migration_status
+    await importSupplierInvoices('company-1', 'user-1');
+    return findCall('INSERT INTO supplier_invoices')[DUE_DATE_ARG];
+  }
+
+  it.each([
+    ['invoice_days 45', 45, 'invoice_days', '2026-02-15'],
+    ['statement_days 30', 30, 'statement_days', '2026-03-02'],
+    ['statement_months 3', 3, 'statement_months', '2026-04-30'],
+    ['Immediate', 0, 'invoice_days', '2026-01-01'],
+  ])('%s', async (_why, n, type, due) => {
+    expect(await dueDateFor({ payment_terms: n, payment_terms_type: type })).toBe(due);
+  });
+
+  it('terms not set use the company default: 30 days from invoice, or what the company sets', async () => {
+    expect(await dueDateFor({ payment_terms: null, payment_terms_type: null })).toBe('2026-01-31');
+    expect(await dueDateFor({ payment_terms: null, payment_terms_type: null, company_default_terms: JSON.stringify({ days: 1, type: 'statement_months' }) }))
+      .toBe('2026-02-28');
+  });
+
+  it('reads a legacy "days" row, and a number with no type, as invoice days', async () => {
+    expect(await dueDateFor({ payment_terms: 14, payment_terms_type: 'days' })).toBe('2026-01-15');
+    expect(await dueDateFor({ payment_terms: 14, payment_terms_type: null })).toBe('2026-01-15');
   });
 });
 

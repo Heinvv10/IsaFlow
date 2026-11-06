@@ -34,11 +34,23 @@ export function withWidenedTable(doc: PackPagesDocument, digits: number, longLab
   return { doc: { ...doc, pages }, table, index };
 }
 
-export function withWidenedKpi(doc: PackPagesDocument, digits: number, longLabel?: string): { doc: PackPagesDocument; tiles: KpiTiles; index: number } {
+/** Words set in the second KPI tile in place of its own: a label, a not-meaningful reason (the figure goes), a delta basis. */
+export interface KpiWords { label?: string; reason?: string; basis?: string }
+
+function widenTile(tile: KpiTiles[number], w: KpiWords, digits: number): KpiTiles[number] {
+  const figure = w.reason === undefined
+    ? { ...tile.figure, format: 'money' as const, value: money(digits) }
+    : { ...tile.figure, format: 'money' as const, value: null, unavailable: w.reason };
+  const delta = w.basis === undefined ? tile.delta : { ...(tile.delta ?? { value: 0.12, unit: 'percent' as const, favourable: true }), basis: w.basis };
+  return { ...tile, ...(w.label === undefined ? {} : { label: w.label }), figure, delta };
+}
+
+export function withWidenedKpi(doc: PackPagesDocument, digits: number, words: string | KpiWords = {}): { doc: PackPagesDocument; tiles: KpiTiles; index: number } {
+  const w: KpiWords = typeof words === 'string' ? { label: words } : words;
   const index = doc.pages.findIndex((p) => p.navLabel === 'Highlights');
   const page = doc.pages[index]!;
   const blocks = page.blocks.map((b) => (b.kind === 'kpiTiles'
-    ? { ...b, tiles: b.tiles.map((t, i) => (i < 4 ? { ...t, ...(longLabel !== undefined && i === 1 ? { label: longLabel } : {}), figure: { ...t.figure, format: 'money' as const, value: money(digits) } } : t)) }
+    ? { ...b, tiles: b.tiles.map((t, i) => (i < 4 ? widenTile(t, i === 1 ? w : {}, digits) : t)) }
     : b));
   const tiles = (blocks.find((b) => b.kind === 'kpiTiles') as { tiles: KpiTiles }).tiles;
   const pages = doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p));

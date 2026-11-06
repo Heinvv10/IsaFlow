@@ -39,6 +39,19 @@ describe('tableFit', () => {
     expect(tableColumnCells(nm, SCALE)[0]!.every((c) => c.text === 'n/m a')).toBe(true);
   });
 
+  it('a derived cell of a row whose actual is not meaningful is measured as the "n/m" the table prints, not as a dash', () => {
+    const { table } = withWidenedTable(demoWithoutBudget(), 6);
+    const row = table.rows[0]!;
+    const half = {
+      ...table, columns: ['actual', 'prior'] as const,
+      rows: [{ ...row, figures: { actual: { ...row.figures.actual!, value: null, unavailable: 'no base' } } }, { ...table.rows[1]!, figures: { actual: table.rows[1]!.figures.actual!, prior: table.rows[1]!.figures.actual! } }],
+    };
+    const [actual, prior] = tableColumnCells(half, SCALE);
+    expect(actual![0]!.text).toBe('n/m a');
+    expect(prior![0]!.text, 'the prior cell of that row prints n/m').toBe('n/m a');
+    expect(prior![1]!.text, 'a row with its own prior prints it').not.toBe('n/m a');
+  });
+
   it('weights follow the row role: subtotal 500, total and grand total 600, a line 400', () => {
     const { table } = withWidenedTable(demoWithoutBudget(), 6);
     const weights = new Map(table.rows.map((r) => [r.role, tableColumnCells(table, SCALE)[0]![table.rows.indexOf(r)]!.weight]));

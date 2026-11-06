@@ -5,7 +5,7 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { chromium, type Browser } from 'playwright';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { input } from '../services/packs/fixtures/advInputs';
+import { input } from '../services/packs/fixtures/packGridInputs';
 import { printBoardPack } from './renderPackPdf';
 let browser: Browser;
 beforeAll(async () => { browser = await chromium.launch(); }, 180_000);

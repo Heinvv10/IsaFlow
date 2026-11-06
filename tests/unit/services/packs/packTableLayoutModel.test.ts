@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackTable } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
-import { input, type Shape } from './fixtures/advInputs';
+import { input, type Shape } from './fixtures/packGridInputs';
 
 const SCALE = "R'000" as const;
 

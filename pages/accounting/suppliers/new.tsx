@@ -10,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Truck, Loader2, ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
 import { notify } from '@/utils/toast';
+import { paymentTermsBody, paymentTermsFormError } from '@/components/accounting/paymentTermsForm';
 import { SupplierForm, type SupplierFormData, INITIAL_SUPPLIER_FORM } from '@/components/accounting/SupplierForm';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -29,9 +30,8 @@ export default function NewSupplierPage() {
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
       errors.email = 'Enter a valid email address';
     }
-    if (form.payment_terms && isNaN(Number(form.payment_terms))) {
-      errors.payment_terms = 'Must be a number';
-    }
+    const termsError = paymentTermsFormError(form.payment_terms, form.payment_terms_type);
+    if (termsError) errors.payment_terms = termsError;
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   }
@@ -51,7 +51,7 @@ export default function NewSupplierPage() {
         body: JSON.stringify({
           ...form,
           whatsappNumber: form.whatsapp_number.trim() || null,
-          payment_terms: form.payment_terms ? Number(form.payment_terms) : 30,
+          ...paymentTermsBody(form.payment_terms, form.payment_terms_type),
           bank_name: form.bank_name.trim() || null,
           bank_account_number: form.bank_account_number.trim() || null,
           bank_branch_code: form.bank_branch_code.trim() || null,

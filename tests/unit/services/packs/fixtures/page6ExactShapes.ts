@@ -7,7 +7,7 @@
  * WAS_REFUSED: every 45th of the 1344 packs that were refused ("fitPageToBox ... nothing left that may be dropped")
  * and compose now that the table is no longer charged 4.4mm too tall.
  */
-import type { Shape } from './advInputs';
+import type { Shape } from './packGridInputs';
 
 export const OVERFLOWED: Shape[] = [
   {tr: 'demo', budget: true, prior: true, negative: true, loss: true, k: 1000, plug: 0.05, sg: [-1, -1, -1, 1]},

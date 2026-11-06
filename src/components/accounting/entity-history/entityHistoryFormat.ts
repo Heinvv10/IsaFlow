@@ -2,6 +2,7 @@
  * Display helpers for the entity change history (forensic-controls step 3):
  * field labels, values, the op and channel badges, and SAST times.
  */
+import { companyTermsFromSetting, describePaymentTerms } from '@/modules/accounting/services/shared/paymentTerms';
 import type { Channel, EntityChangeField, EntityType } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
 
@@ -48,7 +49,7 @@ export function formatValue(value: unknown): string {
 }
 
 /** Fields a change's own timeline leaves out: a bank-detail row's employee is the employee whose profile this is. */
-const HIDDEN_FIELDS: Partial<Record<EntityType, readonly string[]>> = { payroll_bank_detail: ['employee_id'] };
+const HIDDEN_FIELDS: Partial<Record<EntityType, readonly string[]>> = { payroll_bank_detail: ['employee_id'], company_setting: ['company_id'] };
 export const visibleFields = (type: EntityType, fields: EntityChangeField[]): EntityChangeField[] =>
   fields.filter((f) => !HIDDEN_FIELDS[type]?.includes(f.key));
 
@@ -57,6 +58,11 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = { cheque: 'Cheque / current'
 /** formatValue, with the bank-detail account type worded as the profile card words it. */
 export function displayValue(type: EntityType, key: string, value: unknown): string {
   if (type === 'payroll_bank_detail' && key === 'account_type' && typeof value === 'string') return ACCOUNT_TYPE_LABELS[value] ?? value;
+  // The default payment terms are stored as JSON; the history says them in words ("30 days from invoice date").
+  if (type === 'company_setting' && key === 'value' && typeof value === 'string') {
+    const t = companyTermsFromSetting(value);
+    return describePaymentTerms(t.days, t.type);
+  }
   return formatValue(value);
 }
 

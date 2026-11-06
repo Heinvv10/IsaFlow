@@ -14,7 +14,7 @@ import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/b
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { HEADING_SPACE_PX, HEADING_WORDS_PX, statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packTableModel';
-import { input, type Shape } from '../services/packs/fixtures/advInputs';
+import { input, type Shape } from '../services/packs/fixtures/packGridInputs';
 import { measure } from './measureWidths';
 import { measureTables } from './measureTables';
 

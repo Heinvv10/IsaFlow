@@ -34,6 +34,8 @@ vi.mock('@/modules/accounting/services/packs/pages/packPageFit', async (importOr
 });
 
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { BUDGET_COLUMNS_DROPPED_NOTE } from '@/modules/accounting/services/packs/pages/packIncomeBudget';
+import { OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
 import { BUDGET_COLUMN_NOTE_START } from '@/modules/accounting/services/packs/pages/packStatementFootnotes';
 import { fitterFaults, numberingFaults } from './fixtures/packAnchors';
 import { allPage6Shapes, page6Input } from './fixtures/page6Shapes';
@@ -46,7 +48,12 @@ describe('the 2,560-input shape sweep', () => {
     const printed: string[] = [];
     const fitter: string[] = [];
     let refused = 0;
+    const unexpectedlyRefused: string[] = [];
     let budgetWithoutNote = 0;
+    let captionDroppedBudgetKept = 0;
+    let columnsNamed = 0;
+    let columnsSilent = 0;
+    let falseCompleteness = 0;
     let trimmedPages = 0;
     try {
       for (const shape of shapes) {
@@ -59,6 +66,19 @@ describe('the 2,560-input shape sweep', () => {
           const p6 = doc.pages.find((p) => p.navLabel === 'Income statement')!;
           const hasBudget = p6.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'));
           if (hasBudget && !p6.footnotes.some((f) => f.text.startsWith(BUDGET_COLUMN_NOTE_START))) budgetWithoutNote += 1;
+          // The caption is the fitter's FIRST lever, so a page that lost it can still carry the footnote that
+          // names the Budget columns, and with it the columns: counted, and pinned below.
+          if (hasBudget && !p6.blocks.some((b) => b.kind === 'narrative')) captionDroppedBudgetKept += 1;
+          // Every input has a budget: a page 6 without the columns that prints an omission note names them.
+          const omission = p6.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
+          // No page lacking the columns may carry an omission note claiming every figure is complete.
+          if (!hasBudget && p6.footnotes.some((f) => f.text.startsWith(OMISSION_MARK) && f.text.includes('Every figure'))) falseCompleteness += 1;
+          if (!hasBudget) {
+            const said = p6.footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE
+              || (f.text.startsWith(OMISSION_MARK) && /; the Budget and Variance columns\./.test(f.text) && !f.text.includes('Every figure')));
+            if (said) columnsNamed += 1;
+            else columnsSilent += 1;
+          }
           for (const page of doc.pages) {
             const call = fitted.calls.find((c) => (c.after as PackPage).blocks === page.blocks);
             const found = call === undefined ? numberingFaults(page) : fitterFaults(call.before as PackPage, page);
@@ -67,6 +87,9 @@ describe('the 2,560-input shape sweep', () => {
         } catch (err) {
           if (!(err instanceof PackRefusal)) throw err;
           refused += 1;
+          // What is still refused is net-debit revenue with ANOTHER line below zero as well: every
+          // other shape, including net-debit revenue with a material interest/tax step, gets its pack.
+          if (!(shape.negative && shape.sg.includes(-1))) unexpectedlyRefused.push(JSON.stringify(shape));
         }
         if (faults.size > 0) printed.push(`${JSON.stringify(shape)} :: ${[...faults].join(' | ')}`);
         const inFitter = new Set<string>();
@@ -81,11 +104,12 @@ describe('the 2,560-input shape sweep', () => {
     }
     // The sweep must exercise the trimming path, or a green result proves nothing.
     expect(trimmedPages, 'no page was trimmed anywhere in the sweep').toBeGreaterThan(0);
-    // `refused` is pinned: renumbering must not turn a pack into a refusal or a refusal into a pack. 953 of the
-    // 2,560 shapes were refused (page 6 with net-debit revenue and an interest/tax step); 307 of them compose
-    // now that a statement table is modelled at its exact height rather than 4.4mm too tall (every one of
-    // those prints inside its sheet in Chromium: `packPage6ExactTable`), leaving 646.
-    expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, refused: 646, sample: [] });
+    // `refused` is pinned: 41 of the 2,560 shapes are refused (953 before the derived caption became page 6's last
+    // lever, 322 before a statement table was modelled at its exact height rather than 4.4mm too tall: 281 of those
+    // compose now, each printing inside its sheet in Chromium, `packPage6ExactTable`). They are the shapes whose
+    // required disclosures are longer still: net-debit revenue AND another line below zero.
+    expect(unexpectedlyRefused).toEqual([]);
+    expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, columnsSilent, falseCompleteness, columnsNamed, refused, sample: printed.slice(0, 3) }).toEqual(
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 534, columnsSilent: 0, falseCompleteness: 0, columnsNamed: 1127, refused: 41, sample: [] });
   }, 1_800_000);
 });

@@ -28,6 +28,7 @@ import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaults';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
+import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault, ownTermsDueDate } from '../shared/paymentTerms';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
 import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
@@ -102,17 +103,25 @@ export async function createSupplierInvoice(
     // derived from each CC2, a conflicting CC1 refused — before any write (no dimension query when none is named).
     const computedItems = await resolveBillLineDimensions(companyId, input.supplierId, totalledItems, input.costCenterId);
 
-    const dueDate = input.dueDate || calculateDueDate(input.invoiceDate, input.paymentTerms);
-
     // The company's own currency at exactly 1 (R-035), a foreign one only once enabled (FX PR0).
     const { currencyCode, exchangeRate } = await resolveDocumentCurrency(companyId, input.currencyCode, input.exchangeRate, 'bill');
 
-    // Fetch supplier VAT number for duplicate fingerprint
-    const [supplierVatRow] = (await sql`
-      SELECT vat_number FROM suppliers
-      WHERE id = ${input.supplierId}::UUID AND company_id = ${companyId}::UUID
+    // The supplier's VAT number (duplicate fingerprint), payment terms and the company default (due date): one company-scoped read.
+    const [supplierRow] = (await sql`
+      SELECT s.vat_number, s.payment_terms, s.payment_terms_type, d.value AS company_default_terms
+      FROM suppliers s
+      LEFT JOIN accounting_settings d ON d.company_id = s.company_id AND d.key = ${COMPANY_DEFAULT_TERMS_KEY}
+      WHERE s.id = ${input.supplierId}::UUID AND s.company_id = ${companyId}::UUID
     `) as Row[];
-    const supplierVatNumber: string | null = supplierVatRow?.vat_number ?? null;
+    const supplierVatNumber: string | null = supplierRow?.vat_number ?? null;
+    // Precedence: a due date the caller gave; the bill's own terms when the user or API caller chose them ("net30",
+    // "immediate"; never a silent default); the supplier's terms; the company default (migration 960).
+    const dueDate = input.dueDate
+      || ownTermsDueDate(input.invoiceDate, input.paymentTerms)
+      || dueDateWithDefault(
+        input.invoiceDate, supplierRow?.payment_terms == null ? null : Number(supplierRow.payment_terms),
+        supplierRow?.payment_terms_type, companyTermsFromSetting(supplierRow?.company_default_terms, companyId),
+      );
     const fingerprint = computeFingerprint(supplierVatNumber, input.invoiceNumber, totalAmount);
 
     const invoiceRow = await withTransaction(async (tx) => {
@@ -188,15 +197,6 @@ export {
   cancelSupplierInvoice,
   performThreeWayMatch,
 } from './supplierInvoiceWorkflowService';
-
-function calculateDueDate(invoiceDate: string, paymentTerms?: string): string | null {
-  if (!paymentTerms) return null;
-  const match = paymentTerms.match(/net(\d+)/i);
-  if (!match) return null;
-  const date = new Date(invoiceDate);
-  date.setDate(date.getDate() + Number(match[1]));
-  return date.toISOString().split('T')[0]!;
-}
 
 function mapItemRow(row: Row): SupplierInvoiceItem {
   return {

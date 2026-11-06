@@ -13,7 +13,7 @@ import type { Browser } from 'playwright';
 import { chromium } from 'playwright';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { input, type Shape } from '../services/packs/fixtures/advInputs';
+import { input, type Shape } from '../services/packs/fixtures/packGridInputs';
 import { OVERFLOWED, WAS_REFUSED } from '../services/packs/fixtures/page6ExactShapes';
 import { printBoardPack } from './renderPackPdf';
 

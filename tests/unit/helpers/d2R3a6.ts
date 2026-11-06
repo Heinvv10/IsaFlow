@@ -43,3 +43,6 @@ export function afterWrite(method: string, writePart: string, reloadPart: string
     (u, m) => (done && m === 'GET' && u.includes(reloadPart) ? refuse() : undefined),
   ];
 }
+
+/** A new contact must choose its terms before it saves (no pre-selection). */
+export { chooseTerms } from './contactTerms';
