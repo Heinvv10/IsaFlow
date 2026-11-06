@@ -33,6 +33,9 @@ const preview = async (user: string, c: string, supplierId?: string) => {
   expect(res.state.statusCode, messageOf(res)).toBe(200);
   return dataOf(res) as ReapplyPreview;
 };
+/** A confirmed item as the page sends it: the new date plus the date and source the preview showed (a bill()'s defaults). */
+const item = (id: string, dueDate: string, fromDueDate: string | null = '2026-12-15', fromSource = 'legacy') =>
+  ({ id, dueDate, fromDueDate, fromSource });
 const apply = (user: string, c: string, items: unknown) =>
   callRoute(route, tokens[user]!, c, 'POST', { items }, '/api/accounting/supplier-invoices-reapply-terms');
 
@@ -107,7 +110,7 @@ describe('apply', () => {
     const a = await bill(c, s);
     const b = await bill(c, s, { source: 'manual' });
     const untouched = await bill(c, s);
-    const res = await apply(admin, c, [{ id: a, dueDate: '2026-12-31' }, { id: b, dueDate: '2026-12-31' }]);
+    const res = await apply(admin, c, [item(a, '2026-12-31'), item(b, '2026-12-31', '2026-12-15', 'manual')]);
     expect(res.state.statusCode, messageOf(res)).toBe(200);
     const r = dataOf(res) as ReapplyResult;
     expect(r.updated.map((u) => [u.id, u.from, u.to]).sort()).toEqual([[a, '2026-12-15', '2026-12-31'], [b, '2026-12-15', '2026-12-31']].sort());
@@ -132,8 +135,8 @@ describe('apply', () => {
     await pool.query("UPDATE suppliers SET payment_terms = 2 WHERE id = $1", [s]); // terms changed after the preview
     await pool.query("UPDATE supplier_invoices SET status = 'paid', amount_paid = total_amount WHERE id = $1", [closed]);
     const res = await apply(admin, c, [
-      { id: moved, dueDate: '2026-12-31' }, { id: closed, dueDate: '2026-11-30' }, { id: dated, dueDate: '2026-12-31' },
-      { id: unset, dueDate: '2026-12-31' }, { id: foreign, dueDate: '2026-12-31' },
+      item(moved, '2026-12-31'), item(closed, '2026-11-30'), item(dated, '2026-12-31', '2026-12-31', 'manual'),
+      item(unset, '2026-12-31'), item(foreign, '2026-12-31'),
     ]);
     const r = dataOf(res) as ReapplyResult;
     expect(r.updated).toEqual([]);
@@ -149,12 +152,14 @@ describe('apply', () => {
     const c = await company();
     const s = await supplier(c, 'Same', 10, 'invoice_days');
     const id = await bill(c, s, { due: '2026-09-26', source: 'manual' });
-    expect((dataOf(await apply(admin, c, [{ id, dueDate: '2026-09-26' }])) as ReapplyResult).skipped).toEqual([{ id, reason: 'already_dated' }]);
+    expect((dataOf(await apply(admin, c, [item(id, '2026-09-26', '2026-09-26', 'manual')])) as ReapplyResult).skipped).toEqual([{ id, reason: 'already_dated' }]);
     expect(await dueOf(id)).toEqual({ d: '2026-09-26', s: 'manual' });
   });
 
   it.each([
     [[]], ['x'], [[{ id: 'nope', dueDate: '2026-12-31' }]], [[{ id: crypto.randomUUID(), dueDate: '2026-02-30' }]],
+    [[{ id: crypto.randomUUID(), dueDate: '2026-12-31' }]], [[{ id: crypto.randomUUID(), dueDate: '2026-12-31', fromSource: 'legacy' }]],
+    [[{ ...item(crypto.randomUUID(), '2026-12-31'), fromSource: 'typed' }]], [[item(crypto.randomUUID(), '2026-12-31', '2026-13-01')]],
   ])('refuses %j whole', async (items) => {
     const c = await company();
     expect((await apply(admin, c, items)).state.statusCode).toBe(400);
@@ -164,9 +169,33 @@ describe('apply', () => {
     const c = await company();
     const s = await supplier(c, 'Twice', 3, 'statement_months');
     const id = await bill(c, s);
-    expect((await apply(admin, c, [{ id, dueDate: '2026-12-31' }, { id, dueDate: '2026-12-31' }])).state.statusCode).toBe(400);
-    expect((await apply(viewer, c, [{ id, dueDate: '2026-12-31' }])).state.statusCode).toBe(403);
+    expect((await apply(admin, c, [item(id, '2026-12-31'), item(id, '2026-12-31')])).state.statusCode).toBe(400);
+    expect((await apply(viewer, c, [item(id, '2026-12-31')])).state.statusCode).toBe(403);
     expect(await dueOf(id)).toEqual({ d: '2026-12-15', s: 'legacy' });
+  });
+});
+
+describe('a date set since the preview (Codex, PR #1202)', () => {
+  // The page and the MCP confirm send what the preview showed; a colleague's hand-set date in between is never overwritten.
+  it('skips as date_changed a bill whose date or source moved after the preview, and writes nothing for it', async () => {
+    const c = await company();
+    const s = await supplier(c, 'Agreed', 3, 'statement_months');
+    const handSet = await bill(c, s);
+    const sourceOnly = await bill(c, s, { source: 'terms' });
+    const kept = await bill(c, s);
+    const p = await preview(admin, c);
+    const confirm = p.rows.map((r) => item(r.id, r.newDueDate, r.currentDueDate, r.currentSource));
+    expect(confirm.map((i) => i.id).sort()).toEqual([handSet, sourceOnly, kept].sort());
+    // What PUT supplier-invoices-due-date writes: an agreed date, source manual. And one marked manual on the same date.
+    await pool.query("UPDATE supplier_invoices SET due_date = '2027-01-15', due_date_source = 'manual' WHERE id = $1", [handSet]);
+    await pool.query("UPDATE supplier_invoices SET due_date_source = 'manual' WHERE id = $1", [sourceOnly]);
+    const res = await apply(admin, c, confirm);
+    expect(res.state.statusCode, messageOf(res)).toBe(200);
+    const r = dataOf(res) as ReapplyResult;
+    expect(r.updated.map((u) => u.id)).toEqual([kept]);
+    expect(Object.fromEntries(r.skipped.map((k) => [k.id, k.reason]))).toEqual({ [handSet]: 'date_changed', [sourceOnly]: 'date_changed' });
+    expect(await dueOf(handSet)).toEqual({ d: '2027-01-15', s: 'manual' });
+    expect(await dueOf(sourceOnly)).toEqual({ d: '2026-12-15', s: 'manual' });
   });
 });
 
@@ -192,7 +221,7 @@ describe('review round 1', () => {
     try {
       await holder.query('BEGIN');
       await holder.query('SELECT 1 FROM supplier_invoices WHERE id = $1 FOR UPDATE', [second]);
-      const res = await apply(admin, c, [{ id: first, dueDate: '2026-12-31' }, { id: second, dueDate: '2026-12-31' }]);
+      const res = await apply(admin, c, [item(first!, '2026-12-31'), item(second!, '2026-12-31')]);
       expect(res.state.statusCode, messageOf(res)).toBe(503);
     } finally {
       await holder.query('ROLLBACK');

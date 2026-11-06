@@ -18,6 +18,8 @@ import type { McpToolContext } from '@/lib/mcp/types';
 const BILL = 'b1b1b1b1-0000-4000-8000-000000000001';
 const SUP = 'a1a1a1a1-0000-4000-8000-000000000002';
 const BILL2 = 'b2b2b2b2-0000-4000-8000-000000000003';
+/** The preview row's current date and source, sent back with each confirmed item. */
+const FROM = { current_due_date: '2026-10-31', current_source: 'terms' };
 const ctx = { companyId: 'cccccccc-0000-4000-8000-cccccccccccc', userId: 'u-1' } as unknown as McpToolContext;
 const run = (args: Record<string, unknown>) => reapplyPaymentTermsTool.handler({ idempotency_key: 'k-1', ...args }, ctx);
 const body = (r: { content: { text: string }[] }) => JSON.parse(r.content[0]!.text);
@@ -63,8 +65,8 @@ describe('reapply_payment_terms', () => {
   });
 
   it('live maps items to {id, dueDate} and returns the skip reasons', async () => {
-    const out = body(await run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15' }] }));
-    expect(applyReapplyTerms).toHaveBeenCalledWith(ctx.companyId, [{ id: BILL, dueDate: '2026-11-15' }]);
+    const out = body(await run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15', ...FROM }] }));
+    expect(applyReapplyTerms).toHaveBeenCalledWith(ctx.companyId, [{ id: BILL, dueDate: '2026-11-15', fromDueDate: '2026-10-31', fromSource: 'terms' }]);
     expect(previewReapplyTerms).not.toHaveBeenCalled();
     expect(out.updated).toEqual([{ invoice_id: BILL, invoice_number: 'INV-1', from: '2026-10-31', to: '2026-11-15' }]);
     expect(out.skipped).toEqual([{ invoice_id: BILL2, reason: 'terms_changed' }]);
@@ -72,7 +74,7 @@ describe('reapply_payment_terms', () => {
 
   it('turns a ReapplyRefusal into a toolError', async () => {
     vi.mocked(applyReapplyTerms).mockRejectedValue(new ReapplyRefusal('items[0].id must be a bill id'));
-    const r = await run({ dry_run: false, items: [{ invoice_id: 'x', due_date: '2026-11-15' }] });
+    const r = await run({ dry_run: false, items: [{ invoice_id: 'x', due_date: '2026-11-15', ...FROM }] });
     expect(r.isError).toBe(true);
     expect(text(r)).toBe('items[0].id must be a bill id');
   });
@@ -80,13 +82,13 @@ describe('reapply_payment_terms', () => {
   // Re-thrown, never returned: only a throw rolls the registry's savepoint back over the bills already written.
   it('rethrows a lock timeout and anything else', async () => {
     vi.mocked(applyReapplyTerms).mockRejectedValue(new SupplierInvoiceLockTimeoutError(BILL));
-    await expect(run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15' }] })).rejects.toThrow('retry in a moment');
+    await expect(run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15', ...FROM }] })).rejects.toThrow('retry in a moment');
     vi.mocked(applyReapplyTerms).mockRejectedValue(new Error('connection reset'));
-    await expect(run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15' }] })).rejects.toThrow('connection reset');
+    await expect(run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15', ...FROM }] })).rejects.toThrow('connection reset');
   });
 
   it('a live call does not free the key', async () => {
-    expect((await run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15' }] })).wroteNothing).toBeUndefined();
+    expect((await run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15', ...FROM }] })).wroteNothing).toBeUndefined();
   });
 
   it('refuses a call without dry_run and a malformed supplier_id before the service', async () => {
@@ -100,11 +102,18 @@ describe('reapply_payment_terms', () => {
     const bad = await run({ dry_run: true, items: [{ invoice_id: 'nope', due_date: '2026-02-30' }] });
     expect(bad.isError).toBe(true);
     const out = body(await run({ dry_run: true, items: [
-      { invoice_id: BILL, due_date: '2026-11-15' }, { invoice_id: BILL2, due_date: '2026-11-15' },
+      { invoice_id: BILL, due_date: '2026-11-15', ...FROM }, { invoice_id: BILL2, due_date: '2026-11-15', ...FROM },
     ] }));
     expect(out.items_check).toEqual([{ invoice_id: BILL, would: 'update' }, { invoice_id: BILL2, would: 'not_listed' }]);
-    const stale = body(await run({ dry_run: true, items: [{ invoice_id: BILL, due_date: '2026-12-01' }] }));
+    const stale = body(await run({ dry_run: true, items: [{ invoice_id: BILL, due_date: '2026-12-01', ...FROM }] }));
     expect(stale.items_check).toEqual([{ invoice_id: BILL, would: 'terms_changed' }]);
+    // A row whose date or source moved since the preview the pairs came from (set by hand in between).
+    const moved = body(await run({ dry_run: true, items: [{ invoice_id: BILL, due_date: '2026-11-15', current_due_date: '2026-10-20', current_source: 'terms' }] }));
+    expect(moved.items_check).toEqual([{ invoice_id: BILL, would: 'date_changed' }]);
+    const resourced = body(await run({ dry_run: true, items: [{ invoice_id: BILL, due_date: '2026-11-15', current_due_date: '2026-10-31', current_source: 'manual' }] }));
+    expect(resourced.items_check).toEqual([{ invoice_id: BILL, would: 'date_changed' }]);
+    // Leaving out the previewed date and source is refused, dry run and live alike.
+    expect((await run({ dry_run: true, items: [{ invoice_id: BILL, due_date: '2026-11-15' }] })).isError).toBe(true);
     expect(applyReapplyTerms).not.toHaveBeenCalled();
   });
 });

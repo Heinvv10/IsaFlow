@@ -1,8 +1,9 @@
 /**
  * Re-apply payment terms to open supplier bills (payment-terms programme PR 3).
  * GET  ?supplierId=UUID (optional)  the preview: which bills' due dates the suppliers' terms would move, and to what.
- * POST { items: [{ id, dueDate }] } write exactly the confirmed pairs; a bill whose terms no longer give that date, or
- *                                   that is no longer open, is skipped with a reason (ap/reapplyTerms.ts).
+ * POST { items: [{ id, dueDate, fromDueDate, fromSource }] } write exactly the confirmed bills; a bill whose date or
+ *      source moved since the preview, whose terms no longer give that date, or that is no longer open, is skipped
+ *      with a reason (ap/reapplyTerms.ts).
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';

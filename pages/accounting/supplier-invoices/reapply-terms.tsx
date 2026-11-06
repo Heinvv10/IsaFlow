@@ -55,7 +55,9 @@ export default function ReapplyTermsPage() {
     setSaving(true);
     setError('');
     try {
-      const items = preview.rows.filter((r) => ticked.has(r.id)).map((r) => ({ id: r.id, dueDate: r.newDueDate }));
+      const items = preview.rows.filter((r) => ticked.has(r.id)).map((r) => ({
+        id: r.id, dueDate: r.newDueDate, fromDueDate: r.currentDueDate, fromSource: r.currentSource,
+      }));
       const res = await apiFetch('/api/accounting/supplier-invoices-reapply-terms', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
       });

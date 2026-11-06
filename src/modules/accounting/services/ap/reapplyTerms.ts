@@ -10,8 +10,9 @@
  *     hand or by its document (`manual`, `document`) is listed unticked; so is every bill of a supplier still on the old
  *     column default shape (30 with no type, or the legacy 'days'), which may be a stamped default, not real terms;
  *   - bills whose date would not change are counted, not listed.
- * Apply takes the (bill, date) pairs the person confirmed. Each bill is locked in id order (the order every other bill
- * locker uses), re-read, and written only when it is still open, its supplier's terms (as read then: the supplier row
+ * Apply takes the pairs the person confirmed, each with the due date and source the preview showed. Each bill is locked
+ * in id order (the order every other bill locker uses), re-read, and written only when it is still open, its due date
+ * and source are still the ones previewed (a date set by hand since then is never overwritten unseen), its supplier's terms (as read then: the supplier row
  * is not locked, so an edit committing during the apply is seen by the next preview, not this write) give exactly the
  * confirmed date, and the date differs; anything else is skipped with a reason. A written bill's source becomes `terms`. Every
  * change is recorded in the entity history by migration 962's capture (who, when, old and new date and source).
@@ -130,14 +131,19 @@ export class ReapplyRefusal extends Error {
   constructor(message: string) { super(message); this.name = 'ReapplyRefusal'; }
 }
 
-export type ReapplySkipReason = 'not_found' | 'not_open' | 'terms_not_set' | 'terms_changed' | 'already_dated';
+export type ReapplySkipReason = 'not_found' | 'not_open' | 'date_changed' | 'terms_not_set' | 'terms_changed' | 'already_dated';
 export interface ReapplyResult {
   updated: { id: string; invoiceNumber: string; from: string | null; to: string }[];
   skipped: { id: string; reason: ReapplySkipReason }[];
 }
 
-/** Parse the confirmed (bill, date) pairs: every one a bill id and a real date, no bill twice, at most REAPPLY_MAX. */
-export function parseReapplyItems(raw: unknown): { id: string; dueDate: string }[] {
+/** A confirmed bill: its new date, and the due date (null: none) and source the preview showed it with. */
+export interface ReapplyItem { id: string; dueDate: string; fromDueDate: string | null; fromSource: DueDateSource }
+
+const isRealDate = (v: unknown): v is string => typeof v === 'string' && ISO.test(v) && localDateFromISO(v) !== null;
+
+/** Parse the confirmed items: every one a bill id, a real new date, the previewed date and source; no bill twice; at most REAPPLY_MAX. */
+export function parseReapplyItems(raw: unknown): ReapplyItem[] {
   if (!Array.isArray(raw) || raw.length === 0) throw new ReapplyRefusal('items must list at least one bill and its new due date');
   if (raw.length > REAPPLY_MAX) throw new ReapplyRefusal(`At most ${REAPPLY_MAX} bills at a time`);
   const seen = new Set<string>();
@@ -146,10 +152,14 @@ export function parseReapplyItems(raw: unknown): { id: string; dueDate: string }
     const id = typeof o.id === 'string' ? o.id.toLowerCase() : '';
     const dueDate = typeof o.dueDate === 'string' ? o.dueDate : '';
     if (!UUID.test(id)) throw new ReapplyRefusal(`items[${i}].id must be a bill id`);
-    if (!ISO.test(dueDate) || localDateFromISO(dueDate) === null) throw new ReapplyRefusal(`items[${i}].dueDate must be a real date as YYYY-MM-DD`);
+    if (!isRealDate(dueDate)) throw new ReapplyRefusal(`items[${i}].dueDate must be a real date as YYYY-MM-DD`);
+    if (!(o.fromDueDate === null || isRealDate(o.fromDueDate))) {
+      throw new ReapplyRefusal(`items[${i}].fromDueDate must be the previewed current due date (YYYY-MM-DD, or null when it had none)`);
+    }
+    if (!isDueDateSource(o.fromSource)) throw new ReapplyRefusal(`items[${i}].fromSource must be the previewed current source (terms, manual, document or legacy)`);
     if (seen.has(id)) throw new ReapplyRefusal(`items[${i}]: bill ${id} is listed twice`);
     seen.add(id);
-    return { id, dueDate };
+    return { id, dueDate, fromDueDate: o.fromDueDate, fromSource: o.fromSource };
   });
 }
 
@@ -169,17 +179,23 @@ export async function applyReapplyTerms(companyId: string, rawItems: unknown): P
     // terms it was confirmed for, and the next preview lists it again.
     const [d] = (await sql`
       SELECT to_char(si.invoice_date, 'YYYY-MM-DD') AS invoice_date, to_char(si.due_date, 'YYYY-MM-DD') AS due_date,
-             s.payment_terms, s.payment_terms_type
+             si.due_date_source, s.payment_terms, s.payment_terms_type
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
       WHERE si.id = ${item.id}::UUID AND si.company_id = ${companyId}::UUID
     `) as DbRow[];
+    // The date or its source moved since the preview (someone set an agreed date by hand, say): what was confirmed was
+    // a different bill state, so it is never overwritten unseen. Unknown sources read as `legacy`, as the preview does.
+    const from = d?.due_date == null ? null : String(d.due_date);
+    const fromSource: DueDateSource = isDueDateSource(d?.due_date_source) ? d.due_date_source : 'legacy';
+    if (from !== item.fromDueDate || fromSource !== item.fromSource) {
+      result.skipped.push({ id: item.id, reason: 'date_changed' }); continue;
+    }
     const days = d?.payment_terms == null ? null : Number(d.payment_terms);
     const type = d?.payment_terms_type == null ? null : String(d.payment_terms_type);
     const newDue = d && readTerms(days, type) ? dueDateFromTerms(String(d.invoice_date), days, type) : null;
     if (newDue === null) { result.skipped.push({ id: item.id, reason: 'terms_not_set' }); continue; }
     if (newDue !== item.dueDate) { result.skipped.push({ id: item.id, reason: 'terms_changed' }); continue; }
-    const from = d?.due_date == null ? null : String(d.due_date);
     if (from === newDue) { result.skipped.push({ id: item.id, reason: 'already_dated' }); continue; }
     await sql`
       UPDATE supplier_invoices SET due_date = ${newDue}::DATE, due_date_source = 'terms', updated_at = NOW()
