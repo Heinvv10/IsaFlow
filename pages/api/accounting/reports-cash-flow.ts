@@ -17,12 +17,18 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
+const COST_CENTRE_REFUSAL = 'Cash flow cannot be reported by cost centre: cash is held in bank accounts, not by cost centre';
+
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
   const { companyId } = req;
+
+  // Deliberately BEFORE the period is read or validated: a request naming a cost centre is refused whatever its dates say.
+  // No cost-centre cash flow: cash is held in bank accounts, which no cost centre owns. Refused, not ignored.
+  if (req.query.cost_centre || req.query.cost_centre_id) return apiResponse.badRequest(res, COST_CENTRE_REFUSAL);
 
   try {
     // Accept both start_date/end_date (legacy) and period_start/period_end (aligned
