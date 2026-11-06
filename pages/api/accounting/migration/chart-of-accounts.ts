@@ -2,6 +2,7 @@
  * Migration Chart of Accounts API
  * POST /api/accounting/migration/chart-of-accounts
  * Body: { sessionId, accounts[], systemAccountMap }
+ * A map that MOVES the bank role is owner/admin only (403 otherwise); any role it moves is audited.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -11,14 +12,14 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { importChartOfAccounts, type AccountImportRow, type SystemAccountMap } from '@/modules/accounting/services/core/migrationCoaService';
+import { CoaRoleChangeForbiddenError, importChartOfAccounts, type AccountImportRow, type SystemAccountMap } from '@/modules/accounting/services/core/migrationCoaService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   const { sessionId, accounts, systemAccountMap } = req.body as {
     sessionId?: string;
     accounts?: AccountImportRow[];
@@ -48,7 +49,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.validationError(res, { systemAccountMap: 'System account map is required' });
   }
 
-  const result = await importChartOfAccounts(companyId, sessionId, accounts, systemAccountMap);
+  let result;
+  try {
+    result = await importChartOfAccounts(companyId, sessionId, accounts, systemAccountMap, { role: companyRole, userId: user.id });
+  } catch (err) {
+    // Moving the bank role is owner/admin only (migrationCoaRoleMoves); refused before anything was written.
+    if (err instanceof CoaRoleChangeForbiddenError) return apiResponse.forbidden(res, err.message);
+    throw err;
+  }
 
   log.info('Chart of accounts imported', {
     companyId,
