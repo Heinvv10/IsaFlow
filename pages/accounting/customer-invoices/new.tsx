@@ -20,12 +20,13 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
-import { invoiceDateProblem, isoOrEmpty, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
+import { isoOrEmpty, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { editedLine, useContactDefaults } from '@/components/accounting/customer-invoices/useContactDefaults';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, pricesToNothingMessage, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
-import { droppedLineProblem } from '@/components/accounting/customer-invoices/invoicePutBody';
+import { createBody } from '@/components/accounting/customer-invoices/newInvoiceBody';
+import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
 import { useInvoiceDraftOwner, type LocalDraftData } from '@/components/accounting/customer-invoices/useLocalInvoiceDraft';
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
 import { KeptDraftOffer, NewInvoiceActions } from '@/components/accounting/customer-invoices/NewInvoiceParts';
@@ -79,6 +80,8 @@ export default function NewCustomerInvoicePage() {
   const isFx = form.currencyCode !== 'ZAR';
   // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
   const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;
+  // What Create would send, from this render: the preview renders exactly it (invoice-pdf-preview).
+  const built = createBody(form, lines, taxMode, taxRate, dates.refused);
 
   const [rateEditing, setRateEditing] = useState(false);
   // A kept draft comes back whole: its mode with its prices, and nothing the customer's defaults may then overwrite.
@@ -122,20 +125,10 @@ export default function NewCustomerInvoicePage() {
   const markDone = () => { doneNow.current = true; setDone(true); lookupSeq.current++; };
   const createInvoice = async (): Promise<SavedInvoice | null> => {
     if (doneNow.current) return null;
-    if (!form.clientId) { setError('Select a client'); return null; }
-    const tooSmall = lines.find(l => l.description && pricesToNothing(taxMode, l.unitPrice, taxRate));
-    if (tooSmall) { setError(pricesToNothingMessage(tooSmall.description)); return null; }
-    // Every line on screen counts in the total: one the body would drop is refused, never left out quietly.
-    const dropped = droppedLineProblem(lines, false);
-    if (dropped) { setError(dropped); return null; }
-    const validLines = lines.map(({ discountFromDefault: _fromDefault, ...l }) => ({ ...l, unitPrice: storedUnitPrice(taxMode, l.unitPrice, taxRate) })).filter(l => l.description && l.unitPrice > 0);
-    if (validLines.length === 0) { setError('Add at least one line item'); return null; }
-    const dateProblem = invoiceDateProblem(form, dates.refused);
-    if (dateProblem) { setError(dateProblem); return null; }
-    if (isFx && form.exchangeRate <= 0) { setError('Exchange rate must be greater than 0'); return null; }
+    if ('problem' in built) { setError(built.problem); return null; }
     setError('');
     try {
-      const res = await apiFetch('/api/accounting/customer-invoices-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, taxRate, items: validLines }) });
+      const res = await apiFetch('/api/accounting/customer-invoices-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(built.body) });
       await assertOk(res, 'Could not create the invoice - try again');
       const json = await res.json() as { data?: { id?: string; invoiceNumber?: string; shownDigest?: string }; id?: string; invoiceNumber?: string; shownDigest?: string };
       const d = json.data || json;
@@ -240,7 +233,7 @@ export default function NewCustomerInvoicePage() {
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Add any notes or payment instructions…" />
               </fieldset>
-              <p className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-4 py-3 text-sm text-[var(--ff-text-secondary)]">Save the draft to preview the PDF.</p>
+              <InvoicePdfPreview unsaved={'body' in built ? { body: built.body } : { problem: built.problem }} />
             </div>
 
             <div className="lg:sticky lg:top-6 space-y-4">

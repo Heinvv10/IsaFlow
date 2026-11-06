@@ -67,6 +67,57 @@ export class InvoiceLineValidationError extends Error {
   }
 }
 
+export interface PricedDraftLine { qty: number; price: number; amount: number }
+
+/**
+ * Each line priced as create stores it (invoiceLineAmount.ts), refused as create refuses it. Shared with the unsaved
+ * preview (invoicePreviewModel.ts), so the preview's figures are create's by construction.
+ */
+export function priceDraftLines(items: readonly { quantity?: unknown; unitPrice?: unknown; discount?: unknown }[]): PricedDraftLine[] {
+  // W1 (P2.1): server-side line validation — the July-4 audit created a
+  // -R115.00 invoice through this handler (no client OR server guard). The body
+  // is untyped: `true`, `"10"` or `[10]` would coerce to a number in the
+  // pricing, and a negative discount would bill more than qty × price. Bounds
+  // are the columns' (quantity numeric(10,2), amounts numeric(15,2)).
+  const priced: PricedDraftLine[] = [];
+  for (const item of items) {
+    const qtyIn: unknown = item?.quantity ?? 1;
+    const priceIn: unknown = item?.unitPrice;
+    const discount: unknown = item?.discount ?? 0;
+    if (!(typeof qtyIn === 'number' && qtyIn > 0 && qtyIn < 1e8)) {
+      throw new InvoiceLineValidationError('Line quantities must be positive numbers');
+    }
+    if (!(typeof priceIn === 'number' && priceIn >= 0 && priceIn < 1e13)) {
+      throw new InvoiceLineValidationError('Line unit prices must be numbers of zero or more');
+    }
+    if (!isDiscountPercent(discount)) {
+      throw new InvoiceLineValidationError('Line discounts must be a number from 0 to 100, to at most two decimal places');
+    }
+    const qty = toColumnCents(qtyIn);
+    if (qty <= 0) throw new InvoiceLineValidationError('Line quantities must be positive numbers');
+    const price = toColumnCents(priceIn);
+    priced.push({ qty, price, amount: invoiceLineAmount(qty, price, discount) });
+  }
+  return priced;
+}
+
+/** The invoice's VAT rate as create takes it: 15 when absent, refused outside 0..100. */
+export function draftTaxRate(taxRate: number | undefined): number {
+  // R-119: the same audit, one field over. `taxRate` comes off the request
+  // body and is used by create for `tax_amount` and the output-VAT journal leg. A
+  // negative rate leaves the TOTAL positive — `subtotal 1000, tax -500,
+  // total 500` — so neither a total guard nor migration 692's total arm sees
+  // it, while the VAT return and the GL leg go negative. Thrown as a line
+  // validation error because that is what it is to the operator, and the
+  // route already answers 400 for it. The MCP twins clamp `tax_rate` at the
+  // schema (minimum 0); this is the HTTP route's own guard.
+  const requestedRate = taxRate ?? 15;
+  if (!Number.isFinite(requestedRate) || requestedRate < 0 || requestedRate > 100) {
+    throw new InvoiceLineValidationError(`Tax rate must be between 0 and 100, got ${String(taxRate)}`);
+  }
+  return requestedRate;
+}
+
 export async function createDraftCustomerInvoice(
   companyId: string,
   userId: string,
@@ -91,30 +142,7 @@ export async function createDraftCustomerInvoice(
       throw err;
     });
 
-  // W1 (P2.1): server-side line validation — the July-4 audit created a
-  // -R115.00 invoice through this handler (no client OR server guard). The body
-  // is untyped: `true`, `"10"` or `[10]` would coerce to a number in the
-  // pricing, and a negative discount would bill more than qty × price. Bounds
-  // are the columns' (quantity numeric(10,2), amounts numeric(15,2)).
-  const priced: { qty: number; price: number; amount: number }[] = [];
-  for (const item of items) {
-    const qtyIn: unknown = item?.quantity ?? 1;
-    const priceIn: unknown = item?.unitPrice;
-    const discount: unknown = item?.discount ?? 0;
-    if (!(typeof qtyIn === 'number' && qtyIn > 0 && qtyIn < 1e8)) {
-      throw new InvoiceLineValidationError('Line quantities must be positive numbers');
-    }
-    if (!(typeof priceIn === 'number' && priceIn >= 0 && priceIn < 1e13)) {
-      throw new InvoiceLineValidationError('Line unit prices must be numbers of zero or more');
-    }
-    if (!isDiscountPercent(discount)) {
-      throw new InvoiceLineValidationError('Line discounts must be a number from 0 to 100, to at most two decimal places');
-    }
-    const qty = toColumnCents(qtyIn);
-    if (qty <= 0) throw new InvoiceLineValidationError('Line quantities must be positive numbers');
-    const price = toColumnCents(priceIn);
-    priced.push({ qty, price, amount: invoiceLineAmount(qty, price, discount) });
-  }
+  const priced = priceDraftLines(items);
 
   // Migration 874: what each line credits and is tagged with. Shape first (a
   // uuid STRING or nothing — the body is untyped), then ownership and the
@@ -132,18 +160,7 @@ export async function createDraftCustomerInvoice(
   );
   if (codingRefusal) throw new InvoiceLineCodingRefusal(codingRefusal);
 
-  // R-119: the same audit, one field over. `taxRate` comes off the request
-  // body and is used below for `tax_amount` and the output-VAT journal leg. A
-  // negative rate leaves the TOTAL positive — `subtotal 1000, tax -500,
-  // total 500` — so neither a total guard nor migration 692's total arm sees
-  // it, while the VAT return and the GL leg go negative. Thrown as a line
-  // validation error because that is what it is to the operator, and the
-  // route already answers 400 for it. The MCP twins clamp `tax_rate` at the
-  // schema (minimum 0); this is the HTTP route's own guard.
-  const requestedRate = taxRate ?? 15;
-  if (!Number.isFinite(requestedRate) || requestedRate < 0 || requestedRate > 100) {
-    throw new InvoiceLineValidationError(`Tax rate must be between 0 and 100, got ${String(taxRate)}`);
-  }
+  const requestedRate = draftTaxRate(taxRate);
 
   // FX PR0: the company's own currency at exactly 1, or a foreign one only once
   // the company has enabled them — refused here, before the first write.
