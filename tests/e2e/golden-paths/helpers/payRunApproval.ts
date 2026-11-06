@@ -39,7 +39,7 @@ export type PayRunClearance = 'cleared' | 'self-approval-refused';
 
 // selfApprove ignores E2E_APPROVER_*, so APPROVER_HINT's advice cannot help a spec that sets it.
 export const SELF_APPROVE_HINT =
-  'This spec always self-approves (selfApprove ignores E2E_APPROVER_*): its company now has other eligible approvers, '
+  'This spec always self-approves (selfApprove ignores E2E_APPROVER_*): usually its company now has other eligible approvers (or enforcement changed), '
   + 'so it must run in a company where the suite user is the only one.';
 
 class SelfApprovalRefused extends Error {}
