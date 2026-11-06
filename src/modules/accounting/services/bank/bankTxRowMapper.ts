@@ -79,6 +79,8 @@ export function mapTxRow(row: Row): BankTransaction {
     counterpartyAccountId: row.counterparty_account_id ? String(row.counterparty_account_id) : undefined,
     transferJournalEntryId: row.transfer_journal_entry_id ? String(row.transfer_journal_entry_id) : undefined,
     link: bankTxLinkOf(row),
+    // Absent (not 0) from queries that do not select it: unknown must not read as "no files".
+    attachmentCount: row.attachment_count != null ? Number(row.attachment_count) : undefined,
   };
 }
 

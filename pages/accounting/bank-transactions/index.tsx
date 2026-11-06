@@ -284,6 +284,7 @@ export default function BankTransactionsPage() {
         onExcludeClose={() => setExcludingTxId(null)} onExcludeConfirm={actions.handleExcludeConfirm}
         onFindMatchClose={() => setFindMatchTxId(null)} onFindMatchDone={() => { setFindMatchTxId(null); void loadTransactions(); }}
         onAttachmentsClose={() => setAttachmentsTxId(null)} onCreateRuleClose={() => setCreateRuleTx(null)}
+        onAttachmentCount={(id, n) => setTransactions(ts => ts.map(t => (t.id === id ? { ...t, attachmentCount: n } : t)))}
         onCreateRuleDone={() => { setCreateRuleTx(null); setRowSelections(() => ({})); void loadTransactions(); refreshBankAccounts(); }}
         onCreateEntityClose={() => { setCreateEntityTxId(null); setCreateEntityType(null); }}
         onCreateEntityDone={(entity, type) => { actions.handleCreateEntityDone(entity, type, setGlAccounts, setSuppliers, setCustomers); setCreateEntityTxId(null); setCreateEntityType(null); }}

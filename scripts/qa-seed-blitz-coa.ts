@@ -48,7 +48,7 @@ const ACCOUNTS: Account[] = [
   { code:'2110', name:'Accounts Payable',        type:'liability', normalBalance:'credit', level:3, displayOrder:211, parentCode:'2100', subtype:'payable',                  isSystem:true },
   { code:'2120', name:'VAT Output',              type:'liability', normalBalance:'credit', level:3, displayOrder:212, parentCode:'2100', subtype:'vat_output',               isSystem:true },
   { code:'2130', name:'Accrued Expenses',        type:'liability', normalBalance:'credit', level:3, displayOrder:213, parentCode:'2100' },
-  { code:'2210', name:'Long-term Loans',         type:'liability', normalBalance:'credit', level:3, displayOrder:221, parentCode:'2200' },
+  { code:'2210', name:'Long-term Loans',         type:'liability', normalBalance:'credit', level:3, displayOrder:221, parentCode:'2200', subtype:'long_term_liability' },
   // L2 Equity
   { code:'3100', name:'Share Capital',           type:'equity',    normalBalance:'credit', level:2, displayOrder:310, parentCode:'3000', subtype:'equity',            isSystem:true },
   { code:'3200', name:'Retained Earnings',       type:'equity',    normalBalance:'credit', level:2, displayOrder:320, parentCode:'3000', subtype:'retained_earnings',  isSystem:true },
