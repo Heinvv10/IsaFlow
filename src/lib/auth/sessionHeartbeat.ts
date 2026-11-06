@@ -2,9 +2,11 @@
  * PRD-10 Layer 1 — keeps the access token fresh while a tab is open.
  *
  * Two responsibilities:
- *   1. Background refresh — every 50 minutes, rotate the access cookie via
- *      POST /api/auth/refresh. Skip when the tab is hidden (no point refreshing
- *      a backgrounded tab).
+ *   1. Background refresh — once 50 minutes have passed since the last one, rotate
+ *      the access cookie via POST /api/auth/refresh. The time is kept in localStorage
+ *      because AppLayout mounts per page: an interval alone restarted on every page
+ *      change and rarely fired. Skip when the tab is hidden (no point refreshing a
+ *      backgrounded tab).
  *   2. Idle bounce — track the last user activity (clicks/keys/scroll) in
  *      localStorage. If idle exceeds the company's idle_timeout_minutes, force
  *      logout instead of refreshing.
@@ -20,7 +22,9 @@ import { log } from '@/lib/logger';
 const CHANNEL_NAME = 'isaflow_auth';
 const ACTIVITY_KEY = 'isaflow_last_activity_at';
 const REFRESH_URL = '/api/auth/refresh';
-const HEARTBEAT_INTERVAL_MS = 50 * 60 * 1000;
+const REFRESH_KEY = 'isaflow_last_refresh_at';
+const REFRESH_EVERY_MS = 50 * 60 * 1000;
+const TICK_INTERVAL_MS = 5 * 60 * 1000;
 const ACTIVITY_THROTTLE_MS = 5_000;
 
 type StopFn = () => void;
@@ -40,9 +44,17 @@ function recordActivity(): void {
   }
 }
 
-function readLastActivity(): number {
+function recordRefresh(): void {
   try {
-    const raw = localStorage.getItem(ACTIVITY_KEY);
+    localStorage.setItem(REFRESH_KEY, String(Date.now()));
+  } catch {
+    // Same best-effort as recordActivity: the next tick just refreshes again.
+  }
+}
+
+function readTimestamp(key: string): number {
+  try {
+    const raw = localStorage.getItem(key);
     if (!raw) return Date.now();
     const n = Number(raw);
     return Number.isFinite(n) ? n : Date.now();
@@ -63,6 +75,7 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
 
   // Seed activity so the first heartbeat after fresh login isn't immediately idle.
   if (!localStorage.getItem(ACTIVITY_KEY)) recordActivity();
+  if (!localStorage.getItem(REFRESH_KEY)) recordRefresh();
 
   // --- Activity tracking (throttled to avoid hammering localStorage) ---
   let lastWrite = 0;
@@ -154,8 +167,9 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
     if (!isLeader()) return;
     if (document.hidden) return;
 
-    const idleFor = Date.now() - readLastActivity();
+    const idleFor = Date.now() - readTimestamp(ACTIVITY_KEY);
     if (idleFor >= idleMs) {
+      window.clearInterval(intervalId); // this tab is leaving: no second logout
       // Idle bounce — clear cookies first so cookies aren't left valid on a
       // shared computer after the redirect, then wipe tenant-scoped client
       // state so the next sign-in on this browser cannot inherit the
@@ -166,8 +180,11 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
       return;
     }
 
+    if (Date.now() - readTimestamp(REFRESH_KEY) < REFRESH_EVERY_MS) return;
+
     try {
       const r = await fetch(REFRESH_URL, { method: 'POST', credentials: 'include' });
+      if (r.ok) recordRefresh();
       if (!r.ok && r.status === 401) {
         // Refresh failed — session is genuinely dead, bounce.
         clearTenantClientState();
@@ -178,7 +195,7 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
     }
   };
 
-  const intervalId = window.setInterval(tick, HEARTBEAT_INTERVAL_MS);
+  const intervalId = window.setInterval(tick, TICK_INTERVAL_MS);
 
   return () => {
     window.clearInterval(intervalId);

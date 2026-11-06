@@ -46,3 +46,48 @@ describe('sessionHeartbeat idle bounce: server logout is best effort but never s
     expect(window.location.href).toBe('/login?reason=idle-timeout');
   });
 });
+
+describe('sessionHeartbeat background refresh', () => {
+  const refreshes = () => fetchMock.mock.calls.filter(([url]) => url === '/api/auth/refresh').length;
+  const minutes = (n: number) => vi.advanceTimersByTimeAsync(n * 60 * 1000);
+  const keepActive = () => localStorage.setItem('isaflow_last_activity_at', String(Date.now()));
+
+  beforeEach(() => {
+    stop();
+    localStorage.removeItem('isaflow_last_refresh_at');
+    keepActive();
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+    stop = startSessionHeartbeat({ idleTimeoutMinutes: 480 });
+  });
+
+  it('does not refresh early', async () => {
+    await minutes(45);
+    expect(refreshes()).toBe(0);
+  });
+
+  it('refreshes once 50 minutes have passed, then not again for another 50', async () => {
+    await minutes(50);
+    expect(refreshes()).toBe(1);
+    await minutes(45);
+    expect(refreshes()).toBe(1);
+    await minutes(5);
+    expect(refreshes()).toBe(2);
+  });
+
+  it('a page change, which remounts AppLayout, does not restart the wait', async () => {
+    await minutes(40);
+    stop();
+    stop = startSessionHeartbeat({ idleTimeoutMinutes: 480 });
+    await minutes(10);
+    expect(refreshes()).toBe(1);
+  });
+
+  it('an idle bounce fires within a tick of the limit and logs out once', async () => {
+    stop();
+    stop = startSessionHeartbeat({ idleTimeoutMinutes: 60 });
+    await minutes(70);
+    const logouts = fetchMock.mock.calls.filter(([url]) => url === '/api/auth/logout').length;
+    expect(logouts).toBe(1);
+    expect(window.location.href).toBe('/login?reason=idle-timeout');
+  });
+});
