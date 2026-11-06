@@ -35,6 +35,7 @@ const NON_DESTRUCTIVE_WRITES = new Set([
 const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'suggest_bank_allocation',
   'update_supplier_invoice',
+  'reapply_payment_terms',
   'undo_bank_import',
   'update_gl_account',
   'deactivate_gl_account',
