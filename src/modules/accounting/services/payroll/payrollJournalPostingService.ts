@@ -17,7 +17,10 @@ import { log } from '@/lib/logger';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
-import { buildPayrollJournalPlan, type PayrollJournalPlan } from './payrollJournalBuilder';
+import type { PayrollJournalPlan } from './payrollJournalBuilder';
+import { assertPayRunApproved } from './payRunApprovalControl';
+import { readApprovedPlan } from './payrollApprovedPlan';
+import { lockPayrollRunHeader } from './payrollRunLock';
 
 type Row = DbRow;
 
@@ -45,6 +48,15 @@ const BLOCKER_MESSAGES: Record<string, (detail: string) => string> = {
  * passes the plan its gate judged and its caller's hash described: a plan
  * rebuilt here could differ (a cost-centre mapping committed in between), and
  * would be posted under a hash that never described it (W3-01 breaker D).
+ * A caller-supplied plan is trusted beyond its run id (which is checked): it must be approval's own, or one
+ * already hash-matched to the approved plan by `readApprovedPlan`. A new caller passing any other plan would
+ * post a journal no one approved. post_payroll_journal passes one, but only the plan it reported, read by
+ * `readApprovedPlan` (payrollApprovedPlan.ts) under the approval and header
+ * locks and hash-matched to the approved plan: every `opts.plan` is either
+ * approval's own or an approved-and-hash-matched read. Without `opts.plan`
+ * the poster performs that same read itself, so a mapping, account or
+ * cost-centre change since approval refuses rather than posting a journal no
+ * one approved.
  */
 export async function postPayrollRunJournal(
   companyId: string,
@@ -52,8 +64,36 @@ export async function postPayrollRunJournal(
   userId: string,
   opts?: { postingAgent?: string; plan?: PayrollJournalPlan },
 ): Promise<string> {
-  const plan = opts?.plan ?? await buildPayrollJournalPlan(companyId, runId);
-  if (!plan) throw new Error(`Payroll run ${runId} not found`);
+  // Shared by UI approval, MCP recovery posting and every future payroll finaliser.
+  // The run's header is locked FOR UPDATE (5s wait, then a retryable PayrollLoanLockTimeoutError, nothing written)
+  // BEFORE the plan is read or the link judged: the idempotency lock of an MCP call covers one key only, so two
+  // posts under different keys, or a post beside an approval, each saw a run with no journal and each posted one.
+  // With opts.plan the caller (approvePayrollRun, or the MCP tool after readApprovedPlan) already holds the company
+  // approval lock and this one in the same transaction, so this returns at once. Without it, readApprovedPlan takes
+  // the company approval lock then this header lock (approval's order) and reads the plan under them. Lock order on
+  // every path: 1 company approval, 2 header (payrollRunLock.ts); no path takes 2 before 1.
+  let plan: PayrollJournalPlan;
+  let locked: DbRow;
+  if (opts?.plan) {
+    const header = await lockPayrollRunHeader(runId, companyId);
+    if (!header) throw new Error(`Payroll run ${runId} not found`);
+    locked = header;
+    // A plan describes one run; handed another run's plan this would post that run's journal and stamp this run.
+    if (opts.plan.runId !== runId) throw new Error(`The journal plan is for run ${opts.plan.runId}, not run ${runId}`);
+    await assertPayRunApproved(companyId, runId);
+    plan = opts.plan;
+  } else {
+    const read = await readApprovedPlan(companyId, runId, { lock: true });
+    if (!read) throw new Error(`Payroll run ${runId} not found`);
+    ({ header: locked, plan } = read);
+  }
+
+  // Re-checked under the lock: a link the plan did not see (a plan built before the lock, or handed in by a caller
+  // that did not hold it) means a peer posted first. Refused before anything is written.
+  const linked = locked.journal_entry_id == null ? null : String(locked.journal_entry_id);
+  if (linked !== null && linked !== plan.alreadyPostedJournalId) {
+    throw new Error(`Payroll run ${runId} already carries journal ${linked} — it was posted by another request`);
+  }
 
   // Already posted is not an error — the approval path re-runs on retry and
   // relies on this being a no-op.
@@ -103,12 +143,20 @@ export async function postPayrollRunJournal(
     : await createJournalEntry(companyId, input, userId);
   await postJournalEntry(companyId, entry.id, userId);
 
-  await sql`
+  // Only onto a run with no journal. The lock above makes a miss impossible under a request transaction; for a
+  // caller with none (a script) the lock lapsed with its own statement, and this stops a second journal from
+  // overwriting the first's link. Thrown, so a request rolls the journal just posted back.
+  const stamped = (await sql`
     UPDATE payroll_run_headers
     SET journal_entry_id = ${entry.id}::uuid,
         updated_at       = NOW()
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-  `;
+      AND journal_entry_id IS NULL
+    RETURNING id
+  `) as Row[];
+  if (!stamped[0]) {
+    throw new Error(`Payroll run ${runId} already carries a journal — journal ${entry.id} was not linked to it`);
+  }
 
   log.info(
     'Payroll journal posted',

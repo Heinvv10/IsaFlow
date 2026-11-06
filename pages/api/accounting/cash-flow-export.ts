@@ -2,8 +2,7 @@
  * Cash Flow Statement Export API
  * GET — export cash flow statement as CSV
  *
- * The cash flow data is computed inline (same logic as reports-cash-flow.ts)
- * rather than extracted to a shared service, to keep parity with the source report.
+ * The cash flow data is the same service the screen reads (cashFlowIndirectService), so the two cannot differ.
  *
  * Query params:
  *   period_start   YYYY-MM-DD  required
@@ -11,18 +10,11 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sql } from '@/lib/neon';
-import {
-  RECEIVABLE_SUBTYPES,
-  PAYABLE_SUBTYPES,
-  INVESTING_ASSET_SUBTYPES,
-} from '@/modules/accounting/services/gl/accountClassification';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { csvVal } from '@/lib/csv';
-import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
-import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { getIndirectCashFlow } from '@/modules/accounting/services/reports/cashFlowIndirectService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -32,116 +24,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
 
+  // Deliberately BEFORE the period checks below: a request naming a cost centre is refused whatever its dates say.
+  // No cost-centre cash flow: cash is held in bank accounts, which no cost centre owns. Refused, not ignored.
+  if (req.query.cost_centre || req.query.cost_centre_id) {
+    return apiResponse.badRequest(res, 'Cash flow cannot be reported by cost centre: cash is held in bank accounts, not by cost centre');
+  }
   if (!periodStart) return apiResponse.badRequest(res, 'period_start is required');
   if (!periodEnd) return apiResponse.badRequest(res, 'period_end is required');
 
-  // Opening cash: cash.balance.v1, the day before the period starts. This
-  // route's own copy signed each account by its user-set normal_balance, so a
-  // credit-normal cash account was summed as negative cash (K-091g).
-  const openingBalance = (await getCashBalance(companyId, periodStart, { exclusive: true })).total;
+  const cf = await getIndirectCashFlow(companyId, periodStart, periodEnd);
 
-  // Net income from P&L accounts in period
-  const [incomeRow] = await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0)::numeric
-      - COALESCE(SUM(CASE WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit ELSE 0 END), 0)::numeric
-      AS net_income
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE jl.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-      AND je.company_id = ${companyId}
-      AND je.entry_date >= ${periodStart}
-      AND je.entry_date <= ${periodEnd}
-      AND ga.account_type IN ('revenue', 'expense')
-  `;
-  const netIncome = Number(incomeRow?.net_income || 0);
-
-  // Change in Accounts Receivable
-  const [arRow] = await sql`
-    SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS change
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE jl.company_id = ${companyId}::UUID
-    AND ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[])
-      AND je.company_id = ${companyId}
-      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-      AND je.entry_date >= ${periodStart}
-      AND je.entry_date <= ${periodEnd}
-  `;
-  const arChange = Number(arRow?.change || 0);
-
-  // Change in Accounts Payable
-  const [apRow] = await sql`
-    SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS change
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE jl.company_id = ${companyId}::UUID
-    AND ga.account_subtype = ANY(${PAYABLE_SUBTYPES as string[]}::TEXT[])
-      AND je.company_id = ${companyId}
-      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-      AND je.entry_date >= ${periodStart}
-      AND je.entry_date <= ${periodEnd}
-  `;
-  const apChange = Number(apRow?.change || 0);
-
-  // Investing: fixed asset changes
-  const [investingRow] = await sql`
-    SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS change
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE jl.company_id = ${companyId}::UUID
-    AND ga.account_subtype = ANY(${INVESTING_ASSET_SUBTYPES as string[]}::TEXT[])
-      AND je.company_id = ${companyId}
-      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-      AND je.entry_date >= ${periodStart}
-      AND je.entry_date <= ${periodEnd}
-  `;
-  const investingChange = Number(investingRow?.change || 0);
-
-  // Financing: equity changes (excluding retained earnings)
-  const [financingRow] = await sql`
-    SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS change
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE jl.company_id = ${companyId}::UUID
-    AND ga.account_type = 'equity'
-      AND (ga.account_subtype IS NULL OR ga.account_subtype != 'retained_earnings')
-      AND je.company_id = ${companyId}
-      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-      AND je.entry_date >= ${periodStart}
-      AND je.entry_date <= ${periodEnd}
-  `;
-  const financingChange = Number(financingRow?.change || 0);
-
-  const operatingTotal = netIncome + arChange + apChange;
-  const investingTotal = investingChange;
-  const financingTotal = financingChange;
-  const netCashFlow = operatingTotal + investingTotal + financingTotal;
-  const closingBalance = openingBalance + netCashFlow;
-
-  const csvLines: string[] = [
-    'Section,Description,Amount',
-    // Operating Activities
-    `${csvVal('Operating Activities')},${csvVal('Net Income')},${netIncome.toFixed(2)}`,
-    `${csvVal('Operating Activities')},${csvVal('Change in Accounts Receivable')},${arChange.toFixed(2)}`,
-    `${csvVal('Operating Activities')},${csvVal('Change in Accounts Payable')},${apChange.toFixed(2)}`,
-    `${csvVal('Operating Activities')},${csvVal('Total Operating Activities')},${operatingTotal.toFixed(2)}`,
-    // Investing Activities
-    `${csvVal('Investing Activities')},${csvVal('Fixed Asset Changes')},${investingChange.toFixed(2)}`,
-    `${csvVal('Investing Activities')},${csvVal('Total Investing Activities')},${investingTotal.toFixed(2)}`,
-    // Financing Activities
-    `${csvVal('Financing Activities')},${csvVal('Equity Changes')},${financingChange.toFixed(2)}`,
-    `${csvVal('Financing Activities')},${csvVal('Total Financing Activities')},${financingTotal.toFixed(2)}`,
-    // Summary
-    `${csvVal('Summary')},${csvVal('Net Cash Flow')},${netCashFlow.toFixed(2)}`,
-    `${csvVal('Summary')},${csvVal('Opening Balance')},${openingBalance.toFixed(2)}`,
-    `${csvVal('Summary')},${csvVal('Closing Balance')},${closingBalance.toFixed(2)}`,
-  ];
+  const csvLines: string[] = ['Section,Description,Amount'];
+  for (const section of cf.sections) {
+    for (const item of section.items) {
+      csvLines.push(`${csvVal(section.section)},${csvVal(item.label)},${item.amount.toFixed(2)}`);
+    }
+    csvLines.push(`${csvVal(section.section)},${csvVal(`Total ${section.section}`)},${section.total.toFixed(2)}`);
+  }
+  csvLines.push(
+    `${csvVal('Summary')},${csvVal('Net Cash Flow')},${cf.netChange.toFixed(2)}`,
+    `${csvVal('Summary')},${csvVal('Opening Balance')},${cf.openingCash.toFixed(2)}`,
+    `${csvVal('Summary')},${csvVal('Closing Balance')},${cf.closingCash.toFixed(2)}`,
+  );
 
   const csv = csvLines.join('\n');
   const filename = `cash-flow-${new Date().toISOString().split('T')[0]}.csv`;

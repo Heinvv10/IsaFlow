@@ -20,6 +20,18 @@
  *     the account intended, or a moved role has more than one holder.
  * The 3 unmanaged page rows (sales discount, petty cash, rounding) are stored
  * in app_settings only and read by nothing (SET-02, open question).
+ *
+ * A fourth kind of row, `payroll_net_pay`, is stored in app_settings but READ
+ * by the payroll journal (payrollJournalBank): the clearing liability net pay
+ * is credited to instead of the bank. It manages no role (2140..2175 share one
+ * subtype, and roles resolve by subtype) and moves no flag, so it is validated
+ * here by its own allow-list (netPayTargetRules: a payroll_liability account, and
+ * none a loan uses, netPayLoanAccounts) and may be cleared, which returns net pay
+ * to the bank. A stale page is a 409 as for a role.
+ *
+ * Every change to a role row or to `payroll_net_pay` is audited in the same
+ * transaction (defaultAccountsAudit): who, old and new account id and code. A save
+ * whose audit row cannot be written is rolled back.
  */
 import { sql, type TxSql } from '@/lib/neon';
 import { TransactionRefusal } from '@/lib/transactionRefusal';
@@ -28,10 +40,12 @@ import { rolesNotKept, snapshotRoles } from './systemRoleInvariant';
 import { lockSystemRoleWrites, withBoundedLockWait } from './systemRoleWriteLock';
 import { roleTargetRefusal } from './roleTargetRules';
 import { DEFAULT_ACCOUNT_ROLES, defaultAccountRole } from './defaultAccountRoles';
+import { DEFAULT_ACCOUNTS_SETTINGS_KEY, PAYROLL_NET_PAY_KEY } from './netPaySetting';
+import { netPayTargetRefusal } from './netPayTargetRules';
+import { netPayLoanAccountRefusal } from './netPayLoanAccounts';
+import { auditDefaultAccountChanges, type DefaultAccountChange } from './defaultAccountsAudit';
 import { VatPeriodLockedError } from './journalVatLockGuard';
 import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from './vatLockLineClassification';
-
-const SETTINGS_KEY = 'accounting_default_accounts';
 
 /** The page's rows that manage no role: stored in app_settings only. */
 const UNMANAGED_KEYS: readonly string[] = ['sales_discount', 'petty_cash', 'rounding'];
@@ -48,9 +62,19 @@ export class DefaultAccountsRefusal extends TransactionRefusal {
 /** The role a UI key manages (`defaultAccountRoles`, the map the page shares). */
 const managedSubtype = defaultAccountRole;
 
-/** A stored or posted mapping: a plain object, else nothing. */
+/**
+ * A stored or posted mapping: a plain object, else nothing. Malformed JSON text throws, as it always did. A row written
+ * twice (JSON text of a JSON string) is read through; a string that is not itself JSON is just a non-object (nothing).
+ */
 export function plainMapping(value: unknown): Record<string, unknown> {
-  const parsed: unknown = typeof value === 'string' && value !== '' ? JSON.parse(value) : value;
+  let parsed: unknown = typeof value === 'string' && value !== '' ? JSON.parse(value) : value;
+  if (typeof parsed === 'string' && parsed !== '') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      parsed = null; // a JSON string that is not JSON text: a non-object mapping, which reads as nothing
+    }
+  }
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...(parsed as Record<string, unknown>) } : {};
 }
 
@@ -58,7 +82,7 @@ const idOrNull = (v: unknown): string | null => (typeof v === 'string' && v !== 
 
 async function storedMapping(companyId: string, q: TxSql = sql): Promise<Record<string, unknown>> {
   const [row] = await q`
-    SELECT value FROM app_settings WHERE key = ${SETTINGS_KEY} AND company_id = ${companyId}
+    SELECT value FROM app_settings WHERE key = ${DEFAULT_ACCOUNTS_SETTINGS_KEY} AND company_id = ${companyId}
   ` as Row[];
   return plainMapping(row?.value);
 }
@@ -76,18 +100,54 @@ export async function readDefaultAccountMappings(companyId: string): Promise<Rec
 }
 
 /**
+ * The Payroll net pay row: null when it changes nothing, else the account id to store (null clears it, returning
+ * net pay to the bank). Unknown, wrong or inactive accounts are refused as such, stale page or not; the stale
+ * page (409) is judged last, as for a role.
+ */
+async function netPayChoice(
+  tx: TxSql, companyId: string, raw: unknown, current: string | null, loaded: unknown,
+): Promise<{ accountId: string | null } | null> {
+  const accountId = idOrNull(raw);
+  if (accountId === current) return null;
+  if (accountId) {
+    const [row] = await tx`
+      SELECT a.account_code, a.account_type, a.account_subtype, a.is_active,
+             EXISTS (SELECT 1 FROM gl_accounts c
+                     WHERE c.parent_account_id = a.id AND c.company_id = a.company_id) AS has_children
+      FROM gl_accounts a
+      WHERE a.id::TEXT = ${accountId} AND a.company_id = ${companyId}::UUID
+      LIMIT 1
+    ` as Row[];
+    if (!row) throw new DefaultAccountsRefusal(`Account for '${PAYROLL_NET_PAY_KEY}' not found`);
+    const unfit = netPayTargetRefusal({
+      code: String(row.account_code), type: String(row.account_type), isActive: row.is_active === true,
+      subtype: row.account_subtype == null || row.account_subtype === '' ? null : String(row.account_subtype),
+      hasChildren: row.has_children === true,
+    });
+    if (unfit) throw new DefaultAccountsRefusal(unfit.message);
+    const loan = await netPayLoanAccountRefusal(companyId, accountId, String(row.account_code), tx);
+    if (loan) throw new DefaultAccountsRefusal(loan.message);
+  }
+  if (idOrNull(loaded) !== current) {
+    throw new DefaultAccountsRefusal('Default accounts changed since you loaded this page. It has been reloaded; review and save again.', 409);
+  }
+  return { accountId };
+}
+
+/**
  * Apply only the roles `mappings` changes, on `tx`. `loaded` is the holder the
  * page showed for each key it sends; a role whose holder has changed since is
  * refused 409 rather than silently moved back. Throws DefaultAccountsRefusal.
+ * `userId` is who saved: the audit row's author.
  */
 export async function saveDefaultAccountMappings(
-  tx: TxSql, companyId: string, mappings: Record<string, unknown>, loaded: Record<string, unknown>,
+  tx: TxSql, companyId: string, mappings: Record<string, unknown>, loaded: Record<string, unknown>, userId: string,
 ): Promise<void> {
   // Before the lock and any write: only the page's own keys, each an account
   // id or nothing. Anything else used to be merged into app_settings as sent,
   // so the stored row grew with every save.
   for (const [uiKey, value] of Object.entries(mappings)) {
-    if (!managedSubtype(uiKey) && !UNMANAGED_KEYS.includes(uiKey)) {
+    if (!managedSubtype(uiKey) && !UNMANAGED_KEYS.includes(uiKey) && uiKey !== PAYROLL_NET_PAY_KEY) {
       throw new DefaultAccountsRefusal(`'${uiKey.slice(0, MAX_ID_LENGTH)}' is not a default account setting`);
     }
     if (value !== null && (typeof value !== 'string' || value.length > MAX_ID_LENGTH)) {
@@ -98,7 +158,7 @@ export async function saveDefaultAccountMappings(
   // holders (systemRoleWriteLock lists them).
   await lockSystemRoleWrites(companyId, tx);
   const chosenIds = Object.entries(mappings)
-    .filter(([k, v]) => managedSubtype(k) && idOrNull(v)).map(([, v]) => v as string);
+    .filter(([k, v]) => (managedSubtype(k) || k === PAYROLL_NET_PAY_KEY) && idOrNull(v)).map(([, v]) => v as string);
   // Role rows AND the chosen accounts, in ascending id — the order
   // lockGlAccountsForUpdate (account merge) takes them in, so the two cannot deadlock.
   // NO KEY UPDATE, not UPDATE: it still excludes every UPDATE and DELETE of
@@ -121,8 +181,24 @@ export async function saveDefaultAccountMappings(
   const changes: AccountAttributeChange[] = [];
   const moves: { subtype: SystemAccountKey; accountId: string }[] = [];
   const chosenFor = new Map<string, string>();
+  const stored = await storedMapping(companyId, tx);
+  const stores: Record<string, unknown> = {};
+  const audited: DefaultAccountChange[] = [];
   for (const [uiKey, raw] of Object.entries(mappings)) {
     const subtype = managedSubtype(uiKey);
+    if (uiKey === PAYROLL_NET_PAY_KEY) {
+      const picked = idOrNull(raw);
+      const other = picked ? chosenFor.get(picked) : undefined;
+      if (picked && other) throw new DefaultAccountsRefusal(`One account cannot hold two roles: '${other}' and '${uiKey}' name the same account`);
+      if (picked) chosenFor.set(picked, uiKey);
+      const was = idOrNull(stored[PAYROLL_NET_PAY_KEY]);
+      const chosen = await netPayChoice(tx, companyId, raw, was, loaded[uiKey]);
+      if (chosen) {
+        stores[uiKey] = chosen.accountId;
+        audited.push({ key: uiKey, fromId: was, toId: chosen.accountId });
+      }
+      continue;
+    }
     if (!subtype) continue;
     const accountId = idOrNull(raw);
     const current = before.get(subtype) ?? null;
@@ -164,6 +240,7 @@ export async function saveDefaultAccountMappings(
       to: { accountType: String(row.account_type), accountSubtype: subtype },
     });
     moves.push({ subtype, accountId });
+    audited.push({ key: uiKey, fromId: current, toId: accountId });
   }
 
   // Before the first write: a subtype change that would move a line inside a
@@ -177,10 +254,12 @@ export async function saveDefaultAccountMappings(
   }
 
   // The page sends only the keys it changed, so merge into what is stored.
-  const merged = JSON.stringify({ ...(await storedMapping(companyId, tx)), ...mappings });
+  // `payroll_net_pay` is stored as validated (an id or null, never '' and never as sent): only when it changed.
+  const { [PAYROLL_NET_PAY_KEY]: _sent, ...others } = mappings;
+  const merged = JSON.stringify({ ...stored, ...others, ...stores });
   await tx`
     INSERT INTO app_settings (key, value, company_id, updated_at)
-    VALUES (${SETTINGS_KEY}, ${merged}::jsonb, ${companyId}, NOW())
+    VALUES (${DEFAULT_ACCOUNTS_SETTINGS_KEY}, ${merged}::jsonb, ${companyId}, NOW())
     ON CONFLICT (key, company_id) DO UPDATE SET value = ${merged}::jsonb, updated_at = NOW()
   `;
 
@@ -207,4 +286,5 @@ export async function saveDefaultAccountMappings(
       `This change would leave ${wrong.join(', ')} without the account you chose; posting would fail or use another account. Nothing was saved.`,
     );
   }
+  await auditDefaultAccountChanges(tx, companyId, userId, audited);
 }

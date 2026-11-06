@@ -67,6 +67,8 @@ interface Props {
   onFindMatchClose: () => void;
   onFindMatchDone: () => void;
   onAttachmentsClose: () => void;
+  /** The attachments modal's file count after each load / remove, so the row's paperclip highlight follows. */
+  onAttachmentCount?: (txId: string, count: number) => void;
   onCreateRuleClose: () => void;
   onCreateRuleDone: () => void;
   onCreateEntityClose: () => void;
@@ -84,7 +86,7 @@ export function BankTxModals({
   onSplitClose, onSplitDone,
   onExcludeClose, onExcludeConfirm,
   onFindMatchClose, onFindMatchDone,
-  onAttachmentsClose,
+  onAttachmentsClose, onAttachmentCount,
   onCreateRuleClose, onCreateRuleDone,
   onCreateEntityClose, onCreateEntityDone,
   onQueryClose, onQuerySent, onLinkClose, onLinkDone,
@@ -135,6 +137,8 @@ export function BankTxModals({
         <BankTxAttachmentsModal
           bankTransactionId={attachmentsTxId}
           transactionDescription={attachTx?.description}
+          openFirst={(attachTx?.attachmentCount ?? 0) > 0}
+          onCountChange={count => onAttachmentCount?.(attachmentsTxId, count)}
           onClose={onAttachmentsClose}
         />
       )}

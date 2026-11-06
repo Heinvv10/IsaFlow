@@ -143,18 +143,19 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
     /**
      * Opening cash comes from getCashBalance (stood in above); the one SQL
      * call is the collapsed aggregate:
-     *   [0] collapsed totals → { net_income, ar_delta, ap_delta, investing, financing }
+     *   [0] non-cash movement per journal → { journal_entry_id, net_cash, account_type, account_subtype, debit, credit }
      */
     openingCash = 1500; // cash.balance.v1: debit=2000, credit=500 → 1500
     mockSqlResults.push(
       // [0] collapsed aggregate
-      [{
-        net_income: '700',  // revenue(1000 credit-debit) - expense(300 debit-credit)
-        ar_delta: '200',    // credit(200) - debit(0) = 200
-        ap_delta: '100',    // credit(100) - debit(0) = 100
-        investing: '500',   // credit(500) - debit(0) = 500
-        financing: '400',   // credit(400) - debit(0) = 400
-      }],
+      [
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '1000' },
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'expense', account_subtype: 'operating_expense', debit: '300', credit: '0' }, // net income 700
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'asset', account_subtype: 'receivable', debit: '0', credit: '200' },     // credit-debit = 200
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'liability', account_subtype: 'payable', debit: '0', credit: '100' },    // credit-debit = 100
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'asset', account_subtype: 'fixed_asset', debit: '0', credit: '500' },    // 500
+        { journal_entry_id: 'j1', net_cash: '1900', account_type: 'equity', account_subtype: 'equity', debit: '0', credit: '400' },        // 400
+      ],
     );
 
     // Dynamically import after mocks (pages/ is at root, not under src, so use relative path)
@@ -214,7 +215,7 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
     // point; the report printed that residue as closing cash.
     openingCash = 0.1;
     mockSqlResults.push(
-      [{ net_income: '0.2', ar_delta: '0', ap_delta: '0', investing: '0', financing: '0' }],
+      [{ account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '0.2' }],
     );
 
     const mod = await import('../../../pages/api/accounting/reports-cash-flow');
@@ -231,7 +232,7 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
     // floating point; the report printed that residue as the net change.
     openingCash = 0;
     mockSqlResults.push(
-      [{ net_income: '0.1', ar_delta: '0.2', ap_delta: '0', investing: '0', financing: '0' }],
+      [{ account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '0.1' }, { account_type: 'asset', account_subtype: 'receivable', debit: '0', credit: '0.2' }],
     );
 
     const mod = await import('../../../pages/api/accounting/reports-cash-flow');
@@ -243,10 +244,25 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
     expect(report.closing_cash).toBe(0.3);
   });
 
+  it('VAT control and the other balance-sheet lines are in the statement (the R1 150 cash sale)', async () => {
+    openingCash = 0;
+    mockSqlResults.push([
+      { journal_entry_id: 'j1', net_cash: '1150', account_type: 'revenue', account_subtype: 'revenue', debit: '0', credit: '1000' },
+      { journal_entry_id: 'j1', net_cash: '1150', account_type: 'liability', account_subtype: 'vat_output', debit: '0', credit: '150' },
+    ]);
+    const mod = await import('../../../pages/api/accounting/reports-cash-flow');
+    const handler = mod.default as (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
+    await handler(makeReq({ start_date: PERIOD_START, end_date: PERIOD_END }), makeRes());
+    const report = (jsonCapture as { data: { report: { sections: Array<{ total: number; items: Array<{ label: string; amount: number }> }>; net_change: number; closing_cash: number } } }).data.report;
+    expect(report.sections[0]!.items.find(i => i.label === 'Change in VAT Control')!.amount).toBe(150);
+    expect(report.sections[0]!.total).toBe(1150);
+    expect(report.closing_cash).toBe(1150);
+  });
+
   it('returns all-zero report when no journal lines exist', async () => {
     openingCash = 0;
     mockSqlResults.push(
-      [{ net_income: '0', ar_delta: '0', ap_delta: '0', investing: '0', financing: '0' }], // [0] collapsed
+      [], // [0] no non-cash movement
     );
 
     const mod = await import('../../../pages/api/accounting/reports-cash-flow');

@@ -12,6 +12,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const sqlMock = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/auth/gotrue', () => ({ adminRevokeAllUserSessions: vi.fn() }));
+const findStranded = vi.hoisted(() => vi.fn());
+vi.mock('@/modules/accounting/services/core/payRunApproverGuard', () => ({ assertPayRunApproverRetainedEverywhere: vi.fn(async () => undefined), findStrandedPayRunRequests: findStranded })); // judged on a real database: payroll-approver-guard-paths.int.test.ts
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 import {
@@ -22,6 +24,7 @@ const USER = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const text = (call: unknown[]) => (call[0] as TemplateStringsArray).join('?').replace(/\s+/g, ' ');
 
 beforeEach(() => {
+  findStranded.mockReset().mockResolvedValue([]);
   sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => {
     const q = strings.join('?');
     if (q.includes('SELECT role FROM users')) return [{ role: 'viewer' }];
@@ -52,5 +55,24 @@ describe("the trigger's RC011 on a user's memberships", () => {
     const err = await deleteUser(USER).catch((e: unknown) => e);
     expect(err).not.toBeInstanceOf(SoleOwnerError);
     expect((err as { code?: string }).code).toBe('40P01');
+  });
+});
+
+describe('deleteUser is never stopped by the look-up of pay-run approvals it strands', () => {
+  it('a failed look-up is logged and the deletion goes ahead, every write made', async () => {
+    findStranded.mockRejectedValueOnce(new Error('migration_admin pool down'));
+    sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => {
+      if (strings.join('?').includes('SELECT role FROM users')) return [{ role: 'viewer' }];
+      return [];
+    });
+    await expect(deleteUser(USER)).resolves.toEqual([]);
+    const writes = sqlMock.mock.calls.map(text).filter((q) => /^\s*DELETE\b/i.test(q)).map((q) => q.trim().split(' ').slice(0, 3).join(' '));
+    expect(writes).toEqual(['DELETE FROM company_users', 'DELETE FROM user_sessions', 'DELETE FROM users']);
+  });
+
+  it('returns what it strands, for the admin audit row', async () => {
+    findStranded.mockResolvedValueOnce([{ companyId: 'c1', requestId: 'r1' }]);
+    sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => (strings.join('?').includes('SELECT role FROM users') ? [{ role: 'viewer' }] : []));
+    await expect(deleteUser(USER)).resolves.toEqual([{ companyId: 'c1', requestId: 'r1' }]);
   });
 });

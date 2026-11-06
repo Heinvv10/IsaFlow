@@ -23,7 +23,7 @@ type Row = Record<string, unknown>;
 
 const SCHEMA_TABLES: SchemaTable[] = [
   { name: 'customer_invoices', columns: ['id', 'customer_id', 'invoice_number', 'invoice_date', 'due_date', 'total_amount', 'amount_paid', 'status', 'company_id'], description: 'Customer/sales invoices' },
-  { name: 'customers', columns: ['id', 'name', 'email', 'payment_terms', 'is_active', 'company_id'], description: 'Customer master data' },
+  { name: 'customers', columns: ['id', 'name', 'email', 'payment_terms', 'payment_terms_type', 'is_active', 'company_id'], description: 'Customer master data' },
   { name: 'supplier_invoices', columns: ['id', 'supplier_id', 'invoice_number', 'invoice_date', 'total_amount', 'amount_paid', 'status', 'company_id'], description: 'Supplier/purchase invoices' },
   { name: 'suppliers', columns: ['id', 'name', 'email', 'is_active', 'company_id'], description: 'Supplier master data' },
   { name: 'gl_accounts', columns: ['id', 'account_code', 'account_name', 'account_type', 'is_active', 'company_id'], description: 'Chart of accounts (GL)' },

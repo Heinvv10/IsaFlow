@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, it, vi, expect } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+import { chooseTerms } from '../helpers/contactTerms';
 import { ok, on, serve } from '../helpers/d2R3a6';
 import { pendingNavigationKeepsButtonDisabled, rejectedNavigationIsNotAWriteFailure, type NavCase } from '../helpers/d2R12aNav';
 
@@ -112,6 +113,7 @@ describe('suppliers/new', () => {
       serve(on('POST', 'suppliers-list', () => ok({ id: 's-1' })));
       render(<SupplierNewPage />);
       fireEvent.change(screen.getByPlaceholderText(/ABC Supplies/), { target: { value: 'D2 Supplier' } });
+      chooseTerms();
       fireEvent.click(screen.getByRole('button', { name: /Save Supplier/ }));
     },
     claimsFailure: () => /Could not create the supplier/.test(toasts()),

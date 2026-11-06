@@ -252,8 +252,9 @@ export interface AgingBucket {
   /**
    * Sum of open dispute amounts for this entity's invoices. Populated by AR
    * aging only; AP leaves it undefined. When present, the current/days30…
-   * buckets have already had this amount subtracted, so `total` is the
-   * "outstanding excluding disputed" figure that collections owns.
+   * buckets have already had this amount subtracted and it is shown beside
+   * them, and `total` is EVERYTHING owed (buckets + disputed): a disputed
+   * amount is still receivable (ruling, 2026-11-05).
    */
   disputed?: number;
   total: number;

@@ -36,10 +36,85 @@ export interface LabourSourceBucket {
 
 const cents = (n: number): number => Math.round(n * 100);
 
+/** The description of the plan's net-pay credit (payrollJournalBank#netPayLine): how the comparison finds it. */
+export const NET_PAY_DESCRIPTION = 'Net pay — bank disbursement';
+/**
+ * The description of the plan's net-pay credit when the company's `payroll_net_pay` setting sends it to a clearing
+ * liability (payrollJournalBank#netPayLine). It MUST differ from NET_PAY_DESCRIPTION: `foldNetPayBank` finds the bank
+ * credit by that text, so a clearing line sharing it would fold with a posted BANK credit into one key, re-lock, and
+ * leave net pay counted twice once the salary bank lines are allocated to the clearing account.
+ */
+export const NET_PAY_CLEARING_DESCRIPTION = 'Net pay — net salaries payable';
+/** Stands for "whichever account holds the bank role" on both sides of the comparison. */
+const BANK_ROLE = 'bank-role';
+
+/** A posted journal line as the comparison reads it: its `gl_journal_lines.description` says which line is net pay. */
+export type PostedFigureLine = FigureLine & { description: string | null };
+
+/**
+ * Net pay's bank credit is ONE role, not an account (re-approval after the
+ * bank role moved). The plan names today's holder; the journal in force names
+ * whoever held the role when it posted, and the cash left from THAT account.
+ * Keyed by account id, an unchanged run read as `recalculated_after_posting`
+ * once the role moved (or had no holder), and the advised reverse-and-approve
+ * would have credited a different bank than the cash left from. So both sides
+ * key the net-pay credit as the role, and only its AMOUNT is compared.
+ *
+ * Exactly ONE line is folded on each side, found by its description
+ * (NET_PAY_DESCRIPTION, which the poster has written to `gl_journal_lines`
+ * since payroll journals existed, 0fffb05a5). Every other posted line stays
+ * keyed by its account, so a credit the recalculated plan no longer carries
+ * (PAYE, UIF, SDL or 2175 gone to zero — the builder drops zero lines) is a
+ * difference. Folding by "any credit on an account the plan does not use"
+ * instead moved that credit into the bank bucket; both journals balance, so the
+ * bucket's amount matched and a changed run re-locked onto its stale journal.
+ *
+ * A posted journal with no single net-pay line is not folded at all: both sides
+ * stay keyed by account, which is the comparison from before the bank role
+ * could move.
+ */
+export function foldNetPayBank<P extends FigureLine & { description: string }>(
+  plan: P[],
+  posted: PostedFigureLine[],
+): { plan: FigureLine[]; posted: FigureLine[] } {
+  const netPay = posted.filter((l) => l.description === NET_PAY_DESCRIPTION && cents(l.debit) === 0 && cents(l.credit) > 0);
+  if (netPay.length !== 1) return { plan, posted };
+  return {
+    plan: plan.map((l) => (l.description === NET_PAY_DESCRIPTION ? { ...l, glAccountId: BANK_ROLE } : l)),
+    posted: posted.map((l) => (l === netPay[0] ? { ...l, glAccountId: BANK_ROLE } : l)),
+  };
+}
+
+/**
+ * Did net pay's TARGET change since the journal posted: one side credits the bank, the other the clearing account, or
+ * both credit a clearing account but not the same one (never when the plan's clearing account has no id). A bank role that merely moved is NOT a change (both sides are
+ * "the bank"). Checked before `sameFigures`, which would otherwise fold a bank journal and a clearing plan apart only
+ * by accident of their descriptions and report the wrong cause (or none).
+ */
+export function netPayTargetChanged(
+  plan: Array<FigureLine & { description: string }>,
+  posted: PostedFigureLine[],
+): boolean {
+  const credit = <T extends FigureLine & { description: string | null }>(lines: T[], description: string): T[] =>
+    lines.filter((l) => l.description === description && cents(l.debit) === 0 && cents(l.credit) > 0);
+  const bankPlan = credit(plan, NET_PAY_DESCRIPTION);
+  const clearPlan = credit(plan, NET_PAY_CLEARING_DESCRIPTION);
+  const bankPosted = credit(posted, NET_PAY_DESCRIPTION);
+  const clearPosted = credit(posted, NET_PAY_CLEARING_DESCRIPTION);
+  // A clearing plan whose account does not resolve (it failed the rules: its line has no account id) names no target
+  // to have changed TO: the plan's own net-pay blocker is the answer (payrollNetPayTargetChange#unresolvedNetPayBlocker).
+  if (clearPlan.some((l) => l.glAccountId === null)) return false;
+  if ((bankPlan.length > 0 && clearPosted.length > 0) || (clearPlan.length > 0 && bankPosted.length > 0)) return true;
+  return clearPlan.length > 0 && clearPosted.length > 0
+    && !clearPlan.every((p) => clearPosted.some((q) => q.glAccountId === p.glAccountId));
+}
+
 export function figures(lines: FigureLine[], perAccount: boolean): Map<string, number> {
   const m = new Map<string, number>();
   for (const l of lines) {
-    const k = cents(l.debit) !== 0 && !perAccount ? 'labour' : JSON.stringify([l.glAccountId ?? 'missing', l.cc1Id]);
+    // Not recalculated since posting: no cost centre is part of a line's key. The journal is read as it stands, and a
+    // centre tagged onto a credit line since (tag_journal_lines) is the ledger being retagged, not the run changing.
+    const k = cents(l.debit) !== 0 && !perAccount ? 'labour' : JSON.stringify([l.glAccountId ?? 'missing', perAccount ? l.cc1Id : null]);
     m.set(k, (m.get(k) ?? 0) + cents(l.debit) - cents(l.credit));
   }
   for (const [k, v] of m) if (v === 0) m.delete(k);

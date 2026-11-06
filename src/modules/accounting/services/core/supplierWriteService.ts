@@ -16,7 +16,10 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { ContactValidationError, boundedText } from './customerWriteService';
+import { boundedText } from './customerWriteService';
+import { ContactValidationError } from './contactValidationError';
+import { termsColumns } from './contactTerms';
+import { clearFlags } from './contactClear';
 import {
   AUTO_ALLOCATE_STRATEGIES,
   parseAutoAllocateStrategy,
@@ -40,7 +43,10 @@ export interface SupplierWriteInput {
   registrationNumber?: string | null;
   address?: string | null;
   contactPerson?: string | null;
+  /** N for `paymentTermsType`; a number alone is read as invoice days. Both omitted: create stores "not set", update leaves it. */
   paymentTerms?: number | null;
+  /** invoice_days | statement_days | statement_months, or not_set to clear on update. */
+  paymentTermsType?: string | null;
   bankName?: string | null;
   bankAccountNumber?: string | null;
   bankBranchCode?: string | null;
@@ -55,7 +61,17 @@ export interface SupplierWriteInput {
   autoAllocatePayments?: boolean;
   /** The supplier's supplies fall under the domestic reverse charge; the one thing DRC VAT eligibility reads. */
   subjectToDrcVat?: boolean;
+  /** Where invoice-chase messages go (WhatsApp). */
+  whatsappNumber?: string | null;
+  /** Update only: fields to set to NULL (see `contactClear`); a field in SUPPLIER_CLEARABLE. */
+  clear?: readonly string[];
 }
+
+/** No bank column: nothing that clears is a bank-details change (the edit route refuses bank fields outright). */
+export const SUPPLIER_CLEARABLE = [
+  'companyName', 'email', 'phone', 'vatNumber', 'registrationNumber', 'address', 'contactPerson', 'notes', 'category',
+  'whatsappNumber',
+] as const;
 
 function trimmed(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
@@ -119,14 +135,15 @@ export async function createSupplier(
 ): Promise<DbRow> {
   const name = assertName(input.name);
   const strategy = resolveStrategy(input.autoAllocateStrategy) ?? 'off';
+  const terms = termsColumns(input);
   const rows = (await sql`
     INSERT INTO suppliers (
       company_id, name, company_name, email, phone,
       vat_number, registration_number, address, contact_person,
-      payment_terms,
+      payment_terms, payment_terms_type,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
-      opening_balance, opening_balance_date, subject_to_drc_vat,
+      opening_balance, opening_balance_date, subject_to_drc_vat, whatsapp_number,
       auto_allocate_strategy, auto_allocate_payments
     ) VALUES (
       ${companyId}::UUID,
@@ -138,7 +155,8 @@ export async function createSupplier(
       ${boundedText(input.registrationNumber, 'registration_number', 50)},
       ${trimmed(input.address)},
       ${trimmed(input.contactPerson)},
-      ${input.paymentTerms ?? 30},
+      ${terms.days}::INT,
+      ${terms.createType},
       ${boundedText(input.bankName, 'bank_name', 100)},
       ${boundedText(input.bankAccountNumber, 'bank_account_number', 50)},
       ${boundedText(input.bankBranchCode, 'bank_branch_code', 20)},
@@ -149,17 +167,18 @@ export async function createSupplier(
       ${input.openingBalance ?? 0},
       ${trimmed(input.openingBalanceDate)}::DATE,
       ${input.subjectToDrcVat ?? false},
+      ${trimmed(input.whatsappNumber)},
       ${strategy},
       ${strategy !== 'off'}
     )
     RETURNING
       id, name, company_name, email, phone,
       vat_number, registration_number, address, contact_person,
-      payment_terms,
+      payment_terms, payment_terms_type,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
       opening_balance, opening_balance_date,
-      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat,
+      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat, whatsapp_number,
       created_at
   `) as DbRow[];
 
@@ -196,6 +215,8 @@ export async function updateSupplier(
   // undefined = "leave it alone"; COALESCE below handles that the same way it
   // handles every other omitted field.
   const strategy = resolveStrategy(input.autoAllocateStrategy);
+  const terms = termsColumns(input);
+  const cl = clearFlags(input.clear, SUPPLIER_CLEARABLE, input);
   // Every value validated BEFORE the first statement: a refusal runs no SQL.
   const v = {
     phone: boundedText(input.phone, 'phone', 50),
@@ -218,21 +239,23 @@ export async function updateSupplier(
   const rows = (await sql`
     UPDATE suppliers SET
       name                = COALESCE(${name}, name),
-      company_name        = COALESCE(${trimmed(input.companyName)}, company_name),
-      email               = COALESCE(${trimmed(input.email)}, email),
-      phone               = COALESCE(${v.phone}, phone),
-      vat_number          = COALESCE(${v.vatNumber}, vat_number),
-      registration_number = COALESCE(${v.registrationNumber}, registration_number),
-      address             = COALESCE(${trimmed(input.address)}, address),
-      contact_person      = COALESCE(${trimmed(input.contactPerson)}, contact_person),
-      payment_terms       = COALESCE(${input.paymentTerms ?? null}, payment_terms),
+      company_name        = CASE WHEN ${cl.companyName} THEN NULL ELSE COALESCE(${trimmed(input.companyName)}, company_name) END,
+      email               = CASE WHEN ${cl.email} THEN NULL ELSE COALESCE(${trimmed(input.email)}, email) END,
+      phone               = CASE WHEN ${cl.phone} THEN NULL ELSE COALESCE(${v.phone}, phone) END,
+      vat_number          = CASE WHEN ${cl.vatNumber} THEN NULL ELSE COALESCE(${v.vatNumber}, vat_number) END,
+      registration_number = CASE WHEN ${cl.registrationNumber} THEN NULL ELSE COALESCE(${v.registrationNumber}, registration_number) END,
+      address             = CASE WHEN ${cl.address} THEN NULL ELSE COALESCE(${trimmed(input.address)}, address) END,
+      contact_person      = CASE WHEN ${cl.contactPerson} THEN NULL ELSE COALESCE(${trimmed(input.contactPerson)}, contact_person) END,
+      whatsapp_number     = CASE WHEN ${cl.whatsappNumber} THEN NULL ELSE COALESCE(${trimmed(input.whatsappNumber)}, whatsapp_number) END,
       bank_name           = COALESCE(${v.bankName}, bank_name),
       bank_account_number = COALESCE(${v.bankAccountNumber}, bank_account_number),
       bank_branch_code    = COALESCE(${v.bankBranchCode}, bank_branch_code),
       bank_account_type   = COALESCE(${v.bankAccountType}, bank_account_type),
+      payment_terms       = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.days}::INT WHEN 'days_only' THEN ${terms.days}::INT WHEN 'clear' THEN NULL ELSE payment_terms END,
+      payment_terms_type  = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'days_only' THEN CASE WHEN payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months', 'days', 'end_of_month') THEN payment_terms_type ELSE 'invoice_days' END WHEN 'clear' THEN NULL ELSE payment_terms_type END,
       is_active           = COALESCE(${input.isActive ?? null}, is_active),
-      notes               = COALESCE(${trimmed(input.notes)}, notes),
-      category            = COALESCE(${v.category}, category),
+      notes               = CASE WHEN ${cl.notes} THEN NULL ELSE COALESCE(${trimmed(input.notes)}, notes) END,
+      category            = CASE WHEN ${cl.category} THEN NULL ELSE COALESCE(${v.category}, category) END,
       auto_allocate_strategy = COALESCE(${strategy ?? null}, auto_allocate_strategy),
       auto_allocate_payments = COALESCE(
         ${strategy !== undefined ? strategy !== 'off' : null}, auto_allocate_payments
@@ -245,11 +268,11 @@ export async function updateSupplier(
     RETURNING
       id, name, company_name, email, phone,
       vat_number, registration_number, address, contact_person,
-      payment_terms,
+      payment_terms, payment_terms_type,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
       opening_balance, opening_balance_date,
-      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat,
+      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat, whatsapp_number,
       created_at
   `) as DbRow[];
 

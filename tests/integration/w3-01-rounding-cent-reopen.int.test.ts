@@ -23,7 +23,7 @@ import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -43,6 +43,7 @@ const url = (id: string, action: string) => `/api/payroll/runs/${id}/${action}`;
 const preview = (id: string) => call(journalPlan as Route, 'GET', url(id, 'journal-plan'), id);
 const doReopen = (id: string) => call(reopen as Route, 'POST', url(id, 'reopen'), id, { body: { reason: 'w301 rounding cent' } });
 async function doApprove(id: string) {
+  await authorisePayRun(call, id);
   return call(approve as Route, 'POST', url(id, 'approve'), id, { body: { expectedPlanHash: (await preview(id)).body.data?.planHash } });
 }
 const mapCentres = async (low: string, high: string) => {
@@ -58,7 +59,7 @@ beforeAll(async () => {
   salary = await seedPayrollCompany(pool, company, 20000.01);
   employee = (await pool.query('SELECT id FROM payroll_employees WHERE company_id = $1', [company])).rows[0]!.id;
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [admin, `${admin}@test.local`]);
-  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, admin]);
   const account = async (code: string) => (await pool.query(
@@ -199,7 +200,11 @@ describe('the tie cent on the other cost-centre account (W3-01 breaker C)', () =
     const id = await calculatedRun(call2, 8, { company: other });
     const o = { company: other };
     const pre = async () => call2(journalPlan as Route, 'GET', url(id, 'journal-plan'), id, o);
-    const appr = async () => call2(approve as Route, 'POST', url(id, 'approve'), id, { ...o, body: { expectedPlanHash: (await pre()).body.data?.planHash } });
+    const appr = async () => {
+      const planHash = (await pre()).body.data?.planHash;
+      await authorisePayRun(call2, id);
+      return call2(approve as Route, 'POST', url(id, 'approve'), id, { ...o, body: { expectedPlanHash: planHash } });
+    };
     const first = await appr();
     expect(first.statusCode).toBe(200);
     expect((await call2(reopen as Route, 'POST', url(id, 'reopen'), id, { ...o, body: { reason: 'w301 tie cent' } })).statusCode).toBe(200);

@@ -94,13 +94,17 @@ export interface ItemInputs {
  * not the subledger's, which is a different question, and adding the two
  * bridges together produces a number that reconciles to nothing.
  *
- * There are exactly two mechanisms, both of them properties of
- * `calculateAgingBuckets` rather than of the data:
+ * There is exactly one mechanism, a property of `calculateAgingBuckets`
+ * rather than of the data:
  *
- *   `disputed_amount`        AR bucket totals are net of open disputes.
  *   `unallocated_credit_note`  a row with a balance <= 0 never reaches a
  *                            bucket, so unallocated credit never nets off the
  *                            aged total. The subledger carries it.
+ *
+ * `disputed_amount` USED to be a second. The aged `total` is now EVERYTHING
+ * owed (the five buckets are net of an open dispute, `disputed` is its own
+ * figure, and the two add up to `total`), so the aged total already carries
+ * disputes and a bridge item for them would overshoot the subledger.
  *
  * `unageable_document` USED to be a third. It was removed: it claimed the aged
  * report drops invoices with no due date, which was true before #303 and is
@@ -117,32 +121,6 @@ export function buildAgedBridgeItems({
   agedTotal: number | null;
 }): ReconcilingItem[] {
   const items: ReconcilingItem[] = [];
-
-  const disputes = snapshot.disputes;
-  if (disputes && disputes.size > 0) {
-    const disputed = snapshot.ageable.filter((d) => (disputes.get(d.id) ?? 0) > 0);
-    // Capped at the document's own balance: a dispute recorded for more than
-    // is outstanding cannot remove more than the bucket ever held.
-    const disputedTotal = disputed.reduce(
-      (s, d) => s + Math.min(disputes.get(d.id) ?? 0, d.balance),
-      0,
-    );
-    if (round2(disputedTotal) !== 0) {
-      items.push(
-        item(
-          'aged_to_subledger',
-          'disputed_amount',
-          'Amounts under open dispute. The aged report subtracts these from its bucket totals; the subledger still carries them.',
-          disputedTotal,
-          disputed,
-          grossOf(disputed),
-          // A dispute is capped at the document's own balance above, so each
-          // member is already positive and bounded by its document.
-          disputed.reduce((sum, d) => sum + Math.min(disputes.get(d.id) ?? 0, d.balance), 0),
-        ),
-      );
-    }
-  }
 
   const creditTotal = sumBalances(snapshot.creditNotes);
   if (round2(creditTotal) !== 0) {

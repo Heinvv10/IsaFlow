@@ -9,7 +9,10 @@ import { apiFetch } from '@/lib/apiFetch';
 import { ok } from './d2CensusG4';
 import { pickOption } from './kitPick';
 
-interface Contact { payment_terms?: number | null; payment_terms_type?: string | null; default_discount?: string | number | null; default_vat_type?: string | null }
+interface Contact {
+  payment_terms?: number | null; payment_terms_type?: string | null; default_discount?: string | number | null; default_vat_type?: string | null;
+  company_default_payment_terms?: number | null; company_default_payment_terms_type?: string | null;
+}
 export const ACME: Contact = { payment_terms: 30, payment_terms_type: 'days', default_discount: '10.00', default_vat_type: 'standard' };
 export const ZERO: Contact = { payment_terms: null, payment_terms_type: 'days', default_discount: '0.00', default_vat_type: 'zero' };
 export const BARE: Contact = { payment_terms: null, payment_terms_type: 'days', default_discount: '0.00', default_vat_type: null };

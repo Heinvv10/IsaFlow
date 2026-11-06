@@ -24,8 +24,8 @@ export async function seedCustomers(sql: TaggedSql, companyId: string): Promise<
       continue;
     }
     const r = await sql`
-      INSERT INTO customers (company_id, name, email, payment_terms, is_active, notes, opening_balance)
-      VALUES (${companyId}::uuid, ${c.name}, ${`${c.code.toLowerCase()}@example.com`}, 30, true, ${c.code}, 0)
+      INSERT INTO customers (company_id, name, email, payment_terms, payment_terms_type, is_active, notes, opening_balance)
+      VALUES (${companyId}::uuid, ${c.name}, ${`${c.code.toLowerCase()}@example.com`}, 30, 'invoice_days', true, ${c.code}, 0)
       RETURNING id
     ` as Array<{ id: string }>;
     out.push({ id: r[0]!.id, name: c.name, code: c.code });
@@ -43,8 +43,8 @@ export async function seedSuppliers(sql: TaggedSql, companyId: string): Promise<
       continue;
     }
     const r = await sql`
-      INSERT INTO suppliers (company_id, name, email, payment_terms, is_active, notes)
-      VALUES (${companyId}::uuid, ${s.name}, ${`${s.code.toLowerCase()}@example.com`}, 30, true, ${s.code})
+      INSERT INTO suppliers (company_id, name, email, payment_terms, payment_terms_type, is_active, notes)
+      VALUES (${companyId}::uuid, ${s.name}, ${`${s.code.toLowerCase()}@example.com`}, 30, 'invoice_days', true, ${s.code})
       RETURNING id
     ` as Array<{ id: string }>;
     out.push({ id: r[0]!.id, name: s.name, code: s.code });

@@ -20,7 +20,7 @@ import runDetail from '../../pages/api/payroll/runs/[id]';
 import jeAction from '../../pages/api/accounting/journal-entries-action';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -36,9 +36,23 @@ let salaryA = '';
 const url = (id: unknown, action: string) => `/api/payroll/runs/${String(id)}${action ? `/${action}` : ''}`;
 const preview = (id: unknown, o = {}) => call(journalPlan as Route, 'GET', url(id, 'journal-plan'), id, o);
 const approveRaw = (id: unknown, o: { user?: string; body?: unknown } = {}) => call(approve as Route, 'POST', url(id, 'approve'), id, o);
+const clearances = new Map<string, Promise<string>>();
+async function ensureApproval(id: string, expectedPlanHash: string): Promise<void> {
+  const key = `${id}:${expectedPlanHash}`;
+  let pending = clearances.get(key);
+  if (!pending) {
+    pending = authorisePayRun(call, id);
+    clearances.set(key, pending);
+  }
+  const clearedHash = await pending;
+  clearances.set(`${id}:${clearedHash}`, Promise.resolve(clearedHash));
+}
 /** Approve as the page does: preview, then POST the previewed hash (mandatory since round 2). */
 async function doApprove(id: unknown, o: { user?: string; body?: unknown } = {}) {
-  const body = o.body ?? { expectedPlanHash: (await preview(id, o)).body.data?.planHash };
+  const body = (o.body ?? { expectedPlanHash: (await preview(id, o)).body.data?.planHash }) as { expectedPlanHash?: unknown };
+  if (!o.user && typeof id === 'string' && typeof body.expectedPlanHash === 'string') {
+    await ensureApproval(id, body.expectedPlanHash);
+  }
   return approveRaw(id, { ...o, body });
 }
 const doCalculate = (id: unknown, o = {}) => call(calculate as Route, 'POST', url(id, 'calculate'), id, o);
@@ -63,7 +77,7 @@ beforeAll(async () => {
   await seedPayrollCompany(pool, companyB);
   for (const u of [admin, viewer, outsider]) {
     await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [u, `${u}@test.local`]);
-    tokens[u] = await new SignJWT({ sub: u, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+    tokens[u] = await new SignJWT({ sub: u, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
       .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   }
   for (const c of [companyA, companyB]) await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [c, admin]);
@@ -125,6 +139,7 @@ describe('BRK-596', () => {
   it('R2-3: a double submit with the same hash still posts ONE journal', async () => {
     const id = await calculatedRun(call, 3);
     const body = { expectedPlanHash: (await preview(id)).body.data!.planHash };
+    await ensureApproval(id, body.expectedPlanHash);
     const rs = await Promise.all([1, 2, 3, 4].map(() => approveRaw(id, { body })));
     expect(rs.map((r) => r.statusCode).sort()).toEqual([200, 400, 400, 400]);
     expect(await payrollJournals(companyA, 'Payroll run 2026-03')).toBe(1);

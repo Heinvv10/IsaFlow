@@ -4,7 +4,10 @@
  * identical. Ids are replaced by their fixture labels. Two things differ from that capture, both for #1116 (pension is
  * no longer deducted from taxable income): the pension line's component_breakdown entry carries
  * `retirementContribution: true`, and taxable_income / periodic_taxable of the lines with a pension are no longer reduced
- * by it (27270.00 -> 29550.00). Nothing else was edited.
+ * by it (27270.00 -> 29550.00). Two more for PR #1142 (SDL is levied after the s11F retirement deduction PAYE 4c
+ * records, SDL Act s3(4)): every component_breakdown item carries `isSdlApplicable` (an earning flagged
+ * is_sdl_applicable), and the pension employee's sdl is 1% of (28500 + 3000 - 2280) = 292.20, not 315.00, so
+ * total_sdl is 817.20 (feb) and 924.20 (mar), 22.80 lower. Nothing else was edited.
  */
 type Period = 'feb' | 'mar';
 export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknown>>> = {
@@ -12,7 +15,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "endsMid": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
-      "component_breakdown": "[{\"amount\": 180, \"isTaxable\": false, \"componentId\": \"<union>\", \"componentName\": \"Union dues\", \"sarsSourceCode\": \"4018\", \"isUifApplicable\": false}, {\"amount\": 21000, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 180, \"isTaxable\": false, \"componentId\": \"<union>\", \"componentName\": \"Union dues\", \"sarsSourceCode\": \"4018\", \"isSdlApplicable\": false, \"isUifApplicable\": false}, {\"amount\": 21000, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
       "eti": "0.00",
       "gross_pay": "21000.00",
       "medical_credit": "364.00",
@@ -29,7 +32,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "increase": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "10000.00",
-      "component_breakdown": "[{\"amount\": 15000, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isUifApplicable\": true}, {\"amount\": 10000, \"isTaxable\": true, \"componentId\": \"<bonus>\", \"componentName\": \"Bonus\", \"sarsSourceCode\": \"3605\", \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 15000, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 10000, \"isTaxable\": true, \"componentId\": \"<bonus>\", \"componentName\": \"Bonus\", \"sarsSourceCode\": \"3605\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
       "eti": "0.00",
       "gross_pay": "25000.00",
       "medical_credit": "364.00",
@@ -46,7 +49,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "steady": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
-      "component_breakdown": "[{\"amount\": 1950, \"isTaxable\": true, \"componentId\": \"<medical>\", \"componentName\": \"Medical aid\", \"sarsSourceCode\": \"4005\", \"isUifApplicable\": false}, {\"amount\": 2280, \"isTaxable\": true, \"componentId\": \"<pension>\", \"componentName\": \"Pension fund\", \"sarsSourceCode\": \"4001\", \"isUifApplicable\": false, \"retirementContribution\": true}, {\"amount\": 28500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isUifApplicable\": true}, {\"amount\": 3000, \"isTaxable\": true, \"componentId\": \"<travel>\", \"componentName\": \"Travel allowance\", \"sarsSourceCode\": \"3701\", \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 1950, \"isTaxable\": true, \"componentId\": \"<medical>\", \"componentName\": \"Medical aid\", \"sarsSourceCode\": \"4005\", \"isSdlApplicable\": false, \"isUifApplicable\": false}, {\"amount\": 2280, \"isTaxable\": true, \"componentId\": \"<pension>\", \"componentName\": \"Pension fund\", \"sarsSourceCode\": \"4001\", \"isSdlApplicable\": false, \"isUifApplicable\": false, \"retirementContribution\": true}, {\"amount\": 28500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 3000, \"isTaxable\": true, \"componentId\": \"<travel>\", \"componentName\": \"Travel allowance\", \"sarsSourceCode\": \"3701\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
       "eti": "0.00",
       "gross_pay": "31500.00",
       "medical_credit": "974.00",
@@ -54,7 +57,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "net_pay": "23993.60",
       "paye": "3099.28",
       "periodic_taxable": "29550.00",
-      "sdl": "315.00",
+      "sdl": "292.20",
       "taxable_income": "29550.00",
       "uif_employee": "177.12",
       "uif_employer": "177.12",
@@ -63,7 +66,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "young": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
-      "component_breakdown": "[{\"amount\": 6500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 6500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
       "eti": "750.00",
       "gross_pay": "6500.00",
       "medical_credit": "0.00",
@@ -82,7 +85,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "endsMid": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
-      "component_breakdown": "[{\"amount\": 21000, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 21000, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
       "eti": "0.00",
       "gross_pay": "21000.00",
       "medical_credit": "376.00",
@@ -99,7 +102,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "increase": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
-      "component_breakdown": "[{\"amount\": 16500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isUifApplicable\": true}, {\"amount\": 1200, \"isTaxable\": true, \"componentId\": \"<overtime>\", \"componentName\": \"Overtime\", \"sarsSourceCode\": \"3602\", \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 16500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 1200, \"isTaxable\": true, \"componentId\": \"<overtime>\", \"componentName\": \"Overtime\", \"sarsSourceCode\": \"3602\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
       "eti": "0.00",
       "gross_pay": "17700.00",
       "medical_credit": "376.00",
@@ -116,7 +119,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "starter": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
-      "component_breakdown": "[{\"amount\": 18000, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 18000, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
       "eti": "0.00",
       "gross_pay": "18000.00",
       "medical_credit": "376.00",
@@ -133,7 +136,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "steady": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
-      "component_breakdown": "[{\"amount\": 1950, \"isTaxable\": true, \"componentId\": \"<medical>\", \"componentName\": \"Medical aid\", \"sarsSourceCode\": \"4005\", \"isUifApplicable\": false}, {\"amount\": 2280, \"isTaxable\": true, \"componentId\": \"<pension>\", \"componentName\": \"Pension fund\", \"sarsSourceCode\": \"4001\", \"isUifApplicable\": false, \"retirementContribution\": true}, {\"amount\": 28500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isUifApplicable\": true}, {\"amount\": 3000, \"isTaxable\": true, \"componentId\": \"<travel>\", \"componentName\": \"Travel allowance\", \"sarsSourceCode\": \"3701\", \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 1950, \"isTaxable\": true, \"componentId\": \"<medical>\", \"componentName\": \"Medical aid\", \"sarsSourceCode\": \"4005\", \"isSdlApplicable\": false, \"isUifApplicable\": false}, {\"amount\": 2280, \"isTaxable\": true, \"componentId\": \"<pension>\", \"componentName\": \"Pension fund\", \"sarsSourceCode\": \"4001\", \"isSdlApplicable\": false, \"isUifApplicable\": false, \"retirementContribution\": true}, {\"amount\": 28500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 3000, \"isTaxable\": true, \"componentId\": \"<travel>\", \"componentName\": \"Travel allowance\", \"sarsSourceCode\": \"3701\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
       "eti": "0.00",
       "gross_pay": "31500.00",
       "medical_credit": "1006.00",
@@ -141,7 +144,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "net_pay": "24127.68",
       "paye": "2965.20",
       "periodic_taxable": "29550.00",
-      "sdl": "315.00",
+      "sdl": "292.20",
       "taxable_income": "29550.00",
       "uif_employee": "177.12",
       "uif_employer": "177.12",
@@ -150,7 +153,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "young": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
-      "component_breakdown": "[{\"amount\": 6500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 6500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
       "eti": "750.00",
       "gross_pay": "6500.00",
       "medical_credit": "0.00",
@@ -174,7 +177,7 @@ export const EXPECTED_HEADERS: Record<Period, Record<string, unknown>> = {
     "total_gross": "84000.00",
     "total_net": "71115.53",
     "total_paye": "7878.11",
-    "total_sdl": "840.00",
+    "total_sdl": "817.20",
     "total_taxable": "84000.00",
     "total_uif": "1192.72"
   },
@@ -184,7 +187,7 @@ export const EXPECTED_HEADERS: Record<Period, Record<string, unknown>> = {
     "total_gross": "94700.00",
     "total_net": "82062.44",
     "total_paye": "7634.20",
-    "total_sdl": "947.00",
+    "total_sdl": "924.20",
     "total_taxable": "94700.00",
     "total_uif": "1546.72"
   }

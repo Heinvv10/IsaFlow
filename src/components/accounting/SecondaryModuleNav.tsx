@@ -9,7 +9,8 @@ import { moduleSectionsToTabs, getActiveSectionId, MODULE_BY_ID } from './navSec
 import { stripVatNav } from './navSections/vatNav';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 
-export function SecondaryModuleNav({ moduleId }: { moduleId: string }) {
+/** `navPath`: highlight as if the page were at this path (the router's own when absent). */
+export function SecondaryModuleNav({ moduleId, navPath }: { moduleId: string; navPath?: string }) {
   const router = useRouter();
   const { isRegistered } = useVatRegistration();
   const moduleTab = MODULE_BY_ID[moduleId];
@@ -20,7 +21,7 @@ export function SecondaryModuleNav({ moduleId }: { moduleId: string }) {
   // non-vendor on a direct VAT URL gets an id ('VAT') that no rendered tab
   // carries and nothing highlights.
   const strippedModule = stripVatNav([moduleTab], isRegistered)[0] ?? moduleTab;
-  const activeId = getActiveSectionId(strippedModule, router.asPath);
+  const activeId = getActiveSectionId(strippedModule, navPath ?? router.asPath);
 
   return (
     <div className="border-b border-gray-200 dark:border-gray-800 bg-[var(--ff-canvas-mid)]">
@@ -28,7 +29,7 @@ export function SecondaryModuleNav({ moduleId }: { moduleId: string }) {
         <span className="py-2">{moduleTab.label}</span>
         {/* flex-1 + w-full: the nav carries its own bottom border, which otherwise stops where its tabs do */}
         <div className="flex-1 min-w-0 [&>nav]:w-full">
-          <ModuleNav tabs={tabs} getActiveTabId={() => activeId} accentColor="slate" />
+          <ModuleNav tabs={tabs} getActiveTabId={() => activeId} accentColor="slate" navPath={navPath} />
         </div>
       </div>
     </div>

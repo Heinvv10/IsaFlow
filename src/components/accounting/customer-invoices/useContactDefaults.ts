@@ -12,7 +12,7 @@
  * (useCustomerLookup, vatTypeWarning).
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { dueDateFromTerms } from '@/modules/accounting/services/ar/paymentTerms';
+import { describeContactTerms, dueDateWithDefault, readTerms } from '@/modules/accounting/services/shared/paymentTerms';
 import type { InvoiceHeaderForm } from './invoiceHeaderForm';
 import type { InvoiceLine } from './InvoiceLineItemsTable';
 import { taxModeFromVatType, type TaxMode } from './taxMode';
@@ -33,9 +33,10 @@ export function editedLine<L extends InvoiceLine>(l: L, field: string, value: st
   return { ...l, [field]: value, discountFromDefault: Boolean(l.discountFromDefault) && stillDefault };
 }
 
-function termsLabel(d: ContactDefaults): string {
-  const days = `${d.terms} ${d.terms === 1 ? 'day' : 'days'}`;
-  return d.termsType === 'end_of_month' ? `end of month + ${days}` : days;
+/** "Customer terms: 30 days from invoice date", or the company default's wording when the customer has none. */
+function termsHint(d: ContactDefaults): string {
+  const words = describeContactTerms(d.terms, d.termsType, d.companyDefault);
+  return readTerms(d.terms, d.termsType) ? `Customer terms: ${words}` : words;
 }
 
 interface Args<L extends InvoiceLine> {
@@ -54,7 +55,7 @@ export function useContactDefaults<L extends InvoiceLine>({ clientId, invoiceDat
   // the old `touched`. Mode and prices change together, so a default landing then would leave gross prices read as ex-VAT.
   const touchedNow = useRef(touched);
 
-  const due = defaults ? dueDateFromTerms(invoiceDate, defaults.terms, defaults.termsType) : null;
+  const due = defaults?.known ? dueDateWithDefault(invoiceDate, defaults.terms, defaults.termsType, defaults.companyDefault) : null;
   useEffect(() => {
     if (!defaults || touchedNow.current.dueDate) return;
     setForm((f) => (f.dueDate === (due ?? '') ? f : { ...f, dueDate: due ?? '' }));
@@ -87,7 +88,7 @@ export function useContactDefaults<L extends InvoiceLine>({ clientId, invoiceDat
     /** What a new line starts on. */
     lineDiscount: discount,
     hints: {
-      dueDate: defaults && due !== null && !touched.dueDate ? `Customer terms: ${termsLabel(defaults)}` : undefined,
+      dueDate: defaults?.known && due !== null && !touched.dueDate ? termsHint(defaults) : undefined,
       taxMode: defaults && defaultMode !== null && !touched.taxMode ? `From customer: ${VAT_HINT[defaults.vatType ?? '']}` : undefined,
       discount: discount > 0 ? `${discount}% discount from customer` : undefined,
     },

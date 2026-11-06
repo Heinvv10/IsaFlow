@@ -64,6 +64,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     capturedDocumentId,
     bankTxId: result.bankTxId,
     evidenced: true,
+    // Budgets P5-2b: bills raised from this slip whose blank lines took the provisional's dimensions, or why not.
+    slipInheritance: result.slipInheritance,
   });
 }
 

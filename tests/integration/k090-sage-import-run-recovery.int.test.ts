@@ -29,7 +29,7 @@ beforeAll(async () => {
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   for (const id of [companyA, companyB]) {
     await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [id, user]);
-    await pool.query('INSERT INTO suppliers(company_id,name,payment_terms) VALUES($1,$2,30)', [id, SUPPLIER_NAME]);
+    await pool.query("INSERT INTO suppliers(company_id,name,payment_terms,payment_terms_type) VALUES($1,$2,30,'invoice_days')", [id, SUPPLIER_NAME]);
   }
 });
 

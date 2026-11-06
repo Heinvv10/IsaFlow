@@ -5,7 +5,7 @@
  * what another refuses (W3-01 review).
  *
  * In order:
- *   1. status: draft / calculated / processed, or approved with no journal; then a run calculated by an older
+ *   1. status: draft / calculated, or approved with no journal; then a run calculated by an older
  *      calculation (`recalculate_required`), and after the directive and year-to-date checks, component dates changed
  *      since calculation or a leaver with no termination base (payrollRunRecalcGate) — for every approval;
  *   1a. severance lines whose SARS directive was paid by something else, or no
@@ -18,11 +18,13 @@
  *      chain exists:
  *        in force → the run is re-approved onto it, posting nothing, but only
  *                   while its figures match what the run would post now
- *                   (`sameFigures`), else `recalculated_after_posting`; step 3
+ *                   (`sameFigures`), else `recalculated_after_posting`, or `net_pay_target_changed` when net pay's
+ *                   target moved between the bank and the clearing account (payrollNetPayTargetChange); step 3
  *                   (pro-rata, the line refusals) is not judged: nothing new posts;
  *        out      → nothing of the run is in the ledger: approval unlinks the
  *                   journal and posts a FRESH one (`replaces`), dated by
- *                   `datedForReplacement`;
+ *                   `datedForReplacement` (payrollReplacementDating), with an advisory when
+ *                   net pay's target differs from the replaced journal's (payrollNetPayTargetChange);
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
  *   3. for a fresh journal, termination pay-outs another approved or paid run
  *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then a
@@ -41,9 +43,10 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
-import { closedPeriodBlocker } from './payrollJournalParts';
-import { comparableLines, predatesTagging, sameFigures, type FigureLine } from './payrollLabourComparison';
-import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
+import { datedForReplacement } from './payrollReplacementDating';
+import { comparableLines, foldNetPayBank, predatesTagging, sameFigures, type PostedFigureLine } from './payrollLabourComparison';
+import { netPayReplacementAdvisories, netPayTargetChangeNote, unresolvedNetPayBlocker } from './payrollNetPayTargetChange';
+import { readJournalChain, runRecalculatedSince } from './payrollJournalChain';
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
@@ -114,10 +117,10 @@ const AMBIGUOUS_TAG = 'ambiguous-tag-history';
  * then reads as `AMBIGUOUS_TAG`, a CC1 no plan carries, so a recalculated run
  * is refused as `recalculated_after_posting` (reverse, approve: a fresh one).
  */
-async function readPostedJournal(companyId: string, journalId: string): Promise<{ journal: PostedPayrollJournal; asPosted: FigureLine[] } | null> {
+async function readPostedJournal(companyId: string, journalId: string): Promise<{ journal: PostedPayrollJournal; asPosted: PostedFigureLine[]; current: PostedFigureLine[] } | null> {
   const rows = (await sql`
     SELECT e.entry_number, e.status, e.reversed_at, l.gl_account_id, a.account_code, a.account_name,
-           l.debit::float8 AS debit, l.credit::float8 AS credit, l.cc1_id,
+           l.debit::float8 AS debit, l.credit::float8 AS credit, l.cc1_id, l.description,
            (first_tag.journal_line_id IS NOT NULL) AS retagged, first_tag.old_cc1_id, first_tag.tied::int AS tied, l.id AS line_id
     FROM gl_journal_entries e
     LEFT JOIN gl_journal_lines l ON l.journal_entry_id = e.id AND l.company_id = e.company_id
@@ -135,10 +138,11 @@ async function readPostedJournal(companyId: string, journalId: string): Promise<
   const head = rows[0];
   if (!head) return null;
   const id = (v: unknown): string | null => (v == null ? null : String(v));
-  const asPosted = rows.filter((r) => r.gl_account_id != null).map((r): FigureLine => ({
+  const asPosted = rows.filter((r) => r.gl_account_id != null).map((r): PostedFigureLine => ({
     glAccountId: String(r.gl_account_id),
     debit: Number(r.debit) || 0,
     credit: Number(r.credit) || 0,
+    description: id(r.description),
     cc1Id: r.retagged !== true ? id(r.cc1_id) : Number(r.tied) > 1 ? `${AMBIGUOUS_TAG}:${String(r.line_id)}` : id(r.old_cc1_id),
   }));
   const lines = rows.filter((r) => r.gl_account_id != null).map((r) => ({
@@ -158,37 +162,9 @@ async function readPostedJournal(companyId: string, journalId: string): Promise<
     totalDebit: cents(lines.reduce((s, l) => s + l.debit, 0)) / 100,
     totalCredit: cents(lines.reduce((s, l) => s + l.credit, 0)) / 100,
   };
-  return { journal, asPosted };
-}
-
-/**
- * The plan for a journal that REPLACES a reversed one.
- *
- * ACCOUNTING RULING NEEDED (W3-01 round 5, C1-E) — implemented as recommended,
- * pending the owner's decision. When the reversal that took the old journal
- * out is not dated in the run's month (the month was closed, so the reversal
- * fell on a later date), the replacement is dated ON THAT REVERSAL'S DATE. The
- * reversal and the replacement then net in one period, and the run's own month
- * keeps the figures it reported. Dated in the run's month instead, that month
- * would carry the run twice and the later one a negative.
- * The alternative — re-date into the original month — needs that period
- * reopened and the reversal moved into it; it is not done here.
- */
-async function datedForReplacement(companyId: string, plan: PayrollJournalPlan, chain: JournalChain): Promise<PayrollJournalPlan> {
-  const reversal = chain.journals[chain.journals.length - 1];
-  if (!reversal || chain.journals.length < 2 || reversal.entryDate.slice(0, 7) === plan.entryDate.slice(0, 7)) return plan;
-  const closed = await closedPeriodBlocker(companyId, reversal.entryDate);
-  return {
-    ...plan,
-    entryDate: reversal.entryDate,
-    blockers: [...plan.blockers.filter((b) => b.code !== 'closed_period'), ...(closed ? [closed] : [])],
-    advisories: [...plan.advisories, {
-      code: 'replacement_dated_on_reversal',
-      detail: `The journal this run posted was reversed by ${reversal.entryNumber} on ${reversal.entryDate}, outside ${plan.entryDate.slice(0, 7)}. `
-        + `The new journal is dated ${reversal.entryDate} as well, so the reversal and the new journal fall in the same period and `
-        + `${plan.entryDate.slice(0, 7)} keeps the figures it reported.`,
-    }],
-  };
+  // The lines with the CC1 they carry now, and their descriptions: what the comparison reads for a run not recalculated since.
+  const current = lines.map((l, i): PostedFigureLine => ({ glAccountId: l.glAccountId, debit: l.debit, credit: l.credit, cc1Id: l.cc1Id, description: asPosted[i]!.description }));
+  return { journal, asPosted, current };
 }
 
 /** Null when the run is not in this company. Read-only. */
@@ -214,7 +190,10 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const loanPayments = await findLoanPaymentsOffPayslip(companyId, runId);
   const plan = {
     ...dated,
-    advisories: [...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId), ...yearToDate.advisories],
+    advisories: [
+      ...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId), ...yearToDate.advisories,
+      ...(replaces && read ? netPayReplacementAdvisories(dated.lines, read.current, replaces) : []),
+    ],
   };
 
   const blocker = await (async (): Promise<PayrollJournalNote | null> => {
@@ -248,9 +227,15 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
       // In force. The journal to reverse is the LAST of the chain: the run's own, or the one that re-booked it.
       const inForce = chain.journals[chain.journals.length - 1]!;
       const perAccount = await runRecalculatedSince(companyId, runId, linkedId);
-      const compared = perAccount
-        ? comparableLines(plan.lines, plan.labourBySourceCentre, read!.asPosted)
-        : { plan: plan.lines, posted: linked.lines };
+      // A clearing account that now fails the rules is the plan's blocker to show, not a change of target.
+      const unresolved = unresolvedNetPayBlocker(plan.lines, plan.blockers);
+      if (unresolved) return unresolved;
+      // Net pay moved between the bank and a clearing account (or between two): reverse first, never re-lock.
+      const moved = netPayTargetChangeNote(plan.lines, read!.current, linked.lines.map((l) => `${l.accountCode} ${l.accountName}`), inForce.entryNumber);
+      if (moved) return moved;
+      // Net pay's bank credit is one role on both sides, so a bank role that moved since posting is not a change.
+      const folded = foldNetPayBank(plan.lines, perAccount ? read!.asPosted : read!.current);
+      const compared = perAccount ? comparableLines(folded.plan, plan.labourBySourceCentre, folded.posted) : folded;
       if (!sameFigures(compared, perAccount)) {
         const cause = perAccount && predatesTagging(plan.lines, read!.asPosted)
           ? 'the journal predates cost-centre tagging and this run now tags its labour by cost centre'
@@ -283,5 +268,10 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;
   })();
 
-  return { plan, posted, replaces, blocker, planHash: hashOf(plan, posted, replaces) };
+  const revisionRows = (await sql`
+    SELECT approval_revision FROM payroll_run_headers
+    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+  `) as DbRow[];
+  const revision = revisionRows[0]?.approval_revision == null ? null : String(revisionRows[0].approval_revision);
+  return { plan, posted, replaces, blocker, planHash: hashOf(plan, posted, replaces, revision) };
 }

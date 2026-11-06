@@ -43,6 +43,15 @@ async function standingProvisional(companyId: string, invoiceId: string): Promis
 }
 
 /**
+ * The standing provisional behind the bill's slip (unlocked): its journal and bank account, or null. The draft
+ * writers read it to inherit its dimensions (`supplierInvoiceProvisionalDims`, P5-2b).
+ */
+export async function standingProvisionalRef(companyId: string, invoiceId: string): Promise<{ jeId: string; bankAccountId: string } | null> {
+  const je = await standingProvisional(companyId, invoiceId);
+  return je ? { jeId: String(je.id), bankAccountId: String(je.bank_account_id) } : null;
+}
+
+/**
  * The provisional journal approving this bill would claim (unlocked), or null: a batch preview refuses a later
  * bill whose provisional an earlier bill of the batch claims, as the live claim does (P5-2 review round 4).
  */

@@ -55,7 +55,7 @@ export const createSupplierInvoiceTool: McpTool = {
         description: `The supplier's own invoice number. Refused over ${TEXT_LIMITS.invoice_number} characters.`,
       },
       invoice_date: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
-      due_date: { type: 'string', format: 'date', description: 'Defaults from payment_terms when omitted' },
+      due_date: { type: 'string', format: 'date', description: "When omitted: from this bill's own payment_terms when you give them ('netNN' or 'immediate'), else the supplier's terms (see list_suppliers), else the company's default terms" },
       tax_rate: { type: 'number', description: 'Invoice-level VAT %, default 15. Per-line tax_rate overrides it.' },
       payment_terms: { type: 'string', maxLength: TEXT_LIMITS.payment_terms },
       reference: { type: 'string', maxLength: TEXT_LIMITS.reference },
@@ -147,7 +147,7 @@ export const approveSupplierInvoiceTool: McpTool = {
   description:
     'Approve a DRAFT supplier invoice and POST it to the ledger — DR Expense (per line) + DR VAT Input / CR Accounts Payable. Irreversible except by a reversing entry. Requires the write:post permission. ' +
     'The invoice must be in draft or pending_approval; anything else is refused with its current status. '
-    + 'Budget check: under the company\'s block policy a bill over its remaining budget is refused (BUDGET_EXCEEDED, naming each line; an agent cannot override); under warn it posts and the over-budget lines come back as budget_warnings.',
+    + 'Budget check: under the company\'s block policy a bill over its remaining budget, or with a line outside every budgeted slice of a budgeted account (e.g. no cost centre where the account is budgeted per cost centre), is refused (BUDGET_EXCEEDED, naming each line; an agent cannot override); under warn it posts and those lines come back as budget_warnings.',
   scope: 'write:invoices',
   write: true,
   requiresPost: true,

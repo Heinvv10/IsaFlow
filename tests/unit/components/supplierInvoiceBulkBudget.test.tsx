@@ -55,7 +55,7 @@ describe('BulkActionBar — budget', () => {
     vi.mocked(apiFetch).mockImplementation(async () => json({ policy: 'block', overBills: 2, bills: [] }));
     bar(['b1', 'b2', 'b3']);
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
-    expect(await screen.findByText(/2 of 3 selected bills are over budget\. They will be refused/)).toBeTruthy();
+    expect(await screen.findByText(/2 of 3 selected bills are over budget or not in a budgeted slice\. They will be refused/)).toBeTruthy();
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 

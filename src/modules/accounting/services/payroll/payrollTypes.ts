@@ -174,6 +174,12 @@ export interface ComponentBreakdownItem {
   amount: number;
   isTaxable: boolean;
   isUifApplicable: boolean;
+  /**
+   * The item counted toward this line's SDL-applicable remuneration, as costed: an earning flagged
+   * is_sdl_applicable (payrollCalculator's sdlLeviable). Absent on a line costed before it existed;
+   * payrollYearToDate then reads today's catalogue instead.
+   */
+  isSdlApplicable?: boolean;
   /** True when the earning is taxable remuneration but is not paid in cash. */
   isNonCash?: true;
   directive?: DirectiveFigures;
@@ -207,6 +213,15 @@ export interface PayeYearToDate {
   retirementDeduction?: number;
   /** Donations (4030) deducted on those lines as taxable deductions, for the s11F base; absent = none. */
   donations?: number;
+  /**
+   * SDL-applicable earnings on those lines the employer was LIABLE for (payrollSdlYearToDate: an exempt line's are
+   * left out); absent only when there are no earlier lines (the calculator throws otherwise).
+   */
+  sdlApplicable?: number;
+  /** The leviable amount those liable lines carried (stored: sdl_leviable); absent only when there are no earlier lines. */
+  sdlLeviable?: number;
+  /** The retirement deduction recorded on those liable lines (retirement_deduction); absent only when there are no earlier lines. */
+  sdlRetirementDeduction?: number;
 }
 
 /** How a line's PAYE is made up (audit 2026-10-18 P3). */
@@ -247,8 +262,14 @@ export interface PayrollLineResult {
   retirementDeduction: number;
   uif: UifResult;
   sdl: number;
-  /** Remuneration this line contributes to the SDL leviable amount. */
+  /**
+   * This line's SDL leviable amount, cumulative over the tax year's liable months (sdlLeviableCumulative): the rise
+   * in max(0, SDL-applicable pay to date - the s11F retirement deduction PAYE allowed to date), capped at that pay,
+   * never below nil (SDL Act s3(4)) and rounded to the cent.
+   */
   sdlLeviable: number;
+  /** This line's SDL-applicable earnings (earnings flagged is_sdl_applicable), before any deduction, to the cent. */
+  sdlApplicable: number;
   eti: EtiResult;
   netPay: number;
   componentBreakdown: ComponentBreakdownItem[];

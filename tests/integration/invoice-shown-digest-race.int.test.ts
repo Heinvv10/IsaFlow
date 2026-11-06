@@ -74,7 +74,7 @@ describe('the digest model', () => {
     expect(Object.keys(model.company).sort()).toEqual(['address', 'bankAccountName', 'bankAccountNumber', 'bankBranchCode',
       'bankName', 'email', 'logoData', 'name', 'phone', 'primaryColor', 'vatNumber']);
     expect(Object.keys(model.invoice).sort()).toEqual(['amount_paid', 'billing_period_end', 'billing_period_start',
-      'client_address', 'client_contact', 'client_email', 'client_name', 'client_phone', 'client_vat', 'currency_code',
+      'client_address', 'client_contact', 'client_email', 'client_name', 'client_phone', 'client_terms', 'client_terms_immediate', 'client_vat', 'currency_code',
       'due_date', 'exchange_rate', 'invoice_date', 'invoice_number', 'notes', 'payment_terms', 'project_name', 'status',
       'subtotal', 'tax_amount', 'tax_rate', 'total_amount']);
     for (const line of model.items) expect(Object.keys(line).sort()).toEqual(['amount', 'description', 'quantity', 'tax_rate', 'unit_price']);

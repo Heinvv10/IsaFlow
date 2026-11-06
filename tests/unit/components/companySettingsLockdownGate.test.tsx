@@ -9,7 +9,9 @@ import { apiFetch } from '@/lib/apiFetch';
 import { typeDate } from '../helpers/dateFields';
 
 let activeCompanyId = 'company-a';
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: activeCompanyId }, loading: false }) }));
+vi.mock('@/contexts/CompanyContext', () => ({
+  useCompany: () => ({ activeCompany: { id: activeCompanyId }, loading: false }), useCompanyRoleOrNull: () => 'owner',
+}));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: { tab: 'general' } }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => children }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());

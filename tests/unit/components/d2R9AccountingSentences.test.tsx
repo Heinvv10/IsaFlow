@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { empty500, expectNoJargon, MSG, ok, on, refuse, serve, writeCalls } from '../helpers/d2R3a6';
+import { empty500, expectNoJargon, MSG, ok, on, refuse, serve, writeCalls, chooseTerms } from '../helpers/d2R3a6';
 
 const router = vi.hoisted(() => ({ query: {} as Record<string, string>, isReady: true, pathname: '/', replace: vi.fn(), push: vi.fn(async () => true) }));
 const warn = vi.hoisted(() => vi.fn());
@@ -45,7 +45,6 @@ import NewSupplierPage from '../../../pages/accounting/suppliers/new';
 import DisclosureNotesPage from '../../../pages/accounting/reports/disclosure-notes';
 import BalanceSheetPage from '../../../pages/accounting/reports/balance-sheet';
 import IncomeStatementPage from '../../../pages/accounting/reports/income-statement';
-import CashFlowPage from '../../../pages/accounting/reports/cash-flow';
 import YearEndPage from '../../../pages/accounting/year-end/index';
 import BankTransfersPage from '../../../pages/accounting/bank-transfers/index';
 import PortalLoginPage from '../../../pages/accounting/afs/portal/login';
@@ -141,7 +140,7 @@ describe('new supplier', () => {
     router.push.mockImplementation(() => new Promise<boolean>(() => undefined));
     serve(on('POST', 'suppliers-list', () => ok({ id: 's-1' })));
     render(<NewSupplierPage />);
-    fireEvent.change(screen.getByPlaceholderText(/ABC Supplies/), { target: { value: 'D2 Supplier' } });
+    fireEvent.change(screen.getByPlaceholderText(/ABC Supplies/), { target: { value: 'D2 Supplier' } }); chooseTerms();
     const save = screen.getByRole('button', { name: /Save Supplier/ });
     fireEvent.click(save);
     await waitFor(() => expect(router.push).toHaveBeenCalledWith('/accounting/suppliers/s-1'));
@@ -152,7 +151,7 @@ describe('new supplier', () => {
   it('a refused save frees the button again and shows the server message', async () => {
     serve(on('POST', 'suppliers-list', () => refuse()));
     render(<NewSupplierPage />);
-    fireEvent.change(screen.getByPlaceholderText(/ABC Supplies/), { target: { value: 'D2 Supplier' } });
+    fireEvent.change(screen.getByPlaceholderText(/ABC Supplies/), { target: { value: 'D2 Supplier' } }); chooseTerms();
     fireEvent.click(screen.getByRole('button', { name: /Save Supplier/ }));
     await waitFor(() => expect([...document.querySelectorAll('[data-toast]')].map(n => n.textContent)).toContain(MSG));
     await waitFor(() => expect((screen.getByRole('button', { name: /Save Supplier/ }) as HTMLButtonElement).disabled).toBe(false));
@@ -210,7 +209,6 @@ describe('report reference lists', () => {
     ['balance sheet', () => <BalanceSheetPage />, 'business-units', 'Failed to load business units', 'balance-sheet'],
     ['income statement', () => <IncomeStatementPage />, 'cost-centres', 'Failed to load cost centres', 'income-statement'],
     ['income statement', () => <IncomeStatementPage />, 'business-units', 'Failed to load business units', 'income-statement'],
-    ['cash flow', () => <CashFlowPage />, 'cost-centres', 'Failed to load cost centres', 'cash-flow'],
   ] as const)('%s (case %#): a failed reference list is logged and the page still renders', async (_n, page, part, msg, ctx) => {
     failing(part);
     render(page() as JSX.Element);

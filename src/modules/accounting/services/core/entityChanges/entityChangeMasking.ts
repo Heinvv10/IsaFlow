@@ -23,6 +23,7 @@ export const SENSITIVE_FIELDS: Readonly<Record<EntityType, readonly string[]>> =
   approval_rule: [],
   approval_enforcement: [],
   payroll_bank_detail: ['account_number', 'branch_code', 'account_holder'],
+  company_setting: [],
 };
 
 export const isSensitive = (type: EntityType, key: string): boolean => SENSITIVE_FIELDS[type].includes(key);

@@ -39,7 +39,8 @@ async function plantEnforcement(company: string, documentType: string): Promise<
   return rows[0].id as string;
 }
 const enforced = async (company: string) => (await pool.query(
-  'SELECT document_type FROM approval_enforcement WHERE company_id = $1 ORDER BY document_type', [company])).rows
+  "SELECT document_type FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1 ORDER BY document_type",
+  [company])).rows
   .map((r) => r.document_type as string);
 const audits = async (company: string) => (await pool.query(
   `SELECT action, user_id, entity_ref, changes FROM audit_log WHERE company_id = $1 AND entity_type = 'approval_enforcement'`,

@@ -16,6 +16,8 @@ import { BudgetVersionError } from '../budgets/budgetVersionTypes';
 import { buildBudgetTrackingReport } from '../budgets/tracking/budgetTrackingService';
 import { TrackingError, type BudgetTrackingReport, type TrackingFigures, type TrackingLine } from '../budgets/tracking/trackingTypes';
 import type { ManagementPackConfig, NoteContent, NoteContentBlock, NoteContentTable } from './afsTypes';
+import { NO_ACTIVITY, packSectionLabel } from './managementPackSections';
+import type { StatementTable } from './managementPackStatements';
 
 export interface ComparisonPlan {
   priorMonth: boolean;
@@ -25,7 +27,8 @@ export interface ComparisonPlan {
 
 export type PackBudget =
   | { kind: 'report'; report: BudgetTrackingReport }
-  | { kind: 'unavailable'; reason: string };
+  /** `fault`: the engine FAILED (a database fault or a bug) rather than refusing the month; the pack is then held for review. */
+  | { kind: 'unavailable'; reason: string; fault: boolean };
 
 type IncomeAgg = Record<string, unknown>;
 
@@ -62,6 +65,16 @@ export const BUDGET_UNAVAILABLE = 'Budget figures are unavailable for this month
  * runs in a savepoint, so a failed query does not abort the request's transaction (inside withAuth)
  * that the pack is then written in; outside a request (the cron) the savepoint is a plain call.
  */
+/** Reports a fault that the pack survives (a budget or statement read that failed) to Bugsink, when Sentry is on. */
+export function capturePackFault(err: unknown, companyId: string): void {
+  if (process.env.SENTRY_ENABLED !== 'true') return;
+  try {
+    Sentry.captureException(err, { tags: { company_id: companyId, route: 'management-pack' } });
+  } catch (sentryErr) {
+    log.warn('management pack: Sentry capture failed', { error: sentryErr instanceof Error ? sentryErr.message : String(sentryErr) }, 'managementPackComparison');
+  }
+}
+
 export async function loadPackBudget(companyId: string, period: string, now?: Date): Promise<PackBudget> {
   try {
     const report = await withSavepoint('mgmt_pack_budget', () =>
@@ -74,15 +87,9 @@ export async function loadPackBudget(companyId: string, period: string, now?: Da
     else {
       log.error('management pack: the budget engine failed; budget sections print the unavailable sentence', fields, 'managementPackComparison');
       // The pack still goes out, so a bug here would otherwise only be a log line: report it (as deferredEnd does).
-      if (process.env.SENTRY_ENABLED === 'true') {
-        try {
-          Sentry.captureException(err, { tags: { company_id: companyId, route: 'management-pack' } });
-        } catch (sentryErr) {
-          log.warn('management pack: Sentry capture failed', { error: sentryErr instanceof Error ? sentryErr.message : String(sentryErr) }, 'managementPackComparison');
-        }
-      }
+      capturePackFault(err, companyId);
     }
-    return { kind: 'unavailable', reason: BUDGET_UNAVAILABLE };
+    return { kind: 'unavailable', reason: BUDGET_UNAVAILABLE, fault: !refusal };
   }
 }
 
@@ -176,32 +183,17 @@ export interface IncomeComparison {
   priorYearIncome: IncomeAgg | null;
 }
 
-function priorYearTable({ income, priorIncome, priorYearIncome }: IncomeComparison, plan: ComparisonPlan): NoteContentTable {
-  const lastYear = priorYearIncome ?? {};
-  const row = (label: string, key: string): string[] => [
-    label, money(income[key]),
-    ...(plan.priorMonth ? [money(priorIncome[key])] : []),
-    money(lastYear[key]), formatMoney(Number(income[key] ?? 0) - Number(lastYear[key] ?? 0)),
-  ];
-  return {
-    type: 'table',
-    headers: ['', 'This month', ...(plan.priorMonth ? ['Prior month'] : []), 'Same month last year', 'Change on last year'],
-    rows: [row('Revenue', 'revenue'), row('Cost of sales', 'cogs'), row('Net profit', 'net_profit')],
-  };
-}
-
-/** The section's blocks: today's aggregate unless a prior year is asked for, then the band table unless `income_vs_budget` prints it. */
+/** The section: the statement table (`managementPackStatements`), then the band table unless `income_vs_budget` prints it. */
 export function incomeStatementContent(
-  data: IncomeComparison,
+  statement: StatementTable,
   plan: ComparisonPlan,
   budget: PackBudget | null,
   bandsPrintedElsewhere: boolean,
 ): NoteContent {
-  const blocks: NoteContentBlock[] = [
-    plan.priorYear ? priorYearTable(data, plan) : { type: 'paragraph', text: JSON.stringify(data.income) },
-  ];
+  const blocks: NoteContentBlock[] = [statement.table];
+  if (statement.empty) blocks.push({ type: 'paragraph', text: NO_ACTIVITY.income_statement });
   if (plan.budget && budget && !bandsPrintedElsewhere) blocks.push(...budgetBandBlocks(budget));
-  return { title: 'Income Statement', blocks };
+  return { title: packSectionLabel('income_statement'), blocks };
 }
 
 /** What the AI is told the prior period was. Prior month alone stays the bare aggregate it has always received. */

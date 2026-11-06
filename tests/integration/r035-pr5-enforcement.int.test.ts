@@ -43,7 +43,9 @@ describe('legacy payment rules', () => {
     expect(res.state.statusCode).toBe(400);
     expect(messageOf(res)).toBe('Approval rules of type payment no longer govern any supplier payment. Create a supplier_payment '
       + 'or payment_batch rule instead.');
-    expect((await pool.query('SELECT 1 FROM approval_rules WHERE company_id = $1', [c])).rows).toEqual([]);
+    expect((await pool.query(
+      "SELECT 1 FROM approval_rules WHERE company_id = $1 AND document_type = 'payment'", [c],
+    )).rows).toEqual([]);
   });
 
   it('the credit-note refusal is unchanged; both payment types are created', async () => {

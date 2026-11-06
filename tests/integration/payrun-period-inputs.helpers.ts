@@ -11,14 +11,16 @@ import inputs from '../../pages/api/payroll/runs/[id]/inputs';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
-import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
+import {
+  authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route,
+} from './w3-01-payroll.helpers';
 
 export const SALARY = 20000;
 
 type StoredRow = { amount: number; is_recurring: boolean };
 
 export function inputsFixture(pool: Pool) {
-  const [coB, admin, viewer] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+  const [coB, admin, approver, viewer] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
   const who = { user: admin, company: '' };
   const tokens: Record<string, string> = {};
   const call = routeCaller(tokens, who);
@@ -33,11 +35,16 @@ export function inputsFixture(pool: Pool) {
        FROM payroll_employee_components WHERE employee_id = $1 AND component_id = $2`, [employeeId, component])).rows;
   const put = (run: string, body: unknown, opts: { user?: string } = {}) => call(inputs as Route, 'PUT', url(run), run, { ...opts, body });
   /** PUT as the grid sends it: expectedAmount is what is stored now, unless the test says otherwise. */
-  const set = async (run: string, component: string, amount: unknown, employeeId = state.employee, expectedAmount?: number) =>
-    put(run, { employeeId, componentId: component, amount, expectedAmount: expectedAmount ?? ((await rows(component, employeeId)) as StoredRow[]).find((r) => !r.is_recurring)?.amount ?? 0 });
+  const set = async (
+    run: string, component: string, amount: unknown, employeeId = state.employee,
+    expectedAmount?: number, opts: { user?: string } = {},
+  ) => put(run, {
+    employeeId, componentId: component, amount,
+    expectedAmount: expectedAmount ?? ((await rows(component, employeeId)) as StoredRow[]).find((r) => !r.is_recurring)?.amount ?? 0,
+  }, opts);
 
   return {
-    state, coB, admin, viewer, who, call, put, set, rows, addComponent,
+    state, coB, admin, approver, viewer, who, call, put, set, rows, addComponent,
     get: (run: string) => call(inputs as Route, 'GET', url(run), run),
     recalculate: (run: string) => call(calculate as Route, 'POST', `/api/payroll/runs/${run}/calculate`, run),
     line: async (run: string, employeeId = state.employee) => (await pool.query(
@@ -48,8 +55,10 @@ export function inputsFixture(pool: Pool) {
     header: async (run: string) => (await pool.query(
       `SELECT status, journal_entry_id, total_gross::float8 AS gross, total_net::float8 AS net FROM payroll_run_headers WHERE id = $1`, [run])).rows[0]!,
     preview: (id: string) => call(journalPlan as Route, 'GET', `/api/payroll/runs/${id}/journal-plan`, id),
-    doApprove: (id: string, expectedPlanHash: unknown) =>
-      call(approve as Route, 'POST', `/api/payroll/runs/${id}/approve`, id, { body: { expectedPlanHash } }),
+    doApprove: async (id: string, expectedPlanHash: unknown) => {
+      await authorisePayRun(call, id, approver);
+      return call(approve as Route, 'POST', `/api/payroll/runs/${id}/approve`, id, { body: { expectedPlanHash } });
+    },
     /** A row the run reads, written as a batch or the employee page writes it. */
     addRow: (component: string, amount: number, from: string, to: string | null, recurring = false, employeeId = state.employee) => pool.query(
       `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
@@ -80,12 +89,13 @@ export function inputsFixture(pool: Pool) {
       await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [coB, 'R inputs B']);
       await seedPayrollCompany(pool, coB, SALARY);
       state.employeeB = (await pool.query('SELECT id FROM payroll_employees WHERE company_id = $1', [coB])).rows[0]!.id;
-      for (const [id, email, role] of [[admin, 'a', 'admin'], [viewer, 'v', 'viewer']] as const) {
+      for (const [id, email, role] of [[admin, 'a', 'admin'], [approver, 'p', 'admin'], [viewer, 'v', 'viewer']] as const) {
         await pool.query('INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, $3, true)', [id, `${email}-${id}@test.local`, role]);
-        tokens[id] = await new SignJWT({ sub: id, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+        tokens[id] = await new SignJWT({ sub: id, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
           .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
       }
       await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'admin', false)`, [coB, admin]);
+      await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'owner', false)`, [coB, approver]);
       state.comp.foreign = await addComponent(coB, 'Overtime B', '3607', 'earning', true);
       who.company = coB;
       state.runB = await calculatedRun(call, 11);
@@ -102,7 +112,8 @@ export function inputsFixture(pool: Pool) {
         `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
          VALUES ($1, '2175', 'R deductions', 'liability', 'credit', 1)`, [coA]);
       await pool.query(
-        `INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'admin', true), ($1, $3, 'viewer', true)`, [coA, admin, viewer]);
+        `INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'admin', true), ($1, $3, 'owner', true), ($1, $4, 'viewer', true)`,
+        [coA, admin, approver, viewer]);
       const c = state.comp;
       c.overtime = await addComponent(coA, 'Overtime', '3607', 'earning', true);
       c.commission = await addComponent(coA, 'Commission', '3606', 'earning', true);
@@ -128,7 +139,7 @@ export function inputsFixture(pool: Pool) {
     async tearDown() {
       try {
         await cleanPayrollCompanies(pool, [coB]);
-        await pool.query('DELETE FROM users WHERE id = ANY($1)', [[admin, viewer]]);
+        await pool.query('DELETE FROM users WHERE id = ANY($1)', [[admin, approver, viewer]]);
       } finally {
         await pool.end();
       }

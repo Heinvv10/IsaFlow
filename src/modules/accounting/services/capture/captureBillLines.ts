@@ -19,13 +19,27 @@
  * before its posting claim, where a 4xx still commits nothing. The pipeline
  * skipped a line it could not use and inserted the bill anyway — with no lines
  * when it skipped them all, and a R0 bill for a document with no total.
+ * Dimensions (budgets P5-2b, breaker REPRO 2 and round 2): when the slip is
+ * the evidence of a bank-first provisional (the one `attachEvidenceToProvisional`
+ * will link, `findAttachableProvisional`), a line takes that provisional's
+ * dimensions (`ap/supplierInvoiceProvisionalDims`); a line that inherits nothing
+ * takes the supplier's default CC1 / CC2 / BU (migration 890) through
+ * `resolveBillLineDimensions`, as `createSupplierInvoice` does. Both are written
+ * with the lines, before an approval request can bind the draft's digest.
  */
 import { sql } from '@/lib/neon';
+import { billDueDate } from '../ap/billDueDate';
 import type { SupplierRule } from './supplierRulesService';
 import type { PipelineInvoiceInput } from '../core/aiInvoicePipelineService';
 import { billLineAccountRefusal } from '../ap/billLineAccountGuard';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
+import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
+import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
+import { inheritSlipDimensions, provisionalDimLines } from '../ap/supplierInvoiceProvisionalDims';
+import { storedLineOrder } from '../ap/supplierInvoiceLineOrder';
+import { findAttachableProvisional } from './evidenceAttachmentService';
+import type { CaptureSlipPlan } from './captureSlipReplan';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -33,6 +47,8 @@ import {
 } from '../ap/supplierInvoiceTotals';
 
 export interface CaptureBillLine {
+  /** Chosen at plan time and written as the row id, so the plan knows the stored lines' full posting order. */
+  id?: string;
   description: string;
   quantity: number;
   unitPrice: number;
@@ -40,6 +56,13 @@ export interface CaptureBillLine {
   taxAmount: number;
   lineTotal: number;
   glAccountId: string | null;
+  cc1Id?: string;
+  cc2Id?: string;
+  buId?: string;
+  /** The provisional journal this line's dimensions were inherited from (not stored; the attach re-checks it). */
+  slipJeId?: string;
+  /** The line carried no dimensions before the supplier's defaults (not stored): the attach may still inherit onto it. */
+  slipBlank?: boolean;
 }
 
 export type CaptureBillLinesPlan = { lines: CaptureBillLine[] } | { refusal: string };
@@ -104,21 +127,72 @@ export async function planCaptureBillLines(
   }
 
   const accountRefusal = await billLineAccountRefusal(companyId, lines.map((l) => l.glAccountId));
-  return accountRefusal ? { refusal: accountRefusal } : { lines };
+  if (accountRefusal) return { refusal: accountRefusal };
+  lines = lines.map((l) => ({ ...l, id: crypto.randomUUID() }));
+  try {
+    // The supplier's defaults are resolved for EVERY line, the inheriting ones too, and kept only where nothing is
+    // inherited: a default the dimension rules refuse is this plan's refusal (a 400 before any write), so the
+    // attach's re-plan, which may fall back to those defaults, can never meet one (review round 5, MEDIUM).
+    const blank = lines.map((l) => !l.cc1Id && !l.cc2Id && !l.buId);
+    const defaulted = await resolveBillLineDimensions(companyId, invoice.supplierId, lines);
+    const slip = await slipLines(companyId, invoice, lines);
+    return { lines: slip.lines.map((l, i) => ({ ...(slip.inherited[i] ? l : defaulted[i]!), slipBlank: blank[i] })) };
+  } catch (err) {
+    if (err instanceof DimensionRefusal) return { refusal: err.message };
+    throw err;
+  }
 }
 
-/** On the request transaction, straight after the invoice INSERT — the column list createSupplierInvoice writes. */
-export async function insertCaptureBillLines(invoiceId: string, lines: readonly CaptureBillLine[]): Promise<void> {
+/** The lines with the dimensions of the provisional the slip will evidence, if any (read only). */
+async function slipLines(companyId: string, invoice: PipelineInvoiceInput, lines: readonly CaptureBillLine[]) {
+  const prov = await findAttachableProvisional(companyId, invoice.supplierId || null, invoice.totalAmount, invoice.invoiceDate);
+  if (!prov) return { lines: [...lines], inherited: lines.map(() => false) };
+  const header = { subtotal: Math.round((invoice.totalAmount - invoice.taxAmount) * 100) / 100, totalAmount: invoice.totalAmount, taxRate: invoice.taxRate };
+  // Matched in the order the lines will be read back for posting (breaker R6-1), not extraction order.
+  const order = await storedLineOrder(lines.map((l) => ({ ...l, vatClassification: defaultVatClassification(l.taxRate) })));
+  const out = await inheritSlipDimensions(companyId, lines, header, await provisionalDimLines(companyId, prov.jeId, prov.bankAccountId),
+    await companyDefaultExpense(companyId), undefined, order);
+  return { inherited: out.inherited, lines: out.lines.map((l, i) => (out.inherited[i] ? { ...l, slipJeId: prov.jeId } : l)) };
+}
+
+/**
+ * On the request transaction, straight after the invoice INSERT — the column list createSupplierInvoice writes.
+ * Returns which written lines inherited a provisional's dimensions, and from which journal, and which were blank before
+ * the supplier's defaults: the attach compares it with the provisional it actually links and re-plans those lines when
+ * they differ (`captureSlipReplan`).
+ */
+export async function insertCaptureBillLines(invoiceId: string, lines: readonly CaptureBillLine[]): Promise<CaptureSlipPlan> {
+  const slip: CaptureSlipPlan = { plannedJeId: null, inheritedItemIds: [], blankItemIds: [] };
+  // storedLineOrder assumes these lines are inserted in ONE transaction (they tie on created_at) with the planned ids.
   for (const line of lines) {
-    await sql`
+    const [row] = (await sql`
       INSERT INTO supplier_invoice_items (
-        supplier_invoice_id, description, quantity, unit_price,
-        tax_rate, tax_amount, line_total, gl_account_id, vat_classification
+        id, supplier_invoice_id, description, quantity, unit_price,
+        tax_rate, tax_amount, line_total, gl_account_id, vat_classification, cc1_id, cc2_id, bu_id
       ) VALUES (
-        ${invoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice},
+        COALESCE(${line.id ?? null}::UUID, gen_random_uuid()), ${invoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice},
         ${line.taxRate}, ${line.taxAmount}, ${line.lineTotal}, ${line.glAccountId}::UUID,
-        ${defaultVatClassification(line.taxRate)}
+        ${defaultVatClassification(line.taxRate)}, ${line.cc1Id ?? null}::UUID, ${line.cc2Id ?? null}::UUID, ${line.buId ?? null}::UUID
       )
-    `;
+      RETURNING id::TEXT AS id
+    `) as Array<{ id: string }>;
+    if (line.slipJeId && row) {
+      slip.plannedJeId = line.slipJeId;
+      slip.inheritedItemIds.push(row.id);
+    }
+    if (line.slipBlank && row) slip.blankItemIds.push(row.id);
   }
+  return slip;
+}
+
+/**
+ * A bill built from a scanned / extracted document (capture post, the AI pipeline): the document's printed due date, else
+ * the supplier's confirmed terms, else the terms text the scan read, else the company default. The scan's terms text ranks
+ * BELOW a confirmed supplier and never counts as terms the user picked.
+ */
+export function extractedBillDueDate(
+  companyId: string, supplierId: string,
+  extracted: { invoiceDate: string; dueDate?: string | null; paymentTerms?: string | null },
+): Promise<string | null> {
+  return billDueDate(companyId, supplierId, extracted.invoiceDate, { dueDate: extracted.dueDate, scannedTerms: extracted.paymentTerms });
 }

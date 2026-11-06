@@ -26,7 +26,7 @@ import { decide } from '@/modules/accounting/services/capture/autoPublishGateSer
 import { raiseUnattendedApproval, unattendedBillStatus } from '@/modules/accounting/services/gl/approvalUnattended';
 import { isCaptureEventPostable } from '@/modules/accounting/services/capture/captureEventLock';
 import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
-import { insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
+import { extractedBillDueDate, insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
 import {
   runCapturePostFollowUps,
   type PublishedDecision,
@@ -223,7 +223,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     invoiceInput.totalAmount,
   );
 
-  // Create supplier invoice
+  const dueDate = await extractedBillDueDate(companyId, supplierMatch.supplierId, invoiceInput); // the scan's terms rank last
+  // Create supplier invoice.
   const [invoice] = await sql`
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,
@@ -232,21 +233,18 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       duplicate_fingerprint, source_document_id
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
-      ${invoiceInput.invoiceDate}::date, ${invoiceInput.dueDate ?? null}::date,
+      ${invoiceInput.invoiceDate}::date, ${dueDate}::date,
       ${invoiceInput.totalAmount - invoiceInput.taxAmount}, ${invoiceInput.taxRate},
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
-      ${invoiceInput.paymentTerms ?? 'net30'}, ${invoiceInput.reference ?? null},
+      ${invoiceInput.paymentTerms ?? null}, ${invoiceInput.reference ?? null},
       ${approval.status}, ${userId}, ${invoiceInput.notes ?? null},
-      ${captureFingerprint},
-      ${documentId}::uuid
+      ${captureFingerprint}, ${documentId}::uuid
     )
     RETURNING id, invoice_number, status
   ` as Row[];
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
-  await insertCaptureBillLines(invoice.id as string, linePlan.lines); // before: requestApproval's digest (mig 708) hashes them
-  const approvalRequest = approval.gated
-    ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;
+  const slip = await insertCaptureBillLines(invoice.id as string, linePlan.lines); // before: requestApproval's digest (mig 708) hashes them
 
   // Record coding for the learning loop (both auto_publish and route_review paths).
   // At this point gateDecision is guaranteed to be auto_publish | route_review
@@ -265,7 +263,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     totalAmount: invoiceInput.totalAmount,
     invoiceDate: invoiceInput.invoiceDate,
     decision: publishedDecision,
+    slip,
   });
+  const approvalRequest = approval.gated // after the attach, which may re-plan inherited dimensions (P5-2b): binds their digest
+    ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;
 
   const finalStatus = provisionalAttach.settlementRefused ? 'draft' : invoice.status; // R-127: withdrawn auto-approval
   const finalRoute = provisionalAttach.settlementRefused ? 'manual_review' : approvalRoute;

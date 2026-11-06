@@ -29,7 +29,7 @@ describe('a supplier through its life, as a person in their own session', () => 
   it('records create, update and delete with before / after, the changed keys and who', async () => {
     const c = await company();
     const s = await newSupplier(c);
-    await asApp(pool, a, c, (db) => db.query("UPDATE suppliers SET bank_account_number = '9999888877', payment_terms = 45 WHERE id = $1", [s]));
+    await asApp(pool, a, c, (db) => db.query("UPDATE suppliers SET bank_account_number = '9999888877', payment_terms = 45, payment_terms_type = 'statement_days' WHERE id = $1", [s]));
     await asApp(pool, a, c, (db) => db.query('DELETE FROM suppliers WHERE id = $1', [s]));
     const rows = await changesOf(pool, s);
     expect(rows.map((r) => r.op)).toEqual(['create', 'update', 'delete']);
@@ -39,9 +39,9 @@ describe('a supplier through its life, as a person in their own session', () => 
     expect(created!.after).not.toHaveProperty('id');
     expect(created!.after).not.toHaveProperty('updated_at');
     expect(created!.changed).toContain('bank_account_number');
-    expect(updated!.changed).toEqual(['bank_account_number', 'payment_terms']);
+    expect(updated!.changed).toEqual(['bank_account_number', 'payment_terms', 'payment_terms_type']);
     expect(updated!.before).toMatchObject({ bank_account_number: '1111222233' });
-    expect(updated!.after).toMatchObject({ bank_account_number: '9999888877', payment_terms: 45 });
+    expect(updated!.after).toMatchObject({ bank_account_number: '9999888877', payment_terms: 45, payment_terms_type: 'statement_days' });
     expect(deleted!.after).toBeNull();
     expect(deleted!.before).toMatchObject({ bank_account_number: '9999888877' });
     for (const r of rows) {

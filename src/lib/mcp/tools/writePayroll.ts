@@ -17,12 +17,15 @@
  */
 import type { McpTool } from '../types';
 import { createPayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
-import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
+import { PayrollPlanChangedSinceApprovalError, readApprovedPlan } from '@/modules/accounting/services/payroll/payrollApprovedPlan';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
+import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollLoanLock';
+import { PayrollRunBusyError } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import type { DryRunResult } from '../contracts';
 import { guardCastableArgs, NOT_FOUND, ok, toolError } from './toolHelpers';
+import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 
 const POST_TOOL_AGENT = 'mcp:post_payroll_journal:v1';
 
@@ -102,7 +105,8 @@ export const postPayrollJournalTool: McpTool = {
   description:
     'Post the general-ledger journal for an APPROVED payroll run: debit labour cost with gross pay plus the employer UIF and SDL the company owes on top of it, and credit PAYE payable, UIF payable (both halves), SDL payable, any voluntary deductions, and net pay. ' +
     'This is the entry that is missing from these books. Today net pay alone is coded to Salaries & Wages, so employment cost is understated by every employer contribution and no PAYE, UIF or SDL liability is ever raised. ' +
-    'ALWAYS call it with dry_run: true first. The preview returns the complete journal — every line, both totals, the fiscal period the date falls in, and the run totals it was derived from — and it applies every check the live call applies: the run must be approved, it must not already carry a journal, the five required GL accounts (5200 labour, 2140 PAYE, 2150 UIF, 2160 SDL, 1110 bank) must exist, account 2175 must exist if there are voluntary deductions, no target account may be deactivated (inactive_target_account — the ledger refuses the posting; it does not activate them), the fiscal period covering the date must be open, the run must have something to post, and the journal must balance to the cent. If any of those fails, BOTH the preview and the live call refuse and name the reason. ' +
+    'ALWAYS call it with dry_run: true first. The preview returns the complete journal — every line, both totals, the fiscal period the date falls in, and the run totals it was derived from — and it applies every check the live call applies: the run must be approved, it must not already carry a journal, the four required GL accounts (5200 labour, 2140 PAYE, 2150 UIF, 2160 SDL) must exist, an active account must hold the bank system role of the company (net pay is credited to it, whatever its code; missing_bank_account otherwise) unless a Payroll net pay account is set in Default Accounts (see below), account 2175 must exist if there are voluntary deductions, no target account may be deactivated (inactive_target_account — the ledger refuses the posting; it does not activate them), the fiscal period covering the date must be open, the run must have something to post, and the journal must balance to the cent. If any of those fails, BOTH the preview and the live call refuse and name the reason. ' +
+    'When the company has set a Payroll net pay account in Default Accounts (a clearing liability such as 2170 Net Salaries Payable, for companies that pay salaries by bank lines allocated to it), net pay is credited to that account INSTEAD of the bank, and the bank role is not consulted. That account must be an active, non-header liability with the payroll_liability subtype, not 2140/2150/2160/2175 and not one a loan uses: otherwise the run is refused with missing_net_pay_account (the account no longer exists), not_liability_net_pay_account, not_payroll_liability_net_pay_account, header_net_pay_account, net_pay_account_conflict, loan_net_pay_account, invalid_net_pay_setting (the stored setting cannot be read), net_pay_account_shared (another line of the journal, such as a cost-centre labour mapping, uses the same account) or inactive_target_account, and it never falls back to the bank. EMP201, UIF, SARS directive and loan payments still come from the bank. ' +
     'It also does not calculate or approve the run, does not pay anyone, and does not file an EMP201. ETI is booked net of labour cost and against PAYE payable, capped at the PAYE of the run: the labour debit and the PAYE credit both fall by min(ETI, PAYE), so the PAYE credit equals the EMP201 PAYE payable. ETI beyond PAYE is not booked and is reported as an eti_beyond_paye advisory. ' +
     'Reverse a posted payroll journal in the app; this tool will refuse a run that already has one rather than post a second.',
   scope: 'write:payroll',
@@ -123,11 +127,28 @@ export const postPayrollJournalTool: McpTool = {
     if (guard) return guard;
     const runId = String(args.run_id);
 
-    // Ownership is the handler's job: the plan builder is company-scoped and
-    // returns null for a run in another tenant, which must read identically to
-    // a genuine miss.
-    const plan = await buildPayrollJournalPlan(ctx.companyId, runId);
-    if (!plan) return toolError(NOT_FOUND);
+    // A live post takes the company approval lock then the run's header (payrollRunLock.ts order) BEFORE it reads
+    // the plan, inside readApprovedPlan: the idempotency key serialises only calls that share it, so two posts under
+    // different keys, or a post beside an approval, would both read a run with no journal and each post one. Behind
+    // the locks the plan reads the winner's link and refuses (already_posted). A dry run takes no lock but judges the
+    // same things (approved; plan hash-matched to the approved plan), so it cannot greenlight a call the live path
+    // refuses. Nothing is written yet, so a lock timeout is a plain, retryable refusal. Ownership: both reads are
+    // company-scoped and a run of another tenant reads as a miss.
+    const live = args.dry_run !== true;
+    let read: Awaited<ReturnType<typeof readApprovedPlan>>;
+    try {
+      read = await readApprovedPlan(ctx.companyId, runId, { lock: live });
+    } catch (err) {
+      // The neutral wording: the holder may be an approval or another post, not a calculation.
+      if (err instanceof PayrollLoanLockTimeoutError) return toolError(new PayrollRunBusyError(runId).message);
+      if (err instanceof PayrollPlanChangedSinceApprovalError) return toolError(err.message);
+      if (err instanceof ApprovalRequiredError || (err instanceof Error && err.message.includes('reviewed approval plan'))) {
+        return toolError('A person must approve this pay run in ISAFlow before the connector can post it.');
+      }
+      throw err;
+    }
+    if (!read) return toolError(NOT_FOUND);
+    const { plan } = read;
 
     if (plan.blockers.length > 0) {
       const detail = plan.blockers.map((b) => `${b.code}: ${b.detail}`).join(' ');
@@ -180,8 +201,10 @@ export const postPayrollJournalTool: McpTool = {
     // Past this point the poster may have written. Every failure RETHROWS — a
     // returned toolError releases the savepoint, commits the partial write AND
     // frees the key for a retry that writes a second time.
+    // The plan reported above is the plan that posts: rebuilt here, the bank role could be read a second time and differ.
     const journalId = await postPayrollRunJournal(ctx.companyId, runId, ctx.userId, {
       postingAgent: POST_TOOL_AGENT,
+      plan,
     });
 
     return ok({

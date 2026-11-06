@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { recordCoding, type SupplierRule } from './supplierRulesService';
 import { attachEvidenceAndSettleApproved } from './provisionalAttachSettle';
+import type { CaptureSlipPlan } from './captureSlipReplan';
 import { resolvePendingAlertForInvoice } from './alertResolutionService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 
@@ -35,6 +36,8 @@ export interface CapturePostFollowUpInput {
   totalAmount: number;
   invoiceDate: string;
   decision: PublishedDecision;
+  /** What the line plan inherited from a provisional; the attach re-plans it when it links another, or none (P5-2b). */
+  slip?: CaptureSlipPlan;
 }
 
 export interface CapturePostFollowUps {
@@ -93,6 +96,7 @@ export async function runCapturePostFollowUps(input: CapturePostFollowUpInput): 
     totalAmount: input.totalAmount,
     invoiceDate: input.invoiceDate,
     postUnattached: true,
+    slip: input.slip,
   });
 
   // Best-effort alert resolution — non-blocking

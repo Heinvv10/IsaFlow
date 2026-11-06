@@ -11,6 +11,7 @@ import { sql } from '@/lib/neon';
 import { generateNoteNarrative, type CompanyContext } from '@/modules/accounting/services/afs/noteAiService';
 import type { NoteContent, ReportingFramework, SectionType } from '@/modules/accounting/services/afs/afsTypes';
 import type { DbRow } from '@/types/db';
+import { isAiPlaceholder } from '@/modules/accounting/services/afs/managementPackSections';
 
 // ── POST — generate AI narrative ─────────────────────────────────────────────
 
@@ -66,6 +67,8 @@ async function handleGenerate(
     UPDATE afs_sections
     SET ai_narrative = ${narrative},
         ai_enhanced  = false,
+        -- A new narrative is not the accepted one: its text is not in the blocks, so it must print.
+        ai_narrative_accepted = false,
         updated_at   = NOW()
     WHERE id = ${sectionId}::UUID
       AND document_id IN (
@@ -107,6 +110,11 @@ async function handleAccept(
   const aiNarrative = row.ai_narrative as string | null;
   if (!aiNarrative) {
     apiResponse.badRequest(res, 'No AI narrative to accept');
+    return;
+  }
+  // The AI call's failure sentence is not a narrative: accepting it would freeze it into the section's blocks.
+  if (isAiPlaceholder(aiNarrative)) {
+    apiResponse.badRequest(res, 'The AI narrative is a failure message, not text to accept');
     return;
   }
 

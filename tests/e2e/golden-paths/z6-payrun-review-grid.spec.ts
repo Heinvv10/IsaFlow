@@ -14,6 +14,7 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { Api } from './_api';
+import { clearPayRunApproval } from './helpers/payRunApproval';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 import { formatCurrency } from '../../../src/utils/formatters';
@@ -100,6 +101,8 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
     await expect(row(page)).toContainText(formatCurrency(after.netPay));
     await snap(page, 'payrun-grid-saved', 'light');
 
+    await clearPayRunApproval(api, baseURL!, runId, { selfApprove: true });
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: /review & approve/i }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByText(/^Paying 2 employees R\s[\d\s]+\.\d\d net for November 2026\. Cost to the company R\s[\d\s]+\.\d\d \(gross plus employer UIF and SDL, less ETI used\)\.$/))
@@ -119,6 +122,7 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
 for (const theme of THEMES) {
   test(`no serious axe violation on the grid, and no sideways scroll at 390 (${theme})`, async ({ page, context, baseURL }) => {
     const { api, runId } = await sandbox(context, baseURL!);
+    await clearPayRunApproval(api, baseURL!, runId, { selfApprove: true });
     await api.dispose();
     await seedTheme(page, theme);
     await page.setViewportSize({ width: 1568, height: 900 });

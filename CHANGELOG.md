@@ -30,6 +30,45 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-05 — Payroll Approval, Management Pack Hardening, AP Refusal Fixes
+
+**Payroll — Pay-Run Approval**
+
+- Pay-run approval gate with R-035 guard: `approve_pay_run` MCP tool refuses a run no person has cleared (migrations 951, 952, 953) (#1092)
+- Net pay credits to the bank-role holder account, not the hardcoded 1110; bank-role and loan bank must be asset accounts (#1146)
+- Run header locked before posting its journal to prevent concurrent double-post (#1152)
+- Loan bank must be an asset; UIF not-submitted typed as 409 (#1139)
+- Recovery posting posts only the plan its approval hashed; batch deadlock answered as retryable (#1092)
+- MCP tool-call pinned-company RLS tightened (migration 950)
+- Retirement fund component added (migration 948)
+
+**AFS / Management Pack**
+
+- Management pack sections render titled, readable content; `overrides.blocks` empty value clears generated content; row kinds allow-listed before reaching class attribute (#1145)
+- AFS document page reads its period from the route in-process, not over HTTP; accepted AI narrative prints once; `suppressReason` retained in overrides schema (#1144, #1145)
+- Statement read fault aborts the pack; non-string cell/title/list item in section content no longer crashes DOCX export (#1145)
+
+**AP — Bulk Refusal Joiner**
+
+- Bulk refusal banner joins multiple reasons without `.;` separator; normalises trailing stop; keeps ellipses; blank reason falls back gracefully (#1159)
+- Scorecard prior-column note numbered after the row notes it references (#1157)
+
+**Budgets — Phase 5**
+
+- P5-2b off-slice refuse: rows outside a holder's slice refused at manual attach; revert of P5-4 digest retry fixer (#1132, #1138)
+
+**CI**
+
+- Schema-drift parser: dollar-quoted defaults read as text; `--` / `/*` preserved inside literals; exits 2 on any parse failure, not only unbalanced quotes
+
+**Customer Invoices**
+
+- Invoice item line position column added (migration 956)
+
+Migrations: **948** (`payroll_retirement_fund`), **950** (`mcp_tool_calls_pinned_company_rls`), **951** (`pay_run_approval`), **952** (`payroll_bank_details_tenant_history`), **953** (`payroll_component_superseded_and_calc_stamp`), **954** (`budget_controls`), **955** (`budget_holder_slices`), **956** (`customer_invoice_item_line_position`)
+
+---
+
 ## 2026-11-04 — AFS Pack Export + Pack Viewer, Budgets P3/P5, MP Wave 3 Payrun Grid
 
 **AFS / Management Pack**

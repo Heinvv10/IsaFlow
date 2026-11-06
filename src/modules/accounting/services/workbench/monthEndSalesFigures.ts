@@ -45,7 +45,9 @@ export function sumAging(buckets: AgingBucket[]): { total: number; overdue: numb
   for (const b of buckets) {
     const cur = Number(b.current) || 0;
     const late = (Number(b.days30) || 0) + (Number(b.days60) || 0) + (Number(b.days90) || 0) + (Number(b.days120Plus) || 0);
-    total += cur + late;
+    // A disputed amount is still owed: it is in the total (as on the Aged Debtors screen), held outside the age buckets,
+    // so it is not counted as overdue here (nor in the current-period path's overdue amount).
+    total += cur + late + (Number(b.disputed) || 0);
     overdue += late;
   }
   return { total, overdue };

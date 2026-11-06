@@ -7,6 +7,8 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
+import { dueDateForContact } from './paymentTermsResolver';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { assertCustomerInCompany, assertSupplierInCompany } from './contactDirectoryService';
@@ -24,6 +26,9 @@ import { stampUpstreamAuthors } from '../ar/customerInvoiceUpstreamAuthors';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 import { recordBudgetRefusal } from '../budgets/budgetCheck';
 import { BudgetExceededError } from '../budgets/budgetCheckTypes';
+import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
+import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
+import { UUID_RE } from '@/lib/validation';
 
 export async function mintRecurringCustomerInvoice(
   companyId: string,
@@ -63,6 +68,9 @@ export async function mintRecurringCustomerInvoice(
   }
   // The customer's FNO is stored on each line, so it is what posts and what an approval covers (dimensionStoredPosting).
   const dims = await revenueLineDefaults(companyId, clientId);
+  // The customer's terms, else the company default (migration 960), from the date this run writes.
+  const invoiceDate = fmtDate(new Date());
+  const dueDate = await dueDateForContact(companyId, 'customer', String(clientId), invoiceDate);
   const entityId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'rec_txn_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const ciRows = (await sql`
@@ -74,8 +82,8 @@ export async function mintRecurringCustomerInvoice(
           ${invoiceNumber},
           ${clientId},
           ${clientId},
-          CURRENT_DATE,
-          CURRENT_DATE::DATE + INTERVAL '30 days',
+          ${invoiceDate}::DATE,
+          ${dueDate}::DATE,
           ${String(data.notes || template.name)},
           ${totals.subtotal},
           ${totals.taxAmount},
@@ -149,11 +157,25 @@ export async function mintRecurringSupplierInvoice(
   const supplierId = String(data.supplierId || '');
   // R-068: the template row is company-scoped, the id inside its JSON is not.
   await assertSupplierInCompany(companyId, supplierId);
-  const lines = normaliseLines(data);
+  const named = normaliseLines(data);
   // The template's JSON names accounts nothing re-checks, tenant included.
-  const accountRefusal = await billLineAccountRefusal(companyId, lines.map((l) => l.glAccountId));
+  const accountRefusal = await billLineAccountRefusal(companyId, named.map((l) => l.glAccountId));
   if (accountRefusal) {
     throw new RecurringTemplateLineAccountError(template.id, `Recurring template "${template.name}": ${accountRefusal}`);
+  }
+  // Budgets P5-2b (breaker REPRO 1): the line's dimensions as every bill writer resolves them — the template's own,
+  // else the supplier's defaults (migration 890), CC1 derived from a CC2, tenant / slot / active checked. Reads only.
+  const badDim = named.findIndex((l) => [l.cc1Id, l.cc2Id, l.buId].some((v) => v !== undefined && !UUID_RE.test(v)));
+  if (badDim >= 0) {
+    throw new RecurringTemplateLineAccountError(template.id,
+      `Recurring template "${template.name}": line ${badDim + 1} names a cost centre or business unit that is not an id.`);
+  }
+  let lines: typeof named;
+  try {
+    lines = await resolveBillLineDimensions(companyId, supplierId, named);
+  } catch (err) {
+    if (!(err instanceof DimensionRefusal)) throw err;
+    throw new RecurringTemplateLineAccountError(template.id, `Recurring template "${template.name}": ${err.message}`);
   }
   // Asserted BEFORE the first write of the run, so the route may answer 4xx.
   const totals = headerTotals(template.id, data, lines);
@@ -171,6 +193,9 @@ export async function mintRecurringSupplierInvoice(
     vatNumber = supRow?.vat_number ?? null;
   }
 
+  // The supplier's terms, else the company default (migration 960), from the date this run writes.
+  const invoiceDate = fmtDate(new Date());
+  const dueDate = await dueDateForContact(companyId, 'supplier', String(supplierId), invoiceDate);
   const entityId = await insertWithReservedNumber(
     companyId, 'supplier_invoice', 'rec_txn_bill_', 'uq_supplier_invoices_supplier_number', async (invoiceNumber) => {
       // The fingerprint carries the number, so it is rebuilt per attempt.
@@ -184,8 +209,8 @@ export async function mintRecurringSupplierInvoice(
           ${companyId}::UUID,
           ${invoiceNumber},
           ${supplierId},
-          CURRENT_DATE,
-          CURRENT_DATE::DATE + INTERVAL '30 days',
+          ${invoiceDate}::DATE,
+          ${dueDate}::DATE,
           ${String(data.reference || 'AUTO-REC')},
           ${String(data.notes || data.description || template.name)},
           ${totals.subtotal},
@@ -201,10 +226,11 @@ export async function mintRecurringSupplierInvoice(
         await sql`
           INSERT INTO supplier_invoice_items (
             supplier_invoice_id, description, quantity, unit_price, tax_rate,
-            tax_amount, line_total, gl_account_id
+            tax_amount, line_total, gl_account_id, cc1_id, cc2_id, bu_id
           ) VALUES (
             ${id}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice},
-            ${line.taxRate}, ${line.taxAmount}, ${line.lineTotal}, ${line.glAccountId}
+            ${line.taxRate}, ${line.taxAmount}, ${line.lineTotal}, ${line.glAccountId},
+            ${line.cc1Id ?? null}::UUID, ${line.cc2Id ?? null}::UUID, ${line.buId ?? null}::UUID
           )
         `;
       }

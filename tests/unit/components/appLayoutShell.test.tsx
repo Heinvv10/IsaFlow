@@ -22,7 +22,7 @@ vi.mock('next/image', () => ({ default: () => null }));
 vi.mock('@/hooks/useTrackPageVisit', () => ({ useTrackPageVisit: () => undefined }));
 vi.mock('@/lib/auth/sessionHeartbeat', () => ({ startSessionHeartbeat: () => () => undefined }));
 vi.mock('@/components/accounting/AccountingNav', () => ({ AccountingNav: () => { h.topNavMounts += 1; return null; } }));
-vi.mock('@/components/accounting/SecondaryModuleNav', () => ({ SecondaryModuleNav: () => null }));
+vi.mock('@/components/accounting/SecondaryModuleNav', () => ({ SecondaryModuleNav: ({ moduleId, navPath }: { moduleId: string; navPath?: string }) => <i data-testid="secondary-nav" data-module={moduleId} data-nav-path={navPath ?? ''} /> }));
 vi.mock('@/components/layout/SidebarNav', () => ({ SidebarNav: () => null }));
 vi.mock('@/components/layout/DrawerNav', () => ({ DrawerNav: () => <nav><a href="/accounting/customer-invoices">Invoices</a><a href="/accounting/customer-quotes">Quotes</a></nav> }));
 vi.mock('@/components/layout/CommandPalette', () => ({ CommandPalette: ({ isOpen }: { isOpen: boolean }) => (isOpen ? <div data-testid="palette" /> : null) }));
@@ -49,6 +49,16 @@ beforeEach(() => { go('/accounting'); h.auth.loading = false; h.router.push.mock
 afterEach(cleanup);
 
 describe('AppLayout', () => {
+  it('hands a page\'s navPath to the secondary nav, and nothing when the page gives none', () => {
+    go('/accounting/afs/[documentId]');
+    const { unmount } = render(<AppLayout navPath="/accounting/afs/p1?type=management_pack"><p>page</p></AppLayout>);
+    expect(screen.getByTestId('secondary-nav').getAttribute('data-module')).toBe('reports');
+    expect(screen.getByTestId('secondary-nav').getAttribute('data-nav-path')).toBe('/accounting/afs/p1?type=management_pack');
+    unmount();
+    render(page());
+    expect(screen.getByTestId('secondary-nav').getAttribute('data-nav-path')).toBe('');
+  });
+
   it('mounts PayrollPeriodBar on /payroll pages only, by segment', () => {
     go('/payroll/runs');
     const { unmount } = render(page());
