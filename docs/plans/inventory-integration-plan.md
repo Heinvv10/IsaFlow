@@ -10,8 +10,8 @@ no database was queried for this plan.
 
 | Model | Defined | Tenant key | Who writes | Who reads |
 |---|---|---|---|---|
-| `items` + `item_categories` + `item_bundle_lines` | 247:101, 247:134, 303:6 | `company_id NOT NULL`, `UNIQUE(company_id, code)` | `itemService.ts`, `/api/accounting/items` | Inventory nav (`navSections/inventory.ts:12`), `ItemPicker` (`pickerData.ts:78`), MCP `list_items` |
-| `stock_items` | 255:10 (table) | `company_id NOT NULL` | **nothing INSERTs**; `item-adjustments.ts:61` and `item-opening-balances.ts:50` UPDATE rows that cannot exist | item-adjustments, item-opening-balances, item-pricing, and 6 reports (item-listing/-quantities/-valuation/-movement, purchases-by-item) |
+| `items` + `item_categories` + `item_bundle_lines` | 247:101, 247:134, 303:6 | `company_id NOT NULL`, `UNIQUE(company_id, code)` | `itemService.ts`, `/api/accounting/items` | Inventory nav (`navSections/inventory.ts:12`), `ItemPicker` (`pickerData.ts:78`; no form mounts it), MCP `list_items` |
+| `stock_items` | 255:10 (table) | `company_id NOT NULL` | **nothing INSERTs**; `item-adjustments.ts:61` and `item-opening-balances.ts:50` UPDATE rows that cannot exist | item-adjustments, item-opening-balances, item-pricing, and 5 reports (item-listing/-quantities/-valuation/-movement, purchases-by-item) |
 | `products` + `product_categories` + `stock_movements` + `stock_adjustments` + `warehouses` + `stock_levels` | 244b | `products.company_id` **nullable**; `product_categories` has **no** `company_id` and `UNIQUE(code)` globally (244b:5-8); `stock_movements` and `stock_levels` have **no** `company_id` (244b:84,101) | `/api/accounting/products`, `/api/accounting/stock-adjustments` (no UI caller, per K-085 validation) | `stock-levels.ts`, `stockValuationService.ts`, MCP `stock_valuation`, AFS `note1PolicyFacts.ts:49` (cost method) |
 
 Correction to the brief: `stock_items` is **not** a view. Migration 253:137 declares
