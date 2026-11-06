@@ -12,6 +12,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { assertDisposableDb, isDisposableDb } from '../helpers/assertDisposableDb';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { getCashFlowDirect } from '@/modules/accounting/services/afs/cashFlowDirectService';
+import { getCashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
@@ -136,6 +137,14 @@ describeIfDb('cash flow statement (indirect) ties to the ledger cash', () => {
     const direct = await getCashFlowDirect(CO, start, end);
     expect(cents(r.net_change)).toBe(cents(direct.netChange));
     expect(cents(r.closing_cash)).toBe(cents(direct.closingCash));
+  });
+
+  it.each(PERIODS)('%s..%s: the AFS reconciliation runs the real indirect statement and finds it tied', async (start, end) => {
+    const rec = await getCashFlowReconciliation(CO, start, end);
+    const r = await report(start, end);
+    expect(rec.indirectClosing).toBe(r.closing_cash); // the closing the statement's journals reach (= the ledger's when they explain it)
+    expect(rec.isReconciled, JSON.stringify(rec)).toBe(true);
+    expect(rec.variance).toBeLessThan(0.01);
   });
 
   it('a R1 150 cash sale including VAT is R1 150 of operating cash (the adversary\'s case)', async () => {

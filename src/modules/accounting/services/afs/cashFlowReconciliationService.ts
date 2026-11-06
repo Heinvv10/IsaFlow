@@ -1,6 +1,8 @@
 import { log } from '@/lib/logger';
 import { getCashFlowDirect } from './cashFlowDirectService';
 import { getCashBalance } from '../bank/cashBalanceService';
+import { getIndirectCashFlow } from '../reports/cashFlowIndirectService';
+import { toMoney } from '@/lib/money/decimalSum';
 
 export interface CashFlowReconciliation {
   periodStart: string;
@@ -14,16 +16,13 @@ export interface CashFlowReconciliation {
 
 const TOLERANCE = 0.01;
 
-// FIXED: The previous indirect formula summed revenue/expense/AR/AP/equity adjustments
-// on top of the opening bank balance, but operated on ALL journal lines (including bank
-// lines themselves), causing massive double-counting (~R3.6M variance).
-//
-// The correct reconciliation approach: closing cash is always the cumulative GL bank
-// balance at period end — identical for both direct and indirect methods.  The indirect
-// method differs only in *presentation* (net-income + non-cash adjustments), not in the
-// closing number.  Using the authoritative GL bank balance here removes the variance.
-async function fetchIndirectClosingCash(companyId: string, _periodStart: string, periodEnd: string): Promise<number> {
-  return (await getCashBalance(companyId, periodEnd)).total;
+// The indirect closing is what the REAL indirect statement's journals reach (the Reports screen's, from
+// cashFlowIndirectService), compared with the ledger cash. It used to return the ledger cash itself, so the
+// "indirect vs direct vs bank" check could never fail. The statement always closes on the ledger's cash, so the closing its
+// journals reach is `closingCash - unexplainedDifference`: equal to the ledger's on sound books, different when they do not tie.
+async function fetchIndirectClosingCash(companyId: string, periodStart: string, periodEnd: string): Promise<number> {
+  const cf = await getIndirectCashFlow(companyId, periodStart, periodEnd);
+  return toMoney(cf.closingCash - cf.unexplainedDifference);
 }
 
 // `cash.balance.v1`. Its own copy of this query signed each account by its
