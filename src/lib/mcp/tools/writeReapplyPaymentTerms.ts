@@ -47,7 +47,7 @@ export const reapplyPaymentTermsTool: McpTool = {
       items: {
         type: 'array',
         maxItems: REAPPLY_MAX,
-        description: 'Required when dry_run is false: the confirmed pairs, taken from the preview. With dry_run true they are checked as the live call checks them and items_check says what each would do.',
+        description: 'Required when dry_run is false: the confirmed pairs, taken from the preview. With dry_run true they are checked as the live call checks them and items_check says what each would do: update, terms_changed, or not_listed (not in this preview: already on that date, closed, outside supplier_id, or past a truncated list).',
         items: {
           type: 'object',
           properties: {
