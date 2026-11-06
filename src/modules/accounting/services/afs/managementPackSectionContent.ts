@@ -2,11 +2,16 @@
 // What the generator stores for each management pack section: its content, the data snapshot behind
 // it, and the data its AI commentary is told. Every section is titled from the section vocabulary.
 import type { IncomeStatementReport, BalanceSheetReport } from '../../types/gl.types';
+import type { CashFlowDirectReport } from './cashFlowDirectService';
+import {
+  ageingBlocks, ageingFigures, bankReconciliationBlocks, bankReconciliationFigures, cashFlowBlocks, cashFlowFigures,
+  type AgeingData, type ReconciliationData,
+} from './managementPackReportSections';
 import {
   budgetBandBlocks, budgetLineBlocks, budgetSnapshot, incomeStatementContent, isBudgetSection,
   type ComparisonPlan, type PackBudget,
 } from './managementPackComparison';
-import { NO_ACTIVITY, STATEMENT_UNAVAILABLE, packSectionLabel } from './managementPackSections';
+import { NO_ACTIVITY, REPORT_UNAVAILABLE, STATEMENT_UNAVAILABLE, packSectionLabel } from './managementPackSections';
 import {
   balanceSheetTable, incomeStatementTable, longDate, type StatementColumn,
 } from './managementPackStatements';
@@ -23,6 +28,13 @@ export interface PackData {
   /** Null when the section is not enabled: the report is not read. */
   incomeReports: Periodic<IncomeStatementReport> | null;
   balanceReports: Periodic<BalanceSheetReport> | null;
+  cashFlowReports: Periodic<CashFlowDirectReport> | null;
+  debtorsAging: AgeingData | null;
+  creditorsAging: AgeingData | null;
+  /** The reconciliation sessions and the company's bank accounts (null when the section is off or unreadable). */
+  reconciliations: ReconciliationData | null;
+  /** The pack month's last day, 'YYYY-MM-DD'. */
+  periodEnd: string;
   plan: ComparisonPlan;
   budget: PackBudget | null;
   /** The approved variance notes printed under the budget_variance table (budgets P5). */
@@ -31,12 +43,15 @@ export interface PackData {
 }
 
 /** Sections that carry data of their own, and so a snapshot and AI commentary; the rest have no generator yet. */
-const COMMENTED = ['kpi_scorecard', 'income_statement', 'balance_sheet'];
-/** Commentary on a statement is never written about a statement that could not be read. */
+const COMMENTED = ['kpi_scorecard', 'income_statement', 'balance_sheet', 'cash_flow', 'debtors_ageing', 'creditors_ageing', 'bank_reconciliation'];
+/** The report behind a section that reads one: null when it was not read or could not be. */
+const reportOf = (sectionType: string, d: PackData): unknown => ({
+  income_statement: d.incomeReports, balance_sheet: d.balanceReports, cash_flow: d.cashFlowReports,
+  debtors_ageing: d.debtorsAging, creditors_ageing: d.creditorsAging, bank_reconciliation: d.reconciliations,
+} as Record<string, unknown>)[sectionType] ?? null;
+/** Commentary on a statement or report is never written about one that could not be read. */
 export const hasCommentary = (sectionType: string, data: PackData): boolean =>
-  COMMENTED.includes(sectionType)
-  && (sectionType !== 'balance_sheet' || data.balanceReports !== null)
-  && (sectionType !== 'income_statement' || data.incomeReports !== null);
+  COMMENTED.includes(sectionType) && (sectionType === 'kpi_scorecard' || reportOf(sectionType, data) !== null);
 
 /** The statement's own turnover, cost of sales and net profit: what the snapshot stores and the AI is told. Empty when there is no report. */
 export function incomeAggregate(report: IncomeStatementReport | null | undefined): Record<string, unknown> {
@@ -67,12 +82,22 @@ export function renderSection(sectionType: string, data: PackData): NoteContent 
       const statement = balanceSheetTable(balanceColumns(data.balanceReports), changeOnLastYear);
       return { title, blocks: [statement.table, ...(statement.empty ? [{ type: 'paragraph' as const, text: NO_ACTIVITY.balance_sheet }] : [])] };
     }
+    case 'cash_flow':
+      if (!data.cashFlowReports) return { title, blocks: [{ type: 'paragraph', text: STATEMENT_UNAVAILABLE }] };
+      return { title, blocks: cashFlowBlocks(columnsOf(data.cashFlowReports, (slot) => MONTH_LABELS[slot]), changeOnLastYear) };
+    case 'debtors_ageing':
+    case 'creditors_ageing': {
+      const report = sectionType === 'debtors_ageing' ? data.debtorsAging : data.creditorsAging;
+      return { title, blocks: report ? ageingBlocks(report, sectionType === 'debtors_ageing' ? 'ar' : 'ap') : [{ type: 'paragraph', text: REPORT_UNAVAILABLE }] };
+    }
+    case 'bank_reconciliation':
+      return { title, blocks: data.reconciliations ? bankReconciliationBlocks(data.reconciliations, data.periodEnd) : [{ type: 'paragraph', text: REPORT_UNAVAILABLE }] };
     case 'income_vs_budget':
       return { title, blocks: data.budget ? budgetBandBlocks(data.budget) : [] };
     case 'budget_variance':
       return { title, blocks: data.budget ? budgetLineBlocks(data.budget, data.varianceNotes) : [] };
     default:
-      // No generator yet (cover, executive summary, cash flow, ageing, ...): the viewers print a sentence for an empty section.
+      // No generator yet (cover, executive summary, revenue and expense analysis, ...): the viewers print a sentence for an empty section.
       return { title, blocks: [] };
   }
 }
@@ -104,6 +129,10 @@ export function renderSnapshot(sectionType: string, data: PackData): Record<stri
     case 'income_statement': return data.income;
     case 'balance_sheet': return balanceFigures(data.balanceReports?.current);
     case 'kpi_scorecard': return { kpis: data.kpis.map((k) => ({ key: k.key, value: k.value, priorValue: k.priorValue })) };
+    case 'cash_flow': return cashFlowFigures(data.cashFlowReports?.current);
+    case 'debtors_ageing': return ageingFigures(data.debtorsAging ?? undefined);
+    case 'creditors_ageing': return ageingFigures(data.creditorsAging ?? undefined);
+    case 'bank_reconciliation': return bankReconciliationFigures(data.reconciliations ?? undefined, data.periodEnd);
     default: return {};
   }
 }
@@ -119,6 +148,15 @@ export function commentaryInput(
     const b = data.balanceReports;
     const prior = b?.prior ?? b?.yearAgo ?? null;
     return { sectionData: balanceFigures(b?.current), priorData: prior ? balanceFigures(prior) : null };
+  }
+  if (sectionType === 'cash_flow') {
+    const c = data.cashFlowReports;
+    const prior = c?.prior ?? c?.yearAgo ?? null;
+    return { sectionData: cashFlowFigures(c?.current), priorData: prior ? cashFlowFigures(prior) : null };
+  }
+  // Their own figures, and no prior period: ageing and the reconciliations are as at a date.
+  if (sectionType === 'debtors_ageing' || sectionType === 'creditors_ageing' || sectionType === 'bank_reconciliation') {
+    return { sectionData: renderSnapshot(sectionType, data), priorData: null };
   }
   return { sectionData: data.income, priorData: incomePrior };
 }
