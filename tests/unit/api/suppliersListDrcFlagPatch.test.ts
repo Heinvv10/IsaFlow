@@ -1,10 +1,9 @@
 /**
  * PATCH /api/accounting/suppliers-list — the supplier "subject to DRC VAT" flag.
  *
- * The route deliberately edits this ONE field: there is no supplier edit
- * screen, and a general update route would put bank details one request away
- * from any writer. These pin that only the flag reaches the service, whatever
- * else the body carries.
+ * PATCH edits this ONE field (the DRC toggle on the detail page); the general edit is PUT
+ * (contactEditRoutes.test.ts). These pin that PATCH sends only the flag to the service,
+ * whatever else the body carries, so bank details are never one PATCH away.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';

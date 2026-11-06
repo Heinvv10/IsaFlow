@@ -47,7 +47,6 @@ export default function NewRecurringInvoicePage() {
     endDate: '',
     description: '',
     taxRate: 15,
-    paymentTerms: '30 days',
     autoSendEmail: false,
   });
   const [lines, setLines] = useState<LineItem[]>([newLine()]);
@@ -93,7 +92,6 @@ export default function NewRecurringInvoicePage() {
         endDate: form.endDate || undefined,
         description: form.description || undefined,
         taxRate: form.taxRate,
-        paymentTerms: form.paymentTerms,
         lineItems: lines.map(l => ({
           description: l.description, quantity: l.quantity,
           unitPrice: l.unitPrice, glAccountId: l.glAccountId || undefined,
@@ -151,16 +149,9 @@ export default function NewRecurringInvoicePage() {
                       <label htmlFor="recurring-invoices-new-description" className={lbl}>Description</label>
                       <input id="recurring-invoices-new-description" name="description" className={inp} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Shown on generated invoices" />
                     </div>
-                    <div>
-                      <label htmlFor="recurring-invoices-new-payment-terms" className={lbl}>Payment Terms</label>
-                      <select id="recurring-invoices-new-payment-terms" name="paymentTerms" className={inp} value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}>
-                        <option value="7 days">7 days</option>
-                        <option value="14 days">14 days</option>
-                        <option value="30 days">30 days</option>
-                        <option value="60 days">60 days</option>
-                        <option value="COD">COD</option>
-                      </select>
-                    </div>
+                    <p className="text-xs text-[var(--ff-text-tertiary)] self-end pb-2">
+                      Each invoice is due by the customer&apos;s payment terms, else the company default, counted from the day it is created.
+                    </p>
                   </div>
                 </div>
 

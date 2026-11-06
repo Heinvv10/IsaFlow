@@ -2,20 +2,39 @@
  * Company Settings API — Document Numbers & Messages
  * GET  ?type=document-numbers  — get document number config
  * GET  ?type=messages          — get statement/document messages
+ * GET  ?type=payment-terms     — the company's default payment terms { payment_terms, payment_terms_type }
  * PUT  ?type=document-numbers  — update document number prefixes
  * PUT  ?type=messages          — update messages
+ * PUT  ?type=payment-terms     — set the default payment terms (what a contact with none uses on a new document);
+ *                                 owner / admin only (it dates every new invoice and bill of a contact with no terms), recorded
+ *                                 in the entity history (migration 961)
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withRole, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   getDocumentNumbers, ensureDocumentNumbers, updateDocumentNumber, isRetiredDocumentNumberType,
   getCompanyMessages, upsertCompanyMessages,
 } from '@/modules/accounting/services/core/companyService';
 import type { CompanyMessage } from '@/modules/accounting/services/core/companyService';
+import { getCompanyDefaultTerms, setCompanyDefaultTerms } from '@/modules/accounting/services/core/paymentTermsResolver';
+import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
+
+/** PUT ?type=payment-terms, behind withRole('admin'): owners and admins only (the repo's company-wide admin gate). */
+async function setDefaultTerms(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyAuthedRequest;
+  const b = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+  try {
+    const t = await setCompanyDefaultTerms(companyId, b.payment_terms, b.payment_terms_type);
+    return apiResponse.success(res, { payment_terms: t.days, payment_terms_type: t.type });
+  } catch (err: unknown) {
+    if (err instanceof ContactValidationError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
+}
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -30,7 +49,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const messages = await getCompanyMessages(companyId);
       return apiResponse.success(res, messages);
     }
-    return apiResponse.badRequest(res, 'type query param required: document-numbers or messages');
+    if (type === 'payment-terms') {
+      const t = await getCompanyDefaultTerms(companyId);
+      return apiResponse.success(res, { payment_terms: t.days, payment_terms_type: t.type });
+    }
+    return apiResponse.badRequest(res, 'type query param required: document-numbers, messages or payment-terms');
   }
 
   if (req.method === 'PUT') {
@@ -64,7 +87,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const updated = await getCompanyMessages(companyId);
       return apiResponse.success(res, updated);
     }
-    return apiResponse.badRequest(res, 'type query param required: document-numbers or messages');
+    if (type === 'payment-terms') return withRole('admin')(setDefaultTerms)(req, res);
+    return apiResponse.badRequest(res, 'type query param required: document-numbers, messages or payment-terms');
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'PUT']);

@@ -22,6 +22,7 @@ import { InvoiceNumberField } from '@/components/accounting/suppliers/InvoiceNum
 import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/SupplierInvoiceSummaryCard';
 import { localISODate } from '@/lib/dateUtils';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
+import { useSupplierTermsDueDate } from '@/components/accounting/supplier-invoices/useSupplierTermsDueDate';
 import { useSupplierDimensionDefaults } from '@/components/accounting/suppliers/useSupplierDimensionDefaults';
 import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
@@ -37,6 +38,7 @@ export default function NewSupplierInvoicePage() {
   const [error, setError] = useState('');
   const dates = useDateGate();
   const [scanBanner, setScanBanner] = useState<string | null>(null);
+  const [scannedTerms, setScannedTerms] = useState('');
 
   const [form, setForm] = useState({
     invoiceNumber: '',
@@ -44,7 +46,7 @@ export default function NewSupplierInvoicePage() {
     supplierId: '',
     invoiceDate: localISODate(),
     dueDate: '',
-    paymentTerms: 'net30',
+    paymentTerms: '',
     reference: '',
     notes: '',
     taxRate: 15,
@@ -113,20 +115,20 @@ export default function NewSupplierInvoicePage() {
   // A new supplier drops the previous one's PO/GRN, exactly as a manual pick does.
   const { scan: matchVendor, notePick } = useVendorSupplierMatch(form.supplierId, id => setForm(f => ({ ...f, supplierId: id, purchaseOrderId: '', grnId: '', copyLinesFromPo: false })));
 
+  // The due date follows the supplier's terms until the user or a scanned document sets it.
+  const { claim: claimDueDate, note: dueDateNote } = useSupplierTermsDueDate({
+    supplierId: form.supplierId, invoiceDate: form.invoiceDate, invoiceTerms: form.paymentTerms, scannedTerms,
+    apply: due => { setForm(f => ({ ...f, dueDate: due })); dates.reset('dueDate'); },
+  });
+
   function handleExtracted(data: ExtractedDocument) {
     const updates: Partial<typeof form> = {};
     if (data.referenceNumber) updates.invoiceNumber = data.referenceNumber;
     if (data.date) { updates.invoiceDate = data.date; dates.reset('invoiceDate'); }
-    if (data.dueDate) { updates.dueDate = data.dueDate; dates.reset('dueDate'); }
+    if (data.dueDate) { updates.dueDate = data.dueDate; claimDueDate(); dates.reset('dueDate'); }
     if (data.purchaseOrderRef) updates.reference = data.purchaseOrderRef;
     if (data.vatRate !== null) updates.taxRate = data.vatRate;
-    if (data.paymentTerms) {
-      const pt = data.paymentTerms.toLowerCase();
-      if (pt.includes('immediate') || pt.includes('cod') || pt.includes('0 day')) updates.paymentTerms = 'immediate';
-      else if (pt.includes('30')) updates.paymentTerms = 'net30';
-      else if (pt.includes('60')) updates.paymentTerms = 'net60';
-      else if (pt.includes('90')) updates.paymentTerms = 'net90';
-    }
+    setScannedTerms(data.paymentTerms ?? ''); // a lower-ranked input than the select, which only the user fills
     setForm(f => ({ ...f, ...updates }));
     if (data.vendorName) {
       matchVendor(data.vendorName);
@@ -227,14 +229,15 @@ export default function NewSupplierInvoicePage() {
                       })); }} />
                   </div>
                   <DateField label="Invoice Date" name="invoiceDate" required value={form.invoiceDate || null} resetKey={dates.resetKey('invoiceDate')} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
-                  <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => setForm(f => ({ ...f, dueDate: iso })), form.dueDate)} />
+                  <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => { claimDueDate(); setForm(f => ({ ...f, dueDate: iso })); }, form.dueDate)} />
                   <div>
                     <label htmlFor="supplier-invoices-new-payment-terms" className={lbl}>Payment Terms</label>
                     <select id="supplier-invoices-new-payment-terms" value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>
-                      <option value="">None</option><option value="immediate">Immediate</option><option value="net30">Net 30</option><option value="net60">Net 60</option><option value="net90">Net 90</option>
+                      <option value="">None (use the supplier&apos;s terms)</option><option value="immediate">Immediate</option><option value="net30">Net 30</option><option value="net60">Net 60</option><option value="net90">Net 90</option>
                     </select>
                   </div>
                   <div><label htmlFor="supplier-invoices-new-reference" className={lbl}>Reference</label><input id="supplier-invoices-new-reference" type="text" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className={inp} placeholder="Free-text ref or delivery note" /></div>
+                  {dueDateNote && <p className="sm:col-span-2 text-xs text-ink-muted">{dueDateNote}</p>}
                 </div>
 
                 {/* 3-Way match — PO + GRN selectors */}

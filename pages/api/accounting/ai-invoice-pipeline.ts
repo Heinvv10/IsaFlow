@@ -25,7 +25,7 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 import { refusesUnattendedApproval } from '@/modules/accounting/services/core/unattendedPostingGate';
 import { computeFingerprint, findDuplicate } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { getRule, recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
-import { insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
+import { extractedBillDueDate, insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
 import { respondCapturedDocumentRefusal } from '@/modules/accounting/services/capture/capturePostingClaim';
 import {
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
@@ -198,7 +198,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return respondCapturedDocumentRefusal(res, claimRefusal);
   }
 
-  // Create supplier invoice (evidence columns stamped; hash backfilled by worker)
+  const dueDate = await extractedBillDueDate(companyId, supplierMatch.supplierId, invoiceInput); // the scan's terms rank last
+  // Create supplier invoice (evidence columns stamped; hash backfilled by worker).
   const [invoice] = (await sql`
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,
@@ -208,10 +209,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       duplicate_fingerprint
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
-      ${invoiceInput.invoiceDate}::date, ${invoiceInput.dueDate || null}::date,
+      ${invoiceInput.invoiceDate}::date, ${dueDate}::date,
       ${invoiceInput.totalAmount - invoiceInput.taxAmount}, ${invoiceInput.taxRate},
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
-      ${invoiceInput.paymentTerms || 'net30'}, ${invoiceInput.reference || null},
+      ${invoiceInput.paymentTerms || null}, ${invoiceInput.reference || null},
       ${approval.status},
       ${userId}, ${invoiceInput.notes ?? null},
       ${documentId}::uuid, NULL, ${pipelineConfidence}, 'ai:ai-invoice-pipeline:v1',

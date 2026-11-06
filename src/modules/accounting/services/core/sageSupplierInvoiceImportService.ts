@@ -20,6 +20,8 @@ import { lockMigrationImport } from './migrationPostingSupport';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
+import { COMPANY_DEFAULT_TERMS_KEY, companyTermsFromSetting, dueDateWithDefault } from '../shared/paymentTerms';
+import { fmtDate } from '@/lib/fmtDate';
 import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 
 // ── Supplier Invoice Import ─────────────────────────────────────────────────
@@ -41,8 +43,10 @@ type RowOutcome = 'imported' | 'already_in_ap' | 'failed';
  *     insensitive) on the company. None, or more than one, fails the row —
  *     supplier_id drives every AP balance, and a bill on the wrong supplier
  *     never reconciles.
- *   - due date: invoice date plus the supplier's payment_terms days. A
- *     supplier with no terms gets NO due date rather than an invented one;
+ *   - due date: what the supplier's payment terms give the invoice date
+ *     (`shared/paymentTerms`: days from the invoice, days after the
+ *     statement, or months after it); a supplier whose terms are not set uses
+ *     the company's default terms (migration 960; Hein, 2026-11-05);
  *     the ageing lists such a bill under "no due date", still owed.
  *   - VAT: none stated, so none recorded and the bill flagged (R-089,
  *     `deriveSageVat`). Never a 15% unwind of the total.
@@ -97,11 +101,12 @@ export async function importSupplierInvoices(companyId: string, userId: string):
 
           const supplierName = String(inv.supplier_name ?? '').trim();
           const suppliers = (await sql`
-            SELECT id, vat_number, payment_terms
-            FROM suppliers
-            WHERE company_id = ${companyId}::UUID
-              AND deleted_at IS NULL
-              AND lower(btrim(name)) = lower(${supplierName})
+            SELECT s.id, s.vat_number, s.payment_terms, s.payment_terms_type, d.value AS company_default_terms
+            FROM suppliers s
+            LEFT JOIN accounting_settings d ON d.company_id = s.company_id AND d.key = ${COMPANY_DEFAULT_TERMS_KEY}
+            WHERE s.company_id = ${companyId}::UUID
+              AND s.deleted_at IS NULL
+              AND lower(btrim(s.name)) = lower(${supplierName})
             LIMIT 2
           `) as DbRow[];
           if (suppliers.length !== 1) {
@@ -131,7 +136,10 @@ export async function importSupplierInvoices(companyId: string, userId: string):
             // Staging has no subtotal and no tax column, so no VAT is stated.
             const vat = deriveSageVat(null, null, totalAmount);
             rowVatNotStated = vat.vatNotStated;
-            const paymentTerms = supplier.payment_terms == null ? null : Number(supplier.payment_terms);
+            const dueDate = dueDateWithDefault(
+              fmtDate(inv.invoice_date), supplier.payment_terms == null ? null : Number(supplier.payment_terms),
+              supplier.payment_terms_type, companyTermsFromSetting(supplier.company_default_terms, companyId),
+            );
             const dupFingerprint = computeFingerprint(
               supplier.vat_number ? String(supplier.vat_number) : null, invNumber, totalAmount,
             );
@@ -146,7 +154,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
                 duplicate_fingerprint
               ) VALUES (
                 ${companyId}::UUID, ${invNumber}, ${supplierId}::UUID,
-                ${inv.invoice_date}, ${inv.invoice_date}::DATE + ${paymentTerms}::INT,
+                ${inv.invoice_date}, ${dueDate}::DATE,
                 ${vat.subtotal.toFixed(2)}, ${vat.taxRate}, ${vat.taxAmount.toFixed(2)}, ${totalAmount},
                 0, 'approved', ${sageId},
                 ${rowVatNotStated ? SAGE_VAT_NOT_STATED_NOTE : null}, ${userId},

@@ -13,6 +13,7 @@ import {
   STAMPED_BATCH_STATUSES, bankDetailsChange, hasBankDetails, lockSupplierBankDetails, recordBankDetailsSetter,
 } from '../ap/supplierPaymentAuthors';
 import { lockBatchesThenSupplierSet } from '../ap/batchBeforeSupplierLock';
+import { MAX_PAYMENT_TERMS } from '../shared/paymentTerms';
 
 
 export interface CustomerImportRow {
@@ -76,6 +77,7 @@ export async function importCustomers(
 
       if (duplicate && duplicateStrategy === 'skip') { skipped++; continue; }
 
+      const terms = importTerms(cust.paymentTerms);
       if (duplicate && duplicateStrategy === 'overwrite') {
         await sql`
           UPDATE customers SET
@@ -84,7 +86,8 @@ export async function importCustomers(
             vat_number      = COALESCE(${cust.vatNumber ?? null}, vat_number),
             billing_address = COALESCE(${cust.billingAddress ?? null}, billing_address),
             contact_person  = COALESCE(${cust.contactPerson ?? null}, contact_person),
-            payment_terms   = COALESCE(${cust.paymentTerms ?? null}, payment_terms),
+            payment_terms   = COALESCE(${terms.days}::INT, payment_terms),
+            payment_terms_type = CASE WHEN ${terms.days}::INT IS NULL THEN payment_terms_type ELSE ${terms.type}::TEXT END,
             credit_limit    = COALESCE(${cust.creditLimit ?? null}, credit_limit)
           WHERE id = ${duplicate.id}::UUID AND company_id = ${companyId}::UUID
         `;
@@ -95,12 +98,12 @@ export async function importCustomers(
       await sql`
         INSERT INTO customers (
           company_id, name, email, phone, vat_number, registration_number,
-          address, contact_person, payment_terms, credit_limit, notes
+          address, contact_person, payment_terms, payment_terms_type, credit_limit, notes
         ) VALUES (
           ${companyId}::UUID, ${cust.name}, ${cust.email ?? null}, ${cust.phone ?? null},
           ${cust.vatNumber ?? null}, ${cust.registrationNumber ?? null},
           ${cust.billingAddress ?? null}, ${cust.contactPerson ?? null},
-          ${cust.paymentTerms ?? 30}, ${cust.creditLimit ?? null}, ${cust.notes ?? null}
+          ${terms.days}::INT, ${terms.type}, ${cust.creditLimit ?? null}, ${cust.notes ?? null}
         )
       `;
       imported++;
@@ -218,16 +221,17 @@ async function importSupplierRow(
   // suppliers has `address`, not customers' `billing_address`: naming the
   // latter failed every new supplier (42703) and, with no savepoint per row,
   // aborted the request's transaction.
+  const terms = importTerms(sup.paymentTerms);
   const [created] = (await sql`
     INSERT INTO suppliers (
       company_id, name, email, phone, vat_number, registration_number,
-      address, contact_person, payment_terms,
+      address, contact_person, payment_terms, payment_terms_type,
       bank_name, bank_account_number, bank_branch_code, bank_account_type, notes
     ) VALUES (
       ${companyId}::UUID, ${sup.name}, ${sup.email ?? null}, ${sup.phone ?? null},
       ${sup.vatNumber ?? null}, ${sup.registrationNumber ?? null},
       ${sup.billingAddress ?? null}, ${sup.contactPerson ?? null},
-      ${sup.paymentTerms ?? 30},
+      ${terms.days}::INT, ${terms.type},
       ${sup.bankName ?? null}, ${sup.bankAccountNumber ?? null},
       ${sup.bankBranchCode ?? null}, ${sup.bankAccountType ?? null}, ${sup.notes ?? null}
     )
@@ -236,6 +240,15 @@ async function importSupplierRow(
   // A new supplier imported WITH bank details: the importer set where its money goes (decision (b)).
   if (created && hasBankDetails(created)) await recordBankDetailsSetter(companyId, String(created.id), importedBy, 'repointed');
   return 'imported';
+}
+
+/**
+ * The terms a CSV row carries: its number is days from the invoice (the file has no type column). A row with no
+ * number, or one that is not a whole number from 0 to 999, is imported as not set; it is never given 30.
+ */
+function importTerms(paymentTerms: number | undefined): { days: number | null; type: 'invoice_days' | null } {
+  const ok = typeof paymentTerms === 'number' && Number.isInteger(paymentTerms) && paymentTerms >= 0 && paymentTerms <= MAX_PAYMENT_TERMS;
+  return ok ? { days: paymentTerms, type: 'invoice_days' } : { days: null, type: null };
 }
 
 // ── Duplicate detection ──────────────────────────────────────────────────────

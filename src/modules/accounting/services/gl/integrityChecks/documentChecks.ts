@@ -78,7 +78,7 @@ export async function invoicesNullDueDate(ctx: IntegrityCheckContext): Promise<I
     amount: r2(num(totals[0]?.amount)),
     sample: sample(rows),
     finding:
-      'An invoice with no due date falls into no aging bucket, so it is absent from aged debtors with no error and no count. The aging is understated by this amount.',
+      'An invoice with no due date is aged from its invoice date, as if it were due the day it was raised, and is flagged due_date_missing, so aged debtors overstates how overdue it is. A due date comes from the customer\'s terms (or the company default) when the invoice is created, so one with none was written by a path that gave no date: set it on the invoice.',
   };
 }
 

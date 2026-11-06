@@ -10,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
 import { notify } from '@/utils/toast';
+import { paymentTermsBody, paymentTermsFormError } from '@/components/accounting/paymentTermsForm';
 import { CustomerForm, type CustomerFormData, INITIAL_CUSTOMER_FORM } from '@/components/accounting/CustomerForm';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -29,9 +30,8 @@ export default function NewCustomerPage() {
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
       errors.email = 'Enter a valid email address';
     }
-    if (form.payment_terms && isNaN(Number(form.payment_terms))) {
-      errors.payment_terms = 'Must be a number';
-    }
+    const termsError = paymentTermsFormError(form.payment_terms, form.payment_terms_type);
+    if (termsError) errors.payment_terms = termsError;
     if (form.credit_limit && isNaN(Number(form.credit_limit))) {
       errors.credit_limit = 'Must be a number';
     }
@@ -52,7 +52,7 @@ export default function NewCustomerPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
-          payment_terms: form.payment_terms ? Number(form.payment_terms) : 30,
+          ...paymentTermsBody(form.payment_terms, form.payment_terms_type),
           credit_limit: form.credit_limit ? Number(form.credit_limit) : null,
           default_price_list: form.default_price_list || null,
         }),
