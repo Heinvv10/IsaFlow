@@ -6,25 +6,26 @@
  * :80/:3101 (nginx). So, before the first request:
  *   1. the base URL is http://localhost:<port> with the port on the allow-list (3271-3280, the wave's own ports);
  *   2. a separate deny-list refuses the live ports whatever the allow-list says;
- *   3. the database of the server on that port is isaflow_dev;
+ *   3. every *DATABASE_URL the server on that port sees is dev Supabase's isaflow_dev (_rubricDatabaseGuard.ts);
  *   4. the logins are exactly the two dev-only QA users;
- *   5. every write happens in a harness sandbox company, never Demo;
+ *   5. every write happens in a harness sandbox company, never Demo: the harness Api checks the session's scope before
+ *      each write (guardWrites);
  *   6. /api/accounting/invoice-email is fulfilled in the browser, and the run fails if it was not hit or if any request
- *      to it was not fulfilled there;
+ *      to it was not fulfilled there; the harness Api refuses it outright;
  *   7. a browser context never switches company (the app's own recovery would move it out of the sandbox).
  */
 
 export const PORT_ALLOW_LIST: readonly number[] = [3271, 3272, 3273, 3274, 3275, 3276, 3277, 3278, 3279, 3280];
 /** Production: nginx (80, 3101) and the blue/green colours (3111, 3112). Checked before, and apart from, the allow-list. */
 export const PORT_DENY_LIST: readonly number[] = [80, 3101, 3111, 3112];
-export const DEV_DATABASE = 'isaflow_dev';
 export const REQUESTER_EMAIL = 'reporting-qa@isaflow.dev';
 export const APPROVER_EMAIL = 'reporting-qa-approver@isaflow.dev';
 export const SANDBOX_PREFIX = '0RS Rubric Sandbox ';
 export const DEMO_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 export const EMAIL_ROUTE = '/api/accounting/invoice-email';
 
-const RUN_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/** At most 14 characters: the seed's employee numbers are `RBR-<RUN ID>-n`, and the API caps them at 20. */
+const RUN_ID = /^[a-z0-9][a-z0-9-]{0,13}$/;
 
 export class RubricGuardError extends Error {
   constructor(message: string) {
@@ -60,29 +61,6 @@ export function assertBaseUrl(raw: string | undefined, allow: readonly number[] 
   return port;
 }
 
-/** The database a postgres URL connects to. A `dbname` parameter is refused: it could override the path. */
-export function databaseName(databaseUrl: string): string {
-  let url: URL;
-  try {
-    url = new URL(databaseUrl);
-  } catch {
-    throw new RubricGuardError('DATABASE_URL is not a URL');
-  }
-  if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
-    throw new RubricGuardError(`DATABASE_URL must be postgres, got ${url.protocol}`);
-  }
-  if (url.searchParams.has('dbname') || url.searchParams.has('database')) {
-    throw new RubricGuardError('DATABASE_URL must name its database in the path only');
-  }
-  return decodeURIComponent(url.pathname.replace(/^\//, ''));
-}
-
-export function assertDevDatabase(databaseUrl: string | undefined): void {
-  if (!databaseUrl) throw new RubricGuardError('the server tree has no DATABASE_URL in .env.local');
-  const name = databaseName(databaseUrl);
-  if (name !== DEV_DATABASE) throw new RubricGuardError(`the server's database is "${name}", not ${DEV_DATABASE}`);
-}
-
 /** Exactly the two dev-only QA users, compared as written (no trimming, no case folding). */
 export function assertLogins(requester: string | undefined, approver: string | undefined): void {
   if (requester !== REQUESTER_EMAIL) throw new RubricGuardError(`the requester must be ${REQUESTER_EMAIL}, got "${requester ?? ''}"`);
@@ -97,6 +75,9 @@ export function assertRunId(runId: string | undefined): string {
 }
 
 export const sandboxName = (runId: string): string => `${SANDBOX_PREFIX}${assertRunId(runId)}`;
+
+/** A seeded employee's number (at most 20 characters for a valid run id). */
+export const employeeNumber = (runId: string, n: number): string => `RBR-${assertRunId(runId).toUpperCase()}-${n}`;
 
 /** A harness sandbox: never Demo, and named for this run. */
 export function assertSandbox(company: { id: string; name: string }, runId: string): void {
@@ -128,12 +109,25 @@ export function assertSession(me: MeView, email: string, sandbox?: { id: string;
 /** Moves a session to another company. A harness browser context starts in the sandbox and must never leave it. */
 export const SWITCH_COMPANY_ROUTE = '/api/auth/switch-company';
 
+/**
+ * Is `rawUrl` (absolute, or a path) `path`, as the server would route it: dot segments resolved, percent-escapes decoded,
+ * repeated and trailing slashes dropped. A URL that does not parse cannot be requested (false); a path that does not
+ * decode is treated as a match, so the route guards fail closed.
+ */
 function hasPath(rawUrl: string, path: string): boolean {
+  let pathname: string;
   try {
-    return new URL(rawUrl).pathname.replace(/\/+$/, '') === path;
+    // A path is put under a host by hand: as a relative URL, `//api/...` would name a host called "api".
+    pathname = new URL(rawUrl.startsWith('/') ? `http://localhost${rawUrl}` : rawUrl).pathname;
   } catch {
     return false;
   }
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    return true;
+  }
+  return pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '') === path;
 }
 
 export const isEmailRoute = (rawUrl: string): boolean => hasPath(rawUrl, EMAIL_ROUTE);
@@ -143,6 +137,33 @@ export const isEmailRoute = (rawUrl: string): boolean => hasPath(rawUrl, EMAIL_R
  * user's first live membership (another sandbox, seen 2026-11-06 under load). So a harness context refuses the switch.
  */
 export const isSwitchCompanyRoute = (rawUrl: string): boolean => hasPath(rawUrl, SWITCH_COMPANY_ROUTE);
+
+/** The harness Api never calls the email route: the browser intercept is the only way the harness reaches it. */
+export function assertNotEmailRoute(path: string): void {
+  if (isEmailRoute(path)) throw new RubricGuardError(`the harness never calls the email route (${path})`);
+}
+
+/** The write methods of the golden Api (tests/e2e/golden-paths/_api.ts) that the harness uses. */
+const WRITE_METHODS = ['post', 'postRaw', 'put', 'del', 'postMultipart'] as const;
+type WriteMethod = (typeof WRITE_METHODS)[number];
+type Writer = { [M in WriteMethod]: (path: string, ...rest: never[]) => Promise<unknown> };
+
+/**
+ * Every write through `api` first refuses the email route, then awaits `beforeWrite` (the session-scope check), and
+ * only then sends. Replaces the methods on this instance: the golden Api's constructor is private, so it cannot be
+ * extended, and its helpers (fixtureCustomer...) call `this.post`, which now resolves here.
+ */
+export function guardWrites<T extends Writer>(api: T, beforeWrite: (method: WriteMethod, path: string) => Promise<void>): T {
+  for (const method of WRITE_METHODS) {
+    const send = api[method].bind(api) as (path: string, ...rest: unknown[]) => Promise<unknown>;
+    (api as Record<WriteMethod, unknown>)[method] = async (path: string, ...rest: unknown[]) => {
+      assertNotEmailRoute(path);
+      await beforeWrite(method, path);
+      return send(path, ...rest);
+    };
+  }
+  return api;
+}
 
 /** Counts the email route's requests and the ones the harness fulfilled; a request it did not fulfil reached the network. */
 export class EmailInterceptTally {

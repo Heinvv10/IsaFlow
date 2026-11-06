@@ -3,11 +3,13 @@
  * company of its own, never on production and never in Demo. Run by playwright-rubric.config.ts only; the file name is
  * not `*.spec.ts` on purpose, so no other Playwright config (several point at production) ever collects it.
  *
- * One test, serial steps. The guard (_rubricGuard.ts, _rubricSession.ts) runs before the first request. Each step
- * records into RUBRIC_EVIDENCE_DIR/rubric.json; a step whose PR has not merged records "not built" and does not fail.
- * The run fails at the end if any step failed or the invoice-email intercept was not hit (or was bypassed).
+ * One test, serial steps. The guard (_rubricGuard.ts, _rubricDatabaseGuard.ts, _rubricSession.ts) runs before the first
+ * request, and the harness Api checks the session's scope before each write. Each step records into
+ * RUBRIC_EVIDENCE_DIR/rubric.json; a step whose PR has not merged records "not built" and does not fail. A step over its
+ * limit has every page closed before the next one starts (a fresh page is opened for it). The run fails at the end if
+ * any step failed, every step was skipped, or the invoice-email intercept was not hit (or was bypassed).
  */
-import { expect, test, type Browser, type BrowserContext } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import type { Api } from '../golden-paths/_api';
 import {
   APPROVER_EMAIL, EmailInterceptTally, REQUESTER_EMAIL, assertSession, isEmailRoute, isSwitchCompanyRoute, type MeView,
@@ -54,7 +56,7 @@ async function guardBrowser(context: BrowserContext, email: string, sandbox: San
 test('rubric harness: seeded sandbox writes on dev', async ({ browser, baseURL }) => {
   const env = checkEnvironment(baseURL); // throws before any request
   const ev = new Evidence(env.evidenceDir, {
-    runId: env.runId, baseURL: env.baseURL, serverDir: env.serverDir, serverHead: env.serverHead,
+    runId: env.runId, baseURL: env.baseURL, serverDir: env.serverDir, serverHead: env.serverHead, databaseKeysJudged: env.databaseKeys,
     startedAt: new Date().toISOString(), uptimeStart: loadAverage(), requester: REQUESTER_EMAIL, approver: APPROVER_EMAIL,
   });
   const { api, sandbox } = await requesterInSandbox(env);
@@ -72,10 +74,14 @@ test('rubric harness: seeded sandbox writes on dev', async ({ browser, baseURL }
   const blockedSwitches: string[] = [];
   const context = await sandboxContext(browser, env, api, REQUESTER_EMAIL, sandbox, tally, blockedSwitches);
   const approverContext = await sandboxContext(browser, env, approverApi, APPROVER_EMAIL, sandbox, tally, blockedSwitches);
-  const page = await context.newPage();
+  // A step that overran had every page closed (Evidence.step): the next step gets fresh ones.
+  let page: Page = await context.newPage();
+  const allPages = () => [...context.pages(), ...approverContext.pages()];
+  const reopen = async () => { if (page.isClosed()) page = await context.newPage(); };
   const writes = async () => {
     await assertWriteScope(api, REQUESTER_EMAIL, sandbox);
     await guardBrowser(context, REQUESTER_EMAIL, sandbox);
+    await reopen();
   };
 
   try {
@@ -85,28 +91,32 @@ test('rubric harness: seeded sandbox writes on dev', async ({ browser, baseURL }
     ev.seed('netPay', { ...(await netPayToBank(api, hasSetting)), bankAccountId: seeded.bankAccountId });
 
     await writes();
-    await ev.step('T3 keyboard-only employee create', () => measureT3(page, ev, env.runId), page);
+    await ev.step('T3 keyboard-only employee create', () => measureT3(page, ev, env.runId), allPages);
     await writes();
     const seed: Seeded = { ...seeded, run: await seedPayRun(api) };
     ev.seed('payRun', seed.run);
     await writes();
-    await ev.step('M4 server autosave', () => measureM4(page, ev, seed), page);
+    await ev.step('M4 server autosave', () => measureM4(page, ev, seed), allPages);
     await writes();
-    await ev.step('T2 invoice to Approve & email', () => measureT2(page, ev, api, seed), page);
+    await ev.step('T2 invoice to Approve & email', () => measureT2(page, ev, api, seed), allPages);
     await writes();
-    await ev.step('M9 exclude and Undo', () => measureM9Exclude(page, ev, api, seed), page);
+    await ev.step('M9 exclude and Undo', () => measureM9Exclude(page, ev, api, seed), allPages);
     await writes();
-    await ev.step('M9 allocate and Undo', () => measureM9Allocate(page, ev, api, seed), page);
+    await ev.step('M9 allocate and Undo', () => measureM9Allocate(page, ev, api, seed), allPages);
     await writes();
-    await ev.step('M5 grid typing', () => measureM5(page, ev, api, seed), page);
+    await ev.step('M5 grid typing', () => measureM5(page, ev, api, seed), allPages);
     await writes();
     await guardBrowser(approverContext, APPROVER_EMAIL, sandbox);
-    const approverPage = await approverContext.newPage();
-    await ev.step('T4 payslip through R-035', () => measureT4(page, approverPage, ev, { requester: api, ids }, seed), page);
-    await ev.step('M7 row heights (DG)', () => measureM7(context, seed));
-    await ev.step('M8 transition durations', () => measureM8(page, ev), page);
-    await ev.step('T7 prior-period comparison', () => measureT7(page, ev), page);
-    await ev.step('NS1 invoice list controls', () => measureNs1List(page), page);
+    const decider = await approverContext.newPage();
+    await ev.step('T4 payslip through R-035', () => measureT4(page, decider, ev, { requester: api, ids }, seed), allPages);
+    await reopen();
+    await ev.step('M7 row heights (DG)', () => measureM7(context, seed), allPages);
+    await reopen();
+    await ev.step('M8 transition durations', () => measureM8(page, ev), allPages);
+    await reopen();
+    await ev.step('T7 prior-period comparison', () => measureT7(page, ev), allPages);
+    await reopen();
+    await ev.step('NS1 invoice list controls', () => measureNs1List(page), allPages);
   } finally {
     ev.meta('uptimeEnd', loadAverage());
     ev.meta('finishedAt', new Date().toISOString());

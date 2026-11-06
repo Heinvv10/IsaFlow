@@ -54,7 +54,7 @@ export async function measureM8(page: Page, ev: Evidence): Promise<StepRecord> {
   return { status: 'measured', page: INVOICES, counts, screenshot: await ev.shot(page, 'm8-invoice-list') };
 }
 
-/** T7: tick Prior period on the income statement; time until the comparative column is on screen. */
+/** T7: tick Prior period on the income statement; time until the comparative column is on screen. No column fails T7. */
 export async function measureT7(page: Page, ev: Evidence): Promise<StepRecord> {
   await page.goto('/accounting/reports/income-statement', { waitUntil: 'domcontentloaded' });
   const prior = page.getByLabel('Prior period');
@@ -63,9 +63,14 @@ export async function measureT7(page: Page, ev: Evidence): Promise<StepRecord> {
   await prior.check();
   const column = page.getByRole('columnheader', { name: /prior|variance/i }).first();
   const shown = await column.waitFor({ state: 'visible', timeout: 30_000 }).then(() => true, () => false);
+  const msToColumn = Date.now() - t0;
+  const screenshot = await ev.shot(page, 't7-income-statement-prior');
+  if (!shown) {
+    return { status: 'failed', error: 'Prior period ticked, but no comparative column within 30 s', comparativeColumn: 'not shown', screenshot };
+  }
   return {
-    status: 'measured', priorPeriodControl: true, comparativeColumnShown: shown, msToColumn: shown ? Date.now() - t0 : null,
-    columnHeader: shown ? (await column.textContent())?.trim() : null, screenshot: await ev.shot(page, 't7-income-statement-prior'),
+    status: 'measured', priorPeriodControl: true, comparativeColumn: 'shown', msToColumn,
+    columnHeader: (await column.textContent())?.trim(), screenshot,
   };
 }
 

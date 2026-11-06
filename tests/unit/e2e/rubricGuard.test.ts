@@ -5,8 +5,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   APPROVER_EMAIL, DEMO_COMPANY_ID, EmailInterceptTally, PORT_ALLOW_LIST, PORT_DENY_LIST, REQUESTER_EMAIL, RubricGuardError,
-  assertBaseUrl, assertDevDatabase, assertLogins, assertPortAllowed, assertPortNotDenied, assertRunId, assertSandbox,
-  assertSession, databaseName, isEmailRoute, isSwitchCompanyRoute, listenerPids, parseEnvFile, sandboxName, type MeView,
+  assertBaseUrl, assertLogins, assertPortAllowed, assertPortNotDenied, assertRunId, assertSandbox,
+  assertNotEmailRoute, assertSession, employeeNumber, guardWrites, isEmailRoute, isSwitchCompanyRoute, listenerPids, parseEnvFile,
+  sandboxName, type MeView,
 } from '../../e2e/rubric/_rubricGuard';
 
 const LIVE = [80, 3101, 3111, 3112];
@@ -48,6 +49,26 @@ describe('allow-list', () => {
   });
 });
 
+describe('base URL spellings from the security review (PR #1209)', () => {
+  it.each([
+    ['http://localhost:3271', 3271], ['http://LOCALHOST:3271', 3271], ['http://localhost:03271', 3271],
+    ['http://local%68ost:3271', 3271], ['http://localhost:3271/x/..', 3271],
+  ])('%s is localhost:%i', (url, port) => {
+    expect(assertBaseUrl(url)).toBe(port);
+  });
+
+  it.each([
+    ['http://127.0.0.1:3271', /host must be localhost/], ['http://[::1]:3271', /host must be localhost/],
+    ['http://0.0.0.0:3271', /host must be localhost/], ['http://localhost.evil:3271', /host must be localhost/],
+    ['http://localhost.:3271', /host must be localhost/], ['http://localhost%2e:3271', /host must be localhost/],
+    ['http://localhost:3271@host:3111', /host must be localhost/], ['http://user@localhost:3271', /credentials/],
+    ['http://localhost', /deny-list/], ['http://localhost:3111#:3271', /server root/],
+    ['http://localhost:3271\\@x:3111', /server root/],
+  ])('refuses %s', (url, msg) => {
+    refused(() => assertBaseUrl(url), msg);
+  });
+});
+
 describe('base URL shape', () => {
   it.each([
     ['https://localhost:3277', /http:\/\/localhost/],
@@ -60,27 +81,6 @@ describe('base URL shape', () => {
     [undefined, /not a URL/],
   ])('refuses %s', (url, msg) => {
     refused(() => assertBaseUrl(url), msg);
-  });
-});
-
-describe('database', () => {
-  const dev = 'postgresql://postgres@db.invalid:5432/isaflow_dev?sslmode=disable';
-
-  it('accepts isaflow_dev', () => {
-    expect(() => assertDevDatabase(dev)).not.toThrow();
-    expect(databaseName(dev)).toBe('isaflow_dev');
-  });
-
-  it.each([
-    ['postgresql://postgres@host:5432/isaflow', /"isaflow", not isaflow_dev/],
-    ['postgresql://postgres@host:5432/isaflow_dev_copy', /not isaflow_dev/],
-    ['postgresql://postgres@host:5432/ISAFLOW_DEV', /not isaflow_dev/],
-    ['postgresql://postgres@host:5432/isaflow_dev?dbname=isaflow', /path only/],
-    ['mysql://host/isaflow_dev', /must be postgres/],
-    ['', /no DATABASE_URL/],
-    [undefined, /no DATABASE_URL/],
-  ])('refuses %s', (url, msg) => {
-    refused(() => assertDevDatabase(url), msg);
   });
 });
 
@@ -118,8 +118,15 @@ describe('sandbox', () => {
     refused(() => assertSandbox({ id, name }, 'w4-before'), /not this run's sandbox/);
   });
 
-  it.each(['', 'W4', 'a b', '-x', 'x'.repeat(33), undefined])('refuses run id %s', (runId) => {
+  it.each(['', 'W4', 'a b', '-x', 'x'.repeat(15), 'x'.repeat(33), undefined])('refuses run id %s', (runId) => {
     refused(() => assertRunId(runId), /RUBRIC_RUN_ID/);
+  });
+
+  it('accepts a 14-character run id, whose employee numbers fit the API\'s 20', () => {
+    const runId = 'a'.repeat(13) + '9';
+    expect(assertRunId(runId)).toBe(runId);
+    expect(employeeNumber(runId, 2)).toBe(`RBR-${runId.toUpperCase()}-2`);
+    expect(employeeNumber(runId, 2)).toHaveLength(20);
   });
 });
 
@@ -161,6 +168,18 @@ describe('email intercept', () => {
     ['http://localhost:3277/api/accounting/invoice-email?retry=1', true],
     ['http://localhost:3277/api/accounting/invoice-emails', false],
     ['http://localhost:3277/api/accounting/customer-invoices-detail', false],
+    // The security review's spellings (PR #1209): the server routes each of these to the email handler.
+    ['http://localhost:3277//api/accounting/invoice-email', true],
+    ['http://localhost:3277/api//accounting///invoice-email', true],
+    ['http://localhost:3277/api/accounting/./invoice-email', true],
+    ['http://localhost:3277/api/accounting/x/../invoice-email', true],
+    ['http://localhost:3277/api/accounting/invoice%2Demail', true],
+    ['http://localhost:3277/api/accounting%2Finvoice-email', true],
+    // A path that does not decode: refused as if it were the route (fail closed).
+    ['http://localhost:3277/api/accounting/invoice-email%E0', true],
+    // Not a URL at all: nothing can be sent to it.
+    ['not a url', false],
+    ['', false],
   ])('%s is the email route: %s', (url, expected) => {
     expect(isEmailRoute(url)).toBe(expected);
   });
@@ -192,6 +211,56 @@ describe('email intercept', () => {
     tally.onRequest('http://localhost:3277/api/accounting/other');
     tally.onFulfilled();
     expect(() => tally.assertClean()).not.toThrow();
+  });
+});
+
+describe('harness API writes', () => {
+  type Call = [string, string];
+  function fakeApi() {
+    const calls: Call[] = [];
+    const api = {
+      post: async (path: string, _body?: unknown) => { calls.push(['post', path]); return { ok: true }; },
+      postRaw: async (path: string, _body?: unknown) => { calls.push(['postRaw', path]); return { status: 200, json: null }; },
+      put: async (path: string, _body?: unknown) => { calls.push(['put', path]); return {}; },
+      del: async (path: string, _body?: unknown) => { calls.push(['del', path]); return {}; },
+      postMultipart: async (path: string, _body?: unknown) => { calls.push(['postMultipart', path]); return {}; },
+      get: async (path: string) => { calls.push(['get', path]); return {}; },
+    };
+    return { api, calls };
+  }
+
+  it.each(['post', 'postRaw', 'put', 'del', 'postMultipart'] as const)('%s checks the scope before it writes', async (method) => {
+    const { api, calls } = fakeApi();
+    guardWrites(api, async (m, path) => { calls.push([`scope:${m}`, path]); });
+    await api[method]('/api/accounting/customers', {} as never);
+    expect(calls).toEqual([[`scope:${method}`, '/api/accounting/customers'], [method, '/api/accounting/customers']]);
+  });
+
+  it('does not write when the scope check refuses', async () => {
+    const { api, calls } = fakeApi();
+    guardWrites(api, async () => { throw new RubricGuardError('active company is Demo'); });
+    await expect(api.put('/api/payroll/runs/x/inputs')).rejects.toThrow(/active company is Demo/);
+    expect(calls).toEqual([]);
+  });
+
+  it.each(['post', 'postRaw', 'put', 'del', 'postMultipart'] as const)('%s refuses the email route in any spelling', async (method) => {
+    const { api, calls } = fakeApi();
+    guardWrites(api, async () => undefined);
+    for (const path of ['/api/accounting/invoice-email', '//api/accounting/invoice-email/', '/api/accounting/invoice%2Demail?x=1']) {
+      await expect(api[method](path, {} as never)).rejects.toThrow(/email route/);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it('leaves reads alone', async () => {
+    const { api, calls } = fakeApi();
+    guardWrites(api, async () => { throw new Error('no'); });
+    await api.get('/api/auth/me');
+    expect(calls).toEqual([['get', '/api/auth/me']]);
+  });
+
+  it('assertNotEmailRoute passes other paths', () => {
+    expect(() => assertNotEmailRoute('/api/accounting/customer-invoices-detail')).not.toThrow();
   });
 });
 

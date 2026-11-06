@@ -4,10 +4,15 @@
  *
  * T4 always runs the two-person R-035 path, payslip or not: reporting-qa submits the run for approval, the approver
  * decides it in a session of their own, and the run's stored decision must name them and not be a self-approval.
+ *
+ * No email: neither POST /api/accounting/approval-requests (request and decision) nor the run's approve sends one.
+ * Checked at the base SHA 171cbfef1 (2026-11-06, and by PR #1209's security review): no module those routes import
+ * reaches core/emailService.ts, whose importers are invitations, invoice/statement/dunning email, AFS, practice, budgets
+ * and auth mail. Re-check this if a pay-run approval notification is ever added.
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 import type { Api } from '../golden-paths/_api';
-import { notBuilt, Tally, type Evidence, type StepRecord } from './_rubricEvidence';
+import { notBuilt, skippedRerun, Tally, type Evidence, type StepRecord } from './_rubricEvidence';
 import type { Seeded } from './_rubricSeed';
 import { chooseOption, isFocused, loadedOrReload, payslip, routeMissing, waitForPost } from './_rubricUi';
 
@@ -25,7 +30,8 @@ export async function measureM5(page: Page, ev: Evidence, api: Api, seed: Seeded
   const { run, employees: [first, second], overtimeId } = seed;
   const view = () => api.get<RunView>(`/api/payroll/runs/${run.id}`);
   const line = async () => (await view()).lines.find((l) => l.employeeId === first!.id)!;
-  if ((await view()).status !== 'calculated') return { status: 'skipped', reason: `the run is ${(await view()).status} (a re-run of this run id)` };
+  const runStatus = (await view()).status;
+  if (runStatus !== 'calculated') return skippedRerun(`the pay run is ${runStatus}, so its grid is read-only`);
   await page.goto(runPage(run.id), { waitUntil: 'domcontentloaded' });
   const picker = page.getByLabel('Once-off earning component');
   const reloadsToOpen = await loadedOrReload(page, picker);
@@ -99,11 +105,12 @@ export async function measureT3(page: Page, ev: Evidence, runId: string): Promis
   const created = tally.summary();
   const reloadsToProfile = await loadedOrReload(page, page.getByTestId('employee-bank-card').getByText('•••• 1234'),
     /^Could not load (this employee|the bank details)/);
-  const ready = page.getByText(/Ready to pay|before the first pay run/).first();
-  const shown = await ready.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true, () => false);
+  // B's card, by its test id, once the bank card above has loaded: given 60 s, so a slow render is not read as absence.
+  const ready = page.getByTestId('employee-readiness-card');
+  const shown = await ready.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true, () => false);
   const readiness = shown
     ? { status: 'measured', text: (await ready.textContent())?.trim() }
-    : notBuilt('B ("Ready to pay" card) has not merged: the profile shows no readiness line');
+    : notBuilt('B ("Ready to pay" card) has not merged: no [data-testid=employee-readiness-card] within 60 s of the bank card');
   const screenshot = await ev.shot(page, 't3-profile');
   return { status: 'measured', keyboardOnly: created.clicks === 0, ...created, reloadsToForm, reloadsToProfile, maskedAccount: '•••• 1234', readiness, screenshot };
 }
@@ -115,7 +122,7 @@ export async function measureT4(page: Page, approverPage: Page, ev: Evidence, ap
   const runId = seed.run.id;
   const employeeId = seed.employees[0]!.id;
   const status = (await requester.get<RunView>(`/api/payroll/runs/${runId}`)).status;
-  if (status !== 'calculated') return { status: 'skipped', reason: `the run is ${status} (a re-run of this run id)` };
+  if (status !== 'calculated') return skippedRerun(`the pay run is ${status}, so it cannot be submitted again`);
   const payslipsBuilt = !(await routeMissing(requester, `/api/payroll/runs/${runId}/payslips?employeeId=${employeeId}`));
   const draftBefore = payslipsBuilt ? await payslip(requester, runId, employeeId) : null;
 

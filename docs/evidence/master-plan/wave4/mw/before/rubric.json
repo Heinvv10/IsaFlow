@@ -1,26 +1,35 @@
 {
   "meta": {
-    "runId": "w4-base",
+    "runId": "w4-base-r3",
     "baseURL": "http://localhost:3277",
     "serverDir": "/home/hein/Workspace/IsaFlow-mp-w4-rubric-base",
     "serverHead": "171cbfef11362d775d152cf8a59c5739252b72e4",
-    "startedAt": "2026-11-06T16:40:10.802Z",
-    "uptimeStart": "18:40:10 up 9 days, 12:31, 10 users,  load average: 28.74, 32.83, 41.15",
+    "databaseKeysJudged": [
+      "DATABASE_URL",
+      "MIGRATION_ADMIN_DATABASE_URL",
+      "PLATFORM_ADMIN_DATABASE_URL"
+    ],
+    "startedAt": "2026-11-06T21:31:22.137Z",
+    "uptimeStart": "23:31:22 up 44 min,  2 users,  load average: 61.80, 63.48, 60.45",
     "requester": "reporting-qa@isaflow.dev",
     "approver": "reporting-qa-approver@isaflow.dev",
-    "uptimeEnd": "18:44:40 up 9 days, 12:35, 10 users,  load average: 33.43, 33.25, 39.24",
-    "finishedAt": "2026-11-06T16:44:40.366Z",
+    "uptimeEnd": "23:37:00 up 50 min,  1 user,  load average: 48.94, 52.52, 56.42",
+    "finishedAt": "2026-11-06T21:37:00.622Z",
     "emailIntercept": {
       "requests": 1,
       "fulfilled": 1
     },
-    "blockedCompanySwitches": []
+    "blockedCompanySwitches": [
+      "reporting-qa@isaflow.dev at 2026-11-06T21:33:47.875Z from http://localhost:3277/accounting/customer-invoices/edit/7c670499-f55c-420d-bb67-ea8e648b33b0",
+      "reporting-qa@isaflow.dev at 2026-11-06T21:35:04.610Z from http://localhost:3277/accounting/bank-transactions?account_id=cded23a4-405f-4b0f-a046-2bbe47e4b855",
+      "reporting-qa@isaflow.dev at 2026-11-06T21:36:37.413Z from http://localhost:3277/accounting/bank-transactions?account_id=cded23a4-405f-4b0f-a046-2bbe47e4b855"
+    ]
   },
   "seed": {
     "sandbox": {
-      "id": "d2b1cd93-4ed2-4d22-a782-e4cb3235d696",
-      "name": "0RS Rubric Sandbox w4-base",
-      "runId": "w4-base"
+      "id": "4037f269-78c6-4b5f-b53c-8fc8371898ce",
+      "name": "0RS Rubric Sandbox w4-base-r3",
+      "runId": "w4-base-r3"
     },
     "objects": {
       "approver": {
@@ -28,32 +37,32 @@
         "added": true
       },
       "customer": {
-        "id": "738567cf-45bc-4dfb-8975-674b1dac25ba",
-        "name": "0RS Rubric Customer w4-base",
-        "email": "rubric-w4-base@example.invalid"
+        "id": "cc36eea3-57c4-4cbc-a10a-8029a9408051",
+        "name": "0RS Rubric Customer w4-base-r3",
+        "email": "rubric-w4-base-r3@example.invalid"
       },
-      "overtimeId": "ab2befbe-d9e4-4857-b4be-fa591250ea61",
+      "overtimeId": "03dd4807-7001-4f4b-a059-3ef2253b74cb",
       "employees": [
         {
-          "id": "32b2d82d-9c46-4b26-8e0f-560a9f286d10",
-          "employeeNumber": "RBR-W4-BASE-1",
+          "id": "29216967-dffe-41e3-8faf-74575a731bc6",
+          "employeeNumber": "RBR-W4-BASE-R3-1",
           "name": "Ruby Rubric"
         },
         {
-          "id": "6e2d9bb2-62ed-4734-98e2-4a73d700afbf",
-          "employeeNumber": "RBR-W4-BASE-2",
+          "id": "2737294c-4175-44b9-952c-f0d1263c8c7a",
+          "employeeNumber": "RBR-W4-BASE-R3-2",
           "name": "Sipho Rubric"
         }
       ],
       "openInvoice": {
-        "id": "8437034e-7ae2-4733-afed-b73489e1969f",
+        "id": "f1472dee-af49-45a0-aac0-7c109811ae05",
         "total": 1150
       },
-      "draftInvoiceId": "d06bd461-641e-4506-94af-3c9b53a87662",
-      "bankAccountId": "f1d6d485-e05f-48fb-9789-dff9c18ca594",
+      "draftInvoiceId": "7c670499-f55c-420d-bb67-ea8e648b33b0",
+      "bankAccountId": "cded23a4-405f-4b0f-a046-2bbe47e4b855",
       "bankRefs": {
-        "matching": "RBR-W4-BASE-IN",
-        "spend": "RBR-W4-BASE-OUT"
+        "matching": "RBR-W4-BASE-R3-IN",
+        "spend": "RBR-W4-BASE-R3-OUT"
       }
     },
     "r035": {
@@ -70,10 +79,10 @@
     },
     "netPay": {
       "payrollNetPay": "not applicable: the server predates the Default Accounts payroll_net_pay row (#1175)",
-      "bankAccountId": "f1d6d485-e05f-48fb-9789-dff9c18ca594"
+      "bankAccountId": "cded23a4-405f-4b0f-a046-2bbe47e4b855"
     },
     "payRun": {
-      "id": "d959d058-7ed8-42b1-ace5-bbd97d8f4ca5",
+      "id": "03fa0e2f-23a5-4769-9e8b-0032893b51b0",
       "month": 11,
       "year": 2026,
       "status": "calculated"
@@ -86,20 +95,20 @@
       "clicks": 0,
       "fields": 8,
       "keys": 114,
-      "ms": 3388,
-      "reloadsToForm": 1,
+      "ms": 4437,
+      "reloadsToForm": 0,
       "reloadsToProfile": 0,
       "maskedAccount": "•••• 1234",
       "readiness": {
         "status": "not built",
-        "reason": "B (\"Ready to pay\" card) has not merged: the profile shows no readiness line"
+        "reason": "B (\"Ready to pay\" card) has not merged: no [data-testid=employee-readiness-card] within 60 s of the bank card"
       },
       "screenshot": "t3-profile.png"
     },
     "M4 server autosave": {
       "status": "measured",
       "reloadsToOpen": 0,
-      "msToSaved": 4944,
+      "msToSaved": 2906,
       "note": "includes the autosave debounce",
       "putsOnLoad": 0,
       "putsForOneEdit": 1,
@@ -113,13 +122,13 @@
         "clicks": 5,
         "fields": 6,
         "keys": 0,
-        "ms": 8559
+        "ms": 9548
       },
       "includingSend": {
         "clicks": 6,
         "fields": 6,
         "keys": 0,
-        "ms": 9028
+        "ms": 9924
       },
       "lines": 2,
       "invoiceStatus": "approved",
@@ -144,26 +153,19 @@
       "clicks": 3,
       "fields": 0,
       "keys": 2,
-      "ms": 7624,
+      "ms": 9946,
       "screenshot": "m9-exclude-undo-toast.png"
     },
     "M9 allocate and Undo": {
-      "status": "measured",
-      "allocatedAs": "allocated",
-      "undo": "not offered",
-      "pickerReachableAt1568x900": false,
-      "note": "customer lines have no Undo by design (bankTxUndo.ts, wave-3 decision 4)",
-      "clicks": 5,
-      "fields": 2,
-      "keys": 0,
-      "ms": 16948,
-      "screenshot": "m9-allocate-after.png"
+      "status": "failed",
+      "error": "still \"Could not load some lists - reload the page\" after a reload",
+      "screenshot": "failed-m9-allocate-and-undo.png"
     },
     "M5 grid typing": {
       "status": "measured",
       "reloadsToOpen": 0,
       "pickerKind": "native",
-      "msToSaved": 923,
+      "msToSaved": 919,
       "grossDelta": 1500,
       "grossRoseBy1500": true,
       "netChanged": true,
@@ -184,13 +186,13 @@
         "clicks": 3,
         "fields": 0,
         "keys": 0,
-        "ms": 31147
+        "ms": 25491
       },
       "approverSession": {
         "clicks": 1,
         "fields": 0,
         "keys": 0,
-        "ms": 24560
+        "ms": 19413
       },
       "payslip": {
         "status": "not built",
@@ -246,8 +248,8 @@
     "T7 prior-period comparison": {
       "status": "measured",
       "priorPeriodControl": true,
-      "comparativeColumnShown": true,
-      "msToColumn": 6925,
+      "comparativeColumn": "shown",
+      "msToColumn": 7939,
       "columnHeader": "Prior",
       "screenshot": "t7-income-statement-prior.png"
     },
@@ -257,5 +259,25 @@
       "nativeStatusSelects": 1,
       "searchHasOwnLabel": false
     }
+  },
+  "summary": {
+    "measured": [
+      "T3 keyboard-only employee create",
+      "M4 server autosave",
+      "T2 invoice to Approve & email",
+      "M9 exclude and Undo",
+      "M5 grid typing",
+      "T4 payslip through R-035",
+      "M7 row heights (DG)",
+      "M8 transition durations",
+      "T7 prior-period comparison"
+    ],
+    "not built": [
+      "NS1 invoice list controls"
+    ],
+    "skipped (re-run)": [],
+    "failed": [
+      "M9 allocate and Undo"
+    ]
   }
 }

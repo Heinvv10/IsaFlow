@@ -14,20 +14,28 @@ RUBRIC_BASE_URL=http://localhost:<3271-3280> RUBRIC_RUN_ID=<id> RUBRIC_EVIDENCE_
 ```
 
 Writes `<dir>/rubric.json` (meta, seed, one record per step) and screenshots. A step is `measured`, `not built` (its PR
-has not merged; never a failure), `skipped` (a re-run of a run id whose month is already approved) or `failed`.
+has not merged; never a failure), `skipped (re-run)` (a re-run of a run id whose month is already approved) or `failed`.
+A run whose every step was skipped fails. A step over 8 minutes has its pages closed before the next step starts.
 
 ## Caller contract
 
 - The entry file is `rubric.harness.ts`, not `*.spec.ts`: several Playwright configs collect every spec under
   `tests/e2e/` and point at production. Keep the name.
-- `_rubricGuard.ts` is pure and unit-tested (`tests/unit/e2e/rubricGuard.test.ts`); a new refusal gets a test and a
-  mutation proof. The deny-list (80, 3101, 3111, 3112) is judged before the allow-list.
-- The server tree is found from the listening PID's cwd; its `.env.local` DATABASE_URL must be `isaflow_dev`.
+- `_rubricGuard.ts` and `_rubricDatabaseGuard.ts` are pure and unit-tested (`tests/unit/e2e/rubric*.test.ts`); a new
+  refusal gets a test and a mutation proof. The deny-list (80, 3101, 3111, 3112) is judged before the allow-list.
+- The server is the one PID listening on the port. Every `*DATABASE_URL*` it sees (its `/proc` environ, then its cwd's
+  env files, loaded by that tree's own `@next/env` in a child process) must be `100.96.203.105:7772/isaflow_dev` with
+  no `host`/`port`/`options`-style query parameter; its `next dev` command line may not name another project dir.
+  Each direct connection then checks `current_database()` and `inet_server_port()` (5436 behind the 7772 mapping).
+- The harness Api (`guardWrites`) refuses the email route and re-checks the session's sandbox scope before every write.
+- `RUBRIC_RUN_ID` is at most 14 characters (`employeeNumber` `RBR-<ID>-n` is capped at 20 by the API).
 - Logins: `~/.secrets/isaflow-reporting-qa.env` (requester) and `~/.secrets/isaflow-dev-approver.env` (approver).
 
 ## Business rules / gotchas
 
-- R-035: the approver is added to the sandbox as `admin` by one INSERT on isaflow_dev. Inviting would send real email.
+- R-035: the approver is added to the sandbox as `admin` (`is_default` false) by one INSERT on isaflow_dev
+  (`_rubricDb.ts`, run against a real schema in `tests/integration/rubric-add-approver.int.test.ts`). Inviting would send
+  real email. Approval requests, decisions and the run's approve send none.
 - One login per user per run: login allows 10 attempts per email per 15 min, and peers use the same QA user.
 - Browser contexts made with `browser.newContext` do not take the config's `use` timeouts: set them on the context.
 - `/api/auth/switch-company` is blocked in harness contexts. The app's CompanyContext recovery switches to the first
@@ -37,4 +45,7 @@ has not merged; never a failure), `skipped` (a re-run of a run id whose month is
 
 ## Recent changes
 
+- 2026-11-06: PR #1209 review fixes: the server's whole effective env judged, host/port pinned, write-scope check and
+  email refusal inside the harness Api, overrun steps stopped, T2's preview off T2's tally, T3 waits 60 s for B's card,
+  T7 fails when the column never shows.
 - 2026-11-06: created (MW). Before-run evidence: `docs/evidence/master-plan/wave4/mw/before/`.

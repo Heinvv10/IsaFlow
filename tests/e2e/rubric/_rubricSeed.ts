@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Api } from '../golden-paths/_api';
 import { todayInSast } from '../../../src/lib/saDateParser';
-import { REQUESTER_EMAIL } from './_rubricGuard';
+import { REQUESTER_EMAIL, employeeNumber } from './_rubricGuard';
 import { addApprover, assertWriteScope, type RubricEnv, type Sandbox } from './_rubricSession';
 
 type Named = { id: string; name: string; sarsSourceCode?: string };
@@ -32,6 +32,10 @@ export interface Seeded {
 }
 
 export const SPEND = -250;
+/** The seeded invoices' totals (VAT 15% on one line of R1 000 / R100). T2's own invoice (R1 667.50) never matches. */
+const OPEN_TOTAL = 1150;
+const DRAFT_TOTAL = 115;
+const sameCents = (amount: number | string, total: number) => Math.round(Number(amount) * 100) === total * 100;
 
 export async function seedSandbox(env: RubricEnv, api: Api, sandbox: Sandbox): Promise<Omit<Seeded, 'run'>> {
   await assertWriteScope(api, REQUESTER_EMAIL, sandbox);
@@ -51,18 +55,19 @@ export async function seedSandbox(env: RubricEnv, api: Api, sandbox: Sandbox): P
   const salaryId = await component('Basic Salary', '3601');
   const overtimeId = await component('Overtime', '3607');
 
-  const existing = await api.get<Employee[]>('/api/payroll/employees?limit=50');
+  // The list is not paged (GET returns every employee); `include=terminated` adds leavers, whose numbers are taken too.
+  const existing = await api.get<Employee[]>('/api/payroll/employees?include=terminated');
   const employees: Seeded['employees'] = [];
   for (const [n, firstName, lastName, salary] of [[1, 'Ruby', 'Rubric', 30000], [2, 'Sipho', 'Rubric', 24000]] as const) {
-    const employeeNumber = `RBR-${tag}-${n}`;
-    let id = existing.find((e) => e.employeeNumber === employeeNumber)?.id;
+    const number = employeeNumber(env.runId, n);
+    let id = existing.find((e) => e.employeeNumber === number)?.id;
     if (!id) {
       id = (await api.post<{ id: string }>('/api/payroll/employees', {
-        employeeNumber, firstName, lastName, employmentType: 'permanent', startDate: '2024-01-01',
+        employeeNumber: number, firstName, lastName, employmentType: 'permanent', startDate: '2024-01-01',
       })).id;
       await api.post(`/api/payroll/employees/${id}/components`, { componentId: salaryId, amount: salary, effectiveFrom: '2024-01-01' });
     }
-    employees.push({ id, employeeNumber, name: `${firstName} ${lastName}` });
+    employees.push({ id, employeeNumber: number, name: `${firstName} ${lastName}` });
   }
 
   const invoices = (await api.get<{ invoices: Invoice[] }>(
@@ -71,13 +76,15 @@ export async function seedSandbox(env: RubricEnv, api: Api, sandbox: Sandbox): P
     clientId: customerId, invoiceDate: todayInSast(), taxRate: 15, currencyCode: 'ZAR', exchangeRate: 1,
     items: [{ description, quantity: 1, unitPrice }],
   })).id;
-  let openId = invoices.find((i) => i.status === 'approved')?.id;
+  // Found by status AND seeded total: T2's leftover (approved, if its cancel failed) is another amount.
+  let openId = invoices.find((i) => i.status === 'approved' && sameCents(i.total_amount, OPEN_TOTAL))?.id;
   if (!openId) {
     openId = await create(`Rubric open invoice ${env.runId}`, 1000);
     await api.post('/api/accounting/customer-invoices-detail', { id: openId, action: 'approve' });
   }
   const open = await api.get<Invoice>(`/api/accounting/customer-invoices-detail?id=${openId}`);
-  const draftInvoiceId = invoices.find((i) => i.status === 'draft')?.id ?? await create(`Rubric draft ${env.runId}`, 100);
+  const draftInvoiceId = invoices.find((i) => i.status === 'draft' && sameCents(i.total_amount, DRAFT_TOTAL))?.id
+    ?? await create(`Rubric draft ${env.runId}`, 100);
 
   const accounts = await api.get<Array<{ id: string }>>('/api/accounting/bank-accounts');
   if (!accounts[0]) throw new Error('the sandbox has no bank account (the standard chart makes one)');
@@ -112,7 +119,7 @@ export async function seedPayRun(api: Api): Promise<Seeded['run']> {
 export async function bankLine(api: Api, bankAccountId: string, ref: string, status?: string): Promise<{ id: string; status: string } | undefined> {
   const q = new URLSearchParams({ bank_account_id: bankAccountId, search: ref, ...(status ? { status } : {}) });
   const res = await api.get<{ transactions: Array<{ id: string; status: string; description?: string }> }>(`/api/accounting/bank-transactions?${q}`);
-  return res.transactions.find((t) => (t.description ?? '').includes(ref)) ?? res.transactions[0];
+  return res.transactions.find((t) => (t.description ?? '').includes(ref));
 }
 
 async function importLines(api: Api, bankAccountId: string, refs: Seeded['bankRefs'], amount: number): Promise<void> {

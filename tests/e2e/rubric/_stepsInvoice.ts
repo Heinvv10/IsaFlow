@@ -41,23 +41,27 @@ export async function measureM4(page: Page, ev: Evidence, seed: Seeded): Promise
   };
 }
 
-/** PV: the unsaved invoice's PDF preview, once the route exists. */
-async function preview(page: Page, api: Api, tally: Tally): Promise<StepRecord> {
+/**
+ * PV: the unsaved invoice's PDF preview, once the route exists. Its clicks are tallied apart from T2's, so T2's count
+ * compares the same path before PV (no preview) and after it.
+ */
+async function preview(page: Page, api: Api): Promise<StepRecord> {
   if (await routeMissing(api, '/api/accounting/invoice-pdf-preview')) {
     return notBuilt('PV (invoice preview before the first save) has not merged: /api/accounting/invoice-pdf-preview does not exist');
   }
-  const t0 = Date.now();
+  const tally = new Tally(page);
   await tally.click(page.getByRole('button', { name: /preview/i }).first());
   await expect(page.locator('iframe').first()).toBeVisible({ timeout: 60_000 });
-  const ms = Date.now() - t0;
+  const msToPreview = tally.summary().ms;
   const close = page.getByRole('button', { name: /^close/i }).first();
   if (await close.isVisible()) await tally.click(close);
-  return { status: 'measured', msToPreview: ms };
+  return { status: 'measured', msToPreview, clicks: tally.summary().clicks };
 }
 
 /**
  * T2: two lines, one discounted, Approve & email up to the open email form, then Send, which the context's intercept
- * answers. Records clicks, fields and time to the open form. The invoice is cancelled afterwards.
+ * answers. Records clicks, fields and time to the open form (the preview's clicks and time apart). The invoice is cancelled
+ * afterwards.
  */
 export async function measureT2(page: Page, ev: Evidence, api: Api, seed: Seeded): Promise<StepRecord> {
   await page.goto(NEW, { waitUntil: 'domcontentloaded' });
@@ -75,7 +79,7 @@ export async function measureT2(page: Page, ev: Evidence, api: Api, seed: Seeded
   await tally.fill(page.getByLabel('Unit price').nth(1), '500');
   await tally.click(page.getByRole('button', { name: /disc\. %/i }));
   await tally.fill(page.getByLabel('Discount %').nth(1), '10');
-  const pv = await preview(page, api, tally);
+  const pv = await tally.offClock(() => preview(page, api)); // neither its clicks nor its time are T2's
 
   const created = waitForPost(page, CREATE);
   await tally.click(page.getByRole('button', { name: /approve & email/i }));

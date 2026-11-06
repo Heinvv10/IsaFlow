@@ -1,7 +1,7 @@
 /**
  * Small UI and probe helpers the rubric steps share (master plan wave 4, MW).
  */
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page, type Response } from '@playwright/test';
 import type { Api } from '../golden-paths/_api';
 
 /**
@@ -46,8 +46,15 @@ export async function payslip(api: Api, runId: string, employeeId: string): Prom
   return { pdf, draft: pdf && /DRAFT/.test(await pdfText(body)) };
 }
 
-export const waitForPost = (page: Page, path: string) =>
-  page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === path, { timeout: 60_000 });
+/**
+ * The next POST to `path`. Started before the action that sends it; when that action throws first, nobody awaits this
+ * promise, so a no-op handler is attached to keep its later rejection from being unhandled (the caller still sees it).
+ */
+export function waitForPost(page: Page, path: string): Promise<Response> {
+  const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === path, { timeout: 60_000 });
+  response.catch(() => undefined);
+  return response;
+}
 
 /**
  * Waits for `ready`; when the page shows its own "Could not load" instead (a client fetch that gave up, seen under box
