@@ -11,6 +11,7 @@ import billsRoute from '../../pages/api/accounting/supplier-invoices';
 import remainingRoute from '../../pages/api/accounting/budgets/remaining';
 import detailRoute from '../../pages/api/accounting/supplier-invoices-detail';
 import matchRoute from '../../pages/api/accounting/supplier-invoices/[id]/three-way-match';
+import { readMatchInputs } from '@/modules/accounting/services/ap/threeWayMatchState';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, dropBillFixture, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
 import { approvePo, makePo } from './helpers/budgetPoFixture';
@@ -117,6 +118,31 @@ describe('a bill copied from a PO', () => {
     const id = (r.body as { data: { id: string } }).data.id;
     const read = await match(id, 'GET');
     expect((read.body as { data: { hasPurchaseOrder: boolean } }).data.hasPurchaseOrder).toBe(false);
+  });
+
+  it('a forged link to another company\'s PO and GRN lines matches nothing', async () => {
+    const mine = await makePo(pool, f, MONTH, [{ acct: f.acc.opex, amount: 60, cc1: f.cc.FT }]);
+    await approved(mine.po);
+    const bill = await billFromPo(mine.po, mine.items[0]!, 60);
+    const theirs = await makePo(pool, other, MONTH, [{ acct: other.acc.opex, amount: 60, cc1: other.cc.FT }]);
+    await pool.query('UPDATE supplier_invoices SET purchase_order_id = $1 WHERE id = $2', [theirs.po, bill]);
+    await pool.query('UPDATE supplier_invoice_items SET po_item_id = $1 WHERE supplier_invoice_id = $2', [theirs.items[0], bill]);
+    const read = await match(bill, 'GET');
+    expect((read.body as { data: { itemResults: Array<{ poQuantity: number; poUnitPrice: number }> } }).data.itemResults[0])
+      .toMatchObject({ poQuantity: 0, poUnitPrice: 0 });
+    const posted = await match(bill, 'POST');
+    expect((posted.body as { data: { matchStatus: string } }).data.matchStatus).toBe('unmatched');
+  });
+
+  it('the inputs read filters by company itself, with no RLS behind it (the service pool has no claims)', async () => {
+    const theirs = await makePo(pool, other, MONTH, [{ acct: other.acc.opex, amount: 60, cc1: other.cc.FT }]);
+    const grn = crypto.randomUUID();
+    await pool.query(`INSERT INTO goods_received_notes (id, company_id, grn_number, purchase_order_id, received_by)
+      VALUES ($1, $2, $3, $4, $5)`, [grn, other.co, `GRN-${grn.slice(0, 8)}`, theirs.po, other.owner]);
+    await pool.query('INSERT INTO grn_items (grn_id, po_item_id, quantity_received) VALUES ($1, $2, 1)', [grn, theirs.items[0]]);
+    const read = (co: string) => readMatchInputs(co, { supplierId: other.supplier, purchaseOrderId: theirs.po, grnId: grn });
+    expect(await read(other.co)).toMatchObject({ poItems: [{ id: theirs.items[0] }], grnItems: [{ po_item_id: theirs.items[0] }] });
+    expect(await read(f.co)).toMatchObject({ poItems: [], grnItems: [] });
   });
 
   it('another company\'s id reads as nothing', async () => {

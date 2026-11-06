@@ -56,6 +56,34 @@ export function overallMatchStatus(lines: ReadonlyArray<{ lineMatchStatus: Invoi
   return 'unmatched';
 }
 
+/** How far the invoice is from the PO, in percent; as `validateThreeWayMatch` judges it, with the sign kept. */
+const variancePct = (invoice: number, po: number): number => (po > 0 ? (invoice - po) / po * 100 : invoice > 0 ? 100 : 0);
+
+/** One bill line against its PO line and GRN line: the one judgement both the panel and `performThreeWayMatch` use. */
+export function judgeMatchLine(
+  line: { poItemId?: string | null; quantity: number; unitPrice: number }, inputs: MatchInputs,
+) {
+  const poItem = line.poItemId ? inputs.poItems.find((p) => String(p.id) === String(line.poItemId)) : undefined;
+  const grnItem = poItem ? inputs.grnItems.find((g) => String(g.po_item_id) === String(poItem.id)) : undefined;
+  const poQuantity = poItem ? Number(poItem.quantity) : 0;
+  const poUnitPrice = poItem ? Number(poItem.unit_price) : 0;
+  const grnQuantityReceived = grnItem ? Number(grnItem.quantity_received) : 0;
+  return {
+    poQuantity, poUnitPrice, grnQuantityReceived,
+    qtyVariancePct: variancePct(line.quantity, poQuantity),
+    priceVariancePct: variancePct(line.unitPrice, poUnitPrice),
+    match: validateThreeWayMatch({
+      poQuantity, poUnitPrice, grnQuantityReceived, invoiceQuantity: line.quantity, invoiceUnitPrice: line.unitPrice,
+      qtyTolerancePercent: inputs.qtyTolerance, priceTolerancePercent: inputs.priceTolerance,
+    }),
+  };
+}
+
+export async function matchableInvoiceExists(companyId: string, invoiceId: string): Promise<boolean> {
+  const rows = (await sql`SELECT 1 FROM supplier_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID LIMIT 1`) as DbRow[];
+  return rows.length > 0;
+}
+
 export interface MatchLine {
   invoiceItemId: string;
   description: string;
@@ -119,26 +147,18 @@ export async function readThreeWayMatchState(companyId: string, invoiceId: strin
   });
   const summary = { totalLines: items.length, fullyMatched: 0, priceMismatches: 0, quantityMismatches: 0, grnMismatches: 0 };
   const itemResults = items.map((item): MatchLine => {
-    const poItem = item.po_item_id ? inputs.poItems.find((p) => String(p.id) === String(item.po_item_id)) : undefined;
-    const grnItem = poItem ? inputs.grnItems.find((g) => String(g.po_item_id) === String(poItem.id)) : undefined;
-    const poQuantity = poItem ? Number(poItem.quantity) : 0;
-    const poUnitPrice = poItem ? Number(poItem.unit_price) : 0;
-    const grnQuantityReceived = grnItem ? Number(grnItem.quantity_received) : 0;
     const invoiceQuantity = Number(item.quantity);
     const invoiceUnitPrice = Number(item.unit_price);
-    const match = validateThreeWayMatch({
-      poQuantity, poUnitPrice, grnQuantityReceived, invoiceQuantity, invoiceUnitPrice,
-      qtyTolerancePercent: inputs.qtyTolerance, priceTolerancePercent: inputs.priceTolerance,
-    });
+    const { match, ...figures } = judgeMatchLine(
+      { poItemId: item.po_item_id ? String(item.po_item_id) : null, quantity: invoiceQuantity, unitPrice: invoiceUnitPrice }, inputs,
+    );
     if (match.status === 'fully_matched') summary.fullyMatched += 1;
     if (!match.priceMatch) summary.priceMismatches += 1;
     if (!match.quantityMatch) summary.quantityMismatches += 1;
     if (!match.grnMatch) summary.grnMismatches += 1;
     return {
       invoiceItemId: String(item.id), description: String(item.description ?? ''),
-      poQuantity, invoiceQuantity, grnQuantityReceived, poUnitPrice, invoiceUnitPrice,
-      qtyVariancePct: (invoiceQuantity - poQuantity) / Math.max(poQuantity, 1) * 100,
-      priceVariancePct: (invoiceUnitPrice - poUnitPrice) / Math.max(poUnitPrice, 1) * 100,
+      ...figures, invoiceQuantity, invoiceUnitPrice,
       lineMatchStatus: match.status,
       mismatches: match.mismatches,
     };

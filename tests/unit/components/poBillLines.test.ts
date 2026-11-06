@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 
 import { billLineFromPo, mergePoAccounts, poLinesFromOrder, LINKABLE_PO_STATUSES } from '@/components/accounting/suppliers/poBillLines';
+import { restampLines } from '@/components/accounting/suppliers/useSupplierDimensionDefaults';
 import { COMMITTING_PO_STATUSES } from '@/modules/accounting/services/budgets/remainingCommitted';
 
 const row = {
@@ -73,5 +74,21 @@ describe('mergePoAccounts', () => {
     const [blank] = poLinesFromOrder({ status: 'approved', items: [{ id: 'i' }] });
     const [offered] = poLinesFromOrder({ status: 'approved', items: [{ ...row, gl_account_id: 'a' }] });
     expect(mergePoAccounts(list, [blank!, offered!])).toBe(list);
+  });
+});
+
+describe('the supplier defaults arriving after a copy', () => {
+  const none = { cc2Id: '', buId: '' };
+
+  it('fill a copied line with no dimensions of its own', () => {
+    const [bare] = poLinesFromOrder({ status: 'approved', items: [{ ...row, cc1_id: null, cc2_id: null, bu_id: null }] });
+    const [line] = restampLines([billLineFromPo(bare!, none, 'k')], none, defaults);
+    expect(line).toMatchObject({ cc2Id: 'supplier-cc2', buId: 'supplier-bu', poItemId: 'item-1' });
+  });
+
+  it('leave a copied line alone when it names a CC1: a default CC2 could conflict with it', () => {
+    const [only] = poLinesFromOrder({ status: 'approved', items: [{ ...row, cc2_id: null, bu_id: null }] });
+    const [line] = restampLines([billLineFromPo(only!, none, 'k')], none, defaults);
+    expect(line).toMatchObject({ cc1Id: 'cc1', cc2Id: '', buId: '' });
   });
 });

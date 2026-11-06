@@ -132,6 +132,8 @@ export default function NewSupplierInvoicePage() {
       matchVendor(data.vendorName);
     }
     if (data.lineItems.length > 0) {
+      // The scan's lines replace any copied from the PO, so the form must stop saying they were.
+      setForm(f => ({ ...f, copyLinesFromPo: false }));
       setLines(data.lineItems.map(li => ({
         key: crypto.randomUUID(), description: li.description,
         quantity: li.quantity ?? 1, unitPrice: li.unitPrice ?? 0,

@@ -11,7 +11,7 @@ import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { validateThreeWayMatch } from '../../utils/threeWayMatch';
 import { getSupplierInvoiceById } from './supplierInvoiceService';
-import { overallMatchStatus, readMatchInputs } from './threeWayMatchState';
+import { judgeMatchLine, overallMatchStatus, readMatchInputs } from './threeWayMatchState';
 import type { SupplierInvoice } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
@@ -389,34 +389,14 @@ export async function performThreeWayMatch(
     return { invoiceId, matchStatus: 'unmatched', itemResults: [] };
   }
 
-  const { qtyTolerance, priceTolerance, poItems, grnItems } = await readMatchInputs(companyId, {
+  const inputs = await readMatchInputs(companyId, {
     supplierId: invoice.supplierId, purchaseOrderId: invoice.purchaseOrderId, grnId: invoice.grnId,
   });
 
   const itemResults: ThreeWayMatchItemResult[] = [];
 
   for (const item of (invoice.items ?? [])) {
-    const poItem = item.poItemId ? poItems.find((p: Row) => String(p.id) === item.poItemId) : null;
-    const grnItem = poItem
-      ? grnItems.find((g: Row) => String(g.po_item_id) === String(poItem.id))
-      : null;
-
-    const poQty = poItem ? Number(poItem.quantity) : 0;
-    const poPrice = poItem ? Number(poItem.unit_price) : 0;
-    const grnQtyReceived = grnItem ? Number(grnItem.quantity_received) : 0;
-
-    const qtyVariancePct = (item.quantity - poQty) / Math.max(poQty, 1) * 100;
-    const priceVariancePct = (item.unitPrice - poPrice) / Math.max(poPrice, 1) * 100;
-
-    const match = validateThreeWayMatch({
-      poQuantity: poQty,
-      poUnitPrice: poPrice,
-      grnQuantityReceived: grnQtyReceived,
-      invoiceQuantity: item.quantity,
-      invoiceUnitPrice: item.unitPrice,
-      qtyTolerancePercent: qtyTolerance,
-      priceTolerancePercent: priceTolerance,
-    });
+    const { match, qtyVariancePct, priceVariancePct } = judgeMatchLine(item, inputs);
 
     const lineMatchStatus = match.status;
 
