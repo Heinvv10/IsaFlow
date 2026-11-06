@@ -48,6 +48,8 @@ const ROUTES: Array<[string, string[], Record<string, unknown>]> = [
   ['accounting/sage-migration-action', ALL, { action: 'noop' }],
   ['accounting/run-depreciation', ALL, {}],
   ['accounting/vat-declared-elsewhere', ALL, { action: 'mark', kind: 'customer', invoiceIds: [ID], reason: 'r' }],
+  // GET reads the company's default terms for every member; withRole gates the PUT of ?type=payment-terms only (961).
+  ['accounting/company-settings', ['PUT'], { payment_terms: 30, payment_terms_type: 'invoice_days' }],
   // GET lists locks for every member; withRole gates the unlock action only.
   ['accounting/vat-period-locks', ['POST'], { action: 'unlock', lockId: ID, reason: 'filed in error' }],
 ];
@@ -67,7 +69,7 @@ function makeRes() {
 }
 function makeReq(method: string, companyRole: string, body: Record<string, unknown>): NextApiRequest {
   return {
-    method, headers: {}, cookies: {}, query: { id: ID }, body,
+    method, headers: {}, cookies: {}, query: { id: ID, type: 'payment-terms' }, body,
     companyId: '11111111-1111-4111-8111-111111111111', companyRole, user: { id: 'u-1', email: 'u@example.com' },
   } as unknown as NextApiRequest;
 }

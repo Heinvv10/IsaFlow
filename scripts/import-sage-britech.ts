@@ -48,8 +48,8 @@ async function importCustomers() {
   let ok = 0;
   for (const c of data.customers) {
     try {
-      await sql`INSERT INTO customers (company_id, name, email, phone, vat_number, contact_person, credit_limit, is_active, opening_balance, accepts_electronic_invoices, auto_allocate_receipts, mobile)
-        VALUES (${CID}::UUID, ${c.Name}, ${c.Email || null}, ${c.Telephone || null}, ${c.TaxReference || null}, ${c.ContactName || null}, ${c.CreditLimit || 0}, ${c.Active}, ${c.Balance || 0}, ${c.AcceptsElectronicInvoices || false}, ${c.AutoAllocateToOldestInvoice || false}, ${c.Mobile || null})`;
+      await sql`INSERT INTO customers (company_id, name, email, phone, vat_number, contact_person, credit_limit, is_active, opening_balance, accepts_electronic_invoices, auto_allocate_receipts, mobile, payment_terms, payment_terms_type)
+        VALUES (${CID}::UUID, ${c.Name}, ${c.Email || null}, ${c.Telephone || null}, ${c.TaxReference || null}, ${c.ContactName || null}, ${c.CreditLimit || 0}, ${c.Active}, ${c.Balance || 0}, ${c.AcceptsElectronicInvoices || false}, ${c.AutoAllocateToOldestInvoice || false}, ${c.Mobile || null}, NULL, NULL)`;
       ok++;
     } catch (e: unknown) { console.error(`  ERR ${c.Name}: ${errMsg(e)}`); }
   }
@@ -61,8 +61,8 @@ async function importSuppliers() {
   let ok = 0;
   for (const s of data.suppliers) {
     try {
-      await sql`INSERT INTO suppliers (company_id, name, email, phone, vat_number, contact_person, is_active, opening_balance, mobile, fax, web_address, auto_allocate_payments)
-        VALUES (${CID}::UUID, ${s.Name}, ${s.Email || null}, ${s.Telephone || null}, ${s.TaxReference || null}, ${s.ContactName || null}, ${s.Active}, ${s.Balance || 0}, ${s.Mobile || null}, ${s.Fax || null}, ${s.WebAddress || null}, ${s.AutoAllocateToOldestInvoice || false})`;
+      await sql`INSERT INTO suppliers (company_id, name, email, phone, vat_number, contact_person, is_active, opening_balance, mobile, fax, web_address, auto_allocate_payments, payment_terms, payment_terms_type)
+        VALUES (${CID}::UUID, ${s.Name}, ${s.Email || null}, ${s.Telephone || null}, ${s.TaxReference || null}, ${s.ContactName || null}, ${s.Active}, ${s.Balance || 0}, ${s.Mobile || null}, ${s.Fax || null}, ${s.WebAddress || null}, ${s.AutoAllocateToOldestInvoice || false}, NULL, NULL)`;
       ok++;
     } catch (e: unknown) { console.error(`  ERR ${s.Name}: ${errMsg(e)}`); }
   }

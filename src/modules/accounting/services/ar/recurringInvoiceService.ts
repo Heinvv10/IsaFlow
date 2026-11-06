@@ -105,7 +105,7 @@ export async function createRecurringInvoice(companyId: string,
       ${input.projectId || null}, ${input.frequency}, ${dates.nextRunDate},
       ${dates.endDate}, ${input.description || null},
       ${JSON.stringify(input.lineItems)}::JSONB, ${subtotal}, ${taxRate},
-      ${taxAmount}, ${totalAmount}, ${input.paymentTerms || '30 days'}, ${userId}::UUID,
+      ${taxAmount}, ${totalAmount}, ${input.paymentTerms || null}, ${userId}::UUID,
       ARRAY[${userId}::UUID]
     ) RETURNING *
   `) as Row[];
