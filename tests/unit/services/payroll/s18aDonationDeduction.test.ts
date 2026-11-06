@@ -272,6 +272,17 @@ describe('4030 is cumulative over the tax year', () => {
     expect(line([salary(20_000), ra(3_000), donation(-1_000)], true, ytd).sdlLeviable).toBe(17_000);
   });
 
+  it('a donation from before the rule is not read as periodic pay in the retirement split', () => {
+    // R50 000 donated on a R10 000 salary before the rule: nothing of it is known to have come off periodic pay.
+    const ytd: PayeYearToDate = {
+      periods: 1, retirementCapPeriods: 1, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0,
+      additionalMedicalCredit: 0, medicalSchemeFees: 0, retirementContributions: 0, retirementDeduction: 0,
+      donations: 50_000, donationReceipted: 0, donationBase: 0, donationDeduction: 0,
+      sdlApplicable: 10_000, sdlLeviable: 10_000, sdlRetirementDeduction: 0, sdlDonationDeduction: 0,
+    };
+    expect(line([salary(10_000), ra(50_000)], true, ytd).retirementDeduction).toBe(10_000);
+  });
+
   it('reversing a donation from before the rule still takes it back', () => {
     const ytd: PayeYearToDate = {
       periods: 1, retirementCapPeriods: 1, periodicTaxable: 19_000, annualPayments: 0, tablePaye: 0, medicalCredit: 0,

@@ -190,7 +190,9 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // only an annual payment counts as one.
   // Split on the pay before donations, so the deduction is the same with or without one. A donation then has less
   // periodic pay to come off than the deduction took, and that part comes off the annual payments (donationSpill).
-  const offPeriodic = Math.min(deduction, annualEquivalent + (periods > 0 ? annualise(donations) : 0));
+  // Only donations under the s18A rule (migration 959), which come off periodic pay; an older line's may not have.
+  const periodicDonations = Math.max(0, (ytd.donationDeduction ?? 0) + (input.donations ?? 0));
+  const offPeriodic = Math.min(deduction, annualEquivalent + (periods > 0 ? annualise(periodicDonations) : 0));
   const periodicToDate = (offPeriodic * periods) / PERIODS_IN_YEAR;
   const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
     + (hasPeriodic || input.annualPaymentRemuneration > 0 ? 1 : 0);
