@@ -14,15 +14,25 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fetchRawBytes } from '@/lib/documentStorage';
+import { magicBytesMatchMime } from '@/lib/fileMagic';
 
 const MAX_MIRROR_BYTES = 2 * 1024 * 1024;
 
+// captured_documents.file_type is a short name from most writers and a full MIME type from the email mirror
+// (imapMirrorIngest). Both must land on the same type: a miss stores application/octet-stream.
 const MIME_BY_FILE_TYPE: Record<string, string> = {
   pdf: 'application/pdf',
+  'application/pdf': 'application/pdf',
   jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  'image/jpeg': 'image/jpeg',
+  'image/jpg': 'image/jpeg',
   png: 'image/png',
+  'image/png': 'image/png',
   webp: 'image/webp',
+  'image/webp': 'image/webp',
   tiff: 'image/tiff',
+  'image/tiff': 'image/tiff',
 };
 
 export type AttachToBankTxResult =
@@ -107,7 +117,10 @@ async function mirrorIntoAttachments(
       return false;
     }
 
-    const mime = MIME_BY_FILE_TYPE[fileType] ?? 'application/octet-stream';
+    // file_type can be whatever an email claimed, so a label only stands when the bytes agree with it. The upload route
+    // refuses a mismatch; here the link is already made, so the file is kept under the type that makes no claim.
+    const claimed = MIME_BY_FILE_TYPE[fileType.toLowerCase()];
+    const mime = claimed && magicBytesMatchMime(raw.buffer, claimed) ? claimed : 'application/octet-stream';
     const dataUrl = `data:${mime};base64,${raw.buffer.toString('base64')}`;
     await sql`
       INSERT INTO bank_transaction_attachments

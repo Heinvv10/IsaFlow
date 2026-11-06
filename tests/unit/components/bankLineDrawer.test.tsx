@@ -66,6 +66,33 @@ describe('BankLineDrawerBody', () => {
     expect(screen.queryByRole('link', { name: 'evil.html' })).toBeNull();
   });
 
+  it('views a stored receipt in place, and offers View only for a file the viewer can show', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test/1');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    serve(() => ok([...ATTACHMENTS, { id: 'a3', file_name: 'till.png', file_url: 'data:image/png;base64,iVBORw0KGgo=' }]));
+    render(<BankLineDrawerBody tx={TX} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'View till.png' }));
+    expect(screen.getByRole('img', { name: 'till.png' }).getAttribute('src')).toBe('blob:test/1');
+    expect(screen.getByRole('link', { name: 'till.png' }).getAttribute('download')).toBe('till.png');
+    expect(screen.queryByRole('button', { name: 'View slip.pdf' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'View evil.html' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Close preview' }));
+    expect(screen.queryByRole('dialog', { name: 'Attachment preview' })).toBeNull();
+    vi.restoreAllMocks();
+  });
+
+  it('downloads under a name matching the file\'s type', async () => {
+    serve(() => ok([{ id: 'a4', file_name: 'evil.html', file_url: 'data:application/pdf;base64,JVBERi0=' }]));
+    render(<BankLineDrawerBody tx={TX} />);
+    expect((await screen.findByRole('link', { name: 'evil.html' })).getAttribute('download')).toBe('evil.html.pdf');
+  });
+
+  it('links an untyped row it cannot show, under a neutral name', async () => {
+    serve(() => ok([{ id: 'a5', file_name: 'blob.dat', file_url: `data:application/octet-stream;base64,${btoa('junk')}` }]));
+    render(<BankLineDrawerBody tx={TX} />);
+    expect((await screen.findByRole('link', { name: 'blob.dat' })).getAttribute('download')).toBe('blob.dat.bin');
+  });
+
   it('a line with no journal reads none and asks for none', async () => {
     serve();
     const { matchedJournalEntryId: _, ...unmatched } = TX;
