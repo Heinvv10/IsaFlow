@@ -13,7 +13,7 @@
  * The page also loads the picker options (useInvoiceLineCodingOptions), which
  * its own header Project picker shares.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Plus, Trash2, SlidersHorizontal, Tags } from 'lucide-react';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { CodingOption, InvoiceLineCodingOptions } from './useInvoiceLineCodingOptions';
@@ -83,12 +83,16 @@ export function CodingPicker({ value, options, all, empty, onChange, label, disa
   // saving does not silently recode it.
   const offered = options.some((o) => o.id === value);
   const unoffered = value !== '' && !offered ? (all.known[value] ?? UNOFFERED[all.lookupFailed ? 'failed' : all.status]) : null;
-  const choices: SelectOption[] = [{ value: NONE, label: empty }, ...options.map((o) => ({ value: o.id, label: o.label }))];
+  // The unoffered stored id is a real row and stays one after the user switches away, so a stray pick can be undone.
+  const remembered = useRef<SelectOption | null>(null);
+  if (unoffered !== null) remembered.current = { value, label: unoffered };
+  const keep = remembered.current;
+  const kept = keep && !options.some((o) => o.id === keep.value) ? [keep] : [];
+  const choices: SelectOption[] = [{ value: NONE, label: empty }, ...kept, ...options.map((o) => ({ value: o.id, label: o.label }))];
   return (
     <Select
       id={id} label={label} labelClassName="sr-only" size="sm" searchable disabled={disabled}
       options={choices} value={value === '' ? NONE : value}
-      valueOption={unoffered !== null ? { value, label: unoffered } : null}
       onChange={(v) => onChange(v === null || v === NONE ? '' : v)}
     />
   );

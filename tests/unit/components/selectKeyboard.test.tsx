@@ -5,7 +5,7 @@
  */
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Select } from '@/components/ui/Select';
 
 const OPTIONS = [
@@ -107,5 +107,116 @@ describe('kit Select keyboard', () => {
     render(<Harness size="sm" />);
     expect(trigger().className).toContain('min-h-[32px]');
     expect(trigger().className).toContain('text-xs');
+  });
+});
+
+describe('kit Select keyboard: review findings', () => {
+  const BANKS = [{ value: 'a', label: 'Alpha' }, { value: 'bank charges', label: 'Bank charges' }, { value: 'c', label: 'Charlie' }];
+  const Host = ({ options = BANKS, value = null as string | null, searchable = false, onSearch }: { options?: typeof BANKS; value?: string | null; searchable?: boolean; onSearch?: (q: string) => void }) => {
+    const [v, setV] = useState<string | null>(value);
+    return <><Select label="Letter" options={options} value={v} onChange={setV} searchable={searchable} onSearch={onSearch} /><output data-testid="picked">{v ?? 'none'}</output><button>after</button></>;
+  };
+
+  it('Space inside a live type-ahead prefix is part of it, not a choice', () => {
+    render(<Host />);
+    for (const k of ['b', 'a', 'n', 'k']) key(k);
+    key(' ');
+    expect(picked()).toBe('none');
+    expect(screen.getByRole('listbox')).toBeTruthy();
+    expect(activeLabel()).toBe('Bank charges');
+    key('c'); key('h');
+    expect(activeLabel()).toBe('Bank charges');
+    expect(picked()).toBe('none');
+  });
+
+  it('arrows, Home and End skip disabled options', () => {
+    const options = [{ value: 'a', label: 'A', disabled: true }, { value: 'b', label: 'B' }, { value: 'c', label: 'C', disabled: true }, { value: 'd', label: 'D' }, { value: 'e', label: 'E', disabled: true }];
+    render(<Host options={options} />);
+    key('Home');
+    expect(activeLabel()).toBe('B');
+    key('ArrowDown');
+    expect(activeLabel()).toBe('D');
+    key('ArrowDown');
+    expect(activeLabel()).toBe('D');
+    key('End');
+    expect(activeLabel()).toBe('D');
+    key('ArrowUp');
+    expect(activeLabel()).toBe('B');
+  });
+
+  it('ArrowUp on a closed trigger opens on the current value; type-ahead starts from it', () => {
+    render(<Host value="c" />);
+    key('ArrowUp');
+    expect(activeLabel()).toBe('Charlie');
+    key('Escape');
+    key('a');
+    expect(activeLabel()).toBe('Alpha');
+  });
+
+  it('the open trigger names the active option (aria-activedescendant), by an id with no whitespace', () => {
+    render(<Host />);
+    key('Enter'); key('ArrowDown'); key('ArrowDown');
+    const id = trigger().getAttribute('aria-activedescendant')!;
+    expect(id).toBeTruthy();
+    expect(id).not.toMatch(/\s/);
+    expect(document.getElementById(id)!.textContent).toBe('Bank charges');
+    key('Escape');
+    expect(trigger().getAttribute('aria-activedescendant')).toBeNull();
+  });
+
+  it('a searchable select keeps the first key typed on the closed trigger: opens, seeds the search, reports it', () => {
+    const onSearch = vi.fn();
+    render(<Host searchable onSearch={onSearch} />);
+    key('c');
+    expect((screen.getByLabelText('Search Letter') as HTMLInputElement).value).toBe('c');
+    expect(onSearch).toHaveBeenCalledWith('c');
+    cleanup();
+    render(<Host searchable />);
+    key('c');
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Bank charges', 'Charlie']);
+  });
+
+  it('Tab out of the search box returns focus to the trigger and is not cancelled', () => {
+    render(<Host searchable />);
+    key('Enter');
+    const proceeded = fireEvent.keyDown(screen.getByLabelText('Search Letter'), { key: 'Tab' });
+    expect(proceeded).toBe(true);
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(document.activeElement).toBe(trigger());
+  });
+
+  it('a press in the panel keeps focus on the trigger, so a multi-select keeps its keyboard', () => {
+    function Multi() {
+      const [v, setV] = useState<string[]>([]);
+      return <><Select label="Letter" multiple options={OPTIONS} value={v} onChange={setV} /><output data-testid="picked">{v.join(',') || 'none'}</output></>;
+    }
+    render(<Multi />);
+    trigger().focus();
+    key('Enter');
+    const beta = screen.getByRole('option', { name: 'Beta' });
+    expect(fireEvent.mouseDown(beta)).toBe(false); // default prevented: focus is not taken
+    fireEvent.click(beta);
+    expect(document.activeElement).toBe(trigger());
+    key('End'); key(' ');
+    expect(picked()).toBe('b,d');
+  });
+
+  it('Home and End on a closed trigger are handled, and the clear button keeps its own Enter and Space', () => {
+    function Clearable() {
+      const [v, setV] = useState<string | null>('a');
+      return <Select label="Letter" clearable options={OPTIONS} value={v} onChange={setV} />;
+    }
+    render(<Clearable />);
+    expect(fireEvent.keyDown(trigger(), { key: 'Home' })).toBe(false);
+    key('Escape');
+    expect(fireEvent.keyDown(trigger(), { key: 'End' })).toBe(false);
+    key('Escape');
+    expect(fireEvent.keyDown(screen.getByRole('button', { name: 'Clear selection' }), { key: 'Enter' })).toBe(true);
+  });
+
+  it('a click on the label focuses the trigger', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByText('Letter'));
+    expect(document.activeElement).toBe(trigger());
   });
 });

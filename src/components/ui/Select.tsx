@@ -7,7 +7,7 @@ import { useState, useRef, useEffect, useCallback, useId, type ReactNode } from 
 import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { cn } from '@/utils/cn';
-import { SelectDropdown } from './SelectDropdown';
+import { SelectDropdown, selectOptionId } from './SelectDropdown';
 import { useSelectKeyboard } from './useSelectKeyboard';
 
 export interface SelectOption {
@@ -133,7 +133,8 @@ export function Select(props: SelectProps) {
   }
 
   const { onTriggerKeyDown, onListKeyDown } = useSelectKeyboard({
-    open, options: filteredOptions, selectedValues, activeIndex, setActiveIndex, openDropdown, closeDropdown, closeAndRefocus, selectOption,
+    open, searchable, options: filteredOptions, selectedValues, activeIndex, setActiveIndex, openDropdown, closeDropdown, closeAndRefocus, selectOption,
+    seedSearch: (text) => { openDropdown(); setSearch(text); setActiveIndex(-1); onSearch?.(text); },
   });
 
   useEffect(() => {
@@ -145,7 +146,7 @@ export function Select(props: SelectProps) {
   useEffect(() => { onOpenChangeRef.current = onOpenChange; });
   useEffect(() => { onOpenChangeRef.current?.(open); }, [open]);
 
-  useEffect(() => { if (open && searchable && searchRef.current) searchRef.current.focus(); }, [open, searchable]);
+  useEffect(() => { if (open && searchable && searchRef.current) { const box = searchRef.current; box.focus(); box.setSelectionRange(box.value.length, box.value.length); } }, [open, searchable]);
 
   useEffect(() => {
     if (!open) return;
@@ -176,7 +177,7 @@ export function Select(props: SelectProps) {
   return (
     <div className={cn('w-full', className)}>
       {label && (
-        <label id={labelId} htmlFor={inputId} className={cn('mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300', labelClassName)}>
+        <label id={labelId} htmlFor={inputId} onClick={() => triggerRef.current?.focus()} className={cn('mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300', labelClassName)}>
           {label}
         </label>
       )}
@@ -188,6 +189,7 @@ export function Select(props: SelectProps) {
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         aria-labelledby={label ? labelId : undefined}
+        aria-activedescendant={open && !searchable && filteredOptions[activeIndex] ? selectOptionId(inputId, activeIndex) : undefined}
         aria-describedby={describedBy}
         aria-disabled={disabled}
         tabIndex={disabled ? -1 : 0}

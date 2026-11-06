@@ -40,6 +40,9 @@ interface SelectDropdownProps {
   hint?: string;
 }
 
+/** The DOM id of option `index`: by position, since a value can hold characters an id cannot. */
+export const selectOptionId = (inputId: string, index: number): string => `${inputId}-option-${index}`;
+
 export function SelectDropdown({
   options,
   selectedValues,
@@ -67,10 +70,12 @@ export function SelectDropdown({
 }: SelectDropdownProps) {
   const showList = !loadError && options.length > 0;
   const activeOption = options[activeIndex];
-  const activeDescendant = showList && activeOption ? `${inputId}-option-${activeOption.value}` : undefined;
+  const activeDescendant = showList && activeOption ? selectOptionId(inputId, activeIndex) : undefined;
   return (
     <div
       ref={panelRef}
+      // A press in the panel must not take focus from the trigger (its keys are what drive the list); the search box keeps its own.
+      onMouseDown={(e) => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); }}
       style={{ top: pos.top, left: pos.left, width: pos.width, minWidth }}
       className={cn(
         'fixed z-[9999] flex flex-col overflow-hidden rounded-lg',
@@ -124,7 +129,7 @@ export function SelectDropdown({
           return (
             <li
               key={option.value}
-              id={`${inputId}-option-${option.value}`}
+              id={selectOptionId(inputId, i)}
               role="option"
               aria-selected={isSelected}
               aria-disabled={option.disabled}

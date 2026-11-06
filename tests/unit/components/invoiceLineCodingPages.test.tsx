@@ -6,7 +6,7 @@
 // by fetching it by id, and telling loading, failed and unavailable apart; the approver sees each line's coding.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 const router = vi.hoisted(() => ({ query: {} as Record<string, string>, pathname: '/x', push: vi.fn(async () => true) }));
 vi.mock('next/router', () => ({ useRouter: () => router }));
@@ -151,6 +151,14 @@ describe('customer invoice line coding — new invoice', () => {
     expect([0, 1].map((i) => shown('Job (Project Profitability)', i))).toEqual(['No job', 'P1 Shoot']);
   });
 
+  it('a click on the header Job label focuses its picker', async () => {
+    serve();
+    render(<NewCustomerInvoicePage />);
+    const label = await screen.findByText(/new lines start on it/);
+    fireEvent.click(label.closest('label')!);
+    expect(document.activeElement).toBe(combo('Invoice job'));
+  });
+
   it('scan-filled lines start on the header project', async () => {
     serve();
     render(<NewCustomerInvoicePage />);
@@ -277,5 +285,21 @@ describe('a stored id the list does not offer', () => {
     expect(label('failed')).toBe('Could not load the list — kept as saved');
     expect(label('ready')).toBe('Unavailable — choose another');
     expect(label('ready', { [FAR]: 'P250 Long-running series (cancelled)' })).toBe('P250 Long-running series (cancelled)');
+  });
+});
+
+describe('a stored id the list does not offer stays choosable', () => {
+  it('after switching to another row it is offered again, labelled as before', () => {
+    function Host() {
+      const [v, setV] = useState(FAR);
+      const options = [{ id: 'x1', label: 'X One' }];
+      return <><CodingPicker label="P" value={v} options={options} all={{ accounts: [], projects: [], cc2s: [], bus: [], known: {}, status: 'ready', error: '' } as never} empty="None" onChange={setV} />
+        <output data-testid="v">{v}</output></>;
+    }
+    render(<Host />);
+    pick('P', 'X One');
+    expect(screen.getByTestId('v').textContent).toBe('x1');
+    pick('P', 'Unavailable — choose another');
+    expect(screen.getByTestId('v').textContent).toBe(FAR);
   });
 });
