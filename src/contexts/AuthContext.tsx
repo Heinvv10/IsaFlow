@@ -9,6 +9,7 @@ import {
 } from 'react';
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
+import { markSignedIn } from '@/lib/auth/sessionHeartbeat';
 import { log } from '@/lib/logger';
 import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useSessionCheck } from './useSessionCheck';
@@ -175,6 +176,7 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
         return true;
       }
 
+      markSignedIn();
       const raw = data.data?.user ?? data.data ?? data.user;
       setUser(raw ? mapApiUser(raw) : null);
       return false;

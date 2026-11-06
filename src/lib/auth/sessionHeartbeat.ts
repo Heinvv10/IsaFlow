@@ -9,7 +9,11 @@
  *      backgrounded tab).
  *   2. Idle bounce — track the last user activity (clicks/keys/scroll) in
  *      localStorage. If idle exceeds the company's idle_timeout_minutes, force
- *      logout instead of refreshing.
+ *      logout instead of refreshing. The refresh cookie lives 30 days and nothing on
+ *      the server reads the limit, so this is its only enforcement: the stored time is
+ *      read at start, when a tab comes back and before input may overwrite it, or the
+ *      next person's first mouse move would count as the old session's activity. Only
+ *      a real sign-in (markSignedIn) resets a time past the limit.
  *
  * Multi-tab: both timestamps are shared through localStorage, so a click in any tab
  * counts for all of them and a refresh in one holds the others off. Any visible tab
@@ -42,6 +46,11 @@ function recordActivity(): void {
   } catch {
     // localStorage can throw in private mode / quota — best-effort only.
   }
+}
+
+/** A password or invitation sign-in just succeeded: the idle clock starts again. */
+export function markSignedIn(): void {
+  recordActivity();
 }
 
 function recordRefresh(): void {
@@ -88,12 +97,20 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
   if (!hasTimestamp(ACTIVITY_KEY)) recordActivity();
   if (!hasTimestamp(REFRESH_KEY)) recordRefresh();
 
+  const idleLimitPassed = (): boolean => Date.now() - readTimestamp(ACTIVITY_KEY) >= idleMs;
+
   // --- Activity tracking (throttled to avoid hammering localStorage) ---
   let lastWrite = 0;
+  let leaving = false; // this tab is signing out: input must not reset the clock it read
   const onActivity = (): void => {
+    if (leaving) return;
     const now = Date.now();
     if (now - lastWrite < ACTIVITY_THROTTLE_MS) return;
     lastWrite = now;
+    if (idleLimitPassed()) {
+      void bounceIdle();
+      return;
+    }
     recordActivity();
   };
   const activityEvents: Array<keyof DocumentEventMap> = ['click', 'keydown', 'scroll', 'mousemove'];
@@ -130,20 +147,25 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
     }
   };
 
+  // Idle bounce — clear cookies first so cookies aren't left valid on a
+  // shared computer after the redirect, then wipe tenant-scoped client
+  // state so the next sign-in on this browser cannot inherit the
+  // previous user's active company.
+  const bounceIdle = async (): Promise<void> => {
+    if (leaving) return; // no second logout
+    leaving = true;
+    window.clearInterval(intervalId);
+    await serverLogout();
+    clearTenantClientState();
+    window.location.href = logoutHref;
+  };
+
   // --- Heartbeat tick ---
   const tick = async (): Promise<void> => {
-    if (document.hidden) return;
+    if (document.hidden || leaving) return;
 
-    const idleFor = Date.now() - readTimestamp(ACTIVITY_KEY);
-    if (idleFor >= idleMs) {
-      window.clearInterval(intervalId); // this tab is leaving: no second logout
-      // Idle bounce — clear cookies first so cookies aren't left valid on a
-      // shared computer after the redirect, then wipe tenant-scoped client
-      // state so the next sign-in on this browser cannot inherit the
-      // previous user's active company.
-      await serverLogout();
-      clearTenantClientState();
-      window.location.href = logoutHref;
+    if (idleLimitPassed()) {
+      await bounceIdle();
       return;
     }
 
@@ -163,9 +185,14 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
   };
 
   const intervalId = window.setInterval(tick, TICK_INTERVAL_MS);
+  document.addEventListener('visibilitychange', tick); // a tab coming back need not wait for the interval
+
+  // Hidden tabs too: nothing else stops a session the browser kept past the limit.
+  if (idleLimitPassed()) void bounceIdle();
 
   return () => {
     window.clearInterval(intervalId);
+    document.removeEventListener('visibilitychange', tick);
     for (const ev of activityEvents) {
       document.removeEventListener(ev, onActivity);
     }

@@ -54,7 +54,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
   );
   const hasModuleNav = !!MODULE_BY_ID[activeModuleId];
   const { user, loading } = useAuth();
-  const { activeCompany } = useCompany();
+  const { activeCompany, loading: companyLoading } = useCompany();
   // Listens from the first render: beforeinstallprompt can fire during the session check.
   const pwaInstall = usePwaInstallPrompt();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -64,12 +64,13 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
 
   // PRD-10 Layer 1: keep the session refreshed and bounce on idle.
   // Restarts when the active company changes so a tighter idle policy on a
-  // different tenant takes effect immediately.
+  // different tenant takes effect immediately. Waits for the company: on the default
+  // limit, a stored time past the company's own would pass and input would overwrite it.
   useEffect(() => {
-    if (!user) return;
+    if (!user || companyLoading) return;
     const idle = activeCompany?.idleTimeoutMinutes ?? 480;
     return startSessionHeartbeat({ idleTimeoutMinutes: idle });
-  }, [user, activeCompany?.id, activeCompany?.idleTimeoutMinutes]);
+  }, [user, companyLoading, activeCompany?.id, activeCompany?.idleTimeoutMinutes]);
 
   // The saved layout, read from what shell-init.js put on <html>: right from this AppLayout's first frame, so a
   // client-side navigation never flashes the top nav for a sidebar user. On the admin subdomain the accounting-specific

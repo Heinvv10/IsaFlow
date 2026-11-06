@@ -15,6 +15,7 @@ const tickIdle = async () => {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  localStorage.clear(); // a stored time past the limit would now sign out at start
   vi.mocked(log.warn).mockReset();
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
