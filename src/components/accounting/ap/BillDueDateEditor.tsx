@@ -7,6 +7,7 @@ import { CalendarClock, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { DUE_DATE_SOURCE_LABELS, isDueDateSource } from '@/modules/accounting/services/shared/dueDateSource';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui/DateField';
 
 interface Props {
   invoiceId: string;
@@ -22,6 +23,7 @@ export function BillDueDateEditor({ invoiceId, status, invoiceDate, dueDate, due
   const [value, setValue] = useState(dueDate ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [refused, setRefused] = useState(false);
   if (status !== 'approved' && status !== 'partially_paid') return null;
 
   const source = isDueDateSource(dueDateSource) ? DUE_DATE_SOURCE_LABELS[dueDateSource] : null;
@@ -58,25 +60,27 @@ export function BillDueDateEditor({ invoiceId, status, invoiceDate, dueDate, due
             <button
               type="button"
               className="ml-auto text-sm text-teal-600 hover:text-teal-700"
-              onClick={() => { setValue(dueDate ?? ''); setError(''); setEditing(true); }}
+              onClick={() => { setValue(dueDate ?? ''); setRefused(false); setError(''); setEditing(true); }}
             >
               Change due date
             </button>
           </>
         ) : (
           <>
-            <input
-              type="date"
-              aria-label="New due date"
-              className="rounded border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-2 py-1 text-sm text-[var(--ff-text-primary)]"
-              value={value}
-              min={invoiceDate}
-              onChange={(e) => setValue(e.target.value)}
-            />
+            <div className="w-48">
+              <DateField
+                label="New due date"
+                value={value || null}
+                minDate={invoiceDate}
+                anchorDate={invoiceDate}
+                minMessage="The due date cannot be before the invoice date."
+                onChange={(iso, validity) => { setValue(iso ?? ''); setRefused(!validity.valid); }}
+              />
+            </div>
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded bg-teal-600 px-3 py-1 text-sm text-white disabled:opacity-50"
-              disabled={saving || value === '' || tooEarly || value === dueDate}
+              className="inline-flex items-center gap-1 rounded bg-brand-600 px-3 py-1 text-sm text-white disabled:opacity-50"
+              disabled={saving || refused || value === '' || tooEarly || value === dueDate}
               onClick={() => { void save(); }}
             >
               {saving && <Loader2 className="h-3 w-3 animate-spin" />} Save

@@ -136,7 +136,11 @@ const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.s
   // capture, ENABLE ALWAYS, to payroll_bank_details. The capture itself is unchanged, so 930's registry is too.
   '952_payroll_bank_details_tenant_history.sql',
   // 961 (payment terms): company_setting in the CHECK, three narrow ENABLE ALWAYS captures on accounting_settings; capture unchanged.
-  '961_company_default_terms_history.sql'];
+  '961_company_default_terms_history.sql',
+  // 962 (payment terms PR 2): supplier_invoice / customer_invoice in the CHECK and the member arm of entity_changes_read,
+  // the projection restated with an allow-list arm for them (pinned to 888's text by entityChangeTypes.test.ts), and two
+  // narrow ENABLE ALWAYS captures on the invoices' due date; the capture itself unchanged, so 930's registry is too.
+  '962_due_date_source_and_history.sql'];
 /**
  * Matching only in their comments: 693 explains why ENABLE TRIGGER downgrades, 855 why it uses E'' under
  * standard_conforming_strings, 876 why TRUNCATE ... cascade.
