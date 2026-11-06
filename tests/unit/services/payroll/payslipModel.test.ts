@@ -13,8 +13,7 @@ vi.mock('@/lib/neon', () => ({
   withSavepoint: vi.fn(),
   sql: vi.fn(async (strings: TemplateStringsArray) => {
     const q = strings.join('?');
-    if (q.includes('FROM payroll_run_headers') && q.includes('approval_grandfathered_at')) return db.header ? [db.header] : [];
-    if (q.includes('SELECT period_month, period_year, run_date FROM payroll_run_headers')) return db.header ? [db.header] : [];
+    if (q.includes('FROM payroll_run_headers') && !q.includes('payroll_run_lines')) return db.header ? [db.header] : [];
     if (q.includes('FROM payroll_run_lines prl') && q.includes('component_breakdown')) return [LINE_ROW];
     if (q.includes('FROM payroll_components')) return [{ id: 'c-salary', component_type: 'earning' }, { id: 'c-med', component_type: 'deduction' }];
     if (q.includes('prl.taxable_income')) return [{ run_id: RUN, employee_id: EMP, gross_pay: 30000, taxable_income: 30000, paye: 5000, uif_employee: 177.12, net_pay: 23022.88 }];

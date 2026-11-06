@@ -67,6 +67,11 @@ beforeAll(async () => {
   otherRun = (await r.pool.query(
     `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status) VALUES ($1, 2, 2026, 'calculated') RETURNING id`,
     [otherCompany])).rows[0]!.id;
+  const otherEmp = (await r.pool.query(
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
+     VALUES ($1, 'PS-OTHER', 'Other', 'Company', '2020-01-01') RETURNING id`, [otherCompany])).rows[0]!.id;
+  await r.pool.query(
+    `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, net_pay) VALUES ($1, $2, 10000, 9000)`, [otherRun, otherEmp]);
 }, 240000);
 
 afterAll(async () => {
@@ -81,6 +86,10 @@ describe('who may download', () => {
     const res = await slip(r.tokens[r.admin]!, otherRun);
     expect(res.state.statusCode).toBe(404);
     expect(await audits(otherRun)).toEqual([]);
+  });
+
+  it('the model\'s own company predicate: with no RLS behind it, another company\'s run is not found', async () => {
+    await expect(outsideRls(r.pool, r.company, () => getPayslips(r.company, otherRun))).rejects.toThrow('Pay run not found');
   });
 
   it('a viewer is 403', async () => {
