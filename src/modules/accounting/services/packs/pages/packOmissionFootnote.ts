@@ -28,8 +28,6 @@ export interface Dropped {
   captions: number;
   /** Figures the page was composed without (`PackPage.columnsLeftOut`), named in the note. */
   columns: string[];
-  /** The page already says `columns` are not printed (`PackPage.columnsSaid`): the note says "other", not the columns again. */
-  columnsSaid?: boolean;
   /**
    * The headings of the disclosures notes were taken from, in the order they
    * were taken, without repeats.
@@ -86,7 +84,14 @@ export function tookSomething(dropped: Dropped): boolean {
  */
 export const OMISSION_MARK = 'Not printed on this page';
 
-function omissionText(dropped: Dropped): string {
+/**
+ * Printed on page 6 when the Budget and Variance columns are left out: the pack says what it left off rather than only
+ * logging it. It lives here, not with page 6's composer, because the omission note reads the page's footnotes for it.
+ */
+export const BUDGET_COLUMNS_DROPPED_NOTE =
+  'The Budget and Variance columns are left out of this page because the figures are too wide to fit it.';
+
+function omissionText(dropped: Dropped, footnotes: readonly PackFootnote[]): string {
   // The disclosure headings name where NOTES were taken from, so the clause is attached to the note
   // parts and the parts with no heading (footnotes, captions) follow it, set apart by semicolons:
   // "2 explanatory notes, from “Commentary”; 3 footnotes; 1 derived caption".
@@ -107,8 +112,10 @@ function omissionText(dropped: Dropped): string {
   if (dropped.captions > 0) parts.push(`${dropped.captions} derived ${dropped.captions === 1 ? 'caption' : 'captions'}`);
   // THE COLUMNS A PAGE WAS COMPOSED WITHOUT ARE FIGURES, so the note that names them cannot go on to say
   // every figure is printed: "every OTHER figure" is what is true.
-  // Said ONCE: where the page's own footnote already says they are not printed, this one does not repeat it.
-  if (dropped.columns.length > 0 && dropped.columnsSaid !== true) parts.push(`the ${dropped.columns.join(' and ')} columns`);
+  // Said ONCE, and DERIVED from the page rather than flagged: where a footnote of the page already says they are
+  // not printed (whichever path put it there), this one does not repeat it.
+  const said = footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE);
+  if (dropped.columns.length > 0 && !said) parts.push(`the ${dropped.columns.join(' and ')} columns`);
   return `${OMISSION_MARK}: ${parts.join('; ')}. `
     + `Every ${dropped.columns.length > 0 ? 'other ' : ''}figure, table and chart on the page is complete`
     + ` — what ${dropped.columns.length > 0 ? 'else ' : ''}is missing is prose about them, and it can be asked for.`;
@@ -123,7 +130,7 @@ function omissionText(dropped: Dropped): string {
  * issued a second 3, and the page printed two footnotes under one marker.
  */
 export function omissionFootnote(dropped: Dropped, footnotes: PackFootnote[]): PackFootnote {
-  return { number: Math.max(0, ...footnotes.map((f) => f.number)) + 1, text: omissionText(dropped) };
+  return { number: Math.max(0, ...footnotes.map((f) => f.number)) + 1, text: omissionText(dropped, footnotes) };
 }
 
 /**

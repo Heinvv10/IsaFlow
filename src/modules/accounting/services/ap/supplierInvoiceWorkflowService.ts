@@ -11,6 +11,7 @@ import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { validateThreeWayMatch } from '../../utils/threeWayMatch';
 import { getSupplierInvoiceById } from './supplierInvoiceService';
+import { judgeMatchLine, overallMatchStatus, readMatchInputs } from './threeWayMatchState';
 import type { SupplierInvoice } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
@@ -362,7 +363,6 @@ async function cancelSupplierInvoiceInner(
   }
 }
 
-const DEFAULT_TOLERANCE_PERCENT = 2;
 
 export interface ThreeWayMatchItemResult {
   itemId: string;
@@ -389,54 +389,14 @@ export async function performThreeWayMatch(
     return { invoiceId, matchStatus: 'unmatched', itemResults: [] };
   }
 
-  // Load tolerance from supplier_coding_rules; fall back to 2%
-  const ruleRows = (await sql`
-    SELECT qty_tolerance_pct, price_tolerance_pct
-    FROM supplier_coding_rules
-    WHERE company_id = ${companyId}::UUID AND supplier_id = ${invoice.supplierId}::UUID
-    LIMIT 1
-  `) as Row[];
-  const qtyTolerance = ruleRows.length > 0 && ruleRows[0]!.qty_tolerance_pct != null
-    ? Number(ruleRows[0]!.qty_tolerance_pct) : DEFAULT_TOLERANCE_PERCENT;
-  const priceTolerance = ruleRows.length > 0 && ruleRows[0]!.price_tolerance_pct != null
-    ? Number(ruleRows[0]!.price_tolerance_pct) : DEFAULT_TOLERANCE_PERCENT;
-
-  const poItems = (await sql`
-    SELECT * FROM po_items
-    WHERE purchase_order_id = ${invoice.purchaseOrderId}::UUID AND company_id = ${companyId}::UUID
-  `) as Row[];
-
-  const grnItems = invoice.grnId
-    ? ((await sql`
-        SELECT * FROM grn_items
-        WHERE grn_id = ${invoice.grnId}::UUID AND company_id = ${companyId}::UUID
-      `) as Row[])
-    : [];
+  const inputs = await readMatchInputs(companyId, {
+    supplierId: invoice.supplierId, purchaseOrderId: invoice.purchaseOrderId, grnId: invoice.grnId,
+  });
 
   const itemResults: ThreeWayMatchItemResult[] = [];
 
   for (const item of (invoice.items ?? [])) {
-    const poItem = item.poItemId ? poItems.find((p: Row) => String(p.id) === item.poItemId) : null;
-    const grnItem = poItem
-      ? grnItems.find((g: Row) => String(g.po_item_id) === String(poItem.id))
-      : null;
-
-    const poQty = poItem ? Number(poItem.quantity) : 0;
-    const poPrice = poItem ? Number(poItem.unit_price) : 0;
-    const grnQtyReceived = grnItem ? Number(grnItem.quantity_received) : 0;
-
-    const qtyVariancePct = (item.quantity - poQty) / Math.max(poQty, 1) * 100;
-    const priceVariancePct = (item.unitPrice - poPrice) / Math.max(poPrice, 1) * 100;
-
-    const match = validateThreeWayMatch({
-      poQuantity: poQty,
-      poUnitPrice: poPrice,
-      grnQuantityReceived: grnQtyReceived,
-      invoiceQuantity: item.quantity,
-      invoiceUnitPrice: item.unitPrice,
-      qtyTolerancePercent: qtyTolerance,
-      priceTolerancePercent: priceTolerance,
-    });
+    const { match, qtyVariancePct, priceVariancePct } = judgeMatchLine(item, inputs);
 
     const lineMatchStatus = match.status;
 
@@ -468,15 +428,7 @@ export async function performThreeWayMatch(
     });
   }
 
-  const overallStatus = itemResults.length === 0
-    ? 'unmatched'
-    : itemResults.every(r => r.lineMatchStatus === 'fully_matched')
-      ? 'fully_matched'
-      : itemResults.some(r => r.lineMatchStatus === 'po_matched')
-        ? 'po_matched'
-        : itemResults.some(r => r.lineMatchStatus === 'grn_matched')
-          ? 'grn_matched'
-          : 'unmatched';
+  const overallStatus = overallMatchStatus(itemResults);
 
   await sql`
     UPDATE supplier_invoices SET match_status = ${overallStatus}

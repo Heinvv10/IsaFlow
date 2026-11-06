@@ -19,8 +19,8 @@
  *   periodic_taxable), one flagged non-taxable not at all. `legacyTaxable`
  *   says how much to add back to its periodic pay, and counts as the
  *   deduction it recorded.
- * Donations: items coded 4030 flagged taxable on a deduction (s18A), for the
- * s11F base, which is taken before them (G21 (2027) p. 10).
+ * Donations: what the lines deducted (donation_deduction); before migration 959, the items coded 4030 flagged
+ * taxable on a deduction. For the s11F base, which is taken before them (G21 (2027) p. 10).
  *
  * Every query is scoped by company_id (the run header; lines have none).
  */
@@ -40,7 +40,7 @@ export interface RetirementRecord extends RetirementContributions {
   legacyTaxable: number;
   /** The same, by line id (only lines with some), so the year to date can tell which lines had periodic pay before it. */
   legacyTaxableByLine: Record<string, number>;
-  /** Donations (4030) deducted as taxable deductions. */
+  /** Donations (4030) the lines deducted from taxable income: donation_deduction; before migration 959, all of them. */
   donations: number;
 }
 
@@ -56,7 +56,7 @@ export async function loadRetirementRecord(
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     WITH line AS (
-      SELECT l.id AS line_id, l.employee_id, l.retirement_contributions, l.retirement_deduction, x.*
+      SELECT l.id AS line_id, l.employee_id, l.retirement_contributions, l.retirement_deduction, l.donation_deduction, x.*
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (
@@ -88,7 +88,7 @@ export async function loadRetirementRecord(
            SUM(COALESCE(retirement_deduction, breakdown_taxable))::numeric AS deduction,
            COALESCE(SUM(breakdown_taxable) FILTER (WHERE retirement_contributions IS NULL), 0)::numeric AS legacy_taxable,
            jsonb_object_agg(line_id::text, breakdown_taxable) FILTER (WHERE retirement_contributions IS NULL AND breakdown_taxable > 0) AS legacy_by_line,
-           SUM(donations)::numeric AS donations
+           SUM(COALESCE(donation_deduction, donations))::numeric AS donations
     FROM line
     GROUP BY employee_id
   `) as DbRow[];

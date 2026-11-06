@@ -247,6 +247,7 @@ export async function calculatePayrollRun(
       uifEmployer: line.uif.employerContribution,
       sdl: 0, sdlExempt: false, // set below (applySdlToLines), once the run's own leviable total decides leviability
       sdlLeviable: line.sdlLeviable, sdlApplicable: line.sdlApplicable,
+      donationReceipted: line.donationReceipted, donationBase: line.donationBase, donationDeduction: line.donationDeduction,
       eti: line.eti.monthlyEti,
       netPay: line.netPay,
       componentBreakdown: JSON.stringify(line.componentBreakdown),

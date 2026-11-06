@@ -80,7 +80,7 @@ const FIGURES = {
 };
 const CASH_FLOW = {
   operatingTotal: 345_678.12, investingTotal: -98_765.43, financingTotal: 12_345.67,
-  netChange: 259_258.36,
+  netChange: 259_258.36, unexplainedDifference: 0,
 };
 
 function mockRes() {
