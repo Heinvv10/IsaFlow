@@ -37,6 +37,7 @@ const PINNED: Record<string, string> = {
   'src/lib/rateLimitQuota.ts | key': 'refunds a key this request charged, taken from the request context',
   "pages/api/accounting/reports-budget-tracking.ts | 'reports-budget-tracking'": 'literal report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/accounting/invoice-pdf.ts | `invoice-pdf:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
+  'pages/api/payroll/runs/[id]/payslips.ts | `payslips:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'scripts/generate-closeout-report.mjs | ?': 'prose in a description string, not a call',
 };
 
