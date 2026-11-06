@@ -33,6 +33,7 @@ import { PackFigureProvenance } from '@/modules/accounting/services/packs/figure
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { PACK_BUDGET_BAND, type PackBudgetRowKey } from '@/modules/accounting/services/packs/figures/packBudgetBands';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
+import { CASH_UNCAPTURED_LABEL } from './packCashBridge';
 import {
   absentComparativeCashFlow,
   absentOperatingCashFlow,
@@ -196,6 +197,15 @@ export function buildCashTable(set: PackFigureSet, p: PackFigureProvenance): Pac
     // two would be false on every pack that has the statement's figure.
     unavailable: notRead ?? 'No investing cash flow figure was captured for this period.', priorUnavailable: priorNotRead },
     { label: 'Financing cash flow', key: 'cash.financing', source: 'packFigureSet.current.financingCashFlow', actual: current.financingCashFlow ?? null, prior: prior?.financingCashFlow ?? null, unavailable: notRead ?? 'No financing cash flow figure was captured for this period.', priorUnavailable: priorNotRead },
+    // A LEDGER FAULT IS ITS OWN ROW, shown only when either column has one (a fault in the comparative alone is not hidden): the operating figure is the movement the journals
+    // explain, so opening plus the three flows reaches closing cash only with this row (the bridge draws the same gap as its
+    // 'Unexplained movement' step, the label this row shares).
+    ...(current.cashFlowUnexplained || prior?.cashFlowUnexplained ? [{
+      label: CASH_UNCAPTURED_LABEL, key: 'cash.unexplained', source: 'packFigureSet.current.cashFlowUnexplained',
+      actual: current.cashFlowUnexplained ?? null, prior: prior ? prior.cashFlowUnexplained ?? null : null,
+      unavailable: notRead ?? 'No unexplained difference figure was captured for this period.',
+      priorUnavailable: priorNotRead ?? 'The comparative period carries no unexplained difference figure.',
+    }] : []),
     { label: 'Closing cash', key: 'cash.closing', source: 'packFigureSet.current.cash', role: 'total', actual: current.cash, prior: prior?.cash ?? null },
   ], set, false);
 }
