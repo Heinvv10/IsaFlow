@@ -115,11 +115,12 @@ describe('attachCapturedDocToBankTx', () => {
     expect(result).toEqual({ ok: true, mirrored: true });
     const calls = sqlMock.mock.calls.map((c) => (c[0] as readonly string[]).join('?'));
     expect(calls.some((q) => q.includes('INSERT INTO bank_transaction_attachments'))).toBe(false);
-    // The dedupe key embeds the documentId, not the bare file name.
+    // The dedupe key is the document's id (any copy of it on this line, in any case), not the bare file name.
     const dupCall = sqlMock.mock.calls.find((c) =>
       (c[0] as readonly string[]).join('?').includes('SELECT id FROM bank_transaction_attachments'));
     expect(dupCall).toBeDefined();
-    expect(dupCall!.slice(1)).toContain(`${DOC}_slip.jpg`);
+    expect((dupCall![0] as readonly string[]).join('?')).toMatch(/lower\(left\(file_name, 37\)\)/);
+    expect(dupCall!.slice(1)).toContain(DOC);
   });
 
   it('dedupes per-document: two different docs with the same original file name both mirror', async () => {
@@ -139,12 +140,10 @@ describe('attachCapturedDocToBankTx', () => {
       (c[0] as readonly string[]).join('?').includes('INSERT INTO bank_transaction_attachments'));
     expect(inserts).toHaveLength(2);
 
-    // Each dup check / insert carries its own documentId-prefixed name.
+    // Each dup check is keyed on its own document; each insert carries its own documentId-prefixed name.
     const dupChecks = sqlMock.mock.calls.filter((c) =>
       (c[0] as readonly string[]).join('?').includes('SELECT id FROM bank_transaction_attachments'));
-    expect(dupChecks.map((c) => c.slice(1)).flat()).toEqual(
-      expect.arrayContaining([`${DOC}_slip.jpg`, `${DOC2}_slip.jpg`]),
-    );
+    expect(dupChecks.map((c) => c.slice(1)).flat()).toEqual(expect.arrayContaining([DOC, DOC2]));
     expect(inserts.map((c) => c.slice(1)).flat()).toEqual(
       expect.arrayContaining([`${DOC}_slip.jpg`, `${DOC2}_slip.jpg`]),
     );

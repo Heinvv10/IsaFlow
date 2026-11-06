@@ -13,7 +13,8 @@ import { bytesToBlob, dataUrlToBlob, isCapturedFile, previewKind } from './attac
 export interface BlobFile { file_url: string; content_type?: string | null }
 
 /** missing: the server has no bytes for it (404), as opposed to bytes it will not show. */
-export type AttachmentBlob = { blob: Blob | null; loading: boolean; missing: boolean };
+/** failed: the fetch did not complete (network, 5xx); retry() asks again. */
+export type AttachmentBlob = { blob: Blob | null; loading: boolean; missing: boolean; failed: boolean; retry: () => void };
 
 type Loaded = { blob: Blob | null; missing: boolean; failed: boolean };
 
@@ -31,6 +32,8 @@ export function useAttachmentBlob(file: BlobFile | undefined): AttachmentBlob {
   const requests = useRef(new Map<string, Promise<Loaded>>());
   // Keyed by the file it belongs to, so a step never shows the previous file's bytes while the next one loads.
   const [fetched, setFetched] = useState<({ file: BlobFile } & Loaded) | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const retry = () => { setFetched(null); setAttempt((n) => n + 1); };
   useEffect(() => {
     if (!file || !captured || kind === 'none') return undefined;
     let live = true;
@@ -43,12 +46,13 @@ export function useAttachmentBlob(file: BlobFile | undefined): AttachmentBlob {
     }
     void request.then((loaded) => { if (live) setFetched({ file, ...loaded }); });
     return () => { live = false; };
-  }, [file, captured, kind]);
+  }, [file, captured, kind, attempt]);
 
-  if (!captured) return { blob: decoded, loading: false, missing: false };
-  if (kind === 'none') return { blob: null, loading: false, missing: false };
-  if (fetched && fetched.file === file) return { blob: fetched.blob, loading: false, missing: fetched.missing };
-  return { blob: null, loading: true, missing: false };
+  const done = { loading: false, missing: false, failed: false, retry };
+  if (!captured) return { ...done, blob: decoded };
+  if (kind === 'none') return { ...done, blob: null };
+  if (fetched && fetched.file === file) return { ...done, blob: fetched.blob, missing: fetched.missing, failed: fetched.failed };
+  return { ...done, blob: null, loading: true };
 }
 
 /** failed: a fetch that did not complete (network, 5xx), worth retrying; a 404 is missing, not failed. */

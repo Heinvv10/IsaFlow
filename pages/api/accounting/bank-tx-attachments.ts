@@ -31,6 +31,7 @@ import { runAfterCommit } from '@/lib/afterCommit';
 import { listBankLineAttachments, unlinkCapturedDocFromBankTx } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
 import { isCopyOfSql, linkedCapturedDocSql, uploadFileName } from '@/modules/accounting/services/bank/bankLineDocumentSql';
 import { isValidUUID } from '@/lib/validation';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 
 // ── Local Types ───────────────────────────────────────────────────────────────
 
@@ -168,7 +169,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         || typeof bankTransactionId !== 'string' || !isValidUUID(bankTransactionId)) {
         return apiResponse.badRequest(res, 'documentId and bankTransactionId must be ids');
       }
-      const outcome = await unlinkCapturedDocFromBankTx(companyId, documentId, bankTransactionId);
+      let outcome: Awaited<ReturnType<typeof unlinkCapturedDocFromBankTx>>;
+      try {
+        outcome = await unlinkCapturedDocFromBankTx(companyId, documentId, bankTransactionId);
+      } catch (err) {
+        if (respondIfLockTimeout(res, err)) return;
+        throw err;
+      }
       if (outcome === 'not_linked') return apiResponse.notFound(res, 'Linked document', documentId);
       return apiResponse.success(res, { unlinked: documentId });
     }

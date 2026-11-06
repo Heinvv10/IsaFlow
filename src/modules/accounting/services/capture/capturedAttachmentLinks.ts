@@ -5,12 +5,13 @@
  * copy when it has one (a data URL, shown at once) or else as a link to its stored bytes
  * (/api/accounting/captured-document-file). Which documents count is bank/bankLineDocumentSql, the one definition.
  * An item with document_id is a linked captured document: Remove unlinks it (Hein, 2026-11-06), it does not just
- * delete a copy, which would bring the document back as uncopied on the next read.
+ * delete a copy, which would bring the document back as uncopied on the next read. Unlinking leaves its status alone.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { hasNoCopySql, isCopyOfSql, linkedCapturedDocSql } from '../bank/bankLineDocumentSql';
 import { mimeForCapturedFileType } from './capturedFileTypes';
+import { lockCapturedDocumentForUpdate } from './captureRowLock';
 
 export interface BankLineAttachment {
   id: string;
@@ -93,26 +94,27 @@ export async function isBankLinkedCapturedDocument(companyId: string, documentId
 export type UnlinkResult = 'unlinked' | 'not_linked';
 
 /**
- * Detach a captured document from a bank line: clear the link and delete its copy on that line. Lock order is the
- * document row, then the copies, as attaching takes them, so the two cannot deadlock.
+ * Detach a captured document from a bank line: clear the link and delete its copy on that line. The document row is
+ * locked the way every posting path locks it (captureRowLock, 5 s, then CaptureRowLockTimeoutError: the route answers
+ * 409), then its copies, as attaching takes them, so the two cannot deadlock.
  *
- * Status: 'matched' means "settled" to the capture inbox but is no posting fence (that is posted_at, captureRowLock).
- * An unposted document goes back to 'pending', awaiting a person, as a finished read leaves it. A posted document
- * keeps its status: posting made it settled, and its journal or bill is untouched.
+ * Status is NOT changed. 'matched' has several writers with nothing posted (the bank link, a duplicate supplier
+ * invoice, a sent invoice, a dunning or outbound email) and the status before linking is not recorded, so no reset is
+ * safe: setting a duplicate invoice back to 'pending' would make an invoice already booked postable again. The
+ * document stays where document capture had it, and can be linked again from there.
  */
 export async function unlinkCapturedDocFromBankTx(
   companyId: string, documentId: string, bankTxId: string,
 ): Promise<UnlinkResult> {
+  if (!(await lockCapturedDocumentForUpdate(companyId, documentId))) return 'not_linked';
+  // Read the link under the lock: an attach that moved the document to another line first is seen here.
   const [doc] = (await sql`
     SELECT id FROM captured_documents
      WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid AND matched_bank_tx_id = ${bankTxId}::uuid
-     FOR UPDATE
   `) as Row[];
   if (!doc) return 'not_linked';
   await sql`
-    UPDATE captured_documents
-       SET matched_bank_tx_id = NULL,
-           status = CASE WHEN status = 'matched' AND posted_at IS NULL THEN 'pending' ELSE status END
+    UPDATE captured_documents SET matched_bank_tx_id = NULL
      WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid
   `;
   const removed = (await sql`

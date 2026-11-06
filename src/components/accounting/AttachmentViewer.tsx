@@ -42,7 +42,7 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
   const [index, setIndex] = useState(startIndex);
   const dialogRef = useRef<HTMLDivElement>(null);
   const file = attachments[index];
-  const { blob, loading, missing } = useAttachmentBlob(file);
+  const { blob, loading, missing, failed, retry } = useAttachmentBlob(file);
   // What is shown follows the blob's own type, which for a captured document comes from its bytes.
   const kind = !blob ? 'none' : blob.type === 'application/pdf' ? 'pdf' : 'image';
   // Made and freed in one effect, not a memo: StrictMode runs effects twice, and a memoised URL would be revoked
@@ -115,7 +115,13 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
         ) : (
           <div className="flex flex-col items-center gap-2 text-sm text-[var(--ff-text-secondary)]" onClick={e => e.stopPropagation()}>
             <FileX className="h-8 w-8" aria-hidden="true" />
-            <p>{missing ? 'This file is missing from storage' : 'Preview not available for this file'}</p>
+            {/* A 404 is a file gone from storage OR unlinked by someone since the list loaded: either way, gone. */}
+            <p>{missing ? 'This file is no longer available' : failed ? 'Could not load this file' : 'Preview not available for this file'}</p>
+            {failed && (
+              <button type="button" onClick={retry} className="rounded border border-[var(--ff-border-light)] px-3 py-1 text-xs text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)]">
+                Try again
+              </button>
+            )}
           </div>
         )}
       </div>

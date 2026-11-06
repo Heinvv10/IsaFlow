@@ -6,6 +6,7 @@
 //                                                          refused (409); Remove by document unlinks D2 and deletes C2
 //     D3  linked but rejected                             → not listed, not served, not support
 //     D4  linked, POSTED                                  → unlinking keeps its status ('matched')
+//     D6  linked, 'reviewed' before it was linked         → unlinking keeps 'reviewed': unlink never changes status
 //   T2 (company A) holds only a rejected document         → unsupported
 //   DB  company B's linked document                       → never served to A
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -26,7 +27,7 @@ let outsider = '';
 let company = '';
 let other = '';
 const [bank, bankB, t1, t2, tb] = [uuid(), uuid(), uuid(), uuid(), uuid()];
-const [u1, c2, d1, d2, d3, d4, d5, db] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
+const [u1, c2, d1, d2, d3, d4, d5, d6, db] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
 const ATT = '/api/accounting/bank-tx-attachments';
 const FILE = '/api/accounting/captured-document-file';
 
@@ -63,6 +64,7 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
     await doc(d3, company, t1, 'rejected');
     await doc(d4, company, t1, 'matched', true);
     await doc(d5, company, t2, 'rejected');
+    await doc(d6, company, t2, 'reviewed');
     await doc(db, other, tb, 'matched');
     await pool.query(
       `INSERT INTO bank_transaction_attachments(id, bank_transaction_id, file_url, file_name, file_size, created_at)
@@ -85,14 +87,16 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
     }
   });
 
-  it('counts each document once on the MCP list and treats a line with only a rejected document as unsupported', async () => {
+  it('counts each document once on the MCP list, rejected ones never', async () => {
     const page = await listBankAttachments(company, { from: '2026-06-01', to: '2026-06-01', limit: 50 });
     expect(page.rows.map((r) => [r.id, r.store]).sort()).toEqual([
-      [c2, 'bank_attachment'], [d1, 'captured_document'], [d4, 'captured_document'], [u1, 'bank_attachment'],
+      [c2, 'bank_attachment'], [d1, 'captured_document'], [d4, 'captured_document'], [d6, 'captured_document'],
+      [u1, 'bank_attachment'],
     ].sort());
-    expect(page.rowsTotal).toBe(4);
+    expect(page.rowsTotal).toBe(5);
     const unsupported = await listTransactionsWithoutDocuments(company, { from: '2026-06-01', to: '2026-06-01', minAmount: 10000, limit: 50 });
-    expect(unsupported.rows.map((r) => r.id)).toEqual([t2]);
+    // T2's only documents are rejected (D5) and D6, so it is supported until D6 is unlinked (asserted below).
+    expect(unsupported.rows.map((r) => r.id)).toEqual([]);
   });
 
   it('lists each supporting document once, newest first, marking linked ones with their document', async () => {
@@ -140,17 +144,23 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
     expect((await call('DELETE', { id: 'captured-x' })).state.statusCode).toBe(400);
   });
 
-  it('unlinks a document by Remove: link cleared, copy gone, unposted back to pending, posted keeps its status', async () => {
+  it('unlinks a document by Remove: link cleared, copy gone, and its status never changed', async () => {
+    // 'matched' with nothing posted also marks a duplicate supplier invoice or a sent document; with no record of the
+    // status before linking, any reset could make an invoice already booked postable again.
     expect((await call('DELETE', { documentId: d2, bankTransactionId: t1 })).state.statusCode).toBe(200);
-    expect(await docState(d2)).toEqual({ matched_bank_tx_id: null, status: 'pending' });
+    expect(await docState(d2)).toEqual({ matched_bank_tx_id: null, status: 'matched' });
     expect((await pool.query('SELECT 1 FROM bank_transaction_attachments WHERE id = $1', [c2])).rowCount).toBe(0);
     expect((await call('GET', { id: d2 }, fileRoute, FILE)).state.statusCode).toBe(404);
 
     expect((await call('DELETE', { documentId: d4, bankTransactionId: t1 })).state.statusCode).toBe(200);
     expect(await docState(d4)).toEqual({ matched_bank_tx_id: null, status: 'matched' });
+    expect((await call('DELETE', { documentId: d6, bankTransactionId: t2 })).state.statusCode).toBe(200);
+    expect(await docState(d6)).toEqual({ matched_bank_tx_id: null, status: 'reviewed' });
 
     const items = body(await call('GET', { bankTransactionId: t1 })).data as { id: string }[];
     expect(items.map((i) => i.id)).toEqual([`captured-${d1}`]);
+    const unsupported = await listTransactionsWithoutDocuments(company, { from: '2026-06-01', to: '2026-06-01', minAmount: 10000, limit: 50 });
+    expect(unsupported.rows.map((r) => r.id)).toEqual([t2]);
   });
 
   it('unlinks nothing it cannot see: twice, another line, another company', async () => {

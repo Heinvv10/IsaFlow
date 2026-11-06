@@ -127,7 +127,8 @@ describe('the viewer on a captured document', () => {
   it('says a file missing from storage is missing, and offers no download of it', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response('', { status: 404 }));
     render(<AttachmentViewer attachments={[captured()]} startIndex={0} onClose={() => undefined} />);
-    expect(await screen.findByText('This file is missing from storage')).toBeTruthy();
+    expect(await screen.findByText('This file is no longer available')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     expect(screen.queryByRole('link', { name: /^Download / })).toBeNull();
   });
 
@@ -136,6 +137,19 @@ describe('the viewer on a captured document', () => {
     render(<AttachmentViewer attachments={[captured()]} startIndex={0} onClose={() => undefined} />);
     expect(screen.getByText('Loading…')).toBeTruthy();
     expect(screen.queryByRole('link', { name: /^Download / })).toBeNull();
+  });
+
+  it('offers Try again on a failed fetch, and it fetches again', async () => {
+    let first = true;
+    vi.mocked(apiFetch).mockImplementation(async () => {
+      if (first) { first = false; throw new TypeError('network down'); }
+      return bytes(PDF);
+    });
+    render(<AttachmentViewer attachments={[captured()]} startIndex={0} onClose={() => undefined} />);
+    expect(await screen.findByText('Could not load this file')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByTitle('scan.pdf')).toBeTruthy();
+    expect(vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u) === URL_)).toHaveLength(2);
   });
 
   it('tries again on a failed fetch when the document is shown again, and never shows a rejected fetch as loading', async () => {
@@ -147,7 +161,7 @@ describe('the viewer on a captured document', () => {
       return bytes(PDF);
     });
     render(<AttachmentViewer attachments={[captured(), second]} startIndex={0} onClose={() => undefined} />);
-    expect(await screen.findByText('Preview not available for this file')).toBeTruthy();
+    expect(await screen.findByText('Could not load this file')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Next attachment' }));
     await screen.findByTitle('second.pdf');
     fireEvent.click(screen.getByRole('button', { name: 'Previous attachment' }));

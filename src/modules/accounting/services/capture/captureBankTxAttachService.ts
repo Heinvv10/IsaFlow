@@ -88,9 +88,11 @@ async function mirrorIntoAttachments(
     // that happen to share a file name (e.g. image.jpg) both mirror.
     // TENANT-SAFETY: bank_transaction_attachments has no company_id; isolation rides on bankTxId being preflighted above — keep that ordering.
     const storedFileName = `${documentId}_${fileName}`;
+    // Any copy of this document on this line, whatever case its id prefix was written in (bank/bankLineDocumentSql
+    // recognises a copy case-insensitively, so an exact-name check here would insert a second one).
     const [dup] = (await sql`
       SELECT id FROM bank_transaction_attachments
-       WHERE bank_transaction_id = ${bankTxId}::uuid AND file_name = ${storedFileName}
+       WHERE bank_transaction_id = ${bankTxId}::uuid AND lower(left(file_name, 37)) = ${documentId.toLowerCase()} || '_'
        LIMIT 1
     `) as Row[];
     if (dup) return true;
