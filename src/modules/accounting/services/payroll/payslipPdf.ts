@@ -48,11 +48,15 @@ function table(doc: JsPdfDoc, autoTable: AutoTable, y: number, title: string, ro
   return lastY(doc, y) + 4;
 }
 
+/** Across the page, faint enough that the figures under it stay legible. */
 function draftMark(doc: JsPdfDoc, pageW: number, pageH: number): void {
+  doc.saveGraphicsState();
+  doc.setGState(new doc.GState({ opacity: 0.18 }));
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(30);
   doc.setTextColor(...COLORS.DANGER);
   doc.text(DRAFT_MARK, pageW / 2, pageH / 2, { align: 'center', angle: 30 });
+  doc.restoreGraphicsState();
 }
 
 function heading(doc: JsPdfDoc, run: PayslipRun, slip: Payslip, pageW: number): number {
