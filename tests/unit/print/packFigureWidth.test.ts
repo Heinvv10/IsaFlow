@@ -107,14 +107,53 @@ describe('a KPI tile\'s not-meaningful reason (11pt italic, `.pack-kpi-unavailab
     expect(wrong).toEqual([]);
   });
 
-  it('a glyph outside the table is charged no less than Chromium sets it at: emoji (astral and BMP), CJK, Cyrillic, Greek, Arabic', async () => {
-    const outside = ['😀', '👍', '❤️', '✅', '⚠️', '🇿🇦', '👨‍👩‍👧', '🚀', '日', '한', 'Ж', 'α', '٣', '✓', '★', '☂', '→', 'ก', 'א', 'ह'];
-    const res = await measure(browser, [asClass('||'), ...outside.map((c) => asClass(`|${c}|`))]);
+  // Fallback fonts (CJK, emoji, maths, the scripts of the world) are the machine's: this holds the model to the
+  // machine it was measured on, and says so rather than failing on one whose fonts differ.
+  const sameFallbackFonts = async (): Promise<boolean> => {
+    const res = await measure(browser, [asClass('||'), asClass('|\u4e00|'), asClass('|\u{1F600}|')]);
+    return res[1]!.widthPx - res[0]!.widthPx === 15 && res[2]!.widthPx - res[0]!.widthPx === 18;
+  };
+
+  it('every code point from U+0180 to U+04FF, U+1E00 to U+2BFF and U+1D400 to U+1D7FF is charged what Chromium sets it at: never short, at most a pixel over', async () => {
+    if (!(await sameFallbackFonts())) return;
+    const cps = [...Array.from({ length: 0x500 - 0x180 }, (unused, i) => i + 0x180), ...Array.from({ length: 0x2c00 - 0x1e00 }, (unused, i) => i + 0x1e00), ...Array.from({ length: 0x400 }, (unused, i) => i + 0x1d400)]
+      .filter((cp) => !/[\p{M}\p{Cc}\p{Cf}\p{Cn}\p{Co}\p{Z}]/u.test(String.fromCodePoint(cp)));
+    const res = await measure(browser, [asClass('||'), ...cps.map((cp) => asClass(`|${String.fromCodePoint(cp)}|`))]);
     const bar = res[0]!.widthPx;
-    const short = outside.filter((c, i) => reasonPx(c) < res[i + 1]!.widthPx - bar - 0.01).map((c) => `${c}: model ${reasonPx(c)} vs ${(res[i0(outside, c) + 1]!.widthPx - bar)}`);
-    expect(short).toEqual([]);
-    expect(reasonPx('\u0e01')).toBe(18);
-    expect(reasonPx('\u2764\ufe0f'), 'a variation selector adds nothing to its base glyph').toBe(18);
+    const wrong = cps.filter((cp, i) => {
+      const measured = res[i + 1]!.widthPx - bar;
+      return reasonPx(String.fromCodePoint(cp)) < measured - 0.001 || reasonPx(String.fromCodePoint(cp)) > Math.max(measured + 1, 1) + 0.001;
+    }).map((cp) => `U+${cp.toString(16)}`);
+    expect(wrong.slice(0, 10)).toEqual([]);
+  }, 300_000);
+
+  it('every other code point up to U+1FFFF (a seventh of them, stepping through each block) is charged no less than Chromium sets it at; beyond, 18px', async () => {
+    if (!(await sameFallbackFonts())) return;
+    const cps: number[] = [];
+    for (let cp = 0x500; cp < 0x20000; cp += 7) {
+      if ((cp >= 0xd800 && cp <= 0xf8ff) || (cp >= 0x1e00 && cp < 0x2c00)) continue;
+      if (!/[\p{M}\p{Cc}\p{Cf}\p{Cn}\p{Co}\p{Z}]/u.test(String.fromCodePoint(cp))) cps.push(cp);
+    }
+    const wrong: string[] = [];
+    for (let i = 0; i < cps.length; i += 4000) {
+      const chunk = cps.slice(i, i + 4000);
+      const res = await measure(browser, [asClass('||'), ...chunk.map((cp) => asClass(`|${String.fromCodePoint(cp)}|`))]);
+      chunk.forEach((cp, j) => { if (reasonPx(String.fromCodePoint(cp)) < res[j + 1]!.widthPx - res[0]!.widthPx - 0.001) wrong.push(`U+${cp.toString(16)}`); });
+    }
+    expect(wrong.slice(0, 10)).toEqual([]);
+    expect(reasonPx('\u{3FFFF}')).toBe(18);
+    expect(reasonPx('\u2764\ufe0f'), 'a variation selector adds nothing to its base glyph').toBe(reasonPx('\u2764'));
+  }, 900_000);
+
+  it('a glyph that is wide in a fallback face is not a flat 18: maths, arrows, shapes and symbols are what they measure', async () => {
+    if (!(await sameFallbackFonts())) return;
+    const sample = ['\u2211', '\u222B', '\u2192', '\u25A0', '\u2605', '\u2713', '\u2200', '\u{1D400}', '\u{1D5A0}'];
+    const res = await measure(browser, [asClass('||'), ...sample.map((c) => asClass(`|${c}|`))]);
+    sample.forEach((c, i) => {
+      const measured = res[i + 1]!.widthPx - res[0]!.widthPx;
+      expect(reasonPx(c), c).toBeGreaterThanOrEqual(measured);
+      expect(reasonPx(c), c).toBeLessThanOrEqual(measured + 1);
+    });
   });
 
   it('whole words, as the tile sets them, are the model\'s sum within a pixel a word and never short', async () => {
