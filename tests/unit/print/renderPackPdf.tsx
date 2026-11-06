@@ -26,6 +26,7 @@ import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { chromium, type Browser, type Page } from 'playwright';
 import { readPackPrintCss } from './packPrintCss';
+import { PRINT_CONTENT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { HEADER_HTML, PDF_MARGIN_MM, mm } from '@/lib/pdf/pdfTransport';
 import {
@@ -301,14 +302,16 @@ export async function printBoardPack(
     '<!doctype html><html class="print-mode"><head><meta charset="utf-8">' +
     `<style>${printStylesheet()}</style></head><body>${body}</body></html>`;
 
-  // The viewport is the PAPER's content box, not a screen: 174mm wide (A4
-  // less the left and right margins) at 96dpi. Measured at 1280px the pages
+  // The viewport is the PAPER's content box, not a screen: 659px wide, the
+  // width Chromium lays an A4 sheet with these margins out at when it prints
+  // (`PRINT_CONTENT_PX`, measured in the PDF: not the 657.6px the margins
+  // arithmetic gives, and not the 658 this used to be). Measured at 1280px the pages
   // wrap differently and every height read back is a height no sheet ever
   // has — the measurement has to happen at the width the document is printed
   // at or it describes a different document.
   const page = await browser.newPage({
     viewport: {
-      width: Math.round((210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right) * PX_PER_MM),
+      width: PRINT_CONTENT_PX.portrait,
       height: Math.round(CONTENT_BOX_MM * PX_PER_MM),
     },
   });
@@ -438,7 +441,7 @@ export async function printBoardPack(
       return Math.round((el.getBoundingClientRect().width / pxPerMm) * 10) / 10;
     }, PX_PER_MM);
     await page.setViewportSize({
-      width: Math.round((210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right) * PX_PER_MM),
+      width: PRINT_CONTENT_PX.portrait,
       height: Math.round(CONTENT_BOX_MM * PX_PER_MM),
     });
     const heights = portraitPass.map((h, i) => (h.landscape ? landscapePass[i]! : h));
@@ -605,7 +608,7 @@ export async function measurePaintedPanels(
 
   const page = await browser.newPage({
     viewport: {
-      width: Math.round((210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right) * PX_PER_MM),
+      width: PRINT_CONTENT_PX.portrait,
       height: Math.round(CONTENT_BOX_MM * PX_PER_MM),
     },
   });
