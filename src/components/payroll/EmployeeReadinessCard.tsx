@@ -21,7 +21,10 @@ function goTo(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
   e.preventDefault();
   target.scrollIntoView?.({ block: 'center' });
   const field = target.matches('input,select,button,textarea') ? target : target.querySelector<HTMLElement>('input,select,button,textarea');
-  field?.focus();
+  if (field) { field.focus(); return; }
+  // The card has not drawn its field yet (still loading): land on the card itself rather than nowhere.
+  target.tabIndex = -1;
+  target.focus();
 }
 
 export function EmployeeReadinessCard({ employeeId, employee, assignments, refreshKey = 0 }: Props) {

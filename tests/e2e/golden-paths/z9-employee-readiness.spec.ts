@@ -110,8 +110,10 @@ test('create without bank details: one thing before the first pay run, and the l
   await createByKeyboard(page, `Z9N-${Date.now()}`, false);
   const card = page.getByTestId('employee-readiness-card');
   await expect(card).toContainText('1 thing before the first pay run: bank details', { timeout: 30_000 });
+  const add = page.getByRole('button', { name: 'Add bank details' });
+  await expect(add).toBeVisible({ timeout: 30_000 });
   await card.getByRole('link', { name: 'bank details' }).click();
-  await expect(page.getByRole('button', { name: 'Add bank details' })).toBeFocused();
+  await expect(add).toBeFocused();
 });
 
 for (const theme of THEMES) {

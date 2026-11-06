@@ -55,6 +55,13 @@ describe('EmployeeReadinessCard', () => {
     expect(document.activeElement).toBe(screen.getByLabelText('Tax number'));
   });
 
+  it('a link to a card that has no field yet focuses the card itself', async () => {
+    serveBank(() => ok(null));
+    render(<><div id="employee-bank" data-testid="bank-card" /><EmployeeReadinessCard {...props} /></>);
+    fireEvent.click(await screen.findByRole('link', { name: 'bank details' }));
+    expect(document.activeElement).toBe(screen.getByTestId('bank-card'));
+  });
+
   it('cash without bank details is ready', async () => {
     serveBank(() => ok(null));
     render(<EmployeeReadinessCard {...props} employee={{ taxNumber: '0123456789', paymentMethod: 'cash' }} />);
