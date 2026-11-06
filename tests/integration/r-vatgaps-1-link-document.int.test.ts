@@ -328,26 +328,66 @@ describeIfDb('VAT-gaps item 2: an invoice attached to the bank line', () => {
       RETURNING id`) as Row[])[0]!.id);
   }
 
-  it('a slip already backing another journal\'s VAT claim does not also support the bank line\'s claim', async () => {
+  const withoutTaxInvoice = async (journalId: string) => (await inTx(bankFx, () =>
+    findInputVatSupport(bankFx.companyId, PERIOD_START, PERIOD_END))).withoutTaxInvoice.some((l) => l.journalEntryId === journalId);
+  const linkToLine = (doc: string, txId: string) =>
+    sql`UPDATE captured_documents SET matched_bank_tx_id = ${txId}::UUID, status = 'matched' WHERE id = ${doc}::UUID`;
+  const copyOnLine = async (doc: string, txId: string) => String(((await sql`
+    INSERT INTO bank_transaction_attachments (bank_transaction_id, file_name, file_url)
+    VALUES (${txId}::UUID, ${`${doc}_slip.pdf`}, 'data:application/pdf;base64,JVBERi0=') RETURNING id`) as Row[])[0]!.id);
+
+  it('a slip linked to the line does not support it while it backs another claim, and does once that claim is reversed', async () => {
     const { txId, journalId } = await allocateAndFindJournal();
-    const flagged = async () => (await inTx(bankFx, () => findInputVatSupport(bankFx.companyId, PERIOD_START, PERIOD_END)))
-      .withoutTaxInvoice.some((l) => l.journalEntryId === journalId);
     const d = await slip();
     const j1 = await claimingJournalBackedBy(d);
-
-    // Linked to the line, no copy.
-    await sql`UPDATE captured_documents SET matched_bank_tx_id = ${txId}::UUID, status = 'matched' WHERE id = ${d}::UUID`;
-    expect(await flagged()).toBe(true);
-    // Its copy on the line counts no more than the link does.
-    const [{ id: copy }] = (await sql`
-      INSERT INTO bank_transaction_attachments (bank_transaction_id, file_name, file_url)
-      VALUES (${txId}::UUID, ${`${d}_slip.pdf`}, 'data:application/pdf;base64,JVBERi0=') RETURNING id`) as Row[];
-    expect(await flagged()).toBe(true);
-
-    // Once J1's claim is reversed, the slip is free to support the bank line.
+    await linkToLine(d, txId);
+    expect(await withoutTaxInvoice(journalId)).toBe(true);
     await inTx(bankFx, () => reverseJournalEntry(bankFx.companyId, j1, bankFx.userId));
-    expect(await flagged()).toBe(false);
-    await sql`DELETE FROM bank_transaction_attachments WHERE id = ${copy}::UUID`;
+    expect(await withoutTaxInvoice(journalId)).toBe(false);
+  });
+
+  it('a slip\'s copy on the line follows the same rule (a slip with no stored bytes counts only through its copy)', async () => {
+    const { txId, journalId } = await allocateAndFindJournal();
+    const d = await slip();
+    await sql`UPDATE captured_documents SET storage_path = NULL WHERE id = ${d}::UUID`;
+    const j1 = await claimingJournalBackedBy(d);
+    await linkToLine(d, txId);
+    await copyOnLine(d, txId);
+    expect(await withoutTaxInvoice(journalId)).toBe(true);
+    await inTx(bankFx, () => reverseJournalEntry(bankFx.companyId, j1, bankFx.userId));
+    expect(await withoutTaxInvoice(journalId)).toBe(false);
+  });
+
+  it('the copy of a rejected slip supports nothing, as the slip itself would not', async () => {
+    const { txId, journalId } = await allocateAndFindJournal();
+    const d = await slip();
+    await sql`UPDATE captured_documents SET storage_path = NULL WHERE id = ${d}::UUID`;
+    await linkToLine(d, txId);
+    await copyOnLine(d, txId);
+    expect(await withoutTaxInvoice(journalId)).toBe(false);
+    await sql`UPDATE captured_documents SET status = 'rejected' WHERE id = ${d}::UUID`;
+    expect(await withoutTaxInvoice(journalId)).toBe(true);
+  });
+
+  it('a slip once linked to the bank line\'s OWN journal still supports that line', async () => {
+    const { txId, journalId } = await allocateAndFindJournal();
+    const d = await slip();
+    // J2 itself carried D and was unlinked from it: D is J2's own history, not another claim's.
+    await inTx(bankFx, () => linkDocumentToJournal(bankFx.companyId, journalId, d, bankFx.userId, 'Slip for J2'));
+    await inTx(bankFx, () => unlinkDocumentFromJournal(bankFx.companyId, journalId, d, bankFx.userId, 'Moved to the bank line'));
+    await linkToLine(d, txId);
+    expect(await withoutTaxInvoice(journalId)).toBe(false);
+  });
+
+  it('the same holds for that slip\'s copy on the line', async () => {
+    const { txId, journalId } = await allocateAndFindJournal();
+    const d = await slip();
+    await sql`UPDATE captured_documents SET storage_path = NULL WHERE id = ${d}::UUID`;
+    await inTx(bankFx, () => linkDocumentToJournal(bankFx.companyId, journalId, d, bankFx.userId, 'Slip for J2'));
+    await inTx(bankFx, () => unlinkDocumentFromJournal(bankFx.companyId, journalId, d, bankFx.userId, 'Moved to the bank line'));
+    await linkToLine(d, txId);
+    await copyOnLine(d, txId);
+    expect(await withoutTaxInvoice(journalId)).toBe(false);
   });
 
   it('a slip backing nothing else, or a plain upload, still supports the bank line\'s claim', async () => {
