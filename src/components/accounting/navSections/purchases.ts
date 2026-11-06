@@ -20,6 +20,7 @@ export const purchasesTab: Tab = {
         { label: 'List of Suppliers', href: '/accounting/suppliers' },
         { label: 'Supplier Categories', href: '/accounting/supplier-categories' },
         { label: 'Find & Merge Duplicates', href: '/accounting/suppliers/dedup' },
+        { label: 'Re-apply Payment Terms', href: '/accounting/supplier-invoices/reapply-terms' },
       ],
     },
     {
