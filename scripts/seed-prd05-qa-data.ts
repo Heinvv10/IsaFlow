@@ -41,8 +41,8 @@ async function main() {
   const supplierIds: Record<string, string> = {};
   for (const s of suppliers) {
     const [row] = await q<{ id: string }>(`
-      INSERT INTO suppliers (company_id, name, vat_number, is_active, payment_terms)
-      VALUES ($1::uuid, $2, $3, true, 30)
+      INSERT INTO suppliers (company_id, name, vat_number, is_active, payment_terms, payment_terms_type)
+      VALUES ($1::uuid, $2, $3, true, 30, 'invoice_days')
       ON CONFLICT DO NOTHING
       RETURNING id
     `, [COMPANY_ID, s.name, s.vat]);
@@ -180,8 +180,8 @@ async function main() {
   let badSupId = existingBad?.id;
   if (!badSupId) {
     const [s] = await q<{ id: string }>(`
-      INSERT INTO suppliers (company_id, name, vat_number, is_active, platform_template_id, payment_terms)
-      VALUES ($1::uuid, 'Eskom Holdings SOC Ltd (QA FRAUD)', '9999999999', true, $2::uuid, 30)
+      INSERT INTO suppliers (company_id, name, vat_number, is_active, platform_template_id, payment_terms, payment_terms_type)
+      VALUES ($1::uuid, 'Eskom Holdings SOC Ltd (QA FRAUD)', '9999999999', true, $2::uuid, 30, 'invoice_days')
       RETURNING id
     `, [COMPANY_ID, templateId]);
     badSupId = s!.id;

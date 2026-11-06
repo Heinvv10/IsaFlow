@@ -9,6 +9,7 @@ import { lockEligibleWipEntries } from './wipEntryLock';
 import { WipInvoiceRefusal, assertWipTaxRate, assertWipEntryLines } from './wipInvoiceGuards';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
+import { dueDateForContact } from '../core/paymentTermsResolver';
 
 export { WipInvoiceRefusal } from './wipInvoiceGuards';
 
@@ -198,6 +199,8 @@ export async function generateWipInvoice(
     // transaction aborted and every later attempt failed 25P02 instead (K-107,
     // K-120). `insertWithReservedNumber` reserves outside each attempt's own
     // savepoint and retries only on the numbering index, so the retry terminates.
+    // The customer's terms, else the company default (migration 960).
+    const dueDate = await dueDateForContact(companyId, 'customer', customerId, invDate);
     const { invoiceId, invoiceNumber } = await insertWithReservedNumber(
       companyId, 'customer_invoice', 'wip_inv_', 'uq_customer_invoices_company_number',
       async (number) => {
@@ -205,12 +208,12 @@ export async function generateWipInvoice(
           INSERT INTO customer_invoices (
             company_id, invoice_number, customer_id, client_id,
             subtotal, tax_rate, tax_amount, total_amount,
-            invoice_date, status, created_by,
+            invoice_date, due_date, status, created_by,
             currency_code, exchange_rate, functional_total
           ) VALUES (
             ${companyId}::UUID, ${number}, ${customerId}::UUID, ${customerId}::UUID,
             ${subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
-            ${invDate}, 'draft', ${userId},
+            ${invDate}, ${dueDate}, 'draft', ${userId},
             'ZAR', 1.0, ${totalAmount}
           ) RETURNING id
         `) as DbRow[];

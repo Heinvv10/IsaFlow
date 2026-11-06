@@ -19,6 +19,7 @@ vi.mock('@/modules/accounting/services/core/customerWriteService', () => ({
 }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({ listCustomers: mocks.listCustomers }));
 
+import { log } from '@/lib/logger';
 import handler from '../../../pages/api/accounting/customers';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -40,11 +41,22 @@ describe('customers GET ?id=', () => {
     const res = response();
     await handler(get({ id: CUSTOMER }), res);
     expect(status(res)).toBe(200);
-    expect(body(res).data).toEqual({ id: CUSTOMER, name: 'Acme' });
+    // The row, plus the company's default terms as the two plain fields the page reads (30 days from invoice when none is set).
+    expect(body(res).data).toEqual({ id: CUSTOMER, name: 'Acme', company_default_payment_terms: 30, company_default_payment_terms_type: 'invoice_days' });
     expect(mocks.listCustomers).not.toHaveBeenCalled();
-    // The tenant scope is a bound value of the query itself: the id AND this company's id, nothing else.
+    // The tenant scope is a bound value of the query itself: the id AND this company's id; the other bound value is the
+    // settings key of the company default terms (COMPANY_DEFAULT_TERMS_KEY), nothing else.
     const bound = (mocks.sql.mock.calls[0] as unknown[]).slice(1);
-    expect(bound).toEqual([CUSTOMER, COMPANY]);
+    expect(bound).toEqual(['default_payment_terms', CUSTOMER, COMPANY]);
+  });
+
+  it('an unreadable company default is read as 30 days and the warning names the COMPANY (the contact row has no company_id)', async () => {
+    mocks.sql.mockResolvedValueOnce([{ id: CUSTOMER, name: 'Acme', company_default_terms: '{"days":-1}' }]);
+    const res = response();
+    await handler(get({ id: CUSTOMER }), res);
+    expect(status(res)).toBe(200);
+    expect(body(res).data).toMatchObject({ company_default_payment_terms: 30, company_default_payment_terms_type: 'invoice_days' });
+    expect(vi.mocked(log.warn).mock.calls.map((c) => c[1])).toContainEqual({ companyId: COMPANY });
   });
 
   it('selects the terms, discount and VAT type the new-invoice page defaults from', async () => {

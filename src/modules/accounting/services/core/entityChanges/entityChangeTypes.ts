@@ -1,13 +1,13 @@
 /**
  * Entity change history (forensic-controls step 3, migration 888; 952 added
- * employee bank details): the types, and who may read what — the same rules entity_changes' RLS policy enforces
+ * employee bank details, 961 the company's default payment terms): the types, and who may read what — the same rules entity_changes' RLS policy enforces
  * (entity_changes_read), stated once here for the routes, the MCP tool and the
  * UI. Pinned to the migrations by entityChangeTypes.test.ts.
  */
 
 export const ENTITY_TYPES = [
   'supplier', 'customer', 'gl_account', 'payroll_employee', 'company_user', 'company_invitation',
-  'company_user_permission', 'company', 'approval_rule', 'approval_enforcement', 'payroll_bank_detail',
+  'company_user_permission', 'company', 'approval_rule', 'approval_enforcement', 'payroll_bank_detail', 'company_setting',
 ] as const;
 export type EntityType = (typeof ENTITY_TYPES)[number];
 
@@ -26,6 +26,7 @@ export const ENTITY_TYPE_LABELS: Record<EntityType, string> = {
   approval_rule: 'Approval rule',
   approval_enforcement: 'Approval switch',
   payroll_bank_detail: 'Employee bank details',
+  company_setting: 'Company setting',
 };
 
 export const CHANNEL_LABELS: Record<Channel, string> = {
