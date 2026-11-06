@@ -17,7 +17,6 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { localDateFromISO } from '@/lib/dateUtils';
-import { fmtDate } from '@/lib/fmtDate';
 import { describePaymentTerms, dueDateFromTerms, readTerms } from '../shared/paymentTerms';
 import { isDueDateSource, type DueDateSource } from '../shared/dueDateSource';
 import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
@@ -163,17 +162,22 @@ export async function applyReapplyTerms(companyId: string, rawItems: unknown): P
     if (!(REAPPLY_OPEN_STATUSES as readonly string[]).includes(String(row.status)) || owing <= EPS) {
       result.skipped.push({ id: item.id, reason: 'not_open' }); continue;
     }
-    // The supplier's terms as they stand now (the bill row lock keeps the bill, not the supplier, still).
-    const [s] = (await sql`
-      SELECT payment_terms, payment_terms_type FROM suppliers
-      WHERE id = ${String(row.supplier_id)}::UUID AND company_id = ${companyId}::UUID
+    // The bill's dates as text and its supplier's terms as they stand now, read after the bill's lock. The supplier row
+    // is NOT locked (accepted): an edit of its terms committing between this read and the UPDATE leaves this bill on the
+    // terms it was confirmed for, and the next preview lists it again.
+    const [d] = (await sql`
+      SELECT to_char(si.invoice_date, 'YYYY-MM-DD') AS invoice_date, to_char(si.due_date, 'YYYY-MM-DD') AS due_date,
+             s.payment_terms, s.payment_terms_type
+      FROM supplier_invoices si
+      LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
+      WHERE si.id = ${item.id}::UUID AND si.company_id = ${companyId}::UUID
     `) as DbRow[];
-    const days = s?.payment_terms == null ? null : Number(s.payment_terms);
-    const type = s?.payment_terms_type == null ? null : String(s.payment_terms_type);
-    const newDue = readTerms(days, type) ? dueDateFromTerms(fmtDate(row.invoice_date), days, type) : null;
+    const days = d?.payment_terms == null ? null : Number(d.payment_terms);
+    const type = d?.payment_terms_type == null ? null : String(d.payment_terms_type);
+    const newDue = d && readTerms(days, type) ? dueDateFromTerms(String(d.invoice_date), days, type) : null;
     if (newDue === null) { result.skipped.push({ id: item.id, reason: 'terms_not_set' }); continue; }
     if (newDue !== item.dueDate) { result.skipped.push({ id: item.id, reason: 'terms_changed' }); continue; }
-    const from = row.due_date ? fmtDate(row.due_date) : null;
+    const from = d?.due_date == null ? null : String(d.due_date);
     if (from === newDue) { result.skipped.push({ id: item.id, reason: 'already_dated' }); continue; }
     await sql`
       UPDATE supplier_invoices SET due_date = ${newDue}::DATE, due_date_source = 'terms', updated_at = NOW()

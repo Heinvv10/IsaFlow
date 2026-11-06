@@ -12,7 +12,6 @@ import {
   applyReapplyTerms,
   previewReapplyTerms,
 } from '@/modules/accounting/services/ap/reapplyTerms';
-import { SupplierInvoiceLockTimeoutError } from '@/modules/accounting/services/ap/supplierInvoiceLock';
 import { castableArgError, ok, strArg, toolError } from './toolHelpers';
 
 export const reapplyPaymentTermsTool: McpTool = {
@@ -64,7 +63,8 @@ export const reapplyPaymentTermsTool: McpTool = {
     if (dryRun) {
       try {
         const p = await previewReapplyTerms(ctx.companyId, { supplierId: strArg(args, 'supplier_id') });
-        return ok({
+        // A preview writes nothing: it must not occupy the idempotency key the confirmed call reuses (registry.ts).
+        return { ...ok({
           dry_run: true,
           rows: p.rows.map((r) => ({
             invoice_id: r.id,
@@ -86,7 +86,7 @@ export const reapplyPaymentTermsTool: McpTool = {
             supplier_id: s.supplierId, supplier_name: s.supplierName, open_bills: s.openBills, balance: s.balance,
           })),
           truncated: p.truncated,
-        });
+        }), wroteNothing: true };
       } catch (err) {
         if (err instanceof ReapplyRefusal) return toolError(err.message);
         throw err;
@@ -108,10 +108,10 @@ export const reapplyPaymentTermsTool: McpTool = {
         skipped: r.skipped.map((s) => ({ invoice_id: s.id, reason: s.reason })),
       });
     } catch (err) {
-      // Refusals (malformed items) throw before any bill is touched; a lock timeout is raised at a bill's lock,
-      // and the registry's transaction rolls back any earlier bill with it, so returning the message is write-free.
+      // A refusal (malformed items) throws before any bill is touched, so returning it is write-free. Anything else, a
+      // lock timeout at a later bill included, is RE-THROWN: only a throw rolls the registry's savepoint back, and
+      // earlier bills of this call may already be written (a returned toolError would commit them).
       if (err instanceof ReapplyRefusal) return toolError(err.message);
-      if (err instanceof SupplierInvoiceLockTimeoutError) return toolError(err.message);
       throw err;
     }
   },

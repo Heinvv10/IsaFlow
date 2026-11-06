@@ -16,6 +16,7 @@ import type { McpToolContext } from '@/lib/mcp/types';
 
 const BILL = 'b1b1b1b1-0000-4000-8000-000000000001';
 const SUP = 'a1a1a1a1-0000-4000-8000-000000000002';
+const BILL2 = 'b2b2b2b2-0000-4000-8000-000000000003';
 const ctx = { companyId: 'cccccccc-0000-4000-8000-cccccccccccc', userId: 'u-1' } as unknown as McpToolContext;
 const run = (args: Record<string, unknown>) => reapplyPaymentTermsTool.handler({ idempotency_key: 'k-1', ...args }, ctx);
 const body = (r: { content: { text: string }[] }) => JSON.parse(r.content[0]!.text);
@@ -34,13 +35,15 @@ beforeEach(() => {
   });
   vi.mocked(applyReapplyTerms).mockResolvedValue({
     updated: [{ id: BILL, invoiceNumber: 'INV-1', from: '2026-10-31', to: '2026-11-15' }],
-    skipped: [{ id: SUP, reason: 'terms_changed' }],
+    skipped: [{ id: BILL2, reason: 'terms_changed' }],
   });
 });
 
 describe('reapply_payment_terms', () => {
-  it('previews on dry_run true in snake_case and never applies', async () => {
-    const out = body(await run({ dry_run: true, supplier_id: SUP }));
+  it('previews on dry_run true in snake_case, never applies, and frees the idempotency key', async () => {
+    const r = await run({ dry_run: true, supplier_id: SUP });
+    expect(r.wroteNothing).toBe(true); // else the registry stores the preview under the key the confirmed call reuses
+    const out = body(r);
     expect(previewReapplyTerms).toHaveBeenCalledWith(ctx.companyId, { supplierId: SUP });
     expect(applyReapplyTerms).not.toHaveBeenCalled();
     expect(out.rows[0]).toMatchObject({ invoice_id: BILL, new_due_date: '2026-11-15', preselected: false, note: 'Due date was set by hand' });
@@ -63,7 +66,7 @@ describe('reapply_payment_terms', () => {
     expect(applyReapplyTerms).toHaveBeenCalledWith(ctx.companyId, [{ id: BILL, dueDate: '2026-11-15' }]);
     expect(previewReapplyTerms).not.toHaveBeenCalled();
     expect(out.updated).toEqual([{ invoice_id: BILL, invoice_number: 'INV-1', from: '2026-10-31', to: '2026-11-15' }]);
-    expect(out.skipped).toEqual([{ invoice_id: SUP, reason: 'terms_changed' }]);
+    expect(out.skipped).toEqual([{ invoice_id: BILL2, reason: 'terms_changed' }]);
   });
 
   it('turns a ReapplyRefusal into a toolError', async () => {
@@ -73,12 +76,16 @@ describe('reapply_payment_terms', () => {
     expect(text(r)).toBe('items[0].id must be a bill id');
   });
 
-  it('turns a lock timeout into a retryable toolError and rethrows anything else', async () => {
+  // Re-thrown, never returned: only a throw rolls the registry's savepoint back over the bills already written.
+  it('rethrows a lock timeout and anything else', async () => {
     vi.mocked(applyReapplyTerms).mockRejectedValue(new SupplierInvoiceLockTimeoutError(BILL));
-    const r = await run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15' }] });
-    expect(text(r)).toContain('retry in a moment');
+    await expect(run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15' }] })).rejects.toThrow('retry in a moment');
     vi.mocked(applyReapplyTerms).mockRejectedValue(new Error('connection reset'));
     await expect(run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15' }] })).rejects.toThrow('connection reset');
+  });
+
+  it('a live call does not free the key', async () => {
+    expect((await run({ dry_run: false, items: [{ invoice_id: BILL, due_date: '2026-11-15' }] })).wroteNothing).toBeUndefined();
   });
 
   it('refuses a call without dry_run and a malformed supplier_id before the service', async () => {

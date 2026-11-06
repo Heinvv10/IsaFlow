@@ -169,3 +169,36 @@ describe('apply', () => {
     expect(await dueOf(id)).toEqual({ d: '2026-12-15', s: 'legacy' });
   });
 });
+
+describe('review round 1', () => {
+  it('lists draft, pending and part-paid bills with something owing; refuses a malformed supplierId', async () => {
+    const c = await company();
+    const s = await supplier(c, 'Open', 3, 'statement_months');
+    const ids = [await bill(c, s, { status: 'draft' }), await bill(c, s, { status: 'pending_approval' }),
+      await bill(c, s, { status: 'partially_paid', paid: 500 })];
+    const p = await preview(admin, c);
+    expect(p.rows.map((r) => r.id).sort()).toEqual([...ids].sort());
+    expect(p.rows.find((r) => r.id === ids[2])!.balance).toBe(650);
+    const bad = await callRoute(route, tokens[admin]!, c, 'GET', undefined, '/api/accounting/supplier-invoices-reapply-terms', { supplierId: 'nope' });
+    expect(bad.state.statusCode).toBe(400);
+  });
+
+  // A lock timeout at a later bill must not leave the earlier ones written behind an error (a 4xx commits; a 503 rolls back).
+  it('a bill held by another transaction fails the whole apply with 503 and writes nothing', { timeout: 20_000 }, async () => {
+    const c = await company();
+    const s = await supplier(c, 'Held', 3, 'statement_months');
+    const [first, second] = [await bill(c, s), await bill(c, s)].sort();
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM supplier_invoices WHERE id = $1 FOR UPDATE', [second]);
+      const res = await apply(admin, c, [{ id: first, dueDate: '2026-12-31' }, { id: second, dueDate: '2026-12-31' }]);
+      expect(res.state.statusCode, messageOf(res)).toBe(503);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(await dueOf(first!)).toEqual({ d: '2026-12-15', s: 'legacy' });
+    expect(await changesOf(pool, first!)).toHaveLength(0);
+  });
+});

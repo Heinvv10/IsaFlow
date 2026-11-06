@@ -11,7 +11,6 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { ReapplyRefusal, applyReapplyTerms, previewReapplyTerms } from '@/modules/accounting/services/ap/reapplyTerms';
-import { SupplierInvoiceLockTimeoutError } from '@/modules/accounting/services/ap/supplierInvoiceLock';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
@@ -30,8 +29,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
   } catch (err) {
+    // A refusal is raised before any write. Anything else is re-thrown, a lock timeout at a later bill included:
+    // withErrorHandler answers it 503 + Retry-After and withAuth rolls back the bills already written (a 4xx would commit them).
     if (err instanceof ReapplyRefusal) return apiResponse.badRequest(res, err.message);
-    if (err instanceof SupplierInvoiceLockTimeoutError) return apiResponse.conflict(res, err.message);
     throw err;
   }
 }
