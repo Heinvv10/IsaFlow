@@ -39,7 +39,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { readPackPrintCss } from './packPrintCss';
 import { textWidthEms, WIDTH_SAFETY } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { buildDefinitions } from '@/modules/accounting/services/packs/pages/packDefinitions';
@@ -126,7 +127,7 @@ const HEADINGS_MAX_EMS = 30;
 const FLOOR = 1.05;
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 120_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
 afterAll(async () => { await browser?.close(); });
 
 describe('the pack text ruler, measured in width rather than in lines', () => {

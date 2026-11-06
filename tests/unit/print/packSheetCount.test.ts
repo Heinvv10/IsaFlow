@@ -23,7 +23,8 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { velocityInput } from '../services/packs/fixtures/velocityBoardPack';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { isContentPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { contentsListMm } from '@/modules/accounting/services/packs/pages/packFrontMatter';
@@ -114,7 +115,7 @@ const FIXTURES = {
 } as const;
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 120_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
 afterAll(async () => { await browser?.close(); });
 
 describe('the printed board pack', () => {

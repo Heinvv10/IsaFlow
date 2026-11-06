@@ -8,11 +8,12 @@
  * stylesheet, with the board pack's real element shape, and its sheet height.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { printStylesheet } from './renderPackPdf';
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 120_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
 afterAll(async () => { await browser?.close(); });
 
 async function measure(css = '') {
