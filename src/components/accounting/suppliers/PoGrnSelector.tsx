@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, Link2, ChevronDown } from 'lucide-react';
+import { poLinesFromOrder, type PoLineItem } from './poBillLines';
 
 const inp =
   'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ' +
@@ -15,12 +16,7 @@ const inp =
 const lbl =
   'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 
-export interface PoLineItem {
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  taxRate: number;
-}
+export type { PoLineItem };
 
 interface Po {
   id: string;
@@ -136,13 +132,7 @@ export function PoGrnSelector({
       await assertOk(res, 'Could not copy the line items from the purchase order - try again');
       const json = await res.json();
       const po = json.data || json;
-      const items: PoLineItem[] = (po.items ?? []).map((item: Record<string, unknown>) => ({
-        description: String(item.description ?? ''),
-        quantity: Number(item.quantity ?? 1),
-        unitPrice: Number(item.unit_price ?? 0),
-        taxRate: Number(item.tax_rate ?? 15),
-      }));
-      onPoLineItems(items);
+      onPoLineItems(poLinesFromOrder(po));
     } catch (err) {
       onCopyLinesChange(false);
       setError(apiErrorMessage(err, 'Could not copy the line items from the purchase order - try again'));
