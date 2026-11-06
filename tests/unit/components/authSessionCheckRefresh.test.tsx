@@ -122,3 +122,14 @@ it('a refresh that hung does not pin the next check to it', async () => {
   await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
   await waitFor(() => expect(state()).toBe('u-1'));
 });
+
+it.each([[true, 'true'], [undefined, 'false']])('carries /api/auth/me rememberMe=%s through to the user', async (rememberMe, shown) => {
+  const body = { success: true, data: { user: { id: 'u-1', email: 'user@example.test', role: 'accountant', rememberMe } } };
+  vi.stubGlobal('fetch', routeFetch({ '/api/auth/me': [json(200, body)] }));
+  function RememberProbe() {
+    const { user } = useAuth();
+    return <span data-testid="remember">{user ? String(user.rememberMe) : ''}</span>;
+  }
+  render(<AuthProvider><RememberProbe /></AuthProvider>);
+  await waitFor(() => expect(screen.getByTestId('remember').textContent).toBe(shown));
+});

@@ -29,6 +29,8 @@ export interface AuthUser {
   profilePicture?: string | null;
   department?: string;
   onboardingCompleted?: boolean;
+  /** "Keep me signed in" was ticked for this session (/api/auth/me). */
+  rememberMe?: boolean;
 }
 
 interface AuthContextType {
@@ -85,6 +87,7 @@ function mapApiUser(raw: Record<string, unknown>): AuthUser {
     profilePicture: (raw.profilePicture as string) || (raw.profile_picture as string) || null,
     department: (raw.department as string) || undefined,
     onboardingCompleted: raw.onboardingCompleted === true || raw.onboarding_completed === true,
+    rememberMe: raw.rememberMe === true,
   };
 }
 

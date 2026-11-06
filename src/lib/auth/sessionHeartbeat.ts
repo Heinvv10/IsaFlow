@@ -10,10 +10,11 @@
  *   2. Idle bounce — track the last user activity (clicks/keys/scroll) in
  *      localStorage. If idle exceeds the company's idle_timeout_minutes, force
  *      logout instead of refreshing. The refresh cookie lives 30 days and nothing on
- *      the server reads the limit, so this is its only enforcement: the stored time is
- *      read at start, when a tab comes back and before input may overwrite it, or the
- *      next person's first mouse move would count as the old session's activity. Only
- *      a real sign-in (markSignedIn) resets a time past the limit.
+ *      the server reads the limit, so this is its only enforcement. An open, visible
+ *      tab left idle always signs out. Coming back past the limit (a new page load, a
+ *      tab returning, the first input) signs out too, or the next person's first mouse
+ *      move would count as the old session's activity, unless "Keep me signed in" is
+ *      ticked and the company has not tightened the default limit (Hein, 2026-11-06).
  *
  * Multi-tab: both timestamps are shared through localStorage, so a click in any tab
  * counts for all of them and a refresh in one holds the others off. Any visible tab
@@ -29,6 +30,10 @@ const REFRESH_URL = '/api/auth/refresh';
 const REFRESH_KEY = 'isaflow_last_refresh_at';
 const REFRESH_EVERY_MS = 50 * 60 * 1000;
 const TICK_INTERVAL_MS = 5 * 60 * 1000;
+/** The column default (migration 466). A limit below it is a company's own choice and always holds. */
+const DEFAULT_IDLE_TIMEOUT_MINUTES = 480;
+/** Readable by design (ImpersonationBanner). Its stored time belongs to an earlier visit, not this session. */
+const IMPERSONATING_COOKIE = 'is_impersonating=1';
 const ACTIVITY_THROTTLE_MS = 5_000;
 
 type StopFn = () => void;
@@ -36,6 +41,8 @@ type StopFn = () => void;
 interface HeartbeatOptions {
   /** Idle timeout in minutes; force logout when activity exceeds this. */
   idleTimeoutMinutes: number;
+  /** "Keep me signed in" was ticked for this session. Unknown counts as not ticked. */
+  rememberMe?: boolean;
   /** Where to send the user when the session is bounced. */
   logoutHref?: string;
 }
@@ -99,6 +106,21 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
 
   const idleLimitPassed = (): boolean => Date.now() - readTimestamp(ACTIVITY_KEY) >= idleMs;
 
+  const staysSignedInOnReturn = (): boolean =>
+    (opts.rememberMe === true && opts.idleTimeoutMinutes >= DEFAULT_IDLE_TIMEOUT_MINUTES)
+    || document.cookie.split('; ').includes(IMPERSONATING_COOKIE);
+
+  /** Somebody is back after the limit passed. True when this tab is signing out. */
+  const cameBackPastLimit = (): boolean => {
+    if (!idleLimitPassed()) return false;
+    if (staysSignedInOnReturn()) {
+      recordActivity();
+      return false;
+    }
+    void bounceIdle();
+    return true;
+  };
+
   // --- Activity tracking (throttled to avoid hammering localStorage) ---
   let lastWrite = 0;
   let leaving = false; // this tab is signing out: input must not reset the clock it read
@@ -107,11 +129,7 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
     const now = Date.now();
     if (now - lastWrite < ACTIVITY_THROTTLE_MS) return;
     lastWrite = now;
-    if (idleLimitPassed()) {
-      void bounceIdle();
-      return;
-    }
-    recordActivity();
+    if (!cameBackPastLimit()) recordActivity();
   };
   const activityEvents: Array<keyof DocumentEventMap> = ['click', 'keydown', 'scroll', 'mousemove'];
   for (const ev of activityEvents) {
@@ -185,14 +203,17 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
   };
 
   const intervalId = window.setInterval(tick, TICK_INTERVAL_MS);
-  document.addEventListener('visibilitychange', tick); // a tab coming back need not wait for the interval
+  const onVisibilityChange = (): void => {
+    if (!document.hidden && !cameBackPastLimit()) void tick();
+  };
+  document.addEventListener('visibilitychange', onVisibilityChange);
 
   // Hidden tabs too: nothing else stops a session the browser kept past the limit.
-  if (idleLimitPassed()) void bounceIdle();
+  cameBackPastLimit();
 
   return () => {
     window.clearInterval(intervalId);
-    document.removeEventListener('visibilitychange', tick);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     for (const ev of activityEvents) {
       document.removeEventListener(ev, onActivity);
     }

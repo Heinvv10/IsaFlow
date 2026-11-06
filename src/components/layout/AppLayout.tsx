@@ -69,7 +69,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
   useEffect(() => {
     if (!user || companyLoading) return;
     const idle = activeCompany?.idleTimeoutMinutes ?? 480;
-    return startSessionHeartbeat({ idleTimeoutMinutes: idle });
+    return startSessionHeartbeat({ idleTimeoutMinutes: idle, rememberMe: user.rememberMe });
   }, [user, companyLoading, activeCompany?.id, activeCompany?.idleTimeoutMinutes]);
 
   // The saved layout, read from what shell-init.js put on <html>: right from this AppLayout's first frame, so a

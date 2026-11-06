@@ -61,6 +61,15 @@ describe('AppLayout', () => {
     expect(h.heartbeat).toHaveBeenCalledExactlyOnceWith({ idleTimeoutMinutes: 30 });
   });
 
+  it.each([true, false])('tells the heartbeat the "Keep me signed in" choice (%s)', (rememberMe) => {
+    h.heartbeat.mockClear();
+    const before = h.auth.user;
+    h.auth.user = { ...before, rememberMe };
+    render(page());
+    expect(h.heartbeat.mock.calls[0]![0]).toMatchObject({ rememberMe });
+    h.auth.user = before;
+  });
+
   it('hands a page\'s navPath to the secondary nav, and nothing when the page gives none', () => {
     go('/accounting/afs/[documentId]');
     const { unmount } = render(<AppLayout navPath="/accounting/afs/p1?type=management_pack"><p>page</p></AppLayout>);
