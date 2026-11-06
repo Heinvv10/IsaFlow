@@ -1,72 +1,129 @@
 /**
- * Captured documents linked to a bank line (captured_documents.matched_bank_tx_id) as attachments of that line.
+ * A bank line's attachments as the modal and drawer list them, and unlinking a captured document from the line.
  *
- * Linking a captured document copies it into bank_transaction_attachments only up to 2 MB (captureBankTxAttachService);
- * a larger one, or one whose copy failed, was linked but invisible: the line read "No attachments". These are listed
- * and counted beside the copies, and their bytes are served by pages/api/accounting/captured-document-file.ts.
- *
- * A document that WAS copied is not listed twice: its copy's file_name starts with "<document id>_" (the copy's
- * provenance key, see captureBankTxAttachService). A document with no stored bytes cannot be opened, so it is not
- * counted either.
+ * One item per document: an upload is listed as itself; a captured document linked to the line is listed ONCE, as its
+ * copy when it has one (a data URL, shown at once) or else as a link to its stored bytes
+ * (/api/accounting/captured-document-file). Which documents count is bank/bankLineDocumentSql, the one definition.
+ * An item with document_id is a linked captured document: Remove unlinks it (Hein, 2026-11-06), it does not just
+ * delete a copy, which would bring the document back as uncopied on the next read.
  */
 import { sql } from '@/lib/neon';
-import { mimeForCapturedFileType } from './captureBankTxAttachService';
+import { log } from '@/lib/logger';
+import { hasNoCopySql, isCopyOfSql, linkedCapturedDocSql } from '../bank/bankLineDocumentSql';
+import { mimeForCapturedFileType } from './capturedFileTypes';
 
-/**
- * The attachment count of the bank line aliased `bt`, for a SELECT list: its copies plus its linked captured documents
- * that have no copy. A constant built from a fixed alias, so safe for sql.unsafe. Tenant scope: copies are reached only
- * through bt.id; captured documents carry their own company_id, which must equal bt's.
- */
-export function attachmentCountSql(bt: 'bt'): string {
-  return `(
-    (SELECT COUNT(*)::INT FROM bank_transaction_attachments bta WHERE bta.bank_transaction_id = ${bt}.id)
-    + (SELECT COUNT(*)::INT FROM captured_documents cd
-        WHERE cd.matched_bank_tx_id = ${bt}.id AND cd.company_id = ${bt}.company_id AND cd.storage_path IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM bank_transaction_attachments m
-                           WHERE m.bank_transaction_id = ${bt}.id AND left(m.file_name, 37) = cd.id::text || '_'))
-  )`;
-}
-
-/** A linked captured document in the shape of a bank_transaction_attachments row, plus where it came from. */
-export interface LinkedCapturedAttachment {
+export interface BankLineAttachment {
   id: string;
   bank_transaction_id: string;
   file_url: string;
   file_name: string;
   file_size: number | null;
-  uploaded_by: null;
+  uploaded_by: string | null;
   created_at: string | Date;
-  source: 'captured';
-  /** The type the document claims. The viewer trusts only its bytes; this decides View and the download extension. */
-  content_type: string | null;
+  /** Present on a linked captured document: the captured_documents id that Remove unlinks. */
+  document_id?: string;
+  source?: 'captured';
+  /** The type a captured document claims; decides View and the download extension. The viewer trusts only bytes. */
+  content_type?: string | null;
 }
 
 export const capturedFileUrl = (documentId: string): string =>
   `/api/accounting/captured-document-file?id=${documentId}`;
 
-/** The bank line must already be verified as this company's. */
-export async function listLinkedCapturedAttachments(
-  companyId: string,
-  bankTxId: string,
-): Promise<LinkedCapturedAttachment[]> {
-  const rows = (await sql`
+type Row = Record<string, unknown>;
+const time = (v: unknown) => new Date(String(v instanceof Date ? v.toISOString() : v)).getTime();
+
+/** Every supporting document of the bank line, newest first. The line must already be verified as this company's. */
+export async function listBankLineAttachments(companyId: string, bankTxId: string): Promise<BankLineAttachment[]> {
+  const copies = (await sql`
+    SELECT bta.id, bta.bank_transaction_id, bta.file_url, bta.file_name, bta.file_size, bta.uploaded_by,
+           bta.created_at, cd.id AS document_id, cd.file_type
+      FROM bank_transaction_attachments bta
+      JOIN bank_transactions bt ON bt.id = bta.bank_transaction_id
+      LEFT JOIN captured_documents cd
+        ON ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND ${sql.unsafe(isCopyOfSql('bta', 'cd'))}
+     WHERE bta.bank_transaction_id = ${bankTxId}::uuid AND bt.company_id = ${companyId}::uuid
+  `) as Row[];
+  const uncopied = (await sql`
     SELECT cd.id, cd.file_name, cd.file_type, COALESCE(cd.raw_bytes_size, cd.file_size) AS size, cd.created_at
       FROM captured_documents cd
-     WHERE cd.matched_bank_tx_id = ${bankTxId}::uuid AND cd.company_id = ${companyId}::uuid
-       AND cd.storage_path IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM bank_transaction_attachments m
-                        WHERE m.bank_transaction_id = ${bankTxId}::uuid AND left(m.file_name, 37) = cd.id::text || '_')
-     ORDER BY cd.created_at DESC
-  `) as Array<{ id: string; file_name: string | null; file_type: string | null; size: number | null; created_at: string | Date }>;
-  return rows.map((r) => ({
-    id: `captured-${r.id}`,
-    bank_transaction_id: bankTxId,
-    file_url: capturedFileUrl(r.id),
-    file_name: r.file_name ?? 'document',
-    file_size: r.size,
-    uploaded_by: null,
-    created_at: r.created_at,
-    source: 'captured',
-    content_type: r.file_type ? mimeForCapturedFileType(r.file_type) : null,
-  }));
+      JOIN bank_transactions bt ON bt.id = cd.matched_bank_tx_id
+     WHERE bt.id = ${bankTxId}::uuid AND bt.company_id = ${companyId}::uuid
+       AND ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND ${sql.unsafe(hasNoCopySql('bt', 'cd'))}
+  `) as Row[];
+
+  const items: BankLineAttachment[] = [
+    ...copies.map((r): BankLineAttachment => ({
+      id: String(r.id),
+      bank_transaction_id: String(r.bank_transaction_id),
+      file_url: String(r.file_url ?? ''),
+      file_name: String(r.file_name ?? ''),
+      file_size: r.file_size == null ? null : Number(r.file_size),
+      uploaded_by: r.uploaded_by == null ? null : String(r.uploaded_by),
+      created_at: r.created_at as string | Date,
+      ...(r.document_id ? { document_id: String(r.document_id), source: 'captured' as const } : {}),
+    })),
+    ...uncopied.map((r): BankLineAttachment => ({
+      id: `captured-${String(r.id)}`,
+      bank_transaction_id: bankTxId,
+      file_url: capturedFileUrl(String(r.id)),
+      file_name: String(r.file_name ?? 'document'),
+      file_size: r.size == null ? null : Number(r.size),
+      uploaded_by: null,
+      created_at: r.created_at as string | Date,
+      document_id: String(r.id),
+      source: 'captured',
+      content_type: r.file_type ? mimeForCapturedFileType(String(r.file_type)) : null,
+    })),
+  ];
+  return items.sort((a, b) => time(b.created_at) - time(a.created_at));
+}
+
+/** Whether this company's captured document is a supporting document of some bank line (the bytes route's gate). */
+export async function isBankLinkedCapturedDocument(companyId: string, documentId: string): Promise<boolean> {
+  const [row] = (await sql`
+    SELECT 1 AS ok FROM captured_documents cd
+      JOIN bank_transactions bt ON bt.id = cd.matched_bank_tx_id
+     WHERE cd.id = ${documentId}::uuid AND cd.company_id = ${companyId}::uuid
+       AND ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))}
+  `) as Row[];
+  return !!row;
+}
+
+export type UnlinkResult = 'unlinked' | 'not_linked';
+
+/**
+ * Detach a captured document from a bank line: clear the link and delete its copy on that line. Lock order is the
+ * document row, then the copies, as attaching takes them, so the two cannot deadlock.
+ *
+ * Status: 'matched' means "settled" to the capture inbox but is no posting fence (that is posted_at, captureRowLock).
+ * An unposted document goes back to 'pending', awaiting a person, as a finished read leaves it. A posted document
+ * keeps its status: posting made it settled, and its journal or bill is untouched.
+ */
+export async function unlinkCapturedDocFromBankTx(
+  companyId: string, documentId: string, bankTxId: string,
+): Promise<UnlinkResult> {
+  const [doc] = (await sql`
+    SELECT id FROM captured_documents
+     WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid AND matched_bank_tx_id = ${bankTxId}::uuid
+     FOR UPDATE
+  `) as Row[];
+  if (!doc) return 'not_linked';
+  await sql`
+    UPDATE captured_documents
+       SET matched_bank_tx_id = NULL,
+           status = CASE WHEN status = 'matched' AND posted_at IS NULL THEN 'pending' ELSE status END
+     WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid
+  `;
+  const removed = (await sql`
+    DELETE FROM bank_transaction_attachments bta
+     USING bank_transactions bt
+     WHERE bta.bank_transaction_id = bt.id AND bt.id = ${bankTxId}::uuid AND bt.company_id = ${companyId}::uuid
+       AND lower(left(bta.file_name, 37)) = ${String(doc.id)} || '_'
+    RETURNING bta.id
+  `) as Row[];
+  log.info('Captured document unlinked from bank transaction', {
+    companyId, documentId, bankTxId, copiesRemoved: removed.length,
+  }, 'capture-attach');
+  return 'unlinked';
 }

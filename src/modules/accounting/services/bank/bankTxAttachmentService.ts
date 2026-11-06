@@ -15,7 +15,10 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
-import { magicBytesMatchMime } from '@/lib/fileMagic';
+import { detectMimeFromMagic, magicBytesMatchMime } from '@/lib/fileMagic';
+import { fetchRawBytes } from '@/lib/documentStorage';
+import { linkedCapturedDocSql } from './bankLineDocumentSql';
+import { mimeForCapturedFileType } from '../capture/capturedFileTypes';
 
 export const ATTACHMENT_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'] as const;
 export type AttachmentMime = (typeof ATTACHMENT_MIME_TYPES)[number];
@@ -91,8 +94,12 @@ export async function addBankTxAttachment(
 }
 
 export interface BankTxAttachmentDetail extends BankTxAttachmentRow {
+  /** 'captured_document' when the id named a captured document linked to a bank line, not an upload. */
+  store?: 'captured_document';
   /** Base64 file bytes, present only when the caller asked for them. */
   content?: string;
+  /** Why content was asked for but left out. */
+  contentOmitted?: 'too_large' | 'missing';
 }
 
 /**
@@ -106,6 +113,9 @@ export interface BankTxAttachmentDetail extends BankTxAttachmentRow {
  * mime type and the bytes are both parsed out of it rather than stored
  * separately.
  */
+/** Base64 of a captured document is returned up to this size; MCP responses past it are too large to be useful. */
+export const MAX_CAPTURED_CONTENT_BYTES = 4 * 1024 * 1024;
+
 export async function getBankTxAttachment(
   companyId: string,
   attachmentId: string,
@@ -117,11 +127,38 @@ export async function getBankTxAttachment(
     JOIN bank_transactions bt ON bt.id = a.bank_transaction_id
     WHERE a.id = ${attachmentId}::UUID AND bt.company_id = ${companyId}::UUID
   `) as DbRow[];
-  if (!row) return null;
+  if (!row) return getLinkedCapturedDocument(companyId, attachmentId, includeContent);
 
   const url = String(row.file_url ?? '');
   const match = /^data:([^;]+);base64,(.*)$/s.exec(url);
   const mimeType = match ? match[1]! : 'application/octet-stream';
   const base = mapRow(row, mimeType);
   return includeContent && match ? { ...base, content: match[2]! } : base;
+}
+
+/**
+ * A captured document that is a supporting document of one of the company's bank lines (list_documents store
+ * 'captured_document'). Its type is read from its bytes when they are fetched, else the type it claims. Content over
+ * MAX_CAPTURED_CONTENT_BYTES is left out with contentOmitted.
+ */
+async function getLinkedCapturedDocument(
+  companyId: string, documentId: string, includeContent: boolean,
+): Promise<BankTxAttachmentDetail | null> {
+  const [doc] = (await sql`
+    SELECT cd.id, bt.id AS bank_transaction_id, cd.file_name, COALESCE(cd.raw_bytes_size, cd.file_size) AS file_size,
+           cd.created_at, cd.file_type
+      FROM captured_documents cd
+      JOIN bank_transactions bt ON bt.id = cd.matched_bank_tx_id
+     WHERE cd.id = ${documentId}::UUID AND cd.company_id = ${companyId}::UUID
+       AND ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))}
+  `) as DbRow[];
+  if (!doc) return null;
+  const claimed = doc.file_type ? mimeForCapturedFileType(String(doc.file_type)) : null;
+  const base = { ...mapRow(doc, claimed ?? 'application/octet-stream'), store: 'captured_document' as const };
+  if (!includeContent) return base;
+  if (Number(doc.file_size ?? 0) > MAX_CAPTURED_CONTENT_BYTES) return { ...base, contentOmitted: 'too_large' };
+  const raw = await fetchRawBytes(documentId, companyId);
+  if (!raw) return { ...base, contentOmitted: 'missing' };
+  if (raw.buffer.length > MAX_CAPTURED_CONTENT_BYTES) return { ...base, contentOmitted: 'too_large' };
+  return { ...base, mimeType: detectMimeFromMagic(raw.buffer) ?? 'application/octet-stream', content: raw.buffer.toString('base64') };
 }

@@ -5,7 +5,7 @@
  * Reply-side handling lives in bankTxQueryReplyService.ts.
  */
 
-import { attachmentCountSql } from './capturedAttachmentLinks';
+import { attachmentCountSql } from '../bank/bankLineDocumentSql';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';

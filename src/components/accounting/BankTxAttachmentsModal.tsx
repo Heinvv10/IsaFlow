@@ -144,13 +144,15 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   };
 
   // ── Delete ─────────────────────────────────────────────────────────────────
-  const handleDelete = async (id: string, name: string) => {
+  // A linked captured document is unlinked from the line (its copy goes with it); anything else is deleted.
+  const handleDelete = async (att: Attachment) => {
+    const { id, file_name: name } = att;
     setDeletingId(id);
     try {
-      const res = await apiFetch(
-        `/api/accounting/bank-tx-attachments?id=${encodeURIComponent(id)}`,
-        { method: 'DELETE' },
-      );
+      const url = att.document_id
+        ? `/api/accounting/bank-tx-attachments?documentId=${encodeURIComponent(att.document_id)}&bankTransactionId=${encodeURIComponent(bankTransactionId)}`
+        : `/api/accounting/bank-tx-attachments?id=${encodeURIComponent(id)}`;
+      const res = await apiFetch(url, { method: 'DELETE' });
       await assertOk(res, 'Could not remove the attachment - try again');
       const json = await res.json() as { success: boolean; error?: { message?: string } };
       if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not remove the attachment - try again');
@@ -256,7 +258,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
           ) : (
             attachments.map(att => (
               <BankTxAttachmentRow key={att.id} att={att} deleting={deletingId === att.id}
-                onView={() => setViewIndex(viewable.indexOf(att))} onDelete={() => void handleDelete(att.id, att.file_name)} />
+                onView={() => setViewIndex(viewable.indexOf(att))} onDelete={() => void handleDelete(att)} />
             ))
           )}
         </div>

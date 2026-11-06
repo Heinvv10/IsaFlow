@@ -42,7 +42,7 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
   const [index, setIndex] = useState(startIndex);
   const dialogRef = useRef<HTMLDivElement>(null);
   const file = attachments[index];
-  const { blob, loading } = useAttachmentBlob(file);
+  const { blob, loading, missing } = useAttachmentBlob(file);
   // What is shown follows the blob's own type, which for a captured document comes from its bytes.
   const kind = !blob ? 'none' : blob.type === 'application/pdf' ? 'pdf' : 'image';
   // Made and freed in one effect, not a memo: StrictMode runs effects twice, and a memoised URL would be revoked
@@ -91,8 +91,9 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
           <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </button>
         {/* A captured document it cannot show still downloads from its route, as octet-stream. */}
-        {(blobUrl || (!loading && !blob && isCapturedFile(file.file_url))) && (
-          <a href={blobUrl ?? file.file_url} download={safeDownloadName(file.file_url, file.file_name, file.content_type)} className={NAV}
+        {(blobUrl || (!loading && !blob && !missing && isCapturedFile(file.file_url))) && (
+          // Named for the type the bytes proved when they were shown, else the type claimed.
+          <a href={blobUrl ?? file.file_url} download={safeDownloadName(file.file_url, file.file_name, blob?.type ?? file.content_type)} className={NAV}
             aria-label={`Download ${file.file_name}`} title="Download">
             <Download className="h-4 w-4" aria-hidden="true" />
           </a>
@@ -114,7 +115,7 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
         ) : (
           <div className="flex flex-col items-center gap-2 text-sm text-[var(--ff-text-secondary)]" onClick={e => e.stopPropagation()}>
             <FileX className="h-8 w-8" aria-hidden="true" />
-            <p>Preview not available for this file</p>
+            <p>{missing ? 'This file is missing from storage' : 'Preview not available for this file'}</p>
           </div>
         )}
       </div>

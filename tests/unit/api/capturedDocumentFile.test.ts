@@ -7,6 +7,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const fetchRaw = vi.fn();
+const linked = vi.fn();
+vi.mock('@/modules/accounting/services/capture/capturedAttachmentLinks', () => ({
+  isBankLinkedCapturedDocument: (...a: unknown[]) => linked(...a),
+}));
 vi.mock('@/lib/documentStorage', () => ({ fetchRawBytes: (...a: unknown[]) => fetchRaw(...a) }));
 vi.mock('@/lib/supabaseStorage', () => ({ CapturedDocumentMissingError: class extends Error {} }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -33,7 +37,7 @@ async function call(query: Record<string, unknown>, method = 'GET'): Promise<Res
 }
 const raw = (buffer: Buffer) => ({ buffer, hash: 'h', storedHash: 'h', size: buffer.length, fileType: 'application/pdf' });
 
-beforeEach(() => { fetchRaw.mockReset(); });
+beforeEach(() => { fetchRaw.mockReset(); linked.mockReset().mockResolvedValue(true); });
 
 describe('captured-document-file', () => {
   it('serves the bytes of this company\'s document as an inert download', async () => {
@@ -45,7 +49,7 @@ describe('captured-document-file', () => {
     expect(r.body).toBe(pdf);
     expect(r.headers['Content-Type']).toBe('application/octet-stream');
     expect(r.headers['X-Content-Type-Options']).toBe('nosniff');
-    expect(r.headers['Content-Security-Policy']).toMatch(/^sandbox/);
+    expect(r.headers['Content-Security-Policy']).toBe("sandbox; default-src 'none'");
     expect(r.headers['Cache-Control']).toBe('private, no-store');
     expect(r.headers['Content-Disposition']).toBe('attachment; filename="document.pdf"');
   });
@@ -53,6 +57,8 @@ describe('captured-document-file', () => {
   it('names a saved file from its bytes, never from its claim', () => {
     expect(capturedDownloadName(Buffer.from([0xff, 0xd8, 0xff, 0xe0]))).toBe('document.jpg');
     expect(capturedDownloadName(Buffer.from([0x49, 0x49, 0x2a, 0x00]))).toBe('document.tif');
+    expect(capturedDownloadName(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe('document.png');
+    expect(capturedDownloadName(Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBPVP8 ')]))).toBe('document.webp');
     expect(capturedDownloadName(Buffer.from('<html><script>alert(1)</script>'))).toBe('document.bin');
   });
 
@@ -63,6 +69,13 @@ describe('captured-document-file', () => {
     expect((await call({ id: ID })).code).toBe(404);
   });
 
+  it('serves only a supporting document of one of the company\'s bank lines, and reads nothing else', async () => {
+    linked.mockResolvedValue(false);
+    expect((await call({ id: ID })).code).toBe(404);
+    expect(linked).toHaveBeenCalledWith('co-1', ID);
+    expect(fetchRaw).not.toHaveBeenCalled();
+  });
+
   it('lets any other storage failure reach the error handler', async () => {
     fetchRaw.mockRejectedValue(new Error('storage down'));
     await expect(call({ id: ID })).rejects.toThrow('storage down');
@@ -70,6 +83,8 @@ describe('captured-document-file', () => {
 
   it('refuses a malformed id before reading anything, and any method but GET', async () => {
     expect((await call({ id: '../etc/passwd' })).code).toBe(400);
+    expect((await call({ id: `x${ID}` })).code).toBe(400);
+    expect((await call({ id: `${ID}x` })).code).toBe(400);
     expect((await call({ id: [ID, ID] })).code).toBe(400);
     expect((await call({ id: ID }, 'POST')).code).toBe(405);
     expect(fetchRaw).not.toHaveBeenCalled();

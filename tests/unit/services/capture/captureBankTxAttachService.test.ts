@@ -72,6 +72,14 @@ describe('attachCapturedDocToBankTx', () => {
     expect(insert.slice(1).find((v) => typeof v === 'string' && v.startsWith('data:'))).toBe(`${prefix}${buffer.toString('base64')}`);
   });
 
+  it('names the copy from the stored id, never the request\'s spelling of it', async () => {
+    mockSqlByQuery(happyHandlers({ doc: [{ id: DOC, file_name: 'slip.jpg', file_type: 'jpeg' }] }));
+    vi.mocked(fetchRawBytes).mockResolvedValue({ buffer: Buffer.from('img'), hash: 'h', size: 3, fileType: 'jpeg' });
+    await attachCapturedDocToBankTx(COMPANY, DOC.toUpperCase(), TX, 'user-1');
+    const insert = sqlMock.mock.calls.find((c) => (c[0] as readonly string[]).join('?').includes('INSERT INTO bank_transaction_attachments'))!;
+    expect(insert.slice(1)).toContain(`${DOC}_slip.jpg`);
+  });
+
   it('returns notFound when the document is not in this company', async () => {
     mockSqlByQuery(happyHandlers({ doc: [] }));
     const result = await attachCapturedDocToBankTx(COMPANY, DOC, TX, 'user-1');
@@ -116,12 +124,14 @@ describe('attachCapturedDocToBankTx', () => {
 
   it('dedupes per-document: two different docs with the same original file name both mirror', async () => {
     const DOC2 = '44444444-4444-4444-4444-444444444444';
-    mockSqlByQuery(happyHandlers()); // dup check returns [] for every doc
     vi.mocked(fetchRawBytes).mockResolvedValue({
       buffer: Buffer.from('img'), hash: 'h', size: 3, fileType: 'jpeg',
     });
+    // The copy is named from the document's id as the database returns it, so each call returns its own row.
+    mockSqlByQuery(happyHandlers()); // dup check returns [] for every doc
     expect(await attachCapturedDocToBankTx(COMPANY, DOC, TX, 'user-1'))
       .toEqual({ ok: true, mirrored: true });
+    mockSqlByQuery(happyHandlers({ doc: [{ id: DOC2, file_name: 'slip.jpg', file_type: 'jpeg' }] }));
     expect(await attachCapturedDocToBankTx(COMPANY, DOC2, TX, 'user-1'))
       .toEqual({ ok: true, mirrored: true });
 

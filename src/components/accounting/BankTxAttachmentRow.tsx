@@ -1,7 +1,7 @@
 /**
  * One file in BankTxAttachmentsModal: icon, name and size, then View (only for a file the viewer can show, see
- * ./attachmentPreview), Download (only for a url ./attachmentPreview's canDownload allows) and Remove, except on a
- * captured document, whose link document capture owns.
+ * ./attachmentPreview), Download (only for a url ./attachmentPreview's canDownload allows) and Remove, which on a
+ * linked captured document unlinks it from the line.
  */
 
 import { Eye, FileImage, FileText, Loader2, Paperclip, Trash2, Upload } from 'lucide-react';
@@ -60,13 +60,13 @@ export function BankTxAttachmentRow({ att, deleting, onView, onDelete }: Props) 
         </span>
       )}
 
-      {/* A captured document's link belongs to document capture, which owns its status: it is unlinked there, not here. */}
-      {att.source !== 'captured' && (
-        <button type="button" disabled={deleting} onClick={onDelete} title="Remove" aria-label={`Remove ${att.file_name}`}
-          className={`${ICON_BTN} hover:bg-red-500/10 hover:text-red-400 disabled:opacity-40`}>
-          {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-        </button>
-      )}
+      {/* On a linked captured document Remove unlinks it from this line; the document stays in document capture. */}
+      <button type="button" disabled={deleting} onClick={onDelete}
+        title={att.document_id ? 'Remove from this line (unlinks the captured document)' : 'Remove'}
+        aria-label={`Remove ${att.file_name}`}
+        className={`${ICON_BTN} hover:bg-red-500/10 hover:text-red-400 disabled:opacity-40`}>
+        {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+      </button>
     </div>
   );
 }

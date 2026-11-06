@@ -18,30 +18,11 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fetchRawBytes } from '@/lib/documentStorage';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
+import { mimeForCapturedFileType } from './capturedFileTypes';
+
+export { mimeForCapturedFileType };
 
 const MAX_MIRROR_BYTES = 2 * 1024 * 1024;
-
-// captured_documents.file_type is a short name from most writers and a full MIME type from the email mirror
-// (imapMirrorIngest). Both must land on the same type: a miss stores application/octet-stream.
-const MIME_BY_FILE_TYPE: Record<string, string> = {
-  pdf: 'application/pdf',
-  'application/pdf': 'application/pdf',
-  jpeg: 'image/jpeg',
-  jpg: 'image/jpeg',
-  'image/jpeg': 'image/jpeg',
-  'image/jpg': 'image/jpeg',
-  png: 'image/png',
-  'image/png': 'image/png',
-  webp: 'image/webp',
-  'image/webp': 'image/webp',
-  tiff: 'image/tiff',
-  'image/tiff': 'image/tiff',
-};
-
-/** The MIME type a captured_documents.file_type names (short name or full type), or null when it names none we know. */
-export function mimeForCapturedFileType(fileType: string): string | null {
-  return MIME_BY_FILE_TYPE[fileType.toLowerCase()] ?? null;
-}
 
 export type AttachToBankTxResult =
   | { ok: true; mirrored: boolean }
@@ -78,8 +59,11 @@ export async function attachCapturedDocToBankTx(
      WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid
   `;
 
+  // The copy's name starts with the document's id as the database prints it (lower-case, hyphenated), never the
+  // request's spelling: bank/bankLineDocumentSql recognises a copy by that prefix, and an upper-case or brace-wrapped
+  // id would make the document count twice.
   const mirrored = await mirrorIntoAttachments(
-    companyId, documentId, bankTxId, String(doc.file_name), String(doc.file_type), userId,
+    companyId, String(doc.id), bankTxId, String(doc.file_name), String(doc.file_type), userId,
   );
 
   log.info('Captured document attached to bank transaction', {

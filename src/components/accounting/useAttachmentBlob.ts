@@ -12,7 +12,10 @@ import { bytesToBlob, dataUrlToBlob, isCapturedFile, previewKind } from './attac
 
 export interface BlobFile { file_url: string; content_type?: string | null }
 
-export type AttachmentBlob = { blob: Blob | null; loading: boolean };
+/** missing: the server has no bytes for it (404), as opposed to bytes it will not show. */
+export type AttachmentBlob = { blob: Blob | null; loading: boolean; missing: boolean };
+
+type Loaded = { blob: Blob | null; missing: boolean; failed: boolean };
 
 export function useAttachmentBlob(file: BlobFile | undefined): AttachmentBlob {
   const captured = !!file && isCapturedFile(file.file_url);
@@ -24,34 +27,39 @@ export function useAttachmentBlob(file: BlobFile | undefined): AttachmentBlob {
 
   // One request per document for as long as this viewer is open: a document can be up to 10 MB, stepping back to it
   // must not fetch it again, and StrictMode's second effect run reuses the first one's request.
-  const requests = useRef(new Map<string, Promise<Blob | null>>());
+  // A failure is not kept: stepping back to the document tries again.
+  const requests = useRef(new Map<string, Promise<Loaded>>());
   // Keyed by the file it belongs to, so a step never shows the previous file's bytes while the next one loads.
-  const [fetched, setFetched] = useState<{ file: BlobFile; blob: Blob | null } | null>(null);
+  const [fetched, setFetched] = useState<({ file: BlobFile } & Loaded) | null>(null);
   useEffect(() => {
     if (!file || !captured || kind === 'none') return undefined;
     let live = true;
-    let request = requests.current.get(file.file_url);
+    const cache = requests.current;
+    let request = cache.get(file.file_url);
     if (!request) {
       request = loadCaptured(file.file_url);
-      requests.current.set(file.file_url, request);
+      cache.set(file.file_url, request);
+      void request.then((loaded) => { if (loaded.failed) cache.delete(file.file_url); });
     }
-    void request.then((blob) => { if (live) setFetched({ file, blob }); });
+    void request.then((loaded) => { if (live) setFetched({ file, ...loaded }); });
     return () => { live = false; };
   }, [file, captured, kind]);
 
-  if (!captured) return { blob: decoded, loading: false };
-  if (kind === 'none') return { blob: null, loading: false };
-  if (fetched && fetched.file === file) return { blob: fetched.blob, loading: false };
-  return { blob: null, loading: true };
+  if (!captured) return { blob: decoded, loading: false, missing: false };
+  if (kind === 'none') return { blob: null, loading: false, missing: false };
+  if (fetched && fetched.file === file) return { blob: fetched.blob, loading: false, missing: fetched.missing };
+  return { blob: null, loading: true, missing: false };
 }
 
-async function loadCaptured(url: string): Promise<Blob | null> {
+/** failed: a fetch that did not complete (network, 5xx), worth retrying; a 404 is missing, not failed. */
+async function loadCaptured(url: string): Promise<Loaded> {
   try {
     const res = await apiFetch(url);
+    if (res.status === 404) return { blob: null, missing: true, failed: false };
     await assertOk(res, 'Could not load the document');
-    return bytesToBlob(await res.arrayBuffer());
+    return { blob: bytesToBlob(await res.arrayBuffer()), missing: false, failed: false };
   } catch (err) {
     log.warn('Attachment viewer could not load a captured document', { err }, 'attachment-viewer');
-    return null;
+    return { blob: null, missing: false, failed: true };
   }
 }

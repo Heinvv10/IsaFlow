@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/neon', async () => {
   const original = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
-  const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
+  // unsafe returns its text, so a shared SQL fragment shows up among a call's values.
+  const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn(), unsafe: vi.fn((text: string) => text) });
   return { ...original, sql: sqlFn };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
@@ -12,6 +13,7 @@ vi.mock('@/modules/accounting/services/core/documentStorageService', async () =>
   return { ...actual, verifyEntityOwnership: vi.fn() };
 });
 
+import { hasBankLineDocumentSql } from '@/modules/accounting/services/bank/bankLineDocumentSql';
 import { sql } from '@/lib/neon';
 import { verifyEntityOwnership } from '@/modules/accounting/services/core/documentStorageService';
 import {
@@ -68,16 +70,17 @@ describe('listBankAttachments', () => {
   });
 
   it('returns one row per attachment with the transaction it supports', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([{
+    // Calls in order: the shared CTE fragment (never awaited on its own), the rows, the count.
+    vi.mocked(sql).mockReturnValueOnce('docs-cte' as never).mockResolvedValueOnce([{
       id: 'a1', bank_transaction_id: 'tx1', file_name: 'slip.pdf', file_size: 1200,
-      created_at: '2026-09-01T00:00:00Z', uploaded_by: 'u1',
+      created_at: '2026-09-01T00:00:00Z', uploaded_by: 'u1', store: 'bank_attachment',
       transaction_date: '2026-09-01', amount: '-10500.00', tx_description: 'Makro', reference: 'REF1',
     }] as never).mockResolvedValueOnce([{ cnt: 1 }] as never);
 
     const res = await listBankAttachments(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
     expect(res.rowsTotal).toBe(1);
     expect(res.rows[0]).toMatchObject({
-      id: 'a1', bankTransactionId: 'tx1', fileName: 'slip.pdf', amount: -10500,
+      id: 'a1', store: 'bank_attachment', bankTransactionId: 'tx1', fileName: 'slip.pdf', amount: -10500,
     });
   });
 });
@@ -103,13 +106,16 @@ describe('listTransactionsWithoutDocuments', () => {
     expect(texts()[0]).toMatch(/ABS\(bt\.amount\)\s*>=\s*\?/);
   });
 
-  it('puts the has-no-attachment test in WHERE, never in the LEFT JOIN ON clause', async () => {
+  it('tests for no document with the grid\'s own definition, in WHERE, in both the rows and the count', async () => {
     vi.mocked(sql).mockResolvedValue([{ cnt: 0 }] as never);
     await listTransactionsWithoutDocuments(COMPANY, { from: '2026-01-01', to: '2026-12-31', minAmount: 0, limit: 50 });
-    const t = texts()[0]!;
-    // A predicate inside an outer join's ON restricts nothing (kpiChartsService).
-    const onClause = t.slice(t.indexOf('LEFT JOIN'), t.indexOf('WHERE'));
-    expect(onClause).not.toMatch(/IS NULL/);
-    expect(t.slice(t.indexOf('WHERE'))).toMatch(/a\.id IS NULL/);
+    // Uploads and linked captured documents both count (bank/bankLineDocumentSql), so a line whose only document is
+    // a linked captured document over 2 MB is NOT reported unsupported.
+    for (const call of vi.mocked(sql).mock.calls.slice(0, 2)) {
+      const t = (call[0] as unknown as TemplateStringsArray).join('?');
+      expect(t).not.toMatch(/LEFT JOIN/);
+      expect(t).toMatch(/AND NOT \?/);
+      expect(call.slice(1)).toContain(hasBankLineDocumentSql('bt'));
+    }
   });
 });

@@ -6,13 +6,13 @@
 //     D2  linked, stored, AND copied (C2 = "<D2>_…")  → counted once, as its copy; not listed again
 //     D3  linked, no stored bytes                    → not counted (it cannot be opened)
 //     DX  company B's document pointing at T1         → never counted or listed for A
-//   so T1's count is 2 (C2 + D1), and the list holds D1 only.
+//   so T1's count is 2 (C2 + D1), and the list holds C2 (marked as D2's) and D1.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { als } from '@/lib/als';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { listQueries } from '@/modules/accounting/services/capture/bankTxQueryService';
-import { listLinkedCapturedAttachments } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
+import { listBankLineAttachments } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
 
 const url = process.env.DATABASE_URL ?? '';
 const describeIfDb = url && !url.includes('dummy') ? describe : describe.skip;
@@ -76,13 +76,18 @@ describeIfDb('captured documents linked to a bank line count and list as its att
     expect(queries.map((q) => q.attachment_count)).toEqual([2]);
   });
 
-  it('lists only the uncopied stored document, with its route and claimed type', async () => {
-    const list = await listLinkedCapturedAttachments(company, t1);
-    expect(list).toEqual([expect.objectContaining({
-      id: `captured-${d1}`, file_url: `/api/accounting/captured-document-file?id=${d1}`,
-      source: 'captured', content_type: 'application/pdf', file_size: 7400000, bank_transaction_id: t1,
-    })]);
-    expect(await listLinkedCapturedAttachments(other, t1)).toEqual([expect.objectContaining({ id: `captured-${dx}` })]);
+  it('lists the copy once, marked with its document, and the uncopied document by its route', async () => {
+    const list = await listBankLineAttachments(company, t1);
+    expect(list).toHaveLength(2);
+    expect(list).toEqual(expect.arrayContaining([
+      expect.objectContaining({ file_name: `${d2}_scan.pdf`, document_id: d2, source: 'captured' }),
+      expect.objectContaining({
+        id: `captured-${d1}`, file_url: `/api/accounting/captured-document-file?id=${d1}`, document_id: d1,
+        source: 'captured', content_type: 'application/pdf', file_size: 7400000, bank_transaction_id: t1,
+      }),
+    ]));
+    // Company B's document points at A's line: listing that line as B finds no line, so nothing.
+    expect(await listBankLineAttachments(other, t1)).toEqual([]);
   });
 
   it('gives the same count and list as app_user under RLS', async () => {
@@ -94,9 +99,9 @@ describeIfDb('captured documents linked to a bank line count and list as its att
       await client.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
       const ctx = { client, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0];
       const [page, list] = await als.run(ctx, async () => [
-        await getBankTransactions(company, {}), await listLinkedCapturedAttachments(company, t1)] as const);
+        await getBankTransactions(company, {}), await listBankLineAttachments(company, t1)] as const);
       expect(page.transactions.map((t) => [t.id, t.attachmentCount])).toEqual([[t1, 2]]);
-      expect(list.map((a) => a.id)).toEqual([`captured-${d1}`]);
+      expect(list.map((a) => a.document_id).sort()).toEqual([d1, d2].sort());
     } finally {
       await client.query('ROLLBACK').catch(() => undefined);
       client.release();
