@@ -1,6 +1,6 @@
 /**
- * ap_open_items / ar_open_items — the control: Σ Outstanding equals the
- * aged_creditors / aged_debtors net `total` to the cent.
+ * ap_open_items / ar_open_items — the control: Σ Outstanding + Σ Disputed
+ * equals the aged_creditors / aged_debtors net `total` to the cent.
  *
  * The two sides are computed by DIFFERENT code from the SAME fixture: the aged
  * tools run their own path (getAPAging / getARAging → calculateAgingBuckets,
@@ -201,6 +201,14 @@ describe('open items: what a dashboard does with the file', () => {
     expect(cents(ar.summary.grossTotal)).toBe(balances);
     // AP has no dispute concept.
     expect((await buildOpenItems(CTX.companyId, 'ap', AS_AT)).summary.disputedTotal).toBe(0);
+  });
+
+  it('a dispute is already in controlTotal: Σ Outstanding falls short of it by disputedTotal, and schema 1.1 says so', async () => {
+    const ar = await buildOpenItems(CTX.companyId, 'ar', AS_AT);
+    const sumOutstanding = ar.rows.reduce((s, r) => s + cents(r.Outstanding), 0);
+    expect(cents(ar.summary.controlTotal) - sumOutstanding).toBe(cents(ar.summary.disputedTotal));
+    expect(ar.summary.schemaVersion).toBe('isaflow-open-items-1.1');
+    expect(new Set(ar.rows.map((r) => r.Schema_Version))).toEqual(new Set(['isaflow-open-items-1.1']));
   });
 });
 

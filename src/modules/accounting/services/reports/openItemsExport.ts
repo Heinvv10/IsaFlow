@@ -49,7 +49,8 @@ import { aggregateUnappliedByEntity, netAgingRows } from '@/modules/accounting/s
 import { creditNoteDimensions, documentsOnFile, invoiceDimensions, type DocDimensions } from './openItemsLookups';
 import type { ExportValue } from './glLineExportRows';
 
-export const OPEN_ITEMS_SCHEMA_VERSION = 'isaflow-open-items-1.0';
+/** 1.1: controlTotal and grossTotal include Σ Disputed (a dispute is still owed); columns unchanged. */
+export const OPEN_ITEMS_SCHEMA_VERSION = 'isaflow-open-items-1.1';
 export type OpenItemsSide = 'ap' | 'ar';
 export type OpenItemsRow = Record<string, ExportValue>;
 
