@@ -19,6 +19,8 @@ interface SelectDropdownProps {
   inputId: string;
   isMulti: boolean;
   pos: { top: number; left: number; width: number };
+  /** The panel is at least this wide (px), whatever the trigger's width. */
+  minWidth?: number;
   searchRef: RefObject<HTMLInputElement>;
   listRef: RefObject<HTMLUListElement>;
   panelRef: RefObject<HTMLDivElement>;
@@ -49,6 +51,7 @@ export function SelectDropdown({
   inputId,
   isMulti,
   pos,
+  minWidth,
   searchRef,
   listRef,
   panelRef,
@@ -68,7 +71,7 @@ export function SelectDropdown({
   return (
     <div
       ref={panelRef}
-      style={{ top: pos.top, left: pos.left, width: pos.width }}
+      style={{ top: pos.top, left: pos.left, width: pos.width, minWidth }}
       className={cn(
         'fixed z-[9999] flex flex-col overflow-hidden rounded-lg',
         'border border-gray-200 bg-white shadow-lg',

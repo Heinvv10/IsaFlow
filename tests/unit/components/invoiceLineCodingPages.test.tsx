@@ -77,11 +77,24 @@ function serve(invoice?: Record<string, unknown>, opts: { failLists?: boolean; f
 }
 afterEach(() => { vi.unstubAllGlobals(); router.query = {}; });
 
-const optionTexts = (select: HTMLElement) => Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+// The pickers are kit Selects: what a line shows is its trigger's text, what it offers is read by opening it.
+const combo = (name: string, i = 0) => screen.getAllByRole('combobox', { name })[i]!;
+const shown = (name: string, i = 0) => combo(name, i).textContent;
+function offered(name: string, i = 0): (string | null)[] {
+  const c = combo(name, i);
+  fireEvent.click(c);
+  const texts = screen.queryAllByRole('option').map((o) => o.textContent);
+  fireEvent.click(c);
+  return texts;
+}
+function pick(name: string, option: string, i = 0) {
+  fireEvent.click(combo(name, i));
+  fireEvent.click(screen.getByRole('option', { name: option }));
+}
 const dimensions = () => screen.getByRole('button', { name: /Dimensions/ });
 
 async function fillNewInvoice() {
-  await waitFor(() => expect(optionTexts(screen.getByLabelText('Revenue account'))).toContain('4100 Commercials'));
+  await waitFor(() => expect(offered('Revenue account')).toContain('4100 Commercials'));
   await pickOption('Client', 'Acme');
   fireEvent.change(screen.getAllByLabelText('Description')[0]!, { target: { value: 'TV spot' } });
   fireEvent.change(screen.getAllByLabelText('Unit price')[0]!, { target: { value: '1000' } });
@@ -91,15 +104,15 @@ describe('customer invoice line coding — new invoice', () => {
   it('offers only active leaf revenue accounts, live jobs, active CC2 projects and BUs', async () => {
     serve();
     render(<NewCustomerInvoicePage />);
-    const picker = await screen.findByLabelText('Revenue account');
-    await waitFor(() => expect(optionTexts(picker)).toEqual(['Default sales', '4100 Commercials', '4310 Studio child']));
-    expect(screen.queryByLabelText('Job (Project Profitability)')).toBeNull();
+    await screen.findByRole('combobox', { name: 'Revenue account' });
+    await waitFor(() => expect(offered('Revenue account')).toEqual(['Default sales', '4100 Commercials', '4310 Studio child']));
+    expect(screen.queryByRole('combobox', { name: 'Job (Project Profitability)' })).toBeNull();
     expect(dimensions().getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(dimensions());
     expect(dimensions().getAttribute('aria-expanded')).toBe('true');
-    expect(optionTexts(screen.getByLabelText('Job (Project Profitability)'))).toEqual(['No job', 'P1 Shoot']);
-    expect(optionTexts(screen.getByLabelText('CC2 project'))).toEqual(['No CC2 project', 'LAW Lawley']);
-    expect(optionTexts(screen.getByLabelText('BU'))).toEqual(['No BU', 'ACT Activations']);
+    expect(offered('Job (Project Profitability)')).toEqual(['No job', 'P1 Shoot']);
+    expect(offered('CC2 project')).toEqual(['No CC2 project', 'LAW Lawley']);
+    expect(offered('BU')).toEqual(['No BU', 'ACT Activations']);
     expect(gets).toContain('/api/accounting/cost-centres?active=true&cc_type=cc2');
     expect(gets).toContain('/api/accounting/business-units?active=true');
   });
@@ -108,14 +121,15 @@ describe('customer invoice line coding — new invoice', () => {
     serve();
     render(<NewCustomerInvoicePage />);
     await fillNewInvoice();
-    fireEvent.change(screen.getByLabelText('Revenue account'), { target: { value: ACC.commercials } });
+    pick('Revenue account', '4100 Commercials');
     fireEvent.click(dimensions());
-    fireEvent.change(screen.getByLabelText('CC2 project'), { target: { value: CC2 } });
-    fireEvent.change(screen.getByLabelText('BU'), { target: { value: BU } });
-    fireEvent.change(screen.getByLabelText('Invoice job'), { target: { value: P1 } });
+    await waitFor(() => expect(offered('CC2 project')).toContain('LAW Lawley'));
+    pick('CC2 project', 'LAW Lawley');
+    pick('BU', 'ACT Activations');
+    pick('Invoice job', 'P1 Shoot');
     fireEvent.click(screen.getByRole('button', { name: /Add Line/ }));
-    expect((screen.getAllByLabelText('Job (Project Profitability)')[1] as HTMLSelectElement).value).toBe(P1);
-    expect((screen.getAllByLabelText('Job (Project Profitability)')[0] as HTMLSelectElement).value).toBe(''); // existing lines untouched
+    expect(shown('Job (Project Profitability)', 1)).toBe('P1 Shoot');
+    expect(shown('Job (Project Profitability)', 0)).toBe('No job'); // existing lines untouched
     fireEvent.change(screen.getAllByLabelText('Description')[1]!, { target: { value: 'Edit' } });
     fireEvent.change(screen.getAllByLabelText('Unit price')[1]!, { target: { value: '200' } });
     await clickWhenEnabled(/Create Invoice/);
@@ -133,19 +147,18 @@ describe('customer invoice line coding — new invoice', () => {
     await fillNewInvoice(); // the first line is now worked
     fireEvent.click(screen.getByRole('button', { name: /Add Line/ })); // a pristine second line
     fireEvent.click(dimensions());
-    fireEvent.change(screen.getByLabelText('Invoice job'), { target: { value: P1 } });
-    const projects = screen.getAllByLabelText('Job (Project Profitability)') as HTMLSelectElement[];
-    expect(projects.map((p) => p.value)).toEqual(['', P1]);
+    pick('Invoice job', 'P1 Shoot');
+    expect([0, 1].map((i) => shown('Job (Project Profitability)', i))).toEqual(['No job', 'P1 Shoot']);
   });
 
   it('scan-filled lines start on the header project', async () => {
     serve();
     render(<NewCustomerInvoicePage />);
-    await waitFor(() => expect(optionTexts(screen.getByLabelText('Invoice job'))).toContain('P1 Shoot'));
-    fireEvent.change(screen.getByLabelText('Invoice job'), { target: { value: P1 } });
+    await waitFor(() => expect(offered('Invoice job')).toContain('P1 Shoot'));
+    pick('Invoice job', 'P1 Shoot');
     fireEvent.click(screen.getByRole('button', { name: 'Scan' }));
     // Dimensions opens itself: the lines now carry a project.
-    expect((screen.getAllByLabelText('Job (Project Profitability)') as HTMLSelectElement[]).map((p) => p.value)).toEqual([P1, P1]);
+    expect([0, 1].map((i) => shown('Job (Project Profitability)', i))).toEqual(['P1 Shoot', 'P1 Shoot']);
   });
 
   it('says the options failed to load, rather than "unavailable"', async () => {
@@ -168,18 +181,17 @@ describe('customer invoice line coding — edit', () => {
     serve(invoice([item({ gl_account_id: ACC.commercials, project_id: FAR, cc1_id: 'fno-1', cc2_id: CC2, bu_id: BU }),
       item({ description: 'Old', gl_account_id: ACC.retired })], FAR));
     render(<EditCustomerInvoicePage />);
-    const pickers = await screen.findAllByLabelText('Revenue account');
-    await waitFor(() => expect((pickers[0] as HTMLSelectElement).value).toBe(ACC.commercials));
-    const lineProject = screen.getAllByLabelText('Job (Project Profitability)')[0] as HTMLSelectElement; // Dimensions open: a line carries one
-    await waitFor(() => expect(lineProject.selectedOptions[0]!.textContent).toBe('P250 Long-running series'));
+    await screen.findAllByRole('combobox', { name: 'Revenue account' });
+    await waitFor(() => expect(shown('Revenue account', 0)).toBe('4100 Commercials'));
+    // Dimensions open: a line carries one
+    await waitFor(() => expect(shown('Job (Project Profitability)', 0)).toBe('P250 Long-running series'));
     expect(gets.some((u) => u.includes(`/projects?ids=${FAR}`))).toBe(true);
-    expect((screen.getByLabelText('Invoice job') as HTMLSelectElement).value).toBe(FAR);
-    expect((pickers[1] as HTMLSelectElement).selectedOptions[0]!.textContent).toBe('Unavailable — choose another');
+    expect(shown('Invoice job')).toBe('P250 Long-running series');
+    expect(shown('Revenue account', 1)).toBe('Unavailable — choose another');
     // CC2 / BU show what is saved and are editable; CC1 is not shown and follows its CC2.
-    const cc2 = screen.getAllByLabelText('CC2 project')[0] as HTMLSelectElement;
-    await waitFor(() => expect(cc2.selectedOptions[0]!.textContent).toBe('LAW Lawley'));
-    expect(cc2.disabled).toBe(false);
-    expect((screen.getAllByLabelText('BU')[0] as HTMLSelectElement).disabled).toBe(false);
+    await waitFor(() => expect(shown('CC2 project', 0)).toBe('LAW Lawley'));
+    expect(combo('CC2 project').getAttribute('aria-disabled')).toBe('false');
+    expect(combo('BU').getAttribute('aria-disabled')).toBe('false');
     fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]!.body.projectId).toBe(FAR);
@@ -193,10 +205,10 @@ describe('customer invoice line coding — edit', () => {
     router.query = { invoiceId: 'inv-1' };
     serve(invoice([item({ cc1_id: 'fno-1', cc2_id: CC2, bu_id: BU })]));
     render(<EditCustomerInvoicePage />);
-    const cc2 = (await screen.findAllByLabelText('CC2 project'))[0] as HTMLSelectElement;
-    await waitFor(() => expect(cc2.value).toBe(CC2));
-    fireEvent.change(cc2, { target: { value: '' } });
-    fireEvent.change(screen.getAllByLabelText('BU')[0] as HTMLSelectElement, { target: { value: '' } });
+    await screen.findAllByRole('combobox', { name: 'CC2 project' });
+    await waitFor(() => expect(shown('CC2 project')).toBe('LAW Lawley'));
+    pick('CC2 project', 'No CC2 project');
+    pick('BU', 'No BU');
     fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }));
     await waitFor(() => expect(sent).toHaveLength(1));
     const [line] = sent[0]!.body.items as Record<string, unknown>[];
@@ -216,20 +228,19 @@ describe('customer invoice line coding — edit, more', () => {
     router.query = { invoiceId: 'inv-1' };
     serve(invoice([], P1));
     render(<EditCustomerInvoicePage />);
-    await waitFor(() => expect((screen.getAllByLabelText('Job (Project Profitability)')[0] as HTMLSelectElement).value).toBe(P1));
+    await waitFor(() => expect(shown('Job (Project Profitability)', 0)).toBe('P1 Shoot'));
     fireEvent.click(screen.getByRole('button', { name: /Add Line/ }));
-    expect((screen.getAllByLabelText('Job (Project Profitability)') as HTMLSelectElement[]).map((p) => p.value)).toEqual([P1, P1]);
+    expect([0, 1].map((i) => shown('Job (Project Profitability)', i))).toEqual(['P1 Shoot', 'P1 Shoot']);
   });
 
   it('a failed by-id lookup reads "could not load", and Retry fetches again and names it', async () => {
     router.query = { invoiceId: 'inv-1' };
     serve(invoice([item({ project_id: FAR })], null), { failIdsOnce: true });
     render(<EditCustomerInvoicePage />);
-    const lineProject = await screen.findByLabelText('Job (Project Profitability)') as HTMLSelectElement;
-    await waitFor(() => expect(lineProject.selectedOptions[0]!.textContent).toBe('Could not load the list — kept as saved'));
+    await screen.findByRole('combobox', { name: 'Job (Project Profitability)' });
+    await waitFor(() => expect(shown('Job (Project Profitability)')).toBe('Could not load the list — kept as saved'));
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect((screen.getByLabelText('Job (Project Profitability)') as HTMLSelectElement).selectedOptions[0]!.textContent)
-      .toBe('P250 Long-running series'));
+    await waitFor(() => expect(shown('Job (Project Profitability)')).toBe('P250 Long-running series'));
   });
 });
 
@@ -257,7 +268,7 @@ describe('a stored id the list does not offer', () => {
     ({ accounts: [], projects: [], cc2s: [], bus: [], known, status, error: '' });
   const label = (status: 'loading' | 'ready' | 'failed', known?: Record<string, string>) => {
     const { container, unmount } = render(<CodingPicker label="P" value={FAR} options={[]} all={all(status, known)} empty="None" onChange={() => undefined} />);
-    const text = (container.querySelector('select') as HTMLSelectElement).selectedOptions[0]!.textContent;
+    const text = container.querySelector('[role=combobox]')!.textContent;
     unmount();
     return text;
   };

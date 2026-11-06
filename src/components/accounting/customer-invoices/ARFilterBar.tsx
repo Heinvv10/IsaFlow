@@ -9,6 +9,8 @@ import { ARFilters, type AgingFilterId } from '@/components/invoices/ARFilters';
 import { ActiveFilterChips, periodChipLabel, type ActiveFilterChip } from '../ActiveFilterChips';
 import { PeriodControl } from '../PeriodControl';
 import { wholeMonthOf } from '../invoicePeriod';
+import { Input } from '@/components/ui/Input';
+import { Select, type SelectOption } from '@/components/ui/Select';
 import { CustomerTypeahead } from './CustomerTypeahead';
 import { AR_STATUSES, type ARStatus } from './listQuery';
 import type { CustomerInvoiceListState } from './useCustomerInvoiceListState';
@@ -24,6 +26,8 @@ const AGING_LABELS: Record<AgingFilterId, string> = {
 function statusLabel(s: ARStatus): string {
   return s === 'all' ? 'All Statuses' : s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
+
+const STATUS_OPTIONS: SelectOption[] = AR_STATUSES.map((s) => ({ value: s, label: statusLabel(s) }));
 
 interface Props {
   state: CustomerInvoiceListState;
@@ -60,23 +64,18 @@ export function ARFilterBar({ state, total }: Props) {
   return (
     <div className="flex flex-col gap-3 mb-6">
       <div className="flex flex-wrap items-center gap-3">
-        <select
-          name="statusFilter"
-          aria-label="Status"
-          value={filters.status}
-          onChange={e => state.setStatus(e.target.value as ARStatus)}
-          className={INPUT}
-        >
-          {AR_STATUSES.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}
-        </select>
-        <input
-          type="text"
-          name="search"
-          value={searchInput}
-          onChange={e => setSearchInput(e.target.value)}
-          placeholder="Search invoice # or client..."
-          className={`${INPUT} w-64`}
-        />
+        <div className="w-44">
+          <Select
+            label="Status" labelClassName="sr-only" options={STATUS_OPTIONS} value={filters.status}
+            onChange={(v) => state.setStatus((v ?? 'all') as ARStatus)}
+          />
+        </div>
+        <div className="w-64">
+          <Input
+            type="text" name="search" aria-label="Search invoices" value={searchInput}
+            onChange={e => setSearchInput(e.target.value)} placeholder="Search invoice # or client..."
+          />
+        </div>
         <CustomerTypeahead
           selectedId={filters.customerId}
           selectedLabel={state.customerLabel}
