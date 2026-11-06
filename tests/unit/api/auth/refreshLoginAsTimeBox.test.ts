@@ -10,10 +10,20 @@ import { SignJWT } from 'jose';
 vi.mock('@/lib/rateLimit', () => ({ withRateLimit: (h: unknown) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth/requireActiveAccount', () => ({ requireActiveAccount: async () => null }));
-const h = vi.hoisted(() => ({ actor: 'self', accessToken: '' }));
-vi.mock('@/lib/auth/impersonationSessions', () => ({ sessionActorOfToken: async () => h.actor }));
+const h = vi.hoisted(() => ({
+  actor: 'self' as string | Error,
+  accessToken: '',
+  logout: vi.fn(async (_token: string, _scope: string) => undefined),
+}));
+vi.mock('@/lib/auth/impersonationSessions', () => ({
+  sessionActorOfToken: async () => {
+    if (h.actor instanceof Error) throw h.actor;
+    return h.actor;
+  },
+}));
 vi.mock('@/lib/auth/gotrue', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  logout: h.logout,
   refresh: async () => ({ access_token: h.accessToken, refresh_token: 'r2', expires_in: 3600, user: { id: TARGET } }),
 }));
 
@@ -52,6 +62,7 @@ const proof = (targetSessionId = SESSION) => {
 beforeEach(async () => {
   vi.stubEnv('JWT_SECRET', JWT_KEY);
   h.actor = 'self';
+  h.logout.mockReset();
   h.accessToken = await new SignJWT({ sub: TARGET, session_id: SESSION }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(JWT_KEY));
 });
@@ -62,6 +73,11 @@ describe('/api/auth/refresh', () => {
     expect(await refreshWith('sb-refresh-token=r1')).toEqual({ status: 200, renewed: true, clearedRefresh: false });
   });
 
+  it('answers 503 and keeps the cookies when the session lookup fails', async () => {
+    h.actor = new Error('pool down');
+    expect(await refreshWith('sb-refresh-token=r1')).toEqual({ status: 503, renewed: false, clearedRefresh: false });
+  });
+
   describe('on a Login-as session', () => {
     beforeEach(() => { h.actor = 'impersonation'; });
 
@@ -70,7 +86,13 @@ describe('/api/auth/refresh', () => {
         .toEqual({ status: 200, renewed: true, clearedRefresh: false });
     });
 
-    it('refuses and clears with no proof cookie', async () => {
+    it('refuses and clears with no proof cookie, and revokes the session at GoTrue', async () => {
+      expect(await refreshWith('sb-refresh-token=r1')).toEqual({ status: 401, renewed: false, clearedRefresh: true });
+      expect(h.logout).toHaveBeenCalledExactlyOnceWith(h.accessToken, 'local');
+    });
+
+    it('still refuses and clears when the revocation fails', async () => {
+      h.logout.mockRejectedValueOnce(new Error('gotrue logout failed: 500'));
       expect(await refreshWith('sb-refresh-token=r1')).toEqual({ status: 401, renewed: false, clearedRefresh: true });
     });
 

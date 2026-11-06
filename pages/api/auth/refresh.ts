@@ -11,8 +11,8 @@
 //   - Rate-limited per IP (refresh tokens are scoped to the browser, so per-IP
 //     bounding is the right granularity before we know who the caller is).
 import type { NextApiHandler } from 'next';
-import { refresh, verifyTokenSignature } from '@/lib/auth/gotrue';
-import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
+import { logout, refresh, verifyTokenSignature } from '@/lib/auth/gotrue';
+import { AUTH_RETRY_AFTER_SECS, AUTH_UNAVAILABLE_ERROR, respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import {
   setAuthCookies,
   clearAuthCookies,
@@ -75,10 +75,22 @@ const handler: NextApiHandler = async (req, res) => {
 
   // A Login-as session is time-boxed by its proof, but its refresh cookie lasts 30
   // days: without this, a later page load could renew it long after the box ended.
-  if ((await sessionActorOfToken(token.access_token)) === 'impersonation') {
+  let actor: Awaited<ReturnType<typeof sessionActorOfToken>>;
+  try {
+    actor = await sessionActorOfToken(token.access_token);
+  } catch (err) {
+    // No verdict on the session: keep the cookies. GoTrue accepts the old refresh token again on the retry.
+    log.error('auth refresh: session lookup failed', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
+    res.setHeader('Retry-After', String(AUTH_RETRY_AFTER_SECS));
+    return res.status(503).json({ success: false, error: AUTH_UNAVAILABLE_ERROR });
+  }
+  if (actor === 'impersonation') {
     const proof = cookies[IMPERSONATION_PROOF_COOKIE];
     if (!proof || !(await validateImpersonationProof(proof, await verifyTokenSignature(token.access_token)))) {
       log.info('auth refresh refused: Login-as session has outlived its proof', { userId: token.user.id }, 'Auth');
+      // End it at GoTrue too, or a copy of the refresh token would keep it alive.
+      try { await logout(token.access_token, 'local'); }
+      catch (err) { log.warn('auth refresh: could not revoke the Login-as session', { message: err instanceof Error ? err.message : String(err) }, 'Auth'); }
       clearAuthCookies(res);
       return res
         .status(401)
