@@ -111,6 +111,7 @@ function composedIncomeSheet(
   const noted: UnnumberedPage = {
     ...buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, [...statementNotes, droppedNote], merge),
     columnsLeftOut: [PACK_TABLE_COLUMN_LABEL.budget, PACK_TABLE_COLUMN_LABEL.variance],
+    columnsSaid: true,
   };
   try {
     const { page: fitted, dropped } = fitRelaidPage(noted);
