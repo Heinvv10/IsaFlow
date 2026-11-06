@@ -79,6 +79,8 @@ describe('createEmployeeWithPay: refused before the first write', () => {
     ['dependants fraction', { medicalAidDependantsCount: 1.5 }, /dependants/i],
     ['uifExcluded the string false', { uifExcluded: 'false' }, /uifExcluded/],
     ['uifExcluded a number', { uifExcluded: 1 }, /uifExcluded/],
+    ['s18aReceiptHeld the string true', { s18aReceiptHeld: 'true' }, /s18aReceiptHeld/],
+    ['s18aReceiptHeld a number', { s18aReceiptHeld: 1 }, /s18aReceiptHeld/],
     ['endDate before startDate', { endDate: '2026-10-31' }, /endDate/],
   ])('%s', async (_n, over, reason) => {
     await expectRefused(go(over), reason);
@@ -176,6 +178,11 @@ describe('createEmployeeWithPay: what it writes', () => {
     await go({ firstName: ' Thandi ', taxNumber: ' 0123456789 ', idNumber: ' 8001015009087 ' });
     const data = vi.mocked(createPayrollEmployee).mock.calls[0]![1];
     expect(data).toMatchObject({ firstName: 'Thandi', taxNumber: '0123456789', idNumber: '8001015009087' });
+  });
+
+  it.each([[true, true], [false, false], [undefined, false], [null, false]])('s18aReceiptHeld %j is stored as %j', async (s18aReceiptHeld, stored) => {
+    await go({ s18aReceiptHeld });
+    expect(vi.mocked(createPayrollEmployee).mock.calls[0]![1].s18aReceiptHeld).toBe(stored);
   });
 
   it.each([[true, true], [false, false], [undefined, false], [null, false]])('uifExcluded %j is stored as %j', async (uifExcluded, stored) => {

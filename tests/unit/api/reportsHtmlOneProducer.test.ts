@@ -71,7 +71,7 @@ const FIGURES = {
     cash: 2_046_825.57, accountsReceivable: 720_000, accountsPayable: 430_000, inventory: 310_000, ...none,
   },
 };
-const CASH_FLOW = { operatingTotal: 345_678.12, investingTotal: -98_765.43, financingTotal: 12_345.67, netChange: 259_258.36 };
+const CASH_FLOW = { operatingTotal: 345_678.12, investingTotal: -98_765.43, financingTotal: 12_345.67, netChange: 259_258.36, unexplainedDifference: 0 };
 
 async function html(): Promise<string> {
   let body = '';

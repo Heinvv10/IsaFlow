@@ -1,12 +1,24 @@
 // src/contexts/useSessionCheck.ts
 import { useCallback, useRef, useState } from 'react';
 import { isAuthUnavailableStatus, AUTH_RETRY_AFTER_SECS } from '@/lib/auth/authUpstream';
+import { refreshSession } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 type RawUser = Record<string, unknown>;
 
 /** A /api/auth/me that has not answered by then is abandoned as an outage (D9): Retry comes back and the next retry is armed. */
 export const AUTH_CHECK_TIMEOUT_MS = 10_000;
+
+/** A 401, unless the server says this browser holds no refresh cookie to renew from. */
+async function shouldRenew(res: Response): Promise<boolean> {
+  if (res.status !== 401) return false;
+  try {
+    const body = (await res.clone().json()) as { error?: { renewable?: unknown } } | null;
+    return body?.error?.renewable !== false;
+  } catch {
+    return true; // no readable answer: let the refresh itself decide
+  }
+}
 
 interface RetryState {
   active: boolean;
@@ -22,7 +34,8 @@ interface RetryState {
  * AUTH_RETRY_AFTER_SECS, and a settled session retries only on the provider's
  * focus/interval re-checks, so an outage is not polled harder. A check asked
  * for while one is in flight joins it: Retry, focus and the timer never stack
- * requests. `authChecking` is true while a check is in flight.
+ * requests. `authChecking` is true while a check is in flight. A 401 first tries
+ * the refresh cookie, and a refused renewal is what clears the user.
  */
 export function useSessionCheck(
   applyUser: (raw: RawUser | null) => void,
@@ -43,8 +56,15 @@ export function useSessionCheck(
       const controller = new AbortController();
       const abandon = setTimeout(() => controller.abort(), AUTH_CHECK_TIMEOUT_MS);
       try {
-        const res = await fetch('/api/auth/me', { credentials: 'include', signal: controller.signal });
-        if (res.ok) {
+        const readMe = () => fetch('/api/auth/me', { credentials: 'include', signal: controller.signal });
+        let res = await readMe();
+        // The access cookie lives an hour, the refresh cookie up to 30 days: a 401 is
+        // only a sign-out once the renewal has been refused too.
+        const renewal = (await shouldRenew(res)) ? await refreshSession() : null;
+        if (renewal === 'refreshed') res = await readMe();
+        if (renewal === 'unavailable') {
+          unavailable = true;
+        } else if (res.ok) {
           const data = await res.json();
           // Support both { data: { user } } and { data: user } shapes
           applyUser(data.data?.user ?? data.data ?? data.user ?? null);

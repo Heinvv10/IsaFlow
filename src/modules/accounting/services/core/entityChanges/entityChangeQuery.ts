@@ -158,15 +158,17 @@ export async function listEntityChanges(companyId: string, opts: ListEntityChang
 /** The payroll_employees columns whose change after calculation sends a pay run back for recalculation. */
 const PAYROLL_TERMS = [
   'end_date', 'termination_reason', 'termination_notice_period_days', 'termination_served_notice_days',
-  'termination_severance_weeks_per_year', 'termination_include_leave_payout',
+  'termination_severance_weeks_per_year', 'termination_include_leave_payout', 's18a_receipt_held',
 ];
+/** The termination details: they count only for an employee whose end date is on or before the run's last day. */
+const TERMINATION_TERMS = PAYROLL_TERMS.filter(t => t.startsWith('termination_'));
 
 /**
- * For the payroll approval gate (payrollRunRecalcGate): the employees among `employeeIds` whose end date or
- * termination details changed after run `runId` was calculated (both stamps compared in SQL: the capture's
+ * For the payroll approval gate (payrollRunRecalcGate): the employees among `employeeIds` whose end date,
+ * termination details or s18A receipt tick changed after run `runId` was calculated (both stamps compared in SQL: the capture's
  * clock_timestamp() against the run's calculated_at). An end-date change counts only when the earlier of the old and
  * the new date (empty = no end) is on or before the run's last day; a termination-detail change only for an employee
- * whose end date is on or before it. NULL when this caller may not read the history: without SELECT on the columns
+ * whose end date is on or before it; an s18A receipt tick always. NULL when this caller may not read the history: without SELECT on the columns
  * read (migration_admin has none), or neither bypassing RLS nor app_user (a member of it) acting as an owner / admin /
  * manager of the request's company.
  * The gate then fails closed rather than read "no change".
@@ -216,8 +218,10 @@ export async function payrollTermsChangedSinceCalculation(
         ('end_date' = ANY(c.changed) AND LEAST(
           COALESCE((c.before->>'end_date')::date, 'infinity'::date),
           COALESCE((c.after->>'end_date')::date, 'infinity'::date)) <= p.last_day)
-        OR (c.changed && ${PAYROLL_TERMS.slice(1)}::text[]
+        OR (c.changed && ${TERMINATION_TERMS}::text[]
           AND c.after->>'end_date' IS NOT NULL AND (c.after->>'end_date')::date <= p.last_day)
+        -- The s18A receipt tick moves PAYE and SDL for any employee, in either direction.
+        OR 's18a_receipt_held' = ANY(c.changed)
       )
   `) as Array<{ entity_id: string }>;
   return rows.map((r) => String(r.entity_id));

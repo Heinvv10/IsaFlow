@@ -12,7 +12,10 @@ import { chromium } from 'playwright';
 import { HEADING_WORD_PX } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { advancePx, effectivePx, textPx, type FigureWeight } from '@/modules/accounting/services/packs/pages/packFigureWidth';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packTableModel';
-import { cellPx, DELTA_CUE_PX, headingMarkPx, labelMarkPx } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { KpiTileWithSparkline } from '@/components/accounting/packs/primitives/KpiTileWithSparkline';
+import { cellPx, DELTA_CUE_PX, deltaText, headingMarkPx, labelMarkPx } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { reasonPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
 import { measure, type Probe } from './measureWidths';
 
@@ -104,10 +107,14 @@ describe('a KPI tile\'s not-meaningful reason (11pt italic, `.pack-kpi-unavailab
     expect(wrong).toEqual([]);
   });
 
-  it('a glyph outside the table is charged the widest the table holds, which is no narrower than any of them', async () => {
-    const widest = Math.max(...reasonChars.map((c) => reasonPx(c)));
-    expect(reasonPx('\u0e01')).toBe(widest);
-    expect(widest).toBe(15);
+  it('a glyph outside the table is charged no less than Chromium sets it at: emoji (astral and BMP), CJK, Cyrillic, Greek, Arabic', async () => {
+    const outside = ['😀', '👍', '❤️', '✅', '⚠️', '🇿🇦', '👨‍👩‍👧', '🚀', '日', '한', 'Ж', 'α', '٣', '✓', '★', '☂', '→', 'ก', 'א', 'ह'];
+    const res = await measure(browser, [asClass('||'), ...outside.map((c) => asClass(`|${c}|`))]);
+    const bar = res[0]!.widthPx;
+    const short = outside.filter((c, i) => reasonPx(c) < res[i + 1]!.widthPx - bar - 0.01).map((c) => `${c}: model ${reasonPx(c)} vs ${(res[i0(outside, c) + 1]!.widthPx - bar)}`);
+    expect(short).toEqual([]);
+    expect(reasonPx('\u0e01')).toBe(18);
+    expect(reasonPx('\u2764\ufe0f'), 'a variation selector adds nothing to its base glyph').toBe(18);
   });
 
   it('whole words, as the tile sets them, are the model\'s sum within a pixel a word and never short', async () => {
@@ -117,6 +124,8 @@ describe('a KPI tile\'s not-meaningful reason (11pt italic, `.pack-kpi-unavailab
     expect(wrong).toEqual([]);
   });
 });
+
+const i0 = (list: string[], c: string): number => list.indexOf(c);
 
 describe('a footnote mark, at the size it is set at', () => {
   const marks = ['1', '2', '9', '10', '13', '20', 'a', 'b', 'i', 'm', 'w', 'z', 'aa', 'ab', 'mw', 'zz', 'aw'];
@@ -140,13 +149,13 @@ describe('a footnote mark, at the size it is set at', () => {
     expect(wrong).toEqual([]);
   });
 
-  it('a row\'s or tile\'s footnote number after its 9pt label is the model\'s, one digit and two', async () => {
+  it.each([[400], [500], [600]] as const)('a row\'s or tile\'s footnote number after its 9pt label at weight %i is the model\'s, one digit and two', async (weight) => {
     const numbers = [1, 5, 9, 10, 13, 20, 31];
     const res = await measure(browser, [
-      { probe: 'label' as const, text: 'x', html: '<span>Revenue</span>' },
-      ...numbers.map((n) => ({ probe: 'label' as const, text: String(n), html: `<span>Revenue<sup class="pack-footnote-marker">${n}</sup></span>` })),
+      { probe: 'label' as const, text: 'x', weight, html: '<span>Revenue</span>' },
+      ...numbers.map((n) => ({ probe: 'label' as const, text: String(n), weight, html: `<span>Revenue<sup class="pack-footnote-marker">${n}</sup></span>` })),
     ]);
-    const wrong = numbers.filter((n, i) => Math.abs(labelMarkPx(n) - (res[i + 1]!.widthPx - res[0]!.widthPx)) > 0.01).map((n) => `${n}: ${labelMarkPx(n)}`);
+    const wrong = numbers.filter((n, i) => Math.abs(labelMarkPx(n, weight) - (res[i + 1]!.widthPx - res[0]!.widthPx)) > 0.01).map((n) => `${n}: ${labelMarkPx(n, weight)}`);
     expect(wrong).toEqual([]);
   });
 
@@ -161,14 +170,21 @@ describe('a footnote mark, at the size it is set at', () => {
   });
 });
 
-describe('a delta line\'s arrow cue', () => {
-  it('is its own 7px run: "\u2191 up" is the cue, a 3px space and "up"', async () => {
+describe('a delta line\'s arrow cue, in the real tile', () => {
+  it('the real tile\'s delta line is the cue, a space and the words: the model\'s DELTA_CUE_PX and deltaText', async () => {
+    const tile = {
+      label: 'Revenue', figure: { source: 'is.revenue', value: 1000, format: 'money' },
+      delta: { value: 12.3, unit: 'percent', basis: 'prior period', favourable: true }, trendFootnote: null, sparklineSvg: null,
+    } as unknown as Parameters<typeof deltaText>[0];
+    const markup = renderToStaticMarkup(createElement(KpiTileWithSparkline, { tile: tile as never, scale: "R'000" }));
+    const delta = /<span class="pack-kpi-delta[^"]*">(.*?)<\/span><\/div>$/.exec(markup)?.[0] ?? '';
+    expect(delta, 'the real tile\'s delta span').toContain('pack-kpi-delta-cue');
+    const alone = (html: string) => ({ probe: 'label' as const, text: 'x', html: `<span style="white-space:nowrap">${html}</span>` });
     const res = await measure(browser, [
-      { probe: 'label' as const, text: 'cue', html: '<span class="pack-kpi-delta"><span class="pack-kpi-delta-cue">\u2191</span></span>' },
-      { probe: 'label' as const, text: 'up', html: '<span class="pack-kpi-delta">up</span>' },
-      { probe: 'label' as const, text: 'both', html: '<span class="pack-kpi-delta"><span class="pack-kpi-delta-cue">\u2191</span> up</span>' },
+      alone(delta.replace(/<\/div>$/, '')),
+      alone(delta.replace(/<span class="pack-kpi-delta-cue"[^>]*>.*?<\/span>\s*/, '').replace(/<\/div>$/, '')),
     ]);
-    expect(res[0]!.widthPx).toBe(DELTA_CUE_PX);
-    expect(res[2]!.widthPx).toBe(res[0]!.widthPx + textPx(' ', 12, 400) + res[1]!.widthPx);
+    // with the cue and without it: the difference is the cue's own run and the space after it.
+    expect(res[0]!.widthPx - res[1]!.widthPx).toBe(DELTA_CUE_PX + textPx(' ', 12, 400));
   });
 });

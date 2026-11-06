@@ -4,9 +4,10 @@
  */
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, Link2, ChevronDown } from 'lucide-react';
+import { poLinesFromOrder, type PoLineItem } from './poBillLines';
 
 const inp =
   'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ' +
@@ -15,12 +16,7 @@ const inp =
 const lbl =
   'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 
-export interface PoLineItem {
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  taxRate: number;
-}
+export type { PoLineItem };
 
 interface Po {
   id: string;
@@ -64,6 +60,8 @@ export function PoGrnSelector({
   const [loading, setLoading] = useState(false);
   const [copyLoading, setCopyLoading] = useState(false);
   const [error, setError] = useState('');
+  // The copy in flight: unticking, or another PO or supplier, makes its answer stale.
+  const copyRun = useRef(0);
 
   // Fetch POs + all GRNs for supplier when supplier changes
   const fetchPosAndGrns = useCallback(async (sid: string) => {
@@ -115,7 +113,11 @@ export function PoGrnSelector({
     void fetchPosAndGrns(supplierId);
   }, [supplierId, fetchPosAndGrns]);
 
+  useEffect(() => { copyRun.current += 1; setCopyLoading(false); }, [supplierId]);
+
   const handlePoChange = (poId: string) => {
+    copyRun.current += 1;
+    setCopyLoading(false);
     onPoChange(poId);
     onGrnChange(''); // reset GRN when PO changes
     onCopyLinesChange(false);
@@ -128,7 +130,8 @@ export function PoGrnSelector({
 
   const handleCopyLines = async (checked: boolean) => {
     onCopyLinesChange(checked);
-    if (!checked || !selectedPoId) return;
+    const run = ++copyRun.current;
+    if (!checked || !selectedPoId) { setCopyLoading(false); return; }
     setCopyLoading(true);
     setError('');
     try {
@@ -136,18 +139,13 @@ export function PoGrnSelector({
       await assertOk(res, 'Could not copy the line items from the purchase order - try again');
       const json = await res.json();
       const po = json.data || json;
-      const items: PoLineItem[] = (po.items ?? []).map((item: Record<string, unknown>) => ({
-        description: String(item.description ?? ''),
-        quantity: Number(item.quantity ?? 1),
-        unitPrice: Number(item.unit_price ?? 0),
-        taxRate: Number(item.tax_rate ?? 15),
-      }));
-      onPoLineItems(items);
+      if (run === copyRun.current) onPoLineItems(poLinesFromOrder(po));
     } catch (err) {
+      if (run !== copyRun.current) return;
       onCopyLinesChange(false);
       setError(apiErrorMessage(err, 'Could not copy the line items from the purchase order - try again'));
     } finally {
-      setCopyLoading(false);
+      if (run === copyRun.current) setCopyLoading(false);
     }
   };
 

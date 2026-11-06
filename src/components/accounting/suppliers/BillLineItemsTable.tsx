@@ -27,6 +27,10 @@ export interface BillLineItem {
   unitPrice: number;
   taxRate: number;
   glAccountId: string;
+  /** The PO line this line was copied from: it nets the PO's commitment (`poBillLines.ts`). */
+  poItemId?: string;
+  /** A copied PO line's CC1, kept with its CC2; picking a CC2 drops it, and the server derives it again. */
+  cc1Id?: string;
   /** Migration 870's CC2 project and BU ('' = none); the CC1 is derived from the CC2 or the supplier's default. */
   cc2Id?: string;
   buId?: string;

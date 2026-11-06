@@ -40,6 +40,10 @@ async function handler(
     if (!name || !code || !componentType) {
       return apiResponse.badRequest(res, 'name, sarsSourceCode, componentType are required');
     }
+    // An invisible character (a pasted no-break space) would hide a code from every rule keyed on it, such as 4030.
+    if (!/^[A-Za-z0-9]+$/.test(code)) {
+      return apiResponse.badRequest(res, 'sarsSourceCode may contain only letters and digits');
+    }
     // The calculator processes earnings and deductions only: an employer contribution would show on the pay run
     // and change nothing (no cost, journal line or EMP201/IRP5 figure), so it is refused until it is modelled.
     if (componentType === 'employer_contribution') {

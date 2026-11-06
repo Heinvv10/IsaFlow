@@ -32,11 +32,13 @@ export interface OfferedMasters { cc2s: CodingOption[]; bus: CodingOption[]; sta
 const NONE: SupplierLineDefaults = { cc2Id: '', buId: '' };
 const NO_HELD: HeldDefaults = { cc1Id: '', ...NONE };
 
-type DimLine = { cc2Id?: string; buId?: string };
+type DimLine = { cc1Id?: string; cc2Id?: string; buId?: string };
 
 /** Pure: re-stamp the lines that still carry the previous defaults (or none). */
 export function restampLines<T extends DimLine>(lines: readonly T[], prev: SupplierLineDefaults, next: SupplierLineDefaults): T[] {
   return lines.map((l) => {
+    // A line naming its own CC1 was copied from a PO, whose dimensions are taken whole (`poBillLines.ts`).
+    if (l.cc1Id) return l;
     const cc2 = l.cc2Id ?? '';
     const bu = l.buId ?? '';
     return {

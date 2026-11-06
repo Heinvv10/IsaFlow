@@ -55,7 +55,7 @@ const NOT_MEANINGFUL = 'n/m';
  */
 const markPx = (text: string, hostPx: number, weight: FigureWeight): number => textPxUnsnapped(text, 0.7 * hostPx, weight);
 /** A row's or KPI tile's footnote number after its 9pt label. */
-export const labelMarkPx = (number: number | null | undefined): number => (number === null || number === undefined ? 0 : markPx(String(number), 12, 400));
+export const labelMarkPx = (number: number | null | undefined, weight: FigureWeight = 400): number => (number === null || number === undefined ? 0 : markPx(String(number), 12, weight));
 /** A heading's footnote number: the 8pt heading's 7px digits (4px) plus its 0.06em letter-spacing (0.64px) each. */
 export const headingMarkPx = (number: number | undefined): number => (number === undefined ? 0 : String(number).length * 4.65);
 
@@ -115,7 +115,7 @@ function labelMinPx(table: PackTable): number {
   const labelFontPx = Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
   return Math.max(0, ...table.rows.map((row) => {
     const longest = Math.max(0, ...row.label.split(/\s+/).map((word) => textPx(word, labelFontPx, ROW_WEIGHT[row.role])));
-    return row.level * INDENT_PX_PER_LEVEL + longest + labelMarkPx(row.footnote) + CELL_SIDE_PX;
+    return row.level * INDENT_PX_PER_LEVEL + longest + labelMarkPx(row.footnote, ROW_WEIGHT[row.role]) + CELL_SIDE_PX;
   }));
 }
 

@@ -8,8 +8,13 @@
  *
  * It covers Basic Latin, Latin-1 and Latin Extended-A (the accented letters a company's own names and reasons use,
  * U+0020 to U+017F) and the typographic punctuation and symbols a sentence carries (quotes, dashes, the ellipsis, the
- * multiplication sign, currency): 335 glyphs. A glyph outside them is charged the widest measured, 15px: an upper
+ * multiplication sign, currency): 335 glyphs. A glyph outside them is charged 18px (see below): an upper
  * bound that is not the 14px a typical glyph measures at 6 to 9.
+ *
+ * A glyph outside it is charged 18px, the widest measured of anything the browser can fall back to: Noto Color Emoji
+ * sets every emoji (astral or BMP: the check mark, the warning sign) at 18px, CJK at 13 to 15, Cyrillic and Greek
+ * at 9 to 14. The variation selector and the zero-width joiner add nothing to their base glyph's width (a heart is
+ * 18px with or without one, a three-person family 18px in all), so they are charged 0 and their base 18.
  */
 // U+0020 to U+017F in order; U+007F to U+009F are controls and not set (0).
 const LATIN: readonly number[] = [
@@ -54,10 +59,13 @@ const OTHER: Readonly<Record<string, number>> = {
   '\u2032': 4,
   '\u2033': 6,
 };
-const WIDEST_PX = 15;
+const WIDEST_PX = 18;
+/** U+200D (joiner) and U+FE0E/FE0F (variation selectors) combine with the glyph before them. */
+const ZERO_WIDTH = new Set([0x200d, 0xfe0e, 0xfe0f]);
 
 function advance(ch: string): number {
   const code = ch.codePointAt(0)!;
+  if (ZERO_WIDTH.has(code)) return 0;
   if (code >= 0x20 && code <= 0x17f) return LATIN[code - 0x20] || WIDEST_PX;
   return OTHER[ch] ?? WIDEST_PX;
 }
