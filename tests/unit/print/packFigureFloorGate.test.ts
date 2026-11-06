@@ -24,7 +24,7 @@ afterAll(async () => { await browser?.close(); });
 afterEach(() => { vi.restoreAllMocks(); });
 const quiet = () => vi.spyOn(log, 'warn').mockImplementation(() => undefined);
 
-it('a pack the gate passes does not run past the sheet edge (SILENT OVERFLOW: a pack the gate passes does not run past the sheet edge prior rounds to nil, R42tn revenue)', async () => {
+it('a pack the gate passes does not run past the sheet edge (prior rounds to nil, R42tn revenue)', async () => {
   quiet(); gate.on = true;
   const doc = buildBoardPackPages(input({ tr: 'none', budget: true, prior: true, negative: false, loss: false, k: 10_000_000, plug: 0, sg: [1, 1, 1, 1], pk: 1e-7 }));
   const out = await printBoardPack(doc, browser);

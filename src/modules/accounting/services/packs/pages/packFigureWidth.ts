@@ -113,6 +113,18 @@ export function advancePx(ch: string, fontPx: number, weight: FigureWeight): num
   return Math.ceil(em * px - 0.5 - 1e-9);
 }
 
+/**
+ * The width of a SUPERSCRIPT's text. A footnote mark is `font-size: 0.7em` of its host and Chromium does not snap that
+ * size to a whole pixel before it rounds each advance (8.4px stays 8.4: "b" at weight 400 is 5px beside a 12px host and
+ * 4px beside an 11px one, where the snapped size 8 would make both 5): `advance = round(em x size)`, a half rounding
+ * down. `packFigureWidth.test.ts` holds it to Chromium for marks of one and two characters.
+ */
+export function textPxUnsnapped(text: string, size: number, weight: FigureWeight): number {
+  let px = 0;
+  for (const ch of text) px += Math.ceil((EM[ch]?.[WEIGHT_INDEX[weight]] ?? UNKNOWN_EM) * size - 0.5 - 1e-9);
+  return px;
+}
+
 /** The width of `text` in pixels at `fontPx`, no wrapping. */
 export function textPx(text: string, fontPx: number, weight: FigureWeight): number {
   let px = 0;
