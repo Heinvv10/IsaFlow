@@ -67,6 +67,19 @@ export interface PackPage {
   density: 'low' | 'medium' | 'high';
   blocks: PackPageBlock[];
   footnotes: PackFootnote[];
+  /**
+   * An instruction to `fitPageToBox`, not part of the document: figures this page was composed WITHOUT
+   * (page 6's Budget and Variance columns, left out when the page cannot carry them). If the fit has to
+   * print an omission note, the note names them and stops short of claiming every figure is printed.
+   * Stripped from the page once it has been fitted.
+   */
+  columnsLeftOut?: readonly string[];
+  /**
+   * Another instruction to `fitPageToBox`: the page itself already says `columnsLeftOut` are not printed (page
+   * 6's dropped-columns footnote), so an omission note it prints must not say it a second time, only that every
+   * OTHER figure is complete. Stripped from the page once it has been fitted.
+   */
+  columnsSaid?: true;
 }
 
 /** Spec §7.1 criterion 8's ONE number convention for the whole pack.

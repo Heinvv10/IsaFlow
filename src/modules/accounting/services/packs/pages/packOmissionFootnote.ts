@@ -4,6 +4,7 @@
  * and re-exports `Dropped` and `OMISSION_MARK`, so every caller still
  * imports them there.
  */
+import { log } from '@/lib/logger';
 import type { PackFootnote } from './packPageModel';
 
 /** What a page had to leave out, for the note that says so. */
@@ -23,6 +24,12 @@ export interface Dropped {
    */
   requiredNotes: number;
   footnotes: number;
+  /** Derived captions taken off a page that had nothing else left to give -- see `PackPageBlock.droppable`. */
+  captions: number;
+  /** Figures the page was composed without (`PackPage.columnsLeftOut`), named in the note. */
+  columns: string[];
+  /** The page already says `columns` are not printed (`PackPage.columnsSaid`): the note says "other", not the columns again. */
+  columnsSaid?: boolean;
   /**
    * The headings of the disclosures notes were taken from, in the order they
    * were taken, without repeats.
@@ -36,11 +43,11 @@ export interface Dropped {
   from: string[];
 }
 
-export const NOTHING: Dropped = { notes: 0, requiredNotes: 0, footnotes: 0, from: [] };
+export const NOTHING: Dropped = { notes: 0, requiredNotes: 0, footnotes: 0, captions: 0, columns: [], from: [] };
 
 /** Did this page give anything up? */
 export function tookSomething(dropped: Dropped): boolean {
-  return dropped.notes > 0 || dropped.requiredNotes > 0 || dropped.footnotes > 0;
+  return dropped.notes > 0 || dropped.requiredNotes > 0 || dropped.footnotes > 0 || dropped.captions > 0;
 }
 
 /**
@@ -80,23 +87,31 @@ export function tookSomething(dropped: Dropped): boolean {
 export const OMISSION_MARK = 'Not printed on this page';
 
 function omissionText(dropped: Dropped): string {
-  const parts: string[] = [];
+  // The disclosure headings name where NOTES were taken from, so the clause is attached to the note
+  // parts and the parts with no heading (footnotes, captions) follow it, set apart by semicolons:
+  // "2 explanatory notes, from “Commentary”; 3 footnotes; 1 derived caption".
+  const noteParts: string[] = [];
   if (dropped.notes > 0) {
-    parts.push(`${dropped.notes} explanatory ${dropped.notes === 1 ? 'note' : 'notes'}`);
-  }
-  if (dropped.footnotes > 0) {
-    parts.push(`${dropped.footnotes} ${dropped.footnotes === 1 ? 'footnote' : 'footnotes'}`);
+    noteParts.push(`${dropped.notes} explanatory ${dropped.notes === 1 ? 'note' : 'notes'}`);
   }
   if (dropped.requiredNotes > 0) {
-    parts.push(`${dropped.requiredNotes} ${dropped.requiredNotes === 1 ? 'note' : 'notes'} from a `
+    noteParts.push(`${dropped.requiredNotes} ${dropped.requiredNotes === 1 ? 'note' : 'notes'} from a `
       + 'disclosure this pack is required to make');
   }
   const where = dropped.from.length === 0
     ? ''
     : `, from ${dropped.from.map((h) => `\u201c${h}\u201d`).join(' and ')}`;
-  return `${OMISSION_MARK}: ${parts.join(', ')}${where}. `
-    + 'Every figure, table and chart on the page is complete — what is missing is prose '
-    + 'about them, and it can be asked for.';
+  const parts: string[] = [];
+  if (noteParts.length > 0) parts.push(`${noteParts.join(', ')}${where}`);
+  if (dropped.footnotes > 0) parts.push(`${dropped.footnotes} ${dropped.footnotes === 1 ? 'footnote' : 'footnotes'}`);
+  if (dropped.captions > 0) parts.push(`${dropped.captions} derived ${dropped.captions === 1 ? 'caption' : 'captions'}`);
+  // THE COLUMNS A PAGE WAS COMPOSED WITHOUT ARE FIGURES, so the note that names them cannot go on to say
+  // every figure is printed: "every OTHER figure" is what is true.
+  // Said ONCE: where the page's own footnote already says they are not printed, this one does not repeat it.
+  if (dropped.columns.length > 0 && dropped.columnsSaid !== true) parts.push(`the ${dropped.columns.join(' and ')} columns`);
+  return `${OMISSION_MARK}: ${parts.join('; ')}. `
+    + `Every ${dropped.columns.length > 0 ? 'other ' : ''}figure, table and chart on the page is complete`
+    + ` — what ${dropped.columns.length > 0 ? 'else ' : ''}is missing is prose about them, and it can be asked for.`;
 }
 
 /**
@@ -109,4 +124,15 @@ function omissionText(dropped: Dropped): string {
  */
 export function omissionFootnote(dropped: Dropped, footnotes: PackFootnote[]): PackFootnote {
   return { number: Math.max(0, ...footnotes.map((f) => f.number)) + 1, text: omissionText(dropped) };
+}
+
+/**
+ * Said in the log, once, for the page that is actually used: a derived caption was taken to make the
+ * page fit. The fit also runs as a probe whose page is thrown away, so the callers that use a fitted
+ * page call this and the fit itself stays silent.
+ */
+export function warnCaptionDropped(navLabel: string, dropped: Dropped): void {
+  if (dropped.captions === 0) return;
+  log.warn(`board pack: "${navLabel}" cannot fit its sheet with its derived caption; the caption is not printed`,
+    { navLabel, captions: dropped.captions }, 'packs');
 }
