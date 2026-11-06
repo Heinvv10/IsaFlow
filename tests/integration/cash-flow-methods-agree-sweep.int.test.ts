@@ -60,6 +60,12 @@ describeIfDb('cash flow: indirect and direct agree on random journals', () => {
         expect({ op: sec(month.ind, 'Operating'), inv: sec(month.ind, 'Investing'), fin: sec(month.ind, 'Financing') })
           .toEqual({ op: month.dir.operatingTotal, inv: month.dir.investingTotal, fin: month.dir.financingTotal });
         expect(month.dir.closingCash).toBe(month.gl);
+        // the direct statement foots to the cent: items to their section, sections (and the unexplained gap) to the net change
+        const cents = (n: number) => Math.round(n * 100), d = month.dir;
+        expect(cents(d.operatingTotal) + cents(d.investingTotal) + cents(d.financingTotal) + cents(d.unexplainedDifference)).toBe(cents(d.netChange));
+        for (const [items, total] of [[d.operatingItems, d.operatingTotal], [d.investingItems, d.investingTotal], [d.financingItems, d.financingTotal]] as const) {
+          expect(cents(items.reduce((a, i) => a + i.amount, 0))).toBe(cents(total));
+        }
       });
     }, 120_000);
   }

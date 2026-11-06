@@ -103,6 +103,21 @@ describe('cashFlowDirectService', () => {
     expect(suppliers?.amount).toBeCloseTo(-45000, 2);
   });
 
+  it('foots to the cent when a journal\'s operating cash is split into fractions of a cent: items add to their section, sections to net change', async () => {
+    // 0.01 of net cash over a customers leg and a suppliers leg that each take 0.005: rounded apart each is 0.01, 0.02 in all.
+    const rows = [mv('S1', 0.01, 'revenue', 'sales', 0, 0.005), mv('S1', 0.01, 'liability', 'payable', 0, 0.005)];
+    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(rows).mockResolvedValueOnce([{ ...OPENING_ROWS[0]!, gl_debit: 15000.01 }]);
+
+    const r = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    const cents = (n: number) => Math.round(n * 100);
+    expect(cents(r.operatingTotal)).toBe(1);
+    expect(cents(r.operatingTotal) + cents(r.investingTotal) + cents(r.financingTotal) + cents(r.unexplainedDifference)).toBe(cents(r.netChange));
+    expect(cents(r.operatingItems.reduce((a, i) => a + i.amount, 0))).toBe(cents(r.operatingTotal));
+    for (const i of [...r.operatingItems, ...r.investingItems, ...r.financingItems]) expect(Math.abs(i.amount * 100 - cents(i.amount))).toBeLessThan(1e-6);
+    expect(r.closingCash).toBe(15000.01);
+  });
+
   it('net change always equals the sum of the three activity totals', async () => {
     mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce(LEG_ROWS).mockResolvedValueOnce(CLOSING_ROWS);
 
