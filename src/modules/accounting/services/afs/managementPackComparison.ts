@@ -130,15 +130,16 @@ function noBudgetSentence(budget: PackBudget): string | null {
   return budget.report.notices.noVersion ? `No budget for FY${budget.report.window.fiscalYear} in this pack's month.` : null;
 }
 
-export function budgetBandBlocks(budget: PackBudget): NoteContentBlock[] {
+/** `varianceNotes`: printed here only when the budget_variance section, their usual home, is off (`buildSectionContent`). */
+export function budgetBandBlocks(budget: PackBudget, varianceNotes: readonly NoteContentBlock[] = []): NoteContentBlock[] {
   const sentence = noBudgetSentence(budget);
-  if (sentence !== null || budget.kind !== 'report') return [{ type: 'paragraph', text: sentence ?? '' }];
+  if (sentence !== null || budget.kind !== 'report') return [{ type: 'paragraph', text: sentence ?? '' }, ...varianceNotes];
   const table: NoteContentTable = {
     type: 'table',
     headers: ['', ...FIGURE_HEADERS],
     rows: budget.report.bands.map((b) => [b.label, ...figureCells(b)]),
   };
-  return [table, ...budgetNotes(budget.report)];
+  return [table, ...varianceNotes, ...budgetNotes(budget.report)];
 }
 
 /** The budgeted lines off budget, largest |variance| first, at most ten. */
@@ -152,7 +153,8 @@ export function topVarianceLines(lines: readonly TrackingLine[]): TrackingLine[]
 /** `varianceNotes`: the approved variance notes (budgets P5, `managementPackVarianceNotes.ts`), printed under the table. */
 export function budgetLineBlocks(budget: PackBudget, varianceNotes: readonly NoteContentBlock[] = []): NoteContentBlock[] {
   const sentence = noBudgetSentence(budget);
-  if (sentence !== null || budget.kind !== 'report') return [{ type: 'paragraph', text: sentence ?? '' }];
+  // An approved note stays approved in a month with no budget: it still prints, under the sentence.
+  if (sentence !== null || budget.kind !== 'report') return [{ type: 'paragraph', text: sentence ?? '' }, ...varianceNotes];
   const top = topVarianceLines(budget.report.lines);
   if (top.length === 0) {
     return [{ type: 'paragraph', text: 'No budgeted account is off budget this month.' }, ...varianceNotes, ...budgetNotes(budget.report)];

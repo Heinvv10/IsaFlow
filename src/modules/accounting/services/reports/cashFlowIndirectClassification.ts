@@ -15,6 +15,7 @@
 import { toMoney } from '@/lib/money/decimalSum';
 import {
   canonicalSubtype,
+  isDisposalGainLossSubtype,
   type AccountType,
 } from '@/modules/accounting/services/gl/accountSubtypes';
 
@@ -27,7 +28,7 @@ export const SEEDED_CURRENT_PORTION_CODE = '2215';
 
 /** In presentation order within each section: the screen's long-standing lines first. */
 export const INDIRECT_BUCKETS = [
-  'net_income', 'receivable', 'payable', 'depreciation', 'inventory', 'vat', 'other_operating', 'non_cash',
+  'net_income', 'receivable', 'payable', 'depreciation', 'disposal_adjustment', 'inventory', 'vat', 'other_operating', 'non_cash',
   'investing',
   'equity', 'debt', 'retained_earnings',
 ] as const;
@@ -38,6 +39,7 @@ export type IndirectSection = 'operating' | 'investing' | 'financing';
 const SECTION: Record<IndirectBucket, IndirectSection> = {
   net_income: 'operating',
   depreciation: 'operating',
+  disposal_adjustment: 'operating',
   receivable: 'operating',
   inventory: 'operating',
   payable: 'operating',
@@ -87,7 +89,10 @@ export function classifyIndirectLine(
     case 'vat_output': return 'vat';
     case 'long_term_liability':
     case 'non_current_liability':
-    case 'credit_card': return 'debt';
+    case 'credit_card':
+    // A liability spelled bank / cash is a credit card, as in the direct method.
+    case 'bank':
+    case 'cash': return 'debt';
     default: return isLoanCurrentPortion ? 'debt' : 'other_operating';
   }
 }
@@ -98,6 +103,17 @@ export interface JournalLeg {
   isLoanCurrentPortion?: boolean;
   creditLessDebit: number;
 }
+
+/**
+ * A journal is a disposal when it is the asset-disposal journal (its source, which a reversal copies) or carries a
+ * disposal gain/loss leg. Only there do the accumulated depreciation released and the gain or loss belong with the
+ * proceeds in investing; everywhere else accumulated depreciation nets into the operating add-back (a charge and its
+ * reversal, a reclass between two such accounts, cancel instead of inventing an operating inflow and an investing outflow).
+ */
+export function isDisposalJournal(source: string | null | undefined, legs: readonly JournalLeg[]): boolean {
+  return source === DISPOSAL_JOURNAL_SOURCE || legs.some((l) => isDisposalGainLossSubtype(l.subtype));
+}
+export const DISPOSAL_JOURNAL_SOURCE = 'auto_asset_disposal';
 
 export interface PlacedAmount { bucket: IndirectBucket; amount: number }
 
@@ -113,12 +129,21 @@ export interface PlacedAmount { bucket: IndirectBucket; amount: number }
  * single journal with cash, an asset and a loan repayment, part on account) each takes a pro-rata share.
  * Every leg's whole amount is placed, so a journal's placed amounts always sum to its legs and the tie-out holds.
  */
-export function placeJournal(legs: readonly JournalLeg[], netCash: number): PlacedAmount[] {
+export function placeJournal(legs: readonly JournalLeg[], netCash: number, disposal = false): PlacedAmount[] {
   const placed: PlacedAmount[] = [];
   const nonOperating = new Map<IndirectBucket, number>();
   let operating = 0;
   for (const leg of legs) {
-    const bucket = classifyIndirectLine(leg.accountType, leg.subtype, leg.isLoanCurrentPortion);
+    let bucket = classifyIndirectLine(leg.accountType, leg.subtype, leg.isLoanCurrentPortion);
+    if (disposal && bucket === 'depreciation') bucket = 'investing'; // the release of accumulated depreciation leaves with the asset
+    if (disposal && isDisposalGainLossSubtype(leg.subtype)) {
+      // The gain or loss stays in Net Income (the income statement's figure), is taken back out in operating, and its
+      // amount joins the proceeds in investing: cost, accumulated depreciation and gain together are the cash received.
+      placed.push({ bucket: 'net_income', amount: leg.creditLessDebit });
+      placed.push({ bucket: 'disposal_adjustment', amount: -leg.creditLessDebit });
+      nonOperating.set('investing', (nonOperating.get('investing') ?? 0) + leg.creditLessDebit);
+      continue;
+    }
     if (SECTION[bucket] === 'operating') {
       placed.push({ bucket, amount: leg.creditLessDebit });
       operating += leg.creditLessDebit;
