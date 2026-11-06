@@ -94,6 +94,14 @@ describe('AuthProvider when /api/auth/me answers 401', () => {
   });
 });
 
+it('skips the refresh when the server says there is no refresh cookie to renew from', async () => {
+  const fetch = routeFetch({ '/api/auth/me': [json(401, { error: { code: 'UNAUTHORIZED', renewable: false } })] });
+  vi.stubGlobal('fetch', fetch);
+  render(<AuthProvider><Probe /></AuthProvider>);
+  await waitFor(() => expect(state()).toBe('none'));
+  expect(urls(fetch)).toEqual(['/api/auth/me']);
+});
+
 it('a 403 from /api/auth/me is a verdict: no refresh is attempted', async () => {
   const fetch = routeFetch({ '/api/auth/me': [json(403)] });
   vi.stubGlobal('fetch', fetch);

@@ -34,8 +34,8 @@ const REFRESH_COOKIE_NAME = 'sb-refresh-token';
  * The access cookie lives an hour, the refresh cookie up to 30 days ("Keep me
  * signed in"). Holding either one is a session here: with only the refresh cookie
  * the page loads and the client renews (useSessionCheck, apiFetch). A dead refresh
- * cookie is refused there, and the browser goes to /login. This gate only ever
- * read cookie presence; the API routes are what authorise.
+ * cookie is refused there, and CompanyProvider's apiFetch sends the browser to /login.
+ * This gate only ever read cookie presence; the API routes are what authorise.
  */
 function hasSessionCookie(request: NextRequest): boolean {
   return Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value || request.cookies.get(REFRESH_COOKIE_NAME)?.value);

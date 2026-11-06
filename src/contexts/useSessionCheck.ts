@@ -9,6 +9,16 @@ type RawUser = Record<string, unknown>;
 /** A /api/auth/me that has not answered by then is abandoned as an outage (D9): Retry comes back and the next retry is armed. */
 export const AUTH_CHECK_TIMEOUT_MS = 10_000;
 
+/** False only when the server says this browser holds no refresh cookie to renew from. */
+async function canRenew(res: Response): Promise<boolean> {
+  try {
+    const body = (await res.clone().json()) as { error?: { renewable?: unknown } } | null;
+    return body?.error?.renewable !== false;
+  } catch {
+    return true; // no readable answer: let the refresh itself decide
+  }
+}
+
 interface RetryState {
   active: boolean;
   settled: boolean;
@@ -49,7 +59,7 @@ export function useSessionCheck(
         let res = await readMe();
         // The access cookie lives an hour, the refresh cookie up to 30 days: a 401 is
         // only a sign-out once the renewal has been refused too.
-        const renewal = res.status === 401 ? await refreshSession() : null;
+        const renewal = res.status === 401 && (await canRenew(res)) ? await refreshSession() : null;
         if (renewal === 'refreshed') res = await readMe();
         if (renewal === 'unavailable') {
           unavailable = true;

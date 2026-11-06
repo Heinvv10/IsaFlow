@@ -18,6 +18,7 @@ import { ApiEnvelopeError, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LoginBrandPanel } from '@/components/auth/LoginBrandPanel';
+import { useResumeRenewedSession } from '@/components/auth/useResumeRenewedSession';
 
 type LoginStep = 'credentials' | 'totp';
 
@@ -279,6 +280,14 @@ export default function LoginPage() {
       : inviteToken
         ? `/invite/${encodeURIComponent(inviteToken)}`
         : defaultRedirect;
+
+  // Not on an invitation: there the visitor may be signing in as someone else.
+  useResumeRenewedSession(
+    isAuthenticated,
+    !inviteToken && typeof router.query.returnTo === 'string' && isSafeRedirect(router.query.returnTo)
+      ? router.query.returnTo
+      : null,
+  );
 
   useEffect(() => {
     if (!inviteToken) return;

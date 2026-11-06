@@ -107,6 +107,21 @@ export function setAuthCookies(
   appendSetCookie(res, `${REMEMBER_ME_COOKIE}=${persistent ? '1' : '0'}; ${hintFlags}`);
 }
 
+/**
+ * After an access token is refused. An expired one says nothing about the session:
+ * only its own cookie goes, so the client can still renew from the refresh cookie.
+ * Any other refusal clears everything.
+ */
+export function clearCookiesForRefusedToken(res: NextApiResponse, err: unknown): void {
+  if ((err as { code?: unknown } | null)?.code !== 'ERR_JWT_EXPIRED') {
+    clearAuthCookies(res);
+    return;
+  }
+  const domain = cookieDomain();
+  appendSetCookie(res, `${ACCESS_COOKIE}=; ${cookieFlags(0)}`);
+  if (domain) appendSetCookie(res, `${ACCESS_COOKIE}=; ${cookieFlags(0, domain)}`);
+}
+
 export function setActiveCompanyCookie(res: NextApiResponse, companyId: string): void {
   appendSetCookie(
     res,
