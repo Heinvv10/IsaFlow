@@ -1,0 +1,261 @@
+{
+  "meta": {
+    "runId": "w4-base",
+    "baseURL": "http://localhost:3277",
+    "serverDir": "/home/hein/Workspace/IsaFlow-mp-w4-rubric-base",
+    "serverHead": "171cbfef11362d775d152cf8a59c5739252b72e4",
+    "startedAt": "2026-11-06T16:40:10.802Z",
+    "uptimeStart": "18:40:10 up 9 days, 12:31, 10 users,  load average: 28.74, 32.83, 41.15",
+    "requester": "reporting-qa@isaflow.dev",
+    "approver": "reporting-qa-approver@isaflow.dev",
+    "uptimeEnd": "18:44:40 up 9 days, 12:35, 10 users,  load average: 33.43, 33.25, 39.24",
+    "finishedAt": "2026-11-06T16:44:40.366Z",
+    "emailIntercept": {
+      "requests": 1,
+      "fulfilled": 1
+    },
+    "blockedCompanySwitches": []
+  },
+  "seed": {
+    "sandbox": {
+      "id": "d2b1cd93-4ed2-4d22-a782-e4cb3235d696",
+      "name": "0RS Rubric Sandbox w4-base",
+      "runId": "w4-base"
+    },
+    "objects": {
+      "approver": {
+        "role": "admin",
+        "added": true
+      },
+      "customer": {
+        "id": "738567cf-45bc-4dfb-8975-674b1dac25ba",
+        "name": "0RS Rubric Customer w4-base",
+        "email": "rubric-w4-base@example.invalid"
+      },
+      "overtimeId": "ab2befbe-d9e4-4857-b4be-fa591250ea61",
+      "employees": [
+        {
+          "id": "32b2d82d-9c46-4b26-8e0f-560a9f286d10",
+          "employeeNumber": "RBR-W4-BASE-1",
+          "name": "Ruby Rubric"
+        },
+        {
+          "id": "6e2d9bb2-62ed-4734-98e2-4a73d700afbf",
+          "employeeNumber": "RBR-W4-BASE-2",
+          "name": "Sipho Rubric"
+        }
+      ],
+      "openInvoice": {
+        "id": "8437034e-7ae2-4733-afed-b73489e1969f",
+        "total": 1150
+      },
+      "draftInvoiceId": "d06bd461-641e-4506-94af-3c9b53a87662",
+      "bankAccountId": "f1d6d485-e05f-48fb-9789-dff9c18ca594",
+      "bankRefs": {
+        "matching": "RBR-W4-BASE-IN",
+        "spend": "RBR-W4-BASE-OUT"
+      }
+    },
+    "r035": {
+      "approverMembership": {
+        "role": "admin",
+        "added": true
+      },
+      "path": "two-person: requested by the requester, decided by the approver",
+      "soleApproverException": "not used",
+      "userIds": {
+        "requester": "233f3bd5-9f54-45bb-9b88-a9389ce0c8f3",
+        "approver": "82f49df0-b612-4b5d-99c2-26f65b8e7301"
+      }
+    },
+    "netPay": {
+      "payrollNetPay": "not applicable: the server predates the Default Accounts payroll_net_pay row (#1175)",
+      "bankAccountId": "f1d6d485-e05f-48fb-9789-dff9c18ca594"
+    },
+    "payRun": {
+      "id": "d959d058-7ed8-42b1-ace5-bbd97d8f4ca5",
+      "month": 11,
+      "year": 2026,
+      "status": "calculated"
+    }
+  },
+  "steps": {
+    "T3 keyboard-only employee create": {
+      "status": "measured",
+      "keyboardOnly": true,
+      "clicks": 0,
+      "fields": 8,
+      "keys": 114,
+      "ms": 3388,
+      "reloadsToForm": 1,
+      "reloadsToProfile": 0,
+      "maskedAccount": "•••• 1234",
+      "readiness": {
+        "status": "not built",
+        "reason": "B (\"Ready to pay\" card) has not merged: the profile shows no readiness line"
+      },
+      "screenshot": "t3-profile.png"
+    },
+    "M4 server autosave": {
+      "status": "measured",
+      "reloadsToOpen": 0,
+      "msToSaved": 4944,
+      "note": "includes the autosave debounce",
+      "putsOnLoad": 0,
+      "putsForOneEdit": 1,
+      "exactlyOnePut": true,
+      "survivesReload": true,
+      "screenshot": "m4-saved.png"
+    },
+    "T2 invoice to Approve & email": {
+      "status": "measured",
+      "toOpenEmailForm": {
+        "clicks": 5,
+        "fields": 6,
+        "keys": 0,
+        "ms": 8559
+      },
+      "includingSend": {
+        "clicks": 6,
+        "fields": 6,
+        "keys": 0,
+        "ms": 9028
+      },
+      "lines": 2,
+      "invoiceStatus": "approved",
+      "customerEmailPrefilled": true,
+      "sendIntercepted": true,
+      "xero": "reference click count is supplied by the re-score",
+      "preview": {
+        "status": "not built",
+        "reason": "PV (invoice preview before the first save) has not merged: /api/accounting/invoice-pdf-preview does not exist"
+      },
+      "ns1NativeSelectsOnNewInvoice": 3,
+      "screenshot": "t2-email-form.png"
+    },
+    "M9 exclude and Undo": {
+      "status": "measured",
+      "toastIsStatus": false,
+      "reachableByTab": true,
+      "tabsToUndo": 1,
+      "undoneBy": "keyboard",
+      "lineAfterUndo": "imported",
+      "backToImported": true,
+      "clicks": 3,
+      "fields": 0,
+      "keys": 2,
+      "ms": 7624,
+      "screenshot": "m9-exclude-undo-toast.png"
+    },
+    "M9 allocate and Undo": {
+      "status": "measured",
+      "allocatedAs": "allocated",
+      "undo": "not offered",
+      "pickerReachableAt1568x900": false,
+      "note": "customer lines have no Undo by design (bankTxUndo.ts, wave-3 decision 4)",
+      "clicks": 5,
+      "fields": 2,
+      "keys": 0,
+      "ms": 16948,
+      "screenshot": "m9-allocate-after.png"
+    },
+    "M5 grid typing": {
+      "status": "measured",
+      "reloadsToOpen": 0,
+      "pickerKind": "native",
+      "msToSaved": 923,
+      "grossDelta": 1500,
+      "grossRoseBy1500": true,
+      "netChanged": true,
+      "enterMovedDown": true,
+      "arrowDownMovesToNextRow": true,
+      "screenshot": "m5-grid-saved.png"
+    },
+    "T4 payslip through R-035": {
+      "status": "measured",
+      "r035": {
+        "twoPersonPath": true,
+        "soleApproverException": false,
+        "requestedBy": "233f3bd5-9f54-45bb-9b88-a9389ce0c8f3",
+        "decidedBy": "82f49df0-b612-4b5d-99c2-26f65b8e7301",
+        "runDecisionSummary": "not on this server"
+      },
+      "requesterSession": {
+        "clicks": 3,
+        "fields": 0,
+        "keys": 0,
+        "ms": 31147
+      },
+      "approverSession": {
+        "clicks": 1,
+        "fields": 0,
+        "keys": 0,
+        "ms": 24560
+      },
+      "payslip": {
+        "status": "not built",
+        "reason": "PS (payslips) has not merged: /api/payroll/runs/[id]/payslips does not exist"
+      },
+      "screenshots": [
+        "t4-approver-decided.png",
+        "t4-run-approved.png"
+      ]
+    },
+    "M7 row heights (DG)": {
+      "status": "measured",
+      "rowHeightsPx": {
+        "invoices": {
+          "comfortable": 49,
+          "compact": 49
+        },
+        "bankTransactions": {
+          "comfortable": 41,
+          "compact": 41
+        }
+      },
+      "dg": {
+        "status": "not built",
+        "reason": "DG (density that changes rows) has not merged: compact rows are as tall as comfortable"
+      }
+    },
+    "M8 transition durations": {
+      "status": "measured",
+      "page": "/accounting/customer-invoices",
+      "counts": {
+        "button": {
+          "elements": 41,
+          "atMost200ms": 41,
+          "over200ms": 0,
+          "maxMs": 150
+        },
+        "a": {
+          "elements": 34,
+          "atMost200ms": 34,
+          "over200ms": 0,
+          "maxMs": 150
+        },
+        "tbody tr": {
+          "elements": 3,
+          "atMost200ms": 3,
+          "over200ms": 0,
+          "maxMs": 0
+        }
+      },
+      "screenshot": "m8-invoice-list.png"
+    },
+    "T7 prior-period comparison": {
+      "status": "measured",
+      "priorPeriodControl": true,
+      "comparativeColumnShown": true,
+      "msToColumn": 6925,
+      "columnHeader": "Prior",
+      "screenshot": "t7-income-statement-prior.png"
+    },
+    "NS1 invoice list controls": {
+      "status": "not built",
+      "reason": "NS1 (kit Select on the invoice list, labelled search) has not merged",
+      "nativeStatusSelects": 1,
+      "searchHasOwnLabel": false
+    }
+  }
+}
