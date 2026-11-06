@@ -15,9 +15,10 @@
  * and does no arithmetic of its own, so the notes cannot drift from the ageing
  * again. Same pattern as `reconciliation/agedReportTotal.ts`.
  *
- * `gross` adds back `disputed`: the AR service keeps the disputes that were
- * open AT the date out of the buckets, but a disputed invoice is still
- * receivable, and `gross` is what the reports-ar-aging route totals.
+ * `gross` is the rows' `total`: the AR service keeps the disputes that were
+ * open AT the date out of the buckets and shows them as `disputed`, but a
+ * disputed invoice is still receivable, and `gross` (= every bucket plus
+ * `disputed`) is what the reports-ar-aging route totals.
  */
 
 import { getARAging } from '../ar/arAgingService';
@@ -59,7 +60,7 @@ export async function getAgedBucketTotals(
     days120Plus: sum(r => r.days120Plus),
     disputed: sum(r => r.disputed),
   };
-  return { ...totals, gross: sum(r => r.total + (r.disputed ?? 0)) };
+  return { ...totals, gross: sum(r => r.total) };
 }
 
 /**

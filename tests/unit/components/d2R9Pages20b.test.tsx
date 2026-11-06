@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+import { chooseTerms } from '../helpers/contactTerms';
 import { empty500, expectNoJargon, ok, on, serve } from '../helpers/d2R3a6';
 
 const route = vi.hoisted(() => ({ query: {} as Record<string, string>, isReady: true, pathname: '/', push: vi.fn(), replace: vi.fn() }));
@@ -91,6 +92,7 @@ describe('suppliers/new (route: POST data = the created supplier row)', () => {
   const submit = async () => {
     render(<NewSupplierPage />);
     fireEvent.change(screen.getByPlaceholderText('e.g. ABC Supplies (Pty) Ltd'), { target: { value: 'D2 New Supplier' } });
+    chooseTerms();
     fireEvent.click(screen.getByRole('button', { name: /Save Supplier/ }));
   };
   it('success: posts the name, tells the person, and opens the new supplier by the returned id', async () => {

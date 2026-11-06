@@ -139,4 +139,11 @@ describe('recurring invoice edit: per-template state', () => {
     expect(container.querySelector('.animate-spin')).toBeTruthy();
     expect(vi.mocked(apiFetch)).not.toHaveBeenCalled();
   });
+
+  it('shows no "Payment Terms" choice: the template stores no terms that date anything (each invoice uses the customer\'s, else the company default)', async () => {
+    render(<RecurringInvoiceEdit />);
+    await screen.findByDisplayValue('Fee ri-A');
+    expect(screen.queryByLabelText(/payment terms/i)).toBeNull();
+    expect(screen.getByText(/due by the customer's payment terms, else the company default/i)).toBeTruthy();
+  });
 });

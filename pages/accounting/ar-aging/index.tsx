@@ -60,9 +60,10 @@ export default function ARAgingPage() {
       days60: acc.days60 + (b.days60 || 0),
       days90: acc.days90 + (b.days90 || 0),
       days120Plus: acc.days120Plus + (b.days120Plus || 0),
+      disputed: acc.disputed + (b.disputed || 0),
       total: acc.total + (b.total || 0),
     }),
-    { current: 0, days30: 0, days60: 0, days90: 0, days120Plus: 0, total: 0 }
+    { current: 0, days30: 0, days60: 0, days90: 0, days120Plus: 0, disputed: 0, total: 0 }
   );
 
   return (
@@ -109,13 +110,14 @@ export default function ARAgingPage() {
           )}
 
           {/* Summary Cards — traffic-light coloring (current → green, 90+ → deep red) */}
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
             {[
               { label: 'Current',    value: totals.current,     bg: 'bg-emerald-500/5', text: 'text-emerald-700 dark:text-emerald-400' },
               { label: '1-30 Days',  value: totals.days30,      bg: 'bg-amber-500/5',   text: 'text-amber-700 dark:text-amber-400' },
               { label: '31-60 Days', value: totals.days60,      bg: 'bg-orange-500/5',  text: 'text-orange-700 dark:text-orange-400' },
               { label: '61-90 Days', value: totals.days90,      bg: 'bg-red-500/5',     text: 'text-red-700 dark:text-red-400' },
               { label: '90+ Days',   value: totals.days120Plus, bg: 'bg-rose-500/10',   text: 'text-rose-700 dark:text-rose-400' },
+              { label: 'Disputed',   value: totals.disputed,    bg: 'bg-amber-500/5',   text: 'text-amber-700 dark:text-amber-400' },
               { label: 'Total',      value: totals.total,       bg: 'bg-slate-500/5',   text: 'text-slate-900 dark:text-slate-100' },
             ].map(card => (
               <div key={card.label} className={`p-3 rounded-lg border border-[var(--ff-border-light)] ${card.bg}`}>
@@ -146,6 +148,7 @@ export default function ARAgingPage() {
                     <th className="text-right px-4 py-3 text-orange-700 dark:text-orange-400 font-medium">31-60</th>
                     <th className="text-right px-4 py-3 text-red-700 dark:text-red-400 font-medium">61-90</th>
                     <th className="text-right px-4 py-3 text-rose-700 dark:text-rose-400 font-medium">90+</th>
+                    <th className="text-right px-4 py-3 text-amber-700 dark:text-amber-400 font-medium" title="Still owed: included in Total, held outside the age columns">Disputed</th>
                     <th className="text-right px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Total</th>
                   </tr>
                 </thead>
@@ -166,10 +169,11 @@ export default function ARAgingPage() {
                       <td className="px-4 py-3 text-right tabular-nums text-orange-700 dark:text-orange-400">{formatCurrency(b.days60)}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-red-700 dark:text-red-400">{formatCurrency(b.days90)}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-rose-700 dark:text-rose-400">{formatCurrency(b.days120Plus)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-amber-700 dark:text-amber-400">{formatCurrency(b.disputed ?? 0)}</td>
                       <td className="px-4 py-3 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(b.total)}</td>
                     </tr>
                     {expandedId === b.entityId && (
-                      <AgingInvoicesPanel side="ar" entityId={b.entityId} entityName={b.entityName} asAtDate={asAtDate} colSpan={8} />
+                      <AgingInvoicesPanel side="ar" entityId={b.entityId} entityName={b.entityName} asAtDate={asAtDate} colSpan={9} />
                     )}
                     </Fragment>
                   ))}
@@ -182,6 +186,7 @@ export default function ARAgingPage() {
                     <td className="px-4 py-3 text-right tabular-nums text-orange-400">{formatCurrency(totals.days60)}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-red-400">{formatCurrency(totals.days90)}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-purple-400">{formatCurrency(totals.days120Plus)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-amber-400">{formatCurrency(totals.disputed)}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(totals.total)}</td>
                   </tr>
                 </tbody>

@@ -51,8 +51,8 @@ export async function buildComputedTable(companyId: string, table: GlComputedTab
  * The summary facts a CSV download carries as headers, exact because the
  * table is built whole before the first byte. Open items: X-Aged-Total and
  * X-Control-Difference (an internal consistency check, not a GL tie — see
- * openItemsExport) and X-Disputed-Total (what Outstanding leaves out). Bank
- * accounts: X-No-Ledger-Balance-Count, the rows X-Control-Total leaves out.
+ * openItemsExport) and X-Disputed-Total (what Outstanding leaves out, already
+ * inside X-Control-Total). Bank accounts: X-No-Ledger-Balance-Count, the rows X-Control-Total leaves out.
  */
 export function computedHeaders(summary: ComputedSummary): Record<string, string> {
   const headers: Record<string, string> = {

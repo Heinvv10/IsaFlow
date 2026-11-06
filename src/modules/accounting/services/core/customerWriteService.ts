@@ -26,6 +26,10 @@ import {
   parseAutoAllocateStrategy,
   type AutoAllocateStrategy,
 } from '../shared/autoAllocateStrategy';
+import { ContactValidationError } from './contactValidationError';
+import { termsColumns } from './contactTerms';
+import { clearFlags } from './contactClear';
+import { assertCategoryInCompany } from './contactCategory';
 
 export type { AutoAllocateStrategy };
 
@@ -63,14 +67,14 @@ export interface CustomerWriteInput {
   subjectToDrcVat?: boolean;
   invoicesViewableOnline?: boolean;
   defaultPriceList?: string | null;
+  /** Update only: fields to set to NULL (see `contactClear`); a field in CUSTOMER_CLEARABLE. */
+  clear?: readonly string[];
 }
 
-export class ContactValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ContactValidationError';
-  }
-}
+export const CUSTOMER_CLEARABLE = [
+  'email', 'phone', 'mobile', 'fax', 'webAddress', 'vatNumber', 'registrationNumber', 'billingAddress',
+  'shippingAddress', 'contactPerson', 'notes', 'categoryId', 'creditLimit', 'defaultVatType', 'defaultPriceList',
+] as const;
 
 function trimmed(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
@@ -148,6 +152,8 @@ export async function createCustomer(
 ): Promise<DbRow> {
   const name = assertName(input.name);
   const strategy = resolveStrategy(input.autoAllocateStrategy) ?? 'off';
+  const terms = termsColumns(input);
+  await assertCategoryInCompany(companyId, input.categoryId);
   const rows = (await sql`
     INSERT INTO customers (
       company_id, name, email, phone, mobile, fax, web_address,
@@ -172,8 +178,8 @@ export async function createCustomer(
       ${trimmed(input.billingAddress)},
       ${trimmed(input.shippingAddress)},
       ${trimmed(input.contactPerson)},
-      ${input.paymentTerms ?? 30},
-      ${boundedText(input.paymentTermsType, 'payment_terms_type', 30) ?? 'days'},
+      ${terms.days}::INT,
+      ${terms.createType},
       ${input.creditLimit ?? null},
       ${input.isActive ?? true},
       ${trimmed(input.notes)},
@@ -230,29 +236,32 @@ export async function updateCustomer(
   // undefined = "leave it alone"; COALESCE below handles that the same way it
   // handles every other omitted field.
   const strategy = resolveStrategy(input.autoAllocateStrategy);
+  const terms = termsColumns(input);
+  const cl = clearFlags(input.clear, CUSTOMER_CLEARABLE, input);
+  await assertCategoryInCompany(companyId, input.categoryId);
 
   const rows = (await sql`
     UPDATE customers SET
       name            = COALESCE(${name}, name),
-      email           = COALESCE(${trimmed(input.email)}, email),
-      phone           = COALESCE(${boundedText(input.phone, 'phone', 50)}, phone),
-      mobile          = COALESCE(${boundedText(input.mobile, 'mobile', 50)}, mobile),
-      fax             = COALESCE(${boundedText(input.fax, 'fax', 50)}, fax),
-      web_address     = COALESCE(${trimmed(input.webAddress)}, web_address),
-      vat_number      = COALESCE(${boundedText(input.vatNumber, 'vat_number', 50)}, vat_number),
-      registration_number = COALESCE(${boundedText(input.registrationNumber, 'registration_number', 50)}, registration_number),
-      billing_address = COALESCE(${trimmed(input.billingAddress)}, billing_address),
-      shipping_address = COALESCE(${trimmed(input.shippingAddress)}, shipping_address),
-      contact_person  = COALESCE(${trimmed(input.contactPerson)}, contact_person),
-      payment_terms   = COALESCE(${input.paymentTerms ?? null}, payment_terms),
-      payment_terms_type = COALESCE(${boundedText(input.paymentTermsType, 'payment_terms_type', 30)}, payment_terms_type),
-      credit_limit    = COALESCE(${input.creditLimit ?? null}, credit_limit),
+      email           = CASE WHEN ${cl.email} THEN NULL ELSE COALESCE(${trimmed(input.email)}, email) END,
+      phone           = CASE WHEN ${cl.phone} THEN NULL ELSE COALESCE(${boundedText(input.phone, 'phone', 50)}, phone) END,
+      mobile          = CASE WHEN ${cl.mobile} THEN NULL ELSE COALESCE(${boundedText(input.mobile, 'mobile', 50)}, mobile) END,
+      fax             = CASE WHEN ${cl.fax} THEN NULL ELSE COALESCE(${boundedText(input.fax, 'fax', 50)}, fax) END,
+      web_address     = CASE WHEN ${cl.webAddress} THEN NULL ELSE COALESCE(${trimmed(input.webAddress)}, web_address) END,
+      vat_number      = CASE WHEN ${cl.vatNumber} THEN NULL ELSE COALESCE(${boundedText(input.vatNumber, 'vat_number', 50)}, vat_number) END,
+      registration_number = CASE WHEN ${cl.registrationNumber} THEN NULL ELSE COALESCE(${boundedText(input.registrationNumber, 'registration_number', 50)}, registration_number) END,
+      billing_address = CASE WHEN ${cl.billingAddress} THEN NULL ELSE COALESCE(${trimmed(input.billingAddress)}, billing_address) END,
+      shipping_address = CASE WHEN ${cl.shippingAddress} THEN NULL ELSE COALESCE(${trimmed(input.shippingAddress)}, shipping_address) END,
+      contact_person  = CASE WHEN ${cl.contactPerson} THEN NULL ELSE COALESCE(${trimmed(input.contactPerson)}, contact_person) END,
+      payment_terms   = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.days}::INT WHEN 'days_only' THEN ${terms.days}::INT WHEN 'clear' THEN NULL ELSE payment_terms END,
+      payment_terms_type = CASE ${terms.mode}::TEXT WHEN 'set' THEN ${terms.type}::TEXT WHEN 'days_only' THEN CASE WHEN payment_terms_type IN ('invoice_days', 'statement_days', 'statement_months', 'days', 'end_of_month') THEN payment_terms_type ELSE 'invoice_days' END WHEN 'clear' THEN NULL ELSE payment_terms_type END,
+      credit_limit    = CASE WHEN ${cl.creditLimit} THEN NULL ELSE COALESCE(${input.creditLimit ?? null}, credit_limit) END,
       is_active       = COALESCE(${input.isActive ?? null}, is_active),
-      notes           = COALESCE(${trimmed(input.notes)}, notes),
-      category_id     = COALESCE(${trimmed(input.categoryId)}::UUID, category_id),
+      notes           = CASE WHEN ${cl.notes} THEN NULL ELSE COALESCE(${trimmed(input.notes)}, notes) END,
+      category_id     = CASE WHEN ${cl.categoryId} THEN NULL ELSE COALESCE(${trimmed(input.categoryId)}::UUID, category_id) END,
       cash_sale       = COALESCE(${input.cashSale ?? null}, cash_sale),
       default_discount = COALESCE(${input.defaultDiscount ?? null}, default_discount),
-      default_vat_type = COALESCE(${boundedText(input.defaultVatType, 'default_vat_type', 50)}, default_vat_type),
+      default_vat_type = CASE WHEN ${cl.defaultVatType} THEN NULL ELSE COALESCE(${boundedText(input.defaultVatType, 'default_vat_type', 50)}, default_vat_type) END,
       subject_to_drc_vat = COALESCE(${input.subjectToDrcVat ?? null}, subject_to_drc_vat),
       accepts_electronic_invoices =
         COALESCE(${input.acceptsElectronicInvoices ?? null}, accepts_electronic_invoices),
@@ -262,7 +271,7 @@ export async function updateCustomer(
       ),
       statement_distribution = COALESCE(${boundedText(input.statementDistribution, 'statement_distribution', 20)}, statement_distribution),
       invoices_viewable_online = COALESCE(${input.invoicesViewableOnline ?? null}, invoices_viewable_online),
-      default_price_list = COALESCE(${boundedText(input.defaultPriceList, 'default_price_list', 100)}, default_price_list),
+      default_price_list = CASE WHEN ${cl.defaultPriceList} THEN NULL ELSE COALESCE(${boundedText(input.defaultPriceList, 'default_price_list', 100)}, default_price_list) END,
       updated_at      = NOW()
     WHERE id = ${customerId}::UUID
       AND company_id = ${companyId}::UUID

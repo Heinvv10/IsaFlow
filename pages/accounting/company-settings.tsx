@@ -17,6 +17,7 @@ import { SettingsSidebar } from '@/components/accounting/settings/SettingsSideba
 import { parseTabId, settingsTabTitle, type TabId } from '@/components/accounting/settings/settingsNav';
 import { DetailsTab } from '@/components/accounting/settings/DetailsTab';
 import { GeneralTab } from '@/components/accounting/settings/GeneralTab';
+import { DefaultPaymentTermsCard } from '@/components/accounting/settings/DefaultPaymentTermsCard';
 import { VatTab } from '@/components/accounting/settings/VatTab';
 import { ComplianceTab } from '@/components/accounting/settings/ComplianceTab';
 import { DocumentsTab } from '@/components/accounting/settings/DocumentsTab';
@@ -167,7 +168,12 @@ export default function CompanySettingsPage() {
           />
         );
       case 'general':
-        return <GeneralTab key={activeCompany?.id} company={company} onChange={update} onLockdownInvalid={setLockdownInvalid} />;
+        return (
+          <>
+            <GeneralTab key={activeCompany?.id} company={company} onChange={update} onLockdownInvalid={setLockdownInvalid} />
+            <DefaultPaymentTermsCard key={`terms-${activeCompany?.id}`} />
+          </>
+        );
       case 'vat':
         return <VatTab company={company} onChange={update} />;
       case 'compliance':

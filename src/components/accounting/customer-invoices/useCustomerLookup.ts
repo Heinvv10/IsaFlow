@@ -7,25 +7,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { discountInput } from '@/modules/accounting/services/ar/invoiceLineAmount';
+import { FALLBACK_COMPANY_TERMS, companyTermsFromFields, type Terms } from '@/modules/accounting/services/shared/paymentTerms';
 import { normaliseVatType } from './taxMode';
 
 export interface ContactDefaults {
+  /** False when the customer could not be read (or the answer was not a customer): nothing is known, so no terms are applied. */
+  known: boolean;
   terms: number | null;
   termsType: string | null;
+  /** The company's default terms: what a customer with none is dated by. */
+  companyDefault: Terms;
   discount: number;
   /** Trimmed and lower-cased (the column is free text); null when the customer has none. */
   vatType: string | null;
 }
-const NO_DEFAULTS: ContactDefaults = { terms: null, termsType: null, discount: 0, vatType: null };
+const NO_DEFAULTS: ContactDefaults = { known: false, terms: null, termsType: null, companyDefault: FALLBACK_COMPANY_TERMS, discount: 0, vatType: null };
 const LOOKUP_TIMEOUT_MS = 15_000; // Save waits on this: a server that never answers must not leave it grey for good
 
 /** The single-customer GET's row. Anything else (a non-UUID id gets the list) carries no defaults. */
 function readDefaults(row: unknown): ContactDefaults {
   if (typeof row !== 'object' || row === null || Array.isArray(row)) return NO_DEFAULTS;
-  const r = row as { payment_terms?: unknown; payment_terms_type?: unknown; default_discount?: unknown; default_vat_type?: unknown };
+  const r = row as {
+    payment_terms?: unknown; payment_terms_type?: unknown; default_discount?: unknown; default_vat_type?: unknown;
+    company_default_payment_terms?: unknown; company_default_payment_terms_type?: unknown;
+  };
   return {
+    known: true,
     terms: r.payment_terms === null || r.payment_terms === undefined ? null : Number(r.payment_terms),
     termsType: typeof r.payment_terms_type === 'string' ? r.payment_terms_type : null,
+    companyDefault: companyTermsFromFields(r.company_default_payment_terms, r.company_default_payment_terms_type),
     discount: discountInput(Number(r.default_discount ?? 0)),
     vatType: typeof r.default_vat_type === 'string' ? normaliseVatType(r.default_vat_type) || null : null,
   };

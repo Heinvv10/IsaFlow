@@ -26,7 +26,6 @@
   "pages/accounting/customer-quotes/index.tsx": 1,
   "pages/accounting/customer-sales-orders/index.tsx": 1,
   "pages/accounting/customer-statements/[clientId].tsx": 1,
-  "pages/accounting/customers/[customerId].tsx": 1,
   "pages/accounting/debtors-manager/index.tsx": 1,
   "pages/accounting/delivery-notes/index.tsx": 1,
   "pages/accounting/document-capture/[docId].tsx": 2,

@@ -15,13 +15,13 @@ export const AS_AT_CAVEAT =
 
 export const NETTING_NOTE =
   'Each entity row carries `unapplied` (NEGATIVE — on-account cash plus the face value its live credit notes have not consumed, as at the same date) and `net` = total + unapplied. '
-  + 'The BUCKETS stay gross, so they still add up to `gross_total`; the headline `total` is the NET, which is what a payment run or a collections call acts on. '
+  + 'The BUCKETS plus `buckets.disputed` (AR: open disputes, held outside the five age buckets but still owed) add up to `gross_total`; the headline `total` is the NET, which is what a payment run or a collections call acts on. '
   + 'An entity in credit with no open document still gets a row, with zero buckets and a negative net. '
   + 'The two figures are named separately: the envelope\'s figureBasis covers the NET total and rows, and gross_figure_basis covers the buckets and gross_total. '
   + 'reconcile_subledger and the REST aging endpoints still report the GROSS figure, so compare like with like.';
 
 export const TOTALS_NOTE =
-  'total is the NET over EVERY entity and gross_total is the same figure before credit is netted; buckets are gross and over every entity, not just this page — rowsTotal says how many entities there are and truncated says whether you are seeing them all. '
+  'total is the NET over EVERY entity and gross_total is the same figure before credit is netted; buckets (with `disputed`) are gross and over every entity, not just this page — rowsTotal says how many entities there are and truncated says whether you are seeing them all. '
   + 'entity_id drills into one customer or supplier and returns its INVOICES, each with its invoiceNumber, instead of the bucket summary. '
   + 'agedFromInvoiceDate counts invoices with no due date: they ARE in the buckets, aged from their invoice date, so their age is derived rather than known. '
   + 'detail "summary" returns the totals with no rows.';

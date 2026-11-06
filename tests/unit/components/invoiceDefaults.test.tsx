@@ -14,7 +14,7 @@ import { useContactDefaults } from '@/components/accounting/customer-invoices/us
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { typeDate } from '../helpers/dateFields';
 import {
-  contactCalls, discounts, due, fillLine, hintFromCustomer, invoiceDate, pickClient, sentBody, serve, submitAndWait,
+  BARE, contactCalls, discounts, due, fillLine, hintFromCustomer, invoiceDate, pickClient, sentBody, serve, submitAndWait,
 } from '../helpers/invoiceDefaultsHarness';
 
 const push = vi.hoisted(() => vi.fn());
@@ -45,7 +45,7 @@ describe('due date from the customer', () => {
     await open();
     await pickClient('c-acme');
     await waitFor(() => expect(due().value).toBe('31 Oct 2026'));
-    expect(screen.getByText('Customer terms: 30 days')).toBeTruthy();
+    expect(screen.getByText('Customer terms: 30 days from invoice date')).toBeTruthy();
   });
 
   it('follows the invoice date until the user edits it', async () => {
@@ -149,14 +149,23 @@ describe('due date from the customer', () => {
     expect((screen.getByRole('button', { name: /^create invoice$/i }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('moving to a customer with no terms takes the default back out', async () => {
+  it('a customer with no terms is dated by the company default, and the hint says the terms are not confirmed', async () => {
     serve();
     await open();
     await pickClient('c-acme');
     await waitFor(() => expect(due().value).toBe('31 Oct 2026'));
     await pickClient('c-bare');
-    await waitFor(() => expect(due().value).toBe(''));
-    expect(hintFromCustomer()).toEqual([]);
+    await waitFor(() => expect(screen.getByText('Terms not confirmed — using company default (30 days from invoice date)')).toBeTruthy());
+    expect(due().value).toBe('31 Oct 2026');
+    expect(screen.queryByText(/^Customer terms/)).toBeNull();
+  });
+
+  it('the company default the customer GET carries is the one used (2 months after statement)', async () => {
+    serve({ 'c-bare': { ...BARE, company_default_payment_terms: 2, company_default_payment_terms_type: 'statement_months' } });
+    await open();
+    await pickClient('c-bare');
+    await waitFor(() => expect(due().value).toBe('31 Dec 2026'));
+    expect(screen.getByText('Terms not confirmed — using company default (2 months after statement)')).toBeTruthy();
   });
 
   it('an answer for the customer before the last one is dropped', async () => {
@@ -173,8 +182,10 @@ describe('due date from the customer', () => {
     await pickClient('c-bare');
     await waitFor(() => expect(contactCalls().length).toBe(2));
     await waitFor(() => expect(screen.getByRole('button', { name: /^create invoice$/i }).hasAttribute('disabled')).toBe(false));
+    await waitFor(() => expect(due().value).toBe('31 Oct 2026')); // c-bare: the company default
     await act(async () => { slow.release!(); await new Promise((r) => { setTimeout(r); }); }); // a macrotask: every microtask of the late answer has run
-    expect(due().value).toBe('');
+    // c-acme's late answer is not applied: the page is still c-bare's.
+    expect(due().value).toBe('31 Oct 2026');
   });
 
   it('when the customer cannot be read the page says so and the form still works', async () => {

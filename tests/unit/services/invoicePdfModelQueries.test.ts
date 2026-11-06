@@ -34,7 +34,7 @@ describe('reading the invoice for its digests', () => {
     expect(texts).toHaveLength(2);
     expect(texts[0]).toMatch(/CASE WHEN \?::BOOLEAN THEN md5\(co\.logo_data\) ELSE co\.logo_data END/);
     expect(texts[0]).toMatch(/approval_document_digest/);
-    expect(texts[0]).toMatch(/\[true,"inv","co"\]$/); // forDigest: the md5 branch
+    expect(texts[0]).toMatch(/\[true,"default_payment_terms","inv","co"\]$/); // forDigest: the md5 branch
   });
 
   it('for the PDF, the same two statements read the logo itself', async () => {
@@ -42,7 +42,7 @@ describe('reading the invoice for its digests', () => {
     const model = await loadInvoicePdfModel('co', 'inv', { q });
     expect(model?.company.logoData).toBe('abc');
     expect(texts).toHaveLength(2);
-    expect(texts[0]).toMatch(/\[false,"inv","co"\]$/); // the logo itself
+    expect(texts[0]).toMatch(/\[false,"default_payment_terms","inv","co"\]$/); // the logo itself
   });
 
   it('no companies row: the company comes from app settings, printed fields only, and it is logged with the invoice', async () => {

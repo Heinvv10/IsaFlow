@@ -190,23 +190,9 @@ export function RecurringInvoiceEditor({ id }: { id: string }) {
                 placeholder="Optional description"
               />
             </div>
-            <div>
-              <label htmlFor="recurring-template-payment-terms" className={labelCls}>Payment Terms</label>
-              <select
-                id="recurring-template-payment-terms"
-                name="paymentTerms"
-                className={inputCls}
-                value={form.paymentTerms}
-                onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}
-                disabled
-              >
-                <option value="7 days">7 days</option>
-                <option value="14 days">14 days</option>
-                <option value="30 days">30 days</option>
-                <option value="60 days">60 days</option>
-                <option value="COD">COD</option>
-              </select>
-            </div>
+            <p className="text-xs text-[var(--ff-text-tertiary)] self-end pb-2">
+              Each invoice is due by the customer&apos;s payment terms, else the company default, counted from the day it is created.
+            </p>
           </div>
         </div>
 
