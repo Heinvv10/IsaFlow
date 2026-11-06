@@ -53,13 +53,24 @@ describe('upsertCostCentreGlMapping', () => {
     mockImpl = (strings) => {
       const q = strings.join('?');
       if (q.includes('FROM cost_centres')) return Promise.resolve([{ id: CC_ID }]);
-      if (q.includes('FROM gl_accounts')) return Promise.resolve([{ id: ACCT_ID }]);
+      if (q.includes('FROM gl_accounts')) return Promise.resolve([{ id: ACCT_ID, account_code: '5100', account_type: 'expense' }]);
       return Promise.resolve([]);
     };
     await upsertCostCentreGlMapping(COMPANY_ID, CC_ID, ACCT_ID, USER_ID);
     const insert = sqlCalls.find(c => c.sql.includes('INSERT INTO cost_centre_gl_mappings'));
     expect(insert).toBeDefined();
     expect(insert!.sql).toMatch(/ON CONFLICT/);
+  });
+
+  it.each(['liability', 'asset', 'equity', 'revenue'])('rejects a %s account (labour is debited to an EXPENSE account) and writes nothing', async (accountType) => {
+    mockImpl = (strings) => {
+      const q = strings.join('?');
+      if (q.includes('FROM cost_centres')) return Promise.resolve([{ id: CC_ID }]);
+      if (q.includes('FROM gl_accounts')) return Promise.resolve([{ id: ACCT_ID, account_code: '2170', account_type: accountType }]);
+      return Promise.resolve([]);
+    };
+    await expect(upsertCostCentreGlMapping(COMPANY_ID, CC_ID, ACCT_ID, USER_ID)).rejects.toThrow(/2170.*expense account/);
+    expect(sqlCalls.some(c => c.sql.includes('INSERT INTO cost_centre_gl_mappings'))).toBe(false);
   });
 
   it('rejects cost centre outside company', async () => {

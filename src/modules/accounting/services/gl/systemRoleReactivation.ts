@@ -10,6 +10,10 @@
  * (`roleTargetRules`): of a type the role allows, and not a balance-sheet
  * header with sub-accounts.
  *
+ * A system BANK account is the account net pay is credited to while `payroll_net_pay` is unset, so reactivating one into
+ * the empty role is owner/admin only (an `actor` without that role is refused: a manager reached it through the MCP
+ * update tool), and the finished write is audited (`auditBankRoleFilled`).
+ *
  * Call under `lockSystemRoleWrites`, before any write of the request.
  */
 import { sql } from '@/lib/neon';
@@ -19,9 +23,18 @@ import { ChartRefusal } from './chartRefusal';
 import { roleTargetRefusal } from './roleTargetRules';
 import { assertRolesKept, snapshotRoles, type RoleSnapshot } from './systemRoleInvariant';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
+import { canSetPayrollNetPay } from '@/lib/auth/writeRoles';
+import { isBankSubtype } from './accountSubtypes';
+import { auditBankRoleFilled } from './bankRoleFilledAudit';
+
+/** Who is reactivating: the role gates a bank-subtype system account, the id authors the bank-role audit row. */
+export interface ReactivationActor {
+  role: string | null | undefined;
+  userId: string;
+}
 
 /** The refusal message, or null when reactivating `accountId` is safe. */
-export async function reactivationRefusal(companyId: string, accountId: string): Promise<string | null> {
+export async function reactivationRefusal(companyId: string, accountId: string, actor?: ReactivationActor): Promise<string | null> {
   const rows = (await sql`
     SELECT a.account_code, a.account_type, a.account_subtype, a.is_system_account,
            (SELECT min(h.account_code) FROM gl_accounts h
@@ -45,10 +58,16 @@ export async function reactivationRefusal(companyId: string, accountId: string):
   }
   // The role is empty: this account becomes its holder, by the rule any
   // account taking a role passes (sub-accounts bar a balance-sheet role only).
-  return roleTargetRefusal(r.account_subtype, r.account_subtype, {
+  const unfit = roleTargetRefusal(r.account_subtype, r.account_subtype, {
     code: r.account_code, type: r.account_type, isActive: true, subtype: r.account_subtype,
     hasChildren: r.has_children === true,
   }, 'reactivate');
+  if (unfit) return unfit;
+  if (actor && isBankSubtype(r.account_subtype) && !canSetPayrollNetPay(actor.role)) {
+    return `Cannot reactivate ${r.account_code}: it would become the bank role's holder, and with Payroll net pay unset payroll credits net pay `
+      + `to that account, so only an owner or admin can do it (your role: ${actor.role ?? 'unknown'}).`;
+  }
+  return null;
 }
 
 /**
@@ -60,9 +79,11 @@ export async function reactivationRefusal(companyId: string, accountId: string):
  */
 export type FinishRoleWrite = <T>(result: T) => Promise<T>;
 
-function finishWith(companyId: string, before: RoleSnapshot | null): FinishRoleWrite {
+function finishWith(companyId: string, before: RoleSnapshot | null, actor?: ReactivationActor): FinishRoleWrite {
   return async (result) => {
     if (before) await assertRolesKept(companyId, before);
+    // A reactivation that gave an empty bank role its holder is recorded (before.holders has no bank).
+    if (before && actor) await auditBankRoleFilled(companyId, actor.userId, before.holders.get('bank') ?? null);
     clearSystemAccountCacheAfterCommit(companyId);
     return result;
   };
@@ -80,16 +101,16 @@ function finishWith(companyId: string, before: RoleSnapshot | null): FinishRoleW
  * would double a role is refused.
  */
 export async function guardActiveChange(
-  companyId: string, id: string, input: { isActive?: unknown; vatInputDenied?: unknown },
+  companyId: string, id: string, input: { isActive?: unknown; vatInputDenied?: unknown }, actor?: ReactivationActor,
 ): Promise<FinishRoleWrite> {
   for (const flag of ['isActive', 'vatInputDenied'] as const) {
     if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new ChartRefusal(`${flag} must be true or false`);
   }
   await lockSystemRoleWrites(companyId);
   if (input.isActive === undefined) return finishWith(companyId, null);
-  const refusal = input.isActive === true ? await reactivationRefusal(companyId, id) : null;
+  const refusal = input.isActive === true ? await reactivationRefusal(companyId, id, actor) : null;
   if (refusal) throw new ChartRefusal(refusal);
-  return finishWith(companyId, await snapshotRoles(companyId));
+  return finishWith(companyId, await snapshotRoles(companyId), input.isActive === true ? actor : undefined);
 }
 
 /**

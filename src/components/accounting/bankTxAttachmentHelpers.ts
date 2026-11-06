@@ -23,6 +23,8 @@ export const ACCEPTED_MIME = ['image/jpeg', 'image/png', 'application/pdf'];
 // data URLs and is the last line of defence against a magic-byte polyglot (a valid
 // image/PDF header with appended markup). Do NOT widen it to gif/svg/html/* — the
 // upload magic-byte validation (src/lib/fileMagic.ts) assumes inert MIMEs render here.
+// attachmentPreview.canDownload adds one case beside this: data:application/octet-stream, which a browser saves and
+// never renders, under a name safeDownloadName gives a neutral extension. Do not treat that as room to widen this.
 export const SAFE_HREF = /^(https:\/\/|data:(image\/(jpeg|png|webp|tiff)|application\/pdf);base64,)/;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -50,6 +50,28 @@ describe('attachCapturedDocToBankTx', () => {
     expect(allValues).toContain(COMPANY);
   });
 
+  // The email mirror stores a full MIME type where other writers store a short name. Either must store a data URL the
+  // viewer can show, never application/octet-stream.
+  const PDF_BYTES = Buffer.from('%PDF-1.7\n');
+  const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]);
+  const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const WEBP_BYTES = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBPVP8 ')]);
+  it.each([
+    ['application/pdf', PDF_BYTES, 'data:application/pdf;base64,'], ['pdf', PDF_BYTES, 'data:application/pdf;base64,'],
+    ['image/jpeg', JPEG_BYTES, 'data:image/jpeg;base64,'], ['IMAGE/JPG', JPEG_BYTES, 'data:image/jpeg;base64,'], ['jpg', JPEG_BYTES, 'data:image/jpeg;base64,'],
+    ['image/png', PNG_BYTES, 'data:image/png;base64,'], ['image/webp', WEBP_BYTES, 'data:image/webp;base64,'],
+    ['application/x-unknown', PDF_BYTES, 'data:application/octet-stream;base64,'],
+    // An email can claim any type: a label the bytes contradict is not stored.
+    ['application/pdf', Buffer.from('<html><script>alert(1)</script>'), 'data:application/octet-stream;base64,'],
+    ['image/png', PDF_BYTES, 'data:application/octet-stream;base64,'],
+  ])('stores file_type %s with these bytes as %s', async (fileType, buffer, prefix) => {
+    mockSqlByQuery(happyHandlers({ doc: [{ id: DOC, file_name: 'slip', file_type: fileType }] }));
+    vi.mocked(fetchRawBytes).mockResolvedValue({ buffer, hash: 'h', size: buffer.length, fileType });
+    await attachCapturedDocToBankTx(COMPANY, DOC, TX, 'user-1');
+    const insert = sqlMock.mock.calls.find((c) => (c[0] as readonly string[]).join('?').includes('INSERT INTO bank_transaction_attachments'))!;
+    expect(insert.slice(1).find((v) => typeof v === 'string' && v.startsWith('data:'))).toBe(`${prefix}${buffer.toString('base64')}`);
+  });
+
   it('returns notFound when the document is not in this company', async () => {
     mockSqlByQuery(happyHandlers({ doc: [] }));
     const result = await attachCapturedDocToBankTx(COMPANY, DOC, TX, 'user-1');

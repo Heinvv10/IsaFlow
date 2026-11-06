@@ -99,6 +99,39 @@ describe('cashFlowDirectService', () => {
     expect(result.closingCash).toBeCloseTo(result.openingCash + result.netChange, 2);
   });
 
+  it('gives totals in whole cents whatever order the cash legs arrive in', async () => {
+    const leg = (id: string, amount: number) => ({
+      bank_line_id: id, bank_amount: amount, contra_account_type: 'revenue',
+      contra_account_subtype: 'sales', contra_amount: -amount,
+    });
+    // 0.1 + 0.2 + 0.7 and 0.7 + 0.2 + 0.1 are different binary floats. The query has no ORDER BY.
+    for (const legs of [[leg('L1', 0.1), leg('L2', 0.2), leg('L3', 0.7)], [leg('L3', 0.7), leg('L2', 0.2), leg('L1', 0.1)]]) {
+      mockSql.mockResolvedValueOnce([
+        { ...OPENING_ROWS[0], gl_debit: 0.3, gl_credit: 0 },
+      ]).mockResolvedValueOnce(legs);
+
+      const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+      expect(result.operatingTotal).toBe(1);
+      expect(result.netChange).toBe(1);
+      expect(result.closingCash).toBe(1.3);
+    }
+  });
+
+  it('keeps net change and closing cash tied to the ledger when apportioned groups round apart', async () => {
+    // One 0.01 receipt split evenly between a sale and a financing contra: each total
+    // rounds on its own, but net change and closing cash stay what the cash leg moved.
+    mockSql.mockResolvedValueOnce(OPENING_ROWS).mockResolvedValueOnce([
+      { bank_line_id: 'L1', bank_amount: 0.01, contra_account_type: 'revenue', contra_account_subtype: 'sales', contra_amount: -0.005 },
+      { bank_line_id: 'L1', bank_amount: 0.01, contra_account_type: 'equity', contra_account_subtype: 'equity', contra_amount: -0.005 },
+    ]);
+
+    const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(result.netChange).toBe(0.01);
+    expect(result.closingCash).toBe(15000.01);
+  });
+
   it('returns zero cash when no cash movements exist', async () => {
     mockSql
       .mockResolvedValueOnce([

@@ -14,7 +14,10 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn(), resolveUserUuid: vi.fn(async (u: string) => u) }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({ createSupplierInvoice: vi.fn() }));
-vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccount: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccount: vi.fn(), clearSystemAccountCacheAfterCommit: vi.fn() }));
+// The commit takes the role-write lock and ends on the role post-condition (proven in sageMigrationOrchestratorRoleLock.test.ts).
+vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({ lockSystemRoleWrites: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/gl/systemRoleInvariant', () => ({ snapshotRoles: vi.fn(async () => ({ holders: new Map() })), assertRolesKept: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ assertNoInactiveAccountLines: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/customerPaymentAllocationService', () => ({ postCustomerInvoiceToGL: vi.fn() }));
 

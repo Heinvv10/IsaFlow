@@ -29,13 +29,22 @@ async function assertCostCentreInCompany(companyId: string, costCentreId: string
   if (rows.length === 0) throw new Error(`Cost centre ${costCentreId} not in company`);
 }
 
-async function assertAccountInCompany(companyId: string, accountId: string): Promise<void> {
+/**
+ * The account must be the company's and an EXPENSE account: the plan debits it with the centre's labour. A liability
+ * here (2170 Net Salaries Payable, say) put labour on the account net pay is credited to, and the journal debited and
+ * credited the same account (review round 2). The plan separately blocks a net-pay account shared with any other line
+ * (`net_pay_account_shared`), for mappings stored before this check.
+ */
+async function assertExpenseAccountInCompany(companyId: string, accountId: string): Promise<void> {
   const rows = (await sql`
-    SELECT id FROM gl_accounts
+    SELECT id, account_code, account_type FROM gl_accounts
      WHERE id = ${accountId}::uuid AND company_id = ${companyId}::uuid
      LIMIT 1
   `) as DbRow[];
   if (rows.length === 0) throw new Error(`GL account ${accountId} not in company`);
+  if (rows[0]!.account_type !== 'expense') {
+    throw new Error(`Account ${String(rows[0]!.account_code)} is a ${String(rows[0]!.account_type)} account: a cost centre's labour can only be mapped to an expense account`);
+  }
 }
 
 export async function listCostCentreGlMappings(
@@ -73,7 +82,7 @@ export async function upsertCostCentreGlMapping(
   userId: string,
 ): Promise<void> {
   await assertCostCentreInCompany(companyId, costCentreId);
-  await assertAccountInCompany(companyId, expenseAccountId);
+  await assertExpenseAccountInCompany(companyId, expenseAccountId);
   log.info(
     'Upserting cost-centre GL mapping',
     { companyId, costCentreId, expenseAccountId },

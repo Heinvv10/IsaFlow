@@ -4,13 +4,12 @@
  * Operating, Investing, Financing activities
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, Loader2, AlertCircle, Download } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
 import { localISODate, prevMonthRange } from '@/lib/dateUtils';
 import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
@@ -29,29 +28,15 @@ interface CashFlowReport {
   closing_cash: number;
 }
 
-interface CostCentre { id: string; code: string; name: string }
-
 export default function CashFlowPage() {
   const [report, setReport] = useState<CashFlowReport | null>(null);
-  const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
-  const [costCentreFilter, setCostCentreFilter] = useState('');
   const [startDate, setStartDate] = useState(() => prevMonthRange().start);
   const [endDate, setEndDate] = useState(localISODate());
   const dates = useDateGate();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [refError, setRefError] = useState('');
-
-  useEffect(() => {
-    apiFetch('/api/accounting/cost-centres', { credentials: 'include' })
-      .then(async r => { await assertOk(r, 'Could not load the cost centres - try again'); return r.json(); }).then(res => {
-      const list = res.data?.items || [];
-      setCostCentres(list.map((c: Record<string, unknown>) => ({ id: String(c.id), code: String(c.code), name: String(c.name) })));
-    }).catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'cash-flow'); setRefError(apiErrorMessage(err, 'Could not load the cost centres - try again')); });
-  }, []);
 
   const params = new URLSearchParams({ start_date: startDate || '', end_date: endDate || '' });
-  if (costCentreFilter) params.set('cost_centre', costCentreFilter);
   const query = params.toString();
 
   const loadReport = useCallback<ReportLoad>(async (latest) => {
@@ -115,19 +100,12 @@ export default function CashFlowPage() {
             <div>
               <GatedDateField gate={dates} gateKey="to" label="To" value={endDate || null} onValue={setEndDate} />
             </div>
-            {costCentres.length > 0 && (
-              <div>
-                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
-                <select value={costCentreFilter} onChange={e => setCostCentreFilter(e.target.value)} className="ff-select text-sm">
-                  <option value="">All Cost Centres</option>
-                  {costCentres.map(cc => <option key={cc.id} value={cc.code}>{cc.code} — {cc.name}</option>)}
-                </select>
-              </div>
-            )}
           </div>
 
           <FixDateNotice gate={dates} hidden={stale} className="mb-4" />
-          {refError && <p role="alert" className="text-xs text-amber-500">{refError}</p>}
+          <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">
+            Reported for the whole company: cash is held in bank accounts, not cost centres, so there is no cost-centre cash flow.
+          </p>
           {stale ? null : isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-green-500" />
