@@ -6,6 +6,7 @@
  * allocation predicate is a fixed literal keyed on a validated enum — that is
  * what makes them safe for `sql.unsafe`.
  */
+import { attachmentCountSql } from '../capture/capturedAttachmentLinks';
 import type { BankTxFilters } from './bankTxFilters';
 import { JOURNAL_DIMENSION_SET_LATERAL } from '../gl/dimensions/journalDimensionSetSql';
 
@@ -162,10 +163,9 @@ export const TX_SELECT = `
     COALESCE(ss.company_name, ss.name) AS suggested_supplier_name,
     sc.name AS suggested_client_name,
     pv.posted_vat_code, pv.posted_vat_amount,
-    -- The grid highlights the paperclip of a line with files. One idx_bta_tx probe per row. Tenant scope comes from bt:
-    -- the child has no company_id and is reached only through this row's own id.
-    (SELECT COUNT(*)::INT FROM bank_transaction_attachments bta
-      WHERE bta.bank_transaction_id = bt.id) AS attachment_count,
+    -- The grid highlights the paperclip of a line with files: its copies plus linked captured documents with no copy
+    -- (capture/capturedAttachmentLinks). Index probes per row: idx_bta_tx, idx_captured_documents_matched_bt.
+    ${attachmentCountSql('bt')} AS attachment_count,
     bt.linked_asset_id, bt.linked_fleet_fuel_id, bt.linked_fleet_service_id,
     lnk_a.id AS link_asset_id, lnk_a.name AS link_asset_name,
     lnk_f.fill_date AS link_fill_date, lnk_f.amount AS link_fuel_amount,

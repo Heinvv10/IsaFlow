@@ -76,7 +76,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       // A refresh changed the list behind any open viewer, so its index no longer names the same file. Only the
       // opening load may open the viewer; a ref, as the prop follows the count and must not re-create this callback.
       if (keepList) setViewIndex(null);
-      else if (openFirstRef.current && json.data.some(a => previewKind(a.file_url) !== 'none')) setViewIndex(0);
+      else if (openFirstRef.current && json.data.some(a => previewKind(a.file_url, a.content_type) !== 'none')) setViewIndex(0);
     } catch {
       // A failed refresh keeps the list it has: "No attachments yet" would be false, and the row keeps its count.
       if (!keepList) { listRef.current = []; setAttachments([]); }
@@ -90,7 +90,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   useEffect(() => { void fetchAttachments(); }, [fetchAttachments]);
 
   // The viewer steps through the files it can show; the list keeps every file.
-  const viewable = attachments.filter(a => previewKind(a.file_url) !== 'none');
+  const viewable = attachments.filter(a => previewKind(a.file_url, a.content_type) !== 'none');
 
   // ── Upload ─────────────────────────────────────────────────────────────────
   const handleUpload = useCallback(async (file: File) => {

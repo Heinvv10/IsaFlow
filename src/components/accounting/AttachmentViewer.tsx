@@ -14,16 +14,19 @@
  * Close and the backdrop still work.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Download, FileX, X } from 'lucide-react';
 import { useFocusTrap } from '@/components/ui/useFocusTrap';
-import { previewKind, dataUrlToBlob, safeDownloadName } from './attachmentPreview';
+import { isCapturedFile, safeDownloadName } from './attachmentPreview';
+import { useAttachmentBlob } from './useAttachmentBlob';
 
 export interface ViewableAttachment {
   id: string;
   file_name: string;
   file_url: string;
+  /** A captured document's claimed type (see ./useAttachmentBlob). */
+  content_type?: string | null;
 }
 
 interface Props {
@@ -39,9 +42,9 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
   const [index, setIndex] = useState(startIndex);
   const dialogRef = useRef<HTMLDivElement>(null);
   const file = attachments[index];
-  const kind = file ? previewKind(file.file_url) : 'none';
-
-  const blob = useMemo(() => (file && kind !== 'none' ? dataUrlToBlob(file.file_url) : null), [file, kind]);
+  const { blob, loading } = useAttachmentBlob(file);
+  // What is shown follows the blob's own type, which for a captured document comes from its bytes.
+  const kind = !blob ? 'none' : blob.type === 'application/pdf' ? 'pdf' : 'image';
   // Made and freed in one effect, not a memo: StrictMode runs effects twice, and a memoised URL would be revoked
   // by the first cleanup and then shown dead.
   // Keyed by its blob, so the render after a step never shows the previous file's (already freed) URL.
@@ -87,8 +90,9 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
           aria-label="Next attachment" title="Next attachment">
           <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </button>
-        {blobUrl && (
-          <a href={blobUrl} download={safeDownloadName(file.file_url, file.file_name)} className={NAV}
+        {/* A captured document it cannot show still downloads from its route, as octet-stream. */}
+        {(blobUrl || (!loading && !blob && isCapturedFile(file.file_url))) && (
+          <a href={blobUrl ?? file.file_url} download={safeDownloadName(file.file_url, file.file_name, file.content_type)} className={NAV}
             aria-label={`Download ${file.file_name}`} title="Download">
             <Download className="h-4 w-4" aria-hidden="true" />
           </a>
@@ -105,7 +109,9 @@ export function AttachmentViewer({ attachments, startIndex, onClose }: Props) {
           // A new frame per file (key): changing src on one frame adds a history entry per file.
           <iframe key={blobUrl} src={blobUrl} title={file.file_name}
             className="h-full w-full max-w-5xl rounded bg-white" />
-        ) : blob ? null : (
+        ) : blob ? null : loading ? (
+          <p className="text-sm text-[var(--ff-text-secondary)]" onClick={e => e.stopPropagation()}>Loading…</p>
+        ) : (
           <div className="flex flex-col items-center gap-2 text-sm text-[var(--ff-text-secondary)]" onClick={e => e.stopPropagation()}>
             <FileX className="h-8 w-8" aria-hidden="true" />
             <p>Preview not available for this file</p>

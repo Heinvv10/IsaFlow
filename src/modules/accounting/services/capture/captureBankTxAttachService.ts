@@ -9,6 +9,9 @@
  * against companyId before any write. The attachments table has no company_id —
  * scoping is via the verified bank_transaction_id (same as bankTxQueryReplyService).
  *
+ * A document over 2 MB, or one whose copy fails, stays linked without a copy: capturedAttachmentLinks lists and
+ * counts it as an attachment of the line and serves its bytes, so it is not invisible.
+ *
  * Known debt: attachments carry no captured_document_id FK — provenance/dedupe rides on the filename prefix; a follow-up migration should add a nullable captured_document_id column.
  */
 import { sql } from '@/lib/neon';
@@ -34,6 +37,11 @@ const MIME_BY_FILE_TYPE: Record<string, string> = {
   tiff: 'image/tiff',
   'image/tiff': 'image/tiff',
 };
+
+/** The MIME type a captured_documents.file_type names (short name or full type), or null when it names none we know. */
+export function mimeForCapturedFileType(fileType: string): string | null {
+  return MIME_BY_FILE_TYPE[fileType.toLowerCase()] ?? null;
+}
 
 export type AttachToBankTxResult =
   | { ok: true; mirrored: boolean }
@@ -119,7 +127,7 @@ async function mirrorIntoAttachments(
 
     // file_type can be whatever an email claimed, so a label only stands when the bytes agree with it. The upload route
     // refuses a mismatch; here the link is already made, so the file is kept under the type that makes no claim.
-    const claimed = MIME_BY_FILE_TYPE[fileType.toLowerCase()];
+    const claimed = mimeForCapturedFileType(fileType);
     const mime = claimed && magicBytesMatchMime(raw.buffer, claimed) ? claimed : 'application/octet-stream';
     const dataUrl = `data:${mime};base64,${raw.buffer.toString('base64')}`;
     await sql`

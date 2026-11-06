@@ -25,6 +25,7 @@ import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { runAfterCommit } from '@/lib/afterCommit';
+import { listLinkedCapturedAttachments } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
 
 // ── Local Types ───────────────────────────────────────────────────────────────
 
@@ -100,8 +101,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ORDER BY bta.created_at DESC
     `) as SqlRow[];
 
-    log.info('Listed bank tx attachments', { bankTransactionId, count: rows.length }, 'bank-tx-attachments');
-    return apiResponse.success(res, rows);
+    // Linked captured documents with no copy (over 2 MB, or a failed copy) are this line's attachments too.
+    const captured = await listLinkedCapturedAttachments(companyId, bankTransactionId);
+    log.info('Listed bank tx attachments', { bankTransactionId, count: rows.length, captured: captured.length }, 'bank-tx-attachments');
+    return apiResponse.success(res, [...rows, ...captured]);
   }
 
   // ── POST ───────────────────────────────────────────────────────────────────

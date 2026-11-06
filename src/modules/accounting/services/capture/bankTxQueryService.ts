@@ -5,6 +5,7 @@
  * Reply-side handling lives in bankTxQueryReplyService.ts.
  */
 
+import { attachmentCountSql } from './capturedAttachmentLinks';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
@@ -116,8 +117,7 @@ export async function listQueries(
            bt.transaction_date, bt.description AS tx_description,
            bt.amount, bt.status AS tx_status,
            ga.account_name AS bank_account_name,
-           (SELECT COUNT(*)::int FROM bank_transaction_attachments bta
-             WHERE bta.bank_transaction_id = q.bank_transaction_id) AS attachment_count
+           ${sql.unsafe(attachmentCountSql('bt'))} AS attachment_count
     FROM bank_tx_queries q
     JOIN bank_transactions bt ON bt.id = q.bank_transaction_id
     LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
