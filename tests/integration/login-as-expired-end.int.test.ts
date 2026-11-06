@@ -44,14 +44,15 @@ describe('endExpiredLoginAs', () => {
     const expired = await fx.loginAsTarget();
     await pool.query(`UPDATE admin_impersonation_stash SET expires_at = NOW() - INTERVAL '1 minute' WHERE stash_id = $1::uuid`, [expired['sb-admin-stash']]);
     const newer = await fx.loginAsTarget();
-    const callsBefore = fx.gotrueCalls.length;
+    // Each fixture stubs fetch in setUp, so the last one set up records every GoTrue call.
+    const callsBefore = other.gotrueCalls.length;
 
     await end(ended, ended['sb-admin-stash']);
 
     expect(await stashExists(ended['sb-admin-stash']!)).toBe(false);
     expect(await stashExists(expired['sb-admin-stash']!)).toBe(false);
     expect(await stashExists(newer['sb-admin-stash']!)).toBe(true);
-    expect(fx.gotrueCalls.slice(callsBefore)).toContain('POST /logout?scope=local');
+    expect(other.gotrueCalls.slice(callsBefore)).toContain('POST /logout?scope=local');
     expect(await lastEnd()).toMatchObject({
       admin_user_id: fx.platformAdmin,
       target_id: decodeJwt(ended['sb-access-token']!).sub,
