@@ -55,7 +55,6 @@
   "pages/accounting/reports/audit-trail.tsx": 2,
   "pages/accounting/reports/balance-sheet.tsx": 2,
   "pages/accounting/reports/bank-transactions.tsx": 1,
-  "pages/accounting/reports/cash-flow.tsx": 1,
   "pages/accounting/reports/customer-communication.tsx": 1,
   "pages/accounting/reports/customer-ledger.tsx": 1,
   "pages/accounting/reports/disclosure-notes.tsx": 2,
