@@ -70,7 +70,7 @@ describe('PAYE 4c: a retirement fund contribution in the line', () => {
   });
 
   it('a non-retirement deduction keeps its taxable flag\'s meaning (unchanged by 4c)', () => {
-    const l = line([{ component: comp('3601'), amount: 20_000 }, { component: deduction('4030'), amount: 8_000 }]);
+    const l = line([{ component: comp('3601'), amount: 20_000 }, { component: deduction('4018'), amount: 8_000 }]);
     expect([l.paye.monthlyPaye, l.retirementDeduction]).toEqual([675, 0]);
   });
 });
