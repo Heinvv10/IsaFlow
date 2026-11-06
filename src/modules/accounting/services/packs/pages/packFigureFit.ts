@@ -25,6 +25,7 @@ import type { PackFigure } from '@/modules/accounting/services/packs/figures/pac
 import type { MoneyScale } from '@/lib/format/money';
 import { GUTTER_MM } from './packDisclosureHeight';
 import { type FigureWeight, ptToPx, textPx, textPxUnsnapped } from './packFigureWidth';
+import { pieces } from './packLineBreaks';
 import { reasonPx } from './packReasonWidth';
 import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
 import { deltaDirection } from '@/modules/accounting/services/packs/narrative/derivedTileCaptions';
@@ -114,8 +115,11 @@ export function cellPx(cell: FigureCell, fontPx: number): number {
 function labelMinPx(table: PackTable): number {
   const labelFontPx = Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
   return Math.max(0, ...table.rows.map((row) => {
-    const longest = Math.max(0, ...row.label.split(/\s+/).map((word) => textPx(word, labelFontPx, ROW_WEIGHT[row.role])));
-    return row.level * INDENT_PX_PER_LEVEL + longest + labelMarkPx(row.footnote, ROW_WEIGHT[row.role]) + CELL_SIDE_PX;
+    // The footnote mark sits after the LAST piece, not the longest.
+    const widths = breakable(row.label).map((piece) => textPx(piece, labelFontPx, ROW_WEIGHT[row.role]));
+    const mark = labelMarkPx(row.footnote, ROW_WEIGHT[row.role]);
+    const widest = Math.max(0, ...widths.map((w, i) => (i === widths.length - 1 ? w + mark : w)));
+    return row.level * INDENT_PX_PER_LEVEL + widest + CELL_SIDE_PX;
   }));
 }
 
@@ -150,14 +154,12 @@ export function deltaText(tile: KpiTile): string {
   return `${deltaWithWord(delta, direction, direction, 'pp', 'flat on')} ${delta.basis}`;
 }
 
-/** The runs of `text` a line may break between: at spaces, and after a hyphen. */
-function runsOf(text: string): string[] {
-  return text.split(/\s+/).filter((word) => word !== '').flatMap((word) => word.split(/(?<=-)/));
-}
+/** The pieces of `text` a line may break between (`packLineBreaks.ts`, the one splitter). */
+const breakable = (text: string): string[] => pieces(text).map((piece) => piece.text);
 
 /** The longest unbreakable run of `text`. */
 function longestRunPx(text: string, fontPx: number, weight: FigureWeight): number {
-  return Math.max(0, ...runsOf(text).map((run) => textPx(run, fontPx, weight)));
+  return Math.max(0, ...breakable(text).map((run) => textPx(run, fontPx, weight)));
 }
 
 /**
@@ -167,9 +169,10 @@ function longestRunPx(text: string, fontPx: number, weight: FigureWeight): numbe
  * holds its column open (the adversary's net-debit Debt-to-equity tile: 50px of figure under a 56px label).
  */
 function tileOtherMinPx(tile: KpiTile): number {
-  const labelPx = longestRunPx(tile.label, 12, 400) + (labelMarkPx(tile.trendFootnote));
+  const labelWidths = breakable(tile.label).map((piece) => textPx(piece, 12, 400));
+  const labelPx = Math.max(0, ...labelWidths.map((w, i) => (i === labelWidths.length - 1 ? w + labelMarkPx(tile.trendFootnote) : w)));
   const reasonWidth = tile.figure.value === null && tile.figure.unavailable !== undefined && tile.figure.unavailable !== null
-    ? Math.max(0, ...runsOf(tile.figure.unavailable).map(reasonPx)) : 0;
+    ? Math.max(0, ...breakable(tile.figure.unavailable).map(reasonPx)) : 0;
   // The arrow cue is a run of its own (`</span>{' '}` after it is a break opportunity): it never holds a column open
   // past the words it precedes.
   const deltaPx = tile.delta === null ? 0 : Math.max(DELTA_CUE_PX, longestRunPx(deltaText(tile), 12, 400));
