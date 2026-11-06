@@ -58,6 +58,11 @@ async function fetchNonCashMovement(
         AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID
         AND je.entry_date BETWEEN ${startDate} AND ${endDate}
+        -- The direct statement only needs journals that touch a cash account: leave the rest out before aggregating.
+        AND (NOT ${cashJournalsOnly}::boolean OR EXISTS (
+          SELECT 1 FROM gl_journal_lines cl JOIN gl_accounts ca ON ca.id = cl.gl_account_id
+          WHERE cl.journal_entry_id = je.id AND cl.company_id = ${companyId}::UUID AND ca.company_id = ${companyId}::UUID
+            AND ca.account_type = 'asset' AND COALESCE(ca.account_subtype = ANY(${CASH_SUBTYPES as string[]}), false)))
     ), journal_cash AS (
       -- One row per journal, cash legs or not: a journal whose legs are all cash (or one-sided) has no non-cash line to
       -- come back through, and must still return its cash movement.
