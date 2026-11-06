@@ -181,6 +181,7 @@ describe('a bill whose lines were copied from a PO', () => {
     fireEvent.change(poSelect, { target: { value: 'po-b' } });
     await act(async () => { release(); await new Promise((r) => setTimeout(r, 30)); });
     expect(screen.queryByDisplayValue('Router')).toBeNull();
+    expect(container.querySelector('label .animate-spin'), 'the abandoned copy leaves no spinner').toBeNull();
   });
 
   it('a line typed by hand carries no link', async () => {

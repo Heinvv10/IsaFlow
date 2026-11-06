@@ -113,10 +113,11 @@ export function PoGrnSelector({
     void fetchPosAndGrns(supplierId);
   }, [supplierId, fetchPosAndGrns]);
 
-  useEffect(() => { copyRun.current += 1; }, [supplierId]);
+  useEffect(() => { copyRun.current += 1; setCopyLoading(false); }, [supplierId]);
 
   const handlePoChange = (poId: string) => {
     copyRun.current += 1;
+    setCopyLoading(false);
     onPoChange(poId);
     onGrnChange(''); // reset GRN when PO changes
     onCopyLinesChange(false);
