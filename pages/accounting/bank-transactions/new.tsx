@@ -298,7 +298,7 @@ export default function NewBankTransactionPage() {
                         )}
                       </div>
                       <div>
-                        <label htmlFor="bank-transactions-new-vat-code" className={lbl}>VAT Code</label>
+                        <label htmlFor="bank-transactions-new-vat-code" className={lbl}>VAT code</label>
                         <select id="bank-transactions-new-vat-code" name="vatCode" value={form.vatCode} onChange={e => patch({ vatCode: e.target.value as VatCode })} className={inp}>
                           {VAT_OPTIONS.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
                         </select>

@@ -35,7 +35,7 @@ export function AssetFinancialFields({ form, update, onDateChange, dateError }: 
           />
         </div>
         <div>
-          <label htmlFor="asset-cost" className={lbl}>Cost (Purchase Price) *</label>
+          <label htmlFor="asset-cost" className={lbl}>Cost (purchase price) *</label>
           <input id="asset-cost" type="number" name="cost" required step="0.01" min="0.01" value={form.cost}
             onChange={e => update('cost', e.target.value)}
             placeholder="25000.00" className={inp} />

@@ -271,7 +271,7 @@ export default function NewSupplierInvoicePage() {
                   Notes
                 </h3>
                 <div>
-                  <label htmlFor="supplier-invoices-new-vat-rate" className={lbl}>VAT Rate (%)</label>
+                  <label htmlFor="supplier-invoices-new-vat-rate" className={lbl}>VAT rate (%)</label>
                   <input id="supplier-invoices-new-vat-rate" type="number" step="0.01" value={form.taxRate}
                     onChange={e => setForm(f => ({ ...f, taxRate: Number(e.target.value) }))}
                     className={`${inp} w-32 mb-4`} />

@@ -141,11 +141,11 @@ export default function NewCreditNotePage() {
                     <input id="credit-notes-new-subtotal" type="number" name="subtotal" step="0.01" min="0" value={form.subtotal || ''} onChange={e => setForm(f => ({ ...f, subtotal: Number(e.target.value) }))} className={inp} required />
                   </div>
                   <div>
-                    <label htmlFor="credit-notes-new-tax-rate" className={lbl}>VAT Rate (%)</label>
+                    <label htmlFor="credit-notes-new-tax-rate" className={lbl}>VAT rate (%)</label>
                     <input id="credit-notes-new-tax-rate" type="number" name="taxRate" step="0.01" min="0" value={form.taxRate} onChange={e => setForm(f => ({ ...f, taxRate: Number(e.target.value) }))} className={inp} />
                   </div>
                   <div>
-                    <label className={lbl}>VAT Amount</label>
+                    <label className={lbl}>VAT amount</label>
                     <div className={`${inp} bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400`}>{formatCurrency(taxAmount)}</div>
                   </div>
                 </div>

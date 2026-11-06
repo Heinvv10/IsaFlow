@@ -170,7 +170,7 @@ export function PoGrnSelector({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* PO dropdown */}
         <div>
-          <label className={lbl}>Link to Purchase Order</label>
+          <label className={lbl}>Link to purchase order</label>
           <div className="relative">
             <select
               value={selectedPoId}

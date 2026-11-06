@@ -21,7 +21,7 @@ export function InvoiceNumberField(props: InvoiceNumberFieldProps) {
   return (
     <div>
       <label className={lbl}>
-        Invoice Number {useSequence ? '(next from sequence — final number reserved on save)' : '*'}
+        Invoice number {useSequence ? '(next from sequence — final number reserved on save)' : '*'}
       </label>
       <input
         type="text"
