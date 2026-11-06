@@ -96,6 +96,20 @@ describe('sessionHeartbeat background refresh', () => {
     expect(window.location.href).toBe('/login?reason=idle-timeout');
   });
 
+  it.each(['garbage', 'NaN', 'Infinity'])('a corrupt refresh time (%s) does not switch the refresh off', async (value) => {
+    localStorage.setItem('isaflow_last_refresh_at', value);
+    await minutes(55);
+    expect(refreshes()).toBe(1);
+  });
+
+  it('a corrupt activity time does not switch the idle bounce off', async () => {
+    stop();
+    stop = startSessionHeartbeat({ idleTimeoutMinutes: 60 });
+    localStorage.setItem('isaflow_last_activity_at', 'garbage');
+    await minutes(70);
+    expect(window.location.href).toBe('/login?reason=idle-timeout');
+  });
+
   it('a tab refreshes on its own: no other tab has to be alive or visible', async () => {
     const otherTab = startSessionHeartbeat({ idleTimeoutMinutes: 480 });
     otherTab();

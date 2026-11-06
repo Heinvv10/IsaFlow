@@ -65,9 +65,8 @@ function readTimestamp(key: string): number {
     const raw = localStorage.getItem(key);
     if (!raw) return Date.now();
     const n = Number(raw);
-    if (!Number.isFinite(n)) return Date.now();
-    if (n <= Date.now()) return n;
-    // In the future (a clock set back, a stray value): reset it, or the wait never ends.
+    if (Number.isFinite(n) && n <= Date.now()) return n;
+    // Corrupt or in the future (a clock set back): reset it, or the wait never ends.
     localStorage.setItem(key, String(Date.now()));
     return Date.now();
   } catch {
