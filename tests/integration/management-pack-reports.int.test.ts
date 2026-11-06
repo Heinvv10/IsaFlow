@@ -15,6 +15,7 @@ import { sql } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 import { getCashFlowDirect } from '@/modules/accounting/services/afs/cashFlowDirectService';
+import { seedFractionalCashJournal } from './helpers/mgmtPackCashFractions';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
@@ -84,6 +85,7 @@ async function seedBooks(c: PoolClient): Promise<void> {
   const rec = (co: string, account: string, date: string, stmt: number, gl: number, reconciled: number, status: string) => q(
     `INSERT INTO bank_reconciliations (id, company_id, bank_account_id, statement_date, statement_balance, gl_balance, reconciled_balance, status, started_by)
      VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)`, [co, account, date, stmt, gl, reconciled, status, f.userA]);
+  await seedFractionalCashJournal(c, f.a, f.acc.bank, f.userA, '2026-02-15'); // operating cash split in fractions of a cent
   await rec(f.a, f.acc.bank, '2026-01-31', 500, 505, 498, 'completed');
   await rec(f.a, f.acc.bank, '2026-02-20', 1200.5, 1210.5, 1195, 'completed');
   await rec(f.a, f.acc.bank, '2026-02-27', 999, 999, 999, 'in_progress');
@@ -153,7 +155,10 @@ describe('every cell is the report service\'s figure for the same company and mo
     expect(m(cash.openingCash + cash.netChange)).toBe(row(t, 'Closing cash')?.[1]);
     expect(JSON.stringify(sections.get('cash_flow')?.content.blocks)).toContain('Direct method');
     expect(sections.get('cash_flow')?.data_snapshot).toMatchObject({ openingCash: cash.openingCash, closingCash: cash.closingCash, netChange: cash.netChange });
-    // whole cents all through the stored figures, and the closing cash is the ledger's
+    const cents = (n: number) => Math.round(n * 100); // whole cents, lines adding to their section: the seeded journal splits 1.00 three ways
+    for (const items of [cash.operatingItems, cash.investingItems, cash.financingItems]) for (const i of items) expect(Math.abs(i.amount * 100 - cents(i.amount))).toBeLessThan(1e-6);
+    expect(cents(cash.operatingItems.reduce((a, i) => a + i.amount, 0))).toBe(cents(cash.operatingTotal));
+    expect(cents(cash.operatingTotal) + cents(cash.investingTotal) + cents(cash.financingTotal)).toBe(cents(cash.netChange));
     for (const v of Object.values(sections.get('cash_flow')!.data_snapshot).filter((x): x is number => typeof x === 'number')) expect(Math.abs(v * 100 - Math.round(v * 100))).toBeLessThan(1e-6);
     expect(sections.get('cash_flow')?.data_snapshot).toMatchObject({ unexplainedDifference: 0, closingCash: reports!.ledgerCash });
   });
