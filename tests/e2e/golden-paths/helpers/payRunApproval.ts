@@ -40,7 +40,8 @@ export type PayRunClearance = 'cleared' | 'self-approval-refused';
 class SelfApprovalRefused extends Error {}
 
 function isSelfApproval(err: unknown): err is ApiError {
-  return err instanceof ApiError && (err.body as { error?: { details?: { reason?: string } } })?.error?.details?.reason === 'SELF_APPROVAL_FORBIDDEN';
+  return err instanceof ApiError && err.status === 403
+    && (err.body as { error?: { details?: { reason?: string } } })?.error?.details?.reason === 'SELF_APPROVAL_FORBIDDEN';
 }
 
 async function approve(api: Api, decision: object): Promise<void> {

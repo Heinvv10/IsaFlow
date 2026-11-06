@@ -47,8 +47,8 @@ Pay-run approval (R-035): a CI slot has one member, so `h-payroll-run` and `z6` 
 sole-approver exception. Prod Demo has several approvers, so post-deploy verify needs a second user: optional
 `E2E_APPROVER_EMAIL`/`E2E_APPROVER_PASSWORD` (owner/admin of the Demo company, not the E2E_ADMIN user, and without MFA: login withholds the session for an MFA user) in `/home/hein/isaflow-deploy.env`,
 read by `scripts/verify-deploy.sh`. Set, `helpers/payRunApproval.ts` logs that user in separately (company switched to
-the suite's active one) and approves with it; one of the two alone fails; `z6` always self-approves (its sandbox company is not the approver's); unset keeps self-approval and a
-`SELF_APPROVAL_FORBIDDEN` there names the fix.
+the suite's active one) and approves with it; one of the two alone fails; `z6` always self-approves (its sandbox company is not the approver's). Unset,
+`h-payroll-run` proves the two-person gate instead (self-approval refused, annotated `two-person-gate`, not a failure); `z6` names the fix.
 
 **Rules:**
 - The company id for a slot comes from `GOLDEN_SLOT_n_COMPANY_ID` and must be one of that slot's own ids
