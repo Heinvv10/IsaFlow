@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { INPUTS_URL, RUN_URL, OVERTIME, UNION, line, inputsBody, planBody, ok, fail } from './payroll/payrollRunFixtures';
-import { body, cell, fetchMock, puts, rowOf, serve, settle, twoRuns, type } from './payroll/payRunGridHarness';
+import { body, cell, choose, fetchMock, puts, rowOf, serve, settle, twoRuns, type } from './payroll/payRunGridHarness';
 
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -19,12 +19,6 @@ vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 
 import PayrollRunDetailPage from '@/../pages/payroll/runs/[id]';
 
 beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
-
-/** The kit Select (wave 4 PS): open it, press the option by its label. */
-function choose(combobox: HTMLElement, label: string): void {
-  fireEvent.click(combobox);
-  fireEvent.click(screen.getByRole('option', { name: label }));
-}
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('PayRunReviewGrid', () => {
@@ -192,10 +186,8 @@ describe('PayRunReviewGrid', () => {
       const select = await picker();
       expect(select.textContent).toBe('Choose a component');
       expect(screen.queryByLabelText('Once-off earning, Riaan Smit')).toBeNull();
-      // Wave 4 PS: the empty state says how to get an overtime or commission component.
-      const add = screen.getByRole('link', { name: 'Add one' });
-      expect(add.getAttribute('href')).toBe('/payroll/components');
-      expect(add.closest('p')?.textContent).toBe('No overtime or commission component yet. Add one');
+      const add = screen.getByRole('link', { name: 'Add one' }); // wave 4 PS: the way to an overtime component
+      expect([add.getAttribute('href'), add.closest('p')?.textContent]).toEqual(['/payroll/components', 'No overtime or commission component yet. Add one']);
       choose(select, 'Basic Salary (3601)');
       expect(await cell('Riaan Smit')).toBeTruthy();
     });
