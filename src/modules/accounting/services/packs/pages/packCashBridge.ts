@@ -13,6 +13,7 @@ import { axisDomain } from '@/modules/accounting/services/packs/packChartAxes';
 import { MONEY_TOLERANCE } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { investingCashFlowOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
+import { CASH_UNCAPTURED_LABEL } from '@/modules/accounting/services/packs/packSectionData';
 import { CHART_MEASURE_MM, grownHeightMm, HALF, type ChartBox, type DrawnSize } from './packChartRungs';
 import { intervalsFor, isCompact, toBars } from './packWaterfallBars';
 import type { PackChartSpec } from './packPageModel';
@@ -49,7 +50,7 @@ import type { PackChartSpec } from './packPageModel';
  * prior period has no bridge either, and opening a bar at zero would assert
  * the business started the period with an empty bank account.
  */
-export const CASH_UNCAPTURED_LABEL = 'Unexplained movement';
+export { CASH_UNCAPTURED_LABEL };
 
 /**
  * Either the drawn bridge, or why the page does not carry one.

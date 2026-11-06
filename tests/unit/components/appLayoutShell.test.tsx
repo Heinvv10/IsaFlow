@@ -11,16 +11,18 @@ import type { ReactNode } from 'react';
 const h = vi.hoisted(() => ({
   router: { pathname: '/accounting', asPath: '/accounting', query: {}, push: vi.fn(async () => true) },
   topNavMounts: 0,
-  auth: { loading: false, user: { firstName: 'Q', lastName: 'A', email: 'qa@x' } as unknown, logout: vi.fn(async () => undefined), authUnavailable: false, authChecking: false, refreshUser: vi.fn() },
+  heartbeat: vi.fn((_opts: { idleTimeoutMinutes: number }) => () => undefined),
+  company: { activeCompany: { id: 'c1', vatPeriod: 'bi-monthly', vatSystemType: 'invoice', idleTimeoutMinutes: undefined as number | undefined } as { id: string; vatPeriod: string; vatSystemType: string; idleTimeoutMinutes?: number } | null, companyRole: 'owner', loading: false, companies: [] },
+  auth: { loading: false, user: { id: 'u-qa', firstName: 'Q', lastName: 'A', email: 'qa@x' } as unknown, logout: vi.fn(async () => undefined), authUnavailable: false, authChecking: false, refreshUser: vi.fn() },
 }));
 vi.mock('next/router', () => ({ useRouter: () => h.router }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => h.auth }));
 vi.mock('@/contexts/CompanyContext', () => ({
-  useCompany: () => ({ activeCompany: { id: 'c1', vatPeriod: 'bi-monthly', vatSystemType: 'invoice' }, companyRole: 'owner', loading: false, companies: [] }),
+  useCompany: () => h.company,
 }));
 vi.mock('next/image', () => ({ default: () => null }));
 vi.mock('@/hooks/useTrackPageVisit', () => ({ useTrackPageVisit: () => undefined }));
-vi.mock('@/lib/auth/sessionHeartbeat', () => ({ startSessionHeartbeat: () => () => undefined }));
+vi.mock('@/lib/auth/sessionHeartbeat', () => ({ startSessionHeartbeat: h.heartbeat }));
 vi.mock('@/components/accounting/AccountingNav', () => ({ AccountingNav: () => { h.topNavMounts += 1; return null; } }));
 vi.mock('@/components/accounting/SecondaryModuleNav', () => ({ SecondaryModuleNav: ({ moduleId, navPath }: { moduleId: string; navPath?: string }) => <i data-testid="secondary-nav" data-module={moduleId} data-nav-path={navPath ?? ''} /> }));
 vi.mock('@/components/layout/SidebarNav', () => ({ SidebarNav: () => null }));
@@ -49,6 +51,37 @@ beforeEach(() => { go('/accounting'); h.auth.loading = false; h.router.push.mock
 afterEach(cleanup);
 
 describe('AppLayout', () => {
+  it('starts the heartbeat only once the company, and so its idle limit, has loaded', () => {
+    h.heartbeat.mockClear();
+    h.company = { ...h.company, loading: true, activeCompany: null };
+    const { rerender } = render(page());
+    expect(h.heartbeat).not.toHaveBeenCalled();
+    h.company = { ...h.company, loading: false, activeCompany: { id: 'c1', vatPeriod: 'bi-monthly', vatSystemType: 'invoice', idleTimeoutMinutes: 30 } };
+    rerender(page());
+    expect(h.heartbeat).toHaveBeenCalledExactlyOnceWith({ idleTimeoutMinutes: 30 });
+  });
+
+  it('a re-check that returns the same user does not restart the heartbeat', () => {
+    h.heartbeat.mockClear();
+    const before = h.auth.user;
+    h.auth.user = { id: 'u-1', firstName: 'Q', lastName: 'A', email: 'qa@x', rememberMe: true };
+    const { rerender } = render(page());
+    expect(h.heartbeat).toHaveBeenCalledTimes(1);
+    h.auth.user = { id: 'u-1', firstName: 'Q', lastName: 'A', email: 'qa@x', rememberMe: true };
+    rerender(page());
+    expect(h.heartbeat).toHaveBeenCalledTimes(1);
+    h.auth.user = before;
+  });
+
+  it.each([true, false])('tells the heartbeat the "Keep me signed in" choice (%s)', (rememberMe) => {
+    h.heartbeat.mockClear();
+    const before = h.auth.user;
+    h.auth.user = { ...(before as object), id: 'u-1', rememberMe };
+    render(page());
+    expect(h.heartbeat.mock.calls[0]![0]).toMatchObject({ rememberMe });
+    h.auth.user = before;
+  });
+
   it('hands a page\'s navPath to the secondary nav, and nothing when the page gives none', () => {
     go('/accounting/afs/[documentId]');
     const { unmount } = render(<AppLayout navPath="/accounting/afs/p1?type=management_pack"><p>page</p></AppLayout>);

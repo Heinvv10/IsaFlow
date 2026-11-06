@@ -278,6 +278,7 @@ const handler: NextApiHandler = async (req, res) => {
     accessToken: tok.access_token,
     refreshToken: tok.refresh_token,
     expiresIn: tok.expires_in,
+    persistent: false, // the acceptance page has no "Keep me signed in" box: not ticked
   });
   // The invited company is normally the right landing spot, but an invitation
   // can outlive its company (admin soft delete writes companies.status =

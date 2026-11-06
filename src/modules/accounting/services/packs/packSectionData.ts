@@ -54,10 +54,15 @@ export interface PackCashFlow {
   operatingCashFlow: number;
   investingCashFlow: number;
   financingCashFlow: number;
+  /** Nil on a sound ledger, and on a section saved before it was carried: printed only when not nil. */
+  cashFlowUnexplained: number;
   netCashFlow: number;
   openingCash: number;
   closingCash: number;
 }
+
+/** One label for this gap wherever it prints: this section's row, page 8's row and its bridge's step. */
+export const CASH_UNCAPTURED_LABEL = 'Unexplained movement';
 
 /**
  * The cash-flow lines in the order they are read, keyed by FIELD NAME rather
@@ -69,6 +74,7 @@ const CASH_FLOW_LABELS = {
   operatingCashFlow: 'Operating Cash Flow',
   investingCashFlow: 'Investing Cash Flow',
   financingCashFlow: 'Financing Cash Flow',
+  cashFlowUnexplained: CASH_UNCAPTURED_LABEL,
   netCashFlow: 'Net Cash Flow',
   openingCash: 'Opening Cash',
   closingCash: 'Closing Cash',
@@ -80,13 +86,21 @@ export function cashFlowLabel(field: keyof PackCashFlow): string {
   return CASH_FLOW_LABELS[field];
 }
 
-/** The pack's `cash_flow` section keys → a typed statement. Every one of the
- *  six is required: `reportPackService` emits all six unconditionally, so a
- *  missing one means the shape moved, not that the company had no cash. */
+/** The pack's `cash_flow` section keys → a typed statement. Six are required:
+ *  `reportPackService` emits them unconditionally, so a missing one means the
+ *  shape moved, not that the company had no cash. Only the unexplained movement
+ *  may be absent, on a section saved before it was carried, whose figures foot without it. */
 export function packToCashFlow(d: Record<string, unknown>): PackCashFlow {
   const out = {} as PackCashFlow;
-  for (const field of CASH_FLOW_FIELDS) out[field] = requireFinite('cash_flow', d, field);
+  for (const field of CASH_FLOW_FIELDS) {
+    out[field] = field === 'cashFlowUnexplained' && d[field] === undefined ? 0 : requireFinite('cash_flow', d, field);
+  }
   return out;
+}
+
+/** Whether a line of this section prints: all of them, but the unexplained movement only when there is one. */
+export function cashFlowLinePrints(d: Record<string, unknown>, field: string): boolean {
+  return field !== 'cashFlowUnexplained' || Boolean(d.cashFlowUnexplained);
 }
 
 /**

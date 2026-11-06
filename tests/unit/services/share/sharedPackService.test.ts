@@ -68,7 +68,7 @@ const PACK = { type: 'board', companyName: 'Acme', period: '2026-01-01 to 2026-0
 beforeEach(() => {
   vi.clearAllMocks();
   getFinancialFiguresMock.mockResolvedValue(FIGURES);
-  getCashFlowDirectMock.mockResolvedValue({ operatingTotal: 55, investingTotal: -20, financingTotal: 5, netChange: 40 });
+  getCashFlowDirectMock.mockResolvedValue({ operatingTotal: 55, investingTotal: -20, financingTotal: 5, netChange: 40, unexplainedDifference: 0 });
   unclassifiedWarningMock.mockReturnValue(null);
   buildReportPackMock.mockReturnValue(PACK);
   sqlMock.mockImplementation((strings: TemplateStringsArray) => {

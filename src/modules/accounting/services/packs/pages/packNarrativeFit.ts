@@ -22,8 +22,8 @@ import type { MeasurablePage } from './packPageMetrics';
  */
 function withoutFitterMarks<T extends MeasurablePage>(page: T): T {
   const marked = page.blocks.some((b) => b.kind === 'narrative' && b.droppable !== undefined);
-  if (!marked && page.columnsLeftOut === undefined && page.columnsSaid === undefined) return page;
-  const { columnsLeftOut: unused, columnsSaid: unusedSaid, ...rest } = page;
+  if (!marked && page.columnsLeftOut === undefined) return page;
+  const { columnsLeftOut: unused, ...rest } = page;
   return {
     ...rest,
     blocks: page.blocks.map((b) => {

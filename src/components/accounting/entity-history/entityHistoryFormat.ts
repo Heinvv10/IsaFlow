@@ -19,6 +19,7 @@ const LABELS: Record<string, string> = {
   id_number: 'ID number',
   uif_number: 'UIF number',
   uif_excluded: 'UIF excluded',
+  s18a_receipt_held: 's18A receipt held',
   paye_reference_number: 'PAYE reference',
   sdl_reference_number: 'SDL reference',
   uif_reference_number: 'UIF reference',

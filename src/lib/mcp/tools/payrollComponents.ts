@@ -134,6 +134,7 @@ export const getEmployeeTool: McpTool = {
       uif_excluded: employee.uifExcluded,
       medical_aid_main_member: employee.medicalAidMainMember,
       medical_aid_dependants_count: employee.medicalAidDependantsCount,
+      s18a_receipt_held: employee.s18aReceiptHeld,
       cost_centre_id: employee.costCentreId ?? null,
     });
   },

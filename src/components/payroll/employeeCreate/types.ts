@@ -15,6 +15,7 @@ export interface FormState {
   dateOfBirth: string;
   uifExcluded: boolean;
   medicalAidMainMember: boolean;
+  s18aReceiptHeld: boolean;
   medicalAidDependantsCount: string;
   /** Integer cents, as MoneyField reports them. Null: no salary on create. */
   salaryCents: number | null;
@@ -39,7 +40,7 @@ export const initialForm = (today: string): FormState => ({
   firstName: '', lastName: '', employeeNumber: '',
   employmentType: 'permanent', startDate: today,
   idNumber: '', taxNumber: '', dateOfBirth: '',
-  uifExcluded: false, medicalAidMainMember: false,
+  uifExcluded: false, medicalAidMainMember: false, s18aReceiptHeld: false,
   medicalAidDependantsCount: '0',
   salaryCents: null, salaryComponentId: '',
 });
@@ -84,6 +85,7 @@ export const buildBody = (form: FormState) => ({
   dateOfBirth: form.dateOfBirth || undefined,
   uifExcluded: form.uifExcluded,
   medicalAidMainMember: form.medicalAidMainMember,
+  s18aReceiptHeld: form.s18aReceiptHeld,
   medicalAidDependantsCount: Number(form.medicalAidDependantsCount) || 0,
   salary: form.salaryCents !== null && form.salaryComponentId
     ? { componentId: form.salaryComponentId, amountCents: form.salaryCents }
