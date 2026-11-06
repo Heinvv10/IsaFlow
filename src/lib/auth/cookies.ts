@@ -1,4 +1,4 @@
-import { clearImpersonationProofCookie } from './impersonation-cookies';
+import { clearImpersonatingMarker, clearImpersonationProofCookie } from './impersonation-cookies';
 // src/lib/auth/cookies.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 
@@ -173,6 +173,7 @@ export function clearPendingRememberCookie(res: NextApiResponse): void {
  */
 export function clearAuthCookies(res: NextApiResponse): void {
   clearImpersonationProofCookie(res);
+  clearImpersonatingMarker(res);
   const domain = cookieDomain();
   for (const name of [ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE, ONBOARDING_DONE_COOKIE, PENDING_MFA_COOKIE, PENDING_REMEMBER_COOKIE, REMEMBER_ME_COOKIE]) {
     appendSetCookie(res, `${name}=; ${cookieFlags(0)}`);

@@ -52,6 +52,13 @@ export function clearImpersonationCookies(res: NextApiResponse): void {
   }
 }
 
+/** Left behind when a session ends, the readable marker would exempt the next sign-in here from the idle rule. */
+export function clearImpersonatingMarker(res: NextApiResponse): void {
+  append(res, `${IS_IMPERSONATING_COOKIE}=; ${buildFlags(0, { httpOnly: false })}`);
+  const domain = cookieDomain();
+  if (domain) append(res, `${IS_IMPERSONATING_COOKIE}=; ${buildFlags(0, { httpOnly: false, domain })}`);
+}
+
 export function clearImpersonationProofCookie(res: NextApiResponse): void {
   append(res, `${IMPERSONATION_PROOF_COOKIE}=; ${buildFlags(0, { httpOnly: true })}`);
   const domain = cookieDomain();

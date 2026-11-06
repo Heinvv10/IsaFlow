@@ -13,7 +13,7 @@ const h = vi.hoisted(() => ({
   topNavMounts: 0,
   heartbeat: vi.fn((_opts: { idleTimeoutMinutes: number }) => () => undefined),
   company: { activeCompany: { id: 'c1', vatPeriod: 'bi-monthly', vatSystemType: 'invoice', idleTimeoutMinutes: undefined as number | undefined } as { id: string; vatPeriod: string; vatSystemType: string; idleTimeoutMinutes?: number } | null, companyRole: 'owner', loading: false, companies: [] },
-  auth: { loading: false, user: { firstName: 'Q', lastName: 'A', email: 'qa@x' } as unknown, logout: vi.fn(async () => undefined), authUnavailable: false, authChecking: false, refreshUser: vi.fn() },
+  auth: { loading: false, user: { id: 'u-qa', firstName: 'Q', lastName: 'A', email: 'qa@x' } as unknown, logout: vi.fn(async () => undefined), authUnavailable: false, authChecking: false, refreshUser: vi.fn() },
 }));
 vi.mock('next/router', () => ({ useRouter: () => h.router }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => h.auth }));
@@ -61,10 +61,22 @@ describe('AppLayout', () => {
     expect(h.heartbeat).toHaveBeenCalledExactlyOnceWith({ idleTimeoutMinutes: 30 });
   });
 
+  it('a re-check that returns the same user does not restart the heartbeat', () => {
+    h.heartbeat.mockClear();
+    const before = h.auth.user;
+    h.auth.user = { id: 'u-1', firstName: 'Q', lastName: 'A', email: 'qa@x', rememberMe: true };
+    const { rerender } = render(page());
+    expect(h.heartbeat).toHaveBeenCalledTimes(1);
+    h.auth.user = { id: 'u-1', firstName: 'Q', lastName: 'A', email: 'qa@x', rememberMe: true };
+    rerender(page());
+    expect(h.heartbeat).toHaveBeenCalledTimes(1);
+    h.auth.user = before;
+  });
+
   it.each([true, false])('tells the heartbeat the "Keep me signed in" choice (%s)', (rememberMe) => {
     h.heartbeat.mockClear();
     const before = h.auth.user;
-    h.auth.user = { ...before, rememberMe };
+    h.auth.user = { ...(before as object), id: 'u-1', rememberMe };
     render(page());
     expect(h.heartbeat.mock.calls[0]![0]).toMatchObject({ rememberMe });
     h.auth.user = before;

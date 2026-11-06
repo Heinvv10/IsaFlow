@@ -66,11 +66,15 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
   // Restarts when the active company changes so a tighter idle policy on a
   // different tenant takes effect immediately. Waits for the company: on the default
   // limit, a stored time past the company's own would pass and input would overwrite it.
+  // Keyed on the id, not the object: every /api/auth/me re-check makes a new one, and a restart every 5 minutes
+  // would keep the 5-minute tick from ever firing.
+  const userId = user?.id;
+  const rememberMe = user?.rememberMe;
   useEffect(() => {
-    if (!user || companyLoading) return;
+    if (!userId || companyLoading) return;
     const idle = activeCompany?.idleTimeoutMinutes ?? 480;
-    return startSessionHeartbeat({ idleTimeoutMinutes: idle, rememberMe: user.rememberMe });
-  }, [user, companyLoading, activeCompany?.id, activeCompany?.idleTimeoutMinutes]);
+    return startSessionHeartbeat({ idleTimeoutMinutes: idle, rememberMe });
+  }, [userId, rememberMe, companyLoading, activeCompany?.id, activeCompany?.idleTimeoutMinutes]);
 
   // The saved layout, read from what shell-init.js put on <html>: right from this AppLayout's first frame, so a
   // client-side navigation never flashes the top nav for a sidebar user. On the admin subdomain the accounting-specific

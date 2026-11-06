@@ -87,6 +87,7 @@ const handler: NextApiHandler = async (req, res) => {
     accessToken: stash.admin_access_token,
     refreshToken: stash.admin_refresh_token,
     expiresIn: 3600,
+    persistent: false, // Login-as overwrote the admin's "Keep me signed in" hint: unknown counts as not ticked
   });
 
   // Returning to the admin's own session: only a company withAuth will still
