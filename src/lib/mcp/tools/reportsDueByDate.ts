@@ -3,7 +3,7 @@
  *
  * A WRAP of the report service (services/reports/dueByDateService), which reads
  * the same open-document queries as the aging, so overdueNow + dueTodayToDate +
- * dueLater + noDueDate equals the aged total (`total`). Current balances only:
+ * dueLater + noDueDate + disputed equals the aged total (`total`). Current balances only:
  * there is no as-at. Totals are over EVERY contact, never the page.
  */
 import type { McpTool, McpToolResult, McpToolContext } from '../types';
@@ -73,7 +73,7 @@ export const dueByDateTool: McpTool = {
   description:
     'What falls due by a date, per customer (receivables) and per supplier (payables), at TODAY\'s open balances. '
     + 'Per contact: overdueNow (due before today), dueTodayToDate (due today up to and including by_date), totalByDate (their sum: what must be settled by by_date), dueLater (due after by_date), noDueDate (no due date recorded, so it cannot be placed in time). '
-    + 'totals are over EVERY contact. overdueNow + dueTodayToDate + dueLater + noDueDate = total = the aged_debtors / aged_creditors gross total; open customer disputes are held out of the columns (as the aging does) and shown as `disputed`. '
+    + 'totals are over EVERY contact. overdueNow + dueTodayToDate + dueLater + noDueDate + disputed = total = the aged_debtors / aged_creditors gross total; open customer disputes are held out of the columns (as the aging does) and shown as `disputed`, which `total` includes. '
     + 'netPosition = receivables totalByDate minus payables totalByDate (only when both sides are returned); it LEAVES OUT documents with no due date, whose amounts are in netPositionExcludesNoDueDate. '
     + 'by_date defaults to the end of the current month and must be today or later. side "ar" or "ap" returns one side; omit for both. '
     + 'entity_id (with side) returns that one contact WITH its invoices, each carrying its dueDate (null when none recorded) and bucket; an id with nothing open is an error, not an empty list. Without it contacts carry no invoices.',

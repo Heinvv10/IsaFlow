@@ -66,6 +66,11 @@ describe('clearPayRunApproval', () => {
     await expect(clearPayRunApproval(fakeApi(other), 'http://x', 'run-1', { reportSelfRefusal: true })).rejects.toBe(other);
   });
 
+  it('reportSelfRefusal: the reason alone on a non-403 is not a self-approval refusal', async () => {
+    const notForbidden = new ApiError(409, FORBIDDEN_BODY, 'POST', URL);
+    await expect(clearPayRunApproval(fakeApi(notForbidden), 'http://x', 'run-1', { reportSelfRefusal: true })).rejects.toBe(notForbidden);
+  });
+
   it('reportSelfRefusal: a configured approver who is refused still throws', async () => {
     vi.stubEnv('E2E_APPROVER_EMAIL', 'second@x');
     vi.stubEnv('E2E_APPROVER_PASSWORD', 'pw');
@@ -99,6 +104,13 @@ describe('clearPayRunApproval', () => {
     const api = fakeApi();
     await expect(clearPayRunApproval(api, 'http://x', 'run-1')).rejects.toThrow(/together/);
     expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('selfApprove: a refusal names the company, not E2E_APPROVER_* (which it ignores)', async () => {
+    const forbidden = new ApiError(403, FORBIDDEN_BODY, 'POST', URL);
+    const run = clearPayRunApproval(fakeApi(forbidden), 'http://x', 'run-1', { selfApprove: true });
+    await expect(run).rejects.toThrow(/SELF_APPROVAL_FORBIDDEN.*always self-approves/s);
+    await expect(clearPayRunApproval(fakeApi(forbidden), 'http://x', 'run-1', { selfApprove: true })).rejects.not.toThrow(/isaflow-deploy\.env/);
   });
 
   it('ignores a configured approver when selfApprove is set (z6 sandbox company)', async () => {

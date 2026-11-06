@@ -20,6 +20,7 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (handler: unknown) => handler 
 vi.mock('@/modules/accounting/services/core/supplierWriteService', () => ({ createSupplier: vi.fn(), updateSupplier: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({ listSuppliers: vi.fn() }));
 
+import { log } from '@/lib/logger';
 import handler from '../../../pages/api/accounting/suppliers-list';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -57,5 +58,13 @@ describe('suppliers-list GET ?id=', () => {
     const res = response();
     await handler(get(SUPPLIER), res);
     expect(status(res)).toBe(200);
+  });
+
+  it('an unreadable company default is read as 30 days and the warning names the COMPANY (the contact row has no company_id)', async () => {
+    mocks.sql.mockResolvedValueOnce([{ id: SUPPLIER, name: 'Acme', company_default_terms: 'not json' }]);
+    const res = response();
+    await handler(get(SUPPLIER), res);
+    expect(status(res)).toBe(200);
+    expect(vi.mocked(log.warn).mock.calls.map((c) => c[1])).toContainEqual({ companyId: COMPANY });
   });
 });

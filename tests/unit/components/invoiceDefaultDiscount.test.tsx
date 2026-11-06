@@ -123,7 +123,7 @@ describe('line discount from the customer', () => {
     await waitFor(() => expect((screen.getByRole('button', { name: /^create invoice$/i }) as HTMLButtonElement).disabled).toBe(false));
     fillLine(0, '1000');
     await pickClient('c-acme');
-    await screen.findByText('Customer terms: 30 days');
+    await screen.findByText('Customer terms: 30 days from invoice date');
     expect(screen.queryByLabelText('Discount %')).toBeNull();
   });
 

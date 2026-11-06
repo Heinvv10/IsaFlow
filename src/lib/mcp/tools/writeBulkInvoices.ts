@@ -126,7 +126,7 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
               description: `The supplier's own invoice number. Refused over ${TEXT_LIMITS.invoice_number} characters.`,
             },
             invoice_date: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
-            due_date: { type: 'string', format: 'date' },
+            due_date: { type: 'string', format: 'date', description: "When omitted: from this bill's own payment_terms ('netNN' or 'immediate') when given, else the supplier's terms, else the company's default terms" },
             tax_rate: { type: 'number', description: 'Invoice-level VAT %, default 15' },
             payment_terms: { type: 'string', maxLength: TEXT_LIMITS.payment_terms },
             reference: { type: 'string', maxLength: TEXT_LIMITS.reference },

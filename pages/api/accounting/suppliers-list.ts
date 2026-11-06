@@ -2,18 +2,21 @@
  * Suppliers List API
  * GET  /api/accounting/suppliers-list    - List suppliers (optional ?q= search)
  * POST /api/accounting/suppliers-list    - Create a new supplier
- * PATCH /api/accounting/suppliers-list   - Set { id, subject_to_drc_vat } — the one supplier field the UI edits
+ * PATCH /api/accounting/suppliers-list   - Set { id, subject_to_drc_vat } (the DRC toggle on the detail page)
+ * PUT   /api/accounting/suppliers-list   - Edit a supplier: { id, ...fields }; a blank text field is cleared; any bank field is a 400
  *
  * Named suppliers-list.ts to avoid conflict with any existing suppliers route.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
+import { COMPANY_DEFAULT_TERMS_KEY } from '@/modules/accounting/services/shared/paymentTerms';
 import { apiResponse } from '@/lib/apiResponse';
 import { UUID_RE } from '@/lib/validation';
 import { createSupplier, updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
-import type { AutoAllocateStrategy } from '@/modules/accounting/services/shared/autoAllocateStrategy';
-import { ContactValidationError } from '@/modules/accounting/services/core/customerWriteService';
+import { supplierInputFromBody, supplierPatchFromBody } from '@/modules/accounting/services/core/contactRequestInput';
+import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
+import { withCompanyDefaultTerms } from '@/modules/accounting/services/core/companyDefaultTermsRow';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -35,13 +38,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // It reaches a ::UUID cast below: anything else is a 400 here, not a 22P02 500.
         if (typeof singleId !== 'string' || !UUID_RE.test(singleId)) return apiResponse.badRequest(res, 'id must be a supplier id');
         const rows = (await sql`
-          SELECT id, name, company_name, email, phone,
-                 contact_person, is_active, vat_number, payment_terms, subject_to_drc_vat, created_at
-          FROM suppliers
-          WHERE id = ${singleId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
+          SELECT s.id, s.name, s.company_name, s.email, s.phone, s.contact_person, s.is_active, s.vat_number,
+                 s.registration_number, s.address, s.category, s.notes, s.whatsapp_number, s.auto_allocate_strategy,
+                 s.payment_terms, s.payment_terms_type, s.subject_to_drc_vat, s.created_at,
+                 d.value AS company_default_terms
+          FROM suppliers s
+          LEFT JOIN accounting_settings d ON d.company_id = s.company_id AND d.key = ${COMPANY_DEFAULT_TERMS_KEY}
+          WHERE s.id = ${singleId}::UUID AND s.company_id = ${companyId} AND s.deleted_at IS NULL
         `) as Row[];
         if (rows.length === 0) return apiResponse.notFound(res, 'Supplier');
-        return apiResponse.success(res, rows[0]);
+        return apiResponse.success(res, withCompanyDefaultTerms(rows[0]!, companyId));
       }
 
       const limitRaw = Number(limitParam);
@@ -69,39 +75,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // ─── POST: Create supplier ──────────────────────────────────────────────────
   if (req.method === 'POST') {
     try {
-      const b = req.body as Record<string, unknown>;
-      const str = (k: string) => (typeof b[k] === 'string' ? (b[k] as string) : undefined);
-      const num = (k: string) => {
-        const v = b[k];
-        return v !== undefined && v !== null && v !== '' ? Number(v) : undefined;
-      };
-      const bool = (k: string) => (typeof b[k] === 'boolean' ? (b[k] as boolean) : undefined);
-
-      // Field validation and the INSERT live in supplierWriteService, so this
-      // route and create_supplier over MCP cannot drift apart.
-      const rows = [await createSupplier(companyId, {
-        name: str('name'),
-        companyName: str('company_name'),
-        email: str('email'), phone: str('phone'),
-        vatNumber: str('vat_number'), registrationNumber: str('registration_number'),
-        address: str('address'), contactPerson: str('contact_person'),
-        paymentTerms: num('payment_terms'),
-        bankName: str('bank_name'), bankAccountNumber: str('bank_account_number'),
-        bankBranchCode: str('bank_branch_code'), bankAccountType: str('bank_account_type'),
-        isActive: bool('is_active'), notes: str('notes'), category: str('category'),
-        openingBalance: num('opening_balance'), openingBalanceDate: str('opening_balance_date'),
-        // auto_allocate_strategy is the only field that decides this. The
-        // legacy boolean below is still ACCEPTED and still written to its own
-        // column, but it no longer selects a strategy: an old client sending
-        // only `auto_allocate_payments: true` gets no error and no effect.
-        // That is deliberate — migration 614 refused to carry the historical
-        // ticks over because nothing ever read them, so nobody consented to
-        // automatic cash application by ticking one, and honouring the same
-        // tick over the wire would re-open the door the migration closed.
-        autoAllocateStrategy: str('auto_allocate_strategy') as AutoAllocateStrategy | undefined,
-        autoAllocatePayments: bool('auto_allocate_payments'),
-        subjectToDrcVat: bool('subject_to_drc_vat'),
-      }, (req as CompanyAuthedRequest).user.id)];
+      // Field validation and the INSERT live in supplierWriteService, so this route, the edit (PUT) and
+      // create_supplier over MCP cannot drift apart.
+      const rows = [await createSupplier(
+        companyId, supplierInputFromBody(req.body), (req as CompanyAuthedRequest).user.id,
+      )];
 
       log.info('Supplier created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
       return apiResponse.success(res, rows[0]);
@@ -116,8 +94,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // ─── PATCH: the DRC flag ────────────────────────────────────────────────────
-  // Deliberately this ONE field: there is no supplier edit screen, and a general
-  // update route would put bank details one request away from any writer.
+  // The DRC toggle on the detail page. The general edit is PUT below.
   if (req.method === 'PATCH') {
     const b = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
     const id = typeof b.id === 'string' ? b.id : '';
@@ -132,7 +109,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { id, subject_to_drc_vat: row.subject_to_drc_vat });
   }
 
-  return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'PATCH']);
+  // ─── PUT: Edit a supplier ───────────────────────────────────────────────────
+  // The general edit. Deliberately NOT a bank editor: a general update route would put bank details one request away
+  // from any writer, so a body naming any bank field is a 400 (supplierPatchFromBody), never ignored, and the bank-details
+  // stamp (R-035 PR5) cannot be reached for a bank change from here. Bank details change through MCP update_supplier or
+  // the migration import, each stamped. A rename still goes through updateSupplier's stamp (the payee name is in the
+  // payment digest, migration 923). The entity history row (entity_change_capture, a trigger) is written under this
+  // request's transaction, as this user.
+  if (req.method === 'PUT') {
+    const b = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+    const id = typeof b.id === 'string' ? b.id : '';
+    if (!UUID_RE.test(id)) return apiResponse.badRequest(res, 'id must be a supplier id');
+    try {
+      const row = await updateSupplier(companyId, id, supplierPatchFromBody(b), (req as CompanyAuthedRequest).user.id);
+      if (!row) return apiResponse.notFound(res, 'Supplier');
+      log.info('Supplier updated', { id, module: 'accounting' });
+      return apiResponse.success(res, { id: String(row.id), name: String(row.name), is_active: row.is_active });
+    } catch (err: unknown) {
+      if (err instanceof ContactValidationError) return apiResponse.badRequest(res, err.message);
+      const message = err instanceof Error ? err.message : String(err);
+      log.error('suppliers PUT failed', { error: message, module: 'accounting' });
+      return apiResponse.internalError(res, err, 'Failed to update supplier');
+    }
+  }
+
+  return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'PATCH', 'PUT']);
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

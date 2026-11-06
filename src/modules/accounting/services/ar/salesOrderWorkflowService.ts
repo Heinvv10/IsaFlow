@@ -11,6 +11,7 @@ import { getSalesOrder } from './salesOrderService';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
+import { dueDateForContact } from '../core/paymentTermsResolver';
 
 type Row = DbRow;
 
@@ -95,6 +96,8 @@ export async function convertSalesOrderToInvoice(
   // 23505 retry as quoteConvertService.convertToInvoice, so a clash with a
   // legacy number costs one more number instead of poisoning the request
   // transaction.
+  // The customer's terms, else the company default (migration 960): not the delivery date.
+  const dueDate = (await dueDateForContact(companyId, 'customer', order.customerId || null, String(order.orderDate))) ?? order.orderDate;
   const invoiceId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'so_conv_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const invRows = (await sql`
@@ -106,7 +109,7 @@ export async function convertSalesOrderToInvoice(
         ) VALUES (
           ${companyId}, ${invoiceNumber},
           ${order.customerId || null}, ${order.customerId || null},
-          ${order.orderDate}, ${order.deliveryDate || order.orderDate},
+          ${order.orderDate}, ${dueDate},
           ${order.subtotal}, ${order.taxAmount}, ${order.totalAmount},
           ${'Converted from ' + order.orderNumber}, 'draft', ${userId}
         ) RETURNING id

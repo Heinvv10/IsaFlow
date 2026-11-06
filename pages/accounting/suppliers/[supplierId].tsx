@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ContactsTab } from '@/components/accounting/suppliers/ContactsTab';
 import { ActivityTab } from '@/components/accounting/suppliers/ActivityTab';
 import Link from 'next/link';
-import { ArrowLeft, Building2, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
+import { ArrowLeft, Building2, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2, Pencil } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
@@ -17,6 +17,7 @@ import { DrcFlagToggle } from '@/components/accounting/suppliers/DrcFlagToggle';
 import { SupplierBankDetailsPanel } from '@/components/accounting/suppliers/SupplierBankDetailsPanel';
 import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { companyTermsFromFields, describeContactTerms } from '@/modules/accounting/services/shared/paymentTerms';
 
 interface Supplier {
   id: string;
@@ -27,6 +28,9 @@ interface Supplier {
   contact_person: string | null;
   vat_number: string | null;
   payment_terms: number | null;
+  payment_terms_type: string | null;
+  company_default_payment_terms?: number | null;
+  company_default_payment_terms_type?: string | null;
   is_active: boolean;
   subject_to_drc_vat: boolean;
   created_at: string;
@@ -122,7 +126,7 @@ export default function SupplierDetailPage() {
     { label: 'Phone',          value: supplier.phone },
     { label: 'Contact Person', value: supplier.contact_person },
     { label: 'VAT Number',     value: supplier.vat_number },
-    { label: 'Payment Terms',  value: supplier.payment_terms ? `${supplier.payment_terms} days` : null },
+    { label: 'Payment Terms',  value: describeContactTerms(supplier.payment_terms, supplier.payment_terms_type, companyTermsFromFields(supplier.company_default_payment_terms, supplier.company_default_payment_terms_type)) },
   ];
 
   const TABS: { id: Tab; label: string }[] = [
@@ -159,7 +163,14 @@ export default function SupplierDetailPage() {
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${supplier.is_active ? 'bg-teal-500/20 text-teal-400' : 'bg-gray-500/20 text-gray-400'}`}>
               {supplier.is_active ? 'Active' : 'Inactive'}
             </span>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <Link
+                href={`/accounting/suppliers/${supplier.id}/edit`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit
+              </Link>
               <button
                 type="button"
                 onClick={handleDelete}

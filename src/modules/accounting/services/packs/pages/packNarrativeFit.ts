@@ -10,13 +10,45 @@
  * actually sits on rather than one this file believes.
  */
 import { PackRefusal } from '../packRefusal';
-import { fitPageToBox } from './packPageFit';
+import { warnCaptionDropped } from './packOmissionFootnote';
+import { fitPageReport } from './packPageFit';
 import { relaidNarrative } from './packNarrativeLayout';
 import type { MeasurablePage } from './packPageMetrics';
 
+/**
+ * `droppable` and `columnsLeftOut` are instructions to the fitter, not part of the page: a page that
+ * survived the fit leaves the composer exactly as it was before they existed, so the document is
+ * unchanged where nothing was dropped.
+ */
+function withoutFitterMarks<T extends MeasurablePage>(page: T): T {
+  const marked = page.blocks.some((b) => b.kind === 'narrative' && b.droppable !== undefined);
+  if (!marked && page.columnsLeftOut === undefined && page.columnsSaid === undefined) return page;
+  const { columnsLeftOut: unused, columnsSaid: unusedSaid, ...rest } = page;
+  return {
+    ...rest,
+    blocks: page.blocks.map((b) => {
+      if (b.kind !== 'narrative' || b.droppable === undefined) return b;
+      const { droppable: unusedMark, ...bare } = b;
+      return bare;
+    }),
+  } as T;
+}
+
+/**
+ * THE FIT EVERY BODY PAGE GOES THROUGH: the narrative layout first, then `fitPageReport`. Exported so that
+ * anything that PROBES whether a page fits (page 6's `incomeSheetWithBudget`, choosing between its
+ * compositions) asks exactly the question `fitBodyPage` will ask of the page it returns, and the two cannot drift.
+ */
+export function fitRelaidPage<T extends MeasurablePage>(page: T, reserveMm = 0): ReturnType<typeof fitPageReport<T>> {
+  return fitPageReport(relaidNarrative(page), reserveMm);
+}
+
 export function fitBodyPage<T extends MeasurablePage>(page: T, pageNumber: number): T {
   try {
-    return fitPageToBox(relaidNarrative(page));
+    const { page: fitted, dropped } = fitRelaidPage(page);
+    // Logged here, for the page that is actually used (see `warnCaptionDropped`).
+    warnCaptionDropped(page.navLabel, dropped);
+    return withoutFitterMarks(fitted);
   } catch (error) {
     const approved = page.blocks.some((b) => b.kind === 'narrative' && b.narrative.status === 'approved');
     if (!(error instanceof PackRefusal) || !approved) throw error;

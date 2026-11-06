@@ -23,7 +23,7 @@
  */
 import { expect, type BrowserContext } from '@playwright/test';
 import { ApiError, type Api } from './_api';
-import { retryDropped } from '../helpers/droppedConnection';
+import { failOnManifestRace, retryDropped } from '../helpers/droppedConnection';
 
 export const MIGRATION_SANDBOX_NAME = '0GP Golden Migration Sandbox';
 /** Fixed onboarding key: a repeat create returns the same company (migration 895). */
@@ -80,13 +80,13 @@ export async function switchApiCompany(api: Api, companyId: string): Promise<voi
 export async function switchBrowserCompany(context: BrowserContext, companyId: string): Promise<void> {
   const csrf = (await context.cookies()).find((c) => c.name === 'isaflow_csrf')?.value ?? '';
   expect(csrf, 'golden session must carry the CSRF cookie').toBeTruthy();
-  // Both calls are idempotent; the dev server may drop the connection (#1110), see retryDropped.
-  const res = await retryDropped(() => context.request.post('/api/auth/switch-company', {
+  // Both calls are idempotent; the dev server may drop the connection (#1110) or answer from a half-written manifest, see retryDropped.
+  const res = await retryDropped(async () => failOnManifestRace(await context.request.post('/api/auth/switch-company', {
     data: { companyId },
     headers: { 'x-csrf-token': csrf },
-  }));
+  })));
   expect(res.status(), await res.text()).toBe(200);
-  const uc = await (await retryDropped(() => context.request.get('/api/accounting/companies?action=user-companies'))).json();
+  const uc = await (await retryDropped(async () => failOnManifestRace(await context.request.get('/api/accounting/companies?action=user-companies')))).json();
   expect(uc?.data?.activeCompanyId, 'browser context must be scoped to the switched company').toBe(companyId);
 }
 
