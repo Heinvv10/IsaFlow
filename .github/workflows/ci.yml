@@ -96,11 +96,10 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
       # What velo has and the static unit tests spawn: gs (the VLM PDF render).
+      # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap
+      # (also covers playwright --with-deps). -q, not -qq, so a stall shows which phase.
       - if: ${{ runner.environment == 'github-hosted' }}
-        timeout-minutes: 10
         run: |
-          # A stalled mirror must fail or retry fast, not eat the job's cap. The conf also
-          # covers the apt-get run by playwright --with-deps later in this job.
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
           sudo apt-get update -q
           sudo apt-get install -y -qq --no-install-recommends ghostscript
@@ -187,11 +186,10 @@ jobs:
       # What velo has and this group spawns: PostgreSQL 16 + pgvector for the
       # integration clusters (en_US.UTF-8), LibreOffice (soffice), poppler
       # (pdftotext/pdffonts/pdfinfo, the print tests).
+      # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap
+      # (also covers playwright --with-deps). -q, not -qq, so a stall shows which phase.
       - if: ${{ runner.environment == 'github-hosted' }}
-        timeout-minutes: 10
         run: |
-          # A stalled mirror must fail or retry fast, not eat the job's cap. The conf also
-          # covers the apt-get run by playwright --with-deps later in this job.
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
           sudo apt-get update -q
           sudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils
@@ -379,11 +377,10 @@ jobs:
 
       # Hosted only: PostgreSQL 16 + pgvector for the throwaway cluster (as in
       # velo; docker, jq and psql tooling are on the image).
+      # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap
+      # (also covers playwright --with-deps). -q, not -qq, so a stall shows which phase.
       - if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
-        timeout-minutes: 10
         run: |
-          # A stalled mirror must fail or retry fast, not eat the job's cap. The conf also
-          # covers the apt-get run by playwright --with-deps later in this job.
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
           sudo apt-get update -q
           sudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector
