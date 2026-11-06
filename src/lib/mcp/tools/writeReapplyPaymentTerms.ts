@@ -10,9 +10,19 @@ import {
   REAPPLY_MAX,
   ReapplyRefusal,
   applyReapplyTerms,
+  parseReapplyItems,
   previewReapplyTerms,
 } from '@/modules/accounting/services/ap/reapplyTerms';
 import { castableArgError, ok, strArg, toolError } from './toolHelpers';
+
+/** The tool's snake_case pairs as the service's { id, dueDate } (validated by parseReapplyItems). */
+function toPairs(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return raw.map((it) => {
+    const o = (it ?? {}) as Record<string, unknown>;
+    return { id: o.invoice_id, dueDate: o.due_date };
+  });
+}
 
 export const reapplyPaymentTermsTool: McpTool = {
   name: 'reapply_payment_terms',
@@ -37,7 +47,7 @@ export const reapplyPaymentTermsTool: McpTool = {
       items: {
         type: 'array',
         maxItems: REAPPLY_MAX,
-        description: 'Required when dry_run is false: the confirmed pairs, taken from the preview.',
+        description: 'Required when dry_run is false: the confirmed pairs, taken from the preview. With dry_run true they are checked as the live call checks them and items_check says what each would do.',
         items: {
           type: 'object',
           properties: {
@@ -62,7 +72,15 @@ export const reapplyPaymentTermsTool: McpTool = {
 
     if (dryRun) {
       try {
+        // Pairs sent with a dry run are checked as the live call checks them (parseReapplyItems refuses the same input),
+        // and each one is matched against this preview, so the agent can dry-run exactly what it will send.
+        const pairs = args.items === undefined ? null : parseReapplyItems(toPairs(args.items));
         const p = await previewReapplyTerms(ctx.companyId, { supplierId: strArg(args, 'supplier_id') });
+        const listed = new Map(p.rows.map((r) => [r.id, r.newDueDate]));
+        const itemsCheck = pairs?.map(({ id, dueDate }) => ({
+          invoice_id: id,
+          would: !listed.has(id) ? 'not_listed' : listed.get(id) === dueDate ? 'update' : 'terms_changed',
+        }));
         // A preview writes nothing: it must not occupy the idempotency key the confirmed call reuses (registry.ts).
         return { ...ok({
           dry_run: true,
@@ -86,6 +104,7 @@ export const reapplyPaymentTermsTool: McpTool = {
             supplier_id: s.supplierId, supplier_name: s.supplierName, open_bills: s.openBills, balance: s.balance,
           })),
           truncated: p.truncated,
+          ...(itemsCheck ? { items_check: itemsCheck } : {}),
         }), wroteNothing: true };
       } catch (err) {
         if (err instanceof ReapplyRefusal) return toolError(err.message);
@@ -96,10 +115,7 @@ export const reapplyPaymentTermsTool: McpTool = {
     if (!Array.isArray(args.items) || args.items.length === 0) {
       return toolError('items is required when dry_run is false: send the confirmed { invoice_id, due_date } pairs from the preview');
     }
-    const items = args.items.map((it) => {
-      const o = (it ?? {}) as Record<string, unknown>;
-      return { id: o.invoice_id, dueDate: o.due_date };
-    });
+    const items = toPairs(args.items);
     try {
       const r = await applyReapplyTerms(ctx.companyId, items);
       return ok({

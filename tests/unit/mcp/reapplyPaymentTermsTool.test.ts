@@ -4,9 +4,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/modules/accounting/services/ap/reapplyTerms', () => {
-  class ReapplyRefusal extends Error {}
-  return { REAPPLY_MAX: 2000, ReapplyRefusal, previewReapplyTerms: vi.fn(), applyReapplyTerms: vi.fn() };
+// The real ReapplyRefusal and parseReapplyItems (pure): the dry run must refuse exactly what the live call refuses.
+vi.mock('@/modules/accounting/services/ap/reapplyTerms', async () => {
+  const actual = await vi.importActual<typeof import('@/modules/accounting/services/ap/reapplyTerms')>('@/modules/accounting/services/ap/reapplyTerms');
+  return { ...actual, previewReapplyTerms: vi.fn(), applyReapplyTerms: vi.fn() };
 });
 
 import { ReapplyRefusal, applyReapplyTerms, previewReapplyTerms } from '@/modules/accounting/services/ap/reapplyTerms';
@@ -92,5 +93,18 @@ describe('reapply_payment_terms', () => {
     expect((await run({})).isError).toBe(true);
     expect((await run({ dry_run: true, supplier_id: 'nope' })).isError).toBe(true);
     expect(previewReapplyTerms).not.toHaveBeenCalled();
+  });
+
+  // Breaker REPRO 3: the pairs an agent will send can be dry-run, refused exactly as live refuses them.
+  it('a dry run checks the pairs it is given as the live call does, and says what each would do', async () => {
+    const bad = await run({ dry_run: true, items: [{ invoice_id: 'nope', due_date: '2026-02-30' }] });
+    expect(bad.isError).toBe(true);
+    const out = body(await run({ dry_run: true, items: [
+      { invoice_id: BILL, due_date: '2026-11-15' }, { invoice_id: BILL2, due_date: '2026-11-15' },
+    ] }));
+    expect(out.items_check).toEqual([{ invoice_id: BILL, would: 'update' }, { invoice_id: BILL2, would: 'not_listed' }]);
+    const stale = body(await run({ dry_run: true, items: [{ invoice_id: BILL, due_date: '2026-12-01' }] }));
+    expect(stale.items_check).toEqual([{ invoice_id: BILL, would: 'terms_changed' }]);
+    expect(applyReapplyTerms).not.toHaveBeenCalled();
   });
 });

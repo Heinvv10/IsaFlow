@@ -2,7 +2,8 @@
  * Re-apply payment terms to open supplier bills (payment-terms programme PR 3; Hein, 2026-11-05).
  *
  * Preview first, then write exactly what was confirmed:
- *   - open bills only: draft, pending approval, approved or part-paid, not deleted, something still owing;
+ *   - open bills only: draft, pending approval, approved or part-paid, not deleted, something still owing (a disputed
+ *     bill is left alone: its date is part of the dispute);
  *   - the new date is the SUPPLIER's own terms (`shared/paymentTerms.dueDateFromTerms`), never the company default: a
  *     supplier whose terms are not set is skipped and listed, so a default nobody chose never moves a real bill;
  *   - a bill whose date came from terms or before sources were recorded (`terms`, `legacy`) is pre-ticked; one set by
@@ -10,8 +11,9 @@
  *     column default shape (30 with no type, or the legacy 'days'), which may be a stamped default, not real terms;
  *   - bills whose date would not change are counted, not listed.
  * Apply takes the (bill, date) pairs the person confirmed. Each bill is locked in id order (the order every other bill
- * locker uses), re-read, and written only when it is still open, its supplier's terms still give exactly the confirmed
- * date, and the date differs; anything else is skipped with a reason. A written bill's source becomes `terms`. Every
+ * locker uses), re-read, and written only when it is still open, its supplier's terms (as read then: the supplier row
+ * is not locked, so an edit committing during the apply is seen by the next preview, not this write) give exactly the
+ * confirmed date, and the date differs; anything else is skipped with a reason. A written bill's source becomes `terms`. Every
  * change is recorded in the entity history by migration 962's capture (who, when, old and new date and source).
  */
 import { sql } from '@/lib/neon';
