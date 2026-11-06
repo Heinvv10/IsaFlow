@@ -2,6 +2,7 @@ import { sql } from '@/lib/neon';
 import { getCashBalance } from '../bank/cashBalanceService';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { toMoney } from '@/lib/money/decimalSum';
 import { failedReadLabel } from '@/modules/accounting/services/packs/packFailedRead';
 import { CASH_SUBTYPES, type AccountType } from '@/modules/accounting/services/gl/accountSubtypes';
 import {
@@ -189,13 +190,16 @@ export async function getCashFlowDirect(
       periodEnd,
       openingCash,
       operatingItems,
-      operatingTotal,
+      // Whole cents, as openingCash already is: these are binary float sums of rows
+      // that arrive in no fixed order, so unrounded they differ by run (808.31 or
+      // 808.3099999999998) and the management pack stores them in its snapshot.
+      operatingTotal: toMoney(operatingTotal),
       investingItems,
-      investingTotal,
+      investingTotal: toMoney(investingTotal),
       financingItems,
-      financingTotal,
-      netChange,
-      closingCash: openingCash + netChange,
+      financingTotal: toMoney(financingTotal),
+      netChange: toMoney(netChange),
+      closingCash: toMoney(openingCash + netChange),
     };
   } catch (err) {
     // Class and SQLSTATE only: the driver's message can carry SQL and values.
