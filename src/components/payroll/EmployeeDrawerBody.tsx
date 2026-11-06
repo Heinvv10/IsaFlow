@@ -11,6 +11,8 @@ import { todayInSast } from '@/lib/saDateParser';
 import { Money } from '@/components/ui/Money';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import type { Assignment } from './EmployeeComponentsCard';
+import { loadBankState } from './employeeBankState';
+import { employeeReadiness, readinessSummary, type BankState } from './employeeReadiness';
 
 interface Employee {
   employeeNumber: string;
@@ -18,12 +20,15 @@ interface Employee {
   startDate?: string; // absent when the server answered names only
   endDate?: string;
   taxNumber?: string;
+  paymentMethod?: string;
 }
 
 interface Loaded {
   employee: Employee;
   /** Null: this role may not see pay. */
   pay: Assignment[] | null;
+  /** Unknown when pay is hidden: no verdict is given without the whole picture. */
+  bank: BankState;
 }
 
 async function loadEmployee(employeeId: string, mayWrite: boolean): Promise<Loaded> {
@@ -31,12 +36,12 @@ async function loadEmployee(employeeId: string, mayWrite: boolean): Promise<Load
   await assertOk(res, 'Could not load the employee - try again');
   const json = await res.json();
   const employee = (json.data ?? json) as Employee;
-  if (!mayWrite) return { employee, pay: null };
+  if (!mayWrite) return { employee, pay: null, bank: 'unknown' };
   const payRes = await apiFetch(`/api/payroll/employees/${employeeId}/components`);
-  if (payRes.status === 403) return { employee, pay: null };
+  if (payRes.status === 403) return { employee, pay: null, bank: 'unknown' };
   await assertOk(payRes, 'Could not load their pay - try again');
   const payJson = await payRes.json();
-  return { employee, pay: (payJson.data ?? payJson) as Assignment[] };
+  return { employee, pay: (payJson.data ?? payJson) as Assignment[], bank: await loadBankState(employeeId) };
 }
 
 const stillRuns = (a: Assignment, today: string) =>
@@ -80,6 +85,7 @@ export function EmployeeDrawerBody({ employeeId, mayWrite }: { employeeId: strin
 
   const today = todayInSast();
   const pay = loaded?.pay?.filter(a => stillRuns(a, today));
+  const verdict = loaded?.pay ? readinessSummary(employeeReadiness({ employee: loaded.employee, components: loaded.pay, bank: loaded.bank })) : null;
 
   return (
     <div ref={body} tabIndex={-1} className="space-y-6 outline-none">
@@ -94,6 +100,7 @@ export function EmployeeDrawerBody({ employeeId, mayWrite }: { employeeId: strin
             {loaded.employee.endDate && <Fact label="End date" value={formatDisplayDate(loaded.employee.endDate)} />}
             {loaded.employee.taxNumber && <Fact label="Tax number" value={loaded.employee.taxNumber} />}
           </dl>
+          {verdict && <p className="text-sm font-medium text-[var(--ff-text-primary)]">{verdict}</p>}
           <section aria-label="Pay">
             <h3 className="mb-2 text-sm font-semibold text-[var(--ff-text-primary)]">Pay</h3>
             {pay === undefined ? (

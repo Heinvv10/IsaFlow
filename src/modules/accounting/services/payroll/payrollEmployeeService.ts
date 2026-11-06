@@ -27,6 +27,7 @@ export function mapPayrollEmployeeRow(r: Row): PayrollEmployee {
     costCentreId: r.cost_centre_id == null ? null : String(r.cost_centre_id),
     payScaleId: r.pay_scale_id == null ? null : String(r.pay_scale_id),
     occupationalLevelId: r.occupational_level_id == null ? null : String(r.occupational_level_id),
+    paymentMethod: r.payment_method === 'cash' ? 'cash' : 'eft',
   };
 }
 

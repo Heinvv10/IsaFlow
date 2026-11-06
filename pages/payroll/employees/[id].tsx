@@ -2,6 +2,7 @@
  * Payroll Employee Detail + Edit + Components — Phase 2.
  * Route: /payroll/employees/[id]
  */
+import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -16,6 +17,7 @@ import { EntityHistoryTimeline } from '@/components/accounting/entity-history/En
 import { PayScaleCard } from '@/components/payroll/PayScaleCard';
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
+import { EmployeeReadinessCard } from '@/components/payroll/EmployeeReadinessCard';
 import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
 import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -28,6 +30,7 @@ export default function EmployeeDetailPage() {
   const { companyRole } = useCompany();
   const mayWrite = canWrite(companyRole); // the API sends a viewer names only; the cards below are all personal or pay detail
 
+  const [bankVersion, setBankVersion] = useState(0);
   const d = useEmployeeDetail(employeeId);
   const {
     employee, setEmployee, components, assignments, isLoading, error, savingProfile, newComponentId, newAmount, newFrom,
@@ -73,7 +76,7 @@ export default function EmployeeDetailPage() {
               <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">
                 {employee.firstName} {employee.lastName}
               </h1>
-              <p className="text-sm text-[var(--ff-text-secondary)] font-mono">{employee.employeeNumber}</p>
+              <p className="text-sm text-[var(--ff-text-secondary)] font-id">{employee.employeeNumber}</p>
             </div>
           </div>
         </div>
@@ -91,6 +94,11 @@ export default function EmployeeDetailPage() {
             </div>
           ) : (
             <>
+            {employeeId && (
+              <EmployeeReadinessCard employeeId={employeeId} refreshKey={bankVersion} assignments={assignments}
+                employee={{ taxNumber: d.savedTaxNumber, paymentMethod: employee.paymentMethod }} />
+            )}
+
             <EmployeeProfileCard
               employee={employee}
               onChange={setEmployee}
@@ -98,6 +106,7 @@ export default function EmployeeDetailPage() {
               saving={savingProfile}
             />
 
+            <div id="employee-pay">
             <EmployeeComponentsCard
               components={components}
               assignments={assignments}
@@ -114,6 +123,7 @@ export default function EmployeeDetailPage() {
               onEditDates={d.editAssignmentDates}
               adding={addingAssignment}
             />
+            </div>
 
             {employeeId && (
               <CostCentreAssignmentCard
@@ -141,7 +151,7 @@ export default function EmployeeDetailPage() {
               />
             )}
 
-            {employeeId && <EmployeeBankCard employeeId={employeeId} />}
+            {employeeId && <div id="employee-bank"><EmployeeBankCard employeeId={employeeId} onChanged={() => setBankVersion(v => v + 1)} /></div>}
 
             {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
 

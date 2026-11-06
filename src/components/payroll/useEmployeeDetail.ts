@@ -16,6 +16,8 @@ export function useEmployeeDetail(employeeId: string) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
+  /** The tax number as stored: the readiness card must not turn green on an edit that is not saved yet. */
+  const [savedTaxNumber, setSavedTaxNumber] = useState<string | undefined>(undefined);
 
   const [newComponentId, setNewComponentId] = useState('');
   const [newAmount, setNewAmount] = useState('');
@@ -41,6 +43,7 @@ export function useEmployeeDetail(employeeId: string) {
       if (!aRes.ok) setError(payrollLoadMessage(aRes.status, 'Could not load the employee components - try again'));
       const aJson = aRes.ok ? await aRes.json() : { data: [] };
       setEmployee((eJson.data ?? eJson) as Employee);
+      setSavedTaxNumber(((eJson.data ?? eJson) as Employee).taxNumber);
       setComponents((cJson.data ?? cJson) as Component[]);
       setAssignments((aJson.data ?? aJson) as Assignment[]);
     } catch (err) {
@@ -74,6 +77,7 @@ export function useEmployeeDetail(employeeId: string) {
         }),
       });
       await assertOk(res, 'Could not save the employee - try again');
+      setSavedTaxNumber(employee.taxNumber);
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save the employee - try again'));
     } finally {
@@ -137,7 +141,7 @@ export function useEmployeeDetail(employeeId: string) {
   };
 
   return {
-    employee, setEmployee, components, assignments, isLoading, error, savingProfile,
+    employee, setEmployee, savedTaxNumber, components, assignments, isLoading, error, savingProfile,
     newComponentId, setNewComponentId, newAmount, setNewAmount, newFrom, setNewFrom, newIsRecurring, setNewIsRecurring,
     addingAssignment, saveProfile, assignComponent, endAssignment, editAssignmentDates,
   };

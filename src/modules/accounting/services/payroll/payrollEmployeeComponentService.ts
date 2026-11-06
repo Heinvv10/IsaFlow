@@ -27,6 +27,8 @@ export type EmployeeComponentAssignmentWithMeta = EmployeeComponentAssignment & 
   componentType: string;
   /** False: the component was switched off, and a run does not pay it (getEmployeeComponents) though the row is open. */
   componentActive: boolean;
+  /** From the component: only a taxable recurring earning is a salary for the readiness check. */
+  isTaxable: boolean;
 };
 
 function mapAssignment(r: Row): EmployeeComponentAssignment {
@@ -173,7 +175,8 @@ export async function listEmployeeComponentAssignments(
       pec.effective_from, pec.effective_to, pec.is_recurring,
       pc.name AS component_name,
       pc.component_type,
-      pc.is_active AS component_active
+      pc.is_active AS component_active,
+      pc.is_taxable
     FROM payroll_employee_components pec
     JOIN payroll_components pc ON pc.id = pec.component_id
     WHERE pec.employee_id = ${employeeId}::uuid
@@ -185,5 +188,6 @@ export async function listEmployeeComponentAssignments(
     componentName: String(r.component_name),
     componentType: String(r.component_type),
     componentActive: Boolean(r.component_active),
+    isTaxable: Boolean(r.is_taxable),
   }));
 }

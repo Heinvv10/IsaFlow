@@ -54,3 +54,11 @@ describe('profile editor', () => {
     expect(screen.queryByLabelText('Account type *')).toBeNull();
   });
 });
+
+describe('create page header', () => {
+  it('uses the shared PageHeader: one h1, a link back to the list', () => {
+    render(<NewEmployeePage />);
+    expect(screen.getAllByRole('heading', { level: 1 }).map(h => h.textContent)).toEqual(['New Employee']);
+    expect(screen.getByRole('link', { name: /Employees/ }).getAttribute('href')).toBe('/payroll/employees');
+  });
+});

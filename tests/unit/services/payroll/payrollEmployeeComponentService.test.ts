@@ -192,6 +192,8 @@ describe('endEmployeeComponent', () => {
   });
 });
 
+const listCallSql = () => sqlCalls.find(c => c.sql.includes('JOIN payroll_components'))?.sql ?? '';
+
 describe('listEmployeeComponentAssignments', () => {
   it('joins payroll_components and returns componentName/componentType alongside the assignment', async () => {
     const employeeRow = { id: EMPLOYEE_ID };
@@ -205,6 +207,7 @@ describe('listEmployeeComponentAssignments', () => {
       component_name: 'Basic Salary',
       component_type: 'earning',
       component_active: true,
+      is_taxable: false,
     };
 
     mockImpl = (strings) => {
@@ -229,7 +232,9 @@ describe('listEmployeeComponentAssignments', () => {
       componentName: 'Basic Salary',
       componentType: 'earning',
       componentActive: true,
+      isTaxable: false,
     });
+    expect(listCallSql()).toContain('pc.is_taxable');
 
     // Verify the list query uses a JOIN
     const listCall = sqlCalls.find(c => c.sql.includes('JOIN payroll_components'));
