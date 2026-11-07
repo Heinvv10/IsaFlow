@@ -44,7 +44,7 @@ export async function attachCapturedDocToBankTx(
   userId: string | null,
 ): Promise<AttachToBankTxResult> {
   const [doc] = (await sql`
-    SELECT id, file_name, file_type, matched_bank_tx_id
+    SELECT id, file_name, file_type
       FROM captured_documents
      WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid
   `) as Row[];
@@ -63,6 +63,12 @@ export async function attachCapturedDocToBankTx(
   const otherClaim = await findOtherVatClaim(companyId, documentId, bankTxId);
   if (otherClaim) return { ok: false, reason: 'document_backs_other_claim', otherClaim };
 
+  // Read under the document lock: a relink that committed before it took the lock has already moved the document.
+  const [held] = (await sql`
+    SELECT matched_bank_tx_id FROM captured_documents WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid
+  `) as Row[];
+  const previous = held?.matched_bank_tx_id ? String(held.matched_bank_tx_id) : null;
+
   // Crash-recovery: UPDATE-then-mirror ordering means a crash between the two
   // heals on a retry — the re-UPDATE is idempotent and the dup-check misses,
   // so the mirror is attempted again.
@@ -77,7 +83,6 @@ export async function attachCapturedDocToBankTx(
   // request's spelling: bank/bankLineDocumentSql recognises a copy by that prefix, and an upper-case or brace-wrapped
   // id would make the document count twice.
   // A relink moves the document: its copy on the line it leaves would otherwise keep supporting that line.
-  const previous = doc.matched_bank_tx_id ? String(doc.matched_bank_tx_id) : null;
   if (previous && previous !== bankTxId) {
     await sql`
       DELETE FROM bank_transaction_attachments bta
