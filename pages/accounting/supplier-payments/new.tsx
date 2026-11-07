@@ -20,7 +20,7 @@ interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: n
 interface Allocation { key: string; invoiceId: string; amount: number }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export default function NewSupplierPaymentPage() {
@@ -185,7 +185,7 @@ export default function NewSupplierPaymentPage() {
                           <div className={`${inp} bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-right tabular-nums`}>{selectedInvoice ? formatCurrency(selectedInvoice.balance) : '—'}</div>
                         </div>
                         <div className="col-span-3">
-                          {idx === 0 && <label className={lbl}>Pay Amount</label>}
+                          {idx === 0 && <label className={lbl}>Pay amount</label>}
                           <input type="number" aria-label="Pay Amount" step="0.01" min="0" max={selectedInvoice?.balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} className={`${inp} text-right`} />
                         </div>
                         <div className="col-span-1 flex justify-center">

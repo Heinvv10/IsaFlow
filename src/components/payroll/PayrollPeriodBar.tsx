@@ -80,7 +80,7 @@ export function PayrollPeriodBar() {
       <Calendar className="h-4 w-4 text-[var(--ff-text-tertiary)] flex-shrink-0" />
       <span className="text-[var(--ff-text-primary)] font-medium truncate">{ctx.companyName}</span>
       <span className="text-[var(--ff-text-tertiary)]">·</span>
-      <span className="text-[var(--ff-text-primary)] font-mono">{periodLabel}</span>
+      <span className="text-[var(--ff-text-primary)] tabular-nums">{periodLabel}</span>
       <span className="text-[var(--ff-text-tertiary)] hidden sm:inline">· {periodCount}</span>
       <span className={`ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.fg}`}>
         <Icon className="h-3 w-3" /> {badge.label}

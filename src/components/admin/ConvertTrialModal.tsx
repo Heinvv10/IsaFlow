@@ -104,8 +104,8 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
             <p className="text-sm text-gray-600 dark:text-gray-400 text-center py-4">No plans available</p>
           ) : (
             <div className="space-y-2">
-              <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                Select Plan
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Select plan
               </label>
               <div className="space-y-2">
                 {plans.map((p) => (

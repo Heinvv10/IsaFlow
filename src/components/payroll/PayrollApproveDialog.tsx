@@ -133,13 +133,13 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
             {!blocker && (
               <p className="text-gray-600 dark:text-gray-300">
                 {posted
-                  ? <>Already posted: journal <span className="font-mono">{posted.entryNumber}</span>. Approving locks this run again and posts nothing new.</>
-                  : <>Approving locks this run and posts journal <span className="font-mono">{plan.reference}</span> dated {plan.entryDate} for {plan.lineCount} employee{plan.lineCount === 1 ? '' : 's'}:</>}
+                  ? <>Already posted: journal <span className="font-id">{posted.entryNumber}</span>. Approving locks this run again and posts nothing new.</>
+                  : <>Approving locks this run and posts journal <span className="font-id">{plan.reference}</span> dated {plan.entryDate} for {plan.lineCount} employee{plan.lineCount === 1 ? '' : 's'}:</>}
               </p>
             )}
             {!blocker && replaces && (
               <p className="text-gray-600 dark:text-gray-300">
-                The journal this run posted before (<span className="font-mono">{replaces.entryNumber}</span>) was reversed, so a new one is posted in its place.
+                The journal this run posted before (<span className="font-id">{replaces.entryNumber}</span>) was reversed, so a new one is posted in its place.
               </p>
             )}
             <table className="w-full">
@@ -155,7 +155,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
                   return (
                     <tr key={`${l.accountCode}-${l.cc1Id ?? ''}-${i}`} className="border-t border-gray-200 dark:border-white/10">
                       <td className="py-1">
-                        <span className="font-mono mr-2">{l.accountCode}</span>{l.accountName}
+                        <span className="font-id mr-2">{l.accountCode}</span>{l.accountName}
                         {centre && <span className="block text-xs text-ink-muted">{centre}</span>}
                       </td>
                       <td className="py-1 text-right tabular-nums">{money(l.debit)}</td>

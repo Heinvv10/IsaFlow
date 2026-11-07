@@ -117,13 +117,13 @@ import { getTaxYearConfig } from './taxTables';
 import type { PayeResult, PayeYearToDate } from './payrollTypes';
 
 export interface CumulativePayeInput {
-  /** This period's periodic taxable remuneration, after taxable deductions. */
+  /** This period's periodic taxable remuneration, after allowed donations (the only deduction taken before this). */
   regularTaxable: number;
-  /** This period's annual payments (3605), after any excess taxable deductions. */
+  /** This period's annual payments (3605), after any allowed donation in excess of periodic pay. */
   annualPayments: number;
-  /** Taxable periodic earnings before taxable deductions, used only to decide whether this is a pay period. */
+  /** Taxable periodic earnings before any deduction, used only to decide whether this is a pay period. */
   periodicRemuneration: number;
-  /** Taxable annual payments before taxable deductions, used only to advance the pro-rated s11F cap period. */
+  /** Taxable annual payments before any deduction, used only to advance the pro-rated s11F cap period. */
   annualPaymentRemuneration: number;
   /** Earlier periods of the tax year (declarable runs, before this period). */
   ytd: PayeYearToDate;

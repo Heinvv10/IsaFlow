@@ -139,14 +139,14 @@ export default function DuplicatesPage() {
                   {groups.map(g => (
                     <div key={`${g.value}:${g.employees[0]?.id}`} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
                       <div className="text-sm text-[var(--ff-text-secondary)] mb-3">
-                        Shared value: <span className="font-mono text-[var(--ff-text-primary)]">{g.value}</span>
+                        Shared value: <span className="font-id text-[var(--ff-text-primary)]">{g.value}</span>
                       </div>
                       <div className="space-y-1">
                         {g.employees.map(e => (
                           <Link key={e.id} href={`/payroll/employees/${e.id}`}
                             className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-[var(--ff-bg-tertiary)]">
                             <div className="text-sm text-[var(--ff-text-primary)]">
-                              <span className="font-mono text-[var(--ff-text-secondary)] mr-3">{e.employeeNumber}</span>
+                              <span className="font-id text-[var(--ff-text-secondary)] mr-3">{e.employeeNumber}</span>
                               {e.name}
                             </div>
                             <span className="text-xs text-[var(--ff-text-secondary)]">{e.status}</span>
