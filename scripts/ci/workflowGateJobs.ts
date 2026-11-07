@@ -71,7 +71,9 @@ const HOSTED_IF = "${{ runner.environment == 'github-hosted' }}";
 type HostedStep = { uses: string; with: Record<string, unknown> } | { run: string };
 /**
  * The hosted-only steps before install, in order, exactly; setup-bun pinned to a commit (third-party). Then the
- * group's apt step: what velo has and the group spawns (static: gs; velo: PostgreSQL 16 + pgvector, LibreOffice, poppler).
+ * group's apt step: what velo has and the group spawns (static: gs; velo: PostgreSQL 16 + pgvector, LibreOffice, poppler). Each install
+ * is bounded (apt 10 min, playwright 15 min) with one retry: a slow-but-alive mirror stalled Browser & integration 37-46 min three times on
+ * 6 Nov, which the Acquire timeouts (dead connections only) do not catch.
  */
 const HOSTED_TOOLS: HostedStep[] = [
   { uses: 'actions/setup-node@v6', with: { 'node-version': 20 } },
@@ -86,11 +88,11 @@ const HOSTED_TOOLS: HostedStep[] = [
   },
 ];
 const HOSTED_APT: Record<string, HostedStep> = {
-  static: { run: 'echo \'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";\' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null\nsudo apt-get update -q\nsudo apt-get install -y -qq --no-install-recommends ghostscript' },
-  velo: { run: 'echo \'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";\' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null\nsudo apt-get update -q\nsudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils\nsudo locale-gen en_US.UTF-8' },
+  static: { run: 'echo \'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";\' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null\nsudo apt-get update -q\nfor i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends ghostscript && break; [ "$i" = 2 ] && exit 1; echo \'::warning::apt install stalled or failed; retrying once\'; sudo dpkg --configure -a; done' },
+  velo: { run: 'echo \'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";\' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null\nsudo apt-get update -q\nfor i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils && break; [ "$i" = 2 ] && exit 1; echo \'::warning::apt install stalled or failed; retrying once\'; sudo dpkg --configure -a; done\nsudo locale-gen en_US.UTF-8' },
 };
 /** Hosted-only, between install and the gate: Chromium at the locked playwright's revision. */
-const HOSTED_AFTER_INSTALL: HostedStep[] = [{ run: 'bunx playwright install --with-deps chromium' }];
+const HOSTED_AFTER_INSTALL: HostedStep[] = [{ run: 'for i in 1 2; do timeout 900 bunx playwright install --with-deps chromium && break; [ "$i" = 2 ] && exit 1; echo \'::warning::playwright install stalled or failed; retrying once\'; sudo dpkg --configure -a; done' }];
 
 const QUALITY_NEEDS = ['route', 'static', 'velo'];
 const QUALITY_IF = '${{ always() }}';
