@@ -167,12 +167,14 @@ describe('buildInserts with an opening-balance line', () => {
 });
 
 describe('openingLineAmount', () => {
-  it('is debit less credit', () => {
-    expect(openingLineAmount({ debit: 1000, credit: 0, runningBalance: 1000 })).toBe(1000);
-    expect(openingLineAmount({ debit: 0, credit: 250, runningBalance: null })).toBe(-250);
-  });
-  it('falls back to the running balance when the line carries neither', () => {
+  it('is the running balance: on the opening line it is the balance brought forward', () => {
     expect(openingLineAmount({ debit: 0, credit: 0, runningBalance: 4321.5 })).toBe(4321.5);
+    // Prod Demo, Engen 2026-11-07: a misread debit beside the true balance column.
+    expect(openingLineAmount({ debit: 19743.55, credit: 0, runningBalance: 427728.14 })).toBe(427728.14);
+  });
+  it('without a running balance it is debit less credit', () => {
+    expect(openingLineAmount({ debit: 1000, credit: 0, runningBalance: null })).toBe(1000);
+    expect(openingLineAmount({ debit: 0, credit: 250, runningBalance: null })).toBe(-250);
     expect(openingLineAmount({ debit: 0, credit: 0, runningBalance: null })).toBe(0);
   });
 });

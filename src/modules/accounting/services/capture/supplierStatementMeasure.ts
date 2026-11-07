@@ -41,12 +41,13 @@ export async function measureOurSide(
 }
 
 /**
- * A brought-forward line's figure: debit less credit, or, when it carries neither (some layouts print the B/F
- * figure only in the balance column), its running balance.
+ * A brought-forward line's figure: its running balance, which on the opening line IS the balance brought forward,
+ * else debit less credit. The balance column wins because layouts disagree on the amount columns: many print the
+ * B/F figure only in the balance column, and on prod Demo's Engen statement (2026-11-07) the extracted debit was
+ * 19,743.55 while the balance column, which every later line's running balance chains from, said 427,728.14.
  */
 export function openingLineAmount(l: { debit: number; credit: number; runningBalance: number | null }): number {
-  if (l.debit === 0 && l.credit === 0 && l.runningBalance !== null) return l.runningBalance;
-  return l.debit - l.credit;
+  return l.runningBalance ?? l.debit - l.credit;
 }
 
 /**

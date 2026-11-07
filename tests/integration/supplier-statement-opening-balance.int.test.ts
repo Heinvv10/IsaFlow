@@ -147,9 +147,10 @@ describeIfDb('supplier statement: the balance brought forward is an opening-bala
     expect(after.openingBalance).toEqual(created.openingBalance);
   });
 
-  it('RUNNING: a B/F line carrying only a running balance is compared at that figure', async () => {
+  // The balance column is the B/F figure; on prod Demo's Engen statement the extracted debit beside it was wrong.
+  it('RUNNING: a B/F line is compared at its running balance, not a debit that disagrees with it', async () => {
     nextExtraction = { closingBalance: 900, lines: [
-      { date: shift(-60), description: 'Balance b/f', runningBalance: 900 },
+      { date: shift(-60), description: 'Balance b/f', debit: 55.5, runningBalance: 900 },
       { date: shift(-30), reference: TAG + '-RUN', description: 'Payment', credit: 0.01 },
     ] };
     await bill(suppliers.RUN, '-RUNOLD', 900, shift(-70));

@@ -84,7 +84,7 @@ export function openingBalanceAsAt(lines: ClassifiableLine[], opening: Set<numbe
 export interface OpeningBalanceCheck {
   /** The day IsaFlow's side is measured at: the day before the first dated transaction line (else the B/F's date). */
   asAt: string;
-  /** The statement's brought-forward figure: the opening line's debit less credit (else its running balance). */
+  /** The statement's brought-forward figure: the opening line's running balance (else its debit less credit). */
   statementAmount: number;
   isaflowBalance: number;
   /** statementAmount − isaflowBalance. */
