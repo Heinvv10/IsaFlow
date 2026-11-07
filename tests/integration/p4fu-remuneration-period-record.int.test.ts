@@ -106,14 +106,17 @@ describe('pre-deduction remuneration identity', () => {
     // Simulate the latest earlier line predating the medical-credit record columns.
     await pool.query('UPDATE payroll_run_lines SET medical_credit = NULL WHERE run_id = $1', [march]);
 
-    await component(f, 'Full taxable deduction', '4018', 'deduction', 20_000, '2026-04-01', '2026-04-30');
+    // Since calculation version 4 the deduction no longer reduces PAYE, so it takes what the R1 739 of PAYE leaves:
+    // net pay nil, as before, and approvable (a deduction past the pay is refused).
+    await component(f, 'Full taxable deduction', '4018', 'deduction', 18_261, '2026-04-01', '2026-04-30');
     const april = await createRunFor(f, 4);
     await calculateRun(f, april);
     const aprilLine = (await pool.query(
       `SELECT taxable_income::float8 AS taxable, medical_credit::float8 AS credit
          FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2`, [april, f.employee])).rows[0]!;
-    // Since calculation version 4 a taxable 4018 no longer reduces PAYE (para 2(4)), so the salary stays taxed.
-    expect(aprilLine).toEqual({ taxable: 20_000, credit: 630 });
+    // Since calculation version 4 a taxable 4018 no longer reduces PAYE (para 2(4)), so the salary stays taxed and
+    // the liability to date holds March's unrecorded credit as well as April's: 2 x R376.
+    expect(aprilLine).toEqual({ taxable: 20_000, credit: 752 });
     expect((await approveRun(f, april)).statusCode).toBe(200);
     // What a calculation before version 4 (and 913) stored for the fully deducted salary.
     await pool.query(
@@ -124,7 +127,7 @@ describe('pre-deduction remuneration identity', () => {
     expect(ytd.get(f.employee)).toMatchObject({ periods: 2, periodicTaxable: 20_000 });
 
     const medical = await loadMedicalRecord(f.company, { start: '2026-03-01', end: '2027-02-01' }, [f.employee]);
-    expect(medical.get(f.employee)).toMatchObject({ credit: 630, recorded: true });
+    expect(medical.get(f.employee)).toMatchObject({ credit: 752, recorded: true });
 
     expect((await reopenRun(f, april)).statusCode).toBe(200);
     const taxed = (await pool.query(
