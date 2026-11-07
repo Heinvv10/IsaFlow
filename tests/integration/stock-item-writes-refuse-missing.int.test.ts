@@ -128,11 +128,15 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('stock-ite
   // Stands in for a stock item deleted between the existence check and the UPDATE: a trigger makes the UPDATE skip
   // one row. The route must answer 500 (withAuth rolls back) and leave the other entries unwritten.
   it('an UPDATE that misses a row fails the whole batch and writes nothing', async () => {
-    const a = await stockItem(c.fx.companyId, 'SKIP-A');
-    const b = await stockItem(c.fx.companyId, 'SKIP-B');
-    await sql`CREATE OR REPLACE FUNCTION siw_skip_row() RETURNS trigger LANGUAGE plpgsql AS
-      $$ BEGIN IF OLD.item_code = 'SKIP-B' THEN RETURN NULL; END IF; RETURN NEW; END $$`;
-    await sql`CREATE TRIGGER siw_skip_row BEFORE UPDATE ON stock_items FOR EACH ROW EXECUTE FUNCTION siw_skip_row()`;
+    // Per-run names, so a crashed run's leftover trigger cannot touch another run's rows.
+    const run = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    const fn = `siw_skip_${run}`;
+    const skipCode = `SKIP-B-${run}`;
+    const a = await stockItem(c.fx.companyId, `SKIP-A-${run}`);
+    const b = await stockItem(c.fx.companyId, skipCode);
+    await sql.unsafe(`CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN IF OLD.item_code = '${skipCode}' THEN RETURN NULL; END IF; RETURN NEW; END $$`);
+    await sql.unsafe(`CREATE TRIGGER ${fn} BEFORE UPDATE ON stock_items FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
     try {
       const ob = await callAs(c, token, openingBalances as Route, 'POST',
         { items: [{ itemId: a, quantity: 50, unitCost: 50 }, { itemId: b, quantity: 50, unitCost: 50 }] });
@@ -141,8 +145,8 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('stock-ite
         { updates: [{ itemId: a, sellingPrice: 77 }, { itemId: b, sellingPrice: 77 }] });
       expect(pr.status, pr.body).toBe(500);
     } finally {
-      await sql`DROP TRIGGER IF EXISTS siw_skip_row ON stock_items`;
-      await sql`DROP FUNCTION IF EXISTS siw_skip_row()`;
+      await sql.unsafe(`DROP TRIGGER IF EXISTS ${fn} ON stock_items`);
+      await sql.unsafe(`DROP FUNCTION IF EXISTS ${fn}()`);
     }
     expect(await item(a)).toMatchObject({ qty: 1, cost: 10, price: 20 });
   });
