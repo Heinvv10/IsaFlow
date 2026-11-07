@@ -32,6 +32,8 @@ const methodLabels: Record<string, string> = {
   donation: 'Donation',
   theft: 'Theft',
   insurance_claim: 'Insurance Claim',
+  loss: 'Loss',
+  unspecified: 'Not specified',
 };
 
 export default function AssetDisposalsPage() {
