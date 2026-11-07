@@ -24,8 +24,8 @@ import { collectReasons, noteMark } from '@/components/accounting/packs/primitiv
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { MoneyScale } from '@/lib/format/money';
 import { GUTTER_MM } from './packDisclosureHeight';
-import { type FigureWeight, ptToPx, textPx, textPxUnsnapped } from './packFigureWidth';
-import { NEVER_SHORT, runPx, type Slack } from './packGlyphRuler';
+import { type FigureWeight, ptToPx, textPx, textPxUnsnapped, textFitPx } from './packFigureWidth';
+import { fitUnitsPx, NEVER_SHORT, runExactPx, runPx, type Slack } from './packGlyphRuler';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
 import { pieces } from './packLineBreaks';
 import { reasonPx } from './packReasonWidth';
@@ -54,6 +54,8 @@ const NOT_MEANINGFUL = 'n/m';
  */
 const markPx = (text: string, hostPx: number, weight: FigureWeight, slack: Slack = NEVER_SHORT): number => textPxUnsnapped(text, 0.7 * hostPx, weight, slack);
 /** A row's or KPI tile's footnote number after its 9pt label. */
+/** A label's footnote mark as a line FITS it (`packFigureWidth.textFitPx`): never for a width a column is sized by. */
+export const labelMarkFitPx = (number: number | null | undefined, weight: FigureWeight = 400): number => (number === null || number === undefined ? 0 : textFitPx(String(number), 0.7 * 12, weight));
 export const labelMarkPx = (number: number | null | undefined, weight: FigureWeight = 400, slack: Slack = NEVER_SHORT): number => (number === null || number === undefined ? 0 : markPx(String(number), 12, weight, slack));
 
 /** `.pack-table th`: 8pt, weight 500, uppercase, 0.06em letter-spacing (which a superscript inherits as computed). */
@@ -72,6 +74,12 @@ export const HEADING_WORD_PX: Readonly<Record<PackTableColumnKey, number>> = Obj
   (Object.entries(PACK_TABLE_COLUMN_LABEL) as Array<[PackTableColumnKey, string]>).map(([col, label]) => [col,
     Math.max(...headingWordsPx(label))]),
 ) as Record<PackTableColumnKey, number>;
+
+/** A heading line (or its mark) as a line FITS it (`packGlyphRuler.fitUnitsPx`): the exact tracked sum, floored. */
+const headingRunFitPx = (text: string, fontPx: number): number => fitUnitsPx(runExactPx(text, fontPx, 500,
+  (cluster, sizePx) => textPx(cluster, sizePx, 500) + HEADING_TRACKING_PX, HEADING_TRACKING_PX));
+export const headingLineFitPx = (text: string): number => headingRunFitPx(text.toUpperCase(), HEADING_PX);
+export const headingMarkFitPx = (number: number | undefined): number => (number === undefined ? 0 : headingRunFitPx(String(number), 0.7 * HEADING_PX));
 
 /** A line of a column heading, in pixels, as `.pack-table th` sets it (shaped whole, tracked). */
 export const headingLinePx = (text: string, slack: Slack = NEVER_SHORT): number => headingRunPx(text.toUpperCase(), HEADING_PX, slack);
@@ -169,8 +177,8 @@ export function deltaText(tile: KpiTile): string {
 }
 
 /** The longest unbreakable run of `text` (`packLineBreaks.ts`, the one splitter), with the hyphen a soft one sets. */
-function longestRunPx(text: string, fontPx: number, weight: FigureWeight): number {
-  return Math.max(0, ...pieces(text).map((piece) => textPx(piece.text, fontPx, weight, piece.hyphen)));
+function longestRunPx(text: string, fontPx: number, weight: FigureWeight, slack: Slack = NEVER_SHORT): number {
+  return Math.max(0, ...pieces(text).map((piece) => textPx(piece.text, fontPx, weight, piece.hyphen, slack)));
 }
 
 /**
@@ -179,24 +187,28 @@ function longestRunPx(text: string, fontPx: number, weight: FigureWeight): numbe
  * the 7pt arrow. A `1fr` grid column is never narrower than any of them, so a short figure under a long word still
  * holds its column open (the adversary's net-debit Debt-to-equity tile: 50px of figure under a 56px label).
  */
-function tileOtherMinPx(tile: KpiTile): number {
-  const labelPx = labelWidestPiecePx(tile.label, tile.trendFootnote, 400);
+function tileOtherMinPx(tile: KpiTile, slack: Slack): number {
+  const labelPx = labelWidestPiecePx(tile.label, tile.trendFootnote, 400, slack);
   const reasonWidth = tile.figure.value === null && tile.figure.unavailable !== undefined && tile.figure.unavailable !== null
-    ? Math.max(0, ...pieces(tile.figure.unavailable).map((piece) => reasonPx(piece.text, piece.hyphen))) : 0;
+    ? Math.max(0, ...pieces(tile.figure.unavailable).map((piece) => reasonPx(piece.text, piece.hyphen, slack))) : 0;
   // The arrow cue is a run of its own (`</span>{' '}` after it is a break opportunity): it never holds a column open
   // past the words it precedes.
-  const deltaPx = tile.delta === null ? 0 : Math.max(DELTA_CUE_PX, longestRunPx(deltaText(tile), 12, 400));
+  const cue = Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400, false, slack)));
+  const deltaPx = tile.delta === null ? 0 : Math.max(cue, longestRunPx(deltaText(tile), 12, 400, slack));
   return Math.max(labelPx, reasonWidth, deltaPx);
 }
 /** The arrow cue before a delta, a 7pt glyph: the widest of the three arrows the tile sets. */
 export const DELTA_CUE_PX = Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400)));
 
-/** The width of each of a KPI row's four columns at `fontPx`: the widest of its figure and its tile's other content. */
-export function kpiColumnMinPx(tiles: readonly KpiTile[], scale: MoneyScale, fontPx: number): number[] {
+/**
+ * The width of each of a KPI row's four columns at `fontPx`: the widest of its figure and its tile's other content,
+ * rounded to the unit as `slack` says (never short for the fit gate; Chromium's narrowest or widest for the layout).
+ */
+export function kpiColumnMinPx(tiles: readonly KpiTile[], scale: MoneyScale, fontPx: number, slack: Slack = NEVER_SHORT): number[] {
   const widest = [0, 0, 0, 0];
   tiles.forEach((tile, i) => {
-    const figure = tile.figure.value === null ? 0 : textPx(formatFigureText(tile.figure, scale), fontPx, 500);
-    widest[i % 4] = Math.max(widest[i % 4]!, figure, tileOtherMinPx(tile));
+    const figure = tile.figure.value === null ? 0 : textPx(formatFigureText(tile.figure, scale), fontPx, 500, false, slack);
+    widest[i % 4] = Math.max(widest[i % 4]!, figure, tileOtherMinPx(tile, slack));
   });
   return widest;
 }

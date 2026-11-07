@@ -22,11 +22,11 @@ import { createHash } from 'node:crypto';
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
 import {
-  CELL_SIDE_PX, cellPx, headingLinePx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT,
-  tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT,
+  CELL_SIDE_PX, cellPx, headingLineFitPx, headingLinePx, headingMarkFitPx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL,
+  labelMarkFitPx, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT, tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT,
 } from './packFigureFit';
-import { ptToPx, textPx } from './packFigureWidth';
-import { AS_CHROMIUM_SETS, NEVER_SHORT } from './packGlyphRuler';
+import { ptToPx, textFitPx, textPx } from './packFigureWidth';
+import { AS_CHROMIUM_SETS } from './packGlyphRuler';
 import { linesForText, minPx, WRAP_GUARD } from './packLineWrap';
 import { pieces } from './packLineBreaks';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
@@ -56,8 +56,9 @@ export interface TableLayout {
 /**
  * The layout of `table`. The figures are at the size the fit sets (a decision that must never be short). The columns
  * are shared out from widths as Chromium sets them (`AS_CHROMIUM_SETS`), so they are Chromium's to within a few
- * hundredths of a pixel; whether a line still holds a piece is a decision, made on widths that are never short
- * (`NEVER_SHORT`), against the column less the guard (`WRAP_GUARD`, the columns' error). The columns are shared out
+ * hundredths of a pixel; whether a line still holds a piece is decided the way Chromium's line breaker decides it
+ * (`textFitPx`: each box's exact sum floored to the unit), against the column less the guard (`WRAP_GUARD`, the
+ * columns' error). The columns are shared out
  * in Chromium's 1/64px unit: each column's share truncated to it, the last column taking what is left.
  */
 export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number = WRAP_GUARD[orientation]): TableLayout {
@@ -128,11 +129,11 @@ function layoutAt(table: PackTable, scale: MoneyScale, orientation: PageOrientat
   const labelBox = table.rows.map((row) => {
     const weight = ROW_WEIGHT[row.role];
     const parts = pieces(row.label);
-    const line = (text: string, hyphen: boolean): number => textPx(text, LABEL_FONT_PX, weight, hyphen, NEVER_SHORT);
+    const line = (text: string, hyphen: boolean): number => textFitPx(text, LABEL_FONT_PX, weight, hyphen);
     const indent = row.level * INDENT_PX_PER_LEVEL;
     const marker = labelMarkPx(row.footnote, weight, AS_CHROMIUM_SETS);
     return {
-      indent, parts, line, markerLine: labelMarkPx(row.footnote, weight, NEVER_SHORT),
+      indent, parts, line, markerLine: labelMarkFitPx(row.footnote, weight),
       min: indent + labelWidestPiecePx(row.label, row.footnote, weight, AS_CHROMIUM_SETS) + CELL_SIDE_PX,
       max: indent + textPx(row.label.trim().replace(/[ \t\n\r]+/g, ' '), LABEL_FONT_PX, weight, false, AS_CHROMIUM_SETS) + marker + CELL_SIDE_PX,
     };
@@ -145,7 +146,7 @@ function layoutAt(table: PackTable, scale: MoneyScale, orientation: PageOrientat
     const marker = headingMarkPx(footnote, AS_CHROMIUM_SETS);
     const label = PACK_TABLE_COLUMN_LABEL[col];
     return {
-      col, parts: pieces(label), markerLine: headingMarkPx(footnote, NEVER_SHORT),
+      col, parts: pieces(label), markerLine: headingMarkFitPx(footnote),
       min: Math.max(figures, minPx(headingWordsPx(label, AS_CHROMIUM_SETS).map((w) => ({ w })), marker)) + 2 * CELL_SIDE_PX,
       max: Math.max(figures, headingLinePx(label, AS_CHROMIUM_SETS) + marker) + 2 * CELL_SIDE_PX,
     };
@@ -156,7 +157,7 @@ function layoutAt(table: PackTable, scale: MoneyScale, orientation: PageOrientat
   const labelPx = columnsPx[0]!;
   const labelLines = labelBox.map((b) => linesForText(b.parts, b.line, b.markerLine, labelPx - b.indent - CELL_SIDE_PX, guardPx));
   // A column heading is a fixed English label: no soft hyphen, so no hyphen to set.
-  const headingLine = (text: string): number => headingLinePx(text, NEVER_SHORT);
+  const headingLine = (text: string): number => headingLineFitPx(text);
   const headingLines = Math.max(1, ...data.map((d, i) => linesForText(d.parts, headingLine, d.markerLine, columnsPx[i + 1]! - 2 * CELL_SIDE_PX, guardPx)));
   return { columnsPx, labelLines, headingLines };
 }

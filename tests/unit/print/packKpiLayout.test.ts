@@ -31,10 +31,11 @@ for (const k of [1, 30, 1000, 30000, 300000, 3e7, 2.7e8]) for (const negative of
 
 /**
  * The blocks of this sample in the one-line band, pinned: a width model that drifts moves the count either way, and
- * the near ties are named in the failure. Portrait: two net-debit packs at k=300,000 ("Gross margin" and its mark,
- * a unit over its column) and two at k=3e7.
+ * the near ties are named in the failure. None: the four it held (net-debit packs at k=300,000, "Gross margin" and its
+ * mark a unit over its column, and two at k=3e7) went when lines were fitted as Chromium fits them (`textFitPx`) in a
+ * column the narrowest Chromium can make it (`kpiColumnBoundsPx`).
  */
-const IN_BAND = { portrait: 4, landscape: 0 } as const;
+const IN_BAND = { portrait: 0, landscape: 0 } as const;
 
 describe('the KPI block of a stratified sample of packs', () => {
   it.each(['portrait', 'landscape'] as const)(`${SHAPES.length} packs, %s: columns within 1px, rows and the block never short, within ${MOST_OVER}mm but the band`, async (orientation) => {

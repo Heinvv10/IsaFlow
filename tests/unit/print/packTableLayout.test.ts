@@ -52,8 +52,8 @@ for (const k of [1, 30, 1000, 30000, 300000, 1e6, 3e6]) for (const negative of [
 
 /** How far the model's columns may be from Chromium's (`packLineWrap.ts` sets the guard from it). */
 const COLUMN_ERROR_PX = 0.1;
-/** At most this many label rows a line taller than Chromium's, at a near tie (a piece within the model's error of its line). */
-const TIES_ALLOWED = 6;
+/** Label rows a line taller than Chromium's: none, now a line is fitted as Chromium's line breaker fits it (`textFitPx`). */
+const TIES_ALLOWED = 0;
 
 describe('the layout of every statement table of a stratified sample of packs', () => {
   it(`${SHAPES.length} packs (prior and trend panels on and off, k to 3e6): columns within 0.1px, never a label line too few, heading lines equal, height never short`, async () => {
@@ -143,7 +143,7 @@ describe('a footnote mark sits on the LAST word of a label', () => {
       }
     }
     expect(wrong.slice(0, 10)).toEqual([]);
-    expect(ties, 'the guard may cost a line on a tie, not on many').toBeLessThanOrEqual(4);
+    expect(ties, 'a line too many at a tie').toBe(0);
   }, 900_000);
 });
 

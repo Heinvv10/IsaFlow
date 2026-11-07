@@ -1,20 +1,21 @@
 /**
- * THE KPI MODEL CHARGES A TILE'S LINES AT THE NEVER-SHORT WIDTH OF THE WHOLE LINE, AND NOTHING NARROWER.
+ * THE KPI MODEL FITS A TILE'S LINE AS CHROMIUM'S LINE BREAKER DOES: EACH BOX'S EXACT SUM FLOORED TO THE UNIT.
  *
- * `packGlyphRuler.runPx` rounds a width up to Chromium's 1/64px unit and adds one unit more: the shaping model is a unit
- * off Chromium either way on some strings, and the unit is what keeps it never short. The Chromium proof over the grid
- * is `tests/unit/print/packKpiLayout.test.ts`; this pins the model's own boundary without a browser, at the exact
- * width `textPx` gives the whole line: a column that width sets it on one line, a column 1/128px narrower on two. A
- * model that drops the unit (fits it in the narrower column) or sums the line piece by piece (each piece's rounding:
- * wraps it in the exact column) goes red here. A column a figure holds open is that figure's never-short width.
+ * Whether a line holds its words is decided on the whole line's exact advance sum, floored to Chromium's 1/64px unit
+ * (`textFitPx`, `reasonFitPx`, `labelMarkFitPx`; the delta's arrow cue its own box at the width Chromium sets it). The
+ * Chromium proof is `tests/unit/print/packLineFit.test.ts` and, over packs, `packKpiLayout.test.ts`; this pins the
+ * model's own boundary without a browser: a column that width sets the line on one line, a column 1/128px narrower on
+ * two. A model that fits on the never-short width (wraps it in the exact column) or sums the line piece by piece goes red
+ * here. A column a figure holds open is that figure's never-short width (a width a column is sized by stays never short).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { DELTA_CUE_PX, deltaText, KPI_FIGURE_MAX_PT, kpiColumnMinPx, kpiFit, labelMarkPx, type KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
-import { ptToPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
+import { deltaText, KPI_FIGURE_MAX_PT, kpiColumnMinPx, kpiFit, labelMarkFitPx, type KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { ptToPx, textFitPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
+import { AS_CHROMIUM_SETS, CHROMIUM_LEAST } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
 import { kpiColumnsPx, kpiTileMm, LABEL_LINE_MM, REASON_LINE_MM } from '@/modules/accounting/services/packs/pages/packKpiLayout';
-import { reasonPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
+import { reasonFitPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { input, type Shape } from './fixtures/packGridInputs';
 
@@ -31,7 +32,8 @@ function tiles(shape: Shape): KpiTile[] {
 
 const DEMO: Shape = { tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1, plug: 0.2, sg: [-1, 1, -1, 1] };
 const NET_DEBIT: Shape = { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 300000, plug: 0.05, sg: [-1, -1, 1, 1] };
-const plain = (text: string): number => textPx(text, 12, 400);
+const plain = (text: string): number => textFitPx(text, 12, 400);
+const CUE = Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400, false, AS_CHROMIUM_SETS)));
 
 describe('a tile line at the edge of its column', () => {
   const all = [...tiles(DEMO), ...tiles(NET_DEBIT)];
@@ -41,30 +43,40 @@ describe('a tile line at the edge of its column', () => {
   it('a delta line (its arrow cue, a space, the words) fits the exact width of the whole line, and no narrower', () => {
     const source = all.find((t) => t.delta !== null)!;
     const tile = alone(source, { delta: source.delta, figure: { ...source.figure, value: source.figure.value ?? 1 } });
-    const whole = DELTA_CUE_PX + plain(' ') + plain(deltaText(tile));
+    const whole = CUE + plain(` ${deltaText(tile)}`);
     expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(LABEL_LINE_MM, 6);
   });
 
   it('a label and its footnote mark fit the exact width of the two, and no narrower', () => {
     const source = all.find((t) => t.trendFootnote != null && t.label.includes(' '))!;
     const tile = alone(source, { label: source.label, trendFootnote: source.trendFootnote, figure: { ...source.figure, value: source.figure.value ?? 1 } });
-    const whole = plain(tile.label) + labelMarkPx(tile.trendFootnote);
+    const whole = plain(tile.label) + labelMarkFitPx(tile.trendFootnote);
     expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(LABEL_LINE_MM, 6);
   });
 
   it('a not-meaningful reason fits the exact width of the whole reason, and no narrower', () => {
     const source = all.find((t) => t.figure.value === null && (t.figure.unavailable ?? '').includes(' '))!;
     const tile = alone(source, {});
-    const whole = reasonPx(tile.figure.unavailable ?? '');
+    const whole = reasonFitPx(tile.figure.unavailable ?? '');
     expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(REASON_LINE_MM, 6);
   });
 });
 
+describe('a shared column', () => {
+  it('is on Chromium\'s unit: the share left once every held-open column is the widest Chromium can set it, floored', () => {
+    for (const shape of [DEMO, NET_DEBIT]) {
+      const columns = kpiColumnsPx(tiles(shape), SCALE, 'portrait');
+      const share = Math.min(...columns);
+      expect(Number.isInteger(share * 64), `${share}`).toBe(true);
+    }
+  });
+});
+
 describe('a column a figure holds open', () => {
-  it('is the figure\'s never-short width, to the unit', () => {
+  it('is the narrowest Chromium can set the figure, to the unit (its exact width less its float noise, rounded up)', () => {
     const row = tiles(NET_DEBIT);
     const fit = kpiFit(row, SCALE, 'portrait');
-    const mins = kpiColumnMinPx(row, SCALE, fit.px ?? ptToPx(KPI_FIGURE_MAX_PT));
+    const mins = kpiColumnMinPx(row, SCALE, fit.px ?? ptToPx(KPI_FIGURE_MAX_PT), CHROMIUM_LEAST);
     const columns = kpiColumnsPx(row, SCALE, 'portrait');
     const share = Math.min(...columns);
     const frozen = columns.map((c, i) => [c, mins[i]!] as const).filter(([c]) => c > share);
