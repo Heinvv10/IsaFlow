@@ -94,4 +94,39 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('stock-ite
     expect(out.data).toEqual({ updated: 1 });
     expect(await item(a)).toMatchObject({ price: 129.5 });
   });
+
+  it('an id sent in upper case is the same stock item', async () => {
+    const a = await stockItem(c.fx.companyId, 'UC-A');
+    const ob = await callAs(c, token, openingBalances as Route, 'POST',
+      { items: [{ itemId: a.toUpperCase(), quantity: 4, unitCost: 2 }] });
+    expect(ob.status, ob.body).toBe(200);
+    const pr = await callAs(c, token, pricing as Route, 'PUT', { updates: [{ itemId: a.toUpperCase(), sellingPrice: 8 }] });
+    expect(pr.status, pr.body).toBe(200);
+    expect(await item(a)).toMatchObject({ qty: 4, cost: 2, price: 8 });
+  });
+
+  it.each([
+    ['a non-UUID id', (k: string) => [{ itemId: 'abc', v: 1 }, { itemId: k, v: 1 }]],
+    ['a non-string id', (k: string) => [{ itemId: [k], v: 1 }]],
+    ['the same item twice', (k: string) => [{ itemId: k, v: 1 }, { itemId: k.toUpperCase(), v: 2 }]],
+    ['a NaN amount', (k: string) => [{ itemId: k, v: 'abc' }]],
+    ['a negative amount', (k: string) => [{ itemId: k, v: -1 }]],
+    ['a missing amount', (k: string) => [{ itemId: k, v: null }]],
+  ])('%s is a 400 on both routes and nothing is written', async (_label, entries) => {
+    const known = await stockItem(c.fx.companyId, `BAD-${crypto.randomUUID().slice(0, 8)}`);
+    const rows = entries(known);
+    const ob = await callAs(c, token, openingBalances as Route, 'POST',
+      { items: rows.map((r) => ({ itemId: r.itemId, quantity: r.v, unitCost: 1 })) });
+    expect(ob.status, ob.body).toBe(400);
+    const pr = await callAs(c, token, pricing as Route, 'PUT',
+      { updates: rows.map((r) => ({ itemId: r.itemId, sellingPrice: r.v })) });
+    expect(pr.status, pr.body).toBe(400);
+    expect(await item(known)).toMatchObject({ qty: 1, cost: 10, price: 20 });
+  });
+
+  it('a batch over the cap is a 400', async () => {
+    const items = Array.from({ length: 501 }, () => ({ itemId: crypto.randomUUID(), quantity: 1, unitCost: 1 }));
+    const out = await callAs(c, token, openingBalances as Route, 'POST', { items });
+    expect(out.status, out.body).toBe(400);
+  });
 });

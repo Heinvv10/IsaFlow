@@ -5,13 +5,18 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sql, transaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { missingStockItemIds } from '@/modules/accounting/services/items/stockItemLookup';
+import {
+  describeMissing,
+  missingStockItemIds,
+  nonNegativeAmount,
+  stockItemBatchIds,
+} from '@/modules/accounting/services/items/stockItemLookup';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -39,31 +44,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, 'items array is required');
       }
 
-      for (const entry of items) {
-        if (!entry.itemId || entry.quantity == null || entry.unitCost == null) {
-          return apiResponse.badRequest(res, 'Each entry needs itemId, quantity, and unitCost');
-        }
+      // Everything is checked before the one UPDATE: withAuth commits a 4xx,
+      // and the count returned used to be the request's length even when an
+      // id matched no stock item of this company.
+      const batch = stockItemBatchIds(items.map((e) => e?.itemId));
+      if ('error' in batch) return apiResponse.badRequest(res, batch.error);
+      const quantities = items.map((e) => nonNegativeAmount(e.quantity));
+      const costs = items.map((e) => nonNegativeAmount(e.unitCost));
+      if (quantities.includes(null) || costs.includes(null)) {
+        return apiResponse.badRequest(res, 'Each entry needs a quantity and unitCost of zero or more');
       }
+      const missing = await missingStockItemIds(companyId, batch.ids);
+      if (missing.length > 0) return apiResponse.notFound(res, 'Stock item', describeMissing(missing));
 
-      // Every id must be one of this company's stock items before anything is
-      // written: the UPDATEs below match nothing for an unknown id, and the
-      // count returned used to be the request's length regardless.
-      const missing = await missingStockItemIds(companyId, items.map((e) => String(e.itemId)));
-      if (missing.length > 0) return apiResponse.notFound(res, 'Stock item', missing.join(', '));
+      const updated = (await sql`
+        UPDATE stock_items s
+        SET qty_available = v.qty, standard_cost = v.cost
+        FROM unnest(${batch.ids}::UUID[], ${quantities}::NUMERIC[], ${costs}::NUMERIC[]) AS v(id, qty, cost)
+        WHERE s.id = v.id AND s.company_id = ${companyId}::UUID
+        RETURNING s.id
+      `) as unknown[];
 
-      await transaction((txSql) =>
-        items.map((entry) =>
-          txSql`
-            UPDATE stock_items
-            SET qty_available = ${Number(entry.quantity)},
-                standard_cost = ${Number(entry.unitCost)}
-            WHERE id = ${entry.itemId} AND company_id = ${companyId}
-          `
-        )
-      );
-
-      log.info('Item opening balances set', { count: items.length });
-      return apiResponse.success(res, { updated: items.length });
+      log.info('Item opening balances set', { count: updated.length });
+      return apiResponse.success(res, { updated: updated.length });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to set opening balances';
       log.error('Item opening balances failed', { error: err });

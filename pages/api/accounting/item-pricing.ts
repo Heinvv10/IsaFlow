@@ -11,7 +11,12 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { missingStockItemIds } from '@/modules/accounting/services/items/stockItemLookup';
+import {
+  describeMissing,
+  missingStockItemIds,
+  nonNegativeAmount,
+  stockItemBatchIds,
+} from '@/modules/accounting/services/items/stockItemLookup';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const companyId = (req as CompanyAuthedRequest).companyId;
@@ -39,24 +44,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, 'updates array is required');
       }
 
-      for (const u of updates) {
-        if (!u.itemId || u.sellingPrice == null || Number(u.sellingPrice) < 0) {
-          return apiResponse.badRequest(res, 'Each entry needs itemId and non-negative sellingPrice');
-        }
-      }
+      // Everything is checked before the one UPDATE: withAuth commits a 4xx,
+      // so the old per-entry loop's 404 left the earlier prices written.
+      const batch = stockItemBatchIds(updates.map((u) => u?.itemId));
+      if ('error' in batch) return apiResponse.badRequest(res, batch.error);
+      const prices = updates.map((u) => nonNegativeAmount(u.sellingPrice));
+      if (prices.includes(null)) return apiResponse.badRequest(res, 'Each entry needs a sellingPrice of zero or more');
+      const missing = await missingStockItemIds(companyId, batch.ids);
+      if (missing.length > 0) return apiResponse.notFound(res, 'Stock item', describeMissing(missing));
 
-      // Refuse before the first UPDATE: withAuth commits a 4xx, so a 404 raised
-      // inside the loop left the earlier prices written.
-      const missing = await missingStockItemIds(companyId, updates.map((u) => String(u.itemId)));
-      if (missing.length > 0) return apiResponse.notFound(res, 'Stock item', missing.join(', '));
+      const updated = (await sql`
+        UPDATE stock_items s
+        SET list_price = v.price
+        FROM unnest(${batch.ids}::UUID[], ${prices}::NUMERIC[]) AS v(id, price)
+        WHERE s.id = v.id AND s.company_id = ${companyId}::UUID
+        RETURNING s.id
+      `) as unknown[];
 
-      for (const u of updates) {
-        const priceUpdate = await sql`UPDATE stock_items SET list_price = ${Number(u.sellingPrice)} WHERE id = ${u.itemId} AND company_id = ${companyId} RETURNING id`;
-        if (priceUpdate.length === 0) return apiResponse.notFound(res, 'Stock item', u.itemId);
-      }
-
-      log.info('Selling prices updated', { count: updates.length });
-      return apiResponse.success(res, { updated: updates.length });
+      log.info('Selling prices updated', { count: updated.length });
+      return apiResponse.success(res, { updated: updated.length });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update prices';
       log.error('Item pricing update failed', { error: err });
