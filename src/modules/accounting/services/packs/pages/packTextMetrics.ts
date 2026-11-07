@@ -37,25 +37,46 @@
  * type scale, transcribed. A CSS change that moves a line-height moves this
  * file too — which is what the measurement test exists to force.
  */
-import { PDF_MARGIN_MM } from '@/lib/pdf/pdfTransport';
 
 export const PT_MM = 25.4 / 72;
 
-/** The box one sheet gives a page, and the measure its text is set across —
- *  A4 in both orientations, less the margins the transports pass. The same
- *  arithmetic `.pack-page`'s `min-height` states in CSS, off the same single
- *  source of truth for the margin. */
-export const PAGE_BOX_MM = {
-  portrait: 297 - PDF_MARGIN_MM.top - PDF_MARGIN_MM.bottom,
-  landscape: 210 - PDF_MARGIN_MM.top - PDF_MARGIN_MM.bottom,
-} as const;
+export type PageOrientation = 'portrait' | 'landscape';
 
-export const PAGE_WIDTH_MM = {
-  portrait: 210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right,
-  landscape: 297 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right,
-} as const;
+/**
+ * THE BOX PRODUCTION PRINTS A PAGE'S CONTENT IN, IN CSS PIXELS, measured in its Gotenberg image through the pack
+ * stylesheet (its `@page` rules) and the transports' margins, with the pack's faces loaded, and identical in Playwright's
+ * own PDF (`tests/unit/printParity/packPrintContentWidth.test.ts` and `tests/unit/print/packPrintContentWidth.test.ts`):
+ *  - WIDTH, the measure lines break at: 658 portrait, 987 landscape (not 174mm = 657.6, nor 261mm = 986.5). A line
+ *    wraps in the PDF exactly where it wraps in a page laid out this wide, to 1/64px;
+ *  - CONTAINER WIDTH, what a container query in the same print reads the content box as: 1/64px more, 658.015625 /
+ *    987.015625. Every size the stylesheet takes from `100cqw` is that much of it, so a model of such a size uses it;
+ *  - HEIGHT: 966 portrait, 637 landscape (255mm is 963.78, 168mm 634.96). A 1px line fits under a block 965px tall and
+ *    spills to a second sheet under one 1/64px taller.
+ * The page-fit models read them in millimetres: PAGE_BOX_MM, PAGE_WIDTH_MM, CONTAINER_WIDTH_MM.
+ */
+export const PRINT_CONTENT_PX: Readonly<Record<PageOrientation, number>> = { portrait: 658, landscape: 987 };
+export const PRINT_CONTAINER_PX: Readonly<Record<PageOrientation, number>> = { portrait: 658.015625, landscape: 987.015625 };
+export const PRINT_CONTENT_HEIGHT_PX: Readonly<Record<PageOrientation, number>> = { portrait: 966, landscape: 637 };
 
-export type PageOrientation = keyof typeof PAGE_BOX_MM;
+const MM_PER_PX = 25.4 / 96;
+
+/** The box one sheet gives a page, in millimetres: `PRINT_CONTENT_HEIGHT_PX`, what fits before a sheet spills. */
+export const PAGE_BOX_MM: Readonly<Record<PageOrientation, number>> = {
+  portrait: PRINT_CONTENT_HEIGHT_PX.portrait * MM_PER_PX,
+  landscape: PRINT_CONTENT_HEIGHT_PX.landscape * MM_PER_PX,
+};
+
+/** The measure a page's text is set across, in millimetres: `PRINT_CONTENT_PX`, the width lines break at. */
+export const PAGE_WIDTH_MM: Readonly<Record<PageOrientation, number>> = {
+  portrait: PRINT_CONTENT_PX.portrait * MM_PER_PX,
+  landscape: PRINT_CONTENT_PX.landscape * MM_PER_PX,
+};
+
+/** The width a container query reads the content as, in millimetres (`PRINT_CONTAINER_PX`): what `100cqw` is. */
+export const CONTAINER_WIDTH_MM: Readonly<Record<PageOrientation, number>> = {
+  portrait: PRINT_CONTAINER_PX.portrait * MM_PER_PX,
+  landscape: PRINT_CONTAINER_PX.landscape * MM_PER_PX,
+};
 
 /**
  * HOW WIDE A CHARACTER OF IBM PLEX SANS IS, in ems of the type size.

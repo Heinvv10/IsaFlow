@@ -14,10 +14,20 @@ import path from 'path';
 // static job that runs `unit-tests`. There they would skip (soffice:
 // describe.skipIf) or fail (PG16's initdb at /usr/lib/postgresql/16/bin; nginx,
 // which fails when GITHUB_ACTIONS is set) instead of testing anything.
+//
+// The printParity files are different: they need the PRODUCTION Gotenberg
+// image, which only velo has. Inside GitHub Actions (hosted, or velo's
+// self-hosted runner, whose user has no docker access) they skip and name the
+// cause (`tests/unit/printParity/paritySkip.ts`); they really run only on velo:
+// a local `bun run ci` (and so the pre-push hook) and by hand. Outside Actions a
+// missing image fails them, unless PARITY_OPTIONAL=1. Re-run them whenever the
+// gotenberg image or the pack's fonts change.
 export const VELO_MACHINE_FILES = [
   'tests/unit/lib/xlsxNormaliseScanNames.test.ts', // /usr/bin/soffice (LibreOffice)
   'tests/unit/ci/integrationLifecycle.test.ts', // PostgreSQL 16 initdb/pg_ctl
   'tests/unit/scripts/blueGreenNginx.test.ts', // /usr/sbin/nginx
+  'tests/unit/printParity/packEngineParity.test.ts', // docker + the production Gotenberg image, pdftotext (velo)
+  'tests/unit/printParity/packPrintContentWidth.test.ts', // the same
 ];
 
 export default defineConfig(({ mode }) => {
@@ -31,6 +41,7 @@ export default defineConfig(({ mode }) => {
         DATABASE_URL: env['DATABASE_URL'] ?? 'postgresql://dummy:dummy@dummy/test',
       },
       include: ['tests/unit/print/**/*.test.ts', ...VELO_MACHINE_FILES],
+      setupFiles: ['tests/unit/print/support/printChromiumGuard.ts'],
       fileParallelism: false,
       testTimeout: 120_000,
       hookTimeout: 120_000,

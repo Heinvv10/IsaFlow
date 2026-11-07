@@ -17,7 +17,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { bundlePrintPages } from './support/bundlePrintPages';
 import { DEMO, printLegacyPack } from './support/printLegacyPack';
 import type { ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
@@ -36,7 +37,7 @@ let bundle: string;
 let dir: string;
 beforeAll(async () => {
   bundle = await bundlePrintPages();
-  browser = await chromium.launch();
+  browser = await launchPrintChromium();
   dir = mkdtempSync(path.join(tmpdir(), 'pack-fonts-'));
 }, 180_000);
 afterAll(async () => {
