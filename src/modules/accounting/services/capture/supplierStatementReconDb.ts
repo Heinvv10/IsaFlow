@@ -227,7 +227,7 @@ export async function fetchFullReconciliation(
   // Not measured when the supplier row is gone: the ageing refuses an unknown supplier with no open bill, and an
   // optional figure must not fail the whole read.
   const openingBalance = opening.size > 0 && view.statementDate && header.supplier_row_id
-    ? await measureOpeningBalance(companyId, header.supplier_id as string, view.statementDate,
+    ? await measureOpeningBalance(companyId, header.supplier_id as string,
       lines.map((l) => ({
         date: l.lineDate, reference: l.reference, description: l.description,
         debit: l.debit, credit: l.credit, runningBalance: l.runningBalance,

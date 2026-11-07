@@ -43,7 +43,7 @@ export function openingLineAmount(l: { debit: number; credit: number; runningBal
 }
 
 export interface OpeningBalanceCheck {
-  /** The day IsaFlow's side is measured at: the day before the first dated transaction line. */
+  /** The day IsaFlow's side is measured at: the day before the first dated transaction line (else the B/F's date). */
   asAt: string;
   /** The statement's brought-forward figure: its opening line(s), debit less credit (else running balance). */
   statementAmount: number;
@@ -61,13 +61,12 @@ export interface OpeningBalanceCheck {
 export async function measureOpeningBalance(
   companyId: string,
   supplierId: string,
-  statementDate: string,
   lines: (ClassifiableLine & { debit: number; credit: number; runningBalance: number | null })[],
 ): Promise<OpeningBalanceCheck | null> {
   const opening = openingBalanceIndexes(lines);
   if (opening.size === 0) return null;
   const statementAmount = Math.round([...opening].reduce((s, i) => s + openingLineAmount(lines[i]!), 0) * 100) / 100;
-  const asAt = openingBalanceAsAt(lines, opening, statementDate);
+  const asAt = openingBalanceAsAt(lines, opening);
   const { isaflowBalance, variance } = await measureOurSide(companyId, supplierId, asAt, statementAmount);
   return { asAt, statementAmount, isaflowBalance, variance };
 }

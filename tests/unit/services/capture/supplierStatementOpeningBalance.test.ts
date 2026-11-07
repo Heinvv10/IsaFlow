@@ -74,6 +74,22 @@ describe('openingBalanceIndexes', () => {
     ])).toEqual(new Set([0]));
   });
 
+  it('two worded lines on the first transaction\'s day cannot be told apart: neither qualifies', () => {
+    expect(openingBalanceIndexes([
+      { date: '2026-10-01', reference: null, description: 'Balance brought forward' },
+      { date: '2026-10-01', reference: 'INV-1', description: 'Tax invoice' },
+      { date: '2026-10-01', reference: null, description: 'Balance brought forward' },
+    ])).toEqual(new Set());
+  });
+
+  it('with only worded dated lines, a later carry-forward does not qualify', () => {
+    expect(openingBalanceIndexes([
+      { date: '2026-10-01', reference: null, description: 'Balance b/f' },
+      { date: '2026-10-20', reference: null, description: 'Balance brought forward' },
+      { date: null, reference: 'INV-1', description: 'Tax invoice' },
+    ])).toEqual(new Set([0]));
+  });
+
   it('a B/F dated the same day as the first transaction still qualifies', () => {
     expect(openingBalanceIndexes([
       { date: '2026-02-05', reference: null, description: 'Opening balance' },
@@ -89,7 +105,7 @@ describe('openingBalanceAsAt', () => {
       { date: '2026-03-01', reference: 'INV-1', description: 'Tax invoice' },
       { date: '2026-02-05', reference: 'INV-2', description: 'Tax invoice' },
     ];
-    expect(openingBalanceAsAt(lines, openingBalanceIndexes(lines), '2026-10-31')).toBe('2026-02-04');
+    expect(openingBalanceAsAt(lines, openingBalanceIndexes(lines))).toBe('2026-02-04');
   });
 
   it('crosses a month and a year boundary', () => {
@@ -97,12 +113,15 @@ describe('openingBalanceAsAt', () => {
       { date: '2025-12-31', reference: null, description: 'Opening balance' },
       { date: '2026-01-01', reference: 'INV-1', description: 'Tax invoice' },
     ];
-    expect(openingBalanceAsAt(lines, openingBalanceIndexes(lines), '2026-10-31')).toBe('2025-12-31');
+    expect(openingBalanceAsAt(lines, openingBalanceIndexes(lines))).toBe('2025-12-31');
   });
 
-  it('with no transaction line it is the statement date', () => {
-    const lines = [{ date: '2026-01-01', reference: null, description: 'Opening balance' }];
-    expect(openingBalanceAsAt(lines, openingBalanceIndexes(lines), '2026-10-31')).toBe('2026-10-31');
+  it('with no dated transaction line it is the day before the opening line', () => {
+    const lines = [
+      { date: '2026-01-01', reference: null, description: 'Opening balance' },
+      { date: null, reference: 'INV-1', description: 'Tax invoice' },
+    ];
+    expect(openingBalanceAsAt(lines, openingBalanceIndexes(lines))).toBe('2025-12-31');
   });
 });
 

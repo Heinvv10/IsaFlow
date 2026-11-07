@@ -50,27 +50,31 @@ function firstDate(lines: ClassifiableLine[], exclude: (i: number) => boolean): 
   return first;
 }
 
-/** Indexes of the statement's opening-balance line(s). */
+/**
+ * Indexes of the statement's opening-balance line(s): the worded lines on the earliest worded date, when that date
+ * is before the first dated transaction (or there is none). On the SAME day as the first transaction they qualify
+ * only when there is exactly one: two worded lines that day (a B/F and a page carry-forward) cannot be told apart,
+ * because stored lines carry no order within a day, so neither qualifies and both stay visible (fail-safe).
+ * Undated lines cannot be placed and are ignored for position.
+ */
 export function openingBalanceIndexes(lines: ClassifiableLine[]): Set<number> {
-  // On or before the first dated transaction; with no dated transaction, only the earliest worded line(s), so a
-  // later carry-forward never qualifies. Undated lines cannot be placed and are ignored for position.
-  const limit = firstDate(lines, (i) => worded(lines[i]!)) ?? firstDate(lines, (i) => !worded(lines[i]!));
-  const out = new Set<number>();
-  lines.forEach((l, i) => {
-    const d = day(l.date);
-    if (d && limit && worded(l) && d <= limit) out.add(i);
-  });
-  return out;
+  const earliestWorded = firstDate(lines, (i) => !worded(lines[i]!));
+  if (!earliestWorded) return new Set();
+  const firstTransaction = firstDate(lines, (i) => worded(lines[i]!));
+  const candidates = lines.flatMap((l, i) => (worded(l) && day(l.date) === earliestWorded ? [i] : []));
+  if (firstTransaction !== null && earliestWorded > firstTransaction) return new Set();
+  if (firstTransaction === earliestWorded && candidates.length > 1) return new Set();
+  return new Set(candidates);
 }
 
 /**
  * The date IsaFlow's side of the opening balance is measured at: the day before the first dated transaction
- * line (the supplier's balance then is its brought-forward figure), or the statement date when the statement
- * has no dated transaction line.
+ * line (the supplier's balance then is its brought-forward figure). With no dated transaction line, the day
+ * before the opening line's own date.
  */
-export function openingBalanceAsAt(lines: ClassifiableLine[], opening: Set<number>, statementDate: string): string {
-  const first = firstDate(lines, (i) => opening.has(i));
-  if (!first) return statementDate;
+export function openingBalanceAsAt(lines: ClassifiableLine[], opening: Set<number>): string {
+  const first = firstDate(lines, (i) => opening.has(i)) ?? firstDate(lines, (i) => !opening.has(i));
+  if (!first) throw new Error('openingBalanceAsAt needs a dated line');
   const d = new Date(`${first}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
