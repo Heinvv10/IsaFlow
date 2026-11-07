@@ -18,6 +18,8 @@ import { serialisePackPagesDocument } from '@/modules/accounting/services/packs/
 import { demoInput } from '../../services/packs/fixtures/boardPackInputs';
 import { storedBeforeStampedFits } from '../../services/packs/fixtures/storedBeforeStampedFits';
 import { PackPagesPrintPage } from '@/components/accounting/packs/PackPagesPrintPage';
+import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
+import type { StampedPackPagesDocument } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 
 const attr = () => document.documentElement.getAttribute('data-print-error-pages');
 const fontsAttr = () => document.documentElement.getAttribute('data-print-error-fonts');
@@ -50,7 +52,32 @@ describe('PackPagesPrintPage when the pages fetch fails', () => {
     const body = JSON.stringify({ data: storedBeforeStampedFits() });
     vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200, headers: { 'content-type': 'application/json' } })));
     render(<PackPagesPrintPage packType="board" from="2026-01-01" to="2026-08-31" />);
-    await waitFor(() => expect(attr()).toMatch(/^pages: .*without the figure size the server decided/));
+    await waitFor(() => expect(attr()).toMatch(/^pages: .*without a printable figure size the server decided/));
+  });
+
+  it.each([
+    ['a fit that does not fit', { px: 10, fits: false }],
+    ['a size below the floor', { px: 9, fits: true }],
+    ['the ordinary size stated as a size', { px: 12, fits: true }],
+    ['a fractional size', { px: 10.5, fits: true }],
+  ])('marks a pack whose table carries %s: it is refused, never printed', async (what, figureFit) => {
+    const wire = JSON.parse(JSON.stringify(serialisePackPagesDocument(buildBoardPackPages(demoInput)))) as { pages: Array<{ blocks: Array<{ kind: string; table?: { figureFit?: unknown } }> }> };
+    const block = wire.pages.flatMap((p) => p.blocks).find((b) => b.kind === 'table')!;
+    block.table!.figureFit = figureFit;
+    const body = JSON.stringify({ data: wire });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200, headers: { 'content-type': 'application/json' } })));
+    render(<PackPagesPrintPage packType="board" from="2026-01-01" to="2026-08-31" />);
+    await waitFor(() => expect(attr()).toMatch(/^pages: .*refusing a statement table without a printable figure size/));
+  });
+
+  it('a document that reaches the view without its fits (by any road but the adopter) renders no pages and says why', async () => {
+    const doc = buildBoardPackPages(demoInput);
+    const kpi = doc.pages.flatMap((p) => p.blocks).find((b) => b.kind === 'kpiTiles')!;
+    if (kpi.kind === 'kpiTiles') delete (kpi as { fit?: unknown }).fit;
+    const { container } = render(<PackPagesView document={doc as StampedPackPagesDocument} />);
+    await waitFor(() => expect(attr()).toMatch(/^pages: page \d+: a KPI row without a printable figure size \(null\)/));
+    expect(container.querySelectorAll('.pack-page').length).toBe(0);
+    expect(container.querySelector('[data-print-ready="false"]')).not.toBeNull();
   });
 
   it('marks a network failure', async () => {

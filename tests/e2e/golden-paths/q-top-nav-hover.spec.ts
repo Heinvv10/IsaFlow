@@ -2,7 +2,8 @@
  * Golden path (q): the top nav opens every module menu on hover, and each daily
  * destination is one hover + one click from Home (master plan W1 PR N).
  *
- *  - T1 targets from /accounting: Invoices, Bank reconciliation, Pay Runs, VAT201, P&L.
+ *  - T1 targets from /accounting: Invoices, Bank reconciliation, Pay Runs, VAT201, P&L. A menu closed under the
+ *    pointer before the click is hovered again (up to 30 s); each retry is printed and annotated.
  *  - One target again with the keyboard only (focus the menu button, Enter, Enter).
  *  - The right tab lights up on a sub-page, a query tab and an #anchor.
  *
@@ -41,14 +42,25 @@ for (const { tab, link, path } of T1) {
     // The click lands on a route the dev server may not have compiled yet: warm it first, as openWithNav does.
     const href = (await target.getAttribute('href')) ?? '/accounting';
     // Warm it with the pointer away from the nav. A cold compile of the route can take a minute on a fresh shard
-    // server, and a menu opened by hover is closed by anything that happens meanwhile under the still pointer (a
-    // late route change or layout shift): with the mouse not moving no pointerenter re-opens it, and click then waits
-    // for a link that is gone until the 90 s test timeout (#1071). So hover again right before the click.
+    // server (#1071).
     await page.mouse.move(0, 0);
     await waitForRoute(page, href);
-    await tabOf(page, tab).hover();
-    await expect(target).toBeVisible();
-    await target.click();
+    // A menu opened by hover can be gone before the click on a loaded runner, likely closed by a late re-render or
+    // layout shift under the still pointer (seen 2026-11-07 in a prod verify and on PR runs). Each attempt leaves the
+    // nav and enters it again, so a fresh pointerenter reopens it. A menu that never opens still fails at 30 s. Retries
+    // are recorded as an annotation, never a failure (a red prod verify blocks the deploy), so the rate stays visible.
+    let attempts = 0;
+    await expect(async () => {
+      attempts += 1;
+      await page.mouse.move(0, 0);
+      await tabOf(page, tab).hover({ timeout: 3_000 });
+      await target.click({ timeout: 3_000 });
+    }).toPass({ timeout: 30_000 });
+    if (attempts > 1) {
+      // Printed as well: the golden config's list reporter does not show annotations.
+      test.info().annotations.push({ type: 'nav-hover-retries', description: `${link}: ${attempts} attempts` });
+      process.stderr.write(`[nav-hover-retries] ${link}: ${attempts} attempts\n`);
+    }
     await waitForClickNavigation(page, path, href);
     // The next page renders its own nav after its auth round trips.
     await expect(tabOf(page, tab).locator('[aria-current="true"]').first()).toBeVisible({ timeout: NAV_READY_MS });

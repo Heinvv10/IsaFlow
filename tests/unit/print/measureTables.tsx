@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { Browser } from 'playwright';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
-import { PRINT_CONTENT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { PRINT_CONTENT_PX, type PageOrientation } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { printStylesheet } from './renderPackPdf';
 
 const ROOT = path.resolve(__dirname, '../../..');
@@ -32,11 +32,12 @@ export interface PrintedTable {
   heightMm: number;
 }
 
-export async function measureTables(document: PackPagesDocument, browser: Browser): Promise<PrintedTable[]> {
+/** `orientation`: the width every page is laid out at (a landscape page's tables are measured at the landscape width). */
+export async function measureTables(document: PackPagesDocument, browser: Browser, orientation: PageOrientation = 'portrait'): Promise<PrintedTable[]> {
   const body = renderToStaticMarkup(<PackPagesView document={document} />);
   const html = '<!doctype html><html class="print-mode"><head><meta charset="utf-8">'
     + `<style>${printStylesheet()}</style></head><body>${body}</body></html>`;
-  const page = await browser.newPage({ viewport: { width: Math.ceil(PRINT_CONTENT_PX.portrait) + 1, height: 1000 } });
+  const page = await browser.newPage({ viewport: { width: Math.ceil(PRINT_CONTENT_PX[orientation]) + 1, height: 1000 } });
   try {
     await page.route(`${HOST}**`, async (route) => {
       const url = new URL(route.request().url());
@@ -52,9 +53,9 @@ export async function measureTables(document: PackPagesDocument, browser: Browse
       await Promise.all([400, 500, 600].map((w) => document.fonts.load(`${w} 16px "IBM Plex Sans"`)));
       await document.fonts.ready;
     });
-    // Production prints a page's content PRINT_CONTENT_PX wide (658px, measured in its Gotenberg image; not
-    // 174mm = 657.6). A viewport is whole pixels, so the root is set to it inside one a pixel wider.
-    await page.evaluate((w) => { document.documentElement.style.width = `${w}px`; }, PRINT_CONTENT_PX.portrait);
+    // Production prints a page's content PRINT_CONTENT_PX wide (658px portrait, 987px landscape, measured in its
+    // Gotenberg image; not 174mm = 657.6). A viewport is whole pixels, so the root is set to it inside one a pixel wider.
+    await page.evaluate((w) => { document.documentElement.style.width = `${w}px`; }, PRINT_CONTENT_PX[orientation]);
     return await page.evaluate((pxMm) => {
       const linesOf = (cell: Element | undefined): number => {
         const text = cell === undefined ? null : Array.from(cell.childNodes).find((n) => n.nodeType === 3);

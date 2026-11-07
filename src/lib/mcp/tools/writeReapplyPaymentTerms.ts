@@ -33,7 +33,7 @@ export const reapplyPaymentTermsTool: McpTool = {
     + 'ALWAYS preview first (dry_run true; writes nothing) and show the person the rows. Then call again with '
     + 'dry_run false and send back ONLY the rows the person confirmed, each as its preview row\'s invoice_id, new_due_date '
     + '(as due_date), current_due_date and current_source. Rows with preselected=false '
-    + '(the date was set by hand or came from the document, or the supplier is on the old stamped default of 30 days) '
+    + '(the date was set by hand or came from the document) '
     + 'must NOT be sent unless the person explicitly ticked them. Each bill is re-checked under lock when applied and '
     + 'skipped with a reason (not_found, not_open, date_changed, terms_not_set, terms_changed, already_dated) if its '
     + 'due date or its source, its terms or its status changed since the preview: a date set by hand since then is never overwritten. A written bill\'s due-date source becomes "terms". Previews list at most '

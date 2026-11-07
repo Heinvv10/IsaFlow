@@ -21,20 +21,35 @@
  *    meets the cluster BEFORE it as its first code point and the one AFTER it as its last (past the marks, selectors,
  *    skin tones and tags that extend it): a head shaking sideways (U+1F642 ZWJ U+2194 U+FE0F) ends in an arrow,
  *    which holds the letters after it, and nothing breaks after a joiner;
+ *  - after a zero-width space (U+200B, a run of them), and after a soft hyphen (U+00AD), unless the character after it
+ *    holds to it (`packSoftBreakRanges.ts`, scanned in Chromium); never BEFORE either. A line that ends at a soft hyphen
+ *    sets a visible hyphen (U+2010), as it does where a soft hyphen ends a word before a space or an ideographic space,
+ *    and not where the break falls after a zero-width space, another space or a mark that follows it: `Piece.hyphen`.
+ *    A word starts after either (a hyphen after one breaks before a letter, not a digit). The line and paragraph
+ *    separators always break after them;
  *  - NOT after a slash, dot, comma, colon, ampersand or plus, and not inside a run of ordinary letters.
- * It errs towards FEWER breaks only where Chromium has none, never more: a piece the model leaves whole that Chromium
- * breaks is a row refused that would have fitted, a piece the model breaks that Chromium keeps would be a row passed
- * that overflows.
+ * It breaks exactly where Chromium does: a piece the model leaves whole that Chromium breaks is a row refused that would
+ * have fitted (and a line count short), a piece the model breaks that Chromium keeps would be a row passed that
+ * overflows.
  */
 import { breaksBetween } from './packBreakRanges';
+import { holdsAfterSoftHyphen, holdsAfterZeroWidthSpace } from './packSoftBreakRanges';
 
-export interface Piece { text: string; spaced: boolean }
+/**
+ * A piece of text no line breaks inside. `spaced`: the first piece of every word after the first. `hyphen`: a line
+ * that ends after this piece shows a hyphen (it ends at a soft hyphen), which adds the hyphen's width to that line.
+ */
+export interface Piece { text: string; spaced: boolean; hyphen: boolean }
 
 const HYPHEN = '-';
 const EN_DASH = '–';
 const EM_DASH = '—';
 
 const ZWJ = '\u200D';
+const SOFT_HYPHEN = '\u00AD';
+const ZWSP = '\u200B';
+/** The one break-after space a soft hyphen before it still shows its hyphen at (the others drop it). */
+const IDEOGRAPHIC_SPACE = '\u3000';
 /** The space separators Chromium breaks after, keeping them on the line they end (they do not hang). */
 const BREAK_AFTER_SPACE = /^[\u1680\u2000-\u2006\u2008-\u200A\u2028\u2029\u205F\u3000]$/u;
 /** The white space CSS collapses: the only separators a break consumes. */
@@ -89,15 +104,58 @@ const breaksBetweenClusters = (cluster: string, next: string): boolean => {
   return isAffix(before) && isAffix(after);
 };
 
+/** A soft hyphen with the marks after it (Chromium breaks after the marks, and shows no hyphen there). */
+const isSoftHyphen = (cluster: string): boolean => cluster.startsWith(SOFT_HYPHEN);
+
+/** `word`'s grapheme clusters, a soft hyphen taking the combining marks after it. */
+function wordClusters(word: string): string[] {
+  const out: string[] = [];
+  for (const cluster of clustersOf(word)) {
+    const last = out[out.length - 1];
+    if (last !== undefined && isSoftHyphen(last) && /^\p{M}+$/u.test(cluster)) out[out.length - 1] = last + cluster;
+    else out.push(cluster);
+  }
+  return out;
+}
+
+/** The cluster the rules see before `clusters[i]`: after a soft hyphen or a zero-width space, a word starts. */
+const previousOf = (clusters: readonly string[], i: number): string | undefined => {
+  const prev = clusters[i - 1];
+  return prev === undefined || prev === ZWSP || isSoftHyphen(prev) ? undefined : prev;
+};
+
+/** The line and paragraph separators: a line always ends after one. */
+const MANDATORY = /^[\u2028\u2029]$/;
+
+/**
+ * Does Chromium break between `cluster` and `next` for a soft hyphen or a zero-width space (or a separator that always
+ * breaks)? Null: none of them decides.
+ */
+function softBreak(cluster: string, next: string): boolean | null {
+  if (MANDATORY.test(cluster)) return true;
+  if (cluster === ZWSP) return !holdsAfterZeroWidthSpace(next.codePointAt(0)!);
+  if (isSoftHyphen(cluster)) return !holdsAfterSoftHyphen(next.codePointAt(0)!);
+  if (next === ZWSP || isSoftHyphen(next)) return false;
+  return null;
+}
+
 /** The pieces of one word. */
 function wordPieces(word: string): string[] {
   const pieces: string[] = [];
   let start = 0;
-  const clusters = clustersOf(word);
+  const clusters = wordClusters(word);
   clusters.forEach((cluster, i) => {
     const next = clusters[i + 1];
     if (next === undefined) return;
-    const prev = clusters[i - 1];
+    const soft = softBreak(cluster, next);
+    if (soft !== null) {
+      if (soft) {
+        pieces.push(clusters.slice(start, i + 1).join(''));
+        start = i + 1;
+      }
+      return;
+    }
+    const prev = previousOf(clusters, i);
     // After a word, a hyphen breaks before a word, another hyphen or an em dash; one that opens the word or follows
     // another breaks before a letter (not a digit: "-5" is a sign).
     const afterHyphen = cluster === HYPHEN && (isWordCluster(prev)
@@ -116,8 +174,13 @@ function wordPieces(word: string): string[] {
   return pieces;
 }
 
-/** `text` as its pieces, in order; `spaced` is true for the first piece of every word after the first. */
+/** Does a line that ends after `piece` show a hyphen? It ends at a soft hyphen (or one and ideographic spaces). */
+const endsAtSoftHyphen = (piece: string): boolean => piece.replace(new RegExp(`${IDEOGRAPHIC_SPACE}+$`, 'u'), '').endsWith(SOFT_HYPHEN);
+
+/** `text` as its pieces, in order. The last piece ends no line before the text does, so it shows no hyphen. */
 export function pieces(text: string): Piece[] {
-  return text.split(COLLAPSIBLE).filter((word) => word !== '').flatMap((word, wi) => wordPieces(word)
-    .map((piece, pi) => ({ text: piece, spaced: wi > 0 && pi === 0 })));
+  const out = text.split(COLLAPSIBLE).filter((word) => word !== '').flatMap((word, wi) => wordPieces(word)
+    .map((piece, pi) => ({ text: piece, spaced: wi > 0 && pi === 0, hyphen: endsAtSoftHyphen(piece) })));
+  if (out.length > 0) out[out.length - 1] = { ...out[out.length - 1]!, hyphen: false };
+  return out;
 }

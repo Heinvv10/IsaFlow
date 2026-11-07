@@ -14,7 +14,7 @@ interface Props {
 function NoteTableBlock({ table }: { table: NoteTable }) {
   return (
     <div className="overflow-x-auto mt-3 mb-2">
-      <table className="w-full text-xs border-collapse border border-slate-300 dark:border-slate-700">
+      <table className="w-full text-xs border-collapse border border-slate-300 dark:border-slate-700" data-density-exempt>
         <thead>
           <tr className="bg-slate-200 dark:bg-slate-700">
             {table.headers.map((h, i) => (

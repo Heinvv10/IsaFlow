@@ -34,6 +34,7 @@ import {
   PACK_FOOTER_FACE_FILE, PACK_FOOTER_FONT_FAMILY, packFooterFaceCss,
 } from '@/lib/charts/packFont';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { LAST_GLYPH_PX } from './support/lastGlyph';
 
 const ROOT = path.resolve(__dirname, '../../..');
 const HOST = 'http://pack.print.local/';
@@ -136,7 +137,10 @@ export interface PrintedPack {
   /**
    * Every page's room to spare at its right edge, to the subpixel: the content width less how far right any box on it
    * reaches (negative: past the edge). `overflow` reads whole pixels (`scrollWidth`), so a row a fraction of a pixel
-   * past the edge is in this and not in that.
+   * past the edge is in this and not in that. A box that holds text directly (an inline box: a line of a label, a
+   * reason, a figure) is allowed exactly `LAST_GLYPH_PX` past the edge and no more (`support/lastGlyph.ts`): Chromium
+   * lets a line's last glyph reach that far past the box it is set in, and it is not a row past the edge. A block box
+   * is allowed nothing.
    */
   spare: Array<{ id: string; px: number }>;
   /**
@@ -309,7 +313,7 @@ export async function printBoardPack(
     `<style>${printStylesheet()}</style></head><body>${body}</body></html>`;
 
   // The page is laid out at the width PRODUCTION prints its content at
-  // (`PRINT_CONTENT_PX`: 658px, 987 landscape, measured in its Gotenberg image), not a
+  // (`PRINT_CONTENT_PX`: 658px portrait, measured in its Gotenberg image), not a
   // screen's: measured at 1280px the pages wrap differently and every height
   // read back is a height no sheet ever has. A viewport is a whole number of
   // pixels, so the root is set to that width inside a viewport a pixel wider.
@@ -365,12 +369,14 @@ export async function printBoardPack(
       }
       return out;
     }, { portrait: PRINT_CONTENT_PX.portrait, landscape: PRINT_CONTENT_PX.landscape });
-    const spare = await page.evaluate((limit) => Array.from(document.querySelectorAll('.pack-page:not([data-print-landscape])')).map((el) => {
+    const spare = await page.evaluate(({ limit, glyph }) => Array.from(document.querySelectorAll('.pack-page:not([data-print-landscape])')).map((el) => {
       const left = el.getBoundingClientRect().left;
-      const reach = Math.max(...Array.from(el.querySelectorAll('*')).map((child) => child.getBoundingClientRect().right - left));
+      // An inline box's reach is less the last glyph's allowance; a block's is its own.
+      const reach = Math.max(...Array.from(el.querySelectorAll('*')).map((child) => child.getBoundingClientRect().right - left
+        - (getComputedStyle(child).display === 'inline' ? glyph : 0)));
       // Boxes are read back in single precision: a millionth of a pixel either way is that, not a layout unit.
       return { id: (el as HTMLElement).id || 'page', px: Math.round((limit - reach) * 1024) / 1024 };
-    }), PRINT_CONTENT_PX.portrait);
+    }), { limit: PRINT_CONTENT_PX.portrait, glyph: LAST_GLYPH_PX });
 
     const measure = (mmPerPx: { px: number; portrait: number; landscape: number }) =>
       Array.from(document.querySelectorAll('.pack-page')).map((el) => {

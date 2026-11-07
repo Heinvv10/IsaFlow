@@ -12,11 +12,10 @@
 import { formatFigureText } from './packFigureText';
 import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import { FootnoteMarker } from './FootnoteMarker';
-import { fitAttributes } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
+import { fitAttributes, type StampedPackTable } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import type { MoneyScale } from '@/lib/format/money';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packBlockModel';
 import type {
-  PackTable,
   PackTableColumnKey,
   PackTableRow,
 } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -36,7 +35,8 @@ const INDENT_MM_PER_LEVEL = 4;
 const ZEBRA_ROW_THRESHOLD = 12;
 
 export interface ComparativeTableProps {
-  table: PackTable;
+  /** With the figure size the server decided (`packFigureFitStamp`): there is no default. */
+  table: StampedPackTable;
   /** The document's `numberConvention.scale`. Required: this table prints
    *  `table.scale` as its caption, so cells formatted at any other scale
    *  contradict the header above them by a factor of a thousand. */
@@ -86,8 +86,8 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
 
   // Whether the figures fit the sheet at their ordinary size, and the smaller one that fits where they do not
   // (see `packFigureFit`): nothing is set for a table that fits, so its markup is what it always was.
-  // The size the server decided (`packFigureFitStamp`); none: the ordinary size (a document over the wire has one).
-  const fit = fitAttributes(table.figureFit ?? { px: null, fits: true });
+  // The size the server decided (`packFigureFitStamp`); there is no default (a table without one throws here).
+  const fit = fitAttributes(table.figureFit, 'table');
   const tableClass = [isLong ? 'pack-table is-long' : 'pack-table', fit.className].filter(Boolean).join(' ');
 
   return (

@@ -1,0 +1,42 @@
+{
+  "id": "statutory-2027-bracket-36pct-55000",
+  "source": "sars-guide:SARS rates of tax for individuals, 2027 tax year (1 March 2026 - 28 February 2027)",
+  "sourceRef": "https://www.sars.gov.za/tax-rates/income-tax/rates-of-tax-for-individuals/",
+  "notes": "Salary only, under 65, first period (x12). 55 000 x 12 = 660 000 (36% band 530 201 - 695 800): 125 599 + 36% x (660 000 - 530 200) = 125 599 + 46 728 = 172 327 - 17 820 = 154 507 / 12 = 12 875.583 -> 12 875.58. UIF capped 177.12; SDL 1% = 550; net 55000 - 12875.58 - 177.12.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 55000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ]
+  },
+  "expected": {
+    "paye": 12875.58,
+    "uifEmployee": 177.12,
+    "uifEmployer": 177.12,
+    "sdl": 550,
+    "eti": 0,
+    "net": 41947.3
+  }
+}

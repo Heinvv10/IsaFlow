@@ -12,13 +12,15 @@ import { launchPrintChromium } from './printChromium';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
-import { HEADING_SPACE_PX, HEADING_WORDS_PX, statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
+import { HEADING_WORDS_PX, statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
+import { headingLinePx } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { WRAP_GUARD_PX } from '@/modules/accounting/services/packs/pages/packLineWrap';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packTableModel';
 import { input, type Shape } from '../services/packs/fixtures/packGridInputs';
 import { demoWithoutBudget, withWidenedStatement, withWidenedTable } from '../services/packs/fixtures/widenedFigures';
 import { measure } from './measureWidths';
 import { measureTables } from './measureTables';
+import { atTheFloor } from './support/atTheFloor';
 import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 
 let browser: Browser;
@@ -26,7 +28,7 @@ beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
 describe('the heading widths', () => {
-  it('every word and every space is what `.pack-table th` sets, to a hundredth, never short', async () => {
+  it('every word and every whole heading is what `.pack-table th` sets, to a hundredth, never short', async () => {
     const wrong: string[] = [];
     for (const [col, label] of Object.entries(PACK_TABLE_COLUMN_LABEL)) {
       const words = label.split(' ');
@@ -34,8 +36,8 @@ describe('the heading widths', () => {
       const model = HEADING_WORDS_PX[col as keyof typeof HEADING_WORDS_PX];
       words.forEach((w, i) => { if (model[i]! < res[i]!.widthPx - 0.001 || model[i]! > res[i]!.widthPx + 0.05) wrong.push(`${col} ${w}: ${model[i]} vs ${res[i]!.widthPx.toFixed(3)}`); });
       const full = res[words.length]!.widthPx;
-      const built = model.reduce((a, b) => a + b, 0) + HEADING_SPACE_PX * (words.length - 1);
-      if (built < full - 0.001 || built > full + 0.2) wrong.push(`${col} full: ${built.toFixed(2)} vs ${full.toFixed(2)}`);
+      const line = headingLinePx(label);
+      if (line < full - 0.001 || line > full + 0.05) wrong.push(`${col} full: ${line.toFixed(3)} vs ${full.toFixed(3)}`);
     }
     expect(wrong).toEqual([]);
   });
@@ -111,6 +113,8 @@ describe('the layout of every statement table of a stratified sample of packs', 
     // The guard covers the widest the model's column is of Chromium's: a column modelled that much too wide could fit a
     // piece Chromium wraps (`packLineWrap.WRAP_GUARD_PX`).
     expect(widerBy, 'a model column wider than Chromium\'s by more than the guard').toBeLessThanOrEqual(WRAP_GUARD_PX);
+    // Shared out in Chromium's unit, the columns are Chromium's but for its float noise: one unit at a grid point.
+    expect(widerBy, 'a model column wider than Chromium\'s by more than one 1/64px unit').toBeLessThanOrEqual(1 / 64);
     expect(ties.length, `rows a line taller than Chromium at a near tie: ${ties.join('; ')}`).toBeLessThanOrEqual(TIES_ALLOWED);
     // Over by at most the roundings up, and a 13pt line for each near tie.
     expect(tallest, 'a table modelled taller than it printed').toBeLessThanOrEqual(1.6 + 4.6 * ties.length);
@@ -128,7 +132,8 @@ describe('a footnote mark sits on the LAST word of a label', () => {
     for (let n = 10; n <= 40; n += 1) {
       for (const digits of [9, 12]) {
         const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, `${'n'.repeat(n)} ab`, { labelMarker: true });
-        const real = (await measureTables(doc, browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;
+        // A row the gate would refuse is printed at the floor: what is measured is the layout, not the refusal.
+        const real = (await measureTables(atTheFloor(doc), browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;
         const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
         model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > 1) wrong.push(`${n} chars, ${digits} digits: column ${c} model ${px.toFixed(1)} vs ${real.columnsPx[c]!.toFixed(1)}`); });
         // Never fewer lines than Chromium; one more is the wrap guard's tenth of a pixel on a tie, counted below.

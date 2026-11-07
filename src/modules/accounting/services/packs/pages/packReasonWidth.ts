@@ -12,6 +12,7 @@ import { fallbackClusterPx } from './packFallbackWidth';
 /** 11pt, the class's size. */
 const REASON_PX = (11 * 96) / 72;
 
-export function reasonPx(text: string): number {
-  return runPx(text, REASON_PX, 400, (cluster, sizePx) => fallbackClusterPx(cluster, 'reason', sizePx, sizePx));
+/** `hyphen`: a line ending at a soft hyphen in `text`, with the hyphen Chromium sets there. */
+export function reasonPx(text: string, hyphen = false): number {
+  return runPx(text, REASON_PX, 400, (cluster, sizePx) => fallbackClusterPx(cluster, 'reason', sizePx, sizePx), 0, hyphen);
 }

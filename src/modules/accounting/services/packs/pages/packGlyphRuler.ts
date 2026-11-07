@@ -90,23 +90,14 @@ export function scriptRuns(text: string): string[] {
   return runs.map((r) => r.text);
 }
 
-/** Units added to every width (`runPx`): one, so a fit decision is never short; none inside `asChromiumSets`. */
-let slackUnits = 1;
-
 /**
- * Runs `measure` with every width as Chromium sets it (the exact sum rounded up to its unit, no unit added): for a
- * layout model that reproduces Chromium's columns and settles a tie with its own guard (`packTableLayout.ts`), not for
- * a decision that must never be short.
+ * The units added to a width: `NEVER_SHORT` (one) for a decision that must never be short (does it fit? how many
+ * lines?); `AS_CHROMIUM_SETS` (none: the exact sum rounded up to Chromium's unit) for a layout model that reproduces
+ * Chromium's columns (`packTableLayout.ts`). An argument, never a setting: a measure in flight cannot change another's.
  */
-export function asChromiumSets<T>(measure: () => T): T {
-  const was = slackUnits;
-  slackUnits = 0;
-  try {
-    return measure();
-  } finally {
-    slackUnits = was;
-  }
-}
+export type Slack = 0 | 1;
+export const NEVER_SHORT: Slack = 1;
+export const AS_CHROMIUM_SETS: Slack = 0;
 
 /** Runs already shaped: their advance in font units, by weight and text (a pack shapes the same words many times). */
 const SHAPED = new Map<string, number>();
@@ -130,12 +121,14 @@ export const setSizePx = (fontPx: number): number => Math.floor(fontPx * UNIT + 
 /**
  * The width of `text` at `fontPx` and `weight`, in CSS pixels on Chromium's 1/64 grid, never short.
  * `fallbackPx(cluster, sizePx)` prices a cluster outside the face (`sizePx` is the size the font is set at);
- * `letterSpacingPx` is added after every cluster, the last included (CSS `letter-spacing`).
+ * `letterSpacingPx` is added after every cluster, the last included (CSS `letter-spacing`). `hyphen`: the line ends at a
+ * soft hyphen in `text`, and Chromium sets a hyphen (U+2010, shaped on its own) after it. `slack`: see `Slack`.
  */
 export function runPx(
   text: string, fontPx: number, weight: FaceWeight, fallbackPx: (cluster: string, sizePx: number) => number, letterSpacingPx = 0,
+  hyphen = false, slack: Slack = NEVER_SHORT,
 ): number {
-  if (text === '') return 0;
+  if (text === '' && !hyphen) return 0;
   const f = face(weight);
   const size = setSizePx(fontPx);
   let units = 0;
@@ -145,11 +138,14 @@ export function runPx(
     for (const run of scriptRuns(inside)) units += unitsOf(f, weight, run);
     inside = '';
   };
-  for (const cluster of clustersOf(text)) {
+  // Chromium sets a soft hyphen and a zero-width space as nothing, and kerns across them; it sets a line or paragraph
+  // separator as a space.
+  for (const cluster of clustersOf(text.replace(/[\u00AD\u200B]/g, '').replace(/[\u2028\u2029]/g, ' '))) {
     px += letterSpacingPx;
     if (inFace(cluster)) inside += cluster;
     else { flush(); px += fallbackPx(cluster, size); }
   }
   flush();
-  return Math.ceil((units * size / f.unitsPerEm + px) * UNIT - 1e-7) / UNIT + slackUnits / UNIT;
+  if (hyphen) units += unitsOf(f, weight, '\u2010');
+  return Math.ceil((units * size / f.unitsPerEm + px) * UNIT - 1e-7) / UNIT + slack / UNIT;
 }

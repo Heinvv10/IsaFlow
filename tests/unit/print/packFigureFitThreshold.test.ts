@@ -17,13 +17,14 @@ import { kpiFit, tableFit } from '@/modules/accounting/services/packs/pages/pack
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { demoWithoutBudget, SCALE, withHeadingColumns, withWidenedKpi, withWidenedTable } from '../services/packs/fixtures/widenedFigures';
 import { printBoardPack } from './renderPackPdf';
+import { atTheFloor } from './support/atTheFloor';
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
-/** The page's room to spare at its right edge, to the subpixel (negative: past it). */
-const roomOf = async (doc: PackPagesDocument, index: number): Promise<number> => (await printBoardPack(doc, browser)).spare.find((s) => s.id === `pack-page-${index + 1}`)!.px;
+/** The page's room to spare at its right edge, to the subpixel (negative: past it); a row refused is set at the floor. */
+const roomOf = async (doc: PackPagesDocument, index: number): Promise<number> => (await printBoardPack(atTheFloor(doc), browser)).spare.find((s) => s.id === `pack-page-${index + 1}`)!.px;
 /**
  * A refusal is right where Chromium leaves less room than the model's own bound on its error: every width it sums is
  * never short and at most 1/32px over, so a row of a few runs may be refused with a fraction of a pixel to spare.

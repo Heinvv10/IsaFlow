@@ -1,7 +1,7 @@
 /**
  * Payment-terms programme PR 3: Re-apply terms to open supplier bills, through the real route. The preview lists what
  * the suppliers' own terms would move (Velocity's case: 3 months after statement, a 16 Sep bill -> 31 Dec), ticks
- * terms / legacy dates, leaves hand-set, document and stamped-default ones unticked, skips suppliers with no terms and
+ * terms / legacy dates, leaves hand-set and document ones unticked, skips suppliers with no terms and
  * every closed, deleted or foreign bill. Apply writes exactly the confirmed pairs, re-checked under the row lock, and
  * each write is recorded in the entity history.
  */
@@ -78,19 +78,18 @@ describe('the preview', () => {
     expect(p.skippedSuppliers).toEqual([]);
   });
 
-  it('skips a supplier with no terms (never the company default), flags the old stamped default, filters by supplier', async () => {
+  it('skips a supplier with no terms (never the company default), ticks an explicit 30 days, filters by supplier', async () => {
     const c = await company();
     const none = await supplier(c, 'No Terms', null, null);
-    const stamped = await supplier(c, 'Stamped', 30, null);
+    const thirty = await supplier(c, 'Thirty', 30, 'invoice_days'); // since 963, the only shape a kept 30 can have
     const real = await supplier(c, 'Real', 10, 'invoice_days');
     await bill(c, none);
     await bill(c, none);
-    const st = await bill(c, stamped);
+    const th = await bill(c, thirty);
     const rl = await bill(c, real);
     const p = await preview(admin, c);
     expect(p.skippedSuppliers).toEqual([{ supplierId: none, supplierName: 'No Terms', openBills: 2, balance: 2300 }]);
-    expect(p.rows.find((r) => r.id === st)).toMatchObject({ newDueDate: '2026-10-16', preselected: false });
-    expect(p.rows.find((r) => r.id === st)!.note).toMatch(/old default/);
+    expect(p.rows.find((r) => r.id === th)).toMatchObject({ newDueDate: '2026-10-16', preselected: true, note: null });
     expect(p.rows.find((r) => r.id === rl)).toMatchObject({ newDueDate: '2026-09-26', preselected: true });
     expect((await preview(admin, c, real)).rows.map((r) => r.id)).toEqual([rl]);
   });

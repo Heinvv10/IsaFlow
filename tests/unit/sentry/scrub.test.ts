@@ -50,6 +50,16 @@ describe('scrubEvent', () => {
     expect(headers['user-agent']).toBe('Mozilla/5.0');
   });
 
+  it('drops every header whose name says it carries a credential, and keeps ordinary ones', () => {
+    const secret = {
+      'x-api-key': 'k', 'X-ServiceKey': 's', 'x-webhook-signature': 'w', 'Proxy-Authorization': 'p',
+      'x-cron-secret': 'c', 'x-session-id': 'i', 'x-access-token': 't',
+    };
+    const safe = { 'user-agent': 'ua', 'content-type': 'application/json', accept: '*/*', 'x-forwarded-for': '1.2.3.4' };
+    const out = scrubEvent({ request: { headers: { ...secret, ...safe } } } as Event);
+    expect(out!.request!.headers).toEqual(safe);
+  });
+
   it('redacts sensitive keys inside query strings', () => {
     const event: Event = {
       request: {
