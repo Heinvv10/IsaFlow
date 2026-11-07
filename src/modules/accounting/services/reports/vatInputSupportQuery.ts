@@ -139,14 +139,19 @@ export async function queryInputVatSupport(
       JOIN gl_journal_document_links jdl2
         ON jdl2.journal_entry_id = a.doc_je_id AND jdl2.company_id = ${companyId}::UUID
     ),
+    chain_je AS (
+      -- One row per (chain, underlying journal). attributed repeats a chain whose journal has two active links.
+      SELECT root, doc_je_id, BOOL_OR(document_id IS NOT NULL) AS has_document FROM attributed GROUP BY root, doc_je_id
+    ),
     bank_line_je AS (
       -- Each bank line of the company with the journal behind it (provisional, or the journal of its matched
       -- line), resolved once so the uses below join on equality rather than probing every line per chain.
       SELECT bt.id, bt.company_id, bt.provisional_je_id AS je_id FROM bank_transactions bt
-      WHERE bt.company_id = ${companyId}::UUID AND bt.provisional_je_id IS NOT NULL
+      WHERE bt.company_id = ${companyId}::UUID AND bt.provisional_je_id IN (SELECT doc_je_id FROM chain_je)
       UNION
       SELECT bt.id, bt.company_id, ml.journal_entry_id FROM bank_transactions bt
       JOIN gl_journal_lines ml ON ml.id = bt.matched_journal_line_id AND ml.company_id = ${companyId}::UUID
+        AND ml.journal_entry_id IN (SELECT doc_je_id FROM chain_je)
       WHERE bt.company_id = ${companyId}::UUID
     ),
     doc_uses AS (
@@ -155,18 +160,18 @@ export async function queryInputVatSupport(
       -- matched_invoice_id), an expense claim line. line_vat is set only for a claim line.
       SELECT dh.document_id, dh.root, 'journal' AS via, NULL::NUMERIC AS line_vat FROM doc_history dh
       UNION ALL
-      SELECT bd.id, a.root, 'bank', NULL FROM attributed a
-      JOIN bank_line_je bt ON bt.je_id = a.doc_je_id AND a.document_id IS NULL
+      SELECT bd.id, a.root, 'bank', NULL FROM chain_je a
+      JOIN bank_line_je bt ON bt.je_id = a.doc_je_id AND NOT a.has_document
       CROSS JOIN LATERAL ${sql.unsafe(bankLineCapturedDocIdsSql('bt'))} bd
       UNION ALL
-      SELECT sd.document_id, a.root, 'bill', NULL FROM attributed a
+      SELECT sd.document_id, a.root, 'bill', NULL FROM chain_je a
       JOIN supplier_invoices si ON si.company_id = ${companyId}::UUID AND si.gl_journal_entry_id = a.doc_je_id
       CROSS JOIN LATERAL (
         SELECT si.source_document_id AS document_id WHERE si.source_document_id IS NOT NULL
         UNION SELECT cdm.id FROM captured_documents cdm
         WHERE cdm.company_id = ${companyId}::UUID AND cdm.matched_invoice_id = si.id) sd
       UNION ALL
-      SELECT ecl.source_document_id, a.root, 'claim', ecl.vat_amount FROM attributed a
+      SELECT ecl.source_document_id, a.root, 'claim', ecl.vat_amount FROM chain_je a
       JOIN expense_claims ec ON ec.company_id = ${companyId}::UUID AND ec.posted_je_id = a.doc_je_id
       JOIN expense_claim_lines ecl ON ecl.claim_id = ec.id AND ecl.company_id = ${companyId}::UUID
         AND ecl.source_document_id IS NOT NULL
@@ -177,7 +182,7 @@ export async function queryInputVatSupport(
       -- company's own documents count.
       SELECT du.document_id, du.root, cdu.extracted_data -> 'vatAmount' AS vat_raw,
         CASE WHEN NOT BOOL_OR(du.via = 'claim') THEN MAX(ro.claimed_to_date)
-             WHEN ABS(MAX(ro.claimed_to_date)) > ${cent} THEN COALESCE(SUM(du.line_vat), 0) ELSE 0 END AS used_vat,
+             WHEN ABS(MAX(ro.claimed_to_date)) > ${cent} THEN SUM(du.line_vat) ELSE 0 END AS used_vat,
         BOOL_OR(du.via = 'bank') AS on_bank, BOOL_OR(du.via = 'claim') AS on_claim,
         COUNT(*) FILTER (WHERE du.via = 'claim') AS claim_lines
       FROM doc_uses du JOIN roots ro ON ro.root = du.root

@@ -63,5 +63,6 @@ describe('overClaimedClaimDocument: an expense claim line\'s slip that other cla
     expect(overClaimedClaimDocument([use(15, 30, 30, 2)])).toEqual(use(15, 30, 30, 2));
     expect(overClaimedClaimDocument([use(30, 30, 30, 2)])).toBeNull();
     expect(overClaimedClaimDocument([use(15, 20, 20, 1)])).toBeNull();
+    expect(overClaimedClaimDocument([use(-15, 30, 15)])).toBeNull(); // a credit note backs no claim, as on the bank side
   });
 });

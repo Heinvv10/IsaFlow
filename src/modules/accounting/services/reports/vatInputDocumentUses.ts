@@ -59,5 +59,5 @@ export function judgeBankDocuments(uses: DocumentUse[], claimedToDate: number, h
  */
 export function overClaimedClaimDocument(uses: DocumentUse[]): (DocumentUse & { vat: number }) | null {
   return uses.find((u): u is DocumentUse & { vat: number } =>
-    typeof u.vat === 'number' && (others(u) > CENT || u.lines > 1) && u.total > u.vat + CENT) ?? null;
+    readable(u) && (others(u) > CENT || u.lines > 1) && u.total > u.vat + CENT) ?? null;
 }

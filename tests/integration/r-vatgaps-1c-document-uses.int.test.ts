@@ -7,6 +7,7 @@
  * document's VAT, so one invoice paid from two bank lines is fine and the same invoice claimed twice is not.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { linkDocumentToJournal } from '@/modules/accounting/services/gl/journalDocumentLinkService';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
@@ -100,6 +101,18 @@ describeIfDb('VAT input support: one tax invoice, one claim (every use of a docu
     expect(await verdict(h, provisional)).toBe('ok');
     await claim(h, { doc: d, by: 'link' });
     expect(await verdict(h, provisional)).toBe(OVER);
+  });
+
+  it('a claim journal with two linked documents counts its line\'s VAT once, not once per link', async () => {
+    const d = await slip(h, { vat: 30 });
+    const claimJe = await claim(h);
+    await expenseClaimOn(h, claimJe, [{ doc: d, vat: 15 }]);
+    for (const extra of [await slip(h), await slip(h)]) {
+      await inTx(h.fx, () => linkDocumentToJournal(h.fx.companyId, claimJe, extra, h.fx.userId, 'Second slip'));
+    }
+    const { txId, journalId } = await bankClaim(h); // 15 + 15 = the slip's R30
+    await linkToLine(d, txId);
+    expect(await verdict(h, journalId)).toBe('ok');
   });
 
   it('an expense claim adds only its line\'s VAT: the claim\'s other lines do not count against the slip', async () => {
