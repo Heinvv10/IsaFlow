@@ -48,8 +48,10 @@ describe('readDocumentVat — the extracted VAT, read as the capture pipeline re
 
 describe('documentUses — the query\'s JSON array as uses', () => {
   it('maps vat, total and own; no VAT read is null; unreadable stays unreadable; anything else is empty', () => {
-    expect(documentUses([{ vat: '15,00', total: '30', own: 15 }, { vat: null, total: 5, own: 5 }, { vat: 'n/a' }]))
-      .toEqual([{ vat: 15, total: 30, own: 15 }, { vat: null, total: 5, own: 5 }, { vat: 'unreadable', total: 0, own: 0 }]);
+    expect(documentUses([{ vat: '15,00', total: '30', own: 15 }, { vat: null, total: 5, own: 5, lines: 0 }, { vat: 'n/a' }]))
+      .toEqual([{ vat: 15, total: 30, own: 15, lines: 0 }, { vat: null, total: 5, own: 5, lines: 0 },
+        { vat: 'unreadable', total: 0, own: 0, lines: 0 }]);
+    expect(documentUses([{ vat: 15, total: 30, own: 30, lines: '2' }])[0]!.lines).toBe(2);
     expect(documentUses(null)).toEqual([]);
     expect(documentUses('[]')).toEqual([]);
   });

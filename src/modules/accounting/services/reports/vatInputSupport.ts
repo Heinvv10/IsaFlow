@@ -242,12 +242,12 @@ export function classifyInputVatSupport(f: InputVatSupportFacts, rate: number): 
   return { blocking: false, line: line(f, 'none', null, 'no_document') };
 }
 
-/** The query's JSON array of { vat, total, own } as uses; a document with no VAT read has vat null. */
+/** The query's JSON array of { vat, total, own, lines } as uses; a document with no VAT read has vat null. */
 export function documentUses(raw: unknown): DocumentUse[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((u: { vat?: unknown; total?: unknown; own?: unknown }) => ({
+  return raw.map((u: { vat?: unknown; total?: unknown; own?: unknown; lines?: unknown }) => ({
     vat: u.vat === null || u.vat === undefined ? null : readDocumentVat(u.vat),
-    total: num(u.total) ?? 0, own: num(u.own) ?? 0,
+    total: num(u.total) ?? 0, own: num(u.own) ?? 0, lines: num(u.lines) ?? 0,
   }));
 }
 

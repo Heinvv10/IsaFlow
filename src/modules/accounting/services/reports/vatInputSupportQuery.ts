@@ -74,13 +74,6 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
 
-/** A chain's (alias a) uses flagged `flag`, as a JSON array of { vat, total, own }. Constant SQL text only. */
-function usesOfSql(flag: 'on_bank' | 'on_claim'): string {
-  return `COALESCE((SELECT json_agg(json_build_object('vat', u.vat_raw, 'total', udc.document_claimed_vat, 'own', u.used_vat))`
-    + ` FROM doc_root_use u JOIN doc_claims udc ON udc.document_id = u.document_id`
-    + ` WHERE u.root = a.root AND u.${flag}), '[]'::json)`;
-}
-
 export async function queryInputVatSupport(
   companyId: string, periodStart: string, periodEnd: string, cent: number,
 ): Promise<DbRow[]> {
@@ -163,7 +156,7 @@ export async function queryInputVatSupport(
       SELECT dh.document_id, dh.root, 'journal' AS via, NULL::NUMERIC AS line_vat FROM doc_history dh
       UNION ALL
       SELECT bd.id, a.root, 'bank', NULL FROM attributed a
-      JOIN bank_line_je bt ON bt.je_id = a.doc_je_id
+      JOIN bank_line_je bt ON bt.je_id = a.doc_je_id AND a.document_id IS NULL
       CROSS JOIN LATERAL ${sql.unsafe(bankLineCapturedDocIdsSql('bt'))} bd
       UNION ALL
       SELECT sd.document_id, a.root, 'bill', NULL FROM attributed a
@@ -185,13 +178,24 @@ export async function queryInputVatSupport(
       SELECT du.document_id, du.root, cdu.extracted_data -> 'vatAmount' AS vat_raw,
         CASE WHEN NOT BOOL_OR(du.via = 'claim') THEN MAX(ro.claimed_to_date)
              WHEN ABS(MAX(ro.claimed_to_date)) > ${cent} THEN COALESCE(SUM(du.line_vat), 0) ELSE 0 END AS used_vat,
-        BOOL_OR(du.via = 'bank') AS on_bank, BOOL_OR(du.via = 'claim') AS on_claim
+        BOOL_OR(du.via = 'bank') AS on_bank, BOOL_OR(du.via = 'claim') AS on_claim,
+        COUNT(*) FILTER (WHERE du.via = 'claim') AS claim_lines
       FROM doc_uses du JOIN roots ro ON ro.root = du.root
       JOIN captured_documents cdu ON cdu.id = du.document_id AND cdu.company_id = ${companyId}::UUID
       GROUP BY du.document_id, du.root, cdu.extracted_data -> 'vatAmount'
     ),
     doc_claims AS (
       SELECT document_id, SUM(used_vat) AS document_claimed_vat FROM doc_root_use GROUP BY document_id
+    ),
+    uses_by_root AS (
+      -- Each chain's bank-line and claim-line documents as { vat, total, own, lines }, aggregated once.
+      SELECT u.root,
+        json_agg(json_build_object('vat', u.vat_raw, 'total', dc.document_claimed_vat, 'own', u.used_vat,
+          'lines', u.claim_lines)) FILTER (WHERE u.on_bank) AS bank_documents,
+        json_agg(json_build_object('vat', u.vat_raw, 'total', dc.document_claimed_vat, 'own', u.used_vat,
+          'lines', u.claim_lines)) FILTER (WHERE u.on_claim) AS claim_documents
+      FROM doc_root_use u JOIN doc_claims dc ON dc.document_id = u.document_id
+      GROUP BY u.root
     )
     SELECT a.root AS id, a.entry_number, a.entry_date, a.source, a.description,
       a.claimed_vat, a.claimed_to_date, a.document_id, dc.document_claimed_vat,
@@ -236,12 +240,14 @@ export async function queryInputVatSupport(
             OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
                  WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))
       ) AS has_bank_upload,
-      -- The chain's uses of documents on its bank lines and on its expense claim lines: each document's VAT, its
-      -- claimed total over every use (doc_claims), and this chain's own share of it.
-      ${sql.unsafe(usesOfSql('on_bank'))} AS bank_documents,
-      ${sql.unsafe(usesOfSql('on_claim'))} AS claim_documents
+      -- The chain's uses of documents on its bank lines (only while it has no document of its own, which judges
+      -- it alone) and on its expense claim lines: each document's VAT, its claimed total over every use
+      -- (doc_claims), this chain's own share, and how many of its claim lines carry it.
+      COALESCE(ubr.bank_documents, '[]'::json) AS bank_documents,
+      COALESCE(ubr.claim_documents, '[]'::json) AS claim_documents
     FROM attributed a
     LEFT JOIN doc_claims dc ON dc.document_id = a.document_id
+    LEFT JOIN uses_by_root ubr ON ubr.root = a.root
     LEFT JOIN captured_documents cd ON cd.id = a.document_id AND cd.company_id = ${companyId}::UUID
     WHERE ABS(COALESCE(a.claimed_vat, 0)) > ${cent}
       AND NOT EXISTS (

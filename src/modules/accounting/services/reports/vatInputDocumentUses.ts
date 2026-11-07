@@ -15,6 +15,8 @@ export interface DocumentUse {
   vat: number | 'unreadable' | null;
   total: number;
   own: number;
+  /** How many of this chain's expense claim lines carry the document (0 for a bank-line use). */
+  lines: number;
 }
 
 export type BankDocumentsVerdict =
@@ -50,8 +52,12 @@ export function judgeBankDocuments(uses: DocumentUse[], claimedToDate: number, h
   };
 }
 
-/** The first document on a chain's expense claim lines that other claims also use, past its VAT, or null. */
+/**
+ * The first document on a chain's expense claim lines that is used more than once — by other claims, or on two or
+ * more of this claim's lines — past its VAT, or null. One line's VAT differing from its slip is the claim's own
+ * figure, not a second use, and is not this rule's.
+ */
 export function overClaimedClaimDocument(uses: DocumentUse[]): (DocumentUse & { vat: number }) | null {
   return uses.find((u): u is DocumentUse & { vat: number } =>
-    typeof u.vat === 'number' && others(u) > CENT && u.total > u.vat + CENT) ?? null;
+    typeof u.vat === 'number' && (others(u) > CENT || u.lines > 1) && u.total > u.vat + CENT) ?? null;
 }

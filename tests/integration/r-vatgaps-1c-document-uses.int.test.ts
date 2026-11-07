@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { inTx } from './helpers/l1FifoFixture';
+import { inTx, seedBankTx } from './helpers/l1FifoFixture';
 import {
   bankClaim, billOn, claim, expenseClaimOn, linkToLine, setUpOneClaim, slip, tearDownOneClaim, verdict, type OneClaim,
 } from './helpers/oneClaimFixture';
@@ -65,6 +65,30 @@ describeIfDb('VAT input support: one tax invoice, one claim (every use of a docu
     expect(await verdict(h, journalId)).toBe(OVER);
     await inTx(h.fx, () => reverseJournalEntry(h.fx.companyId, claimJe, h.fx.userId));
     expect(await verdict(h, journalId)).toBe('ok');
+  });
+
+  it('one slip on two lines of the same claim is over-claimed; one R30 slip split across two R15 lines is not', async () => {
+    const d = await slip(h);
+    const twice = await claim(h, { vat: 30 });
+    await expenseClaimOn(h, twice, [{ doc: d, vat: 15 }, { doc: d, vat: 15 }]);
+    expect(await verdict(h, twice)).toBe(OVER);
+    const big = await slip(h, { vat: 30 });
+    const split = await claim(h, { vat: 30 });
+    await expenseClaimOn(h, split, [{ doc: big, vat: 15 }, { doc: big, vat: 15 }]);
+    expect(await verdict(h, split)).toBe('ok');
+  });
+
+  it('a journal judged on its own slip does not also use a second document on its bank line', async () => {
+    const own = await slip(h);
+    const other = await slip(h);
+    const j = await claim(h, { doc: own, by: 'link' });
+    const txId = await seedBankTx(h.fx, { date: '2026-07-16', amount: -115, description: 'paid J' });
+    await sql`UPDATE bank_transactions SET matched_journal_line_id = (SELECT id FROM gl_journal_lines
+      WHERE journal_entry_id = ${j}::UUID AND company_id = ${h.fx.companyId}::UUID AND debit > 0 LIMIT 1), status = 'matched'
+      WHERE id = ${txId}::UUID`;
+    await linkToLine(other, txId);
+    expect(await verdict(h, j)).toBe('ok');
+    expect(await verdict(h, await claim(h, { doc: other, by: 'link' }))).toBe('ok');
   });
 
   it('an expense claim adds only its line\'s VAT: the claim\'s other lines do not count against the slip', async () => {

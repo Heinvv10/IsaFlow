@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { judgeBankDocuments, overClaimedClaimDocument, type DocumentUse } from '@/modules/accounting/services/reports/vatInputDocumentUses';
 
-const use = (vat: DocumentUse['vat'], total: number, own: number): DocumentUse => ({ vat, total, own });
+const use = (vat: DocumentUse['vat'], total: number, own: number, lines = 0): DocumentUse => ({ vat, total, own, lines });
 
 describe('judgeBankDocuments: a bank line\'s captured documents as uses', () => {
   it('no document with VAT read leaves the verdict to presence', () => {
@@ -57,5 +57,11 @@ describe('overClaimedClaimDocument: an expense claim line\'s slip that other cla
     expect(overClaimedClaimDocument([use(15, 15.004, 14.99)])).toBeNull(); // shared, but within a cent of its VAT
     expect(overClaimedClaimDocument([use(10, 15.004, 15)])).toBeNull(); // the claim's own mismatch, plus under a cent
     expect(overClaimedClaimDocument([use(null, 30, 15), use('unreadable', 30, 15)])).toBeNull();
+  });
+
+  it('flags a slip on two lines of the same claim past its VAT, not one split within it', () => {
+    expect(overClaimedClaimDocument([use(15, 30, 30, 2)])).toEqual(use(15, 30, 30, 2));
+    expect(overClaimedClaimDocument([use(30, 30, 30, 2)])).toBeNull();
+    expect(overClaimedClaimDocument([use(15, 20, 20, 1)])).toBeNull();
   });
 });
