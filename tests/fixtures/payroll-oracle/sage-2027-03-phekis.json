@@ -2,7 +2,7 @@
   "id": "sage-2027-03-phekis",
   "source": "sage",
   "sourceRef": "IsaFlow-Xero-Comparison-20261023/sage-payroll/01-paye-reconciliation.md: Sage Payroll demo company, payslips and \"View Tax Calculation\" observed 2026-10-24 (tax year 2027, March 2026 monthly period)",
-  "notes": "Sage demo employee \"phekis\" (a Sage demo record, not a real person). Sage tax status: director. Sage shows age 49 only; the date of birth is set to 1 January 1977 to give that age. No case is near 65 (rebates) or 18-29 (ETI). Net is not on the Sage table: it is monthly pay less the Sage PAYE and employee UIF (no other deductions). ETI: nil by ETI Act s6(a), age outside 18-29.",
+  "notes": "Sage annualises by days (50 000 x 365 / 30.4166 = 600 001.37), the calculator by the statutory x12 (600 000): 2c on PAYE, tolerated as documented rounding. Sage demo employee \"phekis\" (a Sage demo record, not a real person). Sage tax status: director. Sage shows age 49 only; the date of birth is set to 1 January 1977 (year only kept). No case is near 65 (rebates) or 18-29 (ETI). Net is not on the Sage table: it is monthly pay less the Sage PAYE and employee UIF (no other deductions). ETI: nil by ETI Act s6(a), age outside 18-29.",
   "input": {
     "period": {
       "year": 2026,
@@ -38,5 +38,15 @@
     "sdl": 500,
     "eti": 0,
     "net": 38747.28
+  },
+  "tolerance": {
+    "paye": {
+      "cents": 2,
+      "reason": "Sage days annualisation 365/30.4166 (R600 001.37 for R50 000); the calculator uses the statutory x12, so it is 2c lower"
+    },
+    "net": {
+      "cents": 2,
+      "reason": "Follows the PAYE tolerance (Sage days annualisation 365/30.4166)"
+    }
   }
 }

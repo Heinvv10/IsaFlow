@@ -1,25 +1,37 @@
 /**
- * Tax-table pin (wave-4 spec §4 O): tax year -> SHA-256 of every statutory figure the payroll
- * engine reads for that year: brackets, rebates, thresholds, medical credits, UIF ceiling, SDL
- * threshold, the s11F retirement cap (taxTables.ts), and the ETI tables and policy in force in
- * each month of the year (etiTables.ts). Changing any figure, or adding a year, without updating
- * PINNED below is red. The oracle (payrollOracle.test.ts) then shows which outside figures moved.
+ * Tax-table pin (wave-4 spec §4 O): tax year -> SHA-256 of the statutory figures the payroll
+ * engine reads for that year:
+ * - taxTables.ts: brackets, rebates, thresholds, medical credits, UIF ceiling, SDL threshold, s11F cap;
+ * - the rates: UIF_RATE, SDL_RATE, RETIREMENT_DEDUCTION_RATE (27.5%), the s18A DONATION_LIMIT (5%);
+ * - etiTables.ts / etiEngine.ts: the ETI table and its unconfirmed flag for each month of the year,
+ *   the unconfirmed-table policy, the age band, the 24-month window and the first-year length.
+ * NOT pinned here (still literals in code): the 65 / 75 rebate ages and the 33.3% / 3x additional
+ * medical credit (payeEngine.ts), and the 12 periods a year (payeCumulative.ts).
+ * Changing a pinned figure, or adding a tax year, without updating PINNED below is red. The oracle
+ * (payrollOracle.test.ts) then shows which outside figures moved.
  */
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { getTaxYearConfig, UnsupportedTaxYearError } from '@/modules/accounting/services/payroll/taxTables';
+import { getTaxYearConfig, SUPPORTED_TAX_YEARS } from '@/modules/accounting/services/payroll/taxTables';
 import {
   ETI_AFTER_MARCH_2026_POLICY, isEtiTableUnconfirmed, selectEtiTable, UnsupportedEtiPeriodError,
 } from '@/modules/accounting/services/payroll/etiTables';
+import {
+  ETI_FIRST_YEAR_MONTHS, ETI_MAX_AGE, ETI_MIN_AGE, ETI_WINDOW_MONTHS,
+} from '@/modules/accounting/services/payroll/etiEngine';
+import { UIF_RATE } from '@/modules/accounting/services/payroll/uifEngine';
+import { SDL_RATE } from '@/modules/accounting/services/payroll/sdlEngine';
+import { RETIREMENT_DEDUCTION_RATE } from '@/modules/accounting/services/payroll/retirementFund';
+import { DONATION_LIMIT } from '@/modules/accounting/services/payroll/s18aDonation';
 
 /** Decision 2 of the wave-4 spec: Hein names the annual SARS-table owner before W3 (suggested: Willie). */
 const TABLE_OWNER = 'not yet named: Hein names one before W3 is dispatched (wave-4 spec §8 decision 2; suggested Willie)';
 const CRON = '~/bin/isaflow-tax-tables-cron.sh';
 
 const PINNED: Record<number, string> = {
-  2025: '98d8b3b416ab3760979667efe61514efd86028a4e582e53dd7a4e6783a3c482d',
-  2026: '5df5ce4b15fc6cce1a3d062319367ceeaed38647f913232ea27d3fb1b0671bd4',
-  2027: '22a3f91af2e2bd72621052ff487e17204a014b7e3b62fd3b245d9cde751f96af',
+  2025: '52ecdd71eeee2ba2d3bcb81a9eff5725f97fbea365fbff6938bd8033442319d0',
+  2026: '6d4dc1e69270af04759b1d8fd1f018040f1a138d181ab77a1d8489ab8e269c03',
+  2027: 'ecce560856dd6c8eb82656483718af6aec08304e0e13d7a90dc81f9b34cecd8b',
 };
 
 /** JSON with sorted keys and Infinity spelled out, so the hash is stable and Infinity is not lost as null. */
@@ -48,34 +60,30 @@ function etiForTaxYear(taxYear: number): unknown[] {
 }
 
 function tableHash(taxYear: number): string {
-  const payload = { tax: getTaxYearConfig(taxYear), eti: etiForTaxYear(taxYear), etiPolicy: ETI_AFTER_MARCH_2026_POLICY };
+  const payload = {
+    tax: getTaxYearConfig(taxYear),
+    rates: { uif: UIF_RATE, sdl: SDL_RATE, retirementDeduction: RETIREMENT_DEDUCTION_RATE, s18aDonationLimit: DONATION_LIMIT },
+    eti: etiForTaxYear(taxYear),
+    etiRules: {
+      policy: ETI_AFTER_MARCH_2026_POLICY, minAge: ETI_MIN_AGE, maxAge: ETI_MAX_AGE,
+      windowMonths: ETI_WINDOW_MONTHS, firstYearMonths: ETI_FIRST_YEAR_MONTHS,
+    },
+  };
   return createHash('sha256').update(canonical(payload)).digest('hex');
 }
 
-function supportedYears(): number[] {
-  const years: number[] = [];
-  for (let y = 2000; y <= 2100; y++) {
-    try {
-      getTaxYearConfig(y);
-      years.push(y);
-    } catch (err) {
-      if (!(err instanceof UnsupportedTaxYearError)) throw err;
-    }
-  }
-  return years;
-}
-
 function checklist(year: number, what: string): string {
-  return `Payroll tax tables for tax year ${year}: ${what}. This is the February SARS budget checklist: check `
-    + 'every bracket, rebate, threshold, medical credit, the UIF ceiling, the SDL threshold, the s11F cap and the ETI '
-    + `table against SARS, then set PINNED[${year}] in tests/unit/services/payroll/taxTableHash.test.ts and re-run `
-    + `payrollOracle.test.ts. Table owner: ${TABLE_OWNER}. The ${CRON} cron's headless session opens a taxTables PR `
-    + 'every February; that PR must update this pin.';
+  return `Payroll tax tables for tax year ${year}: ${what}. This is the February SARS budget checklist: check every `
+    + 'bracket, rebate, threshold, medical credit, the UIF ceiling, the SDL threshold, the s11F cap, the UIF and SDL rates, '
+    + 'the 27.5% retirement and 5% s18A limits, and the ETI table, age band and window against SARS, then set '
+    + `PINNED[${year}] in tests/unit/services/payroll/taxTableHash.test.ts and re-run payrollOracle.test.ts. `
+    + `Table owner: ${TABLE_OWNER}. The ${CRON} cron's headless session opens a taxTables PR every February; `
+    + 'that PR must update this pin.';
 }
 
 describe('tax-table hash pin', () => {
   it('pins exactly the tax years that have tables', () => {
-    const years = supportedYears();
+    const years = [...SUPPORTED_TAX_YEARS];
     const pinned = Object.keys(PINNED).map(Number);
     const unpinned = years.filter(y => !(y in PINNED));
     expect(unpinned, unpinned.map(y => checklist(y, `added with no pin (sha256 ${tableHash(y)})`)).join('\n')).toEqual([]);

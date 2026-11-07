@@ -1,8 +1,8 @@
 {
   "id": "eti-year1-taper-6000",
-  "source": "sars-guide:SARS ETI page \"How much is the incentive\" (from 1 April 2025 table), as cited in src/modules/accounting/services/payroll/etiTables.ts (verified there 2026-10-18; not re-fetched in this PR)",
-  "sourceRef": "https://www.sars.gov.za/types-of-tax/pay-as-you-earn/employment-tax-incentive-eti/",
-  "notes": "June 2025 (tax year 2026, inside the confirmed April 2025 table window), employee aged 24, employed since 1 March 2025 (month 4: first 12 months). R6 000: R1 500 - 75% x (6 000 - 5 500) = 1 125.00. PAYE nil (72 000 below the 95 750 threshold). UIF 60.00, SDL 60.00, net 5 940.00.",
+  "source": "sars-guide:SARS ETI page (\"How much is the incentive\"; employee conditions), fetched 2026-11-07",
+  "sourceRef": "https://www.sars.gov.za/types-of-tax/pay-as-you-earn/employment-tax-incentive-eti/ ; https://www.gov.za/news/media-statements/minister-nomakhosazana-meth-adjusts-national-minimum-wage-r2879-hour-05-feb",
+  "notes": "June 2025 (tax year 2026, inside the April 2025 table window), employee aged 24, employed since 1 March 2025 (month 4: first 12 months), 160 hours (R37.50 an hour, above the minimum wage). R6 000: R1 500 - 75% x (6 000 - 5 500) = 1 125.00. PAYE nil (72 000 below the 95 750 threshold). UIF 60.00, SDL 60.00, net 5 940.00. National minimum wage R28.79 an ordinary hour from 1 March 2025 (Minister of Employment and Labour, gov.za media statement 5 Feb 2025, \"binding from 1 March 2025\"; GN R. 5830, Gazette 52053): R4 606.40 for 160 hours. SARS: the employee must be paid at least the minimum wage, and ETI for fewer than 160 hours is grossed up to 160 and the result grossed down by the same ratio.",
   "input": {
     "period": {
       "year": 2025,
@@ -10,7 +10,7 @@
     },
     "taxYear": 2026,
     "employee": {
-      "dateOfBirth": "2001-01-15",
+      "dateOfBirth": "2001-01-01",
       "startDate": "2025-03-01",
       "taxStatus": "statutory",
       "uifExcluded": false,
@@ -29,7 +29,10 @@
         "uif": true,
         "sdl": true
       }
-    ]
+    ],
+    "unmodelled": {
+      "monthlyHours": 160
+    }
   },
   "expected": {
     "paye": 0,

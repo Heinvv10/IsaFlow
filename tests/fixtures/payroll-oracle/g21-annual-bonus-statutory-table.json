@@ -1,8 +1,8 @@
 {
   "id": "g21-annual-bonus-statutory-table",
-  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 32-33 (annual payment worked example, recomputed on the statutory rate table)",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 33-34 (annual payment worked example, recomputed on the statutory rate table)",
   "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
-  "notes": "Salary R28 000 + bonus R14 800 (3605), under 65, first period. The guide prints tax(336 000) = 49 945 and tax(350 800) = 53 723 (bonus tax 3 778), read off SARS's R500-banded deduction tables (PAYE-GEN-01-G01-A04). On the statutory table: tax(336 000) = 44 118 + 26% x 90 900 - 17 820 = 49 932; tax(350 800) = 53 780; bonus 3 848; salary 49 932 / 12 = 4 161.00; PAYE 8 009.00. This is a known table difference, not a rounding tolerance: only PAYE is asserted, as the guide gives nothing else.",
+  "notes": "Salary R28 000 + bonus R14 800 (3605), under 65. The guide pays them in October; this case moves them to March, the first period, which makes no difference under the x12 method (no year to date). The guide prints salary tax 4 171, tax(350 800) = 53 723, tax(336 000) = 49 945 (bonus 3 778, total R7 949), from its own tables; that they are SARS's R500-banded deduction tables is UNVERIFIED (inferred in payeCumulative.test.ts). On the statutory rate table: tax(336 000) = 44 118 + 26% x 90 900 - 17 820 = 49 932; tax(350 800) = 53 780; bonus 3 848; salary 49 932 / 12 = 4 161.00; PAYE 8 009.00. This is a known table difference, not a rounding tolerance: only PAYE is asserted, as the guide gives nothing else.",
   "input": {
     "period": {
       "year": 2026,

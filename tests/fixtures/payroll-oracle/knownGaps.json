@@ -1,32 +1,32 @@
 [
   {
     "case": "sage-2027-03-marco",
-    "fields": ["paye", "net"],
-    "reason": "Sage taxes 'Temporary/Part time' at a flat 25% (R1 125.00). G21 Rev 1 p. 27-28, 'Standard employment': non-standard employment income is taxed at 25% of the balance of remuneration; whether Sage's status maps exactly onto that class is not verified. The calculator has no tax-status input, so it applies the tables: R0.00.",
-    "closedBy": "W3: tax status in the calc (wave-4 spec §2 out of scope, logged for wave 5)"
+    "engineActual": { "paye": 0, "net": 4455 },
+    "reason": "Sage parity only: Sage taxes its 'Temporary/Part time' status at a flat 25% (R1 125.00). The calculator has no tax-status input and applies the tables (R0.00), which is the statutory figure if the employee is in standard employment (22+ hours a week). G21 Rev 1 p. 27-28 decides the treatment from hours and day rate, not from a status label.",
+    "closedBy": "W3 tax status: hours-per-week and day-rate inputs that classify standard / deemed standard / non-standard employment per G21 p. 27-28. Must NOT be closed by taxing a status label at a flat 25%; if the inputs show standard employment, the fix is to correct this fixture's expectation instead."
   },
   {
     "case": "sage-2027-03-rassie",
-    "fields": ["uifEmployee", "uifEmployer", "sdl", "net"],
-    "reason": "Sage excludes an independent contractor from UIF and SDL. The calculator has no tax-status input and levies UIF R70.00 each side and SDL R70.00.",
-    "closedBy": "W3: tax status in the calc (contractor UIF/SDL exclusion)"
-  },
-  {
-    "case": "sage-2027-03-phekis",
-    "fields": ["paye", "net"],
-    "reason": "-0.02: Sage annualises by days (period taxable x 365 / 30.4166 average days, R600 001.37), the calculator by x12 (R600 000), giving R11 075.58 against Sage's R11 075.60.",
-    "closedBy": "W3: days-based annualisation decision (match Sage, or document the difference as tolerated rounding)"
-  },
-  {
-    "case": "sage-2027-03-david",
-    "fields": ["paye", "net"],
-    "reason": "-0.02: same days-based annualisation as Phekis; R9 275.58 against Sage's R9 275.60.",
-    "closedBy": "W3: days-based annualisation decision (as Phekis)"
+    "engineActual": { "uifEmployee": 70, "uifEmployer": 70, "sdl": 70, "net": 6930 },
+    "reason": "Sage excludes an independent contractor from UIF and SDL. Costed with the default employee set-up (UIF and SDL on), the calculator levies R70.00 each. A contractor set up correctly (uifExcluded true, earning not SDL-applicable) matches Sage: see sage-2027-03-rassie-contractor-setup. The gap is that no tax status drives those defaults.",
+    "closedBy": "W3 tax status: an independent-contractor status that sets the UIF and SDL defaults"
   },
   {
     "case": "fixed-rate-directive-20pct",
-    "fields": ["paye", "net"],
-    "reason": "A fixed-rate (IRP3(b)/(c)) directive must be applied as its percentage (G21 Rev 1 p. 15 and 17). The calculator only takes a lump-sum directive's PAYE, so it applies the tables: R4 681.00 against R6 000.00.",
+    "engineActual": { "paye": 4681, "net": 25141.88 },
+    "reason": "An IRP3(b) fixed-percentage directive must be applied as its percentage (G21 Rev 1 p. 15, 17). The calculator only takes a lump-sum directive's PAYE, so it applies the tables: R4 681.00 against R6 000.00.",
     "closedBy": "W3: directives in the calc"
+  },
+  {
+    "case": "fixed-rate-directive-20pct-with-ra",
+    "engineActual": { "paye": 3901, "net": 22921.88 },
+    "reason": "As fixed-rate-directive-20pct, with a retirement annuity: the directive percentage applies before allowable deductions (G21 Rev 1 p. 15), so PAYE is 20% of R30 000 = R6 000.00; the calculator takes the RA off and applies the tables: R3 901.00.",
+    "closedBy": "W3: directives in the calc"
+  },
+  {
+    "case": "eti-below-minimum-wage-4000",
+    "engineActual": { "eti": 1500 },
+    "reason": "R4 000 for 160 hours is R25.00 an hour, below the R28.79 national minimum wage (from 1 March 2025), so the employee does not qualify and ETI is nil (SARS ETI page). The calculator has no hours or minimum-wage input and claims R1 500.00.",
+    "closedBy": "W3 (ETI): hours paid and the minimum-wage condition in the ETI calc, with the 160-hour apportionment"
   }
 ]

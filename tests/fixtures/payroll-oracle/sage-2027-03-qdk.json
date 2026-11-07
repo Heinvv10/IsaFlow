@@ -2,7 +2,7 @@
   "id": "sage-2027-03-qdk",
   "source": "sage",
   "sourceRef": "IsaFlow-Xero-Comparison-20261023/sage-payroll/01-paye-reconciliation.md: Sage Payroll demo company, payslips and \"View Tax Calculation\" observed 2026-10-24 (tax year 2027, March 2026 monthly period)",
-  "notes": "Sage demo employee \"qdk\" (a Sage demo record, not a real person). Sage tax status: statutory. Sage shows age 55 only; the date of birth is set to 1 January 1971 to give that age. No case is near 65 (rebates) or 18-29 (ETI). Net is not on the Sage table: it is monthly pay less the Sage PAYE and employee UIF (no other deductions). ETI: nil by ETI Act s6(a), age outside 18-29.",
+  "notes": "Sage demo employee \"qdk\" (a Sage demo record, not a real person). Sage tax status: statutory. Sage shows age 55 only; the date of birth is set to 1 January 1971 (year only kept). No case is near 65 (rebates) or 18-29 (ETI). Net is not on the Sage table: it is monthly pay less the Sage PAYE and employee UIF (no other deductions). ETI: nil by ETI Act s6(a), age outside 18-29.",
   "input": {
     "period": {
       "year": 2026,

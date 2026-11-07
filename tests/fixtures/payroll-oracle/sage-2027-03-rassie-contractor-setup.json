@@ -1,0 +1,42 @@
+{
+  "id": "sage-2027-03-rassie-contractor-setup",
+  "source": "sage",
+  "sourceRef": "IsaFlow-Xero-Comparison-20261023/sage-payroll/01-paye-reconciliation.md: Sage Payroll demo company, payslips and \"View Tax Calculation\" observed 2026-10-24 (tax year 2027, March 2026 monthly period)",
+  "notes": "Sage demo employee \"rassie\" (independent contractor, R7 000) costed as a contractor is set up today: uifExcluded true and the earning not SDL-applicable. That matches Sage (no UIF, no SDL, no PAYE at R84 000 a year), so the Rassie gap is the defaults a tax status should drive, not the arithmetic. ETI nil (age 43; UIF-excluded).",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1983-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "independent_contractor",
+      "uifExcluded": true,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 7000,
+        "taxable": true,
+        "uif": false,
+        "sdl": false
+      }
+    ]
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 0,
+    "uifEmployer": 0,
+    "sdl": 0,
+    "eti": 0,
+    "net": 7000
+  }
+}
