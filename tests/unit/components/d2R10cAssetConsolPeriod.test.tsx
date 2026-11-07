@@ -77,7 +77,10 @@ describe('assets/[assetId]', () => {
     await dispose(() => ok({ assetId: 'as1', policyGainLoss: -100, journalEntryId: 'je-9' }));
     await waitFor(() => expect(route.push).toHaveBeenCalledWith('/accounting/assets'));
     expect(String(vi.mocked(apiFetch).mock.calls.find(([, i]) => (i as RequestInit | undefined)?.method === 'POST')![0])).toBe('/api/accounting/assets/as1/dispose');
-    expect(lastBody('POST', '/dispose')).toMatchObject({ proceeds: 800, disposalType: 'scrap' });
+    // The default is write_off: 'scrap' was the old default and assets.disposal_type (mig 361) cannot store it.
+    expect(lastBody('POST', '/dispose')).toMatchObject({ proceeds: 800, disposalType: 'write_off' });
+    const offered = [...document.querySelectorAll('select[name="disposal_method"] option')].map((o) => (o as HTMLOptionElement).value);
+    expect(offered).toEqual(['sale', 'write_off', 'donation', 'theft', 'loss']);
   });
 });
 
