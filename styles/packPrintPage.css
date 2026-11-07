@@ -293,8 +293,9 @@ html.print-mode .pack-pages {
 .pack-kpi-delta.is-favourable { color: var(--pack-favourable, #1a7a4a); }
 .pack-kpi-delta.is-unfavourable { color: var(--pack-unfavourable, #b3261e); }
 .pack-kpi-delta-cue { font-size: 7pt; }
-/* The sparkline's height follows its column (0.8 of the width), and a column the figures stretch is
- * wider than a quarter of the row: 158px of a 142px quarter was 1.6mm of height per tile row, and page 3
- * composes within half a millimetre of its box. `packKpiTileHeight` budgets 33mm (KPI_SPARKLINE_MM). */
+/* The sparkline's height follows its column (the SVG's own height over width, about 0.8), up to 33mm, and a
+ * column the figures stretch is wider than a quarter of the row. `packKpiLayout.kpiTileMm` charges the same:
+ * the column's width (`kpiColumnsPx`, the grid's tracks at the printed width) times the SVG's aspect, at most
+ * 33mm. Change the cap here and SPARKLINE_MAX_MM there together. */
 .pack-kpi-sparkline svg { display: block; width: 100%; height: auto; max-height: 33mm; }
 .pack-footnote-marker { font-size: 0.7em; vertical-align: super; line-height: 0; }
