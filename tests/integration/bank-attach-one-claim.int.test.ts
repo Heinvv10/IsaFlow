@@ -199,8 +199,23 @@ describeIfDb('Attaching a captured document to a bank line: one tax invoice, one
     await sql`UPDATE bank_transactions SET matched_journal_line_id = (SELECT id FROM gl_journal_lines
       WHERE journal_entry_id = ${j}::UUID AND debit > 0 LIMIT 1), status = 'matched' WHERE id = ${matched}::UUID`;
     await sql`UPDATE captured_documents SET matched_bank_tx_id = ${matched}::UUID WHERE id = ${own}::UUID`;
+    // A bill's slip, and an expense claim line's slip, each also on a VAT-claiming line.
+    const billDoc = await slip();
+    const bill = await seedBill(fx, { number: `B-${randomUUID().slice(0, 8)}`, date: '2026-07-12', total: 115 });
+    await sql`UPDATE supplier_invoices SET tax_amount = 15, source_document_id = ${billDoc}::UUID WHERE id = ${bill}::UUID`;
+    await sql`UPDATE captured_documents SET matched_bank_tx_id = ${await line('vat')}::UUID WHERE id = ${billDoc}::UUID`;
+    const claimDoc = await slip();
+    const claimId = String(((await sql`
+      INSERT INTO expense_claims (company_id, employee_id, claim_number, claim_date, status)
+      VALUES (${fx.companyId}::UUID, ${employeeId}::UUID, ${`EC-${randomUUID().slice(0, 8)}`}, '2026-07-12', 'approved')
+      RETURNING id`) as Row[])[0]!.id);
+    await sql`INSERT INTO expense_claim_lines (claim_id, company_id, line_date, amount, vat_amount, source_document_id)
+      VALUES (${claimId}::UUID, ${fx.companyId}::UUID, '2026-07-12', 115, 15, ${claimDoc}::UUID)`;
+    await sql`UPDATE captured_documents SET matched_bank_tx_id = ${await line('vat')}::UUID WHERE id = ${claimDoc}::UUID`;
     const ids = await found();
     expect(ids).toContain(d);
+    expect(ids).toContain(billDoc);
+    expect(ids).toContain(claimDoc);
     expect(ids).not.toContain(own);
   });
 });
