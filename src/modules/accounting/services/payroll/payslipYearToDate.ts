@@ -52,8 +52,9 @@ export async function payslipYearToDate(
 ): Promise<Map<string, PayslipYearToDate>> {
   const startYear = payeTaxYearOf(run.periodMonth, run.periodYear) - 1;
   // Bounded by period, not by run: "up to and including this period" is this run alone only because
-  // payroll_run_headers is UNIQUE (company_id, period_year, period_month) (proven by the 23505 test in
-  // tests/integration/payslips.int.test.ts). Drop that constraint and this bound must name the run too.
+  // payroll_run_headers is UNIQUE (company_id, period_year, period_month). The year-to-date test in
+  // tests/integration/payslips.int.test.ts inserts a second header and expects that unique_violation
+  // (23505). Drop the constraint and this bound must name the run too.
   const rows = (await sql`
     SELECT prl.run_id::text AS run_id, prl.employee_id::text AS employee_id,
            prl.gross_pay, prl.taxable_income, prl.paye, prl.uif_employee, prl.net_pay

@@ -204,7 +204,7 @@ describe('year to date', () => {
     await expect(r.pool.query(
       `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status) VALUES ($1, 2, 2026, 'calculated')`,
       [r.company],
-    )).rejects.toMatchObject({ code: '23505' });
+    )).rejects.toMatchObject({ code: '23505', constraint: 'payroll_run_headers_company_id_period_year_period_month_key' }); // unique_violation
   });
 
   it('on the February run equals the IRP5 year totals for the employee, to the cent', async () => {
