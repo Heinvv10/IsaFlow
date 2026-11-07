@@ -1,6 +1,6 @@
 // pages/api/auth/2fa-confirm.ts
 import type { NextApiHandler } from 'next';
-import { parseCookies, setAuthCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
+import { parseCookies, setAuthCookies, ACCESS_COOKIE, REMEMBER_ME_COOKIE } from '@/lib/auth/cookies';
 import { challengeFactor, verifyFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { respondToAuthOutage } from '@/lib/auth/authUpstream';
 import { log } from '@/lib/logger';
@@ -31,7 +31,9 @@ const handler: NextApiHandler = async (req, res) => {
   try {
     const challengeId = await challengeFactor(factor_id, token);
     const aal2 = await verifyFactor(factor_id, challengeId, code, token);
-    setAuthCookies(res, { accessToken: aal2.access_token, refreshToken: aal2.refresh_token, expiresIn: aal2.expires_in });
+    // Enrolling a factor is not a sign-in: the "Keep me signed in" choice stands.
+    const persistent = parseCookies(req)[REMEMBER_ME_COOKIE] === '1';
+    setAuthCookies(res, { accessToken: aal2.access_token, refreshToken: aal2.refresh_token, expiresIn: aal2.expires_in, persistent });
     return res.status(200).json({ success: true });
   } catch (err) {
     // D9: no code was judged, so the attempt is handed back.

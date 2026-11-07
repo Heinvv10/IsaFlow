@@ -21,6 +21,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
+import { hasBankLineDocumentSql } from '../bank/bankLineDocumentSql';
 import type { AccountingEntityType, LinkedDocument } from '@/types/procurement/document.types';
 import {
   VALID_ENTITY_TYPES,
@@ -115,86 +116,12 @@ export async function entityIdsWithDocuments(
   return new Set(rows.map((r) => String(r.id)));
 }
 
-export interface BankAttachmentRow {
-  id: string;
-  bankTransactionId: string;
-  fileName: string;
-  fileSize: number;
-  uploadedBy: string | null;
-  createdAt: string;
-  transactionDate: string;
-  amount: number;
-  transactionDescription: string;
-  reference: string | null;
-}
-
-export interface AttachmentFilters {
-  from: string;
-  to: string;
-  limit: number;
-  bankTransactionId?: string;
-}
-
-export interface AttachmentPage {
-  rows: BankAttachmentRow[];
-  rowsTotal: number;
-  postedThrough: string;
-}
+// Bank-line documents (uploads and linked captured documents) live in ./bankAttachmentQuery.
+export { listBankAttachments } from './bankAttachmentQuery';
+export type { BankAttachmentRow, AttachmentFilters, AttachmentPage } from './bankAttachmentQuery';
 
 function iso(v: unknown): string {
   return v instanceof Date ? v.toISOString() : new Date(String(v)).toISOString();
-}
-
-export async function listBankAttachments(
-  companyId: string,
-  f: AttachmentFilters,
-): Promise<AttachmentPage> {
-  try {
-    const txId = f.bankTransactionId ?? null;
-    const rows = (await sql`
-      SELECT a.id, a.bank_transaction_id, a.file_name, a.file_size,
-             a.uploaded_by, a.created_at,
-             bt.transaction_date, bt.amount, bt.description AS tx_description, bt.reference
-      FROM bank_transaction_attachments a
-      JOIN bank_transactions bt ON bt.id = a.bank_transaction_id
-      WHERE bt.company_id = ${companyId}::UUID
-        AND bt.transaction_date >= ${f.from}::DATE
-        AND bt.transaction_date <= ${f.to}::DATE
-        AND (${txId}::TEXT IS NULL OR a.bank_transaction_id::TEXT = ${txId})
-      ORDER BY a.created_at DESC, a.id DESC
-      LIMIT ${f.limit}
-    `) as DbRow[];
-
-    const [count] = (await sql`
-      SELECT COUNT(*) AS cnt, MAX(a.created_at) AS latest
-      FROM bank_transaction_attachments a
-      JOIN bank_transactions bt ON bt.id = a.bank_transaction_id
-      WHERE bt.company_id = ${companyId}::UUID
-        AND bt.transaction_date >= ${f.from}::DATE
-        AND bt.transaction_date <= ${f.to}::DATE
-        AND (${txId}::TEXT IS NULL OR a.bank_transaction_id::TEXT = ${txId})
-    `) as DbRow[];
-
-    return {
-      rows: rows.map((r) => ({
-        id: String(r.id),
-        bankTransactionId: String(r.bank_transaction_id),
-        fileName: String(r.file_name ?? ''),
-        fileSize: Number(r.file_size ?? 0),
-        uploadedBy: r.uploaded_by != null ? String(r.uploaded_by) : null,
-        createdAt: iso(r.created_at),
-        transactionDate: fmtDate(r.transaction_date),
-        amount: Number(r.amount ?? 0),
-        transactionDescription: String(r.tx_description ?? ''),
-        reference: r.reference != null ? String(r.reference) : null,
-      })),
-      rowsTotal: Number(count?.cnt ?? 0),
-      postedThrough: count?.latest != null ? iso(count.latest) : new Date(0).toISOString(),
-    };
-  } catch (err) {
-    log.error('Failed to list bank attachments', { companyId, error: err }, 'accounting');
-    throw err;
-  }
 }
 
 export interface UnsupportedTxRow {
@@ -223,11 +150,8 @@ export interface UnsupportedPage {
 }
 
 /**
- * Bank transactions over a materiality threshold with NO attachment.
- *
- * The has-no-attachment test lives in WHERE, never in the LEFT JOIN's ON: a
- * predicate inside an outer join restricts nothing (kpiChartsService summed
- * every transaction in the company for exactly that reason).
+ * Bank transactions over a materiality threshold with NO supporting document: no upload and no linked captured
+ * document (bank/bankLineDocumentSql, the same definition as the grid's paperclip).
  */
 export async function listTransactionsWithoutDocuments(
   companyId: string,
@@ -237,13 +161,12 @@ export async function listTransactionsWithoutDocuments(
     const rows = (await sql`
       SELECT bt.id, bt.transaction_date, bt.amount, bt.description, bt.reference, bt.status
       FROM bank_transactions bt
-      LEFT JOIN bank_transaction_attachments a ON a.bank_transaction_id = bt.id
       WHERE bt.company_id = ${companyId}::UUID
         AND bt.transaction_date >= ${f.from}::DATE
         AND bt.transaction_date <= ${f.to}::DATE
         AND ABS(bt.amount) >= ${f.minAmount}
         AND bt.feed_state = 'posted'
-        AND a.id IS NULL
+        AND NOT ${sql.unsafe(hasBankLineDocumentSql('bt'))}
       ORDER BY ABS(bt.amount) DESC, bt.id DESC
       LIMIT ${f.limit}
     `) as DbRow[];
@@ -251,13 +174,12 @@ export async function listTransactionsWithoutDocuments(
     const [unsupported] = (await sql`
       SELECT COUNT(*) AS cnt, MAX(bt.created_at) AS latest
       FROM bank_transactions bt
-      LEFT JOIN bank_transaction_attachments a ON a.bank_transaction_id = bt.id
       WHERE bt.company_id = ${companyId}::UUID
         AND bt.transaction_date >= ${f.from}::DATE
         AND bt.transaction_date <= ${f.to}::DATE
         AND ABS(bt.amount) >= ${f.minAmount}
         AND bt.feed_state = 'posted'
-        AND a.id IS NULL
+        AND NOT ${sql.unsafe(hasBankLineDocumentSql('bt'))}
     `) as DbRow[];
 
     const [universe] = (await sql`

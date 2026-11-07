@@ -55,7 +55,7 @@ type Ratios = Record<string, number | null> & { notMeaningful: Record<string, st
 beforeEach(() => {
   vi.clearAllMocks();
   getFinancialFiguresMock.mockResolvedValue(FIGURES);
-  getCashFlowDirectMock.mockResolvedValue({ operatingTotal: 1, investingTotal: 0, financingTotal: 0, netChange: 1 });
+  getCashFlowDirectMock.mockResolvedValue({ operatingTotal: 1, investingTotal: 0, financingTotal: 0, netChange: 1, unexplainedDifference: 0 });
 });
 
 async function read(failOn: (statement: string) => Error | null) {

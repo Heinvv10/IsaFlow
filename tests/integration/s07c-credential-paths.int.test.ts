@@ -19,6 +19,7 @@ import acceptRoute from '../../pages/api/invitations/[token]/accept';
 import inviteRoute from '../../pages/api/invite/[token]';
 import forgotRoute from '../../pages/api/auth/forgot-password';
 import resetRoute from '../../pages/api/auth/do-reset-password';
+import { registerImpersonationSession } from '@/lib/auth/impersonationSessions';
 import endImpersonationRoute from '../../pages/api/auth/end-impersonation';
 import waitlistRoute from '../../pages/api/waitlist';
 import { getAuthPool } from '@/lib/auth/authPool';
@@ -253,9 +254,20 @@ describe('S-07c: password reset, end of impersonation, waitlist', () => {
       adminRefreshToken: 'admin-refresh-s07c', targetUserId: me });
     const stashed = () => fixture.query('SELECT target_user_id FROM admin_impersonation_stash WHERE stash_id = $1', [stashId]);
     expect((await stashed()).rows).toEqual([{ target_user_id: me }]);
-    const req = request({ 'sb-access-token': await signSession(me, crypto.randomUUID(), 'aal1'), 'sb-admin-stash': stashId }, 'POST');
-    const result = response();
-    await (endImpersonationRoute as (a: never, b: never) => Promise<unknown>)(req as never, result.res as never);
+    const end = async (sessionId: string) => {
+      const req = request({ 'sb-access-token': await signSession(me, sessionId, 'aal1'), 'sb-admin-stash': stashId }, 'POST');
+      const answer = response();
+      await (endImpersonationRoute as (a: never, b: never) => Promise<unknown>)(req as never, answer.res as never);
+      return answer;
+    };
+    // The target's own session may not spend the stash: it holds the admin's tokens.
+    const ownSession = await end(crypto.randomUUID());
+    expect(ownSession.state.statusCode).toBe(403);
+    expect((await stashed()).rows).toEqual([{ target_user_id: me }]);
+
+    const loginAsSession = crypto.randomUUID();
+    await registerImpersonationSession({ sessionId: loginAsSession, actorUserId: admin, targetUserId: me });
+    const result = await end(loginAsSession);
     expect(result.state.statusCode).toBe(200);
     expect(String(result.headers.get('set-cookie'))).toContain('sb-access-token=admin-access-s07c');
     expect((await stashed()).rows).toEqual([]);

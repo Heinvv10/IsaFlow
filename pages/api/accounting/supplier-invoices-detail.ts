@@ -46,6 +46,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         SET invoice_number = COALESCE(${invoiceNumber || null}, invoice_number),
             invoice_date = COALESCE(${invoiceDate || null}, invoice_date),
             due_date = COALESCE(${dueDate || null}, due_date),
+            -- Migration 962: a due date this edit moves is a hand-set one (the SET reads the stored due_date).
+            due_date_source = CASE WHEN ${dueDate || null}::DATE IS DISTINCT FROM due_date AND ${dueDate || null}::DATE IS NOT NULL
+                                   THEN 'manual' ELSE due_date_source END,
             payment_terms = COALESCE(${paymentTerms || null}, payment_terms),
             notes = COALESCE(${notes || null}, notes),
             updated_at = NOW()

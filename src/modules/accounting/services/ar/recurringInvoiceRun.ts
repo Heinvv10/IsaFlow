@@ -138,12 +138,12 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
       const inv = (await sql`
         INSERT INTO customer_invoices (
           company_id, invoice_number, client_id, customer_id, project_id,
-          invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
+          invoice_date, due_date, due_date_source, subtotal, tax_rate, tax_amount, total_amount,
           status, notes, created_by
         ) VALUES (
           ${companyId}::UUID, ${invoiceNumber}, ${ri.client_id}::UUID, ${ri.client_id}::UUID,
           ${ri.project_id || null},
-          ${invoiceDate}::DATE, ${dueDate}::DATE,
+          ${invoiceDate}::DATE, ${dueDate}::DATE, 'terms',
           ${totals.subtotal}, ${taxRate}, ${totals.taxAmount}, ${totals.totalAmount},
           'draft', ${ri.description || ri.template_name}, ${userId}::UUID
         ) RETURNING id

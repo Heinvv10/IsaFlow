@@ -211,11 +211,11 @@ export async function convertToInvoice(
       const invRows = (await sql`
         INSERT INTO customer_invoices (
           company_id, invoice_number, client_id, customer_id,
-          invoice_date, due_date, subtotal, tax_amount, total_amount,
+          invoice_date, due_date, due_date_source, subtotal, tax_amount, total_amount,
           notes, status, created_by
         ) VALUES (
           ${companyId}::UUID, ${invoiceNumber}, ${quote.clientId || null}, ${quote.clientId || null},
-          ${invoiceDate}, ${dueDate},
+          ${invoiceDate}, ${dueDate}, 'terms',
           ${quote.subtotal}, ${quote.taxAmount}, ${quote.total},
           ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null}
         ) RETURNING id

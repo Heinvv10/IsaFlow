@@ -41,7 +41,7 @@ vi.mock('@/modules/accounting/services/reports/cashFlowIndirectService', async (
   return { ...real, getIndirectCashFlow: vi.fn(real.getIndirectCashFlow) };
 });
 vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({
-  getCashFlowDirect: vi.fn(async () => ({ openingCash: OPENING, closingCash: CLOSING })),
+  getCashFlowDirect: vi.fn(async () => ({ openingCash: OPENING, closingCash: CLOSING, unexplainedDifference: 0 })),
 }));
 
 import { fetchOpeningCash, fetchClosingCash } from '@/modules/accounting/services/afs/afsKpiCash';
