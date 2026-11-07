@@ -17,7 +17,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { chromium, type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { bundlePrintPages } from './support/bundlePrintPages';
 import { printStylesheet } from './renderPackPdf';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
@@ -41,7 +42,7 @@ let bundle: string;
 
 beforeAll(async () => {
   bundle = await bundlePrintPages();
-  browser = await chromium.launch();
+  browser = await launchPrintChromium();
 }, 180_000);
 afterAll(async () => { await browser?.close(); });
 

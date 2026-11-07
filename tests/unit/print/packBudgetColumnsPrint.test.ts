@@ -7,7 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
-import { chromium } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import { formatStatementFigure, MONEY_SCALES } from '@/lib/format/money';
@@ -21,7 +21,7 @@ let printed: PrintedPack;
 const doc = buildBoardPackPages(demoInput);
 
 beforeAll(async () => {
-  browser = await chromium.launch();
+  browser = await launchPrintChromium();
   printed = await printBoardPack(doc, browser);
 }, 180_000);
 afterAll(async () => { await browser?.close(); });

@@ -20,6 +20,8 @@ export interface PayrollEmployee {
   costCentreId?: string | null;
   payScaleId?: string | null;
   occupationalLevelId?: string | null;
+  /** How net pay reaches them (mig 455): cash is paid from the cash register, not by EFT. */
+  paymentMethod?: 'eft' | 'cash';
 }
 
 export interface PayrollComponent {
