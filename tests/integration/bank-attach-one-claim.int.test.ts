@@ -126,6 +126,14 @@ describeIfDb('Attaching a captured document to a bank line: one tax invoice, one
     expect((await attach(d2, provisional)).ok).toBe(true);
   });
 
+  it('refuses on a provisional line whose journal claims VAT when the slip backs ANOTHER journal', async () => {
+    const d = await slip();
+    const j1 = await claim(d);
+    const provisional = await line('none');
+    await sql`UPDATE bank_transactions SET provisional_je_id = ${await claim()}::UUID WHERE id = ${provisional}::UUID`;
+    expect(await attach(d, provisional)).toMatchObject({ ok: false, otherClaim: { kind: 'journal', id: j1 } });
+  });
+
   it('allows a slip whose other claim was reversed', async () => {
     const d = await slip();
     const j1 = await claim(d);
