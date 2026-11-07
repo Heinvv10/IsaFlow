@@ -111,7 +111,12 @@ export async function pageBoxProblems(browser: Browser, print: PrintPdf, orienta
   if (box.atLeast !== width + 1 / 64) wrong.push(`container query: the box reads at least ${box.atLeast}, under ${box.under}`);
   const fits = flipDocument(spillBody(height - 1, orientation));
   const spills = flipDocument(spillBody(height - 1 + 1 / 64, orientation));
-  if (sheetsOf(await print(fits.html, fits.fonts)) !== 1) wrong.push(`spill: a line under a block ${height - 1}px tall spilled`);
+  const fitsPdf = await print(fits.html, fits.fonts);
+  if (sheetsOf(fitsPdf) !== 1) wrong.push(`spill: a line under a block ${height - 1}px tall spilled`);
+  // The sheet is the one the pack's own `@page` rules ask for (A4, and A4 landscape for a named landscape page), not
+  // the paper the transport passes: neither transport sets preferCSSPageSize, and the rules apply all the same.
+  const [w, h] = withPdfFile(fitsPdf, (file) => /Page size:\s+([\d.]+) x ([\d.]+)/.exec(execFileSync('pdfinfo', [file], { encoding: 'utf8' }))!.slice(1).map(Number));
+  if ((orientation === 'landscape') !== (w! > h!)) wrong.push(`sheet: ${w} x ${h}pt is not ${orientation}`);
   if (sheetsOf(await print(spills.html, spills.fonts)) !== 2) wrong.push(`spill: a line under a block ${height - 1 + 1 / 64}px tall stayed`);
   return wrong;
 }

@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, firefox, type Browser } from 'playwright';
-import { launchPrintChromium } from './printChromium';
+import { launchPrintChromium, launchUnhintedControlChromium } from './printChromium';
 
 const DIR = __dirname;
 
@@ -16,7 +16,7 @@ const DIR = __dirname;
  * bracket), or a launch* destructured from one. The run-time guard (`support/printChromiumGuard.ts`) is what holds; this
  * names the file before it runs.
  */
-export const LAUNCH_IN_SOURCE = /\b(?:chromium|firefox|webkit|\w+)\s*(?:\.\s*|\[\s*['"`])launch\w*\b|\{[^}]*\blaunch\w*\b[^}]*\}\s*=\s*\w+/;
+export const LAUNCH_IN_SOURCE = /(?:\b\w+|\))\s*(?:\.\s*|\[\s*['"`])launch\w*\b|\{[^}]*\blaunch\w*\b[^}]*\}\s*=\s*\w+/;
 
 const EVASIONS = [
   'await chromium\n  .launch();',
@@ -25,6 +25,7 @@ const EVASIONS = [
   'import { chromium as c } from "playwright";\nawait c.launch();',
   'await chromium.launchServer();',
   'await chromium.launchPersistentContext("/tmp/x");',
+  'await Object.getPrototypeOf(chromium).launch.call(chromium);',
 ];
 
 describe('the print tests\' Chromium', () => {
@@ -44,13 +45,16 @@ describe('the print tests\' Chromium', () => {
     ['chromium.launchServer()', () => chromium.launchServer()],
     ['chromium.launchPersistentContext()', () => chromium.launchPersistentContext('/nonexistent-print-guard')],
     ['firefox.launch()', () => firefox.launch()],
+    ['the prototype\'s launch', () => (Object.getPrototypeOf(chromium) as typeof chromium).launch.call(chromium)],
+    ['--font-render-hinting=full', () => chromium.launch({ args: ['--font-render-hinting=full'] })],
+    ['none, then full', () => chromium.launch({ args: ['--font-render-hinting=none', '--font-render-hinting=full'] })],
   ] as const)('at run time, %s without the flag is refused', async (unused, launch) => {
     await expect(launch()).rejects.toThrow(/print test/);
   });
 
   let print: Browser;
   let plain: Browser;
-  beforeAll(async () => { print = await launchPrintChromium(); plain = await chromium.launch({ args: ['--font-render-hinting=full'] }); }, 120_000);
+  beforeAll(async () => { print = await launchPrintChromium(); plain = await launchUnhintedControlChromium(); }, 120_000);
   afterAll(async () => { await print?.close(); await plain?.close(); });
 
   it('sets the pack\'s face at fractional advances, where a Chromium launched with full hinting rounds each to a whole pixel', async () => {
