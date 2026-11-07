@@ -277,8 +277,8 @@ export default function Irp5Page() {
                     {summary.employees.map(e => (
                       <tr key={e.employeeId} className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]">
                         <td className="py-3 px-4 font-medium text-[var(--ff-text-primary)]">{e.firstName} {e.lastName}</td>
-                        <td className="py-3 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{e.idNumber ?? <span className="text-red-400">missing</span>}</td>
-                        <td className="py-3 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{e.taxNumber ?? <span className="text-red-400">missing</span>}</td>
+                        <td className="py-3 px-4 font-id text-xs text-[var(--ff-text-secondary)]">{e.idNumber ?? <span className="text-red-400">missing</span>}</td>
+                        <td className="py-3 px-4 font-id text-xs text-[var(--ff-text-secondary)]">{e.taxNumber ?? <span className="text-red-400">missing</span>}</td>
                         <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{formatCurrency(e.totalGross)}</td>
                         <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{formatCurrency(e.totalPaye)}</td>
                         <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{formatCurrency(e.totalUif)}</td>

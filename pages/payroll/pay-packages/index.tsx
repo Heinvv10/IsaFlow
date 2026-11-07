@@ -119,7 +119,7 @@ export default function PayPackagesPage() {
                     className="flex items-center justify-between px-4 py-3 hover:bg-[var(--ff-surface-secondary)]">
                     <div>
                       <div className="text-sm font-medium text-[var(--ff-text-primary)]">
-                        <span className="font-mono mr-2">{p.code}</span>{p.name}
+                        <span className="font-id mr-2">{p.code}</span>{p.name}
                       </div>
                       {p.description && (
                         <div className="text-xs text-[var(--ff-text-secondary)] mt-0.5">{p.description}</div>
