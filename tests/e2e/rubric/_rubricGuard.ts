@@ -138,14 +138,24 @@ export const isEmailRoute = (rawUrl: string): boolean => hasPath(rawUrl, EMAIL_R
  */
 export const isSwitchCompanyRoute = (rawUrl: string): boolean => hasPath(rawUrl, SWITCH_COMPANY_ROUTE);
 
+/** A base that is no real host: a path resolved against it keeps its origin; anything else names another origin. */
+const PATH_PROBE_BASE = 'http://rubric-harness.invalid';
+
 /**
- * A harness Api write goes to a path on the harness server: one leading `/`, no backslash. Playwright resolves an
- * absolute URL, a protocol-relative `//host/...`, or `/\\host/...` (a WHATWG parser reads `\\` as `/`) to another
- * host, past the base URL the guard judged.
+ * A harness Api write goes to a path on the harness server: one leading `/`, no backslash, no tab/CR/LF, and resolving
+ * it as Playwright does (`new URL(path, base)`) keeps the base's origin. An absolute URL, `//host/...`, `/\\host/...`
+ * (WHATWG reads `\\` as `/`) or `/\t/host/...` (WHATWG strips tab, CR and LF) would reach another host, past the base
+ * URL the guard judged. Any base works for the origin check, so a fixed one is used and the guard stays pure.
  */
 export function assertServerPath(path: string): void {
-  if (!/^\/(?!\/)/.test(path) || path.includes('\\')) {
-    throw new RubricGuardError(`"${path}" is not a path on the harness server (one leading /, no backslash)`);
+  let sameOrigin = false;
+  try {
+    sameOrigin = new URL(path, PATH_PROBE_BASE).origin === PATH_PROBE_BASE;
+  } catch {
+    sameOrigin = false;
+  }
+  if (!/^\/(?!\/)/.test(path) || /[\\\t\n\r]/.test(path) || !sameOrigin) {
+    throw new RubricGuardError(`${JSON.stringify(path)} is not a path on the harness server (one leading /, no backslash or tab/CR/LF)`);
   }
 }
 

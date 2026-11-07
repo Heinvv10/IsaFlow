@@ -4,7 +4,7 @@
  * own server (one leading slash, no backslash); the email route is matched in the spellings the server routes.
  */
 import { describe, expect, it } from 'vitest';
-import { guardWrites, isEmailRoute, listenerPids } from '../../e2e/rubric/_rubricGuard';
+import { assertServerPath, guardWrites, isEmailRoute, listenerPids } from '../../e2e/rubric/_rubricGuard';
 
 describe('listener pids', () => {
   const line = (port: number, users: string) => `LISTEN 0      511      *:${port}      *:*    ${users}`;
@@ -35,10 +35,20 @@ describe('harness API write paths', () => {
   it.each(['post', 'postRaw', 'put', 'del', 'postMultipart'] as const)('%s refuses anything but a path on its own server', async (method) => {
     const { api, calls } = fakeApi();
     for (const path of ['http://localhost:3111/api/accounting/customers', 'https://app.isaflow.co.za/api/x', '//app.isaflow.co.za/api/x',
-      '/\\app.isaflow.co.za/api/x', '/api\\x', 'api/accounting/customers', '', 'HTTP://localhost:3111/api/x']) {
+      '/\\app.isaflow.co.za/api/x', '/api\\x', 'api/accounting/customers', '', 'HTTP://localhost:3111/api/x',
+      '/\t/evil.com/x', '/\n/evil.com/x', '/\r/evil.com/x', '/api/x\t', ' //evil.com/x', '\t//evil.com/x']) {
       await expect(api[method](path, {} as never)).rejects.toThrow(/rubric guard: .*not a path on the harness server/);
     }
     expect(calls).toEqual([]);
+  });
+
+  it.each(['/\t/evil.com/x', '/\n/evil.com/x', '/\r\n/evil.com/x'])('refuses %j: WHATWG strips tab/CR/LF, so it would resolve to another host', (p) => {
+    expect(new URL(p, 'http://localhost:3277').host).toBe('evil.com'); // why it matters
+    expect(() => assertServerPath(p)).toThrow(/not a path on the harness server/);
+  });
+
+  it.each(['/api/accounting/customers', '/api/x?a=1&b=//c', '/api/payroll/runs/x/inputs'])('accepts %s', (p) => {
+    expect(() => assertServerPath(p)).not.toThrow();
   });
 
   it('passes a plain path through the scope check', async () => {
