@@ -44,3 +44,27 @@ describe('Outstanding tile note', () => {
     expect(screen.queryByText(/unreversed/)).toBeNull();
   });
 });
+
+describe('Outstanding tile and foreign currency', () => {
+  const serveFx = (foreignOpenCount: number) => vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ success: true, data: { invoices: [], total: 0, foreignOpenCount, arSummary: { outstanding: 5000, overdueCount: 0, overdueAmount: 0, onDeletedAmount: 0 } } }), { status: 200 }),
+  );
+  it('says foreign invoices are counted at face value, not converted', async () => {
+    serveFx(2);
+    render(<CustomerInvoicesPage />);
+    expect(await screen.findByText(/2 foreign-currency invoices counted at face value, not converted/)).toBeTruthy();
+  });
+  it('puts the same note on the Overdue tile when there is an overdue figure', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { invoices: [], total: 0, foreignOpenCount: 1, arSummary: { outstanding: 5000, overdueCount: 2, overdueAmount: 900, onDeletedAmount: 0 } } }), { status: 200 }),
+    );
+    render(<CustomerInvoicesPage />);
+    expect(await screen.findByText(/past due date\. 1 foreign-currency invoice counted at face value, not converted/)).toBeTruthy();
+  });
+  it('adds no note when every open invoice is Rand', async () => {
+    serveFx(0);
+    render(<CustomerInvoicesPage />);
+    expect(await screen.findByText('Open balance, company-wide')).toBeTruthy();
+    expect(screen.queryByText(/foreign-currency/)).toBeNull();
+  });
+});

@@ -5,6 +5,7 @@
  */
 
 import { Download, FileSpreadsheet, FileText } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
 
 const COMPARATORS = ['prior', 'budget', 'variance', 'trend'] as const;
 
@@ -30,10 +31,10 @@ export function IncomeStatementExportButtons({ periodStart, periodEnd, costCentr
 
   return (
     <>
-      <button onClick={() => open('income-statement-xlsx')} disabled={disabled}
-        className="inline-flex items-center gap-2 px-4 py-2 bg-success-700 text-white rounded-lg hover:bg-success-800 text-sm font-medium disabled:opacity-50">
+      <Button variant="secondary" onClick={() => open('income-statement-xlsx')} disabled={disabled}
+        className="gap-2 rounded-lg font-medium disabled:opacity-50">
         <FileSpreadsheet className="h-4 w-4" /> Export Excel
-      </button>
+      </Button>
       <button onClick={() => open('income-statement-export')} disabled={disabled}
         className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50">
         <Download className="h-4 w-4" /> Export CSV

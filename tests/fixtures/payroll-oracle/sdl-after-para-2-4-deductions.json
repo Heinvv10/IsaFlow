@@ -1,0 +1,51 @@
+{
+  "id": "sdl-after-para-2-4-deductions",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 10 (s11F 27.5% limit) and p. 12 (SDL on the balance of remuneration after allowable deductions)",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "R20 000 salary, R8 000 retirement annuity (4006) through payroll, first period. The guide gives the rule, not these figures; computed by hand. s11F: min(8 000, 27.5% x 20 000 = 5 500, 430 000 / 12) = 5 500. PAYE: (20 000 - 5 500) x 12 = 174 000 x 18% = 31 320 - 17 820 = 13 500 / 12 = 1 125.00. SDL: 1% x (20 000 - 5 500) = 145.00 (#1142). UIF on the earning, capped: 177.12. Net 20 000 - 8 000 - 1 125 - 177.12.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 20000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "4006",
+        "name": "Retirement annuity",
+        "type": "deduction",
+        "amount": 8000,
+        "taxable": true,
+        "uif": false,
+        "sdl": false
+      }
+    ]
+  },
+  "expected": {
+    "paye": 1125,
+    "uifEmployee": 177.12,
+    "uifEmployer": 177.12,
+    "sdl": 145,
+    "eti": 0,
+    "net": 10697.88
+  }
+}

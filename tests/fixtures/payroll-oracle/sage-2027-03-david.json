@@ -1,0 +1,54 @@
+{
+  "id": "sage-2027-03-david",
+  "source": "sage",
+  "sourceRef": "IsaFlow-Xero-Comparison-20261023/sage-payroll/01-paye-reconciliation.md: Sage Payroll demo company, payslips and \"View Tax Calculation\" observed 2026-10-24 (tax year 2027, March 2026 monthly period)",
+  "notes": "Sage annualises by days, the calculator by the statutory x12: 2c on PAYE, tolerated as documented rounding. Sage demo employee \"david\" (a Sage demo record, not a real person). Sage tax status: statutory. Sage shows age 55 only; the date of birth is set to 1 January 1971 (year only kept). No case is near 65 (rebates) or 18-29 (ETI). Net is not on the Sage table: it is monthly pay less the Sage PAYE and employee UIF (no other deductions). ETI: nil by ETI Act s6(a), age outside 18-29.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1971-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 45000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ]
+  },
+  "expected": {
+    "paye": 9275.6,
+    "uifEmployee": 177.12,
+    "uifEmployer": 177.12,
+    "sdl": 450,
+    "eti": 0,
+    "net": 35547.28
+  },
+  "tolerance": {
+    "paye": {
+      "cents": 2,
+      "engineActual": 9275.58,
+      "reason": "Sage days annualisation 365/30.4166 (about R540 001.2 for R45 000); the calculator uses the statutory x12, so it is 2c lower"
+    },
+    "net": {
+      "cents": 2,
+      "engineActual": 35547.3,
+      "reason": "Follows the PAYE tolerance (Sage days annualisation 365/30.4166)"
+    }
+  }
+}
