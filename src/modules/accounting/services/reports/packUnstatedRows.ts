@@ -13,6 +13,7 @@
  *
  * A row here has a figure or a reason, never both and never neither.
  */
+import { CASH_UNCAPTURED_LABEL, cashFlowLinePrints } from '@/modules/accounting/services/packs/packSectionData';
 import { ratioLines, type RatioLine } from './ratioPresentation';
 
 export type PackValueRow =
@@ -23,6 +24,7 @@ const CASH_FLOW_ROWS: ReadonlyArray<[field: string, label: string]> = [
   ['operatingCashFlow', 'Operating Cash Flow'],
   ['investingCashFlow', 'Investing Cash Flow'],
   ['financingCashFlow', 'Financing Cash Flow'],
+  ['cashFlowUnexplained', CASH_UNCAPTURED_LABEL],
   ['netCashFlow', 'Net Cash Flow'],
   ['openingCash', 'Opening Cash'],
   ['closingCash', 'Closing Cash'],
@@ -36,10 +38,10 @@ function reasonsIn(value: unknown): Record<string, string> {
 
 const num = (v: unknown): number => (typeof v === 'number' ? v : parseFloat(String(v ?? '0')));
 
-/** The six cash-flow lines, in statement order. */
+/** The cash-flow lines, in statement order: six, and the unexplained movement when there is one. */
 export function cashFlowPackRows(d: Record<string, unknown>): PackValueRow[] {
   const unavailable = reasonsIn(d.unavailable);
-  return CASH_FLOW_ROWS.map(([field, label]): PackValueRow => {
+  return CASH_FLOW_ROWS.filter(([field]) => cashFlowLinePrints(d, field)).map(([field, label]): PackValueRow => {
     const reason = unavailable[field];
     return reason === undefined
       ? { label, value: num(d[field]) }

@@ -144,6 +144,12 @@ function DirectCashFlowSection({ report }: { report: CashFlowDirectReport }) {
                 </tr>
               </React.Fragment>
             ))}
+            {report.unexplainedDifference ? (
+              <tr className="bg-amber-50 dark:bg-amber-900/20 border-t border-slate-300 dark:border-slate-600">
+                <td className="px-4 py-3 text-amber-800 dark:text-amber-300">Unexplained difference: the ledger&apos;s cash does not follow from its posted journals</td>
+                <td className="text-right px-4 py-3 tabular-nums text-amber-900 dark:text-amber-200">{fmt(report.unexplainedDifference)}</td>
+              </tr>
+            ) : null}
             <tr className="bg-slate-100 dark:bg-slate-800 border-t border-slate-600">
               <td className="px-4 py-3 text-slate-500 dark:text-slate-400">Opening cash balance</td>
               <td className="text-right px-4 py-3 tabular-nums text-slate-800 dark:text-slate-200">{fmt(report.openingCash)}</td>

@@ -151,6 +151,8 @@ export interface CumulativePayeResult {
   additionalMedicalCredit: number;
   /** The retirement fund deduction this line records (see the header). */
   retirementDeduction: number;
+  /** The retirement fund deduction to date that came off periodic pay, for the room a donation has (payrollLinePaye). */
+  retirementOffPeriodicToDate: number;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -186,16 +188,21 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // never past what was contributed to date (review #891: an unlimited excess deducted more than was paid), nor
   // past the cap × n ÷ 12, "at any time during the year" (G21 (2027) p. 10; review #891 round 2). A period paid
   // only an annual payment counts as one.
-  const offPeriodic = Math.min(deduction, annualEquivalent);
+  // Split on the pay before donations, so the deduction is the same with or without one. A donation then has less
+  // periodic pay to come off than the deduction took, and that part comes off the annual payments (donationSpill).
+  // Only donations under the s18A rule (migration 959), which come off periodic pay; an older line's may not have.
+  const periodicDonations = Math.max(0, (ytd.donationDeduction ?? 0) + (input.donations ?? 0));
+  const offPeriodic = Math.min(deduction, annualEquivalent + (periods > 0 ? annualise(periodicDonations) : 0));
   const periodicToDate = (offPeriodic * periods) / PERIODS_IN_YEAR;
   const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
     + (hasPeriodic || input.annualPaymentRemuneration > 0 ? 1 : 0);
   const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * Math.max(capPeriods, 1)) / PERIODS_IN_YEAR;
   const offAnnual = Math.max(0, Math.min(deduction - offPeriodic, annualBefore + annualNow,
     contributions - periodicToDate, capToDate - periodicToDate));
-  const taxedAE = annualEquivalent - offPeriodic;
-  const annualAll = annualBefore + annualNow - offAnnual;
-  const annualEarlier = Math.max(0, annualBefore - offAnnual);
+  const taxedAE = Math.max(0, annualEquivalent - offPeriodic);
+  const donationSpill = (Math.max(0, offPeriodic - annualEquivalent) * periods) / PERIODS_IN_YEAR;
+  const annualAll = Math.max(0, annualBefore + annualNow - offAnnual - donationSpill);
+  const annualEarlier = Math.max(0, annualBefore - offAnnual - donationSpill);
 
   const regularInfo = calculatePAYE({ ...base, annualTaxableIncome: taxedAE });
   const atAE = credits(taxedAE);
@@ -212,6 +219,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
       additionalMedicalCredit: Math.min(
         0, round2(toDate(c => c.additionalMedicalCreditUsed) - ytd.additionalMedicalCredit)),
       retirementDeduction: Math.min(0, round2(periodicToDate + offAnnual - (ytd.retirementDeduction ?? 0))),
+      retirementOffPeriodicToDate: periodicToDate,
     };
   }
   const taxAE = atAE.annualTax;
@@ -229,5 +237,6 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
     medicalCredit: round2(toDate(c => c.medicalCreditUsed) - ytd.medicalCredit),
     additionalMedicalCredit: round2(toDate(c => c.additionalMedicalCreditUsed) - ytd.additionalMedicalCredit),
     retirementDeduction: round2(periodicToDate + offAnnual - (ytd.retirementDeduction ?? 0)),
+    retirementOffPeriodicToDate: periodicToDate,
   };
 }

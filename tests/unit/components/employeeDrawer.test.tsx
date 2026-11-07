@@ -39,6 +39,9 @@ beforeEach(() => {
     '/api/payroll/employees/a1/components': () => json([assignment()]),
     '/api/payroll/employees/b2': () => json(B),
     '/api/payroll/employees/b2/components': () => json([]),
+    '/api/payroll/runs': () => json([]),
+    '/api/payroll/employees/a1/bank-details?view=masked': () => json(null),
+    '/api/payroll/employees/b2/bank-details?view=masked': () => json(null),
   };
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (url: string) => {

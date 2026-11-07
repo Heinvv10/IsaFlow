@@ -106,7 +106,7 @@ describe('pre-deduction remuneration identity', () => {
     // Simulate the latest earlier line predating the medical-credit record columns.
     await pool.query('UPDATE payroll_run_lines SET medical_credit = NULL WHERE run_id = $1', [march]);
 
-    await component(f, 'Section 18A donation', '4030', 'deduction', 20_000, '2026-04-01', '2026-04-30');
+    await component(f, 'Full taxable deduction', '4018', 'deduction', 20_000, '2026-04-01', '2026-04-30');
     const april = await createRunFor(f, 4);
     await calculateRun(f, april);
     const aprilLine = (await pool.query(
@@ -133,7 +133,7 @@ describe('pre-deduction remuneration identity', () => {
   it('blocks a pre-913 fully donated salary that a later approved month missed', async () => {
     const f = await seedRetrenchedEmployee(pool, '2026-12-31', 'remuneration: legacy stale gate');
     fixtures.push(f);
-    await component(f, 'Section 18A donation', '4030', 'deduction', 20_000, '2026-04-01', '2026-04-30');
+    await component(f, 'Full taxable deduction', '4018', 'deduction', 20_000, '2026-04-01', '2026-04-30');
 
     const april = await createRunFor(f, 4);
     await calculateRun(f, april);

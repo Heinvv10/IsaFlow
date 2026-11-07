@@ -4,7 +4,7 @@
  *
  * SDL is levied on the balance of remuneration after the Fourth Schedule
  * para 2(4) deductions (SDL Act s3(4); SARS SDL-GEN-01-G01 Rev 5 s6). The only
- * one modelled is the employee's retirement fund contribution limited by s11F,
+ * ones modelled are the s18A donation s18aDonation allows, and the employee's retirement fund contribution limited by s11F,
  * which PAYE 4c already works out cumulatively: a line records the deduction
  * inside the year to date less what the earlier lines recorded
  * (`retirementDeduction`, SIGNED: a reversal is negative). SDL takes that same

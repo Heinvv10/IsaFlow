@@ -1,6 +1,6 @@
 /**
  * Entity change history (forensic-controls step 3, migration 888; 952 added
- * employee bank details, 961 the company's default payment terms): the types, and who may read what — the same rules entity_changes' RLS policy enforces
+ * employee bank details, 961 the company's default payment terms, 962 invoice due dates): the types, and who may read what — the same rules entity_changes' RLS policy enforces
  * (entity_changes_read), stated once here for the routes, the MCP tool and the
  * UI. Pinned to the migrations by entityChangeTypes.test.ts.
  */
@@ -8,6 +8,7 @@
 export const ENTITY_TYPES = [
   'supplier', 'customer', 'gl_account', 'payroll_employee', 'company_user', 'company_invitation',
   'company_user_permission', 'company', 'approval_rule', 'approval_enforcement', 'payroll_bank_detail', 'company_setting',
+  'supplier_invoice', 'customer_invoice',
 ] as const;
 export type EntityType = (typeof ENTITY_TYPES)[number];
 
@@ -27,6 +28,8 @@ export const ENTITY_TYPE_LABELS: Record<EntityType, string> = {
   approval_enforcement: 'Approval switch',
   payroll_bank_detail: 'Employee bank details',
   company_setting: 'Company setting',
+  supplier_invoice: 'Supplier invoice due date',
+  customer_invoice: 'Customer invoice due date',
 };
 
 export const CHANNEL_LABELS: Record<Channel, string> = {
@@ -38,7 +41,7 @@ export const CHANNEL_LABELS: Record<Channel, string> = {
 };
 
 /** Any member may read these (as they may open the entity). */
-const MEMBER_TYPES: readonly EntityType[] = ['supplier', 'customer', 'gl_account'];
+const MEMBER_TYPES: readonly EntityType[] = ['supplier', 'customer', 'gl_account', 'supplier_invoice', 'customer_invoice'];
 /** Payroll detail: withPayrollDetailAccess's roles. */
 const PAYROLL_ROLES = ['owner', 'admin', 'manager'];
 /** Everything else, the company-wide feed, and revealing masked values. */

@@ -26,6 +26,7 @@ import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { dueDateForContact } from '../core/paymentTermsResolver';
+import { dueDateSourceOf } from '../shared/dueDateSource';
 
 type Row = DbRow;
 
@@ -48,6 +49,8 @@ export interface DraftInvoiceInput {
   clientId: string;
   invoiceDate?: string;
   dueDate?: string;
+  /** Where a given `dueDate` came from (migration 962): a person or API caller (default) or the source document. */
+  dueDateGivenAs?: 'manual' | 'document';
   billingPeriodStart?: string;
   billingPeriodEnd?: string;
   taxRate?: number;
@@ -74,7 +77,7 @@ export async function createDraftCustomerInvoice(
   actor?: PostingActorOpts,
 ): Promise<{ id: string; invoiceNumber: string }> {
   const {
-    clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
+    clientId, invoiceDate, dueDate, dueDateGivenAs, billingPeriodStart, billingPeriodEnd,
     taxRate, notes, currencyCode, exchangeRate,
   } = input;
 
@@ -160,8 +163,11 @@ export async function createDraftCustomerInvoice(
   }
   const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
   const invDate = invoiceDate || today;
-  // No due date named: the customer's terms give it, else the company default (migration 960).
-  const resolvedDueDate = dueDate || await dueDateForContact(companyId, 'customer', clientId, invDate);
+  // No due date named: the customer's terms give it, else the company default (migration 960). A named date equal to
+  // what the terms give (the new-invoice page prefills it) is recorded as the terms' (migration 962).
+  const termsDueDate = await dueDateForContact(companyId, 'customer', clientId, invDate);
+  const resolvedDueDate = dueDate || termsDueDate;
+  const dueDateSource = dueDateSourceOf(dueDate, dueDateGivenAs === 'document' ? null : termsDueDate, dueDateGivenAs ?? 'manual');
   const bpStart = billingPeriodStart || null;
   const bpEnd = billingPeriodEnd || null;
 
@@ -184,7 +190,7 @@ export async function createDraftCustomerInvoice(
         INSERT INTO customer_invoices (
           company_id, invoice_number, project_id, customer_id, client_id,
           billing_period_start, billing_period_end,
-          subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
+          subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date, due_date_source,
           notes, status, created_by,
           currency_code, exchange_rate, functional_total,
           actor_type, actor_token_jti
@@ -192,7 +198,7 @@ export async function createDraftCustomerInvoice(
           ${companyId}, ${number}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID,
           ${bpStart}, ${bpEnd},
           ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
-          ${resolvedDueDate}, ${notes || null}, 'draft', ${userId},
+          ${resolvedDueDate}, ${dueDateSource}, ${notes || null}, 'draft', ${userId},
           ${invCurrencyCode}, ${invExchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${invExchangeRate}::NUMERIC(18,6)),
           ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
         ) RETURNING id

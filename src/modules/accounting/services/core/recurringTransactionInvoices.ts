@@ -75,7 +75,7 @@ export async function mintRecurringCustomerInvoice(
     companyId, 'customer_invoice', 'rec_txn_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const ciRows = (await sql`
         INSERT INTO customer_invoices (
-          company_id, invoice_number, client_id, customer_id, invoice_date, due_date,
+          company_id, invoice_number, client_id, customer_id, invoice_date, due_date, due_date_source,
           notes, subtotal, tax_amount, total_amount, status, created_by
         ) VALUES (
           ${companyId}::UUID,
@@ -84,6 +84,7 @@ export async function mintRecurringCustomerInvoice(
           ${clientId},
           ${invoiceDate}::DATE,
           ${dueDate}::DATE,
+          'terms',
           ${String(data.notes || template.name)},
           ${totals.subtotal},
           ${totals.taxAmount},
@@ -202,7 +203,7 @@ export async function mintRecurringSupplierInvoice(
       const fingerprint = computeFingerprint(vatNumber, invoiceNumber, total);
       const siRows = (await sql`
         INSERT INTO supplier_invoices (
-          company_id, invoice_number, supplier_id, invoice_date, due_date,
+          company_id, invoice_number, supplier_id, invoice_date, due_date, due_date_source,
           reference, notes, subtotal, tax_amount, total_amount, status, created_by,
           duplicate_fingerprint
         ) VALUES (
@@ -211,6 +212,7 @@ export async function mintRecurringSupplierInvoice(
           ${supplierId},
           ${invoiceDate}::DATE,
           ${dueDate}::DATE,
+          'terms',
           ${String(data.reference || 'AUTO-REC')},
           ${String(data.notes || data.description || template.name)},
           ${totals.subtotal},

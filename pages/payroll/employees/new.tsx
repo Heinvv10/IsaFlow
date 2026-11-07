@@ -8,7 +8,8 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { UserPlus, Loader2, ArrowLeft } from 'lucide-react';
+import { UserPlus, Loader2 } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { todayInSast } from '@/lib/saDateParser';
 import type { FieldValidity } from '@/components/ui/useParsedField';
 import { PersonalSection } from '@/components/payroll/employeeCreate/PersonalSection';
@@ -120,20 +121,8 @@ export default function NewEmployeePage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center gap-3">
-            <Link href="/payroll/employees" aria-label="Back to employees" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
-              <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" />
-            </Link>
-            <div className="p-2 rounded-lg bg-teal-500/10">
-              <UserPlus className="h-6 w-6 text-teal-500" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">New Employee</h1>
-              <p className="text-sm text-[var(--ff-text-secondary)]">Create a payroll employee</p>
-            </div>
-          </div>
-        </div>
+        <PageHeader icon={UserPlus} title="New Employee" subtitle="Create a payroll employee"
+          backLink={{ label: 'Employees', href: '/payroll/employees' }} className="mb-0" />
 
         <form onSubmit={handleSubmit} noValidate className="p-6 max-w-3xl space-y-2">
           {bankFailure && (
