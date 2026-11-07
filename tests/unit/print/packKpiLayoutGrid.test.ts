@@ -1,14 +1,13 @@
 /**
- * THE KPI MODEL OVER THE WHOLE ADVERSARIAL GRID (opt-in: about 40 minutes on velo).
+ * THE KPI MODEL OVER THE WHOLE ADVERSARIAL GRID (opt-in: about an hour on velo).
  *
  *   KPI_GRID=1 ./node_modules/.bin/vitest run --config vitest.print.config.ts tests/unit/print/packKpiLayoutGrid.test.ts
  *
  * Every pack of the grid (`allShapes`: 11,520), each distinct KPI block measured once in production's layout and
  * held to `kpiLayoutCheck.ts`: columns within a pixel, every row and the block never short, never more than
- * `MOST_OVER` over but in the one-line band. The band is pinned (`IN_BAND`), and each pack in it is composed again with
- * its block charged at the printed height: the document must not change (no note, column or block it would have kept),
- * and it prints its twelve sheets. These are the numbers `kpiLayoutCheck.ts` quotes. Last run (2026-11-07): 5,760
- * distinct blocks, 0.008 to 0.057mm over, 80 packs in the band, none of them changed.
+ * `MOST_OVER` over but in the one-line band (pinned, `IN_BAND`). Then every pack is composed again with its KPI block
+ * charged at exactly its printed height: where that changes the pack and the changed pack prints inside its sheets, the
+ * model's excess dropped something that fits, and the test fails. These are the numbers `kpiLayoutCheck.ts` quotes.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
@@ -32,15 +31,18 @@ beforeAll(async () => { if (process.env.KPI_GRID === '1') browser = await launch
 afterAll(async () => { await browser?.close(); });
 
 describe.skipIf(process.env.KPI_GRID !== '1')('the KPI block of every pack of the grid', () => {
-  it('never short, within MOST_OVER but the pinned band, and no pack in the band loses anything for it', async () => {
+  it('never short, within MOST_OVER but the pinned band, and charged at its printed height no pack drops what fits', async () => {
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
-    const seen = new Map<string, number | null>();
-    const band: Array<{ shape: Shape; overMm: number }> = [];
+    const seen = new Map<string, { overMm: number; banded: boolean }>();
+    const band: Shape[] = [];
     let packs = 0;
     let shortest = Infinity;
     let tallest = -Infinity;
+    const changed: string[] = [];
+    const fitsAndDrops: string[] = [];
     for (const shape of allShapes()) {
+      corr.mm = 0;
       const doc = build(shape);
       if (doc === null) { wrong.push(`${key(shape)}: refused`); continue; }
       packs += 1;
@@ -53,27 +55,26 @@ describe.skipIf(process.env.KPI_GRID !== '1')('the KPI block of every pack of th
         wrong.push(...t.wrong);
         shortest = Math.min(shortest, t.shortest);
         tallest = Math.max(tallest, t.tallest);
-        seen.set(hash, t.bandedOverMm[0] ?? null);
+        seen.set(hash, { overMm: t.overMm[0]!, banded: t.banded.length > 0 });
       }
-      const overMm = seen.get(hash) ?? null;
-      if (overMm !== null) band.push({ shape, overMm });
-    }
-    process.stdout.write(`KPIGRID packs=${packs} blocks=${seen.size} shortest=${shortest.toFixed(3)} tallest=${tallest.toFixed(3)} banded=${band.length}\n`);
-    expect(packs).toBe(11_520);
-    expect(wrong.slice(0, 12)).toEqual([]);
-
-    const lost: string[] = [];
-    for (const { shape, overMm } of band) {
-      corr.mm = 0;
-      const asIs = build(shape)!;
-      corr.mm = overMm;
+      const block3 = seen.get(hash)!;
+      if (block3.banded) band.push(shape);
+      // The pack again, its KPI block charged at exactly its printed height: it must be the same pack. Where it is not,
+      // the model's excess decided something; a pack that then prints inside its sheets lost a note that fits.
+      corr.mm = block3.overMm;
       const atPrint = build(shape)!;
       corr.mm = 0;
-      if (JSON.stringify(atPrint.pages) !== JSON.stringify(asIs.pages)) lost.push(`${key(shape)}: composed at the printed height, the pack changes`);
-      const printed = await printBoardPack(asIs, browser);
-      if (printed.sheets !== asIs.pages.length || printed.overflow.length > 0) lost.push(`${key(shape)}: ${printed.sheets} sheets, ${printed.overflow.length} past the edge`);
+      if (JSON.stringify(atPrint.pages) !== JSON.stringify(doc.pages)) {
+        changed.push(key(shape));
+        const printed = await printBoardPack(atPrint, browser);
+        const i = atPrint.pages.findIndex((p) => p.blocks.some((b) => b.kind === 'kpiTiles'));
+        if (printed.sheets === atPrint.pages.length && printed.overflow.length === 0 && printed.heights[i]!.overMm <= 0.2) fitsAndDrops.push(key(shape));
+      }
     }
-    expect(lost).toEqual([]);
+    process.stdout.write(`KPIGRID packs=${packs} blocks=${seen.size} shortest=${shortest.toFixed(4)} tallest=${tallest.toFixed(4)} banded=${band.length} changedAtPrint=${changed.length} droppedThatFits=${fitsAndDrops.length}\n`);
+    expect(packs).toBe(11_520);
+    expect(wrong.slice(0, 12)).toEqual([]);
+    expect(fitsAndDrops.slice(0, 12)).toEqual([]);
     expect(band.length).toBe(IN_BAND);
   }, 14_400_000);
 });

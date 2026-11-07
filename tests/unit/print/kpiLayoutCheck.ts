@@ -11,7 +11,7 @@ import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/b
 import type { KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 import {
-  kpiBlockMm, kpiColumnsPx, kpiTileLines, kpiTileMm, LABEL_LINE_MM, REASON_LINE_MM, type KpiTileLines,
+  kpiBlockMm, kpiColumnBoundsPx, kpiTileLines, kpiTileMm, LABEL_LINE_MM, REASON_LINE_MM, type KpiTileLines,
 } from '@/modules/accounting/services/packs/pages/packKpiLayout';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
@@ -21,12 +21,12 @@ import { measureKpiBlocks } from './measureKpi';
 /** Never short: no tolerance. This is float noise in the millimetre arithmetic, a millionth of Chromium's 1/64px unit. */
 export const NEVER_SHORT_EPS = 1e-9;
 /**
- * The most the model may read over the print. The leadings are Chromium's own, so its only excess is what it rounds up:
- * a tile's 1mm gaps, which Chromium floors to 3.765625px (0.0037mm each, three a tile), and the sparkline's 0.01mm and
- * its 1/64px unit, a few hundredths a row. Over the grid's 11,520 packs (`packKpiLayoutGrid.test.ts`) the block reads
- * 0.008 to 0.057mm over. A line or a gap too many is 4mm or 1mm; a leading off by 0.05mm is 0.1mm on a two-row block.
+ * The most the model may read over the print. Its leadings, gaps and the sparkline's cap are Chromium's own, to its
+ * 1/64px unit; its one excess is the sparkline, taken a unit up at the widest its column can be (the figures' width
+ * unit either way): thousandths of a millimetre a row. Over the grid's 11,520 packs (`packKpiLayoutGrid.test.ts`) the
+ * block reads 0 to 0.025mm over. A line or a gap too many is 4mm or 1mm; a leading 0.05mm off is 0.1mm on two rows.
  */
-export const MOST_OVER = 0.08;
+export const MOST_OVER = 0.05;
 /**
  * THE ONE WAY THE MODEL MAY READ A LINE TOO MANY: a near tie. Every width it charges is never short of Chromium's (the
  * shaping model's widths carry one 1/64px unit past Chromium's own, because it is a unit off either way on some
@@ -40,8 +40,10 @@ export interface Tally {
   wrong: string[]; blocks: number; shortest: number; tallest: number; squeezed: number;
   /** The blocks in the band, and how far each reads over the print (mm). */
   banded: string[]; bandedOverMm: number[];
+  /** How far every block reads over the print (mm), in order. */
+  overMm: number[];
 }
-export const tally = (): Tally => ({ wrong: [], blocks: 0, shortest: Infinity, tallest: -Infinity, squeezed: 0, banded: [], bandedOverMm: [] });
+export const tally = (): Tally => ({ wrong: [], blocks: 0, shortest: Infinity, tallest: -Infinity, squeezed: 0, banded: [], bandedOverMm: [], overMm: [] });
 
 export const build = (shape: Shape): PackPagesDocument | null => {
   try { return buildBoardPackPages(input(shape)); } catch (e) { if (e instanceof PackRefusal) return null; throw e; }
@@ -75,16 +77,17 @@ export async function check(doc: PackPagesDocument, browser: Browser, label: str
       if (r === undefined || block.kind !== 'kpiTiles') { t.wrong.push(`${where}: no printed block`); return; }
       t.blocks += 1;
       const scale = doc.numberConvention.scale;
-      const columns = kpiColumnsPx(block.tiles, scale, page.orientation);
+      const { line: columns, spark } = kpiColumnBoundsPx(block.tiles, scale, page.orientation);
       columns.forEach((px, c) => { if (Math.abs(px - r.columnsPx[c]!) > 1) t.wrong.push(`${where} column ${c}: model ${px.toFixed(1)} vs ${r.columnsPx[c]!.toFixed(1)}`); });
       if (columns.some((px) => px < 100)) t.squeezed += 1;
       const gap = kpiBlockMm(block.tiles, scale, page.orientation) - r.heightMm;
       t.shortest = Math.min(t.shortest, gap);
+      t.overMm.push(gap);
       const line = gap > MOST_OVER ? oneLineTooMany(block.tiles, columns) : null;
       const banded = line !== null && gap - line >= -NEVER_SHORT_EPS && gap - line <= MOST_OVER;
       if (banded) { t.banded.push(where); t.bandedOverMm.push(gap); } else t.tallest = Math.max(t.tallest, gap);
       if (gap < -NEVER_SHORT_EPS || (gap > MOST_OVER && !banded)) t.wrong.push(`${where} block: model over by ${gap.toFixed(3)}mm`);
-      const rows = r.rowsMm.map((mm, row) => ({ mm, model: Math.max(...block.tiles.slice(row * 4, row * 4 + 4).map((tile, j) => kpiTileMm(tile, columns[j]!))) }));
+      const rows = r.rowsMm.map((mm, row) => ({ mm, model: Math.max(...block.tiles.slice(row * 4, row * 4 + 4).map((tile, j) => kpiTileMm(tile, columns[j]!, spark[j]!))) }));
       rows.forEach((row, n) => { if (row.model < row.mm - NEVER_SHORT_EPS) t.wrong.push(`${where} row ${n}: model ${row.model.toFixed(3)} vs ${row.mm.toFixed(3)}`); });
     });
   }

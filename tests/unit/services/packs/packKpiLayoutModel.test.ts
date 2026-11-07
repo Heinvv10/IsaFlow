@@ -15,6 +15,7 @@ import { DELTA_CUE_PX, deltaText, KPI_FIGURE_MAX_PT, kpiColumnMinPx, kpiFit, lab
 import { ptToPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
 import { kpiColumnsPx, kpiTileMm, LABEL_LINE_MM, REASON_LINE_MM } from '@/modules/accounting/services/packs/pages/packKpiLayout';
 import { reasonPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
+import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { input, type Shape } from './fixtures/packGridInputs';
 
 const SCALE = "R'000" as const;
@@ -84,11 +85,35 @@ describe('the sparkline the model sizes', () => {
     const tile = withSparkline[0]!;
     const [, w, hgt] = /^<svg width="([\d.]+)" height="([\d.]+)"/.exec(String(tile.sparklineSvg))!;
     const without = kpiTileMm({ ...tile, sparklineSvg: null }, 100);
-    expect(kpiTileMm(tile, 100) - without).toBeCloseTo((100 / (96 / 25.4)) * (Number(hgt) / Number(w)) + 0.01 + 1, 9);
+    const px = 25.4 / 96;
+    // The sparkline as Chromium sets it, its height taken up to the 1/64px unit, and the tile's 1mm gap floored to it.
+    expect(kpiTileMm(tile, 100) - without).toBeCloseTo((Math.ceil(100 * (Number(hgt) / Number(w)) * 64) / 64 + Math.floor((96 / 25.4) * 64) / 64) * px, 9);
   });
 
   it('is refused, not guessed at, where its root carries no width and height', () => {
     const tile = withSparkline[0]!;
     expect(() => kpiTileMm({ ...tile, sparklineSvg: '<svg viewBox="0 0 227 181"></svg>' as typeof tile.sparklineSvg }, 100)).toThrow(/sparkline SVG/);
+  });
+});
+
+describe('a tile whose text the pack\'s faces do not set', () => {
+  const tile = tiles(DEMO).find((t) => t.delta !== null)!;
+  const reasonTile = [...tiles(DEMO), ...tiles(NET_DEBIT)].find((t) => t.figure.value === null)!;
+
+  it.each([
+    ['a Thai label', { label: 'รายได้จากการดำเนินงาน' }],
+    ['a Devanagari label', { label: 'परिचालन राजस्व' }],
+    ['an emoji in a label', { label: 'Revenue 📈' }],
+    ['an Arabic delta basis', { delta: { ...tile.delta!, basis: 'الإيرادات التشغيلية' } }],
+  ] as Array<[string, Partial<KpiTile>]>)('%s is refused: its fallback face\'s line box is taller than any the model charges', (_name, part) => {
+    expect(() => kpiTileMm({ ...tile, ...part }, 150)).toThrow(PackRefusal);
+  });
+
+  it('a Tibetan not-meaningful reason is refused', () => {
+    expect(() => kpiTileMm({ ...reasonTile, figure: { ...reasonTile.figure, unavailable: 'Not meaningful: ཀྵྐྵ བོད' } }, 150)).toThrow(PackRefusal);
+  });
+
+  it('text the faces set (Greek, Cyrillic, accented Latin, a non-breaking space) is charged, not refused', () => {
+    expect(kpiTileMm({ ...tile, label: 'Ελληνικά Кириллица Ūňîčőđę ratio' }, 150)).toBeGreaterThan(0);
   });
 });
