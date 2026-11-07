@@ -191,11 +191,11 @@ describe('a label that fits its column to within a fraction of a pixel (the adve
 
 describe('near ties off page 6: balance sheet labels that wrap, a fraction of a pixel inside their column', () => {
   // Found by sweeping the label and the figures' width (the adversary's round 3 found the earlier sweep never wrapped a
-  // balance sheet label): each first-row label takes two or three lines and one of its pieces ends 0.09 to 0.45px
+  // balance sheet label): each first-row label takes two to four lines and one of its pieces ends 0.08 to 0.24px
   // inside the column. The guard sets Chromium's lines on every one; a half-pixel guard sets a line too many.
   const NEAR_TIES = [
-    ['Balance sheet', 19, 'Trade receivables net'], ['Balance sheet', 21, 'Inventories and work in progress'],
-    ['Balance sheet', 18, 'Prepayments and deposits paidiiii'], ['Balance sheet', 19, 'Current assetsiiiii'],
+    ['Balance sheet', 19, 'Inventories and work in progress'], ['Balance sheet', 19, 'Non-current liabilities total'],
+    ['Balance sheet', 21, 'Prepayments and deposits paidiii'], ['Balance sheet', 19, 'Current assetsiiiiii'],
   ] as const;
 
   it.each(NEAR_TIES)('%s, %i digits, "%s": the model\'s lines are Chromium\'s, and a half-pixel guard would add one', async (nav, digits, label) => {
