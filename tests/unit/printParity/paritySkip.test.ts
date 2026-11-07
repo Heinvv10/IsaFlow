@@ -4,7 +4,9 @@
 import { describe, expect, it } from 'vitest';
 import { PRODUCTION_GOTENBERG_IMAGE } from './gotenbergParity';
 import { paritySkip } from './paritySkip';
-import { parityOutOfScope } from './parityScope';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { PARITY_PATHS, parityOutOfScope } from './parityScope';
 
 const host = (runningImage: string | null, missing: string | null, outOfScope: string | null = null) => ({ runningImage: () => runningImage, missing: () => missing, outOfScope: () => outOfScope });
 
@@ -53,5 +55,14 @@ describe('parityOutOfScope', () => {
       'tests/unit/printParity/gotenbergParity.ts', 'src/lib/pdf/printChromiumArgs.ts', 'bun.lock']) {
       expect(parityOutOfScope({ PARITY_SCOPE: 'diff' }, () => ['README.md', f]), f).toBeNull();
     }
+  });
+});
+
+describe('PARITY_PATHS', () => {
+  it('covers every source file that reads the measured content box', () => {
+    const readers = execFileSync('git', ['ls-files', 'src'], { encoding: 'utf8' }).split('\n')
+      .filter((f) => /\.tsx?$/.test(f) && /\b(?:PAGE_WIDTH_MM|PAGE_BOX_MM|CONTAINER_WIDTH_MM|PRINT_CONTENT_PX|PRINT_CONTAINER_PX|PRINT_CONTENT_HEIGHT_PX)\b/.test(readFileSync(f, 'utf8')));
+    expect(readers.length).toBeGreaterThan(10);
+    expect(readers.filter((f) => !PARITY_PATHS.some((p) => p.test(f)))).toEqual([]);
   });
 });
