@@ -73,7 +73,7 @@ export default function ReapplyTermsPage() {
   };
 
   const tickedTotal = preview ? preview.rows.filter((r) => ticked.has(r.id)).reduce((a, r) => a + r.balance, 0) : 0;
-  // Ticked rows the preview left unticked: a hand-set or document date, or a supplier on the old stamped default.
+  // Ticked rows the preview left unticked: a hand-set or document date.
   const overriding = preview ? preview.rows.filter((r) => ticked.has(r.id) && !r.preselected).length : 0;
   return (
     <AppLayout>
@@ -139,7 +139,7 @@ export default function ReapplyTermsPage() {
         <ConfirmDialog
           open={confirming}
           title="Re-date these bills?"
-          message={<>The due dates of <strong>{ticked.size}</strong> bill{ticked.size === 1 ? '' : 's'} change to their suppliers&apos; terms. Each change is recorded in the bill&apos;s history.{overriding > 0 && <> <strong>{overriding}</strong> of them overwrite a date set by hand, from the document, or from terms that may be the old default.</>}</>}
+          message={<>The due dates of <strong>{ticked.size}</strong> bill{ticked.size === 1 ? '' : 's'} change to their suppliers&apos; terms. Each change is recorded in the bill&apos;s history.{overriding > 0 && <> <strong>{overriding}</strong> of them overwrite a date set by hand or from the document.</>}</>}
           acceptLabel="Re-date"
           cancelLabel="Cancel"
           onAccept={() => { void apply(); }}
