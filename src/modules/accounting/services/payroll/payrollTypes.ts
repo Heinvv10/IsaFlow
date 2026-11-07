@@ -277,7 +277,7 @@ export interface PayrollLineResult {
   /**
    * This line's SDL leviable amount, cumulative over the tax year's liable months (sdlLeviableCumulative): the rise
    * in max(0, SDL-applicable pay to date - the s11F retirement and s18A donation deductions allowed to date), capped at that pay,
-   * never below nil (SDL Act s3(4)) and rounded to the cent.
+   * never below nil (SDL Act s3(3)) and rounded to the cent.
    */
   sdlLeviable: number;
   /** This line's SDL-applicable earnings (earnings flagged is_sdl_applicable), before any deduction, to the cent. */
