@@ -2,7 +2,8 @@
  * Golden path (q): the top nav opens every module menu on hover, and each daily
  * destination is one hover + one click from Home (master plan W1 PR N).
  *
- *  - T1 targets from /accounting: Invoices, Bank reconciliation, Pay Runs, VAT201, P&L.
+ *  - T1 targets from /accounting: Invoices, Bank reconciliation, Pay Runs, VAT201, P&L. A menu closed under the
+ *    pointer before the click is hovered again (up to 30 s); each retry is printed and annotated.
  *  - One target again with the keyboard only (focus the menu button, Enter, Enter).
  *  - The right tab lights up on a sub-page, a query tab and an #anchor.
  *
@@ -55,7 +56,11 @@ for (const { tab, link, path } of T1) {
       await tabOf(page, tab).hover({ timeout: 3_000 });
       await target.click({ timeout: 3_000 });
     }).toPass({ timeout: 30_000 });
-    if (attempts > 1) test.info().annotations.push({ type: 'nav-hover-retries', description: `${link}: ${attempts} attempts` });
+    if (attempts > 1) {
+      // Printed as well: the golden config's list reporter does not show annotations.
+      test.info().annotations.push({ type: 'nav-hover-retries', description: `${link}: ${attempts} attempts` });
+      process.stderr.write(`[nav-hover-retries] ${link}: ${attempts} attempts\n`);
+    }
     await waitForClickNavigation(page, path, href);
     // The next page renders its own nav after its auth round trips.
     await expect(tabOf(page, tab).locator('[aria-current="true"]').first()).toBeVisible({ timeout: NAV_READY_MS });
