@@ -54,6 +54,14 @@ describe('a tile line at the edge of its column', () => {
     expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(LABEL_LINE_MM, 6);
   });
 
+  it('a line that ends at a soft hyphen is charged with the hyphen Chromium sets there', () => {
+    const source = all.find((t) => t.figure.value !== null)!;
+    const tile = alone(source, { label: 'Ab Cd\u00ADefghijklmnop' });
+    // "Ab Cd-" fits a column exactly its width with the hyphen, and not 1/128px less (then "Cd-" and the rest wrap).
+    const withHyphen = textPx('Ab Cd\u00AD', 12, 400, true);
+    expect(kpiTileMm(tile, withHyphen - HAIR) - kpiTileMm(tile, withHyphen)).toBeCloseTo(LABEL_LINE_MM, 6);
+  });
+
   it('a not-meaningful reason fits the exact width of the whole reason, and no narrower', () => {
     const source = all.find((t) => t.figure.value === null && (t.figure.unavailable ?? '').includes(' '))!;
     const tile = alone(source, {});
