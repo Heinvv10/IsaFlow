@@ -1,5 +1,5 @@
 /**
- * A customer's default revenue account (migration 965), through the real /api/accounting/customers route (withAuth,
+ * A customer's default revenue account (migration 966), through the real /api/accounting/customers route (withAuth,
  * CSRF, write access, the request transaction). withAuth COMMITS a 4xx, so the account must be judged before the first
  * write: a refused POST or PUT must leave every customer row, and the customer's change history, exactly as it was.
  * Another company's account and a deactivated one are refused by name; the composite FK refuses another company's
@@ -96,7 +96,33 @@ describe('an accepted account is stored, returned and can be cleared', () => {
   });
 });
 
-describe('the database fence (composite FK, migration 965)', () => {
+describe('a stored default deactivated since', () => {
+  it('does not block saving another field (sent back unchanged or not sent), is untouched, and the GET marks it unusable', async () => {
+    const stale = await account(mine, '4950');
+    expect((await put({ id: ids.customer, default_revenue_account_id: stale })).state.statusCode).toBe(200);
+    await pool.query('UPDATE gl_accounts SET is_active = false WHERE id = $1', [stale]);
+
+    const resent = await put({ id: ids.customer, phone: '011 555 0001', default_revenue_account_id: stale });
+    expect(resent.state.statusCode).toBe(200);
+    const omitted = await put({ id: ids.customer, phone: '011 555 0002' });
+    expect(omitted.state.statusCode).toBe(200);
+    const row = await customerRow(ids.customer);
+    expect(row.phone).toBe('011 555 0002');
+    expect(row.default_revenue_account_id).toBe(stale);
+
+    const got = await callRoute(customersRoute as never, tokens[admin]!, mine, 'GET', undefined, '/api/accounting/customers', { id: ids.customer });
+    expect((got.state.body as { data: { default_revenue_account: unknown } }).data.default_revenue_account)
+      .toEqual({ id: stale, label: '4950 · Sales 4950', usable: false, problem: 'is inactive' });
+
+    // Choosing it for ANOTHER customer is a change, so it is judged: refused.
+    const { rows } = await pool.query("INSERT INTO customers(company_id, name) VALUES($1, 'Other') RETURNING id", [mine]);
+    const other = await put({ id: rows[0].id, default_revenue_account_id: stale });
+    expect(other.state.statusCode).toBe(400);
+    expect(message(other)).toContain('it is inactive');
+  });
+});
+
+describe('the database fence (composite FK, migration 966)', () => {
   it('refuses another company\'s account on a direct write', async () => {
     await expect(pool.query('UPDATE customers SET default_revenue_account_id = $1 WHERE id = $2', [ids.foreign, ids.customer]))
       .rejects.toMatchObject({ code: '23503' });

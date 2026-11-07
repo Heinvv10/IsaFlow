@@ -4,6 +4,15 @@ import { paymentTermsBody } from '@/components/accounting/paymentTermsForm';
 import type { CustomerFormData } from '@/components/accounting/CustomerForm';
 import { strategyOf, termsToForm, text, type Row } from './formMapping';
 
+/** The single GET's `default_revenue_account` view as the picker's label; marked when it can no longer be used. */
+function revenueAccountLabel(view: unknown): string {
+  if (typeof view !== 'object' || view === null) return '';
+  const v = view as { label?: unknown; usable?: unknown; problem?: unknown };
+  if (typeof v.label !== 'string') return '';
+  if (v.usable !== false) return v.label;
+  return `${v.label} (${v.problem === 'is inactive' ? 'inactive' : 'cannot be used'})`;
+}
+
 export function customerToForm(row: Row): CustomerFormData {
   return {
     name: text(row, 'name'), email: text(row, 'email'), phone: text(row, 'phone'), mobile: text(row, 'mobile'),
@@ -21,6 +30,7 @@ export function customerToForm(row: Row): CustomerFormData {
     subject_to_drc_vat: row.subject_to_drc_vat === true, invoices_viewable_online: row.invoices_viewable_online !== false,
     default_price_list: text(row, 'default_price_list'),
     default_revenue_account_id: text(row, 'default_revenue_account_id'),
+    default_revenue_account_label: revenueAccountLabel(row.default_revenue_account),
   };
 }
 

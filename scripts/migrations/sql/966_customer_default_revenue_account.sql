@@ -1,4 +1,4 @@
--- 965: a customer's default revenue account (master plan wave 4, PR RA; wave-3 spec decision 3).
+-- 966: a customer's default revenue account (master plan wave 4, PR RA; wave-3 spec decision 3).
 --
 -- customers.default_revenue_account_id names the revenue account a new invoice line for this customer starts on
 -- (the new-invoice page fills it on lines the user has not coded; a user's pick is never overwritten). NULL = none:
@@ -14,10 +14,12 @@
 -- judged by contactRevenueAccount.ts before any write; the FK is the tenant fence underneath it.
 --
 -- Expand-only: a new nullable column no old code reads or writes, so it is safe beside the live colour and after a
--- code-only rollback. The FK is added NOT VALID and validated here: every existing row is NULL (the column is new), so
--- the VALIDATE scan finds nothing to refuse; customers is small, and the scan takes only SHARE UPDATE EXCLUSIVE on top of
--- the lock the ADD already holds. Safe to re-run: the column and index are IF NOT EXISTS, the constraint is added only
--- when absent, and VALIDATE of a valid constraint is a no-op. Waits at most 5s for a table lock, so a busy table fails
+-- code-only rollback. The FK is added NOT VALID and then VALIDATEd in this same file, which buys nothing over a plain
+-- ADD: the apply step runs the file in one transaction, so the ADD's lock (SHARE ROW EXCLUSIVE on customers and
+-- gl_accounts) is held through the scan either way. It is harmless here because the column is new and every row is NULL
+-- (MATCH SIMPLE checks nothing, so the scan reads customers and refuses nothing), customers is small, and lock_timeout
+-- bounds the wait. Safe to re-run: the column and index are IF NOT EXISTS, the constraint is added only when absent,
+-- and VALIDATE of a valid constraint is a no-op. Waits at most 5s for a table lock, so a busy table fails
 -- the deploy instead of queueing every request behind it.
 
 SET LOCAL lock_timeout = '5s';
@@ -41,4 +43,4 @@ CREATE INDEX IF NOT EXISTS idx_customers_default_revenue_account
   ON customers (default_revenue_account_id, company_id) WHERE default_revenue_account_id IS NOT NULL;
 
 COMMENT ON COLUMN customers.default_revenue_account_id IS
-  'The revenue account a new invoice line for this customer starts on (migration 965). NULL = none (the company default sales account). Must be this company''s active leaf revenue account that can carry VAT (contactRevenueAccount.ts).';
+  'The revenue account a new invoice line for this customer starts on (migration 966). NULL = none (the company default sales account). Must be this company''s active leaf revenue account that can carry VAT (contactRevenueAccount.ts).';

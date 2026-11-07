@@ -22,6 +22,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { listCustomers } from '@/modules/accounting/services/core/contactDirectoryService';
+import { describeCustomerRevenueAccount } from '@/modules/accounting/services/core/contactRevenueAccount';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -102,7 +103,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           WHERE c.id = ${id}::uuid AND c.company_id = ${companyId} AND c.deleted_at IS NULL
         `) as Row[];
         if (found.length === 0) return apiResponse.notFound(res, 'Customer');
-        return apiResponse.success(res, withCompanyDefaultTerms(found[0]!, companyId));
+        // The stored default revenue account with its label and whether it may still be used (migration 966).
+        const revenueAccount = await describeCustomerRevenueAccount(companyId, found[0]!.default_revenue_account_id as string | null);
+        return apiResponse.success(res, { ...withCompanyDefaultTerms(found[0]!, companyId), default_revenue_account: revenueAccount });
       }
 
       const searchQuery = typeof q === 'string' ? q : null;

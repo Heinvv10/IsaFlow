@@ -1,5 +1,5 @@
 /**
- * Master plan wave 4, PR RA: the customer form's "Default revenue account" (migration 965). The kit AccountPicker offers
+ * Master plan wave 4, PR RA: the customer form's "Default revenue account" (migration 966). The kit AccountPicker offers
  * only what the customers route accepts (active leaf revenue accounts that can carry VAT); the edit page shows the stored
  * one and sends it only when changed, and a cleared one goes blank (the route clears it).
  */
@@ -36,7 +36,10 @@ const CHART = [
   acct('a-rent', '6100', 'Rent', 'expense'),
 ];
 const customer = { id: CUSTOMER_ID, name: 'Herotel', is_active: true, payment_terms: 30, payment_terms_type: 'invoice_days',
-  default_discount: '0.00', default_revenue_account_id: 'a-hosting' };
+  default_discount: '0.00', default_revenue_account_id: 'a-hosting',
+  default_revenue_account: { id: 'a-hosting', label: '4010 · Hosting', usable: true, problem: null } };
+const stale = { ...customer, default_revenue_account_id: 'a-retired',
+  default_revenue_account: { id: 'a-retired', label: '4900 · Retired', usable: false, problem: 'is inactive' } };
 
 const putCalls = () => vi.mocked(apiFetch).mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PUT');
 const putBody = () => JSON.parse(String((putCalls()[0]![1] as RequestInit).body)) as Record<string, unknown>;
@@ -71,5 +74,35 @@ describe('the customer edit page: default revenue account', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save Customer/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
     expect(putBody()).toEqual({ id: CUSTOMER_ID, default_revenue_account_id: 'a-consult' });
+  });
+
+  it('a stored account deactivated since shows as "(inactive)" with a warning, saving another field leaves it alone, and it can be cleared', async () => {
+    serve(
+      on('GET', `customers?id=${CUSTOMER_ID}`, () => ok(stale)),
+      on('GET', 'chart-of-accounts', () => ok(CHART)), // the chart route returns active accounts only: 4900 is not in it
+      on('PUT', '/api/accounting/customers', () => ok({ id: CUSTOMER_ID })),
+    );
+    render(<EditCustomerPage />);
+    await waitFor(() => expect(picker().textContent).toContain('4900 · Retired (inactive)'));
+    expect(screen.getByText(/can no longer be used, so new invoices ignore it/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Credit Limit'), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Customer/ }));
+    await waitFor(() => expect(putCalls()).toHaveLength(1));
+    expect(putBody()).not.toHaveProperty('default_revenue_account_id');
+    expect(putBody()).not.toHaveProperty('default_revenue_account_label');
+  });
+
+  it('clearing the stored account sends it blank', async () => {
+    serve(
+      on('GET', `customers?id=${CUSTOMER_ID}`, () => ok(stale)),
+      on('GET', 'chart-of-accounts', () => ok(CHART)),
+      on('PUT', '/api/accounting/customers', () => ok({ id: CUSTOMER_ID })),
+    );
+    render(<EditCustomerPage />);
+    await waitFor(() => expect(picker().textContent).toContain('4900 · Retired (inactive)'));
+    fireEvent.click(screen.getByRole('button', { name: /clear/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Save Customer/ }));
+    await waitFor(() => expect(putCalls()).toHaveLength(1));
+    expect(putBody()).toEqual({ id: CUSTOMER_ID, default_revenue_account_id: '' });
   });
 });

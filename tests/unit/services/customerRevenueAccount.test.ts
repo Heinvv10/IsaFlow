@@ -1,5 +1,5 @@
 /**
- * A customer's default revenue account (migration 965): which account it may be, and that a refusal comes before the
+ * A customer's default revenue account (migration 966): which account it may be, and that a refusal comes before the
  * create or update writes anything (a 4xx commits the request's transaction, so a write before the check would stick).
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
@@ -8,7 +8,9 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: vi.fn() }), withTransaction: vi.fn(), withSavepoint: vi.fn() }));
 
 import { sql } from '@/lib/neon';
-import { customerRevenueAccount, customerRevenueAccountProblem } from '@/modules/accounting/services/core/contactRevenueAccount';
+import {
+  customerRevenueAccount, customerRevenueAccountForUpdate, customerRevenueAccountProblem, describeCustomerRevenueAccount,
+} from '@/modules/accounting/services/core/contactRevenueAccount';
 import { ContactValidationError } from '@/modules/accounting/services/core/contactValidationError';
 import { createCustomer, updateCustomer } from '@/modules/accounting/services/core/customerWriteService';
 import { customerInputFromBody, customerPatchFromBody } from '@/modules/accounting/services/core/contactRequestInput';
@@ -75,10 +77,18 @@ describe('the write services judge the account before they write', () => {
     expect(sqlText(mockSql.mock.calls[0]!)).not.toMatch(/INSERT/);
   });
   it('update: a refused account runs no UPDATE', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce([{ default_revenue_account_id: null }]); // the stored value: none
+    mockSql.mockResolvedValueOnce([]); // the account lookup finds nothing
     await expect(updateCustomer(COMPANY, ID, { defaultRevenueAccountId: ACCOUNT })).rejects.toThrow('not one of this company');
-    expect(mockSql).toHaveBeenCalledTimes(1);
-    expect(sqlText(mockSql.mock.calls[0]!)).not.toMatch(/UPDATE/);
+    expect(mockSql).toHaveBeenCalledTimes(2);
+    expect(mockSql.mock.calls.map(sqlText).join('\n')).not.toMatch(/UPDATE/);
+  });
+  it('update: the value already stored is not judged again (a deactivated default does not block other edits)', async () => {
+    mockSql.mockResolvedValueOnce([{ default_revenue_account_id: ACCOUNT.toUpperCase() }]);
+    await updateCustomer(COMPANY, ID, { phone: '011', defaultRevenueAccountId: ACCOUNT });
+    expect(mockSql).toHaveBeenCalledTimes(2); // the stored value, then the UPDATE: no account lookup
+    expect(sqlText(mockSql.mock.calls[0]!)).toMatch(/FROM customers WHERE id = \?::UUID AND company_id = \?::UUID/);
+    expect(sqlText(mockSql.mock.calls[1]!)).toMatch(/UPDATE customers/);
   });
   it('create stores the accepted account; update sets it, or clears it when asked', async () => {
     mockSql.mockResolvedValueOnce([row()]);
@@ -100,7 +110,25 @@ describe('every way in carries the field', () => {
     expect(customerPatchFromBody({ default_revenue_account_id: '' }).clear).toContain('defaultRevenueAccountId');
     expect(customerPatchFromBody({ name: 'X' }).clear).not.toContain('defaultRevenueAccountId');
   });
-  it('the MCP create_customer / update_customer arguments', () => {
+  it('the MCP create_customer / update_customer arguments; an empty value is ignored and MCP never clears', () => {
     expect(customerInput({ default_revenue_account_id: ACCOUNT }).defaultRevenueAccountId).toBe(ACCOUNT);
+    const blank = customerInput({ default_revenue_account_id: '' });
+    expect(blank.defaultRevenueAccountId).toBeUndefined();
+    expect(blank).not.toHaveProperty('clear');
+  });
+});
+
+describe('customerRevenueAccountForUpdate / describeCustomerRevenueAccount', () => {
+  it('a changed value is judged as on create', async () => {
+    mockSql.mockResolvedValueOnce([{ default_revenue_account_id: 'eeeeeeee-0000-4000-8000-eeeeeeeeeeee' }]);
+    mockSql.mockResolvedValueOnce([row({ is_active: false })]);
+    await expect(customerRevenueAccountForUpdate(COMPANY, ID, ACCOUNT)).rejects.toThrow('it is inactive');
+  });
+  it('describes a stored account, usable or not, and nothing for none', async () => {
+    mockSql.mockResolvedValueOnce([row()]);
+    await expect(describeCustomerRevenueAccount(COMPANY, ACCOUNT)).resolves.toEqual({ id: ACCOUNT, label: '4000 · Sales', usable: true, problem: null });
+    mockSql.mockResolvedValueOnce([row({ is_active: false })]);
+    await expect(describeCustomerRevenueAccount(COMPANY, ACCOUNT)).resolves.toMatchObject({ usable: false, problem: 'is inactive' });
+    await expect(describeCustomerRevenueAccount(COMPANY, null)).resolves.toBeNull();
   });
 });

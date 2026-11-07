@@ -228,7 +228,7 @@ export default function NewCustomerInvoicePage() {
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
                   onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} showIncomeType pricesIncludeVat={taxMode === 'inclusive'}
-                  discountHint={lines.some(l => l.discountFromDefault && l.discount > 0) ? contact.hints.discount : undefined} />
+                  discountHint={lines.some(l => l.discountFromDefault && l.discount > 0) ? contact.hints.discount : undefined} accountHint={contact.hints.account} />
               </div>
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Add any notes or payment instructions…" />

@@ -7,7 +7,7 @@
  * rate edit, and what a scan filled; the page reports these through `touch`. A line's discount is the customer's while
  * `discountFromDefault` holds: a fresh line starts with it, a priced line keeps it, and `editedLine` drops it when the
  * user sets the discount, or types onto a line with no default on it while no customer is being read. A line's revenue
- * account is the customer's default revenue account (migration 965) while `accountFromDefault` holds: a fresh line starts
+ * account is the customer's default revenue account (migration 966) while `accountFromDefault` holds: a fresh line starts
  * on it, a change of customer moves it, and `editedLine` drops it the moment the user picks an account, so a user's pick
  * is never overwritten. Neither flag is ever sent (newInvoiceBody).
  *
@@ -43,6 +43,12 @@ export function editedLine<L extends InvoiceLine>(l: L, field: string, value: st
 function termsHint(d: ContactDefaults): string {
   const words = describeContactTerms(d.terms, d.termsType, d.companyDefault);
   return readTerms(d.terms, d.termsType) ? `Customer terms: ${words}` : words;
+}
+
+/** Why the customer's stored default revenue account is not applied (it is kept on the customer, not used). */
+function unusableAccountHint(a: ContactDefaults['unusableRevenueAccount']): string | undefined {
+  if (!a) return undefined;
+  return `The customer's default revenue account ${a.label} is ${a.inactive ? 'inactive' : 'no longer usable'}, so lines start on Default sales.`;
 }
 
 interface Args<L extends InvoiceLine> {
@@ -105,6 +111,7 @@ export function useContactDefaults<L extends InvoiceLine>({ clientId, invoiceDat
       dueDate: defaults?.known && due !== null && !touched.dueDate ? termsHint(defaults) : undefined,
       taxMode: defaults && defaultMode !== null && !touched.taxMode ? `From customer: ${VAT_HINT[defaults.vatType ?? '']}` : undefined,
       discount: discount > 0 ? `${discount}% discount from customer` : undefined,
+      account: unusableAccountHint(defaults?.unusableRevenueAccount ?? null),
     },
     /** The customer's VAT type, as read; the page weighs it against the effective rate (vatTypeWarning). */
     vatType: defaults?.vatType ?? null,

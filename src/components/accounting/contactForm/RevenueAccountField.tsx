@@ -1,5 +1,5 @@
 /**
- * The customer form's "Default revenue account" (migration 965): the kit AccountPicker, offering only what the customers
+ * The customer form's "Default revenue account" (migration 966): the kit AccountPicker, offering only what the customers
  * route accepts (contactRevenueAccount.ts): active revenue accounts (the chart route returns active ones) with no
  * sub-accounts, and none that can never carry VAT. The new-invoice page starts this customer's lines on it.
  */
@@ -15,15 +15,24 @@ export function customerRevenueAccountRows(rows: AccountRow[]): AccountRow[] {
 
 const LABEL = 'block text-sm font-medium text-[var(--ff-text-secondary)] mb-1';
 
-export function RevenueAccountField({ value, onChange, error }: { value: string; onChange: (id: string) => void; error?: string }) {
+/**
+ * `label` is the stored account's (edit page), so one no longer offered (deactivated since) still shows, marked
+ * "(inactive)", and can be cleared or replaced; a pick clears it and the picker names its own choice.
+ */
+export function RevenueAccountField({ value, label, onChange, error }: {
+  value: string; label?: string; onChange: (id: string) => void; error?: string;
+}) {
+  const unusable = Boolean(label) && /\((inactive|cannot be used)\)$/.test(label ?? '');
   return (
     <div>
       <AccountPicker
         label="Default revenue account" labelClassName={LABEL} accountType="revenue" refine={customerRevenueAccountRows}
-        value={value || null} onChange={(id) => onChange(id ?? '')} clearable placeholder="Company default sales account"
-        error={error}
+        value={value || null} valueLabel={value && label ? label : undefined} onChange={(id) => onChange(id ?? '')}
+        clearable placeholder="Company default sales account" error={error}
       />
-      {!error && <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">New invoice lines for this customer start on this account.</p>}
+      {!error && (unusable
+        ? <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">This account can no longer be used, so new invoices ignore it. Choose another or clear it.</p>
+        : <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">New invoice lines for this customer start on this account (new-invoice page).</p>)}
     </div>
   );
 }

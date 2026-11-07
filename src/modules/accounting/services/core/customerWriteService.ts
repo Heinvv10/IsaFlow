@@ -30,7 +30,7 @@ import { ContactValidationError } from './contactValidationError';
 import { termsColumns } from './contactTerms';
 import { clearFlags } from './contactClear';
 import { assertCategoryInCompany } from './contactCategory';
-import { customerRevenueAccount } from './contactRevenueAccount';
+import { customerRevenueAccount, customerRevenueAccountForUpdate } from './contactRevenueAccount';
 import { boundedText } from './contactText';
 
 export { boundedText };
@@ -71,7 +71,7 @@ export interface CustomerWriteInput {
   subjectToDrcVat?: boolean;
   invoicesViewableOnline?: boolean;
   defaultPriceList?: string | null;
-  defaultRevenueAccountId?: string | null; // migration 965; judged by contactRevenueAccount before any write
+  defaultRevenueAccountId?: string | null; // migration 966; judged by contactRevenueAccount before any write
   /** Update only: fields to set to NULL (see `contactClear`); a field in CUSTOMER_CLEARABLE. */
   clear?: readonly string[];
 }
@@ -227,7 +227,7 @@ export async function updateCustomer(
   const terms = termsColumns(input);
   const cl = clearFlags(input.clear, CUSTOMER_CLEARABLE, input);
   await assertCategoryInCompany(companyId, input.categoryId);
-  const revenueAccount = await customerRevenueAccount(companyId, input.defaultRevenueAccountId);
+  const revenueAccount = await customerRevenueAccountForUpdate(companyId, customerId, input.defaultRevenueAccountId);
 
   const rows = (await sql`
     UPDATE customers SET

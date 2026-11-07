@@ -57,9 +57,12 @@ export const CUSTOMER_FIELDS = {
   default_discount: { type: 'number', description: 'Percent.' },
   default_revenue_account_id: {
     type: 'string',
-    description: 'The revenue account (gl_accounts id, from list_gl_accounts) a new invoice line for this customer starts on. '
-      + "Must be this company's active revenue account with no sub-accounts, and not one that can never carry VAT "
-      + '(interest, dividends and the like); anything else is refused naming the account. update_customer cannot clear it.',
+    description: 'The revenue account (gl_accounts id, from list_gl_accounts) a new invoice line for this customer starts on, '
+      + 'on the new-invoice PAGE only: create_draft_invoice, bulk_create_customer_invoices and scanned invoices do not '
+      + "use it (name gl_account_id per line there). Must be this company's active revenue account with no sub-accounts, "
+      + 'and not one that can never carry VAT (interest, dividends and the like); anything else is refused naming the '
+      + 'account. Sending the value already stored is not judged again. update_customer cannot clear it: an empty value '
+      + 'is ignored, as for every field but the terms (the customer edit screen can clear it).',
   },
   auto_allocate_strategy: {
     type: 'string',

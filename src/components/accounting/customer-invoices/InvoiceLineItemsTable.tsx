@@ -56,6 +56,8 @@ interface Props {
   pricesIncludeVat?: boolean;
   /** Muted note saying where a defaulted line discount came from. */
   discountHint?: string;
+  /** Note saying the customer's default revenue account is not applied, and why (new page). */
+  accountHint?: string;
 }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
@@ -100,7 +102,7 @@ export function CodingPicker({ value, options, all, empty, onChange, label, disa
 }
 
 export function InvoiceLineItemsTable({
-  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, pricesIncludeVat, discountHint, billsTimeEntry,
+  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, pricesIncludeVat, discountHint, accountHint, billsTimeEntry,
 }: Props) {
   const [discountToggled, setDiscountToggled] = useState<boolean | null>(null);
   // Open whenever a line carries a discount, and not hideable: a discount the user cannot see is one they did not give.
@@ -126,6 +128,7 @@ export function InvoiceLineItemsTable({
         </div>
       </div>
       {discountHint && <p className="px-5 pt-3 text-xs text-gray-600 dark:text-gray-400">{discountHint}</p>}
+      {accountHint && <p role="status" className="px-5 pt-3 text-xs text-amber-700 dark:text-amber-400">{accountHint}</p>}
       {options.error && (
         <p className="px-5 pt-3 text-xs text-red-600 dark:text-red-400">
           {options.error}{' '}

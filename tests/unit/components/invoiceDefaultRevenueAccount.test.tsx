@@ -1,5 +1,5 @@
 /**
- * Master plan wave 4, PR RA: a new invoice line's revenue account is the customer's default (migration 965) until the
+ * Master plan wave 4, PR RA: a new invoice line's revenue account is the customer's default (migration 966) until the
  * user picks one. An untouched line and a new line take it, a change of customer moves only those lines, a user's pick
  * is never overwritten, and the tracking flag never reaches the API.
  */
@@ -30,10 +30,14 @@ const CHART = [
   { id: 'acc-hosting', accountCode: '4100', accountName: 'Hosting', accountType: 'revenue', isActive: true, parentAccountId: null },
   { id: 'acc-consult', accountCode: '4200', accountName: 'Consulting', accountType: 'revenue', isActive: true, parentAccountId: null },
 ];
+const view = (id: string, label: string, usable = true, problem: string | null = null) =>
+  ({ default_revenue_account_id: id, default_revenue_account: { id, label, usable, problem } });
 const CONTACTS: Record<string, object> = {
-  'c-acme': { ...ACME, default_revenue_account_id: 'acc-hosting' },
-  'c-other': { ...ACME, default_revenue_account_id: 'acc-consult' },
+  'c-acme': { ...ACME, ...view('acc-hosting', '4100 · Hosting') },
+  'c-other': { ...ACME, ...view('acc-consult', '4200 · Consulting') },
   'c-bare': BARE,
+  // A default deactivated since it was chosen: the GET still names it, marked unusable.
+  'c-stale': { ...ACME, ...view('acc-retired', '4900 · Retired', false, 'is inactive') },
 };
 
 function serve() {
@@ -109,5 +113,19 @@ describe('the customer\'s default revenue account on a new invoice', () => {
     await pickClient('c-other');
     await waitFor(() => expect(screen.queryByText('from customer')).toBeNull());
     expect(accounts()).toEqual(['Default sales']);
+  });
+
+  it('a default that can no longer be used is not applied, and the page says why', async () => {
+    await open();
+    fillLine(0, '100');
+    await pickClient('c-stale');
+    expect(await screen.findByText("The customer's default revenue account 4900 · Retired is inactive, so lines start on Default sales.")).toBeTruthy();
+    expect(accounts()).toEqual(['Default sales']);
+    expect(screen.queryByText('from customer')).toBeNull();
+    await submitAndWait(push);
+    expect(sentItems()[0]!.glAccountId).toBe('');
+    await pickClient('c-acme'); // a usable default replaces the note
+    await waitFor(() => expect(accounts()).toEqual(['4100 Hosting']));
+    expect(screen.queryByText(/is inactive, so lines start/)).toBeNull();
   });
 });
