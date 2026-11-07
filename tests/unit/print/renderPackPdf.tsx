@@ -24,7 +24,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { chromium, type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { readPackPrintCss } from './packPrintCss';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { HEADER_HTML, PDF_MARGIN_MM, mm } from '@/lib/pdf/pdfTransport';
@@ -644,7 +645,7 @@ export async function measurePaintedPanels(
 }
 
 export async function withChromium<T>(fn: (browser: Browser) => Promise<T>): Promise<T> {
-  const browser = await chromium.launch();
+  const browser = await launchPrintChromium();
   try {
     return await fn(browser);
   } finally {
