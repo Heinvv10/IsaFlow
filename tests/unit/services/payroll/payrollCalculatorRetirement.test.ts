@@ -69,9 +69,19 @@ describe('PAYE 4c: a retirement fund contribution in the line', () => {
     expect(l.netPay).toBe(20_000 - 8_000 - 1_125);
   });
 
-  it('a non-retirement deduction keeps its taxable flag\'s meaning (unchanged by 4c)', () => {
-    const l = line([{ component: comp('3601'), amount: 20_000 }, { component: deduction('4018'), amount: 8_000 }]);
-    expect([l.paye.monthlyPaye, l.retirementDeduction]).toEqual([675, 0]);
+  it('a taxable non-retirement deduction (4018) does not reduce PAYE: para 2(4) allows only s11F and s18A', () => {
+    const salary = { component: comp('3601'), amount: 20_000 };
+    const l = line([salary, { component: deduction('4018'), amount: 8_000 }]);
+    expect([l.paye.monthlyPaye, l.retirementDeduction, l.taxableIncome]).toEqual([line([salary]).paye.monthlyPaye, 0, 20_000]);
+  });
+
+  it('warns on a taxable 4005 (medical credit, not a deduction) and never on 4001/4003/4006/4030', () => {
+    const salary = { component: comp('3601'), amount: 20_000 };
+    const medical = line([salary, { component: deduction('4005'), amount: 2_000 }]);
+    expect(medical.taxableIncome).toBe(20_000);
+    expect(medical.validationResults.find(v => v.code === 'DEDUCTION_NOT_PAYE_DEDUCTIBLE')?.message).toContain('medical tax credit');
+    const allowed = line([salary, ...['4001', '4003', '4006', '4030'].map(c => ({ component: deduction(c), amount: 100 }))]);
+    expect(allowed.validationResults.map(v => v.code)).not.toContain('DEDUCTION_NOT_PAYE_DEDUCTIBLE');
   });
 });
 
