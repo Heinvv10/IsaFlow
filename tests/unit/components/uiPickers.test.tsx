@@ -69,7 +69,7 @@ describe('ContactPicker', () => {
     const search = screen.getByRole('textbox', { name: 'Search Customer' });
     fireEvent.keyDown(search, { key: 'ArrowDown' });
     fireEvent.keyDown(search, { key: 'ArrowDown' });
-    expect(search.getAttribute('aria-activedescendant')).toContain('c2');
+    expect(document.getElementById(search.getAttribute('aria-activedescendant')!)?.textContent).toBe('Bravo Logistics');
     fireEvent.keyDown(search, { key: 'Enter' });
     expect(onChange).toHaveBeenCalledWith('c2', expect.objectContaining({ value: 'c2', label: 'Bravo Logistics' }));
     await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
