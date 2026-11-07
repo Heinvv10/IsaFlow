@@ -177,7 +177,7 @@ export default function LoansListPage() {
                 <tbody>
                   {loans.map(l => (
                     <tr key={l.id} className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]">
-                      <td className="py-3 px-4 font-mono text-[var(--ff-text-primary)]">{l.loanNumber}</td>
+                      <td className="py-3 px-4 font-id text-[var(--ff-text-primary)]">{l.loanNumber}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-primary)]">{l.description}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{l.method.replace('_', ' ')}</td>
                       <td className="py-3 px-4"><StatusBadge status={l.status} /></td>
