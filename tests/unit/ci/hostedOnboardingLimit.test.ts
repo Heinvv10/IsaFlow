@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const pgState = vi.hoisted(() => ({
   connects: 0,
   queries: [] as string[],
+  calls: [] as Array<{ text: string; params: unknown[] | undefined }>,
   ends: 0,
   db: 'isaflow_golden',
 }));
@@ -15,8 +16,9 @@ const pgState = vi.hoisted(() => ({
 vi.mock('pg', () => {
   class Client {
     async connect(): Promise<void> { pgState.connects += 1; }
-    async query(text: string): Promise<{ rows: Array<{ db: string }> }> {
+    async query(text: string, params?: unknown[]): Promise<{ rows: Array<{ db: string }> }> {
       pgState.queries.push(text);
+      pgState.calls.push({ text, params });
       return { rows: text.includes('current_database') ? [{ db: pgState.db }] : [] };
     }
     async end(): Promise<void> { pgState.ends += 1; }
@@ -39,6 +41,7 @@ const deletes = (): string[] => pgState.queries.filter((q) => q.startsWith('DELE
 beforeEach(() => {
   pgState.connects = 0;
   pgState.queries = [];
+  pgState.calls = [];
   pgState.ends = 0;
   pgState.db = 'isaflow_golden';
 });
@@ -51,7 +54,10 @@ describe('resetHostedOnboardingLimit', () => {
 
   it('deletes the admin\'s one counter row on a hosted runner\'s isaflow_golden', async () => {
     await expect(resetHostedOnboardingLimit({ ...HOSTED })).resolves.toBe(true);
-    expect(deletes()).toEqual(['DELETE FROM rate_limit_counters WHERE key = $1']);
+    expect(pgState.calls.filter((c) => c.text.startsWith('DELETE'))).toEqual([{
+      text: 'DELETE FROM rate_limit_counters WHERE key = $1',
+      params: [`onboarding-setup:${HOSTED.GOLDEN_HOSTED_ADMIN_ID}`],
+    }]);
     expect(pgState.ends).toBe(1);
   });
 
