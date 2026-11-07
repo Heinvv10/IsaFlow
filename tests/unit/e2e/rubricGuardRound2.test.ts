@@ -36,7 +36,8 @@ describe('harness API write paths', () => {
     const { api, calls } = fakeApi();
     for (const path of ['http://localhost:3111/api/accounting/customers', 'https://app.isaflow.co.za/api/x', '//app.isaflow.co.za/api/x',
       '/\\app.isaflow.co.za/api/x', '/api\\x', 'api/accounting/customers', '', 'HTTP://localhost:3111/api/x',
-      '/\t/evil.com/x', '/\n/evil.com/x', '/\r/evil.com/x', '/api/x\t', ' //evil.com/x', '\t//evil.com/x']) {
+      '/\t/evil.com/x', '/\n/evil.com/x', '/\r/evil.com/x', '/api/x\t', ' //evil.com/x', '\t//evil.com/x', '/api/x y', '/api/\x00x',
+      '/api/\x1fx']) {
       await expect(api[method](path, {} as never)).rejects.toThrow(/rubric guard: .*not a path on the harness server/);
     }
     expect(calls).toEqual([]);
@@ -47,9 +48,20 @@ describe('harness API write paths', () => {
     expect(() => assertServerPath(p)).toThrow(/not a path on the harness server/);
   });
 
-  it.each(['/api/accounting/customers', '/api/x?a=1&b=//c', '/api/payroll/runs/x/inputs'])('accepts %s', (p) => {
-    expect(() => assertServerPath(p)).not.toThrow();
+  it.each(['/api/accounting/customers', '/api/x?a=1&b=//c', '/api/payroll/runs/x/inputs'])('accepts %s, as resolved', (p) => {
+    expect(assertServerPath(p)).toBe(p);
   });
+
+  it('returns the normalised path', () => {
+    expect(assertServerPath('/api/accounting/x/../invoice-email?a=1')).toBe('/api/accounting/invoice-email?a=1');
+  });
+
+  it.each(['/api/accounting/x/../invoice-email', '/api/accounting/./invoice-email', '/api/accounting/invoice%2Demail'])(
+    'the email refusal judges the normalised path: %s', async (p) => {
+      const { api, calls } = fakeApi();
+      await expect(api.post(p, {})).rejects.toThrow(/email route \(\/api\/accounting\/invoice/);
+      expect(calls).toEqual([]);
+    });
 
   it('passes a plain path through the scope check', async () => {
     const { api, calls } = fakeApi();

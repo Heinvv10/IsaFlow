@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  DEV_DB_HOST, DEV_DB_PORT, assertConnectedDev, assertDevDatabase, assertDevDatabases, assertProjectDirs, nextProjectDir,
+  DEV_DB_HOST, DEV_DB_PORT, assertConnectedDev, assertDevDatabase, assertDevDatabases, assertProjectDirs, isNextDevCli, nextProjectDir,
   parseProcEnviron,
 } from '../../e2e/rubric/_rubricDatabaseGuard';
 
@@ -171,11 +171,51 @@ describe('only a next dev server', () => {
     [[server, { argv: ['node', '/srv/base/node_modules/.bin/next', '-p', '3277'], cwd: '/srv/base' }]],
     [[server, { argv: ['bash', '-c', 'cd /srv/base && bun run dev'], cwd: '/srv/base' }]],
   ])('refuses a chain with no recognisable next dev: %j', (chain) => {
-    refused(() => assertProjectDirs(chain, '/srv/base'), /no "next dev" in the listener's process chain/);
+    refused(() => assertProjectDirs(chain, '/srv/base'), /no "next dev" CLI is the listener or its direct parent/);
   });
 
   it('accepts next.js dev', () => {
     expect(() => assertProjectDirs([server, { argv: ['node', '/srv/base/node_modules/next/dist/bin/next.js', 'dev'], cwd: '/srv/base' }],
       '/srv/base')).not.toThrow();
+  });
+});
+
+/** Round 3: the next dev CLI must be the listener or its direct parent, read from argv as exec'd. */
+describe('the next dev CLI, where it must be', () => {
+  const server = { argv: ['next-server (v15.5.28)'], cwd: '/srv/base' };
+  const cli = { argv: ['node', '/srv/base/node_modules/.bin/next', 'dev', '-p', '3277'], cwd: '/srv/base' };
+
+  it.each([
+    [['tmux', 'new', '-s', 'next', 'dev']],
+    [['sh', '-c', 'next dev -p 3277']],
+    [['bash', '-c', 'echo next dev; node server.js']],
+  ])('refuses a direct parent that only mentions next dev: %j', (argv) => {
+    expect(() => assertProjectDirs([server, { argv, cwd: '/srv/base' }], '/srv/base')).toThrow(/no "next dev" CLI is the listener or its direct parent/);
+  });
+
+  it('refuses a next dev CLI further up than the direct parent', () => {
+    expect(() => assertProjectDirs([server, { argv: ['node', 'server.js'], cwd: '/srv/base' }, cli], '/srv/base'))
+      .toThrow(/no "next dev" CLI is the listener or its direct parent/);
+  });
+
+  it.each([
+    [[server, cli]],
+    [[cli]],
+    [[server, { argv: ['bun', 'x', 'next', 'dev'], cwd: '/srv/base' }]],
+    [[server, { argv: ['node', '--max-old-space-size=12288', '/srv/base/node_modules/.bin/next', 'dev'], cwd: '/srv/base' }]],
+  ])('accepts %j', (chain) => {
+    expect(() => assertProjectDirs(chain, '/srv/base')).not.toThrow();
+  });
+
+  it.each([
+    [['next', 'dev'], true],
+    [['/usr/bin/nodejs', '/x/node_modules/next/dist/bin/next.js', 'dev'], true],
+    [['node', '/x/next', 'start'], false],
+    [['node', 'next-dev.js', 'dev'], false],
+    [['tmux', 'next', 'dev'], false],
+    [['node', 'x.js', 'next', 'dev'], false],
+    [['npx', 'next', 'dev'], false],
+  ])('isNextDevCli(%j) is %s', (argv, want) => {
+    expect(isNextDevCli(argv)).toBe(want);
   });
 });

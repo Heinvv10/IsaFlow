@@ -142,21 +142,23 @@ export const isSwitchCompanyRoute = (rawUrl: string): boolean => hasPath(rawUrl,
 const PATH_PROBE_BASE = 'http://rubric-harness.invalid';
 
 /**
- * A harness Api write goes to a path on the harness server: one leading `/`, no backslash, no tab/CR/LF, and resolving
- * it as Playwright does (`new URL(path, base)`) keeps the base's origin. An absolute URL, `//host/...`, `/\\host/...`
- * (WHATWG reads `\\` as `/`) or `/\t/host/...` (WHATWG strips tab, CR and LF) would reach another host, past the base
- * URL the guard judged. Any base works for the origin check, so a fixed one is used and the guard stays pure.
+ * A harness Api write goes to a path on the harness server: one leading `/`, no backslash, control character or space
+ * (`[\\x00-\\x20\\\\]`), and resolving it as Playwright does (`new URL(path, base)`) keeps the base's origin. An absolute
+ * URL, `//host/...`, `/\\host/...` (WHATWG reads `\\` as `/`) or `/\t/host/...` (WHATWG strips tab, CR and LF) would
+ * reach another host, past the base URL the guard judged. Any base works for the origin check, so a fixed one is used and
+ * the guard stays pure. @returns the path as resolved (pathname + query), which the email-route check then judges.
  */
-export function assertServerPath(path: string): void {
-  let sameOrigin = false;
+export function assertServerPath(path: string): string {
+  let resolved: URL | undefined;
   try {
-    sameOrigin = new URL(path, PATH_PROBE_BASE).origin === PATH_PROBE_BASE;
+    resolved = new URL(path, PATH_PROBE_BASE);
   } catch {
-    sameOrigin = false;
+    resolved = undefined;
   }
-  if (!/^\/(?!\/)/.test(path) || /[\\\t\n\r]/.test(path) || !sameOrigin) {
-    throw new RubricGuardError(`${JSON.stringify(path)} is not a path on the harness server (one leading /, no backslash or tab/CR/LF)`);
+  if (!/^\/(?!\/)/.test(path) || /[\x00-\x20\\]/.test(path) || resolved?.origin !== PATH_PROBE_BASE) {
+    throw new RubricGuardError(`${JSON.stringify(path)} is not a path on the harness server (one leading /, no backslash, space or control character)`);
   }
+  return resolved.pathname + resolved.search;
 }
 
 /** The harness Api never calls the email route: the browser intercept is the only way the harness reaches it. */
@@ -178,8 +180,7 @@ export function guardWrites<T extends Writer>(api: T, beforeWrite: (method: Writ
   for (const method of WRITE_METHODS) {
     const send = api[method].bind(api) as (path: string, ...rest: unknown[]) => Promise<unknown>;
     (api as Record<WriteMethod, unknown>)[method] = async (path: string, ...rest: unknown[]) => {
-      assertServerPath(path);
-      assertNotEmailRoute(path);
+      assertNotEmailRoute(assertServerPath(path));
       await beforeWrite(method, path);
       return send(path, ...rest);
     };

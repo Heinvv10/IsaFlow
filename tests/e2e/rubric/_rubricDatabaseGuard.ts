@@ -109,26 +109,45 @@ export function nextCommand(argv: readonly string[]): { command?: string; dir?: 
   return { command };
 }
 
+/** A runtime that may launch the next CLI: `node`, `nodejs`, `bun` (`bun x next dev`). */
+const RUNTIME = /(^|\/)(node|nodejs|bun)$/;
+
+/**
+ * Is this argv the `next dev` CLI itself: `next dev ...`, or a runtime (its own flags skipped) running the next CLI
+ * with `dev`. Read from argv as exec'd, not from words inside it: `tmux new -s next dev` or `sh -c "next dev"` is not.
+ */
+export function isNextDevCli(argv: readonly string[]): boolean {
+  let i = 0;
+  if (RUNTIME.test(argv[0] ?? '')) {
+    i = 1;
+    while ((argv[i] ?? '').startsWith('-')) i++;
+    if (/(^|\/)bun$/.test(argv[0]!) && argv[i] === 'x') i++;
+  }
+  return NEXT_BIN.test(argv[i] ?? '') && argv[i + 1] === 'dev';
+}
+
 /** The project dir a `next dev|start` command line names, or undefined (none named, or not a next CLI). */
 export const nextProjectDir = (argv: readonly string[]): string | undefined => nextCommand(argv)?.dir;
 
 /**
  * The listener's process chain is a `next dev` server whose project dir is its cwd. `next start` (or any other next
- * subcommand) is refused: it loads `.env.production*`, which the env rebuild models only in depth. A chain where no
- * `next dev` can be read (a custom server, a bare `next`, an ancestor /proc would not show) is refused too.
+ * subcommand) is refused: it loads `.env.production*`, which the env rebuild models only in depth. Unless the listener
+ * itself or its direct parent is the `next dev` CLI (isNextDevCli), the chain is refused: a custom server, a bare `next`,
+ * `sh -c "next dev"`, `tmux new -s next dev`, or a `next dev` further up the chain.
  */
 export function assertProjectDirs(chain: ReadonlyArray<{ argv: readonly string[]; cwd: string }>, serverDir: string): void {
   let dev = false;
-  for (const { argv, cwd } of chain) {
+  for (const [depth, { argv, cwd }] of chain.entries()) {
+    // Next dev forks the listener (next-server) from the CLI: the CLI is the listener itself or its direct parent.
+    if (depth <= 1 && isNextDevCli(argv)) dev = true;
     const cli = nextCommand(argv);
     if (!cli?.command) continue; // not a next CLI, or one whose subcommand cannot be read: no next dev seen here
     if (cli.command !== 'dev') {
       throw new RubricGuardError(`the server was started with "next ${cli.command}" ("${argv.join(' ')}"); only next dev is allowed`);
     }
-    dev = true;
     if (cli.dir !== undefined && resolve(cwd, cli.dir) !== resolve(serverDir)) {
       throw new RubricGuardError(`project dir ${resolve(cwd, cli.dir)} (from "${argv.join(' ')}") is not the server's cwd ${serverDir}`);
     }
   }
-  if (!dev) throw new RubricGuardError(`no "next dev" in the listener's process chain (${chain.map((c) => c.argv.join(' ')).join(' <- ')})`);
+  if (!dev) throw new RubricGuardError(`no "next dev" CLI is the listener or its direct parent (${chain.map((c) => c.argv.join(' ')).join(' <- ')})`);
 }
