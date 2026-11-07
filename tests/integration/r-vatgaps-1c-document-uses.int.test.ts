@@ -91,6 +91,17 @@ describeIfDb('VAT input support: one tax invoice, one claim (every use of a docu
     expect(await verdict(h, await claim(h, { doc: other, by: 'link' }))).toBe('ok');
   });
 
+  it('a provisional journal behind the bank line uses the line\'s slip the same way', async () => {
+    const provisional = await claim(h, { entryDate: '2026-07-16' });
+    const txId = await seedBankTx(h.fx, { date: '2026-07-16', amount: -115, description: 'bank-first' });
+    await sql`UPDATE bank_transactions SET provisional_je_id = ${provisional}::UUID WHERE id = ${txId}::UUID`;
+    const d = await slip(h);
+    await linkToLine(d, txId);
+    expect(await verdict(h, provisional)).toBe('ok');
+    await claim(h, { doc: d, by: 'link' });
+    expect(await verdict(h, provisional)).toBe(OVER);
+  });
+
   it('an expense claim adds only its line\'s VAT: the claim\'s other lines do not count against the slip', async () => {
     const d = await slip(h, { vat: 30 });
     const claimJe = await claim(h, { vat: 45 });
