@@ -56,7 +56,12 @@ const TEXT_PX = 12;
 function sparklineAspect(svg: string): number {
   const w = /<svg[^>]* width="(\d+(?:\.\d+)?)"/.exec(svg);
   const h = /<svg[^>]* height="(\d+(?:\.\d+)?)"/.exec(svg);
-  if (w === null || h === null || Number(w[1]) <= 0) throw new Error('packKpiLayout: a sparkline SVG without a numeric width and height on its root element');
+  if (w === null || h === null || Number(w[1]) <= 0) {
+    throw new PackRefusal(
+      'packKpiLayout: a sparkline SVG without a numeric width and height on its root element; its height cannot be sized',
+      'A trend line on page 3 could not be sized, so the page cannot be laid out exactly.',
+    );
+  }
   return Number(h[1]) / Number(w[1]);
 }
 
