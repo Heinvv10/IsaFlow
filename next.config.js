@@ -163,8 +163,10 @@ module.exports = withSentryConfig(nextConfig, {
   release: process.env.SENTRY_RELEASE
     ? { name: process.env.SENTRY_RELEASE }
     : undefined,
+  // Source maps go up only from a production deploy: scripts/deploy.sh exports SENTRY_UPLOAD_SOURCEMAPS=true. CI, worktree and dev
+  // builds that happen to see a SENTRY_AUTH_TOKEN (e.g. via .env.local) no longer upload.
   sourcemaps: {
-    disable: !process.env.SENTRY_AUTH_TOKEN,
+    disable: process.env.SENTRY_UPLOAD_SOURCEMAPS !== 'true' || !process.env.SENTRY_AUTH_TOKEN,
   },
   hideSourceMaps: true,
   webpack: {

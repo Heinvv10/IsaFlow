@@ -49,10 +49,52 @@ export function parityUnavailable(): string | null {
 
 export interface Gotenberg { url: string; stop: () => void }
 
+const NAME_PREFIX = 'isaflow-print-parity-';
+
+/** Is process `pid` alive on this host? */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * The parity containers whose run is gone: named `isaflow-print-parity-<pid>` by `startGotenberg` and that pid is not
+ * alive (a run killed before its afterAll). Only this exact pattern: nothing else on the host is touched.
+ */
+export function orphanedContainers(names: readonly string[], isAlive: (pid: number) => boolean = alive): string[] {
+  return names.filter((name) => {
+    const match = new RegExp(`^${NAME_PREFIX}(\\d+)$`).exec(name);
+    return match !== null && !isAlive(Number(match[1]));
+  });
+}
+
+function removeOrphans(): void {
+  const names = execFileSync('docker', ['ps', '-a', '--filter', `name=^${NAME_PREFIX}`, '--format', '{{.Names}}'], { encoding: 'utf8' })
+    .split('\n').filter((n) => n !== '');
+  for (const name of orphanedContainers(names)) execFileSync('docker', ['rm', '-fv', name], { stdio: 'ignore' });
+}
+
+/**
+ * A throwaway Gotenberg of the production image, removed with its volumes when `stop` is called (the tests' afterAll),
+ * when this process exits or is interrupted, and, if it was killed outright, by the next run (`orphanedContainers`).
+ */
 export async function startGotenberg(): Promise<Gotenberg> {
-  const name = `isaflow-print-parity-${process.pid}`;
+  removeOrphans();
+  const name = `${NAME_PREFIX}${process.pid}`;
   execFileSync('docker', ['run', '-d', '--name', name, '-p', '127.0.0.1::3000', PRODUCTION_GOTENBERG_IMAGE, 'gotenberg', '--api-timeout=600s'], { stdio: 'ignore' });
-  const stop = (): void => { execFileSync('docker', ['rm', '-fv', name], { stdio: 'ignore' }); };
+  let stopped = false;
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    process.off('exit', stop);
+    execFileSync('docker', ['rm', '-fv', name], { stdio: 'ignore' });
+  };
+  process.once('exit', stop);
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stop(); process.exit(130); });
   try {
     const port = execFileSync('docker', ['port', name, '3000/tcp'], { encoding: 'utf8' }).trim().split('\n')[0]!;
     const url = `http://${port}`;
