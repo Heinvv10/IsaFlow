@@ -81,20 +81,27 @@ async function load(q: TxSql, companyId: string, invoiceId: string, forDigest: b
   // the stored due date; otherwise it is null and the PDF shows the due date alone. "On Receipt" follows the terms VALUE
   // (0 days from invoice), not their wording. Shown digest only: the draft digest covers the invoice row, and a customer's
   // terms edited meanwhile must not refuse a draft's autosave.
-  const terms = effectiveTerms(r.contact_terms_days == null ? null : Number(r.contact_terms_days), r.contact_terms_type as string | null,
-    companyTermsFromSetting(r.company_default_terms, companyId));
-  const datedByTerms = r.due_date != null && dueDateFromTerms(String(r.invoice_date), terms.days, terms.type) === String(r.due_date);
-  const invoice = {
-    ...pick(r, INVOICE_FIELDS), ...pick(r, JOINED_FIELDS),
-    client_terms: datedByTerms ? describePaymentTerms(terms.days, terms.type) : null,
-    client_terms_immediate: terms.days === 0 && terms.type === 'invoice_days',
-  };
+  const invoice = { ...pick(r, INVOICE_FIELDS), ...pick(r, JOINED_FIELDS), ...printedTerms(r, companyId) };
   const company = r.company_found ? companyOf(r) : await settingsCompany(companyId, invoiceId, forDigest);
   return { model: { company, invoice, items }, approvalDigest: text(r.approval_digest) };
 }
 
-/** As getCompanyDetailsFromCompany maps a companies row, printed fields only. */
-function companyOf(r: Row): PrintedCompany {
+/**
+ * The terms line as printed (see above) from a row carrying invoice_date, due_date, contact_terms_days,
+ * contact_terms_type and company_default_terms. Shared with the unsaved preview (invoicePreviewModel.ts).
+ */
+export function printedTerms(r: Row, companyId: string): { client_terms: string | null; client_terms_immediate: boolean } {
+  const terms = effectiveTerms(r.contact_terms_days == null ? null : Number(r.contact_terms_days), r.contact_terms_type as string | null,
+    companyTermsFromSetting(r.company_default_terms, companyId));
+  const datedByTerms = r.due_date != null && dueDateFromTerms(String(r.invoice_date), terms.days, terms.type) === String(r.due_date);
+  return {
+    client_terms: datedByTerms ? describePaymentTerms(terms.days, terms.type) : null,
+    client_terms_immediate: terms.days === 0 && terms.type === 'invoice_days',
+  };
+}
+
+/** As getCompanyDetailsFromCompany maps a companies row (company_name, address_line1…, company_logo), printed fields only. */
+export function companyOf(r: Row): PrintedCompany {
   return {
     name: r.company_name ? String(r.company_name) : 'Company Name Not Set',
     address: [r.address_line1, r.address_line2, r.city, r.province, r.postal_code].filter(Boolean).map(String).join(', '),
@@ -106,7 +113,7 @@ function companyOf(r: Row): PrintedCompany {
 }
 
 /** No companies row: the PDF's own fallback (app settings), logged; printed fields only. */
-async function settingsCompany(companyId: string, invoiceId: string, forDigest: boolean): Promise<PrintedCompany> {
+export async function settingsCompany(companyId: string, invoiceId: string, forDigest: boolean): Promise<PrintedCompany> {
   log.warn('Invoice PDF: no companies row, company details from app settings', { companyId, invoiceId }, 'invoicePdfModel');
   const d = await getCompanyDetailsFromCompany(companyId);
   const logoData = d.logoData && forDigest ? md5(d.logoData) : d.logoData;

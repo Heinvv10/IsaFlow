@@ -22,7 +22,7 @@ beforeEach(() => {
 function fillRequired(container: HTMLElement): void {
   fireEvent.change(container.querySelector('input[name="name"]')!, { target: { value: 'Drill' } });
   fireEvent.change(screen.getByLabelText(/^Cost/), { target: { value: '1000' } });
-  fireEvent.change(screen.getByLabelText(/^Useful Life/), { target: { value: '5' } });
+  fireEvent.change(screen.getByLabelText(/^Useful life/), { target: { value: '5' } });
 }
 
 function postCalls(): number {
