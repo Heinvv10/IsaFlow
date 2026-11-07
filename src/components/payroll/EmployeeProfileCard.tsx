@@ -25,6 +25,7 @@ export interface Employee {
   costCentreId?: string | null;
   payScaleId?: string | null;
   occupationalLevelId?: string | null;
+  paymentMethod?: 'eft' | 'cash';
 }
 
 interface Props {
