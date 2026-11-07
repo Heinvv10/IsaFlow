@@ -12,8 +12,7 @@
 import { formatFigureText } from './packFigureText';
 import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import { FootnoteMarker } from './FootnoteMarker';
-import { fitAttributes, tableFit } from '@/modules/accounting/services/packs/pages/packFigureFit';
-import type { PageOrientation } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { fitAttributes } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import type { MoneyScale } from '@/lib/format/money';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packBlockModel';
 import type {
@@ -42,11 +41,9 @@ export interface ComparativeTableProps {
    *  `table.scale` as its caption, so cells formatted at any other scale
    *  contradict the header above them by a factor of a thousand. */
   scale: MoneyScale;
-  /** The sheet the table prints on: a landscape sheet is wider, so the same figures fit larger. */
-  orientation?: PageOrientation;
 }
 
-export function ComparativeTable({ table, scale, orientation = 'portrait' }: ComparativeTableProps) {
+export function ComparativeTable({ table, scale }: ComparativeTableProps) {
   const columns = table.columns.filter((col) =>
     table.rows.some((row) => row.figures[col] !== undefined),
   );
@@ -89,7 +86,8 @@ export function ComparativeTable({ table, scale, orientation = 'portrait' }: Com
 
   // Whether the figures fit the sheet at their ordinary size, and the smaller one that fits where they do not
   // (see `packFigureFit`): nothing is set for a table that fits, so its markup is what it always was.
-  const fit = fitAttributes(tableFit(table, scale, orientation));
+  // The size the server decided (`packFigureFitStamp`); none: the ordinary size (a document over the wire has one).
+  const fit = fitAttributes(table.figureFit ?? { px: null, fits: true });
   const tableClass = [isLong ? 'pack-table is-long' : 'pack-table', fit.className].filter(Boolean).join(' ');
 
   return (

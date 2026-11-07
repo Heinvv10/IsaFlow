@@ -1,6 +1,6 @@
 /**
  * The composed demo pack with the figures of one block widened AFTER composition (the composer's gates do not
- * run on it), for the tests that take the width of a figure row to its thresholds without needing a revenue
+ * run on it; the figure fits are stamped afresh, as the pages API stamps a document), for the tests that take the width of a figure row to its thresholds without needing a revenue
  * beyond JavaScript's safe integers.
  */
 import { log } from '@/lib/logger';
@@ -9,6 +9,7 @@ import type { PackFigure } from '@/modules/accounting/services/packs/figures/pac
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPage, PackPagesDocument, PackTable, PackTableColumnKey } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { demoInput } from './boardPackInputs';
+import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 
 type KpiTiles = Array<(PackPage['blocks'][number] & { kind: 'kpiTiles' })['tiles'][number]>;
 
@@ -29,9 +30,9 @@ export function withWidenedTable(doc: PackPagesDocument, digits: number, longLab
   const blocks = page.blocks.map((b) => (b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue')
     ? { ...b, table: { ...b.table, rows: b.table.rows.map((r, i) => ({ ...r, ...(longLabel !== undefined && i === 0 ? { label: longLabel, level: 2 as const } : {}), ...(marks.labelMarker === true && i === 0 ? { footnote: 1 } : {}), figures: Object.fromEntries(Object.entries(r.figures).map(([c, f]) => [c, marks.notMeaningful === true && i === 0 && c === 'actual' ? { ...f, value: null, unavailable: 'no base period' } : widen(f, digits)])) })) } }
     : b));
-  const table = (blocks.find((b) => b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue')) as { table: PackTable }).table;
-  const pages = doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p));
-  return { doc: { ...doc, pages }, table, index };
+  const stamped = stampFigureFits({ ...doc, pages: doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p)) });
+  const table = (stamped.pages[index]!.blocks.find((b) => b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue')) as { table: PackTable }).table;
+  return { doc: stamped, table, index };
 }
 
 /** Words set in the second KPI tile in place of its own: a label, a not-meaningful reason (the figure goes), a delta basis. */
@@ -52,9 +53,9 @@ export function withWidenedKpi(doc: PackPagesDocument, digits: number, words: st
   const blocks = page.blocks.map((b) => (b.kind === 'kpiTiles'
     ? { ...b, tiles: b.tiles.map((t, i) => (i < 4 ? widenTile(t, i === 1 ? w : {}, digits) : t)) }
     : b));
-  const tiles = (blocks.find((b) => b.kind === 'kpiTiles') as { tiles: KpiTiles }).tiles;
-  const pages = doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p));
-  return { doc: { ...doc, pages }, tiles, index };
+  const stamped = stampFigureFits({ ...doc, pages: doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p)) });
+  const tiles = (stamped.pages[index]!.blocks.find((b) => b.kind === 'kpiTiles') as { tiles: KpiTiles }).tiles;
+  return { doc: stamped, tiles, index };
 }
 
 export function demoWithoutBudget(): PackPagesDocument {
@@ -81,5 +82,6 @@ export function withHeadingColumns(doc: PackPagesDocument, columns: readonly Pac
     })),
   };
   const blocks = page.blocks.map((b) => (b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue') ? { ...b, table } : b));
-  return { doc: { ...doc, pages: doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p)) }, table, index };
+  const stamped = stampFigureFits({ ...doc, pages: doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p)) });
+  return { doc: stamped, table: (stamped.pages[index]!.blocks.find((b) => b.kind === 'table') as { table: PackTable }).table, index };
 }

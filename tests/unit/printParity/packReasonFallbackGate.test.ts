@@ -15,6 +15,7 @@ import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packScale'
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { input } from '../services/packs/fixtures/packGridInputs';
 import { gotenbergOverflow } from './gotenbergOverflow';
+import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 import { parityUnavailable, startGotenberg, type Gotenberg } from './gotenbergParity';
 
 const unavailable = parityUnavailable();
@@ -43,7 +44,7 @@ describe.skipIf(unavailable !== null)(`reasons of fallback glyphs in production'
       docs.push(doc);
       refused.push(unreadableBlock(p3, PACK_SCALE) !== null);
     }
-    const overflow = await gotenbergOverflow(gotenberg!, docs);
+    const overflow = await gotenbergOverflow(gotenberg!, docs.map(stampFigureFits));
     const passedOverflowing = docs.flatMap((doc, i) => {
       const id = `pack-page-${doc.pages.findIndex((p) => p.navLabel === 'Highlights') + 1}`;
       return !refused[i] && overflow[i]!.includes(id) ? [`${i + 4} clusters`] : [];

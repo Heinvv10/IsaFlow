@@ -47,3 +47,16 @@ it('never short of Chromium, at most 1/32px over', async () => {
   });
   expect(wrong).toEqual([]);
 }, 300_000);
+
+it('the 630-case grid (15 strings x 14 sizes x 3 weights): never short of Chromium, at most 1/32px over', async () => {
+  const texts = ['(133 500 000)', '9 000 000', 'Telecommunications', 'AVATAR WAVE', 'Revenue', '45.0%', 'To', 'xy', 'Operating expenses', 'W', 'nnnnnnnnnnnnnnnnnnnn', 'R&D', 'Ff', 'office', 'VAT'];
+  const sizes = [6, 7, 9, 10, 10.5757, 11, 12, 13.3333, 14.6667, 16, 17, 20.5, 29.3333, 40];
+  const items = texts.flatMap((text) => sizes.flatMap((fontPx) => WEIGHTS.map((weight) => ({ text, fontPx, weight }))));
+  expect(items).toHaveLength(630);
+  const res = await measure(browser, items.map((it) => ({ probe: 'td' as const, ...it, html: `<span style="white-space:pre">${it.text.replace(/&/g, '&amp;')}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const model = runPx(it.text, it.fontPx, it.weight, outside);
+    return model < res[i]!.widthPx - 1e-6 || model > res[i]!.widthPx + 2 / 64 + 1e-6 ? [`${it.text} at ${it.fontPx}px/${it.weight}: model ${model}, Chromium ${res[i]!.widthPx}`] : [];
+  });
+  expect(wrong).toEqual([]);
+}, 300_000);

@@ -16,6 +16,7 @@ import { renderHook } from '@testing-library/react';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { serialisePackPagesDocument } from '@/modules/accounting/services/packs/pages/packDocumentWire';
 import { demoInput } from '../../services/packs/fixtures/boardPackInputs';
+import { storedBeforeStampedFits } from '../../services/packs/fixtures/storedBeforeStampedFits';
 import { PackPagesPrintPage } from '@/components/accounting/packs/PackPagesPrintPage';
 
 const attr = () => document.documentElement.getAttribute('data-print-error-pages');
@@ -43,6 +44,13 @@ describe('PackPagesPrintPage when the pages fetch fails', () => {
     render(<PackPagesPrintPage packType="board" from="2026-01-01" to="2026-08-31" />);
     await waitFor(() => expect(attr()).toBe('pages: HTTP 422'));
     expect(attr()).not.toContain('Acme');
+  });
+
+  it('marks a pack stored before figure fits were stamped: it is refused, never printed unchecked', async () => {
+    const body = JSON.stringify({ data: storedBeforeStampedFits() });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200, headers: { 'content-type': 'application/json' } })));
+    render(<PackPagesPrintPage packType="board" from="2026-01-01" to="2026-08-31" />);
+    await waitFor(() => expect(attr()).toMatch(/^pages: .*without the figure size the server decided/));
   });
 
   it('marks a network failure', async () => {
