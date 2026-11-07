@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { INPUTS_URL, RUN_URL, OVERTIME, UNION, line, inputsBody, planBody, ok, fail } from './payroll/payrollRunFixtures';
-import { body, cell, fetchMock, puts, rowOf, serve, settle, twoRuns, type } from './payroll/payRunGridHarness';
+import { body, cell, choose, fetchMock, puts, rowOf, serve, settle, twoRuns, type } from './payroll/payRunGridHarness';
 
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -158,7 +158,7 @@ describe('PayRunReviewGrid', () => {
     render(<PayrollRunDetailPage />);
     const input = await cell('Riaan Smit');
     expect(input.value).toBe('300.00');
-    fireEvent.change(screen.getByLabelText('Once-off earning component'), { target: { value: commission.id } });
+    choose(screen.getByRole('combobox', { name: 'Once-off earning component' }), 'Commission (3606)');
     await waitFor(async () => expect((await cell('Riaan Smit')).value).toBe(''));
   });
 
@@ -167,25 +167,28 @@ describe('PayRunReviewGrid', () => {
     const [salary, commission, overtime] = [named('Basic Salary', '3601'), named('Commission', '3606'), named('Overtime', '3607')];
     const picker = async () => {
       await screen.findByText('Riaan Smit');
-      return await screen.findByLabelText('Once-off earning component') as HTMLSelectElement;
+      return await screen.findByRole('combobox', { name: 'Once-off earning component' });
     };
 
     it.each([
-      ['overtime before all', [salary, commission, overtime], overtime.id],
-      ['commission when there is no overtime', [salary, commission], commission.id],
+      ['overtime before all', [salary, commission, overtime], 'Overtime (3607)'],
+      ['commission when there is no overtime', [salary, commission], 'Commission (3606)'],
     ])('%s', async (_what, components, expected) => {
       serve(() => ok({}), { inputs: { components } });
       render(<PayrollRunDetailPage />);
-      expect((await picker()).value).toBe(expected);
+      expect((await picker()).textContent).toBe(expected);
+      expect(screen.queryByText(/No overtime or commission component yet/)).toBeNull();
     });
 
     it('never Basic Salary: with nothing else there is no column to type in until one is chosen', async () => {
       serve(() => ok(inputsBody(twoRuns())), { inputs: { components: [salary] } });
       render(<PayrollRunDetailPage />);
       const select = await picker();
-      expect(select.value).toBe('');
+      expect(select.textContent).toBe('Choose a component');
       expect(screen.queryByLabelText('Once-off earning, Riaan Smit')).toBeNull();
-      fireEvent.change(select, { target: { value: salary.id } });
+      const add = screen.getByRole('link', { name: 'Add one' }); // wave 4 PS: the way to an overtime component
+      expect([add.getAttribute('href'), add.closest('p')?.textContent]).toEqual(['/payroll/components', 'No overtime or commission component yet. Add one']);
+      choose(select, 'Basic Salary (3601)');
       expect(await cell('Riaan Smit')).toBeTruthy();
     });
   });
@@ -215,7 +218,7 @@ describe('PayRunReviewGrid', () => {
     serve(() => ok(inputsBody(twoRuns())));
     render(<PayrollRunDetailPage />);
     expect(await cell('Riaan Smit', 'Once-off deduction')).toBeTruthy();
-    expect(screen.getByLabelText('Once-off deduction component')).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Once-off deduction component' })).toBeTruthy();
   });
 
   it('an approved run stays the read-only table and asks for no inputs', async () => {

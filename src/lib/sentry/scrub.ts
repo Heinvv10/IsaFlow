@@ -4,6 +4,9 @@ import { keyMayBeData } from '@/lib/sanitizeRequestBody';
 import { REDACTED, redactQueryValues, redactUrlsInText, scrubText, scrubUrl } from './scrubText';
 
 const DROP_HEADERS = new Set(['cookie', 'authorization', 'x-csrf-token']);
+// Any header whose name says it carries a credential (x-api-key, x-servicekey, x-webhook-signature, proxy-authorization, ...):
+// onRequestError (instrumentation.ts) attaches the request's headers to every server request error, so these must never leave the box.
+const SENSITIVE_HEADER_RE = /secret|token|key|signature|auth|cookie|session|password/i;
 
 // A request body keeps its shape (keys, nesting) and loses every value: free text in a body (a note, a
 // description, a payee) cannot be recognised by its key, so no leaf is trusted. A null says nothing and stays.
@@ -117,7 +120,7 @@ export function scrubEvent<T extends Event>(event: T | null): T | null {
   if (req.headers) {
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.headers as Record<string, string>)) {
-      if (DROP_HEADERS.has(k.toLowerCase())) continue;
+      if (DROP_HEADERS.has(k.toLowerCase()) || SENSITIVE_HEADER_RE.test(k)) continue;
       // the page the request came from carries its query (search text, amounts)
       headers[k] = /^referr?er$/i.test(k) && typeof v === 'string' ? scrubUrl(v) : v;
     }

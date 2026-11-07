@@ -3,14 +3,15 @@
  * of pages/payroll/runs/[id].tsx.
  */
 import Link from 'next/link';
-import { CalendarDays, ArrowLeft, Loader2, Calculator, Lock, Unlock, GitCompare, BookOpen, ShieldCheck } from 'lucide-react';
+import { CalendarDays, ArrowLeft, Loader2, Calculator, Lock, Unlock, GitCompare, BookOpen, ShieldCheck, FileText } from 'lucide-react';
+import { payslipUrl } from '@/components/payroll/PayslipDrawer';
 import { PayrollRunStatusBadge as StatusBadge } from '@/components/payroll/PayrollRunStatusBadge';
 import { canWrite } from '@/lib/auth/writeRoles';
 
 interface Props {
   runId: string;
   period: string;
-  run: { status: string; journalEntryId: string | null };
+  run: { status: string; journalEntryId: string | null; lines: unknown[] };
   companyRole: string | null | undefined;
   locked: boolean;
   canCalculate: boolean;
@@ -48,6 +49,14 @@ export function RunHeaderActions({
               title="The GL journal this run posted at approval">
               <BookOpen className="h-4 w-4" /> View journal
             </Link>
+          )}
+          {/* Every employee's slip in one PDF; DRAFT on each page until R-035 clears the run (the route decides). */}
+          {run.lines.length > 0 && (
+            <a href={payslipUrl(runId, null, 'attachment')} download
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"
+              title="Download every employee's payslip for this run">
+              <FileText className="h-4 w-4" aria-hidden="true" /> Payslips (PDF)
+            </a>
           )}
           <Link href={`/payroll/runs/${runId}/variance`}
             className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"

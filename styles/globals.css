@@ -425,3 +425,25 @@ html[data-sidebar-collapsed="true"] [data-shell-side] {
   background-color: #fff;
   background-image: linear-gradient(rgb(240 253 250 / 0.6), rgb(240 253 250 / 0.6));
 }
+
+/* ── Table density: the ONE root switch (TableDensityContext sets html[data-density]) ──
+   Compact: standard body cells (py-3 or py-2) become py-1 (4 px), standard header cells (py-3) py-2 (8 px),
+   both on the 4 px grid. Comfortable sets no rule, so it renders exactly as authored.
+   Narrowest reach, on purpose:
+   - only cells that carry a standard row padding token (td: py-3 or py-2; th: py-3): empty-state and loading cells
+     (colSpan, py-8/10/12) and any cell with its own padding class keep what they were given;
+   - [colspan] cells are excluded as well, whatever their padding;
+   - child combinators (table > tbody|thead|tfoot > tr > cell, or table > tr > cell), so a cell of an
+     exempt table nested inside a non-exempt one is not reached through the outer table.
+   Exempt: any table marked data-density-exempt (statement grids, management-pack and AFS viewers)
+   and the budget grid (table[role=grid]). */
+html[data-density='compact'] table:not([data-density-exempt], [role='grid']) > :is(tbody, thead, tfoot) > tr > td:not([colspan]):is([class~='py-3'], [class~='py-2']),
+html[data-density='compact'] table:not([data-density-exempt], [role='grid']) > tr > td:not([colspan]):is([class~='py-3'], [class~='py-2']) {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+html[data-density='compact'] table:not([data-density-exempt], [role='grid']) > :is(tbody, thead, tfoot) > tr > th:not([colspan])[class~='py-3'],
+html[data-density='compact'] table:not([data-density-exempt], [role='grid']) > tr > th:not([colspan])[class~='py-3'] {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}

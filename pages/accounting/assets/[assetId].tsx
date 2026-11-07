@@ -13,6 +13,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { toDepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
 import { buildDepreciationSchedule } from '@/modules/accounting/services/items/depreciationSchedule';
+import { DISPOSAL_TYPES, DISPOSAL_TYPE_LABELS } from '@/modules/accounting/services/items/assetDisposalTypes';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -232,7 +233,7 @@ export default function AssetDetailPage() {
                 <div>
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Disposal Method</label>
                   <select name="disposal_method" value={form.disposal_method} onChange={e => setForm(f => ({ ...f, disposal_method: e.target.value }))} className="ff-input w-full">
-                    {['sale','scrap','write_off','donation','theft','insurance_claim'].map(m => <option key={m} value={m}>{m.replace(/_/g,' ')}</option>)}
+                    {DISPOSAL_TYPES.map(m => <option key={m} value={m}>{DISPOSAL_TYPE_LABELS[m]}</option>)}
                   </select>
                 </div>
                 <div>
