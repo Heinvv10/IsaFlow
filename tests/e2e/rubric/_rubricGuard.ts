@@ -149,16 +149,20 @@ const PATH_PROBE_BASE = 'http://rubric-harness.invalid';
  * the guard stays pure. @returns the path as resolved (pathname + query), which the email-route check then judges.
  */
 export function assertServerPath(path: string): string {
-  let resolved: URL | undefined;
-  try {
-    resolved = new URL(path, PATH_PROBE_BASE);
-  } catch {
-    resolved = undefined;
-  }
-  if (!/^\/(?!\/)/.test(path) || /[\x00-\x20\\]/.test(path) || resolved?.origin !== PATH_PROBE_BASE) {
+  if (!/^\/(?!\/)/.test(path) || /[\x00-\x20\\]/.test(path) || !sameOrigin(path, PATH_PROBE_BASE)) {
     throw new RubricGuardError(`${JSON.stringify(path)} is not a path on the harness server (one leading /, no backslash, space or control character)`);
   }
+  const resolved = new URL(path, PATH_PROBE_BASE);
   return resolved.pathname + resolved.search;
+}
+
+/** Does `path`, resolved against `base` as Playwright resolves it, stay on `base`'s origin. A URL that throws does not. */
+export function sameOrigin(path: string, base: string): boolean {
+  try {
+    return new URL(path, base).origin === new URL(base).origin;
+  } catch {
+    return false;
+  }
 }
 
 /** The harness Api never calls the email route: the browser intercept is the only way the harness reaches it. */

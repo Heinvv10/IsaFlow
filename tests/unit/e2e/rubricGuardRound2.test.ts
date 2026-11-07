@@ -4,7 +4,7 @@
  * own server (one leading slash, no backslash); the email route is matched in the spellings the server routes.
  */
 import { describe, expect, it } from 'vitest';
-import { assertServerPath, guardWrites, isEmailRoute, listenerPids } from '../../e2e/rubric/_rubricGuard';
+import { assertServerPath, guardWrites, sameOrigin, isEmailRoute, listenerPids } from '../../e2e/rubric/_rubricGuard';
 
 describe('listener pids', () => {
   const line = (port: number, users: string) => `LISTEN 0      511      *:${port}      *:*    ${users}`;
@@ -80,4 +80,17 @@ describe('email route spellings', () => {
     '%s is another route', (p) => {
       expect(isEmailRoute(p)).toBe(false);
     });
+});
+
+/** The origin half of assertServerPath, tested on its own: the syntactic checks would otherwise hide its removal. */
+describe('sameOrigin', () => {
+  const BASE = 'http://localhost:3277';
+  it.each(['//evil/x', 'http://evil/x', 'https://localhost:3277/x', 'http://localhost:3111/x', '/\\evil/x', '/\t/evil/x', 'http://[::1'])(
+    'refuses %j', (p) => {
+      expect(sameOrigin(p, BASE)).toBe(false);
+    });
+
+  it.each(['/api/x', 'api/x', '/api/x?a=//b', '/a/../b', ''])('accepts %j', (p) => {
+    expect(sameOrigin(p, BASE)).toBe(true);
+  });
 });
