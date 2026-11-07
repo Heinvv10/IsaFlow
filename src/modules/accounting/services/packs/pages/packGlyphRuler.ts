@@ -69,6 +69,24 @@ export function scriptRuns(text: string): string[] {
   return runs.map((r) => r.text);
 }
 
+/** Units added to every width (`runPx`): one, so a fit decision is never short; none inside `asChromiumSets`. */
+let slackUnits = 1;
+
+/**
+ * Runs `measure` with every width as Chromium sets it (the exact sum rounded up to its unit, no unit added): for a
+ * layout model that reproduces Chromium's columns and settles a tie with its own guard (`packTableLayout.ts`), not for
+ * a decision that must never be short.
+ */
+export function asChromiumSets<T>(measure: () => T): T {
+  const was = slackUnits;
+  slackUnits = 0;
+  try {
+    return measure();
+  } finally {
+    slackUnits = was;
+  }
+}
+
 /** The size Chromium sets a font at: floored to its 1/64px unit. */
 export const setSizePx = (fontPx: number): number => Math.floor(fontPx * UNIT + 1e-9) / UNIT;
 
@@ -96,5 +114,5 @@ export function runPx(
     else { flush(); px += fallbackPx(cluster, size); }
   }
   flush();
-  return Math.ceil((units * size / f.unitsPerEm + px) * UNIT - 1e-7) / UNIT + 1 / UNIT;
+  return Math.ceil((units * size / f.unitsPerEm + px) * UNIT - 1e-7) / UNIT + slackUnits / UNIT;
 }

@@ -40,10 +40,12 @@ export const TABLE_FIGURE_MAX_PT = 9;
 export const TABLE_FIGURE_FLOOR_PT = 7.5;
 
 export const MM_PX = 96 / 25.4;
+/** A length in millimetres as Chromium lays it out: in its 1/64px unit, rounded down (2mm is 7.546875px, not 7.559). */
+const mmToLayoutPx = (mm: number): number => Math.floor(mm * MM_PX * 64) / 64;
 /** `.pack-table td` / `th`: 2mm either side. */
-export const CELL_SIDE_PX = 2 * MM_PX;
+export const CELL_SIDE_PX = mmToLayoutPx(2);
 /** `.pack-table td:first-child` indents by `level x 4mm` (`INDENT_MM_PER_LEVEL`). */
-export const INDENT_PX_PER_LEVEL = 4 * MM_PX;
+export const INDENT_PX_PER_LEVEL = mmToLayoutPx(4);
 /** A not-meaningful cell is "n/m" and the mark of its note (`.pack-table-note-mark`). */
 const NOT_MEANINGFUL = 'n/m';
 
@@ -70,8 +72,19 @@ export const headingMarkPx = (number: number | undefined): number => (number ===
  */
 export const HEADING_WORD_PX: Readonly<Record<PackTableColumnKey, number>> = Object.fromEntries(
   (Object.entries(PACK_TABLE_COLUMN_LABEL) as Array<[PackTableColumnKey, string]>).map(([col, label]) => [col,
-    Math.max(...label.split(' ').map((word) => headingRunPx(word.toUpperCase(), HEADING_PX)))]),
+    Math.max(...headingWordsPx(label))]),
 ) as Record<PackTableColumnKey, number>;
+
+/** A line of a column heading, in pixels, as `.pack-table th` sets it (shaped whole, tracked). */
+export const headingLinePx = (text: string): number => headingRunPx(text.toUpperCase(), HEADING_PX);
+
+/** Each word of a column heading, in pixels, as `.pack-table th` sets it. */
+export function headingWordsPx(label: string): number[] {
+  return label.split(' ').map((word) => headingRunPx(word.toUpperCase(), HEADING_PX));
+}
+
+/** The space between two words of a heading: the face's space at 8pt and the heading's tracking after it. */
+export const HEADING_SPACE_PX = textPx(' ', HEADING_PX, 500) - 1 / 64 + HEADING_TRACKING_PX;
 
 export interface FigureFit {
   /** The whole-pixel size to set, or null where the row fits at its ordinary size and nothing is set. */

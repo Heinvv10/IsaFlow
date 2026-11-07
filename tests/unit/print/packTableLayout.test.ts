@@ -8,7 +8,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
-import { chromium } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
@@ -21,7 +21,7 @@ import { measure } from './measureWidths';
 import { measureTables } from './measureTables';
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
 describe('the heading widths', () => {
@@ -47,11 +47,13 @@ for (const k of [1, 30, 1000, 30000, 300000, 1e6, 3e6]) for (const negative of [
   for (const sg of [[1, 1, 1, 1], [-1, -1, 1, 1], [1, -1, -1, 1]]) for (const budget of [true, false])
     for (const [prior, tr] of [[true, 'demo'], [false, 'none'], [true, 'zero']] as const) SHAPES.push({ k, negative, loss, plug: 0.05, sg, budget, prior, tr });
 
-/** The ends of the range of wrap guards that set Chromium's lines on every table (`packLineWrap.ts`). */
-const BAND = [-0.2, 0.12];
+/** How far the model's columns may be from Chromium's (`packLineWrap.ts` sets the guard from it). */
+const COLUMN_ERROR_PX = 0.1;
+/** At most this many label rows a line taller than Chromium's, at a near tie (a piece within the model's error of its line). */
+const TIES_ALLOWED = 6;
 
 describe('the layout of every statement table of a stratified sample of packs', () => {
-  it(`${SHAPES.length} packs (prior and trend panels on and off, k to 3e6): columns within 1px, label lines and heading lines equal, height never short`, async () => {
+  it(`${SHAPES.length} packs (prior and trend panels on and off, k to 3e6): columns within 0.1px, never a label line too few, heading lines equal, height never short`, async () => {
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
     let tables = 0;
@@ -59,6 +61,8 @@ describe('the layout of every statement table of a stratified sample of packs', 
     let wrappedHeadings = 0;
     let tallest = -Infinity;
     let shortest = Infinity;
+    let widerBy = -Infinity;
+    const ties: string[] = [];
     for (const shape of SHAPES) {
       let doc;
       try { doc = buildBoardPackPages(input(shape)); } catch (e) { if (e instanceof PackRefusal) continue; throw e; }
@@ -73,8 +77,19 @@ describe('the layout of every statement table of a stratified sample of packs', 
           tables += 1;
           const model = tableLayout(block.table, doc.numberConvention.scale, page.orientation);
           const label = `${JSON.stringify(shape)} page ${page.number} table ${i}`;
-          model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > 1) wrong.push(`${label} column ${c}: model ${px.toFixed(1)} vs ${real.columnsPx[c]!.toFixed(1)}`); });
-          if (model.labelLines.join() !== real.labelLines.join()) wrong.push(`${label} label lines: model ${model.labelLines} vs ${real.labelLines}`);
+          model.columnsPx.forEach((px, c) => {
+            const err = px - real.columnsPx[c]!;
+            widerBy = Math.max(widerBy, err);
+            if (Math.abs(err) > COLUMN_ERROR_PX) wrong.push(`${label} column ${c}: model ${px.toFixed(3)} vs ${real.columnsPx[c]!.toFixed(3)}`);
+          });
+          model.labelLines.forEach((l, r) => {
+            if (l < real.labelLines[r]!) wrong.push(`${label} row ${r}: model ${l} lines, Chromium ${real.labelLines[r]} (a line too few)`);
+            if (l > real.labelLines[r]!) {
+              ties.push(`${label} row ${r}`);
+              // A line too many only at a near tie: with no guard and the columns as Chromium set them, the model agrees.
+              if (tableLayout(block.table, doc.numberConvention.scale, page.orientation, -COLUMN_ERROR_PX).labelLines[r] !== real.labelLines[r]) wrong.push(`${label} row ${r}: a line too many, and not at a tie`);
+            }
+          });
           wrappedLabels += real.labelLines.filter((l) => l > 1).length;
           if (real.headingLines > 1) wrappedHeadings += 1;
           const gap = statementTableBodyMm(block.table, doc.numberConvention.scale, page.orientation) - real.heightMm;
@@ -82,11 +97,6 @@ describe('the layout of every statement table of a stratified sample of packs', 
           shortest = Math.min(shortest, gap);
 
           if (model.headingLines !== real.headingLines) wrong.push(`${label} heading lines: model ${model.headingLines} vs ${real.headingLines}`);
-          // The wrap guard's measured range (`packLineWrap.ts`): either end sets the same lines as Chromium too.
-          for (const guard of BAND) {
-            const at = tableLayout(block.table, doc.numberConvention.scale, page.orientation, guard);
-            if (at.labelLines.join() !== real.labelLines.join() || at.headingLines !== real.headingLines) wrong.push(`${label} guard ${guard}: lines ${at.labelLines}/${at.headingLines} vs ${real.labelLines}/${real.headingLines}`);
-          }
         });
       }
     }
@@ -97,7 +107,12 @@ describe('the layout of every statement table of a stratified sample of packs', 
     // The height of the table is never short of Chromium's, and over by at most the roundings up (measured over this
     // sample: 0.31 to 1.53mm, the top end a table whose rows nearly all wrap).
     expect(shortest, 'a table modelled shorter than it printed').toBeGreaterThanOrEqual(0);
-    expect(tallest, "a table modelled taller than it printed").toBeLessThanOrEqual(1.6);
+    // The guard covers the widest the model's column is of Chromium's: a column modelled that much too wide could fit a
+    // piece Chromium wraps (`packLineWrap.WRAP_GUARD_PX`).
+    expect(widerBy, 'a model column wider than Chromium\'s by more than the guard').toBeLessThanOrEqual(WRAP_GUARD_PX);
+    expect(ties.length, `rows a line taller than Chromium at a near tie: ${ties.join('; ')}`).toBeLessThanOrEqual(TIES_ALLOWED);
+    // Over by at most the roundings up, and a 13pt line for each near tie.
+    expect(tallest, 'a table modelled taller than it printed').toBeLessThanOrEqual(1.6 + 4.6 * ties.length);
     expect(wrong.slice(0, 12)).toEqual([]);
   }, 1_200_000);
 });
@@ -173,12 +188,13 @@ describe('a label that fits its column to within a fraction of a pixel (the adve
   }, 120_000);
 });
 
-describe('near ties off page 6: the balance sheet and the cash table, labels ending a fraction of a pixel inside their column', () => {
-  // Found by sweeping the label and the figures' width: each row's label ends 0.18 to 0.37px inside its column, where
-  // the guard decides. The guard sets Chromium's lines on every one; a half-pixel guard sets a line too many.
+describe('near ties off page 6: balance sheet labels that wrap, a fraction of a pixel inside their column', () => {
+  // Found by sweeping the label and the figures' width (the adversary's round 3 found the earlier sweep never wrapped a
+  // balance sheet label): each first-row label takes two or three lines and one of its pieces ends 0.09 to 0.45px
+  // inside the column. The guard sets Chromium's lines on every one; a half-pixel guard sets a line too many.
   const NEAR_TIES = [
-    ['Balance sheet', 18, 'Trade receivables netiiiiii'], ['Balance sheet', 15, 'Prepayments depositsiiiiiiiiiii'],
-    ['Cash', 18, 'Opening cash balance'], ['Cash', 18, 'Other current assets'],
+    ['Balance sheet', 19, 'Trade receivables net'], ['Balance sheet', 21, 'Inventories and work in progress'],
+    ['Balance sheet', 18, 'Prepayments and deposits paidiiii'], ['Balance sheet', 19, 'Current assetsiiiii'],
   ] as const;
 
   it.each(NEAR_TIES)('%s, %i digits, "%s": the model\'s lines are Chromium\'s, and a half-pixel guard would add one', async (nav, digits, label) => {
@@ -186,6 +202,7 @@ describe('near ties off page 6: the balance sheet and the cash table, labels end
     const page = doc.pages[index]!;
     expect(page.number).not.toBe(6);
     const real = (await measureTables(doc, browser)).filter((t) => t.page === page.number)[0]!;
+    expect(real.labelLines[0], 'the label wraps').toBeGreaterThan(1);
     expect(tableLayout(table, doc.numberConvention.scale, page.orientation).labelLines).toEqual(real.labelLines);
     expect(tableLayout(table, doc.numberConvention.scale, page.orientation, 0.5).labelLines, 'not a near tie').not.toEqual(real.labelLines);
   }, 120_000);

@@ -1,24 +1,33 @@
 /**
- * THE FILL OVER EXACT WIDTHS: the greedy line count with its safe-side guard, and where a footnote mark sits. (Where
- * text may break is held to Chromium by `packLineBreaks.test.ts`.)
+ * THE FILL OVER EXACT WIDTHS: the greedy line count, each candidate line measured whole, with its guard; and where a
+ * footnote mark sits. (Where text may break is held to Chromium by `packLineBreaks.test.ts`; the fill against
+ * Chromium's own lines by `packTableLayout.test.ts`.)
  */
 import { describe, expect, it } from 'vitest';
-import { linesFor, minPx, runsOf } from '@/modules/accounting/services/packs/pages/packLineWrap';
+import { linesForText, minPx, WRAP_GUARD_PX } from '@/modules/accounting/services/packs/pages/packLineWrap';
+import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
 import { textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
 
-describe('the fill', () => {
-  const runs = runsOf('Operating expenses', (piece) => textPx(piece, 12, 400), 3);
+const width = (text: string): number => textPx(text, 12, 400);
 
-  it('a piece that fits with less than the guard to spare takes a line it may not need, never one too few', () => {
-    const full = runs.reduce((sum, r) => sum + r.gap + r.w, 0);
-    expect(linesFor(runs, 0, full)).toBe(2);
-    expect(linesFor(runs, 0, full + 1)).toBe(1);
+describe('the fill', () => {
+  const parts = pieces('Operating expenses');
+  const full = width('Operating expenses');
+
+  it('a line is measured whole, and a piece that fits with less than the guard to spare takes the next line', () => {
+    expect(linesForText(parts, width, 0, full + WRAP_GUARD_PX)).toBe(1);
+    expect(linesForText(parts, width, 0, full + WRAP_GUARD_PX - 1 / 64)).toBe(2);
+    expect(linesForText(parts, width, 0, width('Operating') + WRAP_GUARD_PX)).toBe(2);
   });
 
-  it('a footnote mark sits on the last piece: it widens the narrowest width only if the last piece is the widest', () => {
-    const wide = runsOf('Intercompanyrecharges net', (piece) => textPx(piece, 12, 400), 3);
-    expect(minPx(wide, 10)).toBe(textPx('Intercompanyrecharges', 12, 400));
-    const last = runsOf('net Intercompanyrecharges', (piece) => textPx(piece, 12, 400), 3);
-    expect(minPx(last, 10)).toBe(textPx('Intercompanyrecharges', 12, 400) + 10);
+  it('a footnote mark stays with the last piece: it can push that piece to a line of its own', () => {
+    expect(linesForText(parts, width, 10, full + WRAP_GUARD_PX)).toBe(2);
+    expect(linesForText(parts, width, 10, full + 10 + WRAP_GUARD_PX)).toBe(1);
+  });
+
+  it('the narrowest width is the widest piece, the mark counted with the LAST one it sits after', () => {
+    const runs = (text: string) => pieces(text).map((p) => ({ w: width(p.text), gap: 0 }));
+    expect(minPx(runs('Intercompanyrecharges net'), 10)).toBe(width('Intercompanyrecharges'));
+    expect(minPx(runs('net Intercompanyrecharges'), 10)).toBe(width('Intercompanyrecharges') + 10);
   });
 });
