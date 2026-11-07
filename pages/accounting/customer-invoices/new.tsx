@@ -14,33 +14,31 @@ import { log } from '@/lib/logger';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
-import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import { previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
-import { invoiceDateProblem, isoOrEmpty, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
+import { isoOrEmpty, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { editedLine, useContactDefaults } from '@/components/accounting/customer-invoices/useContactDefaults';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, pricesToNothingMessage, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
-import { droppedLineProblem } from '@/components/accounting/customer-invoices/invoicePutBody';
+import { createBody } from '@/components/accounting/customer-invoices/newInvoiceBody';
+import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
 import { useInvoiceDraftOwner, type LocalDraftData } from '@/components/accounting/customer-invoices/useLocalInvoiceDraft';
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
 import { KeptDraftOffer, NewInvoiceActions } from '@/components/accounting/customer-invoices/NewInvoiceParts';
 import { stashApproveRefusal, useApproveAndEmail, type SavedInvoice } from '@/components/accounting/customer-invoices/useApproveAndEmail';
+import { useScannedClientMatch } from '@/components/accounting/customer-invoices/useScannedClientMatch';
 
-interface Client { id: string; name: string }
 type LineItem = InvoiceLine;
-const SCAN_LOOKUP_TIMEOUT = 'Could not find the scanned customer in time - pick the client yourself';
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 const BLANK_LINE = { description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, discountFromDefault: true, ...UNCODED };
 
 export default function NewCustomerInvoicePage() {
   const router = useRouter();
-  const [scanned, setScanned] = useState<Client | null>(null); // the client a scan matched, so the picker need not look it up
   const [currencies, setCurrencies] = useState<InvoiceCurrency[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [saveAndNew, setSaveAndNew] = useState(false);
@@ -52,6 +50,7 @@ export default function NewCustomerInvoicePage() {
   const [resetKey, setResetKey] = useState(0);
   const [form, setForm] = useState<InvoiceHeaderForm>({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([{ key: '1', ...BLANK_LINE }]);
+  const { scanned, lookupSeq, scanLookup, setScanLookup, matchScannedClient } = useScannedClientMatch(setForm, setError);
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive');
   const contact = useContactDefaults({ clientId: form.clientId, invoiceDate: form.invoiceDate, setForm, setLines, setTaxMode });
   const pickTaxMode = (mode: TaxMode) => { contact.touch('taxMode'); setLines(ls => linesForModeChange(ls, taxMode, mode, form.taxRate)); setTaxMode(mode); };
@@ -81,33 +80,8 @@ export default function NewCustomerInvoicePage() {
   const isFx = form.currencyCode !== 'ZAR';
   // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
   const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;
-
-  // The picker searches for itself; the full list is only needed here, to match a scanned name, so it is fetched on demand.
-  // Bumped by every scan, every client the user picks and every form reset: a lookup answers only if none of them happened since.
-  const lookupSeq = useRef(0);
-  // Create and Approve & email wait for a scan's lookup (it must not land on a created invoice's form, or the next one),
-  // saying so, for 15 s at most, and not once the user picked a customer themselves (which also voids the lookup).
-  const [scanLookup, setScanLookup] = useState<number | null>(null);
-  async function matchScannedClient(name: string, seq: number) {
-    setScanLookup(seq);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let timedOut = false;
-    try {
-      const res = await Promise.race([
-        apiFetch('/api/accounting/customers', { credentials: 'include' }),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => { timedOut = true; reject(new Error('scan lookup timed out')); }, 15_000); }),
-      ]);
-      await assertOk(res, 'Could not load clients - try again');
-      const json = await res.json();
-      if (lookupSeq.current !== seq) return;
-      const d = json.data || json;
-      const clients: Client[] = Array.isArray(d) ? d : d.clients || [];
-      const match = fuzzyMatchClient(name, clients);
-      const hit = match ? clients.find(c => String(c.id) === String(match.id)) : undefined;
-      if (hit) { setForm(f => ({ ...f, clientId: String(hit.id) })); setScanned({ id: String(hit.id), name: hit.name }); }
-    } catch (err) { if (lookupSeq.current === seq) setError(timedOut ? SCAN_LOOKUP_TIMEOUT : apiErrorMessage(err, 'Could not load clients - try again')); }
-    finally { clearTimeout(timer); setScanLookup(s => (s === seq ? null : s)); }
-  }
+  // What Create would send, from this render: the preview renders exactly it (invoice-pdf-preview).
+  const built = createBody(form, lines, taxMode, taxRate, dates.refused);
 
   const [rateEditing, setRateEditing] = useState(false);
   // A kept draft comes back whole: its mode with its prices, and nothing the customer's defaults may then overwrite.
@@ -151,20 +125,10 @@ export default function NewCustomerInvoicePage() {
   const markDone = () => { doneNow.current = true; setDone(true); lookupSeq.current++; };
   const createInvoice = async (): Promise<SavedInvoice | null> => {
     if (doneNow.current) return null;
-    if (!form.clientId) { setError('Select a client'); return null; }
-    const tooSmall = lines.find(l => l.description && pricesToNothing(taxMode, l.unitPrice, taxRate));
-    if (tooSmall) { setError(pricesToNothingMessage(tooSmall.description)); return null; }
-    // Every line on screen counts in the total: one the body would drop is refused, never left out quietly.
-    const dropped = droppedLineProblem(lines, false);
-    if (dropped) { setError(dropped); return null; }
-    const validLines = lines.map(({ discountFromDefault: _fromDefault, ...l }) => ({ ...l, unitPrice: storedUnitPrice(taxMode, l.unitPrice, taxRate) })).filter(l => l.description && l.unitPrice > 0);
-    if (validLines.length === 0) { setError('Add at least one line item'); return null; }
-    const dateProblem = invoiceDateProblem(form, dates.refused);
-    if (dateProblem) { setError(dateProblem); return null; }
-    if (isFx && form.exchangeRate <= 0) { setError('Exchange rate must be greater than 0'); return null; }
+    if ('problem' in built) { setError(built.problem); return null; }
     setError('');
     try {
-      const res = await apiFetch('/api/accounting/customer-invoices-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, taxRate, items: validLines }) });
+      const res = await apiFetch('/api/accounting/customer-invoices-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(built.body) });
       await assertOk(res, 'Could not create the invoice - try again');
       const json = await res.json() as { data?: { id?: string; invoiceNumber?: string; shownDigest?: string }; id?: string; invoiceNumber?: string; shownDigest?: string };
       const d = json.data || json;
@@ -269,7 +233,7 @@ export default function NewCustomerInvoicePage() {
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Add any notes or payment instructions…" />
               </fieldset>
-              <p className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-4 py-3 text-sm text-[var(--ff-text-secondary)]">Save the draft to preview the PDF.</p>
+              <InvoicePdfPreview unsaved={'body' in built ? { body: built.body } : { problem: built.problem }} />
             </div>
 
             <div className="lg:sticky lg:top-6 space-y-4">

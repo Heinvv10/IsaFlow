@@ -146,7 +146,8 @@ export default function PayComponentsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-6">
-                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
+                  title={type === 'deduction' ? 'Only retirement fund contributions (4001, 4003, 4006) and s18A donations (4030) reduce PAYE. Any other taxable deduction is paid from taxed pay, and the pay run warns about it.' : undefined}>
                   <input type="checkbox" checked={isTaxable} onChange={e => setIsTaxable(e.target.checked)} />
                   Taxable
                 </label>
@@ -199,7 +200,7 @@ export default function PayComponentsPage() {
                   {components.map(c => (
                     <tr key={c.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
                       <td className="py-3 px-4 text-[var(--ff-text-primary)]">{c.name}</td>
-                      <td className="py-3 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{c.sarsSourceCode}</td>
+                      <td className="py-3 px-4 font-id text-xs text-[var(--ff-text-secondary)]">{c.sarsSourceCode}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
                         <span className="capitalize">{c.componentType.replace('_', ' ')}</span>
                         {c.paidOutsidePayroll && <span className="ml-2 text-xs text-[var(--ff-text-tertiary)]">paid outside payroll</span>}
