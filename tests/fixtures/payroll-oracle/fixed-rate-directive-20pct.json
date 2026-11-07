@@ -1,0 +1,45 @@
+{
+  "id": "fixed-rate-directive-20pct",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 15 (\"Employers must apply the percentage of employees' tax as indicated on the directive\") and p. 17 (para 11 directive: deduct at a specified rate; IRP3(b)/(c))",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "R30 000 a month with a fixed-rate directive of 20% (IRP3(b), e.g. commission earner). The guide gives the rule, not these figures. PAYE = 20% x 30 000 = 6 000.00 (the tables would give 4 681.00). UIF 177.12, SDL 300.00. Net 30 000 - 6 000 - 177.12. The calculator has no fixed-rate directive input (only a lump-sum directive's PAYE), so input.unmodelled carries it.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 30000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "unmodelled": {
+      "fixedRateDirectivePercent": 20
+    }
+  },
+  "expected": {
+    "paye": 6000,
+    "uifEmployee": 177.12,
+    "uifEmployer": 177.12,
+    "sdl": 300,
+    "eti": 0,
+    "net": 23822.88
+  }
+}

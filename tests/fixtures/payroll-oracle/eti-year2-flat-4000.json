@@ -1,0 +1,42 @@
+{
+  "id": "eti-year2-flat-4000",
+  "source": "sars-guide:SARS ETI page \"How much is the incentive\" (from 1 April 2025 table), as cited in src/modules/accounting/services/payroll/etiTables.ts (verified there 2026-10-18; not re-fetched in this PR)",
+  "sourceRef": "https://www.sars.gov.za/types-of-tax/pay-as-you-earn/employment-tax-incentive-eti/",
+  "notes": "June 2025 (tax year 2026), employee aged 24, employed since 1 March 2024 (month 16: second 12 months pay half). R4 000 sits in the flat band: R1 500 / 2 = 750.00. PAYE nil. UIF 40.00, SDL 40.00, net 3 960.00.",
+  "input": {
+    "period": {
+      "year": 2025,
+      "month": 6
+    },
+    "taxYear": 2026,
+    "employee": {
+      "dateOfBirth": "2001-01-15",
+      "startDate": "2024-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ]
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 40,
+    "uifEmployer": 40,
+    "sdl": 40,
+    "eti": 750,
+    "net": 3960
+  }
+}

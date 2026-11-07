@@ -1,0 +1,32 @@
+[
+  {
+    "case": "sage-2027-03-marco",
+    "fields": ["paye", "net"],
+    "reason": "Sage taxes 'Temporary/Part time' at a flat 25% (R1 125.00). G21 Rev 1 p. 27-28, 'Standard employment': non-standard employment income is taxed at 25% of the balance of remuneration; whether Sage's status maps exactly onto that class is not verified. The calculator has no tax-status input, so it applies the tables: R0.00.",
+    "closedBy": "W3: tax status in the calc (wave-4 spec §2 out of scope, logged for wave 5)"
+  },
+  {
+    "case": "sage-2027-03-rassie",
+    "fields": ["uifEmployee", "uifEmployer", "sdl", "net"],
+    "reason": "Sage excludes an independent contractor from UIF and SDL. The calculator has no tax-status input and levies UIF R70.00 each side and SDL R70.00.",
+    "closedBy": "W3: tax status in the calc (contractor UIF/SDL exclusion)"
+  },
+  {
+    "case": "sage-2027-03-phekis",
+    "fields": ["paye", "net"],
+    "reason": "-0.02: Sage annualises by days (period taxable x 365 / 30.4166 average days, R600 001.37), the calculator by x12 (R600 000), giving R11 075.58 against Sage's R11 075.60.",
+    "closedBy": "W3: days-based annualisation decision (match Sage, or document the difference as tolerated rounding)"
+  },
+  {
+    "case": "sage-2027-03-david",
+    "fields": ["paye", "net"],
+    "reason": "-0.02: same days-based annualisation as Phekis; R9 275.58 against Sage's R9 275.60.",
+    "closedBy": "W3: days-based annualisation decision (as Phekis)"
+  },
+  {
+    "case": "fixed-rate-directive-20pct",
+    "fields": ["paye", "net"],
+    "reason": "A fixed-rate (IRP3(b)/(c)) directive must be applied as its percentage (G21 Rev 1 p. 15 and 17). The calculator only takes a lump-sum directive's PAYE, so it applies the tables: R4 681.00 against R6 000.00.",
+    "closedBy": "W3: directives in the calc"
+  }
+]

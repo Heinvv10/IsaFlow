@@ -1,0 +1,46 @@
+{
+  "id": "g21-annual-bonus-statutory-table",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 32-33 (annual payment worked example, recomputed on the statutory rate table)",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "Salary R28 000 + bonus R14 800 (3605), under 65, first period. The guide prints tax(336 000) = 49 945 and tax(350 800) = 53 723 (bonus tax 3 778), read off SARS's R500-banded deduction tables (PAYE-GEN-01-G01-A04). On the statutory table: tax(336 000) = 44 118 + 26% x 90 900 - 17 820 = 49 932; tax(350 800) = 53 780; bonus 3 848; salary 49 932 / 12 = 4 161.00; PAYE 8 009.00. This is a known table difference, not a rounding tolerance: only PAYE is asserted, as the guide gives nothing else.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 28000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "3605",
+        "name": "Annual bonus",
+        "type": "earning",
+        "amount": 14800,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ]
+  },
+  "expected": {
+    "paye": 8009
+  }
+}

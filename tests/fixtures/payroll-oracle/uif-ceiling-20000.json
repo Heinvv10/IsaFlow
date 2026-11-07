@@ -1,0 +1,42 @@
+{
+  "id": "uif-ceiling-20000",
+  "source": "sars-guide:sars.gov.za UIF page (ceiling R17 712 a month from 1 June 2021) + SARS rates of tax 2026/27",
+  "sourceRef": "https://www.sars.gov.za/types-of-tax/unemployment-insurance-fund/ ; https://www.sars.gov.za/tax-rates/income-tax/rates-of-tax-for-individuals/",
+  "notes": "R20 000 a month, under 65. UIF = 1% x min(20 000, 17 712) = 177.12 each side (Sage also capped at 177.12 for Phekis, David and the bonus case). PAYE by hand: 240 000 x 18% = 43 200 - 17 820 = 25 380 / 12 = 2 115.00. SDL 1% = 200.00. Net 20 000 - 2 115 - 177.12.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 20000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ]
+  },
+  "expected": {
+    "paye": 2115,
+    "uifEmployee": 177.12,
+    "uifEmployer": 177.12,
+    "sdl": 200,
+    "eti": 0,
+    "net": 17707.88
+  }
+}
