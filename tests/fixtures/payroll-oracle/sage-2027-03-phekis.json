@@ -42,10 +42,12 @@
   "tolerance": {
     "paye": {
       "cents": 2,
+      "engineActual": 11075.58,
       "reason": "Sage days annualisation 365/30.4166 (R600 001.37 for R50 000); the calculator uses the statutory x12, so it is 2c lower"
     },
     "net": {
       "cents": 2,
+      "engineActual": 38747.3,
       "reason": "Follows the PAYE tolerance (Sage days annualisation 365/30.4166)"
     }
   }

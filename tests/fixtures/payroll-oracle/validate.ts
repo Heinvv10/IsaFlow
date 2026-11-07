@@ -22,7 +22,7 @@ const SCHEMA: Record<string, readonly string[]> = {
   period: ['year', 'month'],
   employee: ['dateOfBirth', 'startDate', 'taxStatus', 'uifExcluded', 'medicalAidMainMember', 'medicalAidDependantsCount', 's18aReceiptHeld'],
   component: ['code', 'name', 'type', 'amount', 'taxable', 'uif', 'sdl'],
-  toleranceEntry: ['cents', 'reason'],
+  toleranceEntry: ['cents', 'reason', 'engineActual'],
 };
 
 const normaliseKey = (k: string) => k.toLowerCase().replace(/[_-]/g, '');
@@ -138,6 +138,7 @@ export function validateCase(raw: unknown, file: string): void {
       need(isObj(t) && isInt(t.cents) && (t.cents as number) >= 1 && (t.cents as number) <= MAX_TOLERANCE_CENTS, file,
         `tolerance on ${k}: cents must be an integer from 1 to ${MAX_TOLERANCE_CENTS}`);
       need(typeof (t as Obj).reason === 'string' && ((t as Obj).reason as string).trim().length > 0, file, `tolerance on ${k}: a reason is required`);
+      need(isNum((t as Obj).engineActual), file, `tolerance on ${k}: engineActual (the engine's current figure) is required`);
     }
   }
 }

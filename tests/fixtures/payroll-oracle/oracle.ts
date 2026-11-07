@@ -18,6 +18,10 @@ export const ORACLE_DIR = __dirname;
 
 export interface OracleComponent {
   code: string;
+  /**
+   * NAMED LIMIT: `name` is free text and is exempt from the PII key check (validate.ts checks
+   * keys, not values), so a personal name written here cannot be detected. Use a generic label.
+   */
   name: string;
   type: 'earning' | 'deduction';
   amount: number;
@@ -50,8 +54,11 @@ export interface OracleCase {
   };
   /** Only the fields the source gives are asserted. */
   expected: Partial<Record<OracleField, number>>;
-  /** Documented rounding only: at most MAX_TOLERANCE_CENTS per field, with the reason. */
-  tolerance?: Partial<Record<OracleField, { cents: number; reason: string }>>;
+  /**
+   * Documented rounding only: at most MAX_TOLERANCE_CENTS per field, with the reason. `engineActual`
+   * pins the engine's CURRENT figure exactly, so it cannot drift inside the tolerance unnoticed.
+   */
+  tolerance?: Partial<Record<OracleField, { cents: number; reason: string; engineActual: number }>>;
 }
 
 /**
@@ -182,6 +189,12 @@ export function caseProblems(c: OracleCase, gap: KnownGap | undefined): string[]
   for (const f of listed.filter(x => failing.includes(x))) {
     if (cents(actual[f]) !== cents(gap!.engineActual[f]!)) {
       out.push(`${c.id}.${f}: engine moved inside a known gap: ${actual[f]}, pinned engineActual ${gap!.engineActual[f]}`);
+    }
+  }
+  for (const f of ORACLE_FIELDS) {
+    const t = c.tolerance?.[f];
+    if (t && cents(actual[f]) !== cents(t.engineActual)) {
+      out.push(`${c.id}.${f}: engine moved inside its tolerance: ${actual[f]}, pinned engineActual ${t.engineActual}`);
     }
   }
   return out;
