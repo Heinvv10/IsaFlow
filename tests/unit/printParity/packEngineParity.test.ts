@@ -11,9 +11,12 @@
  *    fonts, and the image's font set is not velo's or GitHub's (49.9k of them differ, measured 2026-11-07). They are
  *    owned by the width tables measured in the production image, behind the render-time fingerprint guard;
  *  - the packs of the fitter grid (`page6Shapes.allPage6Shapes` x budget x prior x trend panels, 30,720 inputs): every
- *    64th by default, all of them with PARITY_GRID=full.
- * Gotenberg is a throwaway container of the image production runs (`gotenbergParity.ts`), so this runs on velo only;
- * elsewhere it is skipped, and says why.
+ *    64th by default, all of them with PARITY_GRID=full;
+ *  - AS PRINTED (`pdfParity.ts`): every 128th pack of the grid printed to PDF by both, compared sheet by sheet, word by
+ *    word with its box: the sheet count, the page breaks, where each footnote lands, the landscape sheets, and the text
+ *    the stylesheet sizes from `100cqw` at the real print width. Every served face must load in both, or it fails.
+ * RE-RUN THIS whenever the gotenberg image or the pack's fonts change (`paritySkip.ts` says where it may skip).
+ * Gotenberg is a throwaway container of the image production runs (`gotenbergParity.ts`), so this runs on velo only.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
@@ -26,10 +29,12 @@ import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/b
 import { input, type Shape } from '../services/packs/fixtures/page6Grid';
 import { allPage6Shapes } from '../services/packs/fixtures/page6Shapes';
 import { launchPrintChromium } from '../print/printChromium';
-import { gotenbergReport, parityUnavailable, playwrightReport, startGotenberg, type Gotenberg } from './gotenbergParity';
+import { gotenbergReport, playwrightReport, startGotenberg, type Gotenberg } from './gotenbergParity';
+import { paritySkip } from './paritySkip';
+import { printBoth, sheetDifferences } from './pdfParity';
 import { FALLBACK_OWNER, inTableCell, parityDocument, parseReport, selfHostedCodePoints } from './parityPage';
 
-const unavailable = parityUnavailable();
+const unavailable = paritySkip();
 let gotenberg: Gotenberg | undefined;
 let browser: Browser | undefined;
 beforeAll(async () => {
@@ -65,6 +70,10 @@ const GLYPH_STYLES: ReadonlyArray<readonly [string, string, (t: string) => strin
   ['label500', 'font-weight:500', (t) => `<span>${t}</span>`],
   ['label600', 'font-weight:600', (t) => `<span>${t}</span>`],
 ];
+/** The fitter grid: page 6's 2,560 shapes x budget x prior x the three trend series (30,720 inputs). */
+const GRID: Shape[] = allPage6Shapes().flatMap((shape) => [true, false].flatMap((budget) => [true, false].flatMap((prior) => (['demo', 'none', 'zero'] as const)
+  .map((tr) => ({ ...shape, budget, prior, tr })))));
+
 const FIGURE_CHARS = [...'0123456789 ()+-./%<,:–−×abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ '];
 
 describe.skipIf(unavailable !== null)(`Playwright and production's Gotenberg${unavailable === null ? '' : ` (SKIPPED: ${unavailable})`}`, () => {
@@ -96,8 +105,7 @@ describe.skipIf(unavailable !== null)(`Playwright and production's Gotenberg${un
   it(`the packs of the fitter grid (${process.env.PARITY_GRID === 'full' ? 'all 30,720 inputs' : 'every 64th input'}): the same boxes`, async () => {
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const step = process.env.PARITY_GRID === 'full' ? 1 : 64;
-    const shapes: Shape[] = [];
-    for (const s of allPage6Shapes()) for (const budget of [true, false]) for (const prior of [true, false]) for (const tr of ['demo', 'none', 'zero'] as const) shapes.push({ ...s, budget, prior, tr });
+    const shapes = GRID;
     const wrong: string[] = [];
     let printed = 0;
     let batch: string[] = [];
@@ -115,4 +123,30 @@ describe.skipIf(unavailable !== null)(`Playwright and production's Gotenberg${un
     expect(printed).toBeGreaterThan(step === 1 ? 10_000 : 150);
     expect(wrong.slice(0, 20)).toEqual([]);
   }, 14_400_000);
+
+  it('every 128th pack of the grid, printed to PDF by both: the same sheets, every word in the same box', async () => {
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const wrong: string[] = [];
+    let packs = 0;
+    let landscapeSheets = 0;
+    for (let i = 0; i < GRID.length; i += 128) {
+      let doc;
+      try { doc = buildBoardPackPages(input(GRID[i]!)); } catch (e) { if (e instanceof PackRefusal) continue; throw e; }
+      // A board pack composes its pages portrait; every fourth is printed again with page 10 (the trend panels) on a
+      // landscape sheet, so the landscape page box, its break and its text are compared too. (Not every page landscape:
+      // portrait pages forced onto landscape sheets overflow them, and the two engines fragment overflowing content
+      // differently, Chromium 151 against 145; a pack the gates pass never overflows its sheet.)
+      const variants = (i / 128) % 4 === 0
+        ? [doc, { ...doc, pages: doc.pages.map((page, n) => (n === 9 ? { ...page, orientation: 'landscape' as const } : page)) }] : [doc];
+      for (const variant of variants) {
+        const printed = await printBoth(gotenberg!, browser!, renderToStaticMarkup(createElement(PackPagesView, { document: variant })));
+        packs += 1;
+        landscapeSheets += printed.gotenberg.filter((sheet) => /^width="841/.test(sheet)).length;
+        wrong.push(...sheetDifferences(printed.gotenberg, printed.playwright).map((w) => `input ${i}${variant === doc ? '' : ' (landscape)'}: ${w}`));
+      }
+    }
+    expect(packs).toBeGreaterThan(150);
+    expect(landscapeSheets, 'no landscape sheet was compared').toBeGreaterThan(0);
+    expect(wrong.slice(0, 20)).toEqual([]);
+  }, 3_600_000);
 });

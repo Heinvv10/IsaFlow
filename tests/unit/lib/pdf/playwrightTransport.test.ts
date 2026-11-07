@@ -27,6 +27,8 @@ describe('playwrightTransport — browser reuse', () => {
     await playwrightTransport.render(request);
 
     expect(launchMock).toHaveBeenCalledTimes(1);
+    // The incident fallback prints as production's Gotenberg sets glyphs: at fractional advances.
+    expect(launchMock.mock.calls[0]![0]).toMatchObject({ args: expect.arrayContaining(['--font-render-hinting=none']) });
     // Isolation is per render, so each one still gets its own context.
     expect(browser.newContext).toHaveBeenCalledTimes(2);
   });
