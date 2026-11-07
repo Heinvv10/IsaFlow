@@ -112,7 +112,7 @@ export default function AssetDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [disposalError, setDisposalError] = useState('');
   const today = localISODate();
-  const [form, setForm] = useState<DispForm>({ disposal_date: today, disposal_method: 'write_off', disposal_amount: '0', reason: '' });
+  const [form, setForm] = useState<DispForm>({ disposal_date: today, disposal_method: 'scrap', disposal_amount: '0', reason: '' });
 
   const loadAsset = useCallback(async () => {
     if (!assetId || typeof assetId !== 'string') return;

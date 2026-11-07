@@ -3,9 +3,9 @@
  *
  * Two defects on POST /api/accounting/assets/:assetId/dispose, found seeding the Demo company:
  *  1. The asset page offered 'scrap' (its default) and 'insurance_claim', which the route wrote straight into
- *     assets.disposal_type, whose CHECK (mig 361) allows only sale/write_off/donation/theft/loss: a 500 after the
- *     ledger row was written. Every type the page offers must now be storable, and anything else is a 400 with
- *     nothing written.
+ *     assets.disposal_type, whose CHECK (mig 361) allowed only sale/write_off/donation/theft/loss: a 500 after the
+ *     ledger row was written. Mig 965 widens the CHECK to both; every type the page offers must be storable, and
+ *     anything else is a 400 with nothing written.
  *  2. The route never wrote asset_disposals, the table GET /api/accounting/assets-disposals lists, so the
  *     Disposals page was always empty. Each disposal now logs one row carrying its posted journal.
  */
@@ -77,7 +77,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('asset dis
     }
   });
 
-  it.each(['scrap', 'insurance_claim', 'nonsense'])('%s is a 400 and writes nothing', async (type) => {
+  it.each(['nonsense', 'unspecified', 'Sale'])('%s is a 400 and writes nothing', async (type) => {
     const id = await asset();
     const out = await callAs(c, token, disposeRoute, 'POST',
       { proceeds: 0, disposalDate: '2026-06-15', disposalType: type }, { assetId: id });
