@@ -15,6 +15,7 @@
 import { test, expect } from '@playwright/test';
 import { Api } from './_api';
 import { activeCompanyId, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
+import { resetHostedOnboardingLimit } from './helpers/hostedOnboardingLimit';
 
 // Creates a sandbox company and a permanent customer, so it is a dev/CI gate only:
 // playwright-golden.config.ts leaves it out of the production post-deploy verify.
@@ -46,6 +47,7 @@ async function findOrCreateSandbox(api: Api): Promise<string> {
     .items.find((c) => c.companyName === SANDBOX_NAME)?.companyId;
   const found = await find();
   if (found) return found;
+  await resetHostedOnboardingLimit();
   const setup = await api.postRaw('/api/onboarding/complete-setup', {
     requestKey: SANDBOX_ONBOARDING_ID,
     entityType: 'other',

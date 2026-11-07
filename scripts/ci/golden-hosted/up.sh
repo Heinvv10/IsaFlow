@@ -145,4 +145,9 @@ ENV
 # The Playwright step sources this. Not GITHUB_ENV: a step's own `env:` beats
 # it, and the real E2E_ADMIN_* secrets must never reach a hosted run anyway.
 printf 'E2E_ADMIN_EMAIL=%s\nE2E_ADMIN_PASSWORD=%s\n' "$ADMIN_EMAIL" "$ADMIN_PASSWORD" > "$ADMIN_ENV_FILE"
+# A fresh database makes the suite create every sandbox company in one run, past
+# complete-setup's 10 per user per hour: the golden helper resets that one
+# counter row here before each create (tests/e2e/golden-paths/helpers/hostedOnboardingLimit.ts).
+printf 'GOLDEN_HOSTED_DB_URL=%s\nGOLDEN_HOSTED_ADMIN_ID=%s\nGOLDEN_HOSTED_PGPASSWORD=%s\n' \
+  "$APP_URL" "$ADMIN_ID" "$PGPASSWORD" >> "$ADMIN_ENV_FILE"
 echo "[golden-hosted] ready in $(( $(date +%s) - START ))s"
