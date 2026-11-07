@@ -112,16 +112,45 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('stock-ite
     ['a NaN amount', (k: string) => [{ itemId: k, v: 'abc' }]],
     ['a negative amount', (k: string) => [{ itemId: k, v: -1 }]],
     ['a missing amount', (k: string) => [{ itemId: k, v: null }]],
+    ['a null entry', (k: string) => [{ itemId: k, v: 1 }, null as unknown as { itemId: string; v: number }]],
   ])('%s is a 400 on both routes and nothing is written', async (_label, entries) => {
     const known = await stockItem(c.fx.companyId, `BAD-${crypto.randomUUID().slice(0, 8)}`);
     const rows = entries(known);
     const ob = await callAs(c, token, openingBalances as Route, 'POST',
-      { items: rows.map((r) => ({ itemId: r.itemId, quantity: r.v, unitCost: 1 })) });
+      { items: rows.map((r) => r && ({ itemId: r.itemId, quantity: r.v, unitCost: 1 })) });
     expect(ob.status, ob.body).toBe(400);
     const pr = await callAs(c, token, pricing as Route, 'PUT',
-      { updates: rows.map((r) => ({ itemId: r.itemId, sellingPrice: r.v })) });
+      { updates: rows.map((r) => r && ({ itemId: r.itemId, sellingPrice: r.v })) });
     expect(pr.status, pr.body).toBe(400);
     expect(await item(known)).toMatchObject({ qty: 1, cost: 10, price: 20 });
+  });
+
+  // Stands in for a stock item deleted between the existence check and the UPDATE: a trigger makes the UPDATE skip
+  // one row. The route must answer 500 (withAuth rolls back) and leave the other entries unwritten.
+  it('an UPDATE that misses a row fails the whole batch and writes nothing', async () => {
+    const a = await stockItem(c.fx.companyId, 'SKIP-A');
+    const b = await stockItem(c.fx.companyId, 'SKIP-B');
+    await sql`CREATE OR REPLACE FUNCTION siw_skip_row() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN IF OLD.item_code = 'SKIP-B' THEN RETURN NULL; END IF; RETURN NEW; END $$`;
+    await sql`CREATE TRIGGER siw_skip_row BEFORE UPDATE ON stock_items FOR EACH ROW EXECUTE FUNCTION siw_skip_row()`;
+    try {
+      const ob = await callAs(c, token, openingBalances as Route, 'POST',
+        { items: [{ itemId: a, quantity: 50, unitCost: 50 }, { itemId: b, quantity: 50, unitCost: 50 }] });
+      expect(ob.status, ob.body).toBe(500);
+      const pr = await callAs(c, token, pricing as Route, 'PUT',
+        { updates: [{ itemId: a, sellingPrice: 77 }, { itemId: b, sellingPrice: 77 }] });
+      expect(pr.status, pr.body).toBe(500);
+    } finally {
+      await sql`DROP TRIGGER IF EXISTS siw_skip_row ON stock_items`;
+      await sql`DROP FUNCTION IF EXISTS siw_skip_row()`;
+    }
+    expect(await item(a)).toMatchObject({ qty: 1, cost: 10, price: 20 });
+  });
+
+  it('a JSON body of null is a 400 on both routes, not a crash', async () => {
+    const nullBody = null as unknown as Record<string, unknown>;
+    expect((await callAs(c, token, openingBalances as Route, 'POST', nullBody)).status).toBe(400);
+    expect((await callAs(c, token, pricing as Route, 'PUT', nullBody)).status).toBe(400);
   });
 
   it('a batch over the cap is a 400', async () => {

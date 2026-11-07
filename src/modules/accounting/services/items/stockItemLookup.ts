@@ -34,8 +34,9 @@ export function nonNegativeAmount(value: unknown): number | null {
  *
  * The batch writers call this BEFORE their first UPDATE: withAuth commits a
  * 4xx, so a refusal raised mid-batch would leave the earlier entries written.
- * The lookup and the UPDATEs are separate statements; that gap is safe only
- * because no route deletes a stock item.
+ * The lookup and the UPDATE are separate statements, so a stock item deleted
+ * between them would go unwritten: assertEveryItemUpdated turns that into a
+ * 500, which rolls the batch back.
  */
 export async function missingStockItemIds(companyId: string, ids: readonly string[]): Promise<string[]> {
   const found = (await sql`
@@ -44,6 +45,16 @@ export async function missingStockItemIds(companyId: string, ids: readonly strin
   `) as { id: string }[];
   const known = new Set(found.map((r) => r.id));
   return ids.filter((id) => !known.has(id));
+}
+
+/**
+ * Throws unless the UPDATE touched every id in the batch. A throw is a 500,
+ * and withAuth rolls the whole batch back rather than commit part of it.
+ */
+export function assertEveryItemUpdated(updated: readonly unknown[], expected: number): void {
+  if (updated.length !== expected) {
+    throw new Error(`Stock item batch updated ${updated.length} of ${expected} items; rolled back`);
+  }
 }
 
 /** The 404 message's id list: the first ten, then a count. */
