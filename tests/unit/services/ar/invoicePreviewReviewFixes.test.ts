@@ -95,6 +95,29 @@ describe('a body nested too deep to measure', () => {
   });
 });
 
+describe('exchange rate and date shapes the columns cannot hold', () => {
+  it('draftTotals refuses an exchange rate of 1e12 or more (numeric(18,6)), and takes just under', () => {
+    expect(() => draftTotals([0.01], 0, 5e14)).toThrow(InvoiceLineValidationError);
+    expect(() => draftTotals([0.01], 0, 1e12)).toThrow('The exchange rate is too large');
+    expect(draftTotals([0.01], 0, 999_999_999_999).total).toBe(0.01);
+  });
+
+  it('create refuses that rate as a 400 before any insert', async () => {
+    const err = await createDraftCustomerInvoice(CO, USER, { ...one(), items: [{ description: 'x', quantity: 1, unitPrice: 0.01 }], currencyCode: 'USD', exchangeRate: 5e14 })
+      .then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(InvoiceLineValidationError);
+    expect(inserts()).toHaveLength(0);
+  });
+
+  it.each(['invoiceDate', 'dueDate', 'billingPeriodStart', 'billingPeriodEnd'])('create refuses %s in any shape but a real YYYY-MM-DD', async (field) => {
+    for (const bad of ['2026-02-30T00:00', '30/02/2026', '2026-2-3', 'tomorrow', 20260101]) {
+      const err = await createDraftCustomerInvoice(CO, USER, { ...one(), [field]: bad }).then(() => null, (e: unknown) => e);
+      expect(err, String(bad)).toBeInstanceOf(InvoiceLineValidationError);
+    }
+    expect(inserts()).toHaveLength(0);
+  });
+});
+
 describe('the text caps (page amplification)', () => {
   const text = (chars: number, breaks = 0) => `${'\n'.repeat(breaks)}${'x'.repeat(chars - breaks)}`;
   const withDescription = (description: string) => ({ clientId: CLIENT, items: [{ description, quantity: 1, unitPrice: 1 }] });

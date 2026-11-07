@@ -12,7 +12,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { DATE_RE, isRealCalendarDate } from '@/lib/validation';
+import { isRealCalendarDate } from '@/lib/validation';
 import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
@@ -133,6 +133,8 @@ export function draftTotals(amounts: readonly number[], rate: number, exchangeRa
   if (totals.total >= 1e13 || functionalOf(totals.total, exchangeRate) >= 1e13) {
     throw new InvoiceLineValidationError('The invoice total is too large');
   }
+  // customer_invoices.exchange_rate is numeric(18,6): 1e12 or more overflows the INSERT (22003, a 500).
+  if (exchangeRate >= 1e12) throw new InvoiceLineValidationError('The exchange rate is too large');
   return totals;
 }
 
@@ -146,13 +148,15 @@ function functionalOf(total: number, exchangeRate: number): number {
 }
 
 /**
- * A YYYY-MM-DD date that is not on the calendar (2026-02-30) is refused as a 400 before the first write: Postgres
- * would throw 22008 at the INSERT, a 500. Other shapes are left to the column as before. Shared with the preview.
+ * A date that is not a real YYYY-MM-DD calendar date (2026-02-30, 2026-02-03T00:00, 30/02/2026) is refused as a 400
+ * before the first write: Postgres would throw 22008 at the INSERT, a 500. Absent or '' is no date. Shared with the
+ * preview. Callers send YYYY-MM-DD only (the page's date fields; MCP's castableArgError already checks it).
  */
 export function assertDraftDates(dates: Record<string, unknown>): void {
   for (const [field, value] of Object.entries(dates)) {
-    if (typeof value === 'string' && DATE_RE.test(value) && !isRealCalendarDate(value)) {
-      throw new InvoiceLineValidationError(`${field} is not a real date: ${value}`);
+    if (value === undefined || value === null || value === '') continue;
+    if (typeof value !== 'string' || !isRealCalendarDate(value)) {
+      throw new InvoiceLineValidationError(`${field} is not a real date: ${String(value)}`);
     }
   }
 }
