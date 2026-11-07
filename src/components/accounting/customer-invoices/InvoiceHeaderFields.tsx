@@ -92,7 +92,7 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
           <Select label="Currency" options={currencyOptions} value={form.currencyCode} valueOption={{ value: form.currencyCode, label: form.currencyCode }}
             onChange={(v) => onChange({ currencyCode: v ?? 'ZAR', exchangeRate: (v ?? 'ZAR') === 'ZAR' ? 1 : form.exchangeRate })} />
           <div>
-            <label className={lbl} htmlFor="invoice-job">Job <span className="font-normal text-gray-600 dark:text-gray-400">(display; new lines start on it)</span></label>
+            <label className={lbl} htmlFor="invoice-job" onClick={() => document.getElementById('invoice-job')?.focus()}>Job <span className="font-normal text-gray-600 dark:text-gray-400">(display; new lines start on it)</span></label>
             <CodingPicker id="invoice-job" label="Invoice job" value={form.projectId} options={options.projects} all={options} empty="No job" onChange={onProjectChange} />
           </div>
           {isFx && (

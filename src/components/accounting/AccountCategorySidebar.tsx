@@ -85,7 +85,7 @@ export function AccountCategorySidebar({
     <div className="w-52 flex-shrink-0 flex flex-col gap-3 bg-slate-100 dark:bg-slate-800/50 border border-white/10 rounded-xl p-4">
       {/* Prefix search */}
       <div>
-        <label className="block text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2">
+        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
           Jump to prefix
         </label>
         <input
