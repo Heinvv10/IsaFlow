@@ -30,6 +30,24 @@ type Named = { id: string; name: string };
 type Employee = { id: string; employeeNumber: string };
 type Run = { id: string; periodMonth: number; periodYear: number; status: string };
 
+type Assignment = { id: string; componentId: string; effectiveFrom: string; effectiveTo: string | null };
+
+/**
+ * The grid's precondition: no Overtime cell in conflict (an employee-page row the grid cannot show), else that row's
+ * cell is "Edit on the employee page" and the column has no cell to type in. A throwaway wave-3 probe spec (zz-tmp,
+ * 2026-11-01) left one on Z6-2. A conflicting employee's Overtime rows are voided the way a user would (end with
+ * cancel: no paid run read them), so z6 is idempotent.
+ */
+async function voidStrayOvertime(api: Api, employeeId: string, overtimeId: string): Promise<void> {
+  const rows = await api.get<Assignment[]>(`/api/payroll/employees/${employeeId}/components`);
+  // Dates arrive as ISO instants; compare them as instants. A cancelled row ends the day before it starts.
+  const live = (a: Assignment) => a.effectiveTo === null || Date.parse(a.effectiveTo) >= Date.parse(a.effectiveFrom);
+  for (const a of rows.filter((r) => r.componentId === overtimeId && live(r))) {
+    // cancel voids the row whatever the date (payrollComponentDateEdit); the date only has to parse.
+    await api.del(`/api/payroll/employees/${employeeId}/components?aid=${a.id}`, { effectiveTo: '2026-01-01', cancel: true });
+  }
+}
+
 /** One sandbox run with two salaried employees and an Overtime component, made once through the API. */
 async function sandboxRun(api: Api): Promise<{ runId: string; overtimeId: string; employeeId: string }> {
   const components = await api.get<Named[]>('/api/payroll/components');
@@ -54,6 +72,10 @@ async function sandboxRun(api: Api): Promise<{ runId: string; overtimeId: string
   const runs = await api.get<Run[]>('/api/payroll/runs');
   const found = runs.find((r) => r.periodMonth === RUN.month && r.periodYear === RUN.year);
   const runId = found?.id ?? (await api.post<Run>('/api/payroll/runs', RUN)).id;
+  const { inputs } = await api.get<{ inputs: { amounts: Array<{ employeeId: string; componentId: string; conflict: boolean }> } }>(`/api/payroll/runs/${runId}/inputs`);
+  for (const a of inputs.amounts.filter((x) => x.conflict && x.componentId === overtimeId && ids.includes(x.employeeId))) {
+    await voidStrayOvertime(api, a.employeeId, overtimeId);
+  }
   await api.post(`/api/payroll/runs/${runId}/calculate`);
   return { runId, overtimeId, employeeId: ids[0]! };
 }
@@ -61,8 +83,12 @@ async function sandboxRun(api: Api): Promise<{ runId: string; overtimeId: string
 async function open(page: Page, runId: string): Promise<void> {
   await page.goto(`/payroll/runs/${runId}`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Payroll Run — Nov 2026' })).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByLabel('Once-off earning component')).toBeVisible({ timeout: 30_000 });
-  await page.getByLabel('Once-off earning component').selectOption({ label: 'Overtime (3607)' });
+  const picker = page.getByRole('combobox', { name: 'Once-off earning component' });
+  await expect(picker).toBeVisible({ timeout: 30_000 });
+  // The kit Select (wave 4 PS): open the picker, choose the option by its label.
+  await picker.click();
+  await page.getByRole('option', { name: 'Overtime (3607)' }).click();
+  await expect(picker).toHaveText('Overtime (3607)');
   await settle(page);
 }
 

@@ -1,3 +1,5 @@
+import * as Sentry from '@sentry/nextjs';
+
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     // Fail-closed env validation: DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY
@@ -12,3 +14,6 @@ export async function register() {
     await import('./sentry.edge.config');
   }
 }
+
+// Server errors from route handlers, server components and middleware reach Sentry/Bugsink (Next.js onRequestError hook).
+export const onRequestError = Sentry.captureRequestError;

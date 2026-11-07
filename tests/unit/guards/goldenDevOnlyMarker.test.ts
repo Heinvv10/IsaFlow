@@ -65,8 +65,8 @@ describe('golden dev-only marker', () => {
       'y1-invoice-form-kit', 'y2-bank-tx-naming', 'y3-employee-create-kit', 'y5-document-dates-sales', 'y6-document-dates-rest', 'y7-dashboard-aging-tie',
       'y8-purchase-forms-390', 'z1-invoice-defaults', 'z2-invoice-autosave-send', 'z2b-invoice-held-back', 'z3-pnl-pdf', 'z4-employee-pay-on-create',
       'z5-employee-bank-details', 'z6-payrun-review-grid',
-      'z7-undo-drawers', 'z8-budget-tracking', 'z9-employee-readiness',
-      'z11-kit-select', 'z12-bank-tx-selects', 'z13-invoice-preview-unsaved',
+      'z7-undo-drawers', 'z8-budget-tracking', 'z9-employee-readiness', 'z10-payslips',
+      'z11-kit-select', 'z12-bank-tx-selects', 'z13-invoice-preview-unsaved', 'z15-density',
     ].sort());
   });
 });

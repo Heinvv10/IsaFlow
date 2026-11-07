@@ -19,6 +19,8 @@ import { SelfApprovedNote } from '@/components/payroll/SelfApprovedNote';
 import { RunHeaderActions } from '@/components/payroll/RunHeaderActions';
 import { useRunDetail } from '@/components/payroll/useRunDetail';
 import { useRunInputs } from '@/components/payroll/useRunInputs';
+import { PayslipDrawer, payslipUrl, type PayslipTarget } from '@/components/payroll/PayslipDrawer';
+import type { RunLineAmounts } from '@/components/payroll/PayrollRunLinesTable';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -34,6 +36,7 @@ export default function PayrollRunDetailPage() {
   const editable = canWrite(companyRole) && !!run && (run.status === 'draft' || run.status === 'calculated') && run.lines.length > 0;
   const grid = useRunInputs(runId, editable, setRun);
   const [approvalHeld, setApprovalHeld] = useState('');
+  const [payslip, setPayslip] = useState<PayslipTarget | null>(null);
   const approveOpening = useRef(false);
 
   if (isLoading && !run) {
@@ -61,6 +64,7 @@ export default function PayrollRunDetailPage() {
   const warningCount = run.lines.reduce((n, l) => n + (l.validationResults?.length ?? 0), 0);
 
   const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}`;
+  const openPayslip = (l: RunLineAmounts) => setPayslip({ runId, employeeId: l.employeeId, title: `${l.employeeName}, ${period}` });
   const locked = isLocked(run.status);
   const canCalculate = !locked && (run.status === 'draft' || run.status === 'calculated');
   const canReopen = run.status === 'approved';
@@ -109,6 +113,13 @@ export default function PayrollRunDetailPage() {
             </div>
           )}
 
+          {run.payslipsFinal && (
+            <div className="px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-sm">
+              Payslips are ready.{' '}
+              <a href={payslipUrl(runId, null, 'attachment')} download className="underline">Download all payslips (PDF)</a>
+            </div>
+          )}
+
           <PayrollRunTotals run={run} />
 
           <PayrollRunWarnings lines={run.lines} status={run.status} />
@@ -136,7 +147,7 @@ export default function PayrollRunDetailPage() {
                   </p>
                 )}
                 <PayRunReviewGrid runId={runId} lines={run.lines} inputs={grid.inputs} saves={grid.saves} resets={grid.resets}
-                  commit={grid.commit} refuse={grid.refuse} forgetRefused={grid.forgetRefused} />
+                  commit={grid.commit} refuse={grid.refuse} forgetRefused={grid.forgetRefused} onPayslip={openPayslip} />
               </>
             ) : (
               <>
@@ -145,7 +156,7 @@ export default function PayrollRunDetailPage() {
                     The once-off amounts cannot be edited right now. Reload the page to try again.
                   </p>
                 )}
-                <div className="overflow-x-auto"><PayrollRunLinesTable lines={run.lines} /></div>
+                <div className="overflow-x-auto"><PayrollRunLinesTable lines={run.lines} onPayslip={openPayslip} /></div>
               </>
             )}
           </section>
@@ -153,6 +164,7 @@ export default function PayrollRunDetailPage() {
       </div>
       <PayrollApproveDialog runId={runId} period={period} warningCount={warningCount}
         open={approveOpen} onClose={() => setApproveOpen(false)} onApproved={onApproved} onUncertain={() => void load()} />
+      <PayslipDrawer target={payslip} onClose={() => setPayslip(null)} />
     </AppLayout>
   );
 }
