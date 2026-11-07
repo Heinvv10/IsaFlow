@@ -63,8 +63,7 @@ import { AMOUNT, parseAmount } from '@/modules/accounting/services/core/ocrAmoun
 import { SA_VAT_RATE } from './vatBoxBasis';
 import type { InputVatSupportLine, InputVatSupportKind } from './vatExceptionsTypes';
 import { queryInputVatSupport } from './vatInputSupportQuery';
-
-const CENT = 0.005;
+import { CENT, judgeBankDocuments, overClaimedClaimDocument, type DocumentUse } from './vatInputDocumentUses';
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined) return null;
@@ -105,8 +104,12 @@ export interface InputVatSupportFacts {
   vatAdjustment: boolean;
   /** Σ |amount| of the bank lines behind the journal (matched or provisional). */
   bankAmount: number | null;
-  /** Item 2: an invoice attached to the SAME bank line — presence only, no VAT to compare. */
+  /** Item 2: a document on the SAME bank line — presence (an upload, or a captured one with no VAT read). */
   hasBankAttachment: boolean;
+  /** Captured documents on the chain's bank lines, as uses (vatInputDocumentUses). */
+  bankDocuments: DocumentUse[];
+  /** Captured documents on the chain's expense claim lines, as uses. */
+  claimDocuments: DocumentUse[];
   /**
    * Breaker fix (Hein, 2026-09-26, round 2): true when this chain's journal
    * has EVER carried a `gl_journal_document_links` row — active or unlinked.
@@ -167,8 +170,13 @@ export function classifyInputVatSupport(f: InputVatSupportFacts, rate: number): 
     return none;
   }
   if (f.expenseClaimVat !== null) {
-    return Math.abs(f.claimedToDate - f.expenseClaimVat) > CENT
-      ? { blocking: true, line: line(f, 'expense_claim', f.expenseClaimVat, 'amount_mismatch') }
+    if (Math.abs(f.claimedToDate - f.expenseClaimVat) > CENT) {
+      return { blocking: true, line: line(f, 'expense_claim', f.expenseClaimVat, 'amount_mismatch') };
+    }
+    // One tax invoice, one claim's worth: a slip on a claim line that other claims also use, past its VAT.
+    const over = overClaimedClaimDocument(f.claimDocuments);
+    return over
+      ? { blocking: true, line: line(f, 'expense_claim', over.vat, 'document_over_claimed', over.total) }
       : none;
   }
   if (f.capturedDocumentVat === 'unreadable') {
@@ -201,7 +209,18 @@ export function classifyInputVatSupport(f: InputVatSupportFacts, rate: number): 
     if (f.claimedVat > ceiling + CENT) {
       return { blocking: true, line: line(f, 'bank', ceiling, 'amount_mismatch') };
     }
-    // Item 2: an invoice attached to the bank line is a tax invoice on file —
+    // A captured document with VAT read on the line is a USE of it: the claim
+    // must fit in what the documents have left (vatInputDocumentUses).
+    const docs = judgeBankDocuments(f.bankDocuments, f.claimedToDate);
+    if (docs?.kind === 'supported') return none;
+    if (docs?.kind === 'unreadable') {
+      return { blocking: false, line: line(f, 'captured_document', null, 'unreadable_document_vat') };
+    }
+    if (docs) {
+      return { blocking: true, line: line(f, 'captured_document', docs.documentVat,
+        docs.kind === 'over_claimed' ? 'document_over_claimed' : 'amount_mismatch', docs.documentClaimedVat) };
+    }
+    // Item 2: any other document on the bank line is a tax invoice on file —
     // the journal is fully supported, not merely "no tax invoice on file".
     if (f.hasBankAttachment) return none;
     return { blocking: false, line: line(f, 'bank', null, 'no_tax_invoice') };
@@ -219,6 +238,15 @@ export function classifyInputVatSupport(f: InputVatSupportFacts, rate: number): 
   // missing from IsaFlow, and holding it is the vendor's legal
   // responsibility (s16(2)), possibly outside IsaFlow entirely.
   return { blocking: false, line: line(f, 'none', null, 'no_document') };
+}
+
+/** The query's JSON array of { vat, total, own } as uses; a document with no VAT read has vat null. */
+function documentUses(raw: unknown): DocumentUse[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((u: { vat?: unknown; total?: unknown; own?: unknown }) => ({
+    vat: u.vat === null || u.vat === undefined ? null : readDocumentVat(u.vat),
+    total: num(u.total) ?? 0, own: num(u.own) ?? 0,
+  }));
 }
 
 export interface InputVatSupportResult {
@@ -248,6 +276,8 @@ export async function findInputVatSupport(
       vatAdjustment: r.is_vat_adjustment === true,
       bankAmount: num(r.bank_amount),
       hasBankAttachment: r.has_bank_attachment === true,
+      bankDocuments: documentUses(r.bank_documents),
+      claimDocuments: documentUses(r.claim_documents),
       hadDocumentLink: r.had_document_link === true,
     }, SA_VAT_RATE);
     if (verdict.blocking) result.unsupported.push(verdict.line);

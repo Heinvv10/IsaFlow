@@ -60,18 +60,21 @@ export function attachmentCountSql(bt: Alias = 'bt'): string {
 }
 
 /**
- * Bank line `bt` has at least one supporting document, as a boolean expression.
- *
- * `excludeDocument`, when given, is a predicate on a captured document id (an SQL expression) that removes that
- * document from the line's support: it is applied to linked documents and to copies (a plain upload carries no
- * document id, so it never matches). The VAT input support report uses it for one tax invoice, one claim. It must
- * return a constant SQL text built from code, never from input.
+ * The ids of the captured documents among bank line `bt`'s documents, as a subquery: linked with stored bytes, or
+ * through a copy that counts (attachmentCountsSql: its document is linked to THIS line and not rejected). The VAT
+ * input support report counts each one as a use of that document by the line's journal.
  */
-export function hasBankLineDocumentSql(bt: Alias = 'bt', excludeDocument?: (documentId: string) => string): string {
-  const keepCopy = excludeDocument ? ` AND NOT ${excludeDocument(copiedDocIdSql('x'))}` : '';
-  const keepLinked = excludeDocument ? ` AND NOT ${excludeDocument('cd.id')}` : '';
-  return `(EXISTS (SELECT 1 FROM bank_transaction_attachments x WHERE x.bank_transaction_id = ${bt}.id AND ${attachmentCountsSql('x', bt)}${keepCopy})`
-    + ` OR EXISTS (SELECT 1 FROM captured_documents cd WHERE ${linkedCapturedDocSql(bt, 'cd')}${keepLinked}))`;
+export function bankLineCapturedDocIdsSql(bt: Alias = 'bt'): string {
+  return `(SELECT cd.id FROM captured_documents cd WHERE ${linkedCapturedDocSql(bt, 'cd')}`
+    + ` UNION SELECT cx.id FROM bank_transaction_attachments x JOIN captured_documents cx ON cx.id = ${copiedDocIdSql('x')}`
+    + ` AND cx.company_id = ${bt}.company_id AND cx.status <> 'rejected' AND cx.matched_bank_tx_id = ${bt}.id`
+    + ` WHERE x.bank_transaction_id = ${bt}.id)`;
+}
+
+/** Bank line `bt` has at least one supporting document, as a boolean expression. */
+export function hasBankLineDocumentSql(bt: Alias = 'bt'): string {
+  return `(EXISTS (SELECT 1 FROM bank_transaction_attachments x WHERE x.bank_transaction_id = ${bt}.id AND ${attachmentCountsSql('x', bt)})`
+    + ` OR EXISTS (SELECT 1 FROM captured_documents cd WHERE ${linkedCapturedDocSql(bt, 'cd')}))`;
 }
 
 const COPY_PREFIX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_/i;

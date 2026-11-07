@@ -32,6 +32,7 @@ const facts = (over: Partial<InputVatSupportFacts>): InputVatSupportFacts => ({
   journalEntryId: 'je', entryNumber: 'JE-1', entryDate: '2026-07-10', source: 'manual', description: '',
   claimedVat: 150, claimedToDate: 150, expenseClaimVat: null, capturedDocumentVat: null, documentClaimedVat: null,
   creditNoteVat: null, vatAdjustment: false, bankAmount: null, hasBankAttachment: false, hadDocumentLink: false,
+  bankDocuments: [], claimDocuments: [],
   ...over,
 });
 const RATE = 0.15;

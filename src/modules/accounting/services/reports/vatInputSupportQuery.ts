@@ -62,10 +62,17 @@
  * that calls `sql` to build a piece of a bigger query is only safe to use
  * inside code no low-level `sql`-mocked test exercises.
  */
-import { hasBankLineDocumentSql } from '../bank/bankLineDocumentSql';
+import { bankLineCapturedDocIdsSql, hasBankLineDocumentSql } from '../bank/bankLineDocumentSql';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
+
+/** A chain's (alias a) uses flagged `flag`, as a JSON array of { vat, total, own }. Constant SQL text only. */
+function usesOfSql(flag: 'on_bank' | 'on_claim'): string {
+  return `COALESCE((SELECT json_agg(json_build_object('vat', u.vat_raw, 'total', udc.document_claimed_vat, 'own', u.used_vat))`
+    + ` FROM doc_root_use u JOIN doc_claims udc ON udc.document_id = u.document_id`
+    + ` WHERE u.root = a.root AND u.${flag}), '[]'::json)`;
+}
 
 export async function queryInputVatSupport(
   companyId: string, periodStart: string, periodEnd: string, cent: number,
@@ -132,10 +139,45 @@ export async function queryInputVatSupport(
       JOIN gl_journal_document_links jdl2
         ON jdl2.journal_entry_id = a.doc_je_id AND jdl2.company_id = ${companyId}::UUID
     ),
+    doc_uses AS (
+      -- Every USE of a captured document by a chain: a journal tie (doc_history), the journal on a bank line the
+      -- document sits on (bank/bankLineDocumentSql), a bill (its source_document_id, or the capture's
+      -- matched_invoice_id), an expense claim line. line_vat is set only for a claim line.
+      SELECT dh.document_id, dh.root, 'journal' AS via, NULL::NUMERIC AS line_vat FROM doc_history dh
+      UNION ALL
+      SELECT bd.id, a.root, 'bank', NULL FROM attributed a
+      JOIN bank_transactions bt ON bt.company_id = ${companyId}::UUID
+        AND (bt.provisional_je_id = a.doc_je_id
+          OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
+               WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))
+      CROSS JOIN LATERAL ${sql.unsafe(bankLineCapturedDocIdsSql('bt'))} bd
+      UNION ALL
+      SELECT sd.document_id, a.root, 'bill', NULL FROM attributed a
+      JOIN supplier_invoices si ON si.company_id = ${companyId}::UUID AND si.gl_journal_entry_id = a.doc_je_id
+      CROSS JOIN LATERAL (
+        SELECT si.source_document_id AS document_id WHERE si.source_document_id IS NOT NULL
+        UNION SELECT cdm.id FROM captured_documents cdm
+        WHERE cdm.company_id = ${companyId}::UUID AND cdm.matched_invoice_id = si.id) sd
+      UNION ALL
+      SELECT ecl.source_document_id, a.root, 'claim', ecl.vat_amount FROM attributed a
+      JOIN expense_claims ec ON ec.company_id = ${companyId}::UUID AND ec.posted_je_id = a.doc_je_id
+      JOIN expense_claim_lines ecl ON ecl.claim_id = ec.id AND ecl.company_id = ${companyId}::UUID
+        AND ecl.source_document_id IS NOT NULL
+    ),
+    doc_root_use AS (
+      -- One figure per (document, chain), however many routes tie them: an expense claim's lines on the document
+      -- (their VAT, while the claim's chain still claims), else the chain's net claim to the period end. Only the
+      -- company's own documents count.
+      SELECT du.document_id, du.root, cdu.extracted_data -> 'vatAmount' AS vat_raw,
+        CASE WHEN COUNT(du.line_vat) = 0 THEN MAX(ro.claimed_to_date)
+             WHEN ABS(MAX(ro.claimed_to_date)) > ${cent} THEN SUM(du.line_vat) ELSE 0 END AS used_vat,
+        BOOL_OR(du.via = 'bank') AS on_bank, BOOL_OR(du.via = 'claim') AS on_claim
+      FROM doc_uses du JOIN roots ro ON ro.root = du.root
+      JOIN captured_documents cdu ON cdu.id = du.document_id AND cdu.company_id = ${companyId}::UUID
+      GROUP BY du.document_id, du.root, cdu.extracted_data -> 'vatAmount'
+    ),
     doc_claims AS (
-      SELECT dh.document_id, SUM(ro.claimed_to_date) AS document_claimed_vat
-      FROM doc_history dh JOIN roots ro ON ro.root = dh.root
-      GROUP BY dh.document_id
+      SELECT document_id, SUM(used_vat) AS document_claimed_vat FROM doc_root_use GROUP BY document_id
     )
     SELECT a.root AS id, a.entry_number, a.entry_date, a.source, a.description,
       a.claimed_vat, a.claimed_to_date, a.document_id, dc.document_claimed_vat,
@@ -161,27 +203,20 @@ export async function queryInputVatSupport(
           AND (bt.provisional_je_id = a.doc_je_id
             OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
                  WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))) AS bank_amount,
-      -- Item 2: a document on that SAME bank line counts as a tax invoice on
-      -- file — presence only, no VAT amount to compare. "A document" is the
-      -- grid's own definition (bank/bankLineDocumentSql): an upload, or a
-      -- captured document linked to the line (one over 2 MB has no upload).
-      -- One tax invoice backs one claim (Hein, 2026-11-07): a captured
-      -- document, linked or as its copy, does not count here while it backs a
-      -- claim on a DIFFERENT underlying journal (doc_je_id) that still claims
-      -- VAT (doc_history: source_document_id or any link row). A late-claim
-      -- companion shares its original's doc_je_id, so the two never knock out
-      -- each other. The grid and MCP keep counting it as a file on the line.
+      -- Item 2: a document on that SAME bank line is a tax invoice on file — PRESENCE, the grid's own definition
+      -- (bank/bankLineDocumentSql). A captured one with VAT read is judged as a use (bank_documents) first.
       EXISTS (
         SELECT 1 FROM bank_transactions bt
         WHERE bt.company_id = ${companyId}::UUID
-          AND ${sql.unsafe(hasBankLineDocumentSql('bt', (documentId) => `EXISTS (SELECT 1 FROM doc_history dh
-              JOIN roots ro ON ro.root = dh.root JOIN attributed a2 ON a2.root = dh.root
-              WHERE dh.document_id = ${documentId} AND a2.doc_je_id <> a.doc_je_id
-                AND ABS(ro.claimed_to_date) > ${Number(cent)})`))}
+          AND ${sql.unsafe(hasBankLineDocumentSql('bt'))}
           AND (bt.provisional_je_id = a.doc_je_id
             OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
                  WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))
-      ) AS has_bank_attachment
+      ) AS has_bank_attachment,
+      -- The chain's uses of documents on its bank lines and on its expense claim lines: each document's VAT, its
+      -- claimed total over every use (doc_claims), and this chain's own share of it.
+      ${sql.unsafe(usesOfSql('on_bank'))} AS bank_documents,
+      ${sql.unsafe(usesOfSql('on_claim'))} AS claim_documents
     FROM attributed a
     LEFT JOIN doc_claims dc ON dc.document_id = a.document_id
     LEFT JOIN captured_documents cd ON cd.id = a.document_id AND cd.company_id = ${companyId}::UUID
