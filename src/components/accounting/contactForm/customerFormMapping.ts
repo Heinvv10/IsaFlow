@@ -4,6 +4,20 @@ import { paymentTermsBody } from '@/components/accounting/paymentTermsForm';
 import type { CustomerFormData } from '@/components/accounting/CustomerForm';
 import { strategyOf, termsToForm, text, type Row } from './formMapping';
 
+/** The single GET's `default_revenue_account` view as the picker's label; marked when it can no longer be used. */
+function revenueAccountLabel(view: unknown): string {
+  if (typeof view !== 'object' || view === null) return '';
+  const v = view as { label?: unknown; usable?: unknown; problem?: unknown };
+  if (typeof v.label !== 'string') return '';
+  if (v.usable !== false) return v.label;
+  return `${v.label} (${v.problem === 'is inactive' ? 'inactive' : 'cannot be used'})`;
+}
+
+/** The GET's own `usable` flag (a missing view, i.e. no stored account, is nothing to warn about). */
+function revenueAccountUsable(view: unknown): boolean {
+  return !(typeof view === 'object' && view !== null && (view as { usable?: unknown }).usable === false);
+}
+
 export function customerToForm(row: Row): CustomerFormData {
   return {
     name: text(row, 'name'), email: text(row, 'email'), phone: text(row, 'phone'), mobile: text(row, 'mobile'),
@@ -20,6 +34,9 @@ export function customerToForm(row: Row): CustomerFormData {
     default_discount: text(row, 'default_discount') || '0', default_vat_type: text(row, 'default_vat_type'),
     subject_to_drc_vat: row.subject_to_drc_vat === true, invoices_viewable_online: row.invoices_viewable_online !== false,
     default_price_list: text(row, 'default_price_list'),
+    default_revenue_account_id: text(row, 'default_revenue_account_id'),
+    default_revenue_account_label: revenueAccountLabel(row.default_revenue_account),
+    default_revenue_account_usable: revenueAccountUsable(row.default_revenue_account),
   };
 }
 
@@ -36,7 +53,7 @@ export function customerEditBody(form: CustomerFormData, categoriesLoaded: boole
     auto_allocate_strategy: form.auto_allocate_strategy, statement_distribution: form.statement_distribution,
     default_discount: t(form.default_discount), default_vat_type: t(form.default_vat_type),
     subject_to_drc_vat: form.subject_to_drc_vat, invoices_viewable_online: form.invoices_viewable_online,
-    default_price_list: t(form.default_price_list),
+    default_price_list: t(form.default_price_list), default_revenue_account_id: form.default_revenue_account_id,
     ...paymentTermsBody(form.payment_terms, form.payment_terms_type),
   };
 }

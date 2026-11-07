@@ -41,8 +41,9 @@ describe('customers GET ?id=', () => {
     const res = response();
     await handler(get({ id: CUSTOMER }), res);
     expect(status(res)).toBe(200);
-    // The row, plus the company's default terms as the two plain fields the page reads (30 days from invoice when none is set).
-    expect(body(res).data).toEqual({ id: CUSTOMER, name: 'Acme', company_default_payment_terms: 30, company_default_payment_terms_type: 'invoice_days' });
+    // The row, plus the company's default terms as the two plain fields the page reads (30 days from invoice when none is set),
+    // and the stored default revenue account's view (none here: no second query).
+    expect(body(res).data).toEqual({ id: CUSTOMER, name: 'Acme', company_default_payment_terms: 30, company_default_payment_terms_type: 'invoice_days', default_revenue_account: null });
     expect(mocks.listCustomers).not.toHaveBeenCalled();
     // The tenant scope is a bound value of the query itself: the id AND this company's id; the other bound value is the
     // settings key of the company default terms (COMPANY_DEFAULT_TERMS_KEY), nothing else.
