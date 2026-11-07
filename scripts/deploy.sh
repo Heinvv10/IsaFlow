@@ -33,6 +33,8 @@ echo "=== Deploying IsaFlow ==="
 cd "$REPO_DIR"
 export GIT_SHA=$(git rev-parse --short HEAD)
 export SENTRY_RELEASE="$GIT_SHA"
+# Only this script uploads source maps to Sentry/Bugsink (next.config.js checks it).
+export SENTRY_UPLOAD_SOURCEMAPS=true
 export NEXT_PUBLIC_GIT_SHA="$GIT_SHA"
 echo "Release SHA: $GIT_SHA"
 
