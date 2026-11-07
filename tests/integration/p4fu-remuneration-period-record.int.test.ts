@@ -112,10 +112,12 @@ describe('pre-deduction remuneration identity', () => {
     const aprilLine = (await pool.query(
       `SELECT taxable_income::float8 AS taxable, medical_credit::float8 AS credit
          FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2`, [april, f.employee])).rows[0]!;
-    expect(aprilLine).toEqual({ taxable: 0, credit: 630 });
+    // Since calculation version 4 a taxable 4018 no longer reduces PAYE (para 2(4)), so the salary stays taxed.
+    expect(aprilLine).toEqual({ taxable: 20_000, credit: 630 });
     expect((await approveRun(f, april)).statusCode).toBe(200);
+    // What a calculation before version 4 (and 913) stored for the fully deducted salary.
     await pool.query(
-      'UPDATE payroll_run_lines SET periodic_taxable = NULL, annual_taxable = NULL WHERE run_id = $1',
+      'UPDATE payroll_run_lines SET taxable_income = 0, periodic_taxable = NULL, annual_taxable = NULL WHERE run_id = $1',
       [april]);
 
     const ytd = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 5 }, [f.employee]);
@@ -137,8 +139,9 @@ describe('pre-deduction remuneration identity', () => {
 
     const april = await createRunFor(f, 4);
     await calculateRun(f, april);
+    // What a calculation before version 4 (and 913) stored for the fully deducted salary.
     await pool.query(
-      'UPDATE payroll_run_lines SET periodic_taxable = NULL, annual_taxable = NULL WHERE run_id = $1',
+      'UPDATE payroll_run_lines SET taxable_income = 0, periodic_taxable = NULL, annual_taxable = NULL WHERE run_id = $1',
       [april]);
 
     const may = await createRunFor(f, 5);

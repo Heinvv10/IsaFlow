@@ -503,9 +503,9 @@ describe('SDL: deductions outside the para 2(4) retirement allowlist (SDL-GEN-01
     expect(r.sdl).toBe(300);
   });
 
-  it('non-allowlisted taxable deduction (union fees 4018) reduces PAYE but NOT SDL', () => {
+  it('non-allowlisted taxable deduction (union fees 4018) reduces neither PAYE nor SDL', () => {
     const r = line([salary(30_000), unionFees(1_000)]);
-    expect(r.taxableIncome).toBe(29_000);
+    expect(r.taxableIncome).toBe(30_000);
     expect(r.sdlLeviable).toBe(30_000);
     expect(r.sdl).toBe(300);
   });
