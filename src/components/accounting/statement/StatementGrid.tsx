@@ -55,19 +55,19 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
   ) as Record<ComparatorKey, number>;
   return (
     <div className={`${sticky ? '' : 'overflow-x-auto'} rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]`}>
-      <table className="w-full border-collapse">
+      <table className="w-full border-collapse" data-density-exempt>
         <thead>
           <tr className="text-xs uppercase tracking-wide text-[var(--ff-text-tertiary)] border-b border-[var(--ff-border-secondary)]">
             <th className={`text-left pl-3 py-2 font-medium ${sticky ? STICKY_FIRST_HEAD : ''}`}>{title ?? ''}</th>
-            <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Actual</th>
+            <th className={`text-right pl-0 pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Actual</th>
             {active.map(c => (
               <Fragment key={c.key}>
-                <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>{c.label}</th>
+                <th className={`text-right pl-0 pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>{c.label}</th>
                 {columns.variance && (
                   <>
-                    <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>{`Δ ${c.label}`}</th>
+                    <th className={`text-right pl-0 pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>{`Δ ${c.label}`}</th>
                     <th className={`py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Variance</th>
-                    <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Δ%</th>
+                    <th className={`text-right pl-0 pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Δ%</th>
                   </>
                 )}
               </Fragment>
@@ -76,8 +76,8 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
             {columns.projection && (
               <>
                 <th title={projectionTitle} className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Projected FY</th>
-                <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>FY budget</th>
-                <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Proj. var R</th>
+                <th className={`text-right pl-0 pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>FY budget</th>
+                <th className={`text-right pl-0 pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Proj. var R</th>
               </>
             )}
           </tr>

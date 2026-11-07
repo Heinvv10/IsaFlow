@@ -33,12 +33,9 @@ import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/der
 import { deltaDirection } from '@/modules/accounting/services/packs/narrative/derivedTileCaptions';
 import type { PackPageBlock, PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
-import type { FigureFit } from './packFigureFitCss';
+import { FIT_PX, TABLE_FIGURE_MAX_PT, type FigureFit } from './packFigureFitCss';
 
-export const KPI_FIGURE_MAX_PT = 22;
-export const KPI_FIGURE_FLOOR_PT = 12;
-export const TABLE_FIGURE_MAX_PT = 9;
-export const TABLE_FIGURE_FLOOR_PT = 7.5;
+export { KPI_FIGURE_FLOOR_PT, KPI_FIGURE_MAX_PT, TABLE_FIGURE_FLOOR_PT, TABLE_FIGURE_MAX_PT } from './packFigureFitCss';
 
 export const MM_PX = 96 / 25.4;
 /** A length in millimetres as Chromium lays it out: in its 1/64px unit, rounded down (2mm is 7.546875px, not 7.559). */
@@ -133,7 +130,7 @@ export function cellPx(cell: FigureCell, fontPx: number): number {
  * wraps with the last piece (`packLabelMark.test.ts`).
  */
 export function labelWidestPiecePx(label: string, footnote: number | null | undefined, weight: FigureWeight): number {
-  const widths = breakable(label).map((piece) => textPx(piece, Math.round(ptToPx(TABLE_FIGURE_MAX_PT)), weight));
+  const widths = pieces(label).map((piece) => textPx(piece.text, Math.round(ptToPx(TABLE_FIGURE_MAX_PT)), weight, piece.hyphen));
   const mark = labelMarkPx(footnote, weight);
   return Math.max(0, ...widths.map((w, i) => (i === widths.length - 1 ? w + mark : w)));
 }
@@ -157,8 +154,7 @@ function tableMinPx(table: PackTable, scale: MoneyScale, fontPx: number): number
 }
 
 export function tableFit(table: PackTable, scale: MoneyScale, orientation: PageOrientation = 'portrait'): FigureFit {
-  const ceiling = Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
-  const floor = Math.round(ptToPx(TABLE_FIGURE_FLOOR_PT));
+  const { ordinary: ceiling, floor } = FIT_PX.table;
   for (let px = ceiling; px >= floor; px -= 1) {
     if (tableMinPx(table, scale, px) <= measurePx(orientation)) return { px: px === ceiling ? null : px, fits: true };
   }
@@ -175,12 +171,9 @@ export function deltaText(tile: KpiTile): string {
   return `${deltaWithWord(delta, direction, direction, 'pp', 'flat on')} ${delta.basis}`;
 }
 
-/** The pieces of `text` a line may break between (`packLineBreaks.ts`, the one splitter). */
-const breakable = (text: string): string[] => pieces(text).map((piece) => piece.text);
-
-/** The longest unbreakable run of `text`. */
+/** The longest unbreakable run of `text` (`packLineBreaks.ts`, the one splitter), with the hyphen a soft one sets. */
 function longestRunPx(text: string, fontPx: number, weight: FigureWeight): number {
-  return Math.max(0, ...breakable(text).map((run) => textPx(run, fontPx, weight)));
+  return Math.max(0, ...pieces(text).map((piece) => textPx(piece.text, fontPx, weight, piece.hyphen)));
 }
 
 /**
@@ -192,7 +185,7 @@ function longestRunPx(text: string, fontPx: number, weight: FigureWeight): numbe
 function tileOtherMinPx(tile: KpiTile): number {
   const labelPx = labelWidestPiecePx(tile.label, tile.trendFootnote, 400);
   const reasonWidth = tile.figure.value === null && tile.figure.unavailable !== undefined && tile.figure.unavailable !== null
-    ? Math.max(0, ...breakable(tile.figure.unavailable).map(reasonPx)) : 0;
+    ? Math.max(0, ...pieces(tile.figure.unavailable).map((piece) => reasonPx(piece.text, piece.hyphen))) : 0;
   // The arrow cue is a run of its own (`</span>{' '}` after it is a break opportunity): it never holds a column open
   // past the words it precedes.
   const deltaPx = tile.delta === null ? 0 : Math.max(DELTA_CUE_PX, longestRunPx(deltaText(tile), 12, 400));
@@ -214,8 +207,7 @@ export function kpiColumnMinPx(tiles: readonly KpiTile[], scale: MoneyScale, fon
 export const KPI_GAP_PX = GUTTER_MM * MM_PX;
 
 export function kpiFit(tiles: readonly KpiTile[], scale: MoneyScale, orientation: PageOrientation = 'portrait'): FigureFit {
-  const ceilingPx = ptToPx(KPI_FIGURE_MAX_PT);
-  const floor = Math.round(ptToPx(KPI_FIGURE_FLOOR_PT));
+  const { ordinary: ceilingPx, floor } = FIT_PX.kpi;
   const total = (px: number) => kpiColumnMinPx(tiles, scale, px).reduce((a, b) => a + b, 0) + 3 * KPI_GAP_PX;
   if (total(ceilingPx) <= measurePx(orientation)) return { px: null, fits: true };
   for (let px = Math.floor(ceilingPx); px >= floor; px -= 1) {

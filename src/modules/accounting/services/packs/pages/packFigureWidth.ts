@@ -18,9 +18,12 @@ export type FigureWeight = FaceWeight;
 const LABEL_PX = 12;
 const LABEL_STYLE: Readonly<Record<FigureWeight, FallbackStyle>> = { 400: 'label400', 500: 'label500', 600: 'label600' };
 
-/** The width of `text` in pixels at `fontPx` and `weight`, no wrapping: never short, at most 1/32px over in the face. */
-export function textPx(text: string, fontPx: number, weight: FigureWeight): number {
-  return runPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX));
+/**
+ * The width of `text` in pixels at `fontPx` and `weight`, no wrapping: never short, at most 1/32px over in the face.
+ * `hyphen`: a line ending at a soft hyphen in it, with the hyphen Chromium sets there (`packLineBreaks.Piece.hyphen`).
+ */
+export function textPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false): number {
+  return runPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX), 0, hyphen);
 }
 
 /**

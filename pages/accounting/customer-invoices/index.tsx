@@ -39,6 +39,7 @@ export default function CustomerInvoicesPage() {
   const [error, setError] = useState('');
   const [total, setTotal] = useState(0);
   const [arSummary, setArSummary] = useState<AROutstandingSummary | null>(null);
+  const [foreignOpen, setForeignOpen] = useState(0);
   const [drawerInvoiceId, setDrawerInvoiceId] = useState<string | null>(null);
   const haveSummary = useRef(false);
   const filtersActive = filters.status !== 'all' || !!(filters.search || filters.customerId || filters.from || filters.to) || filters.aging.length > 0;
@@ -55,12 +56,12 @@ export default function CustomerInvoicesPage() {
       try {
         const res = await apiFetch(`/api/accounting/customer-invoices-list?${params}`);
         await assertOk(res, 'Could not load the customer invoices - try again');
-        const json = await res.json() as { data?: { invoices?: CustomerInvoiceRow[]; total?: number; arSummary?: AROutstandingSummary } };
+        const json = await res.json() as { data?: { invoices?: CustomerInvoiceRow[]; total?: number; arSummary?: AROutstandingSummary; foreignOpenCount?: number } };
         if (!live) return;
         const rows = json.data?.invoices ?? [];
         setInvoices(rows);
         setTotal(json.data?.total ?? 0);
-        if (json.data?.arSummary) { setArSummary(json.data.arSummary); haveSummary.current = true; }
+        if (json.data?.arSummary) { setArSummary(json.data.arSummary); setForeignOpen(json.data.foreignOpenCount ?? 0); haveSummary.current = true; }
         // A deep link carries only the customer id; the rows carry its name.
         if (filters.customerId && rows[0]?.client_name) nameCustomer(filters.customerId, rows[0].client_name);
       } catch (err) {
@@ -102,11 +103,13 @@ export default function CustomerInvoicesPage() {
           {!isLoading && arSummary && (() => {
             const fmt = (n: number) => formatMoney(n, { decimals: 0 });
             const { outstanding, overdueCount, overdueAmount, onDeletedAmount } = arSummary;
+            // The summary adds each invoice's own-currency balance without converting it: say so, never imply a Rand total.
+            const fxNote = foreignOpen > 0 ? `${foreignOpen} foreign-currency invoice${foreignOpen === 1 ? '' : 's'} counted at face value, not converted` : '';
             return (
               <KpiStrip items={[
                 { label: 'Invoices (this filter)', value: total, icon: FileText, tone: 'info' },
-                { label: 'Outstanding (all invoices)', value: fmt(outstanding), sub: onDeletedAmount > 0 ? `Includes ${fmt(onDeletedAmount)} on deleted invoices with unreversed journals` : 'Open balance, company-wide', icon: CheckCircle, tone: 'warning' },
-                { label: 'Overdue (all invoices)', value: overdueCount, sub: overdueCount === 0 ? 'All on time' : `${fmt(overdueAmount)} past due date`, icon: AlertTriangle, tone: overdueCount > 0 ? 'danger' : 'success' },
+                { label: 'Outstanding (all invoices)', value: fmt(outstanding), sub: [onDeletedAmount > 0 ? `Includes ${fmt(onDeletedAmount)} on deleted invoices with unreversed journals` : 'Open balance, company-wide', fxNote].filter(Boolean).join('. '), icon: CheckCircle, tone: 'warning' },
+                { label: 'Overdue (all invoices)', value: overdueCount, sub: overdueCount === 0 ? 'All on time' : [`${fmt(overdueAmount)} past due date`, fxNote].filter(Boolean).join('. '), icon: AlertTriangle, tone: overdueCount > 0 ? 'danger' : 'success' },
               ]} />
             );
           })()}

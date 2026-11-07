@@ -1,0 +1,51 @@
+{
+  "id": "sage-2027-03-kesh-bonus-40000",
+  "source": "both",
+  "sourceRef": "IsaFlow-Xero-Comparison-20261023/sage-payroll/01-paye-reconciliation.md: Sage Payroll demo company, payslips and \"View Tax Calculation\" observed 2026-10-24 (tax year 2027, March 2026 monthly period); \"Bonus test\" section. SARS PAYE-GEN-01-G21 Rev 1 p. 32-33 (annual payment method).",
+  "notes": "Salary R12 000 plus a R40 000 annual bonus (3605), no provision, first period of the tax year. Sage: R675.00 on normal remuneration + R7 200.00 (18% x 40 000, difference method) = R7 875.00; UIF capped 177.12; SDL 520.00; net 43 947.88 (all Sage-observed). The demo bonus was double-submitted (2 x 20 000); the paid figure is 40 000.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1985-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 12000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "3605",
+        "name": "Annual bonus",
+        "type": "earning",
+        "amount": 40000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ]
+  },
+  "expected": {
+    "paye": 7875,
+    "uifEmployee": 177.12,
+    "uifEmployer": 177.12,
+    "sdl": 520,
+    "eti": 0,
+    "net": 43947.88
+  }
+}

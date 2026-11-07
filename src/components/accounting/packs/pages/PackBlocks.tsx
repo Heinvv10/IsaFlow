@@ -28,32 +28,25 @@ import { ScorecardTable } from '../primitives/ScorecardTable';
 import { NarrativeColumns } from '../primitives/NarrativeColumns';
 import { StatTile } from '../primitives/StatTile';
 import { formatFigureText } from '../primitives/packFigureText';
-import { fitAttributes, type FigureFit } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
+import { fitAttributes, type StampedPackPage, type StampedPackPageBlock } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import { MattersTable } from '../primitives/MattersTable';
 import { PackChartBlock, PackSmallMultiples } from './PackChartBlock';
 import { PackDefinitionsBlock, PackDisclosureBlock } from './PackNoteBlocks';
 import type { MoneyScale } from '@/lib/format/money';
-import type {
-  PackPage,
-  PackPageBlock,
-} from '@/modules/accounting/services/packs/pages/packPageModel';
 
 export interface PackBlockViewProps {
-  block: PackPageBlock;
+  block: StampedPackPageBlock;
   /** The document's `numberConvention.scale`. Required at every level of
    *  this tree for the reason `formatFigureText` gives: an optional scale
    *  makes the 1000x misread the default path. */
   scale: MoneyScale;
 }
 
-const ORDINARY: FigureFit = { px: null, fits: true };
-
 export function PackBlockView({ block, scale }: PackBlockViewProps) {
   switch (block.kind) {
     case 'kpiTiles': {
-      // The size the server decided (`packFigureFitStamp`); a block that has none prints at the ordinary size, and a
-      // document over the wire always has one (the adopter refuses it otherwise).
-      const fit = fitAttributes(block.fit ?? ORDINARY);
+      // The size the server decided (`packFigureFitStamp`); a block without one never gets here (`unstampedFigure`).
+      const fit = fitAttributes(block.fit, 'kpi');
       return (
         <div className={fit.className === undefined ? 'pack-kpi-tiles' : `pack-kpi-tiles ${fit.className}`} style={fit.style}>
           {block.tiles.map((tile, index) => (
@@ -109,7 +102,7 @@ export function PackBlockView({ block, scale }: PackBlockViewProps) {
 }
 
 export interface PackBlocksProps {
-  page: PackPage;
+  page: StampedPackPage;
   scale: MoneyScale;
 }
 

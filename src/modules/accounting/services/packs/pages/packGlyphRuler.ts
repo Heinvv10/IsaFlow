@@ -130,12 +130,14 @@ export const setSizePx = (fontPx: number): number => Math.floor(fontPx * UNIT + 
 /**
  * The width of `text` at `fontPx` and `weight`, in CSS pixels on Chromium's 1/64 grid, never short.
  * `fallbackPx(cluster, sizePx)` prices a cluster outside the face (`sizePx` is the size the font is set at);
- * `letterSpacingPx` is added after every cluster, the last included (CSS `letter-spacing`).
+ * `letterSpacingPx` is added after every cluster, the last included (CSS `letter-spacing`). `hyphen`: the line ends at a
+ * soft hyphen in `text`, and Chromium sets a hyphen (U+2010, shaped on its own) after it.
  */
 export function runPx(
   text: string, fontPx: number, weight: FaceWeight, fallbackPx: (cluster: string, sizePx: number) => number, letterSpacingPx = 0,
+  hyphen = false,
 ): number {
-  if (text === '') return 0;
+  if (text === '' && !hyphen) return 0;
   const f = face(weight);
   const size = setSizePx(fontPx);
   let units = 0;
@@ -145,11 +147,14 @@ export function runPx(
     for (const run of scriptRuns(inside)) units += unitsOf(f, weight, run);
     inside = '';
   };
-  for (const cluster of clustersOf(text)) {
+  // Chromium sets a soft hyphen and a zero-width space as nothing, and kerns across them; it sets a line or paragraph
+  // separator as a space.
+  for (const cluster of clustersOf(text.replace(/[\u00AD\u200B]/g, '').replace(/[\u2028\u2029]/g, ' '))) {
     px += letterSpacingPx;
     if (inFace(cluster)) inside += cluster;
     else { flush(); px += fallbackPx(cluster, size); }
   }
   flush();
+  if (hyphen) units += unitsOf(f, weight, '\u2010');
   return Math.ceil((units * size / f.unitsPerEm + px) * UNIT - 1e-7) / UNIT + slackUnits / UNIT;
 }

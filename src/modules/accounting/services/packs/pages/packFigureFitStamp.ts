@@ -9,16 +9,17 @@
  */
 import type { MoneyScale } from '@/lib/format/money';
 import { kpiFit, tableFit } from './packFigureFit';
+import type { StampedPackPageBlock, StampedPackPagesDocument } from './packFigureFitCss';
 import type { PackPageBlock, PackPagesDocument } from './packPageModel';
 import type { PageOrientation } from './packTextMetrics';
 
-export function stampBlock(block: PackPageBlock, scale: MoneyScale, orientation: PageOrientation): PackPageBlock {
+export function stampBlock(block: PackPageBlock, scale: MoneyScale, orientation: PageOrientation): StampedPackPageBlock {
   if (block.kind === 'table') return { ...block, table: { ...block.table, figureFit: tableFit(block.table, scale, orientation) } };
   if (block.kind === 'kpiTiles') return { ...block, fit: kpiFit(block.tiles, scale, orientation) };
-  return block;
+  return block as StampedPackPageBlock;
 }
 
-export function stampFigureFits(doc: PackPagesDocument): PackPagesDocument {
+export function stampFigureFits(doc: PackPagesDocument): StampedPackPagesDocument {
   const scale = doc.numberConvention.scale;
   return { ...doc, pages: doc.pages.map((page) => ({ ...page, blocks: page.blocks.map((block) => stampBlock(block, scale, page.orientation)) })) };
 }

@@ -14,6 +14,7 @@ import { unreadableBlock } from '@/modules/accounting/services/packs/pages/packF
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packScale';
 import { input } from '../services/packs/fixtures/packGridInputs';
 import { printBoardPack } from './renderPackPdf';
+import { atTheFloor } from './support/atTheFloor';
 import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
@@ -35,7 +36,8 @@ it.each([
     if (block.kind !== 'kpiTiles') throw new Error('no tiles');
     const run = Array.from({ length: n }, (unused, i) => cycle[i % cycle.length]).join('');
     block.tiles[3]!.figure = { ...block.tiles[3]!.figure, value: null, unavailable: `Not ${run} here.` };
-    const out = await printBoardPack(stampFigureFits(doc), browser);
+    // A refused row is printed at the floor, to see whether Chromium really overflows there.
+    const out = await printBoardPack(atTheFloor(stampFigureFits(doc)), browser);
     const overflows = out.overflow.some((o) => o.id === `pack-page-${doc.pages.indexOf(p3) + 1}`);
     const refused = unreadableBlock(p3, PACK_SCALE) !== null;
     if (refused !== overflows) wrong.push(`${n} glyphs: refused ${refused}, Chromium overflows ${overflows}`);

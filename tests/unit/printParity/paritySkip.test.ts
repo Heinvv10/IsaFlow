@@ -1,5 +1,5 @@
 /**
- * A PRINT-PARITY TEST SKIPS ONLY ON GITHUB'S HOSTED RUNNERS OR WHEN TOLD TO, SAYING WHY, AND NEVER AGAINST ANOTHER IMAGE.
+ * A PRINT-PARITY TEST SKIPS ONLY INSIDE GITHUB ACTIONS OR WHEN TOLD TO, NAMING THE ACTUAL CAUSE, AND NEVER AGAINST ANOTHER IMAGE.
  */
 import { describe, expect, it } from 'vitest';
 import { PRODUCTION_GOTENBERG_IMAGE } from './gotenbergParity';
@@ -14,23 +14,30 @@ describe('paritySkip', () => {
     expect(paritySkip({}, host(null, null))).toBeNull();
   });
 
-  it('fails a velo run that cannot run it, rather than skipping', () => {
-    expect(() => paritySkip({}, host(null, 'docker is not on this machine'))).toThrow(/must run on velo/);
+  it('fails a run outside GitHub Actions (local ci, pre-push) that cannot run it, rather than skipping', () => {
+    expect(() => paritySkip({}, host(null, 'docker is not installed on this machine'))).toThrow(/docker is not installed.*Outside GitHub Actions it must run/);
+    expect(() => paritySkip({ GITHUB_ACTIONS: 'false' }, host(null, 'no image'))).toThrow(/Outside GitHub Actions it must run/);
+    expect(() => paritySkip({ RUNNER_ENVIRONMENT: 'self-hosted' }, host(null, 'no image'))).toThrow(/Outside GitHub Actions it must run/);
   });
 
-  it('skips on GitHub\'s hosted runners, and when PARITY_OPTIONAL=1, saying why', () => {
-    expect(paritySkip({ GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted' }, host(null, 'no image'))).toMatch(/no image \(a GitHub-hosted runner/);
-    expect(paritySkip({ PARITY_OPTIONAL: '1' }, host(null, 'no image'))).toMatch(/no image; PARITY_OPTIONAL=1/);
+  it('skips inside GitHub Actions on a hosted runner, saying it has no production image', () => {
+    expect(paritySkip({ GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted' }, host(null, 'docker is not installed on this machine')))
+      .toBe('docker is not installed on this machine (a GitHub-hosted runner, which has no production image)');
   });
 
-  it('fails on velo\'s SELF-hosted runner, which sets GITHUB_ACTIONS too, naming the actual cause', () => {
-    expect(() => paritySkip({ GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'self-hosted' }, host(null, 'this user (gha) has no access to the docker daemon')))
-      .toThrow(/no access to the docker daemon.*must run on velo/);
+  it('skips inside GitHub Actions on velo\'s SELF-hosted runner, naming the missing docker access, not "hosted"', () => {
+    const reason = paritySkip({ GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'self-hosted' }, host(null, 'this user (gha-isaflow) has no access to the docker daemon (not in the docker group)'));
+    expect(reason).toBe('this user (gha-isaflow) has no access to the docker daemon (not in the docker group) (a self-hosted Actions runner)');
+    expect(reason).not.toMatch(/GitHub-hosted|production image/);
+  });
+
+  it('skips on purpose outside Actions when PARITY_OPTIONAL=1, saying why', () => {
+    expect(paritySkip({ PARITY_OPTIONAL: '1' }, host(null, 'no image'))).toBe('no image; PARITY_OPTIONAL=1');
   });
 
   it('fails when production\'s gotenberg container runs another image than the pinned one', () => {
     expect(() => paritySkip({}, host('sha256:0000', null))).toThrow(/not the pinned/);
-    expect(() => paritySkip({ RUNNER_ENVIRONMENT: 'github-hosted' }, host('sha256:0000', 'no image'))).toThrow(/not the pinned/);
+    expect(() => paritySkip({ GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'self-hosted' }, host('sha256:0000', 'no image'))).toThrow(/not the pinned/);
   });
 
   it('skips a push that touches nothing it holds, saying so, before asking for docker', () => {

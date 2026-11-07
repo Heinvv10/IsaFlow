@@ -36,16 +36,16 @@ import { log } from '@/lib/logger';
 import { clearPrintError, markPrintError } from './usePrintMode';
 import { packPagesApiPath } from '@/modules/accounting/services/packs/packSections';
 import { adoptPackPagesDocument } from '@/modules/accounting/services/packs/pages/packDocumentWire';
-import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
+import type { StampedPackPagesDocument } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
 
 export interface PackPagesData {
-  document: PackPagesDocument | null;
+  document: StampedPackPagesDocument | null;
   error: string | null;
 }
 
 export function usePackPagesData(packType: PackType, from: string, to: string): PackPagesData {
-  const [document, setDocument] = useState<PackPagesDocument | null>(null);
+  const [document, setDocument] = useState<StampedPackPagesDocument | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

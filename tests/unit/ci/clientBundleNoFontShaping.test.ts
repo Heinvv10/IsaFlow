@@ -1,8 +1,8 @@
 /**
  * NOTHING THE BROWSER BUNDLE REACHES SHAPES TEXT FROM FONT FILES. The pack's figure fit runs on the server
  * (`packFigureFitStamp`) because it reads the woff2 files with fontkit and node:fs (`packGlyphRuler`); the page that
- * prints a pack only renders the size the server decided. This follows every static and dynamic import (not `import
- * type`) from every component and every page outside pages/api, and fails if one reaches packGlyphRuler, fontkit or
+ * prints a pack only renders the size the server decided. This follows every static and dynamic import and every
+ * `require()` (not `import type`) from every component and every page outside pages/api, and fails if one reaches packGlyphRuler, fontkit or
  * node:fs. (`next build` fails on node:fs too; this names the chain, and catches fontkit, which would bundle.) A page
  * with getStaticProps, getStaticPaths or getServerSideProps may read files there (Next keeps that code off the
  * client): node:fs is allowed below such a page; packGlyphRuler and fontkit never are.
@@ -32,11 +32,13 @@ function resolve(from: string, spec: string): string | null {
   return null;
 }
 
-/** The value imports of a file: `import x from`, `export ... from`, `import('...')`; never `import type`. */
+/** The value imports of a file: `import x from`, `export ... from`, `import('...')`, `require('...')` (and so
+ *  `import x = require('...')`); never `import type`. */
 function imports(source: string): string[] {
   const out: string[] = [];
   for (const m of source.matchAll(/(?:^|\n)\s*(?:import|export)\s+(?!type\b)(?:[^'"`;]*?\sfrom\s+)?['"]([^'"]+)['"]/g)) out.push(m[1]!);
   for (const m of source.matchAll(/\bimport\(\s*['"]([^'"]+)['"]\s*\)/g)) out.push(m[1]!);
+  for (const m of source.matchAll(/\brequire\(\s*['"]([^'"]+)['"]\s*\)/g)) out.push(m[1]!);
   return out;
 }
 
@@ -66,4 +68,11 @@ it('no component and no page outside pages/api reaches packGlyphRuler, fontkit o
   expect(client.length).toBeGreaterThan(100);
   expect(chains(client, (spec) => FORBIDDEN.test(spec)).slice(0, 10)).toEqual([]);
   expect(chains(pages.filter(dataPage), (spec) => spec === 'fontkit').slice(0, 10)).toEqual([]);
+});
+
+it('reads every way a file can load a module, and not a type-only import', () => {
+  expect(imports([
+    "import a from './a';", "export { b } from './b';", "const c = await import(\n  './c'\n);",
+    "const fs = require('node:fs');", "import fk = require( 'fontkit' );", "import type { T } from './t';",
+  ].join('\n'))).toEqual(['./a', './b', './c', 'node:fs', 'fontkit']);
 });

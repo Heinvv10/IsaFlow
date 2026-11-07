@@ -59,6 +59,10 @@ async function inTx<T>(fn: (db: PoolClient) => Promise<T>): Promise<T> {
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
+    // 963 (PR 1b) later added the shape CHECKs these legacy shapes violate; 960 is tested as it stood, so they are
+    // dropped inside this rolled-back transaction (963's own suite pins the tightened state).
+    await db.query('ALTER TABLE suppliers DROP CONSTRAINT IF EXISTS suppliers_payment_terms_shape');
+    await db.query('ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_payment_terms_shape');
     return await fn(db);
   } finally {
     await db.query('ROLLBACK');
@@ -172,7 +176,7 @@ describe('after the expand step the OLD code\'s writes still succeed (it runs be
     });
   });
 
-  it('drops the column defaults (a bare insert is not set) and adds no CHECK on the contacts yet: that is PR 1b', async () => {
+  it('drops the column defaults (a bare insert is not set); the only terms CHECKs are 963\'s (PR 1b), 960 adds none', async () => {
     const { rows: defaults } = await pool.query(
       `SELECT table_name, column_name, column_default FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name IN ('suppliers', 'customers') AND column_name IN ('payment_terms', 'payment_terms_type')
@@ -183,6 +187,7 @@ describe('after the expand step the OLD code\'s writes still succeed (it runs be
     const { rows: checks } = await pool.query(
       `SELECT conname FROM pg_constraint WHERE conrelid IN ('public.suppliers'::regclass, 'public.customers'::regclass)
          AND contype = 'c' AND pg_get_constraintdef(oid) ILIKE '%payment_terms%'`);
-    expect(checks).toEqual([]);
+    expect(checks.map((r) => r.conname).sort()).toEqual(['customers_payment_terms_shape', 'suppliers_payment_terms_shape']);
+    expect(MIGRATION).not.toMatch(/ADD\s+CONSTRAINT/i);
   });
 });
