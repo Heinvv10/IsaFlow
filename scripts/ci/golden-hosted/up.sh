@@ -45,6 +45,7 @@ ADMIN_ENV_FILE=${ADMIN_ENV_FILE:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/golden-admin.en
 ADMIN_EMAIL=golden-admin@isaflow.test
 ADMIN_PASSWORD="Gp-$(rand 12)-Aa1"
 echo "::add-mask::$ADMIN_PASSWORD"
+echo "::add-mask::$PGPASSWORD"
 
 WORK=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/isaflow-golden-db.XXXXXX")
 mkdir "$WORK/c1"
