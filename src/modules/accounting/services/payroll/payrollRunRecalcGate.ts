@@ -30,7 +30,7 @@ export async function recalculateRequiredRefusal(companyId: string, runId: strin
   return {
     code: 'recalculate_required',
     detail: 'This run was calculated by an earlier version of the payroll calculation, whose figures may differ '
-      + '(components read on the 27th, short once-offs, termination base). Recalculate this run, then approve it.',
+      + '(components read on the 27th, short once-offs, termination base, which deductions reduce PAYE). Recalculate this run, then approve it.',
   };
 }
 

@@ -11,8 +11,8 @@
  * (`retirementDeduction`: cumulative over the tax year, capped by 27.5% and
  * `TaxYearConfig.retirementDeductionCap`). SDL applies it to the year, not the
  * line (sdlLeviableCumulative): leviable to date = max(0, SDL-applicable pay to
- * date - deduction to date), a line takes the rise. Every other taxable
- * deduction reduces PAYE only. Donations (4030) reduce SDL only as allowed: s18aDonationDeduction.test.ts.
+ * date - deduction to date), a line takes the rise. No other taxable
+ * deduction reduces SDL or PAYE (para 2(4)). Donations (4030) reduce SDL only as allowed: s18aDonationDeduction.test.ts.
  */
 import { describe, it, expect } from 'vitest';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
@@ -503,9 +503,9 @@ describe('SDL: deductions outside the para 2(4) retirement allowlist (SDL-GEN-01
     expect(r.sdl).toBe(300);
   });
 
-  it('non-allowlisted taxable deduction (union fees 4018) reduces PAYE but NOT SDL', () => {
+  it('non-allowlisted taxable deduction (union fees 4018) reduces neither PAYE nor SDL', () => {
     const r = line([salary(30_000), unionFees(1_000)]);
-    expect(r.taxableIncome).toBe(29_000);
+    expect(r.taxableIncome).toBe(30_000);
     expect(r.sdlLeviable).toBe(30_000);
     expect(r.sdl).toBe(300);
   });
