@@ -10,7 +10,7 @@ describe('PeriodControl', () => {
   it('a month deep link opens in month mode and a picked month emits the whole month', () => {
     const onChange = vi.fn();
     render(<PeriodControl from="2026-06-01" to="2026-06-30" onChange={onChange} inputClassName="" />);
-    expect(screen.getByLabelText('Invoice date period')).toHaveProperty('value', 'month');
+    expect(screen.getByRole('combobox', { name: 'Invoice date period' }).textContent).toBe('Month');
     expect(screen.getByLabelText('Invoice month')).toHaveProperty('value', '2026-06');
 
     fireEvent.change(screen.getByLabelText('Invoice month'), { target: { value: '2028-02' } });
@@ -20,7 +20,7 @@ describe('PeriodControl', () => {
   it('a partial range opens as a custom range with both bounds editable', () => {
     const onChange = vi.fn();
     render(<PeriodControl from="2026-06-02" to="2026-06-30" onChange={onChange} inputClassName="" />);
-    expect(screen.getByLabelText('Invoice date period')).toHaveProperty('value', 'custom');
+    expect(screen.getByRole('combobox', { name: 'Invoice date period' }).textContent).toBe('Custom range');
     typeDate(screen.getByLabelText('Invoice date to'), '2026-07-15');
     expect(onChange).toHaveBeenLastCalledWith('2026-06-02', '2026-07-15');
   });
@@ -28,7 +28,8 @@ describe('PeriodControl', () => {
   it('"All dates" clears the range', () => {
     const onChange = vi.fn();
     render(<PeriodControl from="2026-06-01" to="2026-06-30" onChange={onChange} inputClassName="" />);
-    fireEvent.change(screen.getByLabelText('Invoice date period'), { target: { value: 'all' } });
+    fireEvent.click(screen.getByRole('combobox', { name: 'Invoice date period' }));
+    fireEvent.click(screen.getByRole('option', { name: 'All dates' }));
     expect(onChange).toHaveBeenLastCalledWith('', '');
   });
 });

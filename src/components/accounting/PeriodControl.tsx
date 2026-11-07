@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { localDateFromISO } from '@/lib/dateUtils';
 import { currentMonth, monthRange, wholeMonthOf } from './invoicePeriod';
 import { DateField } from '@/components/ui/DateField';
+import { Select, type SelectOption } from '@/components/ui/Select';
 
 type Mode = 'all' | 'month' | 'custom';
 
@@ -16,6 +17,10 @@ interface Props {
   onChange: (from: string, to: string) => void;
   inputClassName: string;
 }
+
+const MODES: SelectOption[] = [
+  { value: 'all', label: 'All dates' }, { value: 'month', label: 'Month' }, { value: 'custom', label: 'Custom range' },
+];
 
 /** A bound DateField can take: the URL can hold anything, and DateField throws on a non-ISO bound. */
 function boundOrUndefined(iso: string): string | undefined {
@@ -49,17 +54,9 @@ export function PeriodControl({ from, to, onChange, inputClassName }: Props) {
 
   return (
     <div className="flex items-center gap-2">
-      <select
-        name="period"
-        aria-label="Invoice date period"
-        value={mode}
-        onChange={e => pickMode(e.target.value as Mode)}
-        className={inputClassName}
-      >
-        <option value="all">All dates</option>
-        <option value="month">Month</option>
-        <option value="custom">Custom range</option>
-      </select>
+      <div className="w-40">
+        <Select label="Invoice date period" labelClassName="sr-only" options={MODES} value={mode} onChange={v => pickMode((v ?? 'all') as Mode)} />
+      </div>
       {mode === 'month' && (
         <input
           type="month"
