@@ -98,14 +98,14 @@ describe('PoLineItemsEditor rows', () => {
 
   it('removing a middle row keeps the other rows (their DOM, focus and dimensions)', async () => {
     render(<Harness />);
-    expect(await screen.findAllByRole('option', { name: 'VF Velocity' })).toHaveLength(3);
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Line 3 CC1' }).textContent).toBe('VF Velocity'));
     const third = screen.getByRole('textbox', { name: 'Line 3 description' }) as HTMLInputElement;
     third.focus();
     fireEvent.click(screen.getByRole('button', { name: 'Remove line 2' }));
     expect(screen.queryByDisplayValue('Second')).toBeNull();
     expect(document.activeElement).toBe(third); // the same input, still mounted and focused
     expect(third.value).toBe('Third');
-    expect((screen.getByRole('combobox', { name: 'Line 1 CC1' }) as HTMLSelectElement).value).toBe('ft');
-    expect((screen.getByRole('combobox', { name: 'Line 2 CC1' }) as HTMLSelectElement).value).toBe('vf');
+    expect(screen.getByRole('combobox', { name: 'Line 1 CC1' }).textContent).toBe('FT Fibertime');
+    expect(screen.getByRole('combobox', { name: 'Line 2 CC1' }).textContent).toBe('VF Velocity');
   });
 });

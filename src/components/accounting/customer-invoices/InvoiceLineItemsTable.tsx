@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { Plus, Trash2, SlidersHorizontal, Tags } from 'lucide-react';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { CodingOption, InvoiceLineCodingOptions } from './useInvoiceLineCodingOptions';
+import { Select, type SelectOption } from '@/components/ui/Select';
 import { discountInput } from '@/modules/accounting/services/ar/invoiceLineAmount';
 
 export interface InvoiceLine {
@@ -59,6 +60,14 @@ const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200
 const th = 'px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400';
 const toggle = (on: boolean) => `inline-flex items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${on ? 'border-teal-400/60 text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-amber-400/50 hover:text-amber-500'}`;
 
+/** The "no value" row: the line's own empty label, stored as ''. */
+const NONE = '__none__';
+
+const INCOME_TYPES: SelectOption[] = [
+  { value: 'activation', label: 'Activation' }, { value: 'bonus', label: 'Bonus' },
+  { value: 'adjustment', label: 'Adjustment' }, { value: 'other', label: 'Other' },
+];
+
 const UNOFFERED: Record<InvoiceLineCodingOptions['status'], string> = {
   loading: 'Loading…',
   failed: 'Could not load the list — kept as saved',
@@ -74,12 +83,17 @@ export function CodingPicker({ value, options, all, empty, onChange, label, disa
   // saving does not silently recode it.
   const offered = options.some((o) => o.id === value);
   const unoffered = value !== '' && !offered ? (all.known[value] ?? UNOFFERED[all.lookupFailed ? 'failed' : all.status]) : null;
+  // The unoffered stored id is a real row and stays one after the user switches away, so a stray pick can be undone.
+  const [keep, setKeep] = useState<SelectOption | null>(null);
+  if (unoffered !== null && (keep?.value !== value || keep.label !== unoffered)) setKeep({ value, label: unoffered });
+  const kept = keep && !options.some((o) => o.id === keep.value) ? [keep] : [];
+  const choices: SelectOption[] = [{ value: NONE, label: empty }, ...kept, ...options.map((o) => ({ value: o.id, label: o.label }))];
   return (
-    <select id={id} aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={inp}>
-      <option value="">{empty}</option>
-      {unoffered !== null && <option value={value}>{unoffered}</option>}
-      {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-    </select>
+    <Select
+      id={id} label={label} labelClassName="sr-only" size="sm" searchable disabled={disabled}
+      options={choices} value={value === '' ? NONE : value}
+      onChange={(v) => onChange(v === null || v === NONE ? '' : v)}
+    />
   );
 }
 
@@ -139,9 +153,7 @@ export function InvoiceLineItemsTable({
             <tr key={l.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
               <td className="px-3 py-2"><input name="description" aria-label="Description" value={l.description} onChange={(e) => onUpdate(l.key, 'description', e.target.value)} placeholder="Item description" className={inp} />
                 {billsTimeEntry?.(l.key) && <span className="mt-1 inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/50 dark:text-sky-100">Time entry</span>}</td>
-              {showIncomeType && <td className="px-3 py-2"><select name="incomeType" aria-label="Income type" value={l.incomeType} onChange={(e) => onUpdate(l.key, 'incomeType', e.target.value)} className={inp}>
-                <option value="activation">Activation</option><option value="bonus">Bonus</option><option value="adjustment">Adjustment</option><option value="other">Other</option>
-              </select></td>}
+              {showIncomeType && <td className="px-3 py-2"><Select label="Income type" labelClassName="sr-only" size="sm" options={INCOME_TYPES} value={l.incomeType ?? 'other'} onChange={(v) => onUpdate(l.key, 'incomeType', v ?? 'other')} /></td>}
               <td className="px-3 py-2"><CodingPicker label="Revenue account" value={l.glAccountId} options={options.accounts} all={options} empty="Default sales" onChange={(v) => onUpdate(l.key, 'glAccountId', v)} /></td>
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="Job (Project Profitability)" value={l.projectId} options={options.projects} all={options} empty="No job" onChange={(v) => onUpdate(l.key, 'projectId', v)} /></td>}
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="CC2 project" value={l.cc2Id} options={options.cc2s} all={options} empty="No CC2 project" onChange={(v) => onUpdate(l.key, 'cc2Id', v)} /></td>}
