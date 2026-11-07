@@ -117,7 +117,10 @@ function GrossCell({ line: l }: { line: RunLineAmounts }) {
   );
 }
 
-export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[]; edit?: RunLinesEdit }) {
+/** `onPayslip` adds a last column with a "Payslip" action per row (wave 4 PS). */
+export function PayrollRunLinesTable({ lines, edit, onPayslip }: {
+  lines: RunLineAmounts[]; edit?: RunLinesEdit; onPayslip?: (line: RunLineAmounts) => void;
+}) {
   const t = sumRunLines(lines);
   return (
     <table className="w-full text-sm">
@@ -127,6 +130,7 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
           <th colSpan={edit?.deduction ? 4 : 3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employee deductions</th>
           <th className="border-l border-[var(--ff-border-primary)]" />
           <th colSpan={3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employer contributions</th>
+          {onPayslip && <th className="border-l border-[var(--ff-border-primary)]" />}
         </tr>
         <tr className="bg-[var(--ff-bg-secondary)] text-left">
           <th className={th}>Emp #</th>
@@ -141,13 +145,14 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
           <th className={`${th} text-right border-l border-[var(--ff-border-primary)]`}>UIF</th>
           <th className={`${th} text-right`}>SDL</th>
           <th className={`${th} text-right`}>ETI</th>
+          {onPayslip && <th className={`${th} border-l border-[var(--ff-border-primary)]`}><span className="sr-only">Payslip</span></th>}
         </tr>
       </thead>
       <tbody>
         {lines.map((l, row) => (
           // By employee, not line id: a recalculation re-inserts every line, and the grid's cells must survive it.
           <tr key={l.employeeId} className="border-t border-[var(--ff-border-primary)]">
-            <td className="py-2 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{l.employeeNumber}</td>
+            <td className="py-2 px-4 font-id text-xs text-[var(--ff-text-secondary)]">{l.employeeNumber}</td>
             <td className="py-2 px-4 text-[var(--ff-text-primary)]">{l.employeeName}{edit?.statusCell(l)}</td>
             {edit && <td className={num}>{edit.earning.cell(l, row)}</td>}
             <GrossCell line={l} />
@@ -162,6 +167,12 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
             <td className={`${num} text-[var(--ff-text-secondary)] border-l border-[var(--ff-border-primary)]`}>{formatCurrency(l.uifEmployer)}</td>
             <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(l.sdl)}</td>
             <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(l.eti)}</td>
+            {onPayslip && (
+              <td className="py-2 px-4 border-l border-[var(--ff-border-primary)]">
+                <button type="button" onClick={() => onPayslip(l)} aria-label={`Payslip for ${l.employeeName}`}
+                  className="text-sm text-teal-700 underline hover:no-underline dark:text-teal-300">Payslip</button>
+              </td>
+            )}
           </tr>
         ))}
       </tbody>
@@ -177,6 +188,7 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
           <td className={`${num} border-l border-[var(--ff-border-primary)]`}>{formatCurrency(t.uifEmployer)}</td>
           <td className={num}>{formatCurrency(t.sdl)}</td>
           <td className={num}>{formatCurrency(t.eti)}</td>
+          {onPayslip && <td className="border-l border-[var(--ff-border-primary)]" />}
         </tr>
       </tfoot>
     </table>

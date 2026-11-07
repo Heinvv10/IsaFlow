@@ -110,6 +110,9 @@ const TAX_TABLE_REGISTRY: Record<number, TaxYearConfig> = {
   2027: TAX_2027,
 };
 
+/** The tax years with registered tables (taxTableHash.test.ts pins each one). */
+export const SUPPORTED_TAX_YEARS: readonly number[] = Object.keys(TAX_TABLE_REGISTRY).map(Number);
+
 export function getTaxYear(periodMonth: number, periodYear: number): number {
   // SA tax year ends in February; March starts the new year (utils/payeTaxYear).
   // periodMonth 3 (March) of periodYear 2024 → taxYear 2025 (ends Feb 2025)
