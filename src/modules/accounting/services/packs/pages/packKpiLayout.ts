@@ -21,7 +21,6 @@ import {
 } from './packFigureFit';
 import { ptToPx, textPx } from './packFigureWidth';
 import { pieces } from './packLineBreaks';
-import { WRAP_GUARD_PX } from './packLineWrap';
 import { reasonPx } from './packReasonWidth';
 import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
 
@@ -66,6 +65,11 @@ export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orien
  * rounding adds up, and a delta line read 0.22 to 0.27px wider than Chromium set it and took a second line the print
  * does not (168 of the grid's 11,520 packs, 4.3mm over). `lead` is set before the text on its first line (the delta's
  * arrow cue and its space) and may stand alone on it; `mark` is a footnote mark that stays with the last piece.
+ *
+ * No guard is kept off the column. Every width here is never short of Chromium's (`textPx`: the exact advance sum
+ * rounded up to Chromium's 1/64px unit, and one unit more, because the shaping model is a unit off either way on some
+ * strings), and a column is never wider than Chromium's (the frozen figure columns are those same never-short widths):
+ * a line the model fits, Chromium fits. A guard would only add lines Chromium does not set.
  */
 function lineCount(text: string, widthOf: (line: string) => number, avail: number, lead = 0, mark = 0): number {
   const all = pieces(text);
@@ -75,7 +79,7 @@ function lineCount(text: string, widthOf: (line: string) => number, avail: numbe
   all.forEach((piece, i) => {
     const candidate = line === '' ? piece.text : `${line}${piece.spaced ? ' ' : ''}${piece.text}`;
     const w = before + widthOf(candidate) + (i === all.length - 1 ? mark : 0);
-    if ((line !== '' || before > 0) && w > avail - WRAP_GUARD_PX) { lines += 1; line = piece.text; before = 0; } else line = candidate;
+    if ((line !== '' || before > 0) && w > avail) { lines += 1; line = piece.text; before = 0; } else line = candidate;
   });
   return lines;
 }

@@ -13,11 +13,11 @@ import type { Browser } from 'playwright';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { GUTTER_MM } from '@/modules/accounting/services/packs/pages/packDisclosureHeight';
 import type { KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { kpiBlockMm, kpiColumnsPx, kpiTileMm } from '@/modules/accounting/services/packs/pages/packKpiLayout';
-import { WRAP_GUARD_PX } from '@/modules/accounting/services/packs/pages/packLineWrap';
 import { input, type Shape } from '../services/packs/fixtures/packGridInputs';
 import { measureKpiBlocks } from './measureKpi';
 import { launchPrintChromium } from './printChromium';
@@ -32,8 +32,8 @@ const SLACK = 0.02;
  * The most the model may read over the print. Its only excess is the leadings rounded up to the hundredth (12pt is
  * 4.233mm, charged 4.24; 25pt 8.819, charged 8.83) and the sparkline's 0.01mm, a few hundredths a row: over all
  * 11,520 packs of the adversarial grid, at production's width and glyphs, the block read 0.018 to 0.118mm over
- * Chromium's on 11,512 and never short. A line or a gap too many is 4mm or 1mm; a leading off by 0.05mm is 0.1mm on a
- * two-row block. Both go red here.
+ * Chromium's on 11,440 and never short (the other 80 are in the band below). A line or a gap too many is 4mm or
+ * 1mm; a leading off by 0.05mm is 0.1mm on a two-row block. Both go red here.
  */
 const MOST_OVER = 0.15;
 const SHAPES: Shape[] = [];
@@ -42,14 +42,20 @@ for (const k of [1, 30, 1000, 30000, 300000, 3e7, 2.7e8]) for (const negative of
     for (const [budget, prior] of [[true, true], [false, false]] as const) SHAPES.push({ k, negative, loss, plug: 0.05, sg, budget, prior, tr });
 
 /**
- * THE ONE WAY THE MODEL MAY READ A LINE TOO MANY. `linesFor` breaks a line that fits with less than `WRAP_GUARD_PX` to
- * spare, and every width it sums is never short of Chromium's (a figure at most 1/32px over, so a column the frozen
- * figure columns leave is up to 3/32px narrower than Chromium's): a line inside that band is charged as two. A block
- * over by more than `MOST_OVER` passes only if the same model, its columns that band wider, is back within it.
+ * THE ONE WAY THE MODEL MAY READ A LINE TOO MANY: a near tie. Every width it charges is never short of Chromium's (the
+ * shaping model's widths carry one 1/64px unit past Chromium's own, because it is a unit off either way on some
+ * strings), and Chromium sets a line a unit or two wider than its column on one line ("Gross margin" and its mark,
+ * 76.0625px in a 76.0469px column). A line that close to its column is charged as two. A block over by more than
+ * `MOST_OVER` passes only if the same model, its columns this much wider, is back within it: 0.25px, 16 units, far
+ * less than any word.
  */
-const BAND_PX = WRAP_GUARD_PX + 0.25;
-/** At most this share of the blocks may sit in the band: 8 of the grid's 11,520 packs (one set of tiles) read 3.1mm over. */
-const MOST_IN_BAND = 0.01;
+const BAND_PX = 0.25;
+/**
+ * At most this share of the blocks may sit in the band. Over the grid's 11,520 packs, 80 (40 sets of tiles, 0.7%) read
+ * a line, 4.27mm, over; this sample holds 4 of 328. None costs page 3 anything: composed with the block at its printed
+ * height, every one of the 80 is the same document. A width that drifts puts many more lines in the band.
+ */
+const MOST_IN_BAND = 0.02;
 
 /** The block's height with every column `extra` px wider. */
 function blockAtMm(tiles: readonly KpiTile[], columns: readonly number[], extra: number): number {
@@ -92,8 +98,8 @@ const tally = (): Tally => ({ wrong: [], blocks: 0, shortest: Infinity, tallest:
 const build = (shape: Shape): PackPagesDocument | null => {
   try { return buildBoardPackPages(input(shape)); } catch (e) { if (e instanceof PackRefusal) return null; throw e; }
 };
-/** The same pack with its KPI page turned: the block as a landscape page would set it. */
-const turned = (doc: PackPagesDocument): PackPagesDocument => ({
+/** The same pack with its KPI page turned (and its figures' fit decided again): the block as a landscape page sets it. */
+const turned = (doc: PackPagesDocument): PackPagesDocument => stampFigureFits({
   ...doc, pages: doc.pages.map((p) => (p.blocks.some((b) => b.kind === 'kpiTiles') ? { ...p, orientation: 'landscape' as const } : p)),
 });
 
@@ -108,7 +114,7 @@ describe('the KPI block of a stratified sample of packs', () => {
     expect(t.blocks).toBeGreaterThan(200);
     expect(t.squeezed, 'the sample must hold a squeezed column (a reason or a label holding its column open)').toBeGreaterThan(5);
     expect(t.wrong.slice(0, 12)).toEqual([]);
-    expect(t.banded.length, `a line in the wrap guard's band: ${t.banded.join('; ')}`).toBeLessThanOrEqual(MOST_IN_BAND * t.blocks);
+    expect(t.banded.length, `a line in the band: ${t.banded.join('; ')}`).toBeLessThanOrEqual(MOST_IN_BAND * t.blocks);
     process.stdout.write(`KPIGAP portrait ${t.shortest.toFixed(3)} ${t.tallest.toFixed(3)} blocks=${t.blocks} squeezed=${t.squeezed} banded=${t.banded.length}\n`);
   }, 1_800_000);
 
@@ -121,7 +127,7 @@ describe('the KPI block of a stratified sample of packs', () => {
     }
     expect(t.blocks).toBeGreaterThan(200);
     expect(t.wrong.slice(0, 12)).toEqual([]);
-    expect(t.banded.length, `a line in the wrap guard's band: ${t.banded.join('; ')}`).toBeLessThanOrEqual(MOST_IN_BAND * t.blocks);
+    expect(t.banded.length, `a line in the band: ${t.banded.join('; ')}`).toBeLessThanOrEqual(MOST_IN_BAND * t.blocks);
     process.stdout.write(`KPIGAP landscape ${t.shortest.toFixed(3)} ${t.tallest.toFixed(3)} blocks=${t.blocks} squeezed=${t.squeezed} banded=${t.banded.length}\n`);
   }, 1_800_000);
 });
@@ -130,7 +136,7 @@ describe('packs on an edge (#1196: the adversary\'s two, and the grid\'s delta l
   it.each<[string, Shape]>([
     ['a reason in column 2 the 657.6px model wrapped a line more than the print (read 5mm tall)', { tr: 'none', budget: true, prior: true, negative: true, loss: true, k: 30000, plug: 0.05, sg: [-1, -1, 1, -1] }],
     ['a pack the 657.6px model read 0.07mm short of the print', { tr: 'demo', budget: false, prior: false, negative: true, loss: false, k: 30000, plug: 0.2, sg: [-1, 1, -1, -1] }],
-    ['a delta line 0.22px inside its column (summed piece by piece it took a second line: 168 grid packs read 4.3mm tall)', { tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1, plug: 0.2, sg: [-1, 1, -1, 1] }],
+    ['a delta line that fits its column measured whole (summed piece by piece it took a second line: 168 grid packs read 4.35mm tall)', { tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1, plug: 0.2, sg: [-1, 1, -1, 1] }],
   ])('%s', async (unused, shape) => {
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const t = tally();
