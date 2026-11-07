@@ -2,6 +2,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { log } from '@/lib/logger';
+import { markSignedIn } from '@/lib/auth/sessionHeartbeat';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 export default function AcceptInvitePage() {
@@ -64,6 +65,7 @@ export default function AcceptInvitePage() {
         setError(body.error?.message ?? 'Could not accept the invitation - try again'); return;
       }
       accepted = true;
+      markSignedIn();
     } catch {
       setError('Could not accept the invitation - try again');
     } finally {

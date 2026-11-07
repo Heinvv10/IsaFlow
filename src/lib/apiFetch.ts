@@ -15,6 +15,8 @@ const COMPANY_STORAGE_KEY = 'isaflow_active_company';
 const CSRF_COOKIE = 'isaflow_csrf';
 const REFRESH_URL = '/api/auth/refresh';
 const LOGIN_REDIRECT = '/login?reason=session-expired';
+/** A refresh unanswered by then is an outage (D9). Unbounded, it would pin every later caller to the shared promise. */
+const REFRESH_TIMEOUT_MS = 10_000;
 
 function readCsrfCookie(): string | null {
   if (typeof document === 'undefined') return null;
@@ -25,22 +27,25 @@ function readCsrfCookie(): string | null {
 export { isAuthUnavailableStatus };
 
 /** 'unavailable': the server could not judge the session (D9), so it is not a sign-out. */
-type RefreshOutcome = 'refreshed' | 'rejected' | 'unavailable';
+export type RefreshOutcome = 'refreshed' | 'rejected' | 'unavailable';
 let inFlightRefresh: Promise<RefreshOutcome> | null = null;
 
 /**
  * Calls /api/auth/refresh exactly once even if N concurrent 401s race in.
  */
-function refreshSession(): Promise<RefreshOutcome> {
+export function refreshSession(): Promise<RefreshOutcome> {
   if (inFlightRefresh) return inFlightRefresh;
   inFlightRefresh = (async (): Promise<RefreshOutcome> => {
+    const controller = new AbortController();
+    const abandon = setTimeout(() => controller.abort(), REFRESH_TIMEOUT_MS);
     try {
-      const r = await fetch(REFRESH_URL, { method: 'POST', credentials: 'include' });
+      const r = await fetch(REFRESH_URL, { method: 'POST', credentials: 'include', signal: controller.signal });
       if (r.ok) return 'refreshed';
       return isAuthUnavailableStatus(r.status) ? 'unavailable' : 'rejected';
     } catch {
       return 'unavailable'; // never reached the server: no verdict on the session
     } finally {
+      clearTimeout(abandon);
       // Reset on next tick so retries triggered by this refresh don't share the
       // resolved promise with a fresh round of 401s that arrive later.
       setTimeout(() => {

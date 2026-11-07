@@ -86,8 +86,8 @@ const HOSTED_TOOLS: HostedStep[] = [
   },
 ];
 const HOSTED_APT: Record<string, HostedStep> = {
-  static: { run: 'sudo apt-get update -qq\nsudo apt-get install -y -qq --no-install-recommends ghostscript' },
-  velo: { run: 'sudo apt-get update -qq\nsudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils\nsudo locale-gen en_US.UTF-8' },
+  static: { run: 'echo \'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";\' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null\nsudo apt-get update -q\nsudo apt-get install -y -qq --no-install-recommends ghostscript' },
+  velo: { run: 'echo \'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";\' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null\nsudo apt-get update -q\nsudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils\nsudo locale-gen en_US.UTF-8' },
 };
 /** Hosted-only, between install and the gate: Chromium at the locked playwright's revision. */
 const HOSTED_AFTER_INSTALL: HostedStep[] = [{ run: 'bunx playwright install --with-deps chromium' }];

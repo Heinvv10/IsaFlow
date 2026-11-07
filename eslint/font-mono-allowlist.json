@@ -90,7 +90,6 @@
   "pages/payroll/components/index.tsx": 1,
   "pages/payroll/cost-centres/index.tsx": 2,
   "pages/payroll/duplicates.tsx": 2,
-  "pages/payroll/employees/[id].tsx": 1,
   "pages/payroll/employees/bulk-update.tsx": 1,
   "pages/payroll/employees/index.tsx": 1,
   "pages/payroll/irp5/index.tsx": 2,

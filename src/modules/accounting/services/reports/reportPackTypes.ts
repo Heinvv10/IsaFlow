@@ -50,6 +50,13 @@ export interface ReportPackInput {
    */
   investingCashFlow?: number;
   /**
+   * What the cash flow statement's journals could not explain of the window's cash movement
+   * (`getCashFlowDirect().unexplainedDifference`: a cash leg on the year-end journal, a posted journal that does not
+   * balance). Zero on a sound ledger. Its own figure, never part of `operatingCashFlow`: page 8 prints it as a row
+   * and its bridge as a step when it is not zero. Set wherever the three cash flows are.
+   */
+  cashFlowUnexplained?: number;
+  /**
    * Interest, tax and employee cost for the window, and the head count at its
    * end, off the ledger (`extendedRatioInputs.readLedgerRatioInputs` via
    * `readReportPackInput`) — the inputs the Financial Analysis screen's

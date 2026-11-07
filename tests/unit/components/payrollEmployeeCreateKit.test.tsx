@@ -16,7 +16,7 @@ import Page from '@/../pages/payroll/employees/new';
 import { initialForm } from '@/components/payroll/employeeCreate/types';
 
 // Captured from the pre-kit page (same inputs) on 2026-10-27, key order included.
-const BODY_BEFORE_KIT = '{"firstName":"Thandi","lastName":"Nkosi","employeeNumber":"E-001","employmentType":"contract","startDate":"2026-03-01","taxNumber":"1234567890","idNumber":"8001015009087","dateOfBirth":"1980-01-01","uifExcluded":true,"medicalAidMainMember":true,"medicalAidDependantsCount":2}';
+const BODY_BEFORE_KIT = '{"firstName":"Thandi","lastName":"Nkosi","employeeNumber":"E-001","employmentType":"contract","startDate":"2026-03-01","taxNumber":"1234567890","idNumber":"8001015009087","dateOfBirth":"1980-01-01","uifExcluded":true,"medicalAidMainMember":true,"s18aReceiptHeld":false,"medicalAidDependantsCount":2}';
 
 const fetchMock = vi.fn();
 beforeEach(() => {
@@ -110,11 +110,24 @@ describe('employee create form', () => {
     await waitFor(() => expect(posts()).toHaveLength(1));
     const body = JSON.parse(String((posts()[0]![1] as RequestInit).body));
     expect(Object.keys(body)).toEqual(['firstName', 'lastName', 'employeeNumber', 'employmentType', 'startDate',
-      'uifExcluded', 'medicalAidMainMember', 'medicalAidDependantsCount']);
+      'uifExcluded', 'medicalAidMainMember', 's18aReceiptHeld', 'medicalAidDependantsCount']);
     expect(String((posts()[0]![1] as RequestInit).body)).not.toMatch(/taxNumber|idNumber|dateOfBirth/);
     expect(body.medicalAidDependantsCount).toBe(0);
     expect(body.medicalAidMainMember).toBe(false);
     expect(body.uifExcluded).toBe(false);
+  });
+
+  it('the s18A receipt box posts its tick, and defaults off', async () => {
+    render(<Page />);
+    typeInto('First name *', 'Thandi');
+    typeInto('Last name *', 'Nkosi');
+    typeInto('Employee number *', 'E-001');
+    const box = screen.getByLabelText('s18A donation receipt held') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    submit();
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(String((posts()[0]![1] as RequestInit).body)).s18aReceiptHeld).toBe(true);
   });
 
   it('a blank dependants box posts the number 0, not an empty string or NaN', async () => {

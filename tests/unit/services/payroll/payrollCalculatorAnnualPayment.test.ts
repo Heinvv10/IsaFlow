@@ -153,7 +153,7 @@ describe('P3: taxable deductions and the split', () => {
     // (4001/4003/4006) are capped by section 11F instead (payrollCalculatorRetirement.test.ts).
     const l = line([
       { component: comp('3601'), amount: 5_000 },
-      { component: comp('4030', { componentType: 'deduction' }), amount: 8_000 },
+      { component: comp('4018', { componentType: 'deduction' }), amount: 8_000 },
       { component: comp('3605'), amount: 130_000 },
     ]);
     expect(l.payeSplit).toEqual({ regular: 0, annualPayment: 5040, directive: 0 });

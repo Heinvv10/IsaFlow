@@ -192,13 +192,13 @@ export async function importAPInvoices(
 
         const invRows = (await withApprovalGateExempt({ companyId, userId, open: status !== 'paid' }, () => sql`
           INSERT INTO supplier_invoices (
-            company_id, supplier_id, invoice_number, invoice_date, due_date,
+            company_id, supplier_id, invoice_number, invoice_date, due_date, due_date_source,
             subtotal, tax_amount, total_amount, amount_paid,
             status, reference, created_by,
             duplicate_fingerprint
           ) VALUES (
             ${companyId}::UUID, ${supplierId}::UUID, ${inv.invoiceNumber},
-            ${inv.invoiceDate}::DATE, ${inv.dueDate}::DATE,
+            ${inv.invoiceDate}::DATE, ${inv.dueDate}::DATE, 'document',
             ${inv.subtotal}, ${inv.taxAmount}, ${inv.totalAmount},
             ${amountPaid}, ${status},
             ${inv.reference ?? null}, ${userId}::UUID,

@@ -32,6 +32,8 @@ const audit = (prefix: string, charges?: AutoBucket['charges']): AutoBucket =>
 
 export const AUTO_RATE_LIMIT: ReadonlyArray<AutoBucket> = [
   { prefix: '/api/accounting/reports-', key: 'reports', max: 60, windowSecs: 60 },
+  // A captured document is up to 10 MB held in memory per request; a member viewing a line needs a handful.
+  { prefix: '/api/accounting/captured-document-file', key: 'captured-file', max: 60, windowSecs: 60, perUser: true },
   audit('audit-snapshots', (m, q) => m === 'POST' || q.has('verify') || q.has('chain')),
   audit('audit-comparisons'),
   audit('audit-check-runs', (m) => m === 'POST'),
