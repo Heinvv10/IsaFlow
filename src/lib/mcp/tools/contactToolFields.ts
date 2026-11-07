@@ -55,6 +55,12 @@ export const CUSTOMER_FIELDS = {
   notes: { type: 'string' },
   default_vat_type: { type: 'string', maxLength: 50 },
   default_discount: { type: 'number', description: 'Percent.' },
+  default_revenue_account_id: {
+    type: 'string',
+    description: 'The revenue account (gl_accounts id, from list_gl_accounts) a new invoice line for this customer starts on. '
+      + "Must be this company's active revenue account with no sub-accounts, and not one that can never carry VAT "
+      + '(interest, dividends and the like); anything else is refused naming the account. update_customer cannot clear it.',
+  },
   auto_allocate_strategy: {
     type: 'string',
     enum: [...AUTO_ALLOCATE_STRATEGIES],
@@ -129,6 +135,7 @@ export function customerInput(args: Record<string, unknown>): CustomerWriteInput
     notes: strArg(args, 'notes'),
     defaultVatType: strArg(args, 'default_vat_type'),
     defaultDiscount: numArg(args, 'default_discount'),
+    defaultRevenueAccountId: strArg(args, 'default_revenue_account_id'),
     // Not validated here — an out-of-range value reaches the service's own
     // resolveStrategy() and throws, rather than being silently dropped.
     autoAllocateStrategy: strArg(args, 'auto_allocate_strategy') as AutoAllocateStrategy | undefined,

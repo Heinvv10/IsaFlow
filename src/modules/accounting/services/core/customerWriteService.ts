@@ -30,6 +30,7 @@ import { ContactValidationError } from './contactValidationError';
 import { termsColumns } from './contactTerms';
 import { clearFlags } from './contactClear';
 import { assertCategoryInCompany } from './contactCategory';
+import { customerRevenueAccount } from './contactRevenueAccount';
 import { boundedText } from './contactText';
 
 export { boundedText };
@@ -70,6 +71,7 @@ export interface CustomerWriteInput {
   subjectToDrcVat?: boolean;
   invoicesViewableOnline?: boolean;
   defaultPriceList?: string | null;
+  defaultRevenueAccountId?: string | null; // migration 965; judged by contactRevenueAccount before any write
   /** Update only: fields to set to NULL (see `contactClear`); a field in CUSTOMER_CLEARABLE. */
   clear?: readonly string[];
 }
@@ -77,6 +79,7 @@ export interface CustomerWriteInput {
 export const CUSTOMER_CLEARABLE = [
   'email', 'phone', 'mobile', 'fax', 'webAddress', 'vatNumber', 'registrationNumber', 'billingAddress',
   'shippingAddress', 'contactPerson', 'notes', 'categoryId', 'creditLimit', 'defaultVatType', 'defaultPriceList',
+  'defaultRevenueAccountId',
 ] as const;
 
 function trimmed(value: string | null | undefined): string | null {
@@ -137,6 +140,7 @@ export async function createCustomer(
   const strategy = resolveStrategy(input.autoAllocateStrategy) ?? 'off';
   const terms = termsColumns(input);
   await assertCategoryInCompany(companyId, input.categoryId);
+  const revenueAccount = await customerRevenueAccount(companyId, input.defaultRevenueAccountId);
   const rows = (await sql`
     INSERT INTO customers (
       company_id, name, email, phone, mobile, fax, web_address,
@@ -147,7 +151,7 @@ export async function createCustomer(
       accepts_electronic_invoices, auto_allocate_strategy, auto_allocate_receipts,
       statement_distribution, default_discount, default_vat_type,
       subject_to_drc_vat, invoices_viewable_online,
-      default_price_list
+      default_price_list, default_revenue_account_id
     ) VALUES (
       ${companyId}::UUID,
       ${name},
@@ -178,7 +182,8 @@ export async function createCustomer(
       ${boundedText(input.defaultVatType, 'default_vat_type', 50)},
       ${input.subjectToDrcVat ?? false},
       ${input.invoicesViewableOnline ?? true},
-      ${boundedText(input.defaultPriceList, 'default_price_list', 100)}
+      ${boundedText(input.defaultPriceList, 'default_price_list', 100)},
+      ${revenueAccount}::UUID
     )
     RETURNING *
   `) as DbRow[];
@@ -222,6 +227,7 @@ export async function updateCustomer(
   const terms = termsColumns(input);
   const cl = clearFlags(input.clear, CUSTOMER_CLEARABLE, input);
   await assertCategoryInCompany(companyId, input.categoryId);
+  const revenueAccount = await customerRevenueAccount(companyId, input.defaultRevenueAccountId);
 
   const rows = (await sql`
     UPDATE customers SET
@@ -255,6 +261,7 @@ export async function updateCustomer(
       statement_distribution = COALESCE(${boundedText(input.statementDistribution, 'statement_distribution', 20)}, statement_distribution),
       invoices_viewable_online = COALESCE(${input.invoicesViewableOnline ?? null}, invoices_viewable_online),
       default_price_list = CASE WHEN ${cl.defaultPriceList} THEN NULL ELSE COALESCE(${boundedText(input.defaultPriceList, 'default_price_list', 100)}, default_price_list) END,
+      default_revenue_account_id = CASE WHEN ${cl.defaultRevenueAccountId} THEN NULL ELSE COALESCE(${revenueAccount}::UUID, default_revenue_account_id) END,
       updated_at      = NOW()
     WHERE id = ${customerId}::UUID
       AND company_id = ${companyId}::UUID

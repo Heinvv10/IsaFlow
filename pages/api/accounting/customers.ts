@@ -95,7 +95,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                  c.default_price_list, c.credit_limit, c.is_active, c.cash_sale, c.accepts_electronic_invoices,
                  c.invoices_viewable_online, c.subject_to_drc_vat, c.statement_distribution,
                  c.auto_allocate_strategy, c.category_id, c.billing_address, c.shipping_address, c.notes,
-                 c.vat_number, c.registration_number, c.created_at,
+                 c.vat_number, c.registration_number, c.default_revenue_account_id, c.created_at,
                  d.value AS company_default_terms
           FROM customers c
           LEFT JOIN accounting_settings d ON d.company_id = c.company_id AND d.key = ${COMPANY_DEFAULT_TERMS_KEY}
