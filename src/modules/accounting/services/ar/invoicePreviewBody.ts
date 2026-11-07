@@ -14,9 +14,9 @@ export const PREVIEW_MAX_BYTES = 64 * 1024;
 export const PREVIEW_MAX_LINES = 200;
 export const PREVIEW_MAX_TEXT_CHARS = 2000;
 export const PREVIEW_MAX_TEXT_LINE_BREAKS = 20;
-/** Body-wide: the per-line caps alone allow 200 lines x 20 breaks (63 pages) or 30 x 2,000 characters (34 pages). */
+/** Body-wide: the per-line caps alone allow 200 lines x 20 breaks (63 pages) or 30 x 2,000 characters (34 pages); 20,000 characters is about 12. */
 export const PREVIEW_MAX_TOTAL_LINE_BREAKS = 400;
-export const PREVIEW_MAX_TOTAL_DESCRIPTION_CHARS = 60000;
+export const PREVIEW_MAX_TOTAL_DESCRIPTION_CHARS = 20000;
 
 /**
  * The preview's rate-limit name: each member's own bucket within the company (checkReportRateLimit stores it as
@@ -117,6 +117,9 @@ export function parsePreviewBody(raw: unknown): PreviewBody {
   if (!(blank(exchangeRate) || (typeof exchangeRate === 'number' && Number.isFinite(exchangeRate) && exchangeRate > 0))) {
     throw new PreviewBodyError('exchangeRate must be a positive number');
   }
+  // Create reads these; the PDF prints neither, but a malformed one is create's 400, so it is the preview's.
+  optionalDate(raw.billingPeriodStart, 'billingPeriodStart');
+  optionalDate(raw.billingPeriodEnd, 'billingPeriodEnd');
   const job = typeof projectId === 'string' && UUID_RE.test(projectId) ? projectId.toLowerCase() : null;
   return {
     clientId: clientId.toLowerCase(),

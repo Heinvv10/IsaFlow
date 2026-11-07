@@ -158,10 +158,19 @@ describe('the body-wide text caps (amplification across lines)', () => {
     expect(parsePreviewBody(body(lines(19, twenty), twenty)).notes).toHaveLength(21);
   });
 
-  it('caps the total description characters at 60,000', () => {
-    expect(PREVIEW_MAX_TOTAL_DESCRIPTION_CHARS).toBe(60000);
-    expect(parsePreviewBody(body(lines(30, 'x'.repeat(2000)))).items).toHaveLength(30);
-    expect(() => parsePreviewBody(body([...lines(30, 'x'.repeat(2000)), { description: 'y' }]))).toThrow(/descriptions are too long to preview/);
+  it('caps the total description characters at 20,000', () => {
+    expect(PREVIEW_MAX_TOTAL_DESCRIPTION_CHARS).toBe(20000);
+    expect(parsePreviewBody(body(lines(10, 'x'.repeat(2000)))).items).toHaveLength(10);
+    expect(() => parsePreviewBody(body([...lines(10, 'x'.repeat(2000)), { description: 'y' }]))).toThrow(/descriptions are too long to preview/);
+  });
+});
+
+describe('billing period dates', () => {
+  it.each(['billingPeriodStart', 'billingPeriodEnd'])('the preview refuses a malformed %s as create does, and takes a real one or none', (field) => {
+    expect(() => parsePreviewBody(one({ [field]: '2026-02-30' }))).toThrow(new RegExp(`${field} must be a date`));
+    expect(() => parsePreviewBody(one({ [field]: '30/02/2026' }))).toThrow(PreviewBodyError);
+    expect(parsePreviewBody(one({ [field]: '2026-03-01' })).items).toHaveLength(1);
+    expect(parsePreviewBody(one({ [field]: '' })).items).toHaveLength(1);
   });
 });
 

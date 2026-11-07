@@ -124,7 +124,7 @@ describe('the body\'s caps and shape', () => {
     // Each line within the text caps (2,000 characters); it is their sum that is too large.
     const long = (n: number) => Array.from({ length: n }, () => ({ description: 'd'.repeat(2000), quantity: 1, unitPrice: 1 }));
     expect(() => parsePreviewBody({ clientId: CLIENT, items: long(Math.ceil(PREVIEW_MAX_BYTES / 2000)) })).toThrow(/too large to preview/);
-    expect(parsePreviewBody({ clientId: CLIENT, items: long(30) }).items).toHaveLength(30);
+    expect(parsePreviewBody({ clientId: CLIENT, items: long(10) }).items).toHaveLength(10);
   });
 
   it.each([
