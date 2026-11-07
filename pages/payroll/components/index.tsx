@@ -146,7 +146,8 @@ export default function PayComponentsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-6">
-                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
+                  title={type === 'deduction' ? 'Only retirement fund contributions (4001, 4003, 4006) and s18A donations (4030) reduce PAYE. Any other taxable deduction is paid from taxed pay, and the pay run warns about it.' : undefined}>
                   <input type="checkbox" checked={isTaxable} onChange={e => setIsTaxable(e.target.checked)} />
                   Taxable
                 </label>

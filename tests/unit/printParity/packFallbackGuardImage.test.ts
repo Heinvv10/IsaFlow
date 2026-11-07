@@ -2,7 +2,7 @@
  * IN PRODUCTION'S IMAGE THE FALLBACK GUARD LETS A PACK PRINT: a pack whose KPI reason holds an emoji is laid out in a
  * throwaway Gotenberg of the image, the bundled guard (`packFallbackGuard.ts`) re-measures the fingerprint there, and
  * finds it is the committed one. (Change one committed fingerprint width and this goes red: the guard refuses.) Velo
- * only; elsewhere skipped, and says why.
+ * only (`paritySkip.ts` says where it may skip).
  */
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -14,10 +14,11 @@ import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { input } from '../services/packs/fixtures/packGridInputs';
 import { bundlePrintPages } from '../print/support/bundlePrintPages';
-import { gotenbergPdf, parityUnavailable, startGotenberg, withPdfFile, type Gotenberg } from './gotenbergParity';
+import { gotenbergPdf, startGotenberg, withPdfFile, type Gotenberg } from './gotenbergParity';
+import { paritySkip } from './paritySkip';
 import { parityDocument } from './parityPage';
 
-const unavailable = parityUnavailable();
+const unavailable = paritySkip();
 let gotenberg: Gotenberg | undefined;
 beforeAll(async () => { if (unavailable === null) gotenberg = await startGotenberg(); }, 180_000);
 afterAll(() => { gotenberg?.stop(); });

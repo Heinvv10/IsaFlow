@@ -15,30 +15,32 @@
  *  - the table is as wide as the sheet; where the MAXes fit they are scaled up in proportion to fill it, and
  *    where they do not each column gets its MIN plus its share of the room left over, in proportion to
  *    `MAX - MIN`.
- * Words are the exact pixel widths of `packFigureWidth.ts`; a heading's are measured (`HEADING_WORDS_PX`).
+ * Words are the shaped widths of `packFigureWidth.ts`; a heading's too, with its tracking (`HEADING_WORDS_PX`). The
+ * table is as wide as production prints a page (`PRINT_CONTENT_PX`).
  */
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
 import {
-  CELL_SIDE_PX, cellPx, headingMarkPx, INDENT_PX_PER_LEVEL, labelMarkPx, MM_PX, ROW_WEIGHT,
+  CELL_SIDE_PX, cellPx, HEADING_SPACE_PX, headingLinePx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT,
   tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT,
 } from './packFigureFit';
 import { ptToPx, textPx } from './packFigureWidth';
-import { linesFor, minPx, runsOf, totalPx, type Run } from './packLineWrap';
+import { asChromiumSets } from './packGlyphRuler';
+import { linesForText, minPx, WRAP_GUARD_PX } from './packLineWrap';
+import { pieces } from './packLineBreaks';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
-import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
+import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
+import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
 
 /**
- * Each column heading's words in pixels, as `.pack-table th` sets them (8pt, uppercase, 0.06em tracking), and
- * the width of a space between two of them. A line of a heading is the sum of its words and spaces.
- * Measured in Chromium by `packTableLayout.test.ts`, which fails if one drifts.
+ * Each column heading's words in pixels, as `.pack-table th` sets them (8pt, weight 500, uppercase, 0.06em tracking),
+ * and the space between two of them, shaped from the face (`packFigureFit.headingWordsPx`). A line of a heading is the
+ * sum of its words and spaces. `packTableLayout.test.ts` holds them to Chromium.
  */
-export const HEADING_WORDS_PX: Readonly<Record<PackTableColumnKey, readonly number[]>> = {
-  actual: [44.85], prior: [37.21], change: [48.85], changePct: [48.85, 10.65], pctOfRevenue: [10.65, 15.29, 55.49],
-  budget: [47.85], variance: [59.13], revenue: [55.49], otherIncome: [39.21, 47.85], costOfSales: [30.57, 15.29, 37.21],
-  monthOperatingExpenses: [67.77], otherExpenses: [39.21], netProfit: [22.93, 42.85],
-};
-export const HEADING_SPACE_PX = 3.65;
+export const HEADING_WORDS_PX: Readonly<Record<PackTableColumnKey, readonly number[]>> = Object.fromEntries(
+  (Object.entries(PACK_TABLE_COLUMN_LABEL) as Array<[PackTableColumnKey, string]>).map(([col, label]) => [col, headingWordsPx(label)]),
+) as unknown as Record<PackTableColumnKey, readonly number[]>;
+export { HEADING_SPACE_PX };
 
 const LABEL_FONT_PX = Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
 
@@ -51,25 +53,29 @@ export interface TableLayout {
   headingLines: number;
 }
 
-/** The runs a label may break between (`packLineWrap.ts`). */
-function labelRuns(row: PackTableRow, space: number): Run[] {
-  const weight = ROW_WEIGHT[row.role];
-  return runsOf(row.label, (piece) => textPx(piece, LABEL_FONT_PX, weight), space);
+/**
+ * The layout of `table`. The figures are at the size the fit sets (a decision that must never be short); every width
+ * after that is as Chromium sets it (`asChromiumSets`), so the columns are Chromium's to within a few hundredths of a
+ * pixel and a tie is settled by the guard.
+ */
+export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number = WRAP_GUARD_PX): TableLayout {
+  const fitPx = tableFit(table, scale, orientation).px ?? Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
+  return asChromiumSets(() => layoutAt(table, scale, orientation, guardPx, fitPx));
 }
 
-export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation): TableLayout {
+function layoutAt(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number, fitPx: number): TableLayout {
   const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
-  const fitPx = tableFit(table, scale, orientation).px ?? Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
   const cells = tableColumnCells(table, scale);
-  const space = textPx(' ', LABEL_FONT_PX, 400);
   const labelBox = table.rows.map((row) => {
-    const runs = labelRuns(row, space);
-    const marker = labelMarkPx(row.footnote, ROW_WEIGHT[row.role]);
+    const weight = ROW_WEIGHT[row.role];
+    const parts = pieces(row.label);
+    const width = (text: string): number => textPx(text, LABEL_FONT_PX, weight);
+    const marker = labelMarkPx(row.footnote, weight);
     const indent = row.level * INDENT_PX_PER_LEVEL;
     return {
-      indent, marker, runs,
-      min: indent + minPx(runs, marker) + CELL_SIDE_PX,
-      max: indent + totalPx(runs) + marker + CELL_SIDE_PX,
+      indent, marker, parts, width,
+      min: indent + labelWidestPiecePx(row.label, row.footnote, weight) + CELL_SIDE_PX,
+      max: indent + width(row.label.trim().replace(/[ \t\n\r]+/g, ' ')) + marker + CELL_SIDE_PX,
     };
   });
   const labelMin = Math.max(0, ...labelBox.map((b) => b.min));
@@ -77,19 +83,18 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
   const data = columns.map((col, i) => {
     const figures = Math.max(0, ...cells[i]!.map((cell) => cellPx(cell, fitPx)));
     const marker = headingMarkPx(table.columnNotes?.find((n) => n.column === col)?.footnote);
-    const words = HEADING_WORDS_PX[col];
-    const full = words.reduce((sum, w) => sum + w, 0) + HEADING_SPACE_PX * (words.length - 1) + marker;
+    const label = PACK_TABLE_COLUMN_LABEL[col];
     return {
-      col, words, marker,
-      min: Math.max(figures, minPx(words.map((w) => ({ w, gap: 0 })), marker)) + 2 * CELL_SIDE_PX,
-      max: Math.max(figures, full) + 2 * CELL_SIDE_PX,
+      col, marker, parts: pieces(label),
+      min: Math.max(figures, minPx(headingWordsPx(label).map((w) => ({ w, gap: 0 })), marker)) + 2 * CELL_SIDE_PX,
+      max: Math.max(figures, headingLinePx(label) + marker) + 2 * CELL_SIDE_PX,
     };
   });
   const mins = [labelMin, ...data.map((d) => d.min)];
   const maxs = [labelMax, ...data.map((d) => d.max)];
   const sumMin = mins.reduce((a, b) => a + b, 0);
   const sumMax = maxs.reduce((a, b) => a + b, 0);
-  const sheet = PAGE_WIDTH_MM[orientation] * MM_PX;
+  const sheet = PRINT_CONTENT_PX[orientation];
   const columnsPx = mins.map((min, i) => {
     const max = maxs[i]!;
     if (sumMax <= sheet) return max + ((sheet - sumMax) * max) / sumMax;
@@ -97,9 +102,8 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
     return min + ((sheet - sumMin) * (max - min)) / (sumMax - sumMin);
   });
   const labelPx = columnsPx[0]!;
-  const labelLines = labelBox.map((b) => linesFor(b.runs, b.marker, labelPx - b.indent - CELL_SIDE_PX));
-  const headingLines = Math.max(1, ...data.map((d, i) => linesFor(
-    d.words.map((w, j) => ({ w, gap: j === 0 ? 0 : HEADING_SPACE_PX })), d.marker, columnsPx[i + 1]! - 2 * CELL_SIDE_PX)));
+  const labelLines = labelBox.map((b) => linesForText(b.parts, b.width, b.marker, labelPx - b.indent - CELL_SIDE_PX, guardPx));
+  const headingLines = Math.max(1, ...data.map((d, i) => linesForText(d.parts, headingLinePx, d.marker, columnsPx[i + 1]! - 2 * CELL_SIDE_PX, guardPx)));
   return { columnsPx, labelLines, headingLines };
 }
 
