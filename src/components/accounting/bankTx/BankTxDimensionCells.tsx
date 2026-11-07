@@ -23,6 +23,18 @@ function dimensionOptions(opts: SelectOption[], withCode: boolean): KitOption[] 
 const fromKit = (v: string | null): string => (v === null || v === NONE ? '' : v);
 const toKit = (v: string | undefined): string => v || NONE;
 
+/**
+ * A stored id the active-only options lack (deactivated after the row was tagged) is still posted on accept, so the
+ * trigger shows it: by the code and name the row carries for that same id, else as an inactive dimension.
+ */
+function storedOption(
+  id: string | undefined, opts: KitOption[], fallback: string, rowId?: string, code?: string, name?: string,
+): KitOption | null {
+  if (!id || opts.some(o => o.value === id)) return null;
+  const label = id === rowId && name ? (code ? `${code} ${name}` : name) : fallback;
+  return { value: id, label };
+}
+
 /** The trigger's amber (a warning) or cyan (input tax claimed) state, painted from its cell. */
 function vatClass(warn: boolean, standard: boolean): string {
   if (warn) return '[&_[role=combobox]]:!border-amber-500 [&_[role=combobox]]:!text-amber-700 dark:[&_[role=combobox]]:!text-amber-500';
@@ -123,6 +135,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
           <Select
             label={`Cost centre 1, ${label}`} labelClassName="sr-only" size="sm" searchable
             options={cc1Kit} value={toKit(sel?.cc1Id)}
+            valueOption={storedOption(sel?.cc1Id, cc1Kit, 'Inactive cost centre', tx.cc1Id, tx.cc1Code, tx.cc1Name)}
             onChange={v => onRowDimensionChange(tx.id, fromKit(v), sel?.cc2Id || '', sel?.buId || '')}
           />
         ) : (
@@ -137,6 +150,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
           <Select
             label={`Cost centre 2, ${label}`} labelClassName="sr-only" size="sm" searchable
             options={cc2Kit} value={toKit(sel?.cc2Id)}
+            valueOption={storedOption(sel?.cc2Id, cc2Kit, 'Inactive cost centre', tx.cc2Id, tx.cc2Code, tx.cc2Name)}
             onChange={v => onRowDimensionChange(tx.id, sel?.cc1Id || '', fromKit(v), sel?.buId || '')}
           />
         ) : (
@@ -151,6 +165,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
           <Select
             label={`Business unit, ${label}`} labelClassName="sr-only" size="sm" searchable
             options={buKit} value={toKit(sel?.buId)}
+            valueOption={storedOption(sel?.buId, buKit, 'Inactive business unit', tx.buId, undefined, tx.buName)}
             onChange={v => onRowDimensionChange(tx.id, sel?.cc1Id || '', sel?.cc2Id || '', fromKit(v))}
           />
         ) : (
