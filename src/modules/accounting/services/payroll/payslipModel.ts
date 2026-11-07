@@ -1,17 +1,19 @@
 /**
  * Payslips from a pay run's STORED lines (wave 4 PS). `getPayslips` reads the run
- * header, its lines and breakdowns, each employee's name, number, occupation and
- * tax number, the last four digits of the active bank account (cut in SQL, so the
+ * header, its lines and breakdowns, each employee's name, number and tax number, the last four digits of the active bank account (cut in SQL, so the
  * whole number never leaves the database) and the year to date. Nothing is
  * recalculated (`payslipItems`). Final or DRAFT is `isPayRunFinal` alone, the
  * R-035 guard, never the status column. Never the ID number.
  *
  * Every read is scoped by company: a run of another company is `PayslipNotFound`,
- * as is an employee who has no line on the run.
+ * as is a cancelled run (the history hides it too) and an employee with no line on it.
+ *
+ * Occupation (BCEA s33(1)(b)): payroll has no occupation field yet, and the EE level or
+ * department is not an occupation, so the slip prints "Occupation not recorded" (wave 5).
  */
 import { sql } from '@/lib/neon';
 import { getCompanyDetailsFromCompany } from '@/modules/accounting/services/core/pdfShared';
-import { itemisePayslip, type PayslipLines } from './payslipItems';
+import { itemisePayslip, readBreakdown, type PayslipLines } from './payslipItems';
 import { isPayRunFinal } from './payslipFinal';
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
 
@@ -26,7 +28,6 @@ export interface Payslip extends PayslipLines {
   employeeId: string;
   employeeNumber: string;
   employeeName: string;
-  occupation: string | null;
   taxNumber: string | null;
   paymentMethod: string;
   /** The active bank account's last four digits; null when none is on file. */
@@ -53,7 +54,6 @@ interface LineRow {
   employee_number: string;
   first_name: string;
   last_name: string;
-  occupation: string | null;
   tax_number: string | null;
   payment_method: string;
   bank_last_four: string | null;
@@ -73,7 +73,6 @@ const dateOnly = (d: string | Date | null): string | null =>
 async function readLines(companyId: string, runId: string, employeeIds: string[] | null): Promise<LineRow[]> {
   return (await sql`
     SELECT prl.employee_id::text AS employee_id, pe.employee_number, pe.first_name, pe.last_name,
-           COALESCE(ol.name, NULLIF(BTRIM(pe.department), '')) AS occupation,
            pe.tax_number, pe.payment_method,
            RIGHT(bd.account_number, 4) AS bank_last_four, bd.bank_name,
            prl.gross_pay, prl.paye, prl.uif_employee, prl.uif_employer, prl.sdl, prl.net_pay,
@@ -81,7 +80,6 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       JOIN payroll_employees pe ON pe.id = prl.employee_id AND pe.company_id = prh.company_id
-      LEFT JOIN occupational_levels ol ON ol.id = pe.occupational_level_id
       LEFT JOIN payroll_bank_details bd
         ON bd.employee_id = pe.id AND bd.company_id = prh.company_id AND bd.is_active
      WHERE prl.run_id = ${runId}::uuid
@@ -93,8 +91,8 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
 
 /** The catalogue type of each component the breakdowns name, in this company only. */
 async function componentTypes(companyId: string, lines: LineRow[]): Promise<Map<string, string>> {
-  const ids = [...new Set(lines.flatMap((l) => (Array.isArray(l.component_breakdown) ? l.component_breakdown : [])
-    .map((i: { componentId?: unknown }) => String(i?.componentId ?? '')).filter(Boolean)))];
+  const ids = [...new Set(lines.flatMap((l) => readBreakdown(l.component_breakdown)
+    .map((i) => String(i.componentId ?? '')).filter(Boolean)))];
   if (ids.length === 0) return new Map();
   const rows = (await sql`
     SELECT id::text AS id, component_type FROM payroll_components
@@ -106,7 +104,7 @@ async function componentTypes(companyId: string, lines: LineRow[]): Promise<Map<
 export async function getPayslips(companyId: string, runId: string, employeeIds?: string[]): Promise<PayslipRun> {
   const headers = (await sql`
     SELECT period_month, period_year, run_date FROM payroll_run_headers
-     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid AND status <> 'cancelled'
   `) as HeaderRow[];
   const header = headers[0];
   if (!header) throw new PayslipNotFound('run');
@@ -132,7 +130,6 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
       employeeId: l.employee_id,
       employeeNumber: String(l.employee_number),
       employeeName: `${l.first_name} ${l.last_name}`.trim(),
-      occupation: l.occupation,
       taxNumber: l.tax_number,
       paymentMethod: String(l.payment_method),
       bankLastFour: l.bank_last_four,

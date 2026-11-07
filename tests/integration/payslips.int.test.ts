@@ -44,9 +44,11 @@ async function run(year: number, month: number, approve: boolean): Promise<strin
 const slip = (token: string, runId: string, query: Record<string, string> = {}) =>
   callRoute(payslips as never, token, r.company, 'GET', undefined, `/api/payroll/runs/${runId}/payslips`, { id: runId, ...query });
 const audits = async (runId: string) => (await r.pool.query(
-  `SELECT user_id::text AS user_id, changes->'metadata' AS meta FROM audit_log
+  `SELECT user_id::text AS user_id, session_id::text AS session_id, changes->'metadata' AS meta FROM audit_log
     WHERE company_id = $1 AND entity_type = 'payroll_payslips' AND entity_id = $2 ORDER BY created_at`,
-  [r.company, runId])).rows as Array<{ user_id: string; meta: Record<string, string> }>;
+  [r.company, runId])).rows as Array<{ user_id: string; session_id: string | null; meta: Record<string, string> }>;
+const sessionOf = (token: string): string =>
+  String(JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString()).session_id);
 
 beforeAll(async () => {
   r = await rig('payslips');
@@ -104,6 +106,13 @@ describe('who may download', () => {
     expect((res.state.body as { error: { details: { reason: string } } }).error.details.reason).toBe('AGENT_FORBIDDEN');
   });
 
+  it('a cancelled run is 404, with no audit row (the history hides it too)', async () => {
+    const id = await run(2026, 5, false);
+    await r.pool.query(`UPDATE payroll_run_headers SET status = 'cancelled' WHERE id = $1`, [id]);
+    expect((await slip(r.tokens[r.admin]!, id, { employeeId: emp })).state.statusCode).toBe(404);
+    expect(await audits(id)).toEqual([]);
+  });
+
   it('an employee not on the run is 404', async () => {
     expect((await slip(r.tokens[r.admin]!, runs.feb!, { employeeId: crypto.randomUUID() })).state.statusCode).toBe(404);
   });
@@ -118,6 +127,17 @@ describe('Login-as', () => {
     const rows = await audits(runs.jan!);
     expect(rows).toHaveLength(before + 1);
     expect(rows.at(-1)!.meta).toMatchObject({ impersonated: 'true', employeeIds: emp });
+    // The admin behind the Login-as is recoverable: the row carries the session, and names the admin.
+    expect(rows.at(-1)!.session_id).toBe(sessionOf(token));
+    expect(rows.at(-1)!.meta.impersonatorUserId).toBe(r.approver);
+  });
+
+  it('a download in a person\'s own session records that session and no impersonator', async () => {
+    const before = (await audits(runs.jan!)).length;
+    expect((await slip(r.tokens[r.admin]!, runs.jan!, { employeeId: emp })).state.statusCode).toBe(200);
+    const row = (await audits(runs.jan!))[before]!;
+    expect(row.session_id).toBe(sessionOf(r.tokens[r.admin]!));
+    expect(row.meta).not.toHaveProperty('impersonatorUserId');
   });
 
   it('is refused the all-employees export: 403, and no audit row', async () => {
@@ -178,6 +198,15 @@ describe('what the PDF says', () => {
 });
 
 describe('year to date', () => {
+  it('bounds by period, which is one run: a second run header for the same company and period is refused (23505)', async () => {
+    // payslipYearToDate takes every final run up to AND INCLUDING this period; that is safe only while
+    // UNIQUE (company_id, period_year, period_month) on payroll_run_headers holds.
+    await expect(r.pool.query(
+      `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status) VALUES ($1, 2, 2026, 'calculated')`,
+      [r.company],
+    )).rejects.toMatchObject({ code: '23505' });
+  });
+
   it('on the February run equals the IRP5 year totals for the employee, to the cent', async () => {
     const irp5 = (await outsideRls(r.pool, r.company, () => getIrp5EmployeeTotals(r.company, 2026, { employeeId: emp }))).rows[0]!;
     const ytd = (await outsideRls(r.pool, r.company, () => getPayslips(r.company, runs.feb!, [emp]))).payslips[0]!.yearToDate;

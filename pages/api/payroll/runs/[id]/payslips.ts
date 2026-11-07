@@ -13,6 +13,8 @@
  * Every response is `Cache-Control: no-store`. The PDF is rendered in memory and sent;
  * nothing is written to disk. Every download writes one audit_log `export` row in the
  * request transaction, so it commits with the response (withAuth commits before flush).
+ * The row carries the session id and, under Login-as, the platform admin behind it.
+ * A cancelled run is 404, as the history hides it.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -22,7 +24,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { withNoStore } from '@/lib/auth/withNoStore';
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { currentSessionActor } from '@/lib/auth/impersonationSessions';
+import { currentSessionActor, impersonationPartiesOf } from '@/lib/auth/impersonationSessions';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit, getClientIp, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
 import { getPayslips, PayslipNotFound } from '@/modules/accounting/services/payroll/payslipModel';
@@ -63,13 +65,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.tooManyRequests(res, 'Too many payslip requests. Please try again shortly.');
   }
 
+  const sessionId = typeof user.claims.session_id === 'string' ? user.claims.session_id : null;
+  let impersonatorUserId: string | null = null;
+  if (actor === 'impersonation') {
+    const parties = sessionId ? await impersonationPartiesOf(sessionId) : null;
+    // currentSessionActor just found this session recorded; a vanished row is a failure, not an anonymous download.
+    if (!parties) throw new Error('Login-as session has no recorded admin');
+    impersonatorUserId = parties.actorUserId;
+  }
+
   try {
     const run = await getPayslips(companyId, runId, employeeId ? [employeeId] : undefined);
     const pdf = await buildPayslipPdf(run);
     await auditPayslipDownload({
       companyId, runId, employeeIds: run.payslips.map((p) => p.employeeId), final: run.final,
-      impersonated: actor === 'impersonation', disposition,
-      actor: { userId: user.id, userEmail: user.email, ip: getClientIp(req), userAgent: req.headers['user-agent'] },
+      impersonated: actor === 'impersonation', disposition, impersonatorUserId,
+      actor: { userId: user.id, userEmail: user.email, ip: getClientIp(req), userAgent: req.headers['user-agent'], sessionId },
     });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `${disposition}; filename="${payslipFilename(run, employeeId ? run.payslips[0]?.employeeNumber : undefined)}"`);

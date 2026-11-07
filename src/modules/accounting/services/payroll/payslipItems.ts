@@ -10,8 +10,9 @@
  * breakdown flags existed).
  *
  * The stored breakdown carries no component type. It is read from the company's
- * catalogue by `componentId` (`componentTypes`); an item whose component is gone is
- * a deduction when its SARS code is a 40xx code or LOAN, else an earning.
+ * catalogue by `componentId` (`componentTypes`). An item whose type is not known
+ * (component gone from the catalogue) is never guessed: it is left to "Not itemised".
+ * An employer contribution is neither pay nor a deduction: it is listed as the employer's.
  */
 import type { ComponentBreakdownItem } from './payrollTypes';
 
@@ -40,6 +41,8 @@ export interface PayslipLines {
   deductions: PayslipItem[];
   /** Counted for tax, paid by the employee straight to the fund: not taken from pay. */
   paidDirectly: PayslipItem[];
+  /** The employer's own contributions named in the breakdown: not in gross, not deducted. */
+  employerContributions: PayslipItem[];
   grossPay: number;
   paye: number;
   uifEmployee: number;
@@ -58,7 +61,7 @@ export const PAID_DIRECTLY_NOTE = 'Paid by you directly; counted for tax';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
-function readBreakdown(raw: unknown): ComponentBreakdownItem[] {
+export function readBreakdown(raw: unknown): ComponentBreakdownItem[] {
   const value = typeof raw === 'string' ? parse(raw) : raw;
   return Array.isArray(value) ? (value as ComponentBreakdownItem[]).filter((i) => i && typeof i === 'object') : [];
 }
@@ -72,12 +75,6 @@ function parse(raw: string): unknown {
   }
 }
 
-function isDeduction(item: ComponentBreakdownItem, componentTypes: ReadonlyMap<string, string>): boolean {
-  const type = componentTypes.get(String(item.componentId ?? ''));
-  if (type) return type === 'deduction';
-  const code = String(item.sarsSourceCode ?? '').trim();
-  return code === 'LOAN' || code.startsWith('40');
-}
 
 const itemOf = (i: ComponentBreakdownItem): PayslipItem => ({
   label: String(i.componentName ?? '').trim() || 'Unnamed item',
@@ -92,11 +89,15 @@ export function itemisePayslip(line: StoredPayslipLine, componentTypes: Readonly
   const benefits: PayslipItem[] = [];
   const deductions: PayslipItem[] = [];
   const paidDirectly: PayslipItem[] = [];
+  const employerContributions: PayslipItem[] = [];
   for (const raw of readBreakdown(line.breakdown)) {
     const item = itemOf(raw);
     if (item.amount === 0) continue;
-    if (isDeduction(raw, componentTypes)) (raw.paidOutsidePayroll === true ? paidDirectly : deductions).push(item);
-    else (raw.isNonCash === true ? benefits : earnings).push(item);
+    const type = componentTypes.get(String(raw.componentId ?? ''));
+    if (type === 'deduction') (raw.paidOutsidePayroll === true ? paidDirectly : deductions).push(item);
+    else if (type === 'earning') (raw.isNonCash === true ? benefits : earnings).push(item);
+    else if (type === 'employer_contribution') employerContributions.push(item);
+    // Unknown type: not guessed. Its amount stays in the stored totals and shows as "Not itemised".
   }
 
   const grossPay = round2(line.grossPay);
@@ -107,9 +108,25 @@ export function itemisePayslip(line: StoredPayslipLine, componentTypes: Readonly
   if (deductionGap !== 0) deductions.push({ label: NOT_ITEMISED, code: '', amount: deductionGap });
 
   return {
-    earnings, benefits, deductions, paidDirectly,
+    earnings, benefits, deductions, paidDirectly, employerContributions,
     grossPay, paye: round2(line.paye), uifEmployee: round2(line.uifEmployee), otherDeductions,
     netPay: round2(line.netPay), uifEmployer: round2(line.uifEmployer), sdl: round2(line.sdl),
     notItemised: earningGap !== 0 || deductionGap !== 0,
   };
+}
+
+const NOTE_MISSING = 'Not itemised: part of a stored total is not broken down into items on the stored pay line '
+  + '(for example, it was calculated before items were recorded, or an item\'s component is no longer in the catalogue).';
+const NOTE_EXCEEDS = 'Not itemised (negative): the items on the stored pay line add up to more than the stored total '
+  + '(for example, net pay was limited to nil when deductions exceeded pay), so the difference is shown as a negative amount.';
+
+/** The slip's footnote for its "Not itemised" lines, worded by cause; null when there are none. */
+export function notItemisedNote(slip: Pick<PayslipLines, 'earnings' | 'deductions' | 'notItemised'>): string | null {
+  if (!slip.notItemised) return null;
+  const gaps = [...slip.earnings, ...slip.deductions].filter((i) => i.label === NOT_ITEMISED && i.code === '');
+  const parts = [
+    gaps.some((g) => g.amount > 0) ? NOTE_MISSING : null,
+    gaps.some((g) => g.amount < 0) ? NOTE_EXCEEDS : null,
+  ].filter((p): p is string => p !== null);
+  return `${parts.join(' ')} The totals are the stored figures.`;
 }

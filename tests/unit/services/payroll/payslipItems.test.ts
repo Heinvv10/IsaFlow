@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  itemisePayslip, NOT_ITEMISED, type StoredPayslipLine,
+  itemisePayslip, NOT_ITEMISED, notItemisedNote, type StoredPayslipLine,
 } from '@/modules/accounting/services/payroll/payslipItems';
 
 const TYPES = new Map([
@@ -78,15 +78,60 @@ describe('itemisePayslip', () => {
     expect(slip.notItemised).toBe(false);
   });
 
-  it('an item whose component is gone from the catalogue is classed by its SARS code', () => {
-    const slip = itemisePayslip(LINE, new Map());
+  it('an item whose type is not known (component gone from the catalogue) is never guessed: it is "Not itemised"', () => {
+    const slip = itemisePayslip(LINE, new Map([['c-salary', 'earning']])); // overtime, medical and pension are unknown
+    expect(slip.earnings).toEqual([
+      { label: 'Basic Salary', code: '3601', amount: 30000 },
+      { label: NOT_ITEMISED, code: '', amount: 1234.5 },
+    ]);
+    expect(slip.deductions).toEqual([{ label: NOT_ITEMISED, code: '', amount: 3800 }]);
+    expect(slip.notItemised).toBe(true);
+  });
+
+  it('a breakdown stored as a JSON string is itemised by the same catalogue types', () => {
+    const slip = itemisePayslip({ ...LINE, breakdown: JSON.stringify(LINE.breakdown) }, TYPES);
+    expect(slip.earnings.map((e) => e.code)).toEqual(['3601', '3607']);
     expect(slip.deductions.map((d) => d.code)).toEqual(['4005', '4001']);
-    expect(slip.earnings.map((d) => d.code)).toEqual(['3601', '3607']);
+    expect(slip.notItemised).toBe(false);
+  });
+
+  it('an employer contribution in the breakdown is neither an earning nor a deduction: it is listed as the employer\'s', () => {
+    const types = new Map([...TYPES, ['c-erpf', 'employer_contribution']]);
+    const erpf = item('c-erpf', 'Employer Pension', '4472', 1500);
+    const slip = itemisePayslip({ ...LINE, breakdown: [...(LINE.breakdown as object[]), erpf] }, types);
+    expect(slip.earnings.map((e) => e.label)).toEqual(['Basic Salary', 'Overtime']);
+    expect(slip.deductions.map((d) => d.label)).toEqual(['Medical Aid', 'Pension Fund']);
+    expect(slip.employerContributions).toEqual([{ label: 'Employer Pension', code: '4472', amount: 1500 }]);
+    expect(slip.notItemised).toBe(false);
   });
 
   it('an unreadable breakdown itemises nothing: every amount is "Not itemised"', () => {
     const slip = itemisePayslip({ ...LINE, breakdown: '{not json' }, TYPES);
     expect(slip.earnings).toEqual([{ label: NOT_ITEMISED, code: '', amount: 31234.5 }]);
     expect(slip.deductions).toEqual([{ label: NOT_ITEMISED, code: '', amount: 3800 }]);
+  });
+});
+
+describe('notItemisedNote: worded by cause', () => {
+  it('none when everything is itemised', () => {
+    expect(notItemisedNote(itemisePayslip(LINE, TYPES))).toBeNull();
+  });
+
+  it('a positive gap: part of a stored total is not broken down into items', () => {
+    const note = notItemisedNote(itemisePayslip(LINE, new Map([['c-salary', 'earning']])));
+    expect(note).toMatch(/not broken down into items/);
+    expect(note).not.toMatch(/more than the stored total/);
+  });
+
+  it('a negative gap (net floored at nil): the items add up to more than the stored total, not "calculated before items"', () => {
+    const types = new Map([['sal', 'earning'], ['g', 'deduction']]);
+    const slip = itemisePayslip({
+      grossPay: 5000, paye: 0, uifEmployee: 50, uifEmployer: 50, sdl: 0, netPay: 0,
+      breakdown: [item('sal', 'Salary', '3601', 5000), item('g', 'Garnishee', '4102', 6000)],
+    }, types);
+    expect(slip.deductions.at(-1)).toEqual({ label: NOT_ITEMISED, code: '', amount: -1050 });
+    const note = notItemisedNote(slip);
+    expect(note).toMatch(/more than the stored total/);
+    expect(note).not.toMatch(/calculated before items were recorded|not broken down/);
   });
 });
