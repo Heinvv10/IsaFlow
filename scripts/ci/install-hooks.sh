@@ -18,7 +18,12 @@ for hook in pre-push pre-commit; do
     cp "$dest" "$backup"
     echo "backed up existing $dest -> $backup"
   fi
-  cp "$src" "$dest"
-  chmod +x "$dest"
+  # Never rewrite the hook in place: bash reads a script as it runs it, so a push whose hook is still in its `bun run ci`
+  # would read the new file from the old offset and fail (every `bun install` runs this, as `prepare`). A new file
+  # renamed over the old one is atomic: a running hook keeps reading its own copy.
+  tmp="$dest.tmp.$$"
+  cp "$src" "$tmp"
+  chmod +x "$tmp"
+  mv -f "$tmp" "$dest"
   echo "installed: $dest"
 done
