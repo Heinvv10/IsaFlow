@@ -38,9 +38,11 @@ const others = (u: DocumentUse): number => u.total - u.own;
  */
 export function judgeBankDocuments(uses: DocumentUse[], claimedToDate: number, hasUpload = false): BankDocumentsVerdict | null {
   const withVat = uses.filter(readable);
-  // A credit note (negative VAT) on a claim's bank line is no tax invoice for it: warn, as for an unreadable one.
-  const unreadable = uses.some((u) => u.vat === 'unreadable' || (typeof u.vat === 'number' && u.vat < -CENT));
-  if (withVat.length === 0) return unreadable ? { kind: 'unreadable' } : null;
+  const unreadable = uses.some((u) => u.vat === 'unreadable');
+  // A credit note (negative VAT) alone on a claim's bank line is no tax invoice for it: warn. Beside a readable
+  // slip it changes nothing — the slip is judged.
+  const creditNote = uses.some((u) => typeof u.vat === 'number' && u.vat < -CENT);
+  if (withVat.length === 0) return unreadable || creditNote ? { kind: 'unreadable' } : null;
   const available = withVat.reduce((s, u) => s + u.vat - others(u), 0);
   if (claimedToDate <= available + CENT) return { kind: 'supported' };
   const documentVat = withVat.reduce((s, u) => s + u.vat, 0);
