@@ -128,3 +128,25 @@ describe('whether a label line still holds a piece is decided on a width that is
     expect(found, 'no label at the unit boundary: the test is vacuous').toBeGreaterThan(0);
   });
 });
+
+describe('a layout is kept by the columns that print', () => {
+  // Both tables declare Actual, Prior and Budget; one has no Prior figure on any row, the other no Budget, and the
+  // cells that print are the same text. A key on the declared columns and the cell texts makes them one table, and the
+  // second gets the first's headings and widths (a blind review of #1187, M1).
+  const fig = (value: number, source: string) => ({ value, format: 'money' as const, source });
+  const table = (second: 'prior' | 'budget'): PackTable => ({
+    scale: SCALE,
+    columns: ['actual', 'prior', 'budget'],
+    rows: [1, 2, 3].map((n) => ({ label: `Line ${n}`, level: 0, role: 'line' as const, figures: { actual: fig(n * 1000, `a${n}`), [second]: fig(n * 1000, `${second}${n}`) } })),
+  });
+
+  it('two tables whose surviving columns differ do not share a layout, though their cells print the same', () => {
+    const withBudget = tableLayout(table('budget'), SCALE, 'portrait');
+    const withPrior = tableLayout(table('prior'), SCALE, 'portrait');
+    expect(withPrior).not.toBe(withBudget);
+    expect(withPrior.columnsPx).not.toEqual(withBudget.columnsPx);
+    // And each is its own table's, asked again.
+    expect(tableLayout(table('budget'), SCALE, 'portrait')).toBe(withBudget);
+    expect(tableLayout(table('prior'), SCALE, 'portrait')).toBe(withPrior);
+  });
+});

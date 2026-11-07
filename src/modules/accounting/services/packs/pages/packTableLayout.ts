@@ -23,7 +23,7 @@ import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
 import {
   CELL_SIDE_PX, cellPx, headingLinePx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT,
-  tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT,
+  tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT, type FigureCell,
 } from './packFigureFit';
 import { ptToPx, textPx } from './packFigureWidth';
 import { AS_CHROMIUM_SETS, NEVER_SHORT } from './packGlyphRuler';
@@ -63,7 +63,8 @@ export interface TableLayout {
 export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number = WRAP_GUARD[orientation]): TableLayout {
   // Composing a page asks for the same table's layout at every step of `fitPageToBox`; it is a function of what the
   // table prints, so it is kept by that (never by identity: a table edited in place is another table).
-  const key = layoutKey(table, scale, orientation, guardPx);
+  const inputs = layoutInputs(table, scale);
+  const key = createHash('sha1').update(JSON.stringify([scale, orientation, guardPx, inputs])).digest('hex');
   const known = LAYOUTS.get(key);
   if (known !== undefined) {
     // Least recently used goes first: a hit moves to the back.
@@ -72,7 +73,7 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
     return known;
   }
   const fitPx = tableFit(table, scale, orientation).px ?? Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
-  const { columnsPx, labelLines, headingLines } = layoutAt(table, scale, orientation, guardPx, fitPx);
+  const { columnsPx, labelLines, headingLines } = layoutAt(inputs, orientation, guardPx, fitPx);
   const layout: TableLayout = Object.freeze({ columnsPx: Object.freeze(columnsPx), labelLines: Object.freeze(labelLines), headingLines });
   if (LAYOUTS.size >= LAYOUTS_MAX) LAYOUTS.delete(LAYOUTS.keys().next().value!);
   LAYOUTS.set(key, layout);
@@ -86,17 +87,28 @@ export const LAYOUTS_MAX = 200;
 export const keptLayouts = (): number => LAYOUTS.size;
 
 /**
- * Everything a layout reads, hashed: the columns, each row's label, level, role, footnote and the text of every cell it
- * prints (`tableColumnCells`, which is what the figures become), the heading notes, the scale, orientation and guard.
- * A hash, so a kept layout costs its key's 40 characters, not the table's figures.
+ * EVERYTHING A LAYOUT READS, and the only thing `layoutAt` is given, so the key (a hash of it, with the scale, orientation
+ * and guard) cannot leave out something the layout depends on: the columns that print (a column with no figure on any
+ * row is dropped, and which ones survive changes the headings and widths), each column's heading note, each row's
+ * label, level, role and footnote, and the text of every cell (`tableColumnCells`, what the figures become). The figure
+ * size (`tableFit`) is a function of these and the orientation. A hash, so a kept layout costs 40 characters, not the
+ * table's figures.
  */
-function layoutKey(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number): string {
-  const read = {
-    columns: table.columns, notes: (table.columnNotes ?? []).map((n) => [n.column, n.footnote]),
-    rows: table.rows.map((r) => [r.label, r.level, r.role, r.footnote ?? null]),
+interface LayoutInputs {
+  columns: PackTableColumnKey[];
+  headingNotes: Array<number | null>;
+  rows: Array<{ label: string; level: number; role: PackTableRow['role']; footnote: number | null }>;
+  cells: FigureCell[][];
+}
+
+function layoutInputs(table: PackTable, scale: MoneyScale): LayoutInputs {
+  const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
+  return {
+    columns,
+    headingNotes: columns.map((col) => table.columnNotes?.find((n) => n.column === col)?.footnote ?? null),
+    rows: table.rows.map((r) => ({ label: r.label, level: r.level, role: r.role, footnote: r.footnote ?? null })),
     cells: tableColumnCells(table, scale),
   };
-  return createHash('sha1').update(`${scale}|${orientation}|${guardPx}|${JSON.stringify(read)}`).digest('hex');
 }
 
 /**
@@ -122,10 +134,9 @@ function shareOut(mins: readonly number[], maxs: readonly number[], sheet: numbe
   });
 }
 
-function layoutAt(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number, fitPx: number): TableLayout {
-  const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
-  const cells = tableColumnCells(table, scale);
-  const labelBox = table.rows.map((row) => {
+function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: number, fitPx: number): TableLayout {
+  const { columns, cells } = inputs;
+  const labelBox = inputs.rows.map((row) => {
     const weight = ROW_WEIGHT[row.role];
     const parts = pieces(row.label);
     const line = (text: string, hyphen: boolean): number => textPx(text, LABEL_FONT_PX, weight, hyphen, NEVER_SHORT);
@@ -141,7 +152,7 @@ function layoutAt(table: PackTable, scale: MoneyScale, orientation: PageOrientat
   const labelMax = Math.max(0, ...labelBox.map((b) => b.max));
   const data = columns.map((col, i) => {
     const figures = Math.max(0, ...cells[i]!.map((cell) => cellPx(cell, fitPx, AS_CHROMIUM_SETS)));
-    const footnote = table.columnNotes?.find((n) => n.column === col)?.footnote;
+    const footnote = inputs.headingNotes[i] ?? undefined;
     const marker = headingMarkPx(footnote, AS_CHROMIUM_SETS);
     const label = PACK_TABLE_COLUMN_LABEL[col];
     return {
