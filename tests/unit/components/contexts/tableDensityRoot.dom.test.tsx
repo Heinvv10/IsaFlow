@@ -3,7 +3,7 @@
  * styles/globals.css reaches every table except the exempt ones. Selector semantics are checked
  * with the browser's own `matches` (jsdom), against the real rule text from globals.css.
  */
-import { describe, it, expect, afterEach, beforeAll } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { act, render, screen } from '@testing-library/react';
 import { TableDensityProvider } from '@/contexts/TableDensityContext';
@@ -100,6 +100,15 @@ describe('no flash on hydration', () => {
     localStorage.setItem('isaflow.tableDensity', 'compact');
     runScript();
     expect(document.documentElement.dataset.density).toBe('compact');
+  });
+
+  it('density-init.js leaves a readable mark when storage throws', () => {
+    const spy = vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => { throw new Error('blocked'); });
+    expect(() => runScript()).not.toThrow();
+    spy.mockRestore();
+    expect(document.documentElement.dataset.densityInit).toBe('storage-blocked');
+    expect(document.documentElement.dataset.density).toBeUndefined();
+    delete document.documentElement.dataset.densityInit;
   });
 
   it('the provider never overwrites the pre-paint mark with its comfortable default', () => {

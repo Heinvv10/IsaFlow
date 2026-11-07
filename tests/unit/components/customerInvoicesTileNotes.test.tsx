@@ -54,6 +54,13 @@ describe('Outstanding tile and foreign currency', () => {
     render(<CustomerInvoicesPage />);
     expect(await screen.findByText(/2 foreign-currency invoices counted at face value, not converted/)).toBeTruthy();
   });
+  it('puts the same note on the Overdue tile when there is an overdue figure', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { invoices: [], total: 0, foreignOpenCount: 1, arSummary: { outstanding: 5000, overdueCount: 2, overdueAmount: 900, onDeletedAmount: 0 } } }), { status: 200 }),
+    );
+    render(<CustomerInvoicesPage />);
+    expect(await screen.findByText(/past due date\. 1 foreign-currency invoice counted at face value, not converted/)).toBeTruthy();
+  });
   it('adds no note when every open invoice is Rand', async () => {
     serveFx(0);
     render(<CustomerInvoicesPage />);

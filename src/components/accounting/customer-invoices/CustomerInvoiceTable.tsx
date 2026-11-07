@@ -45,8 +45,10 @@ interface Props {
 }
 
 /** An invoice in a foreign currency shows in that currency, never as Rand. */
-const money = (inv: CustomerInvoiceRow, n: number) =>
-  inv.currency_code && inv.currency_code.trim().toUpperCase() !== 'ZAR' ? formatCurrencyAmount(n, inv.currency_code) : formatCurrency(n);
+const money = (inv: CustomerInvoiceRow, n: number) => {
+  const code = inv.currency_code?.trim().toUpperCase();
+  return code && code !== 'ZAR' ? formatCurrencyAmount(n, code) : formatCurrency(n);
+};
 const invoicePath = (id: string) => `/accounting/customer-invoices/${id}`;
 const onLink = (e: MouseEvent) => (e.target as Element).closest('a') !== null;
 const withModifier = (e: MouseEvent) => e.ctrlKey || e.metaKey || e.shiftKey;

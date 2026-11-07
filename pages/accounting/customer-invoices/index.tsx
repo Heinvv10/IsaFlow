@@ -109,7 +109,7 @@ export default function CustomerInvoicesPage() {
               <KpiStrip items={[
                 { label: 'Invoices (this filter)', value: total, icon: FileText, tone: 'info' },
                 { label: 'Outstanding (all invoices)', value: fmt(outstanding), sub: [onDeletedAmount > 0 ? `Includes ${fmt(onDeletedAmount)} on deleted invoices with unreversed journals` : 'Open balance, company-wide', fxNote].filter(Boolean).join('. '), icon: CheckCircle, tone: 'warning' },
-                { label: 'Overdue (all invoices)', value: overdueCount, sub: overdueCount === 0 ? 'All on time' : `${fmt(overdueAmount)} past due date`, icon: AlertTriangle, tone: overdueCount > 0 ? 'danger' : 'success' },
+                { label: 'Overdue (all invoices)', value: overdueCount, sub: overdueCount === 0 ? 'All on time' : [`${fmt(overdueAmount)} past due date`, fxNote].filter(Boolean).join('. '), icon: AlertTriangle, tone: overdueCount > 0 ? 'danger' : 'success' },
               ]} />
             );
           })()}

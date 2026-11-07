@@ -8,6 +8,7 @@
       document.documentElement.setAttribute('data-density', 'compact');
     }
   } catch (err) {
-    // Storage blocked: the page stays comfortable, as the provider's default.
+    // Storage blocked: the page stays comfortable, as the provider's default. Leave a mark a test and DevTools can read.
+    document.documentElement.setAttribute('data-density-init', 'storage-blocked');
   }
 })();
