@@ -14,7 +14,10 @@ import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
+import { GUTTER_MM } from '@/modules/accounting/services/packs/pages/packDisclosureHeight';
+import type { KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { kpiBlockMm, kpiColumnsPx, kpiTileMm } from '@/modules/accounting/services/packs/pages/packKpiLayout';
+import { WRAP_GUARD_PX } from '@/modules/accounting/services/packs/pages/packLineWrap';
 import { input, type Shape } from '../services/packs/fixtures/packGridInputs';
 import { measureKpiBlocks } from './measureKpi';
 import { launchPrintChromium } from './printChromium';
@@ -28,8 +31,9 @@ const SLACK = 0.02;
 /**
  * The most the model may read over the print. Its only excess is the leadings rounded up to the hundredth (12pt is
  * 4.233mm, charged 4.24; 25pt 8.819, charged 8.83) and the sparkline's 0.01mm, a few hundredths a row: over all
- * 11,520 packs of the adversarial grid the block read 0.018 to 0.117mm over Chromium's. A line or a gap too many is
- * 4mm or 1mm; a leading off by 0.05mm is 0.1mm on a two-row block. Both go red here.
+ * 11,520 packs of the adversarial grid, at production's width and glyphs, the block read 0.018 to 0.118mm over
+ * Chromium's on 11,512 and never short. A line or a gap too many is 4mm or 1mm; a leading off by 0.05mm is 0.1mm on a
+ * two-row block. Both go red here.
  */
 const MOST_OVER = 0.15;
 const SHAPES: Shape[] = [];
@@ -37,7 +41,26 @@ for (const k of [1, 30, 1000, 30000, 300000, 3e7, 2.7e8]) for (const negative of
   for (const sg of [[1, 1, 1, 1], [-1, -1, 1, 1], [1, -1, -1, 1]]) for (const tr of ['demo', 'none'] as const)
     for (const [budget, prior] of [[true, true], [false, false]] as const) SHAPES.push({ k, negative, loss, plug: 0.05, sg, budget, prior, tr });
 
-interface Tally { wrong: string[]; blocks: number; shortest: number; tallest: number; squeezed: number }
+/**
+ * THE ONE WAY THE MODEL MAY READ A LINE TOO MANY. `linesFor` breaks a line that fits with less than `WRAP_GUARD_PX` to
+ * spare, and every width it sums is never short of Chromium's (a figure at most 1/32px over, so a column the frozen
+ * figure columns leave is up to 3/32px narrower than Chromium's): a line inside that band is charged as two. A block
+ * over by more than `MOST_OVER` passes only if the same model, its columns that band wider, is back within it.
+ */
+const BAND_PX = WRAP_GUARD_PX + 0.25;
+/** At most this share of the blocks may sit in the band: 8 of the grid's 11,520 packs (one set of tiles) read 3.1mm over. */
+const MOST_IN_BAND = 0.01;
+
+/** The block's height with every column `extra` px wider. */
+function blockAtMm(tiles: readonly KpiTile[], columns: readonly number[], extra: number): number {
+  let total = 0;
+  for (let i = 0; i < tiles.length; i += 4) {
+    total += (i === 0 ? 0 : GUTTER_MM) + Math.max(0, ...tiles.slice(i, i + 4).map((tile, j) => kpiTileMm(tile, columns[j]! + extra)));
+  }
+  return total;
+}
+
+interface Tally { wrong: string[]; blocks: number; shortest: number; tallest: number; squeezed: number; banded: string[] }
 
 /** Every KPI block of `doc` against Chromium's: columns, rows and the block. */
 async function check(doc: PackPagesDocument, label: string, t: Tally): Promise<void> {
@@ -56,15 +79,16 @@ async function check(doc: PackPagesDocument, label: string, t: Tally): Promise<v
       const model = kpiBlockMm(block.tiles, scale, page.orientation);
       const gap = model - r.heightMm;
       t.shortest = Math.min(t.shortest, gap);
-      t.tallest = Math.max(t.tallest, gap);
-      if (gap < -SLACK || gap > MOST_OVER) t.wrong.push(`${where} block: model ${model.toFixed(2)} vs ${r.heightMm.toFixed(2)}`);
+      const banded = gap > MOST_OVER && blockAtMm(block.tiles, columns, BAND_PX) - r.heightMm <= MOST_OVER;
+      if (banded) t.banded.push(where); else t.tallest = Math.max(t.tallest, gap);
+      if (gap < -SLACK || (gap > MOST_OVER && !banded)) t.wrong.push(`${where} block: model ${model.toFixed(2)} vs ${r.heightMm.toFixed(2)}`);
       const rows = r.rowsMm.map((mm, row) => ({ mm, model: Math.max(...block.tiles.slice(row * 4, row * 4 + 4).map((tile, j) => kpiTileMm(tile, columns[j]!))) }));
       rows.forEach((row, n) => { if (row.model < row.mm - SLACK) t.wrong.push(`${where} row ${n}: model ${row.model.toFixed(2)} vs ${row.mm.toFixed(2)}`); });
     });
   }
 }
 
-const tally = (): Tally => ({ wrong: [], blocks: 0, shortest: Infinity, tallest: -Infinity, squeezed: 0 });
+const tally = (): Tally => ({ wrong: [], blocks: 0, shortest: Infinity, tallest: -Infinity, squeezed: 0, banded: [] });
 const build = (shape: Shape): PackPagesDocument | null => {
   try { return buildBoardPackPages(input(shape)); } catch (e) { if (e instanceof PackRefusal) return null; throw e; }
 };
@@ -84,7 +108,8 @@ describe('the KPI block of a stratified sample of packs', () => {
     expect(t.blocks).toBeGreaterThan(200);
     expect(t.squeezed, 'the sample must hold a squeezed column (a reason or a label holding its column open)').toBeGreaterThan(5);
     expect(t.wrong.slice(0, 12)).toEqual([]);
-    process.stdout.write(`KPIGAP portrait ${t.shortest.toFixed(3)} ${t.tallest.toFixed(3)} blocks=${t.blocks} squeezed=${t.squeezed}\n`);
+    expect(t.banded.length, `a line in the wrap guard's band: ${t.banded.join('; ')}`).toBeLessThanOrEqual(MOST_IN_BAND * t.blocks);
+    process.stdout.write(`KPIGAP portrait ${t.shortest.toFixed(3)} ${t.tallest.toFixed(3)} blocks=${t.blocks} squeezed=${t.squeezed} banded=${t.banded.length}\n`);
   }, 1_800_000);
 
   it(`the same packs with the page turned: landscape columns and heights, never short, within ${MOST_OVER}mm`, async () => {
@@ -96,14 +121,16 @@ describe('the KPI block of a stratified sample of packs', () => {
     }
     expect(t.blocks).toBeGreaterThan(200);
     expect(t.wrong.slice(0, 12)).toEqual([]);
-    process.stdout.write(`KPIGAP landscape ${t.shortest.toFixed(3)} ${t.tallest.toFixed(3)} blocks=${t.blocks} squeezed=${t.squeezed}\n`);
+    expect(t.banded.length, `a line in the wrap guard's band: ${t.banded.join('; ')}`).toBeLessThanOrEqual(MOST_IN_BAND * t.blocks);
+    process.stdout.write(`KPIGAP landscape ${t.shortest.toFixed(3)} ${t.tallest.toFixed(3)} blocks=${t.blocks} squeezed=${t.squeezed} banded=${t.banded.length}\n`);
   }, 1_800_000);
 });
 
-describe('the adversary\'s two packs (#1196 round 1), at production\'s width', () => {
+describe('packs on an edge (#1196: the adversary\'s two, and the grid\'s delta lines), at production\'s width', () => {
   it.each<[string, Shape]>([
     ['a reason in column 2 the 657.6px model wrapped a line more than the print (read 5mm tall)', { tr: 'none', budget: true, prior: true, negative: true, loss: true, k: 30000, plug: 0.05, sg: [-1, -1, 1, -1] }],
     ['a pack the 657.6px model read 0.07mm short of the print', { tr: 'demo', budget: false, prior: false, negative: true, loss: false, k: 30000, plug: 0.2, sg: [-1, 1, -1, -1] }],
+    ['a delta line 0.22px inside its column (summed piece by piece it took a second line: 168 grid packs read 4.3mm tall)', { tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1, plug: 0.2, sg: [-1, 1, -1, 1] }],
   ])('%s', async (unused, shape) => {
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const t = tally();

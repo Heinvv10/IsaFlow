@@ -20,7 +20,8 @@ import {
   DELTA_CUE_PX, deltaText, kpiColumnMinPx, kpiFit, KPI_GAP_PX, KPI_FIGURE_MAX_PT, labelMarkPx, MM_PX, type KpiTile,
 } from './packFigureFit';
 import { ptToPx, textPx } from './packFigureWidth';
-import { linesFor, runsOf } from './packLineWrap';
+import { pieces } from './packLineBreaks';
+import { WRAP_GUARD_PX } from './packLineWrap';
 import { reasonPx } from './packReasonWidth';
 import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
 
@@ -35,7 +36,6 @@ const TILE_GAP_MM = 1;
 /** `.pack-kpi-sparkline svg { max-height: 33mm }`. */
 const SPARKLINE_MAX_MM = 33;
 const TEXT_PX = 12;
-const REASON_SPACE_PX = 3;
 
 /** The sparkline's height over its width, from the width and height the chart renderer wrote on it. */
 function sparklineAspect(svg: string): number {
@@ -60,23 +60,38 @@ export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orien
   return mins.map((m, i) => (frozen[i] ? m : share));
 }
 
+/**
+ * How many lines Chromium sets `text` in, `avail` px wide: a greedy fill over the places it may break (`pieces`), each
+ * candidate line measured as ONE string. Chromium sums a line's advances once; summed piece by piece every piece's
+ * rounding adds up, and a delta line read 0.22 to 0.27px wider than Chromium set it and took a second line the print
+ * does not (168 of the grid's 11,520 packs, 4.3mm over). `lead` is set before the text on its first line (the delta's
+ * arrow cue and its space) and may stand alone on it; `mark` is a footnote mark that stays with the last piece.
+ */
+function lineCount(text: string, widthOf: (line: string) => number, avail: number, lead = 0, mark = 0): number {
+  const all = pieces(text);
+  let lines = 1;
+  let line = '';
+  let before = lead;
+  all.forEach((piece, i) => {
+    const candidate = line === '' ? piece.text : `${line}${piece.spaced ? ' ' : ''}${piece.text}`;
+    const w = before + widthOf(candidate) + (i === all.length - 1 ? mark : 0);
+    if ((line !== '' || before > 0) && w > avail - WRAP_GUARD_PX) { lines += 1; line = piece.text; before = 0; } else line = candidate;
+  });
+  return lines;
+}
+
+const plain = (line: string): number => textPx(line, TEXT_PX, 400);
+
 /** One tile's height in a column `columnPx` wide. */
 export function kpiTileMm(tile: KpiTile, columnPx: number): number {
-  const label = linesFor(runsOf(tile.label, (run) => textPx(run, TEXT_PX, 400), textPx(' ', TEXT_PX, 400)),
-    labelMarkPx(tile.trendFootnote), columnPx) * LABEL_LINE_MM;
-  const reason = tile.figure.unavailable ?? '';
+  const label = lineCount(tile.label, plain, columnPx, 0, labelMarkPx(tile.trendFootnote)) * LABEL_LINE_MM;
   const figure = tile.figure.value === null
-    ? linesFor(runsOf(reason, reasonPx, REASON_SPACE_PX), 0, columnPx) * REASON_LINE_MM
+    ? lineCount(tile.figure.unavailable ?? '', reasonPx, columnPx) * REASON_LINE_MM
     : FIGURE_LINE_MM;
   const parts = [label, figure];
   if (tile.delta !== null) {
-    // The arrow cue is a run of its own, a space before the words (`</span>{' '}`).
-    const space = textPx(' ', TEXT_PX, 400);
-    const words = runsOf(deltaText(tile), (run) => textPx(run, TEXT_PX, 400), space);
-    const first = words[0];
-    if (first !== undefined) words[0] = { ...first, gap: space };
-    const runs = [{ w: DELTA_CUE_PX, gap: 0 }, ...words];
-    parts.push(linesFor(runs, 0, columnPx) * LABEL_LINE_MM + DELTA_CUE_MM);
+    // The arrow cue is a run of its own, a space before the words (`</span>{' '}`): a break may follow it.
+    parts.push(lineCount(deltaText(tile), plain, columnPx, DELTA_CUE_PX + plain(' ')) * LABEL_LINE_MM + DELTA_CUE_MM);
   }
   if (tile.sparklineSvg !== null) {
     parts.push(Math.min(SPARKLINE_MAX_MM, (columnPx / MM_PX) * sparklineAspect(tile.sparklineSvg) + 0.01));
