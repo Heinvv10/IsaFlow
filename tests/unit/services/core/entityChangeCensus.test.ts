@@ -135,8 +135,8 @@ const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.s
   // 952 (wave 3 K1): widens the entity_type CHECK and entity_changes_read for payroll_bank_detail and attaches the
   // capture, ENABLE ALWAYS, to payroll_bank_details. The capture itself is unchanged, so 930's registry is too.
   '952_payroll_bank_details_tenant_history.sql',
-  // 961/962 (payment terms): new types in the CHECK (962: read policy, projection arm), narrow ENABLE ALWAYS captures only.
-  '961_company_default_terms_history.sql', '962_due_date_source_and_history.sql'];
+  // 961/962 (payment terms): new types in the CHECK (962: read policy, projection arm), narrow captures; 964 VALIDATEs that CHECK.
+  '961_company_default_terms_history.sql', '962_due_date_source_and_history.sql', '964_entity_changes_type_check_validate.sql'];
 /**
  * Matching only in their comments: 693 explains why ENABLE TRIGGER downgrades, 855 why it uses E'' under
  * standard_conforming_strings, 876 why TRUNCATE ... cascade.
