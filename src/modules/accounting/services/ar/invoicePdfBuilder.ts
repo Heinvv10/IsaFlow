@@ -6,6 +6,7 @@
 import { log } from '@/lib/logger';
 import { loadInvoicePdfModel, type InvoicePdfLine, type InvoicePdfModel } from './invoicePdfModel';
 import { allocateVatToLines } from './vatLineAllocation';
+import { PREVIEW_WATERMARK, renderPreviewNotes, renderPreviewWatermark, type InvoicePdfPreviewOptions } from './invoicePdfPreviewMarks';
 import {
   fmtZAR, fmtDate, COLORS,
   renderPageFooters,
@@ -17,9 +18,11 @@ import {
 
 /**
  * `given`: a model already loaded (the approval's, loaded once under its row lock and compared): rendered as it is,
- * never re-read. Without it the model is loaded now.
+ * never re-read. Without it the model is loaded now. `preview`: an unsaved invoice's model (invoicePreviewModel),
+ * printed with "PREVIEW: NOT SAVED" in the number's place and across every page, and the preview's notes.
  */
-export async function generateInvoicePdf(companyId: string, invoiceId: string, given?: InvoicePdfModel): Promise<Buffer> {
+export async function generateInvoicePdf(companyId: string, invoiceId: string, given?: InvoicePdfModel,
+  preview?: InvoicePdfPreviewOptions): Promise<Buffer> {
   // Everything printed comes from this model (invoicePdfModel): the shown digest is its hash, so a page that showed
   // this invoice and the PDF can never disagree on a field without the approval noticing.
   const model = given ?? await loadInvoicePdfModel(companyId, invoiceId);
@@ -47,7 +50,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
     doc, pageW: PAGE_W, margin: MARGIN, company: COMPANY, accent,
     docType: 'invoice',
     docTitle: 'TAX INVOICE',
-    docNumber: String(inv.invoice_number || ''),
+    docNumber: preview ? PREVIEW_WATERMARK : String(inv.invoice_number || ''),
     docDate: fmtDate(inv.invoice_date as string | Date | null | undefined),
     docSecondaryDate: inv.due_date ? fmtDate(inv.due_date as string | Date | null | undefined) : undefined,
     docSecondaryLabel: 'Due',
@@ -188,6 +191,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
   });
 
   y = getLastAutoTableY(doc, y + 40) + 8;
+  if (preview) y = renderPreviewNotes(doc, y, MARGIN, preview.notes);
 
   if (unattributed !== 0) {
     doc.setFont('helvetica', 'normal');
@@ -248,5 +252,6 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
   );
 
   renderPageFooters(doc, PAGE_W, PAGE_H, MARGIN);
+  if (preview) renderPreviewWatermark(doc, PAGE_W, PAGE_H);
   return Buffer.from(doc.output('arraybuffer'));
 }
