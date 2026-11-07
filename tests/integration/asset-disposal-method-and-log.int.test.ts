@@ -92,7 +92,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('asset dis
     expect(unposted).toEqual([]);
   }, 60000);
 
-  it.each([['abc'], [-5], [Number.NaN], ['Infinity'], ['']])('proceeds %j is a 400 and nothing is written', async (proceeds) => {
+  it.each([['abc'], [-5], [Number.NaN], ['Infinity'], [''], [[5]], ['0x10'], [1e20], [1e13]])('proceeds %j is a 400 and nothing is written', async (proceeds) => {
     const a = await asset(c);
     const j = async () => Number(((await sql`SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id = ${c.fx.companyId}::UUID`) as Row[])[0]!.n);
     const before = await j();

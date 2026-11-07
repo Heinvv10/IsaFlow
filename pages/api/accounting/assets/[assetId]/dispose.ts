@@ -38,10 +38,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (!disposalDate) return apiResponse.badRequest(res, 'disposalDate is required');
   // Proceeds before any write too: "abc" / NaN / a negative reached the journal and died there as "Entry is not balanced".
-  const proceedsNum = Number(proceeds);
-  if (proceeds === null || typeof proceeds === 'boolean' || (typeof proceeds === 'string' && String(proceeds).trim() === '')
-    || !Number.isFinite(proceedsNum) || proceedsNum < 0) {
-    return apiResponse.badRequest(res, 'proceeds must be a number of zero or more');
+  // Only a number or a plain decimal string: Number() would read [5] as 5, "0x10" as 16 and "" as 0. The ceiling is
+  // numeric(15,2) (asset_disposals.disposal_amount): 1e20 used to reach the INSERT and 500.
+  const proceedsNum = typeof proceeds === 'number' ? proceeds
+    : typeof proceeds === 'string' && /^\d+(\.\d+)?$/.test(proceeds.trim()) ? Number(proceeds.trim()) : NaN;
+  if (!Number.isFinite(proceedsNum) || proceedsNum < 0 || proceedsNum >= 1e13) {
+    return apiResponse.badRequest(res, 'proceeds must be a number from 0 up to 9,999,999,999,999.99');
   }
   // Validated before any write (a 4xx commits). assets.disposal_method and asset_disposals.disposal_method are the
   // columns carrying the app's DisposalMethod values; assets.disposal_type has a different CHECK (mig 361) and is
