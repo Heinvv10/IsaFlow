@@ -1,7 +1,7 @@
 /**
  * The SDL half of the year to date (payrollSdlYearToDate): sums over the lines the employer was LIABLE for, from the
  * figures each run stored (migration 957: sdl_applicable, sdl_leviable, sdl_exempt), and for a line from before it
- * the reading it was costed under (SDL on gross). SDL Act s3(4); SARS SDL-GEN-01-G01 Rev 5 s6 and s4(b).
+ * the reading it was costed under (SDL on gross). SDL Act s3(3); SARS SDL-GEN-01-G01 Rev 5 s6 and s4(b).
  */
 import { describe, it, expect } from 'vitest';
 import { sdlYearToDate, type SdlYearToDateLine } from '@/modules/accounting/services/payroll/payrollSdlYearToDate';
@@ -16,7 +16,7 @@ const legacy = (line: string, rebuilt: number, sdl: number, retirement: number |
   line, sdl, sdlApplicable: null, rebuiltApplicable: rebuilt, sdlLeviable: null, sdlExempt: null, retirement,
 });
 
-describe('sdlYearToDate (SDL Act s3(4); SDL-GEN-01-G01 Rev 5 s6; s4(b))', () => {
+describe('sdlYearToDate (SDL Act s3(3); SDL-GEN-01-G01 Rev 5 s6; s4(b))', () => {
   it('no lines: nothing to date', () => {
     expect(sdlYearToDate([])).toEqual({ sdlApplicable: 0, sdlLeviable: 0, sdlRetirementDeduction: 0, sdlDonationDeduction: 0 });
   });

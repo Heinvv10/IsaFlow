@@ -7,7 +7,7 @@
  *    income", the Seventh Schedule cash equivalent), so taxed exactly as the same amount of cash.
  *  - UIF: the component's own is_uif_applicable flag decides, as for any earning
  *    (setup-components creates the 3801 with it off).
- *  - SDL: leviable (SDL Act s3(4): the para 1 remuneration).
+ *  - SDL: leviable (SDL Act s3(3): the para 1 remuneration).
  *  - ETI: "monthly remuneration" is the para 1 remuneration, so the benefit counts.
  *  - Cash: not in gross pay and not paid in net pay.
  */
@@ -42,7 +42,7 @@ const line = (components: EmployeeComponent[], over: Partial<PayrollLineInput> =
   annualPayrollEstimate: 1_000_000, ...over,
 });
 
-describe('a non-cash 3801 benefit on a pay line [Fourth Schedule para 1; SDL Act s3(4)]', () => {
+describe('a non-cash 3801 benefit on a pay line [Fourth Schedule para 1; SDL Act s3(3)]', () => {
   const withBenefit = line([salary(10_000), benefit(1_000)]);
   const sameInCash = line([salary(11_000)]);
 
