@@ -123,7 +123,7 @@ export default function CashRegisterPage() {
                   <tbody className="divide-y divide-[var(--ff-border-primary)] text-[var(--ff-text-primary)]">
                     {reg.rows.map(row => (
                       <tr key={row.employeeId}>
-                        <td className="px-3 py-2 font-mono text-xs">{row.employeeNumber}</td>
+                        <td className="px-3 py-2 font-id text-xs">{row.employeeNumber}</td>
                         <td className="px-3 py-2">{row.firstName} {row.lastName}</td>
                         <td className="px-3 py-2 text-right font-medium">{zar(row.netPay)}</td>
                         {row.denominations.map(d => (
