@@ -5,7 +5,7 @@
 
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import type { OpeningBalanceCheck } from '@/modules/accounting/services/capture/supplierStatementMeasure';
+import type { OpeningBalanceCheck } from '@/modules/accounting/services/capture/supplierStatementOpeningBalance';
 
 export type MismatchReason = 'missing_in_isaflow' | 'missing_in_statement' | 'amount_diff' | 'date_diff' | null;
 

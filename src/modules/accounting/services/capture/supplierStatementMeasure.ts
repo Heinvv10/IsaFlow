@@ -6,7 +6,14 @@
  */
 
 import { getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
-import { openingBalanceAsAt, openingBalanceIndexes, type ClassifiableLine } from './supplierStatementOpeningBalance';
+import {
+  openingBalanceAsAt,
+  openingBalanceIndexes,
+  type ClassifiableLine,
+  type OpeningBalanceCheck,
+} from './supplierStatementOpeningBalance';
+
+export type { OpeningBalanceCheck };
 
 /**
  * Our side of the variance: what we owed this supplier ON THE STATEMENT DATE —
@@ -42,16 +49,6 @@ export function openingLineAmount(l: { debit: number; credit: number; runningBal
   return l.debit - l.credit;
 }
 
-export interface OpeningBalanceCheck {
-  /** The day IsaFlow's side is measured at: the day before the first dated transaction line (else the B/F's date). */
-  asAt: string;
-  /** The statement's brought-forward figure: its opening line(s), debit less credit (else running balance). */
-  statementAmount: number;
-  isaflowBalance: number;
-  /** statementAmount − isaflowBalance. */
-  variance: number;
-}
-
 /**
  * The opening-balance check of a statement's "Balance brought forward" line (Hein, 2026-11-07, D1): the
  * supplier's brought-forward figure against what IsaFlow owed the supplier the day before the first transaction,
@@ -65,7 +62,7 @@ export async function measureOpeningBalance(
 ): Promise<OpeningBalanceCheck | null> {
   const opening = openingBalanceIndexes(lines);
   if (opening.size === 0) return null;
-  const statementAmount = Math.round([...opening].reduce((s, i) => s + openingLineAmount(lines[i]!), 0) * 100) / 100;
+  const statementAmount = Math.round(openingLineAmount(lines[[...opening][0]!]!) * 100) / 100;
   const asAt = openingBalanceAsAt(lines, opening);
   const { isaflowBalance, variance } = await measureOurSide(companyId, supplierId, asAt, statementAmount);
   return { asAt, statementAmount, isaflowBalance, variance };

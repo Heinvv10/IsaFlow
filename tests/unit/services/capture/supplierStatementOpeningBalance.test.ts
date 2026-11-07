@@ -82,12 +82,22 @@ describe('openingBalanceIndexes', () => {
     ])).toEqual(new Set());
   });
 
-  it('with only worded dated lines, a later carry-forward does not qualify', () => {
-    expect(openingBalanceIndexes([
+  it('with only worded dated lines, a later carry-forward does not qualify and does not move the as-at', () => {
+    const lines = [
       { date: '2026-10-01', reference: null, description: 'Balance b/f' },
       { date: '2026-10-20', reference: null, description: 'Balance brought forward' },
       { date: null, reference: 'INV-1', description: 'Tax invoice' },
-    ])).toEqual(new Set([0]));
+    ];
+    expect(openingBalanceIndexes(lines)).toEqual(new Set([0]));
+    expect(openingBalanceAsAt(lines, openingBalanceIndexes(lines))).toBe('2026-09-30');
+  });
+
+  it('two worded lines on the earliest date, before any transaction, are ambiguous: neither qualifies', () => {
+    expect(openingBalanceIndexes([
+      { date: '2026-09-30', reference: null, description: 'Opening balance' },
+      { date: '2026-09-30', reference: null, description: 'Balance b/f' },
+      { date: '2026-10-05', reference: 'INV-1', description: 'Tax invoice' },
+    ])).toEqual(new Set());
   });
 
   it('a B/F dated the same day as the first transaction still qualifies', () => {

@@ -52,9 +52,9 @@ const COMPANY = randomUUID();
 const OTHER = randomUUID();
 const USER = randomUUID();
 const TAG = `SSOB${Math.floor(Math.random() * 1e8)}`;
-const KEYS = ['BF', 'LOOK', 'POS', 'GONE'] as const;
+const KEYS = ['BF', 'LOOK', 'POS', 'GONE', 'RUN'] as const;
 const docs = { BF: randomUUID(), LOOK: randomUUID(), POS: randomUUID(), GONE: randomUUID(), RUN: randomUUID() };
-const suppliers = { BF: '', LOOK: '', POS: '', GONE: '' };
+const suppliers = { BF: '', LOOK: '', POS: '', GONE: '', RUN: '' };
 let token = '';
 
 async function bill(supplier: string, n: string, gross: number, raised: string): Promise<string> {
@@ -91,8 +91,6 @@ describeIfDb('supplier statement: the balance brought forward is an opening-bala
       await sql`INSERT INTO captured_documents (id, company_id, file_name, file_type, document_type, uploaded_by)
                 VALUES (${docs[key]}::UUID, ${COMPANY}::UUID, ${TAG + key + '.pdf'}, 'pdf', 'supplier_statement', ${USER}::UUID)`;
     }
-    await sql`INSERT INTO captured_documents (id, company_id, file_name, file_type, document_type, uploaded_by)
-              VALUES (${docs.RUN}::UUID, ${COMPANY}::UUID, ${TAG + 'RUN.pdf'}, 'pdf', 'supplier_statement', ${USER}::UUID)`;
     token = await new SignJWT({ sub: USER, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -154,8 +152,9 @@ describeIfDb('supplier statement: the balance brought forward is an opening-bala
       { date: shift(-60), description: 'Balance b/f', runningBalance: 900 },
       { date: shift(-30), reference: TAG + '-RUN', description: 'Payment', credit: 0.01 },
     ] };
-    const created = await createAndRead(COMPANY, suppliers.BF, docs.RUN, USER);
-    // Supplier BF owes 900 (bill at -70) on the day before -30.
+    await bill(suppliers.RUN, '-RUNOLD', 900, shift(-70));
+    const created = await createAndRead(COMPANY, suppliers.RUN, docs.RUN, USER);
+    // Its own supplier owes 900 (bill at -70) on the day before -30.
     expect(created.openingBalance).toMatchObject({ statementAmount: 900, isaflowBalance: 900, variance: 0 });
   });
 
