@@ -258,7 +258,7 @@ export async function calculatePayrollRun(
           blockedLoans.get(employee.id)!.applications, blockedLoans.get(employee.id)!.rawNet,
           `${employee.firstName} ${employee.lastName}`.trim(),
         )] : []),
-        // Remuneration before taxable deductions feeds later months even when a deduction reduced this line to nil.
+        // Remuneration before deductions feeds later months even when a deduction reduced this line to nil.
         ...((line.periodicRemuneration > 0 || line.annualPaymentRemuneration > 0) && laterApproved.has(employee.id)
           ? [laterApproved.get(employee.id)!] : []),
         ...proRata.filter(r => r.employeeId === employee.id).map(proRataValidation),
