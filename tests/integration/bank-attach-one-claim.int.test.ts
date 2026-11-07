@@ -8,6 +8,8 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { sql } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostService';
@@ -178,5 +180,27 @@ describeIfDb('Attaching a captured document to a bank line: one tax invoice, one
 
   it('a slip with no other claim attaches to a VAT line as before', async () => {
     expect((await attach(await slip(), await line('vat'))).ok).toBe(true);
+  });
+
+  it('the one-off audit script finds a double use already in the data, and not a receipt matched to its own line', async () => {
+    const audit = readFileSync(join(process.cwd(), 'scripts/audit/vat-document-double-use.sql'), 'utf8');
+    const found = async () => ((await sql.unsafe(audit)) as Row[])
+      .filter((r) => String(r.company) === String(companyName)).map((r) => String(r.document_id));
+    const companyName = ((await sql`SELECT name FROM companies WHERE id = ${fx.companyId}::UUID`) as Row[])[0]!.name;
+    // A double written before the guard existed: J1 claims on the slip AND the slip sits on a VAT-claiming line.
+    const d = await slip();
+    await claim(d);
+    const txId = await line('vat');
+    await sql`UPDATE captured_documents SET matched_bank_tx_id = ${txId}::UUID WHERE id = ${d}::UUID`;
+    // A receipt matched to its own payment line is one claim.
+    const own = await slip();
+    const j = await claim(own, 'source');
+    const matched = await line('none');
+    await sql`UPDATE bank_transactions SET matched_journal_line_id = (SELECT id FROM gl_journal_lines
+      WHERE journal_entry_id = ${j}::UUID AND debit > 0 LIMIT 1), status = 'matched' WHERE id = ${matched}::UUID`;
+    await sql`UPDATE captured_documents SET matched_bank_tx_id = ${matched}::UUID WHERE id = ${own}::UUID`;
+    const ids = await found();
+    expect(ids).toContain(d);
+    expect(ids).not.toContain(own);
   });
 });
