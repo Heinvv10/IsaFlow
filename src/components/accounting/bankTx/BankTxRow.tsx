@@ -7,6 +7,7 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { Clock } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { Select, type SelectOption as KitOption } from '@/components/ui/Select';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import type { RowProps } from '../useBankTxKeyboardNav';
 import { isPendingFeedRow, PendingFeedBadge } from '../bank-transactions/pendingFeedRow';
@@ -14,6 +15,11 @@ import type { AllocType, BankTx, BankTxTableProps } from './bankTxTypes';
 import { BankTxSelectionCell, type BankTxDropdownState } from './BankTxSelectionCell';
 import { BankTxDimensionCells } from './BankTxDimensionCells';
 import { BankTxRowActions } from './BankTxRowActions';
+
+const ALLOC_TYPE_OPTIONS: KitOption[] = [
+  { value: 'account', label: 'Account' }, { value: 'supplier', label: 'Supplier' },
+  { value: 'customer', label: 'Customer' }, { value: 'transfer', label: 'Transfer' },
+];
 
 function fmtCurrency(n: number): string {
   return formatMoney(n);
@@ -157,17 +163,11 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
       {/* Type dropdown — Account / Supplier / Customer / Transfer */}
       <td className="py-2 px-2">
         {isNew ? (
-          <select
-            value={rowType}
-            onChange={e => onRowTypeChange(tx.id, e.target.value as AllocType)}
-            aria-label={`Allocation type, ${label}`}
-            className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] w-full"
-          >
-            <option value="account">Account</option>
-            <option value="supplier">Supplier</option>
-            <option value="customer">Customer</option>
-            <option value="transfer">Transfer</option>
-          </select>
+          <Select
+            label={`Allocation type, ${label}`} labelClassName="sr-only" size="sm"
+            options={ALLOC_TYPE_OPTIONS} value={rowType}
+            onChange={v => { if (v) onRowTypeChange(tx.id, v as AllocType); }}
+          />
         ) : (
           <span className={`text-xs font-medium ${
             (tx.allocationType || sel?.type) === 'supplier' ? 'text-blue-400'

@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { BankTxFilters, type BankTxFiltersProps } from '@/components/accounting/bank-transactions/BankTxFilters';
 
 const noop = vi.fn();
@@ -34,5 +34,30 @@ describe('BankTxFilters: named controls', () => {
     expect(screen.getByRole('spinbutton', { name: 'Min R' })).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: 'Max R' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Search transactions' })).toBeInTheDocument();
+  });
+});
+
+describe('BankTxFilters: the filters are kit Selects (NS2) and call their handlers with the native values', () => {
+  const CASES: [string, string, keyof BankTxFiltersProps, string][] = [
+    ['Sort order', 'Oldest First', 'onSortOrderChange', 'asc'],
+    ['Allocation status', 'Suggested', 'onAllocationFilterChange', 'suggested'],
+    ['Spent or received', 'Received', 'onTxTypeChange', 'received'],
+    ['Category', 'Transfer', 'onAllocTypeChange', 'transfer'],
+    ['Suggestion', 'No Suggestion', 'onHasSuggestionChange', 'no'],
+  ];
+  it.each(CASES)('%s -> %s calls %s(%s)', (name, option, handler, value) => {
+    const spy = vi.fn();
+    render(<BankTxFilters {...props} {...{ [handler]: spy }} />);
+    fireEvent.click(screen.getByRole('combobox', { name }));
+    fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: option }));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(value);
+  });
+
+  it('shows each current choice and leaves no native select', () => {
+    const { container } = render(<BankTxFilters {...props} sortOrder="asc" hasSuggestion="yes" />);
+    expect(screen.getByRole('combobox', { name: 'Sort order' })).toHaveTextContent('Oldest First');
+    expect(screen.getByRole('combobox', { name: 'Suggestion' })).toHaveTextContent('Has Suggestion');
+    expect(container.querySelectorAll('select')).toHaveLength(0);
   });
 });

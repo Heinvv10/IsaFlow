@@ -98,11 +98,11 @@ export function BankTxTable(props: BankTxTableProps) {
         </table>
         {tab === 'new' && transactions.length > 0 && (
           <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)] border-t border-[var(--ff-border-light)]/50 flex gap-4">
-            <span><kbd className="font-mono">↑↓</kbd> move</span>
-            <span><kbd className="font-mono">Enter</kbd> accept</span>
-            <span><kbd className="font-mono">E</kbd> edit</span>
-            <span><kbd className="font-mono">X</kbd> exclude</span>
-            <span><kbd className="font-mono">S</kbd> split</span>
+            <span><kbd className="font-id">↑↓</kbd> move</span>
+            <span><kbd className="font-id">Enter</kbd> accept</span>
+            <span><kbd className="font-id">E</kbd> edit</span>
+            <span><kbd className="font-id">X</kbd> exclude</span>
+            <span><kbd className="font-id">S</kbd> split</span>
           </div>
         )}
       </div>

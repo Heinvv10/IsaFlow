@@ -30,11 +30,16 @@ describe('BankTxTable: a new row calls each handler with the row and its value',
   it('type, VAT and dimension selects', () => {
     const p = tableProps();
     render(<BankTxTable {...p} />);
-    fireEvent.change(screen.getByRole('combobox', { name: `Allocation type, ${row('a')}` }), { target: { value: 'transfer' } });
-    fireEvent.change(screen.getByRole('combobox', { name: `VAT, ${row('a')}` }), { target: { value: 'zero_rated' } });
-    fireEvent.change(screen.getByRole('combobox', { name: `Cost centre 1, ${row('a')}` }), { target: { value: '' } });
-    fireEvent.change(screen.getByRole('combobox', { name: `Cost centre 2, ${row('a')}` }), { target: { value: 'y' } });
-    fireEvent.change(screen.getByRole('combobox', { name: `Business unit, ${row('a')}` }), { target: { value: 'z' } });
+    // Kit Selects (NS2): open each cell, click the option. The arguments are the ones the native selects sent.
+    const choose = (name: string, option: string) => {
+      fireEvent.click(screen.getByRole('combobox', { name: `${name}, ${row('a')}` }));
+      fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: option }));
+    };
+    choose('Allocation type', 'Transfer');
+    choose('VAT', 'Zero Rated');
+    choose('Cost centre 1', '—');
+    choose('Cost centre 2', 'Y');
+    choose('Business unit', 'Z');
     expect(p.onRowTypeChange).toHaveBeenCalledTimes(1);
     expect(p.onRowTypeChange).toHaveBeenCalledWith('a', 'transfer');
     expect(p.onRowVatChange).toHaveBeenCalledTimes(1);
