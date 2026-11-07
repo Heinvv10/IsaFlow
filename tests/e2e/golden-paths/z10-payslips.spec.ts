@@ -4,9 +4,12 @@
  *
  *  - A calculated run: the row's Payslip opens the drawer; the PDF is a PDF, carries the stored net, the bank
  *    account's last four digits only, and "DRAFT" (the R-035 guard has not cleared the run).
- *  - R-035, two people: reporting-qa requests, the second sandbox approver (E2E_APPROVER_EMAIL / _PASSWORD,
- *    reporting-qa-approver@isaflow.dev on dev) decides, then the run is approved: no DRAFT, and the page says
- *    "Payslips are ready".
+ *  - R-035, then approve: no DRAFT, and the page says "Payslips are ready". Cleared by clearPayRunApproval, as
+ *    h-payroll-run does: with E2E_APPROVER_EMAIL / _PASSWORD set (reporting-qa-approver@isaflow.dev on dev, a member
+ *    of the sandbox) a second person decides; without them, the suite user is the sandbox's sole eligible approver
+ *    on a fresh CI database (the audited sole-approver exception), and where self-approval is refused (dev, whose
+ *    sandbox also has the approver) this one test is SKIPPED with the reason. Never a faked approval. The DRAFT and
+ *    axe tests run either way.
  *  - axe reports 0 critical and 0 serious with the drawer open, in both themes, at 1568 and 390.
  *  - EVIDENCE_DIR=<dir> saves screenshots.
  *
@@ -17,7 +20,7 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { Api } from './_api';
-import { clearPayRunApproval, readApprover } from './helpers/payRunApproval';
+import { clearPayRunApproval } from './helpers/payRunApproval';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
@@ -28,6 +31,8 @@ const RUN = { month: 11, year: 2026 };
 const EMPLOYEE = { employeeNumber: 'Z10-1', firstName: 'Zola', lastName: 'Slip', salary: 30000 };
 const ACCOUNT = '62000123456';
 const NAME = `${EMPLOYEE.firstName} ${EMPLOYEE.lastName}`;
+const NEEDS_APPROVER = 'needs a second approver: set E2E_APPROVER_EMAIL / E2E_APPROVER_PASSWORD (an admin of '
+  + `"${SANDBOX_NAME}" other than the suite user); without them this company refuses the suite user's self-approval`;
 
 type Run = { id: string; periodMonth: number; periodYear: number; status: string; journalEntryId: string | null };
 
@@ -105,15 +110,16 @@ async function seriousAxe(page: Page): Promise<string[]> {
     .flatMap((v) => v.nodes.map((n) => `${v.id} (${v.impact}): ${n.target.join(' ')}`));
 }
 
-test('calculated run: DRAFT payslip; R-035 by two people, approve: final, "Payslips are ready"', async ({ page, context, baseURL }) => {
-  expect(readApprover(process.env), 'z10 needs E2E_APPROVER_EMAIL / E2E_APPROVER_PASSWORD (the second sandbox approver)').not.toBeNull();
-  const { api, sandboxId, runId, employeeId } = await sandbox(context, baseURL!);
-  let approved = false;
-  try {
-    const net = (await api.get<{ lines: Array<{ employeeId: string; netPay: number }> }>(`/api/payroll/runs/${runId}`))
-      .lines.find((l) => l.employeeId === employeeId)!.netPay;
-    const netText = net.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+async function storedNet(api: Api, runId: string, employeeId: string): Promise<string> {
+  const net = (await api.get<{ lines: Array<{ employeeId: string; netPay: number }> }>(`/api/payroll/runs/${runId}`))
+    .lines.find((l) => l.employeeId === employeeId)!.netPay;
+  return net.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
 
+test('calculated run: the Payslip drawer opens and the PDF is DRAFT, with the stored net and the last four digits', async ({ page, context, baseURL }) => {
+  const { api, runId, employeeId } = await sandbox(context, baseURL!);
+  try {
+    const netText = await storedNet(api, runId, employeeId);
     await openRun(page, runId);
     await openDrawer(page);
     await snap(page, 'payslip-drawer-draft', 'session-theme');
@@ -122,13 +128,23 @@ test('calculated run: DRAFT payslip; R-035 by two people, approve: final, "Paysl
     expect(draft).toContain(netText);
     expect(draft).toContain('account ending 3456');
     expect(draft).not.toContain(ACCOUNT);
+  } finally {
+    await api.dispose();
+  }
+});
 
-    // Requested by reporting-qa, decided by the approver, who must be a member of the sandbox.
-    await clearPayRunApproval(api, baseURL!, runId).catch((err: Error) => {
+test('cleared through R-035 and approved: the payslip is final and the page says "Payslips are ready"', async ({ page, context, baseURL }) => {
+  const { api, sandboxId, runId, employeeId } = await sandbox(context, baseURL!);
+  let approved = false;
+  try {
+    const clearance = await clearPayRunApproval(api, baseURL!, runId, { reportSelfRefusal: true }).catch((err: Error) => {
       if (!/not a member/.test(err.message)) throw err;
       throw new Error(`${process.env.E2E_APPROVER_EMAIL} is not a member of "${SANDBOX_NAME}" (${sandboxId}). One-time manual dev `
         + 'setup: add it to that company as an admin (company_users) on isaflow_dev; this spec cannot. ' + err.message);
     });
+    test.skip(clearance === 'self-approval-refused', NEEDS_APPROVER);
+
+    const netText = await storedNet(api, runId, employeeId);
     const plan = await api.get<{ planHash: string }>(`/api/payroll/runs/${runId}/journal-plan`);
     expect((await api.post<Run>(`/api/payroll/runs/${runId}/approve`, { expectedPlanHash: plan.planHash })).status).toBe('approved');
     approved = true;
