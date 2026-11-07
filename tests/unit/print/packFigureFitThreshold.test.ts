@@ -12,17 +12,23 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
-import { chromium } from 'playwright';
-import { KPI_GAP_PX, kpiColumnMinPx, kpiFit, tableFit } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { launchPrintChromium } from './printChromium';
+import { kpiFit, tableFit } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { demoWithoutBudget, SCALE, withHeadingColumns, withWidenedKpi, withWidenedTable } from '../services/packs/fixtures/widenedFigures';
 import { printBoardPack } from './renderPackPdf';
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
-const overflowOf = async (doc: PackPagesDocument, index: number) => (await printBoardPack(doc, browser)).overflow.filter((o) => o.id === `pack-page-${index + 1}`);
+/** The page's room to spare at its right edge, to the subpixel (negative: past it). */
+const roomOf = async (doc: PackPagesDocument, index: number): Promise<number> => (await printBoardPack(doc, browser)).spare.find((s) => s.id === `pack-page-${index + 1}`)!.px;
+/**
+ * A refusal is right where Chromium leaves less room than the model's own bound on its error: every width it sums is
+ * never short and at most 1/32px over, so a row of a few runs may be refused with a fraction of a pixel to spare.
+ */
+const MODEL_BOUND_PX = 1 / 4;
 
 describe('a statement table', () => {
   const fitsAt = (digits: number) => tableFit(withWidenedTable(demoWithoutBudget(), digits).table, SCALE);
@@ -38,18 +44,18 @@ describe('a statement table', () => {
   it('prints clean at the widest figure the model fits at the floor, and runs past the edge one digit wider', async () => {
     const floor = Array.from({ length: 30 }, (unused, i) => i + 4).filter((d) => fitsAt(d).fits).pop()!;
     const fit = withWidenedTable(demoWithoutBudget(), floor);
-    expect(await overflowOf(fit.doc, fit.index), `${floor} digits`).toEqual([]);
+    expect(await roomOf(fit.doc, fit.index), `${floor} digits`).toBeGreaterThanOrEqual(0);
     const over = withWidenedTable(demoWithoutBudget(), floor + 1);
-    expect((await overflowOf(over.doc, over.index)).length, `${floor + 1} digits`).toBeGreaterThan(0);
+    expect(await roomOf(over.doc, over.index), `${floor + 1} digits`).toBeLessThan(MODEL_BOUND_PX);
   }, 300_000);
 
   it('prints clean at the widest figure the model fits at the ordinary size; one digit wider is fitted, and would overflow unfitted', async () => {
     const ordinary = Array.from({ length: 30 }, (unused, i) => i + 4).filter((d) => fitsAt(d).fits && fitsAt(d).px === null).pop()!;
     const fit = withWidenedTable(demoWithoutBudget(), ordinary);
-    expect(await overflowOf(fit.doc, fit.index), `${ordinary} digits`).toEqual([]);
+    expect(await roomOf(fit.doc, fit.index), `${ordinary} digits`).toBeGreaterThanOrEqual(0);
     const wider = withWidenedTable(demoWithoutBudget(), ordinary + 1);
     expect(tableFit(wider.table, SCALE).px, 'the model fits it to a smaller size').not.toBeNull();
-    expect(await overflowOf(wider.doc, wider.index), 'fitted, it prints clean').toEqual([]);
+    expect(await roomOf(wider.doc, wider.index), 'fitted, it prints clean').toBeGreaterThanOrEqual(0);
   }, 300_000);
 });
 
@@ -59,9 +65,9 @@ describe('a statement table with a long label word (the label column cannot be n
     const floor = Array.from({ length: 30 }, (unused, i) => i + 4).filter((d) => fitsAt(d).fits).pop()!;
     expect(fitsAt(floor + 1).fits).toBe(false);
     const fit = withWidenedTable(demoWithoutBudget(), floor, label);
-    expect(await overflowOf(fit.doc, fit.index), `${floor} digits`).toEqual([]);
+    expect(await roomOf(fit.doc, fit.index), `${floor} digits`).toBeGreaterThanOrEqual(0);
     const over = withWidenedTable(demoWithoutBudget(), floor + 1, label);
-    expect((await overflowOf(over.doc, over.index)).length, `${floor + 1} digits`).toBeGreaterThan(0);
+    expect(await roomOf(over.doc, over.index), `${floor + 1} digits`).toBeLessThan(MODEL_BOUND_PX);
     // The label is what moves the threshold: an ordinary label holds at least as many digits.
     const ordinary = Array.from({ length: 30 }, (unused, i) => i + 4).filter((d) => tableFit(withWidenedTable(demoWithoutBudget(), d).table, SCALE).fits).pop()!;
     expect(floor).toBeLessThanOrEqual(ordinary);
@@ -82,9 +88,9 @@ describe('a statement table whose long-labelled row carries a footnote marker an
       const floor = range.filter(fitsAt).pop();
       if (floor === undefined || floor === range[range.length - 1]) continue;
       const fit = withWidenedTable(demoWithoutBudget(), floor, label, marks);
-      if ((await overflowOf(fit.doc, fit.index)).length > 0) wrong.push(`${n} chars: ${floor} digits overflow (kept a row that overflows)`);
+      if (await roomOf(fit.doc, fit.index) < 0) wrong.push(`${n} chars: ${floor} digits overflow (kept a row that overflows)`);
       const over = withWidenedTable(demoWithoutBudget(), floor + 1, label, marks);
-      if ((await overflowOf(over.doc, over.index)).length === 0) wrong.push(`${n} chars: ${floor + 1} digits would fit (refused a table that fits)`);
+      if (await roomOf(over.doc, over.index) >= MODEL_BOUND_PX) wrong.push(`${n} chars: ${floor + 1} digits would fit (refused a table that fits)`);
     }
     expect(wrong).toEqual([]);
   }, 600_000);
@@ -104,9 +110,9 @@ describe('a table whose HEADINGS set its widths (tiny figures, a footnote marker
     const n = boundary(marked);
     expect(n).toBeLessThan(13);
     const fit = withHeadingColumns(demoWithoutBudget(), ORDER.slice(0, n), marked);
-    expect(await overflowOf(fit.doc, fit.index), `${n} columns`).toEqual([]);
+    expect(await roomOf(fit.doc, fit.index), `${n} columns`).toBeGreaterThanOrEqual(0);
     const over = withHeadingColumns(demoWithoutBudget(), ORDER.slice(0, n + 1), marked);
-    expect((await overflowOf(over.doc, over.index)).length, `${n + 1} columns`).toBeGreaterThan(0);
+    expect(await roomOf(over.doc, over.index), `${n + 1} columns`).toBeLessThan(MODEL_BOUND_PX);
   }, 300_000);
 
   it('a marker on every heading never buys room', () => {
@@ -121,19 +127,19 @@ describe('a KPI row', () => {
   it('prints clean at the widest the model fits at the floor, and runs past the edge one digit wider', async () => {
     const floor = range.filter((d) => fitsAt(d).fits).pop()!;
     const fit = withWidenedKpi(demoWithoutBudget(), floor);
-    expect(await overflowOf(fit.doc, fit.index), `${floor} digits`).toEqual([]);
+    expect(await roomOf(fit.doc, fit.index), `${floor} digits`).toBeGreaterThanOrEqual(0);
     const over = withWidenedKpi(demoWithoutBudget(), floor + 1);
     expect(fitsAt(floor + 1).fits).toBe(false);
-    expect((await overflowOf(over.doc, over.index)).length, `${floor + 1} digits`).toBeGreaterThan(0);
+    expect(await roomOf(over.doc, over.index), `${floor + 1} digits`).toBeLessThan(MODEL_BOUND_PX);
   }, 300_000);
 
   it('prints clean at the widest the model fits at the ordinary size; one digit wider is fitted to a smaller size', async () => {
     const ordinary = range.filter((d) => fitsAt(d).fits && fitsAt(d).px === null).pop()!;
     const fit = withWidenedKpi(demoWithoutBudget(), ordinary);
-    expect(await overflowOf(fit.doc, fit.index), `${ordinary} digits`).toEqual([]);
+    expect(await roomOf(fit.doc, fit.index), `${ordinary} digits`).toBeGreaterThanOrEqual(0);
     const wider = withWidenedKpi(demoWithoutBudget(), ordinary + 1);
     expect(kpiFit(wider.tiles, SCALE).px).not.toBeNull();
-    expect(await overflowOf(wider.doc, wider.index), 'fitted, it prints clean').toEqual([]);
+    expect(await roomOf(wider.doc, wider.index), 'fitted, it prints clean').toBeGreaterThanOrEqual(0);
   }, 300_000);
 });
 
@@ -150,16 +156,16 @@ describe('a KPI row whose tile holds its column open with a word longer than its
   it.each([8, 9, 10])('%i digits: fitted to the size the label allows, it prints inside the sheet', async (digits) => {
     const labelled = withWidenedKpi(demoWithoutBudget(), digits, label);
     expect(fitsAt(digits).px).not.toBeNull();
-    expect(await overflowOf(labelled.doc, labelled.index)).toEqual([]);
+    expect(await roomOf(labelled.doc, labelled.index)).toBeGreaterThanOrEqual(0);
   }, 300_000);
 
   it('prints clean at the widest the model fits, and runs past the edge one digit wider', async () => {
     const floor = range.filter((d) => fitsAt(d).fits).pop()!;
     const fit = withWidenedKpi(demoWithoutBudget(), floor, label);
-    expect(await overflowOf(fit.doc, fit.index), `${floor} digits`).toEqual([]);
+    expect(await roomOf(fit.doc, fit.index), `${floor} digits`).toBeGreaterThanOrEqual(0);
     const over = withWidenedKpi(demoWithoutBudget(), floor + 1, label);
     expect(fitsAt(floor + 1).fits).toBe(false);
-    expect((await overflowOf(over.doc, over.index)).length, `${floor + 1} digits`).toBeGreaterThan(0);
+    expect(await roomOf(over.doc, over.index), `${floor + 1} digits`).toBeLessThan(MODEL_BOUND_PX);
   }, 300_000);
 });
 
@@ -176,13 +182,9 @@ describe('a KPI row whose tile\'s not-meaningful reason, or delta line, holds it
         const floor = range.filter(fitsAt).pop();
         if (floor === undefined || floor === range[range.length - 1]) continue;
         const fit = withWidenedKpi(demoWithoutBudget(), floor, words(n));
-        if ((await overflowOf(fit.doc, fit.index)).length > 0) wrong.push(`${n} chars: ${floor} digits overflow (kept a row that overflows)`);
+        if (await roomOf(fit.doc, fit.index) < 0) wrong.push(`${n} chars: ${floor} digits overflow (kept a row that overflows)`);
         const over = withWidenedKpi(demoWithoutBudget(), floor + 1, words(n));
-        // The harness lays the page out at 658px, the print at 174mm = 657.6: a row the model puts less than a pixel
-        // past the print's measure fits the harness, and is not a refusal of a row that fits.
-        const total = kpiColumnMinPx(over.tiles, SCALE, 16).reduce((a, b) => a + b, 0) + 3 * KPI_GAP_PX;
-        if (total <= 658) continue;
-        if ((await overflowOf(over.doc, over.index)).length === 0) wrong.push(`${n} chars: ${floor + 1} digits would fit (refused a row that fits)`);
+        if (await roomOf(over.doc, over.index) >= MODEL_BOUND_PX) wrong.push(`${n} chars: ${floor + 1} digits would fit (refused a row that fits)`);
       }
       expect(wrong).toEqual([]);
     }, 900_000);

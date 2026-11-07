@@ -20,6 +20,9 @@ export const VELO_MACHINE_FILES = [
   'tests/unit/scripts/blueGreenNginx.test.ts', // /usr/sbin/nginx
   'tests/unit/printParity/packEngineParity.test.ts', // docker + the production Gotenberg image, pdftotext (velo)
   'tests/unit/printParity/packPrintContentWidth.test.ts', // the same
+  'tests/unit/printParity/packFallbackWidths.test.ts', // the same
+  'tests/unit/printParity/packReasonFallbackGate.test.ts', // the same
+  'tests/unit/printParity/packFallbackGuardImage.test.ts', // the same
 ];
 
 export default defineConfig(({ mode }) => {

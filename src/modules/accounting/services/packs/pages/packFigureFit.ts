@@ -25,12 +25,14 @@ import type { PackFigure } from '@/modules/accounting/services/packs/figures/pac
 import type { MoneyScale } from '@/lib/format/money';
 import { GUTTER_MM } from './packDisclosureHeight';
 import { type FigureWeight, ptToPx, textPx, textPxUnsnapped } from './packFigureWidth';
+import { runPx } from './packGlyphRuler';
+import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
 import { pieces } from './packLineBreaks';
 import { reasonPx } from './packReasonWidth';
 import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
 import { deltaDirection } from '@/modules/accounting/services/packs/narrative/derivedTileCaptions';
 import type { PackPageBlock, PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
-import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
+import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
 
 export const KPI_FIGURE_MAX_PT = 22;
 export const KPI_FIGURE_FLOOR_PT = 12;
@@ -38,8 +40,6 @@ export const TABLE_FIGURE_MAX_PT = 9;
 export const TABLE_FIGURE_FLOOR_PT = 7.5;
 
 const MM_PX = 96 / 25.4;
-/** One pixel of slack on the measure: Chromium lays tables out in 1/64px units and rounds. */
-const GUARD_PX = 0.5;
 /** `.pack-table td` / `th`: 2mm either side. */
 const CELL_SIDE_PX = 2 * MM_PX;
 /** `.pack-table td:first-child` indents by `level x 4mm` (`INDENT_MM_PER_LEVEL`). */
@@ -48,27 +48,30 @@ const INDENT_PX_PER_LEVEL = 4 * MM_PX;
 const NOT_MEANINGFUL = 'n/m';
 
 /**
- * A FOOTNOTE MARK, MEASURED AT THE SIZE IT IS SET AT. `.pack-footnote-marker` and `.pack-table-note-mark` are 0.7em
- * superscripts, and Chromium rounds that size to a whole pixel and each glyph's advance after it: after a 9pt (12px)
- * label a digit is 5px and two digits 10px; "m" is 7px, "w" 6px, "aa" 8px, "mw" 13px; at a 10px figure a digit is
- * 4px. (A flat 5px was 5px short from the 10th note and 1px over at the floor.) `packFigureWidth.test.ts` re-measures
- * them.
+ * A FOOTNOTE MARK, AT THE SIZE IT IS SET AT. `.pack-footnote-marker` and `.pack-table-note-mark` are 0.7em superscripts
+ * of their host, shaped like any run at that size (`packFigureWidth.textPxUnsnapped`). `packFigureWidth.test.ts`
+ * holds a label or an n/m cell with its mark to Chromium.
  */
 const markPx = (text: string, hostPx: number, weight: FigureWeight): number => textPxUnsnapped(text, 0.7 * hostPx, weight);
 /** A row's or KPI tile's footnote number after its 9pt label. */
 export const labelMarkPx = (number: number | null | undefined, weight: FigureWeight = 400): number => (number === null || number === undefined ? 0 : markPx(String(number), 12, weight));
-/** A heading's footnote number: the 8pt heading's 7px digits (4px) plus its 0.06em letter-spacing (0.64px) each. */
-export const headingMarkPx = (number: number | undefined): number => (number === undefined ? 0 : String(number).length * 4.65);
+
+/** `.pack-table th`: 8pt, weight 500, uppercase, 0.06em letter-spacing (which a superscript inherits as computed). */
+const HEADING_PX = ptToPx(8);
+const HEADING_TRACKING_PX = 0.06 * HEADING_PX;
+const headingRunPx = (text: string, fontPx: number): number => runPx(text, fontPx, 500,
+  (cluster, sizePx) => textPx(cluster, sizePx, 500) + HEADING_TRACKING_PX, HEADING_TRACKING_PX);
+/** A heading's footnote number: 0.7em of the 8pt heading, tracked like it. */
+export const headingMarkPx = (number: number | undefined): number => (number === undefined ? 0 : headingRunPx(String(number), 0.7 * HEADING_PX));
 
 /**
- * The longest word of each column heading, in pixels, as `.pack-table th` sets it (8pt, uppercase, 0.06em
- * tracking: a heading wraps, so its min-content is its longest word). Measured in Chromium by
- * `packFigureWidth.test.ts`, which fails if one drifts.
+ * The longest word of each column heading, in pixels, as `.pack-table th` sets it (a heading wraps, so its min-content
+ * is its longest word), shaped from the face with the heading's tracking. `packFigureWidth.test.ts` holds it to Chromium.
  */
-export const HEADING_WORD_PX: Readonly<Record<PackTableColumnKey, number>> = {
-  actual: 44.9, prior: 37.3, change: 48.9, changePct: 48.9, pctOfRevenue: 55.5, budget: 47.9, variance: 59.2,
-  revenue: 55.5, otherIncome: 47.9, costOfSales: 37.3, monthOperatingExpenses: 67.8, otherExpenses: 39.3, netProfit: 42.9,
-};
+export const HEADING_WORD_PX: Readonly<Record<PackTableColumnKey, number>> = Object.fromEntries(
+  (Object.entries(PACK_TABLE_COLUMN_LABEL) as Array<[PackTableColumnKey, string]>).map(([col, label]) => [col,
+    Math.max(...label.split(' ').map((word) => headingRunPx(word.toUpperCase(), HEADING_PX)))]),
+) as Record<PackTableColumnKey, number>;
 
 export interface FigureFit {
   /** The whole-pixel size to set, or null where the row fits at its ordinary size and nothing is set. */
@@ -77,7 +80,11 @@ export interface FigureFit {
   fits: boolean;
 }
 
-const measurePx = (orientation: PageOrientation): number => PAGE_WIDTH_MM[orientation] * MM_PX - GUARD_PX;
+/**
+ * The width a row's columns may take: the width production prints a page's content at (`PRINT_CONTENT_PX`, measured
+ * in its Gotenberg image). Every width the model sums is never short of Chromium's, so no slack is kept off it.
+ */
+const measurePx = (orientation: PageOrientation): number => PRINT_CONTENT_PX[orientation];
 
 /** The weight a row is set in (`packPrintTablesAndProse.css`): subtotal 500, total and grand total 600. */
 const ROW_WEIGHT: Readonly<Record<PackTableRow['role'], FigureWeight>> = { line: 400, subtotal: 500, total: 600, grandTotal: 600 };
@@ -182,8 +189,8 @@ function tileOtherMinPx(tile: KpiTile): number {
   const deltaPx = tile.delta === null ? 0 : Math.max(DELTA_CUE_PX, longestRunPx(deltaText(tile), 12, 400));
   return Math.max(labelPx, reasonWidth, deltaPx);
 }
-/** The arrow cue before a delta, a 7pt glyph: 7px ("↑" alone; with its space and "up" the line measures 24px). */
-export const DELTA_CUE_PX = 7;
+/** The arrow cue before a delta, a 7pt glyph: the widest of the three arrows the tile sets. */
+export const DELTA_CUE_PX = Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400)));
 
 /** The width of each of a KPI row's four columns at `fontPx`: the widest of its figure and its tile's other content. */
 export function kpiColumnMinPx(tiles: readonly KpiTile[], scale: MoneyScale, fontPx: number): number[] {

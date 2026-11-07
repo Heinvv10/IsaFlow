@@ -83,7 +83,7 @@ describe('the demo company at k=1 prints its figures at their ceiling, as before
 });
 
 describe('figures at the scales where the budget columns can no longer be set', () => {
-  it.each([[20_000_000, true], [26_000_000, true], [30_000_000, false], [238_000_000, false], [1_000_000_000, false]] as const)(
+  it.each([[20_000_000, true], [26_000_000, true], [30_000_000, true], [40_000_000, true], [50_000_000, false], [238_000_000, false], [1_000_000_000, false]] as const)(
     'k=%i: the pack is built, the Budget columns are %s, and every page prints inside the sheet at figures no smaller than the floor',
     async (k, budgetKept) => {
       const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);

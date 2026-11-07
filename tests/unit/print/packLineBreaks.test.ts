@@ -8,13 +8,13 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
-import { chromium } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { SELF_BREAKING, breaksBetween } from '@/modules/accounting/services/packs/pages/packBreakRanges';
 import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
-import { measure } from './measureWidths';
+import { measure, openProbePage } from './measureWidths';
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
 const TEXTS = [
@@ -92,6 +92,65 @@ describe('grapheme clusters against Chromium\'s line breaker', () => {
     }
     expect(short).toEqual([]);
   }, 300_000);
+});
+
+/**
+ * Every ordered pair of clusters from a mixed set (ideographs, kana, the iteration mark, full-width forms, emoji
+ * sequences, Latin, Greek, Cyrillic, Hebrew, Thai, Devanagari, Arabic, currency and number signs, every kind of
+ * punctuation and dash, the word joiner, the zero-width space, the no-break space), three times over between two letters:
+ * the model never breaks a text into pieces narrower than Chromium's narrowest width (the adversary's round-3 probe).
+ */
+const PAIR_CLUSTERS = ['日', '한', 'あ', 'ー', 'ぁ', '々', 'Ａ', '１', '😀', '❤️', '✅', '🇿🇦', '👍🏽', '👨‍👩‍👧', 'a', '5', 'é', 'α', 'Ж', 'א', 'ก', 'ह', 'ي',
+  '€', '£', '¢', '°', '±', '‰', '−', '₹', '$', '%', '(', ')', '"', "'", '’', '.', ',', '!', '?', '/', '&', '+', '「', '」', '。', '、', '・', '…', '-', '–', '—', ' ',
+  '\u2060', '\u200B', '\u00A0', '·', '#', '*', 'ﾊ', 'ｰ', '〜', '〃', '゛', '℃', '㎡', 'ℹ️', '1️⃣'];
+
+/**
+ * A piece's width on its line is its glyphs' advances AS SHAPED IN THE WHOLE TEXT (the last one carries its kerning
+ * towards the next piece) or, where Chromium reshapes at the break, the piece shaped alone: the wider of the two.
+ */
+async function piecesInContext(texts: readonly string[]): Promise<Array<{ min: number; widest: number }>> {
+  const page = await openProbePage(browser);
+  try {
+    return await page.evaluate((list) => {
+      const td = document.getElementById('label')!;
+      const span = (text: string, style: string): HTMLSpanElement => {
+        const s = document.createElement('span');
+        s.className = 'pack-kpi-unavailable';
+        s.style.cssText = style;
+        s.textContent = text;
+        td.appendChild(document.createElement('div')).appendChild(s);
+        return s;
+      };
+      return list.map(({ text, parts }) => {
+        td.textContent = '';
+        const min = span(text, 'display:inline-block;width:min-content;white-space:normal').getBoundingClientRect().width;
+        const line = span(text, 'white-space:nowrap').firstChild!;
+        let at = 0;
+        const widest = Math.max(...parts.map((part) => {
+          const from = text.indexOf(part, at);
+          const range = document.createRange();
+          range.setStart(line, from);
+          range.setEnd(line, from + part.length);
+          at = from + part.length;
+          const alone = span(part, 'white-space:nowrap').getBoundingClientRect().width;
+          return Math.max(alone, range.getBoundingClientRect().width);
+        }));
+        return { min, widest };
+      });
+    }, texts.map((text) => ({ text, parts: pieces(text).map((p) => p.text) })));
+  } finally {
+    await page.close();
+  }
+}
+
+describe('every pair of clusters', () => {
+  it('the model\'s widest piece is never narrower than Chromium\'s narrowest width', async () => {
+    const texts = PAIR_CLUSTERS.flatMap((x) => PAIR_CLUSTERS.map((y) => `a${x}${y}${x}${y}${x}${y}a`));
+    const res = await piecesInContext(texts);
+    const unsafe = texts.flatMap((t, i) => (res[i]!.widest < res[i]!.min - 0.01
+      ? [`${JSON.stringify(t)}: pieces ${JSON.stringify(pieces(t).map((p) => p.text))} ${res[i]!.widest}px, Chromium ${res[i]!.min}px`] : []));
+    expect(unsafe.slice(0, 30)).toEqual([]);
+  }, 600_000);
 });
 
 describe('the table of code points Chromium breaks between', () => {
