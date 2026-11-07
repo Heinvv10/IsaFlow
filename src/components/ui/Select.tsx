@@ -3,11 +3,12 @@
  * // WORKING: Portal-based dropdown, full a11y, arrow/enter/escape keyboard nav
  */
 
-import { useState, useRef, useEffect, useCallback, useId, type ReactNode, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, useId, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { cn } from '@/utils/cn';
-import { SelectDropdown } from './SelectDropdown';
+import { SelectDropdown, selectOptionId } from './SelectDropdown';
+import { useSelectKeyboard } from './useSelectKeyboard';
 
 export interface SelectOption {
   value: string;
@@ -49,9 +50,13 @@ interface SelectBaseProps {
   labelClassName?: string;
   /** The id of text that describes the current value, e.g. a note under the field. */
   describedBy?: string;
+  /** `sm` is a compact trigger (32px, text-xs) for grid cells; the default is the form size. */
+  size?: 'sm' | 'md';
 }
 
 const CREATE_VALUE = '__select_create_new__';
+/** A compact trigger sits in a narrow grid cell: its option panel is never narrower than this, so labels read whole. */
+const COMPACT_PANEL_MIN_WIDTH = 224;
 
 interface SingleSelectProps extends SelectBaseProps {
   multiple?: false;
@@ -70,7 +75,7 @@ export type SelectProps = SingleSelectProps | MultiSelectProps;
 // WORKING: Select component (single and multi-select)
 export function Select(props: SelectProps) {
   const { options, placeholder = 'Select…', label, error, disabled = false, clearable = false, className, id: externalId } = props;
-  const { onSearch, onOpenChange, loading = false, loadError = null, onCreateNew, createLabel = 'Create new', valueOption, emptyText, hint, labelClassName, describedBy } = props;
+  const { onSearch, onOpenChange, loading = false, loadError = null, onCreateNew, createLabel = 'Create new', valueOption, emptyText, hint, labelClassName, describedBy, size = 'md' } = props;
   const searchable = props.searchable === true || onSearch !== undefined;
 
   const autoId = useId();
@@ -99,8 +104,11 @@ export function Select(props: SelectProps) {
   const recalculate = useCallback(() => {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
-    setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: r.width });
-  }, []);
+    // A panel wider than its trigger (compact size) is pulled back inside the viewport instead of running off its right edge.
+    const panelWidth = Math.max(r.width, size === 'sm' ? COMPACT_PANEL_MIN_WIDTH : 0);
+    const left = Math.max(8, Math.min(r.left, document.documentElement.clientWidth - panelWidth - 8));
+    setPos({ top: r.bottom + window.scrollY + 4, left: left + window.scrollX, width: r.width });
+  }, [size]);
 
   const closeDropdown = useCallback(() => { setOpen(false); setSearch(''); setActiveIndex(-1); }, []);
   const openDropdown = useCallback(() => { if (disabled) return; recalculate(); setOpen(true); setActiveIndex(-1); }, [disabled, recalculate]);
@@ -122,20 +130,13 @@ export function Select(props: SelectProps) {
   function clearSelection(e: React.MouseEvent) {
     e.stopPropagation();
     isMulti ? (props as MultiSelectProps).onChange([]) : (props as SingleSelectProps).onChange(null);
+    triggerRef.current?.focus(); // the clear button unmounts while focused; keep keyboard focus on the trigger
   }
 
-  function handleTriggerKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); open ? setActiveIndex((i) => Math.min(i + 1, filteredOptions.length - 1)) : openDropdown(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex((i) => Math.max(i - 1, 0)); }
-    else if (e.key === 'Escape') closeDropdown();
-  }
-
-  function handleListKeyDown(e: KeyboardEvent<HTMLElement>) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => Math.min(i + 1, filteredOptions.length - 1)); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex((i) => Math.max(i - 1, 0)); }
-    else if (e.key === 'Enter') { e.preventDefault(); if (activeIndex >= 0 && filteredOptions[activeIndex]) selectOption(filteredOptions[activeIndex]); }
-    else if (e.key === 'Escape') closeAndRefocus();
-  }
+  const { onTriggerKeyDown, onListKeyDown } = useSelectKeyboard({
+    open, searchable, options: filteredOptions, selectedValues, activeIndex, setActiveIndex, openDropdown, closeDropdown, closeAndRefocus, selectOption,
+    seedSearch: (text) => { openDropdown(); setSearch(text); setActiveIndex(-1); onSearch?.(text); },
+  });
 
   useEffect(() => {
     if (!listRef.current || activeIndex < 0) return;
@@ -146,7 +147,7 @@ export function Select(props: SelectProps) {
   useEffect(() => { onOpenChangeRef.current = onOpenChange; });
   useEffect(() => { onOpenChangeRef.current?.(open); }, [open]);
 
-  useEffect(() => { if (open && searchable && searchRef.current) searchRef.current.focus(); }, [open, searchable]);
+  useEffect(() => { if (open && searchable && searchRef.current) { const box = searchRef.current; box.focus(); box.setSelectionRange(box.value.length, box.value.length); } }, [open, searchable]);
 
   useEffect(() => {
     if (!open) return;
@@ -177,7 +178,7 @@ export function Select(props: SelectProps) {
   return (
     <div className={cn('w-full', className)}>
       {label && (
-        <label id={labelId} htmlFor={inputId} className={cn('mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300', labelClassName)}>
+        <label id={labelId} htmlFor={inputId} onClick={() => triggerRef.current?.focus()} className={cn('mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300', labelClassName)}>
           {label}
         </label>
       )}
@@ -189,13 +190,15 @@ export function Select(props: SelectProps) {
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         aria-labelledby={label ? labelId : undefined}
+        aria-activedescendant={open && !searchable && filteredOptions[activeIndex] ? selectOptionId(inputId, activeIndex) : undefined}
         aria-describedby={describedBy}
         aria-disabled={disabled}
         tabIndex={disabled ? -1 : 0}
         onClick={() => (open ? closeDropdown() : openDropdown())}
-        onKeyDown={handleTriggerKeyDown}
+        onKeyDown={onTriggerKeyDown}
         className={cn(
-          'flex min-h-[40px] w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ff-focus-ring',
+          'flex w-full cursor-pointer items-center gap-2 rounded-lg border transition-colors ff-focus-ring',
+          size === 'sm' ? 'min-h-[32px] px-2.5 py-1 text-xs' : 'min-h-[40px] px-3 py-2 text-sm',
           'bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100',
           error ? 'border-red-400 dark:border-red-500' : 'border-gray-300 dark:border-gray-600',
           !disabled && 'hover:border-teal-400 dark:hover:border-teal-500',
@@ -203,15 +206,15 @@ export function Select(props: SelectProps) {
           disabled && 'cursor-not-allowed opacity-60'
         )}
       >
-        <span className="flex flex-1 flex-wrap gap-1 overflow-hidden">
+        <span className={cn('flex flex-1 gap-1 overflow-hidden', size === 'sm' ? 'min-w-0 flex-nowrap' : 'flex-wrap')}>
           {selectedLabels.length === 0 ? (
-            <span className="text-gray-600 dark:text-gray-400">{placeholder}</span>
+            <span className={cn('text-gray-600 dark:text-gray-400', size === 'sm' && 'min-w-0 truncate')}>{placeholder}</span>
           ) : isMulti ? (
             selectedLabels.map((lbl) => (
               <span key={lbl} className="inline-flex items-center rounded-md bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800 dark:bg-teal-900/50 dark:text-teal-300">{lbl}</span>
             ))
           ) : (
-            <span>{selectedLabels[0]}</span>
+            <span className={cn(size === 'sm' && 'min-w-0 truncate')}>{selectedLabels[0]}</span>
           )}
         </span>
         <span className="flex shrink-0 items-center gap-1">
@@ -237,6 +240,7 @@ export function Select(props: SelectProps) {
               inputId={inputId}
               isMulti={isMulti}
               pos={pos}
+              minWidth={size === 'sm' ? COMPACT_PANEL_MIN_WIDTH : undefined}
               searchRef={searchRef}
               listRef={listRef}
               panelRef={panelRef}
@@ -248,7 +252,7 @@ export function Select(props: SelectProps) {
               loadError={loadError}
               onSelect={selectOption}
               onActiveChange={setActiveIndex}
-              onKeyDown={handleListKeyDown}
+              onKeyDown={onListKeyDown}
             />,
             document.body
           )
