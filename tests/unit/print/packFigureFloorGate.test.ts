@@ -3,7 +3,8 @@
  * not refused, and a pack that fits at an ordinary size keeps the size it printed at before the gate.
  */
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { log } from '@/lib/logger';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 const gate = vi.hoisted(() => ({ on: true }));
@@ -19,7 +20,7 @@ import { input, type Shape } from '../services/packs/fixtures/packGridInputs';
 import { printBoardPack } from './renderPackPdf';
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 afterEach(() => { vi.restoreAllMocks(); });
 const quiet = () => vi.spyOn(log, 'warn').mockImplementation(() => undefined);
