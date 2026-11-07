@@ -149,8 +149,20 @@ describe('the certificate reports 4030 in full (BRS V25.3.0 p. 102; PAYE-GEN-01-
     await pool.query(
       `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
        VALUES ($1, $2, 100, '2026-03-01', '2026-03-28', false)`, [f.employee, untaxed]);
+    // Not a donation deducted from pay: a 4030 on an earning component, and a padded code that still counts.
+    const earning = String((await pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Mis-typed 4030 earning', '4030', 'earning', false) RETURNING id`, [f.company])).rows[0]!.id);
+    const padded = String((await pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Donation padded', E' 4030\\t', 'deduction', false) RETURNING id`, [f.company])).rows[0]!.id);
+    for (const [component, amount] of [[earning, 300], [padded, 50]] as const) {
+      await pool.query(
+        `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
+         VALUES ($1, $2, $3, '2026-03-01', '2026-03-28', false)`, [f.employee, component, amount]);
+    }
     expect((await run(f, 3)).deduction).toBe(1_000);
-    expect(await donated(f)).toBe(2_100);
+    expect(await donated(f)).toBe(2_150);
   });
 
   it('without a receipt: nothing allowed, still reported; a reversal nets it out', async () => {

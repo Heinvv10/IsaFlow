@@ -19,6 +19,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildEmployeeRecord, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
+import { withDeductionTotal } from '@/modules/accounting/services/payroll/easyFileRetirementFields';
 import { validateCertificateTaxFields } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
 
 const base: EmployeeInput = {
@@ -108,5 +109,17 @@ describe('4030 donations and the 4497 total on the certificate', () => {
     const lines = buildEmployeeRecord({ ...base, retirementFund: { ...fund, pension4001: 500, donations4030: -200 } });
     expect(at(lines, '4030')).toBe(-1);
     expect(lines).toContain('4497,500');
+  });
+});
+
+describe('withDeductionTotal: which codes count toward 4497 (BRS V25.3.0 p. 57: 40-, 44- and 45- codes)', () => {
+  it('counts 40xx, 44xx and 45xx values, not 36xx/38xx income or 41xx tax fields, and goes after the last of them', () => {
+    const record = ['3601,500000', '3810,1200', '4001,100', '4472,200', '4582,300', '4102,1000.00', '4141,354.24', '9999,9999'];
+    expect(withDeductionTotal(record)).toEqual(['3601,500000', '3810,1200', '4001,100', '4472,200', '4582,300', '4497,600', '4102,1000.00', '4141,354.24', '9999,9999']);
+  });
+
+  it('leaves a record with no deduction code unchanged', () => {
+    const record = ['3601,500000', '4102,1000.00', '9999,9999'];
+    expect(withDeductionTotal(record)).toBe(record);
   });
 });
