@@ -15,6 +15,7 @@ import { useEffect, useState, type KeyboardEvent } from 'react';
 import Link from 'next/link';
 import { AutosaveStatus } from '@/components/ui/AutosaveStatus';
 import { MoneyField } from '@/components/ui/MoneyField';
+import { Select } from '@/components/ui/Select';
 import { PayrollRunLinesTable, type RunLineAmounts } from '@/components/payroll/PayrollRunLinesTable';
 import { cellKey, type RowSave, type RunInputComponent, type RunInputs } from '@/components/payroll/useRunInputs';
 import { formatCurrency } from '@/utils/formatters';
@@ -28,6 +29,7 @@ interface Props {
   commit: (employeeId: string, componentId: string, cents: number) => void;
   refuse: (employeeId: string, componentId: string) => void;
   forgetRefused: (componentId: string) => void;
+  onPayslip?: (line: RunLineAmounts) => void;
 }
 
 type Column = 'earning' | 'deduction';
@@ -58,22 +60,23 @@ function rowSave(saves: Record<string, RowSave>, employeeId: string): RowSave | 
 const defaultEarning = (earnings: RunInputComponent[]) =>
   earnings.find((c) => c.sarsSourceCode === '3607') ?? earnings.find((c) => c.sarsSourceCode === '3606');
 
+/** The kit Select (wave 4 PS): its accessible name is the visible label, "<column> component". */
 function ComponentPicker({ column, options, value, onChange }: {
   column: Column; options: RunInputComponent[]; value: string; onChange: (id: string) => void;
 }) {
   return (
-    <label className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)]">
-      <span>{COLUMN_LABEL[column]}</span>
-      <select aria-label={`${COLUMN_LABEL[column]} component`} value={value} onChange={(e) => onChange(e.target.value)}
-        className="rounded border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] px-2 py-1 text-sm text-[var(--ff-text-primary)]">
-        {!value && <option value="">Choose a component</option>}
-        {options.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.sarsSourceCode})</option>)}
-      </select>
-    </label>
+    <div className="w-64">
+      <Select label={`${COLUMN_LABEL[column]} component`} labelClassName="mb-1 text-xs font-normal text-[var(--ff-text-secondary)]"
+        placeholder="Choose a component" value={value || null} onChange={(id) => { if (id) onChange(id); }}
+        options={options.map((c) => ({ value: c.id, label: `${c.name} (${c.sarsSourceCode})` }))} />
+    </div>
   );
 }
 
-export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, refuse, forgetRefused }: Props) {
+const hasOvertimeOrCommission = (earnings: RunInputComponent[]) =>
+  earnings.some((c) => c.sarsSourceCode === '3606' || c.sarsSourceCode === '3607');
+
+export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, refuse, forgetRefused, onPayslip }: Props) {
   const earnings = inputs.components.filter((c) => c.componentType === 'earning');
   const deductions = inputs.components.filter((c) => c.componentType === 'deduction');
   const [pickedEarning, setEarningId] = useState('');
@@ -114,18 +117,24 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
 
   return (
     <>
-      <div className="px-4 py-3 border-b border-[var(--ff-border-primary)] flex flex-wrap items-center gap-x-6 gap-y-2">
+      <div className="px-4 py-3 border-b border-[var(--ff-border-primary)] flex flex-wrap items-end gap-x-6 gap-y-2">
         {earnings.length > 0 ? <ComponentPicker column="earning" options={earnings} value={earningId} onChange={setEarningId} /> : (
           <p className="text-xs text-[var(--ff-text-secondary)]">No earning can be edited on a pay run. SARS-coded earnings are captured on the employee page.</p>
         )}
         {deductions.length > 0 && <ComponentPicker column="deduction" options={deductions} value={deductionId} onChange={setDeductionId} />}
+        {earnings.length > 0 && !hasOvertimeOrCommission(earnings) && (
+          <p className="pb-2 text-xs text-[var(--ff-text-secondary)]">
+            No overtime or commission component yet.{' '}
+            <Link href="/payroll/components" className="text-teal-700 underline dark:text-teal-300">Add one</Link>
+          </p>
+        )}
       </div>
       <div className="overflow-x-auto">
         <PayrollRunLinesTable lines={lines} edit={{
           earning: { head: COLUMN_LABEL.earning, cell: cell('earning', earningId) },
           deduction: deductions.length > 0 ? { head: COLUMN_LABEL.deduction, cell: cell('deduction', deductionId) } : undefined,
           statusCell: save,
-        }} />
+        }} onPayslip={onPayslip} />
       </div>
     </>
   );
