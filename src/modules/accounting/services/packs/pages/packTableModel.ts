@@ -4,6 +4,7 @@
  * cap; that file re-exports every name below, so no caller moved.
  */
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import type { FigureFit } from './packFigureFitCss';
 
 /**
  * The columns a pack table may carry. Stated once per table, in `columns`.
@@ -117,4 +118,6 @@ export interface PackTable {
    * numbered footnotes whose subject is not a row or a note.
    */
   columnNotes?: readonly PackTableColumnNote[];
+  /** The size its figures print at, decided at composition (`packFigureFitStamp`); a document over the wire has it. */
+  figureFit?: FigureFit;
 }

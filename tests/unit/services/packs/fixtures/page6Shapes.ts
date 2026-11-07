@@ -6,11 +6,12 @@
 import { demoInput, demoSet } from './boardPackInputs';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/packBoardPackInput';
 
-export interface Page6Shape { k: number; negative: boolean; loss: boolean; plug: number; sg: number[] }
+export interface Page6Shape { k: number; negative: boolean; loss: boolean; plug: number; sg: number[]; /** The prior period's figures x this (default 1); 1e-7 rounds every prior figure to nil. */ priorScale?: number }
 
-export function page6Input({ k, negative, loss, plug, sg }: Page6Shape): BoardPackInput {
+export function page6Input({ k, negative, loss, plug, sg, priorScale = 1 }: Page6Shape): BoardPackInput {
   const c = demoSet.current;
   const m = (v: number) => Math.round(v * k);
+  const mp = (v: number) => Math.round(v * k * priorScale);
   const s = negative ? -1 : 1;
   const opexK = loss ? 2 : 1;
   const current = {
@@ -28,8 +29,8 @@ export function page6Input({ k, negative, loss, plug, sg }: Page6Shape): BoardPa
   bands['is.netProfit'] = bands['is.operating'] - bands['is.otherExpenses'];
   const pr = demoSet.prior!;
   const prior = {
-    ...pr, revenue: m(pr.revenue) * s, costOfSales: m(pr.costOfSales), operatingExpenses: m(pr.operatingExpenses),
-    operatingProfit: m(pr.operatingProfit ?? 0), netProfit: m(pr.netProfit), otherIncome: m(pr.otherIncome ?? 0), otherExpenses: m(pr.otherExpenses ?? 0),
+    ...pr, revenue: mp(pr.revenue) * s, costOfSales: mp(pr.costOfSales), operatingExpenses: mp(pr.operatingExpenses),
+    operatingProfit: mp(pr.operatingProfit ?? 0), netProfit: mp(pr.netProfit), otherIncome: mp(pr.otherIncome ?? 0), otherExpenses: mp(pr.otherExpenses ?? 0),
   };
   const netProfit = op - current.otherExpenses - Math.round(Math.abs(op) * plug);
   return { ...demoInput, set: { ...demoSet, current: { ...current, operatingProfit: op, netProfit }, prior, budget: { ...demoSet.budget!, bands } } };

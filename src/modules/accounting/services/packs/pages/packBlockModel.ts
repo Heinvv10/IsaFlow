@@ -14,6 +14,7 @@
  * an `unavailable` reason) is the one figure shape; nothing here redefines it.
  */
 
+import type { FigureFit } from './packFigureFitCss';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackChartSpec } from './packChartModel';
 import type { PackMatter } from './packMatters';
@@ -189,7 +190,7 @@ export interface PackMatterFigure extends Omit<PackMatter, 'quantum'> {
 }
 
 export type PackPageBlock =
-  | { kind: 'kpiTiles'; tiles: PackKpiTile[] }
+  | { kind: 'kpiTiles'; tiles: PackKpiTile[]; /** The size its figures print at, decided at composition (`packFigureFitStamp`). */ fit?: FigureFit }
   | { kind: 'statTiles'; groups: PackStatGroup[] }
   | { kind: 'table'; table: PackTable }
   | {
