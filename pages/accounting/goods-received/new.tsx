@@ -32,7 +32,7 @@ function remainingQuantity(item: POItem): number {
 }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export default function NewGRNPage() {
@@ -142,7 +142,7 @@ export default function NewGRNPage() {
                 </h3>
                 <div className="space-y-4">
                   <div>
-                    <label htmlFor="goods-received-new-purchase-order" className={lbl}>Purchase Order *</label>
+                    <label htmlFor="goods-received-new-purchase-order" className={lbl}>Purchase order *</label>
                     {loadingPOs ? (
                       <Loader2 className="h-4 w-4 animate-spin text-slate-500 dark:text-slate-400" />
                     ) : (
@@ -160,7 +160,7 @@ export default function NewGRNPage() {
                         onChange={dates.bind('receivedDate', setReceivedDate, receivedDate)} />
                     </div>
                     <div>
-                      <label htmlFor="goods-received-new-delivery-note" className={lbl}>Delivery Note #</label>
+                      <label htmlFor="goods-received-new-delivery-note" className={lbl}>Delivery note #</label>
                       <input id="goods-received-new-delivery-note" name="deliveryNote" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Supplier delivery note reference" className={inp} />
                     </div>
                   </div>
