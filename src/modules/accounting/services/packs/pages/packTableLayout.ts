@@ -18,6 +18,7 @@
  * Words are the shaped widths of `packFigureWidth.ts`; a heading's too, with its tracking (`HEADING_WORDS_PX`). The
  * table is as wide as production prints a page (`PRINT_CONTENT_PX`).
  */
+import { createHash } from 'node:crypto';
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
 import {
@@ -45,11 +46,11 @@ const LABEL_FONT_PX = Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
 
 export interface TableLayout {
   /** The label column's width then each data column's, in pixels. */
-  columnsPx: number[];
+  readonly columnsPx: readonly number[];
   /** The lines each row's label takes, in row order. */
-  labelLines: number[];
+  readonly labelLines: readonly number[];
   /** The most lines any column heading takes. */
-  headingLines: number;
+  readonly headingLines: number;
 }
 
 /**
@@ -61,22 +62,65 @@ export interface TableLayout {
  */
 export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number = WRAP_GUARD[orientation]): TableLayout {
   // Composing a page asks for the same table's layout at every step of `fitPageToBox`; it is a function of what the
-  // table holds, so it is kept by that (never by identity: a table edited in place is another table).
-  const key = `${scale}|${orientation}|${guardPx}|${JSON.stringify(table)}`;
+  // table prints, so it is kept by that (never by identity: a table edited in place is another table).
+  const key = layoutKey(table, scale, orientation, guardPx);
   const known = LAYOUTS.get(key);
-  if (known !== undefined) return known;
+  if (known !== undefined) {
+    // Least recently used goes first: a hit moves to the back.
+    LAYOUTS.delete(key);
+    LAYOUTS.set(key, known);
+    return known;
+  }
   const fitPx = tableFit(table, scale, orientation).px ?? Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
-  const layout = layoutAt(table, scale, orientation, guardPx, fitPx);
-  const frozen: TableLayout = Object.freeze({
-    columnsPx: Object.freeze(layout.columnsPx) as number[], labelLines: Object.freeze(layout.labelLines) as number[], headingLines: layout.headingLines,
-  });
-  if (LAYOUTS.size >= LAYOUTS_MAX) LAYOUTS.clear();
-  LAYOUTS.set(key, frozen);
-  return frozen;
+  const { columnsPx, labelLines, headingLines } = layoutAt(table, scale, orientation, guardPx, fitPx);
+  const layout: TableLayout = Object.freeze({ columnsPx: Object.freeze(columnsPx), labelLines: Object.freeze(labelLines), headingLines });
+  if (LAYOUTS.size >= LAYOUTS_MAX) LAYOUTS.delete(LAYOUTS.keys().next().value!);
+  LAYOUTS.set(key, layout);
+  return layout;
 }
 
+/** Layouts kept, by `layoutKey`; at most `LAYOUTS_MAX` (a few pages' tables, many times over), least recent dropped. */
 const LAYOUTS = new Map<string, TableLayout>();
-const LAYOUTS_MAX = 2_000;
+export const LAYOUTS_MAX = 200;
+/** How many layouts are kept (for the bound's test). */
+export const keptLayouts = (): number => LAYOUTS.size;
+
+/**
+ * Everything a layout reads, hashed: the columns, each row's label, level, role, footnote and the text of every cell it
+ * prints (`tableColumnCells`, which is what the figures become), the heading notes, the scale, orientation and guard.
+ * A hash, so a kept layout costs its key's 40 characters, not the table's figures.
+ */
+function layoutKey(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number): string {
+  const read = {
+    columns: table.columns, notes: (table.columnNotes ?? []).map((n) => [n.column, n.footnote]),
+    rows: table.rows.map((r) => [r.label, r.level, r.role, r.footnote ?? null]),
+    cells: tableColumnCells(table, scale),
+  };
+  return createHash('sha1').update(`${scale}|${orientation}|${guardPx}|${JSON.stringify(read)}`).digest('hex');
+}
+
+/**
+ * The columns' widths, as Chromium's automatic table layout shares the sheet out: where the MAXes fit, each is its max
+ * plus a share of what is left in proportion to its max; where not even the MINs fit, each is its min; otherwise each
+ * is its min plus a share of the room left over in proportion to `max - min`. Every share is truncated to Chromium's
+ * 1/64px unit, and the last column takes what is left, so the columns fill the sheet exactly.
+ */
+function shareOut(mins: readonly number[], maxs: readonly number[], sheet: number): number[] {
+  const sumMin = mins.reduce((a, b) => a + b, 0);
+  const sumMax = maxs.reduce((a, b) => a + b, 0);
+  if (sumMax > sheet && sumMin >= sheet) return [...mins];
+  const fromMax = sumMax <= sheet;
+  const base = fromMax ? maxs : mins;
+  const room = sheet - (fromMax ? sumMax : sumMin);
+  const weight = (i: number): number => (fromMax ? maxs[i]! / sumMax : (maxs[i]! - mins[i]!) / (sumMax - sumMin));
+  const unit = (px: number): number => Math.trunc(px * 64 + 1e-6) / 64;
+  let given = 0;
+  return base.map((width, i) => {
+    const extra = i === base.length - 1 ? room - given : unit(room * weight(i));
+    given += extra;
+    return width + extra;
+  });
+}
 
 function layoutAt(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number, fitPx: number): TableLayout {
   const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
@@ -108,20 +152,7 @@ function layoutAt(table: PackTable, scale: MoneyScale, orientation: PageOrientat
   });
   const mins = [labelMin, ...data.map((d) => d.min)];
   const maxs = [labelMax, ...data.map((d) => d.max)];
-  const sumMin = mins.reduce((a, b) => a + b, 0);
-  const sumMax = maxs.reduce((a, b) => a + b, 0);
-  const sheet = PRINT_CONTENT_PX[orientation];
-  const unit = (px: number): number => Math.trunc(px * 64 + 1e-6) / 64;
-  let given = 0;
-  const columnsPx = mins.map((min, i) => {
-    const max = maxs[i]!;
-    const last = i === mins.length - 1;
-    if (sumMin >= sheet && sumMax > sheet) return min;
-    const [base, room, share] = sumMax <= sheet ? [max, sheet - sumMax, max / sumMax] : [min, sheet - sumMin, (max - min) / (sumMax - sumMin)];
-    const extra = last ? room - given : unit(room * share);
-    given += extra;
-    return base + extra;
-  });
+  const columnsPx = shareOut(mins, maxs, PRINT_CONTENT_PX[orientation]);
   const labelPx = columnsPx[0]!;
   const labelLines = labelBox.map((b) => linesForText(b.parts, b.line, b.markerLine, labelPx - b.indent - CELL_SIDE_PX, guardPx));
   // A column heading is a fixed English label: no soft hyphen, so no hyphen to set.
