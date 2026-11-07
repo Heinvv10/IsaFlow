@@ -20,7 +20,8 @@
  *   says how much to add back to its periodic pay, and counts as the
  *   deduction it recorded.
  * Donations: what the lines deducted (donation_deduction); before migration 959, the items coded 4030 flagged
- * taxable on a deduction. For the s11F base, which is taken before them (G21 (2027) p. 10).
+ * taxable on a deduction. For the s11F base, which is taken before them (G21 (2027) p. 10). The certificate's 4030 is
+ * every 4030 item on a deduction, taxable or not, whatever PAYE allowed (donations4030; G21 (2027) p. 11).
  *
  * Every query is scoped by company_id (the run header; lines have none).
  */
@@ -65,7 +66,8 @@ export async function loadRetirementRecord(
                COALESCE(SUM(i.amount) FILTER (WHERE i.counted AND i.code = '4006'), 0) AS annuity,
                COALESCE(SUM(i.amount) FILTER (WHERE i.counted AND i.code = ANY(${codes}::text[])), 0) AS breakdown_all,
                COALESCE(SUM(i.amount) FILTER (WHERE i.counted AND i.code = ANY(${codes}::text[]) AND i.taxable), 0) AS breakdown_taxable,
-               COALESCE(SUM(i.amount) FILTER (WHERE i.code = '4030' AND i.taxable AND i.deduction IS NOT FALSE), 0) AS donations
+               COALESCE(SUM(i.amount) FILTER (WHERE i.code = '4030' AND i.taxable AND i.deduction IS NOT FALSE), 0) AS donations,
+               COALESCE(SUM(i.amount) FILTER (WHERE i.code = '4030' AND i.deduction IS NOT FALSE), 0) AS donated
         FROM (
           SELECT regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') AS code,
                  (item->>'amount')::numeric AS amount,
@@ -88,7 +90,8 @@ export async function loadRetirementRecord(
            SUM(COALESCE(retirement_deduction, breakdown_taxable))::numeric AS deduction,
            COALESCE(SUM(breakdown_taxable) FILTER (WHERE retirement_contributions IS NULL), 0)::numeric AS legacy_taxable,
            jsonb_object_agg(line_id::text, breakdown_taxable) FILTER (WHERE retirement_contributions IS NULL AND breakdown_taxable > 0) AS legacy_by_line,
-           SUM(COALESCE(donation_deduction, donations))::numeric AS donations
+           SUM(COALESCE(donation_deduction, donations))::numeric AS donations,
+           SUM(donated)::numeric AS donated
     FROM line
     GROUP BY employee_id
   `) as DbRow[];
@@ -101,15 +104,16 @@ export async function loadRetirementRecord(
     legacyTaxable: round2(Number(r.legacy_taxable)),
     legacyTaxableByLine: Object.fromEntries(Object.entries((r.legacy_by_line ?? {}) as Record<string, unknown>).map(([id, v]) => [id, Number(v)])),
     donations: round2(Number(r.donations)),
+    donations4030: round2(Number(r.donated)),
   }]));
 }
 
-/** The certificate's 4001 / 4003 / 4006 by employee (see loadRetirementRecord). */
+/** The certificate's 4001 / 4003 / 4006 / 4030 by employee (see loadRetirementRecord). */
 export async function loadRetirementContributions(
   companyId: string,
   bounds: { start: string; end: string },
   employeeIds: string[] | null = null,
 ): Promise<Map<string, RetirementContributions>> {
   const record = await loadRetirementRecord(companyId, bounds, employeeIds);
-  return new Map([...record].map(([id, r]) => [id, { pension4001: r.pension4001, provident4003: r.provident4003, annuity4006: r.annuity4006 }]));
+  return new Map([...record].map(([id, r]) => [id, { pension4001: r.pension4001, provident4003: r.provident4003, annuity4006: r.annuity4006, donations4030: r.donations4030 }]));
 }
