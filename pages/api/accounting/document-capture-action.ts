@@ -20,7 +20,7 @@ import { isBeingRead, STILL_BEING_READ } from '@/modules/accounting/services/cap
 import { mapCapturedDocumentRow as mapRow } from '@/modules/accounting/services/capture/capturedDocumentMapper';
 import { retryCaptureRead, type RetryRefusal } from '@/modules/accounting/services/capture/captureReadRetry';
 import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
-import { otherVatClaimMessage, type OtherVatClaim } from '@/modules/accounting/services/capture/bankAttachClaimConflict';
+import { otherVatClaimMessage } from '@/modules/accounting/services/capture/bankAttachClaimConflict';
 import {
   type LifecycleGate,
   releaseClaimForLifecycleAction,
@@ -201,8 +201,8 @@ async function handleMatchBankTx(
 
   const result = await attachCapturedDocToBankTx(companyId, id, bankTxId, userId);
   if (!result.ok) {
-    const { otherClaim } = result as { otherClaim?: OtherVatClaim };
-    if (otherClaim) return apiResponse.conflict(res, otherVatClaimMessage(otherClaim), { otherClaim });
+    const conflict = result.reason === 'document_backs_other_claim' ? result.otherClaim : null;
+    if (conflict) return apiResponse.conflict(res, otherVatClaimMessage(conflict), { otherClaim: conflict });
     return result.reason === 'bank_tx_not_found'
       ? apiResponse.notFound(res, 'Bank transaction', bankTxId)
       : apiResponse.notFound(res, 'Captured document', id);
