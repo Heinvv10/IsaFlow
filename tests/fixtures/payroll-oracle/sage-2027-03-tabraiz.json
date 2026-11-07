@@ -1,0 +1,42 @@
+{
+  "id": "sage-2027-03-tabraiz",
+  "source": "sage",
+  "sourceRef": "IsaFlow-Xero-Comparison-20261023/sage-payroll/01-paye-reconciliation.md: Sage Payroll demo company, payslips and \"View Tax Calculation\" observed 2026-10-24 (tax year 2027, March 2026 monthly period)",
+  "notes": "Sage demo employee \"tabraiz\" (a Sage demo record, not a real person). Sage tax status: statutory. Sage showed no age: no date of birth is given (rebate age defaults; ETI is then indeterminate, nil). Net is not on the Sage table: it is monthly pay less the Sage PAYE and employee UIF (no other deductions). ETI: nil by ETI Act s6(a), age outside 18-29.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": null,
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4500,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ]
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 45,
+    "uifEmployer": 45,
+    "sdl": 45,
+    "eti": 0,
+    "net": 4455
+  }
+}
