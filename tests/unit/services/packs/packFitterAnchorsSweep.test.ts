@@ -106,10 +106,10 @@ describe('the 2,560-input shape sweep', () => {
     // net-debit revenue with another line below zero got its two required disclosures under one heading):
     // every shape in the sweep gets its pack. A statement table modelled at its exact height gets the Budget columns
     // on more shapes and drops the caption (586, was 367) rather than the columns (1,116 name them, was 1,485). Measured
-    // under production's engine at production's content width (fractional advances, 658px), it does so on 597 and
-    // names them on 1,149.
+    // under production's engine at production's content box (fractional advances, 658 x 966px: a sheet 2px taller than
+    // 255mm, so fewer captions go), it drops the caption on 529 and names the columns on 1,149.
     expect(unexpectedlyRefused).toEqual([]);
     expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, columnsSilent, falseCompleteness, columnsNamed, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 597, columnsSilent: 0, falseCompleteness: 0, columnsNamed: 1149, refused: 0, sample: [] });
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 529, columnsSilent: 0, falseCompleteness: 0, columnsNamed: 1149, refused: 0, sample: [] });
   }, 1_800_000);
 });
