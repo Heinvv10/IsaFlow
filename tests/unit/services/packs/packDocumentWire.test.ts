@@ -26,6 +26,8 @@ import {
 } from '@/modules/accounting/services/packs/pages/packDocumentWire';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import { demoInput } from './fixtures/boardPackInputs';
+import { storedBeforeStampedFits } from './fixtures/storedBeforeStampedFits';
+import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 
 const HOSTILE = '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/p.png"/></svg>';
 const REAL_SVG = renderChartSvg(
@@ -200,4 +202,45 @@ describe('the deserialisation boundary validates structure, not just markup', ()
 
     expect(() => adoptPackPagesDocument(payload)).toThrow(/no value and no reason/);
   });
+});
+
+describe('the figure size the server decided', () => {
+  it('crosses the wire on every statement table and KPI row', () => {
+    const adopted = adoptPackPagesDocument(wire());
+    const fits = adopted.pages.flatMap((p) => p.blocks.flatMap((b) => (b.kind === 'table' ? [b.table.figureFit] : b.kind === 'kpiTiles' ? [b.fit] : [])));
+    expect(fits.length).toBeGreaterThan(3);
+    expect(fits.every((f) => f !== undefined && typeof f.fits === 'boolean')).toBe(true);
+  });
+
+  it('a pack stored before fits were stamped is refused, never printed unchecked; the server stamps it afresh', () => {
+    const stored = storedBeforeStampedFits();
+    expect(() => adoptPackPagesDocument(stored)).toThrow(/without a printable figure size the server decided/);
+    const restamped = serialisePackPagesDocument(stampFigureFits(built));
+    expect(() => adoptPackPagesDocument(restamped)).not.toThrow();
+  });
+
+  it('a stamp is the fit itself: one a page could print at a size the gate never checked is refused', () => {
+    const payload = wire();
+    const tiles = firstBlock(payload, 'kpiTiles');
+    tiles.fit = { px: 7.5, fits: true };
+    expect(() => adoptPackPagesDocument(payload)).toThrow(/figure size/);
+  });
+
+  it.each([
+    ['kpiTiles', { px: 16, fits: false }], ['kpiTiles', { px: 15, fits: true }], ['kpiTiles', { px: 30, fits: true }], ['kpiTiles', { px: null, fits: false }],
+    ['table', { px: 10, fits: false }], ['table', { px: 9, fits: true }], ['table', { px: 12, fits: true }], ['table', { px: '11', fits: true }],
+  ] as const)('a %s fit of %j (one that does not fit, or a size the model never states) is refused', (kind, fit) => {
+    const payload = wire();
+    if (kind === 'kpiTiles') firstBlock(payload, 'kpiTiles').fit = fit as never;
+    else firstBlock(payload, 'table').table.figureFit = fit as never;
+    expect(() => adoptPackPagesDocument(payload)).toThrow(/without a printable figure size the server decided/);
+  });
+
+  it.each([['kpiTiles', { px: 16, fits: true }], ['kpiTiles', { px: 29, fits: true }], ['table', { px: 10, fits: true }], ['table', { px: 11, fits: true }]] as const)(
+    'a %s fit of %j, at either end of the range the model states, crosses', (kind, fit) => {
+      const payload = wire();
+      if (kind === 'kpiTiles') firstBlock(payload, 'kpiTiles').fit = fit;
+      else firstBlock(payload, 'table').table.figureFit = fit;
+      expect(() => adoptPackPagesDocument(payload)).not.toThrow();
+    });
 });
