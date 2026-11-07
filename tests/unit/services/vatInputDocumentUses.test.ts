@@ -37,7 +37,8 @@ describe('judgeBankDocuments: a bank line\'s captured documents as uses', () => 
   });
 
   it('a credit note (negative VAT) backs no claim, and a negative share elsewhere is not credit for this one', () => {
-    expect(judgeBankDocuments([use(-15, -15, 0)], 15)).toBeNull();
+    expect(judgeBankDocuments([use(-15, -15, 0)], 15)).toEqual({ kind: 'unreadable' });
+    expect(judgeBankDocuments([use(0, 15, 15)], 15)).toBeNull();
     // Another chain REDUCED the document's total (others < 0): the clamp keeps it out of documentClaimedVat.
     expect(judgeBankDocuments([use(15, 10, 25), use(15, 45, 15)], 25)).toEqual({ kind: 'over_claimed', documentVat: 30, documentClaimedVat: 55 });
   });
