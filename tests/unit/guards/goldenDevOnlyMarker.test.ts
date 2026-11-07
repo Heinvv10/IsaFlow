@@ -66,6 +66,7 @@ describe('golden dev-only marker', () => {
       'y8-purchase-forms-390', 'z1-invoice-defaults', 'z2-invoice-autosave-send', 'z2b-invoice-held-back', 'z3-pnl-pdf', 'z4-employee-pay-on-create',
       'z5-employee-bank-details', 'z6-payrun-review-grid',
       'z7-undo-drawers', 'z8-budget-tracking', 'z9-employee-readiness', 'z10-payslips',
+      'z11-kit-select',
     ].sort());
   });
 });
