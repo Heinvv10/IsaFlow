@@ -2,11 +2,13 @@
  * WHETHER A PRINT-PARITY TEST MAY SKIP: only where it cannot run by design, and never silently.
  *
  * The parity tests need docker (and access to its daemon), the production Gotenberg image
- * (`PRODUCTION_GOTENBERG_IMAGE`) and pdftotext. GitHub's HOSTED runners have none of it, and there
- * (RUNNER_ENVIRONMENT=github-hosted) they skip, saying why. Everywhere else, velo's self-hosted runner included (it
- * sets GITHUB_ACTIONS too), a missing one FAILS the test file with its actual cause, unless PARITY_OPTIONAL=1 says to
- * skip on purpose (logged). They run on velo: by hand, and in a `bun run ci` there (the pre-push hook) when the change
- * touches what they hold (`parityScope.ts`). Re-run them whenever the gotenberg image or the pack's fonts change.
+ * (`PRODUCTION_GOTENBERG_IMAGE`) and pdftotext. Inside GitHub Actions (GITHUB_ACTIONS=true, hosted or self-hosted) a
+ * missing one SKIPS, with its actual cause in the reason: a hosted runner has no production image, and velo's
+ * self-hosted runner user has no docker access. A required check must not go red for a reason that has nothing to do
+ * with the PR (the day CI_HOSTED=off moves the jobs onto velo, say). Outside Actions (a local `bun run ci`, the
+ * pre-push hook) a missing one FAILS the test file with its cause, unless PARITY_OPTIONAL=1 says to skip on purpose
+ * (logged). They run on velo: by hand, and in a `bun run ci` there (the pre-push hook) when the change touches what
+ * they hold (`parityScope.ts`). Re-run them whenever the gotenberg image or the pack's fonts change.
  *
  * Where velo runs production's own `gotenberg` container, its image must be the pinned one (read with a read-only
  * `docker inspect`; nothing is exec'd in it and nothing changed): a parity proven against another image says nothing.
@@ -43,10 +45,14 @@ export function paritySkip(
   }
   const missing = host.missing();
   if (missing === null) return null;
-  if (env.RUNNER_ENVIRONMENT === 'github-hosted') return `${missing} (a GitHub-hosted runner, which has no production image)`;
+  if (env.GITHUB_ACTIONS === 'true') {
+    const runner = env.RUNNER_ENVIRONMENT === 'github-hosted' ? 'a GitHub-hosted runner, which has no production image' : `a ${env.RUNNER_ENVIRONMENT ?? 'self-hosted'} Actions runner`;
+    log.warn('print parity skipped inside GitHub Actions', { reason: missing, runner }, 'print-parity');
+    return `${missing} (${runner})`;
+  }
   if (env.PARITY_OPTIONAL === '1') {
     log.warn('print parity skipped on purpose (PARITY_OPTIONAL=1)', { reason: missing }, 'print-parity');
     return `${missing}; PARITY_OPTIONAL=1`;
   }
-  throw new Error(`print parity cannot run here: ${missing}. It must run on velo; PARITY_OPTIONAL=1 skips it on purpose`);
+  throw new Error(`print parity cannot run here: ${missing}. Outside GitHub Actions it must run (on velo); PARITY_OPTIONAL=1 skips it on purpose`);
 }
