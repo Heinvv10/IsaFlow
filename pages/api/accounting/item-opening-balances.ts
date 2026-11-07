@@ -11,6 +11,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { missingStockItemIds } from '@/modules/accounting/services/items/stockItemLookup';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -43,6 +44,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return apiResponse.badRequest(res, 'Each entry needs itemId, quantity, and unitCost');
         }
       }
+
+      // Every id must be one of this company's stock items before anything is
+      // written: the UPDATEs below match nothing for an unknown id, and the
+      // count returned used to be the request's length regardless.
+      const missing = await missingStockItemIds(companyId, items.map((e) => String(e.itemId)));
+      if (missing.length > 0) return apiResponse.notFound(res, 'Stock item', missing.join(', '));
 
       await transaction((txSql) =>
         items.map((entry) =>
