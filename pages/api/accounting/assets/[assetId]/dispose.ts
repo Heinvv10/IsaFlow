@@ -38,12 +38,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (!disposalDate) return apiResponse.badRequest(res, 'disposalDate is required');
   // Proceeds before any write too: "abc" / NaN / a negative reached the journal and died there as "Entry is not balanced".
-  // Only a number or a plain decimal string: Number() would read [5] as 5, "0x10" as 16 and "" as 0. The ceiling is
-  // numeric(15,2) (asset_disposals.disposal_amount): 1e20 used to reach the INSERT and 500.
-  const proceedsNum = typeof proceeds === 'number' ? proceeds
-    : typeof proceeds === 'string' && /^\d+(\.\d+)?$/.test(proceeds.trim()) ? Number(proceeds.trim()) : NaN;
-  if (!Number.isFinite(proceedsNum) || proceedsNum < 0 || proceedsNum >= 1e13) {
-    return apiResponse.badRequest(res, 'proceeds must be a number from 0 up to 9,999,999,999,999.99');
+  // Only a number or a plain decimal string with at most 2 decimals: Number() would read [5] as 5, "0x10" as 16 and
+  // "" as 0, and a sub-cent amount died in the journal. The ceiling (checked below once the
+  // journal's totals are known) is numeric(15,2), the precision of every column proceeds or the gain flows into
+  // (gl_journal_lines.debit/credit, assets.disposal_amount, asset_disposals.disposal_amount/.gain_loss): 9,999,999,999,999.99.
+  const cents = typeof proceeds === 'number' ? proceeds * 100
+    : typeof proceeds === 'string' && /^\d+(\.\d{1,2})?$/.test(proceeds.trim()) ? Number(proceeds.trim()) * 100 : NaN;
+  const proceedsNum = cents / 100;
+  if (!Number.isFinite(cents) || cents < 0 || Math.abs(Math.round(cents) - cents) > 1e-6) {
+    return apiResponse.badRequest(res, 'proceeds must be an amount of 0 or more, in whole cents');
   }
   // Validated before any write (a 4xx commits). assets.disposal_method and asset_disposals.disposal_method are the
   // columns carrying the app's DisposalMethod values; assets.disposal_type has a different CHECK (mig 361) and is
@@ -101,6 +104,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const taxAccDep = Number(asset.tax_acc_dep ?? 0);
 
   const calc = calculateDisposalResult({ cost, policyAccDep, taxAccDep, proceeds: proceedsNum });
+
+  // The journal balance trigger (check_journal_balance) sums the entry's debits and credits into NUMERIC(15,2): the
+  // entry's TOTAL, not just proceeds, must fit. Debits = proceeds + accumulated depreciation + any loss; credits = cost + any
+  // gain. Refused here, before the first write (a 4xx commits). The running per-account, per-period total in
+  // gl_account_balances is also NUMERIC(15,2); that one cannot be checked statically and only matters at ~1e13 cumulative.
+  const centsOf = (n: number) => Math.round(n * 100);
+  const debitCents = centsOf(proceedsNum) + centsOf(policyAccDep) + centsOf(Math.max(0, -calc.policyGainLoss));
+  const creditCents = centsOf(cost) + centsOf(Math.max(0, calc.policyGainLoss));
+  if (Math.max(debitCents, creditCents) > 999999999999999) {
+    return apiResponse.badRequest(res, 'proceeds are too large: the disposal journal total would exceed 9,999,999,999,999.99');
+  }
 
   log.info('Asset disposal calculated', {
     assetId, policyGainLoss: calc.policyGainLoss,
