@@ -10,8 +10,8 @@
  * WHICH COMPONENTS. Regular pay and deductions with no tax effect, nothing else:
  *   - earnings: 3601 salary, 3606 commission, 3607 overtime, flagged taxable.
  *     3605 and the 39xx lump sums are taxed by other rules (payeTreatment).
- *   - deductions: not taxable (the calculator takes a taxable deduction off PAYE
- *     income) and on the explicit list of company-local codes below. No seeded
+ *   - deductions: not taxable (a taxable one is a retirement contribution, a
+ *     donation or warned DEDUCTION_NOT_PAYE_DEDUCTIBLE) and on the explicit list of company-local codes below. No seeded
  *     company has one, so by default the grid has no deduction column. A local
  *     code fails IRP5 readiness (IRP5_UNKNOWN_CODE) at year end, which is why the
  *     list is opt-in. Every four-digit code is a SARS code with a meaning beyond

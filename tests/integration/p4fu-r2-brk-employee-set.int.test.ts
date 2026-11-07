@@ -147,7 +147,7 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
     ok(await approveRun(f, jan));
   });
 
-  it('a back-filled fully donated salary is warned, and the gate refuses it if that warning is absent', async () => {
+  it('a back-filled salary with a taxable 4018 is still taxed and warned, and the gate refuses it if that warning is absent', async () => {
     const f = await seedEmployee(pool, fixtures, 'R1 fully donated salary', 20_000);
     const donation = String((await pool.query(
       `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
@@ -161,7 +161,8 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
     const jan = await mk(f, 2027, 1);
     await calcOnly(f, jan);
     const line = await runLine(pool, jan, f.employee);
-    expect([Number(line.periodic_taxable), Number(line.annual_taxable)]).toEqual([0, 0]);
+    // Calculation version 4: a taxable 4018 no longer reduces PAYE (para 2(4)), so January stays taxed.
+    expect([Number(line.periodic_taxable), Number(line.annual_taxable)]).toEqual([20_000, 0]);
     expect(await warningCodes(jan, f.employee)).toContain('PAYE_LATER_PERIODS_APPROVED');
 
     await pool.query(`UPDATE payroll_run_lines SET validation_results = '[]'::jsonb WHERE run_id = $1`, [jan]);
