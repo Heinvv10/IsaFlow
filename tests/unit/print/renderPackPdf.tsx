@@ -309,7 +309,7 @@ export async function printBoardPack(
     `<style>${printStylesheet()}</style></head><body>${body}</body></html>`;
 
   // The page is laid out at the width PRODUCTION prints its content at
-  // (`PRINT_CONTENT_PX`: 658.390625px, measured in its Gotenberg image), not a
+  // (`PRINT_CONTENT_PX`: 658px, 987 landscape, measured in its Gotenberg image), not a
   // screen's: measured at 1280px the pages wrap differently and every height
   // read back is a height no sheet ever has. A viewport is a whole number of
   // pixels, so the root is set to that width inside a viewport a pixel wider.

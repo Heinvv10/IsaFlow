@@ -6,7 +6,7 @@
  * than the equal share keeps that width, and the rest share what is left. A tile is a flex column with a 1mm gap:
  * its label, then its figure or its not-meaningful reason, then its delta line, then its sparkline, each as tall as
  * the lines Chromium breaks it into at the column's width. A row is as tall as its tallest tile. The row is as wide
- * as production prints the page (`PRINT_CONTENT_PX`, 658.390625px portrait), not the 174mm (657.6px) of the margins.
+ * as production prints the page (`PRINT_CONTENT_PX`, 658px portrait, 987 landscape), not the 174mm (657.6px) of the margins.
  *
  * The model it replaces charged every tile as if it sat in a quarter, took its text from the prose ruler and its
  * sparkline at the 33mm cap, and read 5.6 to 52.7mm too tall on the page-3 packs where master keeps fewer notes than
@@ -24,23 +24,33 @@ import { pieces } from './packLineBreaks';
 import { reasonPx } from './packReasonWidth';
 import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
 
-/** Leadings, in mm: the label and the delta (12pt), the not-meaningful reason (14pt), the figure (25pt). */
-const LABEL_LINE_MM = 4.24;
-const REASON_LINE_MM = 4.94;
-const FIGURE_LINE_MM = 8.83;
-/** The delta's first line is 0.27mm taller than its leading: the arrow cue sits in a 7pt run. */
-const DELTA_CUE_MM = 0.27;
-/** `.pack-kpi-tile { gap: 1mm }`. */
+/** One CSS pixel, in mm. */
+const PX_MM = 25.4 / 96;
+/**
+ * Leadings, as Chromium sets them in its 1/64px unit (`packKpiLeadings.test.ts` re-measures each): a label or a delta
+ * line is 12pt, 16px; a not-meaningful reason line 14pt, 18.667px, set at 18.671875; a figure 25pt, 33.333px, set at
+ * 33.328125. The delta's first line is 1px taller: its arrow cue sits in a 7pt run.
+ */
+export const LABEL_LINE_MM = 16 * PX_MM;
+export const REASON_LINE_MM = 18.671875 * PX_MM;
+export const FIGURE_LINE_MM = 33.328125 * PX_MM;
+export const DELTA_CUE_MM = 1 * PX_MM;
+/** `.pack-kpi-tile { gap: 1mm }`: Chromium floors it to its unit (3.765625px); the model charges the millimetre. */
 const TILE_GAP_MM = 1;
 /** `.pack-kpi-sparkline svg { max-height: 33mm }`. */
 const SPARKLINE_MAX_MM = 33;
 const TEXT_PX = 12;
 
-/** The sparkline's height over its width, from the width and height the chart renderer wrote on it. */
+/**
+ * The sparkline's height over its width, from the width and height the chart renderer wrote on its root `<svg>`
+ * (`renderChartSvg`; `packKpiLayoutModel.test.ts` pins that format). An SVG without them is a renderer this model was
+ * not built against: refused, not guessed at.
+ */
 function sparklineAspect(svg: string): number {
   const w = /<svg[^>]* width="(\d+(?:\.\d+)?)"/.exec(svg);
   const h = /<svg[^>]* height="(\d+(?:\.\d+)?)"/.exec(svg);
-  return w === null || h === null ? 0.8 : Number(h[1]) / Number(w[1]);
+  if (w === null || h === null || Number(w[1]) <= 0) throw new Error('packKpiLayout: a sparkline SVG without a numeric width and height on its root element');
+  return Number(h[1]) / Number(w[1]);
 }
 
 /** The width of each of the four columns, in pixels: the grid's `1fr` tracks over their min-content widths. */
@@ -62,8 +72,8 @@ export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orien
 /**
  * How many lines Chromium sets `text` in, `avail` px wide: a greedy fill over the places it may break (`pieces`), each
  * candidate line measured as ONE string. Chromium sums a line's advances once; summed piece by piece every piece's
- * rounding adds up, and a delta line read 0.22 to 0.27px wider than Chromium set it and took a second line the print
- * does not (168 of the grid's 11,520 packs, 4.3mm over). `lead` is set before the text on its first line (the delta's
+ * rounding adds up, and a delta line read wider than Chromium set it and took a second line the print does not
+ * (`packKpiLayout.test.ts`, the third pack on an edge). `lead` is set before the text on its first line (the delta's
  * arrow cue and its space) and may stand alone on it; `mark` is a footnote mark that stays with the last piece.
  *
  * No guard is kept off the column. Every width here is never short of Chromium's (`textPx`: the exact advance sum
@@ -86,17 +96,23 @@ function lineCount(text: string, widthOf: (line: string) => number, avail: numbe
 
 const plain = (line: string): number => textPx(line, TEXT_PX, 400);
 
+/** How many lines each wrapped part of a tile takes in a column `columnPx` wide (0 for a part the tile lacks). */
+export interface KpiTileLines { label: number; reason: number; delta: number }
+
+export function kpiTileLines(tile: KpiTile, columnPx: number): KpiTileLines {
+  return {
+    label: lineCount(tile.label, plain, columnPx, 0, labelMarkPx(tile.trendFootnote)),
+    reason: tile.figure.value === null ? lineCount(tile.figure.unavailable ?? '', reasonPx, columnPx) : 0,
+    // The arrow cue is a run of its own, a space before the words (`</span>{' '}`): a break may follow it.
+    delta: tile.delta === null ? 0 : lineCount(deltaText(tile), plain, columnPx, DELTA_CUE_PX + plain(' ')),
+  };
+}
+
 /** One tile's height in a column `columnPx` wide. */
 export function kpiTileMm(tile: KpiTile, columnPx: number): number {
-  const label = lineCount(tile.label, plain, columnPx, 0, labelMarkPx(tile.trendFootnote)) * LABEL_LINE_MM;
-  const figure = tile.figure.value === null
-    ? lineCount(tile.figure.unavailable ?? '', reasonPx, columnPx) * REASON_LINE_MM
-    : FIGURE_LINE_MM;
-  const parts = [label, figure];
-  if (tile.delta !== null) {
-    // The arrow cue is a run of its own, a space before the words (`</span>{' '}`): a break may follow it.
-    parts.push(lineCount(deltaText(tile), plain, columnPx, DELTA_CUE_PX + plain(' ')) * LABEL_LINE_MM + DELTA_CUE_MM);
-  }
+  const lines = kpiTileLines(tile, columnPx);
+  const parts = [lines.label * LABEL_LINE_MM, tile.figure.value === null ? lines.reason * REASON_LINE_MM : FIGURE_LINE_MM];
+  if (tile.delta !== null) parts.push(lines.delta * LABEL_LINE_MM + DELTA_CUE_MM);
   if (tile.sparklineSvg !== null) {
     parts.push(Math.min(SPARKLINE_MAX_MM, (columnPx / MM_PX) * sparklineAspect(tile.sparklineSvg) + 0.01));
   }

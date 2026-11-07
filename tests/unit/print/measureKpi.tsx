@@ -46,7 +46,7 @@ export async function measureKpiBlocks(document: PackPagesDocument, browser: Bro
       await Promise.all([400, 500, 600].map((w) => document.fonts.load(`${w} 16px "IBM Plex Sans"`)));
       await document.fonts.ready;
     });
-    // Production lays a page out at `PRINT_CONTENT_PX` (658.390625px portrait, 987.390625 landscape): each page is
+    // Production lays a page out at `PRINT_CONTENT_PX` (658px portrait, 987 landscape): each page is
     // measured at its own orientation's width, a landscape page in a second pass.
     const out: PrintedKpiBlock[] = [];
     for (const orientation of ['portrait', 'landscape'] as const) {

@@ -52,7 +52,7 @@ export async function measureTables(document: PackPagesDocument, browser: Browse
       await Promise.all([400, 500, 600].map((w) => document.fonts.load(`${w} 16px "IBM Plex Sans"`)));
       await document.fonts.ready;
     });
-    // Production prints a page's content PRINT_CONTENT_PX wide (658.390625px, measured in its Gotenberg image; not
+    // Production prints a page's content PRINT_CONTENT_PX wide (658px, measured in its Gotenberg image; not
     // 174mm = 657.6). A viewport is whole pixels, so the root is set to it inside one a pixel wider.
     await page.evaluate((w) => { document.documentElement.style.width = `${w}px`; }, PRINT_CONTENT_PX.portrait);
     return await page.evaluate((pxMm) => {

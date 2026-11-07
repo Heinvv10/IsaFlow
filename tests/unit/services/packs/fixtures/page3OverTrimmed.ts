@@ -1,7 +1,7 @@
 /**
  * Packs whose page 3 (Highlights) printed inside its sheet both before #1158 and on master, where master kept FEWER of
  * the page's explanatory notes than pre-#1158 did: the adversary's 184 (28 by one note, 156 by two), every sixth,
- * with the notes each kept. For `packPage3NotesExact.test.ts`: the KPI block is modelled at its exact height now, so
+ * with the notes each kept. For `packPage3KeepsPre1158Notes.test.ts`: the KPI block is modelled at its exact height now, so
  * the page keeps what it printed.
  */
 import type { Shape } from './packGridInputs';

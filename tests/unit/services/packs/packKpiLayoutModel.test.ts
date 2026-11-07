@@ -13,15 +13,12 @@ import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { DELTA_CUE_PX, deltaText, KPI_FIGURE_MAX_PT, kpiColumnMinPx, kpiFit, labelMarkPx, type KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { ptToPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
-import { kpiColumnsPx, kpiTileMm } from '@/modules/accounting/services/packs/pages/packKpiLayout';
+import { kpiColumnsPx, kpiTileMm, LABEL_LINE_MM, REASON_LINE_MM } from '@/modules/accounting/services/packs/pages/packKpiLayout';
 import { reasonPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
 import { input, type Shape } from './fixtures/packGridInputs';
 
 const SCALE = "R'000" as const;
 const HAIR = 1 / 128;
-/** `.pack-kpi-label` / `.pack-kpi-delta`: one line of 12pt leading. `.pack-kpi-unavailable`: 14pt. */
-const LABEL_LINE_MM = 4.24;
-const REASON_LINE_MM = 4.94;
 
 function tiles(shape: Shape): KpiTile[] {
   vi.spyOn(log, 'warn').mockImplementation(() => undefined);
@@ -72,5 +69,26 @@ describe('a column a figure holds open', () => {
     const frozen = columns.map((c, i) => [c, mins[i]!] as const).filter(([c]) => c > share);
     expect(frozen.length).toBeGreaterThan(0);
     frozen.forEach(([c, min]) => expect(c).toBe(min));
+  });
+});
+
+describe('the sparkline the model sizes', () => {
+  const withSparkline = [...tiles(DEMO), ...tiles({ ...DEMO, k: 300000 })].filter((t) => t.sparklineSvg !== null);
+
+  it('is written by the chart renderer with a numeric width and height on its root <svg>, the only format the model reads', () => {
+    expect(withSparkline.length).toBeGreaterThan(3);
+    for (const tile of withSparkline) expect(String(tile.sparklineSvg)).toMatch(/^<svg width="\d+(?:\.\d+)?" height="\d+(?:\.\d+)?" /);
+  });
+
+  it('is charged at its own height over width, the column\'s width high', () => {
+    const tile = withSparkline[0]!;
+    const [, w, hgt] = /^<svg width="([\d.]+)" height="([\d.]+)"/.exec(String(tile.sparklineSvg))!;
+    const without = kpiTileMm({ ...tile, sparklineSvg: null }, 100);
+    expect(kpiTileMm(tile, 100) - without).toBeCloseTo((100 / (96 / 25.4)) * (Number(hgt) / Number(w)) + 0.01 + 1, 9);
+  });
+
+  it('is refused, not guessed at, where its root carries no width and height', () => {
+    const tile = withSparkline[0]!;
+    expect(() => kpiTileMm({ ...tile, sparklineSvg: '<svg viewBox="0 0 227 181"></svg>' as typeof tile.sparklineSvg }, 100)).toThrow(/sparkline SVG/);
   });
 });
