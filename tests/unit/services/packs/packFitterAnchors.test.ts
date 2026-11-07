@@ -36,23 +36,28 @@ function tableAnchoredAt(rows: Record<number, number>, columnNotes: PackTable['c
   return { kind: 'table', table };
 }
 
-const requiredBlock = (notes: number): PackPageBlock => ({
+const requiredBlock = (notes: number, extra = ''): PackPageBlock => ({
   kind: 'disclosure',
   disclosure: {
     heading: 'Negative equity', required: true,
-    notes: Array.from({ length: notes }, (unused, i) => ({ heading: `Note ${i + 1}`, body: SENTENCE })),
+    notes: Array.from({ length: notes }, (unused, i) => ({ heading: `Note ${i + 1}`, body: i === 0 ? `${SENTENCE}${extra}` : SENTENCE })),
   },
 });
 
-/** Five footnotes: 1-4 ordinary, 5 required. Row 0 -> 1, row 1 -> 2, rows 2 and 3 -> 3, row 4 -> 4, prior column -> 5. */
+/** Five footnotes: 1-4 ordinary, 5 required; the required block's first note one line longer, so the page outgrows the
+ * sheet production prints (966px, `PRINT_CONTENT_HEIGHT_PX`) and not only a 255mm one. Row 0 -> 1, row 1 -> 2, rows 2 and 3 -> 3, row 4 -> 4, prior column -> 5. */
+/**
+ * Eleven notes in the required block: the table is modelled at its exact height (the lines Chromium sets it in) and the
+ * sheet is the 966px production prints, so this is what crowds it enough for the fitter to drop footnotes 3 and 4.
+ */
+const CROWD_NOTES = 11;
+const CROWD_EXTRA = '';
 function crowdedPage(): PackPage {
   const text = (n: number) => `Footnote ${n} is about its own anchor. ${SENTENCE}`;
   const footnotes: PackFootnote[] = [1, 2, 3, 4, 5].map((n) => ({ number: n, text: text(n), ...(n === 5 ? { required: true as const } : {}) }));
   return {
     number: 6, title: 'Income statement', navLabel: 'Income statement', section: 'Financials', orientation: 'portrait', density: 'high',
-    // 11 notes: the table is modelled at its exact height (the lines Chromium sets it in), so ten no longer
-    // crowd the sheet enough to make the fitter drop an ordinary footnote.
-    blocks: [tableAnchoredAt({ 0: 1, 1: 2, 2: 3, 3: 3, 4: 4 }, [{ column: 'prior', footnote: 5 }]), requiredBlock(11)],
+    blocks: [tableAnchoredAt({ 0: 1, 1: 2, 2: 3, 3: 3, 4: 4 }, [{ column: 'prior', footnote: 5 }]), requiredBlock(CROWD_NOTES, CROWD_EXTRA)],
     footnotes,
   };
 }

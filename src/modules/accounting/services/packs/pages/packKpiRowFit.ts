@@ -17,28 +17,43 @@ import { formatFigureText } from '@/components/accounting/packs/primitives/packF
 import { GUTTER_MM } from './packDisclosureHeight';
 import type { PackPageBlock } from './packPageModel';
 import { PACK_SCALE } from './packScale';
+import { kpiFit } from './packFigureFit';
 import { PAGE_WIDTH_MM, PT_MM, textWidthEms, type PageOrientation } from './packTextMetrics';
 
 type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
 
 export const KPI_COLUMNS = 4;
-/** `.pack-kpi-value`: 22pt, never below 12pt. */
+/** `.pack-kpi-value`: 22pt, unless the figure fit stamped a smaller size. */
 const FIGURE_MAX_PT = 22;
-const FIGURE_MIN_PT = 12;
 
-/** The width of each of the four columns, in millimetres. */
-export function kpiColumnWidthsMm(tiles: readonly KpiTile[], orientation: PageOrientation = 'portrait'): number[] {
-  const roomMm = PAGE_WIDTH_MM[orientation] - (KPI_COLUMNS - 1) * GUTTER_MM;
+const MM_PX = 96 / 25.4;
+
+/** The widest figure of each of the four columns, in ems, as the row's component states them (`kpiFitStyle`). */
+function widestEmsOf(tiles: readonly KpiTile[]): number[] {
   const widestEms = Array.from({ length: KPI_COLUMNS }, () => 0);
   tiles.forEach((tile, i) => {
     if (tile.figure.value === null) return;
     const column = i % KPI_COLUMNS;
     widestEms[column] = Math.max(widestEms[column]!, textWidthEms(formatFigureText(tile.figure, PACK_SCALE)));
   });
-  const totalEms = widestEms.reduce((sum, ems) => sum + ems, 0);
-  const emMm = totalEms === 0
-    ? FIGURE_MAX_PT * PT_MM
-    : Math.min(FIGURE_MAX_PT * PT_MM, Math.max(FIGURE_MIN_PT * PT_MM, roomMm / totalEms));
+  return widestEms;
+}
+
+/**
+ * The size `.pack-kpi-value` sets a row's figures at, in px: 22pt, or the whole-pixel size the figure fit stamped on
+ * the row (`packFigureFit.kpiFit`, `.pack-kpi-tiles.is-fitted`). Nothing in it comes from the content width any more,
+ * so the 1/64px a container query reads beyond the line width cannot move it
+ * (`tests/unit/print/packKpiFigureSize.test.ts` holds it to Chromium's computed size).
+ */
+export function kpiFigurePx(tiles: readonly KpiTile[], orientation: PageOrientation = 'portrait'): number {
+  return kpiFit(tiles, PACK_SCALE, orientation).px ?? FIGURE_MAX_PT * PT_MM * MM_PX;
+}
+
+/** The width of each of the four columns, in millimetres. */
+export function kpiColumnWidthsMm(tiles: readonly KpiTile[], orientation: PageOrientation = 'portrait'): number[] {
+  const roomMm = PAGE_WIDTH_MM[orientation] - (KPI_COLUMNS - 1) * GUTTER_MM;
+  const widestEms = widestEmsOf(tiles);
+  const emMm = kpiFigurePx(tiles, orientation) / MM_PX;
   // `minmax(auto, 1fr)`: a column whose figure is wider than the fair share keeps its figure's width,
   // and the rest share what that leaves.
   const base = widestEms.map((ems) => ems * emMm);
