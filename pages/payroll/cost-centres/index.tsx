@@ -190,7 +190,7 @@ export default function CostCentresPage() {
               <div className="text-sm font-medium text-[var(--ff-text-primary)] mb-3">Add a cost centre</div>
               <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 2fr auto' }}>
                 <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="Code (e.g. ADMIN)"
-                  className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] font-mono" />
+                  className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] font-id" />
                 <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Name"
                   className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]" />
                 <button onClick={create} disabled={busy}
@@ -225,7 +225,7 @@ export default function CostCentresPage() {
                     const editing = editingId === cc.id;
                     return (
                       <tr key={cc.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                        <td className="py-2 px-3 font-mono text-[var(--ff-text-primary)]">
+                        <td className="py-2 px-3 font-id text-[var(--ff-text-primary)]">
                           {editing ? (
                             <input value={editCode} onChange={e => setEditCode(e.target.value)}
                               className="rounded bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 w-28" />

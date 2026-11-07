@@ -58,12 +58,17 @@ export const PAGE_WIDTH_MM = {
 export type PageOrientation = keyof typeof PAGE_BOX_MM;
 
 /**
- * THE WIDTH PRODUCTION PRINTS A PAGE'S CONTENT AT, IN CSS PIXELS: not 174mm (657.6px) nor 261mm (986.5px). Measured
- * in the production Gotenberg image through the pack stylesheet (its `@page { size: A4 }` rules) and the transports'
- * margins: a line wraps in the PDF exactly where it wraps in a page laid out this wide, to 1/64px
- * (`tests/unit/printParity/packPrintContentWidth.test.ts`). Playwright's own PDF snaps the box to 658 and 987.
+ * THE BOX PRODUCTION PRINTS A PAGE'S CONTENT IN, IN CSS PIXELS, measured in its Gotenberg image through the pack
+ * stylesheet (its `@page` rules) and the transports' margins, with the pack's faces loaded, and identical in Playwright's
+ * own PDF (`tests/unit/printParity/packPrintContentWidth.test.ts` and `tests/unit/print/packPrintContentWidth.test.ts`):
+ *  - WIDTH, the measure lines break at: 658 portrait, 987 landscape (not 174mm = 657.6, nor 261mm = 986.5). A line
+ *    wraps in the PDF exactly where it wraps in a page laid out this wide, to 1/64px. A container query in the same
+ *    print reads the content box 1/64px wider (658.015625 / 987.015625); lines break at the width here;
+ *  - HEIGHT: 966 portrait, 637 landscape (255mm is 963.78, 168mm 634.96). A 1px line fits under a block 965px tall and
+ *    spills to a second sheet under one 1/64px taller. The page-fit models still use the millimetre boxes, 2px short.
  */
-export const PRINT_CONTENT_PX: Readonly<Record<PageOrientation, number>> = { portrait: 658.390625, landscape: 987.390625 };
+export const PRINT_CONTENT_PX: Readonly<Record<PageOrientation, number>> = { portrait: 658, landscape: 987 };
+export const PRINT_CONTENT_HEIGHT_PX: Readonly<Record<PageOrientation, number>> = { portrait: 966, landscape: 637 };
 
 /**
  * HOW WIDE A CHARACTER OF IBM PLEX SANS IS, in ems of the type size.

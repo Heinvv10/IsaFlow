@@ -92,7 +92,7 @@ export default function CostCentreSummaryPage() {
                 <tbody>
                   {data.rows.map((r, idx) => (
                     <tr key={idx} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                      <td className="py-2 px-3 font-mono">{r.costCentreCode ?? <span className="italic text-[var(--ff-text-tertiary)]">Unassigned</span>}</td>
+                      <td className="py-2 px-3 font-id">{r.costCentreCode ?? <span className="italic text-[var(--ff-text-tertiary)]">Unassigned</span>}</td>
                       <td className="py-2 px-3">{r.costCentreName ?? '—'}</td>
                       <td className="py-2 px-3 text-right tabular-nums">{r.employeeCount}</td>
                       <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(r.totalGross)}</td>
