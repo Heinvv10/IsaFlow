@@ -23,6 +23,8 @@ import { fetchRawBytes } from '@/lib/documentStorage';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { mimeForCapturedFileType } from './capturedFileTypes';
 import { findOtherVatClaim, type OtherVatClaim } from './bankAttachClaimConflict';
+import { lockCapturedDocumentForUpdate } from './captureRowLock';
+import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
 
 export { mimeForCapturedFileType };
 
@@ -54,6 +56,10 @@ export async function attachCapturedDocToBankTx(
   `) as Row[];
   if (!tx) return { ok: false, reason: 'bank_tx_not_found' };
 
+  // Lock order bank line, then document (as provisionalEvidenceAttach): an allocation or a posting of either row
+  // waits for this attach, so the check below cannot be overtaken before the write.
+  await lockBankTransactionForUpdate(companyId, bankTxId);
+  await lockCapturedDocumentForUpdate(companyId, documentId);
   const otherClaim = await findOtherVatClaim(companyId, documentId, bankTxId);
   if (otherClaim) return { ok: false, reason: 'document_backs_other_claim', otherClaim };
 

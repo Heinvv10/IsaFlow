@@ -8,8 +8,16 @@
  * VAT. Everything else is allowed: proof of payment (the line claims no VAT, or is not allocated yet), and the line's
  * OWN journal (a receipt matched to its payment, a provisional journal).
  *
- * Known limit: the check runs at attach time. A line allocated WITH VAT after the document was attached is not
- * re-checked here.
+ * Input VAT is `vat_input` OR `vat_input_late_claim`: a section 16(3) late claim parks the original journal's VAT on
+ * the clearing account (its companion carries the `vat_input` line), and it is still that journal's claim.
+ *
+ * Bills and expense claims count while live, before their VAT posts (a bill pending approval, an approved claim):
+ * they are about to claim it. A document sits on ONE bank line; attaching it moves it (captureBankTxAttachService),
+ * so its previous line is never a second claim.
+ *
+ * Known limits: the check runs at attach time. A line allocated WITH VAT after the attach, or a DRAFT journal naming
+ * the document that is posted later, is not re-checked here; scripts/audit/vat-document-double-use.sql finds those.
+ * Callers hold the bank line and document locks (bank line, then document), so a peer cannot slip in between.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -43,7 +51,7 @@ export async function findOtherVatClaim(companyId: string, documentId: string, b
        AND (SELECT COALESCE(SUM(jl.debit - jl.credit), 0) FROM gl_journal_lines jl
               JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
              WHERE jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
-               AND ga.account_subtype = 'vat_input') > ${CENT}
+               AND ga.account_subtype IN ('vat_input', 'vat_input_late_claim')) > ${CENT}
      LIMIT 1
   `) as DbRow[];
   if (!lineClaims) return null;
@@ -58,7 +66,7 @@ export async function findOtherVatClaim(companyId: string, documentId: string, b
        AND (SELECT COALESCE(SUM(jl.debit - jl.credit), 0) FROM gl_journal_lines jl
               JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
              WHERE jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
-               AND ga.account_subtype = 'vat_input') > ${CENT}
+               AND ga.account_subtype IN ('vat_input', 'vat_input_late_claim')) > ${CENT}
      LIMIT 1
   `) as DbRow[];
   if (journal) return { kind: 'journal', id: String(journal.id), reference: String(journal.entry_number ?? '') };

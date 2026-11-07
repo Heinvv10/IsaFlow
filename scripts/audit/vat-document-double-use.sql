@@ -10,10 +10,20 @@ WITH vat_journals AS (
   SELECT je.id, je.company_id, je.entry_number, je.entry_date
   FROM gl_journal_entries je
   WHERE je.status = 'posted'
-    AND NOT EXISTS (SELECT 1 FROM gl_journal_entries r WHERE r.reversal_of_id = je.id AND r.status = 'posted')
+    -- Stands: an even number of posted reversals below it in its chain (shared/journalInForceAsAt's parity).
+    AND (WITH RECURSIVE reversals AS (
+           SELECT r.id, ARRAY[r.reversal_of_id, r.id] AS path FROM gl_journal_entries r
+            WHERE r.reversal_of_id = je.id AND r.company_id = je.company_id AND r.status = 'posted'
+           UNION ALL
+           SELECT j.id, reversals.path || j.id FROM gl_journal_entries j JOIN reversals ON j.reversal_of_id = reversals.id
+            WHERE j.company_id = je.company_id AND j.status = 'posted'
+              AND NOT j.id = ANY(reversals.path) AND cardinality(reversals.path) < 100)
+         SELECT COUNT(*) % 2 = 0 FROM reversals)
+    -- Input VAT, including a late claim's clearing account (section 16(3)).
     AND (SELECT COALESCE(SUM(jl.debit - jl.credit), 0) FROM gl_journal_lines jl
-           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE jl.journal_entry_id = je.id AND ga.account_subtype = 'vat_input') > 0.005
+           JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = je.company_id
+          WHERE jl.journal_entry_id = je.id AND jl.company_id = je.company_id
+            AND ga.account_subtype IN ('vat_input', 'vat_input_late_claim')) > 0.005
 ),
 uses AS (
   SELECT je.source_document_id AS document_id, vj.company_id, vj.id::TEXT AS claim_key, 'journal ' || vj.entry_number AS what
@@ -40,7 +50,8 @@ uses AS (
   FROM captured_documents cd
   JOIN bank_transactions bt ON bt.id = cd.matched_bank_tx_id AND bt.company_id = cd.company_id
   JOIN vat_journals vj ON vj.company_id = bt.company_id AND (vj.id = bt.provisional_je_id
-    OR vj.id = (SELECT ml.journal_entry_id FROM gl_journal_lines ml WHERE ml.id = bt.matched_journal_line_id))
+    OR vj.id = (SELECT ml.journal_entry_id FROM gl_journal_lines ml WHERE ml.id = bt.matched_journal_line_id
+                  AND ml.company_id = bt.company_id))
   WHERE cd.status <> 'rejected'
 )
 SELECT c.name AS company, u.document_id, cd.file_name, cd.extracted_data ->> 'vatAmount' AS document_vat,
