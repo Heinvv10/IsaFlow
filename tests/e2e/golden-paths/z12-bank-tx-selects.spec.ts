@@ -83,6 +83,10 @@ test('allocate an imported line by keyboard: account, VAT and CC1 reach the post
   };
   const id = (await find('imported'))?.id;
   expect(id, 'the import created the line').toBeTruthy();
+  // A harmless call through the action route first: on a cold dev server (GitHub-hosted, 4 vCPUs) its first compile
+  // would otherwise land inside the Accept below (the suspected cause of this spec's first CI failure, where the row
+  // was still on screen 60 s after Accept).
+  await api.post('/api/accounting/bank-transactions-action', { action: 'update_notes', bankTransactionId: id, notes: ref });
 
   try {
     await page.goto(`${BANK}?account_id=${bankAccountId}`, { waitUntil: 'domcontentloaded' });
@@ -120,8 +124,14 @@ test('allocate an imported line by keyboard: account, VAT and CC1 reach the post
     await expect(cc1).toContainText(CC_CODE);
     await expect(cc1).toBeFocused();
 
+    // The allocate request is awaited and its refusal, if any, is the failure message: a row that merely stays
+    // on screen says nothing about why.
+    const allocated = page.waitForResponse((r) => r.url().includes('/api/accounting/bank-transactions-action') && r.request().method() === 'POST'
+      && (r.request().postData() ?? '').includes('"allocate"'), { timeout: 90_000 });
     await row.getByRole('button', { name: /^Accept, / }).focus();
     await page.keyboard.press('Space');
+    const res = await allocated;
+    expect(res.status(), `allocate answered ${res.status()}: ${(await res.text()).slice(0, 500)}`).toBe(200);
     await expect(row).toHaveCount(0, { timeout: 60_000 });
 
     const posted = await find('allocated') ?? await find('reconciled');
