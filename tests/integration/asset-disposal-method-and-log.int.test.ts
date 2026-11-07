@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import dispose from '../../pages/api/accounting/assets/[assetId]/dispose';
+import { loadUnpostedDisposals } from '@/modules/accounting/services/items/fixedAssetDisposalQueries';
 import disposalsList from '../../pages/api/accounting/assets-disposals';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
@@ -74,11 +75,33 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('asset dis
       je: (out.data as { journalEntryId: string }).journalEntryId, created_by: c.fx.userId });
   }, 60000);
 
-  it('without a method the disposal still logs (method defaults)', async () => {
+  it.each([[300000, 'sale'], [0, 'write_off']])('no method, proceeds %s: defaults to %s on the asset and the log', async (proceeds, method) => {
     const a = await asset(c);
-    const out = await run(a, {});
+    const out = await run(a, { proceeds });
     expect(out.status, out.body).toBe(200);
-    expect(await logRows(a)).toHaveLength(1);
+    expect(await assetRow(a)).toMatchObject({ status: 'disposed', disposal_method: method });
+    const rows = await logRows(a);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ disposal_method: method, proceeds });
+  }, 60000);
+
+  it('a route disposal is not reported by reconcile_fixed_assets as unposted or missing its record', async () => {
+    const a = await asset(c);
+    expect((await run(a, { disposalType: 'scrap' })).status).toBe(200);
+    const unposted = (await loadUnpostedDisposals(c.fx.companyId, '2026-12-31')).filter((u) => u.assetId === a);
+    expect(unposted).toEqual([]);
+  }, 60000);
+
+  it.each([['abc'], [-5], [Number.NaN], ['Infinity'], ['']])('proceeds %j is a 400 and nothing is written', async (proceeds) => {
+    const a = await asset(c);
+    const j = async () => Number(((await sql`SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id = ${c.fx.companyId}::UUID`) as Row[])[0]!.n);
+    const before = await j();
+    const out = await run(a, { proceeds, disposalType: 'scrap' });
+    expect(out.status, out.body).toBe(400);
+    expect(await assetRow(a)).toMatchObject({ status: 'available', disposal_method: null });
+    expect(await logRows(a)).toHaveLength(0);
+    expect(await j()).toBe(before);
+    expect(Number(((await sql`SELECT COUNT(*) AS n FROM asset_period_ledger WHERE asset_id = ${a}::UUID`) as Row[])[0]!.n)).toBe(0);
   }, 60000);
 
   it('an unknown method is a 400 and nothing is written', async () => {

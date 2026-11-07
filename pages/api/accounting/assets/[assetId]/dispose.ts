@@ -30,13 +30,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { assetId } = req.query as { assetId: string };
 
   const { proceeds = 0, disposalDate, disposalType, notes } = req.body as {
-    proceeds?: number;
+    proceeds?: unknown;
     disposalDate?: string;
     disposalType?: string;
     notes?: string;
   };
 
   if (!disposalDate) return apiResponse.badRequest(res, 'disposalDate is required');
+  // Proceeds before any write too: "abc" / NaN / a negative reached the journal and died there as "Entry is not balanced".
+  const proceedsNum = Number(proceeds);
+  if (proceeds === null || typeof proceeds === 'boolean' || (typeof proceeds === 'string' && String(proceeds).trim() === '')
+    || !Number.isFinite(proceedsNum) || proceedsNum < 0) {
+    return apiResponse.badRequest(res, 'proceeds must be a number of zero or more');
+  }
   // Validated before any write (a 4xx commits). assets.disposal_method and asset_disposals.disposal_method are the
   // columns carrying the app's DisposalMethod values; assets.disposal_type has a different CHECK (mig 361) and is
   // not written here.
@@ -44,7 +50,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `Invalid disposal method. Use one of: ${VALID_DISPOSAL_METHODS.join(', ')}`);
   }
   // asset_disposals.disposal_method is NOT NULL: a caller that names none is a sale when it took proceeds, else a write-off.
-  const disposalMethod = disposalType || (Number(proceeds) > 0 ? 'sale' : 'write_off');
+  const disposalMethod = disposalType || (proceedsNum > 0 ? 'sale' : 'write_off');
   // The ledger-date window on the day Postgres reads (gl/journalDateGuard), BEFORE the disposal's first write: a 400
   // later would commit the ledger row and the disposal type without the journal (see the GL note below).
   const disposalDay = (await ledgerDaysOf([disposalDate])).get(disposalDate) ?? null;
@@ -92,7 +98,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const policyAccDep = Number(asset.policy_acc_dep ?? 0);
   const taxAccDep = Number(asset.tax_acc_dep ?? 0);
 
-  const calc = calculateDisposalResult({ cost, policyAccDep, taxAccDep, proceeds: Number(proceeds) });
+  const calc = calculateDisposalResult({ cost, policyAccDep, taxAccDep, proceeds: proceedsNum });
 
   log.info('Asset disposal calculated', {
     assetId, policyGainLoss: calc.policyGainLoss,
@@ -116,7 +122,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       ${policyAccDep}, ${calc.policyCarryingAmount},
       ${cost}, ${taxAccDep}, 0,
       ${taxAccDep}, ${calc.taxCarryingAmount},
-      ${Number(proceeds)}, ${calc.policyGainLoss}, ${calc.taxGainLoss}
+      ${proceedsNum}, ${calc.policyGainLoss}, ${calc.taxGainLoss}
     )
     ON CONFLICT (company_id, asset_id, yyyymm) DO UPDATE SET
       disposal_proceeds   = EXCLUDED.disposal_proceeds,
@@ -144,7 +150,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     policyAccDep,
     cost,
     gainLoss: calc.policyGainLoss,
-    proceeds: Number(proceeds),
+    proceeds: proceedsNum,
     disposalDate,
     notes,
   }, userId);
@@ -155,7 +161,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   await sql`
     INSERT INTO asset_disposals (asset_id, disposal_date, disposal_method, disposal_amount, book_value_at_disposal,
       gain_loss, reason, journal_entry_id, created_by)
-    VALUES (${assetId}::UUID, ${disposalDate}::DATE, ${disposalMethod}, ${Number(proceeds)}, ${calc.policyCarryingAmount},
+    VALUES (${assetId}::UUID, ${disposalDate}::DATE, ${disposalMethod}, ${proceedsNum}, ${calc.policyCarryingAmount},
       ${calc.policyGainLoss}, ${notes ?? null}, ${entryId}::UUID, ${userId})
   `;
 
