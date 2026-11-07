@@ -8,6 +8,12 @@ import {
 import { getAge } from './payeEngine';
 import type { EtiInput, EtiMissingInput, EtiResult } from './payrollTypes';
 
+/** ETI Act s6(a) age band, the 24-month window and the first-year length (pinned by taxTableHash.test.ts). */
+export const ETI_MIN_AGE = 18;
+export const ETI_MAX_AGE = 29;
+export const ETI_WINDOW_MONTHS = 24;
+export const ETI_FIRST_YEAR_MONTHS = 12;
+
 function monthsBetween(start: Date, end: Date): number {
   return (
     (end.getFullYear() - start.getFullYear()) * 12 +
@@ -33,12 +39,12 @@ export function calculateEti(
   const age = getAge(input.dateOfBirth, input.periodDate);
   const monthsEmployed = monthsBetween(input.employmentStartDate, input.periodDate) + 1;
 
-  if (age < 18 || age > 29) {
+  if (age < ETI_MIN_AGE || age > ETI_MAX_AGE) {
     return {
       isEligible: false,
       isDeterminable: true,
       missingInputs: [],
-      ineligibilityReason: 'Employee age must be 18–29',
+      ineligibilityReason: `Employee age must be ${ETI_MIN_AGE}–${ETI_MAX_AGE}`,
       monthsEmployed,
       employmentYear: null,
       monthlyEti: 0,
@@ -77,19 +83,19 @@ export function calculateEti(
       monthlyEti: 0,
     };
   }
-  if (monthsEmployed > 24) {
+  if (monthsEmployed > ETI_WINDOW_MONTHS) {
     return {
       isEligible: false,
       isDeterminable: true,
       missingInputs: [],
-      ineligibilityReason: 'ETI window (24 months) expired',
+      ineligibilityReason: `ETI window (${ETI_WINDOW_MONTHS} months) expired`,
       monthsEmployed,
       employmentYear: null,
       monthlyEti: 0,
     };
   }
 
-  const employmentYear: 1 | 2 = monthsEmployed <= 12 ? 1 : 2;
+  const employmentYear: 1 | 2 = monthsEmployed <= ETI_FIRST_YEAR_MONTHS ? 1 : 2;
   const monthlyEti = etiForRemuneration(input.monthlyRemuneration, employmentYear, table);
 
   return {

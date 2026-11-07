@@ -4,6 +4,8 @@
  * Any other stored type (a customer's free-text 'weekly', an empty string, none) becomes invoice_days: keeping 'weekly'
  * would store (14, 'weekly'), which readTerms treats as not set, so the 14 would be silently ignored.
  * Through the real services on both tables; the stored row is read back.
+ * Since migration 963 a contact can only hold not set or N with one of the three canonical types (the shape CHECK), so
+ * those are the stored states left to test; the legacy and free-text types cannot be stored any more.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -24,16 +26,15 @@ beforeAll(async () => { [admin] = await members(pool, tokens, 1); });
 afterAll(() => cleanupEntityChanges(pool, companies, [admin]));
 
 const STORED: [string | null, string][] = [
-  ['weekly', 'invoice_days'], ['', 'invoice_days'], [null, 'invoice_days'], ['junk', 'invoice_days'],
-  ['invoice_days', 'invoice_days'], ['statement_days', 'statement_days'], ['statement_months', 'statement_months'],
-  ['days', 'days'], ['end_of_month', 'end_of_month'],
+  [null, 'invoice_days'], ['invoice_days', 'invoice_days'], ['statement_days', 'statement_days'], ['statement_months', 'statement_months'],
 ];
 
 describe.each(['suppliers', 'customers'] as const)('a bare payment_terms on %s', (table) => {
   it.each(STORED)('stored type %j becomes %j, and the 14 is read as terms', async (stored, expected) => {
     const c = await newCompany(pool, [[admin, 'admin']], companies);
     const { rows: made } = await pool.query(
-      `INSERT INTO ${table}(company_id, name, payment_terms, payment_terms_type) VALUES($1, 'Bare', 30, $2) RETURNING id`, [c, stored]);
+      `INSERT INTO ${table}(company_id, name, payment_terms, payment_terms_type) VALUES($1, 'Bare', $2, $3) RETURNING id`,
+      [c, stored === null ? null : 30, stored]);
     const id = made[0].id as string;
     await inRequest(pool, admin, c, () => table === 'suppliers'
       ? updateSupplier(c, id, { paymentTerms: 14 }, admin)
