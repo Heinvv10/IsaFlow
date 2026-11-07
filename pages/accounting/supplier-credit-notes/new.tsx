@@ -16,7 +16,7 @@ import { useDateGate } from '@/hooks/useDateGate';
 interface LineItem { description: string; quantity: number; unitPrice: number; vatType: string }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 const VAT_TYPES = [
@@ -145,7 +145,7 @@ export default function NewSupplierCreditNotePage() {
                       onChange={dates.bind('creditDate', iso => setForm(f => ({ ...f, creditDate: iso })), form.creditDate)} />
                   </div>
                   <div>
-                    <label htmlFor="supplier-credit-notes-new-reference" className={lbl}>Reference Number</label>
+                    <label htmlFor="supplier-credit-notes-new-reference" className={lbl}>Reference number</label>
                     <input id="supplier-credit-notes-new-reference" type="text" name="reference" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className={inp} placeholder="Auto-generated if blank" />
                   </div>
                   <div>

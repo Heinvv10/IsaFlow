@@ -66,8 +66,8 @@ export function ReportBuilderSidebar({ selectedSource, selectedFields, onSourceC
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800" style={{ width: 260 }}>
       {/* Data source selector */}
       <div className="p-3 border-b border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50">
-        <label className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1 block">
-          Data Source
+        <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 block">
+          Data source
         </label>
         <div className="relative">
           <select

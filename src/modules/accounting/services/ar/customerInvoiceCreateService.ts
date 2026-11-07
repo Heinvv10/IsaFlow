@@ -12,6 +12,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { isRealCalendarDate } from '@/lib/validation';
 import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
@@ -21,7 +22,7 @@ import {
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { invoiceLineAmount, invoiceTotals, isDiscountPercent, toColumnCents } from './invoiceLineAmount';
-import { toFunctional } from '../shared/functionalAmounts';
+import { NotADecimalError, toFunctional } from '../shared/functionalAmounts';
 import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -70,36 +71,19 @@ export class InvoiceLineValidationError extends Error {
   }
 }
 
-export async function createDraftCustomerInvoice(
-  companyId: string,
-  userId: string,
-  input: DraftInvoiceInput,
-  actor?: PostingActorOpts,
-): Promise<{ id: string; invoiceNumber: string }> {
-  const {
-    clientId, invoiceDate, dueDate, dueDateGivenAs, billingPeriodStart, billingPeriodEnd,
-    taxRate, notes, currencyCode, exchangeRate,
-  } = input;
+export interface PricedDraftLine { qty: number; price: number; amount: number }
 
-  // R-067: the tenant fence, BEFORE the first write. insertWithReservedNumber
-  // below UPDATEs the company's counter, and withAuth COMMITs a 4xx returned
-  // after a write — so this must precede it, not follow it.
-  await assertCustomerInCompany(companyId, clientId);
-  // Brief §5.4/§5.5: CC1 from the line's CC2, defaulting to the customer's FNO; a
-  // conflict is refused here, before the first write. No query when no line names a dimension.
-  const items = await deriveRevenueDimensions(companyId, clientId, input.items, (i) => `Line ${i + 1}`)
-    .then(async (derived) => { await assertDocumentDimensions(companyId, derived); return derived; })
-    .catch((err: unknown) => {
-      if (isDimensionRefusal(err)) throw new InvoiceLineValidationError(err.message);
-      throw err;
-    });
-
+/**
+ * Each line priced as create stores it (invoiceLineAmount.ts), refused as create refuses it. Shared with the unsaved
+ * preview (invoicePreviewModel.ts), so the preview's figures are create's by construction.
+ */
+export function priceDraftLines(items: readonly { quantity?: unknown; unitPrice?: unknown; discount?: unknown }[]): PricedDraftLine[] {
   // W1 (P2.1): server-side line validation — the July-4 audit created a
   // -R115.00 invoice through this handler (no client OR server guard). The body
   // is untyped: `true`, `"10"` or `[10]` would coerce to a number in the
   // pricing, and a negative discount would bill more than qty × price. Bounds
   // are the columns' (quantity numeric(10,2), amounts numeric(15,2)).
-  const priced: { qty: number; price: number; amount: number }[] = [];
+  const priced: PricedDraftLine[] = [];
   for (const item of items) {
     const qtyIn: unknown = item?.quantity ?? 1;
     const priceIn: unknown = item?.unitPrice;
@@ -118,6 +102,91 @@ export async function createDraftCustomerInvoice(
     const price = toColumnCents(priceIn);
     priced.push({ qty, price, amount: invoiceLineAmount(qty, price, discount) });
   }
+  return priced;
+}
+
+/** The invoice's VAT rate as create takes it: 15 when absent, refused outside 0..100. */
+export function draftTaxRate(taxRate: number | undefined): number {
+  // R-119: the same audit, one field over. `taxRate` comes off the request
+  // body and is used by create for `tax_amount` and the output-VAT journal leg. A
+  // negative rate leaves the TOTAL positive — `subtotal 1000, tax -500,
+  // total 500` — so neither a total guard nor migration 692's total arm sees
+  // it, while the VAT return and the GL leg go negative. Thrown as a line
+  // validation error because that is what it is to the operator, and the
+  // route already answers 400 for it. The MCP twins clamp `tax_rate` at the
+  // schema (minimum 0); this is the HTTP route's own guard.
+  const requestedRate = taxRate ?? 15;
+  if (!Number.isFinite(requestedRate) || requestedRate < 0 || requestedRate > 100) {
+    throw new InvoiceLineValidationError(`Tax rate must be between 0 and 100, got ${String(taxRate)}`);
+  }
+  return requestedRate;
+}
+
+/**
+ * The invoice's subtotal, VAT and total (invoiceLineAmount.ts), refused when the total or its functional amount would
+ * not fit numeric(15,2): 1e13 or more. Shared with the unsaved preview, so it refuses what create refuses.
+ * A rate toFunctional cannot read (1e21 or more: no plain decimal) is a 400 too, where it was a 500.
+ */
+export function draftTotals(amounts: readonly number[], rate: number, exchangeRate: number): { subtotal: number; tax: number; total: number } {
+  const totals = invoiceTotals(amounts, rate);
+  // numeric(15,2): the total, and functional_total = fx_functional(total, rate), must fit.
+  if (totals.total >= 1e13 || functionalOf(totals.total, exchangeRate) >= 1e13) {
+    throw new InvoiceLineValidationError('The invoice total is too large');
+  }
+  // customer_invoices.exchange_rate is numeric(18,6): 1e12 or more overflows the INSERT (22003, a 500).
+  if (exchangeRate >= 1e12) throw new InvoiceLineValidationError('The exchange rate is too large');
+  return totals;
+}
+
+function functionalOf(total: number, exchangeRate: number): number {
+  try {
+    return toFunctional(total, exchangeRate);
+  } catch (err) {
+    if (err instanceof NotADecimalError) throw new InvoiceLineValidationError('The exchange rate is too large');
+    throw err;
+  }
+}
+
+/**
+ * A date that is not a real YYYY-MM-DD calendar date (2026-02-30, 2026-02-03T00:00, 30/02/2026) is refused as a 400
+ * before the first write: Postgres would throw 22008 at the INSERT, a 500. Absent or '' is no date. Shared with the
+ * preview. Callers send YYYY-MM-DD only (the page's date fields; MCP's castableArgError already checks it).
+ */
+export function assertDraftDates(dates: Record<string, unknown>): void {
+  for (const [field, value] of Object.entries(dates)) {
+    if (value === undefined || value === null || value === '') continue;
+    if (typeof value !== 'string' || !isRealCalendarDate(value)) {
+      throw new InvoiceLineValidationError(`${field} is not a real date: ${String(value)}`);
+    }
+  }
+}
+
+export async function createDraftCustomerInvoice(
+  companyId: string,
+  userId: string,
+  input: DraftInvoiceInput,
+  actor?: PostingActorOpts,
+): Promise<{ id: string; invoiceNumber: string }> {
+  const {
+    clientId, invoiceDate, dueDate, dueDateGivenAs, billingPeriodStart, billingPeriodEnd,
+    taxRate, notes, currencyCode, exchangeRate,
+  } = input;
+  assertDraftDates({ invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd });
+
+  // R-067: the tenant fence, BEFORE the first write. insertWithReservedNumber
+  // below UPDATEs the company's counter, and withAuth COMMITs a 4xx returned
+  // after a write — so this must precede it, not follow it.
+  await assertCustomerInCompany(companyId, clientId);
+  // Brief §5.4/§5.5: CC1 from the line's CC2, defaulting to the customer's FNO; a
+  // conflict is refused here, before the first write. No query when no line names a dimension.
+  const items = await deriveRevenueDimensions(companyId, clientId, input.items, (i) => `Line ${i + 1}`)
+    .then(async (derived) => { await assertDocumentDimensions(companyId, derived); return derived; })
+    .catch((err: unknown) => {
+      if (isDimensionRefusal(err)) throw new InvoiceLineValidationError(err.message);
+      throw err;
+    });
+
+  const priced = priceDraftLines(items);
 
   // Migration 874: what each line credits and is tagged with. Shape first (a
   // uuid STRING or nothing — the body is untyped), then ownership and the
@@ -135,18 +204,7 @@ export async function createDraftCustomerInvoice(
   );
   if (codingRefusal) throw new InvoiceLineCodingRefusal(codingRefusal);
 
-  // R-119: the same audit, one field over. `taxRate` comes off the request
-  // body and is used below for `tax_amount` and the output-VAT journal leg. A
-  // negative rate leaves the TOTAL positive — `subtotal 1000, tax -500,
-  // total 500` — so neither a total guard nor migration 692's total arm sees
-  // it, while the VAT return and the GL leg go negative. Thrown as a line
-  // validation error because that is what it is to the operator, and the
-  // route already answers 400 for it. The MCP twins clamp `tax_rate` at the
-  // schema (minimum 0); this is the HTTP route's own guard.
-  const requestedRate = taxRate ?? 15;
-  if (!Number.isFinite(requestedRate) || requestedRate < 0 || requestedRate > 100) {
-    throw new InvoiceLineValidationError(`Tax rate must be between 0 and 100, got ${String(taxRate)}`);
-  }
+  const requestedRate = draftTaxRate(taxRate);
 
   // FX PR0: the company's own currency at exactly 1, or a foreign one only once
   // the company has enabled them — refused here, before the first write.
@@ -156,11 +214,7 @@ export async function createDraftCustomerInvoice(
   // Calculate totals (in foreign currency) — invoiceLineAmount.ts, as the draft
   // edit and the new-invoice preview compute them.
   const rate = requestedRate;
-  const { subtotal, tax: taxAmount, total: totalAmount } = invoiceTotals(priced.map((p) => p.amount), rate);
-  // numeric(15,2): the total, and functional_total = fx_functional(total, rate), must fit.
-  if (totalAmount >= 1e13 || toFunctional(totalAmount, invExchangeRate) >= 1e13) {
-    throw new InvoiceLineValidationError('The invoice total is too large');
-  }
+  const { subtotal, tax: taxAmount, total: totalAmount } = draftTotals(priced.map((p) => p.amount), rate, invExchangeRate);
   const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
   const invDate = invoiceDate || today;
   // No due date named: the customer's terms give it, else the company default (migration 960). A named date equal to
