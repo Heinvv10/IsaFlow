@@ -62,6 +62,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['bank/journalReversalState.ts', 'BANK'],
   ['bank/splitJournalDocuments.ts', 'BANK'],
   ['bank/transferDuplicateGuard.ts', 'BANK'],
+  ['capture/bankAttachClaimConflict.ts', 'VAT'],
   ['capture/capturedVatEvidence.ts', 'VAT'],
   ['core/anomalyScanService.ts', 'RAW'],
   ['core/evidenceGraphService.ts', 'RAW'],
