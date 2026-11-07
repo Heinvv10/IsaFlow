@@ -29,7 +29,7 @@ function shift(days: number): string {
 }
 const STMT = shift(-10);
 
-type Line = { date: string; reference?: string; description?: string; debit?: number; credit?: number };
+type Line = { date: string; reference?: string; description?: string; debit?: number; credit?: number; runningBalance?: number };
 let nextExtraction: { closingBalance: number; lines: Line[] } = { closingBalance: 0, lines: [] };
 
 vi.mock('@/lib/afterCommit', async (original) => ({
@@ -49,11 +49,12 @@ const rematchRoute = (await import('../../pages/api/accounting/supplier-statemen
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 
 const COMPANY = randomUUID();
+const OTHER = randomUUID();
 const USER = randomUUID();
 const TAG = `SSOB${Math.floor(Math.random() * 1e8)}`;
-const KEYS = ['BF', 'LOOK', 'POS'] as const;
-const docs = { BF: randomUUID(), LOOK: randomUUID(), POS: randomUUID() };
-const suppliers = { BF: '', LOOK: '', POS: '' };
+const KEYS = ['BF', 'LOOK', 'POS', 'GONE'] as const;
+const docs = { BF: randomUUID(), LOOK: randomUUID(), POS: randomUUID(), GONE: randomUUID(), RUN: randomUUID() };
+const suppliers = { BF: '', LOOK: '', POS: '', GONE: '' };
 let token = '';
 
 async function bill(supplier: string, n: string, gross: number, raised: string): Promise<string> {
@@ -90,6 +91,8 @@ describeIfDb('supplier statement: the balance brought forward is an opening-bala
       await sql`INSERT INTO captured_documents (id, company_id, file_name, file_type, document_type, uploaded_by)
                 VALUES (${docs[key]}::UUID, ${COMPANY}::UUID, ${TAG + key + '.pdf'}, 'pdf', 'supplier_statement', ${USER}::UUID)`;
     }
+    await sql`INSERT INTO captured_documents (id, company_id, file_name, file_type, document_type, uploaded_by)
+              VALUES (${docs.RUN}::UUID, ${COMPANY}::UUID, ${TAG + 'RUN.pdf'}, 'pdf', 'supplier_statement', ${USER}::UUID)`;
     token = await new SignJWT({ sub: USER, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -101,7 +104,8 @@ describeIfDb('supplier statement: the balance brought forward is an opening-bala
     await sql`DELETE FROM supplier_statement_reconciliations WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM captured_documents WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID`;
-    await sql`DELETE FROM suppliers WHERE company_id = ${COMPANY}::UUID`;
+    await sql`DELETE FROM suppliers WHERE company_id IN (${COMPANY}::UUID, ${OTHER}::UUID)`;
+    await sql`DELETE FROM companies WHERE id = ${OTHER}::UUID`;
     await sql`DELETE FROM company_users WHERE user_id = ${USER}`;
     await sql`DELETE FROM companies WHERE id = ${COMPANY}::UUID`;
     await sql`DELETE FROM users WHERE id = ${USER}`;
@@ -124,8 +128,16 @@ describeIfDb('supplier statement: the balance brought forward is an opening-bala
     expect(created.lines.filter((l) => l.isOpeningBalance)).toHaveLength(1);
     expect(created.openingBalance).toEqual({ asAt: shift(-31), statementAmount: 1000, isaflowBalance: 900, variance: 100 });
 
-    // LEGACY: what the reconciler stored before the fix.
-    await sql`UPDATE supplier_statement_lines SET mismatch_reason = 'missing_in_isaflow' WHERE id = ${bf.id}::UUID`;
+    // LEGACY: what the reconciler stored before the fix (here a stale match too). A read already shows a clean
+    // opening line; the stored counts heal on Rematch.
+    const old = await bill(suppliers.BF, '-STALE', 1, shift(-90));
+    await sql`UPDATE supplier_statement_lines SET mismatch_reason = 'missing_in_isaflow', matched_supplier_invoice_id = ${old}::UUID,
+              match_confidence = 0.85 WHERE id = ${bf.id}::UUID`;
+    const legacyRead = (await getReconciliation(COMPANY, created.id))!;
+    expect(legacyRead.lines.find((l) => l.isOpeningBalance)).toMatchObject({
+      mismatchReason: null, matchConfidence: null, matchedSupplierInvoiceId: null, matchedInvoiceNumber: null,
+    });
+    await sql`DELETE FROM supplier_invoices WHERE id = ${old}::UUID AND company_id = ${COMPANY}::UUID`;
     await sql`UPDATE supplier_statement_reconciliations SET missing_in_isaflow_count = 1
               WHERE id = ${created.id}::UUID AND company_id = ${COMPANY}::UUID`;
     expect(await storedCount(created.id)).toBe(1);
@@ -135,6 +147,29 @@ describeIfDb('supplier statement: the balance brought forward is an opening-bala
     const after = (await getReconciliation(COMPANY, created.id))!;
     expect(after.lines.find((l) => l.isOpeningBalance)).toMatchObject({ mismatchReason: null });
     expect(after.openingBalance).toEqual(created.openingBalance);
+  });
+
+  it('RUNNING: a B/F line carrying only a running balance is compared at that figure', async () => {
+    nextExtraction = { closingBalance: 900, lines: [
+      { date: shift(-60), description: 'Balance b/f', runningBalance: 900 },
+      { date: shift(-30), reference: TAG + '-RUN', description: 'Payment', credit: 0.01 },
+    ] };
+    const created = await createAndRead(COMPANY, suppliers.BF, docs.RUN, USER);
+    // Supplier BF owes 900 (bill at -70) on the day before -30.
+    expect(created.openingBalance).toMatchObject({ statementAmount: 900, isaflowBalance: 900, variance: 0 });
+  });
+
+  // A supplier delete cascades to its statements, so "no supplier row" at read time means the id now names
+  // another company's supplier: the ageing then refuses it (not found), which must not fail the read.
+  it('GONE: a statement whose supplier is no longer this company\'s still reads, without an opening check', async () => {
+    nextExtraction = { closingBalance: 50, lines: [{ date: shift(-60), description: 'Opening balance', debit: 50 }] };
+    const created = await createAndRead(COMPANY, suppliers.GONE, docs.GONE, USER);
+    expect(created.openingBalance).toMatchObject({ statementAmount: 50 });
+    await sql`INSERT INTO companies (id, name, registration_number) VALUES (${OTHER}::UUID, ${'SSOB other ' + TAG}, ${TAG + 'O'})`;
+    await sql`UPDATE suppliers SET company_id = ${OTHER}::UUID WHERE id = ${suppliers.GONE}::UUID AND company_id = ${COMPANY}::UUID`;
+    const read = await getReconciliation(COMPANY, created.id);
+    expect(read).toMatchObject({ openingBalance: null });
+    expect(read!.lines.find((l) => l.isOpeningBalance)).toBeTruthy();
   });
 
   it('LOOKALIKE: a bill with the B/F amount and date is not claimed by the B/F line', async () => {

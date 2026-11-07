@@ -5,6 +5,7 @@
 
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import type { OpeningBalanceCheck } from '@/modules/accounting/services/capture/supplierStatementMeasure';
 
 export type MismatchReason = 'missing_in_isaflow' | 'missing_in_statement' | 'amount_diff' | 'date_diff' | null;
 
@@ -15,13 +16,7 @@ export interface StatementLine {
   isOpeningBalance?: boolean;
 }
 
-/** The opening line's comparison with what IsaFlow owed the day before the first transaction (asAt). */
-export interface OpeningBalanceCheck {
-  asAt: string;
-  statementAmount: number;
-  isaflowBalance: number;
-  variance: number;
-}
+export type { OpeningBalanceCheck };
 
 function OpeningBalanceCell({ opening }: { opening: OpeningBalanceCheck | null }) {
   const ties = opening !== null && Math.abs(opening.variance) <= 0.01;

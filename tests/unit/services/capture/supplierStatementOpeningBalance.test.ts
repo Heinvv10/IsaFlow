@@ -9,19 +9,20 @@ import {
   openingBalanceAsAt,
   openingBalanceIndexes,
 } from '@/modules/accounting/services/capture/supplierStatementOpeningBalance';
+import { openingLineAmount } from '@/modules/accounting/services/capture/supplierStatementMeasure';
 import { buildInserts, type InvoiceRecord } from '@/modules/accounting/services/capture/supplierStatementMatchHelper';
 
 describe('isOpeningBalanceWording', () => {
   it.each([
     'Balance brought forward', 'BALANCE B/F', 'balance b/f', 'Brought forward', 'Opening balance', 'OPENING BALANCE',
-    'B/FWD', 'balance b/fwd', '  Balance   brought  forward. ', 'Opening balance:',
+    'B/FWD', 'balance b/fwd', '  Balance   brought  forward. ', 'Opening balance:', 'B/F', 'Bal b/f', 'Balance b/forward',
   ])('%j is opening-balance wording', (text) => {
     expect(isOpeningBalanceWording(text)).toBe(true);
   });
 
   it.each([
     'Invoice 123 brought forward from March', 'Tax invoice', 'Payment - balance brought forward', 'Opening balance adjustment',
-    'Brought forward balance correction', 'b/f', '', null, undefined,
+    'Brought forward balance correction', 'Balance c/f', 'Balance carried forward', '', null, undefined,
   ])('%j is not', (text) => {
     expect(isOpeningBalanceWording(text)).toBe(false);
   });
@@ -63,6 +64,14 @@ describe('openingBalanceIndexes', () => {
       { date: null, reference: null, description: 'Balance brought forward' },
       { date: '2026-02-05', reference: 'INV-1', description: 'Tax invoice' },
     ])).toEqual(new Set());
+  });
+
+  it('with no dated transaction, only the earliest worded line qualifies', () => {
+    expect(openingBalanceIndexes([
+      { date: '2026-01-01', reference: null, description: 'Balance brought forward' },
+      { date: null, reference: 'INV-1', description: 'Tax invoice' },
+      { date: '2026-03-01', reference: null, description: 'Balance brought forward' },
+    ])).toEqual(new Set([0]));
   });
 
   it('a B/F dated the same day as the first transaction still qualifies', () => {
@@ -125,5 +134,16 @@ describe('buildInserts with an opening-balance line', () => {
       { date: '2026-03-01', reference: null, description: 'Balance brought forward', debit: 777 },
     ], invoices);
     expect(inserts[2]).toMatchObject({ mismatchReason: 'missing_in_isaflow' });
+  });
+});
+
+describe('openingLineAmount', () => {
+  it('is debit less credit', () => {
+    expect(openingLineAmount({ debit: 1000, credit: 0, runningBalance: 1000 })).toBe(1000);
+    expect(openingLineAmount({ debit: 0, credit: 250, runningBalance: null })).toBe(-250);
+  });
+  it('falls back to the running balance when the line carries neither', () => {
+    expect(openingLineAmount({ debit: 0, credit: 0, runningBalance: 4321.5 })).toBe(4321.5);
+    expect(openingLineAmount({ debit: 0, credit: 0, runningBalance: null })).toBe(0);
   });
 });

@@ -11,7 +11,8 @@
  *
  * A line is the opening balance only when BOTH hold:
  *  - wording: its description or reference, trimmed and whitespace-collapsed, is exactly one of the phrases below
- *    (case-insensitive, trailing "." or ":" allowed); "Invoice 12 brought forward" is not;
+ *    (case-insensitive, trailing "." or ":" allowed); "Invoice 12 brought forward" is not; "c/f" (carried forward,
+ *    a closing figure) is not;
  *  - position: it is dated, on or before every dated line that is not so worded. A "Balance brought forward" dated
  *    after a transaction (a page carry-forward) is an ordinary line and is matched like one. Position is by date,
  *    not list order, because the job sees the VLM's order and Rematch/reads see the stored date order.
@@ -24,7 +25,7 @@ function day(v: string | null | undefined): string | null {
 }
 
 const OPENING_WORDING =
-  /^(?:balance (?:b\/f|b\/fwd|brought forward)|brought forward|opening balance|b\/fwd)[.:]?$/i;
+  /^(?:(?:balance|bal) (?:b\/f|b\/fwd|b\/forward|brought forward)|brought forward|opening balance|b\/fwd|b\/f)[.:]?$/i;
 
 export function isOpeningBalanceWording(text: string | null | undefined): boolean {
   if (!text) return false;
@@ -51,11 +52,13 @@ function firstDate(lines: ClassifiableLine[], exclude: (i: number) => boolean): 
 
 /** Indexes of the statement's opening-balance line(s). */
 export function openingBalanceIndexes(lines: ClassifiableLine[]): Set<number> {
-  const firstTransaction = firstDate(lines, (i) => worded(lines[i]!));
+  // On or before the first dated transaction; with no dated transaction, only the earliest worded line(s), so a
+  // later carry-forward never qualifies. Undated lines cannot be placed and are ignored for position.
+  const limit = firstDate(lines, (i) => worded(lines[i]!)) ?? firstDate(lines, (i) => !worded(lines[i]!));
   const out = new Set<number>();
   lines.forEach((l, i) => {
     const d = day(l.date);
-    if (d && worded(l) && (firstTransaction === null || d <= firstTransaction)) out.add(i);
+    if (d && limit && worded(l) && d <= limit) out.add(i);
   });
   return out;
 }

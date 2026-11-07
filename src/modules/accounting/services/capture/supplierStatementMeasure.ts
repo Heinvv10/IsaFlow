@@ -33,10 +33,19 @@ export async function measureOurSide(
   return { isaflowBalance, variance };
 }
 
+/**
+ * A brought-forward line's figure: debit less credit, or, when it carries neither (some layouts print the B/F
+ * figure only in the balance column), its running balance.
+ */
+export function openingLineAmount(l: { debit: number; credit: number; runningBalance: number | null }): number {
+  if (l.debit === 0 && l.credit === 0 && l.runningBalance !== null) return l.runningBalance;
+  return l.debit - l.credit;
+}
+
 export interface OpeningBalanceCheck {
   /** The day IsaFlow's side is measured at: the day before the first dated transaction line. */
   asAt: string;
-  /** The statement's brought-forward figure: its opening line(s), debit less credit. */
+  /** The statement's brought-forward figure: its opening line(s), debit less credit (else running balance). */
   statementAmount: number;
   isaflowBalance: number;
   /** statementAmount − isaflowBalance. */
@@ -53,11 +62,11 @@ export async function measureOpeningBalance(
   companyId: string,
   supplierId: string,
   statementDate: string,
-  lines: (ClassifiableLine & { debit: number; credit: number })[],
+  lines: (ClassifiableLine & { debit: number; credit: number; runningBalance: number | null })[],
 ): Promise<OpeningBalanceCheck | null> {
   const opening = openingBalanceIndexes(lines);
   if (opening.size === 0) return null;
-  const statementAmount = Math.round([...opening].reduce((s, i) => s + lines[i]!.debit - lines[i]!.credit, 0) * 100) / 100;
+  const statementAmount = Math.round([...opening].reduce((s, i) => s + openingLineAmount(lines[i]!), 0) * 100) / 100;
   const asAt = openingBalanceAsAt(lines, opening, statementDate);
   const { isaflowBalance, variance } = await measureOurSide(companyId, supplierId, asAt, statementAmount);
   return { asAt, statementAmount, isaflowBalance, variance };
