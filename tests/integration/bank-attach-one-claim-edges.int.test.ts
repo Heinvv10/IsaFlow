@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { unlinkDocumentFromJournal } from '@/modules/accounting/services/gl/journalDocumentLinkService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { inTx } from './helpers/l1FifoFixture';
+import { inTx, runOn } from './helpers/l1FifoFixture';
+import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
 import {
   attach, billFor, claim, expenseClaimFor, line, lineJournal, linkedTo, setUpAttachGuard, slip, tearDownAttachGuard,
   type AttachGuard,
@@ -82,6 +83,25 @@ describeIfDb('Bank-attach VAT guard: what counts as a different VAT claim', () =
     expect((await attach(h, d, first)).ok).toBe(true);
     expect((await attach(h, d, second)).ok).toBe(true);
     expect(await linkedTo(d)).toBe(second);
+  });
+
+  it('two attaches racing to different lines: the later one still removes the copy the first left behind', async () => {
+    const d = await slip(h);
+    const a = await line(h, 'none');
+    const b = await line(h, 'none');
+    // First attach (to A) holds its transaction open, writing its copy itself (the fixture has no stored bytes).
+    const c1 = await h.fx.pool.connect();
+    await c1.query('BEGIN');
+    await runOn(h.fx, c1, () => attachCapturedDocToBankTx(h.fx.companyId, d, a, h.fx.userId));
+    await c1.query(`INSERT INTO bank_transaction_attachments (bank_transaction_id, file_name, file_url)
+      VALUES ($1, $2, 'data:application/pdf;base64,JVBERi0=')`, [a, `${d}_slip.pdf`]);
+    const second = attach(h, d, b); // waits on the document lock
+    await new Promise((r) => setTimeout(r, 300));
+    await c1.query('COMMIT');
+    c1.release();
+    expect((await second).ok).toBe(true);
+    expect(await linkedTo(d)).toBe(b);
+    expect(((await sql`SELECT COUNT(*)::INT AS n FROM bank_transaction_attachments WHERE bank_transaction_id = ${a}::UUID`) as { n: number }[])[0]!.n).toBe(0);
   });
 
   it('another company\'s records never count, even when they name this document', async () => {
