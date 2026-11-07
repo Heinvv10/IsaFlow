@@ -17,6 +17,7 @@ import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/b
 import { FALLBACK } from '@/modules/accounting/services/packs/pages/packFallbackWidthData';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { input } from '../services/packs/fixtures/packGridInputs';
+import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 import { launchPrintChromium } from './printChromium';
 import { openProbePage } from './measureWidths';
 import { bundlePrintPages } from './support/bundlePrintPages';
@@ -37,7 +38,7 @@ function packWithReason(reason: string | null): PackPagesDocument {
     const block = doc.pages.find((p) => p.navLabel === 'Highlights')!.blocks.find((b) => b.kind === 'kpiTiles')!;
     if (block.kind !== 'kpiTiles') throw new Error('no tiles');
     block.tiles[3]!.figure = { ...block.tiles[3]!.figure, value: null, unavailable: reason };
-    return doc;
+    return stampFigureFits(doc);
   } finally {
     warn.mockRestore();
   }
