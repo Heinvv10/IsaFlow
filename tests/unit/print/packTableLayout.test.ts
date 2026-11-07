@@ -19,6 +19,7 @@ import { input, type Shape } from '../services/packs/fixtures/packGridInputs';
 import { demoWithoutBudget, withWidenedStatement, withWidenedTable } from '../services/packs/fixtures/widenedFigures';
 import { measure } from './measureWidths';
 import { measureTables } from './measureTables';
+import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
@@ -159,7 +160,7 @@ describe('adjacent heavy rows share their rules', () => {
     let tightest = Infinity;
     for (const seq of sequences) {
       block.table = { ...block.table, rows: seq.map((role, n) => ({ ...base, label: `Row ${n}`, role, key: `k${n}`, footnote: undefined })) };
-      const real = (await measureTables(doc, browser)).find((t) => t.page === doc.pages[index]!.number)!;
+      const real = (await measureTables(stampFigureFits(doc), browser)).find((t) => t.page === doc.pages[index]!.number)!;
       const gap = statementTableBodyMm(block.table, doc.numberConvention.scale, 'portrait') - real.heightMm;
       tightest = Math.min(tightest, gap);
       if (gap < 0 || gap > 0.5) wrong.push(`${seq.join('>')}: model minus Chromium ${gap.toFixed(3)}mm`);

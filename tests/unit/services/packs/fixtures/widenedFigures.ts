@@ -43,8 +43,8 @@ export function withWidenedStatement(doc: PackPagesDocument, navLabel: string, d
   const blocks = page.blocks.map((b, i) => (i === first && b.kind === 'table'
     ? { ...b, table: { ...b.table, rows: b.table.rows.map((r, n) => ({ ...r, ...(n === 0 ? { label } : {}), figures: Object.fromEntries(Object.entries(r.figures).map(([c, f]) => [c, widen(f, digits)])) })) } }
     : b));
-  const table = (blocks[first] as { table: PackTable }).table;
-  return { doc: { ...doc, pages: doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p)) }, table, index };
+  const stamped = stampFigureFits({ ...doc, pages: doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p)) });
+  return { doc: stamped, table: (stamped.pages[index]!.blocks[first] as { table: PackTable }).table, index };
 }
 
 /** Words set in the second KPI tile in place of its own: a label, a not-meaningful reason (the figure goes), a delta basis. */
