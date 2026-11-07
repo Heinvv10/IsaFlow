@@ -107,27 +107,28 @@ export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orien
  * candidate line measured as ONE string. Chromium sums a line's advances once; summed piece by piece every piece's
  * rounding adds up, and a delta line read wider than Chromium set it and took a second line the print does not
  * (`packKpiLayout.test.ts`, the third pack on an edge). `lead` is set before the text on its first line (the delta's
- * arrow cue and its space) and may stand alone on it; `mark` is a footnote mark that stays with the last piece.
+ * arrow cue and its space) and may stand alone on it; `mark` is a footnote mark that stays with the last piece. A line
+ * that ends at a soft hyphen is measured with the hyphen Chromium sets there (`Piece.hyphen`).
  *
  * No guard is kept off the column. Every width here is never short of Chromium's (`textPx`: the exact advance sum
  * rounded up to Chromium's 1/64px unit, and one unit more, because the shaping model is a unit off either way on some
  * strings), and a column is never wider than Chromium's (the frozen figure columns are those same never-short widths):
  * a line the model fits, Chromium fits. A guard would only add lines Chromium does not set.
  */
-function lineCount(text: string, widthOf: (line: string) => number, avail: number, lead = 0, mark = 0): number {
+function lineCount(text: string, widthOf: (line: string, hyphen: boolean) => number, avail: number, lead = 0, mark = 0): number {
   const all = pieces(text);
   let lines = 1;
   let line = '';
   let before = lead;
   all.forEach((piece, i) => {
     const candidate = line === '' ? piece.text : `${line}${piece.spaced ? ' ' : ''}${piece.text}`;
-    const w = before + widthOf(candidate) + (i === all.length - 1 ? mark : 0);
+    const w = before + widthOf(candidate, piece.hyphen) + (i === all.length - 1 ? mark : 0);
     if ((line !== '' || before > 0) && w > avail) { lines += 1; line = piece.text; before = 0; } else line = candidate;
   });
   return lines;
 }
 
-const plain = (line: string): number => textPx(line, TEXT_PX, 400);
+const plain = (line: string, hyphen = false): number => textPx(line, TEXT_PX, 400, hyphen);
 
 /** The texts already found to be set wholly in the pack's own faces. */
 const IN_FACE = new Set<string>();
@@ -140,7 +141,8 @@ const IN_FACE = new Set<string>();
  */
 function inPackFaces(text: string): string {
   if (IN_FACE.has(text)) return text;
-  const outside = clustersOf(text).find((cluster) => !inFace(cluster));
+  // A soft hyphen and a zero-width space are set as nothing, a line or paragraph separator as a space (`runPx`).
+  const outside = clustersOf(text.replace(/[\u00AD\u200B]/g, '').replace(/[\u2028\u2029]/g, ' ')).find((cluster) => !inFace(cluster));
   if (outside !== undefined) {
     const code = Array.from(outside, (ch) => `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`).join(' ');
     throw new PackRefusal(

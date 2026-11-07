@@ -14,6 +14,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
+import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { input, type Shape } from '../services/packs/fixtures/packGridInputs';
 import { build, check, MOST_OVER, tally, turned } from './kpiLayoutCheck';
 import { launchPrintChromium } from './printChromium';
@@ -59,6 +61,40 @@ describe('packs on an edge (#1196: the adversary\'s two, and a delta line at its
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const t = tally();
     await check(buildBoardPackPages(input(shape)), browser, JSON.stringify(shape), t);
+    expect(t.blocks).toBe(1);
+    expect(t.wrong).toEqual([]);
+    expect(t.banded).toEqual([]);
+  }, 300_000);
+});
+
+/**
+ * A pack whose KPI tiles carry `text`: as every other tile's not-meaningful reason, every label, or every delta's basis.
+ * The pack's own wording has no soft hyphen or zero-width space; these hold the model to where Chromium breaks at one.
+ */
+function withText(text: string, where: 'reason' | 'label' | 'delta'): PackPagesDocument {
+  const doc = structuredClone(buildBoardPackPages(input({ tr: 'none', budget: true, prior: true, negative: true, loss: true, k: 30000, plug: 0.05, sg: [-1, -1, 1, -1] })));
+  const page = doc.pages.find((p) => p.blocks.some((b) => b.kind === 'kpiTiles'))!;
+  const block = page.blocks.find((b) => b.kind === 'kpiTiles')!;
+  if (block.kind !== 'kpiTiles') throw new Error('no tiles');
+  block.tiles = block.tiles.map((t, i) => {
+    if (where === 'label') return { ...t, label: text };
+    if (where === 'delta') return t.delta === null ? t : { ...t, delta: { ...t.delta, basis: text } };
+    return i % 2 === 1 ? { ...t, figure: { ...t.figure, value: null, unavailable: `Not meaningful: ${text} ${text}.` } } : t;
+  });
+  return stampFigureFits(doc);
+}
+
+describe('a zero-width space and a soft hyphen in a tile\'s text (where Chromium breaks, a hyphen shown at the soft one)', () => {
+  const ZWSP = 'zero\u200Bwidth\u200Bspace\u200Bwords\u200Bhere';
+  const SHY = 'soft\u00ADhyphen\u00ADated\u00ADwording';
+  it.each([
+    ['zero-width spaces in a reason', ZWSP, 'reason'], ['soft hyphens in a reason', SHY, 'reason'],
+    ['zero-width spaces in a label', ZWSP, 'label'], ['soft hyphens in a label', SHY, 'label'],
+    ['zero-width spaces in a delta', ZWSP, 'delta'], ['soft hyphens in a delta', SHY, 'delta'],
+  ] as const)('%s: columns, rows and the block as Chromium sets them', async (_name, text, where) => {
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const t = tally();
+    await check(withText(text, where), browser, `${where} ${JSON.stringify(text)}`, t);
     expect(t.blocks).toBe(1);
     expect(t.wrong).toEqual([]);
     expect(t.banded).toEqual([]);
