@@ -55,7 +55,7 @@ const calls = (fragment: string): unknown[][] => (mockSql.mock.calls as unknown 
 // pinned by the column-order test at the bottom, so a reordered INSERT fails loudly.
 const header = () => {
   const [v] = calls('INSERT INTO customer_invoices (');
-  return { subtotal: v![7], taxRate: v![8], taxAmount: v![9], total: v![10], functionalInput: v![17] };
+  return { subtotal: v![7], taxRate: v![8], taxAmount: v![9], total: v![10], functionalInput: v![18] };
 };
 const lineAmounts = () => calls('INSERT INTO customer_invoice_items').map((v) => v[4]);
 const storedLines = () => calls('INSERT INTO customer_invoice_items').map((v) => ({ price: v[2], qty: v[3], amount: v[4] }));
@@ -202,8 +202,8 @@ describe('createDraftCustomerInvoice — the line discount', () => {
     expect(columns('INSERT INTO customer_invoice_items').slice(0, 5)).toEqual([
       'invoice_id', 'description', 'unit_price', 'quantity', 'amount',
     ]);
-    // functional_total is fx_functional(<the total>, rate): the 18th value is the total it converts.
+    // functional_total is fx_functional(<the total>, rate): the 19th value is the total it converts (962 added due_date_source).
     const [strings] = (mockSql.mock.calls as unknown as Call[]).find(([st]) => st.join('').includes('INSERT INTO customer_invoices ('))!;
-    expect(strings[17]).toMatch(/public\.fx_functional\($/);
+    expect(strings[18]).toMatch(/public\.fx_functional\($/);
   });
 });

@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { pickOption } from '../helpers/kitPick';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 const route = vi.hoisted(() => ({ query: {} as Record<string, string>, isReady: true, pathname: '/', push: vi.fn(async () => true), replace: vi.fn() }));
@@ -66,10 +67,9 @@ describe('purchase-orders/new — line dimensions', () => {
   it('opened: the active CC1 / CC2 / BU are offered and the picks are posted on the line', async () => {
     fill();
     fireEvent.click(screen.getByRole('button', { name: 'Dimensions' }));
-    expect(await screen.findByRole('option', { name: 'FT Fibertime' })).toBeTruthy();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Line 1 CC1' }), { target: { value: 'cc1-ft' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Line 1 CC2 project' }), { target: { value: 'cc2-p1' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Line 1 BU' }), { target: { value: 'bu-ops' } });
+    await pickOption('Line 1 CC1', 'FT Fibertime');
+    await pickOption('Line 1 CC2 project', 'P1 Project one');
+    await pickOption('Line 1 BU', 'OPS Operations');
     fireEvent.submit(document.querySelector('form') as HTMLFormElement);
     await waitFor(() => expect(postBody()).toBeDefined());
     expect(postBody().items[0]).toMatchObject({ cc1Id: 'cc1-ft', cc2Id: 'cc2-p1', buId: 'bu-ops' });

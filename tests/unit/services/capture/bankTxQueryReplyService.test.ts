@@ -134,6 +134,21 @@ describe('attachReplyMedia', () => {
     expect(sqlCalls.some((c) => c.sql.includes('INSERT INTO bank_transaction_attachments'))).toBe(false);
   });
 
+  it('stores a reply named like a captured-document copy as an upload, and dedupes on that stored name', async () => {
+    const shaped = '22222222-2222-4222-8222-222222222222_slip.jpeg';
+    routeMock([
+      { match: 'SELECT id FROM bank_transactions', rows: [{ id: TX_ID }] },
+      { match: 'SELECT id FROM bank_transaction_attachments', rows: [] },
+      { match: 'INSERT INTO bank_transaction_attachments', rows: [{ id: 'x' }] },
+    ]);
+    await attachReplyMedia(COMPANY_ID, query, { buffer: Buffer.from('fakeimg'), mimeType: 'image/jpeg', fileName: shaped });
+    const dedupe = sqlCalls.find((c) => c.sql.includes('SELECT id FROM bank_transaction_attachments'))!;
+    const ins = sqlCalls.find((c) => c.sql.includes('INSERT INTO bank_transaction_attachments'))!;
+    expect(dedupe.values).toContain(`upload_${shaped}`);
+    expect(ins.values).toContain(`upload_${shaped}`);
+    expect(ins.values).not.toContain(shaped);
+  });
+
   it('returns true (no INSERT) when attachment already exists — webhook retry dedupe', async () => {
     routeMock([
       { match: 'SELECT id FROM bank_transactions', rows: [{ id: TX_ID }] },

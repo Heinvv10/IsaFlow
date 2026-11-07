@@ -20,6 +20,8 @@ export interface PayrollEmployee {
   costCentreId?: string | null;
   payScaleId?: string | null;
   occupationalLevelId?: string | null;
+  /** How net pay reaches them (mig 455): cash is paid from the cash register, not by EFT. */
+  paymentMethod?: 'eft' | 'cash';
 }
 
 export interface PayrollComponent {
@@ -197,7 +199,7 @@ export interface PayeYearToDate {
   periods: number;
   /** Earlier periods with periodic pay or an annual payment, for the pro-rated s11F cap. */
   retirementCapPeriods?: number;
-  /** Periodic taxable remuneration, after taxable deductions other than retirement fund contributions (PAYE 4c: before that deduction). */
+  /** Periodic taxable remuneration, after allowed s18A donations (PAYE 4c: before the retirement fund deduction). */
   periodicTaxable: number;
   /** Annual payments (3605) taxed by the annual-payment method, before the retirement fund deduction. */
   annualPayments: number;

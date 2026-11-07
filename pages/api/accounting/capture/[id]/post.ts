@@ -223,17 +223,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     invoiceInput.totalAmount,
   );
 
-  const dueDate = await extractedBillDueDate(companyId, supplierMatch.supplierId, invoiceInput); // the scan's terms rank last
+  const { dueDate, source: dueDateSource } = await extractedBillDueDate(companyId, supplierMatch.supplierId, invoiceInput); // the scan's terms rank last
   // Create supplier invoice.
   const [invoice] = await sql`
     INSERT INTO supplier_invoices (
-      company_id, invoice_number, supplier_id, invoice_date, due_date,
+      company_id, invoice_number, supplier_id, invoice_date, due_date, due_date_source,
       subtotal, tax_rate, tax_amount, total_amount, payment_terms,
       reference, status, created_by, notes,
       duplicate_fingerprint, source_document_id
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
-      ${invoiceInput.invoiceDate}::date, ${dueDate}::date,
+      ${invoiceInput.invoiceDate}::date, ${dueDate}::date, ${dueDateSource},
       ${invoiceInput.totalAmount - invoiceInput.taxAmount}, ${invoiceInput.taxRate},
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
       ${invoiceInput.paymentTerms ?? null}, ${invoiceInput.reference ?? null},

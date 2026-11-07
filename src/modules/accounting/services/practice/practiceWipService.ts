@@ -208,12 +208,12 @@ export async function generateWipInvoice(
           INSERT INTO customer_invoices (
             company_id, invoice_number, customer_id, client_id,
             subtotal, tax_rate, tax_amount, total_amount,
-            invoice_date, due_date, status, created_by,
+            invoice_date, due_date, due_date_source, status, created_by,
             currency_code, exchange_rate, functional_total
           ) VALUES (
             ${companyId}::UUID, ${number}, ${customerId}::UUID, ${customerId}::UUID,
             ${subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
-            ${invDate}, ${dueDate}, 'draft', ${userId},
+            ${invDate}, ${dueDate}, 'terms', 'draft', ${userId},
             'ZAR', 1.0, ${totalAmount}
           ) RETURNING id
         `) as DbRow[];

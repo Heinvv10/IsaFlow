@@ -138,8 +138,10 @@ describe('a LOAN deduction is never a tax deduction (Hein: a taxable LOAN is ref
     expect(run([salary, earning]).componentBreakdown.find((b) => b.componentId === 'loan-earning')).toMatchObject({ isTaxable: true });
   });
 
-  it('any other taxable deduction still comes off PAYE income', () => {
+  it('any other taxable deduction does not come off PAYE income either (para 2(4)), and says so', () => {
     const sacrifice = { ...dues(1000), component: { ...dues(1000).component, sarsSourceCode: 'SACR', isTaxable: true } };
-    expect(run([salary, sacrifice]).paye.monthlyPaye).toBeLessThan(run([salary]).paye.monthlyPaye);
+    const r = run([salary, sacrifice]);
+    expect(r.paye.monthlyPaye).toBe(run([salary]).paye.monthlyPaye);
+    expect(r.validationResults.find(v => v.code === 'DEDUCTION_NOT_PAYE_DEDUCTIBLE')?.message).toContain('code SACR');
   });
 });

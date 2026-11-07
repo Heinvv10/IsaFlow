@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import { act, cleanup, renderHook, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, renderHook, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok, on, serve } from '../helpers/d2R3a6';
 
@@ -148,7 +148,8 @@ describe('BillLineItemsTable with supplier defaults', () => {
     table('NOTE: the defaults apply on save');
     expect(screen.getByText('NOTE: the defaults apply on save')).toBeDefined();
     // The panel opens by default on a pre-filled line: the blank choice of the CC2 picker says what a blank does.
-    expect(screen.getAllByText('Supplier default').length).toBeGreaterThan(0);
-    expect(screen.queryByText('No CC2 project')).toBeNull();
+    fireEvent.click(screen.getByRole('combobox', { name: 'CC2 project' }));
+    expect(screen.getByRole('option', { name: 'Supplier default' })).toBeDefined();
+    expect(screen.queryByRole('option', { name: 'No CC2 project' })).toBeNull();
   });
 });
