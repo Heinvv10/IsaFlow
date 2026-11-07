@@ -9,7 +9,7 @@
  *    selector (a control, a format character, an unassigned one) costs the widest too;
  *  - a cluster costs the sum of its code points (a family, a skin-toned hand, a flag: at least as wide as the one
  *    glyph Chromium may draw for it), and an emoji presentation (a VS16 sequence, a keycap) at least the widest emoji
- *    presentation: "ℹ️" is an 18px emoji, not the 4px letter its first code point is.
+ *    presentation: "ℹ" with VS16 (U+2139 U+FE0F) is an 18px emoji, not the 4px letter its first code point is.
  * Whole pixels rounded up: an upper bound, never short. At a size other than the one measured, scaled and rounded up.
  */
 import { EXACT_RANGES, FALLBACK, type FallbackStyle } from './packFallbackWidthData';
@@ -18,7 +18,7 @@ export type { FallbackStyle } from './packFallbackWidthData';
 
 const BLOCK = 32;
 /** Joiners and selectors add nothing to the glyph they join or select. */
-const ADDS_NOTHING = /^[\p{M}‌‍︀-️\u{E0100}-\u{E01EF}]$/u;
+const ADDS_NOTHING = /^[\p{M}\u200C\u200D\uFE00-\uFE0F\u{E0100}-\u{E01EF}]$/u;
 
 function exactIndex(cp: number): number {
   let offset = 0;
@@ -48,6 +48,6 @@ export function fallbackAdvancePx(cp: number, style: FallbackStyle): number {
 export function fallbackClusterPx(cluster: string, style: FallbackStyle, sizePx: number, measuredPx: number): number {
   let px = 0;
   for (const ch of cluster) px += fallbackAdvancePx(ch.codePointAt(0)!, style);
-  if (/[️⃣]/u.test(cluster)) px = Math.max(px, FALLBACK[style].emoji);
+  if (/[\uFE0F\u20E3]/u.test(cluster)) px = Math.max(px, FALLBACK[style].emoji);
   return Math.ceil((px * sizePx) / measuredPx);
 }
