@@ -7,13 +7,14 @@ import { describe, expect, it } from 'vitest';
 import {
   fitAttributes, HEADING_WORD_PX, kpiColumnMinPx, kpiFit, tableColumnCells, tableFit,
 } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { FIT_PX, isFigureFit } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import { demoWithoutBudget, SCALE, withWidenedKpi, withWidenedTable } from './fixtures/widenedFigures';
 
 describe('tableFit', () => {
   it('sets nothing for the demo company\'s table: it fits at the ordinary size', () => {
     const { table } = withWidenedTable(demoWithoutBudget(), 6);
     expect(tableFit(table, SCALE)).toEqual({ px: null, fits: true });
-    expect(fitAttributes(tableFit(table, SCALE))).toEqual({});
+    expect(fitAttributes(tableFit(table, SCALE), 'table')).toEqual({});
   });
 
   it('steps down from 12px to the 10px floor as the figures widen, whole pixels only', () => {
@@ -89,7 +90,29 @@ describe('kpiFit', () => {
 
 describe('fitAttributes', () => {
   it('a fitted row carries the class and the size; a row that fits carries neither', () => {
-    expect(fitAttributes({ px: 11, fits: true })).toEqual({ className: 'is-fitted', style: { '--pack-fit-size': '11px' } });
-    expect(fitAttributes({ px: null, fits: true })).toEqual({});
+    expect(fitAttributes({ px: 11, fits: true }, 'table')).toEqual({ className: 'is-fitted', style: { '--pack-fit-size': '11px' } });
+    expect(fitAttributes({ px: 29, fits: true }, 'kpi')).toEqual({ className: 'is-fitted', style: { '--pack-fit-size': '29px' } });
+    expect(fitAttributes({ px: null, fits: true }, 'kpi')).toEqual({});
   });
+
+  it('refuses a fit that does not fit, or a size the fit model never states for the row', () => {
+    for (const [fit, kind] of [[{ px: 10, fits: false }, 'table'], [{ px: 9, fits: true }, 'table'], [{ px: 12, fits: true }, 'table'],
+      [{ px: 15, fits: true }, 'kpi'], [{ px: 30, fits: true }, 'kpi'], [{ px: 20.5, fits: true }, 'kpi'], [{ px: 11, fits: true }, 'kpi']] as const) {
+      expect(() => fitAttributes(fit, kind), `${kind} ${JSON.stringify(fit)}`).toThrow(/did not decide/);
+    }
+  });
+
+  it('every fit the model decides for a row that fits is one a page accepts (the range is the model\'s own)', () => {
+    const digits = Array.from({ length: 30 }, (unused, i) => i + 4);
+    const tables = digits.flatMap((d) => (['portrait', 'landscape'] as const).map((o) => tableFit(withWidenedTable(demoWithoutBudget(), d).table, SCALE, o)));
+    const kpis = digits.flatMap((d) => (['portrait', 'landscape'] as const).map((o) => kpiFit(withWidenedKpi(demoWithoutBudget(), d).tiles, SCALE, o)));
+    for (const [fits, kind] of [[tables, 'table'], [kpis, 'kpi']] as const) {
+      const stated = fits.filter((f) => f.fits);
+      expect(stated.every((f) => isFigureFit(f, kind)), kind).toBe(true);
+      // Both ends of each range are reached, so the range is not merely wide enough: it is the model's.
+      const px = new Set(stated.map((f) => f.px));
+      expect(px.has(null) && px.has(FIT_PX[kind].floor), kind).toBe(true);
+    }
+    expect(new Set(tables.filter((f) => f.fits).map((f) => f.px)).has(11)).toBe(true);
+  }, 60_000);
 });

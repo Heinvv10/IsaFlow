@@ -214,7 +214,7 @@ describe('the figure size the server decided', () => {
 
   it('a pack stored before fits were stamped is refused, never printed unchecked; the server stamps it afresh', () => {
     const stored = storedBeforeStampedFits();
-    expect(() => adoptPackPagesDocument(stored)).toThrow(/without the figure size the server decided/);
+    expect(() => adoptPackPagesDocument(stored)).toThrow(/without a printable figure size the server decided/);
     const restamped = serialisePackPagesDocument(stampFigureFits(built));
     expect(() => adoptPackPagesDocument(restamped)).not.toThrow();
   });
@@ -225,4 +225,22 @@ describe('the figure size the server decided', () => {
     tiles.fit = { px: 7.5, fits: true };
     expect(() => adoptPackPagesDocument(payload)).toThrow(/figure size/);
   });
+
+  it.each([
+    ['kpiTiles', { px: 16, fits: false }], ['kpiTiles', { px: 15, fits: true }], ['kpiTiles', { px: 30, fits: true }], ['kpiTiles', { px: null, fits: false }],
+    ['table', { px: 10, fits: false }], ['table', { px: 9, fits: true }], ['table', { px: 12, fits: true }], ['table', { px: '11', fits: true }],
+  ] as const)('a %s fit of %j (one that does not fit, or a size the model never states) is refused', (kind, fit) => {
+    const payload = wire();
+    if (kind === 'kpiTiles') firstBlock(payload, 'kpiTiles').fit = fit as never;
+    else firstBlock(payload, 'table').table.figureFit = fit as never;
+    expect(() => adoptPackPagesDocument(payload)).toThrow(/without a printable figure size the server decided/);
+  });
+
+  it.each([['kpiTiles', { px: 16, fits: true }], ['kpiTiles', { px: 29, fits: true }], ['table', { px: 10, fits: true }], ['table', { px: 11, fits: true }]] as const)(
+    'a %s fit of %j, at either end of the range the model states, crosses', (kind, fit) => {
+      const payload = wire();
+      if (kind === 'kpiTiles') firstBlock(payload, 'kpiTiles').fit = fit;
+      else firstBlock(payload, 'table').table.figureFit = fit;
+      expect(() => adoptPackPagesDocument(payload)).not.toThrow();
+    });
 });
