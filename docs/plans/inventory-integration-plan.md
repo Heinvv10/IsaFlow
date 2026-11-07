@@ -184,7 +184,7 @@ RLS and grants as for other company tables (app_user: SELECT/INSERT only on `inv
 corrections are reversing rows, never UPDATE/DELETE). A tenant-consistency trigger refuses an
 `item_id` whose `items.company_id` differs from the row's company. Only `inventoryPostingService` writes
 `current_qty`/`avg_cost`: the `current_qty` write via `/api/accounting/items` (`items.ts:156`,
-`itemService.ts:263`) is removed; its readers (items list/detail pages, `itemService` SELECT) are renamed.
+`itemService.ts:263`) is removed; its readers (items list/detail pages, `itemService` SELECT) keep reading `current_qty`.
 System roles `inventory`, `cost_of_sales`, `inventory_adjustment` (`grni` in P4) go in
 `systemAccountKeys.ts`, seeded per tenant only where a matching subtype account exists. Account
 resolution: item override → system role → refuse to post with a named error.
