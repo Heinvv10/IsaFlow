@@ -30,6 +30,9 @@ import { ContactValidationError } from './contactValidationError';
 import { termsColumns } from './contactTerms';
 import { clearFlags } from './contactClear';
 import { assertCategoryInCompany } from './contactCategory';
+import { boundedText } from './contactText';
+
+export { boundedText };
 
 export type { AutoAllocateStrategy };
 
@@ -80,26 +83,6 @@ function trimmed(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const t = value.trim();
   return t ? t.slice(0, MAX_TEXT) : null;
-}
-
-/**
- * The trimmed value of a field whose column is NARROWER than MAX_TEXT, or a
- * refusal naming it. `trimmed()` slices to 255, which does nothing for a
- * VARCHAR(50): the value reached the INSERT and Postgres raised 22001, whose
- * message names the type but not the column. Refused, not sliced — a VAT or
- * bank number cut short is a wrong number, not a shorter one.
- */
-export function boundedText(
-  value: string | null | undefined,
-  field: string,
-  max: number,
-): string | null {
-  if (typeof value !== 'string') return null;
-  const t = value.trim();
-  if (t.length > max) {
-    throw new ContactValidationError(`${field} is ${t.length} characters; the maximum is ${max}`);
-  }
-  return t || null;
 }
 
 function assertName(name: string | undefined): string {
