@@ -11,6 +11,7 @@ import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { localISODate } from '@/lib/dateUtils';
 import { formatAmount } from '@/lib/money/formatMoney';
 import { DateField } from '@/components/ui/DateField';
+import { isInService } from '@/modules/accounting/services/items/assetDisposalTypes';
 
 interface FarAsset {
   assetNumber: string;
@@ -93,7 +94,7 @@ export default function FarReportPage() {
     <span className="flex items-center gap-1">
       <span
         className={`px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider font-mono
-          ${status === 'active' ? 'bg-emerald-900/60 text-emerald-300' :
+          ${isInService(status) ? 'bg-emerald-900/60 text-emerald-300' :
             status === 'disposed' ? 'bg-red-900/60 text-red-300' :
             'bg-yellow-900/60 text-yellow-300'}`}
       >

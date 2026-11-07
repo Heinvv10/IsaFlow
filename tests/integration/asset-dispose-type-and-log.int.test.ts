@@ -87,6 +87,16 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('asset dis
     });
   });
 
+  // A written-off asset has already left the books: disposing it again would post a second disposal journal.
+  it('a written-off asset is a 400 and writes nothing', async () => {
+    const id = await asset();
+    await sql`UPDATE assets SET status = 'written_off' WHERE id = ${id}::UUID`;
+    const out = await callAs(c, token, disposeRoute, 'POST',
+      { proceeds: 0, disposalDate: '2026-06-15', disposalType: 'sale' }, { assetId: id });
+    expect(out.status, out.body).toBe(400);
+    expect(await state(id)).toMatchObject({ status: 'written_off', ledger_rows: 0, disposal_rows: 0, journals: 0 });
+  });
+
   it('logs the disposal with its figures and posted journal, and the Disposals list shows it', async () => {
     const id = await asset(12000);
     const out = await callAs(c, token, disposeRoute, 'POST',
