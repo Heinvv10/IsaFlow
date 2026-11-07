@@ -259,7 +259,7 @@ export default function PayrollRunVariancePage() {
                       <tr key={e.employeeId} className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]">
                         <td className="py-3 px-4">
                           <div className="text-[var(--ff-text-primary)]">{e.employeeName}</div>
-                          <div className="text-xs font-mono text-[var(--ff-text-tertiary)]">{e.employeeNumber}</div>
+                          <div className="text-xs font-id text-[var(--ff-text-tertiary)]">{e.employeeNumber}</div>
                         </td>
                         <td className="py-3 px-4">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.fg}`}>

@@ -58,6 +58,16 @@ describe('pay components: paid outside payroll', () => {
     expect((box() as HTMLInputElement).checked).toBe(false);
   });
 
+  it('the Taxable box on a deduction says which deductions reduce PAYE (para 2(4)); on an earning it says nothing', async () => {
+    serve(on('GET', '/api/payroll/components', () => ok([])));
+    render(<ComponentsPage />);
+    await screen.findByPlaceholderText('e.g. Basic Salary');
+    const taxable = () => screen.getByRole('checkbox', { name: /^taxable$/i }).closest('label')!;
+    expect(taxable().getAttribute('title')).toBeNull();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'deduction' } });
+    expect(taxable().getAttribute('title')).toMatch(/Only retirement fund contributions \(4001, 4003, 4006\) and s18A donations \(4030\) reduce PAYE/);
+  });
+
   it('labels a component paid outside payroll in the list', async () => {
     serve(on('GET', '/api/payroll/components', () => ok([PRIVATE_RA])));
     render(<ComponentsPage />);

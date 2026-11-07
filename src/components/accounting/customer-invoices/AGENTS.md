@@ -36,6 +36,7 @@ Sage-style filters for `pages/accounting/customer-invoices/index.tsx`: status, s
 - A month is a UI convenience (`../invoicePeriod.ts`): it becomes an inclusive from/to pair; never `toISOString()` a date here.
 
 ## Recent changes
+- 2026-11-06: the new page's PDF preview before the first save (master plan wave 4, PR PV): `createBody` (`newInvoiceBody.ts`) is the one body Create sends and the preview renders; `InvoicePdfPreview unsaved={{ body } | { problem }}` POSTs it to invoice-pdf-preview (never create: not metered, no number), starts closed, re-renders 3 s after the last change while open, sends nothing while there is a problem, and keeps the last good PDF through a refusal with the reason. The scanned-customer lookup moved to `useScannedClientMatch`.
 - 2026-11-03: PR S review rounds 11-13: shown digest on GET/create/PUT and both checks, WIP line removal by name, Navigation API Stay, keyed preview iframe, STALE_VIEW reload on autosave.
 - 2026-11-02: autosave with "Saved", the unsaved-change guard, Approve & email, the edit page's PDF preview (master plan wave 3, PR S).
 - 2026-11-01: a plain row click opens `InvoiceDrawerBody`, including a click on the number; Ctrl, Cmd, Shift and the middle button still open the page (master plan wave 3, PR U).
