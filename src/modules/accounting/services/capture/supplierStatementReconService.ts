@@ -18,7 +18,7 @@ import {
   toStr,
   type MismatchReason,
 } from './supplierStatementMatchHelper';
-import { measureOurSide } from './supplierStatementMeasure';
+import { measureOurSide, type OpeningBalanceCheck } from './supplierStatementMeasure';
 import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
 import {
   extractionView,
@@ -44,6 +44,8 @@ export interface ReconciliationLine {
   matchedInvoiceNumber: string | null;
   matchConfidence: number | null;
   mismatchReason: MismatchReason;
+  /** The statement's opening "Balance brought forward" line: never matched or counted (supplierStatementOpeningBalance). */
+  isOpeningBalance: boolean;
 }
 
 export interface MissingInvoice {
@@ -79,6 +81,8 @@ export interface SupplierStatementReconciliation {
   amountDiffCount: number;
   lines: ReconciliationLine[];
   missingInvoices: MissingInvoice[];
+  /** The opening-balance line's check against IsaFlow; null without one, while not read, and in the list view. */
+  openingBalance: OpeningBalanceCheck | null;
   createdAt: string;
   reconciledAt: string | null;
 }
@@ -130,6 +134,7 @@ export async function listReconciliations(
     amountDiffCount: toNum(r.amount_diff_count),
     lines: [],
     missingInvoices: [],
+    openingBalance: null,
     createdAt: String(r.created_at ?? ''),
     reconciledAt: r.reconciled_at ? String(r.reconciled_at) : null,
   }));

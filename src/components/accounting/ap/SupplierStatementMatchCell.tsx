@@ -3,14 +3,43 @@
  * (extracted from pages/accounting/ap/supplier-statements/[id].tsx to keep that page under 300 lines).
  */
 
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
+
 export type MismatchReason = 'missing_in_isaflow' | 'missing_in_statement' | 'amount_diff' | 'date_diff' | null;
 
 export interface StatementLine {
   matchConfidence: number | null;
   mismatchReason: MismatchReason;
+  /** The statement's opening "Balance brought forward" line: an opening-balance check, not an invoice. */
+  isOpeningBalance?: boolean;
 }
 
-export function MatchStatusCell({ line }: { line: StatementLine }) {
+/** The opening line's comparison with what IsaFlow owed the day before the first transaction (asAt). */
+export interface OpeningBalanceCheck {
+  asAt: string;
+  statementAmount: number;
+  isaflowBalance: number;
+  variance: number;
+}
+
+function OpeningBalanceCell({ opening }: { opening: OpeningBalanceCheck | null }) {
+  const ties = opening !== null && Math.abs(opening.variance) <= 0.01;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="inline-flex w-fit items-center px-2 py-0.5 rounded border text-xs font-medium bg-sky-500/15 text-sky-400 border-sky-500/30">Opening balance</span>
+      {opening && (
+        <span className="text-xs text-[var(--ff-text-tertiary)] tabular-nums" data-testid="opening-balance-check">
+          IsaFlow {formatMoney(opening.isaflowBalance)} at {formatDisplayDate(opening.asAt)} · variance{' '}
+          <span className={ties ? 'text-teal-400' : 'text-red-400'}>{formatMoney(opening.variance)}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function MatchStatusCell({ line, opening = null }: { line: StatementLine; opening?: OpeningBalanceCheck | null }) {
+  if (line.isOpeningBalance) return <OpeningBalanceCell opening={opening} />;
   const conf = line.matchConfidence ?? 0;
   if (line.mismatchReason === 'missing_in_isaflow') {
     return (

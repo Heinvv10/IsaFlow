@@ -6,6 +6,7 @@
  */
 
 import { getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
+import { openingBalanceAsAt, openingBalanceIndexes, type ClassifiableLine } from './supplierStatementOpeningBalance';
 
 /**
  * Our side of the variance: what we owed this supplier ON THE STATEMENT DATE —
@@ -30,4 +31,34 @@ export async function measureOurSide(
   const isaflowBalance = Math.round(aged.invoices.reduce((s, inv) => s + inv.balance, 0) * 100) / 100;
   const variance = Math.round((supplierBalance - isaflowBalance) * 100) / 100;
   return { isaflowBalance, variance };
+}
+
+export interface OpeningBalanceCheck {
+  /** The day IsaFlow's side is measured at: the day before the first dated transaction line. */
+  asAt: string;
+  /** The statement's brought-forward figure: its opening line(s), debit less credit. */
+  statementAmount: number;
+  isaflowBalance: number;
+  /** statementAmount − isaflowBalance. */
+  variance: number;
+}
+
+/**
+ * The opening-balance check of a statement's "Balance brought forward" line (Hein, 2026-11-07, D1): the
+ * supplier's brought-forward figure against what IsaFlow owed the supplier the day before the first transaction,
+ * struck by measureOurSide, the same AP ageing the closing variance uses. Null when the statement has no
+ * opening-balance line. `lines` are the statement's own lines (not the synthetic "missing in statement" rows).
+ */
+export async function measureOpeningBalance(
+  companyId: string,
+  supplierId: string,
+  statementDate: string,
+  lines: (ClassifiableLine & { debit: number; credit: number })[],
+): Promise<OpeningBalanceCheck | null> {
+  const opening = openingBalanceIndexes(lines);
+  if (opening.size === 0) return null;
+  const statementAmount = Math.round([...opening].reduce((s, i) => s + lines[i]!.debit - lines[i]!.credit, 0) * 100) / 100;
+  const asAt = openingBalanceAsAt(lines, opening, statementDate);
+  const { isaflowBalance, variance } = await measureOurSide(companyId, supplierId, asAt, statementAmount);
+  return { asAt, statementAmount, isaflowBalance, variance };
 }

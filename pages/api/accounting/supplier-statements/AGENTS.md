@@ -24,6 +24,7 @@ Line: `{matchedSupplierInvoiceId, matchedInvoiceNumber, matchConfidence, mismatc
 
 ## Business rules
 - **Match ladder**: exact reference → confidence 1.0, null reason (unless amount > R0.01 diff → `amount_diff`, or date > 7d off → `date_diff`). Else fuzzy amount ±0.5% + date ±3d → 0.85. Else `missing_in_isaflow`
+- **Opening balance (B/F) line** (Hein 2026-11-07, D1): a dated line whose description or reference is exactly `balance b/f` / `balance b/fwd` / `balance brought forward` / `brought forward` / `opening balance` / `b/fwd` (case-insensitive) and is dated on or before every other dated line is the statement's opening balance (`capture/supplierStatementOpeningBalance.ts`). It is never matched and never counted (stored with `mismatch_reason` NULL, no match; nothing else persisted, so no migration). Reads flag it `isOpeningBalance` and return `openingBalance: {asAt, statementAmount, isaflowBalance, variance}`: its debit − credit against the AP ageing (`measureOurSide`) at the day before the first dated transaction line, measured live on each GET (also on a reconciled statement). A worded line dated after a transaction (page carry-forward) is an ordinary line. Rows stored before the rule fix themselves on Rematch. `canReconcile` does not gate on the opening variance
 - **Missing-in-statement pass**: after line matching, every `supplier_invoices` in period without matched line becomes `missing_in_statement` synthetic line
 - **Variance** = `supplier_balance − isaflow_balance`, where `isaflow_balance` is the AP ageing for the supplier **as at the statement date** (`measureOurSide`). Computed at creation and again on every Rematch, so the variance and the line counts always describe the same bills
 - `mark-reconciled` does **not** gate on anything server-side (R-087, pre-existing). The page's `canReconcile` requires `|variance| ≤ R0.01`, `missingInIsaflowCount = 0` and `amountDiffCount = 0` — it does not consider `missingInStatementCount`
@@ -39,6 +40,7 @@ Line: `{matchedSupplierInvoiceId, matchedInvoiceNumber, matchConfidence, mismatc
 - `scripts/migrations/sql/417_statement_reconciliation.sql`
 
 ## Recent changes
+- 2026-11-07: the opening "Balance brought forward" line is an opening-balance check (never matched or missing in IsaFlow); detail adds `openingBalance` and `lines[].isOpeningBalance`
 - 2026-10-17: extraction is asynchronous and per page (migration 896); `rematch` and `mark-reconciled` refuse `extracting`/`failed` rows with 409 (`ReconciliationNotReadyError`); see `services/bank/.claude.md`
 - 2026-09-10: R-059 — the variance is measured from the AP ageing at the statement date, on creation and on Rematch; match candidates are the ageing's population; Rematch is refused (409) on a reconciled statement
 - 2026-04-24: remediate pentest findings — 2 Critical + 11 High

@@ -18,6 +18,8 @@ import {
 } from './supplierStatementMatchHelper';
 import { effectiveExtractionState } from '@/modules/accounting/services/bank/statementExtractionState';
 import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
+import { measureOpeningBalance } from './supplierStatementMeasure';
+import { openingBalanceIndexes } from './supplierStatementOpeningBalance';
 import type {
   ReconciliationLine,
   MissingInvoice,
@@ -143,6 +145,7 @@ function mapLineRow(r: DbRow, invNum: string | null): ReconciliationLine {
     matchedInvoiceNumber: invNum,
     matchConfidence: r.match_confidence != null ? toNum(r.match_confidence) : null,
     mismatchReason: (r.mismatch_reason as MismatchReason) ?? null,
+    isOpeningBalance: false,
   };
 }
 
@@ -201,7 +204,12 @@ export async function fetchFullReconciliation(
   `) as DbRow[];
 
   const allLines = lineRows.map((r) => mapLineRow(r, toStr(r.matched_invoice_number)));
-  const lines = allLines.filter((l) => l.mismatchReason !== 'missing_in_statement');
+  // The statement's own lines, in the order Rematch reads them; the opening balance is classified the way the
+  // matcher classified it (supplierStatementOpeningBalance), so a row stored before that rule shows as one too.
+  const statementLines = allLines.filter((l) => l.mismatchReason !== 'missing_in_statement');
+  const classifiable = statementLines.map((l) => ({ date: l.lineDate, reference: l.reference, description: l.description }));
+  const opening = openingBalanceIndexes(classifiable);
+  const lines = statementLines.map((l, i) => (opening.has(i) ? { ...l, isOpeningBalance: true } : l));
   const missingInvoices: MissingInvoice[] = allLines
     .filter((l) => l.mismatchReason === 'missing_in_statement')
     .map((l) => ({
@@ -211,6 +219,12 @@ export async function fetchFullReconciliation(
       totalAmount: l.debit,
     }));
 
+  const view = extractionView(header);
+  const openingBalance = opening.size > 0 && view.statementDate
+    ? await measureOpeningBalance(companyId, header.supplier_id as string, view.statementDate,
+      lines.map((l) => ({ date: l.lineDate, reference: l.reference, description: l.description, debit: l.debit, credit: l.credit })))
+    : null;
+
   return {
     id: header.id as string,
     companyId: header.company_id as string,
@@ -219,12 +233,13 @@ export async function fetchFullReconciliation(
     sourceDocumentId: header.source_document_id as string,
     periodStart: toDateStr(header.period_start),
     periodEnd: toDateStr(header.period_end),
-    ...extractionView(header),
+    ...view,
     missingInIsaflowCount: toNum(header.missing_in_isaflow_count),
     missingInStatementCount: toNum(header.missing_in_statement_count),
     amountDiffCount: toNum(header.amount_diff_count),
     lines,
     missingInvoices,
+    openingBalance,
     createdAt: String(header.created_at ?? ''),
     reconciledAt: header.reconciled_at ? String(header.reconciled_at) : null,
   };
