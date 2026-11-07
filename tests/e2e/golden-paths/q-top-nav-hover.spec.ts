@@ -46,9 +46,14 @@ for (const { tab, link, path } of T1) {
     // for a link that is gone until the 90 s test timeout (#1071). So hover again right before the click.
     await page.mouse.move(0, 0);
     await waitForRoute(page, href);
-    await tabOf(page, tab).hover();
-    await expect(target).toBeVisible();
-    await target.click();
+    // The same closing can land between that hover and the click: on a loaded runner the menu was gone within 5 s
+    // of being opened (Pay Runs in the b8693c70f verify, Reconcile and Pay Runs on PR runs, 2026-11-07). Each attempt
+    // leaves the nav and enters it again, so a menu closed under the pointer is reopened by a fresh pointerenter.
+    await expect(async () => {
+      await page.mouse.move(0, 0);
+      await tabOf(page, tab).hover();
+      await target.click({ timeout: 3_000 });
+    }).toPass({ timeout: 30_000 });
     await waitForClickNavigation(page, path, href);
     // The next page renders its own nav after its auth round trips.
     await expect(tabOf(page, tab).locator('[aria-current="true"]').first()).toBeVisible({ timeout: NAV_READY_MS });
