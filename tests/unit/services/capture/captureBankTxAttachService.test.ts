@@ -4,6 +4,10 @@ const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/documentStorage', () => ({ fetchRawBytes: vi.fn() }));
+const { otherClaim, lockTx, lockDoc } = vi.hoisted(() => ({ otherClaim: vi.fn(), lockTx: vi.fn(), lockDoc: vi.fn() }));
+vi.mock('@/modules/accounting/services/capture/bankAttachClaimConflict', () => ({ findOtherVatClaim: otherClaim }));
+vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({ lockBankTransactionForUpdate: lockTx }));
+vi.mock('@/modules/accounting/services/capture/captureRowLock', () => ({ lockCapturedDocumentForUpdate: lockDoc }));
 
 import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
 import { fetchRawBytes } from '@/lib/documentStorage';
@@ -31,7 +35,18 @@ const happyHandlers = (over: Partial<Record<string, unknown[]>> = {}): Array<[st
 ];
 
 describe('attachCapturedDocToBankTx', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); otherClaim.mockResolvedValue(null); });
+
+  it('refuses, writing nothing, when the document backs another VAT claim; locks the line before the document', async () => {
+    mockSqlByQuery(happyHandlers());
+    const claim = { kind: 'journal' as const, id: 'j1', reference: 'JE-1' };
+    otherClaim.mockResolvedValue(claim);
+    await expect(attachCapturedDocToBankTx(COMPANY, DOC, TX, 'u')).resolves.toEqual({ ok: false, reason: 'document_backs_other_claim', otherClaim: claim });
+    const writes = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?')).filter((q) => /UPDATE|INSERT|DELETE/.test(q));
+    expect(writes).toEqual([]);
+    expect(lockTx.mock.invocationCallOrder[0]).toBeLessThan(lockDoc.mock.invocationCallOrder[0]!);
+    expect(lockDoc.mock.invocationCallOrder[0]).toBeLessThan(otherClaim.mock.invocationCallOrder[0]!);
+  });
 
   it('links the document and mirrors the file into bank_transaction_attachments', async () => {
     mockSqlByQuery(happyHandlers());

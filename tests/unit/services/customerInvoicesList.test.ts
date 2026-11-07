@@ -100,9 +100,12 @@ describe('customer-invoices-list handler (BL-23)', () => {
     expect(nullCount).toBeGreaterThanOrEqual(3);
   });
 
-  it('the company-wide AR summary runs only when asked (summary=1): two more sql calls', async () => {
+  it('the company-wide AR summary runs only when asked (summary=1): three more sql calls (outstanding, overdue, foreign-open count)', async () => {
+    await (handler as Function)(makeReq({ limit: '25' }), makeRes());
+    expect(sqlCalls.length).toBe(3);
+    sqlCalls.length = 0;
     await (handler as Function)(makeReq({ limit: '25', summary: '1' }), makeRes());
-    expect(sqlCalls.length).toBe(5);
+    expect(sqlCalls.length).toBe(6);
   });
 
   it('limit cap — requesting 200 is clamped to 100', async () => {

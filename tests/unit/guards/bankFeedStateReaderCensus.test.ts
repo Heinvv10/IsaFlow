@@ -147,6 +147,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/provisionalDismissService.ts': "exempt: the peek is keyed on provisional_je_id, which a non-posted row cannot carry (trigger 675); it locks lines before a write, no total or queue scope",
   'src/modules/accounting/services/capture/bankTxQueryReplyService.ts': 'exempt: writer (Task 3) — ownership preflight before a write',
   'src/modules/accounting/services/capture/bankTxQueryService.ts': 'exempt: writer (Task 3) send path; listing is an audit trail of already-created queries, not a financial total',
+  'src/modules/accounting/services/capture/bankAttachClaimConflict.ts': 'exempt: one bank line by id — the journals behind it, for the attach VAT guard; not a total or the review queue',
   'src/modules/accounting/services/capture/captureBankTxAttachService.ts': 'exempt: writer (Task 3) — ownership preflight before a write',
   'src/modules/accounting/services/capture/capturedAttachmentLinks.ts': 'exempt: one bank line by id — its attachment list, the unlink and the bytes-route ownership gate; not a total or the review queue',
   'src/modules/accounting/services/capture/evidenceAttachmentService.ts': "exempt: non-posted rows cannot carry provisional_je_id (trigger 675)",

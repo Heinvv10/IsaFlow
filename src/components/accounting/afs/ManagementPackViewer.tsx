@@ -31,7 +31,7 @@ function Block({ block }: { block: NoteContentBlock }) {
     case 'table':
       return (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" data-density-exempt>
             <thead>
               <tr className="border-b border-slate-300 dark:border-slate-600 text-left text-slate-600 dark:text-slate-400">
                 {block.headers.map((h, i) => <th key={i} className={`py-1.5 pr-4 font-medium ${i > 0 ? 'text-right' : ''}`}>{String(h)}</th>)}

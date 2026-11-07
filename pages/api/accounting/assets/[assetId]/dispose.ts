@@ -14,6 +14,11 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateDisposalResult } from '@/modules/accounting/services/items/farDisposalService';
 import {
+  DISPOSAL_TYPES,
+  UNSPECIFIED_DISPOSAL_METHOD,
+  isDisposalType,
+} from '@/modules/accounting/services/items/assetDisposalTypes';
+import {
   postAssetDisposalToGL,
   missingAssetAccountMessage,
   resolveAssetAccountId,
@@ -36,6 +41,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   };
 
   if (!disposalDate) return apiResponse.badRequest(res, 'disposalDate is required');
+  // Before any write: assets.disposal_type's CHECK (mig 361) would otherwise 500
+  // after the asset_period_ledger row below.
+  if (disposalType && !isDisposalType(disposalType)) {
+    return apiResponse.badRequest(res, `disposalType must be one of: ${DISPOSAL_TYPES.join(', ')}`);
+  }
   // The ledger-date window on the day Postgres reads (gl/journalDateGuard), BEFORE the disposal's first write: a 400
   // later would commit the ledger row and the disposal type without the journal (see the GL note below).
   const disposalDay = (await ledgerDaysOf([disposalDate])).get(disposalDate) ?? null;
@@ -142,6 +152,25 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     disposalDate,
     notes,
   }, userId);
+
+  // A null id means the hook found no asset to post for. The lock above makes
+  // that unreachable today; if it ever happens, fail (5xx rolls everything
+  // back) rather than log a disposal with no journal, which is exactly what
+  // the fixed-asset reconciliation reports as an unposted disposal.
+  if (!entryId) throw new Error(`Asset ${assetId} disposal posted no journal`);
+
+  // The disposal log GET /api/accounting/assets-disposals lists. Written after
+  // the journal so it always carries one; the same request transaction rolls
+  // it back with everything else if anything here throws.
+  await sql`
+    INSERT INTO asset_disposals (
+      asset_id, disposal_date, disposal_method, disposal_amount,
+      book_value_at_disposal, gain_loss, reason, journal_entry_id, created_by
+    ) VALUES (
+      ${assetId}::UUID, ${disposalDate}::DATE, ${disposalType || UNSPECIFIED_DISPOSAL_METHOD}, ${Number(proceeds)},
+      ${calc.policyCarryingAmount}, ${calc.policyGainLoss}, ${notes ?? null}, ${entryId}::UUID, ${userId}
+    )
+  `;
 
   return apiResponse.success(res, {
     assetId,

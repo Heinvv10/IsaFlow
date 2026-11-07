@@ -5,10 +5,12 @@
  */
 
 import { annualPolicyCharge, type DepreciationMethod } from './depreciationMethods';
+import { DISPOSAL_TYPES, type DisposalType } from './assetDisposalTypes';
 
 export type { DepreciationMethod };
 export type AssetStatus = 'available' | 'assigned' | 'in_maintenance' | 'disposed' | 'written_off';
-export type DisposalMethod = 'sale' | 'scrap' | 'write_off' | 'donation' | 'theft' | 'insurance_claim';
+// One list with the dispose route and the asset page: the values assets.disposal_type accepts (mig 361).
+export type DisposalMethod = DisposalType;
 export type SarsCategory = keyof typeof SARS_WEAR_AND_TEAR;
 
 export interface DepreciationInput {
@@ -160,7 +162,7 @@ export function calculateDepreciation(input: DepreciationInput): DepreciationRes
 
 const VALID_DEPRECIATION_METHODS: DepreciationMethod[] = ['straight_line', 'reducing_balance', 'sum_of_years'];
 const VALID_STATUSES: AssetStatus[] = ['available', 'assigned', 'in_maintenance', 'disposed', 'written_off'];
-const VALID_DISPOSAL_METHODS: DisposalMethod[] = ['sale', 'scrap', 'write_off', 'donation', 'theft', 'insurance_claim'];
+const VALID_DISPOSAL_METHODS: readonly DisposalMethod[] = DISPOSAL_TYPES;
 
 export function validateAsset(input: AssetInput): ValidationResult {
   const errors: Array<{ field: string; message: string }> = [];
