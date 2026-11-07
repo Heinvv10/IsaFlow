@@ -8,6 +8,7 @@ describe('judgeBankDocuments: a bank line\'s captured documents as uses', () => 
     expect(judgeBankDocuments([], 15)).toBeNull();
     expect(judgeBankDocuments([use(null, 15, 15)], 15)).toBeNull();
     expect(judgeBankDocuments([use(0, 15, 15)], 15)).toBeNull();
+    expect(judgeBankDocuments([use(10, 15, 15), use(-15, -15, 0)], 15).kind).toBe('mismatch');
   });
 
   it('a claim within what the document has left is supported, to the cent', () => {
