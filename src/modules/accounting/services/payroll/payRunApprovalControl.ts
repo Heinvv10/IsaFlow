@@ -17,6 +17,17 @@ type Header = {
   approved_plan_hash?: string | null;
 };
 
+/**
+ * The guard's own refusal: the run is not found, not approved, or has no reviewed plan. Same
+ * messages as before; a class only so a caller (payslipFinal) can tell a refusal from a failure.
+ */
+export class PayRunNotApprovedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PayRunNotApprovedError';
+  }
+}
+
 export interface PayRunClearance {
   grandfathered: boolean;
   planHash: string | null;
@@ -71,7 +82,7 @@ export async function assertPayRunApproved(
   expectedPlanHash?: string,
 ): Promise<PayRunClearance> {
   const row = await header(companyId, runId);
-  if (!row) throw new Error('Payroll run not found');
+  if (!row) throw new PayRunNotApprovedError('Payroll run not found');
   if (row.approval_grandfathered_at && (row.status === 'approved' || row.status === 'paid')) {
     return { grandfathered: true, planHash: null };
   }
@@ -79,10 +90,10 @@ export async function assertPayRunApproved(
   // approval while the run is approved or paid: a reopen leaves it populated as
   // history, and a reopened run must not clear under its obsolete approval.
   if (expectedPlanHash === undefined && row.status !== 'approved' && row.status !== 'paid') {
-    throw new Error('Pay run is not approved, so it has no reviewed approval plan');
+    throw new PayRunNotApprovedError('Pay run is not approved, so it has no reviewed approval plan');
   }
   const planHash = expectedPlanHash ?? row.approved_plan_hash;
-  if (!planHash) throw new Error('Pay run has no reviewed approval plan');
+  if (!planHash) throw new PayRunNotApprovedError('Pay run has no reviewed approval plan');
   await assertApprovalClearedForDocument(companyId, 'pay_run', runId, document(row, planHash));
   return { grandfathered: false, planHash };
 }

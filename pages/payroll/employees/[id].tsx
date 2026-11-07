@@ -19,6 +19,7 @@ import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
 import { EmployeeReadinessCard } from '@/components/payroll/EmployeeReadinessCard';
 import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
+import { EmployeePayslipsCard } from '@/components/payroll/EmployeePayslipsCard';
 import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
@@ -155,6 +156,8 @@ export default function EmployeeDetailPage() {
             )}
 
             {employeeId && <div id="employee-bank" className={ANCHOR}><EmployeeBankCard employeeId={employeeId} onChanged={() => setBankVersion(v => v + 1)} /></div>}
+
+            {employeeId && <EmployeePayslipsCard employeeId={employeeId} employeeName={`${employee.firstName} ${employee.lastName}`} />}
 
             {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
 

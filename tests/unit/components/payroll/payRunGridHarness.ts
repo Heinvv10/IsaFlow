@@ -44,3 +44,9 @@ export function type(input: HTMLInputElement, text: string) {
 export const rowOf = (name: string) => screen.getAllByRole('row').find((r) => within(r).queryByText(name))!;
 export const pressApprove = () => fireEvent.click(screen.getByRole('button', { name: /review & approve/i }));
 export const settle = () => new Promise((r) => setTimeout(r, 20));
+
+/** The kit Select (wave 4 PS): open it, press the option by its label. */
+export function choose(combobox: HTMLElement, label: string): void {
+  fireEvent.click(combobox);
+  fireEvent.click(screen.getByRole('option', { name: label }));
+}

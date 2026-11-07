@@ -131,11 +131,13 @@ export function answerInstead(res: NextApiResponse, deferred: DeferredEnd, statu
 /**
  * sec-numrace F1: a replaced answer must not carry what the route set for the answer it meant to give. Its
  * Set-Cookie (impersonate: the target's session) would land in the browser while the transaction, audit row
- * included, rolled back; its Location would redirect into work that did not happen.
+ * included, rolled back; its Location would redirect into work that did not happen; its Content-Disposition
+ * (a PDF download) would save the JSON error as the file it named.
  */
 function dropRouteAnswerHeaders(res: NextApiResponse): void {
   res.removeHeader('Set-Cookie');
   res.removeHeader('Location');
+  res.removeHeader('Content-Disposition');
 }
 
 /**
