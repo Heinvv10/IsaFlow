@@ -160,7 +160,7 @@ export function calculateDepreciation(input: DepreciationInput): DepreciationRes
 
 const VALID_DEPRECIATION_METHODS: DepreciationMethod[] = ['straight_line', 'reducing_balance', 'sum_of_years'];
 const VALID_STATUSES: AssetStatus[] = ['available', 'assigned', 'in_maintenance', 'disposed', 'written_off'];
-const VALID_DISPOSAL_METHODS: DisposalMethod[] = ['sale', 'scrap', 'write_off', 'donation', 'theft', 'insurance_claim'];
+export const VALID_DISPOSAL_METHODS: DisposalMethod[] = ['sale', 'scrap', 'write_off', 'donation', 'theft', 'insurance_claim'];
 
 export function validateAsset(input: AssetInput): ValidationResult {
   const errors: Array<{ field: string; message: string }> = [];

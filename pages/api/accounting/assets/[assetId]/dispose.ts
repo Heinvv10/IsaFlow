@@ -12,6 +12,7 @@ import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type Compa
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { VALID_DISPOSAL_METHODS } from '@/modules/accounting/services/items/assetService';
 import { calculateDisposalResult } from '@/modules/accounting/services/items/farDisposalService';
 import {
   postAssetDisposalToGL,
@@ -36,6 +37,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   };
 
   if (!disposalDate) return apiResponse.badRequest(res, 'disposalDate is required');
+  // Validated before any write (a 4xx commits). assets.disposal_method and asset_disposals.disposal_method are the
+  // columns carrying the app's DisposalMethod values; assets.disposal_type has a different CHECK (mig 361) and is
+  // not written here.
+  if (disposalType && !(VALID_DISPOSAL_METHODS as readonly string[]).includes(disposalType)) {
+    return apiResponse.badRequest(res, `Invalid disposal method. Use one of: ${VALID_DISPOSAL_METHODS.join(', ')}`);
+  }
+  // asset_disposals.disposal_method is NOT NULL: a caller that names none is a sale when it took proceeds, else a write-off.
+  const disposalMethod = disposalType || (Number(proceeds) > 0 ? 'sale' : 'write_off');
   // The ledger-date window on the day Postgres reads (gl/journalDateGuard), BEFORE the disposal's first write: a 400
   // later would commit the ledger row and the disposal type without the journal (see the GL note below).
   const disposalDay = (await ledgerDaysOf([disposalDate])).get(disposalDate) ?? null;
@@ -116,18 +125,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       updated_at          = NOW()
   `;
 
-  // Update disposal_type if provided
-  if (disposalType) {
-    await sql`
-      UPDATE assets SET disposal_type = ${disposalType} WHERE id = ${assetId}::UUID AND company_id = ${companyId}::UUID
-    `;
-  }
+  await sql`
+    UPDATE assets SET disposal_method = ${disposalMethod} WHERE id = ${assetId}::UUID AND company_id = ${companyId}::UUID
+  `;
 
   // A GL failure here must fail the whole disposal. postAssetDisposalToGL used
   // to swallow its errors and return null, which let this route answer 200 with
   // journalEntryId: null — an asset retired from the register with no journal.
   // It throws now, and withAuth rolls back on the resulting 5xx, taking the
-  // asset_period_ledger row and the assets.disposal_type update above with it.
+  // asset_period_ledger row, the assets.disposal_method update and the asset_disposals row above with it.
   //
   // Note the 400 for a missing asset account is raised BEFORE any write (see
   // above), not from a catch here: withAuth finalises on `statusCode >= 500`,
@@ -142,6 +148,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     disposalDate,
     notes,
   }, userId);
+
+  // The disposal log (Disposals page, MCP reconcile_fixed_assets). asset_disposals has no company_id: the asset row
+  // read and locked above is this company's (company_id in its WHERE), so the insert is tenant-safe. Same transaction
+  // as the journal: a throw here is a 5xx and rolls the journal back with it.
+  await sql`
+    INSERT INTO asset_disposals (asset_id, disposal_date, disposal_method, disposal_amount, book_value_at_disposal,
+      gain_loss, reason, journal_entry_id, created_by)
+    VALUES (${assetId}::UUID, ${disposalDate}::DATE, ${disposalMethod}, ${Number(proceeds)}, ${calc.policyCarryingAmount},
+      ${calc.policyGainLoss}, ${notes ?? null}, ${entryId}::UUID, ${userId})
+  `;
 
   return apiResponse.success(res, {
     assetId,
