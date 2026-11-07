@@ -13,7 +13,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { toDepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
 import { buildDepreciationSchedule } from '@/modules/accounting/services/items/depreciationSchedule';
-import { DISPOSAL_TYPES, DISPOSAL_TYPE_LABELS } from '@/modules/accounting/services/items/assetDisposalTypes';
+import { DISPOSAL_TYPES, DISPOSAL_TYPE_LABELS, isInService } from '@/modules/accounting/services/items/assetDisposalTypes';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -169,7 +169,7 @@ export default function AssetDetailPage() {
     </AppLayout>
   );
 
-  const isActive = asset.status?.toLowerCase() === 'active';
+  const isActive = isInService(asset.status);
   const infoFields = [
     { label: 'Asset Number', value: asset.asset_number, accent: true },
     { label: 'Category', value: asset.category },

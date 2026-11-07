@@ -30,7 +30,7 @@ import CustomerQuotesPage from '../../../pages/accounting/customer-quotes/index'
 useApiJsonOverMock();
 afterEach(() => { cleanup(); });
 
-const asset = { id: 'a1', asset_number: 'FA-D2-1', name: 'D2 Server Rack', status: 'active', category: null, purchase_date: null,
+const asset = { id: 'a1', asset_number: 'FA-D2-1', name: 'D2 Server Rack', status: 'available', category: null, purchase_date: null,
   purchase_price: null, current_book_value: null, useful_life_years: null, location: null, serial_number: null,
   supplier_name: null, sars_category: null, sars_rate: null, tax_life: null, created_at: '2026-01-01', salvage_value: null, depreciation_method: null };
 
