@@ -239,3 +239,40 @@ describe('kit Select keyboard: review findings', () => {
     expect(document.activeElement).toBe(trigger());
   });
 });
+
+describe('kit Select: the active option is tracked by value', () => {
+  // Options can change while the list is open (results arriving, a parent re-render): the highlight stays on the
+  // option the user moved to, and Enter chooses that option, not whichever one now sits at its old index.
+  function Growing({ searchable }: { searchable?: boolean }) {
+    const [value, setValue] = useState<string | null>(null);
+    const [opts, setOpts] = useState(OPTIONS);
+    return (
+      <>
+        <Select label="Letter" options={opts} value={value} onChange={setValue} searchable={searchable} />
+        <button type="button" onClick={() => setOpts([{ value: 'aa', label: 'Aardvark' }, ...OPTIONS])}>insert</button>
+        <output data-testid="picked">{value ?? 'none'}</output>
+      </>
+    );
+  }
+
+  it('an option inserted before the active one does not move the choice', () => {
+    render(<Growing />);
+    key('Enter');
+    key('ArrowDown'); key('ArrowDown'); key('ArrowDown'); // Alpha, Beta, Bravo
+    expect(activeLabel()).toBe('Bravo');
+    fireEvent.click(screen.getByRole('button', { name: 'insert' }));
+    expect(activeLabel()).toBe('Bravo');
+    key('Enter');
+    expect(picked()).toBe('br');
+  });
+
+  it('a searchable list keeps its active option when options are inserted', () => {
+    render(<Growing searchable />);
+    fireEvent.click(trigger());
+    const box = screen.getByRole('textbox');
+    fireEvent.keyDown(box, { key: 'ArrowDown' }); fireEvent.keyDown(box, { key: 'ArrowDown' }); // Alpha, Beta
+    fireEvent.click(screen.getByRole('button', { name: 'insert' }));
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(picked()).toBe('b');
+  });
+});
