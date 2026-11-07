@@ -18,6 +18,7 @@ import {
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { describePayRunApproval } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 import { describePayRunDecision } from '@/modules/accounting/services/payroll/payRunDecision';
+import { isPayRunFinal } from '@/modules/accounting/services/payroll/payslipFinal';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -35,7 +36,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     ? await describePayRunApproval(companyId, id) : null;
   // Whether the approval was decided by the requester's own sole-approver self-approval (no ids leave the server).
   const approvalDecision = await describePayRunDecision(companyId, id, run.status);
-  return apiResponse.success(res, { ...run, lines, approval, approvalDecision });
+  // The payslips' final/DRAFT state: the R-035 guard itself, never the status (wave 4 PS).
+  const payslipsFinal = lines.length > 0 && await isPayRunFinal(companyId, id);
+  return apiResponse.success(res, { ...run, lines, approval, approvalDecision, payslipsFinal });
 }
 
 export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

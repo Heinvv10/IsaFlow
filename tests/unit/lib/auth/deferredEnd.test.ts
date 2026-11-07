@@ -118,7 +118,7 @@ describe('answerThrow', () => {
   });
 });
 
-describe('sec-numrace F1: a replaced answer drops the Set-Cookie and Location the route set', () => {
+describe('sec-numrace F1: a replaced answer drops the Set-Cookie, Location and Content-Disposition the route set', () => {
   /** What a route such as impersonate sets before answering 200, plus a header the wrapper set. */
   const routeAnswered = () => {
     const { r, ends } = res();
@@ -126,6 +126,7 @@ describe('sec-numrace F1: a replaced answer drops the Set-Cookie and Location th
     r.setHeader('Cache-Control', 'private, no-store');
     r.setHeader('Set-Cookie', ['sb-access-token=TARGET; HttpOnly', 'impersonation_proof=PROOF']);
     r.setHeader('Location', '/accounting');
+    r.setHeader('Content-Disposition', 'attachment; filename="payslips-2026-11.pdf"'); // a download route's answer
     r.status(200).json({ ok: true });
     return { r, ends, deferred };
   };
@@ -137,6 +138,7 @@ describe('sec-numrace F1: a replaced answer drops the Set-Cookie and Location th
     expect(ends).toHaveLength(1);
     expect(r.headers).not.toHaveProperty('set-cookie');
     expect(r.headers).not.toHaveProperty('location');
+    expect(r.headers).not.toHaveProperty('content-disposition'); // a JSON error must not save as payslips.pdf
     expect(r.headers['cache-control']).toBe('private, no-store');
   });
 
@@ -146,6 +148,7 @@ describe('sec-numrace F1: a replaced answer drops the Set-Cookie and Location th
     expect(rolled.ends).toHaveLength(1);
     expect(rolled.r.headers).not.toHaveProperty('set-cookie');
     expect(rolled.r.headers).not.toHaveProperty('location');
+    expect(rolled.r.headers).not.toHaveProperty('content-disposition');
     const committed = routeAnswered();
     replayEnd(committed.r as never, committed.deferred, { source: 'withAuth' });
     expect(committed.r.headers['set-cookie']).toEqual(['sb-access-token=TARGET; HttpOnly', 'impersonation_proof=PROOF']);
@@ -159,6 +162,7 @@ describe('sec-numrace F1: a replaced answer drops the Set-Cookie and Location th
     expect(ends).toHaveLength(1);
     expect(r.headers).not.toHaveProperty('set-cookie');
     expect(r.headers).not.toHaveProperty('location');
+    expect(r.headers).not.toHaveProperty('content-disposition'); // a JSON error must not save as payslips.pdf
     expect(r.headers['cache-control']).toBe('private, no-store');
   });
 });
