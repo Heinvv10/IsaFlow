@@ -24,9 +24,11 @@ export function mapPayrollEmployeeRow(r: Row): PayrollEmployee {
     uifExcluded: Boolean(r.uif_excluded),
     medicalAidMainMember: Boolean(r.medical_aid_main_member),
     medicalAidDependantsCount: Number(r.medical_aid_dependants_count) || 0,
+    s18aReceiptHeld: r.s18a_receipt_held === true,
     costCentreId: r.cost_centre_id == null ? null : String(r.cost_centre_id),
     payScaleId: r.pay_scale_id == null ? null : String(r.pay_scale_id),
     occupationalLevelId: r.occupational_level_id == null ? null : String(r.occupational_level_id),
+    paymentMethod: r.payment_method === 'cash' ? 'cash' : 'eft',
   };
 }
 
@@ -112,14 +114,14 @@ export async function createPayrollEmployee(
     INSERT INTO payroll_employees (
       company_id, employee_number, first_name, last_name,
       id_number, tax_number, employment_type, start_date, end_date,
-      date_of_birth, uif_excluded, medical_aid_main_member, medical_aid_dependants_count
+      date_of_birth, uif_excluded, medical_aid_main_member, medical_aid_dependants_count, s18a_receipt_held
     ) VALUES (
       ${companyId}::uuid, ${data.employeeNumber}, ${data.firstName}, ${data.lastName},
       ${data.idNumber ?? null}, ${data.taxNumber ?? null},
       ${data.employmentType}, ${fmtDate(data.startDate)},
       ${data.endDate ? fmtDate(data.endDate) : null},
       ${data.dateOfBirth ? fmtDate(data.dateOfBirth) : null},
-      ${data.uifExcluded}, ${data.medicalAidMainMember}, ${data.medicalAidDependantsCount}
+      ${data.uifExcluded}, ${data.medicalAidMainMember}, ${data.medicalAidDependantsCount}, ${data.s18aReceiptHeld}
     )
     RETURNING *
   `) as Row[];
@@ -136,7 +138,7 @@ export async function updatePayrollEmployee(
   log.info('Updating payroll employee', { id, companyId }, 'payrollEmployeeService');
 
   const beforeRows = (await sql`
-    SELECT employment_type FROM payroll_employees
+    SELECT employment_type, s18a_receipt_held FROM payroll_employees
      WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
      LIMIT 1
   `) as Row[];
@@ -150,8 +152,11 @@ export async function updatePayrollEmployee(
   const todayIso = new Date().toISOString().split('T')[0]!;
   const status = endIso && endIso <= todayIso ? 'terminated' : null;
 
-  // An end date moves who a run pays and the termination base: under the company's payroll-approval lock, as every
-  // change the approval gate re-checks (payrollRunRecalcGate). Other fields need no lock.
+  // An end date moves who a run pays and the termination base, and the s18A tick moves PAYE and SDL: under the
+  // company's payroll-approval lock, as every change the approval gate re-checks (payrollRunRecalcGate). Other fields
+  // need no lock.
+  // Read before the lock, so only a tick seen to move is written: an "unchanged" one read stale writes nothing.
+  const tickMoved = data.s18aReceiptHeld !== undefined && data.s18aReceiptHeld !== before?.s18a_receipt_held;
   const write = (db: typeof sql) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
@@ -165,11 +170,12 @@ export async function updatePayrollEmployee(
       uif_excluded                 = COALESCE(${data.uifExcluded ?? null}, uif_excluded),
       medical_aid_main_member      = COALESCE(${data.medicalAidMainMember ?? null}, medical_aid_main_member),
       medical_aid_dependants_count = COALESCE(${data.medicalAidDependantsCount ?? null}, medical_aid_dependants_count),
+      s18a_receipt_held            = COALESCE(${tickMoved ? data.s18aReceiptHeld ?? null : null}, s18a_receipt_held),
       updated_at                   = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `;
-  const rows = (endIso === null ? await write(sql) : await withTransaction(async (tx) => {
+  const rows = (endIso === null && !tickMoved ? await write(sql) : await withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
     return write(tx as typeof sql);
   })) as Row[];

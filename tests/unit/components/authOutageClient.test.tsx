@@ -134,8 +134,8 @@ describe('AuthContext', () => {
     expect(screen.getByTestId('state').textContent).toBe('u-1');
   });
 
-  it('a re-check answered 401 does sign the user out', async () => {
-    vi.stubGlobal('fetch', routeFetch({ '/api/auth/me': [json(200, ME), json(401)] }));
+  it('a re-check answered 401 whose refresh is refused does sign the user out', async () => {
+    vi.stubGlobal('fetch', routeFetch({ '/api/auth/me': [json(200, ME), json(401)], '/api/auth/refresh': [json(401)] }));
     render(<AuthProvider><Probe /></AuthProvider>);
     await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('u-1'));
     await act(async () => { window.dispatchEvent(new Event('focus')); });
@@ -153,8 +153,8 @@ describe('AdminLayout', () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it('still redirects when /api/auth/me answers 401', async () => {
-    vi.stubGlobal('fetch', routeFetch({ '/api/auth/me': [json(401)] }));
+  it('still redirects when /api/auth/me answers 401 and the refresh is refused', async () => {
+    vi.stubGlobal('fetch', routeFetch({ '/api/auth/me': [json(401)], '/api/auth/refresh': [json(401)] }));
     render(<AuthProvider><AdminLayout title="Users"><p>console</p></AdminLayout></AuthProvider>);
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/login'));
   });

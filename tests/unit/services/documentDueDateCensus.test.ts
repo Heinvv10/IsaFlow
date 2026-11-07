@@ -2,7 +2,8 @@
  * A source-text RATCHET (it proves nothing about behaviour; the due-date tests beside each creator do): every writer of a
  * customer or supplier invoice either dates it from the contact's terms and then the company default (it names one of the
  * shared derivations), or is listed here with the reason it takes the date from its own source. A new document creator
- * that writes no due date, or a hard-coded +30, fails this and has to choose (migration 960; Hein, 2026-11-05).
+ * that writes no due date, or a hard-coded +30, fails this and has to choose (migration 960; Hein, 2026-11-05). Each
+ * INSERT also names where its date came from (due_date_source, migration 962).
  */
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -43,6 +44,18 @@ describe('every invoice writer dates the document', () => {
   it('the allow-list has no stale entries', () => {
     const found = writers.map(({ rel }) => rel);
     for (const rel of Object.keys(OWN_DATE)) expect(found, rel).toContain(rel);
+  });
+
+  // Migration 962: the column defaults to 'legacy' only so the old colour keeps inserting. A writer that names no source
+  // stores 'legacy', which Re-apply terms (PR 3) overwrites even when the date came from a document.
+  it('every INSERT names due_date_source', () => {
+    const unsourced: string[] = [];
+    for (const { rel, text } of writers) {
+      for (const m of text.matchAll(/INSERT\s+INTO\s+(customer_invoices|supplier_invoices)\s*\(([^)]*)\)/g)) {
+        if (!/\bdue_date_source\b/.test(m[2]!)) unsourced.push(`${rel}: ${m[1]}`);
+      }
+    }
+    expect(unsourced).toEqual([]);
   });
 
   it('no writer hard-codes thirty days for a due date', () => {

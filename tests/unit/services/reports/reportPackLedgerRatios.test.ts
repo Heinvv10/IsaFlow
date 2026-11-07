@@ -118,7 +118,7 @@ async function financialAnalysisRatios(): Promise<Ratios> {
 beforeEach(() => {
   vi.clearAllMocks();
   getFinancialFiguresMock.mockResolvedValue(FIGURES);
-  getCashFlowDirectMock.mockResolvedValue({ operatingTotal: 120_000, investingTotal: -30_000, financingTotal: 10_000, netChange: 100_000 });
+  getCashFlowDirectMock.mockResolvedValue({ operatingTotal: 120_000, investingTotal: -30_000, financingTotal: 10_000, netChange: 100_000, unexplainedDifference: 0 });
   serve(12, LEDGER);
 });
 

@@ -89,5 +89,5 @@ export function useSupplierTermsDueDate({ supplierId, invoiceDate, invoiceTerms,
   else if (source === 'default' && current) {
     note = `Supplier terms not confirmed: due date from the company default (${describePaymentTerms(current.companyDefault.days, current.companyDefault.type).toLowerCase()}).`;
   }
-  return { claim, note };
+  return { claim, note, source };
 }

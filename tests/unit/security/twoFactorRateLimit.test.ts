@@ -18,6 +18,7 @@ vi.mock('@/lib/auth/cookies', () => ({
   parseCookies: vi.fn().mockReturnValue({ sb_access: 'tok' }),
   setAuthCookies: vi.fn(),
   ACCESS_COOKIE: 'sb_access',
+  REMEMBER_ME_COOKIE: 'isaflow_remember_me',
 }));
 vi.mock('@/lib/auth/gotrue-mfa', () => ({
   challengeFactor: vi.fn(), verifyFactor: vi.fn(), unenrollFactor: vi.fn(),

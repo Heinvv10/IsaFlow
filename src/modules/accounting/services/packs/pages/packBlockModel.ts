@@ -113,6 +113,15 @@ export interface PackDisclosure {
    * disclosure that was not made.
    */
   required?: boolean;
+  /**
+   * `fitPageToBox` may not abridge this disclosure, whatever its note count.
+   *
+   * A required disclosure is abridged from the tail, never its first note; a block that holds two
+   * required notes under one heading (page 6's "Required disclosures") has a tail that is itself
+   * required, so it is flagged instead of relying on the order of its notes. IMPLIES `required`: the
+   * fitter never takes a note of it at either level, whether or not `required` is also set.
+   */
+  neverTrim?: true;
 }
 
 /** One line of the IFRS-to-adjusted-measure bridge, each with its own figure

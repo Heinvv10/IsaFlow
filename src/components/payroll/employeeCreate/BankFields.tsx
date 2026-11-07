@@ -11,20 +11,24 @@ interface Props {
   hint?: string;
   /** The holder is being removed: nothing to type. */
   holderDisabled?: boolean;
+  /** Bank name, branch code and account number are needed now (the profile always; the create form once something is typed). */
+  required: boolean;
 }
 
 /** The five fields, shared by the create form and the profile card. */
-export function BankFields({ bank, errors, onChange, fieldRef, hint, holderDisabled }: Props) {
+export function BankFields({ bank, errors, onChange, fieldRef, hint, holderDisabled, required }: Props) {
+  const star = required ? ' *' : '';
+  const req = required ? { 'aria-required': true as const } : {};
   const ref = (k: BankKey) => fieldRef?.(k);
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <Input ref={ref('bankName')} label="Bank name *" value={bank.bankName} error={errors.bankName} autoComplete="off"
+      <Input ref={ref('bankName')} label={`Bank name${star}`} {...req} value={bank.bankName} error={errors.bankName} autoComplete="off"
         onChange={e => onChange('bankName', e.target.value)} />
-      <Input ref={ref('branchCode')} label="Branch code *" value={bank.branchCode} error={errors.branchCode} inputMode="numeric"
+      <Input ref={ref('branchCode')} label={`Branch code${star}`} {...req} value={bank.branchCode} error={errors.branchCode} inputMode="numeric"
         placeholder="6 digits" autoComplete="off" onChange={e => onChange('branchCode', e.target.value.replace(/\s/g, ''))} />
-      <Input ref={ref('accountNumber')} label="Account number *" value={bank.accountNumber} error={errors.accountNumber} inputMode="numeric"
+      <Input ref={ref('accountNumber')} label={`Account number${star}`} {...req} value={bank.accountNumber} error={errors.accountNumber} inputMode="numeric"
         placeholder="6 to 16 digits" autoComplete="off" helperText={hint} onChange={e => onChange('accountNumber', e.target.value)} />
-      <Select id="bank-account-type" label="Account type *" value={bank.accountType}
+      <Select id="bank-account-type" label="Account type" value={bank.accountType}
         options={ACCOUNT_TYPES.map(t => ({ value: t.value, label: t.label }))}
         onChange={v => onChange('accountType', (v ?? 'cheque') as AccountType)} />
       <Input ref={ref('accountHolder')} label="Account holder" value={bank.accountHolder} error={errors.accountHolder} autoComplete="off" disabled={holderDisabled}

@@ -76,7 +76,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       // A refresh changed the list behind any open viewer, so its index no longer names the same file. Only the
       // opening load may open the viewer; a ref, as the prop follows the count and must not re-create this callback.
       if (keepList) setViewIndex(null);
-      else if (openFirstRef.current && json.data.some(a => previewKind(a.file_url) !== 'none')) setViewIndex(0);
+      else if (openFirstRef.current && json.data.some(a => previewKind(a.file_url, a.content_type) !== 'none')) setViewIndex(0);
     } catch {
       // A failed refresh keeps the list it has: "No attachments yet" would be false, and the row keeps its count.
       if (!keepList) { listRef.current = []; setAttachments([]); }
@@ -90,7 +90,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   useEffect(() => { void fetchAttachments(); }, [fetchAttachments]);
 
   // The viewer steps through the files it can show; the list keeps every file.
-  const viewable = attachments.filter(a => previewKind(a.file_url) !== 'none');
+  const viewable = attachments.filter(a => previewKind(a.file_url, a.content_type) !== 'none');
 
   // ── Upload ─────────────────────────────────────────────────────────────────
   const handleUpload = useCallback(async (file: File) => {
@@ -144,13 +144,15 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   };
 
   // ── Delete ─────────────────────────────────────────────────────────────────
-  const handleDelete = async (id: string, name: string) => {
+  // A linked captured document is unlinked from the line (its copy goes with it); anything else is deleted.
+  const handleDelete = async (att: Attachment) => {
+    const { id, file_name: name } = att;
     setDeletingId(id);
     try {
-      const res = await apiFetch(
-        `/api/accounting/bank-tx-attachments?id=${encodeURIComponent(id)}`,
-        { method: 'DELETE' },
-      );
+      const url = att.document_id
+        ? `/api/accounting/bank-tx-attachments?documentId=${encodeURIComponent(att.document_id)}&bankTransactionId=${encodeURIComponent(bankTransactionId)}`
+        : `/api/accounting/bank-tx-attachments?id=${encodeURIComponent(id)}`;
+      const res = await apiFetch(url, { method: 'DELETE' });
       await assertOk(res, 'Could not remove the attachment - try again');
       const json = await res.json() as { success: boolean; error?: { message?: string } };
       if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not remove the attachment - try again');
@@ -256,7 +258,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
           ) : (
             attachments.map(att => (
               <BankTxAttachmentRow key={att.id} att={att} deleting={deletingId === att.id}
-                onView={() => setViewIndex(viewable.indexOf(att))} onDelete={() => void handleDelete(att.id, att.file_name)} />
+                onView={() => setViewIndex(viewable.indexOf(att))} onDelete={() => void handleDelete(att)} />
             ))
           )}
         </div>

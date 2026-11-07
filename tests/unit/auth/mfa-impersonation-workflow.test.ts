@@ -19,7 +19,14 @@ vi.mock('@/modules/admin/services/userImpersonationService', () => ({
 }));
 // R-032: the session record is written on its own platform_admin connection;
 // its durability is proven against Postgres in r-032-session-record-durability.
-vi.mock('@/lib/auth/impersonationSessions', () => ({ registerImpersonationSession: async () => undefined }));
+vi.mock('@/lib/auth/impersonationSessions', () => ({
+  registerImpersonationSession: async () => undefined,
+  sessionActorOfToken: async () => 'impersonation',
+  impersonationPartiesOf: async () => ({
+    actorUserId: '00000000-0000-0000-0000-000000000ad1',
+    targetUserId: '00000000-0000-0000-0000-000000000ab1',
+  }),
+}));
 vi.mock('@/lib/auth/gotrue-admin-link', () => ({
   generateLink: fixture.generateLink, verifyMagicLink: fixture.verifyMagicLink,
   GotrueAdminLinkError: class extends Error {},

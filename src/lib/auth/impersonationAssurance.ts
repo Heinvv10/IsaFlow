@@ -1,5 +1,5 @@
 import { createHmac } from 'crypto';
-import { jwtVerify, SignJWT, type JWTPayload } from 'jose';
+import { decodeJwt, jwtVerify, SignJWT, type JWTPayload } from 'jose';
 
 const ISSUER = 'isaflow';
 const AUDIENCE = 'isaflow-impersonation';
@@ -35,6 +35,11 @@ export async function mintImpersonationProof(input: DelegationInput): Promise<st
     targetUserId: input.targetUserId, targetSessionId: input.targetSessionId })
     .setProtectedHeader({ alg: 'HS256' }).setIssuer(ISSUER).setAudience(AUDIENCE)
     .setIssuedAt(now).setExpirationTime(expiresAt).sign(key());
+}
+
+/** Seconds until a proof validateImpersonationProof has accepted runs out, at least 1. */
+export function proofSecondsLeft(proof: string): number {
+  return Math.max(1, (decodeJwt(proof).exp ?? 0) - Math.floor(Date.now() / 1000));
 }
 
 /** The target JWT must already have passed its own signature/expiry verification. */

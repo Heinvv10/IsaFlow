@@ -124,7 +124,12 @@ describe('by person, not by row', () => {
     await r.pool.query('ALTER TABLE company_users DISABLE TRIGGER USER');
     try {
       await r.pool.query('INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, $3)', [r.company, m.toUpperCase(), 'manager']);
-    } finally { await r.pool.query('ALTER TABLE company_users ENABLE TRIGGER USER'); }
+    } finally {
+      // ENABLE TRIGGER USER puts every trigger back as plain 'O'; the change-history capture is ENABLE ALWAYS since 888,
+      // and r035-n1b-members-catalog checks for that, so put it back as it was.
+      await r.pool.query('ALTER TABLE company_users ENABLE TRIGGER USER');
+      await r.pool.query('ALTER TABLE company_users ENABLE ALWAYS TRIGGER entity_change_capture');
+    }
     const refused = await put(m, 'viewer');
     expect(refused.statusCode).toBe(409);
     expect(refused.body.error?.message ?? refused.body.message).toMatch(REFUSAL);

@@ -25,6 +25,7 @@ export function mapInvoiceRow(row: Row): SupplierInvoice {
     grnId: row.grn_id ? String(row.grn_id) : undefined,
     invoiceDate: fmtDate(row.invoice_date),
     dueDate: row.due_date ? fmtDate(row.due_date) : undefined,
+    dueDateSource: row.due_date_source == null ? undefined : String(row.due_date_source),
     receivedDate: row.received_date ? fmtDate(row.received_date) : undefined,
     subtotal: Number(row.subtotal),
     taxRate: Number(row.tax_rate),

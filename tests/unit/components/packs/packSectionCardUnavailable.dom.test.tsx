@@ -42,6 +42,18 @@ const digits = (s: string) => s.replace(/\D/g, '');
 beforeEach(() => { warn.mockClear(); cleanup(); });
 
 describe('SectionCard cash flow, from the real service', () => {
+  it('prints a ledger fault as its own line, and opening cash without it', () => {
+    open(sectionOf({ ...BASE, cash: 750, operatingCashFlow: 500, investingCashFlow: 0, financingCashFlow: 0, cashFlowUnexplained: 250 }, 'cash_flow'));
+    expect(digits(valueOf('Unexplained movement'))).toMatch(/^250/);
+    expect(digits(valueOf('Net Cash Flow'))).toMatch(/^750/);
+    expect(digits(valueOf('Opening Cash'))).toMatch(/^0+$/);
+  });
+
+  it('prints no such line on a sound ledger', () => {
+    open(sectionOf({ ...BASE, ...FLOWS, cashFlowUnexplained: 0 }, 'cash_flow'));
+    expect(screen.queryByText('Unexplained movement')).toBeNull();
+  });
+
   it('prints reasons, and no stand-in figure, when no cash flow statement was read', () => {
     open(sectionOf(BASE, 'cash_flow'));
     for (const label of ['Operating CF', 'Investing CF', 'Financing CF', 'Net Cash Flow', 'Opening Cash']) {
