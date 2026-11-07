@@ -11,8 +11,8 @@
  * (`retirementDeduction`: cumulative over the tax year, capped by 27.5% and
  * `TaxYearConfig.retirementDeductionCap`). SDL applies it to the year, not the
  * line (sdlLeviableCumulative): leviable to date = max(0, SDL-applicable pay to
- * date - deduction to date), a line takes the rise. Every other taxable
- * deduction reduces PAYE only. Donations (4030) reduce SDL only as allowed: s18aDonationDeduction.test.ts.
+ * date - deduction to date), a line takes the rise. No other taxable
+ * deduction reduces SDL or PAYE (para 2(4)). Donations (4030) reduce SDL only as allowed: s18aDonationDeduction.test.ts.
  */
 import { describe, it, expect } from 'vitest';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';

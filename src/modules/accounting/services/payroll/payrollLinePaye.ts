@@ -57,6 +57,6 @@ export function notPayeDeductibleWarning(name: string, code: string, amount: num
     severity: 'warning',
     message: `${name} (code ${code}, ${formatMoney(amount)}) is marked taxable, but SARS lets an employer deduct only retirement `
       + 'fund contributions (4001, 4003, 4006) and s18A donations (4030) before PAYE, so PAYE was calculated without it.'
-      + (normaliseSarsCode(code) === '4005' ? ' Medical aid contributions give the medical tax credit instead, which was applied.' : ''),
+      + (normaliseSarsCode(code) === '4005' ? ' Medical aid contributions are given the medical tax credit instead.' : ''),
   };
 }
