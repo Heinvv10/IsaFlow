@@ -172,6 +172,17 @@ describe('openingLineAmount', () => {
     // Prod Demo, Engen 2026-11-07: a misread debit beside the true balance column.
     expect(openingLineAmount({ debit: 19743.55, credit: 0, runningBalance: 427728.14 })).toBe(427728.14);
   });
+  it('a balance cell that cannot be the figure gives way to the amount columns', () => {
+    // A blank balance cell read as 0 beside an amount.
+    expect(openingLineAmount({ debit: 1000, credit: 0, runningBalance: 0 })).toBe(1000);
+    // An unsigned credit balance ("500 Cr") beside a credit amount.
+    expect(openingLineAmount({ debit: 0, credit: 500, runningBalance: 500 })).toBe(-500);
+    // A signed credit balance agrees with the credit amount and wins.
+    expect(openingLineAmount({ debit: 0, credit: 500, runningBalance: -480 })).toBe(-480);
+    // A true zero opening balance.
+    expect(openingLineAmount({ debit: 0, credit: 0, runningBalance: 0 })).toBe(0);
+  });
+
   it('without a running balance it is debit less credit', () => {
     expect(openingLineAmount({ debit: 1000, credit: 0, runningBalance: null })).toBe(1000);
     expect(openingLineAmount({ debit: 0, credit: 250, runningBalance: null })).toBe(-250);

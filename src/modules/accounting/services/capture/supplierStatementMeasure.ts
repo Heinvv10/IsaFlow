@@ -47,7 +47,12 @@ export async function measureOurSide(
  * 19,743.55 while the balance column, which every later line's running balance chains from, said 427,728.14.
  */
 export function openingLineAmount(l: { debit: number; credit: number; runningBalance: number | null }): number {
-  return l.runningBalance ?? l.debit - l.credit;
+  const net = l.debit - l.credit;
+  const balance = l.runningBalance;
+  // The amount columns win only where the balance cell cannot be the figure: absent, or beside an amount but not of
+  // its sign — a blank read as 0 (sign 0), or an unsigned credit balance printed "500 Cr".
+  if (balance === null || (net !== 0 && Math.sign(balance) !== Math.sign(net))) return net;
+  return balance;
 }
 
 /**
