@@ -12,6 +12,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Browser, Page } from 'playwright';
+import { log } from '@/lib/logger';
 import { PAPER_A4_IN, PDF_MARGIN_MM, mmToIn } from '@/lib/pdf/pdfTransport';
 import { PARITY_WIDTH_PX, UNLOADED_FACES, type FontFile } from './parityPage';
 
@@ -79,22 +80,27 @@ function removeOrphans(): void {
 }
 
 /**
- * A throwaway Gotenberg of the production image, removed with its volumes when `stop` is called (the tests' afterAll),
- * when this process exits or is interrupted, and, if it was killed outright, by the next run (`orphanedContainers`).
+ * A throwaway Gotenberg of the production image, removed with its volumes when `stop` is called (the tests' afterAll)
+ * or when this process exits, and, if it was killed outright or interrupted, by the next run (`orphanedContainers`).
  */
 export async function startGotenberg(): Promise<Gotenberg> {
   removeOrphans();
   const name = `${NAME_PREFIX}${process.pid}`;
   execFileSync('docker', ['run', '-d', '--name', name, '-p', '127.0.0.1::3000', PRODUCTION_GOTENBERG_IMAGE, 'gotenberg', '--api-timeout=600s'], { stdio: 'ignore' });
   let stopped = false;
+  // Never throws: it runs from the tests' afterAll, from an exit handler and from a failed start, and a failure to
+  // remove the container must not hide the run's own result. What it cannot remove, the next run does (`removeOrphans`).
   const stop = (): void => {
     if (stopped) return;
     stopped = true;
     process.off('exit', stop);
-    execFileSync('docker', ['rm', '-fv', name], { stdio: 'ignore' });
+    try {
+      execFileSync('docker', ['rm', '-fv', name], { stdio: 'ignore' });
+    } catch (err) {
+      log.warn('print parity: could not remove the Gotenberg container; the next run removes it', { name, error: err instanceof Error ? err.message : String(err) }, 'print-parity');
+    }
   };
   process.once('exit', stop);
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { stop(); process.exit(130); });
   try {
     const port = execFileSync('docker', ['port', name, '3000/tcp'], { encoding: 'utf8' }).trim().split('\n')[0]!;
     const url = `http://${port}`;

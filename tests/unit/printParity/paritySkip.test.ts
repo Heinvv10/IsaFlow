@@ -5,7 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { orphanedContainers, PRODUCTION_GOTENBERG_IMAGE } from './gotenbergParity';
 import { paritySkip } from './paritySkip';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { boxReaders, sourceFiles } from './boxReaders';
 import { PARITY_PATHS, parityOutOfScope } from './parityScope';
 
 const host = (runningImage: string | null, missing: string | null, outOfScope: string | null = null) => ({ runningImage: () => runningImage, missing: () => missing, outOfScope: () => outOfScope });
@@ -59,11 +62,43 @@ describe('parityOutOfScope', () => {
 });
 
 describe('PARITY_PATHS', () => {
-  it('covers every source file that reads the measured content box', () => {
-    const readers = execFileSync('git', ['ls-files', 'src'], { encoding: 'utf8' }).split('\n')
-      .filter((f) => /\.tsx?$/.test(f) && /\b(?:PAGE_WIDTH_MM|PAGE_BOX_MM|CONTAINER_WIDTH_MM|PRINT_CONTENT_PX|PRINT_CONTAINER_PX|PRINT_CONTENT_HEIGHT_PX)\b/.test(readFileSync(f, 'utf8')));
+  it('covers every source file that reads the measured content box, through re-exports and aliases, untracked ones too', () => {
+    const root = process.cwd();
+    const readers = boxReaders(root, sourceFiles(root));
     expect(readers.length).toBeGreaterThan(10);
     expect(readers.filter((f) => !PARITY_PATHS.some((p) => p.test(f)))).toEqual([]);
+  });
+
+  it('counts an untracked file git does not ignore', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'box-untracked-'));
+    try {
+      const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+      execFileSync('git', ['init', '-q', root], { env });
+      mkdirSync(path.join(root, 'src', 'new'), { recursive: true });
+      writeFileSync(path.join(root, 'src', 'new', 'reader.ts'), 'export const x = 1;');
+      writeFileSync(path.join(root, '.gitignore'), 'src/ignored.ts\n');
+      writeFileSync(path.join(root, 'src', 'ignored.ts'), 'export const y = 1;');
+      expect(sourceFiles(root)).toEqual(['src/new/reader.ts']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('finds a reader through a re-export under an alias and through export *', () => {
+    const files: Record<string, string> = {
+      'src/modules/accounting/services/packs/pages/packTextMetrics.ts': 'export const PAGE_WIDTH_MM = 1;',
+      'src/lib/a.ts': "export { PAGE_WIDTH_MM as WIDTH } from '@/modules/accounting/services/packs/pages/packTextMetrics';",
+      'src/lib/b.ts': "export * from './a';",
+      'src/other/reader.ts': "import { WIDTH } from '@/lib/b';\nexport const w = WIDTH;",
+      'src/other/bystander.ts': "import { something } from '@/lib/b';",
+    };
+    const root = mkdtempSync(path.join(tmpdir(), 'box-readers-'));
+    try {
+      for (const [f, text] of Object.entries(files)) { mkdirSync(path.join(root, path.dirname(f)), { recursive: true }); writeFileSync(path.join(root, f), text); }
+      expect(boxReaders(root, Object.keys(files))).toEqual(['src/lib/a.ts', 'src/lib/b.ts', 'src/modules/accounting/services/packs/pages/packTextMetrics.ts', 'src/other/reader.ts']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
