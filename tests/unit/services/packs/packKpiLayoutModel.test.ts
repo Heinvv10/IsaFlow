@@ -58,7 +58,7 @@ describe('a tile line at the edge of its column', () => {
     const source = all.find((t) => t.figure.value !== null)!;
     const tile = alone(source, { label: 'Ab Cd\u00ADefghijklmnop' });
     // "Ab Cd-" fits a column exactly its width with the hyphen, and not 1/128px less (then "Cd-" and the rest wrap).
-    const withHyphen = textPx('Ab Cd\u00AD', 12, 400, true);
+    const withHyphen = textFitPx('Ab Cd\u00AD', 12, 400, true);
     expect(kpiTileMm(tile, withHyphen - HAIR) - kpiTileMm(tile, withHyphen)).toBeCloseTo(LABEL_LINE_MM, 6);
   });
 
