@@ -58,17 +58,6 @@ export const PAGE_WIDTH_MM = {
 export type PageOrientation = keyof typeof PAGE_BOX_MM;
 
 /**
- * THE WIDTH CHROMIUM LAYS A PRINTED PAGE OUT AT, in CSS pixels. Not the 174mm (657.6px) the margins arithmetic gives,
- * and not the 658px of a screen viewport: measured in the PDF itself (a line of two inline blocks and a space, the
- * block width bisected until the line wraps, against the same line in a viewport of known width), the content box of
- * an A4 sheet with this module's 18mm side margins is 659px, and Chromium rounds the paper and the margins to whole
- * pixels (no margin: 795px, 10mm: 721, 30mm: 569). Wrapping decisions (which line a word falls on, how wide a grid
- * track is) are taken at this width; a model built on 657.6px wraps words the print does not and reads blocks too tall.
- * `tests/unit/print/packPrintWidth.test.ts` re-measures it.
- */
-export const PRINT_CONTENT_PX = { portrait: 659, landscape: 659 + (PAGE_WIDTH_MM.landscape - PAGE_WIDTH_MM.portrait) * (96 / 25.4) } as const;
-
-/**
  * HOW WIDE A CHARACTER OF IBM PLEX SANS IS, in ems of the type size.
  *
  * NOT one average, and that is the correction that mattered. A single mean —

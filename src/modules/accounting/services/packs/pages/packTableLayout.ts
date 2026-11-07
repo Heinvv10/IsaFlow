@@ -20,13 +20,13 @@
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
 import {
-  CELL_SIDE_PX, cellPx, headingMarkPx, INDENT_PX_PER_LEVEL, labelMarkPx, ROW_WEIGHT,
+  CELL_SIDE_PX, cellPx, headingMarkPx, INDENT_PX_PER_LEVEL, labelMarkPx, MM_PX, ROW_WEIGHT,
   tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT,
 } from './packFigureFit';
 import { ptToPx, textPx } from './packFigureWidth';
 import { linesFor, minPx, runsOf, totalPx, type Run } from './packLineWrap';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
-import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
+import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
 
 /**
  * Each column heading's words in pixels, as `.pack-table th` sets them (8pt, uppercase, 0.06em tracking), and
@@ -89,7 +89,7 @@ export function tableLayout(table: PackTable, scale: MoneyScale, orientation: Pa
   const maxs = [labelMax, ...data.map((d) => d.max)];
   const sumMin = mins.reduce((a, b) => a + b, 0);
   const sumMax = maxs.reduce((a, b) => a + b, 0);
-  const sheet = PRINT_CONTENT_PX[orientation];
+  const sheet = PAGE_WIDTH_MM[orientation] * MM_PX;
   const columnsPx = mins.map((min, i) => {
     const max = maxs[i]!;
     if (sumMax <= sheet) return max + ((sheet - sumMax) * max) / sumMax;

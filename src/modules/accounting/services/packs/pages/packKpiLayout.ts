@@ -21,7 +21,7 @@ import {
 import { ptToPx, textPx } from './packFigureWidth';
 import { linesFor, runsOf } from './packLineWrap';
 import { reasonPx } from './packReasonWidth';
-import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
+import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
 
 /** Leadings, in mm: the label and the delta (12pt), the not-meaningful reason (14pt), the figure (25pt). */
 const LABEL_LINE_MM = 4.24;
@@ -47,7 +47,7 @@ function sparklineAspect(svg: string): number {
 export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orientation: PageOrientation): number[] {
   const fit = kpiFit(tiles, scale, orientation);
   const mins = kpiColumnMinPx(tiles, scale, fit.px ?? ptToPx(KPI_FIGURE_MAX_PT));
-  const room = PRINT_CONTENT_PX[orientation] - 3 * KPI_GAP_PX;
+  const room = PAGE_WIDTH_MM[orientation] * MM_PX - 3 * KPI_GAP_PX;
   const frozen = mins.map(() => false);
   let share = room / 4;
   for (let again = true; again;) {

@@ -6,7 +6,6 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Browser } from 'playwright';
-import { PRINT_CONTENT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { PDF_MARGIN_MM } from '@/lib/pdf/pdfTransport';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -37,7 +36,7 @@ export async function measureTables(document: PackPagesDocument, browser: Browse
   const body = renderToStaticMarkup(<PackPagesView document={document} />);
   const html = '<!doctype html><html class="print-mode"><head><meta charset="utf-8">'
     + `<style>${printStylesheet()}</style></head><body>${body}</body></html>`;
-  const page = await browser.newPage({ viewport: { width: PRINT_CONTENT_PX.portrait, height: 1000 } });
+  const page = await browser.newPage({ viewport: { width: Math.round((210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right) * PX_PER_MM), height: 1000 } });
   try {
     await page.route(`${HOST}**`, async (route) => {
       const url = new URL(route.request().url());
@@ -53,8 +52,8 @@ export async function measureTables(document: PackPagesDocument, browser: Browse
       await Promise.all([400, 500, 600].map((w) => document.fonts.load(`${w} 16px "IBM Plex Sans"`)));
       await document.fonts.ready;
     });
-    // The print lays the page out at PRINT_CONTENT_PX (659px, measured in the PDF).
-    await page.evaluate((w) => { document.documentElement.style.width = `${w}px`; }, PRINT_CONTENT_PX.portrait);
+    // The print lays the page out at 174mm = 657.6px; the viewport is a whole 658. Measure at the print's width.
+    await page.evaluate(() => { document.documentElement.style.width = '657.6px'; });
     return await page.evaluate((pxMm) => {
       const linesOf = (cell: Element | undefined): number => {
         const text = cell === undefined ? null : Array.from(cell.childNodes).find((n) => n.nodeType === 3);
