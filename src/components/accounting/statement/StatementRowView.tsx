@@ -23,7 +23,7 @@ const KIND_CLASS: Record<StatementRow['kind'], string> = {
 // as a CSS custom property value inside `[font-family:...]` is not reliably
 // picked up by this repo's Tailwind content scan.
 const FIG_STYLE: CSSProperties = { fontFamily: 'var(--ff-fig-font, inherit)' };
-const FIG = 'text-right whitespace-nowrap tabular-nums';
+const FIG = 'text-right whitespace-nowrap tabular-nums pl-0';
 
 // One focus ring for every interactive element in a row. The chevron in the
 // linked branch was declared without it while its unlinked sibling had it, so
@@ -85,23 +85,23 @@ function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey,
   const pctDash = zeroRules && show && !absent && c.variancePct === undefined && c.value === 0 && c.variance !== undefined;
   return (
     <>
-      <td className={`${FIG} py-1.5 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
+      <td className={`${FIG} py-2 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
         {absent ? <AbsentCell reason={c.absentReason} /> : show ? trackedFigure(c.value, cents, zeroRules && comparatorKey === 'budget') : ''}
       </td>
       {columns.variance && (
         <>
-          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: absent ? undefined : favColour(c?.favourable) }}>
+          <td className={`${FIG} py-2 pr-3 text-xs`} style={{ ...FIG_STYLE, color: absent ? undefined : favColour(c?.favourable) }}>
             {absent ? ABSENT : figure && onVariance
               ? <button type="button" onClick={onVariance.open} aria-label={onVariance.label}
                   className={`hover:underline ${FOCUS_RING}`}>{figure}</button>
               : figure}
           </td>
-          <td className="w-36 px-2">
+          <td className="w-36 px-2 py-0">
             {show && !absent && c.variance !== undefined && (
               <VarianceBar value={c.variance} max={maxVariance[comparatorKey]} favourable={c.favourable} />
             )}
           </td>
-          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: absent || pctDash ? undefined : favColour(c?.favourable) }}>
+          <td className={`${FIG} py-2 pr-3 text-xs`} style={{ ...FIG_STYLE, color: absent || pctDash ? undefined : favColour(c?.favourable) }}>
             {absent || pctDash ? ABSENT : show && c.variancePct !== undefined ? formatPct(c.variancePct) : ''}
           </td>
         </>
@@ -116,11 +116,11 @@ function ProjectionCells({ row, blank, cents, tracking }: { row: StatementRow; b
   const none = p === undefined;
   return (
     <>
-      <td data-col="projected" className={`${FIG} py-1.5 pr-3`} style={FIG_STYLE}>{none ? '' : trackedFigure(p.projected, cents, tracking)}</td>
-      <td className={`${FIG} py-1.5 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
+      <td data-col="projected" className={`${FIG} py-2 pr-3`} style={FIG_STYLE}>{none ? '' : trackedFigure(p.projected, cents, tracking)}</td>
+      <td className={`${FIG} py-2 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
         {none ? '' : p.absent || p.fyBudget === undefined ? <span title="No FY budget">{ABSENT}</span> : trackedFigure(p.fyBudget, cents, tracking)}
       </td>
-      <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: none || p.absent ? undefined : favColour(p.favourable) }}>
+      <td className={`${FIG} py-2 pr-3 text-xs`} style={{ ...FIG_STYLE, color: none || p.absent ? undefined : favColour(p.favourable) }}>
         {none ? '' : p.absent || p.variance === undefined ? ABSENT : varianceAmount(p.variance, cents)}
       </td>
     </>
@@ -193,7 +193,7 @@ export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst
   return (
     <>
       <tr data-kind={row.kind} className={`${KIND_CLASS[row.kind]} text-sm`}>
-        <td className={`${pad} py-1.5 ${stickyFirst ? STICKY_FIRST_CELL : ''}`}>
+        <td className={`${pad} py-2 ${stickyFirst ? STICKY_FIRST_CELL : ''}`}>
           <span className="flex items-center gap-1">
             <RowLabel row={row} expanded={expanded} onToggle={onToggle} />
             {row.note && onOpenNote && (
@@ -202,7 +202,7 @@ export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst
             {aside}
           </span>
         </td>
-        <td className={`${FIG} py-1.5 pr-3`} style={FIG_STYLE}>{blank ? '' : formatStatementFigure(row.actual, { cents })}</td>
+        <td className={`${FIG} py-2 pr-3`} style={FIG_STYLE}>{blank ? '' : formatStatementFigure(row.actual, { cents })}</td>
         {active.map(c => (
           <Fragment key={c.key}>
             <ComparatorCells c={row[c.key]} blank={blank} columns={columns}

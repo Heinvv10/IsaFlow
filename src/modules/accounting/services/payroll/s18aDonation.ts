@@ -23,7 +23,7 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { PayeYearToDate, ValidationResult } from './payrollTypes';
 
-const DONATION_LIMIT = 0.05;
+export const DONATION_LIMIT = 0.05;
 const round2 = (n: number): number => Math.round(n * 100) / 100 + 0; // + 0: never -0
 
 export interface S18aDonationResult {

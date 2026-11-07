@@ -6,6 +6,7 @@
  * surface's output is unchanged: the income-statement and balance-sheet HTML is
  * pinned by a snapshot recorded on master's grid before this change.
  */
+import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -63,6 +64,23 @@ function trackingRows() {
   });
   return toBudgetTrackingRows({ lines, bands: buildBands(lines) });
 }
+
+// DG re-spaced these rows (4 px grid), so the HTML snapshot above changed in classes only. This holds the text:
+// every row's cell texts (headers included) equal what master rendered, recorded from master's snapshot.
+const cellTexts = (html: string): string[][] => {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return [...doc.querySelectorAll('tr')].map((tr) => [...tr.children].map((c) => (c.textContent ?? '').trim()));
+};
+
+describe('P&L and balance sheet figures and headers are unchanged from master', () => {
+  const onMaster = JSON.parse(readFileSync('tests/unit/components/fixtures/statementTextOnMaster.json', 'utf8')) as Record<string, string[][]>;
+  it.each([
+    ['isOff', () => render(IS_ROWS, ALL_OFF)], ['isFull', () => render(IS_ROWS, FULL)],
+    ['bsOff', () => render(BS_ROWS, ALL_OFF)], ['bsFull', () => render(BS_ROWS, FULL)],
+  ] as const)('%s: same column headers and the same text in every cell', (key, html) => {
+    expect(cellTexts(html())).toEqual(onMaster[key]);
+  });
+});
 
 describe('projection cells', () => {
   it('render only when columns.projection is set', () => {
