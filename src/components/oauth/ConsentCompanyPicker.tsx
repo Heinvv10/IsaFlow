@@ -32,7 +32,7 @@ export function ConsentCompanyPicker({ companies, value, onChange, disabled }: P
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-3">
       <label
         htmlFor="consent-company"
-        className="block text-xs uppercase tracking-wide text-slate-400 mb-1.5"
+        className="block text-sm font-medium text-slate-300 mb-1.5"
       >
         Company this access applies to
       </label>
