@@ -47,7 +47,7 @@ import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
 import { birthDate3080, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
-import { retirementFieldLines, type RetirementContributions } from './easyFileRetirementFields';
+import { retirementFieldLines, withDeductionTotal, type RetirementContributions } from './easyFileRetirementFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
@@ -249,7 +249,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     reason ? `4150,${reason}` : null,
     '9999,9999',
   ];
-  const record = lines.filter((l): l is string => l !== null);
+  const record = withDeductionTotal(lines.filter((l): l is string => l !== null));
   const broken = validateCertificateTaxFields(record);
   if (broken.length > 0) {
     throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): ${broken.map(m => m.message).join(' ')}`);

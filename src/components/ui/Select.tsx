@@ -85,7 +85,7 @@ export function Select(props: SelectProps) {
 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [activeIndex, setActiveIndex] = useState(-1);
+  const [activeValue, setActiveValue] = useState<string | null>(null);
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
 
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -100,6 +100,11 @@ export function Select(props: SelectProps) {
   const filteredOptions: SelectOption[] = canCreate
     ? [...matching, { value: CREATE_VALUE, label: search.trim() ? `+ ${createLabel} "${search.trim()}"` : `+ ${createLabel}…` }]
     : matching;
+  // The active option is held by VALUE, so options changing while the list is open keep the highlight on it.
+  const indexOf = (v: string | null) => (v === null ? -1 : filteredOptions.findIndex((o) => o.value === v));
+  const activeIndex = indexOf(activeValue);
+  const setActiveIndex = (u: number | ((i: number) => number)) =>
+    setActiveValue((prev) => filteredOptions[typeof u === 'function' ? u(indexOf(prev)) : u]?.value ?? null);
 
   const recalculate = useCallback(() => {
     if (!triggerRef.current) return;
@@ -110,8 +115,8 @@ export function Select(props: SelectProps) {
     setPos({ top: r.bottom + window.scrollY + 4, left: left + window.scrollX, width: r.width });
   }, [size]);
 
-  const closeDropdown = useCallback(() => { setOpen(false); setSearch(''); setActiveIndex(-1); }, []);
-  const openDropdown = useCallback(() => { if (disabled) return; recalculate(); setOpen(true); setActiveIndex(-1); }, [disabled, recalculate]);
+  const closeDropdown = useCallback(() => { setOpen(false); setSearch(''); setActiveValue(null); }, []);
+  const openDropdown = useCallback(() => { if (disabled) return; recalculate(); setOpen(true); setActiveValue(null); }, [disabled, recalculate]);
 
   function closeAndRefocus() { closeDropdown(); triggerRef.current?.focus(); }
 
@@ -135,7 +140,7 @@ export function Select(props: SelectProps) {
 
   const { onTriggerKeyDown, onListKeyDown } = useSelectKeyboard({
     open, searchable, options: filteredOptions, selectedValues, activeIndex, setActiveIndex, openDropdown, closeDropdown, closeAndRefocus, selectOption,
-    seedSearch: (text) => { openDropdown(); setSearch(text); setActiveIndex(-1); onSearch?.(text); },
+    seedSearch: (text) => { openDropdown(); setSearch(text); setActiveValue(null); onSearch?.(text); },
   });
 
   useEffect(() => {
@@ -244,7 +249,7 @@ export function Select(props: SelectProps) {
               searchRef={searchRef}
               listRef={listRef}
               panelRef={panelRef}
-              onSearchChange={(v) => { setSearch(v); setActiveIndex(-1); onSearch?.(v); }}
+              onSearchChange={(v) => { setSearch(v); setActiveValue(null); onSearch?.(v); }}
               searchLabel={label ? `Search ${label}` : undefined}
               emptyText={emptyText}
               hint={hint}

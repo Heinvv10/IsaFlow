@@ -6,7 +6,13 @@
 import { useMemo } from 'react';
 import { type AllocType, type SelectOption } from '@/components/accounting/BankTxTable';
 import { extractPattern } from '@/components/accounting/CreateRuleModal';
+import { Select, type SelectOption as KitOption } from '@/components/ui/Select';
 import type { BankTx } from '@/components/accounting/BankTxTable';
+
+const BATCH_TYPES: KitOption[] = [
+  { value: 'account', label: 'Account' }, { value: 'supplier', label: 'Supplier' },
+  { value: 'customer', label: 'Customer' }, { value: 'transfer', label: 'Transfer' },
+];
 
 export interface RulePrompt {
   tx: BankTx;
@@ -55,20 +61,16 @@ export function BankTxBatchPanel({
       {showBatchEdit && selectedCount > 0 && (
         <div className="px-6 py-3 border-b border-blue-500/30 bg-blue-500/5 flex items-center gap-3 flex-wrap">
           <span className="text-xs text-blue-400 font-medium">Batch Edit ({selectedCount} selected):</span>
-          <select
-            value={batchType}
-            onChange={e => onBatchTypeChange(e.target.value as AllocType)}
-            className="text-xs px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
-          >
-            <option value="account">Account</option>
-            <option value="supplier">Supplier</option>
-            <option value="customer">Customer</option>
-            <option value="transfer">Transfer</option>
-          </select>
+          <Select
+            label="Batch allocation type" labelClassName="sr-only" size="sm" className="w-32"
+            options={BATCH_TYPES} value={batchType}
+            onChange={v => { if (v) onBatchTypeChange(v as AllocType); }}
+          />
           <div className="relative">
             <input
               type="text"
               placeholder={`Search ${batchType}s...`}
+              aria-label={`Search ${batchType}s for the batch`}
               value={batchSearch}
               onChange={e => onBatchSearchChange(e.target.value)}
               className="pl-2 pr-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] w-52"
