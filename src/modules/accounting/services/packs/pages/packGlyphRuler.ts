@@ -91,13 +91,18 @@ export function scriptRuns(text: string): string[] {
 }
 
 /**
- * The units added to a width: `NEVER_SHORT` (one) for a decision that must never be short (does it fit? how many
- * lines?); `AS_CHROMIUM_SETS` (none: the exact sum rounded up to Chromium's unit) for a layout model that reproduces
- * Chromium's columns (`packTableLayout.ts`). An argument, never a setting: a measure in flight cannot change another's.
+ * How a width is rounded to Chromium's unit: `NEVER_SHORT` (the exact sum rounded up, and one unit more) for a decision
+ * that must never be short (does a row fit the sheet?); `AS_CHROMIUM_SETS` (rounded up, no unit added) for a layout
+ * model that reproduces Chromium's columns (`packTableLayout.ts`); `CHROMIUM_LEAST` and `CHROMIUM_MOST`, the narrowest
+ * and widest Chromium can set it once its own float noise (`FIT_NOISE_UNITS`) is counted either way: the bounds a
+ * model takes a column at when it must be no wider (or no narrower) than Chromium's (`packKpiLayout.kpiColumnBoundsPx`).
+ * An argument, never a setting: a measure in flight cannot change another's.
  */
-export type Slack = 0 | 1;
+export type Slack = 0 | 1 | 'least' | 'most';
 export const NEVER_SHORT: Slack = 1;
 export const AS_CHROMIUM_SETS: Slack = 0;
+export const CHROMIUM_LEAST: Slack = 'least';
+export const CHROMIUM_MOST: Slack = 'most';
 
 /** Runs already shaped: their advance in font units, by weight and text (a pack shapes the same words many times). */
 const SHAPED = new Map<string, number>();
@@ -129,6 +134,22 @@ export function runPx(
   hyphen = false, slack: Slack = NEVER_SHORT,
 ): number {
   if (text === '' && !hyphen) return 0;
+  const exact = runExactPx(text, fontPx, weight, fallbackPx, letterSpacingPx, hyphen) * UNIT;
+  if (slack === 'least') return Math.ceil(exact - FIT_NOISE_UNITS) / UNIT;
+  if (slack === 'most') return Math.ceil(exact + FIT_NOISE_UNITS) / UNIT;
+  return Math.ceil(exact - 1e-7) / UNIT + slack / UNIT;
+}
+
+/**
+ * The exact advance sum of `text` (`runPx`'s arguments), not rounded to any unit: what a line FITS by. Chromium's line
+ * breaker keeps a run on a line where its width, floored to the 1/64px unit, is no wider than the room left
+ * (`fitUnitsPx`); measured on the 630-case grid and the ruler's random strings, and on a KPI label with its mark and a
+ * delta line with its cue (`tests/unit/print/packLineFit.test.ts`). A width a column is SIZED by stays `runPx`'s.
+ */
+export function runExactPx(
+  text: string, fontPx: number, weight: FaceWeight, fallbackPx: (cluster: string, sizePx: number) => number, letterSpacingPx = 0,
+  hyphen = false,
+): number {
   const f = face(weight);
   const size = setSizePx(fontPx);
   let units = 0;
@@ -147,5 +168,15 @@ export function runPx(
   }
   flush();
   if (hyphen) units += unitsOf(f, weight, '\u2010');
-  return Math.ceil((units * size / f.unitsPerEm + px) * UNIT - 1e-7) / UNIT + slack / UNIT;
+  return units * size / f.unitsPerEm + px;
 }
+
+/**
+ * Chromium's own float sum of a run is the exact one to within 0.024 of a unit either way (measured); this much is
+ * added before flooring, so a run the model fits Chromium fits (`packLineFit.test.ts`: never short on the grid and the
+ * random strings, over by one unit on about 8% of them).
+ */
+export const FIT_NOISE_UNITS = 1 / 16;
+
+/** The width a run takes on a line as Chromium's line breaker counts it: its exact sum, floored to the 1/64px unit. */
+export const fitUnitsPx = (exactPx: number): number => Math.floor(exactPx * UNIT + FIT_NOISE_UNITS) / UNIT;

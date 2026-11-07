@@ -10,13 +10,10 @@
  * model's excess dropped something that fits; only the known near-tie packs below may, and exactly that many. These
  * are the numbers `kpiLayoutCheck.ts` quotes.
  *
- * KNOWN LIMIT (#1196, accepted): 40 packs (0.35% of the grid, all net-debit at k=300,000) drop one page-3 note that
- * fits. Every one is in the band: the "Gross margin" tile's label and its footnote mark, which Chromium sets on one line
- * from a 76.046875px column, while the shaping model's width for it is 76.109375 (the exact advance sum ceiled to the
- * 1/64px unit, plus the unit of slack that keeps a width never short; 76.078125 without that unit): Chromium fits a
- * line 2 to 4 units narrower than the model's sum, and the column the figures leave reads 0.05px narrower for the same
- * slack. The model charges the line twice and the page drops a note. Fitting lines on the exact sums the way Chromium's
- * line breaker compares them is #1169's width model, a follow-up.
+ * The near ties (#1196 pinned 80 blocks in a one-line band, 40 packs dropping a page-3 note that fits: the "Gross margin"
+ * label and its mark, which Chromium sets on one line from a 76.046875px column against the model's 76.109375) are gone:
+ * a line is fitted as Chromium's line breaker fits it, each box's exact sum floored to the unit (`textFitPx`,
+ * `packLineFit.test.ts`), not at the never-short width a column is sized by.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
@@ -32,10 +29,10 @@ vi.mock('@/modules/accounting/services/packs/pages/packKpiLayout', async (orig) 
   return { ...real, kpiBlockMm: (...args: Parameters<typeof real.kpiBlockMm>) => real.kpiBlockMm(...args) - corr.mm };
 });
 
-/** The grid's packs whose block reads one line over Chromium's (40 sets of tiles). */
-const IN_BAND = 80;
-/** Of those, the packs that drop a page-3 note that fits for it (the known limit above). */
-const NEAR_TIE_OVER_TRIM = 40;
+/** The grid's packs whose block reads one line over Chromium's: none. */
+const IN_BAND = 0;
+/** The packs that drop a page-3 note that fits: none. */
+const NEAR_TIE_OVER_TRIM = 0;
 
 let browser: Browser;
 beforeAll(async () => { if (process.env.KPI_GRID === '1') browser = await launchPrintChromium(); }, 180_000);
