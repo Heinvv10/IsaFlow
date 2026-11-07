@@ -28,7 +28,7 @@ import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export default function NewSupplierInvoicePage() {
@@ -233,7 +233,7 @@ export default function NewSupplierInvoicePage() {
                   <DateField label="Invoice Date" name="invoiceDate" required value={form.invoiceDate || null} resetKey={dates.resetKey('invoiceDate')} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
                   <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => { claimDueDate(); setDueFromScan(false); setForm(f => ({ ...f, dueDate: iso })); }, form.dueDate)} />
                   <div>
-                    <label htmlFor="supplier-invoices-new-payment-terms" className={lbl}>Payment Terms</label>
+                    <label htmlFor="supplier-invoices-new-payment-terms" className={lbl}>Payment terms</label>
                     <select id="supplier-invoices-new-payment-terms" value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>
                       <option value="">None (use the supplier&apos;s terms)</option><option value="immediate">Immediate</option><option value="net30">Net 30</option><option value="net60">Net 60</option><option value="net90">Net 90</option>
                     </select>
@@ -273,7 +273,7 @@ export default function NewSupplierInvoicePage() {
                   Notes
                 </h3>
                 <div>
-                  <label htmlFor="supplier-invoices-new-vat-rate" className={lbl}>VAT Rate (%)</label>
+                  <label htmlFor="supplier-invoices-new-vat-rate" className={lbl}>VAT rate (%)</label>
                   <input id="supplier-invoices-new-vat-rate" type="number" step="0.01" value={form.taxRate}
                     onChange={e => setForm(f => ({ ...f, taxRate: Number(e.target.value) }))}
                     className={`${inp} w-32 mb-4`} />

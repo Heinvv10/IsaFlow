@@ -22,7 +22,7 @@ interface CustomerOption {
 interface SalesOrderOption { id: string; orderNumber: string }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export default function NewDeliveryNotePage() {
@@ -160,7 +160,7 @@ export default function NewDeliveryNotePage() {
                       onChange={dates.bind('deliveryDate', setDeliveryDate, deliveryDate)} />
                   </div>
                   <div>
-                    <label htmlFor="delivery-notes-new-sales-order" className={lbl}>Linked Sales Order (optional)</label>
+                    <label htmlFor="delivery-notes-new-sales-order" className={lbl}>Linked sales order (optional)</label>
                     {loadingOrders ? (
                       <div className={`${inp} flex items-center gap-2 text-slate-500 dark:text-slate-400`}><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
                     ) : (
@@ -171,7 +171,7 @@ export default function NewDeliveryNotePage() {
                     )}
                   </div>
                   <div>
-                    <label htmlFor="delivery-notes-new-delivery-address" className={lbl}>Delivery Address</label>
+                    <label htmlFor="delivery-notes-new-delivery-address" className={lbl}>Delivery address</label>
                     <input id="delivery-notes-new-delivery-address" name="deliveryAddress" value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} placeholder="Delivery address…" className={inp} />
                   </div>
                 </div>
