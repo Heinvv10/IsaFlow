@@ -23,12 +23,19 @@
  * VAT-gaps batch item 2: `has_bank_attachment` is true when the bank line
  * behind the journal (the same one `bank_amount` sums) carries a supporting
  * document — a row in `bank_transaction_attachments` or a captured document
- * linked to the line (bank/bankLineDocumentSql) — PRESENCE only, it carries no
- * extracted VAT to compare against the claim. A captured document already
- * backing a different chain that still claims VAT does not count (one tax
- * invoice, one claim).
+ * linked to the line (bank/bankLineDocumentSql) — PRESENCE. A captured one
+ * with VAT read is judged as a USE instead (bank_documents, below).
  *
- * BREAKER ROUND 2 (item 1): `document_claimed_vat` sums every root that has
+ * ONE TAX INVOICE, ONE CLAIM'S WORTH (Hein, 2026-11-07): `doc_uses` lists every
+ * use of a captured document by a chain — a journal tie (doc_history), the
+ * journal on a bank line it sits on (linked, or as its copy), a bill
+ * (source_document_id or the capture's matched_invoice_id) and an expense
+ * claim line (that LINE's VAT, while the claim still claims). `doc_root_use`
+ * counts each (document, chain) once; `document_claimed_vat` sums them to the
+ * period end. `bank_documents` / `claim_documents` hand each chain its bank-line
+ * and claim-line documents as { vat, total, own } for vatInputDocumentUses.
+ *
+ * BREAKER ROUND 2 (item 1): `document_claimed_vat` sums (among its uses) every root that has
  * EVER been tied to the document — via the immutable `source_document_id`, or
  * ANY row in `gl_journal_document_links` regardless of `unlinked_at`.
  * Unlinking and relinking a document to a new journal no longer drops the old

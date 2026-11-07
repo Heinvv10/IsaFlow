@@ -22,6 +22,7 @@ describe('judgeBankDocuments: a bank line\'s captured documents as uses', () => 
 
   it('another claim under a cent does not count', () => {
     expect(judgeBankDocuments([use(15, 15.004, 15)], 15)).toEqual({ kind: 'supported' });
+    expect(judgeBankDocuments([use(10, 15.004, 15)], 15).kind).toBe('mismatch');
   });
 
   it('a lone document short of the claim is a mismatch; an unreadable one beside it makes it a warning', () => {
@@ -42,6 +43,8 @@ describe('overClaimedClaimDocument: an expense claim line\'s slip that other cla
     expect(overClaimedClaimDocument([use(15, 20, 20)])).toBeNull(); // the claim's own mismatch is not this rule's
     expect(overClaimedClaimDocument([use(30, 30, 15)])).toBeNull();
     expect(overClaimedClaimDocument([use(15, 15.004, 15)])).toBeNull();
+    expect(overClaimedClaimDocument([use(15, 15.004, 14.99)])).toBeNull(); // shared, but within a cent of its VAT
+    expect(overClaimedClaimDocument([use(10, 15.004, 15)])).toBeNull(); // the claim's own mismatch, plus under a cent
     expect(overClaimedClaimDocument([use(null, 30, 15), use('unreadable', 30, 15)])).toBeNull();
   });
 });
