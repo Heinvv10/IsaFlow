@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { OVERTIME, UNION, RUN_URL, inputsBody, ok, fail } from './payroll/payrollRunFixtures';
-import { cell, fetchMock, pressApprove, previews, puts, rowOf, serve, settle, twoRuns, type } from './payroll/payRunGridHarness';
+import { cell, choose, fetchMock, pressApprove, previews, puts, rowOf, serve, settle, twoRuns, type } from './payroll/payRunGridHarness';
 
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -183,7 +183,7 @@ describe('what holds the approval preview', () => {
     type(input, '1,234');
     fireEvent.blur(input);
     await waitFor(() => expect(input.getAttribute('aria-invalid')).toBe('true'));
-    fireEvent.change(screen.getByLabelText('Once-off earning component'), { target: { value: commission.id } });
+    choose(screen.getByRole('combobox', { name: 'Once-off earning component' }), `${commission.name} (${commission.sarsSourceCode})`);
     await waitFor(async () => expect((await cell('Riaan Smit')).value).toBe(''));
     pressApprove();
     expect(await screen.findByRole('dialog')).toBeTruthy();

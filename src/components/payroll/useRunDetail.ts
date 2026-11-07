@@ -44,6 +44,8 @@ export interface RunDetail {
   approval: DocumentApprovalState | null;
   /** Who decided the approval and whether it was the requester's own (sole-approver exception); null when not approved or grandfathered. */
   approvalDecision?: PayRunDecisionSummary | null;
+  /** The payslips are final: the R-035 finalisation guard clears the run (never its status). */
+  payslipsFinal?: boolean;
   lines: RunDetailLine[];
 }
 

@@ -138,7 +138,8 @@ html.print-mode {
 .pack-page {
   break-after: page;
   /* 297mm less the 20/22mm page margins. Fixed so density is measurable
-   * rather than a matter of opinion at review time. */
+   * rather than a matter of opinion at review time. Not the fit model's box:
+   * that is the box measured in print (`PAGE_BOX_MM`, 966px = 255.59mm). */
   min-height: 255mm;
   display: flex;
   flex-direction: column;
@@ -159,8 +160,9 @@ html.print-mode {
  *
  * That is what made the pack thirteen sheets on one company while the print
  * harness — which has no wrapper and no Tailwind utilities — reported twelve
- * off the same document. The composer models a landscape page at 261mm
- * (`PAGE_WIDTH_MM.landscape`); this is what makes that true of the paper.
+ * off the same document. The composer models a landscape page at the full
+ * landscape measure (`PAGE_WIDTH_MM.landscape`, the 987px measured in print);
+ * this is what lets the paper give it that.
  *
  * Print only. An on-screen reader keeps the 210mm column. */
 html.print-mode .pack-pages {

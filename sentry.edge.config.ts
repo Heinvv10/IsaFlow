@@ -6,7 +6,10 @@ if (process.env.SENTRY_ENABLED === 'true' && process.env.SENTRY_DSN) {
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV,
     release: process.env.GIT_SHA || undefined,
-    tracesSampleRate: 0,
+    // Errors only. No tracing (any tracesSampleRate, even 0, switches it on), no metrics (on by default), no client reports, no sessions:
+    // Bugsink accepts and ignores those envelopes, ~100 a minute from production (release-lead, 7 Nov 2026).
+    enableMetrics: false,
+    sendClientReports: false,
     beforeSend: (event, _hint) => scrubEvent(event),
   });
   Sentry.setTag('runtime', 'edge');

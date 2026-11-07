@@ -40,6 +40,9 @@ export function refusal(browserName: string, method: string, launchArgs: unknown
   if (hinting[hinting.length - 1] !== '--font-render-hinting=none') {
     return `a print test launched Chromium (${method}) without --font-render-hinting=none as its last hinting flag: use launchPrintChromium()`;
   }
+  // Any other flag about fonts (--disable-font-subpixel-positioning, ...) is a text layout production does not have.
+  const other = flags.filter((f) => /font/i.test(f) && !f.startsWith('--font-render-hinting'));
+  if (other.length > 0) return `a print test launched Chromium (${method}) with ${other.join(' ')}: production passes no font flag but --font-render-hinting=none`;
   return null;
 }
 

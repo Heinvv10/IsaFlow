@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackTable } from '@/modules/accounting/services/packs/pages/packPageModel';
-import { statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
+import { keptLayouts, LAYOUTS_MAX, statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
 import { CELL_SIDE_PX, ROW_WEIGHT } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
 import { AS_CHROMIUM_SETS } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
@@ -80,6 +80,27 @@ describe('a layout is kept by what the table holds', () => {
     table.rows[0] = { ...table.rows[0]!, label: `${table.rows[0]!.label} and a great many more words than the column holds on one line` };
     expect(tableLayout(table, SCALE, 'portrait').labelLines[0]).toBeGreaterThan(lines);
     expect(tableLayout(table, SCALE, 'landscape')).not.toBe(tableLayout(table, SCALE, 'portrait'));
+  });
+
+  it(`keeps at most ${LAYOUTS_MAX} layouts, dropping the least recently used`, () => {
+    const table = incomeTable(BASE);
+    const kept = tableLayout(table, SCALE, 'portrait');
+    const variant = (n: number) => ({ ...table, rows: table.rows.map((r, i) => (i === 0 ? { ...r, label: `Revenue ${n}` } : r)) });
+    const first = tableLayout(variant(0), SCALE, 'portrait');
+    for (let n = 1; n <= LAYOUTS_MAX + 50; n += 1) {
+      tableLayout(variant(n), SCALE, 'portrait');
+      // Used throughout, so never the least recent.
+      expect(tableLayout(table, SCALE, 'portrait')).toBe(kept);
+    }
+    expect(keptLayouts()).toBe(LAYOUTS_MAX);
+    expect(tableLayout(variant(0), SCALE, 'portrait'), 'the least recently used was dropped').not.toBe(first);
+    expect(tableLayout(variant(0), SCALE, 'portrait')).toEqual(first);
+  });
+
+  it('is kept by what the table prints: the same figures under another source share a layout', () => {
+    const table = incomeTable(BASE);
+    const resourced = { ...table, rows: table.rows.map((r) => ({ ...r, key: `${r.key ?? ''}-x`, figures: Object.fromEntries(Object.entries(r.figures).map(([c, f]) => [c, f && { ...f, source: `${f.source}.x` }])) })) };
+    expect(tableLayout(resourced as typeof table, SCALE, 'portrait')).toBe(tableLayout(table, SCALE, 'portrait'));
   });
 });
 
