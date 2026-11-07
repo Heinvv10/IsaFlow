@@ -21,6 +21,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { log } from '@/lib/logger';
 import { listCustomerInvoices } from '@/modules/accounting/services/ar/customerInvoiceReadService';
 import { getAROutstandingSummary } from '@/modules/accounting/services/ar/arOutstandingService';
+import { countForeignOpenInvoices } from '@/modules/accounting/services/ar/arForeignOpenService';
 import { parseCustomerInvoiceListParams } from '@/modules/accounting/services/ar/customerInvoiceListParams';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -39,9 +40,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // The company-wide summary does not depend on the page or the filters, so the
     // client asks for it once (summary=1) instead of on every page turn.
     if (req.query.summary !== '1') return apiResponse.success(res, { invoices, total });
-    const arSummary = await getAROutstandingSummary(companyId);
+    const [arSummary, foreignOpenCount] = await Promise.all([
+      getAROutstandingSummary(companyId),
+      countForeignOpenInvoices(companyId),
+    ]);
 
-    return apiResponse.success(res, { invoices, total, arSummary });
+    return apiResponse.success(res, { invoices, total, arSummary, foreignOpenCount });
   } catch (err) {
     log.error('Failed to fetch customer invoices list', { error: err, module: 'accounting' });
     return apiResponse.databaseError(res, err, 'Failed to fetch customer invoices');
