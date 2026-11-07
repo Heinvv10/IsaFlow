@@ -30,7 +30,20 @@ export interface RowProps {
 function isTypingTarget(el: Element | null): boolean {
   if (!el) return false;
   const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement).isContentEditable;
+  // A kit Select's trigger is a div with role="combobox": its Enter, Space and letters choose and type ahead.
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.getAttribute('role') === 'combobox'
+    || (el as HTMLElement).isContentEditable;
+}
+
+/**
+ * The key belongs to an open dropdown, never to the row stream: it was pressed in a portalled panel (React bubbles
+ * a portal's events through its owner, so they arrive here from outside the grid's DOM), or on a combobox that is
+ * still expanded (its Escape closes the list; only a second Escape leaves the cell).
+ */
+function isDropdownKey(e: React.KeyboardEvent<HTMLElement>): boolean {
+  if (!e.currentTarget.contains(e.target as Node)) return true;
+  const el = document.activeElement;
+  return el?.getAttribute('role') === 'combobox' && el.getAttribute('aria-expanded') === 'true';
 }
 
 export function useBankTxKeyboardNav({
@@ -71,7 +84,7 @@ export function useBankTxKeyboardNav({
   }, []);
 
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (transactions.length === 0) return;
+    if (transactions.length === 0 || isDropdownKey(e)) return;
     if (focusedIndex === null) {
       // Nothing focused yet: only an arrow key enters the stream (focus row 0).
       // canAccept is passed false here purely because no row is selected — it is
