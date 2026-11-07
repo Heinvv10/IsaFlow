@@ -7,6 +7,7 @@
  * sets GITHUB_ACTIONS too), a missing one FAILS the test file with its actual cause, unless PARITY_OPTIONAL=1 says to
  * skip on purpose (logged). They run on velo: by hand, and in a `bun run ci` there (the pre-push hook) when the change
  * touches what they hold (`parityScope.ts`). Re-run them whenever the gotenberg image or the pack's fonts change.
+ * GitHub Actions never runs them (`vitest.print.config.ts` leaves them out where GITHUB_ACTIONS=true).
  *
  * Where velo runs production's own `gotenberg` container, its image must be the pinned one (read with a read-only
  * `docker inspect`; nothing is exec'd in it and nothing changed): a parity proven against another image says nothing.
