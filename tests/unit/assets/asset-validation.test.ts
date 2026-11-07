@@ -32,7 +32,7 @@ describe('Asset Disposal Validation', () => {
   it('allows zero amount for write-offs', () => { expect(validateDisposal({ ...validDisposal, disposalMethod: 'write_off', disposalAmount: 0 }).success).toBe(true); });
   it('requires reason', () => { expect(validateDisposal({ ...validDisposal, reason: '' }).success).toBe(false); });
   it('accepts valid disposal methods', () => { for (const m of ['sale', 'scrap', 'write_off', 'donation', 'theft', 'loss', 'insurance_claim']) expect(validateDisposal({ ...validDisposal, disposalMethod: m as any }).success).toBe(true); });
-  // assets.disposal_type's CHECK (mig 361) refuses these; the dispose route 400s them.
+  // Outside DISPOSAL_TYPES (assets.disposal_type's CHECK, migs 361 + 965): the dispose route 400s them.
   it('rejects disposal methods the register cannot store', () => { for (const m of ['nonsense', 'unspecified', 'Sale']) expect(validateDisposal({ ...validDisposal, disposalMethod: m as any }).success).toBe(false); });
 });
 
