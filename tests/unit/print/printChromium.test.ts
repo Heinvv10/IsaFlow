@@ -48,7 +48,9 @@ describe('the print tests\' Chromium', () => {
     ['the prototype\'s launch', () => (Object.getPrototypeOf(chromium) as typeof chromium).launch.call(chromium)],
     ['--font-render-hinting=full', () => chromium.launch({ args: ['--font-render-hinting=full'] })],
     ['none, then full', () => chromium.launch({ args: ['--font-render-hinting=none', '--font-render-hinting=full'] })],
-  ] as const)('at run time, %s without the flag is refused', async (unused, launch) => {
+    ['none and --disable-font-subpixel-positioning', () => chromium.launch({ args: ['--font-render-hinting=none', '--disable-font-subpixel-positioning'] })],
+    ['none and --enable-font-antialiasing', () => chromium.launch({ args: ['--font-render-hinting=none', '--enable-font-antialiasing'] })],
+  ] as const)('at run time, %s (anything but the one flag production passes) is refused', async (unused, launch) => {
     await expect(launch()).rejects.toThrow(/print test/);
   });
 
