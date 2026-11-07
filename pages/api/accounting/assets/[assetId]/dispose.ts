@@ -17,6 +17,7 @@ import {
   DISPOSAL_TYPES,
   UNSPECIFIED_DISPOSAL_METHOD,
   isDisposalType,
+  isInService,
 } from '@/modules/accounting/services/items/assetDisposalTypes';
 import {
   postAssetDisposalToGL,
@@ -77,6 +78,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const asset = assetRows[0];
   if (asset.status === 'disposed') return apiResponse.badRequest(res, 'Asset is already disposed');
+  // A written-off asset has already left the books: a disposal would post a second retirement journal.
+  if (!isInService(String(asset.status))) {
+    return apiResponse.badRequest(res, `Asset is ${String(asset.status)}: only an asset in service can be disposed`);
+  }
 
   // The fixed-asset account is the disposal journal's only credit leg. Check it
   // HERE, before the asset_period_ledger write below: withAuth finalises on

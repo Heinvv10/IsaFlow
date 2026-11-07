@@ -169,7 +169,7 @@ export default function AssetDetailPage() {
     </AppLayout>
   );
 
-  const isActive = isInService(asset.status);
+  const inService = isInService(asset.status);
   const infoFields = [
     { label: 'Asset Number', value: asset.asset_number, accent: true },
     { label: 'Category', value: asset.category },
@@ -199,12 +199,12 @@ export default function AssetDetailPage() {
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">{asset.name}</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">{asset.asset_number}</p>
               </div>
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${isActive ? 'bg-teal-500/20 text-teal-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                {isActive ? <CheckCircle2 className="inline h-3 w-3 mr-1" /> : <XCircle className="inline h-3 w-3 mr-1" />}
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${inService ? 'bg-teal-500/20 text-teal-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                {inService ? <CheckCircle2 className="inline h-3 w-3 mr-1" /> : <XCircle className="inline h-3 w-3 mr-1" />}
                 {asset.status ?? 'unknown'}
               </span>
             </div>
-            {isActive && (
+            {inService && (
               <button onClick={() => setShowDisposal(v => !v)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 text-sm font-medium transition-colors">
                 <Trash2 className="h-4 w-4" /> Dispose Asset
               </button>
