@@ -54,6 +54,11 @@ export async function customerRevenueAccount(companyId: string, accountId: strin
  * An update's value: judged as above only when it CHANGES the stored one. An account chosen while it was usable and
  * deactivated since must not block saving the customer's other fields (a caller that sends the whole record sends it
  * back unchanged); it stays stored, and the invoice page and the line guard refuse to use it.
+ *
+ * The stored value is read under the row lock the UPDATE takes anyway (FOR NO KEY UPDATE, held to the request's end),
+ * so "unchanged" stays true until this request writes: a concurrent edit that sets another account either commits
+ * first (then this value is a change, and is judged) or waits for this one (then its own value is judged and wins).
+ * Lock order is the UPDATE's own: the customers row, then gl_accounts (the FK's KEY SHARE); readAccount locks nothing.
  */
 export async function customerRevenueAccountForUpdate(
   companyId: string, customerId: string, accountId: string | null | undefined,
@@ -62,6 +67,7 @@ export async function customerRevenueAccountForUpdate(
   if (id && UUID_RE.test(id)) {
     const stored = (await sql`
       SELECT default_revenue_account_id FROM customers WHERE id = ${customerId}::UUID AND company_id = ${companyId}::UUID
+      FOR NO KEY UPDATE
     `) as { default_revenue_account_id: string | null }[];
     if (String(stored[0]?.default_revenue_account_id ?? '').toLowerCase() === id.toLowerCase()) return id;
   }

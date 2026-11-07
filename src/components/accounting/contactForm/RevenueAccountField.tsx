@@ -17,12 +17,13 @@ const LABEL = 'block text-sm font-medium text-[var(--ff-text-secondary)] mb-1';
 
 /**
  * `label` is the stored account's (edit page), so one no longer offered (deactivated since) still shows, marked
- * "(inactive)", and can be cleared or replaced; a pick clears it and the picker names its own choice.
+ * "(inactive)", and can be cleared or replaced; a pick clears it and the picker names its own choice. `usable` is the
+ * single GET's flag for that stored account: false shows the warning.
  */
-export function RevenueAccountField({ value, label, onChange, error }: {
-  value: string; label?: string; onChange: (id: string) => void; error?: string;
+export function RevenueAccountField({ value, label, usable = true, onChange, error }: {
+  value: string; label?: string; usable?: boolean; onChange: (id: string) => void; error?: string;
 }) {
-  const unusable = Boolean(label) && /\((inactive|cannot be used)\)$/.test(label ?? '');
+  const unusable = Boolean(value) && !usable;
   return (
     <div>
       <AccountPicker

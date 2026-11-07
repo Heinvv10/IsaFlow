@@ -19,6 +19,8 @@ vi.mock('@/utils/toast', () => ({ notify: { error: vi.fn(), success: vi.fn(), in
 
 import { apiFetch } from '@/lib/apiFetch';
 import EditCustomerPage from '../../../pages/accounting/customers/[customerId]/edit';
+import { RevenueAccountField } from '@/components/accounting/contactForm/RevenueAccountField';
+import { customerToForm } from '@/components/accounting/contactForm/customerFormMapping';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
@@ -104,5 +106,24 @@ describe('the customer edit page: default revenue account', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save Customer/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
     expect(putBody()).toEqual({ id: CUSTOMER_ID, default_revenue_account_id: '' });
+  });
+});
+
+describe('the warning follows the GET\'s usable flag, not the label text', () => {
+  beforeEach(() => serve(on('GET', 'chart-of-accounts', () => ok(CHART))));
+  const warning = () => screen.queryByText(/can no longer be used, so new invoices ignore it/);
+
+  it('customerToForm carries usable from the view', () => {
+    expect(customerToForm(stale).default_revenue_account_usable).toBe(false);
+    expect(customerToForm(customer).default_revenue_account_usable).toBe(true);
+    expect(customerToForm({ ...customer, default_revenue_account: null }).default_revenue_account_usable).toBe(true);
+  });
+  it('usable false warns whatever the label says; usable true never warns, even on a label ending "(inactive)"', async () => {
+    const { rerender } = render(<RevenueAccountField value="a-x" label="4900 · Retired" usable={false} onChange={() => undefined} />);
+    expect(warning()).toBeTruthy();
+    rerender(<RevenueAccountField value="a-x" label="4900 · Account (inactive)" usable onChange={() => undefined} />);
+    expect(warning()).toBeNull();
+    rerender(<RevenueAccountField value="" label="" usable={false} onChange={() => undefined} />);
+    expect(warning()).toBeNull(); // nothing stored, nothing to warn about
   });
 });

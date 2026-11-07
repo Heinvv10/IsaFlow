@@ -13,6 +13,11 @@ function revenueAccountLabel(view: unknown): string {
   return `${v.label} (${v.problem === 'is inactive' ? 'inactive' : 'cannot be used'})`;
 }
 
+/** The GET's own `usable` flag (a missing view, i.e. no stored account, is nothing to warn about). */
+function revenueAccountUsable(view: unknown): boolean {
+  return !(typeof view === 'object' && view !== null && (view as { usable?: unknown }).usable === false);
+}
+
 export function customerToForm(row: Row): CustomerFormData {
   return {
     name: text(row, 'name'), email: text(row, 'email'), phone: text(row, 'phone'), mobile: text(row, 'mobile'),
@@ -31,6 +36,7 @@ export function customerToForm(row: Row): CustomerFormData {
     default_price_list: text(row, 'default_price_list'),
     default_revenue_account_id: text(row, 'default_revenue_account_id'),
     default_revenue_account_label: revenueAccountLabel(row.default_revenue_account),
+    default_revenue_account_usable: revenueAccountUsable(row.default_revenue_account),
   };
 }
 

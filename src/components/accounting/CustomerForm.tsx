@@ -48,6 +48,8 @@ export interface CustomerFormData {
   default_revenue_account_id: string;
   /** Display only, never sent: the stored account's label, marked when it can no longer be used (edit page). */
   default_revenue_account_label: string;
+  /** Display only, never sent: false when the stored account can no longer be used (the GET's `usable`). */
+  default_revenue_account_usable: boolean;
 }
 
 export const INITIAL_CUSTOMER_FORM: CustomerFormData = {
@@ -81,6 +83,7 @@ export const INITIAL_CUSTOMER_FORM: CustomerFormData = {
   default_price_list: '',
   default_revenue_account_id: '',
   default_revenue_account_label: '',
+  default_revenue_account_usable: true,
 };
 
 interface Props {

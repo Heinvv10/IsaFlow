@@ -84,7 +84,8 @@ export function CustomerDefaultsSection({ form, set, patch, fieldErrors, mode }:
           inputClass={inputClass} allowDefault
         />
         <RevenueAccountField value={form.default_revenue_account_id} label={form.default_revenue_account_label}
-          onChange={(v) => patch({ default_revenue_account_id: v, default_revenue_account_label: '' })}
+          usable={form.default_revenue_account_usable}
+          onChange={(v) => patch({ default_revenue_account_id: v, default_revenue_account_label: '', default_revenue_account_usable: true })}
           error={fieldErrors.default_revenue_account_id} />
       </div>
       <div className="mt-3 space-y-2">

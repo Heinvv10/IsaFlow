@@ -81,13 +81,13 @@ describe('the write services judge the account before they write', () => {
     mockSql.mockResolvedValueOnce([]); // the account lookup finds nothing
     await expect(updateCustomer(COMPANY, ID, { defaultRevenueAccountId: ACCOUNT })).rejects.toThrow('not one of this company');
     expect(mockSql).toHaveBeenCalledTimes(2);
-    expect(mockSql.mock.calls.map(sqlText).join('\n')).not.toMatch(/UPDATE/);
+    expect(mockSql.mock.calls.map(sqlText).join('\n')).not.toMatch(/UPDATE customers/);
   });
   it('update: the value already stored is not judged again (a deactivated default does not block other edits)', async () => {
     mockSql.mockResolvedValueOnce([{ default_revenue_account_id: ACCOUNT.toUpperCase() }]);
     await updateCustomer(COMPANY, ID, { phone: '011', defaultRevenueAccountId: ACCOUNT });
     expect(mockSql).toHaveBeenCalledTimes(2); // the stored value, then the UPDATE: no account lookup
-    expect(sqlText(mockSql.mock.calls[0]!)).toMatch(/FROM customers WHERE id = \?::UUID AND company_id = \?::UUID/);
+    expect(sqlText(mockSql.mock.calls[0]!)).toMatch(/FROM customers WHERE id = \?::UUID AND company_id = \?::UUID\s+FOR NO KEY UPDATE/);
     expect(sqlText(mockSql.mock.calls[1]!)).toMatch(/UPDATE customers/);
   });
   it('create stores the accepted account; update sets it, or clears it when asked', async () => {
