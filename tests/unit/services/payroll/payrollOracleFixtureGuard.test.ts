@@ -70,11 +70,12 @@ describe('oracle fixture guard: shape and tolerance', () => {
   });
 
   it('caps tolerance at 5 cents and requires a non-empty reason', () => {
-    const ok = { ...base(), tolerance: { paye: { cents: 5, reason: 'documented rounding' } } };
+    const ok = { ...base(), tolerance: { paye: { cents: 5, reason: 'documented rounding', engineActual: 1 } } };
     expect(() => validateCase(ok, FILE)).not.toThrow();
-    expect(() => validateCase({ ...base(), tolerance: { paye: { cents: 6, reason: 'r' } } }, FILE)).toThrow(/from 1 to 5/);
-    expect(() => validateCase({ ...base(), tolerance: { paye: { cents: 2, reason: '  ' } } }, FILE)).toThrow(/a reason is required/);
-    expect(() => validateCase({ ...base(), tolerance: { eti: { cents: 2, reason: 'r' } } }, FILE)).not.toThrow();
+    expect(() => validateCase({ ...base(), tolerance: { paye: { cents: 6, reason: 'r', engineActual: 1 } } }, FILE)).toThrow(/from 1 to 5/);
+    expect(() => validateCase({ ...base(), tolerance: { paye: { cents: 2, reason: '  ', engineActual: 1 } } }, FILE)).toThrow(/a reason is required/);
+    expect(() => validateCase({ ...base(), tolerance: { eti: { cents: 2, reason: 'r', engineActual: 1 } } }, FILE)).not.toThrow();
+    expect(() => validateCase({ ...base(), tolerance: { paye: { cents: 2, reason: 'r' } } }, FILE)).toThrow(/engineActual/);
   });
 });
 
