@@ -45,7 +45,8 @@ async function fillEmployeeAndBank(page: Page, number: string, account: string):
   await page.getByLabel('First name *').fill('Golden');
   await page.getByLabel('Last name *').fill('Bank');
   await page.getByLabel('Employee number *').fill(number);
-  await page.getByLabel('Bank name *').fill('FNB');
+  // The section is optional while blank: no asterisk until something is typed (wave 4 B).
+  await page.getByLabel('Bank name', { exact: true }).fill('FNB');
   await page.getByLabel('Branch code *').fill('250655');
   await page.getByLabel('Account number *').fill(account);
   await page.getByLabel('Account holder').fill('Golden Bank');
@@ -127,7 +128,7 @@ for (const theme of THEMES) {
     await seedTheme(page, theme);
     await page.setViewportSize({ width: 1568, height: 900 });
     await page.goto(NEW);
-    await expect(page.getByLabel('Bank name *')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByLabel('Bank name', { exact: true })).toBeVisible({ timeout: 30_000 });
     await settle(page);
     await expectAxeClean(page);
     await snap(page, 'employee-bank-form', theme);

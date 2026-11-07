@@ -2,18 +2,14 @@
  * Payroll Employee Detail + Edit + Components — Phase 2.
  * Route: /payroll/employees/[id]
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiErrorMessage, apiFetch, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
+import { useEmployeeDetail } from '@/components/payroll/useEmployeeDetail';
 import { User, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
-import { EmployeeProfileCard, type Employee } from '@/components/payroll/EmployeeProfileCard';
-import {
-  EmployeeComponentsCard,
-  type Component,
-  type Assignment,
-} from '@/components/payroll/EmployeeComponentsCard';
+import { EmployeeProfileCard } from '@/components/payroll/EmployeeProfileCard';
+import { EmployeeComponentsCard } from '@/components/payroll/EmployeeComponentsCard';
 import { EmployeeTerminationCard } from '@/components/payroll/EmployeeTerminationCard';
 import { CostCentreAssignmentCard } from '@/components/payroll/CostCentreAssignmentCard';
 import { EmployeeHistoryCard } from '@/components/payroll/EmployeeHistoryCard';
@@ -21,11 +17,14 @@ import { EntityHistoryTimeline } from '@/components/accounting/entity-history/En
 import { PayScaleCard } from '@/components/payroll/PayScaleCard';
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
+import { EmployeeReadinessCard } from '@/components/payroll/EmployeeReadinessCard';
 import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
-import { localISODate } from '@/lib/dateUtils';
-import { payrollLoadMessage, NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
+import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
+
+/** The readiness links land here when the card has no field drawn yet; the kit's focus ring shows where focus went. */
+const ANCHOR = 'rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2';
 
 export default function EmployeeDetailPage() {
   const router = useRouter();
@@ -34,132 +33,12 @@ export default function EmployeeDetailPage() {
   const { companyRole } = useCompany();
   const mayWrite = canWrite(companyRole); // the API sends a viewer names only; the cards below are all personal or pay detail
 
-  const [employee, setEmployee] = useState<Employee | null>(null);
-  const [components, setComponents] = useState<Component[]>([]);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [savingProfile, setSavingProfile] = useState(false);
-
-  const [newComponentId, setNewComponentId] = useState('');
-  const [newAmount, setNewAmount] = useState('');
-  const [newFrom, setNewFrom] = useState(localISODate());
-  const [newIsRecurring, setNewIsRecurring] = useState(true);
-  const [addingAssignment, setAddingAssignment] = useState(false);
-
-  const loadAll = useCallback(async () => {
-    if (!employeeId) return;
-    setIsLoading(true);
-    setError('');
-    try {
-      const [eRes, cRes, aRes] = await Promise.all([
-        apiFetch(`/api/payroll/employees/${employeeId}`),
-        apiFetch('/api/payroll/components'),
-        apiFetch(`/api/payroll/employees/${employeeId}/components`),
-      ]);
-      if (eRes.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load this employee - try again'));
-      await assertOk(eRes, 'Could not load this employee - try again');
-      const eJson = await eRes.json();
-      if (!cRes.ok) setError(payrollLoadMessage(cRes.status, 'Could not load the payroll components - try again'));
-      const cJson = cRes.ok ? await cRes.json() : { data: [] };
-      if (!aRes.ok) setError(payrollLoadMessage(aRes.status, 'Could not load the employee components - try again'));
-      const aJson = aRes.ok ? await aRes.json() : { data: [] };
-      setEmployee((eJson.data ?? eJson) as Employee);
-      setComponents((cJson.data ?? cJson) as Component[]);
-      setAssignments((aJson.data ?? aJson) as Assignment[]);
-    } catch (err) {
-      setEmployee(null); setComponents([]); setAssignments([]);
-      setError(apiErrorMessage(err, 'Could not load this employee - try again'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [employeeId]);
-
-  useEffect(() => { void loadAll(); }, [loadAll]);
-
-  const saveProfile = async () => {
-    if (!employee) return;
-    setSavingProfile(true);
-    setError('');
-    try {
-      const res = await apiFetch(`/api/payroll/employees/${employee.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          firstName: employee.firstName,
-          lastName: employee.lastName,
-          employmentType: employee.employmentType,
-          taxNumber: employee.taxNumber,
-          idNumber: employee.idNumber,
-          dateOfBirth: employee.dateOfBirth,
-          endDate: employee.endDate,
-          uifExcluded: employee.uifExcluded,
-          medicalAidMainMember: employee.medicalAidMainMember,
-          medicalAidDependantsCount: employee.medicalAidDependantsCount,
-          s18aReceiptHeld: employee.s18aReceiptHeld,
-        }),
-      });
-      await assertOk(res, 'Could not save the employee - try again');
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not save the employee - try again'));
-    } finally {
-      setSavingProfile(false);
-    }
-  };
-
-  const assignComponent = async () => {
-    if (!newComponentId || !newAmount) return;
-    setAddingAssignment(true);
-    setError('');
-    try {
-      const res = await apiFetch(`/api/payroll/employees/${employeeId}/components`, {
-        method: 'POST',
-        body: JSON.stringify({
-          componentId: newComponentId,
-          amount: Number(newAmount),
-          effectiveFrom: newFrom,
-          isRecurring: newIsRecurring,
-        }),
-      });
-      await assertOk(res, 'Could not assign the component - try again');
-      setNewComponentId(''); setNewAmount('');
-      await loadAll();
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not assign the component - try again'));
-    } finally {
-      setAddingAssignment(false);
-    }
-  };
-
-  const endAssignment = async (assignmentId: string) => {
-    const today = localISODate();
-    setError('');
-    try {
-      const res = await apiFetch(
-        `/api/payroll/employees/${employeeId}/components?aid=${assignmentId}`,
-        { method: 'DELETE', body: JSON.stringify({ effectiveTo: today }) },
-      );
-      await assertOk(res, 'Could not end this component - try again');
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not end this component - try again'));
-      return;
-    }
-    await loadAll();
-  };
-
-  const editAssignmentDates = async (assignmentId: string, effectiveFrom: string, effectiveTo: string | null) => {
-    setError('');
-    try {
-      const res = await apiFetch(
-        `/api/payroll/employees/${employeeId}/components?aid=${assignmentId}`,
-        { method: 'PATCH', body: JSON.stringify({ effectiveFrom, effectiveTo }) },
-      );
-      await assertOk(res, 'Could not change the dates - try again');
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not change the dates - try again'));
-      return;
-    }
-    await loadAll();
-  };
+  const [bankVersion, setBankVersion] = useState(0);
+  const d = useEmployeeDetail(employeeId);
+  const {
+    employee, setEmployee, components, assignments, isLoading, error, savingProfile, newComponentId, newAmount, newFrom,
+    newIsRecurring, addingAssignment,
+  } = d;
 
   if (isLoading) {
     return (
@@ -200,7 +79,7 @@ export default function EmployeeDetailPage() {
               <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">
                 {employee.firstName} {employee.lastName}
               </h1>
-              <p className="text-sm text-[var(--ff-text-secondary)] font-mono">{employee.employeeNumber}</p>
+              <p className="text-sm text-[var(--ff-text-secondary)] font-id">{employee.employeeNumber}</p>
             </div>
           </div>
         </div>
@@ -218,13 +97,19 @@ export default function EmployeeDetailPage() {
             </div>
           ) : (
             <>
+            {employeeId && (
+              <EmployeeReadinessCard employeeId={employeeId} refreshKey={bankVersion} assignments={assignments}
+                employee={{ taxNumber: d.savedTaxNumber, paymentMethod: employee.paymentMethod }} />
+            )}
+
             <EmployeeProfileCard
               employee={employee}
               onChange={setEmployee}
-              onSave={saveProfile}
+              onSave={d.saveProfile}
               saving={savingProfile}
             />
 
+            <div id="employee-pay" className={ANCHOR}>
             <EmployeeComponentsCard
               components={components}
               assignments={assignments}
@@ -232,15 +117,16 @@ export default function EmployeeDetailPage() {
               newAmount={newAmount}
               newFrom={newFrom}
               newIsRecurring={newIsRecurring}
-              onNewComponentId={setNewComponentId}
-              onNewAmount={setNewAmount}
-              onNewFrom={setNewFrom}
-              onNewIsRecurring={setNewIsRecurring}
-              onAssign={assignComponent}
-              onEnd={endAssignment}
-              onEditDates={editAssignmentDates}
+              onNewComponentId={d.setNewComponentId}
+              onNewAmount={d.setNewAmount}
+              onNewFrom={d.setNewFrom}
+              onNewIsRecurring={d.setNewIsRecurring}
+              onAssign={d.assignComponent}
+              onEnd={d.endAssignment}
+              onEditDates={d.editAssignmentDates}
               adding={addingAssignment}
             />
+            </div>
 
             {employeeId && (
               <CostCentreAssignmentCard
@@ -268,7 +154,7 @@ export default function EmployeeDetailPage() {
               />
             )}
 
-            {employeeId && <EmployeeBankCard employeeId={employeeId} />}
+            {employeeId && <div id="employee-bank" className={ANCHOR}><EmployeeBankCard employeeId={employeeId} onChanged={() => setBankVersion(v => v + 1)} /></div>}
 
             {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
 
