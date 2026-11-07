@@ -6,7 +6,10 @@
  * What counts as touched: a Due date edit (even one refused, or cleared, or typed and not yet committed), a VAT mode or
  * rate edit, and what a scan filled; the page reports these through `touch`. A line's discount is the customer's while
  * `discountFromDefault` holds: a fresh line starts with it, a priced line keeps it, and `editedLine` drops it when the
- * user sets the discount, or types onto a line with no default on it while no customer is being read.
+ * user sets the discount, or types onto a line with no default on it while no customer is being read. A line's revenue
+ * account is the customer's default revenue account (migration 965) while `accountFromDefault` holds: a fresh line starts
+ * on it, a change of customer moves it, and `editedLine` drops it the moment the user picks an account, so a user's pick
+ * is never overwritten. Neither flag is ever sent (newInvoiceBody).
  *
  * The edit page does not use this: a stored invoice's figures are the invoice. It reads its customer only to warn
  * (useCustomerLookup, vatTypeWarning).
@@ -30,7 +33,10 @@ type TouchableField = 'dueDate' | 'taxMode';
  */
 export function editedLine<L extends InvoiceLine>(l: L, field: string, value: string | number, customerPending: boolean): L {
   const stillDefault = field !== 'discount' && (customerPending || l.discount > 0 || !TYPED_FIELDS.includes(field));
-  return { ...l, [field]: value, discountFromDefault: Boolean(l.discountFromDefault) && stillDefault };
+  return {
+    ...l, [field]: value, discountFromDefault: Boolean(l.discountFromDefault) && stillDefault,
+    accountFromDefault: Boolean(l.accountFromDefault) && field !== 'glAccountId',
+  };
 }
 
 /** "Customer terms: 30 days from invoice date", or the company default's wording when the customer has none. */
@@ -67,6 +73,12 @@ export function useContactDefaults<L extends InvoiceLine>({ clientId, invoiceDat
     setLines((ls) => ls.map((l) => (l.discountFromDefault && l.discount !== discount ? { ...l, discount } : l)));
   }, [defaults, discount, setLines]);
 
+  const account = defaults?.revenueAccountId ?? '';
+  useEffect(() => {
+    if (!defaults) return;
+    setLines((ls) => ls.map((l) => (l.accountFromDefault && l.glAccountId !== account ? { ...l, glAccountId: account } : l)));
+  }, [defaults, account, setLines]);
+
   const defaultMode = defaults ? taxModeFromVatType(defaults.vatType) : null;
   useEffect(() => {
     if (!defaults || touchedNow.current.taxMode) return;
@@ -87,6 +99,8 @@ export function useContactDefaults<L extends InvoiceLine>({ clientId, invoiceDat
   return {
     /** What a new line starts on. */
     lineDiscount: discount,
+    /** The revenue account a new line starts on ('' = the company default sales account). */
+    lineAccount: account,
     hints: {
       dueDate: defaults?.known && due !== null && !touched.dueDate ? termsHint(defaults) : undefined,
       taxMode: defaults && defaultMode !== null && !touched.taxMode ? `From customer: ${VAT_HINT[defaults.vatType ?? '']}` : undefined,

@@ -35,7 +35,7 @@ import { useScannedClientMatch } from '@/components/accounting/customer-invoices
 
 type LineItem = InvoiceLine;
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
-const BLANK_LINE = { description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, discountFromDefault: true, ...UNCODED };
+const BLANK_LINE = { description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, discountFromDefault: true, ...UNCODED, accountFromDefault: true };
 
 export default function NewCustomerInvoicePage() {
   const router = useRouter();
@@ -64,7 +64,7 @@ export default function NewCustomerInvoicePage() {
   const updateLine = (key: string, field: string, value: string | number) =>
     setLines(prev => prev.map(l => l.key === key ? editedLine(l, field, value, contact.pending) : l));
   // A new line starts on the invoice's project: a visible default the user can change, not a posting fallback.
-  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), ...BLANK_LINE, discount: contact.lineDiscount, projectId: form.projectId }]);
+  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), ...BLANK_LINE, discount: contact.lineDiscount, glAccountId: contact.lineAccount, projectId: form.projectId }]);
   const codingOptions = useInvoiceLineCodingOptions();
   // A line nobody has typed into yet (the initial one) follows the header project; a worked line keeps its own.
   const pickProject = (v: string) => {

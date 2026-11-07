@@ -28,6 +28,8 @@ export interface InvoiceLine {
   discount: number;
   /** The new-invoice page only: `discount` is the customer's default, not the user's (useContactDefaults). Never sent. */
   discountFromDefault?: boolean;
+  /** The new-invoice page only: `glAccountId` is the customer's default revenue account, not the user's pick. Never sent. */
+  accountFromDefault?: boolean;
   /** '' = uncoded. */
   glAccountId: string;
   /** The job (`projects`). */
@@ -154,7 +156,8 @@ export function InvoiceLineItemsTable({
               <td className="px-3 py-2"><input name="description" aria-label="Description" value={l.description} onChange={(e) => onUpdate(l.key, 'description', e.target.value)} placeholder="Item description" className={inp} />
                 {billsTimeEntry?.(l.key) && <span className="mt-1 inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/50 dark:text-sky-100">Time entry</span>}</td>
               {showIncomeType && <td className="px-3 py-2"><Select label="Income type" labelClassName="sr-only" size="sm" options={INCOME_TYPES} value={l.incomeType ?? 'other'} onChange={(v) => onUpdate(l.key, 'incomeType', v ?? 'other')} /></td>}
-              <td className="px-3 py-2"><CodingPicker label="Revenue account" value={l.glAccountId} options={options.accounts} all={options} empty="Default sales" onChange={(v) => onUpdate(l.key, 'glAccountId', v)} /></td>
+              <td className="px-3 py-2"><CodingPicker label="Revenue account" value={l.glAccountId} options={options.accounts} all={options} empty="Default sales" onChange={(v) => onUpdate(l.key, 'glAccountId', v)} />
+                {l.accountFromDefault && l.glAccountId !== '' && <span className="mt-1 block text-xs text-slate-600 dark:text-slate-400">from customer</span>}</td>
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="Job (Project Profitability)" value={l.projectId} options={options.projects} all={options} empty="No job" onChange={(v) => onUpdate(l.key, 'projectId', v)} /></td>}
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="CC2 project" value={l.cc2Id} options={options.cc2s} all={options} empty="No CC2 project" onChange={(v) => onUpdate(l.key, 'cc2Id', v)} /></td>}
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="BU" value={l.buId} options={options.bus} all={options} empty="No BU" onChange={(v) => onUpdate(l.key, 'buId', v)} /></td>}

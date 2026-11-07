@@ -20,8 +20,10 @@ export interface ContactDefaults {
   discount: number;
   /** Trimmed and lower-cased (the column is free text); null when the customer has none. */
   vatType: string | null;
+  /** The customer's default revenue account id (migration 965); null when it has none. */
+  revenueAccountId: string | null;
 }
-const NO_DEFAULTS: ContactDefaults = { known: false, terms: null, termsType: null, companyDefault: FALLBACK_COMPANY_TERMS, discount: 0, vatType: null };
+const NO_DEFAULTS: ContactDefaults = { known: false, terms: null, termsType: null, companyDefault: FALLBACK_COMPANY_TERMS, discount: 0, vatType: null, revenueAccountId: null };
 const LOOKUP_TIMEOUT_MS = 15_000; // Save waits on this: a server that never answers must not leave it grey for good
 
 /** The single-customer GET's row. Anything else (a non-UUID id gets the list) carries no defaults. */
@@ -29,7 +31,7 @@ function readDefaults(row: unknown): ContactDefaults {
   if (typeof row !== 'object' || row === null || Array.isArray(row)) return NO_DEFAULTS;
   const r = row as {
     payment_terms?: unknown; payment_terms_type?: unknown; default_discount?: unknown; default_vat_type?: unknown;
-    company_default_payment_terms?: unknown; company_default_payment_terms_type?: unknown;
+    company_default_payment_terms?: unknown; company_default_payment_terms_type?: unknown; default_revenue_account_id?: unknown;
   };
   return {
     known: true,
@@ -38,6 +40,7 @@ function readDefaults(row: unknown): ContactDefaults {
     companyDefault: companyTermsFromFields(r.company_default_payment_terms, r.company_default_payment_terms_type),
     discount: discountInput(Number(r.default_discount ?? 0)),
     vatType: typeof r.default_vat_type === 'string' ? normaliseVatType(r.default_vat_type) || null : null,
+    revenueAccountId: typeof r.default_revenue_account_id === 'string' && r.default_revenue_account_id ? r.default_revenue_account_id : null,
   };
 }
 

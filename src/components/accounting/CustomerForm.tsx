@@ -44,6 +44,8 @@ export interface CustomerFormData {
   subject_to_drc_vat: boolean;
   invoices_viewable_online: boolean;
   default_price_list: string;
+  /** A gl_accounts id, or '' for none (migration 965). */
+  default_revenue_account_id: string;
 }
 
 export const INITIAL_CUSTOMER_FORM: CustomerFormData = {
@@ -75,6 +77,7 @@ export const INITIAL_CUSTOMER_FORM: CustomerFormData = {
   subject_to_drc_vat: false,
   invoices_viewable_online: true,
   default_price_list: '',
+  default_revenue_account_id: '',
 };
 
 interface Props {

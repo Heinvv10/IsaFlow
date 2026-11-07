@@ -20,6 +20,7 @@ export function customerToForm(row: Row): CustomerFormData {
     default_discount: text(row, 'default_discount') || '0', default_vat_type: text(row, 'default_vat_type'),
     subject_to_drc_vat: row.subject_to_drc_vat === true, invoices_viewable_online: row.invoices_viewable_online !== false,
     default_price_list: text(row, 'default_price_list'),
+    default_revenue_account_id: text(row, 'default_revenue_account_id'),
   };
 }
 
@@ -36,7 +37,7 @@ export function customerEditBody(form: CustomerFormData, categoriesLoaded: boole
     auto_allocate_strategy: form.auto_allocate_strategy, statement_distribution: form.statement_distribution,
     default_discount: t(form.default_discount), default_vat_type: t(form.default_vat_type),
     subject_to_drc_vat: form.subject_to_drc_vat, invoices_viewable_online: form.invoices_viewable_online,
-    default_price_list: t(form.default_price_list),
+    default_price_list: t(form.default_price_list), default_revenue_account_id: form.default_revenue_account_id,
     ...paymentTermsBody(form.payment_terms, form.payment_terms_type),
   };
 }
