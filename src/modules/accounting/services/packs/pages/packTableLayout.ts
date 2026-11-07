@@ -21,12 +21,12 @@
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
 import {
-  CELL_SIDE_PX, cellPx, HEADING_SPACE_PX, headingLinePx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT,
+  CELL_SIDE_PX, cellPx, headingLinePx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT,
   tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT,
 } from './packFigureFit';
 import { ptToPx, textPx } from './packFigureWidth';
-import { asChromiumSets } from './packGlyphRuler';
-import { linesForText, minPx, WRAP_GUARD_PX } from './packLineWrap';
+import { AS_CHROMIUM_SETS, NEVER_SHORT } from './packGlyphRuler';
+import { linesForText, minPx, WRAP_GUARD } from './packLineWrap';
 import { pieces } from './packLineBreaks';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
@@ -34,13 +34,12 @@ import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
 
 /**
  * Each column heading's words in pixels, as `.pack-table th` sets them (8pt, weight 500, uppercase, 0.06em tracking),
- * and the space between two of them, shaped from the face (`packFigureFit.headingWordsPx`). A line of a heading is the
- * sum of its words and spaces. `packTableLayout.test.ts` holds them to Chromium.
+ * shaped from the face (`packFigureFit.headingWordsPx`). A line of a heading is shaped whole (`headingLinePx`).
+ * `packTableLayout.test.ts` holds them to Chromium.
  */
 export const HEADING_WORDS_PX: Readonly<Record<PackTableColumnKey, readonly number[]>> = Object.fromEntries(
   (Object.entries(PACK_TABLE_COLUMN_LABEL) as Array<[PackTableColumnKey, string]>).map(([col, label]) => [col, headingWordsPx(label)]),
 ) as unknown as Record<PackTableColumnKey, readonly number[]>;
-export { HEADING_SPACE_PX };
 
 const LABEL_FONT_PX = Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
 
@@ -54,14 +53,30 @@ export interface TableLayout {
 }
 
 /**
- * The layout of `table`. The figures are at the size the fit sets (a decision that must never be short); every width
- * after that is as Chromium sets it (`asChromiumSets`), so the columns are Chromium's to within a few hundredths of a
- * pixel and a tie is settled by the guard.
+ * The layout of `table`. The figures are at the size the fit sets (a decision that must never be short). The columns
+ * are shared out from widths as Chromium sets them (`AS_CHROMIUM_SETS`), so they are Chromium's to within a few
+ * hundredths of a pixel; whether a line still holds a piece is a decision, made on widths that are never short
+ * (`NEVER_SHORT`), against the column less the guard (`WRAP_GUARD`, the columns' error). The columns are shared out
+ * in Chromium's 1/64px unit: each column's share truncated to it, the last column taking what is left.
  */
-export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number = WRAP_GUARD_PX): TableLayout {
+export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number = WRAP_GUARD[orientation]): TableLayout {
+  // Composing a page asks for the same table's layout at every step of `fitPageToBox`; it is a function of what the
+  // table holds, so it is kept by that (never by identity: a table edited in place is another table).
+  const key = `${scale}|${orientation}|${guardPx}|${JSON.stringify(table)}`;
+  const known = LAYOUTS.get(key);
+  if (known !== undefined) return known;
   const fitPx = tableFit(table, scale, orientation).px ?? Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
-  return asChromiumSets(() => layoutAt(table, scale, orientation, guardPx, fitPx));
+  const layout = layoutAt(table, scale, orientation, guardPx, fitPx);
+  const frozen: TableLayout = Object.freeze({
+    columnsPx: Object.freeze(layout.columnsPx) as number[], labelLines: Object.freeze(layout.labelLines) as number[], headingLines: layout.headingLines,
+  });
+  if (LAYOUTS.size >= LAYOUTS_MAX) LAYOUTS.clear();
+  LAYOUTS.set(key, frozen);
+  return frozen;
 }
+
+const LAYOUTS = new Map<string, TableLayout>();
+const LAYOUTS_MAX = 2_000;
 
 function layoutAt(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number, fitPx: number): TableLayout {
   const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
@@ -69,25 +84,26 @@ function layoutAt(table: PackTable, scale: MoneyScale, orientation: PageOrientat
   const labelBox = table.rows.map((row) => {
     const weight = ROW_WEIGHT[row.role];
     const parts = pieces(row.label);
-    const width = (text: string): number => textPx(text, LABEL_FONT_PX, weight);
-    const marker = labelMarkPx(row.footnote, weight);
+    const line = (text: string, hyphen: boolean): number => textPx(text, LABEL_FONT_PX, weight, hyphen, NEVER_SHORT);
     const indent = row.level * INDENT_PX_PER_LEVEL;
+    const marker = labelMarkPx(row.footnote, weight, AS_CHROMIUM_SETS);
     return {
-      indent, marker, parts, width,
-      min: indent + labelWidestPiecePx(row.label, row.footnote, weight) + CELL_SIDE_PX,
-      max: indent + width(row.label.trim().replace(/[ \t\n\r]+/g, ' ')) + marker + CELL_SIDE_PX,
+      indent, parts, line, markerLine: labelMarkPx(row.footnote, weight, NEVER_SHORT),
+      min: indent + labelWidestPiecePx(row.label, row.footnote, weight, AS_CHROMIUM_SETS) + CELL_SIDE_PX,
+      max: indent + textPx(row.label.trim().replace(/[ \t\n\r]+/g, ' '), LABEL_FONT_PX, weight, false, AS_CHROMIUM_SETS) + marker + CELL_SIDE_PX,
     };
   });
   const labelMin = Math.max(0, ...labelBox.map((b) => b.min));
   const labelMax = Math.max(0, ...labelBox.map((b) => b.max));
   const data = columns.map((col, i) => {
-    const figures = Math.max(0, ...cells[i]!.map((cell) => cellPx(cell, fitPx)));
-    const marker = headingMarkPx(table.columnNotes?.find((n) => n.column === col)?.footnote);
+    const figures = Math.max(0, ...cells[i]!.map((cell) => cellPx(cell, fitPx, AS_CHROMIUM_SETS)));
+    const footnote = table.columnNotes?.find((n) => n.column === col)?.footnote;
+    const marker = headingMarkPx(footnote, AS_CHROMIUM_SETS);
     const label = PACK_TABLE_COLUMN_LABEL[col];
     return {
-      col, marker, parts: pieces(label),
-      min: Math.max(figures, minPx(headingWordsPx(label).map((w) => ({ w, gap: 0 })), marker)) + 2 * CELL_SIDE_PX,
-      max: Math.max(figures, headingLinePx(label) + marker) + 2 * CELL_SIDE_PX,
+      col, parts: pieces(label), markerLine: headingMarkPx(footnote, NEVER_SHORT),
+      min: Math.max(figures, minPx(headingWordsPx(label, AS_CHROMIUM_SETS).map((w) => ({ w })), marker)) + 2 * CELL_SIDE_PX,
+      max: Math.max(figures, headingLinePx(label, AS_CHROMIUM_SETS) + marker) + 2 * CELL_SIDE_PX,
     };
   });
   const mins = [labelMin, ...data.map((d) => d.min)];
@@ -95,15 +111,22 @@ function layoutAt(table: PackTable, scale: MoneyScale, orientation: PageOrientat
   const sumMin = mins.reduce((a, b) => a + b, 0);
   const sumMax = maxs.reduce((a, b) => a + b, 0);
   const sheet = PRINT_CONTENT_PX[orientation];
+  const unit = (px: number): number => Math.trunc(px * 64 + 1e-6) / 64;
+  let given = 0;
   const columnsPx = mins.map((min, i) => {
     const max = maxs[i]!;
-    if (sumMax <= sheet) return max + ((sheet - sumMax) * max) / sumMax;
-    if (sumMin >= sheet) return min;
-    return min + ((sheet - sumMin) * (max - min)) / (sumMax - sumMin);
+    const last = i === mins.length - 1;
+    if (sumMin >= sheet && sumMax > sheet) return min;
+    const [base, room, share] = sumMax <= sheet ? [max, sheet - sumMax, max / sumMax] : [min, sheet - sumMin, (max - min) / (sumMax - sumMin)];
+    const extra = last ? room - given : unit(room * share);
+    given += extra;
+    return base + extra;
   });
   const labelPx = columnsPx[0]!;
-  const labelLines = labelBox.map((b) => linesForText(b.parts, b.width, b.marker, labelPx - b.indent - CELL_SIDE_PX, guardPx));
-  const headingLines = Math.max(1, ...data.map((d, i) => linesForText(d.parts, headingLinePx, d.marker, columnsPx[i + 1]! - 2 * CELL_SIDE_PX, guardPx)));
+  const labelLines = labelBox.map((b) => linesForText(b.parts, b.line, b.markerLine, labelPx - b.indent - CELL_SIDE_PX, guardPx));
+  // A column heading is a fixed English label: no soft hyphen, so no hyphen to set.
+  const headingLine = (text: string): number => headingLinePx(text, NEVER_SHORT);
+  const headingLines = Math.max(1, ...data.map((d, i) => linesForText(d.parts, headingLine, d.markerLine, columnsPx[i + 1]! - 2 * CELL_SIDE_PX, guardPx)));
   return { columnsPx, labelLines, headingLines };
 }
 

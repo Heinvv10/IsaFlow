@@ -5,46 +5,49 @@
  * UAX 14).
  */
 import type { Piece } from './packLineBreaks';
+import type { PageOrientation } from './packTextMetrics';
 
 export type { Piece } from './packLineBreaks';
 
 /** One breakable piece of text by its width, for the narrowest width (`minPx`). */
-export interface Run { w: number; gap: number }
+export interface Run { w: number }
 
 /**
- * Slack kept off the box when deciding whether a piece still fits the line, set from the model's measured error.
- * Measured in `packTableLayout.test.ts` over every caller of the fill (`packTableLayout.ts`: the row labels and the
- * column headings of every statement table, pages 5 to 8, of a stratified sample of packs, under production's
- * engine): the model's columns are within 0.09px of Chromium's and wider than Chromium's by at most 0.0303px; a line
- * is measured whole, as Chromium sets it (`asChromiumSets`). 1/32px covers that widest error, and stays under the
- * tightest real fit the adversary found (a label a few hundredths of a pixel inside its column, which a half-pixel
- * guard wrapped, and six packs were trimmed for it).
+ * Slack kept off the box when deciding whether a piece still fits the line: the model's columns' measured error.
  *
- * The error each way: smaller than the columns' worst over-width, a column modelled wider than Chromium's could fit a
- * piece Chromium wraps, a line too few (the model is shorter than the print, and the sheet runs past its foot; the
- * test fails on any). Larger, more pieces ending near their line take a line too many (the model is taller, and a page
- * is trimmed or refused that would have fitted). Where the model's column is narrower than Chromium's, a piece within
- * that of its line takes a line too many whatever the guard: the test counts those near ties and holds the height
- * never short. Not covered: a line Chromium's single-precision sum puts a 1/64px unit over the model's AND that ends
- * within 1/32px of a column modelled too wide; the sample has none. Balance sheet labels that wrap near a tie set
- * Chromium's lines at this guard and a line too many at 0.5.
+ * Whether a piece fits is decided on a line width that is never short (`NEVER_SHORT`, measured whole), so the only
+ * way the model can take a line too few is a column modelled WIDER than Chromium sets it. The columns are shared out
+ * as Chromium does, in its 1/64px unit (`packTableLayout.ts`), from widths as Chromium sets them; what is left is
+ * Chromium's own float noise, which puts a width at a 1/64px grid point one unit either side of the model's.
+ * Measured in `packTableLayout.test.ts` over every statement table, pages 5 to 8, of a stratified sample of packs
+ * (1,848 tables), the model's widest column is 1/64px over Chromium's portrait; over a sample set landscape
+ * (`packTableLayoutLandscape.test.ts`, long labels at wide figures) it is 3/64px. The guard covers each: 1/32px
+ * portrait (1/16 would set a line too many on a balance sheet label that ends a fraction of a pixel inside its column,
+ * `NEAR_TIES`), 1/16px landscape (no statement prints landscape today).
+ *
+ * The error each way: a guard smaller than the columns' worst over-width could fit a piece Chromium wraps, a line too
+ * few (the model shorter than the print; both tests fail on any). Larger, more pieces ending near their line take a
+ * line too many (the model taller, a page trimmed or refused that would have fitted); the tests count those.
  */
-export const WRAP_GUARD_PX = 1 / 32;
+export const WRAP_GUARD: Readonly<Record<PageOrientation, number>> = { portrait: 1 / 32, landscape: 1 / 16 };
+/** The portrait guard, the default of a fill with no orientation. */
+export const WRAP_GUARD_PX = WRAP_GUARD.portrait;
 
 /**
  * A greedy fill of `parts` into lines of `avail` pixels, each candidate line measured WHOLE by `lineWidth` (Chromium
- * shapes a line as one run: kerning across a space and the rounding of one width, not a sum of rounded pieces);
- * `marker` is a footnote mark that stays with the last part.
+ * shapes a line as one run: kerning across a space and the rounding of one width, not a sum of rounded pieces), with
+ * the hyphen a soft one sets where the candidate would end the line (`Piece.hyphen`); `marker` is a footnote mark that
+ * stays with the last part. `lineWidth` must never be short: this decides whether a piece still fits.
  */
 export function linesForText(
-  parts: readonly Piece[], lineWidth: (text: string) => number, marker: number, avail: number, guardPx: number = WRAP_GUARD_PX,
+  parts: readonly Piece[], lineWidth: (text: string, hyphen: boolean) => number, marker: number, avail: number, guardPx: number = WRAP_GUARD_PX,
 ): number {
   let lines = 1;
   let line = '';
   parts.forEach((part, i) => {
     const mark = i === parts.length - 1 ? marker : 0;
     const candidate = line === '' ? part.text : `${line}${part.spaced ? ' ' : ''}${part.text}`;
-    if (line !== '' && lineWidth(candidate) + mark > avail - guardPx) { lines += 1; line = part.text; } else line = candidate;
+    if (line !== '' && lineWidth(candidate, part.hyphen) + mark > avail - guardPx) { lines += 1; line = part.text; } else line = candidate;
   });
   return lines;
 }

@@ -26,7 +26,7 @@ describe('the fill', () => {
   });
 
   it('the narrowest width is the widest piece, the mark counted with the LAST one it sits after', () => {
-    const runs = (text: string) => pieces(text).map((p) => ({ w: width(p.text), gap: 0 }));
+    const runs = (text: string) => pieces(text).map((p) => ({ w: width(p.text) }));
     expect(minPx(runs('Intercompanyrecharges net'), 10)).toBe(width('Intercompanyrecharges'));
     expect(minPx(runs('net Intercompanyrecharges'), 10)).toBe(width('Intercompanyrecharges') + 10);
   });

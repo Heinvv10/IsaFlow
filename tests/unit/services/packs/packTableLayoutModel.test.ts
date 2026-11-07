@@ -12,6 +12,10 @@ import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackTable } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
+import { CELL_SIDE_PX, ROW_WEIGHT } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
+import { AS_CHROMIUM_SETS } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
+import { WRAP_GUARD } from '@/modules/accounting/services/packs/pages/packLineWrap';
 import { input, type Shape } from './fixtures/packGridInputs';
 
 const SCALE = "R'000" as const;
@@ -63,5 +67,43 @@ describe('page 6 of a budget company at k=1', () => {
     const mm = statementTableBodyMm(table, SCALE, 'portrait');
     expect(mm).toBeGreaterThanOrEqual(68.73);
     expect(mm).toBeLessThan(69.5);
+  });
+});
+
+describe('a layout is kept by what the table holds', () => {
+  it('the same table gives the same layout once computed; a table edited in place is laid out afresh', () => {
+    const table = incomeTable(BASE);
+    const first = tableLayout(table, SCALE, 'portrait');
+    expect(tableLayout(structuredClone(table), SCALE, 'portrait')).toBe(first);
+    expect(Object.isFrozen(first.labelLines) && Object.isFrozen(first.columnsPx)).toBe(true);
+    const lines = first.labelLines[0]!;
+    table.rows[0] = { ...table.rows[0]!, label: `${table.rows[0]!.label} and a great many more words than the column holds on one line` };
+    expect(tableLayout(table, SCALE, 'portrait').labelLines[0]).toBeGreaterThan(lines);
+    expect(tableLayout(table, SCALE, 'landscape')).not.toBe(tableLayout(table, SCALE, 'portrait'));
+  });
+});
+
+describe('whether a label line still holds a piece is decided on a width that is never short', () => {
+  // The columns are Chromium's to its unit; Chromium's own float noise can set a line one unit wider than the exact
+  // width rounded up. A line that fits the column only at the exact width, with less than a unit to spare, wraps.
+  it('a label whose two words fit their column only as the exact width rounds up, by less than a unit, takes two lines', () => {
+    const base = incomeTable(BASE);
+    const row = base.rows.findIndex((r) => r.level === 0 && r.role === 'line' && r.footnote === undefined);
+    const weight = ROW_WEIGHT[base.rows[row]!.role];
+    let found = 0;
+    for (let a = 1; a <= 24 && found === 0; a += 1) for (let n = 1; n <= 24 && found === 0; n += 1) {
+      for (const tail of ['i', 'l', 'j', 'f', 't', 'r']) {
+        const label = `${'m'.repeat(a)} ${'m'.repeat(n)}${tail}`;
+        const table = { ...base, rows: base.rows.map((r, i) => (i === row ? { ...r, label } : r)) };
+        const layout = tableLayout(table, SCALE, 'portrait');
+        const avail = layout.columnsPx[0]! - CELL_SIDE_PX - WRAP_GUARD.portrait;
+        const exact = textPx(label, 12, weight, false, AS_CHROMIUM_SETS);
+        if (exact <= avail && textPx(label, 12, weight) > avail) {
+          found += 1;
+          expect(layout.labelLines[row], `"${label}" fits only at its exact width`).toBe(2);
+        }
+      }
+    }
+    expect(found, 'no label at the unit boundary: the test is vacuous').toBeGreaterThan(0);
   });
 });

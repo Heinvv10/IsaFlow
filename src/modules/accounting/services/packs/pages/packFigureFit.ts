@@ -25,7 +25,7 @@ import type { PackFigure } from '@/modules/accounting/services/packs/figures/pac
 import type { MoneyScale } from '@/lib/format/money';
 import { GUTTER_MM } from './packDisclosureHeight';
 import { type FigureWeight, ptToPx, textPx, textPxUnsnapped } from './packFigureWidth';
-import { runPx } from './packGlyphRuler';
+import { NEVER_SHORT, runPx, type Slack } from './packGlyphRuler';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
 import { pieces } from './packLineBreaks';
 import { reasonPx } from './packReasonWidth';
@@ -52,17 +52,17 @@ const NOT_MEANINGFUL = 'n/m';
  * of their host, shaped like any run at that size (`packFigureWidth.textPxUnsnapped`). `packFigureWidth.test.ts`
  * holds a label or an n/m cell with its mark to Chromium.
  */
-const markPx = (text: string, hostPx: number, weight: FigureWeight): number => textPxUnsnapped(text, 0.7 * hostPx, weight);
+const markPx = (text: string, hostPx: number, weight: FigureWeight, slack: Slack = NEVER_SHORT): number => textPxUnsnapped(text, 0.7 * hostPx, weight, slack);
 /** A row's or KPI tile's footnote number after its 9pt label. */
-export const labelMarkPx = (number: number | null | undefined, weight: FigureWeight = 400): number => (number === null || number === undefined ? 0 : markPx(String(number), 12, weight));
+export const labelMarkPx = (number: number | null | undefined, weight: FigureWeight = 400, slack: Slack = NEVER_SHORT): number => (number === null || number === undefined ? 0 : markPx(String(number), 12, weight, slack));
 
 /** `.pack-table th`: 8pt, weight 500, uppercase, 0.06em letter-spacing (which a superscript inherits as computed). */
 const HEADING_PX = ptToPx(8);
 const HEADING_TRACKING_PX = 0.06 * HEADING_PX;
-const headingRunPx = (text: string, fontPx: number): number => runPx(text, fontPx, 500,
-  (cluster, sizePx) => textPx(cluster, sizePx, 500) + HEADING_TRACKING_PX, HEADING_TRACKING_PX);
+const headingRunPx = (text: string, fontPx: number, slack: Slack = NEVER_SHORT): number => runPx(text, fontPx, 500,
+  (cluster, sizePx) => textPx(cluster, sizePx, 500) + HEADING_TRACKING_PX, HEADING_TRACKING_PX, false, slack);
 /** A heading's footnote number: 0.7em of the 8pt heading, tracked like it. */
-export const headingMarkPx = (number: number | undefined): number => (number === undefined ? 0 : headingRunPx(String(number), 0.7 * HEADING_PX));
+export const headingMarkPx = (number: number | undefined, slack: Slack = NEVER_SHORT): number => (number === undefined ? 0 : headingRunPx(String(number), 0.7 * HEADING_PX, slack));
 
 /**
  * The longest word of each column heading, in pixels, as `.pack-table th` sets it (a heading wraps, so its min-content
@@ -74,15 +74,12 @@ export const HEADING_WORD_PX: Readonly<Record<PackTableColumnKey, number>> = Obj
 ) as Record<PackTableColumnKey, number>;
 
 /** A line of a column heading, in pixels, as `.pack-table th` sets it (shaped whole, tracked). */
-export const headingLinePx = (text: string): number => headingRunPx(text.toUpperCase(), HEADING_PX);
+export const headingLinePx = (text: string, slack: Slack = NEVER_SHORT): number => headingRunPx(text.toUpperCase(), HEADING_PX, slack);
 
 /** Each word of a column heading, in pixels, as `.pack-table th` sets it. */
-export function headingWordsPx(label: string): number[] {
-  return label.split(' ').map((word) => headingRunPx(word.toUpperCase(), HEADING_PX));
+export function headingWordsPx(label: string, slack: Slack = NEVER_SHORT): number[] {
+  return label.split(' ').map((word) => headingRunPx(word.toUpperCase(), HEADING_PX, slack));
 }
-
-/** The space between two words of a heading: the face's space at 8pt and the heading's tracking after it. */
-export const HEADING_SPACE_PX = textPx(' ', HEADING_PX, 500) - 1 / 64 + HEADING_TRACKING_PX;
 
 export { fitAttributes, type FigureFit } from './packFigureFitCss';
 
@@ -120,8 +117,8 @@ export function tableColumnCells(table: PackTable, scale: MoneyScale): FigureCel
   }));
 }
 
-export function cellPx(cell: FigureCell, fontPx: number): number {
-  return textPx(cell.text, fontPx, cell.weight) + (cell.mark === undefined ? 0 : markPx(cell.mark, fontPx, cell.weight));
+export function cellPx(cell: FigureCell, fontPx: number, slack: Slack = NEVER_SHORT): number {
+  return textPx(cell.text, fontPx, cell.weight, false, slack) + (cell.mark === undefined ? 0 : markPx(cell.mark, fontPx, cell.weight, slack));
 }
 
 /**
@@ -129,9 +126,9 @@ export function cellPx(cell: FigureCell, fontPx: number): number {
  * after the LAST piece, not the longest. Chromium never breaks between a word and the `<sup>` after it, so the mark
  * wraps with the last piece (`packLabelMark.test.ts`).
  */
-export function labelWidestPiecePx(label: string, footnote: number | null | undefined, weight: FigureWeight): number {
-  const widths = pieces(label).map((piece) => textPx(piece.text, Math.round(ptToPx(TABLE_FIGURE_MAX_PT)), weight, piece.hyphen));
-  const mark = labelMarkPx(footnote, weight);
+export function labelWidestPiecePx(label: string, footnote: number | null | undefined, weight: FigureWeight, slack: Slack = NEVER_SHORT): number {
+  const widths = pieces(label).map((piece) => textPx(piece.text, Math.round(ptToPx(TABLE_FIGURE_MAX_PT)), weight, piece.hyphen, slack));
+  const mark = labelMarkPx(footnote, weight, slack);
   return Math.max(0, ...widths.map((w, i) => (i === widths.length - 1 ? w + mark : w)));
 }
 
