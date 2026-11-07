@@ -146,6 +146,16 @@ export async function queryInputVatSupport(
       JOIN gl_journal_document_links jdl2
         ON jdl2.journal_entry_id = a.doc_je_id AND jdl2.company_id = ${companyId}::UUID
     ),
+    bank_line_je AS (
+      -- Each bank line of the company with the journal behind it (provisional, or the journal of its matched
+      -- line), resolved once so the uses below join on equality rather than probing every line per chain.
+      SELECT bt.id, bt.company_id, bt.provisional_je_id AS je_id FROM bank_transactions bt
+      WHERE bt.company_id = ${companyId}::UUID AND bt.provisional_je_id IS NOT NULL
+      UNION
+      SELECT bt.id, bt.company_id, ml.journal_entry_id FROM bank_transactions bt
+      JOIN gl_journal_lines ml ON ml.id = bt.matched_journal_line_id AND ml.company_id = ${companyId}::UUID
+      WHERE bt.company_id = ${companyId}::UUID
+    ),
     doc_uses AS (
       -- Every USE of a captured document by a chain: a journal tie (doc_history), the journal on a bank line the
       -- document sits on (bank/bankLineDocumentSql), a bill (its source_document_id, or the capture's
@@ -153,10 +163,7 @@ export async function queryInputVatSupport(
       SELECT dh.document_id, dh.root, 'journal' AS via, NULL::NUMERIC AS line_vat FROM doc_history dh
       UNION ALL
       SELECT bd.id, a.root, 'bank', NULL FROM attributed a
-      JOIN bank_transactions bt ON bt.company_id = ${companyId}::UUID
-        AND (bt.provisional_je_id = a.doc_je_id
-          OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
-               WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))
+      JOIN bank_line_je bt ON bt.je_id = a.doc_je_id
       CROSS JOIN LATERAL ${sql.unsafe(bankLineCapturedDocIdsSql('bt'))} bd
       UNION ALL
       SELECT sd.document_id, a.root, 'bill', NULL FROM attributed a
