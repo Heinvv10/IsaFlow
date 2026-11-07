@@ -136,6 +136,21 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('asset dis
     }
   }, 60000);
 
+  it('negative accumulated depreciation is a 400 and writes nothing (was an unbalanced-journal 500)', async () => {
+    const id = await asset(main);
+    await sql`UPDATE assets SET accumulated_depreciation = -200 WHERE id = ${id}::UUID AND company_id = ${main.c.fx.companyId}::UUID`;
+    const out = await run(main, id, { proceeds: 100 });
+    expect(out.status, out.body).toBe(400);
+    expect(await state(id)).toMatchObject(NOTHING);
+  });
+
+  it.each([['a numeric disposalDate', { disposalDate: 20260621 }], ['a null body', null]])('%s is a 400, not a 500', async (_l, body) => {
+    const id = await asset(main);
+    const out = await callAs(main.c, main.token, dispose as Route, 'POST', body as Record<string, unknown>, { assetId: id });
+    expect(out.status, out.body).toBe(400);
+    expect(await state(id)).toMatchObject(NOTHING);
+  });
+
   // A loss posts as a debit: acc dep 100,000 + proceeds 1,000 + loss 349,000 = the 450,000 cost credit.
   it('a loss-making disposal under the ceiling still disposes (the loss leg is a debit, not extra credit)', async () => {
     const id = await asset(main);

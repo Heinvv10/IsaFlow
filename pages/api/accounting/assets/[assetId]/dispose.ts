@@ -37,18 +37,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = String(req.user.id);
   const { assetId } = req.query as { assetId: string };
 
-  const { proceeds = 0, disposalDate, disposalType, notes } = req.body as {
+  const { proceeds = 0, disposalDate, disposalType, notes } = (req.body ?? {}) as {
     proceeds?: unknown;
-    disposalDate?: string;
+    disposalDate?: unknown;
     disposalType?: string;
     notes?: string;
   };
 
-  if (!disposalDate) return apiResponse.badRequest(res, 'disposalDate is required');
+  if (!disposalDate || typeof disposalDate !== 'string') return apiResponse.badRequest(res, 'disposalDate is required');
   // Proceeds before any write (a 4xx commits). Number() read [5] as 5, "0x10" as 16 and "" as 0, and "abc", a
   // negative or a sub-cent amount reached the journal and died there as a 500. One rule for both input types: the
   // text (a number's String(), so 1e-7, 1e+21, 0.1+0.2 and NaN fail; a string trimmed) must be a plain decimal with at
   // most 2 decimals, and the cents come from that text, never from n * 100 (doubles near 1e13 are too coarse).
+  // The whole-rand part is exact below 2^53 cents; anything larger is far over the journal ceiling checked below.
   const proceedsText = typeof proceeds === 'number' ? String(proceeds) : typeof proceeds === 'string' ? proceeds.trim() : '';
   const proceedsMatch = /^(\d+)(?:\.(\d{1,2}))?$/.exec(proceedsText);
   if (!proceedsMatch) return apiResponse.badRequest(res, 'proceeds must be an amount of 0 or more, in whole cents');
@@ -105,6 +106,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const cost = Number(asset.cost);
   const policyAccDep = Number(asset.policy_acc_dep ?? 0);
   const taxAccDep = Number(asset.tax_acc_dep ?? 0);
+  // postAssetDisposalToGL posts no accumulated-depreciation leg for a value <= 0, but the gain/loss is struck on
+  // cost - accumulated depreciation: a negative figure posts an unbalanced journal (a 500). Refused before any write.
+  if (policyAccDep < 0) {
+    return apiResponse.badRequest(res, `Asset ${String(asset.asset_number ?? assetId)} has negative accumulated depreciation; correct it before disposing`);
+  }
 
   const calc = calculateDisposalResult({ cost, policyAccDep, taxAccDep, proceeds: proceedsNum });
 
