@@ -9,9 +9,19 @@
  */
 import { chromium, type Browser } from 'playwright';
 import { PRINT_CHROMIUM_ARGS } from '@/lib/pdf/printChromiumArgs';
+import { withUnhintedControl } from './support/printChromiumGuard';
 
 export { PRINT_CHROMIUM_ARGS };
 
 export function launchPrintChromium(): Promise<Browser> {
   return chromium.launch({ args: [...PRINT_CHROMIUM_ARGS] });
+}
+
+/**
+ * The CONTROL browser: Chromium with full hinting, every glyph advance rounded to a whole pixel, the setting production
+ * does not use. Only a test that proves the difference launches it, and only through here (the run-time guard knows
+ * this name and no other way past it).
+ */
+export function launchUnhintedControlChromium(): Promise<Browser> {
+  return withUnhintedControl(() => chromium.launch({ args: ['--font-render-hinting=full'] }));
 }

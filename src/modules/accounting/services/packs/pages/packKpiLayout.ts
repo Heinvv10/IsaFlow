@@ -53,10 +53,18 @@ function sparklineAspect(svg: string): number {
   return Number(h[1]) / Number(w[1]);
 }
 
+/**
+ * The size `.pack-kpi-value` sets a row's figures at, in px: 22pt, or the whole-pixel size the figure fit stamped on
+ * the row (`packFigureFit.kpiFit`, `.pack-kpi-tiles.is-fitted`). Nothing in it comes from the content width
+ * (`tests/unit/print/packKpiFigureSize.test.ts` holds it to Chromium's computed size).
+ */
+export function kpiFigurePx(tiles: readonly KpiTile[], scale: MoneyScale, orientation: PageOrientation): number {
+  return kpiFit(tiles, scale, orientation).px ?? ptToPx(KPI_FIGURE_MAX_PT);
+}
+
 /** The width of each of the four columns, in pixels: the grid's `1fr` tracks over their min-content widths. */
 export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orientation: PageOrientation): number[] {
-  const fit = kpiFit(tiles, scale, orientation);
-  const mins = kpiColumnMinPx(tiles, scale, fit.px ?? ptToPx(KPI_FIGURE_MAX_PT));
+  const mins = kpiColumnMinPx(tiles, scale, kpiFigurePx(tiles, scale, orientation));
   const room = PRINT_CONTENT_PX[orientation] - 3 * KPI_GAP_PX;
   const frozen = mins.map(() => false);
   let share = room / 4;
