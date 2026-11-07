@@ -12,6 +12,9 @@
  * A document over 2 MB, or one whose copy fails, stays linked without a copy: capturedAttachmentLinks lists and
  * counts it as an attachment of the line and serves its bytes, so it is not invisible.
  *
+ * One tax invoice, one VAT claim (Hein, 2026-11-07): refused when the line's journal claims input VAT and the
+ * document already backs a different VAT claim (bankAttachClaimConflict). Nothing is written then.
+ *
  * Known debt: attachments carry no captured_document_id FK — provenance/dedupe rides on the filename prefix; a follow-up migration should add a nullable captured_document_id column.
  */
 import { sql } from '@/lib/neon';
@@ -19,6 +22,7 @@ import { log } from '@/lib/logger';
 import { fetchRawBytes } from '@/lib/documentStorage';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { mimeForCapturedFileType } from './capturedFileTypes';
+import { findOtherVatClaim, type OtherVatClaim } from './bankAttachClaimConflict';
 
 export { mimeForCapturedFileType };
 
@@ -26,7 +30,8 @@ const MAX_MIRROR_BYTES = 2 * 1024 * 1024;
 
 export type AttachToBankTxResult =
   | { ok: true; mirrored: boolean }
-  | { ok: false; reason: 'document_not_found' | 'bank_tx_not_found' };
+  | { ok: false; reason: 'document_not_found' | 'bank_tx_not_found' }
+  | { ok: false; reason: 'document_backs_other_claim'; otherClaim: OtherVatClaim };
 
 type Row = Record<string, unknown>;
 
@@ -48,6 +53,9 @@ export async function attachCapturedDocToBankTx(
      WHERE id = ${bankTxId}::uuid AND company_id = ${companyId}::uuid
   `) as Row[];
   if (!tx) return { ok: false, reason: 'bank_tx_not_found' };
+
+  const otherClaim = await findOtherVatClaim(companyId, documentId, bankTxId);
+  if (otherClaim) return { ok: false, reason: 'document_backs_other_claim', otherClaim };
 
   // Crash-recovery: UPDATE-then-mirror ordering means a crash between the two
   // heals on a retry — the re-UPDATE is idempotent and the dup-check misses,
