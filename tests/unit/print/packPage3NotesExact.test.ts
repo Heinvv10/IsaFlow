@@ -8,15 +8,15 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
-import { chromium } from 'playwright';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { input } from '../services/packs/fixtures/packGridInputs';
 import { OVER_TRIMMED } from '../services/packs/fixtures/page3OverTrimmed';
+import { launchPrintChromium } from './printChromium';
 import { printBoardPack } from './renderPackPdf';
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 afterEach(() => { vi.restoreAllMocks(); });
 

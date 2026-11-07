@@ -5,7 +5,8 @@
  * whose min-content (its figure, its label's longest word, its reason's, its delta's: `kpiColumnMinPx`) is wider
  * than the equal share keeps that width, and the rest share what is left. A tile is a flex column with a 1mm gap:
  * its label, then its figure or its not-meaningful reason, then its delta line, then its sparkline, each as tall as
- * the lines Chromium breaks it into at the column's width. A row is as tall as its tallest tile.
+ * the lines Chromium breaks it into at the column's width. A row is as tall as its tallest tile. The row is as wide
+ * as production prints the page (`PRINT_CONTENT_PX`, 658.390625px portrait), not the 174mm (657.6px) of the margins.
  *
  * The model it replaces charged every tile as if it sat in a quarter, took its text from the prose ruler and its
  * sparkline at the 33mm cap, and read 5.6 to 52.7mm too tall on the page-3 packs where master keeps fewer notes than
@@ -21,7 +22,7 @@ import {
 import { ptToPx, textPx } from './packFigureWidth';
 import { linesFor, runsOf } from './packLineWrap';
 import { reasonPx } from './packReasonWidth';
-import { PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
+import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
 
 /** Leadings, in mm: the label and the delta (12pt), the not-meaningful reason (14pt), the figure (25pt). */
 const LABEL_LINE_MM = 4.24;
@@ -47,7 +48,7 @@ function sparklineAspect(svg: string): number {
 export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orientation: PageOrientation): number[] {
   const fit = kpiFit(tiles, scale, orientation);
   const mins = kpiColumnMinPx(tiles, scale, fit.px ?? ptToPx(KPI_FIGURE_MAX_PT));
-  const room = PAGE_WIDTH_MM[orientation] * MM_PX - 3 * KPI_GAP_PX;
+  const room = PRINT_CONTENT_PX[orientation] - 3 * KPI_GAP_PX;
   const frozen = mins.map(() => false);
   let share = room / 4;
   for (let again = true; again;) {
