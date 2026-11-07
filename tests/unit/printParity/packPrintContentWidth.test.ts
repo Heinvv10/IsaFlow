@@ -1,20 +1,22 @@
 /**
- * PRODUCTION PRINTS A PAGE'S CONTENT `PRINT_CONTENT_PX` WIDE: a line wraps in the PDF the production Gotenberg image
- * prints exactly where it wraps in a page laid out at that width, portrait and landscape, to 1/64px (`contentWidth.ts`
- * says how). Velo only (the image is there); elsewhere skipped, and says why.
+ * PRODUCTION PRINTS A PAGE'S CONTENT IN `PRINT_CONTENT_PX` x `PRINT_CONTENT_HEIGHT_PX`: measured in the PDF the
+ * production Gotenberg image prints, portrait and landscape, by where a line wraps, by a container query and by where a
+ * line spills to a second sheet (`contentWidth.pageBoxProblems`). Velo only (`paritySkip.ts` says when it may skip).
+ * RE-RUN THIS whenever the gotenberg image or the pack's fonts change.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
-import { PRINT_CONTENT_PX, type PageOrientation } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { PRINT_CONTENT_HEIGHT_PX, PRINT_CONTENT_PX, type PageOrientation } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { launchPrintChromium } from '../print/printChromium';
-import { candidateBody, candidates, domFlip, flipDocument, pdfFlip } from './contentWidth';
-import { gotenbergPdf, parityUnavailable, startGotenberg, withPdfFile, type Gotenberg } from './gotenbergParity';
+import { pageBoxProblems } from './contentWidth';
+import { gotenbergPdf, startGotenberg, type Gotenberg } from './gotenbergParity';
+import { paritySkip } from './paritySkip';
 
-const unavailable = parityUnavailable();
+const skip = paritySkip();
 let gotenberg: Gotenberg | undefined;
 let browser: Browser | undefined;
 beforeAll(async () => {
-  if (unavailable !== null) return;
+  if (skip !== null) return;
   browser = await launchPrintChromium();
   gotenberg = await startGotenberg();
 }, 180_000);
@@ -23,12 +25,9 @@ afterAll(async () => {
   gotenberg?.stop();
 });
 
-describe.skipIf(unavailable !== null)(`the width production prints at${unavailable === null ? '' : ` (SKIPPED: ${unavailable})`}`, () => {
-  it.each(['portrait', 'landscape'] as const)('%s: Gotenberg\'s PDF wraps exactly where a page PRINT_CONTENT_PX wide does', async (orientation: PageOrientation) => {
-    const flip = await domFlip(browser!, PRINT_CONTENT_PX[orientation]);
-    const widths = candidates(flip - 8 / 64, 17);
-    const { html, fonts } = flipDocument(candidateBody(widths, orientation));
-    const printed = withPdfFile(await gotenbergPdf(gotenberg!, html, fonts), (file) => pdfFlip(file, widths));
-    expect(printed, `laid out at ${PRINT_CONTENT_PX[orientation]}px the line flips at ${flip}px`).toBe(flip);
+describe.skipIf(skip !== null)(`the box production prints a page's content in${skip === null ? '' : ` (SKIPPED: ${skip})`}`, () => {
+  it.each(['portrait', 'landscape'] as const)('%s: the image\'s PDF breaks lines, reads its container and spills where the constants say', async (orientation: PageOrientation) => {
+    const print = (html: string, fonts: Parameters<typeof gotenbergPdf>[2]) => gotenbergPdf(gotenberg!, html, fonts);
+    expect(await pageBoxProblems(browser!, print, orientation, PRINT_CONTENT_PX[orientation], PRINT_CONTENT_HEIGHT_PX[orientation])).toEqual([]);
   }, 300_000);
 });

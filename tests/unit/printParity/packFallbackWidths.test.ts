@@ -2,17 +2,18 @@
  * THE COMMITTED FALLBACK WIDTHS ARE THE PRODUCTION IMAGE'S: measured afresh in a throwaway container of the image
  * production's Gotenberg runs, the tables `packFallbackWidthData.ts` holds come out the same, character for character
  * (`fallbackWidths.ts` says how they are measured). With REGENERATE_FALLBACK_WIDTHS=1 it writes them instead. Velo only
- * (the image is there); elsewhere skipped, and says why: there the fallback glyphs are the render-time guard's.
+ * (the image is there; `paritySkip.ts` says where it may skip). Re-run it whenever the gotenberg image or the fonts change.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { measureAdvances, measureEmojiAndFingerprint } from './fallbackWidths';
 import { fallbackWidthSource } from './fallbackWidthSource';
-import { PRODUCTION_GOTENBERG_IMAGE, parityUnavailable, startGotenberg, type Gotenberg } from './gotenbergParity';
+import { PRODUCTION_GOTENBERG_IMAGE, startGotenberg, type Gotenberg } from './gotenbergParity';
+import { paritySkip } from './paritySkip';
 
 const TARGET = path.resolve(__dirname, '../../../src/modules/accounting/services/packs/pages/packFallbackWidthData.ts');
-const unavailable = parityUnavailable();
+const unavailable = paritySkip();
 let gotenberg: Gotenberg | undefined;
 beforeAll(async () => { if (unavailable === null) gotenberg = await startGotenberg(); }, 180_000);
 afterAll(() => { gotenberg?.stop(); });

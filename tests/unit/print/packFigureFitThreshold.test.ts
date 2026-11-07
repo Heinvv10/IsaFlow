@@ -59,6 +59,28 @@ describe('a statement table', () => {
   }, 300_000);
 });
 
+describe('the size printed is the size the gate checked', () => {
+  // The fit is stamped on the document at composition (`packFigureFitStamp`) and the page only renders it: the
+  // figures print at exactly that size, so the row the floor gate passed is the row on the sheet.
+  it('a widened table and KPI row print their figures at the stamped size', async () => {
+    const range = Array.from({ length: 30 }, (unused, i) => i + 4);
+    const tableFloor = range.filter((d) => tableFit(withWidenedTable(demoWithoutBudget(), d).table, SCALE).fits).pop()!;
+    const table = withWidenedTable(demoWithoutBudget(), tableFloor);
+    const kpiFloor = range.filter((d) => kpiFit(withWidenedKpi(demoWithoutBudget(), d).tiles, SCALE).fits).pop()!;
+    const kpi = withWidenedKpi(demoWithoutBudget(), kpiFloor);
+    const tableBlock = table.doc.pages[table.index]!.blocks.find((b) => b.kind === 'table');
+    const kpiBlock = kpi.doc.pages[kpi.index]!.blocks.find((b) => b.kind === 'kpiTiles');
+    if (tableBlock?.kind !== 'table' || kpiBlock?.kind !== 'kpiTiles') throw new Error('no blocks');
+    expect(tableBlock.table.figureFit!.px).not.toBeNull();
+    expect(kpiBlock.fit!.px).not.toBeNull();
+    const tablePt = (await printBoardPack(table.doc, browser)).figurePt.find((f) => f.id === `pack-page-${table.index + 1}`)!.table;
+    const kpiPt = (await printBoardPack(kpi.doc, browser)).figurePt.find((f) => f.id === `pack-page-${kpi.index + 1}`)!.kpi;
+    // Against the GATE's own decision, computed afresh: not against the stamp, which is what is under test.
+    expect(tablePt).toBeCloseTo(tableFit(tableBlock.table, SCALE).px! * 0.75, 3);
+    expect(kpiPt).toBeCloseTo(kpiFit(kpiBlock.tiles, SCALE).px! * 0.75, 3);
+  }, 300_000);
+});
+
 describe('a statement table with a long label word (the label column cannot be narrower than its longest word)', () => {
   it.each(['Telecommunications', 'Administrative', 'Depreciation'])('%s: the threshold is exact in Chromium both ways', async (label) => {
     const fitsAt = (digits: number) => tableFit(withWidenedTable(demoWithoutBudget(), digits, label).table, SCALE);

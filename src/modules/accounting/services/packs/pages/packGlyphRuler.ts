@@ -17,7 +17,7 @@ import * as fontkit from 'fontkit';
 
 export type FaceWeight = 400 | 500 | 600;
 
-const FILES: Readonly<Record<FaceWeight, string>> = {
+export const FILES: Readonly<Record<FaceWeight, string>> = {
   400: 'IBMPlexSans-Regular.woff2', 500: 'IBMPlexSans-Medium.woff2', 600: 'IBMPlexSans-SemiBold.woff2',
 };
 /** What `html.print-mode body` asks of every run (`packPrintPage.css`). */
@@ -28,12 +28,33 @@ type Face = fontkit.Font;
 
 const faces = new Map<FaceWeight, Face>();
 
-/** The face of `weight`, read once from `public/fonts` (the files the print stylesheet serves). */
+/**
+ * The face of `weight` from `dir`. A face that cannot be read is an error, said out loud: the fit refuses to guess a
+ * width (there is no per-character table to fall back to), and a pack is not composed without it.
+ */
+export function loadFace(dir: string, weight: FaceWeight): Face {
+  const file = path.join(dir, FILES[weight]);
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(file);
+  } catch (err) {
+    throw new Error(`packGlyphRuler: cannot read the pack's face ${file}; the figure fit refuses to guess a width (${err instanceof Error ? err.message : String(err)})`);
+  }
+  return fontkit.create(bytes);
+}
+
+/**
+ * The faces the print stylesheet serves: `public/fonts` under the working directory, which is the repository in a test
+ * and the colour's release folder in production (the standalone server runs there, and the deploy copies `public/`
+ * beside it: `scripts/deploy/bluegreen.sh`).
+ */
+export const fontsDir = (): string => path.join(process.cwd(), 'public', 'fonts');
+
+/** The face of `weight`, read once and kept. */
 function face(weight: FaceWeight): Face {
   let f = faces.get(weight);
   if (f === undefined) {
-    const file = path.join(process.cwd(), 'public', 'fonts', FILES[weight]);
-    f = fontkit.create(readFileSync(file));
+    f = loadFace(fontsDir(), weight);
     faces.set(weight, f);
   }
   return f;
@@ -87,6 +108,22 @@ export function asChromiumSets<T>(measure: () => T): T {
   }
 }
 
+/** Runs already shaped: their advance in font units, by weight and text (a pack shapes the same words many times). */
+const SHAPED = new Map<string, number>();
+const SHAPED_MAX = 50_000;
+
+function unitsOf(f: Face, weight: FaceWeight, run: string): number {
+  const key = `${weight}|${run}`;
+  let units = SHAPED.get(key);
+  if (units === undefined) {
+    units = 0;
+    for (const p of f.layout(run, FEATURES).positions) units += p.xAdvance;
+    if (SHAPED.size >= SHAPED_MAX) SHAPED.clear();
+    SHAPED.set(key, units);
+  }
+  return units;
+}
+
 /** The size Chromium sets a font at: floored to its 1/64px unit. */
 export const setSizePx = (fontPx: number): number => Math.floor(fontPx * UNIT + 1e-9) / UNIT;
 
@@ -105,7 +142,7 @@ export function runPx(
   let px = 0;
   let inside = '';
   const flush = (): void => {
-    for (const run of scriptRuns(inside)) for (const p of f.layout(run, FEATURES).positions) units += p.xAdvance;
+    for (const run of scriptRuns(inside)) units += unitsOf(f, weight, run);
     inside = '';
   };
   for (const cluster of clustersOf(text)) {

@@ -26,6 +26,7 @@ export interface Assignment {
   effectiveFrom: string;
   effectiveTo: string | null;
   isRecurring: boolean;
+  isTaxable: boolean;
 }
 
 interface Props {

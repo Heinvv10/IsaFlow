@@ -33,6 +33,7 @@ import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/der
 import { deltaDirection } from '@/modules/accounting/services/packs/narrative/derivedTileCaptions';
 import type { PackPageBlock, PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
+import type { FigureFit } from './packFigureFitCss';
 
 export const KPI_FIGURE_MAX_PT = 22;
 export const KPI_FIGURE_FLOOR_PT = 12;
@@ -86,12 +87,7 @@ export function headingWordsPx(label: string): number[] {
 /** The space between two words of a heading: the face's space at 8pt and the heading's tracking after it. */
 export const HEADING_SPACE_PX = textPx(' ', HEADING_PX, 500) - 1 / 64 + HEADING_TRACKING_PX;
 
-export interface FigureFit {
-  /** The whole-pixel size to set, or null where the row fits at its ordinary size and nothing is set. */
-  px: number | null;
-  /** False where it fits at no size down to the floor. */
-  fits: boolean;
-}
+export { fitAttributes, type FigureFit } from './packFigureFitCss';
 
 /**
  * The width a row's columns may take: the width production prints a page's content at (`PRINT_CONTENT_PX`, measured
@@ -226,9 +222,4 @@ export function kpiFit(tiles: readonly KpiTile[], scale: MoneyScale, orientation
     if (total(px) <= measurePx(orientation)) return { px, fits: true };
   }
   return { px: floor, fits: false };
-}
-
-/** The CSS a fitted row carries; empty where the row fits at its ordinary size (the markup is then what it always was). */
-export function fitAttributes(fit: FigureFit): { className?: string; style?: Record<string, string> } {
-  return fit.px === null ? {} : { className: 'is-fitted', style: { '--pack-fit-size': `${fit.px}px` } };
 }

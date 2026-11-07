@@ -19,7 +19,7 @@ import { BankLastChange } from './BankLastChange';
 const LOAD_FAILED = 'Could not load the bank details - try again';
 const BUTTON = 'rounded-lg border border-[var(--ff-border-primary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)]';
 
-export function EmployeeBankCard({ employeeId }: { employeeId: string }) {
+export function EmployeeBankCard({ employeeId, onChanged }: { employeeId: string; onChanged?: () => void }) {
   const { companyRole } = useCompany();
   const admin = isHistoryAdmin(companyRole ?? undefined);
   const mayWrite = canWrite(companyRole); // owner / admin / manager: who may enter, and who the history route lets read
@@ -59,6 +59,7 @@ export function EmployeeBankCard({ employeeId }: { employeeId: string }) {
   const saved = () => {
     const savedFor = employeeId;
     setEditing(false); setLoading(true);
+    onChanged?.();
     void load(() => currentEmployee.current !== savedFor);
   };
   const typeLabel = ACCOUNT_TYPES.find(t => t.value === details?.accountType)?.label ?? details?.accountType;

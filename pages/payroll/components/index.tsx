@@ -199,7 +199,7 @@ export default function PayComponentsPage() {
                   {components.map(c => (
                     <tr key={c.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
                       <td className="py-3 px-4 text-[var(--ff-text-primary)]">{c.name}</td>
-                      <td className="py-3 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{c.sarsSourceCode}</td>
+                      <td className="py-3 px-4 font-id text-xs text-[var(--ff-text-secondary)]">{c.sarsSourceCode}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
                         <span className="capitalize">{c.componentType.replace('_', ' ')}</span>
                         {c.paidOutsidePayroll && <span className="ml-2 text-xs text-[var(--ff-text-tertiary)]">paid outside payroll</span>}

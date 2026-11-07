@@ -368,7 +368,8 @@ export async function printBoardPack(
     const spare = await page.evaluate((limit) => Array.from(document.querySelectorAll('.pack-page:not([data-print-landscape])')).map((el) => {
       const left = el.getBoundingClientRect().left;
       const reach = Math.max(...Array.from(el.querySelectorAll('*')).map((child) => child.getBoundingClientRect().right - left));
-      return { id: (el as HTMLElement).id || 'page', px: limit - reach };
+      // Boxes are read back in single precision: a millionth of a pixel either way is that, not a layout unit.
+      return { id: (el as HTMLElement).id || 'page', px: Math.round((limit - reach) * 1024) / 1024 };
     }), PRINT_CONTENT_PX.portrait);
 
     const measure = (mmPerPx: { px: number; portrait: number; landscape: number }) =>

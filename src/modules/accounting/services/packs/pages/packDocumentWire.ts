@@ -35,6 +35,7 @@
  * pages are built and where that guarantee does its work.
  */
 
+import { isFigureFit, type FigureFit } from './packFigureFitCss';
 import { adoptTrustedChartSvg, type TrustedChartSvg } from '@/lib/charts/trustedChartSvg';
 import { toMoneyScale } from '@/lib/format/money';
 import {
@@ -125,6 +126,16 @@ function adoptScorecardGroup(group: Unbranded<PackScorecardGroup>): PackScorecar
   return { ...group, rows: group.rows.map(adoptScorecardRow) };
 }
 
+/**
+ * A table's or KPI row's figure size, as the server decided it (`packFigureFitStamp`). The page cannot decide it (the
+ * fit shapes text from font files the browser does not have), so a document without one (built before fits were
+ * stamped, or edited since) is refused, and the page reports it rather than printing a row unchecked.
+ */
+function adoptFit(fit: unknown, what: string): FigureFit {
+  if (!isFigureFit(fit)) throw new Error(`adoptPackPagesDocument: refusing ${what} without the figure size the server decided`);
+  return fit;
+}
+
 function adoptBlock(block: Unbranded<PackPageBlock>): PackPageBlock {
   switch (block.kind) {
     case 'chart':
@@ -132,7 +143,7 @@ function adoptBlock(block: Unbranded<PackPageBlock>): PackPageBlock {
     case 'smallMultiples':
       return { kind: 'smallMultiples', panels: block.panels.map(adoptChart) };
     case 'kpiTiles':
-      return { kind: 'kpiTiles', tiles: block.tiles.map(adoptTile) };
+      return { kind: 'kpiTiles', tiles: block.tiles.map(adoptTile), fit: adoptFit(block.fit, 'a KPI row') };
     case 'scorecard':
       return {
         kind: 'scorecard',
@@ -149,6 +160,7 @@ function adoptBlock(block: Unbranded<PackPageBlock>): PackPageBlock {
     // slipping through unadopted — which is the exact hole this file exists
     // to close.
     case 'table':
+      return { kind: 'table', table: { ...block.table, figureFit: adoptFit(block.table.figureFit, 'a statement table') } };
     case 'statTiles':
     case 'narrative':
     case 'matters':

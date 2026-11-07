@@ -5,7 +5,7 @@
  * ancient script, each cycled into a reason of every length from 4 to 50 clusters: wherever the gate passes the row,
  * the image lays the page out inside the sheet (`gotenbergOverflow.ts`). These glyphs are priced at their block's
  * widest, so a refusal of a row that would have fitted is allowed; a pass that overflows is not. The adversary's round 3
- * found ℹ️, ♥️ and ®️ passing and overflowing by up to 237px. Velo only; elsewhere skipped, and says why.
+ * found ℹ️, ♥️ and ®️ passing and overflowing by up to 237px. Velo only (`paritySkip.ts` says where it may skip).
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { log } from '@/lib/logger';
@@ -15,9 +15,11 @@ import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packScale'
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { input } from '../services/packs/fixtures/packGridInputs';
 import { gotenbergOverflow } from './gotenbergOverflow';
-import { parityUnavailable, startGotenberg, type Gotenberg } from './gotenbergParity';
+import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
+import { startGotenberg, type Gotenberg } from './gotenbergParity';
+import { paritySkip } from './paritySkip';
 
-const unavailable = parityUnavailable();
+const unavailable = paritySkip();
 let gotenberg: Gotenberg | undefined;
 beforeAll(async () => { if (unavailable === null) gotenberg = await startGotenberg(); }, 180_000);
 afterAll(() => { gotenberg?.stop(); });
@@ -43,7 +45,7 @@ describe.skipIf(unavailable !== null)(`reasons of fallback glyphs in production'
       docs.push(doc);
       refused.push(unreadableBlock(p3, PACK_SCALE) !== null);
     }
-    const overflow = await gotenbergOverflow(gotenberg!, docs);
+    const overflow = await gotenbergOverflow(gotenberg!, docs.map(stampFigureFits));
     const passedOverflowing = docs.flatMap((doc, i) => {
       const id = `pack-page-${doc.pages.findIndex((p) => p.navLabel === 'Highlights') + 1}`;
       return !refused[i] && overflow[i]!.includes(id) ? [`${i + 4} clusters`] : [];

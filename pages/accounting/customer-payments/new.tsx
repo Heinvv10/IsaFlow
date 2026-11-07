@@ -23,7 +23,7 @@ interface OutstandingInvoice {
 interface Allocation { key: string; invoiceId: string; amount: number }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 const fmt = (n: number) => formatMoney(n);
 
@@ -186,7 +186,7 @@ export default function NewCustomerPaymentPage() {
                       onChange={dates.bind('paymentDate', iso => setForm(f => ({ ...f, paymentDate: iso })), form.paymentDate)} />
                   </div>
                   <div>
-                    <label className={lbl}>Payment Method</label>
+                    <label className={lbl}>Payment method</label>
                     <select name="paymentMethod" aria-label="Payment Method" value={form.paymentMethod} onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))} className={inp}>
                       <option value="eft">EFT</option>
                       <option value="cheque">Cheque</option>
@@ -195,7 +195,7 @@ export default function NewCustomerPaymentPage() {
                     </select>
                   </div>
                   <div>
-                    <label className={lbl}>Bank Reference</label>
+                    <label className={lbl}>Bank reference</label>
                     <input type="text" name="bankReference" value={form.bankReference} onChange={e => setForm(f => ({ ...f, bankReference: e.target.value }))} placeholder="e.g. REF123456" className={inp} />
                   </div>
                 </div>
