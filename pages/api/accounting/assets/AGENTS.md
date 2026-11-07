@@ -35,6 +35,7 @@ Sub-routes for the dual-track FAR (policy/IFRS vs tax/SARS). Register CRUD itsel
 - FAR uses `DISTINCT ON (asset_id) ORDER BY asset_id, yyyymm DESC` for latest snapshot per asset
 - Disposal upserts `asset_period_ledger` via `ON CONFLICT ... DO UPDATE` (idempotent)
 - `dispose` blocks if asset already `status='disposed'`
+- `dispose` refuses bad `proceeds` with a 400 before any write: a JSON number whose `String()`, or a trimmed string, must be a plain decimal with at most 2 decimals (no sign, exponent, hex, comma, `.5`, `5.`); omitted = 0; cents come from the text, never `n * 100`. It also refuses a disposal whose journal debit or credit total (mirroring `postAssetDisposalToGL`'s legs) would exceed NUMERIC(15,2), 9,999,999,999,999.99. Known limit: `gl_account_balances`' running total is NUMERIC(15,2) too and is not checked up front. Test: `tests/integration/asset-dispose-proceeds.int.test.ts`.
 - `dispose` refuses a `disposalType` outside `items/assetDisposalTypes.DISPOSAL_TYPES` (sale/scrap/write_off/donation/theft/loss/insurance_claim = the CHECK on `assets.disposal_type`, mig 361 widened by 965) with a 400 before any write; the asset page offers exactly that list. It then logs one `asset_disposals` row (method = the type, or `unspecified`; journal_entry_id = the posted journal), which `GET /api/accounting/assets-disposals` lists. Before 2026-11-07 nothing wrote that table and the page offered `scrap` (default) / `insurance_claim` → 500. Test: `tests/integration/asset-dispose-type-and-log.int.test.ts`.
 - `below-threshold` POST locks the asset `FOR NO KEY UPDATE OF a` (5s `lock_timeout`), refuses a repeat with 409 when `assets.below_threshold` is already true, refuses a `disposed`/`written_off` asset with 400, pre-checks the fiscal period covering today (400 if not open — the hook creates the draft journal before postJournalEntry would throw, and withAuth COMMITs on 4xx), then delegates to `glCrossModuleHooks.postCapitalizationExpenseToGL`
 - `below-threshold` GET returns `expensed` from the `assets.below_threshold` column; the page uses it to render already-expensed rows without a Post button
@@ -52,6 +53,7 @@ Sub-routes for the dual-track FAR (policy/IFRS vs tax/SARS). Register CRUD itsel
 - `src/modules/accounting/services/items/fleetRecordsService.ts`, `assetBankLinksService.ts` — fleet records and the asset's linked bank lines
 
 ## Recent changes
+- 2026-11-07: `dispose` validates `proceeds` (400 before any write; was a 500 from the journal)
 - 2026-11-07: `dispose` refuses a type `assets.disposal_type` cannot store (400, before any write) and logs `asset_disposals`; mig 965 widens the CHECK to `scrap`/`insurance_claim`, so the page's list is unchanged. Earlier disposals have no log row (no backfill)
 - 2026-10-05 (round 2): unlink of an absent kind 409; bounded asset lock on create; date range / NUL refused 422
 - 2026-10-05: mig 853 — fleet fuel / service records (`fuel`, `service`), `bank-links`, and the asset / fleet link routes rebuilt as annotations
