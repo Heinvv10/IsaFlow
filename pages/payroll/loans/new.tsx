@@ -205,18 +205,18 @@ export default function NewLoanPage() {
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Principal</label>
                 <input type="number" step="0.01" value={principal || ''} onChange={e => setPrincipal(Number(e.target.value))}
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] font-mono" />
+                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums" />
               </div>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Annual rate</label>
                 <input type="number" step="0.0001" value={annualInterestRate || ''} onChange={e => setAnnualInterestRate(Number(e.target.value))}
                   placeholder="0.075 = 7.5%"
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] font-mono" />
+                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums" />
               </div>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Term (months)</label>
                 <input type="number" value={termMonths || ''} onChange={e => setTermMonths(Number(e.target.value))}
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] font-mono" />
+                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums" />
               </div>
             </div>
 
@@ -241,7 +241,7 @@ export default function NewLoanPage() {
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">First deduction year</label>
                 <input type="number" value={firstPeriodYear} onChange={e => setFirstPeriodYear(Number(e.target.value))}
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] font-mono" />
+                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums" />
               </div>
             </div>
 
@@ -279,7 +279,7 @@ export default function NewLoanPage() {
                   <tbody>
                     {schedule.map(r => (
                       <tr key={r.sequence} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                        <td className="py-1.5 px-3 font-mono text-[var(--ff-text-secondary)]">{r.sequence}</td>
+                        <td className="py-1.5 px-3 tabular-nums text-[var(--ff-text-secondary)]">{r.sequence}</td>
                         <td className="py-1.5 px-3 text-[var(--ff-text-secondary)]">{MONTHS[r.duePeriodMonth - 1]} {r.duePeriodYear}</td>
                         <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.interest)}</td>
                         <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.principal)}</td>
