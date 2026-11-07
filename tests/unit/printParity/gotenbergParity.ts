@@ -20,18 +20,30 @@ export const PRODUCTION_GOTENBERG_IMAGE = 'sha256:888f4f1e00ff01422a3f35d4a74edd
 
 const HOST = 'http://parity.print.local/';
 
-/** Why the parity test cannot run on this machine, or null where it can. */
+/** What `cmd args` printed on failure (stderr), or null where it succeeded. */
+function failure(cmd: string, args: string[]): string | null {
+  try {
+    execFileSync(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    return null;
+  } catch (err) {
+    const e = err as { code?: string; stderr?: Buffer };
+    return e.code === 'ENOENT' ? 'ENOENT' : (e.stderr?.toString() ?? String(err)).trim();
+  }
+}
+
+/** Why the parity test cannot run on this machine, naming the actual cause, or null where it can. */
 export function parityUnavailable(): string | null {
-  try {
-    execFileSync('docker', ['image', 'inspect', PRODUCTION_GOTENBERG_IMAGE], { stdio: 'ignore' });
-  } catch {
-    return `docker or the production Gotenberg image ${PRODUCTION_GOTENBERG_IMAGE.slice(0, 19)} is not on this machine (velo only)`;
+  const docker = failure('docker', ['info', '--format', '{{.ServerVersion}}']);
+  if (docker === 'ENOENT') return 'docker is not installed on this machine';
+  if (docker !== null) {
+    return /permission denied/i.test(docker)
+      ? `this user (${process.env.USER ?? 'unknown'}) has no access to the docker daemon (not in the docker group)`
+      : `the docker daemon cannot be reached: ${docker.split('\n')[0]}`;
   }
-  try {
-    execFileSync('pdftotext', ['-v'], { stdio: 'ignore' });
-  } catch {
-    return 'pdftotext (poppler-utils) is not installed';
+  if (failure('docker', ['image', 'inspect', PRODUCTION_GOTENBERG_IMAGE]) !== null) {
+    return `the production Gotenberg image ${PRODUCTION_GOTENBERG_IMAGE.slice(0, 19)} is not on this machine`;
   }
+  if (failure('pdftotext', ['-v']) === 'ENOENT') return 'pdftotext (poppler-utils) is not installed';
   return null;
 }
 
