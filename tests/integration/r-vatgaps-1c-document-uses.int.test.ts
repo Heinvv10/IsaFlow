@@ -8,6 +8,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { inTx } from './helpers/l1FifoFixture';
 import {
@@ -102,6 +103,9 @@ describeIfDb('VAT input support: one tax invoice, one claim (every use of a docu
     const low = await bankClaim(h);
     await linkToLine(await slip(h, { vat: 10 }), low.txId);
     expect(await verdict(h, low.journalId)).toBe('block:amount_mismatch');
+    await sql`INSERT INTO bank_transaction_attachments (bank_transaction_id, file_name, file_url)
+      VALUES (${low.txId}::UUID, 'full-invoice.pdf', 'data:application/pdf;base64,JVBERi0=')`;
+    expect(await verdict(h, low.journalId)).toBe('ok'); // the upload may be the full invoice
     const none = await bankClaim(h);
     await linkToLine(await slip(h, { vat: null }), none.txId);
     expect(await verdict(h, none.journalId)).toBe('ok');

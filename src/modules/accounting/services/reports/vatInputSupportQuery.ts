@@ -69,7 +69,7 @@
  * that calls `sql` to build a piece of a bigger query is only safe to use
  * inside code no low-level `sql`-mocked test exercises.
  */
-import { bankLineCapturedDocIdsSql, hasBankLineDocumentSql } from '../bank/bankLineDocumentSql';
+import { bankLineCapturedDocIdsSql, hasBankLineDocumentSql, hasBankLineUploadSql } from '../bank/bankLineDocumentSql';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
@@ -176,8 +176,8 @@ export async function queryInputVatSupport(
       -- (their VAT, while the claim's chain still claims), else the chain's net claim to the period end. Only the
       -- company's own documents count.
       SELECT du.document_id, du.root, cdu.extracted_data -> 'vatAmount' AS vat_raw,
-        CASE WHEN COUNT(du.line_vat) = 0 THEN MAX(ro.claimed_to_date)
-             WHEN ABS(MAX(ro.claimed_to_date)) > ${cent} THEN SUM(du.line_vat) ELSE 0 END AS used_vat,
+        CASE WHEN NOT BOOL_OR(du.via = 'claim') THEN MAX(ro.claimed_to_date)
+             WHEN ABS(MAX(ro.claimed_to_date)) > ${cent} THEN COALESCE(SUM(du.line_vat), 0) ELSE 0 END AS used_vat,
         BOOL_OR(du.via = 'bank') AS on_bank, BOOL_OR(du.via = 'claim') AS on_claim
       FROM doc_uses du JOIN roots ro ON ro.root = du.root
       JOIN captured_documents cdu ON cdu.id = du.document_id AND cdu.company_id = ${companyId}::UUID
@@ -220,6 +220,15 @@ export async function queryInputVatSupport(
             OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
                  WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))
       ) AS has_bank_attachment,
+      -- A plain upload on the chain's bank line (no captured document's copy): a document the report cannot read.
+      EXISTS (
+        SELECT 1 FROM bank_transactions bt
+        WHERE bt.company_id = ${companyId}::UUID
+          AND ${sql.unsafe(hasBankLineUploadSql('bt'))}
+          AND (bt.provisional_je_id = a.doc_je_id
+            OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
+                 WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))
+      ) AS has_bank_upload,
       -- The chain's uses of documents on its bank lines and on its expense claim lines: each document's VAT, its
       -- claimed total over every use (doc_claims), and this chain's own share of it.
       ${sql.unsafe(usesOfSql('on_bank'))} AS bank_documents,

@@ -25,14 +25,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  classifyInputVatSupport, readDocumentVat, type InputVatSupportFacts,
+  classifyInputVatSupport, documentUses, readDocumentVat, type InputVatSupportFacts,
 } from '@/modules/accounting/services/reports/vatInputSupport';
 
 const facts = (over: Partial<InputVatSupportFacts>): InputVatSupportFacts => ({
   journalEntryId: 'je', entryNumber: 'JE-1', entryDate: '2026-07-10', source: 'manual', description: '',
   claimedVat: 150, claimedToDate: 150, expenseClaimVat: null, capturedDocumentVat: null, documentClaimedVat: null,
   creditNoteVat: null, vatAdjustment: false, bankAmount: null, hasBankAttachment: false, hadDocumentLink: false,
-  bankDocuments: [], claimDocuments: [],
+  hasBankUpload: false, bankDocuments: [], claimDocuments: [],
   ...over,
 });
 const RATE = 0.15;
@@ -43,6 +43,40 @@ describe('readDocumentVat — the extracted VAT, read as the capture pipeline re
   });
   it.each([['fifteen'], ['15,00 VAT'], [''], [{}], [Number.NaN]])('%s is unreadable, never 0', (raw) => {
     expect(readDocumentVat(raw)).toBe('unreadable');
+  });
+});
+
+describe('documentUses — the query\'s JSON array as uses', () => {
+  it('maps vat, total and own; no VAT read is null; unreadable stays unreadable; anything else is empty', () => {
+    expect(documentUses([{ vat: '15,00', total: '30', own: 15 }, { vat: null, total: 5, own: 5 }, { vat: 'n/a' }]))
+      .toEqual([{ vat: 15, total: 30, own: 15 }, { vat: null, total: 5, own: 5 }, { vat: 'unreadable', total: 0, own: 0 }]);
+    expect(documentUses(null)).toEqual([]);
+    expect(documentUses('[]')).toEqual([]);
+  });
+});
+
+describe('classifyInputVatSupport — documents on the bank line and claim lines, as uses', () => {
+  const bank = (over: Partial<InputVatSupportFacts>) => classifyInputVatSupport(facts({ claimedVat: 15, claimedToDate: 15, bankAmount: 115, ...over }), RATE);
+  it('a slip with room supports the claim; a shared one blocks as over-claimed; a short one blocks as a mismatch', () => {
+    expect(bank({ bankDocuments: [{ vat: 15, total: 15, own: 15 }] })).toEqual({ blocking: false, line: null });
+    expect(bank({ bankDocuments: [{ vat: 15, total: 30, own: 15 }] }).line?.reason).toBe('document_over_claimed');
+    expect(bank({ bankDocuments: [{ vat: 15, total: 30, own: 15 }] }).blocking).toBe(true);
+    expect(bank({ bankDocuments: [{ vat: 10, total: 15, own: 15 }] }).line?.reason).toBe('amount_mismatch');
+  });
+  it('an unreadable slip warns; a short slip beside an upload is supported; the bank ceiling still comes first', () => {
+    const w = bank({ bankDocuments: [{ vat: 'unreadable', total: 15, own: 15 }] });
+    expect([w.blocking, w.line?.reason]).toEqual([false, 'unreadable_document_vat']);
+    expect(bank({ bankDocuments: [{ vat: 10, total: 15, own: 15 }], hasBankUpload: true, hasBankAttachment: true }).line).toBeNull();
+    expect(bank({ claimedVat: 20, claimedToDate: 20, bankDocuments: [{ vat: 20, total: 20, own: 20 }] }).line?.supportKind).toBe('bank');
+  });
+  it('a slip with no VAT read falls back to presence', () => {
+    expect(bank({ bankDocuments: [{ vat: null, total: 15, own: 15 }], hasBankAttachment: true }).line).toBeNull();
+    expect(bank({ bankDocuments: [{ vat: null, total: 15, own: 15 }] }).line?.reason).toBe('no_tax_invoice');
+  });
+  it('an expense claim blocks as over-claimed when a slip on it is shared past its VAT', () => {
+    const v = classifyInputVatSupport(facts({ claimedVat: 15, claimedToDate: 15, expenseClaimVat: 15,
+      claimDocuments: [{ vat: 15, total: 30, own: 15 }] }), RATE);
+    expect([v.blocking, v.line?.supportKind, v.line?.reason, v.line?.documentClaimedVat]).toEqual([true, 'expense_claim', 'document_over_claimed', 30]);
   });
 });
 

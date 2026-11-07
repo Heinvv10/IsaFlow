@@ -31,6 +31,17 @@ describe('judgeBankDocuments: a bank line\'s captured documents as uses', () => 
     expect(judgeBankDocuments([use('unreadable', 15, 15)], 15)).toEqual({ kind: 'unreadable' });
   });
 
+  it('a plain upload beside a short slip leaves the claim supported, but never rescues a shared slip', () => {
+    expect(judgeBankDocuments([use(10, 15, 15)], 15, true)).toEqual({ kind: 'supported' });
+    expect(judgeBankDocuments([use(15, 30, 15)], 15, true).kind).toBe('over_claimed');
+  });
+
+  it('a credit note (negative VAT) backs no claim, and a negative share elsewhere is not credit for this one', () => {
+    expect(judgeBankDocuments([use(-15, -15, 0)], 15)).toBeNull();
+    // Another chain REDUCED the document's total (others < 0): the clamp keeps it out of documentClaimedVat.
+    expect(judgeBankDocuments([use(15, 10, 25), use(15, 45, 15)], 25)).toEqual({ kind: 'over_claimed', documentVat: 30, documentClaimedVat: 55 });
+  });
+
   it('two documents add up: a free one covers what a used one cannot', () => {
     expect(judgeBankDocuments([use(15, 30, 15), use(15, 15, 15)], 15)).toEqual({ kind: 'supported' });
     expect(judgeBankDocuments([use(15, 30, 15), use(10, 15, 15)], 15).kind).toBe('over_claimed');

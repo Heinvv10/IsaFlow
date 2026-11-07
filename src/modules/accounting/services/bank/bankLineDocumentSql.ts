@@ -71,6 +71,11 @@ export function bankLineCapturedDocIdsSql(bt: Alias = 'bt'): string {
     + ` WHERE x.bank_transaction_id = ${bt}.id)`;
 }
 
+/** Bank line `bt` carries a plain upload: an attachment that is no captured document's copy, as a boolean expression. */
+export function hasBankLineUploadSql(bt: Alias = 'bt'): string {
+  return `EXISTS (SELECT 1 FROM bank_transaction_attachments x WHERE x.bank_transaction_id = ${bt}.id AND ${copiedDocIdSql('x')} IS NULL)`;
+}
+
 /** Bank line `bt` has at least one supporting document, as a boolean expression. */
 export function hasBankLineDocumentSql(bt: Alias = 'bt'): string {
   return `(EXISTS (SELECT 1 FROM bank_transaction_attachments x WHERE x.bank_transaction_id = ${bt}.id AND ${attachmentCountsSql('x', bt)})`

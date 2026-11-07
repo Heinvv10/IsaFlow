@@ -106,6 +106,8 @@ export interface InputVatSupportFacts {
   bankAmount: number | null;
   /** Item 2: a document on the SAME bank line — presence (an upload, or a captured one with no VAT read). */
   hasBankAttachment: boolean;
+  /** A plain upload (no captured document's copy) on the same bank line. */
+  hasBankUpload: boolean;
   /** Captured documents on the chain's bank lines, as uses (vatInputDocumentUses). */
   bankDocuments: DocumentUse[];
   /** Captured documents on the chain's expense claim lines, as uses. */
@@ -211,7 +213,7 @@ export function classifyInputVatSupport(f: InputVatSupportFacts, rate: number): 
     }
     // A captured document with VAT read on the line is a USE of it: the claim
     // must fit in what the documents have left (vatInputDocumentUses).
-    const docs = judgeBankDocuments(f.bankDocuments, f.claimedToDate);
+    const docs = judgeBankDocuments(f.bankDocuments, f.claimedToDate, f.hasBankUpload);
     if (docs?.kind === 'supported') return none;
     if (docs?.kind === 'unreadable') {
       return { blocking: false, line: line(f, 'captured_document', null, 'unreadable_document_vat') };
@@ -241,7 +243,7 @@ export function classifyInputVatSupport(f: InputVatSupportFacts, rate: number): 
 }
 
 /** The query's JSON array of { vat, total, own } as uses; a document with no VAT read has vat null. */
-function documentUses(raw: unknown): DocumentUse[] {
+export function documentUses(raw: unknown): DocumentUse[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((u: { vat?: unknown; total?: unknown; own?: unknown }) => ({
     vat: u.vat === null || u.vat === undefined ? null : readDocumentVat(u.vat),
@@ -276,6 +278,7 @@ export async function findInputVatSupport(
       vatAdjustment: r.is_vat_adjustment === true,
       bankAmount: num(r.bank_amount),
       hasBankAttachment: r.has_bank_attachment === true,
+      hasBankUpload: r.has_bank_upload === true,
       bankDocuments: documentUses(r.bank_documents),
       claimDocuments: documentUses(r.claim_documents),
       hadDocumentLink: r.had_document_link === true,
