@@ -90,7 +90,7 @@ falls back to `cost_price`, so the two screens disagree. `calculateWeightedAvera
 
 **Design.** `items` is the only item master. A new append-only `inventory_movements` table (company-scoped,
 dated, signed, costed, linked to its source line and journal) is the single stock ledger. `items.current_qty`
-(renamed `qty_on_hand`) and a new `avg_cost` are maintained by one service, `inventoryPostingService`,
+(kept under its existing name; no rename, no second qty field) and a new `avg_cost` are maintained by one service, `inventoryPostingService`,
 called inside each stock-moving document's transaction, adding inventory lines to that document's journal.
 The `products` family and `stock_items`/`stock_levels` are backfilled into it and retired.
 
@@ -116,9 +116,9 @@ is `products.cost_method`'s default. FIFO is not offered; `fifo` products are li
 Rules, per item, in NUMERIC (`avg_cost NUMERIC(18,6)`; a 2-dp average drifts):
 - Receipt: `avg = (qty*avg + qty_in*unit_cost) / (qty + qty_in)`. Issue: leaves at the current `avg`,
   `value = round(-qty_out*avg, 2)`.
-- **Zero-out:** an issue that takes `qty_on_hand` to 0 takes the item's whole remaining value (−Σ`value`),
+- **Zero-out:** an issue that takes `current_qty` to 0 takes the item's whole remaining value (−Σ`value`),
   not `qty*avg`, so rounding cents never strand on an empty item.
-- **Negative stock** (D1): refused when `qty_on_hand - qty_out < 0`. Since nothing is dated before the
+- **Negative stock** (D1): refused when `current_qty - qty_out < 0`. Since nothing is dated before the
   item's latest movement (2.4), the current balance is the balance on that date; no later row can go negative.
 - **Locking:** one `SELECT … FROM items WHERE company_id=$1 AND id=ANY($2) ORDER BY id FOR UPDATE` per
   document, before any movement, so multi-line documents lock items in one order and cannot deadlock
@@ -129,7 +129,7 @@ have none today), converted to ZAR at the bill's `exchange_rate` (the figure the
 Input VAT that cannot be claimed (non-vendor supplier, or a line whose input VAT is denied) is added to
 cost. A DRC bill's self-assessed VAT nets off and is excluded from cost.
 
-**Precision:** movement `quantity` and `items.qty_on_hand` are `NUMERIC(15,4)`; bill lines (`12,4`) and
+**Precision:** movement `quantity` and `items.current_qty` are `NUMERIC(15,4)`; bill lines (`12,4`) and
 invoice lines (`customer_invoice_items.quantity numeric(10,2)`) both fit, so neither is widened; a
 stock item therefore sells in 2-dp quantities. `value NUMERIC(15,2)`.
 
@@ -137,8 +137,10 @@ stock item therefore sells in 2-dp quantities. `value NUMERIC(15,2)`.
 
 ```sql
 ALTER TABLE items ADD COLUMN IF NOT EXISTS track_stock BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE items RENAME COLUMN current_qty TO qty_on_hand;               -- not a second qty field
-ALTER TABLE items ALTER COLUMN qty_on_hand TYPE NUMERIC(15,4);           -- then NOT NULL after NULL → 0
+-- no RENAME: deploy.sh migrates prod before the idle colour is switched in, so the live colour still reads
+-- current_qty (itemService.ts:225,263; items/index.tsx:237; [itemId].tsx:137) and rollback is code-only.
+-- Expand/contract: keep current_qty as the one qty field; any rename waits for P5, after no reader remains.
+ALTER TABLE items ALTER COLUMN current_qty TYPE NUMERIC(15,4);           -- then NOT NULL after NULL → 0
 ALTER TABLE items ADD COLUMN IF NOT EXISTS avg_cost NUMERIC(18,6) NOT NULL DEFAULT 0;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS inventory_account_id UUID REFERENCES gl_accounts(id);
 ALTER TABLE items ADD COLUMN IF NOT EXISTS cogs_account_id UUID REFERENCES gl_accounts(id);
@@ -149,6 +151,8 @@ CREATE TABLE IF NOT EXISTS inventory_movements (
   company_id UUID NOT NULL REFERENCES companies(id),
   item_id UUID NOT NULL REFERENCES items(id),
   warehouse_id UUID REFERENCES warehouses(id),                    -- carried, not costed (D7)
+  -- tenant trigger: warehouse must have company_id = this row's company_id; the NULL-company default
+  -- warehouse (244b seed) is refused — backfill maps it to a per-company default warehouse it creates.
   movement_date DATE NOT NULL,
   movement_type TEXT NOT NULL CHECK (movement_type IN ('opening','purchase','purchase_return','sale',
     'sale_return','adjustment_in','adjustment_out','write_off','count_adjustment','transfer_in',
@@ -179,7 +183,7 @@ because a bundle line explodes into several component movements.
 RLS and grants as for other company tables (app_user: SELECT/INSERT only on `inventory_movements` —
 corrections are reversing rows, never UPDATE/DELETE). A tenant-consistency trigger refuses an
 `item_id` whose `items.company_id` differs from the row's company. Only `inventoryPostingService` writes
-`qty_on_hand`/`avg_cost`: the `current_qty` write via `/api/accounting/items` (`items.ts:156`,
+`current_qty`/`avg_cost`: the `current_qty` write via `/api/accounting/items` (`items.ts:156`,
 `itemService.ts:263`) is removed; its readers (items list/detail pages, `itemService` SELECT) are renamed.
 System roles `inventory`, `cost_of_sales`, `inventory_adjustment` (`grni` in P4) go in
 `systemAccountKeys.ts`, seeded per tenant only where a matching subtype account exists. Account
@@ -238,13 +242,13 @@ gate compares migrations only; the schema-only migration replays on an empty int
    company's first open period start).
 3. Each `stock_movements` row of a mapped product → `inventory_movements`, `movement_date =
    created_at::date` (Africa/Johannesburg), `source_type='legacy_stock_movement'`, `source_id` = its id,
-   **no journal**, `warehouse_id` carried. Type mapping: `purchase`/`sale`/`adjustment_in`/
+   **no journal**, `warehouse_id` carried (a movement on the NULL-company 244b default warehouse maps to a per-company "Default" warehouse the script creates first). Type mapping: `purchase`/`sale`/`adjustment_in`/
    `adjustment_out`/`write_off`/`grn`/`transfer_in`/`transfer_out` keep their name; `return_in` →
    `sale_return`; `return_out` → `purchase_return`; `count` (an **absolute** observed quantity) →
    `count_adjustment` with quantity = count − running quantity at that point of the replay (skipped
    when 0), so the running total equals the count afterwards. Movements with `total_cost = 0` keep
    cost 0 and are listed.
-4. Replay movements per item in (date, created_at) order to set `qty_on_hand`/`avg_cost`/`*_after`;
+4. Replay movements per item in (date, created_at) order to set `current_qty`/`avg_cost`/`*_after`;
    compare to `products.current_stock` and report every difference. Replay ignores D1, but every point
    where the running quantity goes negative is reported.
 5. GL true-up is NOT automatic: per tenant the script reports subledger value vs the GL balance of
@@ -252,7 +256,7 @@ gate compares migrations only; the schema-only migration replays on an empty int
 6. `stock_items` (no writer) is dropped after its readers are re-pointed; `stock_levels` dropped.
 
 verify: per tenant, `count(products with company)` = `count(items.legacy_product_id)`; per item,
-Σ`quantity` = `items.qty_on_hand`; a re-run is a no-op (row counts unchanged).
+Σ`quantity` = `items.current_qty`; a re-run is a no-op (row counts unchanged).
 
 ## 4. Phases (each shippable alone)
 
@@ -279,7 +283,7 @@ those forms, bundle explosion, post-time movements + COGS/Inventory lines in the
 reversal on void/credit.
 verify: golden path "buy 10 @ R100, sell 4 @ R150" → stock 6, value R600, COGS R400, GP R200 on the
 P&L; void the sale → stock 10, COGS 0; concurrent sales of the last unit: one succeeds, one refused;
-FX bill, VAT-denied line and DRC bill each land at the cost in 2.1; credit note beyond the original line's
+FX bill (on a test company with `companies.fx_documents_enabled` set by a platform admin; foreign bills are refused while it is off, ap/.claude.md), VAT-denied line and DRC bill each land at the cost in 2.1; credit note beyond the original line's
 quantity refused.
 Risk: HIGH — touches AR/AP posting paths; adversarial ledger review required; changes the approval
 digest of item lines (check `approval_document_digest`).
