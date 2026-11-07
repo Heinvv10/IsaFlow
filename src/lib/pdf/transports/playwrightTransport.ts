@@ -12,6 +12,7 @@ import {
 } from '../pdfTransport';
 import { writePdfInfoDictionary } from '../pdfInfoDictionary';
 import { log } from '@/lib/logger';
+import { PRINT_CHROMIUM_ARGS } from '../printChromiumArgs';
 
 // One Chromium for the life of the process, not one per render. A launch is
 // ~300-800ms of CPU and ~80MB before a single byte is rendered, and the render
@@ -30,7 +31,8 @@ async function getBrowser(): Promise<Browser> {
     log.warn('playwrightTransport: browser was disconnected, relaunching', {}, 'pdf');
     shared = null;
   }
-  shared = await chromium.launch({ headless: true });
+  // Glyphs at fractional advances, as production's Gotenberg sets them (`printChromiumArgs.ts`).
+  shared = await chromium.launch({ headless: true, args: [...PRINT_CHROMIUM_ARGS] });
   // A crash between renders must not leave a dead handle cached.
   shared.on('disconnected', () => { shared = null; });
   return shared;

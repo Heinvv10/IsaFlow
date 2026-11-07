@@ -8,8 +8,9 @@
  * `tests/unit/printParity/packEngineParity.test.ts` holds the two to the same layout, pack by pack.
  */
 import { chromium, type Browser } from 'playwright';
+import { PRINT_CHROMIUM_ARGS } from '@/lib/pdf/printChromiumArgs';
 
-export const PRINT_CHROMIUM_ARGS: readonly string[] = ['--font-render-hinting=none'];
+export { PRINT_CHROMIUM_ARGS };
 
 export function launchPrintChromium(): Promise<Browser> {
   return chromium.launch({ args: [...PRINT_CHROMIUM_ARGS] });

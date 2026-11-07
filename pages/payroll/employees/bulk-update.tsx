@@ -291,7 +291,7 @@ export default function BulkUpdatePage() {
                       const entries = Object.entries(row.changes) as Array<[keyof PreviewRow['changes'], PreviewChange]>;
                       return entries.map(([field, change]) => (
                         <tr key={`${row.id}:${field}`}>
-                          <td className="py-1.5 pr-3 font-mono text-xs">{row.employeeNumber}</td>
+                          <td className="py-1.5 pr-3 font-id text-xs">{row.employeeNumber}</td>
                           <td className="py-1.5 pr-3">{row.firstName} {row.lastName}</td>
                           <td className="py-1.5 pr-3 text-xs uppercase text-[var(--ff-text-secondary)]">{field}</td>
                           <td className="py-1.5 pr-3 text-[var(--ff-text-secondary)]">

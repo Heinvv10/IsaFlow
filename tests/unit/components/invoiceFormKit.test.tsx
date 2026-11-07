@@ -235,13 +235,14 @@ describe('kit pickers', () => {
     expect(vi.mocked(InvoiceHeaderFields)).toHaveBeenCalled();
   });
 
-  it('the header controls are kit fields with no native date input (the Job picker and line selects stay native), and every control is named', async () => {
+  it('the header controls are kit fields with no native date input or select, and every control is named', async () => {
     serve();
     render(<NewPage />);
     expect(document.querySelectorAll('input[type="date"]').length).toBe(0);
     expect(screen.getByRole('combobox', { name: 'Client' })).toBeTruthy();
     expect(screen.getByRole('combobox', { name: 'Currency' })).toBeTruthy();
     expect(screen.getByLabelText('Notes').tagName).toBe('TEXTAREA');
-    expect(screen.getByLabelText('Income type').tagName).toBe('SELECT');
+    expect(screen.getByRole('combobox', { name: 'Income type' })).toBeTruthy();
+    expect(document.querySelectorAll('select').length).toBe(0);
   });
 });

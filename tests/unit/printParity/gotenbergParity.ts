@@ -11,9 +11,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Browser } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { PAPER_A4_IN, PDF_MARGIN_MM, mmToIn } from '@/lib/pdf/pdfTransport';
-import { PARITY_WIDTH_PX, type FontFile } from './parityPage';
+import { PARITY_WIDTH_PX, UNLOADED_FACES, type FontFile } from './parityPage';
 
 /** `docker inspect gotenberg --format '{{.Image}}'` on velo: the image production's container runs (gotenberg/gotenberg:8). */
 export const PRODUCTION_GOTENBERG_IMAGE = 'sha256:888f4f1e00ff01422a3f35d4a74edd9d705d1d4910d47039ac9c10db6763cd58';
@@ -92,9 +92,12 @@ export async function gotenbergReport(gotenberg: Gotenberg, html: string, fonts:
   return withPdfFile(pdf, (file) => execFileSync('pdftotext', ['-raw', file, '-'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }));
 }
 
-/** The print tests' Chromium's report on `html`, laid out as Gotenberg lays it out: print media, the same width. */
-export async function playwrightReport(browser: Browser, html: string, fonts: readonly FontFile[]): Promise<string> {
-  const page = await browser.newPage({ viewport: { width: Math.ceil(PARITY_WIDTH_PX) + 1, height: 1000 } });
+/**
+ * A page of the print tests' Chromium holding `html`, its font files served beside it as Gotenberg serves them, every
+ * served face loaded (it throws where one is not: a probe set in a fallback face measures a different document).
+ */
+export async function servedPage(browser: Browser, html: string, fonts: readonly FontFile[], viewportWidth: number): Promise<Page> {
+  const page = await browser.newPage({ viewport: { width: viewportWidth, height: 1000 } });
   try {
     const files = new Map(fonts.map((f) => [`/${f.name}`, f.file]));
     await page.route(`${HOST}**`, async (route) => {
@@ -105,6 +108,23 @@ export async function playwrightReport(browser: Browser, html: string, fonts: re
     });
     await page.emulateMedia({ media: 'print' });
     await page.goto(HOST, { waitUntil: 'load' });
+    const unloaded = await page.evaluate(`(async function () {
+      await Promise.all(Array.from(document.fonts).map(function (f) { return f.load().catch(function () { return null; }); }));
+      await document.fonts.ready;
+      return ${UNLOADED_FACES};
+    })()`) as string[];
+    if (unloaded.length > 0) throw new Error(`served faces did not load: ${unloaded.join(', ')}`);
+    return page;
+  } catch (err) {
+    await page.close();
+    throw err;
+  }
+}
+
+/** The print tests' Chromium's report on `html`, laid out as Gotenberg lays it out: print media, the same width. */
+export async function playwrightReport(browser: Browser, html: string, fonts: readonly FontFile[]): Promise<string> {
+  const page = await servedPage(browser, html, fonts, Math.ceil(PARITY_WIDTH_PX) + 1);
+  try {
     await page.waitForFunction(() => (window as unknown as { parityDone?: boolean }).parityDone === true, undefined, { timeout: 600_000 });
     return (await page.textContent('#parity-out')) ?? '';
   } finally {

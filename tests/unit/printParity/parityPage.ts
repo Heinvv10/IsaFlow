@@ -20,9 +20,16 @@ export const PARITY_WIDTH_PX = PRINT_CONTENT_PX.portrait;
 
 export interface FontFile { name: string; file: string }
 
+/** The families the pack's stylesheet serves from `public/fonts`: every face of them must load, in either engine. */
+export const SERVED_FAMILIES = ['IBM Plex Sans', 'IsaFlow Figures'];
+
+/** A script expression: the served faces that did not load, each as family/weight:status (none: an empty array). */
+export const UNLOADED_FACES = `Array.from(document.fonts).filter(function (f) { return ${JSON.stringify(SERVED_FAMILIES)}.indexOf(f.family.replace(/["']/g, '')) >= 0 && f.status !== 'loaded'; }).map(function (f) { return f.family.replace(/["']/g, '') + '/' + f.weight + ':' + f.status; })`;
+
 const SCRIPT = `(async function () {
   await Promise.all(Array.from(document.fonts).map(function (f) { return f.load().catch(function () { return null; }); }));
   await document.fonts.ready;
+  var unloaded = ${UNLOADED_FACES};
   var fnv = function (s) { var h = 0x811c9dc5; for (var i = 0; i < s.length; i += 1) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
   var lines = [];
   document.querySelectorAll('[data-parity]').forEach(function (unit) {
@@ -36,6 +43,7 @@ const SCRIPT = `(async function () {
     }
     lines.push('P|' + unit.getAttribute('data-parity') + '|' + parts.length + '|' + fnv(parts.join(',')));
   });
+  lines.push('F|' + (unloaded.length === 0 ? 'all-loaded' : unloaded.join(',')));
   document.documentElement.className = '';
   document.head.innerHTML = '';
   document.body.innerHTML = '';
@@ -48,7 +56,7 @@ const SCRIPT = `(async function () {
 })();`;
 
 /** The stylesheet's faces, each referenced by its bare file name (Gotenberg serves the files it is sent flat). */
-function flatStylesheet(): { css: string; fonts: FontFile[] } {
+export function flatStylesheet(): { css: string; fonts: FontFile[] } {
   const fonts = new Map<string, string>();
   const css = printStylesheet().replace(/url\((['"]?)\/fonts\/([^'")]+)\1\)/g, (unused, quote: string, rel: string) => {
     const name = path.basename(rel);
@@ -66,8 +74,10 @@ export function parityDocument(body: string): { html: string; fonts: FontFile[] 
   return { html, fonts };
 }
 
-/** The `P|` lines of a report, keyed by unit. */
+/** The `P|` lines of a report, keyed by unit. Throws unless the report says every served face loaded. */
 export function parseReport(text: string): Map<string, string> {
+  const faces = /^F\|(.*)$/m.exec(text.replace(/^\s+/gm, ''))?.[1]?.trim();
+  if (faces !== 'all-loaded') throw new Error(`served faces did not load: ${faces ?? 'no font report'}`);
   const out = new Map<string, string>();
   for (const line of text.split('\n')) {
     const m = /^P\|([^|]+)\|(\d+)\|([0-9a-f]+)\s*$/.exec(line.trim());
