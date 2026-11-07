@@ -15,7 +15,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
-import { chromium } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { type FigureWeight, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
@@ -24,7 +24,7 @@ import { page6Input } from '../services/packs/fixtures/page6Shapes';
 import { printBoardPack } from './renderPackPdf';
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
 // The scales where behaviour changes: nothing fitted (1), the tile row first overflows (30 000), a stretched
@@ -83,7 +83,7 @@ describe('the demo company at k=1 prints its figures at their ceiling, as before
 });
 
 describe('figures at the scales where the budget columns can no longer be set', () => {
-  it.each([[20_000_000, true], [26_000_000, true], [30_000_000, false], [238_000_000, false], [1_000_000_000, false]] as const)(
+  it.each([[20_000_000, true], [26_000_000, true], [30_000_000, true], [40_000_000, true], [50_000_000, false], [238_000_000, false], [1_000_000_000, false]] as const)(
     'k=%i: the pack is built, the Budget columns are %s, and every page prints inside the sheet at figures no smaller than the floor',
     async (k, budgetKept) => {
       const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);

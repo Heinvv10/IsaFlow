@@ -45,6 +45,7 @@ import {
 } from '@/lib/charts/packFont';
 import { log } from '@/lib/logger';
 import { PRINT_ERROR_ATTRIBUTE_PREFIX } from '@/lib/pdf/printErrorAttribute';
+import { fallbackFontsVerdict } from './packFallbackGuard';
 import type { PackDocumentSection } from '@/modules/accounting/services/packs/packDocument';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -261,7 +262,16 @@ function useFontsReady(): boolean {
 
 export function usePrintReady(dataReady: boolean, expectedCharts: number): boolean {
   const [chartsReady, setChartsReady] = useState(false);
+  const [fallbackOk, setFallbackOk] = useState(false);
   const fontsReady = useFontsReady();
+
+  // A modelled position that uses a fallback glyph prints only on a host whose fallback fonts are production's image's
+  // (`packFallbackGuard.ts`); otherwise the page never becomes ready and says why.
+  useEffect(() => {
+    if (!dataReady || !fontsReady) return;
+    const verdict = fallbackFontsVerdict(document);
+    if (verdict === null) setFallbackOk(true); else reportFontFailure(verdict);
+  }, [dataReady, fontsReady]);
 
   useEffect(() => {
     if (!dataReady) return;
@@ -279,5 +289,5 @@ export function usePrintReady(dataReady: boolean, expectedCharts: number): boole
     return () => window.clearInterval(timer);
   }, [dataReady, expectedCharts]);
 
-  return chartsReady && fontsReady;
+  return chartsReady && fontsReady && fallbackOk;
 }

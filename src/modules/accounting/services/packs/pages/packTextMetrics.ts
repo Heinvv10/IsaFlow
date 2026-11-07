@@ -58,6 +58,14 @@ export const PAGE_WIDTH_MM = {
 export type PageOrientation = keyof typeof PAGE_BOX_MM;
 
 /**
+ * THE WIDTH PRODUCTION PRINTS A PAGE'S CONTENT AT, IN CSS PIXELS: not 174mm (657.6px) nor 261mm (986.5px). Measured
+ * in the production Gotenberg image through the pack stylesheet (its `@page { size: A4 }` rules) and the transports'
+ * margins: a line wraps in the PDF exactly where it wraps in a page laid out this wide, to 1/64px
+ * (`tests/unit/printParity/packPrintContentWidth.test.ts`). Playwright's own PDF snaps the box to 658 and 987.
+ */
+export const PRINT_CONTENT_PX: Readonly<Record<PageOrientation, number>> = { portrait: 658.390625, landscape: 987.390625 };
+
+/**
  * HOW WIDE A CHARACTER OF IBM PLEX SANS IS, in ems of the type size.
  *
  * NOT one average, and that is the correction that mattered. A single mean —

@@ -24,7 +24,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { bundlePrintPages } from './support/bundlePrintPages';
 
 const HOST = 'http://trend.chart.local/';
@@ -34,7 +35,7 @@ let bundle: string;
 
 beforeAll(async () => {
   bundle = await bundlePrintPages(path.join(__dirname, 'support/ratioTrendChartEntry.tsx'));
-  browser = await chromium.launch();
+  browser = await launchPrintChromium();
 });
 
 afterAll(async () => {

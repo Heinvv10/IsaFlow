@@ -5,13 +5,14 @@
  * the "Debt-to-equity" label (56px) held a column open that its 50px figure alone would not.
  */
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { input } from '../services/packs/fixtures/packGridInputs';
 import { printBoardPack } from './renderPackPdf';
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 afterEach(() => { vi.restoreAllMocks(); });
 it('net-debit revenue at k=273841963: printed with nothing past the edge, or refused', async () => {

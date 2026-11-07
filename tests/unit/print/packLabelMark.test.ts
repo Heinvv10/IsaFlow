@@ -5,13 +5,13 @@
  * the text. `packFigureFit.labelWidestPiecePx` charges the mark to the LAST piece of the label, not to the longest:
  *  - in Chromium, the mark never wraps away from the piece it follows, so a label whose last piece and mark are the
  *    widest is at least that wide (measured with the real component's markup, nothing modelled);
- *  - the model's narrowest label is Chromium's, never short and at most a pixel over, at every weight a row is set in
+ *  - the model's narrowest label is Chromium's, never short and at most 1/16px over, at every weight a row is set in
  *    and for marks of one and two digits. Charging the mark to the longest word over-refuses a "Telecommunications
  *    costs" row by the mark's width; leaving it off under-charges a "Total telecommunications" row.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
-import { chromium } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { FootnoteMarker } from '@/components/accounting/packs/primitives/FootnoteMarker';
@@ -20,7 +20,7 @@ import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks
 import { measure } from './measureWidths';
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
 const mark = (n: number): string => renderToStaticMarkup(createElement(FootnoteMarker, { number: n }));
@@ -30,7 +30,7 @@ const oneLine = (html: string) => `<span style="white-space:nowrap">${html}</spa
 /** Labels whose LAST piece, with its mark, is the widest: the mark decides their width only if it stays with it. */
 const LAST_IS_WIDEST = [
   'Revenue', 'Cost of telecommunications', 'Net (loss)', 'Rental 2024', 'Interest at 12%', 'Profit pre-tax',
-  'Other income.', 'Opex: administration', 'Fy2024/25',
+  'Other income.', 'Opex: administration', 'Fy2024/25', 'R&D',
 ];
 /** Labels whose longest piece comes first: the mark after the short last piece adds nothing. */
 const LONGEST_FIRST = ['Telecommunications costs', 'Administrative fees', 'Depreciation and other'];
@@ -46,19 +46,21 @@ describe('in Chromium, a footnote mark wraps with the piece it follows', () => {
       { probe: 'label' as const, text: label, weight, html: minContent(`${label}${mark(n)}`) },
       { probe: 'label' as const, text: last, weight, html: oneLine(`${last}${mark(n)}`) },
     ]));
-    const wrapped = cases.flatMap((c, i) => (res[2 * i]!.widthPx < res[2 * i + 1]!.widthPx - 0.01
+    // Each width is rounded up to Chromium's 1/64px on its own: two units apart is the same line; a mark that wrapped
+    // away would take pixels off.
+    const wrapped = cases.flatMap((c, i) => (res[2 * i]!.widthPx < res[2 * i + 1]!.widthPx - 2 / 64 - 1e-6
       ? [`${c.label}${c.n}: ${res[2 * i]!.widthPx} < ${res[2 * i + 1]!.widthPx}`] : []));
     expect(wrapped).toEqual([]);
   });
 });
 
 describe('the model charges the mark to the last piece', () => {
-  it.each(WEIGHTS)('weight %i: the narrowest label is Chromium\'s, never short and at most a pixel over', async (weight) => {
+  it.each(WEIGHTS)('weight %i: the narrowest label is Chromium\'s, never short and at most 1/16px over', async (weight) => {
     const cases = [...LAST_IS_WIDEST, ...LONGEST_FIRST].flatMap((label) => MARKS.map((n) => ({ label, n })));
     const res = await measure(browser, cases.map(({ label, n }) => ({ probe: 'label' as const, text: label, weight, html: minContent(`${label}${mark(n)}`) })));
     const wrong = cases.flatMap(({ label, n }, i) => {
       const model = labelWidestPiecePx(label, n, weight);
-      return model < res[i]!.widthPx - 0.01 || model > res[i]!.widthPx + 1 ? [`${label}${n}: model ${model}, Chromium ${res[i]!.widthPx}`] : [];
+      return model < res[i]!.widthPx - 1e-6 || model > res[i]!.widthPx + 1 / 16 + 1e-6 ? [`${label}${n}: model ${model}, Chromium ${res[i]!.widthPx}`] : [];
     });
     expect(wrong).toEqual([]);
   });
@@ -66,7 +68,7 @@ describe('the model charges the mark to the last piece', () => {
   it('a mark after an ideograph or an emoji may wrap on its own: the model is never short', async () => {
     const cases = MAY_BREAK.flatMap((label) => MARKS.map((n) => ({ label, n })));
     const res = await measure(browser, cases.map(({ label, n }) => ({ probe: 'label' as const, text: label, html: minContent(`${label}${mark(n)}`) })));
-    const short = cases.filter(({ label, n }, i) => labelWidestPiecePx(label, n, 400) < res[i]!.widthPx - 0.01).map(({ label }) => label);
+    const short = cases.filter(({ label, n }, i) => labelWidestPiecePx(label, n, 400) < res[i]!.widthPx - 1e-6).map(({ label }) => label);
     expect(short).toEqual([]);
   });
 

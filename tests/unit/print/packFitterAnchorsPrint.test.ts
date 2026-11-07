@@ -9,7 +9,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
-import { chromium } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { log } from '@/lib/logger';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
@@ -25,7 +25,7 @@ const SHAPES: Array<[string, Page6Shape]> = [
 ];
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
 /** The superscripts and the footnote list of page `id`, read off the markup the app renders. */
