@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
 import { textExactPx, type FigureWeight } from '@/modules/accounting/services/packs/pages/packFigureWidth';
-import type { KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { labelMarkExactPx, type KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { kpiTileLines } from '@/modules/accounting/services/packs/pages/packKpiLayout';
 import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
 import { linesForText } from '@/modules/accounting/services/packs/pages/packLineWrap';
@@ -42,13 +42,13 @@ function* lcg(seed: number): Generator<number> { let s = seed; for (;;) { s = (s
 
 /**
  * How many over by a unit each set may have. Measured: grid 353 of 630, random 297 of 600, labels 107 of 128, deltas 24
- * of 48, the adversary's lines 2 of 57, mixed 723 of 1,500 (661 before the margin grew past 512px), headings 124 of 289,
- * soft hyphens 48 of 94, long lines 6,862 of 17,996 (the noise margin, `packGlyphRuler.fitMarginUnits`, takes a unit
+ * of 48, the adversary's lines 2 of 57 and mixed 723 of 1,500 (0 and 665 at a flat half-unit margin), headings 124 of 289,
+ * soft hyphens 84 of 148, long lines 6,862 of 17,996 (the noise margin, `packGlyphRuler.fitMarginUnits`, takes a unit
  * wherever an exact sum's fraction of a unit is past one less the margin; a heading's mark box and a soft hyphen's
  * hyphen are rounded up on their own). The caps are those and about 5% of headroom (3 lines on the adversary's 57; 2 of
  * a set of 48).
  */
-const OVER = { grid: 370, random: 315, labels: 115, deltas: 26, adversary: 3, mixed: 760, headings: 131, softHyphen: 51, long: 7200 } as const;
+const OVER = { grid: 370, random: 315, labels: 115, deltas: 26, adversary: 3, mixed: 760, headings: 131, softHyphen: 88, long: 7200 } as const;
 
 it('the 630-case grid: never narrower than Chromium', async () => {
   const texts = ['(133 500 000)', '9 000 000', 'Telecommunications', 'AVATAR WAVE', 'Revenue', '45.0%', 'To', 'xy', 'Operating expenses', 'W', 'nnnnnnnnnnnnnnnnnnnn', 'R&D', 'Ff', 'office', 'VAT'];
@@ -145,8 +145,9 @@ it('a text that ends at a soft hyphen keeps the hyphen\'s room on its last line 
   const cases: Case[] = texts.flatMap((text) => [
     ...(text.endsWith(' ') ? [null] : [null, 3]).map((mark) => fillCase(`kpi label ${JSON.stringify(text)}^${mark}`, `<span class="pack-kpi-label">${text}${mark === null ? '' : `<sup class="pack-footnote-marker">${mark}</sup>`}</span>`,
       (px) => kpiTileLines(tile(text, mark), px).label)),
-    ...WEIGHTS.map((w) => fillCase(`table label ${w} ${JSON.stringify(text)}`, `<span style="font-size:12px;font-weight:${w};white-space:normal">${text}</span>`,
-      (px) => linesForText(pieces(text), (t, hyphen) => textExactPx(t, 12, w, hyphen), 0, px, 0))),
+    ...WEIGHTS.flatMap((w) => (text.endsWith(' ') ? [null] : [null, 3]).map((mark) => fillCase(`table label ${w} ${JSON.stringify(text)}^${mark}`,
+      `<span style="font-size:12px;font-weight:${w};white-space:normal">${text}${mark === null ? '' : `<sup class="pack-footnote-marker">${mark}</sup>`}</span>`,
+      (px) => linesForText(pieces(text), (t, hyphen) => textExactPx(t, 12, w, hyphen), labelMarkExactPx(mark, w), px, 0)))),
   ]);
   report('softHyphen', await hold(browser, cases, OVER.softHyphen), cases.length);
   // A soft hyphen alone after a space: Chromium keeps the hyphen's room after the words and hangs the space; the model
