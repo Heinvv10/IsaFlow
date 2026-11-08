@@ -116,6 +116,16 @@ describe('the preview', () => {
     const id = await invoice(c, await customer(c, 'Euro', 3, 'statement_months'), { currency: 'EUR' });
     expect((await preview(admin, c)).rows.find((r) => r.id === id)).toMatchObject({ currencyCode: 'EUR', balance: 1150 });
   });
+
+  it('a skipped customer\'s balance is in rands: a foreign invoice at its rate', async () => {
+    const c = await company();
+    await pool.query('UPDATE companies SET fx_documents_enabled = true WHERE id = $1', [c]);
+    const none = await customer(c, 'Euro No Terms', null, null);
+    const id = await invoice(c, none, { currency: 'EUR' });
+    await pool.query('UPDATE customer_invoices SET exchange_rate = 20, functional_total = 23000 WHERE id = $1', [id]);
+    await invoice(c, none); // R1 150 in rands
+    expect((await preview(admin, c)).skippedCustomers).toEqual([{ customerId: none, customerName: 'Euro No Terms', openInvoices: 2, balance: 24150 }]);
+  });
 });
 
 describe('apply', () => {

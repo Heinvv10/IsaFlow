@@ -71,7 +71,7 @@ export async function previewReapplyCustomerTerms(companyId: string, opts: { cus
     SELECT ci.id, ci.invoice_number, c.id AS customer_id, c.name AS customer_name, ci.status,
            to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date, to_char(ci.due_date, 'YYYY-MM-DD') AS due_date,
            ci.due_date_source, (ci.total_amount - COALESCE(ci.amount_paid, 0))::FLOAT8 AS balance,
-           ((ci.total_amount - COALESCE(ci.amount_paid, 0)) * COALESCE(NULLIF(ci.exchange_rate, 0), 1))::FLOAT8 AS functional_balance,
+           public.fx_functional((ci.total_amount - COALESCE(ci.amount_paid, 0))::NUMERIC(15,2), COALESCE(NULLIF(ci.exchange_rate, 0), 1))::FLOAT8 AS functional_balance,
            COALESCE(ci.currency_code, 'ZAR') AS currency_code, c.payment_terms, c.payment_terms_type
     FROM customer_invoices ci
     JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
