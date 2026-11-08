@@ -207,3 +207,34 @@ describe('the recalculated date needs the customer\'s terms', () => {
     expect(screen.queryByText(HINT)).toBeNull();
   });
 });
+
+describe('clearing the due date (markClearedDue)', () => {
+  const statusText = () => screen.getAllByRole('status').map((e) => e.textContent).join(' | ');
+  const clearDue = () => {
+    const due = screen.getByLabelText('Due date');
+    fireEvent.change(due, { target: { value: '' } });
+    fireEvent.blur(due);
+  };
+
+  it.each(['terms', 'manual'])('a stored %s due date cleared: no PUT, and the hold message says why', async (source) => {
+    serve(source);
+    render(<EditPage />);
+    await settle();
+    clearDue();
+    await advance(5_000);
+    expect(puts()).toHaveLength(0);
+    expect(statusText()).toMatch(/The due date cannot be cleared here/);
+  });
+
+  it('a draft with no stored due date, its empty field "cleared": nothing is held and no empty dueDate is ever sent', async () => {
+    serveInvoice(undefined, { ...DRAFT, due_date: null, due_date_source: 'terms' });
+    render(<EditPage />);
+    await settle();
+    clearDue();
+    type(notes(), 'a note');
+    await advance(1_500);
+    expect(statusText()).not.toMatch(/cannot be cleared/);
+    expect(puts()).toHaveLength(1);
+    expect(bodyOf(puts()[0]!).dueDate).toBeUndefined();
+  });
+});
