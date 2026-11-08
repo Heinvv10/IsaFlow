@@ -19,11 +19,10 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { dueDateFromTerms, readTerms } from '../shared/paymentTerms';
 import type { DueDateSource } from '../shared/dueDateSource';
 import {
-  REAPPLY_EPS as EPS, REAPPLY_MAX, REAPPLY_UUID as UUID, ReapplyRefusal, fmtTerms, parseReapplyItems, previewTick,
-  reapplyDecision, sourceOfRow, type ReapplyResult,
+  REAPPLY_EPS as EPS, REAPPLY_MAX, REAPPLY_UUID as UUID, ReapplyRefusal, contactTermsOf, fmtTerms, newDueFromTerms,
+  parseReapplyItems, previewTick, reapplyDecision, sourceOfRow, tallySkipped, type ReapplyResult, type SkippedTally,
 } from '../shared/reapplyTermsShared';
 import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 
@@ -80,21 +79,13 @@ export async function previewReapplyTerms(companyId: string, opts: { supplierId?
   `) as DbRow[];
 
   const out: ReapplyRow[] = [];
-  const skipped = new Map<string, ReapplySkippedSupplier>();
+  const skipped = new Map<string, SkippedTally>();
   let unchanged = 0;
   for (const r of rows) {
-    const days = r.payment_terms == null ? null : Number(r.payment_terms);
-    const type = r.payment_terms_type == null ? null : String(r.payment_terms_type);
+    const { days, type } = contactTermsOf(r);
     const balance = Number(r.balance);
-    const newDue = readTerms(days, type) ? dueDateFromTerms(String(r.invoice_date), days, type) : null;
-    if (newDue === null) {
-      const s = skipped.get(String(r.supplier_id))
-        ?? { supplierId: String(r.supplier_id), supplierName: String(r.supplier_name), openBills: 0, balance: 0 };
-      s.openBills += 1;
-      s.balance = Math.round((s.balance + balance) * 100) / 100;
-      skipped.set(s.supplierId, s);
-      continue;
-    }
+    const newDue = newDueFromTerms(String(r.invoice_date), days, type);
+    if (newDue === null) { tallySkipped(skipped, String(r.supplier_id), String(r.supplier_name), balance); continue; }
     const current = r.due_date == null ? null : String(r.due_date);
     if (current === newDue) { unchanged += 1; continue; }
     const source = sourceOfRow(r.due_date_source);
@@ -107,7 +98,7 @@ export async function previewReapplyTerms(companyId: string, opts: { supplierId?
   }
   return {
     rows: out.slice(0, REAPPLY_MAX), unchanged, truncated: out.length > REAPPLY_MAX,
-    skippedSuppliers: [...skipped.values()],
+    skippedSuppliers: [...skipped.values()].map((s) => ({ supplierId: s.id, supplierName: s.name, openBills: s.count, balance: s.balance })),
   };
 }
 
@@ -135,9 +126,8 @@ export async function applyReapplyTerms(companyId: string, rawItems: unknown): P
     // A date or source that moved since the preview (an agreed date set by hand, say) is never overwritten unseen;
     // unknown sources read as `legacy`, as the preview does (reapplyDecision).
     const from = d?.due_date == null ? null : String(d.due_date);
-    const days = d?.payment_terms == null ? null : Number(d.payment_terms);
-    const type = d?.payment_terms_type == null ? null : String(d.payment_terms_type);
-    const newDue = d && readTerms(days, type) ? dueDateFromTerms(String(d.invoice_date), days, type) : null;
+    const { days, type } = contactTermsOf(d);
+    const newDue = d ? newDueFromTerms(String(d.invoice_date), days, type) : null;
     const decision = reapplyDecision(item, { dueDate: from, source: sourceOfRow(d?.due_date_source) }, newDue);
     if ('skip' in decision) { result.skipped.push({ id: item.id, reason: decision.skip }); continue; }
     await sql`

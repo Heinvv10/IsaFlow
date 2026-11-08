@@ -117,9 +117,11 @@ describe('reapply_customer_payment_terms', () => {
     const bad = await run({ dry_run: true, items: [{ invoice_id: 'nope', due_date: '2026-02-30' }] });
     expect(bad.isError).toBe(true);
     expect(text(bad)).toContain('must be an invoice id');
-    const out = body(await run({ dry_run: true, items: [
+    const withItems = await run({ dry_run: true, items: [
       { invoice_id: INV, due_date: '2026-11-15', ...FROM }, { invoice_id: INV2, due_date: '2026-11-15', ...FROM },
-    ] }));
+    ] });
+    expect(withItems.wroteNothing).toBe(true); // a dry run that carries items still frees the idempotency key
+    const out = body(withItems);
     expect(out.items_check).toEqual([{ invoice_id: INV, would: 'update' }, { invoice_id: INV2, would: 'not_listed' }]);
     const stale = body(await run({ dry_run: true, items: [{ invoice_id: INV, due_date: '2026-12-01', ...FROM }] }));
     expect(stale.items_check).toEqual([{ invoice_id: INV, would: 'terms_changed' }]);

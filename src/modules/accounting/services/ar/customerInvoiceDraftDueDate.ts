@@ -9,8 +9,16 @@ import { dueDateForContact } from '../core/paymentTermsResolver';
 import { redatedDueDate } from '../shared/draftDueDate';
 import { dueDateSourceOf, type DueDateSource } from '../shared/dueDateSource';
 
-/** The locked row, as the edit selects it: `invoice_date` and `due_date` as YYYY-MM-DD text, `customer_id` COALESCE(client_id, customer_id). */
-type StoredRow = Record<string, unknown>;
+/**
+ * The locked row, as the edit selects it: dates as YYYY-MM-DD text, `customer_id` = COALESCE(client_id, customer_id).
+ * Typed for the three facts read; the row carries more.
+ */
+interface StoredRow {
+  invoice_date?: unknown;
+  due_date?: unknown;
+  due_date_source?: unknown;
+  customer_id?: unknown;
+}
 
 export async function draftEditDueDate(
   companyId: string,

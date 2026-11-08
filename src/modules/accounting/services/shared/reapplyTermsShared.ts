@@ -4,7 +4,7 @@
  * lock. The SQL stays in `ap/reapplyTerms.ts` and `ar/reapplyTerms.ts`: the tables, statuses and lock helpers differ.
  */
 import { localDateFromISO } from '@/lib/dateUtils';
-import { describePaymentTerms, readTerms } from './paymentTerms';
+import { describePaymentTerms, dueDateFromTerms, readTerms } from './paymentTerms';
 import { isDueDateSource, type DueDateSource } from './dueDateSource';
 
 /** The most documents one preview lists, and one apply writes. */
@@ -52,6 +52,29 @@ export function parseReapplyItems(raw: unknown, noun: 'bill' | 'invoice' = 'bill
 
 /** A stored source as the preview reads it: an unknown one is `legacy`. */
 export const sourceOfRow = (v: unknown): DueDateSource => (isDueDateSource(v) ? v : 'legacy');
+
+/** A contact's terms columns as the services read them: a number and a type, each null when empty. */
+export function contactTermsOf(row: { payment_terms?: unknown; payment_terms_type?: unknown } | undefined): { days: number | null; type: string | null } {
+  return {
+    days: row?.payment_terms == null ? null : Number(row.payment_terms),
+    type: row?.payment_terms_type == null ? null : String(row.payment_terms_type),
+  };
+}
+
+/** The due date the contact's OWN terms give an invoice date; null when its terms are not set (never the company default). */
+export function newDueFromTerms(invoiceDate: string, days: number | null, type: string | null): string | null {
+  return readTerms(days, type) ? dueDateFromTerms(invoiceDate, days, type) : null;
+}
+
+export interface SkippedTally { id: string; name: string; count: number; balance: number }
+
+/** Count one more open document of a contact whose terms are not set, and add its balance (to the cent). */
+export function tallySkipped(tally: Map<string, SkippedTally>, id: string, name: string, balance: number): void {
+  const s = tally.get(id) ?? { id, name, count: 0, balance: 0 };
+  s.count += 1;
+  s.balance = Math.round((s.balance + balance) * 100) / 100;
+  tally.set(id, s);
+}
 
 /** The contact's terms in words, or "Not set". */
 export function fmtTerms(days: number | null, type: string | null): string {

@@ -4,10 +4,9 @@
  * audited).
  *
  * Only an OPEN posted invoice: approved, sent, overdue or part-paid. A draft or pending invoice has its own editor; a
- * paid or cancelled one owes nothing. The due date is
- * outside the approval digest (migration 865), so the approval stands. Only due_date and due_date_source move
- * ('manual'); the history is the database's: migration 962's capture records who, when, through which channel, and the
- * date and source before and after.
+ * paid or cancelled one owes nothing. The due date is outside the approval digest (migration 865), so the approval
+ * stands. Only due_date and due_date_source move ('manual'); the history is the database's: migration 962's capture
+ * records who, when, through which channel, and the date and source before and after.
  *
  * Runs in the request's transaction (withAuth): the invoice row is locked, its status and dates read under the lock, and
  * the UPDATE names the same statuses, so a payment or cancellation committing first is seen, never overwritten.

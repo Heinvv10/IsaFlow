@@ -81,4 +81,23 @@ describe('supplier re-apply page (unchanged words and route)', () => {
     expect(screen.getByRole('link', { name: 'INV-1' }).getAttribute('href')).toBe('/accounting/supplier-invoices/i-1');
     expect(screen.getByRole('button', { name: /re-date 1 bill/i })).toBeTruthy();
   });
+
+  it('POSTs only the ticked, pre-selected bills as previewed to the supplier route', async () => {
+    const preview = { ...SUPPLIER_PREVIEW, rows: [
+      { ...ROW, supplierId: 's-1', supplierName: 'Vendor' }, { ...HAND, supplierId: 's-1', supplierName: 'Vendor' },
+    ] };
+    vi.mocked(apiFetch).mockImplementation(async (_u, init) => (init?.method === 'POST' ? ok({ updated: [{ id: 'i-1', invoiceNumber: 'INV-1', from: '2026-10-16', to: '2026-12-31' }], skipped: [{ id: 'i-9', reason: 'date_changed' }] }) : ok(preview)));
+    render(<SupplierPage />);
+    await screen.findByText('INV-1');
+    expect((screen.getByLabelText('Re-date INV-1') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText('Re-date INV-2') as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: /re-date 1 bill/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-date' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]![0]).toBe('/api/accounting/supplier-invoices-reapply-terms');
+    expect(JSON.parse(String((posts()[0]![1] as RequestInit).body))).toEqual({
+      items: [{ id: 'i-1', dueDate: '2026-12-31', fromDueDate: '2026-10-16', fromSource: 'legacy' }],
+    });
+    expect(await screen.findByText(/Re-dated 1 bill\. Skipped 1: due date changed since the preview\./)).toBeTruthy();
+  });
 });

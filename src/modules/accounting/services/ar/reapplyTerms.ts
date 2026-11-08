@@ -22,11 +22,10 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { dueDateFromTerms, readTerms } from '../shared/paymentTerms';
 import type { DueDateSource } from '../shared/dueDateSource';
 import {
-  REAPPLY_EPS as EPS, REAPPLY_MAX, REAPPLY_UUID as UUID, ReapplyRefusal, fmtTerms, parseReapplyItems, previewTick,
-  reapplyDecision, sourceOfRow, type ReapplyResult,
+  REAPPLY_EPS as EPS, REAPPLY_MAX, REAPPLY_UUID as UUID, ReapplyRefusal, contactTermsOf, fmtTerms, newDueFromTerms,
+  parseReapplyItems, previewTick, reapplyDecision, sourceOfRow, tallySkipped, type ReapplyResult, type SkippedTally,
 } from '../shared/reapplyTermsShared';
 import { lockCustomerInvoiceForUpdate } from './customerInvoiceRowLock';
 
@@ -83,20 +82,12 @@ export async function previewReapplyCustomerTerms(companyId: string, opts: { cus
   `) as DbRow[];
 
   const out: ArReapplyRow[] = [];
-  const skipped = new Map<string, ArReapplySkippedCustomer>();
+  const skipped = new Map<string, SkippedTally>();
   let unchanged = 0;
   for (const r of rows) {
-    const days = r.payment_terms == null ? null : Number(r.payment_terms);
-    const type = r.payment_terms_type == null ? null : String(r.payment_terms_type);
-    const newDue = readTerms(days, type) ? dueDateFromTerms(String(r.invoice_date), days, type) : null;
-    if (newDue === null) {
-      const s = skipped.get(String(r.customer_id))
-        ?? { customerId: String(r.customer_id), customerName: String(r.customer_name), openInvoices: 0, balance: 0 };
-      s.openInvoices += 1;
-      s.balance = Math.round((s.balance + Number(r.functional_balance)) * 100) / 100;
-      skipped.set(s.customerId, s);
-      continue;
-    }
+    const { days, type } = contactTermsOf(r);
+    const newDue = newDueFromTerms(String(r.invoice_date), days, type);
+    if (newDue === null) { tallySkipped(skipped, String(r.customer_id), String(r.customer_name), Number(r.functional_balance)); continue; }
     const current = r.due_date == null ? null : String(r.due_date);
     if (current === newDue) { unchanged += 1; continue; }
     const source = sourceOfRow(r.due_date_source);
@@ -109,7 +100,7 @@ export async function previewReapplyCustomerTerms(companyId: string, opts: { cus
   }
   return {
     rows: out.slice(0, REAPPLY_MAX), unchanged, truncated: out.length > REAPPLY_MAX,
-    skippedCustomers: [...skipped.values()],
+    skippedCustomers: [...skipped.values()].map((s) => ({ customerId: s.id, customerName: s.name, openInvoices: s.count, balance: s.balance })),
   };
 }
 
@@ -132,9 +123,8 @@ export async function applyReapplyCustomerTerms(companyId: string, rawItems: unk
       WHERE id = ${String(row.customer_id)}::UUID AND company_id = ${companyId}::UUID
     `) as DbRow[];
     const from = row.due_date == null ? null : String(row.due_date);
-    const days = t?.payment_terms == null ? null : Number(t.payment_terms);
-    const type = t?.payment_terms_type == null ? null : String(t.payment_terms_type);
-    const newDue = t && readTerms(days, type) ? dueDateFromTerms(String(row.invoice_date), days, type) : null;
+    const { days, type } = contactTermsOf(t);
+    const newDue = t ? newDueFromTerms(String(row.invoice_date), days, type) : null;
     const decision = reapplyDecision(item, { dueDate: from, source: sourceOfRow(row.due_date_source) }, newDue);
     if ('skip' in decision) { result.skipped.push({ id: item.id, reason: decision.skip }); continue; }
     await sql`
