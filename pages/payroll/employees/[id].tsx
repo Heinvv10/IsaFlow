@@ -20,6 +20,7 @@ import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
 import { EmployeeReadinessCard } from '@/components/payroll/EmployeeReadinessCard';
 import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
+import { EmployeeFringeBenefitsCard } from '@/components/payroll/EmployeeFringeBenefitsCard';
 import { EmployeePayslipsCard } from '@/components/payroll/EmployeePayslipsCard';
 import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -157,6 +158,8 @@ export default function EmployeeDetailPage() {
                 onChange={(id) => setEmployee({ ...employee, occupationalLevelId: id })}
               />
             )}
+
+            {employeeId && <EmployeeFringeBenefitsCard employeeId={employeeId} />}
 
             {employeeId && <div id="employee-bank" className={ANCHOR}><EmployeeBankCard employeeId={employeeId} onChanged={() => setBankVersion(v => v + 1)} /></div>}
 

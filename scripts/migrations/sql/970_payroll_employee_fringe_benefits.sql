@@ -1,0 +1,63 @@
+-- 970: Taxable fringe-benefit inputs per employee (wave 5, PR FB).
+--
+-- A company vehicle (code 3802) and a travel allowance (code 3701) are taxed by
+-- how much of their value is remuneration, and that depends on facts about the
+-- employee, not on the pay component: the vehicle's determined value, whether a
+-- maintenance plan was included in its purchase price, and whether the employer
+-- is satisfied that at least 80% of its use will be for business.
+--
+--   Vehicle (Seventh Schedule para 7; PAYE-GEN-01-G21 (2027) Rev 1 p. 5 / PDF page 5):
+--     3.5% of the determined value a month, 3.25% with a maintenance plan.
+--   Both kinds (G21 p. 5 for travel; BRS V25.3.0 code 4582 p. 105 for 3802):
+--     80% of the amount is remuneration for PAYE, or 20% where the employer is
+--     satisfied that at least 80% of the use is business.
+--
+-- One row per period of use. A row is never deleted (a finalised payslip was
+-- costed from it): it is ended with effective_to. Overlapping rows of one kind
+-- for one employee are refused by the service under the company payroll lock;
+-- the partial unique index below only guarantees a single OPEN row per kind.
+-- employee_id is the payroll_employees id; created_by is a users.id (TEXT).
+
+SET LOCAL lock_timeout = '5s';
+
+CREATE TABLE IF NOT EXISTS payroll_employee_fringe_benefits (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  employee_id UUID NOT NULL REFERENCES payroll_employees(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('company_vehicle', 'travel_allowance')),
+  determined_value NUMERIC(14, 2) CHECK (determined_value IS NULL OR determined_value > 0),
+  maintenance_plan BOOLEAN NOT NULL DEFAULT FALSE,
+  business_use_at_least_80 BOOLEAN NOT NULL DEFAULT FALSE,
+  effective_from DATE NOT NULL,
+  effective_to DATE,
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT payroll_fringe_dates_ordered CHECK (effective_to IS NULL OR effective_to >= effective_from),
+  -- A vehicle benefit is a percentage of a value: no value, no benefit. A travel allowance has no determined value.
+  CONSTRAINT payroll_fringe_kind_shape CHECK (
+    (kind = 'company_vehicle' AND determined_value IS NOT NULL)
+    OR (kind = 'travel_allowance' AND determined_value IS NULL AND maintenance_plan = FALSE)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_payroll_fringe_employee
+  ON payroll_employee_fringe_benefits (company_id, employee_id, kind, effective_from);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_fringe_one_open_per_kind
+  ON payroll_employee_fringe_benefits (employee_id, kind) WHERE effective_to IS NULL;
+
+ALTER TABLE payroll_employee_fringe_benefits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_employee_fringe_benefits FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON payroll_employee_fringe_benefits;
+-- The active company AND membership (migration 897's form).
+CREATE POLICY tenant_isolation ON payroll_employee_fringe_benefits FOR ALL TO app_user
+  USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
+  WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
+-- No DELETE: a fringe row is ended, never removed.
+REVOKE DELETE ON payroll_employee_fringe_benefits FROM app_user;
+GRANT SELECT, INSERT, UPDATE ON payroll_employee_fringe_benefits TO app_user;
+
+DROP TRIGGER IF EXISTS trg_payroll_fringe_updated_at ON payroll_employee_fringe_benefits;
+CREATE TRIGGER trg_payroll_fringe_updated_at BEFORE UPDATE ON payroll_employee_fringe_benefits
+  FOR EACH ROW EXECUTE FUNCTION accounting_updated_at();

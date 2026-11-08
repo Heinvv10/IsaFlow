@@ -58,6 +58,19 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
       AND a.created_at > h.calculated_at
     ORDER BY 1
   `) as DbRow[];
+  // A fringe benefit (company vehicle, travel allowance) created or ended after calculation: audit rows of entity
+  // payroll_fringe_benefit, the row never deleted, so its employee is read from it (fringeBenefitService).
+  changed.push(...((await sql`
+    SELECT DISTINCT e.employee_number
+    FROM payroll_run_headers h
+    JOIN audit_log a ON a.company_id = h.company_id AND a.entity_type = 'payroll_fringe_benefit'
+    JOIN payroll_employee_fringe_benefits fb ON fb.id = a.entity_id AND fb.company_id = h.company_id
+    JOIN payroll_employees e ON e.id = fb.employee_id AND e.company_id = h.company_id
+    WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+      AND e.id = ANY(${ids}::uuid[])
+      AND a.created_at > h.calculated_at
+    ORDER BY 1
+  `) as DbRow[]));
   // An end date or termination detail changed after calculation (the 888 entity history): it moves who the run pays,
   // what the termination pay-outs and the leaver rule read. Unreadable history fails closed.
   const movedEnd = await payrollTermsChangedSinceCalculation(companyId, runId, ids);
@@ -76,7 +89,7 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
   if (changed.length > 0) {
     return {
       code: 'components_changed_after_calculation',
-      detail: `Pay component dates, an end date, termination details or an s18A receipt tick changed after this run was calculated for ${[...new Set(changed.map((r) => String(r.employee_number)))].sort().join(', ')}: `
+      detail: `Pay component dates, a fringe benefit, an end date, termination details or an s18A receipt tick changed after this run was calculated for ${[...new Set(changed.map((r) => String(r.employee_number)))].sort().join(', ')}: `
         + 'the run still holds the old figures. Recalculate this run, then approve it.',
     };
   }
