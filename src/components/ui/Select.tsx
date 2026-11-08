@@ -9,7 +9,7 @@ import { ChevronDown, X } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { SelectDropdown, selectOptionId } from './SelectDropdown';
 import { useSelectKeyboard } from './useSelectKeyboard';
-import { placePanel, type PanelPlacement } from './panelPlacement';
+import { placePanel } from './panelPlacement';
 
 export interface SelectOption {
   value: string;
@@ -89,7 +89,7 @@ export function Select(props: SelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [activeValue, setActiveValue] = useState<string | null>(null);
-  const [pos, setPos] = useState<{ left: number; width: number } & PanelPlacement>({ top: 0, left: 0, width: 0, maxHeight: 0 });
+  const [pos, setPos] = useState({ top: 0, bottom: 0, left: 0, width: 0 });
 
   const triggerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -114,11 +114,13 @@ export function Select(props: SelectProps) {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
     // A panel wider than its trigger (compact size) is pulled back inside the viewport instead of running off its right edge.
-    const compact = size !== 'md';
-    const panelWidth = Math.max(r.width, compact ? COMPACT_PANEL_MIN_WIDTH : 0);
+    const panelWidth = Math.max(r.width, size !== 'md' ? COMPACT_PANEL_MIN_WIDTH : 0);
     const left = Math.max(8, Math.min(r.left, document.documentElement.clientWidth - panelWidth - 8));
-    setPos({ ...placePanel(r, document.documentElement.clientHeight, wantedHeight), left, width: r.width });
-  }, [size, wantedHeight]);
+    setPos({ top: r.top, bottom: r.bottom, left, width: r.width });
+  }, [size]);
+
+  // Down or up is decided from the trigger's box at render, so a list that grows or shrinks as it is searched re-decides it.
+  const placement = placePanel(pos, typeof document === 'undefined' ? 0 : document.documentElement.clientHeight, wantedHeight);
 
   const closeDropdown = useCallback(() => { setOpen(false); setSearch(''); setActiveValue(null); }, []);
   const openDropdown = useCallback(() => { if (disabled) return; recalculate(); setOpen(true); setActiveValue(null); }, [disabled, recalculate]);
@@ -249,7 +251,7 @@ export function Select(props: SelectProps) {
               labelId={labelId}
               inputId={inputId}
               isMulti={isMulti}
-              pos={pos}
+              pos={{ ...placement, left: pos.left, width: pos.width }}
               minWidth={size !== 'md' ? COMPACT_PANEL_MIN_WIDTH : undefined}
               searchRef={searchRef}
               listRef={listRef}
