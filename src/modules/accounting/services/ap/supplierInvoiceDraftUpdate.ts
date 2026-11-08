@@ -167,7 +167,8 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     return next !== undefined && next !== stored[k];
   });
   if (lines) changed.push('lines');
-  if (redated.source !== null && dueDate !== storedDueDate) changed.push('dueDate'); // re-dated by the terms, not named by the caller
+  // Re-dated by the terms; not twice when the caller also sent that very date (it is already listed as a changed field).
+  if (redated.source !== null && dueDate !== storedDueDate && !changed.includes('dueDate')) changed.push('dueDate');
 
   return {
     invoiceId,

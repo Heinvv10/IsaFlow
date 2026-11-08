@@ -155,6 +155,14 @@ describeIfDb('update_supplier_invoice — drafts over a real ledger', () => {
       expect((await dueOf(hand))[0]).toEqual({ d: '2026-05-20', s: 'manual' });
     });
 
+    it('lists dueDate once when the caller sends the very date the terms give', async () => {
+      const id = await draft();
+      const r = await update(id, { invoice_date: '2026-05-03', due_date: '2026-06-02' }); // the terms' date for 3 May: re-dated, and named
+      expect(r.isError).toBeFalsy();
+      expect(JSON.parse(text(r)).changed).toEqual(['invoiceDate', 'dueDate']);
+      expect((await dueOf(id))[0]).toEqual({ d: '2026-06-02', s: 'terms' });
+    });
+
     it('a note alone, or payment_terms alone, re-dates nothing', async () => {
       const id = await draft();
       expect((await update(id, { reference: 'r2', payment_terms: 'net60' })).isError).toBeFalsy();
