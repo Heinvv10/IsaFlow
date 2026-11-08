@@ -28,6 +28,8 @@ export interface InvoiceLine {
   discount: number;
   /** The new-invoice page only: `discount` is the customer's default, not the user's (useContactDefaults). Never sent. */
   discountFromDefault?: boolean;
+  /** The new-invoice page only: `glAccountId` is the customer's default revenue account, not the user's pick. Never sent. */
+  accountFromDefault?: boolean;
   /** '' = uncoded. */
   glAccountId: string;
   /** The job (`projects`). */
@@ -54,6 +56,8 @@ interface Props {
   pricesIncludeVat?: boolean;
   /** Muted note saying where a defaulted line discount came from. */
   discountHint?: string;
+  /** Note saying the customer's default revenue account is not applied, and why (new page). */
+  accountHint?: string;
 }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
@@ -98,7 +102,7 @@ export function CodingPicker({ value, options, all, empty, onChange, label, disa
 }
 
 export function InvoiceLineItemsTable({
-  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, pricesIncludeVat, discountHint, billsTimeEntry,
+  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, pricesIncludeVat, discountHint, accountHint, billsTimeEntry,
 }: Props) {
   const [discountToggled, setDiscountToggled] = useState<boolean | null>(null);
   // Open whenever a line carries a discount, and not hideable: a discount the user cannot see is one they did not give.
@@ -124,6 +128,7 @@ export function InvoiceLineItemsTable({
         </div>
       </div>
       {discountHint && <p className="px-5 pt-3 text-xs text-gray-600 dark:text-gray-400">{discountHint}</p>}
+      {accountHint && <p role="status" className="px-5 pt-3 text-xs text-amber-700 dark:text-amber-400">{accountHint}</p>}
       {options.error && (
         <p className="px-5 pt-3 text-xs text-red-600 dark:text-red-400">
           {options.error}{' '}
@@ -154,7 +159,8 @@ export function InvoiceLineItemsTable({
               <td className="px-3 py-2"><input name="description" aria-label="Description" value={l.description} onChange={(e) => onUpdate(l.key, 'description', e.target.value)} placeholder="Item description" className={inp} />
                 {billsTimeEntry?.(l.key) && <span className="mt-1 inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/50 dark:text-sky-100">Time entry</span>}</td>
               {showIncomeType && <td className="px-3 py-2"><Select label="Income type" labelClassName="sr-only" size="sm" options={INCOME_TYPES} value={l.incomeType ?? 'other'} onChange={(v) => onUpdate(l.key, 'incomeType', v ?? 'other')} /></td>}
-              <td className="px-3 py-2"><CodingPicker label="Revenue account" value={l.glAccountId} options={options.accounts} all={options} empty="Default sales" onChange={(v) => onUpdate(l.key, 'glAccountId', v)} /></td>
+              <td className="px-3 py-2"><CodingPicker label="Revenue account" value={l.glAccountId} options={options.accounts} all={options} empty="Default sales" onChange={(v) => onUpdate(l.key, 'glAccountId', v)} />
+                {l.accountFromDefault && l.glAccountId !== '' && <span className="mt-1 block text-xs text-slate-600 dark:text-slate-400">from customer</span>}</td>
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="Job (Project Profitability)" value={l.projectId} options={options.projects} all={options} empty="No job" onChange={(v) => onUpdate(l.key, 'projectId', v)} /></td>}
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="CC2 project" value={l.cc2Id} options={options.cc2s} all={options} empty="No CC2 project" onChange={(v) => onUpdate(l.key, 'cc2Id', v)} /></td>}
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="BU" value={l.buId} options={options.bus} all={options} empty="No BU" onChange={(v) => onUpdate(l.key, 'buId', v)} /></td>}

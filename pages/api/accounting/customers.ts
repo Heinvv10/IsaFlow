@@ -22,6 +22,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { listCustomers } from '@/modules/accounting/services/core/contactDirectoryService';
+import { describeCustomerRevenueAccount } from '@/modules/accounting/services/core/contactRevenueAccount';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -95,14 +96,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                  c.default_price_list, c.credit_limit, c.is_active, c.cash_sale, c.accepts_electronic_invoices,
                  c.invoices_viewable_online, c.subject_to_drc_vat, c.statement_distribution,
                  c.auto_allocate_strategy, c.category_id, c.billing_address, c.shipping_address, c.notes,
-                 c.vat_number, c.registration_number, c.created_at,
+                 c.vat_number, c.registration_number, c.default_revenue_account_id, c.created_at,
                  d.value AS company_default_terms
           FROM customers c
           LEFT JOIN accounting_settings d ON d.company_id = c.company_id AND d.key = ${COMPANY_DEFAULT_TERMS_KEY}
           WHERE c.id = ${id}::uuid AND c.company_id = ${companyId} AND c.deleted_at IS NULL
         `) as Row[];
         if (found.length === 0) return apiResponse.notFound(res, 'Customer');
-        return apiResponse.success(res, withCompanyDefaultTerms(found[0]!, companyId));
+        // The stored default revenue account with its label and whether it may still be used (migration 966).
+        const revenueAccount = await describeCustomerRevenueAccount(companyId, found[0]!.default_revenue_account_id as string | null);
+        return apiResponse.success(res, { ...withCompanyDefaultTerms(found[0]!, companyId), default_revenue_account: revenueAccount });
       }
 
       const searchQuery = typeof q === 'string' ? q : null;
