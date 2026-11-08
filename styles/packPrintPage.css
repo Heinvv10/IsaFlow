@@ -256,16 +256,15 @@ html.print-mode .pack-pages {
    * `(1348.0%)` — one character wider, and page 3's tile row then ran past the
    * right edge of the paper, where content is not short but GONE. 23 and 21
    * were both printed; 22 is the largest that clears it on every fixture. */
-  line-height: 25pt; font-weight: 500;
+  font-size: 22pt; line-height: 25pt; font-weight: 500;
   white-space: nowrap;
-  /* AND 22pt IS THE LARGEST, NOT THE ONLY. The widest figure of each of the four columns sets that
-   * column's track (`nowrap` + `1fr`), so a net profit of (13 350 000) pulled the row wider than the
-   * 174mm measure and the last column went past the paper's edge. The component states the summed
-   * widths of those four figures in ems (`--pack-fit-ems`, `packFigureFit.ts`); the figure takes the
-   * smaller of 22pt and the size at which they fill the row, and never below 12pt (a figure stays larger than
-   * the pack's 9pt tile labels and table figures). Figures that fit print at 22pt as before. */
-  font-size: max(12pt, min(22pt, calc((100cqw - 3 * var(--pack-gutter)) / var(--pack-fit-ems, 1))));
 }
+/* AND 22pt IS THE LARGEST, NOT THE ONLY. A row whose widest figures do not fit the 174mm measure at 22pt
+ * carries `is-fitted` and `--pack-fit-size` (a whole pixel size, never below 16px = 12pt), set by
+ * `packFigureFit.ts` from the widths Chromium lays the figures out at; a row that fits carries neither and
+ * prints exactly as it always did. */
+.pack-kpi-tiles.is-fitted .pack-kpi-value { font-size: var(--pack-fit-size); }
+
 /* THE FOOTNOTES FOLLOW THE CONTENT THEY ANNOTATE. `margin-top: auto` pinned
  * them to the bottom margin of a flex column, which is invisible on a full
  * sheet and is what stranded two grey lines at the foot of page 5 under 44%

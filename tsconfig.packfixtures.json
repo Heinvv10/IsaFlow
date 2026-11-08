@@ -4,6 +4,6 @@
     "noEmit": true,
     "incremental": false
   },
-  "include": ["tests/unit/services/packs/fixtures/**/*.ts", "next-env.d.ts"],
+  "include": ["tests/unit/services/packs/fixtures/**/*.ts", "next-env.d.ts", "src/types/fontkit.d.ts"],
   "exclude": ["node_modules"]
 }

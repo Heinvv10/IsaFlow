@@ -23,6 +23,7 @@
  * page's requirement or leaking unapproved text.
  */
 
+import { stampFigureFits } from './packFigureFitStamp';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import {
   highlightsTitle,
@@ -248,7 +249,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // THE FRONT PAGES, THE BASIS PAGE, THE NUMBERING AND THE INTEGRITY GATE —
   // see `packDocumentAssembly`. The gate is still the last thing that
   // happens: a pack whose figures do not reconcile never becomes a document.
-  return assembleBoardPackDocument(
+  // Every table and KPI row carries the size its figures print at (`packFigureFitStamp`).
+  return stampFigureFits(assembleBoardPackDocument(
     body, input, generatedAt, trend, scale, currency, basis, comparativePeriod, draft, p,
-  );
+  ));
 }

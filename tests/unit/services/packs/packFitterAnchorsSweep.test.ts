@@ -55,6 +55,8 @@ describe('the 2,560-input shape sweep', () => {
     let columnsSilent = 0;
     let falseCompleteness = 0;
     let trimmedPages = 0;
+    const landscapeStatements: string[] = [];
+    const landscapePages: string[] = [];
     try {
       for (const shape of shapes) {
         fitted.calls.length = 0;
@@ -80,6 +82,10 @@ describe('the 2,560-input shape sweep', () => {
             else columnsSilent += 1;
           }
           for (const page of doc.pages) {
+            if (page.orientation !== 'portrait') {
+              landscapePages.push(`${JSON.stringify(shape)} ${page.navLabel}`);
+              if (page.blocks.some((b) => b.kind === 'table')) landscapeStatements.push(`${JSON.stringify(shape)} ${page.navLabel}`);
+            }
             const call = fitted.calls.find((c) => (c.after as PackPage).blocks === page.blocks);
             const found = call === undefined ? numberingFaults(page) : fitterFaults(call.before as PackPage, page);
             for (const f of found) faults.add(`${page.navLabel}: ${f}`);
@@ -100,13 +106,23 @@ describe('the 2,560-input shape sweep', () => {
     } finally {
       warn.mockRestore();
     }
+    // EVERY PAGE PRINTS PORTRAIT. A statement table first: its wrap guard covers the columns' error measured on a
+    // landscape sheet (`packLineWrap.WRAP_GUARD`, 3/64px under 1/16), not a bound on it.
+    expect(landscapeStatements.slice(0, 3), 'a statement table composed landscape: before it prints, model each column at the bound of '
+      + 'Chromium\'s possible widths (the label column never wider than Chromium\'s), not the measured guard in packLineWrap.WRAP_GUARD').toEqual([]);
+    // Any page: each was fitted to the portrait box, and a portrait page on a landscape sheet runs off its foot (the
+    // trends page at 255mm on a 168mm sheet).
+    expect(landscapePages.slice(0, 3), 'a page composed landscape').toEqual([]);
     // The sweep must exercise the trimming path, or a green result proves nothing.
     expect(trimmedPages, 'no page was trimmed anywhere in the sweep').toBeGreaterThan(0);
     // `refused` is pinned at 0 (953 before the derived caption became page 6's last lever, 322 before
     // net-debit revenue with another line below zero got its two required disclosures under one heading):
-    // every shape in the sweep gets its pack.
+    // every shape in the sweep gets its pack. A statement table modelled at its exact height gets the Budget columns
+    // on more shapes and drops the caption (586, was 367) rather than the columns (1,116 name them, was 1,485). Measured
+    // under production's engine at production's content box (fractional advances, 658 x 966px: a sheet 2px taller than
+    // 255mm, so fewer captions go), it drops the caption on 529 and names the columns on 1,149.
     expect(unexpectedlyRefused).toEqual([]);
     expect({ printed: printed.length, fitter: fitter.length, budgetWithoutNote, captionDroppedBudgetKept, columnsSilent, falseCompleteness, columnsNamed, refused, sample: printed.slice(0, 3) }).toEqual(
-      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 367, columnsSilent: 0, falseCompleteness: 0, columnsNamed: 1485, refused: 0, sample: [] });
+      { printed: 0, fitter: 0, budgetWithoutNote: 0, captionDroppedBudgetKept: 529, columnsSilent: 0, falseCompleteness: 0, columnsNamed: 1149, refused: 0, sample: [] });
   }, 1_800_000);
 });

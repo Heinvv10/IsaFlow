@@ -48,7 +48,7 @@ import { kpiColumnWidthsMm } from './packKpiRowFit';
 import { mattersTableMm } from './packMattersPrinted';
 import type { PackPage, PackPageBlock } from './packPageModel';
 import { PACK_SCALE } from './packScale';
-import { tableLabelShare } from './packTableLabelShare';
+import { statementTableMm } from './packTableLayout';
 
 export { MATTERS_OMITTED_NOTE_MM };
 
@@ -119,12 +119,7 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       return total;
     }
     case 'table':
-      return tableMm(
-        block.table.rows.map((r) => r.label),
-        block.table.rows.flatMap((r) => block.table.columns.map((c) => r.figures[c])),
-        width,
-        tableLabelShare(block.table, width, PACK_SCALE),
-      );
+      return statementTableMm(block.table, PACK_SCALE, orientation, width);
     case 'scorecard': {
       const groups = block.groups.reduce((sum, g, i) => sum + (i === 0 ? 0 : 4)
         + lines(wrappedLines(`${g.letter}. ${g.name}`, 11, width), 15) + 1.5

@@ -30,6 +30,7 @@ import { checkReportRateLimit } from '@/lib/rateLimit';
 import { isRealCalendarDate } from '@/lib/validation';
 import { buildBoardPackDocument } from '@/modules/accounting/services/packs/pages/boardPackDocument';
 import { serialisePackPagesDocument } from '@/modules/accounting/services/packs/pages/packDocumentWire';
+import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** The one pack type composed as a page model today. Not `PackType`. */
@@ -76,7 +77,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     generatedAt: new Date().toISOString(),
   });
 
-  return apiResponse.success(res, serialisePackPagesDocument(document));
+  // Stamped afresh where the document leaves the server: the page prints the size this decides (`packFigureFitStamp`).
+  return apiResponse.success(res, serialisePackPagesDocument(stampFigureFits(document)));
 }
 
 export default withAuth(withErrorHandler(handler as never));
