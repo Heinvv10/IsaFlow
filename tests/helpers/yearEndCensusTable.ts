@@ -108,6 +108,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['reconciliation/unpostedDocumentQueries.ts', 'SUBLEDGER'],
   ['reports/cashFlowForecastDataService.ts', 'CASH'],
   ['reports/glLineExportService.ts', 'RAW'],
+  ['reports/vat201NilRatedDrill.ts', 'VAT'],
   ['reports/vat201NilRatedSupplies.ts', 'VAT'],
   ['reports/vat201Service.ts', 'VAT'],
   ['reports/vatAllocationMismatchService.ts', 'VAT'],
