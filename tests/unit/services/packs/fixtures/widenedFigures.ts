@@ -35,6 +35,18 @@ export function withWidenedTable(doc: PackPagesDocument, digits: number, longLab
   return { doc: stamped, table, index };
 }
 
+/** The first statement table of the page `navLabel` with its money figures `digits` wide and its first row labelled `label`. */
+export function withWidenedStatement(doc: PackPagesDocument, navLabel: string, digits: number, label: string): { doc: PackPagesDocument; table: PackTable; index: number } {
+  const index = doc.pages.findIndex((p) => p.navLabel === navLabel);
+  const page = doc.pages[index]!;
+  const first = page.blocks.findIndex((b) => b.kind === 'table');
+  const blocks = page.blocks.map((b, i) => (i === first && b.kind === 'table'
+    ? { ...b, table: { ...b.table, rows: b.table.rows.map((r, n) => ({ ...r, ...(n === 0 ? { label } : {}), figures: Object.fromEntries(Object.entries(r.figures).map(([c, f]) => [c, widen(f, digits)])) })) } }
+    : b));
+  const stamped = stampFigureFits({ ...doc, pages: doc.pages.map((p, i) => (i === index ? { ...page, blocks } as PackPage : p)) });
+  return { doc: stamped, table: (stamped.pages[index]!.blocks[first] as { table: PackTable }).table, index };
+}
+
 /** Words set in the second KPI tile in place of its own: a label, a not-meaningful reason (the figure goes), a delta basis. */
 export interface KpiWords { label?: string; reason?: string; basis?: string }
 

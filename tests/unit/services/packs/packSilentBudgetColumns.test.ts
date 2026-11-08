@@ -33,7 +33,8 @@ const hasColumns = (page: PackPage) => page.blocks.some((b) => b.kind === 'table
 
 describe('the omission note on a budget company\'s page 6 that has no budget columns', () => {
   it.each<[string, Shape]>([
-    ['net-debit revenue, the #1148 rescue', { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1, plug: 0.05, sg: [-1, 1, 1, 1] }],
+    // (k=1 with sg [-1,1,1,1] no longer drops its columns once the table is modelled at its exact height.)
+    ['net-debit revenue, the #1148 rescue', { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1, plug: 0.05, sg: [-1, 1, -1, -1] }],
   ])('%s: names the columns, and does not say every figure is complete', (unused, shape) => {
     const { page } = p6(shape);
     expect(hasColumns(page)).toBe(false);
@@ -45,7 +46,7 @@ describe('the omission note on a budget company\'s page 6 that has no budget col
   });
 
   it('merged disclosures, the #1154 rescue: names the columns too', () => {
-    const { page } = p6({ tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1000, plug: 0.05, sg: [1, -1, -1, -1] });
+    const { page } = p6({ tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 300000, plug: 0.05, sg: [-1, 1, -1, 1] });
     expect(hasColumns(page)).toBe(false);
     expect(page.blocks.some((b) => b.kind === 'disclosure' && b.disclosure.heading === 'Required disclosures')).toBe(true);
     const note = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))?.text;
@@ -62,7 +63,8 @@ describe('the omission note on a budget company\'s page 6 that has no budget col
   });
 
   it('a budget company whose columns print keeps the plain wording', () => {
-    const { page } = p6({ tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1, plug: 0.05, sg: [-1, -1, 1, 1] });
+    // (k=1 needed no omission note once the table was modelled at its exact height, so this shape is the net-debit one.)
+    const { page } = p6({ tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1000, plug: 0, sg: [-1, -1, 1, 1] });
     expect(hasColumns(page)).toBe(true);
     const note = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))?.text;
     expect(note).not.toContain('Budget');
@@ -76,8 +78,8 @@ describe('the omission note on a budget company\'s page 6 that has no budget col
 });
 
 describe('a plain fallback that fits untouched still says the columns are not printed (the adversary\'s advSilentBudgetFits)', () => {
-  it('no trend panels, R30m, plug 20%: the dropped-columns footnote prints, the derived caption pays for it', () => {
-    const { page } = p6({ tr: 'none', budget: true, prior: true, negative: false, loss: false, k: 30000, plug: 0.2, sg: [1, 1, -1, 1] });
+  it('no trend panels, R1.0bn, plug 5%: the dropped-columns footnote prints, the derived caption pays for it', () => {
+    const { page } = p6({ tr: 'none', budget: true, prior: true, negative: false, loss: false, k: 1000, plug: 0.05, sg: [-1, -1, 1, 1] });
     expect(hasColumns(page)).toBe(false);
     expect(page.footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE)).toBe(true);
     // The caption went to make room, so an omission note is printed beside the dropped-columns note. It never
@@ -111,7 +113,7 @@ describe('the budget probe and the real body fit are one function', () => {
 
 describe('a dropped caption is logged once, for the page used', () => {
   it.each<[string, Shape]>([
-    ['budget company: the caption pays for the Budget columns', { tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1, plug: 0.05, sg: [-1, -1, 1, 1] }],
+    ['budget company: the caption pays for the Budget columns', { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1000, plug: 0, sg: [-1, -1, 1, 1] }],
     ['no budget: the caption goes in fitBodyPage', { tr: 'demo', budget: false, prior: true, negative: true, loss: false, k: 1, plug: 0.2, sg: [1, 1, 1, 1] }],
   ])('%s', (unused, shape) => {
     const { page, warnings } = p6(shape);

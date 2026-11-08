@@ -91,7 +91,9 @@ const p6Of = (shape: Page6Shape) => buildBoardPackPages(page6Input(shape)).pages
 const headings = (p: PackPage) => p.blocks.flatMap((b) => (b.kind === 'disclosure' ? [b.disclosure.heading] : []));
 
 describe('page 6', () => {
-  it.each([30, 1000, 300000])('merges the two disclosures when the page would otherwise be refused (scale %i)', (k) => {
+  // Scales 30 and 1,000 fit with both disclosures separate once the table is modelled at its exact height (4.4mm back):
+  // only 300,000, where eight columns of figures wrap the heading and the label, still needs the merge.
+  it.each([300000])('merges the two disclosures when the page would otherwise be refused (scale %i)', (k) => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     try {
       const doc = buildBoardPackPages(page6Input(NET_DEBIT_TWO_LINES(k)));

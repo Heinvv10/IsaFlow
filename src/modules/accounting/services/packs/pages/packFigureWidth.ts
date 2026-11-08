@@ -8,7 +8,7 @@
  * production image's own fallback fonts (`packFallbackWidth.ts`, measured at the 9pt label; scaled to other sizes and
  * rounded up). There is no whole-pixel rounding of each advance any more: that was the test browser's, not production's.
  */
-import { runPx, type FaceWeight } from './packGlyphRuler';
+import { NEVER_SHORT, runPx, type FaceWeight, type Slack } from './packGlyphRuler';
 import { fallbackClusterPx, type FallbackStyle } from './packFallbackWidth';
 
 /** Weights the pack sets figures in: a line row, a subtotal row (and every KPI figure), a total row. */
@@ -21,9 +21,10 @@ const LABEL_STYLE: Readonly<Record<FigureWeight, FallbackStyle>> = { 400: 'label
 /**
  * The width of `text` in pixels at `fontPx` and `weight`, no wrapping: never short, at most 1/32px over in the face.
  * `hyphen`: a line ending at a soft hyphen in it, with the hyphen Chromium sets there (`packLineBreaks.Piece.hyphen`).
+ * `slack`: `packGlyphRuler.Slack` (never short, unless a layout model asks for the width as Chromium sets it).
  */
-export function textPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false): number {
-  return runPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX), 0, hyphen);
+export function textPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false, slack: Slack = NEVER_SHORT): number {
+  return runPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX), 0, hyphen, slack);
 }
 
 /**
@@ -31,8 +32,8 @@ export function textPx(text: string, fontPx: number, weight: FigureWeight, hyphe
  * 1/64px like any other (8.4px is set at 8.390625), so this is `textPx` at that size; the name says the size is not a
  * whole pixel.
  */
-export function textPxUnsnapped(text: string, size: number, weight: FigureWeight): number {
-  return textPx(text, size, weight);
+export function textPxUnsnapped(text: string, size: number, weight: FigureWeight, slack: Slack = NEVER_SHORT): number {
+  return textPx(text, size, weight, false, slack);
 }
 
 /** The pixel size a point size is set at. */
