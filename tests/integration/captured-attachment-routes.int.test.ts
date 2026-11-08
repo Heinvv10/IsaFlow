@@ -16,11 +16,28 @@ import fileRoute from '../../pages/api/accounting/captured-document-file';
 import { callRoute, createUser, newCompany } from './r035-approval.helpers';
 import { listBankAttachments, listTransactionsWithoutDocuments } from '@/modules/accounting/services/core/documentQueryService';
 import { getBankTxAttachment } from '@/modules/accounting/services/bank/bankTxAttachmentService';
-import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
+import { attachCapturedDocToBankTx as attachInTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
+import { als } from '@/lib/als';
 
 const url = process.env.DATABASE_URL ?? '';
 const describeIfDb = url && !url.includes('dummy') && process.env.JWT_SECRET ? describe : describe.skip;
 const pool = new Pool({ connectionString: url });
+/** The service locks the bank line and the document, so it runs in a request-shaped transaction, as the route does. */
+async function attachCapturedDocToBankTx(companyId: string, documentId: string, bankTxId: string, userId: string | null) {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    const out = await als.run({ client: c, userId, companyId, claims: {} } as never,
+      () => attachInTx(companyId, documentId, bankTxId, userId));
+    await c.query('COMMIT');
+    return out;
+  } catch (err) {
+    await c.query('ROLLBACK');
+    throw err;
+  } finally {
+    c.release();
+  }
+}
 const uuid = () => crypto.randomUUID();
 const tokens: Record<string, string> = {};
 const companies: string[] = [];

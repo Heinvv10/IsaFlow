@@ -3,7 +3,7 @@
  * less the paragraph 2(4) Fourth Schedule deductions, never below nil.
  *
  * Sources: SARS SDL-GEN-01-G01 Rev 5 s6; PAYE-GEN-01-G21 (2027 tax year)
- * 'SDL liable amount'; SDL Act s3(4); PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1;
+ * 'SDL liable amount'; SDL Act s3(3); PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1;
  * PAYE-GEN-01-G20 (2026) s7.3.1.
  *
  * The only deduction that reduces SDL is the retirement fund contribution
@@ -108,7 +108,7 @@ const totalSdl = (rs: PayrollLineResult[]): number => r2(rs.reduce((t, r) => t +
 const totalLeviable = (rs: PayrollLineResult[]): number => r2(rs.reduce((t, r) => t + r.sdlLeviable, 0));
 const nonSdl = (code: string, amount: number): EmployeeComponent => ({ component: comp(code, { isSdlApplicable: false }), amount });
 
-describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Rev 5 s6; PAYE-GEN-01-G21 (2027 tax year) \'SDL liable amount\'; SDL Act s3(4))', () => {
+describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Rev 5 s6; PAYE-GEN-01-G21 (2027 tax year) \'SDL liable amount\'; SDL Act s3(3))', () => {
   it('zero-deduction case is unchanged: leviable = SDL-applicable remuneration', () => {
     const r = line([salary(30_000)]);
     expect(r.sdlLeviable).toBe(30_000);
@@ -200,7 +200,7 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(r.sdl).toBe(175);
   });
 
-  it('REPRO 1: a contribution made and fully reversed nets to the SDL of no contribution: R400 over two months (SDL Act s3(4); PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1)', () => {
+  it('REPRO 1: a contribution made and fully reversed nets to the SDL of no contribution: R400 over two months (SDL Act s3(3); PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1)', () => {
     const [m1, m2] = year([[salary(20_000), ra(5_000)], [salary(20_000), ra(-5_000)]]);
     expect(m1!.retirementDeduction + m2!.retirementDeduction).toBe(0);
     expect(m1!.sdlLeviable).toBe(15_000);
@@ -306,7 +306,7 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(totalLeviable(rs)).toBe(300.03);
   });
 
-  it('the line total is floored at nil: a deduction above the SDL-applicable pay leaves leviable and SDL nil (SDL Act s3(4))', () => {
+  it('the line total is floored at nil: a deduction above the SDL-applicable pay leaves leviable and SDL nil (SDL Act s3(3))', () => {
     // R1 000 SDL-applicable + R20 000 taxable but SDL-excluded; RA R8 000. Base R21 000 x 27.5% = R5 775
     // allowed, more than the R1 000 that SDL can take it from. The excess is lost (documented limit).
     const sdlExcluded: EmployeeComponent = { component: comp('3713', { isSdlApplicable: false }), amount: 20_000 };
@@ -431,7 +431,7 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
   });
 });
 
-describe('SDL over a tax year: invariants over random liable/exempt years with contributions and reversals (SDL Act s3(4); s4(b))', () => {
+describe('SDL over a tax year: invariants over random liable/exempt years with contributions and reversals (SDL Act s3(3); s4(b))', () => {
   const EXEMPT_ESTIMATE = 400_000;
   const LIABLE_ESTIMATE = 1_000_000;
 
@@ -516,7 +516,7 @@ describe('SDL: deductions outside the para 2(4) retirement allowlist (SDL-GEN-01
   });
 });
 
-describe('SDL exemption threshold with deductions (SARS SDL-GEN-01-G01 Rev 5 s6; PAYE-GEN-01-G21 (2027 tax year) \'SDL liable amount\'; SDL Act s3(4))', () => {
+describe('SDL exemption threshold with deductions (SARS SDL-GEN-01-G01 Rev 5 s6; PAYE-GEN-01-G21 (2027 tax year) \'SDL liable amount\'; SDL Act s3(3))', () => {
   it('an exempt employer (estimate <= R500 000) pays nil whatever the deductions', () => {
     expect(line([salary(30_000), pension(2_250)], 500_000).sdl).toBe(0);
   });
