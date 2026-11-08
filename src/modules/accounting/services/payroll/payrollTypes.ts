@@ -1,3 +1,5 @@
+import type { EtiResult } from './payrollTypesEti';
+import type { PayeYearToDate } from './payrollTypesYtd';
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 export interface PayrollEmployee {
@@ -88,42 +90,7 @@ export interface UifResult {
   isCapped: boolean;
 }
 
-export interface EtiInput {
-  dateOfBirth: Date;
-  employmentStartDate: Date;
-  periodDate: Date;
-  monthlyRemuneration: number;
-  isUifExcluded: boolean;
-}
-
-/** An employee field the ETI engine needs and may not have. */
-export type EtiMissingInput = 'date_of_birth' | 'employment_start_date';
-
-export interface EtiResult {
-  /**
-   * True only when the engine DETERMINED the employee qualifies. False covers
-   * both "determined ineligible" and "could not determine" — read
-   * `isDeterminable` to tell those apart before acting on it.
-   */
-  isEligible: boolean;
-  /**
-   * Why the employee was determined ineligible. Undefined when eligible, and
-   * ALSO undefined when `isDeterminable` is false — stating a reason there would
-   * assert a determination that was never made.
-   */
-  ineligibilityReason?: string;
-  /**
-   * False when the engine lacked an input it needs, so eligibility was never
-   * assessed. Distinguishes "this employee does not qualify" (a finding) from
-   * "we do not know" (a data gap that silently forfeits a tax credit).
-   */
-  isDeterminable: boolean;
-  /** The absent inputs. Always empty when `isDeterminable` is true. */
-  missingInputs: EtiMissingInput[];
-  monthsEmployed: number;
-  employmentYear: 1 | 2 | null;
-  monthlyEti: number;
-}
+export type { EtiInput, EtiMissingInput, EtiResult } from './payrollTypesEti';
 
 export type ValidationSeverity = 'error' | 'warning' | 'info';
 
@@ -193,48 +160,8 @@ export interface ComponentBreakdownItem {
   paidOutsidePayroll?: true;
 }
 
-/** An employee's earlier periods of the tax year, as the cumulative PAYE needs them. */
-export interface PayeYearToDate {
-  /** Periods with periodic pay (the n of the cumulative formula, before this one). */
-  periods: number;
-  /** Earlier periods with periodic pay or an annual payment, for the pro-rated s11F cap. */
-  retirementCapPeriods?: number;
-  /** Periodic taxable remuneration, after allowed s18A donations (PAYE 4c: before the retirement fund deduction). */
-  periodicTaxable: number;
-  /** Annual payments (3605) taxed by the annual-payment method, before the retirement fund deduction. */
-  annualPayments: number;
-  /** PAYE deducted by the tables (regular + annual payments), directive PAYE excluded. */
-  tablePaye: number;
-  /** Medical scheme fees tax credit recorded on those lines (payroll_run_lines.medical_credit; a line before migration 926 recorded none). */
-  medicalCredit: number;
-  /** Additional medical expenses tax credit recorded on those lines (additional_medical_credit; likewise). */
-  additionalMedicalCredit: number;
-  /** Medical scheme fees deducted on those lines (4005; a line before 926 from its breakdown, payrollMedicalRecord). */
-  medicalSchemeFees: number;
-  /** Retirement fund contributions on those lines (4001/4003/4006; payroll_run_lines.retirement_contributions); absent = none. */
-  retirementContributions?: number;
-  /** Retirement fund deduction those lines recorded (retirement_deduction; payeCumulative); absent = none. */
-  retirementDeduction?: number;
-  /** Donations (4030) those lines deducted from taxable income, for the s11F base; absent = none. */
-  donations?: number;
-  /** Lines since migration 959 (s18aDonation): 4030 counted toward the limit; absent = none. */
-  donationReceipted?: number;
-  /** Likewise: remuneration less retirement deduction; absent = none. */
-  donationBase?: number;
-  /** Likewise: the donation deduction allowed; absent = none. */
-  donationDeduction?: number;
-  /**
-   * SDL-applicable earnings on those lines the employer was LIABLE for (payrollSdlYearToDate: an exempt line's are
-   * left out); absent only when there are no earlier lines (the calculator throws otherwise).
-   */
-  sdlApplicable?: number;
-  /** The leviable amount those liable lines carried (stored: sdl_leviable); absent only when there are no earlier lines. */
-  sdlLeviable?: number;
-  /** The retirement and donation deductions recorded on those liable lines; absent only when there are no earlier lines. */
-  sdlRetirementDeduction?: number;
-  /** The donation part of sdlRetirementDeduction, in line order and kept above nil; absent = none. */
-  sdlDonationDeduction?: number;
-}
+export type { PayeYearToDate } from './payrollTypesYtd';
+
 
 /** How a line's PAYE is made up (audit 2026-10-18 P3). */
 export interface PayeSplit {
