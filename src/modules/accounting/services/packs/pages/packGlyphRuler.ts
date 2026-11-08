@@ -175,17 +175,29 @@ export const setSizePx = (fontPx: number): number => Math.floor(fontPx * UNIT + 
  * The width of `text` at `fontPx` and `weight`, in CSS pixels on Chromium's 1/64 grid, never short.
  * `fallbackPx(cluster, sizePx)` prices a cluster outside the face (`sizePx` is the size the font is set at);
  * `letterSpacingPx` is added after every cluster, the last included (CSS `letter-spacing`). `hyphen`: the line ends at a
- * soft hyphen in `text`, and Chromium sets a hyphen (U+2010, shaped on its own) after it. `slack`: see `Slack`.
+ * soft hyphen in `text`, and Chromium sets a hyphen (U+2010, shaped on its own) after it, a box of its own rounded to
+ * the unit on its own (`hyphenExactPx`; measured: "growth\u00AD" has a min-content of 2713/64px, the word's 2406 and
+ * the hyphen's 307, not the 2712 of the two summed). `slack`: see `Slack`.
  */
 export function runPx(
   text: string, fontPx: number, weight: FaceWeight, fallbackPx: (cluster: string, sizePx: number) => number, letterSpacingPx = 0,
   hyphen = false, slack: Slack = NEVER_SHORT,
 ): number {
   if (text === '' && !hyphen) return 0;
-  const exact = runExactPx(text, fontPx, weight, fallbackPx, letterSpacingPx, hyphen) * UNIT;
-  if (slack === 'least') return Math.ceil(exact - RUN_NOISE_UNITS) / UNIT;
-  if (slack === 'most') return Math.ceil(exact + RUN_NOISE_UNITS) / UNIT;
-  return Math.ceil(exact - 1e-7) / UNIT + slack / UNIT;
+  const round = (exactPx: number): number => {
+    const exact = exactPx * UNIT;
+    if (slack === 'least') return Math.ceil(exact - RUN_NOISE_UNITS);
+    if (slack === 'most') return Math.ceil(exact + RUN_NOISE_UNITS);
+    return Math.ceil(exact - 1e-7);
+  };
+  const units = (text === '' ? 0 : round(runExactPx(text, fontPx, weight, fallbackPx, letterSpacingPx))) + (hyphen ? round(hyphenExactPx(fontPx, weight)) : 0);
+  return (units + (typeof slack === 'number' ? slack : 0)) / UNIT;
+}
+
+/** The exact advance of the hyphen (U+2010) Chromium sets at a soft hyphen that ends a line, at `fontPx` and `weight`. */
+export function hyphenExactPx(fontPx: number, weight: FaceWeight): number {
+  const f = face(weight);
+  return unitsOf(f, weight, '\u2010') * setSizePx(fontPx) / f.unitsPerEm;
 }
 
 /**
@@ -193,6 +205,11 @@ export function runPx(
  * breaker keeps a run on a line where its width, floored to the 1/64px unit, is no wider than the room left
  * (`fitUnitsPx`); measured on the 630-case grid and the ruler's random strings, and on a KPI label with its mark and a
  * delta line with its cue (`tests/unit/print/packLineFit.test.ts`). A width a column is SIZED by stays `runPx`'s.
+ * `hyphen`: a soft hyphen's hyphen after it, which is a box of its own on the line, so it is added at the width Chromium
+ * sets that box (its exact advance rounded up to the unit: one glyph, whose float noise is far under the 0.032 of a unit
+ * the pack's closest, 12px/500's 307.968, leaves), not summed exactly: the line's floor cannot take any of it back
+ * (measured: "Gross margin\u00AD" needs 4852/64px on one line, its words floored and the hyphen's 307; the hyphen summed
+ * exactly with them fitted it at 4851).
  */
 export function runExactPx(
   text: string, fontPx: number, weight: FaceWeight, fallbackPx: (cluster: string, sizePx: number) => number, letterSpacingPx = 0,
@@ -215,20 +232,31 @@ export function runExactPx(
     else { flush(); px += fallbackPx(cluster, size); }
   }
   flush();
-  if (hyphen) units += unitsOf(f, weight, '\u2010');
+  if (hyphen) px += Math.ceil(hyphenExactPx(fontPx, weight) * UNIT - 1e-7) / UNIT;
   return units * size / f.unitsPerEm + px;
 }
 
 /**
  * HOW FAR CHROMIUM'S OWN SUM OF A LINE CAN RUN PAST THE EXACT ONE, in units: the margin added before flooring, so a line
- * the model fits, Chromium fits. Measured as the narrowest one-line width less the line's exact sum (`packLineFit.test.ts`
- * holds every set): a single run of 1 to 14 glyphs within 0.045 of a unit, a label with its mark 0.056, a delta line
- * with its cue 0.192 (3,000 random lines of 2 to 23 words), and up to 0.272 over 1,500 random lines of 2 to 23 words and
- * 40 to 80 characters (labels with marks, deltas with cues, reasons, runs at the pack's sizes and weights). It does not
- * grow with the line's length past that. Half a unit is the worst seen and 0.228 of headroom; at 1/16 the adversary's
- * review of #1235 read labels with marks and delta lines 1/64px short (`fixtures/lineFitShortLines.ts`).
+ * the model fits, Chromium fits (`fitMarginUnits`). Measured as the narrowest one-line width less the line's exact sum
+ * (`packLineFit.test.ts` holds every set): a single run of 1 to 14 glyphs within 0.045 of a unit, a label with its mark
+ * 0.056, a delta line with its cue 0.192. It GROWS with the line, Chromium's float noise gathering glyph by glyph: over
+ * 18,000 random lines of 100 to 1,800px it reached px/2,048 at 12px, px/1,600 at 10.67px (a heading's size) and only
+ * 0.13 at 14.67px (a reason's): at most 0.27 to 512px, 0.58 to 1,000px and 0.99 at 1,732px (`fixtures/lineFitLongLines.ts`).
+ * A flat half unit read a 12px line short past about 1,000px and a 10.67px one past 800 (#1235's final reviews). So the
+ * margin is half a unit to `FIT_NOISE_FLAT_PX` (where the KPI and table grids proved the fit) and grows by a unit for
+ * every `FIT_NOISE_PX_PER_UNIT` past it: at least 0.15 of a unit over the worst seen at every width to 1,000px (no
+ * column the pack sets a line in is wider than `PRINT_CONTENT_PX`'s 987px), 0.23 to 512px, and 0.046 at its tightest,
+ * a 10.67px line of 1,589px, where CI pins it (at 0.45 that line reads short). At 1/16 the adversary's review of #1235
+ * read labels with marks and delta lines 1/64px short (`fixtures/lineFitShortLines.ts`).
  */
 export const FIT_NOISE_UNITS = 1 / 2;
+/** The line width (px) the noise margin is flat to (`FIT_NOISE_UNITS`). */
+export const FIT_NOISE_FLAT_PX = 512;
+/** Past `FIT_NOISE_FLAT_PX`, the line width (px) that adds a unit to the noise margin. */
+export const FIT_NOISE_PX_PER_UNIT = 2048;
+/** The noise margin, in units, of a line whose exact sum is `exactPx` (`FIT_NOISE_UNITS`). */
+export const fitMarginUnits = (exactPx: number): number => FIT_NOISE_UNITS + Math.max(0, exactPx - FIT_NOISE_FLAT_PX) / FIT_NOISE_PX_PER_UNIT;
 
 /**
  * Chromium's own float noise on ONE run's width (a min-content or max-content width a column is sized by), in units:
@@ -238,8 +266,8 @@ export const FIT_NOISE_UNITS = 1 / 2;
 export const RUN_NOISE_UNITS = 1 / 16;
 
 /**
- * The width a line takes as Chromium's line breaker counts it: `exactPx`, the exact advance sum of every box on it
- * (the words, a footnote mark, a soft hyphen's hyphen, the delta's cue), plus the noise margin, floored to the 1/64px
- * unit ONCE for the whole line (each box floored on its own reads up to two units narrower than Chromium with a mark).
+ * The width a line takes as Chromium's line breaker counts it: `exactPx`, the exact advance sum of the line (its words,
+ * a soft hyphen's hyphen, a 9pt label's mark: `packLineWrap.linesForText`), plus the noise margin for its width
+ * (`fitMarginUnits`), floored to the 1/64px unit ONCE for the whole line.
  */
-export const fitUnitsPx = (exactPx: number): number => Math.floor(exactPx * UNIT + FIT_NOISE_UNITS) / UNIT;
+export const fitUnitsPx = (exactPx: number): number => Math.floor(exactPx * UNIT + fitMarginUnits(exactPx)) / UNIT;

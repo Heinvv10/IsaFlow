@@ -2,7 +2,8 @@
  * A PRINT-PARITY TEST SKIPS ONLY INSIDE GITHUB ACTIONS OR WHEN TOLD TO, NAMING THE ACTUAL CAUSE, AND NEVER AGAINST ANOTHER IMAGE.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { orphanedContainers, PRODUCTION_GOTENBERG_IMAGE, removeContainer } from './gotenbergParity';
+import { EventEmitter } from 'node:events';
+import { orphanedContainers, PRODUCTION_GOTENBERG_IMAGE, removeContainer, removeOnExit, type ExitHost } from './gotenbergParity';
 import { log } from '@/lib/logger';
 import { paritySkip } from './paritySkip';
 import { execFileSync } from 'node:child_process';
@@ -119,6 +120,71 @@ describe('removeContainer', () => {
       expect(() => removeContainer('isaflow-print-parity-1', (args) => { calls.push(args); throw new Error('Cannot connect to the Docker daemon'); })).not.toThrow();
       expect(calls).toEqual([['rm', '-fv', 'isaflow-print-parity-1']]);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not remove'), expect.objectContaining({ name: 'isaflow-print-parity-1', error: 'Cannot connect to the Docker daemon' }), 'print-parity');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('removeOnExit', () => {
+  /** A stand-in process: its listeners, the signals sent to it, and `others` listeners of its own on SIGINT (vitest's). */
+  const fakeHost = (others = 0): { host: ExitHost; events: EventEmitter; sent: string[] } => {
+    const events = new EventEmitter();
+    for (let i = 0; i < others; i += 1) events.on('SIGINT', () => undefined);
+    const sent: string[] = [];
+    const host = Object.assign(events, { pid: 4242, kill: (pid: number, signal: string) => { sent.push(`${pid} ${signal}`); return true; } });
+    return { host: host as unknown as ExitHost, events, sent };
+  };
+  const hooks = (events: EventEmitter): number[] => ['exit', 'SIGINT', 'SIGTERM'].map((e) => events.listenerCount(e));
+
+  it.each(['SIGINT', 'SIGTERM'] as const)('%s removes the container once, takes every hook off and re-sends the signal, so the run ends as it would have', (signal) => {
+    const { host, events, sent } = fakeHost();
+    let removed = 0;
+    const stop = removeOnExit(() => { removed += 1; }, host);
+    expect(hooks(events)).toEqual([1, 1, 1]);
+    events.emit(signal, signal);
+    expect(removed).toBe(1);
+    expect(hooks(events)).toEqual([0, 0, 0]);
+    expect(sent).toEqual([`4242 ${signal}`]);
+    stop();
+    events.emit('exit', 0);
+    expect(removed).toBe(1);
+  });
+
+  it('where something else listens for the signal (vitest), it is not re-sent: that listener has had it', () => {
+    const { host, events, sent } = fakeHost(1);
+    let removed = 0;
+    removeOnExit(() => { removed += 1; }, host);
+    events.emit('SIGINT', 'SIGINT');
+    expect(removed).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
+  it('stop removes it once and takes every hook off: a later exit or signal removes nothing and sends nothing', () => {
+    const { host, events, sent } = fakeHost();
+    let removed = 0;
+    const stop = removeOnExit(() => { removed += 1; }, host);
+    stop();
+    stop();
+    expect(hooks(events)).toEqual([0, 0, 0]);
+    events.emit('exit', 0);
+    events.emit('SIGTERM', 'SIGTERM');
+    expect(removed).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
+  it('a container docker cannot remove never makes stop or a signal throw: it is logged', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    try {
+      const failing = (args: string[]): void => { throw new Error(`Cannot connect to the Docker daemon (${args.join(' ')})`); };
+      const viaStop = fakeHost();
+      const stop = removeOnExit(() => removeContainer('isaflow-print-parity-1', failing), viaStop.host);
+      expect(() => stop()).not.toThrow();
+      const viaSignal = fakeHost();
+      removeOnExit(() => removeContainer('isaflow-print-parity-2', failing), viaSignal.host);
+      expect(() => viaSignal.events.emit('SIGINT', 'SIGINT')).not.toThrow();
+      expect(viaSignal.sent).toEqual(['4242 SIGINT']);
+      expect(warn).toHaveBeenCalledTimes(2);
     } finally {
       warn.mockRestore();
     }

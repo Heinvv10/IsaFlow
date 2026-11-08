@@ -22,11 +22,11 @@ import { createHash } from 'node:crypto';
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
 import {
-  CELL_SIDE_PX, cellPx, headingLineExactPx, headingLinePx, headingMarkExactPx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL,
+  CELL_SIDE_PX, cellPx, headingLineExactPx, headingLinePx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL,
   labelMarkExactPx, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT, tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT, type FigureCell,
 } from './packFigureFit';
 import { ptToPx, textExactPx, textPx } from './packFigureWidth';
-import { AS_CHROMIUM_SETS } from './packGlyphRuler';
+import { AS_CHROMIUM_SETS, CHROMIUM_MOST } from './packGlyphRuler';
 import { linesForText, minPx, WRAP_GUARD } from './packLineWrap';
 import { pieces } from './packLineBreaks';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
@@ -143,11 +143,11 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
     const line = (text: string, hyphen: boolean): number => textExactPx(text, LABEL_FONT_PX, weight, hyphen);
     const indent = row.level * INDENT_PX_PER_LEVEL;
     const marker = labelMarkPx(row.footnote, weight, AS_CHROMIUM_SETS);
-    return {
-      indent, parts, line, markerLine: labelMarkExactPx(row.footnote, weight),
-      min: indent + labelWidestPiecePx(row.label, row.footnote, weight, AS_CHROMIUM_SETS) + CELL_SIDE_PX,
-      max: indent + textPx(row.label.trim().replace(/[ \t\n\r]+/g, ' '), LABEL_FONT_PX, weight, false, AS_CHROMIUM_SETS) + marker + CELL_SIDE_PX,
-    };
+    const min = indent + labelWidestPiecePx(row.label, row.footnote, weight, AS_CHROMIUM_SETS) + CELL_SIDE_PX;
+    // A cell's max-content is never below its min-content: a label that ends at a soft hyphen keeps the hyphen's room
+    // on its last line (`packLineBreaks.pieces`) but draws none, so its longest piece can be wider than the whole label.
+    const max = indent + textPx(row.label.trim().replace(/[ \t\n\r]+/g, ' '), LABEL_FONT_PX, weight, false, AS_CHROMIUM_SETS) + marker + CELL_SIDE_PX;
+    return { indent, parts, line, markerLine: labelMarkExactPx(row.footnote, weight), min, max: Math.max(min, max) };
   });
   const labelMin = Math.max(0, ...labelBox.map((b) => b.min));
   const labelMax = Math.max(0, ...labelBox.map((b) => b.max));
@@ -157,7 +157,7 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
     const marker = headingMarkPx(footnote, AS_CHROMIUM_SETS);
     const label = PACK_TABLE_COLUMN_LABEL[col];
     return {
-      col, parts: pieces(label), markerLine: headingMarkExactPx(footnote),
+      footnote, label,
       min: Math.max(figures, minPx(headingWordsPx(label, AS_CHROMIUM_SETS).map((w) => ({ w })), marker)) + 2 * CELL_SIDE_PX,
       max: Math.max(figures, headingLinePx(label, AS_CHROMIUM_SETS) + marker) + 2 * CELL_SIDE_PX,
     };
@@ -167,10 +167,17 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
   const columnsPx = shareOut(mins, maxs, PRINT_CONTENT_PX[orientation]);
   const labelPx = columnsPx[0]!;
   const labelLines = labelBox.map((b) => linesForText(b.parts, b.line, b.markerLine, labelPx - b.indent - CELL_SIDE_PX, guardPx));
-  // A column heading is a fixed English label: no soft hyphen, so no hyphen to set.
-  const headingLine = (text: string): number => headingLineExactPx(text);
-  const headingLines = Math.max(1, ...data.map((d, i) => linesForText(d.parts, headingLine, d.markerLine, columnsPx[i + 1]! - 2 * CELL_SIDE_PX, guardPx)));
+  const headingLines = Math.max(1, ...data.map((d, i) => headingLineCount(d.label, d.footnote, columnsPx[i + 1]! - 2 * CELL_SIDE_PX, guardPx)));
   return { columnsPx, labelLines, headingLines };
+}
+
+/**
+ * The lines a column heading takes `availPx` wide (inside its padding): its words fitted as Chromium's line breaker fits
+ * them, its footnote mark at the widest Chromium sets the mark's box (`linesForText`, `markerBoxPx`). A column heading
+ * is a fixed English label: no soft hyphen, so no hyphen to set.
+ */
+export function headingLineCount(label: string, footnote: number | undefined, availPx: number, guardPx: number): number {
+  return linesForText(pieces(label), (text) => headingLineExactPx(text), 0, availPx, guardPx, headingMarkPx(footnote, CHROMIUM_MOST));
 }
 
 /**

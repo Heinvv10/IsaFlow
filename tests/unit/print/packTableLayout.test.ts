@@ -52,7 +52,7 @@ for (const k of [1, 30, 1000, 30000, 300000, 1e6, 3e6]) for (const negative of [
 
 /** How far the model's columns may be from Chromium's (`packLineWrap.ts` sets the guard from it). */
 const COLUMN_ERROR_PX = 0.1;
-/** Label rows a line taller than Chromium's: none, now a line is fitted as Chromium's line breaker fits it (`textFitPx`). */
+/** Label rows a line taller than Chromium's: none, now a line is fitted as Chromium's line breaker fits it (`fitUnitsPx`). */
 const TIES_ALLOWED = 0;
 
 describe('the layout of every statement table of a stratified sample of packs', () => {
@@ -145,6 +145,28 @@ describe('a footnote mark sits on the LAST word of a label', () => {
     expect(wrong.slice(0, 10)).toEqual([]);
     expect(ties, 'a line too many at a tie').toBe(0);
   }, 900_000);
+});
+
+describe('a label that ends at a soft hyphen (its last line keeps the hyphen\'s room, and draws none)', () => {
+  // A long word that ends at one is the widest piece with the hyphen's room and the whole label without it, so the
+  // column's min-content is past its max-content; Chromium holds the max at the min (`packTableLayout.layoutAt`).
+  it('columns within 0.1px of Chromium, never a label line too few, the height never short, for words and phrases that end at one', async () => {
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const wrong: string[] = [];
+    const labels = [...[14, 22, 30, 38].map((n) => `${'n'.repeat(n)}\u00AD`), 'Intercompany recharges\u00AD', 'Trade and other receiv\u00ADables\u00AD'];
+    for (const label of labels) {
+      for (const digits of [9, 12]) {
+        const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label);
+        const real = (await measureTables(atTheFloor(doc), browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;
+        const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
+        const say = `${JSON.stringify(label)}, ${digits} digits`;
+        model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > COLUMN_ERROR_PX) wrong.push(`${say}: column ${c} model ${px.toFixed(3)} vs ${real.columnsPx[c]!.toFixed(3)}`); });
+        if (model.labelLines.some((l, r) => l < real.labelLines[r]!)) wrong.push(`${say}: lines ${model.labelLines} vs ${real.labelLines}`);
+        if (statementTableBodyMm(table, doc.numberConvention.scale, 'portrait') < real.heightMm) wrong.push(`${say}: height short`);
+      }
+    }
+    expect(wrong.slice(0, 10)).toEqual([]);
+  }, 600_000);
 });
 
 describe('adjacent heavy rows share their rules', () => {

@@ -7,19 +7,27 @@
  * held to the model's (`support/lineFitHarness.ts`): never narrower (a line the model fits, Chromium fits), and over by
  * at most one unit, on at most the measured share plus stated headroom: the 630-case grid, 600 random strings of the
  * glyphs all three faces set, KPI labels with their marks and delta lines with their cues, every line the adversary's
- * review of #1235 found short at a 1/16-unit margin, and 1,500 random lines of 2 to 23 words and 40 to 80 characters
- * (runs at the pack's sizes and weights with and without a mark, labels with marks, delta lines, reasons).
- * `packRealLines.test.ts` walks the pack's own wording.
+ * review of #1235 found short at a 1/16-unit margin, 1,500 random lines of 2 to 23 words and 40 to 80 characters
+ * (runs at the pack's sizes and weights with and without a mark, labels with marks, delta lines, reasons), every
+ * column heading line with each mark it can carry, texts that end at a soft hyphen, and 18,000 lines of 100 to 1,800px
+ * (the noise margin grows with the line: `packGlyphRuler.fitMarginUnits`). `packRealLines.test.ts` walks the pack's own
+ * wording.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
-import type { FigureWeight } from '@/modules/accounting/services/packs/pages/packFigureWidth';
+import { textExactPx, type FigureWeight } from '@/modules/accounting/services/packs/pages/packFigureWidth';
+import type { KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { kpiTileLines } from '@/modules/accounting/services/packs/pages/packKpiLayout';
+import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
+import { linesForText } from '@/modules/accounting/services/packs/pages/packLineWrap';
+import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packTableModel';
 import { launchPrintChromium } from './printChromium';
-import { deltaCase, hold, labelCase, reasonCase, runCase, type Case } from './support/lineFitHarness';
+import { deltaCase, fillCase, headingCase, hold, labelCase, reasonCase, runCase, type Case } from './support/lineFitHarness';
 import { ADVERSARY_SHORT_LINES } from './fixtures/lineFitShortLines';
+import { longLines } from './fixtures/lineFitLongLines';
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
@@ -34,11 +42,13 @@ function* lcg(seed: number): Generator<number> { let s = seed; for (;;) { s = (s
 
 /**
  * How many over by a unit each set may have. Measured: grid 353 of 630, random 297 of 600, labels 107 of 128, deltas 24
- * of 48, the adversary's lines 0 of 57, mixed 661 of 1,500 (the noise margin, `FIT_NOISE_UNITS`, takes a unit wherever
- * an exact sum's fraction of a unit is past a half). The caps are those and about 5% of headroom (3 lines on the
- * adversary's 57; 2 of a set of 48).
+ * of 48, the adversary's lines 2 of 57, mixed 723 of 1,500 (661 before the margin grew past 512px), headings 124 of 289,
+ * soft hyphens 48 of 94, long lines 6,862 of 17,996 (the noise margin, `packGlyphRuler.fitMarginUnits`, takes a unit
+ * wherever an exact sum's fraction of a unit is past one less the margin; a heading's mark box and a soft hyphen's
+ * hyphen are rounded up on their own). The caps are those and about 5% of headroom (3 lines on the adversary's 57; 2 of
+ * a set of 48).
  */
-const OVER = { grid: 370, random: 315, labels: 115, deltas: 26, adversary: 3, mixed: 700 } as const;
+const OVER = { grid: 370, random: 315, labels: 115, deltas: 26, adversary: 3, mixed: 760, headings: 131, softHyphen: 51, long: 7200 } as const;
 
 it('the 630-case grid: never narrower than Chromium', async () => {
   const texts = ['(133 500 000)', '9 000 000', 'Telecommunications', 'AVATAR WAVE', 'Revenue', '45.0%', 'To', 'xy', 'Operating expenses', 'W', 'nnnnnnnnnnnnnnnnnnnn', 'R&D', 'Ff', 'office', 'VAT'];
@@ -111,6 +121,46 @@ it('1,500 random lines, multi-box and long (2 to 23 words, 40 to 80 characters a
     else cases.push(runCase(text, pick([10.6667, 12, 14.6667]), pick(WEIGHTS)));
   }
   report('mixed', await hold(browser, cases, OVER.mixed), cases.length);
+}, 900_000);
+
+it('every column heading line (each run of two words or more) with each mark 1 to 40 it can carry: never narrower than Chromium', async () => {
+  const cases: Case[] = [];
+  for (const label of new Set(Object.values(PACK_TABLE_COLUMN_LABEL))) {
+    const words = label.split(' ');
+    for (let a = 0; a < words.length; a += 1) {
+      for (let b = a + 2; b <= words.length; b += 1) {
+        const line = words.slice(a, b).join(' ');
+        for (const mark of b === words.length ? [null, ...Array.from({ length: 40 }, (unused, n) => n + 1)] : [null]) cases.push(headingCase(line, mark));
+      }
+    }
+  }
+  expect(cases.length).toBeGreaterThan(250);
+  report('headings', await hold(browser, cases, OVER.headings), cases.length);
+}, 300_000);
+
+it('a text that ends at a soft hyphen keeps the hyphen\'s room on its last line (KPI labels, table labels at each weight): never narrower than Chromium', async () => {
+  const texts = [...LABELS.map((l) => `${l}\u00AD`), 'Operating ex\u00ADpenses\u00AD', 'Return on equity\u00AD\u00AD', 'Gross margin\u00AD '];
+  const tile = (label: string, mark: number | null): KpiTile => ({ label, trendFootnote: mark, figure: { value: 1 }, delta: null, sparklineSvg: null }) as unknown as KpiTile;
+  // A mark after a label's trailing space is a word of its own, which no fill models (and no label prints): no mark there.
+  const cases: Case[] = texts.flatMap((text) => [
+    ...(text.endsWith(' ') ? [null] : [null, 3]).map((mark) => fillCase(`kpi label ${JSON.stringify(text)}^${mark}`, `<span class="pack-kpi-label">${text}${mark === null ? '' : `<sup class="pack-footnote-marker">${mark}</sup>`}</span>`,
+      (px) => kpiTileLines(tile(text, mark), px).label)),
+    ...WEIGHTS.map((w) => fillCase(`table label ${w} ${JSON.stringify(text)}`, `<span style="font-size:12px;font-weight:${w};white-space:normal">${text}</span>`,
+      (px) => linesForText(pieces(text), (t, hyphen) => textExactPx(t, 12, w, hyphen), 0, px, 0))),
+  ]);
+  report('softHyphen', await hold(browser, cases, OVER.softHyphen), cases.length);
+  // A soft hyphen alone after a space: Chromium keeps the hyphen's room after the words and hangs the space; the model
+  // counts the space too, so it is over by the space (never short: unfixed, the model fitted it 5px short).
+  const lone = WEIGHTS.map((w) => fillCase(`table label ${w} "Net profit \u00AD"`, `<span style="font-size:12px;font-weight:${w};white-space:normal">Net profit \u00AD</span>`,
+    (px) => linesForText(pieces('Net profit \u00AD'), (t, hyphen) => textExactPx(t, 12, w, hyphen), 0, px, 0)));
+  await hold(browser, lone, lone.length, 64 * 3);
+}, 300_000);
+
+it('18,000 lines of 100 to 1,800px at the pack\'s sizes (12px at each weight, 10.67px, 11pt reasons): never narrower than Chromium, the margin growing with the line', async () => {
+  const cases = longLines();
+  expect(cases.length).toBeGreaterThan(17_000);
+  // Past 1,536px the margin itself passes a unit, so a line can be two units over.
+  report('long', await hold(browser, cases, OVER.long, 2), cases.length);
 }, 900_000);
 
 /** The over count each set measured, printed so a cap can be set from it. */

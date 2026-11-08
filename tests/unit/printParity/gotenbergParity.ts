@@ -88,24 +88,48 @@ export function removeContainer(name: string, docker: (args: string[]) => void =
   }
 }
 
+/** What `removeOnExit` hooks: this process, or a stand-in in a test. */
+export type ExitHost = Pick<NodeJS.Process, 'once' | 'off' | 'listenerCount' | 'kill' | 'pid'>;
+
+const SIGNALS = ['SIGINT', 'SIGTERM'] as const;
+
 /**
- * A throwaway Gotenberg of the production image, removed with its volumes when `stop` is called (the tests' afterAll)
- * or when this process exits, and, if it was killed outright or interrupted, by the next run (`orphanedContainers`).
+ * `remove` (which must never throw) run once: by the returned stop, at exit, or on SIGINT or SIGTERM (Node fires no
+ * `exit` on a signal it is not listening for, so an interrupted run would otherwise leave its container to the next
+ * run). After a signal's clean-up the signal goes on as it came: re-sent to this process with every hook gone, so it
+ * ends the run with its own status, unless something else here listens for it (vitest), which has had it already.
+ * Stop takes every hook off, so a stopped container's hooks neither run twice nor keep the process from its default.
+ */
+export function removeOnExit(remove: () => void, host: ExitHost = process): () => void {
+  let stopped = false;
+  const onSignal = (signal: NodeJS.Signals): void => {
+    stop();
+    if (host.listenerCount(signal) === 0) host.kill(host.pid, signal);
+  };
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    host.off('exit', stop);
+    for (const signal of SIGNALS) host.off(signal, onSignal);
+    remove();
+  };
+  host.once('exit', stop);
+  for (const signal of SIGNALS) host.once(signal, onSignal);
+  return stop;
+}
+
+/**
+ * A throwaway Gotenberg of the production image, removed with its volumes (`docker rm -fv`, by its exact name) when
+ * `stop` is called (the tests' afterAll), when this process exits or is interrupted (`removeOnExit`), and, if it was
+ * killed outright, by the next run (`orphanedContainers`).
  */
 export async function startGotenberg(): Promise<Gotenberg> {
   removeOrphans();
   const name = `${NAME_PREFIX}${process.pid}`;
   execFileSync('docker', ['run', '-d', '--name', name, '-p', '127.0.0.1::3000', PRODUCTION_GOTENBERG_IMAGE, 'gotenberg', '--api-timeout=600s'], { stdio: 'ignore' });
-  let stopped = false;
-  // Never throws: it runs from the tests' afterAll, from an exit handler and from a failed start, and a failure to
-  // remove the container must not hide the run's own result. What it cannot remove, the next run does (`removeOrphans`).
-  const stop = (): void => {
-    if (stopped) return;
-    stopped = true;
-    process.off('exit', stop);
-    removeContainer(name);
-  };
-  process.once('exit', stop);
+  // Never throws: it runs from the tests' afterAll, from an exit or signal handler and from a failed start, and a
+  // failure to remove the container must not hide the run's own result (`removeContainer` logs it; the next run removes it).
+  const stop = removeOnExit(() => removeContainer(name));
   try {
     const port = execFileSync('docker', ['port', name, '3000/tcp'], { encoding: 'utf8' }).trim().split('\n')[0]!;
     const url = `http://${port}`;

@@ -24,7 +24,8 @@
  *  - after a zero-width space (U+200B, a run of them), and after a soft hyphen (U+00AD), unless the character after it
  *    holds to it (`packSoftBreakRanges.ts`, scanned in Chromium); never BEFORE either. A line that ends at a soft hyphen
  *    sets a visible hyphen (U+2010), as it does where a soft hyphen ends a word before a space or an ideographic space,
- *    and not where the break falls after a zero-width space, another space or a mark that follows it: `Piece.hyphen`.
+ *    and not where the break falls after a zero-width space, another space or a mark that follows it: `Piece.hyphen`
+ *    (a text that ends at one keeps the hyphen's room on its last line, and draws none there).
  *    A word starts after either (a hyphen after one breaks before a letter, not a digit). The line and paragraph
  *    separators always break after them;
  *  - NOT after a slash, dot, comma, colon, ampersand or plus, and not inside a run of ordinary letters.
@@ -37,7 +38,8 @@ import { holdsAfterSoftHyphen, holdsAfterZeroWidthSpace } from './packSoftBreakR
 
 /**
  * A piece of text no line breaks inside. `spaced`: the first piece of every word after the first. `hyphen`: a line
- * that ends after this piece shows a hyphen (it ends at a soft hyphen), which adds the hyphen's width to that line.
+ * that ends after this piece takes a hyphen's width (it ends at a soft hyphen): the hyphen shows there, but for the
+ * text's last piece, where Chromium keeps the room and draws nothing (`pieces`).
  */
 export interface Piece { text: string; spaced: boolean; hyphen: boolean }
 
@@ -177,10 +179,13 @@ function wordPieces(word: string): string[] {
 /** Does a line that ends after `piece` show a hyphen? It ends at a soft hyphen (or one and ideographic spaces). */
 const endsAtSoftHyphen = (piece: string): boolean => piece.replace(new RegExp(`${IDEOGRAPHIC_SPACE}+$`, 'u'), '').endsWith(SOFT_HYPHEN);
 
-/** `text` as its pieces, in order. The last piece ends no line before the text does, so it shows no hyphen. */
+/**
+ * `text` as its pieces, in order. The LAST piece keeps its hyphen too: where the text ends at a soft hyphen (before any
+ * trailing space), Chromium's line breaker still leaves room for the hyphen on the last line, though it draws none
+ * there. Measured: "Revenue growth­" sets on one line at 5876/64px (its words and the hyphen), not at the 5570/64
+ * of its words, and "growth­" alone has a min-content of its word and the hyphen (`packLineFit.test.ts`).
+ */
 export function pieces(text: string): Piece[] {
-  const out = text.split(COLLAPSIBLE).filter((word) => word !== '').flatMap((word, wi) => wordPieces(word)
+  return text.split(COLLAPSIBLE).filter((word) => word !== '').flatMap((word, wi) => wordPieces(word)
     .map((piece, pi) => ({ text: piece, spaced: wi > 0 && pi === 0, hyphen: endsAtSoftHyphen(piece) })));
-  if (out.length > 0) out[out.length - 1] = { ...out[out.length - 1]!, hyphen: false };
-  return out;
 }

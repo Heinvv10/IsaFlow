@@ -16,7 +16,7 @@
  *
  * The near ties (#1196 pinned 80 blocks in a one-line band, 40 packs dropping a page-3 note that fits: the "Gross margin"
  * label and its mark, which Chromium sets on one line from a 76.046875px column against the model's 76.109375) are gone:
- * a line is fitted as Chromium's line breaker fits it, each box's exact sum floored to the unit (`textFitPx`,
+ * a line is fitted as Chromium's line breaker fits it, each box's exact sum floored to the unit (`fitUnitsPx`,
  * `packLineFit.test.ts`), not at the never-short width a column is sized by.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';

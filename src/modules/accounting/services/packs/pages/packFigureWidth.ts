@@ -8,7 +8,7 @@
  * production image's own fallback fonts (`packFallbackWidth.ts`, measured at the 9pt label; scaled to other sizes and
  * rounded up). There is no whole-pixel rounding of each advance any more: that was the test browser's, not production's.
  */
-import { fitUnitsPx, NEVER_SHORT, runExactPx, runPx, type FaceWeight, type Slack } from './packGlyphRuler';
+import { NEVER_SHORT, runExactPx, runPx, type FaceWeight, type Slack } from './packGlyphRuler';
 import { fallbackClusterPx, type FallbackStyle } from './packFallbackWidth';
 
 /** Weights the pack sets figures in: a line row, a subtotal row (and every KPI figure), a total row. */
@@ -27,15 +27,7 @@ export function textPx(text: string, fontPx: number, weight: FigureWeight, hyphe
   return runPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX), 0, hyphen, slack);
 }
 
-/**
- * The width `text` takes on a line as Chromium decides whether it FITS (`packGlyphRuler.fitUnitsPx`): its exact sum,
- * floored to the unit. For "does this line hold one more piece", never for a width a column is sized by (`textPx`).
- */
-export function textFitPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false): number {
-  return fitUnitsPx(textExactPx(text, fontPx, weight, hyphen));
-}
-
-/** `text`'s exact advance sum, unrounded: a line's boxes are summed exactly and floored once (`fitUnitsPx`). */
+/** `text`'s exact advance sum, unrounded: a line's boxes are summed exactly and floored once (`packGlyphRuler.fitUnitsPx`). */
 export function textExactPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false): number {
   if (text === '' && !hyphen) return 0;
   return runExactPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX), 0, hyphen);

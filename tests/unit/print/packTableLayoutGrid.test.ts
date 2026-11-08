@@ -5,7 +5,7 @@
  *
  * Every statement table of every pack of the grid (`allShapes`: 11,520 packs, each distinct table printed once), held to
  * what Chromium makes of it: never a label line too few, never a line too many (a line is fitted as Chromium's line
- * breaker fits it, `textFitPx`), the same heading lines, columns within the portrait guard, the height never short.
+ * breaker fits it, `fitUnitsPx`), the same heading lines, columns within the portrait guard, the height never short.
  * `packTableLayout.test.ts` is the stratified sample of the same, in every run.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';

@@ -12,10 +12,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { deltaText, KPI_FIGURE_MAX_PT, kpiColumnMinPx, kpiFit, labelMarkExactPx, type KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
-import { ptToPx, textExactPx, textFitPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
-import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, fitUnitsPx } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
+import { ptToPx, textExactPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
+import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, CHROMIUM_MOST, fitUnitsPx } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
 import { kpiColumnsPx, kpiTileMm, LABEL_LINE_MM, REASON_LINE_MM } from '@/modules/accounting/services/packs/pages/packKpiLayout';
-import { reasonFitPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
+import { reasonExactPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { input, type Shape } from './fixtures/packGridInputs';
 
@@ -60,14 +60,14 @@ describe('a tile line at the edge of its column', () => {
     const source = all.find((t) => t.figure.value !== null)!;
     const tile = alone(source, { label: 'Ab Cd\u00ADefghijklmnop' });
     // "Ab Cd-" fits a column exactly its width with the hyphen, and not 1/128px less (then "Cd-" and the rest wrap).
-    const withHyphen = textFitPx('Ab Cd\u00AD', 12, 400, true);
+    const withHyphen = fitUnitsPx(textExactPx('Ab Cd\u00AD', 12, 400, true));
     expect(kpiTileMm(tile, withHyphen - HAIR) - kpiTileMm(tile, withHyphen)).toBeCloseTo(LABEL_LINE_MM, 6);
   });
 
   it('a not-meaningful reason fits the exact width of the whole reason, and no narrower', () => {
     const source = all.find((t) => t.figure.value === null && (t.figure.unavailable ?? '').includes(' '))!;
     const tile = alone(source, {});
-    const whole = reasonFitPx(tile.figure.unavailable ?? '');
+    const whole = fitUnitsPx(reasonExactPx(tile.figure.unavailable ?? ''));
     expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(REASON_LINE_MM, 6);
   });
 });
@@ -91,6 +91,29 @@ describe('a column a figure holds open', () => {
     const frozen = columns.map((c, i) => [c, mins[i]!] as const).filter(([c]) => c > share);
     expect(frozen.length).toBeGreaterThan(0);
     frozen.forEach(([c, min]) => expect(c).toBe(min));
+  });
+
+  // The two bounds differ only where a column's widest run sits within Chromium's float noise of a grid point (one in
+  // eight): there the column is the lower, so a line the model fits, Chromium fits. A label word too long for the share
+  // holds the first column open, and is walked until its width lands there; a model that holds the column at the widest
+  // Chromium can set it, or a narrowest bound rounded as the widest, goes red.
+  it('where the narrowest and widest Chromium can set it differ, it is the narrowest, strictly below the widest', () => {
+    const base = tiles(DEMO);
+    let checked = 0;
+    for (let n = 0; n < 400 && checked < 3; n += 1) {
+      const word = `Intercompanyrechargesreceivable${Array.from(String(n), (d) => 'aeilmnorst'[Number(d)]).join('')}`;
+      const row = base.map((t, i) => (i === 0 ? { ...t, label: word, trendFootnote: null } : t));
+      const fontPx = kpiFit(row, SCALE, 'portrait').px ?? ptToPx(KPI_FIGURE_MAX_PT);
+      const least = kpiColumnMinPx(row, SCALE, fontPx, CHROMIUM_LEAST)[0]!;
+      const most = kpiColumnMinPx(row, SCALE, fontPx, CHROMIUM_MOST)[0]!;
+      const columns = kpiColumnsPx(row, SCALE, 'portrait');
+      expect(columns[0], `${word} holds its column open`).toBeGreaterThan(Math.max(...columns.slice(1)));
+      if (least === most) continue;
+      checked += 1;
+      expect(columns[0], word).toBe(least);
+      expect(columns[0]!, word).toBeLessThan(most);
+    }
+    expect(checked, 'no held-open column whose bounds differ: the test is vacuous').toBe(3);
   });
 });
 

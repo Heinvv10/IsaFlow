@@ -13,7 +13,8 @@ import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/b
 import type { PackTable } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { keptLayouts, LAYOUTS_MAX, statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
 import { CELL_SIDE_PX, ROW_WEIGHT } from '@/modules/accounting/services/packs/pages/packFigureFit';
-import { textFitPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
+import { textExactPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
+import { fitUnitsPx } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
 import { WRAP_GUARD } from '@/modules/accounting/services/packs/pages/packLineWrap';
 import { input, type Shape } from './fixtures/packGridInputs';
 
@@ -104,7 +105,7 @@ describe('a layout is kept by what the table holds', () => {
 });
 
 describe('whether a label line still holds a piece is decided as Chromium\'s line breaker decides it', () => {
-  // The line's exact advance sum floored to the unit (`textFitPx`), against the column less the guard: a label whose two
+  // The line's exact advance sum floored to the unit (`fitUnitsPx`), against the column less the guard: a label whose two
   // words fit at that width takes one line, and one a unit too wide for it takes two. The never-short width (one unit
   // more, the exact sum rounded up) would wrap the first: Chromium does not (`tests/unit/print/packLineFit.test.ts`).
   it('a label whose two words fit their column at the floored exact width takes one line; at the never-short width it would wrap', () => {
@@ -118,7 +119,7 @@ describe('whether a label line still holds a piece is decided as Chromium\'s lin
         const table = { ...base, rows: base.rows.map((r, i) => (i === row ? { ...r, label } : r)) };
         const layout = tableLayout(table, SCALE, 'portrait');
         const avail = layout.columnsPx[0]! - CELL_SIDE_PX - WRAP_GUARD.portrait;
-        if (textFitPx(label, 12, weight) <= avail && textPx(label, 12, weight) > avail) {
+        if (fitUnitsPx(textExactPx(label, 12, weight)) <= avail && textPx(label, 12, weight) > avail) {
           found += 1;
           expect(layout.labelLines[row], `"${label}" fits at its floored exact width`).toBe(1);
         }

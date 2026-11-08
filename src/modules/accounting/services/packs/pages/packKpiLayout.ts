@@ -18,9 +18,9 @@ import type { MoneyScale } from '@/lib/format/money';
 import { PackRefusal } from '../packRefusal';
 import { GUTTER_MM } from './packDisclosureHeight';
 import {
-  deltaText, kpiColumnMinPx, kpiFit, KPI_GAP_PX, KPI_FIGURE_MAX_PT, labelMarkExactPx, MM_PX, type KpiTile,
+  deltaCuePx, deltaText, kpiColumnMinPx, kpiFit, KPI_GAP_PX, KPI_FIGURE_MAX_PT, labelMarkExactPx, MM_PX, type KpiTile,
 } from './packFigureFit';
-import { ptToPx, textExactPx, textPx } from './packFigureWidth';
+import { ptToPx, textExactPx } from './packFigureWidth';
 import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, CHROMIUM_MOST, clustersOf, fitUnitsPx, inFace } from './packGlyphRuler';
 import { pieces } from './packLineBreaks';
 import { reasonExactPx } from './packReasonWidth';
@@ -135,7 +135,9 @@ function lineCount(text: string, exactOf: (line: string, hyphen: boolean) => num
   all.forEach((piece, i) => {
     const candidate = line === '' ? piece.text : `${line}${piece.spaced ? ' ' : ''}${piece.text}`;
     const before = first ? lead : 0;
-    const w = fitUnitsPx(before + exactOf(first ? `${leadText}${candidate}` : candidate, piece.hyphen) + (i === all.length - 1 ? mark : 0));
+    // A mark after the last piece ends the line there, not at a soft hyphen the piece ends with: no hyphen's room.
+    const hyphen = piece.hyphen && !(i === all.length - 1 && mark > 0);
+    const w = fitUnitsPx(before + exactOf(first ? `${leadText}${candidate}` : candidate, hyphen) + (i === all.length - 1 ? mark : 0));
     if ((line !== '' || before > 0) && w > avail) { lines += 1; line = piece.text; first = false; } else line = candidate;
   });
   return lines;
@@ -143,7 +145,7 @@ function lineCount(text: string, exactOf: (line: string, hyphen: boolean) => num
 
 const plainExact = (line: string, hyphen = false): number => textExactPx(line, TEXT_PX, 400, hyphen);
 /** The delta's arrow cue, its own inline box: at the width Chromium sets it (the exact sum rounded up to the unit). */
-const DELTA_CUE_FIT_PX = Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400, false, AS_CHROMIUM_SETS)));
+const DELTA_CUE_FIT_PX = deltaCuePx(AS_CHROMIUM_SETS);
 
 /** The texts already found to be set wholly in the pack's own faces. */
 const IN_FACE = new Set<string>();

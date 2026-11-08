@@ -78,11 +78,12 @@ export const HEADING_WORD_PX: Readonly<Record<PackTableColumnKey, number>> = Obj
     Math.max(...headingWordsPx(label))]),
 ) as Record<PackTableColumnKey, number>;
 
-/** A heading line (or its mark), its exact tracked advance sum, unrounded: summed with its line, floored once. */
-const headingRunExactPx = (text: string, fontPx: number): number => runExactPx(text, fontPx, 500,
+/**
+ * A heading line, its exact tracked advance sum, unrounded: floored once as a line (`packGlyphRuler.fitUnitsPx`). Its mark
+ * is a box of its own on the line (`headingMarkPx`, `packLineWrap.linesForText`).
+ */
+export const headingLineExactPx = (text: string): number => runExactPx(text.toUpperCase(), HEADING_PX, 500,
   (cluster, sizePx) => textPx(cluster, sizePx, 500) + HEADING_TRACKING_PX, HEADING_TRACKING_PX);
-export const headingLineExactPx = (text: string): number => headingRunExactPx(text.toUpperCase(), HEADING_PX);
-export const headingMarkExactPx = (number: number | undefined): number => (number === undefined ? 0 : headingRunExactPx(String(number), 0.7 * HEADING_PX));
 
 /** A line of a column heading, in pixels, as `.pack-table th` sets it (shaped whole, tracked). */
 export const headingLinePx = (text: string, slack: Slack = NEVER_SHORT): number => headingRunPx(text.toUpperCase(), HEADING_PX, slack);
@@ -196,12 +197,11 @@ function tileOtherMinPx(tile: KpiTile, slack: Slack): number {
     ? Math.max(0, ...pieces(tile.figure.unavailable).map((piece) => reasonPx(piece.text, piece.hyphen, slack))) : 0;
   // The arrow cue is a run of its own (`</span>{' '}` after it is a break opportunity): it never holds a column open
   // past the words it precedes.
-  const cue = Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400, false, slack)));
-  const deltaPx = tile.delta === null ? 0 : Math.max(cue, longestRunPx(deltaText(tile), 12, 400, slack));
+  const deltaPx = tile.delta === null ? 0 : Math.max(deltaCuePx(slack), longestRunPx(deltaText(tile), 12, 400, slack));
   return Math.max(labelPx, reasonWidth, deltaPx);
 }
-/** The arrow cue before a delta, a 7pt glyph: the widest of the three arrows the tile sets. */
-export const DELTA_CUE_PX = Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400)));
+/** The arrow cue before a delta, a 7pt glyph: the widest of the three arrows the tile sets, rounded as `slack` says. */
+export const deltaCuePx = (slack: Slack = NEVER_SHORT): number => Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400, false, slack)));
 
 /**
  * The width of each of a KPI row's four columns at `fontPx`: the widest of its figure and its tile's other content,
