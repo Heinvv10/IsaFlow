@@ -1,0 +1,129 @@
+/**
+ * THE KPI MODEL CHARGES A TILE'S LINES AT THE NEVER-SHORT WIDTH OF THE WHOLE LINE, AND NOTHING NARROWER.
+ *
+ * `packGlyphRuler.runPx` rounds a width up to Chromium's 1/64px unit and adds one unit more: the shaping model is a unit
+ * off Chromium either way on some strings, and the unit is what keeps it never short. The Chromium proof over the grid
+ * is `tests/unit/print/packKpiLayout.test.ts`; this pins the model's own boundary without a browser, at the exact
+ * width `textPx` gives the whole line: a column that width sets it on one line, a column 1/128px narrower on two. A
+ * model that drops the unit (fits it in the narrower column) or sums the line piece by piece (each piece's rounding:
+ * wraps it in the exact column) goes red here. A column a figure holds open is that figure's never-short width.
+ */
+import { describe, expect, it, vi } from 'vitest';
+import { log } from '@/lib/logger';
+import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { DELTA_CUE_PX, deltaText, KPI_FIGURE_MAX_PT, kpiColumnMinPx, kpiFit, labelMarkPx, type KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { ptToPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
+import { kpiColumnsPx, kpiTileMm, LABEL_LINE_MM, REASON_LINE_MM } from '@/modules/accounting/services/packs/pages/packKpiLayout';
+import { reasonPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
+import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
+import { input, type Shape } from './fixtures/packGridInputs';
+
+const SCALE = "R'000" as const;
+const HAIR = 1 / 128;
+
+function tiles(shape: Shape): KpiTile[] {
+  vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+  const page = buildBoardPackPages(input(shape)).pages.find((p) => p.navLabel === 'Highlights')!;
+  const block = page.blocks.find((b) => b.kind === 'kpiTiles')!;
+  if (block.kind !== 'kpiTiles') throw new Error('no tiles');
+  return block.tiles;
+}
+
+const DEMO: Shape = { tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1, plug: 0.2, sg: [-1, 1, -1, 1] };
+const NET_DEBIT: Shape = { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 300000, plug: 0.05, sg: [-1, -1, 1, 1] };
+const plain = (text: string): number => textPx(text, 12, 400);
+
+describe('a tile line at the edge of its column', () => {
+  const all = [...tiles(DEMO), ...tiles(NET_DEBIT)];
+  /** One part of the tile alone: the others are a one-letter label, a figure, no delta and no sparkline. */
+  const alone = (tile: KpiTile, part: Partial<KpiTile>): KpiTile => ({ ...tile, label: 'X', trendFootnote: null, delta: null, sparklineSvg: null, ...part });
+
+  it('a delta line (its arrow cue, a space, the words) fits the exact width of the whole line, and no narrower', () => {
+    const source = all.find((t) => t.delta !== null)!;
+    const tile = alone(source, { delta: source.delta, figure: { ...source.figure, value: source.figure.value ?? 1 } });
+    const whole = DELTA_CUE_PX + plain(' ') + plain(deltaText(tile));
+    expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(LABEL_LINE_MM, 6);
+  });
+
+  it('a label and its footnote mark fit the exact width of the two, and no narrower', () => {
+    const source = all.find((t) => t.trendFootnote != null && t.label.includes(' '))!;
+    const tile = alone(source, { label: source.label, trendFootnote: source.trendFootnote, figure: { ...source.figure, value: source.figure.value ?? 1 } });
+    const whole = plain(tile.label) + labelMarkPx(tile.trendFootnote);
+    expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(LABEL_LINE_MM, 6);
+  });
+
+  it('a line that ends at a soft hyphen is charged with the hyphen Chromium sets there', () => {
+    const source = all.find((t) => t.figure.value !== null)!;
+    const tile = alone(source, { label: 'Ab Cd\u00ADefghijklmnop' });
+    // "Ab Cd-" fits a column exactly its width with the hyphen, and not 1/128px less (then "Cd-" and the rest wrap).
+    const withHyphen = textPx('Ab Cd\u00AD', 12, 400, true);
+    expect(kpiTileMm(tile, withHyphen - HAIR) - kpiTileMm(tile, withHyphen)).toBeCloseTo(LABEL_LINE_MM, 6);
+  });
+
+  it('a not-meaningful reason fits the exact width of the whole reason, and no narrower', () => {
+    const source = all.find((t) => t.figure.value === null && (t.figure.unavailable ?? '').includes(' '))!;
+    const tile = alone(source, {});
+    const whole = reasonPx(tile.figure.unavailable ?? '');
+    expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(REASON_LINE_MM, 6);
+  });
+});
+
+describe('a column a figure holds open', () => {
+  it('is the figure\'s never-short width, to the unit', () => {
+    const row = tiles(NET_DEBIT);
+    const fit = kpiFit(row, SCALE, 'portrait');
+    const mins = kpiColumnMinPx(row, SCALE, fit.px ?? ptToPx(KPI_FIGURE_MAX_PT));
+    const columns = kpiColumnsPx(row, SCALE, 'portrait');
+    const share = Math.min(...columns);
+    const frozen = columns.map((c, i) => [c, mins[i]!] as const).filter(([c]) => c > share);
+    expect(frozen.length).toBeGreaterThan(0);
+    frozen.forEach(([c, min]) => expect(c).toBe(min));
+  });
+});
+
+describe('the sparkline the model sizes', () => {
+  const withSparkline = [...tiles(DEMO), ...tiles({ ...DEMO, k: 300000 })].filter((t) => t.sparklineSvg !== null);
+
+  it('is written by the chart renderer with a numeric width and height on its root <svg>, the only format the model reads', () => {
+    expect(withSparkline.length).toBeGreaterThan(3);
+    for (const tile of withSparkline) expect(String(tile.sparklineSvg)).toMatch(/^<svg width="\d+(?:\.\d+)?" height="\d+(?:\.\d+)?" /);
+  });
+
+  it('is charged at its own height over width, the column\'s width high', () => {
+    const tile = withSparkline[0]!;
+    expect(String(tile.sparklineSvg)).toMatch(/^<svg width="227" height="181" /);
+    const without = kpiTileMm({ ...tile, sparklineSvg: null }, 100);
+    // Worked by hand. In a 100px column the 227 x 181 sparkline is 100 x 181 / 227 = 79.7357px; Chromium floors a
+    // sparkline's height to its 1/64px unit (measured: in a 97.09375px column, 77.4196 is set at 77.40625), 79.734375, and
+    // the model takes a unit up, 79.75px (5104/64); the tile's 1mm gap is 3.7795px, floored to 3.765625 (241/64). The
+    // two are 83.515625px = 83.515625 x 25.4 / 96 = 22.09684245mm.
+    expect(kpiTileMm(tile, 100) - without).toBeCloseTo(22.09684245, 7);
+  });
+
+  it('is refused, not guessed at, where its root carries no width and height', () => {
+    const tile = withSparkline[0]!;
+    expect(() => kpiTileMm({ ...tile, sparklineSvg: '<svg viewBox="0 0 227 181"></svg>' as typeof tile.sparklineSvg }, 100)).toThrow(PackRefusal);
+  });
+});
+
+describe('a tile whose text the pack\'s faces do not set', () => {
+  const tile = tiles(DEMO).find((t) => t.delta !== null)!;
+  const reasonTile = [...tiles(DEMO), ...tiles(NET_DEBIT)].find((t) => t.figure.value === null)!;
+
+  it.each([
+    ['a Thai label', { label: 'รายได้จากการดำเนินงาน' }],
+    ['a Devanagari label', { label: 'परिचालन राजस्व' }],
+    ['an emoji in a label', { label: 'Revenue 📈' }],
+    ['an Arabic delta basis', { delta: { ...tile.delta!, basis: 'الإيرادات التشغيلية' } }],
+  ] as Array<[string, Partial<KpiTile>]>)('%s is refused: its fallback face\'s line box is taller than any the model charges', (_name, part) => {
+    expect(() => kpiTileMm({ ...tile, ...part }, 150)).toThrow(PackRefusal);
+  });
+
+  it('a Tibetan not-meaningful reason is refused', () => {
+    expect(() => kpiTileMm({ ...reasonTile, figure: { ...reasonTile.figure, unavailable: 'Not meaningful: ཀྵྐྵ བོད' } }, 150)).toThrow(PackRefusal);
+  });
+
+  it('text the faces set (Greek, Cyrillic, accented Latin, a non-breaking space) is charged, not refused', () => {
+    expect(kpiTileMm({ ...tile, label: 'Ελληνικά Кириллица Ūňîčőđę ratio' }, 150)).toBeGreaterThan(0);
+  });
+});

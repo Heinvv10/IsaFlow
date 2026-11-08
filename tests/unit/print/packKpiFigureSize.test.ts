@@ -1,12 +1,12 @@
 /**
  * THE KPI FIGURE SIZE THE MODEL STATES IS THE SIZE CHROMIUM COMPUTES IN THE PRINT.
  *
- * `.pack-kpi-value` takes its size from `100cqw` of the tile row, and in production's print a container query reads
- * the content box 1/64px wider than the width lines break at (`PRINT_CONTAINER_PX`; measured in
- * `packPrintContentWidth.test.ts`). The model (`packKpiRowFit.kpiFigurePx`) sizes against that container width, so it
- * names the size Chromium computes, and the 1/64px font-size floor Chromium sets glyphs at (the adversary found the
- * gap moving that floor in 632 elements when the model used the line width). Every KPI row of every 127th pack of the
- * fitter grid (all twelve budget x prior x trend combinations), laid out at the container width.
+ * `.pack-kpi-value` is 22pt or the whole-pixel size the figure fit stamped on the row (`packFigureFitStamp`); the model
+ * (`packKpiLayout.kpiFigurePx`) states the same, and so the 1/64px font-size floor Chromium sets glyphs at. (The size
+ * used to come from `100cqw`, where a container query in print reads 1/64px more than the width lines break at, and the
+ * adversary found that moving the floor in 632 elements; it no longer depends on the content width at all.) Every KPI
+ * row of every 127th pack of the fitter grid (all twelve budget x prior x trend combinations), laid out at the
+ * container width print reads.
  */
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
@@ -16,7 +16,7 @@ import { log } from '@/lib/logger';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { kpiFigurePx } from '@/modules/accounting/services/packs/pages/packKpiRowFit';
+import { kpiFigurePx } from '@/modules/accounting/services/packs/pages/packKpiLayout';
 import { PRINT_CONTAINER_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { input, type Shape } from '../services/packs/fixtures/page6Grid';
 import { allPage6Shapes } from '../services/packs/fixtures/page6Shapes';
@@ -42,7 +42,7 @@ it('every KPI row of every 127th grid pack: the model\'s size is the computed on
     let doc;
     try { doc = buildBoardPackPages(input(GRID[i]!)); } catch (e) { if (e instanceof PackRefusal) continue; throw e; }
     combos.add(i % 12);
-    const model = doc.pages.flatMap((page) => page.blocks.flatMap((b) => (b.kind === 'kpiTiles' ? [kpiFigurePx(b.tiles, page.orientation)] : [])));
+    const model = doc.pages.flatMap((page) => page.blocks.flatMap((b) => (b.kind === 'kpiTiles' ? [kpiFigurePx(b.tiles, doc.numberConvention.scale, page.orientation)] : [])));
     const { html, fonts } = flipDocument(renderToStaticMarkup(createElement(PackPagesView, { document: doc })));
     const page = await servedPage(browser, html, fonts, Math.ceil(PRINT_CONTAINER_PX.portrait) + 2);
     try {
@@ -69,6 +69,6 @@ it('every KPI row of every 127th grid pack: the model\'s size is the computed on
   }
   expect(combos.size).toBe(12);
   expect(rows).toBeGreaterThan(200);
-  expect(fitted, 'no row sized below 22pt by its container: the check would be vacuous').toBeGreaterThan(20);
+  expect(fitted, 'no row fitted below 22pt: the check would be vacuous').toBeGreaterThan(20);
   expect(wrong.slice(0, 10)).toEqual([]);
 }, 900_000);

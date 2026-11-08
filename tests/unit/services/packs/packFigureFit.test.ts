@@ -1,33 +1,118 @@
 /**
- * What a row of nowrap figures tells the stylesheet: the summed widths, in ems, of the widest figure
- * of each column (`packFigureFit.ts`). The printed proof, that nothing then passes the right edge, is
- * `tests/unit/print/packNothingPassesTheEdge.test.ts`.
+ * `packFigureFit.ts`: whether a row of figures fits the sheet, and at what whole-pixel size. The proof that the
+ * decision matches Chromium at its thresholds is `tests/unit/print/packFigureFitThreshold.test.ts`; this holds the
+ * logic around it.
  */
 import { describe, expect, it } from 'vitest';
-import { kpiFitStyle, tableFitStyle, widestPerColumnEms } from '@/components/accounting/packs/primitives/packFigureFit';
-import { textWidthEms } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import {
+  fitAttributes, HEADING_WORD_PX, kpiColumnMinPx, kpiFit, tableColumnCells, tableFit,
+} from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { FIT_PX, isFigureFit } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
+import { demoWithoutBudget, SCALE, withWidenedKpi, withWidenedTable } from './fixtures/widenedFigures';
 
-describe('packFigureFit', () => {
-  it('sums the widest text of each column, not the widest overall nor every text', () => {
-    const ems = widestPerColumnEms([['(1 546)', '12'], ['9']]);
-    expect(ems).toBeCloseTo(textWidthEms('(1 546)') + textWidthEms('9'), 6);
+describe('tableFit', () => {
+  it('sets nothing for the demo company\'s table: it fits at the ordinary size', () => {
+    const { table } = withWidenedTable(demoWithoutBudget(), 6);
+    expect(tableFit(table, SCALE)).toEqual({ px: null, fits: true });
+    expect(fitAttributes(tableFit(table, SCALE), 'table')).toEqual({});
   });
 
-  it('puts tile i in column i % 4, and ignores a tile with no figure', () => {
-    const texts = ['1', '22', '333', '4444', '(55 555)', null, '7', '8'];
-    const expected = widestPerColumnEms([['1', '(55 555)'], ['22'], ['333', '7'], ['4444', '8']]);
-    expect(kpiFitStyle(texts)['--pack-fit-ems']).toBeCloseTo(expected, 1);
+  it('steps down from 12px to the 10px floor as the figures widen, whole pixels only', () => {
+    const sizes = Array.from({ length: 24 }, (unused, i) => i + 6).map((d) => tableFit(withWidenedTable(demoWithoutBudget(), d).table, SCALE));
+    const px = sizes.filter((f) => f.fits).map((f) => f.px ?? 12);
+    expect(px).toEqual([...px].sort((a, b) => b - a));
+    expect(Math.min(...px)).toBe(10);
+    expect(new Set(px).has(12) && new Set(px).has(10)).toBe(true);
+    expect(sizes.some((f) => !f.fits)).toBe(true);
   });
 
-  it('states a table\'s column count beside its width', () => {
-    const style = tableFitStyle([['1', '2'], ['(297 000 000)'], ['5']]);
-    expect(style['--pack-fit-cols']).toBe(3);
-    expect(style['--pack-fit-ems']).toBeCloseTo(widestPerColumnEms([['1', '2'], ['(297 000 000)'], ['5']]), 1);
+  it('a column heading and its marker are a floor for the column: a heading wider than its figures sets the width', () => {
+    expect(HEADING_WORD_PX.monthOperatingExpenses).toBeGreaterThan(HEADING_WORD_PX.prior);
+    const { table } = withWidenedTable(demoWithoutBudget(), 6);
+    const narrow = { ...table, columns: ['prior'] as const, rows: table.rows.map((r) => ({ ...r, figures: { prior: { ...r.figures.actual!, value: 1000 } } })) };
+    const marked = { ...narrow, columnNotes: [{ column: 'prior' as const, footnote: 2 }] };
+    expect(tableFit(narrow, SCALE).fits && tableFit(marked, SCALE).fits).toBe(true);
   });
 
-  it('a wider figure is a wider row', () => {
-    const narrow = kpiFitStyle(['(1 546)', '910', '5', '6'])['--pack-fit-ems'] as number;
-    const wide = kpiFitStyle(['(133 500 000)', '910', '5', '6'])['--pack-fit-ems'] as number;
-    expect(wide).toBeGreaterThan(narrow);
+  it('a not-meaningful cell is charged as "n/m" and the mark of its note', () => {
+    const { table } = withWidenedTable(demoWithoutBudget(), 6);
+    const nm = { ...table, rows: table.rows.map((r) => ({ ...r, figures: { actual: { ...r.figures.actual!, value: null, unavailable: 'x' } } })) };
+    expect(tableColumnCells(nm, SCALE)[0]!.every((c) => c.text === 'n/m' && c.mark === 'a')).toBe(true);
   });
+
+  it('a derived cell of a row whose actual is not meaningful is measured as the "n/m" the table prints, not as a dash', () => {
+    const { table } = withWidenedTable(demoWithoutBudget(), 6);
+    const row = table.rows[0]!;
+    const half = {
+      ...table, columns: ['actual', 'prior'] as const,
+      rows: [{ ...row, figures: { actual: { ...row.figures.actual!, value: null, unavailable: 'no base' } } }, { ...table.rows[1]!, figures: { actual: table.rows[1]!.figures.actual!, prior: table.rows[1]!.figures.actual! } }],
+    };
+    const [actual, prior] = tableColumnCells(half, SCALE);
+    expect(actual![0]).toMatchObject({ text: 'n/m', mark: 'a' });
+    expect(prior![0], 'the prior cell of that row prints n/m with the same mark').toMatchObject({ text: 'n/m', mark: 'a' });
+    expect(prior![1]!.text, 'a row with its own prior prints it').not.toBe('n/m');
+  });
+
+  it('weights follow the row role: subtotal 500, total and grand total 600, a line 400', () => {
+    const { table } = withWidenedTable(demoWithoutBudget(), 6);
+    const weights = new Map(table.rows.map((r) => [r.role, tableColumnCells(table, SCALE)[0]![table.rows.indexOf(r)]!.weight]));
+    expect(weights.get('line')).toBe(400);
+    expect(weights.get('subtotal')).toBe(500);
+    expect([weights.get('total'), weights.get('grandTotal')].filter((w) => w !== undefined).every((w) => w === 600)).toBe(true);
+  });
+});
+
+describe('kpiFit', () => {
+  it('sets nothing for the demo company\'s tiles', () => {
+    const { tiles } = withWidenedKpi(demoWithoutBudget(), 6);
+    expect(kpiFit(tiles, SCALE)).toEqual({ px: null, fits: true });
+  });
+
+  it('puts tile i in column i % 4 and takes the widest of each column', () => {
+    const { tiles } = withWidenedKpi(demoWithoutBudget(), 6);
+    const widest = kpiColumnMinPx(tiles, SCALE, 20);
+    expect(widest).toHaveLength(4);
+    expect(widest.every((w) => w > 0)).toBe(true);
+    const wider = kpiColumnMinPx(withWidenedKpi(demoWithoutBudget(), 9).tiles, SCALE, 20);
+    expect(wider[0]).toBeGreaterThan(widest[0]!);
+  });
+
+  it('steps down from the ordinary size toward the 16px floor, then does not fit', () => {
+    const sizes = Array.from({ length: 24 }, (unused, i) => i + 6).map((d) => kpiFit(withWidenedKpi(demoWithoutBudget(), d).tiles, SCALE));
+    const px = sizes.filter((f) => f.fits).map((f) => f.px ?? 29.33);
+    expect(px).toEqual([...px].sort((a, b) => b - a));
+    expect(Math.min(...px)).toBeGreaterThanOrEqual(16);
+    expect(Math.min(...px)).toBeLessThan(29);
+    expect(px.every((v) => Number.isInteger(v) || v === 29.33)).toBe(true);
+    expect(sizes.some((f) => !f.fits)).toBe(true);
+  });
+});
+
+describe('fitAttributes', () => {
+  it('a fitted row carries the class and the size; a row that fits carries neither', () => {
+    expect(fitAttributes({ px: 11, fits: true }, 'table')).toEqual({ className: 'is-fitted', style: { '--pack-fit-size': '11px' } });
+    expect(fitAttributes({ px: 29, fits: true }, 'kpi')).toEqual({ className: 'is-fitted', style: { '--pack-fit-size': '29px' } });
+    expect(fitAttributes({ px: null, fits: true }, 'kpi')).toEqual({});
+  });
+
+  it('refuses a fit that does not fit, or a size the fit model never states for the row', () => {
+    for (const [fit, kind] of [[{ px: 10, fits: false }, 'table'], [{ px: 9, fits: true }, 'table'], [{ px: 12, fits: true }, 'table'],
+      [{ px: 15, fits: true }, 'kpi'], [{ px: 30, fits: true }, 'kpi'], [{ px: 20.5, fits: true }, 'kpi'], [{ px: 11, fits: true }, 'kpi']] as const) {
+      expect(() => fitAttributes(fit, kind), `${kind} ${JSON.stringify(fit)}`).toThrow(/did not decide/);
+    }
+  });
+
+  it('every fit the model decides for a row that fits is one a page accepts (the range is the model\'s own)', () => {
+    const digits = Array.from({ length: 30 }, (unused, i) => i + 4);
+    const tables = digits.flatMap((d) => (['portrait', 'landscape'] as const).map((o) => tableFit(withWidenedTable(demoWithoutBudget(), d).table, SCALE, o)));
+    const kpis = digits.flatMap((d) => (['portrait', 'landscape'] as const).map((o) => kpiFit(withWidenedKpi(demoWithoutBudget(), d).tiles, SCALE, o)));
+    for (const [fits, kind] of [[tables, 'table'], [kpis, 'kpi']] as const) {
+      const stated = fits.filter((f) => f.fits);
+      expect(stated.every((f) => isFigureFit(f, kind)), kind).toBe(true);
+      // Both ends of each range are reached, so the range is not merely wide enough: it is the model's.
+      const px = new Set(stated.map((f) => f.px));
+      expect(px.has(null) && px.has(FIT_PX[kind].floor), kind).toBe(true);
+    }
+    expect(new Set(tables.filter((f) => f.fits).map((f) => f.px)).has(11)).toBe(true);
+  }, 60_000);
 });

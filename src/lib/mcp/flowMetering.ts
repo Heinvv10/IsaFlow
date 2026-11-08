@@ -338,6 +338,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   update_supplier_invoice: null,
   // Re-dating existing bills to the suppliers' terms: a correction, the bills already paid for.
   reapply_payment_terms: null,
+  // The customer-invoice twin: the same correction of existing invoices.
+  reapply_customer_payment_terms: null,
   unapply_supplier_payment: null,
   unapply_credit_note: null,
 

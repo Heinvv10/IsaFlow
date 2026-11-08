@@ -21,14 +21,10 @@
 .pack-table tbody tr.is-subtotal td { font-weight: 500; border-top: 1pt solid var(--pack-rule); }
 .pack-table tbody tr.is-total td { font-weight: 600; border-top: 1pt solid var(--pack-ink); }
 .pack-table tbody tr.is-grand-total td { font-weight: 600; border-top: 1pt solid var(--pack-ink); border-bottom: 3pt double var(--pack-ink); }
-/* A statement table's figures shrink only where its columns would outgrow the measure (see
- * `packFigureFit.ts`): 9pt is the ceiling, and the room is the box's width less a label column of 30mm
- * and the 4mm of padding every data column carries. Never below 7.5pt, the pack's smallest text (its footnotes).
- * Figures that fit print at 9pt as before. */
-.pack-table-box { container-type: inline-size; }
-.pack-table-box .pack-table td:not(:first-child) {
-  font-size: max(7.5pt, min(9pt, calc((100cqw - 30mm - var(--pack-fit-cols, 0) * 4mm) / var(--pack-fit-ems, 1))));
-}
+/* A statement table whose figures do not fit the measure at 9pt carries `is-fitted` and `--pack-fit-size`
+ * (a whole pixel size, never below 10px = 7.5pt, the pack's smallest text), set by `packFigureFit.ts` from the
+ * widths Chromium lays the figures out at; a table that fits carries neither and prints as it always did. */
+.pack-table.is-fitted td:not(:first-child) { font-size: var(--pack-fit-size); }
 .pack-table.is-long tbody tr:nth-child(even) td { background: var(--pack-tint); }
 
 /* Draft watermark — spec §5.4: a 45deg DRAFT mark at 6% opacity on every
