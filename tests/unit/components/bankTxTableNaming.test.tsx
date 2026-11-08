@@ -50,11 +50,11 @@ describe('BankTxTable: the names, row by row', () => {
 
   it('names the type, VAT and dimension selects of a new row', () => {
     render(<BankTxTable {...tableProps()} />);
-    expect(screen.getByRole('combobox', { name: `Allocation type, ${row('a')}` })).toHaveValue('account');
-    expect(screen.getByRole('combobox', { name: `VAT, ${row('a')}` })).toHaveValue('standard');
-    expect(screen.getByRole('combobox', { name: `Cost centre 1, ${row('a')}` })).toHaveValue('x');
-    expect(screen.getByRole('combobox', { name: `Cost centre 2, ${row('a')}` })).toHaveValue('');
-    expect(screen.getByRole('combobox', { name: `Business unit, ${row('a')}` })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: `Allocation type, ${row('a')}` })).toHaveTextContent('Account');
+    expect(screen.getByRole('combobox', { name: `VAT, ${row('a')}` })).toHaveTextContent('Standard 15%');
+    expect(screen.getByRole('combobox', { name: `Cost centre 1, ${row('a')}` })).toHaveTextContent('X Xn');
+    expect(screen.getByRole('combobox', { name: `Cost centre 2, ${row('a')}` })).toHaveTextContent('—');
+    expect(screen.getByRole('combobox', { name: `Business unit, ${row('a')}` })).toHaveTextContent('—');
   });
 
   it('names the Selection trigger by its visible text, then what it chooses and for which row', () => {

@@ -22,7 +22,7 @@ afterEach(() => { cleanup(); });
 
 const ASSET = {
   id: 'as-1', asset_number: 'A-0001', name: 'Forklift', category: 'Plant', purchase_date: '2024-01-01',
-  purchase_price: 120000, current_book_value: 90000, useful_life_years: 5, status: 'active', location: null,
+  purchase_price: 120000, current_book_value: 90000, useful_life_years: 5, status: 'available', location: null,
   serial_number: null, supplier_name: null, sars_category: null, sars_rate: null, tax_life: null,
   created_at: '2024-01-01', salvage_value: 0, depreciation_method: 'straight_line',
 };

@@ -10,6 +10,7 @@ import { seedEmployee } from './p4fu-cumulative.helpers';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { payrollTermsChangedSinceCalculation } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import { getPayrollEmployee, updatePayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
+import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -131,5 +132,46 @@ describe('stored lines and the year to date (migration 959)', () => {
     await donate(f, 4, 500);
     const april = await run(f, 4);
     expect([april.receipted, april.base, april.deduction]).toEqual([500, 20_000, 500]);
+  });
+});
+
+describe('the certificate reports 4030 in full (BRS V25.3.0 p. 102; PAYE-GEN-01-G21 (2027) p. 11)', () => {
+  const year = { start: '2026-03-01', end: '2027-02-01' };
+  const donated = async (f: SeveranceFixture) => (await loadRetirementContributions(f.company, year, [f.employee])).get(f.employee)?.donations4030;
+
+  it('the whole donation, also the part above the 5% and a non-taxable 4030, though PAYE allowed less', async () => {
+    const f = await seedEmployee(pool, fixtures, 's18a certificate full', 20_000);
+    await updatePayrollEmployee(f.employee, f.company, { s18aReceiptHeld: true });
+    await donate(f, 3, 2_000);
+    const untaxed = String((await pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Donation untaxed', '4030', 'deduction', false) RETURNING id`, [f.company])).rows[0]!.id);
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
+       VALUES ($1, $2, 100, '2026-03-01', '2026-03-28', false)`, [f.employee, untaxed]);
+    // Not a donation deducted from pay: a 4030 on an earning component, and a padded code that still counts.
+    const earning = String((await pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Mis-typed 4030 earning', '4030', 'earning', false) RETURNING id`, [f.company])).rows[0]!.id);
+    const padded = String((await pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Donation padded', E' 4030\\t', 'deduction', false) RETURNING id`, [f.company])).rows[0]!.id);
+    for (const [component, amount] of [[earning, 300], [padded, 50]] as const) {
+      await pool.query(
+        `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
+         VALUES ($1, $2, $3, '2026-03-01', '2026-03-28', false)`, [f.employee, component, amount]);
+    }
+    expect((await run(f, 3)).deduction).toBe(1_000);
+    expect(await donated(f)).toBe(2_150);
+  });
+
+  it('without a receipt: nothing allowed, still reported; a reversal nets it out', async () => {
+    const f = await seedEmployee(pool, fixtures, 's18a certificate no receipt', 20_000);
+    await donate(f, 3, 500);
+    expect((await run(f, 3)).deduction).toBe(0);
+    expect(await donated(f)).toBe(500);
+    await donate(f, 4, -500);
+    await run(f, 4);
+    expect(await donated(f)).toBe(0);
   });
 });
