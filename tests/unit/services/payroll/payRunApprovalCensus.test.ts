@@ -37,9 +37,10 @@ describe('pay-run approval mutation census', () => {
 
   it('every writer that sets a pay run approved also sets approved_at in the same statement (payslip finality reads it)', () => {
     const writers: string[] = [];
-    for (const file of [...tsFiles('src'), ...tsFiles('pages')]) {
-      for (const m of source(file).matchAll(/UPDATE\s+payroll_run_headers[^`]*/g)) {
-        if (/status\s*=\s*'(approved|paid)'/.test(m[0])) writers.push(`${file}: ${/approved_at\s*=/.test(m[0]) ? 'ok' : 'MISSING approved_at'}`);
+    for (const file of [...tsFiles('src'), ...tsFiles('pages'), ...tsFiles('scripts')]) {
+      for (const m of source(file).matchAll(/UPDATE\s+(?:public\.)?payroll_run_headers[^`]*/g)) {
+        // A literal 'approved'/'paid', or a status taken from a variable ($1, ${...}): the latter could be either.
+        if (/status\s*=\s*(?:'(?:approved|paid)'|\$\{|\$\d)/.test(m[0])) writers.push(`${file}: ${/approved_at\s*=/.test(m[0]) ? 'ok' : 'MISSING approved_at'}`);
       }
     }
     expect(writers.length).toBeGreaterThan(0); // the scan finds the approve UPDATE, so it is not vacuous
