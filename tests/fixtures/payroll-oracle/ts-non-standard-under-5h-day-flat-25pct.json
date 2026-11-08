@@ -1,0 +1,44 @@
+{
+  "id": "ts-non-standard-under-5h-day-flat-25pct",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 28 (non-standard employment, less than 5 hours per day, earns less than R394 that day: 25% deduction)",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "Casual daily-paid worker, 4 hours a day at R300 a day for 15 days = R4 500: 60 hours a month is about 13.9 hours a week (under 22), no written declaration, and under 5 hours a day, so the deemed-standard route does not apply: non-standard employment, 25% of the balance of remuneration = R1 125.00 (G21 p. 28, summary table row 5). The tables give nil. Only PAYE is asserted. Confidence MEDIUM-HIGH: row 5 follows from the two-limb reading of the deemed-standard bullet below and is not a misprint. G21 p. 28 reading used by all the ts-* cases: the deemed-standard bullet has two limbs, (1) under 22 hours a week with a written declaration of no other employer, and (2) at least 5 hours a day and paid under R394 a day, read as an alternative route to deemed standard; the summary-table rows for non-standard employment follow from that (row 5, under 5 hours a day and under R394, is the residual non-standard case taxed at 25%, not a misprint). TS-b must wire taxStatus and the hours into runCase (oracle.ts hard-codes employmentType permanent and passes no taxStatus or unmodelled input today, so this case cannot see them); once wired, this case must go red if the status is ignored.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "non_standard",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4500,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "unmodelled": {
+      "ordinaryHoursPerWeek": 14,
+      "hoursPerDay": 4,
+      "dayRate": 300,
+      "daysWorked": 15,
+      "employmentBasis": "non-standard"
+    }
+  },
+  "expected": {
+    "paye": 1125
+  }
+}

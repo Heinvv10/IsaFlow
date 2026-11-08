@@ -1,0 +1,44 @@
+{
+  "id": "fixed-amount-directive-2500",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 16-17 (IRP3(c): employees tax to be deducted at a fixed amount; the Commissioner may direct the employer to \"deduct a specified amount of employees tax\")",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "R30 000 salary, an IRP3(c) directive for a fixed R2 500 a month: PAYE = R2 500.00 whatever the tables say (G21 p. 16-17: \"employers may under no circumstances deviate from the instructions of the directive\", p. 15). The tables give 4 681.00. SDL 300.00 (1% of R30 000); UIF 177.12 (ceiling); net 30 000 - 2 500 - 177.12 = 27 322.88. NAMED LIMIT: G21 does not say whether the fixed amount is per payment or per tax year; it is read as per monthly payment: MEDIUM confidence.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 30000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "unmodelled": {
+      "fixedAmountDirective": 2500
+    }
+  },
+  "expected": {
+    "paye": 2500,
+    "uifEmployee": 177.12,
+    "uifEmployer": 177.12,
+    "sdl": 300,
+    "net": 27322.88
+  }
+}
