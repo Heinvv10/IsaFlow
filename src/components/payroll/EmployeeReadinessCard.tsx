@@ -2,7 +2,7 @@
  * "Ready to pay" at the head of the employee profile (wave 4 B): one verdict, and for anything missing a link that
  * takes the reader to the field. Silent until the bank read answers, so it never says "ready" too early.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
 import { loadBankState, loadHasFinalRun, loadRunMonth } from './employeeBankState';
 import { employeeReadiness, readinessSummary, type BankRead, type ReadinessAssignment } from './employeeReadiness';
@@ -32,9 +32,11 @@ export function EmployeeReadinessCard({ employeeId, employee, assignments, refre
   const [bank, setBank] = useState<BankRead>('pending');
   const [runMonth, setRunMonth] = useState<string | null>(null);
   const [hasFinalRun, setHasFinalRun] = useState<boolean | null | 'pending'>('pending');
+  // Pending on first load and for another employee; a re-read after the bank details change keeps the last answer on screen.
+  const bankFor = useRef(employeeId);
   useEffect(() => {
     let stale = false;
-    setBank('pending');
+    if (bankFor.current !== employeeId) { bankFor.current = employeeId; setBank('pending'); }
     void loadBankState(employeeId).then(b => { if (!stale) setBank(b); });
     return () => { stale = true; };
   }, [employeeId, refreshKey]);

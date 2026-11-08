@@ -45,17 +45,19 @@ export function PayrollPeriodBar() {
 
   useEffect(() => {
     let cancelled = false;
+    let latest = 0; // overlapping reads: only the newest answer may land
     const read = async () => {
+      const mine = ++latest;
       try {
         const res = await apiFetch('/api/payroll/period-context');
         await assertOk(res, 'Could not load the payroll period');
         const json = await res.json() as { data?: PeriodContext };
-        if (!cancelled && json.data) setCtx(json.data);
+        if (!cancelled && mine === latest && json.data) setCtx(json.data);
       } catch (err) {
         // Bar is informational; failure shouldn't block the page — log only.
         log.error('Failed to load payroll period context', { error: err }, 'payroll-ui');
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && mine === latest) setLoading(false);
       }
     };
     void read();

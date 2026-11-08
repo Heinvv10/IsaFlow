@@ -12,17 +12,17 @@ const salary = { componentType: 'earning', isTaxable: true, isRecurring: true, c
 const fetchMock = vi.fn();
 /** Routes the three reads: bank (masked), the run list, and anything else empty. A Response is read once, so each call builds a new one. */
 let runs: unknown[] = [];
-let payslips: unknown[] = [];
+let finalRun: unknown = { hasFinalRun: false };
 const serveBank = (bank: () => Response) => fetchMock.mockImplementation(async (u: string) => {
   const url = String(u);
   if (url.includes('/bank-details')) return bank();
   if (url.endsWith('/api/payroll/runs')) return ok(runs);
-  if (url.endsWith('/payslips')) return ok(payslips);
+  if (url.endsWith('/has-final-run')) return ok(finalRun);
   return ok([]);
 });
 const urls = () => fetchMock.mock.calls.map(([u]) => String(u));
 
-beforeEach(() => { runs = []; payslips = []; fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
+beforeEach(() => { runs = []; finalRun = { hasFinalRun: false }; fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const props = { employeeId: EMP, employee: { taxNumber: '0123456789', paymentMethod: 'eft' }, assignments: [salary] };
@@ -49,13 +49,41 @@ describe('EmployeeReadinessCard', () => {
     expect(screen.getByText('Checking bank details…')).toBeTruthy();
   });
 
+  it('says "the pay run" (neither first nor next) while the history read is open', async () => {
+    fetchMock.mockImplementation(async (u: string) => {
+      const url = String(u);
+      if (url.endsWith('/has-final-run')) return new Promise<Response>(() => {});
+      if (url.includes('/bank-details')) return ok(null);
+      return ok([]);
+    });
+    render(<EmployeeReadinessCard {...props} />);
+    expect(await screen.findByText('1 thing before the pay run: bank details')).toBeTruthy();
+  });
+
+  it('a 200 with a malformed body is read as unknown: "next", never "first"', async () => {
+    finalRun = { hasFinalRun: 'yes' };
+    serveBank(() => ok(null));
+    render(<EmployeeReadinessCard {...props} />);
+    expect(await screen.findByText('1 thing before the next pay run: bank details')).toBeTruthy();
+  });
+
+  it('keeps the last answer on screen while the bank is read again after a change', async () => {
+    serveBank(() => ok({ id: 'b1' }));
+    const { rerender } = render(<EmployeeReadinessCard {...props} refreshKey={0} />);
+    expect(await screen.findByText('Ready to pay')).toBeTruthy();
+    fetchMock.mockImplementation(async (u: string) => (String(u).includes('/bank-details') ? new Promise<Response>(() => {}) : ok([])));
+    rerender(<EmployeeReadinessCard {...props} refreshKey={1} />);
+    await waitFor(() => expect(urls().filter(u => u.includes('bank-details')).length).toBe(2));
+    expect(screen.getByText('Ready to pay')).toBeTruthy();
+  });
+
   it('says "next" once the employee has a line on a final run, "first" when they have none', async () => {
-    payslips = [{ runId: 'r1', final: true }];
+    finalRun = { hasFinalRun: true };
     serveBank(() => ok(null));
     const { unmount } = render(<EmployeeReadinessCard {...props} />);
     expect(await screen.findByText('1 thing before the next pay run: bank details')).toBeTruthy();
     unmount();
-    payslips = [{ runId: 'r1', final: false }];
+    finalRun = { hasFinalRun: false };
     render(<EmployeeReadinessCard {...props} />);
     expect(await screen.findByText('1 thing before the first pay run: bank details')).toBeTruthy();
   });
@@ -115,16 +143,26 @@ describe('EmployeeReadinessCard', () => {
   });
 });
 
+let drawerFinal = false;
 describe('EmployeeDrawerBody readiness line', () => {
+  beforeEach(() => { drawerFinal = false; });
   const employee = { id: EMP, employeeNumber: 'E-1', employmentType: 'permanent', startDate: '2026-03-01', taxNumber: '0123456789', paymentMethod: 'eft' };
   const serve = (bank: Response) => fetchMock.mockImplementation(async (u: string) => {
     if (u.includes('/bank-details')) return bank.clone();
     if (u.endsWith('/api/payroll/runs')) return ok([]);
+    if (u.endsWith('/has-final-run')) return ok({ hasFinalRun: drawerFinal });
     if (u.endsWith('/components')) return ok([{ ...salary, id: 'x', componentId: 'c', componentName: 'Basic', amount: 100 }]);
     return ok(employee);
   });
 
   it('shows the verdict line for a writer', async () => {
+    serve(ok(null));
+    render(<EmployeeDrawerBody employeeId={EMP} mayWrite />);
+    expect(await screen.findByText('1 thing before the first pay run: bank details')).toBeTruthy();
+  });
+
+  it('says "next" for an employee who already has a final run, same as the card', async () => {
+    drawerFinal = true;
     serve(ok(null));
     render(<EmployeeDrawerBody employeeId={EMP} mayWrite />);
     expect(await screen.findByText('1 thing before the next pay run: bank details')).toBeTruthy();
@@ -133,7 +171,7 @@ describe('EmployeeDrawerBody readiness line', () => {
   it('a failed bank read shows the check line, never Ready to pay', async () => {
     serve(fail(500));
     render(<EmployeeDrawerBody employeeId={EMP} mayWrite />);
-    expect(await screen.findByText('1 thing before the next pay run: Could not check bank details')).toBeTruthy();
+    expect(await screen.findByText('1 thing before the first pay run: Could not check bank details')).toBeTruthy();
   });
 
   it('asks for pay and bank together, before pay answers, and renders once both have', async () => {

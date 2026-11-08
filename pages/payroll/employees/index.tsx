@@ -103,11 +103,12 @@ export default function EmployeesListPage() {
 
         <div className="p-6">
           <MedicalAidReviewBanner />
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-6">
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-2 mb-6">
             <div className="w-full sm:w-80">
+              <label htmlFor="employee-search" className="mb-1 block text-sm font-medium text-[var(--ff-text-secondary)]">Search employees</label>
               <Input
+                id="employee-search"
                 type="search"
-                label="Search employees"
                 leftIcon={Search}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -115,7 +116,7 @@ export default function EmployeesListPage() {
               />
             </div>
             {!isLoading && (
-              <span className="text-sm text-[var(--ff-text-secondary)]">
+              <span className="pb-2 text-sm text-[var(--ff-text-secondary)]">
                 {filtered.length} employee{filtered.length !== 1 ? 's' : ''}
               </span>
             )}

@@ -29,4 +29,21 @@ describe('PayrollPeriodBar', () => {
     expect(await screen.findByText('Approved')).toBeTruthy();
     expect(screen.queryByText('Calculated')).toBeNull();
   });
+
+  it('an older, slower read cannot overwrite a newer one', async () => {
+    const body = (st: string) => new Response(JSON.stringify({ success: true, data: {
+      companyName: 'Co', periodMonth: 9, periodYear: 2026, periodNumber: 7, periodsInTaxYear: 12, runId: 'r1', status: st, taxYearStartMonth: 3,
+    } }), { status: 200 });
+    const releases: Array<() => void> = [];
+    const answers = ['calculated', 'approved'];
+    let n = 0;
+    fetchMock.mockImplementation(() => { const a = answers[n++]!; return new Promise<Response>(r => { releases.push(() => r(body(a))); }); });
+    render(<PayrollPeriodBar />); // read 1 (slow, stale)
+    await act(async () => { announcePayrollRunChanged(); }); // read 2 (newer)
+    await act(async () => { releases[1]!(); });
+    expect(await screen.findByText('Approved')).toBeTruthy();
+    await act(async () => { releases[0]!(); });
+    expect(screen.getByText('Approved')).toBeTruthy();
+    expect(screen.queryByText('Calculated')).toBeNull();
+  });
 });
