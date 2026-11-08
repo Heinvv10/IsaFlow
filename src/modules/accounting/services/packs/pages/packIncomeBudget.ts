@@ -19,6 +19,7 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import type { UnnumberedPage } from './packFrontMatter';
 import { buildIncomeStatementSheet } from './packIncomeSheet';
+import { unreadableBlock } from './packFigureFloor';
 import { fitRelaidPage } from './packNarrativeFit';
 import { BUDGET_COLUMNS_DROPPED_NOTE, warnCaptionDropped } from './packOmissionFootnote';
 import type { PackChartSpec, PackFootnote, PackTable } from './packPageModel';
@@ -87,12 +88,17 @@ function composedIncomeSheet(
   let diagnostic: string;
   try {
     const { page: fitted, dropped } = fitRelaidPage(sheet);
-    if (fitted.footnotes.some((note) => note.text === budgetNotes[0]!.text)) {
+    if (unreadableBlock(fitted, scale) !== null) {
+      // Eight data columns at these figures fit at no size down to the pack's smallest text: the columns go (a
+      // budget is a comparison the pack can do without) before the pack is refused for them.
+      diagnostic = 'the Budget and Variance columns make the figures too wide for the sheet at any legible size';
+    } else if (fitted.footnotes.some((note) => note.text === budgetNotes[0]!.text)) {
       // This fitted page is the one used, so a caption it dropped is logged here.
       warnCaptionDropped('Income statement', dropped);
       return fitted;
+    } else {
+      diagnostic = 'fitPageToBox removed the footnote that explains the Budget and Variance columns';
     }
-    diagnostic = 'fitPageToBox removed the footnote that explains the Budget and Variance columns';
   } catch (err) {
     if (!(err instanceof PackRefusal)) throw err;
     diagnostic = err.message;
