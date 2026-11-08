@@ -10,7 +10,7 @@ import arRoute from '../../pages/api/accounting/customer-invoices-detail';
 import apRoute from '../../pages/api/accounting/supplier-invoices-detail';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
-import { messageOf } from './r035-pr2.helpers';
+import { dataOf, messageOf } from './r035-pr2.helpers';
 import { changesOf, cleanupEntityChanges, members, newCompany } from './entity-changes.helpers';
 
 assertDisposable();
@@ -130,6 +130,36 @@ describe('a customer invoice draft', () => {
   });
 });
 
+describe('the stored source reaches the pages', () => {
+  it('the customer invoice detail GET returns due_date_source', async () => {
+    const c = await company();
+    const id = await draftInvoice(c, await customer(c, THIRTY), 'terms');
+    const res = await callRoute(arRoute, tokens[admin]!, c, 'GET', undefined, '/api/accounting/customer-invoices-detail', { id });
+    expect(res.state.statusCode, messageOf(res)).toBe(200);
+    expect(dataOf(res)).toMatchObject({ id, due_date: '2026-10-16', due_date_source: 'terms' });
+  });
+});
+
+describe('a save that names no due date keeps the stored one (a page that is out of date sends none)', () => {
+  // The edit pages send dueDate only when the user touched it or the page recalculated it. A date moved since the page
+  // loaded (Re-apply, another tab) must survive such a save, with its source.
+  it('customer invoice: a date re-dated since the page loaded, then a note saved', async () => {
+    const c = await company();
+    const id = await draftInvoice(c, await customer(c, THIRTY), 'terms', '2026-12-15');
+    await pool.query("UPDATE customer_invoices SET due_date = DATE '2026-10-16', due_date_source = 'terms' WHERE id = $1", [id]);
+    expect((await putAr(c, { id, notes: 'a note' })).state.statusCode).toBe(200);
+    expect(await stored('customer_invoices', id)).toEqual({ i: '2026-09-16', d: '2026-10-16', s: 'terms' });
+  });
+
+  it('supplier bill: the same', async () => {
+    const c = await company();
+    const id = await draftBill(c, await supplier(c, THIRTY), 'terms', { due: '2026-12-15' });
+    await pool.query("UPDATE supplier_invoices SET due_date = DATE '2026-10-16', due_date_source = 'terms' WHERE id = $1", [id]);
+    expect((await putAp(c, { id, notes: 'a note' })).state.statusCode).toBe(200);
+    expect(await stored('supplier_invoices', id)).toEqual({ i: '2026-09-16', d: '2026-10-16', s: 'terms' });
+  });
+});
+
 describe('a supplier bill draft', () => {
   it.each([['draft'], ['pending_approval']])('a terms-sourced %s bill whose invoice date moves is re-dated by the supplier\'s terms', async (status) => {
     const c = await company();
@@ -140,10 +170,17 @@ describe('a supplier bill draft', () => {
     expect(await changesOf(pool, id)).toHaveLength(1);
   });
 
-  it('the bill\'s own chosen terms take precedence, as at creation (recorded manual)', async () => {
+  it('a stored "Net 15" on a terms-sourced bill did not date it, so it does not date it now', async () => {
     const c = await company();
-    const id = await draftBill(c, await supplier(c, THIRTY), 'terms', { terms: 'net60' });
+    const id = await draftBill(c, await supplier(c, THIRTY), 'terms', { terms: 'Net 15' });
     expect((await putAp(c, { id, invoiceDate: '2026-10-01' })).state.statusCode).toBe(200);
+    expect(await stored('supplier_invoices', id)).toEqual({ i: '2026-10-01', d: '2026-10-31', s: 'terms' });
+  });
+
+  it('a paymentTerms sent with the edit (distinct from the stored text) dates it, recorded manual', async () => {
+    const c = await company();
+    const id = await draftBill(c, await supplier(c, THIRTY), 'terms', { terms: 'Net 15' });
+    expect((await putAp(c, { id, invoiceDate: '2026-10-01', paymentTerms: 'net60' })).state.statusCode).toBe(200);
     expect(await stored('supplier_invoices', id)).toEqual({ i: '2026-10-01', d: '2026-11-30', s: 'manual' });
   });
 

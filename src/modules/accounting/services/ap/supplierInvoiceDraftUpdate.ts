@@ -22,6 +22,8 @@ import { supplierBelongsToCompany } from '../core/contactDirectoryService';
 import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 import { withContentEditorStamp } from './supplierInvoiceContentEditor';
 import { defaultVatClassification, type SupplierInvoiceTotals } from './supplierInvoiceTotals';
+import { billEditDueDate } from './draftBillDueDate';
+import type { DueDateSource } from '../shared/dueDateSource';
 import {
   SupplierInvoiceDraftUpdateRefusal,
   planLines,
@@ -54,6 +56,8 @@ export interface SupplierInvoiceDraftUpdatePlan {
   invoiceNumber: string;
   invoiceDate: string;
   dueDate: string | null;
+  /** Set when this edit re-dated a terms-sourced due date (shared/draftDueDate.ts): the source to store. Null: the apply's own rule. */
+  dueDateSource: DueDateSource | null;
   paymentTerms: string | null;
   reference: string | null;
   notes: string | null;
@@ -117,7 +121,12 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
   }
 
   const invoiceDate = patch.invoiceDate ?? fmtDate(row.invoice_date);
-  const dueDate = patch.dueDate ?? (row.due_date ? fmtDate(row.due_date) : null);
+  const storedDueDate = row.due_date ? fmtDate(row.due_date) : null;
+  // Payment-terms Part A, as PUT supplier-invoices-detail: a terms-sourced due date follows a moved date or supplier.
+  const redated = await billEditDueDate(companyId, {
+    supplierId: String(row.supplier_id), invoiceDate: fmtDate(row.invoice_date), dueDate: storedDueDate, dueDateSource: row.due_date_source,
+  }, { supplierId: patch.supplierId, invoiceDate: patch.invoiceDate, dueDate: patch.dueDate, paymentTerms: patch.paymentTerms });
+  const dueDate = redated.dueDate ?? storedDueDate;
   if (dueDate && dueDate < invoiceDate) {
     throw new SupplierInvoiceDraftUpdateRefusal(
       `due_date ${dueDate} is before invoice_date ${invoiceDate}.`,
@@ -148,7 +157,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     supplierId: String(row.supplier_id),
     invoiceNumber: number,
     invoiceDate: fmtDate(row.invoice_date),
-    dueDate: row.due_date ? fmtDate(row.due_date) : null,
+    dueDate: storedDueDate,
     paymentTerms: row.payment_terms ?? null,
     reference: row.reference ?? null,
     notes: row.notes ?? null,
@@ -158,6 +167,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     return next !== undefined && next !== stored[k];
   });
   if (lines) changed.push('lines');
+  if (redated.source !== null && dueDate !== storedDueDate) changed.push('dueDate'); // re-dated by the terms, not named by the caller
 
   return {
     invoiceId,
@@ -165,6 +175,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     invoiceNumber,
     invoiceDate,
     dueDate,
+    dueDateSource: redated.source,
     paymentTerms: patch.paymentTerms ?? (row.payment_terms ?? null),
     reference: patch.reference ?? (row.reference ?? null),
     notes: patch.notes ?? (row.notes ?? null),
@@ -205,8 +216,8 @@ export async function applySupplierInvoiceDraftUpdate(
         invoice_date = ${plan.invoiceDate}::DATE,
         due_date = ${plan.dueDate}::DATE,
         -- Migration 962: a due date this edit moves is a hand-set one (the SET reads the stored due_date).
-        due_date_source = CASE WHEN ${plan.dueDate}::DATE IS DISTINCT FROM due_date AND ${plan.dueDate}::DATE IS NOT NULL
-                               THEN 'manual' ELSE due_date_source END,
+        due_date_source = COALESCE(${plan.dueDateSource}, CASE WHEN ${plan.dueDate}::DATE IS DISTINCT FROM due_date AND ${plan.dueDate}::DATE IS NOT NULL
+                               THEN 'manual' ELSE due_date_source END),
         payment_terms = ${plan.paymentTerms},
         reference = ${plan.reference},
         notes = ${plan.notes},

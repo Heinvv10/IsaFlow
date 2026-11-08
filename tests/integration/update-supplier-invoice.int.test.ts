@@ -41,10 +41,11 @@ const LINES = [
   { description: 'Cable 1km', quantity: 1.5, unit_price: 1234.57, tax_rate: 0 },
 ];
 
-async function draft(f: Fixture = fx, number = `D${++seq}`): Promise<string> {
+/** `dueDate` defaults to the company default's date for 2026-05-01 (30 days), so the bill is terms-dated; any other date is hand-set. */
+async function draft(f: Fixture = fx, number = `D${++seq}`, dueDate = '2026-05-31'): Promise<string> {
   const bill = await inTx(f, () => createSupplierInvoice(f.companyId, {
     supplierId: f.supplierId, invoiceNumber: `${number}-${f.tag}`.slice(0, 50), invoiceDate: '2026-05-01',
-    dueDate: '2026-05-31', reference: 'orig-ref',
+    dueDate, reference: 'orig-ref',
     items: [{ description: 'Original', quantity: 1, unitPrice: 100 }],
   }, f.userId));
   return bill.id;
@@ -107,12 +108,58 @@ describeIfDb('update_supplier_invoice — drafts over a real ledger', () => {
   }, 120000);
 
   it('changes only the header fields sent, and leaves lines and totals alone', async () => {
-    const id = await draft();
+    const id = await draft(fx, `D${++seq}`, '2026-05-20'); // a hand-set due date: the invoice date moving does not move it
     const before = await snapshot(id);
     const r = await update(id, { reference: 'new-ref', invoice_date: '2026-05-03' });
     expect(r.isError).toBeFalsy();
     expect(JSON.parse(text(r)).changed).toEqual(['invoiceDate', 'reference']);
     expect(await snapshot(id)).toEqual({ ...before, reference: 'new-ref', invoice_date: '2026-05-03' });
+  });
+
+  describe('a terms-sourced due date follows a moved invoice date or supplier (payment-terms Part A)', () => {
+    const dueOf = async (id: string) => (await sql`
+      SELECT due_date::TEXT AS d, due_date_source AS s FROM supplier_invoices WHERE id = ${id}::UUID`) as Row[];
+
+    it('re-dates by the terms for the new invoice date, lists dueDate in changed, and keeps the source terms', async () => {
+      const id = await draft();
+      const r = await update(id, { invoice_date: '2026-05-03' });
+      expect(r.isError).toBeFalsy();
+      expect(JSON.parse(text(r)).changed).toEqual(['invoiceDate', 'dueDate']);
+      expect((await dueOf(id))[0]).toEqual({ d: '2026-06-02', s: 'terms' });
+    });
+
+    it('re-dates by the NEW supplier\'s terms when the supplier changes', async () => {
+      const id = await draft();
+      const sup = await seedSupplier(fx, 'Statement Co');
+      await sql`UPDATE suppliers SET payment_terms = 3, payment_terms_type = 'statement_months' WHERE id = ${sup}::UUID`;
+      expect((await update(id, { supplier_id: sup })).isError).toBeFalsy();
+      expect((await dueOf(id))[0]).toEqual({ d: '2026-08-31', s: 'terms' });
+    });
+
+    it('uses the payment_terms sent with the edit (recorded manual), not the stored text', async () => {
+      const id = await draft();
+      await sql`UPDATE supplier_invoices SET payment_terms = 'Net 15' WHERE id = ${id}::UUID`;
+      expect((await update(id, { invoice_date: '2026-05-03' })).isError).toBeFalsy();
+      expect((await dueOf(id))[0]).toEqual({ d: '2026-06-02', s: 'terms' }); // the stored 'Net 15' did not date it
+      const id2 = await draft();
+      expect((await update(id2, { invoice_date: '2026-05-03', payment_terms: 'net60' })).isError).toBeFalsy();
+      expect((await dueOf(id2))[0]).toEqual({ d: '2026-07-02', s: 'manual' });
+    });
+
+    it('a due_date sent that is neither the stored one nor the terms\' stays, manual; a hand-set one never moves', async () => {
+      const id = await draft();
+      expect((await update(id, { invoice_date: '2026-05-03', due_date: '2026-07-15' })).isError).toBeFalsy();
+      expect((await dueOf(id))[0]).toEqual({ d: '2026-07-15', s: 'manual' });
+      const hand = await draft(fx, `D${++seq}`, '2026-05-20');
+      expect((await update(hand, { invoice_date: '2026-05-03' })).isError).toBeFalsy();
+      expect((await dueOf(hand))[0]).toEqual({ d: '2026-05-20', s: 'manual' });
+    });
+
+    it('a note alone, or payment_terms alone, re-dates nothing', async () => {
+      const id = await draft();
+      expect((await update(id, { reference: 'r2', payment_terms: 'net60' })).isError).toBeFalsy();
+      expect((await dueOf(id))[0]).toEqual({ d: '2026-05-31', s: 'terms' });
+    });
   });
 
   it('replaces lines with exactly the figures create computes, and approves at the new total', async () => {
