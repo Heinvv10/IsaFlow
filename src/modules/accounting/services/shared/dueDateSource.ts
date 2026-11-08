@@ -8,10 +8,6 @@
  *   document  the source document gave it (a scanned bill's printed due date or terms, an imported row's date);
  *   legacy    written before 962, or by code that names no source (the column default).
  */
-/** At or under this much owing a document owes nothing: Re-apply skips it and the due-date edit refuses it (AP and AR).
- * Here, not in reapplyTermsShared, so the browser editor can share it (this module is client-safe). */
-export const NOTHING_OWING_EPS = 0.005;
-
 export const DUE_DATE_SOURCES = ['terms', 'manual', 'document', 'legacy'] as const;
 export type DueDateSource = (typeof DUE_DATE_SOURCES)[number];
 
@@ -38,3 +34,7 @@ export function dueDateSourceOf(
   if (!given) return 'terms';
   return given === termsDate ? 'terms' : givenAs;
 }
+
+/** At or under this much owing a document owes nothing: Re-apply skips it and the due-date edit refuses it (AP and AR).
+ * Here, not in reapplyTermsShared, so the browser editor can share it (this module is client-safe). */
+export const NOTHING_OWING_EPS = 0.005;
