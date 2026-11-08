@@ -2,8 +2,8 @@
  * Payment-terms programme, AR parity with PR 2: an approved, sent, overdue or part-paid CUSTOMER invoice's due date can
  * be changed, and nothing else; the change is recorded in the entity history (entity_type customer_invoice). Through the
  * real route, the real withAuth and the real capture: the date and its source move and no other column does; drafts,
- * pending, paid, cancelled, deleted and another company's invoices, and an open one with nothing owing (fully paid or
- * overpaid; one cent owing still edits), are refused and untouched; a
+ * pending, paid, cancelled, deleted and another company's invoices, and an open one with nothing owing (fully paid; an
+ * overpaid one cannot exist, migration 899; one cent owing still edits), are refused and untouched; a
  * body naming any other field is refused whole; a viewer cannot write; any member can read the history.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -74,7 +74,7 @@ describe('the date-only edit of an open customer invoice', () => {
     expect(await changesOf(pool, id)).toHaveLength(0);
   });
 
-  it.each([['sent', 1150], ['approved', 1150], ['overdue', 1150], ['sent', 1200]])(
+  it.each([['sent', 1150], ['approved', 1150], ['overdue', 1150]])(
     'a %s invoice with nothing owing (paid %s of 1150) is refused and untouched', async (status, paid) => {
     const c = await company();
     const id = await invoice(c, status as string, { paid: paid as number }); // its status not yet moved to paid

@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { CalendarClock, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
-import { DUE_DATE_SOURCE_LABELS, isDueDateSource } from '@/modules/accounting/services/shared/dueDateSource';
+import { DUE_DATE_SOURCE_LABELS, isDueDateSource, NOTHING_OWING_EPS } from '@/modules/accounting/services/shared/dueDateSource';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
 
@@ -24,7 +24,7 @@ interface Props {
   kind: keyof typeof DUE_DATE_EDITORS;
   invoiceId: string;
   status: string;
-  /** What is still owing (total less paid). At or under half a cent the server refuses the edit. */
+  /** What is still owing (total less paid). At or under NOTHING_OWING_EPS the server refuses the edit. */
   balance: number;
   invoiceDate: string;
   dueDate?: string;
@@ -39,7 +39,7 @@ export function DueDateEditor({ kind, invoiceId, status, balance, invoiceDate, d
   const [error, setError] = useState('');
   const [refused, setRefused] = useState(false);
   const editor = DUE_DATE_EDITORS[kind];
-  if (!(editor.statuses as readonly string[]).includes(status) || !(Number(balance) > 0.005)) return null;
+  if (!(editor.statuses as readonly string[]).includes(status) || !(Number(balance) > NOTHING_OWING_EPS)) return null;
 
   const source = isDueDateSource(dueDateSource) ? DUE_DATE_SOURCE_LABELS[dueDateSource] : null;
   const tooEarly = value !== '' && value < invoiceDate;
