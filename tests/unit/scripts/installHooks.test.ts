@@ -7,7 +7,7 @@
  * had passed. The installer renames a new file over the old one, so the running hook keeps its own (the old inode).
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -27,6 +27,8 @@ function repo(): { dir: string; env: NodeJS.ProcessEnv; source: string; hook: st
 }
 
 const install = (dir: string, env: NodeJS.ProcessEnv): void => { execFileSync('bash', ['scripts/ci/install-hooks.sh'], { cwd: dir, env, stdio: 'ignore' }); };
+/** No temporary file is left in `hooks`. */
+const noTmp = (hooks: string): void => { expect(readdirSync(hooks).filter((f) => f.includes('.tmp.'))).toEqual([]); };
 
 it('a hook still running when the hooks are reinstalled runs to its end as it was, and the new one takes a new file', async () => {
   const { dir, env, source, hook } = repo();
@@ -49,4 +51,74 @@ it('a hook still running when the hooks are reinstalled runs to its end as it wa
   expect(statSync(hook).ino).not.toBe(before);
   expect(readFileSync(hook, 'utf8')).toContain('second version');
   expect(statSync(hook).mode & 0o111).not.toBe(0);
+  noTmp(path.dirname(hook));
 }, 30_000);
+
+it('installs into a missing hooks directory, leaving no temporary file', () => {
+  const { dir, env, source, hook } = repo();
+  rmSync(path.dirname(hook), { recursive: true, force: true });
+  writeFileSync(source, '#!/usr/bin/env bash\necho one\n');
+  install(dir, env);
+  expect(readFileSync(hook, 'utf8')).toContain('echo one');
+  noTmp(path.dirname(hook));
+});
+
+it('installs through a symlinked hooks directory, and replaces a symlinked hook with a regular copy', () => {
+  const { dir, env, source, hook } = repo();
+  const elsewhere = path.join(dir, 'elsewhere-hooks');
+  mkdirSync(elsewhere);
+  rmSync(path.dirname(hook), { recursive: true, force: true });
+  symlinkSync(elsewhere, path.dirname(hook));
+  const target = path.join(dir, 'kept-target');
+  writeFileSync(target, '#!/usr/bin/env bash\necho target\n');
+  symlinkSync(target, path.join(elsewhere, 'pre-push'));
+  writeFileSync(source, '#!/usr/bin/env bash\necho two\n');
+  install(dir, env);
+  expect(lstatSync(path.join(elsewhere, 'pre-push')).isSymbolicLink()).toBe(false);
+  expect(readFileSync(path.join(elsewhere, 'pre-push'), 'utf8')).toContain('echo two');
+  expect(readFileSync(target, 'utf8')).toContain('echo target');
+  noTmp(elsewhere);
+});
+
+it('from a linked worktree, installs into the common hooks directory', () => {
+  const { dir, env, source, hook } = repo();
+  writeFileSync(source, '#!/usr/bin/env bash\necho three\n');
+  execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'], { cwd: dir, env });
+  execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'hooks'], { cwd: dir, env });
+  const linked = path.join(dir, '..', `${path.basename(dir)}-linked`);
+  execFileSync('git', ['worktree', 'add', '-q', linked], { cwd: dir, env });
+  try {
+    install(linked, env);
+    expect(readFileSync(hook, 'utf8')).toContain('echo three');
+    noTmp(path.dirname(hook));
+  } finally {
+    rmSync(linked, { recursive: true, force: true });
+  }
+});
+
+it('two installs that back up a changed hook never write the same backup', () => {
+  const { dir, env, source, hook } = repo();
+  writeFileSync(source, '#!/usr/bin/env bash\necho a\n');
+  install(dir, env);
+  writeFileSync(hook, '#!/usr/bin/env bash\necho local edit 1\n');
+  install(dir, env);
+  writeFileSync(hook, '#!/usr/bin/env bash\necho local edit 2\n');
+  install(dir, env);
+  const backups = readdirSync(path.dirname(hook)).filter((f) => f.startsWith('pre-push.bak.'));
+  expect(backups).toHaveLength(2);
+  expect(backups.every((b) => /^pre-push\.bak\.\d+\.\d+$/.test(b))).toBe(true);
+});
+
+it('a copy that fails leaves no temporary file', () => {
+  const { dir, env, source, hook } = repo();
+  writeFileSync(source, '#!/usr/bin/env bash\necho x\n');
+  install(dir, env);
+  // A chmod that fails, after the copy and before the rename.
+  const bin = path.join(dir, 'failing-bin');
+  mkdirSync(bin);
+  writeFileSync(path.join(bin, 'chmod'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  writeFileSync(source, '#!/usr/bin/env bash\necho y\n');
+  expect(() => install(dir, { ...env, PATH: `${bin}:${env.PATH ?? ''}` })).toThrow();
+  noTmp(path.dirname(hook));
+  expect(readFileSync(hook, 'utf8')).toContain('echo x');
+});
