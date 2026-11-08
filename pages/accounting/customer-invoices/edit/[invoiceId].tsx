@@ -55,7 +55,7 @@ export default function EditCustomerInvoicePage() {
   // Read only to warn: a stored invoice is not refilled, so Save waits for a customer changed here, not for the one it loaded with.
   const [loadedClient, setLoadedClient] = useState('');
   const customer = useCustomerLookup(form.clientId, CUSTOMER_FAILED);
-  const { load: loadDueTerms, touch: touchDue, hint: dueHint } = useDueDateFollowsTerms(form, setForm, customer.defaults); // a terms-sourced due date follows a new date or customer
+  const { load: loadDueTerms, touch: touchDue, hint: dueHint, sendDue } = useDueDateFollowsTerms(form, setForm, customer.defaults); // a terms-sourced due date follows a new date or customer
   const [rateEditing, setRateEditing] = useState(false);
   const [approved, setApproved] = useState(false);
   // Which invoice the form holds, and which of its dates were stored (the server keeps one the body leaves out).
@@ -201,7 +201,7 @@ export default function EditCustomerInvoicePage() {
     setStoredDates((d) => ({ dueDate: d.dueDate || Boolean(b.dueDate), billingPeriodStart: d.billingPeriodStart || Boolean(b.billingPeriodStart), billingPeriodEnd: d.billingPeriodEnd || Boolean(b.billingPeriodEnd) }));
   };
   const autosave = useInvoiceAutosave({
-    mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft) : null,
+    mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft, { omitDueDate: !sendDue, markClearedDue: storedDates.dueDate }) : null,
     releaseTimeEntryIds: wip.releasing, onStale: reloadStale,
     // Held: a stale-priced draft (an autosaved typo would reprice it and stale an approval); a removed time-entry line.
     problem: stalePriced ? STALE_PRICED_HOLD : wip.problem ?? autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved, onSaved: keepStoredDates,

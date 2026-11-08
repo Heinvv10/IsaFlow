@@ -124,7 +124,9 @@ export default function SupplierInvoiceDetailPage() {
       const res = await apiFetch('/api/accounting/supplier-invoices-detail', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: invoiceId, ...editForm }),
+        // The due date only when the user changed it: the form's copy is the date as loaded, which may have moved since
+        // (Re-apply, another tab), and sending it back would undo that and record it as set by hand.
+        body: JSON.stringify({ id: invoiceId, ...editForm, dueDate: editForm.dueDate !== (invoice?.dueDate || '') ? editForm.dueDate : undefined }),
       });
       await assertOk(res, 'Could not save the invoice - try again');
       setEditing(false);

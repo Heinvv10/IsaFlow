@@ -7,6 +7,9 @@
  * Only a `terms`-sourced date follows: a hand-set, document or legacy one is never moved. Nothing is shown until the
  * customer's terms have been read (`defaults` is null while they are asked, so no other customer's terms are applied).
  *
+ * `sendDue` says whether a save should name the due date at all: only when the user touched the field or this hook
+ * recalculated it. Otherwise the page's copy is the date as loaded, which may be out of date, and the server keeps its own.
+ *
  * Named limit: to keep the OLD terms date after changing the invoice date, save the date change, then change the due date.
  */
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
@@ -38,5 +41,8 @@ export function useDueDateFollowsTerms(
     setForm((f) => (f.dueDate === want ? f : { ...f, dueDate: want }));
   }, [want, setForm]);
 
-  return { load, touch, hint: termsDue !== null ? 'Recalculated from the customer’s payment terms' : undefined };
+  return {
+    load, touch, hint: termsDue !== null ? 'Recalculated from the customer’s payment terms' : undefined,
+    sendDue: touched || termsDue !== null,
+  };
 }

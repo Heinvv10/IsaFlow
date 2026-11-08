@@ -66,7 +66,8 @@ describe('edit page autosave', () => {
     await advance(1_500);
     expect(puts()).toHaveLength(1);
     const body = bodyOf(puts()[0]!);
-    expect(body).toMatchObject({ id: 'inv-1', clientId: 'c-1', invoiceDate: '2026-09-15', dueDate: '2026-10-15', taxRate: 15 });
+    expect(body).toMatchObject({ id: 'inv-1', clientId: 'c-1', invoiceDate: '2026-09-15', taxRate: 15 });
+    expect('dueDate' in body).toBe(false); // an untouched due date is the page's old copy: left out, the server keeps its own
     expect(body.items).toEqual([expect.objectContaining({ description: 'C12345', quantity: 1, unitPrice: 100, taxRate: 15, discount: 0 })]);
     expect(status()).toMatch(/^Saved/);
     expect(screen.getByTestId('preview').textContent).toBe('preview v1');
