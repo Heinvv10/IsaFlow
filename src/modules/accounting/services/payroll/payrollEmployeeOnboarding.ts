@@ -16,7 +16,7 @@ import { MAX_SALARY_CENTS, isValidSaIdNumber, isValidSarsTaxNumber } from './emp
 import { payeTreatment } from './payeAnnualPayment';
 import { assignComponentToEmployee } from './payrollEmployeeComponentService';
 import { createPayrollEmployee } from './payrollEmployeeService';
-import { DEFAULT_TERMS, movesPricedTerm, termsFromRow, termsOfCreate, termsOfPatch } from './payrollEmployeeTerms';
+import { DEFAULT_TERMS, PRICED_KEYS, movesPricedTerm, termsFromRow, termsOfCreate, termsOfPatch } from './payrollEmployeeTerms';
 import { salaryEndRefusal, salaryInPaidMonthRefusal } from './payrollOnboardingPaidMonth';
 import type { PayrollEmployee } from './payrollTypes';
 
@@ -228,14 +228,18 @@ export function employeeChangesOf<T extends Body>(
   });
   const terms = termsOfPatch(body, refused, stored);
   if (!mayChangePricedTerms && movesPricedTerm(terms, stored)) throw new EmployeeTermsForbidden();
-  return {
+  const changes = {
     ...body,
     ...terms,
     dateOfBirth: patchedDay(body.dateOfBirth, 'dateOfBirth'),
     endDate: changedEndDate(body.endDate, current),
     taxNumber: changedIdentifier(body.taxNumber, current.taxNumber, isValidSarsTaxNumber, TAX_REFUSAL),
     idNumber: changedIdentifier(body.idNumber, current.idNumber, isValidSaIdNumber, ID_REFUSAL),
-  };
+  };  // A caller without the role never writes a priced term, equal to the stored value or not: the stored one was read
+  // before the lock, and writing it back could undo a concurrent change by an owner.
+  if (!mayChangePricedTerms) for (const k of PRICED_KEYS) delete (changes as Record<string, unknown>)[k];
+  return changes;
+
 }
 
 /** `salary` in the body is optional: without it the employee is created with no pay, as before. */

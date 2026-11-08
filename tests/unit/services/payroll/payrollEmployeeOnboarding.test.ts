@@ -313,6 +313,14 @@ describe('work terms: the priced ones (status, basis, rates) are owner/admin onl
     expect(employeeChangesOf({ taxStatus: 'director' }, current, true).taxStatus).toBe('director');
   });
 
+  it('PATCH: a manager sending priced terms equal to the stored ones writes none of them (no stale write-back)', () => {
+    const current = { startDate: new Date('2020-01-01'), taxStatus: 'director' as const, payBasis: 'hourly' as const, hourlyRate: 120 };
+    const out = employeeChangesOf({ taxStatus: 'director', payBasis: 'hourly', hourlyRate: 120, dailyRate: null, occupation: 'Clerk' }, current);
+    for (const k of ['taxStatus', 'payBasis', 'hourlyRate', 'dailyRate']) expect(out, k).not.toHaveProperty(k);
+    expect(out.occupation).toBe('Clerk');
+    expect(employeeChangesOf({ taxStatus: 'director' }, current, true)).toHaveProperty('taxStatus', 'director');
+  });
+
   it('PATCH judges a rate against the stored basis (hourly cannot lose its rate)', () => {
     const hourly = { startDate: new Date('2020-01-01'), taxStatus: 'employee' as const, payBasis: 'hourly' as const, hourlyRate: 120 };
     expect(() => employeeChangesOf({ hourlyRate: null }, hourly, true)).toThrow(EmployeeOnboardingRefused);

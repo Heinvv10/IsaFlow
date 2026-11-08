@@ -24,7 +24,7 @@ type Body = Record<string, unknown>;
 export const EMPLOYEE_TERM_LOG_KEYS: readonly string[] = [...TERM_KEYS];
 
 /** Status and rates decide what an employee costs: only the roles that may redirect net pay may move them. */
-const PRICED_KEYS = ['taxStatus', 'payBasis', 'hourlyRate', 'dailyRate'] as const;
+export const PRICED_KEYS = ['taxStatus', 'payBasis', 'hourlyRate', 'dailyRate'] as const;
 
 /** Whether a judged patch changes one of the priced terms from `current` (an unchanged value is no change). */
 export function movesPricedTerm(patch: Partial<EmployeeTerms>, current: EmployeeTerms): boolean {

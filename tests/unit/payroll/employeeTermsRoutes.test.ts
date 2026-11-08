@@ -84,8 +84,12 @@ describe('priced terms: owner and admin only', () => {
     expect(apiResponse.forbidden).toHaveBeenCalled();
     expect(updatePayrollEmployee).not.toHaveBeenCalled();
     expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
-    await call(idHandler, 'PATCH', 'manager', { occupation: 'Clerk' });
+    await call(idHandler, 'PATCH', 'manager', { occupation: 'Clerk', taxStatus: 'employee', payBasis: 'monthly' });
     expect(updatePayrollEmployee).toHaveBeenCalledTimes(1);
+    const patch = vi.mocked(updatePayrollEmployee).mock.calls[0]![2];
+    expect(patch).toMatchObject({ occupation: 'Clerk' });
+    expect(patch).not.toHaveProperty('taxStatus'); // equal to the stored value, still not written by a manager
+    expect(patch).not.toHaveProperty('payBasis');
   });
 
   it('a refused body (hours 200) is a 400, no-store, nothing updated', async () => {
