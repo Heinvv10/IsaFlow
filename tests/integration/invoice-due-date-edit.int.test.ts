@@ -73,6 +73,17 @@ describe('the date-only edit of an open customer invoice', () => {
     expect(await changesOf(pool, id)).toHaveLength(0);
   });
 
+  it.each([['sent'], ['approved'], ['overdue']])('a %s invoice with nothing owing is refused and untouched', async (status) => {
+    const c = await company();
+    const id = await invoice(c, status, { paid: 1150 }); // fully paid, its status not yet moved to paid
+    const before = await rowOf(id);
+    const res = await put(admin, c, { id, dueDate: '2026-12-31' });
+    expect(res.state.statusCode, messageOf(res)).toBe(400);
+    expect(messageOf(res)).toMatch(/fully paid: its due date can't be changed/);
+    expect(await rowOf(id)).toEqual(before);
+    expect(await changesOf(pool, id)).toHaveLength(0);
+  });
+
   it('a deleted invoice and another company\'s invoice are not found, and untouched', async () => {
     const c = await company();
     const theirs = await newCompany(pool, [[other, 'admin']], companies);

@@ -3,10 +3,10 @@
  * `ap/billDueDateEdit`; Hein, 2026-11-05: due_date is the single source of truth, hand-editable once posted, date only,
  * audited).
  *
- * Only an OPEN posted invoice: approved, sent, overdue or part-paid. A draft or pending invoice has its own editor; a
- * paid or cancelled one owes nothing. The due date is outside the approval digest (migration 865), so the approval
- * stands. Only due_date and due_date_source move ('manual'); the history is the database's: migration 962's capture
- * records who, when, through which channel, and the date and source before and after.
+ * Only an OPEN posted invoice: approved, sent, overdue or part-paid, with something still owing. A draft or pending
+ * invoice has its own editor; a paid or cancelled one owes nothing. The due date is outside the approval digest
+ * (migration 865), so the approval stands. Only due_date and due_date_source move ('manual'); the history is the
+ * database's: migration 962's capture records who, when, through which channel, and the date and source before and after.
  *
  * Runs in the request's transaction (withAuth): the invoice row is locked, its status and dates read under the lock, and
  * the UPDATE names the same statuses, so a payment or cancellation committing first is seen, never overwritten.
@@ -14,6 +14,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { localDateFromISO } from '@/lib/dateUtils';
+import { REAPPLY_EPS } from '../shared/reapplyTermsShared';
 import { lockCustomerInvoiceForUpdate } from './customerInvoiceRowLock';
 
 export const INVOICE_DUE_DATE_EDITABLE_STATUSES = ['approved', 'sent', 'overdue', 'partially_paid'] as const;
@@ -55,6 +56,10 @@ export async function setOpenInvoiceDueDate(
         : `Invoice ${number} is ${status.replace('_', ' ')}: only an approved, sent, overdue or part-paid invoice's due date can be changed.`,
       400,
     );
+  }
+  // Something must still be owing (the same test Re-apply uses): a fully paid invoice's status can lag its balance.
+  if (Number(row.total_amount ?? 0) - Number(row.amount_paid ?? 0) <= REAPPLY_EPS) {
+    throw new InvoiceDueDateEditRefusal(`Invoice ${number} is fully paid: its due date can't be changed.`, 400);
   }
   const invoiceDate = String(row.invoice_date);
   if (dueDate < invoiceDate) {
