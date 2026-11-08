@@ -69,6 +69,8 @@ export async function reopenPayrollRun(opts: {
            approved_at = NULL,
            approval_grandfathered_at = NULL,
            approval_plan_hash = NULL,
+           payslips_final_at = NULL,    -- payslips are DRAFT again (migration 968)
+           payslips_final_by = NULL,
            approval_revision = gen_random_uuid(),
            reopened_at = c.now,
            approval_history = COALESCE(h.approval_history, '{}'::tstzmultirange)

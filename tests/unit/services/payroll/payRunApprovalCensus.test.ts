@@ -19,7 +19,8 @@ describe('pay-run approval mutation census', () => {
   });
 
   it('invalidates clearance on calculate and reopen', () => {
-    const text = source('src/modules/accounting/services/payroll/payrollRunLock.ts');
+    const text = source('src/modules/accounting/services/payroll/payrollRunLock.ts')
+      + source('src/modules/accounting/services/payroll/payrollRunReopen.ts');
     expect(text.match(/approval_plan_hash = NULL/g)).toHaveLength(2);
     expect(text.match(/approval_revision = gen_random_uuid\(\)/g)).toHaveLength(2);
     expect(text).toContain('approval_grandfathered_at = NULL');

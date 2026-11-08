@@ -1,27 +1,23 @@
 /**
- * Whether a pay run's payslips are final (wave 4 PS, spec rule 6). ONLY the
- * R-035 finalisation guard decides: `assertPayRunApproved` resolving means final.
- * Never a status string: an `approved` row that R-035 has not cleared (and that
- * migration 951 did not grandfather) is a DRAFT payslip.
+ * Whether a pay run's payslips are final (wave 5 FS). The stamp decides:
+ * `payslips_final_at` is set by the approve UPDATE (payrollApprovalService), which runs the
+ * R-035 guard first, and cleared by reopen (payrollRunReopen). Migration 968 stamped every
+ * run already approved or paid. NULL is DRAFT.
  *
- * Only the guard's own refusals are DRAFT: `PayRunNotApprovedError` (not found, not
- * approved, no reviewed plan) and `ApprovalRequiredError` (R-035 not cleared).
- * Anything else (a Postgres error, a dropped connection, a bug) is re-thrown, so a
- * failed read is a 500, never a slip that silently says DRAFT for the wrong reason.
+ * Never the guard on read (wave 4 PS did, and a run approved while enforcement was off
+ * turned DRAFT once it was switched on). Never a status string alone: a stamp counts only
+ * while the run is approved or paid, so a header put back to another status is DRAFT even
+ * if a writer forgot to clear the stamp.
  *
- * Known limit (wave 5): the guard judges against TODAY's enforcement and rules, so a
- * run paid while pay-run enforcement was off turns DRAFT once it is switched on
- * (pinned in tests/unit/services/payroll/payslipFinal.test.ts).
+ * A failed read is a thrown error (a 500), never a slip that silently says DRAFT.
  */
-import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
-import { assertPayRunApproved, PayRunNotApprovedError } from './payRunApprovalControl';
+import { sql } from '@/lib/neon';
 
 export async function isPayRunFinal(companyId: string, runId: string): Promise<boolean> {
-  try {
-    await assertPayRunApproved(companyId, runId);
-    return true;
-  } catch (err) {
-    if (err instanceof PayRunNotApprovedError || err instanceof ApprovalRequiredError) return false;
-    throw err;
-  }
+  const rows = (await sql`
+    SELECT 1 FROM payroll_run_headers
+     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+       AND status IN ('approved', 'paid') AND payslips_final_at IS NOT NULL
+  `) as unknown[];
+  return rows.length > 0;
 }
