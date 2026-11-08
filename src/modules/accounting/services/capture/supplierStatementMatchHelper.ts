@@ -5,6 +5,7 @@
  * Used by supplierStatementReconService.ts.
  */
 import { fmtDate } from '@/lib/fmtDate';
+import { openingBalanceIndexes } from './supplierStatementOpeningBalance';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -188,9 +189,15 @@ export function buildInserts(
   const sameNumber = (inv: InvoiceRecord, ref: string) =>
     inv.invoiceNumber.trim().toLowerCase() === ref.trim().toLowerCase();
 
+  // The opening "Balance brought forward" line is not an invoice: never matched, never missing
+  // (supplierStatementOpeningBalance, Hein 2026-11-07 D1).
+  const opening = openingBalanceIndexes(extractedLines);
+  const unmatched: MatchResult = { invoiceId: null, confidence: null, mismatchReason: null };
+
   // Pass 1: exact-reference matches claim first, so an earlier fuzzy line
   // cannot take the invoice a later line names outright.
-  const results: (MatchResult | undefined)[] = extractedLines.map((line) => {
+  const results: (MatchResult | undefined)[] = extractedLines.map((line, i) => {
+    if (opening.has(i)) return unmatched;
     const ref = line.reference;
     const exact = ref ? pool.find((inv) => sameNumber(inv, ref)) : undefined;
     if (!exact) return undefined;

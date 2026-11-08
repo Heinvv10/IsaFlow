@@ -104,9 +104,11 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
 
       {/* Nav mode toggle */}
       <button
+        type="button"
         onClick={onToggleNavMode}
         className={`${inline} ${ICON_BUTTON}`}
         title={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
+        aria-label={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
       >
         {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
       </button>
@@ -138,9 +140,11 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
       {/* Logout (visible in top-nav mode where sidebar user area is hidden) */}
       {!showSidebar && (
         <button
+          type="button"
           onClick={() => void logout()}
           className={`${inline} p-2 rounded-lg text-ink-muted hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors`}
           title="Log out"
+          aria-label="Log out"
         >
           <LogOut className="w-4 h-4" />
         </button>

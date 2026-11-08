@@ -29,7 +29,7 @@ const record = (legacy: Record<string, number>) => ({
   legacy_taxable: '0', legacy_by_line: legacy, donations: '0',
 });
 
-describe('loadPayeYearToDate: SDL year to date (SDL Act s3(4); SDL-GEN-01-G01 Rev 5 s6)', () => {
+describe('loadPayeYearToDate: SDL year to date (SDL Act s3(3); SDL-GEN-01-G01 Rev 5 s6)', () => {
   it('reads SDL-applicable pay from the isSdlApplicable flag as costed, else from today\'s catalogue, over the same lines in period order', async () => {
     sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     await loadPayeYearToDate(COMPANY, RUN, { year: 2026, month: 5 }, [EMP]);
