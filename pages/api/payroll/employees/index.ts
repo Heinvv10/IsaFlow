@@ -28,6 +28,8 @@ async function handler(
   res: NextApiResponse
 ): Promise<void> {
   const { companyId, companyRole, user } = req as CompanyAuthedRequest;
+  // Employee terms and personal data: never cached (wave-5 rule 14).
+  res.setHeader('Cache-Control', 'no-store');
 
   if (req.method === 'GET') {
     // ?include=terminated adds leavers (the tax-directive form's employee picker).

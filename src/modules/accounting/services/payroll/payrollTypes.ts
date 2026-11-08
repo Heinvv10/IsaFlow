@@ -2,6 +2,10 @@ import type { EtiResult } from './payrollTypesEti';
 import type { PayeYearToDate } from './payrollTypesYtd';
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
+/** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
+export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
+export type PayBasis = 'monthly' | 'hourly' | 'daily';
+
 export interface PayrollEmployee {
   id: string;
   companyId: string;
@@ -24,6 +28,15 @@ export interface PayrollEmployee {
   occupationalLevelId?: string | null;
   /** How net pay reaches them (mig 455): cash is paid from the cash register, not by EFT. */
   paymentMethod?: 'eft' | 'cash';
+  /** Tax status (mig 967): nothing reads it in the calculator yet. */
+  taxStatus: TaxStatus;
+  payBasis: PayBasis;
+  hoursPerWeek?: number | null;
+  hoursPerDay?: number | null;
+  hourlyRate?: number | null;
+  dailyRate?: number | null;
+  /** BCEA s33(1)(b) occupation, at most 100 characters. */
+  occupation?: string | null;
 }
 
 export interface PayrollComponent {

@@ -5,6 +5,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PayrollEmployee } from './payrollTypes';
 import { recordEmployeeChange } from './payrollEmployeeHistoryService';
+import { movedTerms, termsFromRow, type EmployeeTerms } from './payrollEmployeeTerms';
 
 type Row = DbRow;
 
@@ -29,6 +30,7 @@ export function mapPayrollEmployeeRow(r: Row): PayrollEmployee {
     payScaleId: r.pay_scale_id == null ? null : String(r.pay_scale_id),
     occupationalLevelId: r.occupational_level_id == null ? null : String(r.occupational_level_id),
     paymentMethod: r.payment_method === 'cash' ? 'cash' : 'eft',
+    ...termsFromRow(r),
   };
 }
 
@@ -105,23 +107,29 @@ export async function getDirectivePayee(
   };
 }
 
+/** A new employee; without terms it is an employee on a monthly basis, as the column defaults say. */
+type NewPayrollEmployee = Omit<PayrollEmployee, 'id' | 'companyId' | 'taxStatus' | 'payBasis'> & Partial<Pick<PayrollEmployee, 'taxStatus' | 'payBasis'>>;
+
 export async function createPayrollEmployee(
   companyId: string,
-  data: Omit<PayrollEmployee, 'id' | 'companyId'>,
+  data: NewPayrollEmployee,
 ): Promise<PayrollEmployee> {
   log.info('Creating payroll employee', { companyId, employeeNumber: data.employeeNumber }, 'payrollEmployeeService');
   const rows = (await sql`
     INSERT INTO payroll_employees (
       company_id, employee_number, first_name, last_name,
       id_number, tax_number, employment_type, start_date, end_date,
-      date_of_birth, uif_excluded, medical_aid_main_member, medical_aid_dependants_count, s18a_receipt_held
+      date_of_birth, uif_excluded, medical_aid_main_member, medical_aid_dependants_count, s18a_receipt_held,
+      tax_status, pay_basis, hours_per_week, hours_per_day, hourly_rate, daily_rate, occupation
     ) VALUES (
       ${companyId}::uuid, ${data.employeeNumber}, ${data.firstName}, ${data.lastName},
       ${data.idNumber ?? null}, ${data.taxNumber ?? null},
       ${data.employmentType}, ${fmtDate(data.startDate)},
       ${data.endDate ? fmtDate(data.endDate) : null},
       ${data.dateOfBirth ? fmtDate(data.dateOfBirth) : null},
-      ${data.uifExcluded}, ${data.medicalAidMainMember}, ${data.medicalAidDependantsCount}, ${data.s18aReceiptHeld}
+      ${data.uifExcluded}, ${data.medicalAidMainMember}, ${data.medicalAidDependantsCount}, ${data.s18aReceiptHeld},
+      ${data.taxStatus ?? 'employee'}, ${data.payBasis ?? 'monthly'}, ${data.hoursPerWeek ?? null}, ${data.hoursPerDay ?? null},
+      ${data.hourlyRate ?? null}, ${data.dailyRate ?? null}, ${data.occupation ?? null}
     )
     RETURNING *
   `) as Row[];
@@ -138,7 +146,7 @@ export async function updatePayrollEmployee(
   log.info('Updating payroll employee', { id, companyId }, 'payrollEmployeeService');
 
   const beforeRows = (await sql`
-    SELECT employment_type, s18a_receipt_held FROM payroll_employees
+    SELECT * FROM payroll_employees
      WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
      LIMIT 1
   `) as Row[];
@@ -157,6 +165,10 @@ export async function updatePayrollEmployee(
   // need no lock.
   // Read before the lock, so only a tick seen to move is written: an "unchanged" one read stale writes nothing.
   const tickMoved = data.s18aReceiptHeld !== undefined && data.s18aReceiptHeld !== before?.s18a_receipt_held;
+  // Terms: a key present (null clears the optional ones) is written; the tax status and pay basis feed the figures
+  // from TS-b on, so any touch of the terms waits for the same lock.
+  const has = (k: keyof EmployeeTerms) => data[k] !== undefined;
+  const termsTouched = (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate'] as const).some(has);
   const write = (db: typeof sql) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
@@ -171,11 +183,18 @@ export async function updatePayrollEmployee(
       medical_aid_main_member      = COALESCE(${data.medicalAidMainMember ?? null}, medical_aid_main_member),
       medical_aid_dependants_count = COALESCE(${data.medicalAidDependantsCount ?? null}, medical_aid_dependants_count),
       s18a_receipt_held            = COALESCE(${tickMoved ? data.s18aReceiptHeld ?? null : null}, s18a_receipt_held),
+      tax_status                   = CASE WHEN ${has('taxStatus')} THEN ${data.taxStatus ?? null} ELSE tax_status END,
+      pay_basis                    = CASE WHEN ${has('payBasis')} THEN ${data.payBasis ?? null} ELSE pay_basis END,
+      hours_per_week               = CASE WHEN ${has('hoursPerWeek')} THEN ${data.hoursPerWeek ?? null}::numeric ELSE hours_per_week END,
+      hours_per_day                = CASE WHEN ${has('hoursPerDay')} THEN ${data.hoursPerDay ?? null}::numeric ELSE hours_per_day END,
+      hourly_rate                  = CASE WHEN ${has('hourlyRate')} THEN ${data.hourlyRate ?? null}::numeric ELSE hourly_rate END,
+      daily_rate                   = CASE WHEN ${has('dailyRate')} THEN ${data.dailyRate ?? null}::numeric ELSE daily_rate END,
+      occupation                   = CASE WHEN ${has('occupation')} THEN ${data.occupation ?? null} ELSE occupation END,
       updated_at                   = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `;
-  const rows = (endIso === null && !tickMoved ? await write(sql) : await withTransaction(async (tx) => {
+  const rows = (endIso === null && !tickMoved && !termsTouched ? await write(sql) : await withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
     return write(tx as typeof sql);
   })) as Row[];
@@ -191,6 +210,12 @@ export async function updatePayrollEmployee(
       newValue: updated.employmentType,
       userId,
     });
+  }
+
+  if (userId && before && updated) {
+    for (const m of movedTerms(termsFromRow(before), updated)) {
+      await recordEmployeeChange({ companyId, employeeId: id, fieldName: m.field, oldValue: m.oldValue, newValue: m.newValue, userId });
+    }
   }
 
   return updated;

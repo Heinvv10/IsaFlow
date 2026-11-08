@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { useEmployeeDetail } from '@/components/payroll/useEmployeeDetail';
 import { User, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
 import { EmployeeProfileCard } from '@/components/payroll/EmployeeProfileCard';
+import { EmployeeWorkCard } from '@/components/payroll/EmployeeWorkCard';
 import { EmployeeComponentsCard } from '@/components/payroll/EmployeeComponentsCard';
 import { EmployeeTerminationCard } from '@/components/payroll/EmployeeTerminationCard';
 import { CostCentreAssignmentCard } from '@/components/payroll/CostCentreAssignmentCard';
@@ -109,6 +110,8 @@ export default function EmployeeDetailPage() {
               onSave={d.saveProfile}
               saving={savingProfile}
             />
+
+            <EmployeeWorkCard key={employee.id} employee={employee} onSaved={setEmployee} />
 
             <div id="employee-pay" className={ANCHOR}>
             <EmployeeComponentsCard

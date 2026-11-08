@@ -32,6 +32,8 @@ async function handler(
 ): Promise<void> {
   const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   const { id } = req.query;
+  // Employee terms and personal data: never cached (wave-5 rule 14).
+  res.setHeader('Cache-Control', 'no-store');
 
   if (typeof id !== 'string') {
     return apiResponse.badRequest(res, 'Invalid employee ID');

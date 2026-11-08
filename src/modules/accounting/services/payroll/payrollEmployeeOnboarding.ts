@@ -16,6 +16,7 @@ import { MAX_SALARY_CENTS, isValidSaIdNumber, isValidSarsTaxNumber } from './emp
 import { payeTreatment } from './payeAnnualPayment';
 import { assignComponentToEmployee } from './payrollEmployeeComponentService';
 import { createPayrollEmployee } from './payrollEmployeeService';
+import { termsOfCreate, termsOfPatch } from './payrollEmployeeTerms';
 import { salaryEndRefusal, salaryInPaidMonthRefusal } from './payrollOnboardingPaidMonth';
 import type { PayrollEmployee } from './payrollTypes';
 
@@ -28,6 +29,8 @@ export class EmployeeOnboardingRefused extends Error {
     this.name = 'EmployeeOnboardingRefused';
   }
 }
+
+const refused = (message: string) => new EmployeeOnboardingRefused(message);
 
 type Body = Record<string, unknown>;
 type NewEmployee = Omit<PayrollEmployee, 'id' | 'companyId'>;
@@ -108,6 +111,7 @@ function employeeOf(body: Body): NewEmployee {
     medicalAidMainMember: body.medicalAidMainMember === true,
     medicalAidDependantsCount: dependantsOf(body.medicalAidDependantsCount),
     s18aReceiptHeld: s18aReceiptHeldOf(body.s18aReceiptHeld),
+    ...termsOfCreate(body, refused),
   };
 }
 
@@ -209,8 +213,10 @@ export function employeeChangesOf<T extends Body>(
   if (body.s18aReceiptHeld !== undefined && typeof body.s18aReceiptHeld !== 'boolean') {
     throw new EmployeeOnboardingRefused('s18aReceiptHeld must be true or false');
   }
+  const terms = termsOfPatch(body, refused);
   return {
     ...body,
+    ...terms,
     dateOfBirth: patchedDay(body.dateOfBirth, 'dateOfBirth'),
     endDate: changedEndDate(body.endDate, current),
     taxNumber: changedIdentifier(body.taxNumber, current.taxNumber, isValidSarsTaxNumber, TAX_REFUSAL),

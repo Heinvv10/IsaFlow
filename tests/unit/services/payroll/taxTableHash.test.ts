@@ -24,8 +24,8 @@ import { SDL_RATE } from '@/modules/accounting/services/payroll/sdlEngine';
 import { RETIREMENT_DEDUCTION_RATE } from '@/modules/accounting/services/payroll/retirementFund';
 import { DONATION_LIMIT } from '@/modules/accounting/services/payroll/s18aDonation';
 
-/** Decision 2 of the wave-4 spec: Hein names the annual SARS-table owner before W3 (suggested: Willie). */
-const TABLE_OWNER = 'not yet named: Hein names one before W3 is dispatched (wave-4 spec §8 decision 2; suggested Willie)';
+/** Wave-5 spec decision 2 (Hein, 2026-11-08): the wave coordinator agent owns the annual SARS-table update; Hein signs it off. */
+const TABLE_OWNER = 'the wave coordinator agent prepares the February tables PR that ~/bin/isaflow-tax-tables-cron.sh opens (cron 08:00, 20-28 Feb); Hein signs it off (wave-5 spec decision 2)';
 const CRON = '~/bin/isaflow-tax-tables-cron.sh';
 
 const PINNED: Record<number, string> = {
