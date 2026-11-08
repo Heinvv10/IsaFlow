@@ -56,7 +56,7 @@ const VALID_BODY = {
 };
 
 function makeRes(): NextApiResponse {
-  const res = { status: vi.fn(), json: vi.fn() } as unknown as NextApiResponse;
+  const res = { status: vi.fn(), json: vi.fn(), setHeader: vi.fn() } as unknown as NextApiResponse;
   (res.status as ReturnType<typeof vi.fn>).mockReturnValue(res);
   return res;
 }
