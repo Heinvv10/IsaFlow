@@ -1,5 +1,5 @@
 /**
- * A bank line that has attachments says so on its paperclip: coloured, with the count, and named "N attachment(s) -
+ * A bank line that has attachments says so on its paperclip: coloured, numbered from two files up, and named "N attachment(s) -
  * view" so a screen reader hears it too. A line without any keeps the plain grey "Attachments" button. Every row state
  * that draws the paperclip (new, allocated, reviewed) goes through the same button.
  */
@@ -15,13 +15,15 @@ const withCounts = (counts: Record<string, number>) => TXS.map(t => ({ ...t, att
 const label = (id: string) => rowLabel(TXS.find(t => t.id === id)!);
 
 describe('the attachment button', () => {
-  it('highlights a new row that has attachments, with the count, and calls back with the row id', () => {
+  it('highlights a new row that has attachments, numbers it from two files, and calls back with the row id', () => {
     const props = tableProps({ transactions: withCounts({ a: 2, n: 1 }) });
     render(<BankTxTable {...props} />);
     const two = screen.getByRole('button', { name: `2 attachments - view, ${label('a')}` });
     expect(within(two).getByText('2')).toBeTruthy();
     expect(two.className).toContain('text-blue-400');
-    expect(screen.getByRole('button', { name: `1 attachment - view, ${label('n')}` })).toBeTruthy();
+    const one = screen.getByRole('button', { name: `1 attachment - view, ${label('n')}` });
+    expect(one.className).toContain('text-blue-400');
+    expect(one.textContent).toBe('');
     fireEvent.click(two);
     expect(props.onAttachments).toHaveBeenCalledWith('a');
   });
