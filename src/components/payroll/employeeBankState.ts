@@ -38,7 +38,10 @@ export async function loadRunMonth(): Promise<string> {
 export async function loadHasFinalRun(employeeId: string): Promise<boolean | null> {
   try {
     const res = await apiFetch(`/api/payroll/employees/${employeeId}/payslips`);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      log.warn('final-run read refused', { status: res.status }, 'employeeBankState');
+      return null;
+    }
     const json = (await res.json()) as { data?: Array<{ final?: boolean }> };
     return Array.isArray(json.data) ? json.data.some(e => e.final === true) : null;
   } catch (err) {
