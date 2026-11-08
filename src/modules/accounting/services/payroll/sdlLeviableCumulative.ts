@@ -3,7 +3,7 @@
  * LIABLE months.
  *
  * SDL is levied on the balance of remuneration after the Fourth Schedule
- * para 2(4) deductions (SDL Act s3(4); SARS SDL-GEN-01-G01 Rev 5 s6). The only
+ * para 2(4) deductions (SDL Act s3(3); SARS SDL-GEN-01-G01 Rev 5 s6). The only
  * ones modelled are the s18A donation s18aDonation allows, and the employee's retirement fund contribution limited by s11F,
  * which PAYE 4c already works out cumulatively: a line records the deduction
  * inside the year to date less what the earlier lines recorded

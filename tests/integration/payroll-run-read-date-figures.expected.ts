@@ -5,9 +5,12 @@
  * no longer deducted from taxable income): the pension line's component_breakdown entry carries
  * `retirementContribution: true`, and taxable_income / periodic_taxable of the lines with a pension are no longer reduced
  * by it (27270.00 -> 29550.00). Two more for PR #1142 (SDL is levied after the s11F retirement deduction PAYE 4c
- * records, SDL Act s3(4)): every component_breakdown item carries `isSdlApplicable` (an earning flagged
+ * records, SDL Act s3(3)): every component_breakdown item carries `isSdlApplicable` (an earning flagged
  * is_sdl_applicable), and the pension employee's sdl is 1% of (28500 + 3000 - 2280) = 292.20, not 315.00, so
- * total_sdl is 817.20 (feb) and 924.20 (mar), 22.80 lower. Nothing else was edited.
+ * total_sdl is 817.20 (feb) and 924.20 (mar), 22.80 lower. Two more for PR #1215 (para 2(4): only s11F and s18A
+ * deductions reduce PAYE): the steady employee's taxable medical aid (4005, R1 950) no longer reduces taxable_income /
+ * periodic_taxable (29550.00 -> 31500.00), so their paye is 507.00 higher (net_pay and total_paye / total_net follow),
+ * and their validation_results carry a DEDUCTION_NOT_PAYE_DEDUCTIBLE warning. Nothing else was edited.
  */
 type Period = 'feb' | 'mar';
 export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknown>>> = {
@@ -54,14 +57,14 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "gross_pay": "31500.00",
       "medical_credit": "974.00",
       "medical_scheme_fees": "1950.00",
-      "net_pay": "23993.60",
-      "paye": "3099.28",
-      "periodic_taxable": "29550.00",
+      "net_pay": "23486.60",
+      "paye": "3606.28",
+      "periodic_taxable": "31500.00",
       "sdl": "292.20",
-      "taxable_income": "29550.00",
+      "taxable_income": "31500.00",
       "uif_employee": "177.12",
       "uif_employer": "177.12",
-      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-STEADY has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<steady>#tax-number\", \"severity\": \"error\"}]"
+      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-STEADY has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<steady>#tax-number\", \"severity\": \"error\"}, {\"code\": \"DEDUCTION_NOT_PAYE_DEDUCTIBLE\", \"message\": \"Medical aid (code 4005, R 1 950.00) is marked taxable, but SARS lets an employer deduct only retirement fund contributions (4001, 4003, 4006) and s18A donations (4030) before PAYE, so PAYE was calculated without it. Medical aid contributions are given the medical tax credit instead.\", \"severity\": \"warning\"}]"
     },
     "young": {
       "additional_medical_credit": "0.00",
@@ -141,14 +144,14 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "gross_pay": "31500.00",
       "medical_credit": "1006.00",
       "medical_scheme_fees": "1950.00",
-      "net_pay": "24127.68",
-      "paye": "2965.20",
-      "periodic_taxable": "29550.00",
+      "net_pay": "23620.68",
+      "paye": "3472.20",
+      "periodic_taxable": "31500.00",
       "sdl": "292.20",
-      "taxable_income": "29550.00",
+      "taxable_income": "31500.00",
       "uif_employee": "177.12",
       "uif_employer": "177.12",
-      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-STEADY has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<steady>#tax-number\", \"severity\": \"error\"}]"
+      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-STEADY has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<steady>#tax-number\", \"severity\": \"error\"}, {\"code\": \"DEDUCTION_NOT_PAYE_DEDUCTIBLE\", \"message\": \"Medical aid (code 4005, R 1 950.00) is marked taxable, but SARS lets an employer deduct only retirement fund contributions (4001, 4003, 4006) and s18A donations (4030) before PAYE, so PAYE was calculated without it. Medical aid contributions are given the medical tax credit instead.\", \"severity\": \"warning\"}]"
     },
     "young": {
       "additional_medical_credit": "0.00",
@@ -175,8 +178,8 @@ export const EXPECTED_HEADERS: Record<Period, Record<string, unknown>> = {
     "employee_count": 4,
     "total_eti": "750.00",
     "total_gross": "84000.00",
-    "total_net": "71115.53",
-    "total_paye": "7878.11",
+    "total_net": "70608.53",
+    "total_paye": "8385.11",
     "total_sdl": "817.20",
     "total_taxable": "84000.00",
     "total_uif": "1192.72"
@@ -185,8 +188,8 @@ export const EXPECTED_HEADERS: Record<Period, Record<string, unknown>> = {
     "employee_count": 5,
     "total_eti": "750.00",
     "total_gross": "94700.00",
-    "total_net": "82062.44",
-    "total_paye": "7634.20",
+    "total_net": "81555.44",
+    "total_paye": "8141.20",
     "total_sdl": "924.20",
     "total_taxable": "94700.00",
     "total_uif": "1546.72"

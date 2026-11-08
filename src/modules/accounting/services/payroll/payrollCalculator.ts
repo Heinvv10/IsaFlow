@@ -1,7 +1,7 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import { getAge } from './payeEngine';
 import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
-import { costPayeWithDonations } from './payrollLinePaye';
+import { costPayeWithDonations, notPayeDeductibleWarning } from './payrollLinePaye';
 import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode } from './retirementFund';
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
@@ -28,7 +28,7 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  *  - UIF: the component's is_uif_applicable flag, as for every earning; setup-components
  *    creates the 3801 with it off. Whether UIF's "remuneration" takes in a benefit is not
  *    settled here (no SARS/UIF source fetched): the flag is the one switch.
- *  - SDL: leviable when is_sdl_applicable (setup default on; SDL Act s3(4) is para 1
+ *  - SDL: leviable when is_sdl_applicable (setup default on; SDL Act s3(3) is para 1
  *    remuneration), and part of the employer's s4(b) threshold basis, `remuneration`.
  *  - ETI: in "monthly remuneration" (the para 1 remuneration), as when it was paid as cash.
  *  - Cash: NOT in grossPay, so not in netPay or the journal (DR labour = gross = cash),
@@ -59,7 +59,6 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // directive's PAYE.
   let periodicTaxable = 0;
   let annualPayments = 0;
-  let taxableDeductions = 0;
   let directivePaye = 0;
   let uifLeviable = 0;
   let sdlLeviable = 0;
@@ -128,13 +127,15 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     } else if (component.componentType === 'deduction') {
       // Paid by the employee to the fund directly: off the tax, not off the pay (nor the 2175 journal line).
       if (!outsidePayroll) totalDeductions += amount;
-      // A retirement contribution by its code, whatever its taxable flag: capped below, never the uncapped path.
+      // A retirement contribution by its code, whatever its taxable flag: capped by s11F below.
       if (contribution) retirementContributions += amount;
       // A loan instalment is never a tax deduction, whatever the component says (Hein: a taxable LOAN is refused).
       else if (component.isTaxable && normaliseSarsCode(component.sarsSourceCode) !== 'LOAN') {
         // A donation reduces the taxable figure only as s18aDonation allows, below.
         if (normaliseSarsCode(component.sarsSourceCode) === '4030') donations += amount;
-        else taxableDeductions += amount;
+        // Para 2(4) lets an employer deduct only retirement contributions (s11F) and s18A donations before PAYE
+        // (PAYE-GEN-01-G21 (2027) Rev 1): any other deduction is paid from taxed pay, whatever its taxable flag.
+        else if (amount !== 0) warnings.push(notPayeDeductibleWarning(component.name, component.sarsSourceCode, amount));
       }
       if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
       if (normaliseSarsCode(component.sarsSourceCode) === 'LOAN') loanInstalments += amount;
@@ -149,7 +150,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // deduction can reduce the amount taxed from the tables.
   const remuneration = remunerationBeforeDeductions(periodicTaxable, annualPayments);
   // A net negative annual payment (a bonus clawback) reduces regular pay, as it
-  // did before the split. Taxable deductions come off regular pay first, any
+  // did before the split. Allowed donations come off regular pay first, any
   // excess off the annual payments, so the taxed total is unchanged by the split.
   if (annualPayments < 0) {
     periodicTaxable += annualPayments;
@@ -174,7 +175,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     });
   }
   const { donation, regularTaxable, annualTaxable, regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit, retirementDeduction } = costPayeWithDonations({
-    periodicTaxable, annualPayments, taxableDeductions, donations,
+    periodicTaxable, annualPayments, donations,
     receiptHeld: employee.s18aReceiptHeld === true,
     payeInput: {
       periodicRemuneration, annualPaymentRemuneration,
@@ -195,7 +196,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     : calculateUIF(uifLeviable, taxYear);
 
   // SDL is levied on SDL-applicable pay less the para 2(4) retirement and donation deductions allowed, over the tax
-  // year (sdlLeviableCumulative). Other taxable deductions reduce PAYE only; the s4(b) threshold stays on gross.
+  // year (sdlLeviableCumulative). No other deduction reduces PAYE or SDL; the s4(b) threshold stays on gross.
   // The pay enters the cumulative maths as the cent figure the line stores (sdl_applicable), so the year to date and
   // this line work from exactly the same numbers.
   const sdlApplicable = round2(sdlLeviable);

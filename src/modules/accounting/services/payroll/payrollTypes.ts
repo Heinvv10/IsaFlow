@@ -199,7 +199,7 @@ export interface PayeYearToDate {
   periods: number;
   /** Earlier periods with periodic pay or an annual payment, for the pro-rated s11F cap. */
   retirementCapPeriods?: number;
-  /** Periodic taxable remuneration, after taxable deductions other than retirement fund contributions (PAYE 4c: before that deduction). */
+  /** Periodic taxable remuneration, after allowed s18A donations (PAYE 4c: before the retirement fund deduction). */
   periodicTaxable: number;
   /** Annual payments (3605) taxed by the annual-payment method, before the retirement fund deduction. */
   annualPayments: number;
@@ -277,7 +277,7 @@ export interface PayrollLineResult {
   /**
    * This line's SDL leviable amount, cumulative over the tax year's liable months (sdlLeviableCumulative): the rise
    * in max(0, SDL-applicable pay to date - the s11F retirement and s18A donation deductions allowed to date), capped at that pay,
-   * never below nil (SDL Act s3(4)) and rounded to the cent.
+   * never below nil (SDL Act s3(3)) and rounded to the cent.
    */
   sdlLeviable: number;
   /** This line's SDL-applicable earnings (earnings flagged is_sdl_applicable), before any deduction, to the cent. */

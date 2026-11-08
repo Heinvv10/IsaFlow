@@ -20,13 +20,14 @@ import { isRealCalendarDate } from '@/lib/validation';
 import { journalDayWindowError } from '../../utils/journalDateWindow';
 import { lifeExpiredNote, monthsBetween } from './depreciationMethods';
 import { alreadyInSubledger, alreadyPosted, resolvePeriod } from './depreciationRunQueries';
+import { IN_SERVICE_ASSET_STATUSES } from './assetDisposalTypes';
 
 // The run's three reads live in `depreciationRunQueries.ts`. Re-exported: this
 // module is the entry point every caller already imports.
 export { loadDepreciationAssets } from './depreciationRunQueries';
 
-/** Statuses the run treats as in-service. Anything else is not depreciated. */
-export const IN_SERVICE_STATUSES = ['available', 'assigned', 'in_maintenance'] as const;
+/** Statuses the run treats as in-service. Anything else is not depreciated. The one list lives in assetDisposalTypes. */
+export const IN_SERVICE_STATUSES = IN_SERVICE_ASSET_STATUSES;
 
 export type DepreciationSkipReason =
   | 'not_in_service'

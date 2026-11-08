@@ -15,7 +15,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
-import { chromium } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { blockMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
@@ -23,7 +23,7 @@ import { page6Input } from '../services/packs/fixtures/page6Shapes';
 import { printBoardPack } from './renderPackPdf';
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); }, 180_000);
+beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
 const SCALES = [1, 1000, 10_000, 30_000, 100_000, 300_000, 1_000_000, 10_000_000];

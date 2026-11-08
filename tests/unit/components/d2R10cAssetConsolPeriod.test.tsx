@@ -34,7 +34,7 @@ const money = (digits: string) => new RegExp(digits.replace('.', '\\.').replace(
 
 describe('assets/[assetId]', () => {
   const asset = { id: 'as1', asset_number: 'FA-D2-1', name: 'D2 Laptop', category: 'Computers', purchase_date: '2025-01-15', purchase_price: 12345,
-    current_book_value: 9876, useful_life_years: 5, status: 'active', location: 'D2 Cape Town', serial_number: 'SN-D2-42', supplier_name: 'D2 Supplier',
+    current_book_value: 9876, useful_life_years: 5, status: 'available', location: 'D2 Cape Town', serial_number: 'SN-D2-42', supplier_name: 'D2 Supplier',
     sars_category: null, sars_rate: null, tax_life: null, created_at: '2025-01-15', salvage_value: 0, depreciation_method: 'straight_line' };
   beforeEach(() => { route.query = { assetId: 'as1' }; });
   it('load: shows the asset name, number, location, serial, price and book value from the served row', async () => {
@@ -55,6 +55,19 @@ describe('assets/[assetId]', () => {
     render(<AssetPage />);
     expect(await screen.findByText('Could not load the asset - try again')).toBeDefined();
     expect(screen.queryByText('D2 Laptop')).toBeNull(); expectNoJargon();
+  });
+  // assets.status is one of available/assigned/in_maintenance/disposed/written_off (CHECK); never 'active'. The page
+  // used to offer Dispose only for 'active', so no real asset ever showed the button (found on prod Demo 2026-11-07).
+  it.each(['available', 'assigned', 'in_maintenance'])('an asset that is %s can be disposed', async (status) => {
+    serve(on('GET', '/api/accounting/assets', () => ok([{ ...asset, status }])));
+    render(<AssetPage />);
+    expect(await screen.findByRole('button', { name: /Dispose Asset/ })).toBeDefined();
+  });
+  it.each(['disposed', 'written_off'])('an asset that is %s offers no Dispose', async (status) => {
+    serve(on('GET', '/api/accounting/assets', () => ok([{ ...asset, status }])));
+    render(<AssetPage />);
+    expect(await screen.findByText('D2 Laptop')).toBeDefined();
+    expect(screen.queryByRole('button', { name: /Dispose Asset/ })).toBeNull();
   });
   async function dispose(answer: () => Response) {
     serve(on('POST', '/dispose', answer), on('GET', '/api/accounting/assets', () => ok([asset])));
@@ -77,7 +90,10 @@ describe('assets/[assetId]', () => {
     await dispose(() => ok({ assetId: 'as1', policyGainLoss: -100, journalEntryId: 'je-9' }));
     await waitFor(() => expect(route.push).toHaveBeenCalledWith('/accounting/assets'));
     expect(String(vi.mocked(apiFetch).mock.calls.find(([, i]) => (i as RequestInit | undefined)?.method === 'POST')![0])).toBe('/api/accounting/assets/as1/dispose');
+    // The default is scrap, which assets.disposal_type stores since mig 965 (361 refused it: a 500).
     expect(lastBody('POST', '/dispose')).toMatchObject({ proceeds: 800, disposalType: 'scrap' });
+    const offered = [...document.querySelectorAll('select[name="disposal_method"] option')].map((o) => (o as HTMLOptionElement).value);
+    expect(offered).toEqual(['sale', 'scrap', 'write_off', 'donation', 'theft', 'loss', 'insurance_claim']);
   });
 });
 

@@ -62,5 +62,7 @@ export async function clearFleet(c: Ctx | undefined): Promise<void> {
     WHERE company_id = ${c.fx.companyId}::UUID`;
   await sql`DELETE FROM fleet_fuel_transactions WHERE company_id = ${c.fx.companyId}::UUID`;
   await sql`DELETE FROM fleet_service_history WHERE company_id = ${c.fx.companyId}::UUID`;
+  // The dispose route logs asset_disposals (FK to assets and to the journal, no company_id).
+  await sql`DELETE FROM asset_disposals WHERE asset_id IN (SELECT id FROM assets WHERE company_id = ${c.fx.companyId}::UUID)`;
   await sql`DELETE FROM assets WHERE company_id = ${c.fx.companyId}::UUID`;
 }

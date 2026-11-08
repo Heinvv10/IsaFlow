@@ -162,6 +162,11 @@ ALTER TABLE suppliers VALIDATE CONSTRAINT suppliers_payment_terms_shape;  -- and
   - PR 1b ships with an integration test that the CHECK rejects bad pairs and that the mapping is idempotent, and its own deploy check
     that no contact row violates the CHECK.
 
+**REVISED 2026-11-07 (PR 1b, migrations 963/964):**
+- **Company default:** Hein ruled that step 1 skips any company whose default is no longer 30 days from invoice. There, a stamped (30, 'days' / NULL) row becomes an explicit 30 invoice_days, and dates exactly as before.
+- **CHECK above was wrong:** it accepted (30, NULL) and (NULL, 'invoice_days'), because a CHECK that evaluates to NULL passes. 963 names `IS NOT NULL` in the second arm.
+- **Re-apply:** PR 3's "stamped default" flag was removed, since no row can hold that shape any more.
+
 ## Edit pages and bank details
 
 PR 1 also ships supplier and customer edit pages (`/accounting/suppliers/[id]/edit`, `/customers/[id]/edit`; PUT on

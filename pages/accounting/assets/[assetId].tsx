@@ -13,6 +13,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { toDepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
 import { buildDepreciationSchedule } from '@/modules/accounting/services/items/depreciationSchedule';
+import { DISPOSAL_TYPES, DISPOSAL_TYPE_LABELS, isInService } from '@/modules/accounting/services/items/assetDisposalTypes';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -168,7 +169,7 @@ export default function AssetDetailPage() {
     </AppLayout>
   );
 
-  const isActive = asset.status?.toLowerCase() === 'active';
+  const inService = isInService(asset.status);
   const infoFields = [
     { label: 'Asset Number', value: asset.asset_number, accent: true },
     { label: 'Category', value: asset.category },
@@ -198,12 +199,12 @@ export default function AssetDetailPage() {
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">{asset.name}</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">{asset.asset_number}</p>
               </div>
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${isActive ? 'bg-teal-500/20 text-teal-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                {isActive ? <CheckCircle2 className="inline h-3 w-3 mr-1" /> : <XCircle className="inline h-3 w-3 mr-1" />}
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${inService ? 'bg-teal-500/20 text-teal-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                {inService ? <CheckCircle2 className="inline h-3 w-3 mr-1" /> : <XCircle className="inline h-3 w-3 mr-1" />}
                 {asset.status ?? 'unknown'}
               </span>
             </div>
-            {isActive && (
+            {inService && (
               <button onClick={() => setShowDisposal(v => !v)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 text-sm font-medium transition-colors">
                 <Trash2 className="h-4 w-4" /> Dispose Asset
               </button>
@@ -232,7 +233,7 @@ export default function AssetDetailPage() {
                 <div>
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Disposal Method</label>
                   <select name="disposal_method" value={form.disposal_method} onChange={e => setForm(f => ({ ...f, disposal_method: e.target.value }))} className="ff-input w-full">
-                    {['sale','scrap','write_off','donation','theft','insurance_claim'].map(m => <option key={m} value={m}>{m.replace(/_/g,' ')}</option>)}
+                    {DISPOSAL_TYPES.map(m => <option key={m} value={m}>{DISPOSAL_TYPE_LABELS[m]}</option>)}
                   </select>
                 </div>
                 <div>

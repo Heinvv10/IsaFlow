@@ -14,12 +14,22 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateDisposalResult } from '@/modules/accounting/services/items/farDisposalService';
 import {
+  DISPOSAL_TYPES,
+  UNSPECIFIED_DISPOSAL_METHOD,
+  isDisposalType,
+  isInService,
+} from '@/modules/accounting/services/items/assetDisposalTypes';
+import {
   postAssetDisposalToGL,
   missingAssetAccountMessage,
   resolveAssetAccountId,
 } from '@/modules/accounting/services/gl/glCrossModuleHooks';
 
 type Row = Record<string, unknown>;
+
+// 9,999,999,999,999.99: the largest NUMERIC(15,2), gl_journal_lines.debit/credit.
+const MAX_JOURNAL_TOTAL_CENTS = 999_999_999_999_999;
+const PROCEEDS_TOO_LARGE = 'proceeds are too large: the disposal journal total would exceed 9,999,999,999,999.99';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
@@ -28,14 +38,29 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = String(req.user.id);
   const { assetId } = req.query as { assetId: string };
 
-  const { proceeds = 0, disposalDate, disposalType, notes } = req.body as {
-    proceeds?: number;
-    disposalDate?: string;
+  const { proceeds = 0, disposalDate, disposalType, notes } = (req.body ?? {}) as {
+    proceeds?: unknown;
+    disposalDate?: unknown;
     disposalType?: string;
     notes?: string;
   };
 
-  if (!disposalDate) return apiResponse.badRequest(res, 'disposalDate is required');
+  if (!disposalDate || typeof disposalDate !== 'string') return apiResponse.badRequest(res, 'disposalDate is required');
+  // Proceeds before any write (a 4xx commits). Number() read [5] as 5, "0x10" as 16 and "" as 0, and "abc", a
+  // negative or a sub-cent amount reached the journal and died there as a 500. One rule for both input types: the
+  // text (a number's String(), so 1e-7, 1e+21, 0.1+0.2 and NaN fail; a string trimmed) must be a plain decimal with at
+  // most 2 decimals, and the cents come from that text, never from n * 100 (doubles near 1e13 are too coarse).
+  // The whole-rand part is exact below 2^53 cents; anything larger is far over the journal ceiling checked below.
+  const proceedsText = typeof proceeds === 'number' ? String(proceeds) : typeof proceeds === 'string' ? proceeds.trim() : '';
+  const proceedsMatch = /^(\d+)(?:\.(\d{1,2}))?$/.exec(proceedsText);
+  if (!proceedsMatch) return apiResponse.badRequest(res, 'proceeds must be an amount of 0 or more, in whole cents');
+  const proceedsCents = Number(proceedsMatch[1]) * 100 + Number((proceedsMatch[2] ?? '').padEnd(2, '0'));
+  const proceedsNum = proceedsCents / 100;
+  // Before any write: assets.disposal_type's CHECK (mig 361) would otherwise 500
+  // after the asset_period_ledger row below.
+  if (disposalType && !isDisposalType(disposalType)) {
+    return apiResponse.badRequest(res, `disposalType must be one of: ${DISPOSAL_TYPES.join(', ')}`);
+  }
   // The ledger-date window on the day Postgres reads (gl/journalDateGuard), BEFORE the disposal's first write: a 400
   // later would commit the ledger row and the disposal type without the journal (see the GL note below).
   const disposalDay = (await ledgerDaysOf([disposalDate])).get(disposalDate) ?? null;
@@ -67,6 +92,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const asset = assetRows[0];
   if (asset.status === 'disposed') return apiResponse.badRequest(res, 'Asset is already disposed');
+  // A written-off asset has already left the books: a disposal would post a second retirement journal.
+  if (!isInService(String(asset.status))) {
+    return apiResponse.badRequest(res, `Asset is ${String(asset.status)}: only an asset in service can be disposed`);
+  }
 
   // The fixed-asset account is the disposal journal's only credit leg. Check it
   // HERE, before the asset_period_ledger write below: withAuth finalises on
@@ -82,8 +111,23 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const cost = Number(asset.cost);
   const policyAccDep = Number(asset.policy_acc_dep ?? 0);
   const taxAccDep = Number(asset.tax_acc_dep ?? 0);
+  // postAssetDisposalToGL posts no accumulated-depreciation leg for a value <= 0, but the gain/loss is struck on
+  // cost - accumulated depreciation: a negative figure posts an unbalanced journal (a 500). Refused before any write.
+  if (policyAccDep < 0) {
+    return apiResponse.badRequest(res, `Asset ${String(asset.asset_number ?? assetId)} has negative accumulated depreciation; correct it before disposing`);
+  }
 
-  const calc = calculateDisposalResult({ cost, policyAccDep, taxAccDep, proceeds: Number(proceeds) });
+  const calc = calculateDisposalResult({ cost, policyAccDep, taxAccDep, proceeds: proceedsNum });
+
+  // The journal's debit and credit totals must each fit gl_journal_lines.debit/credit, NUMERIC(15,2), which
+  // enforce_balanced_entry sums: refused here, before the first write. The legs mirror postAssetDisposalToGL
+  // (glCrossModuleHooks.ts): Dr acc dep (if > 0) + proceeds (if > 0) + loss; Cr cost + gain.
+  // Known limit: gl_account_balances' running per-account, per-period total is NUMERIC(15,2) too and depends on what
+  // the account already holds, so it cannot be checked here; it only matters near 1e13 cumulative.
+  const cents = (n: number) => Math.round(n * 100);
+  const debitCents = cents(Math.max(0, policyAccDep)) + proceedsCents + cents(Math.max(0, -calc.policyGainLoss));
+  const creditCents = cents(Math.max(0, cost)) + cents(Math.max(0, calc.policyGainLoss));
+  if (Math.max(debitCents, creditCents) > MAX_JOURNAL_TOTAL_CENTS) return apiResponse.badRequest(res, PROCEEDS_TOO_LARGE);
 
   log.info('Asset disposal calculated', {
     assetId, policyGainLoss: calc.policyGainLoss,
@@ -107,7 +151,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       ${policyAccDep}, ${calc.policyCarryingAmount},
       ${cost}, ${taxAccDep}, 0,
       ${taxAccDep}, ${calc.taxCarryingAmount},
-      ${Number(proceeds)}, ${calc.policyGainLoss}, ${calc.taxGainLoss}
+      ${proceedsNum}, ${calc.policyGainLoss}, ${calc.taxGainLoss}
     )
     ON CONFLICT (company_id, asset_id, yyyymm) DO UPDATE SET
       disposal_proceeds   = EXCLUDED.disposal_proceeds,
@@ -138,10 +182,29 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     policyAccDep,
     cost,
     gainLoss: calc.policyGainLoss,
-    proceeds: Number(proceeds),
+    proceeds: proceedsNum,
     disposalDate,
     notes,
   }, userId);
+
+  // A null id means the hook found no asset to post for. The lock above makes
+  // that unreachable today; if it ever happens, fail (5xx rolls everything
+  // back) rather than log a disposal with no journal, which is exactly what
+  // the fixed-asset reconciliation reports as an unposted disposal.
+  if (!entryId) throw new Error(`Asset ${assetId} disposal posted no journal`);
+
+  // The disposal log GET /api/accounting/assets-disposals lists. Written after
+  // the journal so it always carries one; the same request transaction rolls
+  // it back with everything else if anything here throws.
+  await sql`
+    INSERT INTO asset_disposals (
+      asset_id, disposal_date, disposal_method, disposal_amount,
+      book_value_at_disposal, gain_loss, reason, journal_entry_id, created_by
+    ) VALUES (
+      ${assetId}::UUID, ${disposalDate}::DATE, ${disposalType || UNSPECIFIED_DISPOSAL_METHOD}, ${proceedsNum},
+      ${calc.policyCarryingAmount}, ${calc.policyGainLoss}, ${notes ?? null}, ${entryId}::UUID, ${userId}
+    )
+  `;
 
   return apiResponse.success(res, {
     assetId,

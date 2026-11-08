@@ -162,13 +162,13 @@ describe('dueDateForContact: the contact\'s own terms, else the company default'
     expect((await call(admin, c, 'PUT', { payment_terms: 2, payment_terms_type: 'statement_months' })).state.statusCode).toBe(200);
     const none = await contact('customers', c, null, null);
     const own = await contact('suppliers', c, 10, 'invoice_days');
-    const legacy = await contact('customers', c, 14, 'days');
-    const bare = await contact('customers', c, 30, null);
+    // Legacy shapes ((14, 'days'), (30, NULL)) can no longer be stored (migration 963's CHECK); readTerms still reads
+    // them, pinned by the unit tests of shared/paymentTerms.
+    const statement = await contact('customers', c, 14, 'statement_days');
     const date = (kind: 'customer' | 'supplier', id: string | null) => inRequest(pool, admin, c, () => dueDateForContact(c, kind, id, '2026-10-15'));
     expect(await date('customer', none)).toBe('2026-12-31');
     expect(await date('supplier', own)).toBe('2026-10-25');
-    expect(await date('customer', legacy)).toBe('2026-10-29');
-    expect(await date('customer', bare)).toBe('2026-11-14');
+    expect(await date('customer', statement)).toBe('2026-11-14');
     expect(await date('customer', null)).toBe('2026-12-31');
   });
 

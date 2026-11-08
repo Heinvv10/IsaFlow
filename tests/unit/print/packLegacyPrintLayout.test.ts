@@ -20,7 +20,8 @@ import { promisify } from 'node:util';
 import sharp from 'sharp';
 import { PDF_MARGIN_MM } from '@/lib/pdf/pdfTransport';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
+import { launchPrintChromium } from './printChromium';
 import { bundlePrintPages } from './support/bundlePrintPages';
 import { DEMO, printLegacyPack } from './support/printLegacyPack';
 import { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
@@ -32,7 +33,7 @@ let bundle: string;
 let dir: string;
 beforeAll(async () => {
   bundle = await bundlePrintPages();
-  browser = await chromium.launch();
+  browser = await launchPrintChromium();
   dir = mkdtempSync(path.join(tmpdir(), 'pack-layout-'));
 }, 180_000);
 afterAll(async () => {
@@ -187,41 +188,53 @@ describe('cards are not split', () => {
   }, 170_000);
 });
 
+/** The box of the DRAFT mark's ink on each sheet, at `DPI`, set solid red so it is told apart from every other ink; null on a sheet without it. */
+const DPI = 50;
+async function markInk(tag: string, draft: boolean): Promise<Array<{ x0: number; y0: number; x1: number; y1: number; w: number; h: number } | null>> {
+  const file = path.join(dir, `${tag}.pdf`);
+  writeFileSync(file, await printLegacyPack(browser, bundle, DEMO, {
+    draft, extraCss: '[data-pack-watermark] > span { color: #f00 !important; opacity: 1 !important; }',
+  }));
+  const { stdout } = await run('pdfinfo', [file]);
+  const n = Number(/Pages:\s+(\d+)/.exec(stdout)![1]);
+  await run('pdftoppm', ['-r', String(DPI), '-png', file, path.join(dir, tag)]);
+  const sheets = [];
+  for (let p = 1; p <= n; p++) {
+    const name = path.join(dir, `${tag}-${String(p).padStart(n >= 10 ? 2 : 1, '0')}.png`);
+    const { data, info } = await sharp(name).raw().toBuffer({ resolveWithObject: true });
+    let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+    for (let y = 0; y < info.height; y++) for (let x = 0; x < info.width; x++) {
+      const i = (y * info.width + x) * info.channels;
+      if (data[i]! > 230 && data[i + 1]! < 40 && data[i + 2]! < 40) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    }
+    sheets.push(x1 < 0 ? null : { x0, y0, x1, y1, w: info.width, h: info.height });
+  }
+  return sheets;
+}
+
 describe('the DRAFT mark stays inside its sheet', () => {
   it('prints on every sheet and its ink never leaves the content box', async () => {
-    const file = path.join(dir, 'mark.pdf');
-    // Solid red, so the mark is told apart from every other ink on the page.
-    writeFileSync(file, await printLegacyPack(browser, bundle, DEMO, {
-      draft: true, extraCss: '[data-pack-draft] [data-pack-watermark] > span { color: #f00 !important; opacity: 1 !important; }',
-    }));
-    const { stdout } = await run('pdfinfo', [file]);
-    const n = Number(/Pages:\s+(\d+)/.exec(stdout)![1]);
-    const DPI = 50;
     const px = (mmv: number) => (mmv * DPI) / 25.4;
-    await run('pdftoppm', ['-r', String(DPI), '-png', file, path.join(dir, 'mark')]);
-    for (let p = 1; p <= n; p++) {
-      const name = path.join(dir, `mark-${String(p).padStart(n >= 10 ? 2 : 1, '0')}.png`);
-      const { data, info } = await sharp(name).raw().toBuffer({ resolveWithObject: true });
-      let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
-      for (let y = 0; y < info.height; y++) for (let x = 0; x < info.width; x++) {
-        const i = (y * info.width + x) * info.channels;
-        if (data[i]! > 230 && data[i + 1]! < 40 && data[i + 2]! < 40) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
-      }
-      expect(x1, `sheet ${p} carries no mark`).toBeGreaterThan(0);
-      const tol = 2;
-      expect(x0, `sheet ${p}: ink left of the content box`).toBeGreaterThanOrEqual(px(PDF_MARGIN_MM.left) - tol);
-      expect(x1, `sheet ${p}: ink right of the content box`).toBeLessThanOrEqual(info.width - px(PDF_MARGIN_MM.right) + tol);
-      expect(y0, `sheet ${p}: ink above the content box`).toBeGreaterThanOrEqual(px(PDF_MARGIN_MM.top) - tol);
-      expect(y1, `sheet ${p}: ink below the content box`).toBeLessThanOrEqual(info.height - px(PDF_MARGIN_MM.bottom) + tol);
-    }
+    const tol = 2;
+    (await markInk('mark', true)).forEach((ink, i) => {
+      const p = i + 1;
+      expect(ink, `sheet ${p} carries no mark`).not.toBeNull();
+      expect(ink!.x0, `sheet ${p}: ink left of the content box`).toBeGreaterThanOrEqual(px(PDF_MARGIN_MM.left) - tol);
+      expect(ink!.x1, `sheet ${p}: ink right of the content box`).toBeLessThanOrEqual(ink!.w - px(PDF_MARGIN_MM.right) + tol);
+      expect(ink!.y0, `sheet ${p}: ink above the content box`).toBeGreaterThanOrEqual(px(PDF_MARGIN_MM.top) - tol);
+      expect(ink!.y1, `sheet ${p}: ink below the content box`).toBeLessThanOrEqual(ink!.h - px(PDF_MARGIN_MM.bottom) + tol);
+    });
   }, 120_000);
 });
 
 describe('the DRAFT mark', () => {
+  // Its ink, not its text: the mark is set rotated, and pdftotext reads a rotated word set at fractional advances (as
+  // production sets it) in fragments between the page's other lines ("DR", "AF", "T").
   it('is on every sheet of a draft pack, and on none of a final one', async () => {
-    const draft = await print('draft', { draft: true });
-    const final = await print('final', { draft: false });
-    expect(draft.pages.every((t) => /D\s*R\s*A\s*F\s*T/.test(t)), 'a sheet has no DRAFT mark').toBe(true);
-    expect(final.pages.some((t) => /D\s*R\s*A\s*F\s*T/.test(t))).toBe(false);
+    const draft = await markInk('draft', true);
+    const final = await markInk('final', false);
+    expect(draft.length).toBeGreaterThan(1);
+    expect(draft.every((ink) => ink !== null), 'a sheet has no DRAFT mark').toBe(true);
+    expect(final.some((ink) => ink !== null)).toBe(false);
   }, 120_000);
 });
