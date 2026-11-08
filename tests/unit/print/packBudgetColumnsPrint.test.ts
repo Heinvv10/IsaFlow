@@ -87,12 +87,14 @@ const page6Notes = (document: ReturnType<typeof buildBoardPackPages>): string[] 
 
 describe('page 6 says so when it leaves the budget columns out', () => {
   it.each([
-    ['no bridge rung fits with them', 3000, true],
+    // k=3,000 kept its Budget columns once the table was modelled at its exact height; 3,000,000 (a net-debit revenue
+    // of about R12.6tn) is where eight columns of figures no longer fit the sheet at any legible size.
+    ['the figures are too wide for eight columns', 3_000_000, true],
   ] as const)('prints the dropped-columns footnote when %s', (_name, k, negative) => {
     expect(page6Notes(buildBoardPackPages(scaled(k, negative, false)))).toContain(DROPPED_NOTE);
   });
 
-  it.each([[3000]])('prints the footnote in the PDF text layer at k=%i, page 6 inside its edge, and the pack passes the gate', async (k) => {
+  it.each([[3_000_000]])('prints the footnote in the PDF text layer at k=%i, page 6 inside its edge, and the pack passes the gate', async (k) => {
     const document = buildBoardPackPages(scaled(k, true, false));
     expect(() => assertPackIntegrity(document)).not.toThrow();
     const out = await printBoardPack(document, browser);
@@ -109,8 +111,8 @@ describe('page 6 says so when it leaves the budget columns out', () => {
 });
 
 describe('page 6 with a budget at the figures that spilled it', () => {
-  it('keeps the budget columns and their basis footnote at k=1220: the derived caption goes first, not the footnote', async () => {
-    const document = buildBoardPackPages(scaled(1220, true, false));
+  it('keeps the budget columns and their basis footnote at k=1400: the derived caption goes first, not the footnote', async () => {
+    const document = buildBoardPackPages(scaled(1400, true, false));
     const page = document.pages.find((p) => p.navLabel === 'Income statement')!;
     const income = page.blocks
       .flatMap((b) => (b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue') ? [b.table] : []))[0]!;
@@ -126,7 +128,7 @@ describe('page 6 with a budget at the figures that spilled it', () => {
   }, 180_000);
 
   it('drops the budget columns when fitting them would remove their basis footnote', () => {
-    const document = buildBoardPackPages(scaled(3000, true, false));
+    const document = buildBoardPackPages(scaled(3_000_000, true, false));
     const page = document.pages.find((p) => p.navLabel === 'Income statement')!;
     const income = page.blocks
       .flatMap((b) => (b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue') ? [b.table] : []))[0]!;
@@ -146,8 +148,8 @@ describe('page 6 with a budget at the figures that spilled it', () => {
     expect(out.sheets).toBe(document.pages.length);
   }, 180_000);
 
-  it('a net-debit revenue of about R12.6bn, which no bridge rung can fit with the columns, prints without them rather than refusing the pack', async () => {
-    const document = buildBoardPackPages(scaled(3000, true, false));
+  it('a net-debit revenue of about R12.6tn, whose figures are too wide for eight columns, prints without them rather than refusing the pack', async () => {
+    const document = buildBoardPackPages(scaled(3_000_000, true, false));
     expect(() => assertPackIntegrity(document)).not.toThrow();
     const income = document.pages.flatMap((p) => p.blocks)
       .flatMap((b) => (b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue') ? [b.table] : []))[0]!;

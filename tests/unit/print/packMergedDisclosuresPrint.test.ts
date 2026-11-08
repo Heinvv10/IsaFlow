@@ -17,8 +17,10 @@ beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
 const SHAPES: Array<[string, Page6Shape]> = [
-  ['R30 scale, three lines below zero', { k: 30, negative: true, loss: false, plug: 0.2, sg: [-1, 1, -1, -1] }],
-  ['R1m scale, a loss', { k: 1000, negative: true, loss: true, plug: 0.05, sg: [1, -1, 1, -1] }],
+  // R30 and R1m scale no longer need the merge once the table is modelled at its exact height (the disclosures fit
+  // apart); these are the smallest scales that still do.
+  ['R2m scale, a line below zero', { k: 2000, negative: true, loss: false, plug: 0.2, sg: [1, 1, -1, 1] }],
+  ['R1.2m scale, a loss', { k: 1220, negative: true, loss: true, plug: 0.2, sg: [1, 1, -1, 1] }],
   ['R300m scale', { k: 300000, negative: true, loss: false, plug: 0.2, sg: [1, -1, -1, 1] }],
 ];
 
