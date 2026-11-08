@@ -60,3 +60,19 @@ it('the 630-case grid (15 strings x 14 sizes x 3 weights): never short of Chromi
   });
   expect(wrong).toEqual([]);
 }, 300_000);
+
+it('a character whose Script Extensions leave out the run\'s script starts a new run, and a closing bracket goes with its opener, as Chromium shapes them: never short of Chromium, at most 1/32px over', async () => {
+  // The middle dot (Latin, Greek; not Cyrillic), the modifier apostrophe (Latin, Cyrillic; not Greek), the caron (Latin)
+  // and the narrow no-break space (Latin) between Cyrillic or Greek letters and the superscripts the faces kern with them.
+  // One run kerned "⁵Ј" 33 units under Chromium's width ("ой×·⁵Ј").
+  const texts = ['·⁵Ј', 'ї·⁵Ј', 'ї×·⁵Ј', 'ой×·⁵Ј', 'x·⁵Ј', 'α·⁵Ω', 'о\u202f⁵Ј', 'Ты\u202fТы', 'оʼ⁵Ј', 'αʼ⁵Ω', 'Ав·Ав', 'Тˇ⁵Ј', 'Выручка 1\u202f234',
+    // A closing bracket goes with its opening bracket's run.
+    '(13 of Җ) llll', 'Ж(a) Ж', '(a Ж) l', '(Ж (a) Ж) l', 'Ж)l', '[Ж] l'];
+  const items = texts.flatMap((text) => WEIGHTS.map((weight) => ({ text, fontPx: 12, weight })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'td' as const, ...it, html: `<span style="white-space:pre">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const model = runPx(it.text, it.fontPx, it.weight, outside);
+    return model < res[i]!.widthPx - 1e-6 || model > res[i]!.widthPx + 2 / 64 + 1e-6 ? [`${JSON.stringify(it.text)} /${it.weight}: model ${model * 64}/64, Chromium ${res[i]!.widthPx * 64}/64`] : [];
+  });
+  expect(wrong).toEqual([]);
+}, 120_000);

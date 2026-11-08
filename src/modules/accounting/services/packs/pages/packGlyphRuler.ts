@@ -69,26 +69,63 @@ export function inFace(cluster: string): boolean {
 const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
 export const clustersOf = (text: string): string[] => Array.from(SEGMENTER.segment(text), (s) => s.segment);
 
-/** The script a run is shaped in; '' for the common and inherited characters, which join the run they stand in. */
-function scriptOf(ch: string): string {
-  if (/[\p{Script=Common}\p{Script=Inherited}]/u.test(ch)) return '';
-  for (const script of ['Latin', 'Greek', 'Cyrillic']) if (new RegExp(`\\p{Script=${script}}`, 'u').test(ch)) return script;
-  return 'Other';
+const FACE_SCRIPTS = ['Latin', 'Greek', 'Cyrillic'] as const;
+const SCRIPT_SETS = new Map<string, readonly string[] | null>();
+
+/**
+ * The scripts a character can be shaped in, as Chromium's run segmenter reads them (ICU's, with Unicode's Script
+ * Extensions): its own script; null for a common or inherited character that goes with any run; and for a common
+ * character whose Script Extensions name scripts (the middle dot, U+00B7: Latin, Greek and others; the modifier
+ * apostrophe, U+02BC: Latin, Cyrillic and others; the narrow no-break space, U+202F: Latin and Mongolian), those of
+ * the faces' scripts it names, and 'Other' for the rest. A character the faces have outside them is 'Other'.
+ */
+function scriptSetOf(ch: string): readonly string[] | null {
+  const known = SCRIPT_SETS.get(ch);
+  if (known !== undefined) return known;
+  let set: readonly string[] | null;
+  const own = FACE_SCRIPTS.find((script) => new RegExp(`\\p{Script=${script}}`, 'u').test(ch));
+  if (own !== undefined) set = [own];
+  else if (/\p{Script=Inherited}/u.test(ch) || /[\p{Script_Extensions=Common}\p{Script_Extensions=Inherited}]/u.test(ch)) set = null;
+  else if (/\p{Script=Common}/u.test(ch)) set = [...FACE_SCRIPTS.filter((script) => new RegExp(`\\p{Script_Extensions=${script}}`, 'u').test(ch)), 'Other'];
+  else set = ['Other'];
+  SCRIPT_SETS.set(ch, set);
+  return set;
 }
 
-/** `text` cut into the runs Chromium shapes apart: one script each, a common character joining the run it follows. */
+/**
+ * `text` cut into the runs Chromium shapes apart (and so kerns nothing across): a run carries the scripts every
+ * character in it can be shaped in; a character that leaves none (a Cyrillic letter after a middle dot, which Unicode
+ * gives Latin and Greek but not Cyrillic) starts the next run. A common character goes with the run it stands in, but a
+ * closing bracket goes with its opening bracket's ("(13 Җ)": the ")" is Latin, as the "(" was, and ends the Cyrillic run).
+ * Measured: "·⁵Ј" is 910 units in Chromium, not the 876 one run kerned "⁵Ј" would make (`packGlyphRuler.test.ts`).
+ */
 export function scriptRuns(text: string): string[] {
-  const runs: Array<{ script: string; text: string }> = [];
+  type Run = { scripts: readonly string[] | null; text: string };
+  const runs: Run[] = [];
+  // Open brackets, each with the run it opened in: a closing bracket is shaped in its opener's script.
+  const open: Array<{ close: string; run: Run }> = [];
   for (const ch of text) {
-    const script = scriptOf(ch);
+    let scripts = scriptSetOf(ch);
+    const at = open.map((o) => o.close).lastIndexOf(ch);
+    if (at >= 0) {
+      scripts = open[at]!.run.scripts;
+      open.length = at;
+    }
     const last = runs[runs.length - 1];
-    if (last !== undefined && (script === '' || last.script === '' || last.script === script)) {
-      last.text += ch;
-      if (last.script === '') last.script = script;
-    } else runs.push({ script, text: ch });
+    if (last === undefined) runs.push({ scripts, text: ch });
+    else if (scripts === null) last.text += ch;
+    else {
+      const shared = last.scripts === null ? scripts : last.scripts.filter((s) => scripts!.includes(s));
+      if (shared.length > 0) { last.scripts = shared; last.text += ch; } else runs.push({ scripts, text: ch });
+    }
+    const closer = BRACKETS[ch];
+    if (closer !== undefined) open.push({ close: closer, run: runs[runs.length - 1]! });
   }
   return runs.map((r) => r.text);
 }
+
+/** The paired brackets the faces set (Unicode's Bidi_Paired_Bracket): each opener and its closer. */
+const BRACKETS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}', '\u207D': '\u207E', '\u208D': '\u208E' };
 
 /**
  * How a width is rounded to Chromium's unit: `NEVER_SHORT` (the exact sum rounded up, and one unit more) for a decision

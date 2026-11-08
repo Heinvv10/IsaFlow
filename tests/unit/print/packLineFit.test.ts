@@ -88,13 +88,6 @@ const WORDS = ('the of and to in revenue profit margin AVATAR WAVE Ty To Yo LTA 
   + '45.0% R&D VAT W nnnn iiii llll mmm Ωμέγα Выручка Ærø prior period budget same month last year not meaningful because comparative base '
   + 'negative Depreciation amortisation Inventories receivables Proceeds disposal property plant equipment intangibles').split(' ');
 
-/**
- * The glyphs of a random word: every glyph all three faces set but the superscript and subscript forms (U+2070 to
- * U+209F). Next to Cyrillic letters, fontkit sets those narrower than Chromium does ("ой×·⁵Ј": 33 units under), a
- * shaping-model error of the ruler itself (a never-short width is short there too), not of the line fit: reported apart.
- */
-const WORD_GLYPHS = GLYPHS.filter((c) => c < 0x2070 || c > 0x209f);
-
 it('1,500 random lines, multi-box and long (2 to 23 words, 40 to 80 characters among them): never narrower than Chromium', async () => {
   const random = lcg(29);
   const next = (): number => random.next().value as number;
@@ -106,7 +99,7 @@ it('1,500 random lines, multi-box and long (2 to 23 words, 40 to 80 characters a
     const target = 40 + Math.floor(next() * 41);
     const count = 2 + Math.floor(next() * 22);
     while (long ? words.join(' ').length < target : words.length < count) {
-      words.push(next() < 0.25 ? Array.from({ length: 1 + Math.floor(next() * 8) }, () => String.fromCodePoint(pick(WORD_GLYPHS))).join('') : pick(WORDS));
+      words.push(next() < 0.25 ? Array.from({ length: 1 + Math.floor(next() * 8) }, () => String.fromCodePoint(pick(GLYPHS))).join('') : pick(WORDS));
     }
     const text = words.join(' ');
     const kind = i % 5;
