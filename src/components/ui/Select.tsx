@@ -9,6 +9,7 @@ import { ChevronDown, X } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { SelectDropdown, selectOptionId } from './SelectDropdown';
 import { useSelectKeyboard } from './useSelectKeyboard';
+import { placePanel, type PanelPlacement } from './panelPlacement';
 
 export interface SelectOption {
   value: string;
@@ -50,13 +51,15 @@ interface SelectBaseProps {
   labelClassName?: string;
   /** The id of text that describes the current value, e.g. a note under the field. */
   describedBy?: string;
-  /** `sm` is a compact trigger (32px, text-xs) for grid cells; the default is the form size. */
-  size?: 'sm' | 'md';
+  /** `sm` is a compact trigger (32px, text-xs) for grid cells; `xs` is the densest (24px, the WCAG 2.5.8 minimum); the default is the form size. */
+  size?: 'xs' | 'sm' | 'md';
 }
 
 const CREATE_VALUE = '__select_create_new__';
 /** A compact trigger sits in a narrow grid cell: its option panel is never narrower than this, so labels read whole. */
 const COMPACT_PANEL_MIN_WIDTH = 224;
+/** The panel's natural height (search box + a 240px list): below this much room it opens upward instead. */
+const PANEL_WANTED_HEIGHT = 300;
 
 interface SingleSelectProps extends SelectBaseProps {
   multiple?: false;
@@ -86,7 +89,7 @@ export function Select(props: SelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [activeValue, setActiveValue] = useState<string | null>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const [pos, setPos] = useState<{ left: number; width: number } & PanelPlacement>({ top: 0, left: 0, width: 0, maxHeight: 0 });
 
   const triggerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -110,9 +113,10 @@ export function Select(props: SelectProps) {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
     // A panel wider than its trigger (compact size) is pulled back inside the viewport instead of running off its right edge.
-    const panelWidth = Math.max(r.width, size === 'sm' ? COMPACT_PANEL_MIN_WIDTH : 0);
+    const compact = size !== 'md';
+    const panelWidth = Math.max(r.width, compact ? COMPACT_PANEL_MIN_WIDTH : 0);
     const left = Math.max(8, Math.min(r.left, document.documentElement.clientWidth - panelWidth - 8));
-    setPos({ top: r.bottom + window.scrollY + 4, left: left + window.scrollX, width: r.width });
+    setPos({ ...placePanel(r, window.innerHeight, PANEL_WANTED_HEIGHT), left, width: r.width });
   }, [size]);
 
   const closeDropdown = useCallback(() => { setOpen(false); setSearch(''); setActiveValue(null); }, []);
@@ -203,7 +207,7 @@ export function Select(props: SelectProps) {
         onKeyDown={onTriggerKeyDown}
         className={cn(
           'flex w-full cursor-pointer items-center gap-2 rounded-lg border transition-colors ff-focus-ring',
-          size === 'sm' ? 'min-h-[32px] px-2.5 py-1 text-xs' : 'min-h-[40px] px-3 py-2 text-sm',
+          size === 'xs' ? 'min-h-[24px] px-2 py-0 text-xs' : size === 'sm' ? 'min-h-[32px] px-2.5 py-1 text-xs' : 'min-h-[40px] px-3 py-2 text-sm',
           'bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100',
           error ? 'border-red-400 dark:border-red-500' : 'border-gray-300 dark:border-gray-600',
           !disabled && 'hover:border-teal-400 dark:hover:border-teal-500',
@@ -211,15 +215,15 @@ export function Select(props: SelectProps) {
           disabled && 'cursor-not-allowed opacity-60'
         )}
       >
-        <span className={cn('flex flex-1 gap-1 overflow-hidden', size === 'sm' ? 'min-w-0 flex-nowrap' : 'flex-wrap')}>
+        <span className={cn('flex flex-1 gap-1 overflow-hidden', size !== 'md' ? 'min-w-0 flex-nowrap' : 'flex-wrap')}>
           {selectedLabels.length === 0 ? (
-            <span className={cn('text-gray-600 dark:text-gray-400', size === 'sm' && 'min-w-0 truncate')}>{placeholder}</span>
+            <span className={cn('text-gray-600 dark:text-gray-400', size !== 'md' && 'min-w-0 truncate')}>{placeholder}</span>
           ) : isMulti ? (
             selectedLabels.map((lbl) => (
               <span key={lbl} className="inline-flex items-center rounded-md bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800 dark:bg-teal-900/50 dark:text-teal-300">{lbl}</span>
             ))
           ) : (
-            <span className={cn(size === 'sm' && 'min-w-0 truncate')}>{selectedLabels[0]}</span>
+            <span className={cn(size !== 'md' && 'min-w-0 truncate')}>{selectedLabels[0]}</span>
           )}
         </span>
         <span className="flex shrink-0 items-center gap-1">
@@ -245,7 +249,7 @@ export function Select(props: SelectProps) {
               inputId={inputId}
               isMulti={isMulti}
               pos={pos}
-              minWidth={size === 'sm' ? COMPACT_PANEL_MIN_WIDTH : undefined}
+              minWidth={size !== 'md' ? COMPACT_PANEL_MIN_WIDTH : undefined}
               searchRef={searchRef}
               listRef={listRef}
               panelRef={panelRef}

@@ -53,6 +53,8 @@ export function UndoToast({ t, title, opts, undoOnce }: Props) {
   return (
     <div
       data-testid="undo-toast"
+      role="status"
+      aria-live="polite"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}

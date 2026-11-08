@@ -42,6 +42,8 @@ function isTypingTarget(el: Element | null): boolean {
  */
 function isDropdownKey(e: React.KeyboardEvent<HTMLElement>): boolean {
   if (!e.currentTarget.contains(e.target as Node)) return true;
+  // The Selection popover's options are plain buttons: Enter on one chooses it, it does not accept the row.
+  if ((e.target as Element).closest('[data-bank-dropdown]')) return true;
   const el = document.activeElement;
   return el?.getAttribute('role') === 'combobox' && el.getAttribute('aria-expanded') === 'true';
 }
