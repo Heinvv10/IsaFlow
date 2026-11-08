@@ -254,6 +254,8 @@ describe('roundToTotal (round each share, hand out the leftover cents)', () => {
     expect(roundToTotal(10, [0, 0, 0])).toEqual([4, 3, 3]);
     expect(roundToTotal(0, [0, 0])).toEqual([0, 0]);
     expect(roundToTotal(0, [])).toEqual([]);
+    expect(roundToTotal(1000, [1, 1])).toEqual([500, 500]);
+    expect(() => roundToTotal(10, [Number.NaN])).toThrow(/finite/);
   });
   it('negative totals and shares still sum exactly', () => {
     expect(roundToTotal(-100, [-33.4, -66.6])).toEqual([-33, -67]);

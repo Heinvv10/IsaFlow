@@ -108,9 +108,13 @@ export function roundToTotal(total: number, shares: readonly number[]): number[]
   const parts = shares.map((x) => Math.round(x) + 0);
   if (parts.length === 0) return parts;
   let left = total - parts.reduce((s, x) => s + x, 0);
+  if (!Number.isSafeInteger(left)) throw new Error('roundToTotal: total and shares must be finite cents');
+  const even = Math.trunc(left / parts.length);
+  for (let i = 0; i < parts.length; i++) parts[i]! += even;
+  left -= even * parts.length;
   const step = Math.sign(left);
   const order = shares.map((e, i) => [(e - parts[i]!) * step, i] as const).sort((x, y) => y[0] - x[0] || x[1] - y[1]);
-  for (let k = 0; left !== 0; k++, left -= step) parts[order[k % order.length]![1]]! += step;
+  for (let k = 0; k < order.length && left !== 0; k++, left -= step) parts[order[k]![1]]! += step;
   return parts;
 }
 
