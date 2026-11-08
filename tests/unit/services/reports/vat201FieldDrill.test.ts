@@ -193,14 +193,15 @@ describe('vat201FieldDrill', () => {
   });
 
   it('many journals: the rows of a box add up to the report\'s box base to the cent', async () => {
-    // 40 journals, each base 100.00 over tax 1.00 standard + 2.00 capital: a third each (33.33.. / 66.66..), which
-    // the box rounds journal by journal as it accumulates.
+    // 40 journals of varying base (100.01 + 0.13i) over tax 3.00 standard + 7.00 capital: 30/70 shares. The box
+    // rounds journal by journal as it accumulates and lands 1c off the sum of per-row roundings.
     state.lines = [];
     for (let i = 0; i < 40; i++) {
+      const base = Math.round((100.01 + 0.13 * i) * 100) / 100;
       const e = `y${i}`; const num = `Y${String(i).padStart(3, '0')}`;
-      state.lines.push(leg(e, num, null, 'expense', 100, 0, 'standard'),
-        leg(e, num, 'vat_input', 'asset', 1, 0, 'standard'), leg(e, num, 'vat_input', 'asset', 2, 0, 'capital_goods'),
-        leg(e, num, 'payable', 'liability', 0, 103, null));
+      state.lines.push(leg(e, num, null, 'expense', base, 0, 'standard'),
+        leg(e, num, 'vat_input', 'asset', 3, 0, 'standard'), leg(e, num, 'vat_input', 'asset', 7, 0, 'capital_goods'),
+        leg(e, num, 'payable', 'liability', 0, base + 10, null));
     }
     const basis = deriveVatBoxesWithLateClaims(state.lines as LateClaimAwareLine[]);
     for (const [field, type] of [['15', 'standard'], ['14', 'capital_goods']] as const) {
