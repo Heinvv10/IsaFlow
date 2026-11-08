@@ -34,7 +34,7 @@ beforeAll(async () => {
 afterAll(async () => { await r.teardown(); });
 
 describe('approve is final, reopen is DRAFT, calculate never final', () => {
-  it('a calculated run has no stamp and is DRAFT', async () => {
+  it('a calculated run is DRAFT', async () => {
     const id = await r.calculatedRun(1);
     expect(await stamp(id)).toMatchObject({ status: 'calculated', approved_at: null });
     expect(await final(id)).toBe(false);
@@ -49,7 +49,7 @@ describe('approve is final, reopen is DRAFT, calculate never final', () => {
     expect((await outsideRls(r.pool, r.company, () => getPayslips(r.company, id))).final).toBe(true);
   });
 
-  it('reopening clears approved_at and approval_grandfathered_at and the slip is DRAFT again; recalculating and re-approving stamps afresh', async () => {
+  it('reopening clears approved_at and approval_grandfathered_at and the slip is DRAFT again; recalculating and re-approving is final again', async () => {
     const id = await approved(3);
     const first = (await stamp(id)).approved_at as Date;
     expect((await r.api.reopen(id)).statusCode).toBe(200);
@@ -82,7 +82,7 @@ describe('known limit inverted: finality survives the approval record', () => {
     const stored = await r.pool.query(
       `SELECT sum(l.gross_pay)::float8 AS gross FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id
         WHERE h.company_id = $1 AND l.employee_id = $2 AND h.period_month IN (3, 4, 5, 6) AND h.period_year = 2026
-          AND (COALESCE(h.approved_at, h.approval_grandfathered_at) IS NOT NULL OR h.id = $3)`, [r.company, emp, next]);
+          AND ((h.status IN ('approved', 'paid') AND COALESCE(h.approved_at, h.approval_grandfathered_at) IS NOT NULL) OR h.id = $3)`, [r.company, emp, next]);
     expect(ytd.grossPay).toBe(stored.rows[0]!.gross);
   });
 });
