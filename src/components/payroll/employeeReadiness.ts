@@ -14,15 +14,17 @@ export interface ReadinessAssignment {
   effectiveTo: string | null;
 }
 export type BankState = 'on-file' | 'none' | 'unknown';
+/** `pending`: that read has not answered yet. */
+export type BankRead = BankState | 'pending';
 export interface ReadinessItem { key: 'tax' | 'pay' | 'bank' | 'bank-check'; label: string; href: string }
-export interface Readiness { ready: boolean; missing: ReadinessItem[] }
+export interface Readiness { ready: boolean; missing: ReadinessItem[]; /** Checks still reading: never ready while any is open. */ pending: string[] }
 
 export interface ReadinessInput {
   employee: { taxNumber?: string | null; paymentMethod?: string | null };
   components: ReadinessAssignment[];
-  bank: BankState;
-  /** YYYY-MM, the month of the next pay run (see `nextRunMonth`). Defaults to the current month. */
-  runMonth?: string;
+  bank: BankRead;
+  /** YYYY-MM, the month of the next pay run (see `nextRunMonth`). Defaults to the current month; `null` = still reading. */
+  runMonth?: string | null;
 }
 
 const day = (s: string) => String(s).slice(0, 10);
@@ -48,18 +50,27 @@ function paysInMonth(a: ReadinessAssignment, month: string): boolean {
 
 export function employeeReadiness({ employee, components, bank, runMonth = todayInSast().slice(0, 7) }: ReadinessInput): Readiness {
   const missing: ReadinessItem[] = [];
+  const pending: string[] = [];
   if (!isValidSarsTaxNumber(employee.taxNumber)) missing.push({ key: 'tax', label: 'a valid tax number', href: '#employee-tax-number' });
-  if (!components.some(a => paysInMonth(a, runMonth))) missing.push({ key: 'pay', label: 'a salary', href: '#employee-pay' });
+  if (runMonth === null) pending.push('salary');
+  else if (!components.some(a => paysInMonth(a, runMonth))) missing.push({ key: 'pay', label: 'a salary', href: '#employee-pay' });
   if (employee.paymentMethod !== 'cash') {
     // An unanswered read is never "ready": a transient failure must not read as a good bill of health.
+    if (bank === 'pending') pending.push('bank details');
     if (bank === 'none') missing.push({ key: 'bank', label: 'bank details', href: '#employee-bank' });
     if (bank === 'unknown') missing.push({ key: 'bank-check', label: 'Could not check bank details', href: '#employee-bank' });
   }
-  return { ready: missing.length === 0, missing };
+  return { ready: missing.length === 0 && pending.length === 0, missing, pending };
 }
 
-export function readinessSummary(r: Readiness): string {
+/**
+ * `hasFinalRun`: the employee already has a line on a final run. Only a confirmed `false` says "first"; a read that
+ * is still reading says "the pay run", and one that failed says "next".
+ */
+export function readinessSummary(r: Readiness, hasFinalRun: boolean | null | 'pending' = null): string {
   if (r.ready) return 'Ready to pay';
   const n = r.missing.length;
-  return `${n} ${n === 1 ? 'thing' : 'things'} before the first pay run: ${r.missing.map(m => m.label).join(', ')}`;
+  if (n === 0) return `Checking ${r.pending.join(' and ')}…`;
+  const when = hasFinalRun === false ? 'first ' : hasFinalRun === 'pending' ? '' : 'next ';
+  return `${n} ${n === 1 ? 'thing' : 'things'} before the ${when}pay run: ${r.missing.map(m => m.label).join(', ')}`;
 }

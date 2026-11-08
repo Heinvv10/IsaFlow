@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
+import { PAYROLL_RUN_CHANGED } from './payrollRunEvents';
 
 interface PeriodContext {
   companyName: string;
@@ -44,7 +45,7 @@ export function PayrollPeriodBar() {
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
+    const read = async () => {
       try {
         const res = await apiFetch('/api/payroll/period-context');
         await assertOk(res, 'Could not load the payroll period');
@@ -56,8 +57,12 @@ export function PayrollPeriodBar() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
+    };
+    void read();
+    // The run page moved a run's status (calculate, approve, reopen): read the strip again, without the spinner.
+    const again = () => { void read(); };
+    window.addEventListener(PAYROLL_RUN_CHANGED, again);
+    return () => { cancelled = true; window.removeEventListener(PAYROLL_RUN_CHANGED, again); };
   }, []);
 
   if (loading) {

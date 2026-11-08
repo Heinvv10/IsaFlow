@@ -30,3 +30,19 @@ export async function loadRunMonth(): Promise<string> {
     return nextRunMonth([]);
   }
 }
+
+/**
+ * Whether the employee already has a line on a final run (so the next run is not their first). A failed read is
+ * null: the card then says "next", never "first".
+ */
+export async function loadHasFinalRun(employeeId: string): Promise<boolean | null> {
+  try {
+    const res = await apiFetch(`/api/payroll/employees/${employeeId}/payslips`);
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data?: Array<{ final?: boolean }> };
+    return Array.isArray(json.data) ? json.data.some(e => e.final === true) : null;
+  } catch (err) {
+    log.warn('final-run read failed', { error: err }, 'employeeBankState');
+    return null;
+  }
+}

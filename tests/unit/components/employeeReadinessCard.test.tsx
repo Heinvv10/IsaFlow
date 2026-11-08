@@ -12,15 +12,17 @@ const salary = { componentType: 'earning', isTaxable: true, isRecurring: true, c
 const fetchMock = vi.fn();
 /** Routes the three reads: bank (masked), the run list, and anything else empty. A Response is read once, so each call builds a new one. */
 let runs: unknown[] = [];
+let payslips: unknown[] = [];
 const serveBank = (bank: () => Response) => fetchMock.mockImplementation(async (u: string) => {
   const url = String(u);
   if (url.includes('/bank-details')) return bank();
   if (url.endsWith('/api/payroll/runs')) return ok(runs);
+  if (url.endsWith('/payslips')) return ok(payslips);
   return ok([]);
 });
 const urls = () => fetchMock.mock.calls.map(([u]) => String(u));
 
-beforeEach(() => { runs = []; fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
+beforeEach(() => { runs = []; payslips = []; fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const props = { employeeId: EMP, employee: { taxNumber: '0123456789', paymentMethod: 'eft' }, assignments: [salary] };
@@ -37,7 +39,25 @@ describe('EmployeeReadinessCard', () => {
     fetchMock.mockReturnValue(new Promise(() => {}));
     render(<EmployeeReadinessCard {...props} />);
     expect(screen.queryByText('Ready to pay')).toBeNull();
-    expect(screen.getByText('Checking…')).toBeTruthy();
+    expect(screen.getByText('Checking salary and bank details…')).toBeTruthy();
+  });
+
+  it('shows a missing tax number at once, before any read answers', async () => {
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    render(<EmployeeReadinessCard {...props} employee={{ taxNumber: '' }} />);
+    expect(screen.getByRole('link', { name: 'a valid tax number' })).toBeTruthy();
+    expect(screen.getByText('Checking bank details…')).toBeTruthy();
+  });
+
+  it('says "next" once the employee has a line on a final run, "first" when they have none', async () => {
+    payslips = [{ runId: 'r1', final: true }];
+    serveBank(() => ok(null));
+    const { unmount } = render(<EmployeeReadinessCard {...props} />);
+    expect(await screen.findByText('1 thing before the next pay run: bank details')).toBeTruthy();
+    unmount();
+    payslips = [{ runId: 'r1', final: false }];
+    render(<EmployeeReadinessCard {...props} />);
+    expect(await screen.findByText('1 thing before the first pay run: bank details')).toBeTruthy();
   });
 
   it('lists what is missing as links to the fields', async () => {
@@ -71,9 +91,9 @@ describe('EmployeeReadinessCard', () => {
   it('a failed bank read does not claim bank details are missing', async () => {
     fetchMock.mockResolvedValue(fail(500));
     render(<EmployeeReadinessCard {...props} />);
-    await waitFor(() => expect(screen.queryByText('Checking…')).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/^Checking/)).toBeNull());
     expect(screen.queryByText('Ready to pay')).toBeNull();
-    expect(screen.getByText('1 thing before the first pay run: Could not check bank details')).toBeTruthy();
+    expect(screen.getByText('1 thing before the next pay run: Could not check bank details')).toBeTruthy();
   });
 
   it('judges the salary against the month after the latest calculated run', async () => {
@@ -107,13 +127,13 @@ describe('EmployeeDrawerBody readiness line', () => {
   it('shows the verdict line for a writer', async () => {
     serve(ok(null));
     render(<EmployeeDrawerBody employeeId={EMP} mayWrite />);
-    expect(await screen.findByText('1 thing before the first pay run: bank details')).toBeTruthy();
+    expect(await screen.findByText('1 thing before the next pay run: bank details')).toBeTruthy();
   });
 
   it('a failed bank read shows the check line, never Ready to pay', async () => {
     serve(fail(500));
     render(<EmployeeDrawerBody employeeId={EMP} mayWrite />);
-    expect(await screen.findByText('1 thing before the first pay run: Could not check bank details')).toBeTruthy();
+    expect(await screen.findByText('1 thing before the next pay run: Could not check bank details')).toBeTruthy();
   });
 
   it('asks for pay and bank together, before pay answers, and renders once both have', async () => {

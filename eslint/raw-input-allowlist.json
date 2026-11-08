@@ -121,7 +121,6 @@
   "pages/payroll/batches/new.tsx": 2,
   "pages/payroll/components/index.tsx": 2,
   "pages/payroll/cost-centres/index.tsx": 4,
-  "pages/payroll/employees/index.tsx": 1,
   "pages/payroll/loans/new.tsx": 6,
   "pages/payroll/pay-packages/[id].tsx": 1,
   "pages/payroll/pay-packages/index.tsx": 3,
