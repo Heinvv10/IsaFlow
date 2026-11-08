@@ -2,7 +2,7 @@
   "id": "ts-standard-below-threshold-nil-paye",
   "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 28 (standard employment, remuneration not exceeding the R99 000 threshold: no employees tax)",
   "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
-  "notes": "Required to work 40 hours a week (standard employment, at least 22 hours), R8 000 a month = R96 000 a year, under the R99 000 under-65 threshold: no employees' tax (G21 p. 28, summary table row 2). The tables give the same, so this passes today; it guards TS-b against taxing a standard employee at 25%. UIF 80.00 and SDL 80.00 (1% each).",
+  "notes": "Required to work 40 hours a week (standard employment, at least 22 hours), R8 000 a month = R96 000 a year, under the R99 000 under-65 threshold: no employees' tax (G21 p. 28, summary table row 2). The tables give the same, so this passes today; it guards TS-b against taxing a standard employee at 25%. UIF 80.00 and SDL 80.00 (1% each). TS-b must wire taxStatus and the hours into runCase (oracle.ts hard-codes employmentType permanent and passes no taxStatus or unmodelled input today, so this case cannot see them); once wired, this guard must go red if the status is ignored.",
   "input": {
     "period": {
       "year": 2026,

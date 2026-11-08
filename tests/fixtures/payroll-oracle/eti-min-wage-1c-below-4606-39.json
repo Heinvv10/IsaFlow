@@ -2,7 +2,7 @@
   "id": "eti-min-wage-1c-below-4606-39",
   "source": "sars-guide:SARS ETI page, \"Employment Tax Incentive (ETI)\" (table from 1 April 2025; \"grossed up to 160 hours ... grossed down in the same ratio\"), fetched 2026-11-08; ETI Act s4(1)(b)(ii) as amended from 1 April 2025; National Minimum Wage R28.79 an ordinary hour from 1 March 2025 (gov.za media statement 5 Feb 2025)",
   "sourceRef": "https://www.sars.gov.za/types-of-tax/pay-as-you-earn/employment-tax-incentive-eti/",
-  "notes": "As eti-min-wage-exactly-at-minimum-4606-40 but R4 606.39 for 160 ordinary hours: one cent under R28.79 an hour, so the employee is not paid the minimum wage and is not a qualifying employee (SARS ETI page: \"is paid the minimum wage ... National Minimum Wage Act\"): ETI nil. The calculator claims R1 500.00. UIF 46.06, SDL 46.06, net 4 560.33.",
+  "notes": "As eti-min-wage-exactly-at-minimum-4606-40 but R4 606.39 for 160 ordinary hours: one cent under R28.79 an hour, so the employee is not paid the minimum wage and is not a qualifying employee (SARS ETI page: \"is paid the minimum wage ... National Minimum Wage Act\"): ETI nil. The calculator claims R1 500.00. UIF 46.06, SDL 46.06, net 4 560.33. The floor is the employer's applicable minimum (a wage regulating measure, else the National Minimum Wage); the NMW R28.79 is assumed here because no sectoral measure is recorded. ET must compare in whole cents (4 606.40 vs 4 606.39), not in floating-point rand.",
   "input": {
     "period": {
       "year": 2025,
