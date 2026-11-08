@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { TERM_KEYS } from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
 import type { TaxStatus } from '@/modules/accounting/services/payroll/payrollTypes';
 import { directorStatusPrompt } from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
 import type { Employee } from './EmployeeProfileCard';
@@ -45,14 +46,20 @@ export function EmployeeWorkCard({ employee, onSaved }: { employee: Employee; on
     setSaving(true);
     setError('');
     try {
-      const terms = {
+      const all = {
         taxStatus: draft.taxStatus, payBasis: draft.payBasis, hoursPerWeek: numberOrNull(draft.hoursPerWeek),
         hoursPerDay: numberOrNull(draft.hoursPerDay), hourlyRate: numberOrNull(draft.hourlyRate),
         dailyRate: numberOrNull(draft.dailyRate), occupation: draft.occupation.trim() || null,
       };
+      // Only what changed: an occupation-only edit must not take the payroll lock or touch the priced terms.
+      const saved = draftOf(employee);
+      const changed = (Object.keys(draft) as Array<keyof Draft>).filter(k => draft[k] !== saved[k]);
+      const terms = Object.fromEntries(changed.map(k => [k, all[k]]));
       const res = await apiFetch(`/api/payroll/employees/${employee.id}`, { method: 'PATCH', body: JSON.stringify(terms) });
       await assertOk(res, 'Could not save the work terms - try again');
-      onSaved({ ...employee, ...terms } as Employee);
+      // What the server stored, not what was typed.
+      const stored = ((await res.json()) as { data?: Partial<Employee> }).data ?? {};
+      onSaved({ ...employee, ...Object.fromEntries(TERM_KEYS.filter(k => k in stored).map(k => [k, stored[k]])) } as Employee);
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save the work terms - try again'));
     } finally {
@@ -73,8 +80,7 @@ export function EmployeeWorkCard({ employee, onSaved }: { employee: Employee; on
         <Input label="Hours a day" type="number" min={0} max={24} step="0.01" value={draft.hoursPerDay} onChange={e => set('hoursPerDay')(e.target.value)} />
         <Input label="Hourly rate (R)" type="number" min={0} step="0.01" value={draft.hourlyRate} onChange={e => set('hourlyRate')(e.target.value)} />
         <Input label="Daily rate (R)" type="number" min={0} step="0.01" value={draft.dailyRate} onChange={e => set('dailyRate')(e.target.value)} />
-        <Input label="Occupation" maxLength={100} value={draft.occupation} onChange={e => set('occupation')(e.target.value)}
-          helperText="Shown on the payslip (BCEA s33(1)(b))." />
+        <Input label="Occupation" maxLength={100} value={draft.occupation} onChange={e => set('occupation')(e.target.value)} />
       </div>
       {prompt && (
         <div role="status" className="mt-4 flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">

@@ -86,8 +86,8 @@ export const createEmployeeTool: McpTool = {
     + 'An employee created here is paid NOTHING until assign_employee_component gives them a salary: '
     + 'the run costs earnings from components, not from the employee record, so a run over '
     + 'component-less employees costs cleanly to R0 rather than failing. '
-    + 'employment_type drives the PAYE and UIF treatment, so it must be right: '
-    + 'permanent, contract, casual or director.',
+    + 'employment_type is recorded for HR: permanent, contract, casual or director. '
+    + 'Tax status, pay basis, hours and rates are set in the app, not through this tool.',
   scope: 'write:payroll',
   requiresWriteRole: true,
   write: true,

@@ -7,9 +7,14 @@ describe('refuseEmployeeTermArgs', () => {
     expect(refuseEmployeeTermArgs({ first_name: 'A', employment_type: 'director' })).toBeNull();
   });
 
+  it('refuses the camelCase spelling too', () => {
+    const out = refuseEmployeeTermArgs({ taxStatus: 'director', hourlyRate: 10 });
+    expect(JSON.stringify(out)).toContain('taxStatus, hourlyRate');
+  });
+
   it('refuses each term by name', () => {
     const out = refuseEmployeeTermArgs({ tax_status: 'director', occupation: 'Welder', hourly_rate: 0 });
     expect(out?.isError).toBe(true);
-    expect(JSON.stringify(out)).toContain('tax_status, hourly_rate, occupation');
+    expect(JSON.stringify(out)).toContain('tax_status, occupation, hourly_rate');
   });
 });

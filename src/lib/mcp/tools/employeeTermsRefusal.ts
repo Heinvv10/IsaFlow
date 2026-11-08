@@ -7,9 +7,12 @@ import type { McpToolResult } from '../types';
 import { toolError } from './toolHelpers';
 
 const TERM_ARGS = ['tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'occupation'] as const;
+/** Either spelling: the REST body's camelCase is refused as well as the tool's snake_case. */
+const camel = (k: string) => k.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase());
+const SPELLINGS: readonly string[] = TERM_ARGS.flatMap((k) => [k, camel(k)]);
 
 export function refuseEmployeeTermArgs(args: Record<string, unknown>): McpToolResult | null {
-  const given = TERM_ARGS.filter((k) => args[k] !== undefined);
+  const given = Object.keys(args).filter((k) => SPELLINGS.includes(k) && args[k] !== undefined);
   if (given.length === 0) return null;
   return toolError(`${given.join(', ')} cannot be set through this tool yet: set the work terms on the employee profile.`);
 }

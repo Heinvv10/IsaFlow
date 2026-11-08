@@ -121,6 +121,12 @@ describe('create_employee', () => {
     expect(fmtDate(data.startDate)).toBe('2025-04-01');
   });
 
+  it.each(['tax_status', 'taxStatus', 'hourly_rate', 'occupation'])('refuses the work term %s by name and writes nothing (wave 5 TS-a)', async (key) => {
+    const r = await createEmployeeTool.handler(newArgs({ [key]: 'x' }), ctx());
+    expect(errText(r)).toContain(key);
+    expect(createPayrollEmployee).not.toHaveBeenCalled();
+  });
+
   it('tells the agent the employee is paid nothing until a component is assigned', async () => {
     // The silent zero is the failure mode: a run over component-less employees
     // costs cleanly to R0 and looks like it worked.
@@ -191,6 +197,12 @@ describe('update_employee', () => {
       { employee_id: EMPLOYEE, first_name: 'X', ...KEY }, ctx(),
     );
     expect(errText(r)).toBe('Not found');
+    expect(updatePayrollEmployee).not.toHaveBeenCalled();
+  });
+
+  it.each(['tax_status', 'payBasis', 'hours_per_week', 'daily_rate'])('refuses the work term %s by name and updates nothing (wave 5 TS-a)', async (key) => {
+    const r = await updateEmployeeTool.handler({ employee_id: EMPLOYEE, [key]: 'x', ...KEY }, ctx());
+    expect(errText(r)).toContain(key);
     expect(updatePayrollEmployee).not.toHaveBeenCalled();
   });
 

@@ -15,12 +15,14 @@ import {
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
-import { canWrite } from '@/lib/auth/writeRoles';
+import { canSetPayrollNetPay, canWrite } from '@/lib/auth/writeRoles';
 import { employeeNamesOnly } from '@/modules/accounting/services/payroll/payrollEmployeeRedaction';
+import { EMPLOYEE_TERM_LOG_KEYS } from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
 import { listPayrollEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import {
   createEmployeeWithPay,
   EmployeeOnboardingRefused,
+  EmployeeTermsForbidden,
 } from '@/modules/accounting/services/payroll/payrollEmployeeOnboarding';
 
 async function handler(
@@ -40,10 +42,11 @@ async function handler(
 
   if (req.method === 'POST') {
     try {
-      const employee = await createEmployeeWithPay(companyId, user.id, req.body as Record<string, unknown>);
+      const employee = await createEmployeeWithPay(companyId, user.id, req.body as Record<string, unknown>, canSetPayrollNetPay(companyRole));
       return apiResponse.created(res, employee);
     } catch (err) {
       // Raised only before the first write (a 4xx commits); anything later rethrows, so it rolls back.
+      if (err instanceof EmployeeTermsForbidden) return apiResponse.forbidden(res, err.message);
       if (err instanceof EmployeeOnboardingRefused) return apiResponse.badRequest(res, err.message);
       throw err;
     }
@@ -52,4 +55,5 @@ async function handler(
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+// The terms are pay detail: the request log masks them.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler)), { maskBodyKeys: EMPLOYEE_TERM_LOG_KEYS }));

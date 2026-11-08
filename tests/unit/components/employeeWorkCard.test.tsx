@@ -41,9 +41,40 @@ describe('EmployeeWorkCard', () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe('/api/payroll/employees/e1');
     expect(init.method).toBe('PATCH');
-    expect(JSON.parse(init.body)).toEqual({
-      taxStatus: 'director', payBasis: 'monthly', hoursPerWeek: 40, hoursPerDay: null, hourlyRate: null, dailyRate: null, occupation: null,
-    });
+    // Only what changed: nothing else rides along, so an unrelated term is never rewritten.
+    expect(JSON.parse(init.body)).toEqual({ taxStatus: 'director', hoursPerWeek: 40 });
+  });
+
+  it('an occupation-only edit sends the occupation alone (no priced term, no payroll lock)', async () => {
+    render(<EmployeeWorkCard employee={{ ...base, employmentType: 'permanent' }} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Occupation'), { target: { value: ' Clerk ' } });
+    fireEvent.click(screen.getByRole('button', { name: /save work terms/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ occupation: 'Clerk' });
+  });
+
+  it('loads non-default stored terms into the fields', () => {
+    render(<EmployeeWorkCard employee={{
+      ...base, employmentType: 'permanent', taxStatus: 'independent_contractor', payBasis: 'hourly', hoursPerWeek: 45, hoursPerDay: 9,
+      hourlyRate: 185.5, dailyRate: 900, occupation: 'Welder',
+    }} onSaved={vi.fn()} />);
+    expect((screen.getByLabelText('Hours a week') as HTMLInputElement).value).toBe('45');
+    expect((screen.getByLabelText('Hours a day') as HTMLInputElement).value).toBe('9');
+    expect((screen.getByLabelText('Hourly rate (R)') as HTMLInputElement).value).toBe('185.5');
+    expect((screen.getByLabelText('Daily rate (R)') as HTMLInputElement).value).toBe('900');
+    expect((screen.getByLabelText('Occupation') as HTMLInputElement).value).toBe('Welder');
+    expect(screen.getByText('Independent contractor')).toBeTruthy();
+    expect(screen.getByText('Hourly')).toBeTruthy();
+  });
+
+  it('reports what the server stored, not what was typed', async () => {
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ success: true, data: { occupation: 'Clerk (server)', hoursPerWeek: 40 } }), { status: 200 }));
+    const onSaved = vi.fn();
+    render(<EmployeeWorkCard employee={{ ...base, employmentType: 'permanent' }} onSaved={onSaved} />);
+    fireEvent.change(screen.getByLabelText('Occupation'), { target: { value: 'Clerk' } });
+    fireEvent.click(screen.getByRole('button', { name: /save work terms/i }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(onSaved.mock.calls[0]![0]).toMatchObject({ occupation: 'Clerk (server)', hoursPerWeek: 40, taxStatus: 'employee' });
   });
 
   it('shows the server refusal and does not report a save', async () => {

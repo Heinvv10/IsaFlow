@@ -194,9 +194,22 @@ export async function updatePayrollEmployee(
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `;
-  const rows = (endIso === null && !tickMoved && !termsTouched ? await write(sql) : await withTransaction(async (tx) => {
+  // Each moved term is logged through the transaction that wrote it, so a rolled-back write leaves no history row.
+  const logTerms = async (db: typeof sql, row: Row | undefined) => {
+    if (!userId || !before || !row) return;
+    for (const m of movedTerms(termsFromRow(before), termsFromRow(row))) {
+      await recordEmployeeChange({ companyId, employeeId: id, fieldName: m.field, oldValue: m.oldValue, newValue: m.newValue, userId }, db);
+    }
+  };
+  const rows = (endIso === null && !tickMoved && !termsTouched ? await (async () => {
+    const written = (await write(sql)) as Row[];
+    await logTerms(sql, written[0]);
+    return written;
+  })() : await withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
-    return write(tx as typeof sql);
+    const written = (await write(tx as typeof sql)) as Row[];
+    await logTerms(tx as typeof sql, written[0]);
+    return written;
   })) as Row[];
 
   const updated = rows.length > 0 && rows[0] ? mapPayrollEmployeeRow(rows[0]) : null;
@@ -210,12 +223,6 @@ export async function updatePayrollEmployee(
       newValue: updated.employmentType,
       userId,
     });
-  }
-
-  if (userId && before && updated) {
-    for (const m of movedTerms(termsFromRow(before), updated)) {
-      await recordEmployeeChange({ companyId, employeeId: id, fieldName: m.field, oldValue: m.oldValue, newValue: m.newValue, userId });
-    }
   }
 
   return updated;

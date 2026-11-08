@@ -27,8 +27,7 @@ export function EmploymentSection({ form, errors, set, fieldRef, setDate }: Sect
           onChange={v => v && set('employmentType', v as EmploymentType)} />
         <Select label="Tax status" options={STATUSES} value={form.taxStatus}
           onChange={v => v && set('taxStatus', v as TaxStatus)} />
-        <Input label="Occupation" value={form.occupation} maxLength={100} onChange={e => set('occupation', e.target.value)}
-          helperText="Shown on the payslip." />
+        <Input label="Occupation" value={form.occupation} maxLength={100} onChange={e => set('occupation', e.target.value)} />
         <DateField ref={fieldRef('startDate')} label="Start date" required value={form.startDate || null}
           error={errors.startDate} onChange={setDate('startDate')} />
         <label className="flex items-center gap-2 self-end pb-2 text-sm text-gray-900 dark:text-gray-100">

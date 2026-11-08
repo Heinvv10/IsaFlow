@@ -16,12 +16,20 @@ import { MAX_SALARY_CENTS, isValidSaIdNumber, isValidSarsTaxNumber } from './emp
 import { payeTreatment } from './payeAnnualPayment';
 import { assignComponentToEmployee } from './payrollEmployeeComponentService';
 import { createPayrollEmployee } from './payrollEmployeeService';
-import { termsOfCreate, termsOfPatch } from './payrollEmployeeTerms';
+import { DEFAULT_TERMS, movesPricedTerm, termsFromRow, termsOfCreate, termsOfPatch } from './payrollEmployeeTerms';
 import { salaryEndRefusal, salaryInPaidMonthRefusal } from './payrollOnboardingPaidMonth';
 import type { PayrollEmployee } from './payrollTypes';
 
 const EMPLOYMENT_TYPES: readonly string[] = ['permanent', 'contract', 'casual', 'director'];
 const MAX_DEPENDANTS = 100;
+
+/** The caller's role may not set the priced terms (tax status, pay basis, rates): answered 403, raised before any write. */
+export class EmployeeTermsForbidden extends Error {
+  constructor() {
+    super('Only an owner or admin can set tax status, pay basis or rates');
+    this.name = 'EmployeeTermsForbidden';
+  }
+}
 
 export class EmployeeOnboardingRefused extends Error {
   constructor(message: string) {
@@ -208,12 +216,18 @@ function changedEndDate(value: unknown, current: Pick<PayrollEmployee, 'startDat
  * updatePayrollEmployee does not write startDate, so a start date in the body is not judged.
  */
 export function employeeChangesOf<T extends Body>(
-  body: T, current: Pick<PayrollEmployee, 'taxNumber' | 'idNumber' | 'startDate' | 'endDate'>,
+  body: T, current: Pick<PayrollEmployee, 'taxNumber' | 'idNumber' | 'startDate' | 'endDate'> & Partial<PayrollEmployee>,
+  mayChangePricedTerms = false,
 ): T {
   if (body.s18aReceiptHeld !== undefined && typeof body.s18aReceiptHeld !== 'boolean') {
     throw new EmployeeOnboardingRefused('s18aReceiptHeld must be true or false');
   }
-  const terms = termsOfPatch(body, refused);
+  const stored = termsFromRow({
+    tax_status: current.taxStatus, pay_basis: current.payBasis, hours_per_week: current.hoursPerWeek, hours_per_day: current.hoursPerDay,
+    hourly_rate: current.hourlyRate, daily_rate: current.dailyRate, occupation: current.occupation,
+  });
+  const terms = termsOfPatch(body, refused, stored);
+  if (!mayChangePricedTerms && movesPricedTerm(terms, stored)) throw new EmployeeTermsForbidden();
   return {
     ...body,
     ...terms,
@@ -225,8 +239,11 @@ export function employeeChangesOf<T extends Body>(
 }
 
 /** `salary` in the body is optional: without it the employee is created with no pay, as before. */
-export async function createEmployeeWithPay(companyId: string, userId: string, body: Body): Promise<PayrollEmployee> {
+export async function createEmployeeWithPay(
+  companyId: string, userId: string, body: Body, mayChangePricedTerms = false,
+): Promise<PayrollEmployee> {
   const fields = employeeOf(body);
+  if (!mayChangePricedTerms && movesPricedTerm(fields, DEFAULT_TERMS)) throw new EmployeeTermsForbidden();
   const salary = salaryOf(body.salary);
   await assertEmployeeNumberFree(companyId, fields.employeeNumber);
   if (salary) await assertSalaryComponent(companyId, salary.componentId);
