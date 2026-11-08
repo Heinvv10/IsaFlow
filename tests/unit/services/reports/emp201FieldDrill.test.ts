@@ -19,7 +19,7 @@ const run = (id: string, month: number, over: Record<string, unknown> = {}) => (
   total_paye: 3000, total_eti: 100, total_uif: 400, total_sdl: 200, total_gross: 30000, ...over,
 });
 const line = (r: Record<string, unknown>, emp: string, over: Record<string, unknown> = {}) => ({
-  ...r, employee_id: emp, employee_number: emp.toUpperCase(), employee_name: `Emp ${emp}`,
+  ...r, line_id: `${String(r.run_id)}-${emp}`, employee_id: emp, employee_number: emp.toUpperCase(), employee_name: `Emp ${emp}`,
   paye: 1500, eti: 50, uif: 200, sdl: 100, gross_pay: 15000, non_cash: 0, ...over,
 });
 
@@ -76,9 +76,16 @@ describe('emp201FieldDrill', () => {
   });
 
   it('a run with no lines still shows its header total and the gap', async () => {
-    mocks.rows = [{ ...run('r1', 5), employee_id: null }];
+    mocks.rows = [{ ...run('r1', 5), line_id: null, employee_id: null }];
     const r = await emp201FieldDrill('co-a', '2026-05-01', '2026-05-31', 'paye');
     expect(r).toMatchObject({ total: 3000, rowsTotal: 0, ties: false, rowCount: 0 });
+  });
+
+  it('a line whose employee row is missing still counts, non-cash included, on both sides', async () => {
+    const r = run('r1', 5);
+    mocks.rows = [line(r, 'a', { non_cash: 100, employee_name: '', employee_number: '' }), line(r, 'b')];
+    const rem = await emp201FieldDrill('co-a', '2026-05-01', '2026-05-31', 'remuneration');
+    expect(rem).toMatchObject({ total: 30100, rowsTotal: 30100, ties: true, rowCount: 2 });
   });
 
   it('pages at most 200 rows', async () => {

@@ -2,19 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const mocks = vi.hoisted(() => ({
-  assertNot: vi.fn(),
   vat: vi.fn(), emp: vi.fn(), actor: vi.fn(), limit: vi.fn(),
 }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
-vi.mock('@/lib/auth/impersonationGuard', async () => {
-  const real = await vi.importActual<typeof import('@/lib/auth/impersonationGuard')>('@/lib/auth/impersonationGuard');
-  return { ...real, assertNotImpersonating: mocks.assertNot };
-});
 vi.mock('@/lib/auth/impersonationSessions', () => ({ currentSessionActor: mocks.actor }));
 vi.mock('@/lib/rateLimit', () => ({ checkReportRateLimit: mocks.limit, INTERACTIVE_REPORT_LIMIT: { max: 120, windowSecs: 900 } }));
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
-vi.mock('@/modules/accounting/services/reports/vat201FieldDrill', () => ({ vat201FieldDrill: mocks.vat, MAX_DRILL_PAGE_SIZE: 200 }));
+vi.mock('@/modules/accounting/services/reports/vat201FieldDrill', () => ({ vat201FieldDrill: mocks.vat }));
 vi.mock('@/modules/accounting/services/reports/emp201FieldDrill', () => ({
   emp201FieldDrill: mocks.emp, isEmp201DrillField: (f: string) => ['paye', 'eti', 'uif', 'sdl', 'remuneration'].includes(f),
 }));
@@ -39,7 +34,6 @@ describe('GET /api/accounting/sars/return-drill', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.actor.mockResolvedValue('self');
-    mocks.assertNot.mockResolvedValue(undefined);
     mocks.limit.mockResolvedValue(true);
     mocks.vat.mockResolvedValue({ source: 'none' });
     mocks.emp.mockResolvedValue({ rows: [] });
@@ -67,14 +61,20 @@ describe('GET /api/accounting/sars/return-drill', () => {
     expect(mocks.emp).not.toHaveBeenCalled();
   });
 
-  it('refuses Login-as for EMP201 (403 IMPERSONATION_FORBIDDEN) but not for VAT', async () => {
-    const { ImpersonationForbiddenError } = await import('@/lib/auth/impersonationGuard');
-    mocks.assertNot.mockRejectedValue(new ImpersonationForbiddenError());
+  it('refuses Login-as (actor impersonation) for EMP201 with 403 IMPERSONATION_FORBIDDEN, not for VAT', async () => {
+    mocks.actor.mockResolvedValue('impersonation');
     const emp = await call('owner', { ...Q, return: 'emp201', field: 'paye' });
     expect(emp.status).toBe(403);
     expect(JSON.stringify(emp.body)).toContain('IMPERSONATION_FORBIDDEN');
     expect(mocks.emp).not.toHaveBeenCalled();
     expect((await call('owner', { ...Q, return: 'vat201', field: '4' })).status).toBe(200);
+  });
+
+  it('rejects an impossible date, a backwards window and a window over 400 days', async () => {
+    for (const q of [{ from: '2026-02-31', to: '2026-03-31' }, { from: '2026-06-30', to: '2026-06-01' }, { from: '2025-01-01', to: '2026-12-31' }]) {
+      expect((await call('owner', { ...q, return: 'vat201', field: '4' })).status, JSON.stringify(q)).toBe(400);
+    }
+    expect(mocks.vat).not.toHaveBeenCalled();
   });
 
   it('another company\'s (or any unknown) run is 404, scoped to the caller\'s company', async () => {

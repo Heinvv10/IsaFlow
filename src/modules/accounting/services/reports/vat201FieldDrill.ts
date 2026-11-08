@@ -3,7 +3,7 @@
  * read-only. What each field selects:
  *
  *   4, 1 / 4A, 1A  the VAT control legs of box 1 / 1A (field 1 and 1A are the
- *                  supply value, so each row also shows its journal's base legs)
+ *                  supply value, so each row also shows its share of the journal's base)
  *   12 / 18        every output / input tax leg not on a named field, so the
  *                  residual the form adds is itemised; a leg whose box is not the
  *                  field's own is labelled `residual`
@@ -16,9 +16,10 @@
  * A tax-leg drill ties: the rows' total equals the field's amount to the cent
  * (`ties`); the supply-value fields 1 and 1A report `ties: null` and their amount beside the rows.
  */
+import { MAX_DRILL_PAGE_SIZE } from './drillPaging';
 import { getVatPeriodLines } from './vatBoxBasisQuery';
 import { classifyVatJournalLine, type VatDirection } from './vatBoxBasis';
-import { VAT_LATE_CLAIM_SUBTYPE, deriveVatBoxesWithLateClaims } from './vatLateClaimBasis';
+import { VAT_LATE_CLAIM_SOURCE, VAT_LATE_CLAIM_SUBTYPE, deriveVatBoxesWithLateClaims } from './vatLateClaimBasis';
 import { boxFor, reportTotals, toBox } from './vat201ReportService';
 import { getNilRatedSupplies } from './vat201NilRatedSupplies';
 import {
@@ -27,7 +28,6 @@ import {
 import { buildVat201SarsFields, type Vat201SarsField } from './vat201SarsFields';
 import type { LateClaimAwareLine } from './vatLateClaimBasis';
 
-export const MAX_DRILL_PAGE_SIZE = 200;
 
 interface TaxSelector { direction: VatDirection; boxes: readonly string[]; residual: boolean }
 
@@ -64,7 +64,7 @@ export interface Vat201DrillTaxRow {
   box: string;
   /** Tax on this leg, rands (credit-positive for output, debit-positive for input). */
   tax: number;
-  /** The journal's non-VAT, non-settlement legs, signed like `tax`: the supply value behind it. */
+  /** This leg's share of its journal's non-VAT, non-settlement legs (pro-rata by tax, as the box base is derived): the supply value behind it. Rows of one journal add up to at most the journal's base. */
   journalBase: number;
   /** True on fields 12 / 18 when the leg is in no box named for the field. */
   residual: boolean;
@@ -102,12 +102,22 @@ function pageOf<T>(all: readonly T[], page: number, pageSize: number): T[] {
 export function selectTaxRows(lines: readonly LateClaimAwareLine[], field: string): Vat201DrillTaxRow[] {
   const sel = TAX_SELECTORS[field];
   if (!sel) return [];
+  // The journal's base legs and tax legs per journal, to apportion the base across its tax legs pro-rata
+  // by tax exactly as deriveVatBoxes does, so the rows' journalBase never add up to more than the journal's base.
   const baseByEntry = new Map<string, number>();
+  const taxByEntry = new Map<string, number>();
+  const legsByEntry = new Map<string, number>();
+  const outputEntries = new Set<string>();
   for (const l of lines) {
     const c = classifyVatJournalLine(l);
     if (c.role === 'base' && l.accountSubtype !== VAT_LATE_CLAIM_SUBTYPE) {
       const signed = sel.direction === 'output' ? l.credit - l.debit : l.debit - l.credit;
       baseByEntry.set(l.journalEntryId, (baseByEntry.get(l.journalEntryId) ?? 0) + cents(signed));
+    } else if (c.role === 'tax' && c.direction === sel.direction) {
+      taxByEntry.set(l.journalEntryId, (taxByEntry.get(l.journalEntryId) ?? 0) + cents(c.amount));
+      legsByEntry.set(l.journalEntryId, (legsByEntry.get(l.journalEntryId) ?? 0) + 1);
+    } else if (c.role === 'tax' && c.direction === 'output') {
+      outputEntries.add(l.journalEntryId);
     }
   }
   const rows: Vat201DrillTaxRow[] = [];
@@ -117,10 +127,15 @@ export function selectTaxRows(lines: readonly LateClaimAwareLine[], field: strin
     const vatType = c.vatType ?? 'standard';
     const box = boxFor(c.direction, vatType).box;
     if (sel.residual === sel.boxes.includes(box)) continue;
+    const totalTax = taxByEntry.get(l.journalEntryId) ?? 0;
+    const share = totalTax === 0 ? ((legsByEntry.get(l.journalEntryId) ?? 0) === 1 ? 1 : 0) : cents(c.amount) / totalTax;
+    // A late claim's base is the one recorded on its own line (vatLateClaimBasis), not the journal's legs.
+    const lateClaim = l.entrySource === VAT_LATE_CLAIM_SOURCE && !outputEntries.has(l.journalEntryId);
+    const base = lateClaim ? cents(l.lateClaimBase ?? 0) : (baseByEntry.get(l.journalEntryId) ?? 0) * share;
     rows.push({
       lineId: l.lineId, journalEntryId: l.journalEntryId, entryNumber: l.entryNumber, entryDate: l.entryDate,
       accountCode: l.accountCode, accountName: l.accountName, vatType, box, tax: c.amount,
-      journalBase: rands(baseByEntry.get(l.journalEntryId) ?? 0),
+      journalBase: rands(Math.round(base)),
       residual: sel.residual && box !== field,
     });
   }

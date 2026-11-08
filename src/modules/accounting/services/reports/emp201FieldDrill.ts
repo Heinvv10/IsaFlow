@@ -19,7 +19,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
-import { MAX_DRILL_PAGE_SIZE } from './vat201FieldDrill';
+import { MAX_DRILL_PAGE_SIZE } from './drillPaging';
 
 export const EMP201_DRILL_FIELDS = ['paye', 'eti', 'uif', 'sdl', 'remuneration'] as const;
 export type Emp201DrillField = (typeof EMP201_DRILL_FIELDS)[number];
@@ -89,11 +89,11 @@ export async function emp201FieldDrill(
   const pg = Math.max(Math.trunc(opts.page ?? 1) || 1, 1);
 
   const lineRows = (await sql`
-    SELECT prh.id::TEXT AS run_id, prh.period_year, prh.period_month, prh.status,
+    SELECT prl.id::TEXT AS line_id, prh.id::TEXT AS run_id, prh.period_year, prh.period_month, prh.status,
            prh.total_paye, prh.total_eti, prh.total_uif, prh.total_sdl, prh.total_gross,
-           pe.id::TEXT AS employee_id, COALESCE(pe.employee_number, '') AS employee_number,
+           prl.employee_id::TEXT AS employee_id, COALESCE(pe.employee_number, '') AS employee_number,
            TRIM(COALESCE(pe.first_name, '') || ' ' || COALESCE(pe.last_name, '')) AS employee_name,
-           prl.paye, prl.eti, prl.uif_employee + prl.uif_employer AS uif, prl.sdl,
+           prl.paye, prl.eti, COALESCE(prl.uif_employee, 0) + COALESCE(prl.uif_employer, 0) AS uif, prl.sdl,
            prl.gross_pay, COALESCE((
              SELECT SUM((item->>'amount')::numeric)
                FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array'
@@ -122,7 +122,7 @@ export async function emp201FieldDrill(
       };
       runs.set(runId, run);
     }
-    if (r.employee_id == null) continue;
+    if (r.line_id == null) continue;
     const nonCash = Number(r.non_cash) || 0;
     // Remuneration is cash gross plus the non-cash benefits, as the EMP201 adds them; its header total
     // is cash gross only, so the run's non-cash lines are added to it here.

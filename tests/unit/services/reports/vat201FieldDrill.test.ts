@@ -56,6 +56,16 @@ function fixture(): LateClaimAwareLine[] {
     leg('j5', 'J5', 'vat_output', 'liability', 0, 30, 'mystery'),
     // J6 input tax under a code no box maps: field 18 only, as a residual, 5.00
     leg('j6', 'J6', 'vat_input', 'asset', 5, 0, 'mystery'),
+    // L1 late claim (source auto_vat_late_claim): input tax 45.00 on a recorded base of 300.00, in field 15
+    leg('l1', 'L1', 'vat_input', 'asset', 45, 0, 'standard', { entrySource: 'auto_vat_late_claim', lateClaimBase: 300 }),
+    leg('l1', 'L1', 'vat_input_late_claim', 'liability', 0, 45, null, { entrySource: 'auto_vat_late_claim' }),
+    // M1 one purchase, two VAT types: base 1000.00, tax 90.00 standard (15) + 60.00 capital goods (14)
+    leg('m1', 'M1', null, 'expense', 1000, 0, 'standard'),
+    leg('m1', 'M1', 'vat_input', 'asset', 90, 0, 'standard'),
+    leg('m1', 'M1', 'vat_input', 'asset', 60, 0, 'capital_goods'),
+    leg('m1', 'M1', 'payable', 'liability', 0, 1150, null),
+    // N1 input tax coded no_vat, 8.00: box 18 by name (not a residual)
+    leg('n1', 'N1', 'vat_input', 'asset', 8, 0, 'no_vat'),
     // J7 raised by a cancelled document: its 999.00 is in no field
     leg('j7', 'J7', 'vat_output', 'liability', 0, 999, 'standard', { cancelledSource: true }),
   ];
@@ -68,15 +78,15 @@ describe('vat201FieldDrill', () => {
 
   it.each([
     ['4', 150, ['J1']], ['4A', 300, ['J2']], ['12', 30, ['J5']],
-    ['15', 60, ['J3']], ['15A', 15, ['J4']], ['18', 5, ['J6']],
+    ['15', 195, ['J3', 'L1', 'M1']], ['14', 60, ['M1']], ['15A', 15, ['J4']], ['18', 13, ['J6', 'N1']],
   ])('field %s: rows add up to %d', async (field, amount, entries) => {
     const r = await drill(field);
     expect(r).toMatchObject({ source: 'tax-lines', amount, rowsTotal: amount, ties: true });
     expect(r && 'rows' in r ? r.rows.map((x) => x.entryNumber) : []).toEqual(entries);
   });
 
-  it('empty fields tie at zero (14, 17)', async () => {
-    for (const f of ['14', '17']) expect(await drill(f)).toMatchObject({ source: 'tax-lines', amount: 0, rowsTotal: 0, ties: true, rowCount: 0 });
+  it('an empty field ties at zero (17)', async () => {
+    for (const f of ['17']) expect(await drill(f)).toMatchObject({ source: 'tax-lines', amount: 0, rowsTotal: 0, ties: true, rowCount: 0 });
   });
 
   it('labels the residual legs of 12 and 18, and not the legs of their own box', async () => {
@@ -88,6 +98,20 @@ describe('vat201FieldDrill', () => {
     const r = await drill('1');
     expect(r).toMatchObject({ source: 'tax-lines', amount: 1150, rowsTotal: 150, ties: null });
     expect(r && 'rows' in r && r.rows[0]).toMatchObject({ entryNumber: 'J1', tax: 150, journalBase: 1000 });
+  });
+
+  it('apportions a journal\'s base across its tax legs, so a multi-VAT journal is never double-counted', async () => {
+    const r14 = await drill('14'); const r15 = await drill('15');
+    const m14 = r14 && 'rows' in r14 ? r14.rows[0]!.journalBase : -1;
+    const m15 = r15 && 'rows' in r15 ? r15.rows.find((x) => x.entryNumber === 'M1')!.journalBase : -1;
+    expect([m14, m15]).toEqual([400, 600]);
+  });
+
+  it('a late claim shows the base recorded on its own line; a no_vat leg is in 18 without the residual label', async () => {
+    const r15 = await drill('15');
+    expect(r15 && 'rows' in r15 && r15.rows.find((x) => x.entryNumber === 'L1')).toMatchObject({ tax: 45, journalBase: 300 });
+    const r18 = await drill('18');
+    expect(r18 && 'rows' in r18 && r18.rows.map((x) => [x.entryNumber, x.residual])).toEqual([['J6', true], ['N1', false]]);
   });
 
   it('a cancelled document\'s tax is in no field', async () => {
@@ -102,8 +126,8 @@ describe('vat201FieldDrill', () => {
     expect(r13).toMatchObject({ source: 'components', amount: 480, sum: 480 });
     expect(r13 && 'components' in r13 && r13.components.map((c) => [c.field, c.amount]))
       .toEqual([['4', 150], ['4A', 300], ['9', null], ['11', null], ['12', 30]]);
-    expect(await drill('19')).toMatchObject({ source: 'components', amount: 80, sum: 80 });
-    expect(await drill('20')).toMatchObject({ source: 'components', amount: 400, sum: 400 });
+    expect(await drill('19')).toMatchObject({ source: 'components', amount: 283, sum: 283 });
+    expect(await drill('20')).toMatchObject({ source: 'components', amount: 197, sum: 197 });
   });
 
   it('fields with no source say so rather than showing zero', async () => {

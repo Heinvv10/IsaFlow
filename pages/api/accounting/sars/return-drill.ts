@@ -19,11 +19,13 @@ import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/a
 import { currentSessionActor } from '@/lib/auth/impersonationSessions';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
-import { isValidDate } from '@/lib/validation';
+import { reportWindowProblem } from '@/lib/validation';
 import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { emp201FieldDrill, isEmp201DrillField } from '@/modules/accounting/services/reports/emp201FieldDrill';
-import { vat201FieldDrill, MAX_DRILL_PAGE_SIZE } from '@/modules/accounting/services/reports/vat201FieldDrill';
+import { MAX_DRILL_PAGE_SIZE } from '@/modules/accounting/services/reports/drillPaging';
+import { vat201FieldDrill } from '@/modules/accounting/services/reports/vat201FieldDrill';
 
+const MAX_WINDOW_DAYS = 400;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function intParam(v: unknown, fallback: number, max: number): number | null {
@@ -39,8 +41,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { return: ret, field, from, to, runId } = req.query;
   if (ret !== 'vat201' && ret !== 'emp201') return apiResponse.badRequest(res, 'return must be vat201 or emp201');
   if (typeof field !== 'string') return apiResponse.badRequest(res, 'field is required');
-  if (typeof from !== 'string' || typeof to !== 'string' || !isValidDate(from) || !isValidDate(to)) {
-    return apiResponse.badRequest(res, 'from and to must be valid dates in YYYY-MM-DD format');
+  if (typeof from !== 'string' || typeof to !== 'string') return apiResponse.badRequest(res, 'from and to are required (YYYY-MM-DD)');
+  const windowProblem = reportWindowProblem(from, to);
+  if (windowProblem) return apiResponse.badRequest(res, windowProblem);
+  if ((Date.parse(to) - Date.parse(from)) / 86_400_000 > MAX_WINDOW_DAYS) {
+    return apiResponse.badRequest(res, `The window must not exceed ${MAX_WINDOW_DAYS} days`);
   }
   const page = intParam(req.query.page, 1, 100000);
   const pageSize = intParam(req.query.pageSize, 100, MAX_DRILL_PAGE_SIZE);
