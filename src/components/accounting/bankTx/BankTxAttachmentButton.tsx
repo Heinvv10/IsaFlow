@@ -1,7 +1,7 @@
 /**
- * The paperclip of a bank row. A row with attachments is coloured, numbered from two files up (one is the common
- * case, so a "1" on most rows is noise), and named "N attachment(s) - view",
- * so it reads at a glance and to a screen reader; a row without any keeps the plain grey "Attachments" button.
+ * The paperclip of a bank row. A row with attachments is coloured and named "N attachment(s) - view", so it reads at
+ * a glance and to a screen reader; a row without any keeps the plain grey "Attachments" button. The count badge shows
+ * from two files up: most rows carry one slip, and a "1" on nearly every row was noise.
  * The name follows the grid's "{title}, {row}" convention (bankTxTableNaming.test).
  */
 
