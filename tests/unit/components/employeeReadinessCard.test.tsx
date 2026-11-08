@@ -61,7 +61,7 @@ describe('EmployeeReadinessCard', () => {
   });
 
   it('a 200 with a malformed body is read as unknown: "next", never "first"', async () => {
-    finalRun = { hasFinalRun: 'yes' };
+    finalRun = { unexpected: true };
     serveBank(() => ok(null));
     render(<EmployeeReadinessCard {...props} />);
     expect(await screen.findByText('1 thing before the next pay run: bank details')).toBeTruthy();
