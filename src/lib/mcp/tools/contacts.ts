@@ -13,7 +13,8 @@ import { OFFSET_SCHEMA, nextOffsetFromTotal, parseOffset } from './pageArgs';
 export const listCustomersTool: McpTool = {
   name: 'list_customers',
   description:
-    'Customers of the connected company (name, contact details, payment terms, VAT number), ordered by '
+    'Customers of the connected company (name, contact details, payment terms, VAT number, '
+    + 'default_revenue_account_id), ordered by '
     + 'name. Optional free-text search. Returns {customers, next_offset}: up to `limit` rows (default and '
     + 'max 200); when next_offset is not null, call again with offset=next_offset for the next page.',
   scope: 'read:contacts',
