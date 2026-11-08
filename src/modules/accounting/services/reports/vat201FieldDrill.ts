@@ -99,7 +99,7 @@ function pageOf<T>(all: readonly T[], page: number, pageSize: number): T[] {
 }
 
 /** Split `total` cents over `weights` so the parts add up to it exactly (largest remainder). */
-function allocate(total: number, weights: readonly number[]): number[] {
+export function allocate(total: number, weights: readonly number[]): number[] {
   const sum = weights.reduce((s, w) => s + w, 0);
   const w = sum === 0 ? weights.map(() => 1) : weights;
   const wSum = sum === 0 ? weights.length : sum;
@@ -131,7 +131,9 @@ export function deriveWithBases(lines: readonly LateClaimAwareLine[]) {
  * (deriveVatBoxesWithLateClaims: coded-base rule, pro-rata by tax, late-claim bases) attributed to the leg's
  * journal and VAT type, split over that type's legs by tax with the cents allocated so they sum exactly.
  */
-export function selectTaxRows(lines: readonly LateClaimAwareLine[], field: string, bases: DrillBases): Vat201DrillTaxRow[] {
+export function selectTaxRows(
+  lines: readonly LateClaimAwareLine[], field: string, bases: DrillBases, boxes: readonly { direction: VatDirection; vatType: string; base: number }[],
+): Vat201DrillTaxRow[] {
   const sel = TAX_SELECTORS[field];
   if (!sel) return [];
   const picked: Vat201DrillTaxRow[] = [];
@@ -152,8 +154,18 @@ export function selectTaxRows(lines: readonly LateClaimAwareLine[], field: strin
     const k = baseKey(r.journalEntryId, sel.direction, r.vatType);
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
+  // Each leg's exact share of its journal-type's base, then each BOX's cents (the report's own, accumulated
+  // journal by journal) allocated over its legs by those shares, so the rows of a box add up to the box exactly.
+  const exact = new Map<Vat201DrillTaxRow, number>();
   for (const [k, legs] of groups) {
-    const parts = allocate(cents(bases.get(k) ?? 0), legs.map((r) => cents(r.tax)));
+    const total = legs.reduce((t, r) => t + cents(r.tax), 0);
+    for (const r of legs) exact.set(r, (cents(bases.get(k) ?? 0) * (total === 0 ? 1 : cents(r.tax))) / (total === 0 ? legs.length : total));
+  }
+  const byBox = new Map<string, Vat201DrillTaxRow[]>();
+  for (const r of picked) byBox.set(`${sel.direction}:${r.vatType}`, [...(byBox.get(`${sel.direction}:${r.vatType}`) ?? []), r]);
+  for (const [k, legs] of byBox) {
+    const box = boxes.find((b) => `${b.direction}:${b.vatType}` === k);
+    const parts = allocate(cents(box?.base ?? 0), legs.map((r) => exact.get(r) ?? 0));
     legs.forEach((r, i) => { r.journalBase = rands(parts[i]!); });
   }
   return picked.sort((a, b) => a.entryDate.localeCompare(b.entryDate)
@@ -195,7 +207,7 @@ export async function vat201FieldDrill(
       hasMore: pg * size < all.length, rows,
     };
   }
-  const all = selectTaxRows(lines, field, bases);
+  const all = selectTaxRows(lines, field, bases, basis.boxes);
   const total = rands(all.reduce((s, r) => s + cents(r.tax), 0));
   const supplyValue = field === '1' || field === '1A';
   return {

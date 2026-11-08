@@ -21,7 +21,7 @@ vi.mock('@/modules/accounting/services/reports/vat201NilRatedDrill', () => ({
 }));
 
 import { deriveVatBoxesWithLateClaims } from '@/modules/accounting/services/reports/vatLateClaimBasis';
-import { vat201FieldDrill } from '@/modules/accounting/services/reports/vat201FieldDrill';
+import { allocate, vat201FieldDrill } from '@/modules/accounting/services/reports/vat201FieldDrill';
 
 let n = 0;
 function leg(entry: string, num: string, subtype: string | null, type: string, debit: number, credit: number,
@@ -190,5 +190,53 @@ describe('vat201FieldDrill', () => {
 
   it('an unknown field is not a field', async () => {
     expect(await drill('99')).toBeNull();
+  });
+
+  it('many journals: the rows of a box add up to the report\'s box base to the cent', async () => {
+    // 40 journals, each base 100.00 over tax 1.00 standard + 2.00 capital: a third each (33.33.. / 66.66..), which
+    // the box rounds journal by journal as it accumulates.
+    state.lines = [];
+    for (let i = 0; i < 40; i++) {
+      const e = `y${i}`; const num = `Y${String(i).padStart(3, '0')}`;
+      state.lines.push(leg(e, num, null, 'expense', 100, 0, 'standard'),
+        leg(e, num, 'vat_input', 'asset', 1, 0, 'standard'), leg(e, num, 'vat_input', 'asset', 2, 0, 'capital_goods'),
+        leg(e, num, 'payable', 'liability', 0, 103, null));
+    }
+    const basis = deriveVatBoxesWithLateClaims(state.lines as LateClaimAwareLine[]);
+    for (const [field, type] of [['15', 'standard'], ['14', 'capital_goods']] as const) {
+      const r = await drill(field, 1, 200);
+      const rows = r && 'rows' in r ? r.rows : [];
+      const sum = Math.round(rows.reduce((t, x) => t + Math.round(x.journalBase * 100), 0));
+      const box = basis.boxes.find((b) => b.direction === 'input' && b.vatType === type)!;
+      expect(rows).toHaveLength(40);
+      expect(sum, field).toBe(Math.round(box.base * 100));
+    }
+  });
+
+  it('credit notes (negative base and tax) allocate and tie like any journal', async () => {
+    state.lines = [
+      leg('c1', 'C1', 'sales', 'revenue', 0, 1000, 'standard'), leg('c1', 'C1', 'vat_output', 'liability', 0, 150, 'standard'),
+      leg('c2', 'C2', 'sales', 'revenue', 400, 0, 'standard'), leg('c2', 'C2', 'vat_output', 'liability', 60, 0, 'standard'),
+    ];
+    const r = await drill('4');
+    expect(r).toMatchObject({ amount: 90, rowsTotal: 90, ties: true });
+    expect(r && 'rows' in r && r.rows.map((x) => [x.entryNumber, x.tax, x.journalBase])).toEqual([['C1', 150, 1000], ['C2', -60, -400]]);
+  });
+});
+
+describe('allocate (largest remainder)', () => {
+  it('splits cents exactly, giving the extra cents to the largest remainders, ties to the earlier index', () => {
+    expect(allocate(10, [1, 1, 1])).toEqual([4, 3, 3]);
+    expect(allocate(1, [1, 1])).toEqual([1, 0]);
+    expect(allocate(100, [1, 2])).toEqual([33, 67]);
+    expect(allocate(7, [3, 1, 1, 1, 1]).reduce((a, b) => a + b, 0)).toBe(7);
+  });
+  it('all-zero weights split evenly', () => {
+    expect(allocate(10, [0, 0, 0])).toEqual([4, 3, 3]);
+    expect(allocate(0, [0, 0])).toEqual([0, 0]);
+  });
+  it('negative totals and weights still sum exactly', () => {
+    expect(allocate(-100, [1, 2])).toEqual([-33, -67]);
+    expect(allocate(-10, [-1, -1, -1]).reduce((a, b) => a + b, 0)).toBe(-10);
   });
 });
