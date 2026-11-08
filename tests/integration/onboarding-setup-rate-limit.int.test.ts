@@ -7,8 +7,9 @@
  *    request it refuses must not even reach the 10/h counter.
  * The counters are seeded to the limit instead of making ten companies.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { clearRateLimitCache } from '@/lib/rateLimit';
 import handler from '../../pages/api/onboarding/complete-setup';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
@@ -61,6 +62,9 @@ afterAll(async () => {
 }, 60_000);
 
 describe('complete-setup rate limits', () => {
+  // A full key is remembered in memory for a few seconds; without this the first test's refusal would answer the second.
+  beforeEach(() => clearRateLimitCache());
+
   it('refuses the 11th validated setup in the hour with 429 and creates no company or membership', async () => {
     await seed(setupKey, 10);
     const r = await post();
