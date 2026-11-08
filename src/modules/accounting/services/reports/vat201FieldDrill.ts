@@ -98,16 +98,19 @@ function pageOf<T>(all: readonly T[], page: number, pageSize: number): T[] {
   return all.slice((page - 1) * pageSize, page * pageSize);
 }
 
-/** Split `total` cents over `weights` so the parts add up to it exactly (largest remainder). */
-export function allocate(total: number, weights: readonly number[]): number[] {
-  const sum = weights.reduce((s, w) => s + w, 0);
-  const w = sum === 0 ? weights.map(() => 1) : weights;
-  const wSum = sum === 0 ? weights.length : sum;
-  const exact = w.map((x) => (total * x) / wSum);
-  const parts = exact.map(Math.floor);
+/**
+ * Round each exact share to cents, then hand out the cents left over (`total` minus the rounded sum) one at a
+ * time, to the shares rounding moved furthest the other way (ties to the earlier index), so the parts add up
+ * to `total` exactly and each part stays within a cent of its share. A total that nets to about zero through
+ * mixed-sign shares keeps them (+1000 / -1000), never scaling them by total/sum.
+ */
+export function roundToTotal(total: number, shares: readonly number[]): number[] {
+  const parts = shares.map((x) => Math.round(x) + 0);
+  if (parts.length === 0) return parts;
   let left = total - parts.reduce((s, x) => s + x, 0);
-  const order = exact.map((e, i) => [e - Math.floor(e), i] as const).sort((x, y) => y[0] - x[0] || x[1] - y[1]);
-  for (let k = 0; left > 0 && k < order.length; k++, left--) parts[order[k]![1]]! += 1;
+  const step = Math.sign(left);
+  const order = shares.map((e, i) => [(e - parts[i]!) * step, i] as const).sort((x, y) => y[0] - x[0] || x[1] - y[1]);
+  for (let k = 0; left !== 0; k++, left -= step) parts[order[k % order.length]![1]]! += step;
   return parts;
 }
 
@@ -155,7 +158,7 @@ export function selectTaxRows(
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
   // Each leg's exact share of its journal-type's base, then each BOX's cents (the report's own, accumulated
-  // journal by journal) allocated over its legs by those shares, so the rows of a box add up to the box exactly.
+  // journal by journal) spread over its legs: each share rounded, the leftover cents handed out one at a time, so the rows of a box add up to the box exactly.
   const exact = new Map<Vat201DrillTaxRow, number>();
   for (const [k, legs] of groups) {
     const total = legs.reduce((t, r) => t + cents(r.tax), 0);
@@ -165,7 +168,7 @@ export function selectTaxRows(
   for (const r of picked) byBox.set(`${sel.direction}:${r.vatType}`, [...(byBox.get(`${sel.direction}:${r.vatType}`) ?? []), r]);
   for (const [k, legs] of byBox) {
     const box = boxes.find((b) => `${b.direction}:${b.vatType}` === k);
-    const parts = allocate(cents(box?.base ?? 0), legs.map((r) => exact.get(r) ?? 0));
+    const parts = roundToTotal(cents(box?.base ?? 0), legs.map((r) => exact.get(r) ?? 0));
     legs.forEach((r, i) => { r.journalBase = rands(parts[i]!); });
   }
   return picked.sort((a, b) => a.entryDate.localeCompare(b.entryDate)

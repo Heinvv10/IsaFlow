@@ -21,7 +21,7 @@ vi.mock('@/modules/accounting/services/reports/vat201NilRatedDrill', () => ({
 }));
 
 import { deriveVatBoxesWithLateClaims } from '@/modules/accounting/services/reports/vatLateClaimBasis';
-import { allocate, vat201FieldDrill } from '@/modules/accounting/services/reports/vat201FieldDrill';
+import { roundToTotal, vat201FieldDrill } from '@/modules/accounting/services/reports/vat201FieldDrill';
 
 let n = 0;
 function leg(entry: string, num: string, subtype: string | null, type: string, debit: number, credit: number,
@@ -223,21 +223,40 @@ describe('vat201FieldDrill', () => {
     expect(r).toMatchObject({ amount: 90, rowsTotal: 90, ties: true });
     expect(r && 'rows' in r && r.rows.map((x) => [x.entryNumber, x.tax, x.journalBase])).toEqual([['C1', 150, 1000], ['C2', -60, -400]]);
   });
+
+  it('an invoice and its full credit note in one box: box nets to zero, each row keeps its own base', async () => {
+    state.lines = [
+      leg('c1', 'C1', 'sales', 'revenue', 0, 1000, 'standard'), leg('c1', 'C1', 'vat_output', 'liability', 0, 150, 'standard'),
+      leg('c2', 'C2', 'sales', 'revenue', 1000, 0, 'standard'), leg('c2', 'C2', 'vat_output', 'liability', 150, 0, 'standard'),
+    ];
+    const r = await drill('4');
+    expect(r).toMatchObject({ amount: 0, rowsTotal: 0, ties: true });
+    expect(r && 'rows' in r && r.rows.map((x) => [x.entryNumber, x.tax, x.journalBase])).toEqual([['C1', 150, 1000], ['C2', -150, -1000]]);
+  });
 });
 
-describe('allocate (largest remainder)', () => {
-  it('splits cents exactly, giving the extra cents to the largest remainders, ties to the earlier index', () => {
-    expect(allocate(10, [1, 1, 1])).toEqual([4, 3, 3]);
-    expect(allocate(1, [1, 1])).toEqual([1, 0]);
-    expect(allocate(100, [1, 2])).toEqual([33, 67]);
-    expect(allocate(7, [3, 1, 1, 1, 1]).reduce((a, b) => a + b, 0)).toBe(7);
+describe('roundToTotal (round each share, hand out the leftover cents)', () => {
+  it('rounds each share and hands leftover cents to the shares rounding moved furthest the other way, ties to the earlier index', () => {
+    expect(roundToTotal(10, [10 / 3, 10 / 3, 10 / 3])).toEqual([4, 3, 3]);
+    expect(roundToTotal(1, [0.5, 0.5])).toEqual([0, 1]);
+    expect(roundToTotal(100, [33.4, 66.6])).toEqual([33, 67]);
+    expect(roundToTotal(101, [33.4, 66.6])).toEqual([34, 67]);
+    expect(roundToTotal(99, [33.4, 66.6])).toEqual([33, 66]);
   });
-  it('all-zero weights split evenly', () => {
-    expect(allocate(10, [0, 0, 0])).toEqual([4, 3, 3]);
-    expect(allocate(0, [0, 0])).toEqual([0, 0]);
+  it('a total that nets to zero keeps its mixed-sign shares rather than flattening them', () => {
+    expect(roundToTotal(0, [100000, -100000])).toEqual([100000, -100000]);
   });
-  it('negative totals and weights still sum exactly', () => {
-    expect(allocate(-100, [1, 2])).toEqual([-33, -67]);
-    expect(allocate(-10, [-1, -1, -1]).reduce((a, b) => a + b, 0)).toBe(-10);
+  it('a near-zero total a cent off its shares moves one cent, never scales the shares', () => {
+    expect(roundToTotal(2, [100000, -99999])).toEqual([100001, -99999]);
+    expect(roundToTotal(0, [100000, -99999])).toEqual([99999, -99999]);
+  });
+  it('no shares or zero shares still sum to the total', () => {
+    expect(roundToTotal(10, [0, 0, 0])).toEqual([4, 3, 3]);
+    expect(roundToTotal(0, [0, 0])).toEqual([0, 0]);
+    expect(roundToTotal(0, [])).toEqual([]);
+  });
+  it('negative totals and shares still sum exactly', () => {
+    expect(roundToTotal(-100, [-33.4, -66.6])).toEqual([-33, -67]);
+    expect(roundToTotal(-10, [-10 / 3, -10 / 3, -10 / 3]).reduce((a, b) => a + b, 0)).toBe(-10);
   });
 });
