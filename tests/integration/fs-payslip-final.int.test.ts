@@ -78,11 +78,12 @@ describe('known limit inverted: finality survives the approval record', () => {
     expect((await outsideRls(r.pool, r.company, () => getPayslips(r.company, id))).final).toBe(true);
     const history = await outsideRls(r.pool, r.company, () => listEmployeePayslips(r.company, emp));
     expect(history!.find((e) => e.periodMonth === 5)!.final).toBe(true);
+    // PAYE tax year 2027 starts March 2026: month 4 (calculated, unstamped) must be left out of the year to date.
     const next = await r.calculatedRun(6);
     const ytd = (await outsideRls(r.pool, r.company, () => getPayslips(r.company, next, [emp]))).payslips[0]!.yearToDate;
     const stored = await r.pool.query(
       `SELECT sum(l.gross_pay)::float8 AS gross FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id
-        WHERE h.company_id = $1 AND l.employee_id = $2 AND h.period_month IN (2, 3, 5, 6) AND h.period_year = 2026
+        WHERE h.company_id = $1 AND l.employee_id = $2 AND h.period_month IN (3, 4, 5, 6) AND h.period_year = 2026
           AND (h.payslips_final_at IS NOT NULL OR h.id = $3)`, [r.company, emp, next]);
     expect(ytd.grossPay).toBe(stored.rows[0]!.gross);
   });
