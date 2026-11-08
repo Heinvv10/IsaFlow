@@ -12,6 +12,7 @@ declare module 'fontkit' {
     characterSet: number[];
     hasGlyphForCodePoint(codePoint: number): boolean;
     glyphsForString(text: string): Glyph[];
+    glyphForCodePoint(codePoint: number): Glyph;
     layout(text: string | Glyph[], features?: string[]): GlyphRun;
   }
   export function create(buffer: Buffer): Font;

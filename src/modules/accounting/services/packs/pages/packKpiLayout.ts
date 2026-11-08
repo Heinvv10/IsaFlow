@@ -22,6 +22,7 @@ import {
 } from './packFigureFit';
 import { ptToPx, textExactPx } from './packFigureWidth';
 import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, CHROMIUM_MOST, clustersOf, fitUnitsPx, inFace } from './packGlyphRuler';
+import { asShaped } from './packGlyphShaping';
 import { markedPieces } from './packLineBreaks';
 import { reasonExactPx } from './packReasonWidth';
 import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
@@ -158,8 +159,8 @@ const IN_FACE = new Set<string>();
  */
 function inPackFaces(text: string): string {
   if (IN_FACE.has(text)) return text;
-  // A soft hyphen and a zero-width space are set as nothing, a line or paragraph separator as a space (`runPx`).
-  const outside = clustersOf(text.replace(/[\u00AD\u200B]/g, '').replace(/[\u2028\u2029]/g, ' ')).find((cluster) => !inFace(cluster));
+  // What Chromium sets as nothing out, a line or paragraph separator as a space (`packGlyphShaping.asShaped`).
+  const outside = clustersOf(asShaped(text)).find((cluster) => !inFace(cluster));
   if (outside !== undefined) {
     const code = Array.from(outside, (ch) => `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`).join(' ');
     throw new PackRefusal(

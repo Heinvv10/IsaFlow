@@ -63,7 +63,9 @@ it('the 630-case grid (15 strings x 14 sizes x 3 weights): never short of Chromi
 
 it('U+2044 FRACTION SLASH makes a fraction only between two digits, as HarfBuzz does (fontkit makes one beside any digit): never short of Chromium, at most 1/32px over', async () => {
   const fixed = ['a \u20441', 'a 1\u2044', 'a 1\u20442', 'a 12\u2044345', 'a 1\u2044a', 'a a\u20441', 'a \u2044', 'a 1\u20442\u20443', 'a \u2044\u20441',
-    'a 1 \u2044 2', 'a 1\u20442 \u20443', 'a 3\u20444 of 10\u2044', 'a 0\u20440', 'a (1\u20442)', 'a 1\u20442%'];
+    'a 1 \u2044 2', 'a 1\u20442 \u20443', 'a 3\u20444 of 10\u2044', 'a 0\u20440', 'a (1\u20442)', 'a 1\u20442%',
+    // What Chromium sets as nothing still stands between the digit and the slash: no fraction (#1235 round 2, M1).
+    'a 1\u00AD\u20442', 'a 1\u2044\u00AD2', 'a 1\u200B\u20442', 'Loan 3\u00AD\u20444 share', 'a 11\u00AD1\u204422', 'a 1\u00AD2\u20443', 'a 1\u2060\u20442', 'a 1\u2044\u20612'];
   const random = mulberry32(2044);
   const next = (): number => random.next().value as number;
   const tokens = ['1', '23', '\u2044', '\u2044', 'a', 'x', ' ', '0', '(', ')', '%', '\u00BD', '7'];
@@ -72,6 +74,18 @@ it('U+2044 FRACTION SLASH makes a fraction only between two digits, as HarfBuzz 
   expect(texts.filter((t) => /(^|[^0-9])\u2044[0-9]|[0-9]\u2044($|[^0-9])/.test(t)).length).toBeGreaterThan(50);
   expect(texts.filter((t) => /[0-9]\u2044[0-9]/.test(t)).length).toBeGreaterThan(12);
   const items = texts.flatMap((text, i) => [12, 14.6667, 10.6667, SIZES[i % SIZES.length]!].map((fontPx, j) => ({ text, fontPx, weight: WEIGHTS[(i + j) % 3]! })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'td' as const, ...it, html: `<span style="white-space:pre">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const model = runPx(it.text, it.fontPx, it.weight, outside);
+    return model < res[i]!.widthPx - 1e-6 || model > res[i]!.widthPx + 2 / 64 + 1e-6 ? [`${JSON.stringify(it.text)} at ${it.fontPx}px/${it.weight}: model ${model}, Chromium ${res[i]!.widthPx}`] : [];
+  });
+  expect(wrong).toEqual([]);
+}, 300_000);
+
+it('what Chromium sets as nothing (the soft hyphen, the zero-width space, the word joiner, the invisible operators, the left-to-right controls) is nothing, and kerned across: never short of Chromium, at most 1/32px over', async () => {
+  const invisible = ['\u00AD', '\u200B', '\u200E', '\u202A', '\u202C', '\u2060', '\u2061', '\u2062', '\u2063', '\u2064', '\u2066', '\u2069', '\u206A', '\u206F'];
+  const texts = invisible.flatMap((x) => [`A${x}V`, `a${x}b office`, `Rev${x}enue ${x}${x}T${x}o`, `12${x}345`]);
+  const items = texts.flatMap((text, i) => [12, 14.6667, 10.6667].map((fontPx, j) => ({ text, fontPx, weight: WEIGHTS[(i + j) % 3]! })));
   const res = await measure(browser, items.map((it) => ({ probe: 'td' as const, ...it, html: `<span style="white-space:pre">${it.text}</span>` })));
   const wrong = items.flatMap((it, i) => {
     const model = runPx(it.text, it.fontPx, it.weight, outside);

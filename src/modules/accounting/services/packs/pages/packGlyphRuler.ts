@@ -14,6 +14,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
+import { asShaped, LONE_SLASH, shapingInput } from './packGlyphShaping';
 
 export type FaceWeight = 400 | 500 | 600;
 
@@ -63,7 +64,7 @@ function face(weight: FaceWeight): Face {
 /** Does the pack's own face have a glyph for every code point of `cluster` (its marks and selectors included)? */
 export function inFace(cluster: string): boolean {
   const f = face(400);
-  return Array.from(cluster).every((ch) => f.hasGlyphForCodePoint(ch.codePointAt(0)!));
+  return Array.from(cluster).every((ch) => f.hasGlyphForCodePoint(ch === LONE_SLASH ? 0x2044 : ch.codePointAt(0)!));
 }
 
 const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
@@ -109,7 +110,7 @@ export function scriptRuns(text: string): string[] {
   // brackets it holds.
   const open: Array<{ close: string; run: Run }> = [];
   for (const ch of text) {
-    let scripts = scriptSetOf(ch);
+    let scripts = scriptSetOf(ch === LONE_SLASH ? '\u2044' : ch);
     for (let at = open.length - 1; at >= 0; at -= 1) {
       if (open[at]!.close !== ch) continue;
       scripts = open[at]!.run.scripts;
@@ -155,31 +156,6 @@ export const CHROMIUM_MOST: Slack = 'most';
 /** Runs already shaped: their advance in font units, by weight and text (a pack shapes the same words many times). */
 const SHAPED = new Map<string, number>();
 const SHAPED_MAX = 50_000;
-
-const FRACTION_SLASH = 0x2044;
-const isDecimal = (code: number | undefined): boolean => code !== undefined && /\p{Nd}/u.test(String.fromCodePoint(code));
-
-/**
- * `run`'s glyphs as fontkit should shape them to set the run as Chromium does, each standing for its own code point.
- *  - fontkit keeps ONE glyph object per glyph id, with the code points it was first made for (a substitution makes one
- *    for none: shaping "\u00BD" leaves the fraction slash's glyph standing for nothing), and `glyphsForString` hands that
- *    object back. So every glyph is given its run's code point here, or which of fontkit's rules apply to a run would
- *    depend on what was shaped before it (measured: after "\u00BD", "1\u20442" was no longer a fraction).
- *  - Both shapers apply the face's fractions around U+2044 FRACTION SLASH by default (numr on the digits before it,
- *    dnom on those after), but HarfBuzz, Chromium's shaper, makes a fraction only of a slash with a digit on EACH side,
- *    and fontkit of any slash next to a digit. So a slash without a digit on both sides stands for no code point, which
- *    leaves its neighbours as they are. Measured: "a \u20441" at 14.67px/500 is 1441/64px in Chromium, and fontkit's
- *    one-sided fraction read 1217/64 (the "1" set as a denominator); "a 1\u20442" is a fraction in both
- *    (`packGlyphRuler.test.ts`). The faces' other default features (ccmp, locl, liga, kern, mark) the two apply alike.
- * A run whose glyphs are not one a code point (a variation sequence) is left to fontkit's own mapping.
- */
-function shapingInput(f: Face, run: string): string | fontkit.Glyph[] {
-  const glyphs = f.glyphsForString(run);
-  const codes = Array.from(run, (ch) => ch.codePointAt(0)!);
-  if (glyphs.length !== codes.length) return run;
-  const lone = (i: number): boolean => codes[i] === FRACTION_SLASH && !(isDecimal(codes[i - 1]) && isDecimal(codes[i + 1]));
-  return glyphs.map((g, i) => Object.assign(Object.create(Object.getPrototypeOf(g) as object) as fontkit.Glyph, g, { codePoints: lone(i) ? [] : [codes[i]!] }));
-}
 
 function unitsOf(f: Face, weight: FaceWeight, run: string): number {
   const key = `${weight}|${run}`;
@@ -249,9 +225,9 @@ export function runExactPx(
     for (const run of scriptRuns(inside)) units += unitsOf(f, weight, run);
     inside = '';
   };
-  // Chromium sets a soft hyphen and a zero-width space as nothing, and kerns across them; it sets a line or paragraph
-  // separator as a space.
-  for (const cluster of clustersOf(text.replace(/[\u00AD\u200B]/g, '').replace(/[\u2028\u2029]/g, ' '))) {
+  // What Chromium sets as nothing (a soft hyphen, a zero-width space, a word joiner, ...) out, kerned across; a line or
+  // paragraph separator as a space; a fraction slash decided on the text as given (`packGlyphShaping.asShaped`).
+  for (const cluster of clustersOf(asShaped(text))) {
     px += letterSpacingPx;
     if (inFace(cluster)) inside += cluster;
     else { flush(); px += fallbackPx(cluster, size); }
