@@ -58,8 +58,8 @@ interface SelectBaseProps {
 const CREATE_VALUE = '__select_create_new__';
 /** A compact trigger sits in a narrow grid cell: its option panel is never narrower than this, so labels read whole. */
 const COMPACT_PANEL_MIN_WIDTH = 224;
-/** The panel's natural height (search box + a 240px list): below this much room it opens upward instead. */
-const PANEL_WANTED_HEIGHT = 300;
+/** The panel's natural height: a search box and rows of about 36px, the list capped at 240px. Below this much room it opens upward instead. */
+const panelWantedHeight = (rows: number, searchable: boolean): number => (searchable ? 44 : 0) + Math.min(rows * 36 + 8, 240);
 
 interface SingleSelectProps extends SelectBaseProps {
   multiple?: false;
@@ -109,6 +109,7 @@ export function Select(props: SelectProps) {
   const setActiveIndex = (u: number | ((i: number) => number)) =>
     setActiveValue((prev) => filteredOptions[typeof u === 'function' ? u(indexOf(prev)) : u]?.value ?? null);
 
+  const wantedHeight = panelWantedHeight(filteredOptions.length, searchable);
   const recalculate = useCallback(() => {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
@@ -116,8 +117,8 @@ export function Select(props: SelectProps) {
     const compact = size !== 'md';
     const panelWidth = Math.max(r.width, compact ? COMPACT_PANEL_MIN_WIDTH : 0);
     const left = Math.max(8, Math.min(r.left, document.documentElement.clientWidth - panelWidth - 8));
-    setPos({ ...placePanel(r, window.innerHeight, PANEL_WANTED_HEIGHT), left, width: r.width });
-  }, [size]);
+    setPos({ ...placePanel(r, document.documentElement.clientHeight, wantedHeight), left, width: r.width });
+  }, [size, wantedHeight]);
 
   const closeDropdown = useCallback(() => { setOpen(false); setSearch(''); setActiveValue(null); }, []);
   const openDropdown = useCallback(() => { if (disabled) return; recalculate(); setOpen(true); setActiveValue(null); }, [disabled, recalculate]);

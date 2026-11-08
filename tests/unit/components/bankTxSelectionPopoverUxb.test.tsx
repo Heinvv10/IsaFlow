@@ -31,6 +31,42 @@ describe('Selection popover: Enter on an option', () => {
   });
 });
 
+describe('Selection popover: focus', () => {
+  const openByKey = () => {
+    const p = tableProps();
+    render(<BankTxTable {...p} />);
+    fireEvent.keyDown(screen.getByRole('group', { name: /Bank transactions/ }), { key: 'ArrowDown' });
+    const row = document.querySelector('tbody tr') as HTMLElement;
+    fireEvent.keyDown(row, { key: 'e' }); // the grid's Edit hotkey opens the popover
+    return { p, row };
+  };
+
+  it('Escape in the search box closes the popover and returns focus to the row (golden y2)', () => {
+    const { row } = openByKey();
+    const search = screen.getByRole('textbox', { name: /^Search accounts$/ });
+    search.focus();
+    fireEvent.keyDown(search, { key: 'Escape' });
+    expect(screen.queryByRole('textbox', { name: /^Search accounts$/ })).toBeNull();
+    expect(document.activeElement).toBe(row);
+  });
+
+  it('choosing an option leaves focus on the row, not on the removed button', () => {
+    const { row } = openByKey();
+    const option = screen.getByRole('button', { name: /7000/ });
+    option.focus();
+    fireEvent.click(option);
+    expect(document.activeElement).toBe(row);
+  });
+
+  it('PINNED (existing behaviour, logged): Enter on the toggle with a selection accepts the row', () => {
+    const { p, row } = openByKey();
+    const toggle = row.querySelector('[data-bank-toggle]') as HTMLElement;
+    toggle.focus();
+    fireEvent.keyDown(toggle, { key: 'Enter' });
+    expect(p.onAccept).toHaveBeenCalledWith('a');
+  });
+});
+
 describe('row density', () => {
   const trigger = () => screen.getByRole('combobox', { name: `VAT, ${label}` });
 
@@ -39,7 +75,7 @@ describe('row density', () => {
     expect(trigger().className).toContain('min-h-[32px]');
     const cells = container.querySelectorAll('tbody tr:first-child > td');
     expect(cells.length).toBeGreaterThan(0);
-    cells.forEach(td => { expect(td.className).toContain('py-1 '); expect(td.className).not.toMatch(/\bpy-2\b/); });
+    cells.forEach(td => { expect(td.className).toMatch(/\bpy-1\b/); expect(td.className).not.toMatch(/\bpy-2\b/); });
   });
 
   it('compact: xs selects (24 + 8 + 1 = 33 px)', () => {

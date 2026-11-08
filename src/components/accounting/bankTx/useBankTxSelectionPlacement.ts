@@ -6,19 +6,18 @@
 import { useCallback, useEffect, useState, type RefObject } from 'react';
 import { placePanel, type PanelPlacement } from '@/components/ui/panelPlacement';
 
-/** Search box + the 192px list + the "New ..." footer. */
-const POPOVER_WANTED_HEIGHT = 300;
-
-export function useBankTxSelectionPlacement(triggerRef: RefObject<HTMLElement>, open: boolean): (PanelPlacement & { left: number }) | null {
+export function useBankTxSelectionPlacement(triggerRef: RefObject<HTMLElement>, open: boolean, optionCount: number, hasFooter: boolean): (PanelPlacement & { left: number }) | null {
   const [place, setPlace] = useState<(PanelPlacement & { left: number }) | null>(null);
+  // Search box + rows of about 28px (the list is capped at 192px) + the "New ..." footer.
+  const wanted = 50 + Math.min(optionCount * 28, 192) + (hasFooter ? 40 : 0);
   const measure = useCallback(() => {
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     // w-80 is 320px: pulled back inside the viewport rather than running off its right edge.
     const left = Math.max(8, Math.min(r.left, document.documentElement.clientWidth - 320 - 8));
-    setPlace({ ...placePanel(r, window.innerHeight, POPOVER_WANTED_HEIGHT), left });
-  }, [triggerRef]);
+    setPlace({ ...placePanel(r, document.documentElement.clientHeight, wanted), left });
+  }, [triggerRef, wanted]);
 
   useEffect(() => {
     if (!open) { setPlace(null); return undefined; }

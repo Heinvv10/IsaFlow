@@ -21,7 +21,7 @@ describe('placePanel', () => {
     expect(p.maxHeight).toBe(400 - 182 - 12);
   });
 
-  it('never returns a negative height', () => {
-    expect(placePanel({ top: 0, bottom: 40 }, 40, 300).maxHeight).toBe(0);
+  it('never squeezes the panel below 120 px', () => {
+    expect(placePanel({ top: 0, bottom: 40 }, 40, 300).maxHeight).toBe(120);
   });
 });

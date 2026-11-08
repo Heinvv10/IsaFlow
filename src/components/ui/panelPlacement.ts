@@ -14,13 +14,15 @@ export interface PanelPlacement {
 
 const GAP = 4;
 const MARGIN = 8;
+/** A panel is never squeezed below this: a shorter one cannot show a row and its search box. */
+const MIN_HEIGHT = 120;
 
 /** `wanted` is the panel's natural height (search box + list + footer). */
 export function placePanel(trigger: { top: number; bottom: number }, viewportHeight: number, wanted: number): PanelPlacement {
   const below = viewportHeight - trigger.bottom - GAP - MARGIN;
   const above = trigger.top - GAP - MARGIN;
   if (below >= wanted || below >= above) {
-    return { top: trigger.bottom + GAP, maxHeight: Math.max(below, 0) };
+    return { top: trigger.bottom + GAP, maxHeight: Math.max(below, MIN_HEIGHT) };
   }
-  return { bottom: viewportHeight - trigger.top + GAP, maxHeight: Math.max(above, 0) };
+  return { bottom: viewportHeight - trigger.top + GAP, maxHeight: Math.max(above, MIN_HEIGHT) };
 }
