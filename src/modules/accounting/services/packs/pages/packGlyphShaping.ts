@@ -26,6 +26,10 @@ export const LONE_SLASH = '\uE044';
  */
 export const SET_AS_NOTHING = /^[\u00AD\u200B\u200E\u202A\u202C\u2060-\u2064\u2066\u2069\u206A\u206F]$/u;
 
+/**
+ * A decimal digit, as HarfBuzz reads one (Unicode's Nd). The faces set none but 0 to 9, and a digit they lack is set
+ * from a fallback face and ends the run the ruler shapes, so an ASCII test would decide every run alike.
+ */
 const isDecimal = (ch: string | undefined): boolean => ch !== undefined && /\p{Nd}/u.test(ch);
 
 /**
