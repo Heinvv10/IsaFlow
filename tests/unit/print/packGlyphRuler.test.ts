@@ -61,6 +61,25 @@ it('the 630-case grid (15 strings x 14 sizes x 3 weights): never short of Chromi
   expect(wrong).toEqual([]);
 }, 300_000);
 
+it('U+2044 FRACTION SLASH makes a fraction only between two digits, as HarfBuzz does (fontkit makes one beside any digit): never short of Chromium, at most 1/32px over', async () => {
+  const fixed = ['a \u20441', 'a 1\u2044', 'a 1\u20442', 'a 12\u2044345', 'a 1\u2044a', 'a a\u20441', 'a \u2044', 'a 1\u20442\u20443', 'a \u2044\u20441',
+    'a 1 \u2044 2', 'a 1\u20442 \u20443', 'a 3\u20444 of 10\u2044', 'a 0\u20440', 'a (1\u20442)', 'a 1\u20442%'];
+  const random = mulberry32(2044);
+  const next = (): number => random.next().value as number;
+  const tokens = ['1', '23', '\u2044', '\u2044', 'a', 'x', ' ', '0', '(', ')', '%', '\u00BD', '7'];
+  const texts = [...fixed, ...Array.from({ length: 200 }, () => `a ${Array.from({ length: 2 + Math.floor(next() * 6) }, () => tokens[Math.floor(next() * tokens.length)]!).join('')}`)];
+  // Non-vacuous: slashes with a digit on one side only (where the two shapers differ), and true fractions.
+  expect(texts.filter((t) => /(^|[^0-9])\u2044[0-9]|[0-9]\u2044($|[^0-9])/.test(t)).length).toBeGreaterThan(50);
+  expect(texts.filter((t) => /[0-9]\u2044[0-9]/.test(t)).length).toBeGreaterThan(12);
+  const items = texts.flatMap((text, i) => [12, 14.6667, 10.6667, SIZES[i % SIZES.length]!].map((fontPx, j) => ({ text, fontPx, weight: WEIGHTS[(i + j) % 3]! })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'td' as const, ...it, html: `<span style="white-space:pre">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const model = runPx(it.text, it.fontPx, it.weight, outside);
+    return model < res[i]!.widthPx - 1e-6 || model > res[i]!.widthPx + 2 / 64 + 1e-6 ? [`${JSON.stringify(it.text)} at ${it.fontPx}px/${it.weight}: model ${model}, Chromium ${res[i]!.widthPx}`] : [];
+  });
+  expect(wrong).toEqual([]);
+}, 300_000);
+
 it('a character whose Script Extensions leave out the run\'s script starts a new run, and a closing bracket goes with its opener, as Chromium shapes them: never short of Chromium, at most 1/32px over', async () => {
   // The middle dot (Latin, Greek; not Cyrillic), the modifier apostrophe (Latin, Cyrillic; not Greek), the caron (Latin)
   // and the narrow no-break space (Latin) between Cyrillic or Greek letters and the superscripts the faces kern with them.

@@ -156,12 +156,37 @@ export const CHROMIUM_MOST: Slack = 'most';
 const SHAPED = new Map<string, number>();
 const SHAPED_MAX = 50_000;
 
+const FRACTION_SLASH = 0x2044;
+const isDecimal = (code: number | undefined): boolean => code !== undefined && /\p{Nd}/u.test(String.fromCodePoint(code));
+
+/**
+ * `run`'s glyphs as fontkit should shape them to set the run as Chromium does, each standing for its own code point.
+ *  - fontkit keeps ONE glyph object per glyph id, with the code points it was first made for (a substitution makes one
+ *    for none: shaping "\u00BD" leaves the fraction slash's glyph standing for nothing), and `glyphsForString` hands that
+ *    object back. So every glyph is given its run's code point here, or which of fontkit's rules apply to a run would
+ *    depend on what was shaped before it (measured: after "\u00BD", "1\u20442" was no longer a fraction).
+ *  - Both shapers apply the face's fractions around U+2044 FRACTION SLASH by default (numr on the digits before it,
+ *    dnom on those after), but HarfBuzz, Chromium's shaper, makes a fraction only of a slash with a digit on EACH side,
+ *    and fontkit of any slash next to a digit. So a slash without a digit on both sides stands for no code point, which
+ *    leaves its neighbours as they are. Measured: "a \u20441" at 14.67px/500 is 1441/64px in Chromium, and fontkit's
+ *    one-sided fraction read 1217/64 (the "1" set as a denominator); "a 1\u20442" is a fraction in both
+ *    (`packGlyphRuler.test.ts`). The faces' other default features (ccmp, locl, liga, kern, mark) the two apply alike.
+ * A run whose glyphs are not one a code point (a variation sequence) is left to fontkit's own mapping.
+ */
+function shapingInput(f: Face, run: string): string | fontkit.Glyph[] {
+  const glyphs = f.glyphsForString(run);
+  const codes = Array.from(run, (ch) => ch.codePointAt(0)!);
+  if (glyphs.length !== codes.length) return run;
+  const lone = (i: number): boolean => codes[i] === FRACTION_SLASH && !(isDecimal(codes[i - 1]) && isDecimal(codes[i + 1]));
+  return glyphs.map((g, i) => Object.assign(Object.create(Object.getPrototypeOf(g) as object) as fontkit.Glyph, g, { codePoints: lone(i) ? [] : [codes[i]!] }));
+}
+
 function unitsOf(f: Face, weight: FaceWeight, run: string): number {
   const key = `${weight}|${run}`;
   let units = SHAPED.get(key);
   if (units === undefined) {
     units = 0;
-    for (const p of f.layout(run, FEATURES).positions) units += p.xAdvance;
+    for (const p of f.layout(shapingInput(f, run), FEATURES).positions) units += p.xAdvance;
     if (SHAPED.size >= SHAPED_MAX) SHAPED.clear();
     SHAPED.set(key, units);
   }
