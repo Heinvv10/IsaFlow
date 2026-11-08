@@ -23,6 +23,7 @@ const ALLOWED: Record<string, string> = {
   'src/modules/accounting/services/bank/bankAllocationService.ts': 'posting path: writes a VAT leg, sums no period',
   'src/modules/accounting/services/bank/bankRuleAutoPostLine.ts': 'posting path: writes a VAT leg, sums no period',
   'src/modules/accounting/services/bank/bankTxQueryFragments.ts': 'reads the VAT of ONE bank line\'s own allocation journal (documented V-05 census note)',
+  'src/modules/accounting/services/capture/bankAttachClaimConflict.ts': 'attach-time guard: does ONE bank line\'s journal, or ONE document\'s journal, debit input VAT; the clearing journal only credits it and has no document or bank line',
   'src/modules/accounting/services/gl/controlAccountService.ts': 'resolves which accounts are control accounts; sums nothing',
   'src/modules/accounting/services/gl/integrityChecks/accountChecks.ts': 'chart-of-accounts shape checks, not a VAT figure',
   'src/modules/accounting/services/gl/integrityChecks/vatChecks.ts': 'per bank-line displayed-vs-posted code check; the clearing journal has no bank line',

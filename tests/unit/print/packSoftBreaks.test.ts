@@ -8,7 +8,7 @@
  * the two the model breaks exactly when Chromium does (elsewhere it never breaks where Chromium does not, as
  * `packLineBreaks.test.ts` holds). A hyphen is drawn exactly at the lines the model says, and a line's width is its
  * piece's (never short, at most 1/32px over). The tables of what holds to a soft hyphen or a zero-width space
- * (`packSoftBreakRanges.ts`) are re-scanned and compared with the committed ones.
+ * (`packSoftBreakRanges.ts`) are re-scanned in production's image (`printParity/packBreakTablesImage.test.ts`).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
@@ -17,7 +17,6 @@ import { openProbePage } from './measureWidths';
 import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
 import { reasonPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
 import { inFace } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
-import { SOFT_HYPHEN_HOLDS, ZERO_WIDTH_SPACE_HOLDS } from '@/modules/accounting/services/packs/pages/packSoftBreakRanges';
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
@@ -168,52 +167,5 @@ describe('a soft hyphen and a zero-width space', () => {
   }, 300_000);
 });
 
-describe('the code points that hold to a soft hyphen or a zero-width space', () => {
-  it('re-scanned in Chromium, they are the committed tables', async () => {
-    const page = await openProbePage(browser);
-    try {
-      const scanned = await page.evaluate(() => {
-        const skip = /[\p{Cn}\p{Cs}\p{Co}]/u;
-        const candidates: number[] = [];
-        for (const [lo, hi] of [[0x20, 0xffff], [0x10000, 0x1ffff], [0x20000, 0x323af], [0xe0000, 0xe01ef]] as const) {
-          for (let cp = lo; cp <= hi; cp += 1) if (!skip.test(String.fromCodePoint(cp))) candidates.push(cp);
-        }
-        const td = document.getElementById('label')!;
-        const held = (separator: string): number[] => {
-          const out: number[] = [];
-          for (let i = 0; i < candidates.length; i += 4096) {
-            const batch = candidates.slice(i, i + 4096);
-            td.textContent = '';
-            const spans = batch.map((cp) => {
-              const box = document.createElement('div');
-              box.style.cssText = 'width:0;white-space:normal';
-              const span = document.createElement('span');
-              span.className = 'pack-kpi-unavailable';
-              span.textContent = `ab${separator}${String.fromCodePoint(cp)}cd`;
-              box.appendChild(span);
-              td.appendChild(box);
-              return span;
-            });
-            spans.forEach((span, j) => {
-              const node = span.firstChild!;
-              const rects = (from: number, to: number) => { const r = document.createRange(); r.setStart(node, from); r.setEnd(node, to); return r.getClientRects(); };
-              const lastTop = (list: DOMRectList) => list[list.length - 1]!.top;
-              const width = String.fromCodePoint(batch[j]!).length;
-              const x = rects(3, 3 + width);
-              // A code point with no box of its own is on the line its follower is.
-              const xTop = x.length > 0 ? lastTop(x) : lastTop(rects(3 + width, 4 + width));
-              if (Math.abs(xTop - lastTop(rects(1, 2))) < 1) out.push(batch[j]!);
-            });
-          }
-          return out;
-        };
-        return { shy: held('­'), zwsp: held('​') };
-      });
-      const expand = (ranges: ReadonlyArray<readonly [number, number]>) => ranges.flatMap(([from, to]) => Array.from({ length: to - from + 1 }, (unused, k) => from + k));
-      expect(scanned.shy).toEqual(expand(SOFT_HYPHEN_HOLDS));
-      expect(scanned.zwsp).toEqual(expand(ZERO_WIDTH_SPACE_HOLDS));
-    } finally {
-      await page.close();
-    }
-  }, 900_000);
-});
+// The tables of what holds to a soft hyphen or a zero-width space depend on the host's fallback fonts: they are held
+// to production's image, velo only (`tests/unit/printParity/packBreakTablesImage.test.ts`).

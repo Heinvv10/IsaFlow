@@ -150,7 +150,7 @@ describe('new practice job', () => {
 });
 
 describe('asset disposal', () => {
-  const asset = { id: 'a1', name: 'Truck', asset_number: 'A-1', status: 'active' };
+  const asset = { id: 'a1', name: 'Truck', asset_number: 'A-1', status: 'available' };
   it('"zz" in Disposal Date blocks Confirm Disposal; closing the panel drops the refusal', async () => {
     serve(on('GET', '/api/accounting/assets', () => ok([asset])), on('POST', '/dispose', () => ok({})));
     const { container } = render(<AssetDetailPage />);

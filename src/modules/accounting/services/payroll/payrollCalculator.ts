@@ -28,7 +28,7 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  *  - UIF: the component's is_uif_applicable flag, as for every earning; setup-components
  *    creates the 3801 with it off. Whether UIF's "remuneration" takes in a benefit is not
  *    settled here (no SARS/UIF source fetched): the flag is the one switch.
- *  - SDL: leviable when is_sdl_applicable (setup default on; SDL Act s3(4) is para 1
+ *  - SDL: leviable when is_sdl_applicable (setup default on; SDL Act s3(3) is para 1
  *    remuneration), and part of the employer's s4(b) threshold basis, `remuneration`.
  *  - ETI: in "monthly remuneration" (the para 1 remuneration), as when it was paid as cash.
  *  - Cash: NOT in grossPay, so not in netPay or the journal (DR labour = gross = cash),

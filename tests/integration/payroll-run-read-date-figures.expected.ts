@@ -5,7 +5,7 @@
  * no longer deducted from taxable income): the pension line's component_breakdown entry carries
  * `retirementContribution: true`, and taxable_income / periodic_taxable of the lines with a pension are no longer reduced
  * by it (27270.00 -> 29550.00). Two more for PR #1142 (SDL is levied after the s11F retirement deduction PAYE 4c
- * records, SDL Act s3(4)): every component_breakdown item carries `isSdlApplicable` (an earning flagged
+ * records, SDL Act s3(3)): every component_breakdown item carries `isSdlApplicable` (an earning flagged
  * is_sdl_applicable), and the pension employee's sdl is 1% of (28500 + 3000 - 2280) = 292.20, not 315.00, so
  * total_sdl is 817.20 (feb) and 924.20 (mar), 22.80 lower. Two more for PR #1215 (para 2(4): only s11F and s18A
  * deductions reduce PAYE): the steady employee's taxable medical aid (4005, R1 950) no longer reduces taxable_income /

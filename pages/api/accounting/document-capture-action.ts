@@ -20,6 +20,7 @@ import { isBeingRead, STILL_BEING_READ } from '@/modules/accounting/services/cap
 import { mapCapturedDocumentRow as mapRow } from '@/modules/accounting/services/capture/capturedDocumentMapper';
 import { retryCaptureRead, type RetryRefusal } from '@/modules/accounting/services/capture/captureReadRetry';
 import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
+import { otherVatClaimMessage } from '@/modules/accounting/services/capture/bankAttachClaimConflict';
 import {
   type LifecycleGate,
   releaseClaimForLifecycleAction,
@@ -90,7 +91,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // A plain read is enough: reading -> done is one-way, so a row seen done cannot go back to reading.
       if (isBeingRead(existing)) return apiResponse.conflict(res, STILL_BEING_READ);
       const { user } = req as CompanyAuthedRequest;
-      return handleMatchBankTx(res, id, companyId, user?.id ?? null, data);
+      return await handleMatchBankTx(res, id, companyId, user?.id ?? null, data);
     }
 
     if (action === 'reject') {
@@ -99,6 +100,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     return apiResponse.badRequest(res, 'Unknown action');
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return; // the attach's bank-line / document locks: retryable, nothing written
     const msg = err instanceof Error ? err.message : String(err);
     log.error('Document capture action failed', { error: msg, action, id }, 'document-capture');
     return apiResponse.internalError(res, err, `Action failed: ${msg}`);
@@ -199,6 +201,8 @@ async function handleMatchBankTx(
 
   const result = await attachCapturedDocToBankTx(companyId, id, bankTxId, userId);
   if (!result.ok) {
+    const conflict = result.reason === 'document_backs_other_claim' ? result.otherClaim : null;
+    if (conflict) return apiResponse.conflict(res, otherVatClaimMessage(conflict), { otherClaim: conflict });
     return result.reason === 'bank_tx_not_found'
       ? apiResponse.notFound(res, 'Bank transaction', bankTxId)
       : apiResponse.notFound(res, 'Captured document', id);

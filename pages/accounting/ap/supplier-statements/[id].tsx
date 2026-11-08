@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, RefreshCw, CheckCircle2, X, ChevronDown, ChevronUp, ArrowLeft, ExternalLink } from 'lucide-react';
 import { StatementReading, StatementReadFailed } from '@/components/accounting/StatementReadState';
-import { MatchStatusCell } from '@/components/accounting/ap/SupplierStatementMatchCell';
+import { MatchStatusCell, type OpeningBalanceCheck } from '@/components/accounting/ap/SupplierStatementMatchCell';
 import { usePollWhileReading, type PollOutcome } from '@/hooks/usePollWhileReading';
 import { useStatementReadActions } from '@/hooks/useStatementReadActions';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -23,7 +23,7 @@ interface StatementLine {
   id: string; lineDate: string | null; reference: string | null; description: string | null;
   debit: number; credit: number; runningBalance: number | null;
   matchedSupplierInvoiceId: string | null; matchedInvoiceNumber: string | null;
-  matchConfidence: number | null; mismatchReason: MismatchReason;
+  matchConfidence: number | null; mismatchReason: MismatchReason; isOpeningBalance: boolean;
 }
 
 interface MissingInvoice {
@@ -39,7 +39,7 @@ interface SupplierStatementReconciliation {
   /** While 'extracting' / when 'failed': progress and why (the lines are empty until 'unreconciled'). */
   extractionError: string | null; retryable: boolean; pagesDone: number | null; pagesTotal: number | null;
   missingInIsaflowCount: number; missingInStatementCount: number; amountDiffCount: number;
-  lines: StatementLine[]; missingInvoices: MissingInvoice[];
+  lines: StatementLine[]; missingInvoices: MissingInvoice[]; openingBalance: OpeningBalanceCheck | null;
   createdAt: string; reconciledAt: string | null;
 }
 
@@ -230,7 +230,7 @@ export default function SupplierStatementDetailPage() {
                           <td className="px-4 py-2.5 text-xs text-[var(--ff-text-primary)] max-w-[200px] truncate" title={line.description ?? undefined}>{line.description ?? '—'}</td>
                           <td className="px-4 py-2.5 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{line.debit > 0 ? fmtZAR(line.debit) : '—'}</td>
                           <td className="px-4 py-2.5 text-xs tabular-nums text-right text-teal-400">{line.credit > 0 ? fmtZAR(line.credit) : '—'}</td>
-                          <td className="px-4 py-2.5"><MatchStatusCell line={line} /></td>
+                          <td className="px-4 py-2.5"><MatchStatusCell line={line} opening={recon.openingBalance} /></td>
                           <td className="px-4 py-2.5 text-xs text-[var(--ff-text-secondary)]">
                             {line.matchedInvoiceNumber && line.matchedSupplierInvoiceId ? (
                               <button onClick={() => router.push(`/accounting/supplier-invoices/${line.matchedSupplierInvoiceId}`)}

@@ -123,7 +123,7 @@ describe('migration csv upload', () => {
 
 describe('fixed asset register report', () => {
   const asset = { assetNumber: 'FA-1', assetName: 'D2 Excavator', categoryCode: 'PE', categoryName: 'Plant', ias16Group: 'Plant', taxCode: 'T', taxLifeYears: 5, policyLifeYears: 5,
-    residualPct: 0, status: 'active', belowThreshold: false, policyCost: 100, policyAccDep: 10, policyCA: 90, policyCurrentDep: 10, policyProfitLoss: 0, taxCost: 100, taxAccDep: 10, taxCA: 90, taxCurrentDep: 10, taxProfitLoss: 0, deferredTax: 0 };
+    residualPct: 0, status: 'available', belowThreshold: false, policyCost: 100, policyAccDep: 10, policyCA: 90, policyCurrentDep: 10, policyProfitLoss: 0, taxCost: 100, taxAccDep: 10, taxCA: 90, taxCurrentDep: 10, taxProfitLoss: 0, deferredTax: 0 };
   const totals = { policyCost: 100, policyAccDep: 10, policyCA: 90, taxCost: 100, taxAccDep: 10, taxCA: 90, deferredTax: 0 };
   it('a 2xx without data clears the old report and says so in a plain sentence', async () => {
     let n = 0;
@@ -137,6 +137,15 @@ describe('fixed asset register report', () => {
     expect(screen.queryByText('D2 Excavator')).toBeNull();
     expect(document.body.textContent).not.toMatch(/raw boom|Failed to load report/);
   });
+  // assets.status is never 'active' (CHECK: available/assigned/in_maintenance/disposed/written_off): the badge's
+  // in-service colour used to test for 'active', so every live asset wore the written-off colour.
+  it.each([['available', 'emerald'], ['in_maintenance', 'emerald'], ['disposed', 'red'], ['written_off', 'yellow']])(
+    'a %s asset wears the %s badge', async (status, colour) => {
+      serve(on('GET', 'far-report?', () => ok({ asAt: '2026-01-01', assets: [{ ...asset, status }], totals })));
+      render(<FarReportPage />);
+      const badge = (await screen.findAllByText(status)).find((e) => e.className.includes('rounded'))!;
+      expect(badge.className).toContain(`bg-${colour}-900/60`);
+    });
 });
 
 describe('customer detail', () => {
