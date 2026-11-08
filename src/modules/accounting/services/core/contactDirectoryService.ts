@@ -207,7 +207,7 @@ export async function listCustomers(
     SELECT
       id, name, email, phone, contact_person,
       payment_terms, payment_terms_type, credit_limit, is_active,
-      vat_number, registration_number,
+      vat_number, registration_number, default_revenue_account_id,
       created_at
     FROM customers
     WHERE company_id = ${companyId}

@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { DateField } from '@/components/ui';
 import { PaymentTermsField } from '@/components/accounting/PaymentTermsField';
+import { RevenueAccountField } from './RevenueAccountField';
 import type { CustomerFormData } from '@/components/accounting/CustomerForm';
 import { Card, SectionTitle, SelectField, Switch, TextField, inputClass, type SectionProps } from './formParts';
 
@@ -82,6 +83,10 @@ export function CustomerDefaultsSection({ form, set, patch, fieldErrors, mode }:
           onChange={(days, type) => patch({ payment_terms: days, payment_terms_type: type })}
           inputClass={inputClass} allowDefault
         />
+        <RevenueAccountField value={form.default_revenue_account_id} label={form.default_revenue_account_label}
+          usable={form.default_revenue_account_usable}
+          onChange={(v) => patch({ default_revenue_account_id: v, default_revenue_account_label: '', default_revenue_account_usable: true })}
+          error={fieldErrors.default_revenue_account_id} />
       </div>
       <div className="mt-3 space-y-2">
         <Switch checked={form.invoices_viewable_online} onChange={(v) => set('invoices_viewable_online', v)} label="Invoices can be viewed online" />

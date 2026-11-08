@@ -50,6 +50,7 @@ const CUSTOMER_BODY_KEY: Record<(typeof CUSTOMER_CLEARABLE)[number], string> = {
   vatNumber: 'vat_number', registrationNumber: 'registration_number', billingAddress: 'billing_address',
   shippingAddress: 'shipping_address', contactPerson: 'contact_person', notes: 'notes', categoryId: 'category_id',
   creditLimit: 'credit_limit', defaultVatType: 'default_vat_type', defaultPriceList: 'default_price_list',
+  defaultRevenueAccountId: 'default_revenue_account_id',
 };
 const SUPPLIER_BODY_KEY: Record<(typeof SUPPLIER_CLEARABLE)[number], string> = {
   companyName: 'company_name', email: 'email', phone: 'phone', vatNumber: 'vat_number',
@@ -87,6 +88,7 @@ export function customerInputFromBody(raw: unknown): CustomerWriteInput {
     subjectToDrcVat: bool(b, 'subject_to_drc_vat'),
     invoicesViewableOnline: bool(b, 'invoices_viewable_online'),
     defaultPriceList: str(b, 'default_price_list'),
+    defaultRevenueAccountId: str(b, 'default_revenue_account_id'),
   };
 }
 
