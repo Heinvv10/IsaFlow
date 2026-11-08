@@ -9,7 +9,7 @@ import type { Browser } from 'playwright';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
-import { runPx, type FaceWeight } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
+import { runPx, scriptRuns, type FaceWeight } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
 import { launchPrintChromium } from './printChromium';
 import { measure } from './measureWidths';
 
@@ -67,7 +67,12 @@ it('a character whose Script Extensions leave out the run\'s script starts a new
   // One run kerned "⁵Ј" 33 units under Chromium's width ("ой×·⁵Ј").
   const texts = ['·⁵Ј', 'ї·⁵Ј', 'ї×·⁵Ј', 'ой×·⁵Ј', 'x·⁵Ј', 'α·⁵Ω', 'о\u202f⁵Ј', 'Ты\u202fТы', 'оʼ⁵Ј', 'αʼ⁵Ω', 'Ав·Ав', 'Тˇ⁵Ј', 'Выручка 1\u202f234',
     // A closing bracket goes with its opening bracket's run.
-    '(13 of Җ) llll', 'Ж(a) Ж', '(a Ж) l', '(Ж (a) Ж) l', 'Ж)l', '[Ж] l'];
+    '(13 of Җ) llll', 'Ж(a) Ж', '(a Ж) l', '(Ж (a) Ж) l', 'Ж)l', '[Ж] l',
+    // The nearest opener of the closer's kind; the opener stays open after its pair closes, so the last ")" here
+    // closes the inner "(" again and is kerned with "Т" (15 units under, were it Latin).
+    'x(Ж(Ж)Т)', 'x[Ж(Ж)Т]', 'x(Ж(Т)Ж)', 'x(Ж[Т)', 'x[Ж(Т]',
+    // Chromium keeps 32 open brackets: the 33rd drops the "(" and the ")" falls in with the Cyrillic run.
+    `x(${'Ж['.repeat(31)}Т)`, `x(${'Ж['.repeat(32)}Т)`];
   const items = texts.flatMap((text) => WEIGHTS.map((weight) => ({ text, fontPx: 12, weight })));
   const res = await measure(browser, items.map((it) => ({ probe: 'td' as const, ...it, html: `<span style="white-space:pre">${it.text}</span>` })));
   const wrong = items.flatMap((it, i) => {
@@ -76,3 +81,14 @@ it('a character whose Script Extensions leave out the run\'s script starts a new
   });
   expect(wrong).toEqual([]);
 }, 120_000);
+
+it('splits a line of 100 000 brackets in linear time: a closer never searches past the 32 brackets Chromium keeps open', () => {
+  // Table labels carry tenant GL account names. 50 000 openers then 50 000 closers that match none of them: a search
+  // of the whole open stack per closer is 1.25 billion steps; a bounded one is 1.6 million.
+  const hostile = 'Ж('.repeat(25_000) + 'x]'.repeat(25_000);
+  const started = performance.now();
+  const runs = scriptRuns(hostile);
+  const ms = performance.now() - started;
+  expect(runs.join('')).toBe(hostile);
+  expect(ms).toBeLessThan(500); // 20ms here; the unbounded search took 4 000ms
+});

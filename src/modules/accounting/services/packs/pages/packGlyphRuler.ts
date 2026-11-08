@@ -102,14 +102,19 @@ function scriptSetOf(ch: string): readonly string[] | null {
 export function scriptRuns(text: string): string[] {
   type Run = { scripts: readonly string[] | null; text: string };
   const runs: Run[] = [];
-  // Open brackets, each with the run it opened in: a closing bracket is shaped in its opener's script.
+  // Open brackets, each with the run it opened in, at most `MAX_BRACKETS` (the oldest dropped past it). A closing
+  // bracket is shaped in its opener's script: the nearest opener of its kind, the brackets above it popped and the
+  // opener itself kept, as Chromium's ScriptRunIterator does ("x(Ж(Ж)Т)": the last ")" meets the inner "(" again,
+  // and stays Cyrillic). The search is from the top and bounded by the cap, so a line costs linear time however many
+  // brackets it holds.
   const open: Array<{ close: string; run: Run }> = [];
   for (const ch of text) {
     let scripts = scriptSetOf(ch);
-    const at = open.map((o) => o.close).lastIndexOf(ch);
-    if (at >= 0) {
+    for (let at = open.length - 1; at >= 0; at -= 1) {
+      if (open[at]!.close !== ch) continue;
       scripts = open[at]!.run.scripts;
-      open.length = at;
+      open.length = at + 1;
+      break;
     }
     const last = runs[runs.length - 1];
     if (last === undefined) runs.push({ scripts, text: ch });
@@ -119,10 +124,16 @@ export function scriptRuns(text: string): string[] {
       if (shared.length > 0) { last.scripts = shared; last.text += ch; } else runs.push({ scripts, text: ch });
     }
     const closer = BRACKETS[ch];
-    if (closer !== undefined) open.push({ close: closer, run: runs[runs.length - 1]! });
+    if (closer !== undefined) {
+      open.push({ close: closer, run: runs[runs.length - 1]! });
+      if (open.length > MAX_BRACKETS) open.shift();
+    }
   }
   return runs.map((r) => r.text);
 }
+
+/** How many open brackets Chromium's ScriptRunIterator keeps (`kMaxBrackets`): past it the oldest is dropped. */
+const MAX_BRACKETS = 32;
 
 /** The paired brackets the faces set (Unicode's Bidi_Paired_Bracket): each opener and its closer. */
 const BRACKETS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}', '\u207D': '\u207E', '\u208D': '\u208E' };
