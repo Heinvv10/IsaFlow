@@ -115,6 +115,9 @@ export async function applyReapplyCustomerTerms(companyId: string, rawItems: unk
     if (!(AR_REAPPLY_OPEN_STATUSES as readonly string[]).includes(String(row.status)) || owing <= EPS) {
       result.skipped.push({ id: item.id, reason: 'not_open' }); continue;
     }
+    // No readable customer (client_id and customer_id both empty): no terms to apply, and String(null) would reach the ::UUID
+    // cast below and roll the whole batch back. Skip this one.
+    if (row.customer_id == null) { result.skipped.push({ id: item.id, reason: 'terms_not_set' }); continue; }
     // The customer's terms as they stand now, read after the invoice's lock. The customer row is NOT locked (accepted):
     // an edit of its terms committing between this read and the UPDATE leaves this invoice on the terms it was
     // confirmed for, and the next preview lists it again.
