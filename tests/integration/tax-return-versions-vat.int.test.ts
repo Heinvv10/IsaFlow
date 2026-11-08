@@ -17,8 +17,10 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
 type Row = Record<string, unknown>;
 
-const CLEAN = { periodStart: '2026-01-01', periodEnd: '2026-02-28' };
-const DIRTY = { periodStart: '2026-05-01', periodEnd: '2026-06-30' };
+// The fixture company files bi-monthly, periods ending in odd months (Category A).
+const CLEAN = { periodStart: '2026-02-01', periodEnd: '2026-03-31' };
+const DIRTY = { periodStart: '2026-04-01', periodEnd: '2026-05-31' };
+const MISMATCH = { periodStart: '2026-06-01', periodEnd: '2026-07-31' };
 let rf: ReturnFixture;
 let other: ReturnFixture;
 const c = () => rf.fx.companyId;
@@ -130,12 +132,84 @@ describeIfDb('VAT201 finalise, against a real ledger', () => {
     expect(data.vatReturn).toMatchObject({ status: 'submitted', netVat: 100, mismatch: true });
   });
 
+  it('a period that is not one of the company\'s VAT periods: 400, nothing written', async () => {
+    const before = await count('tax_return_versions', c());
+    for (const p of [
+      { periodStart: '2026-01-01', periodEnd: '2026-02-28' }, // ends in an even month
+      { periodStart: '2026-03-01', periodEnd: '2026-03-31' }, // one month on a bi-monthly cycle
+      { periodStart: '2026-02-02', periodEnd: '2026-03-31' }, // not the 1st
+      { periodStart: '2026-02-01', periodEnd: '2026-03-30' }, // not a month end
+    ]) expect((await post(rf.admin.token, p)).status).toBe(400);
+    expect(await count('tax_return_versions', c())).toBe(before);
+  });
+
+  it('an impossible date (Feb 31) is a 400, never a 500, on both routes', async () => {
+    const bad = { periodStart: '2026-02-01', periodEnd: '2026-02-31' };
+    expect((await post(rf.admin.token, bad)).status).toBe(400);
+    expect((await callRoute(versions, c(), rf.admin.token, 'GET', { form: 'vat201', ...bad })).status).toBe(400);
+    const wide = { periodStart: '2020-01-01', periodEnd: '2026-12-31' };
+    expect((await callRoute(versions, c(), rf.admin.token, 'GET', { form: 'vat201', ...wide })).status).toBe(400);
+  });
+
+  it('a submitted vat_returns row with other figures: 409 until acknowledged with a reason, which is kept on the version', async () => {
+    await sql`INSERT INTO vat_returns (company_id, period_start, period_end, total_output_tax, total_input_tax, net_vat)
+      VALUES (${c()}::UUID, ${MISMATCH.periodStart}::DATE, ${MISMATCH.periodEnd}::DATE, 100, 0, 100)`;
+    const before = await count('vat_period_locks', c());
+    expect((await post(rf.admin.token, MISMATCH)).status).toBe(409);
+    expect(await count('vat_period_locks', c())).toBe(before);
+    expect((await post(rf.admin.token, { ...MISMATCH, acknowledgeVatReturnMismatch: true })).status).toBe(422); // no reason
+    const r = await post(rf.admin.token, { ...MISMATCH, acknowledgeVatReturnMismatch: true, mismatchReason: 'Old record was a test' });
+    expect(r.status).toBe(200);
+    const d = (r.body as { data: { version: Row; vatReturn: Row } }).data;
+    expect(d.vatReturn).toMatchObject({ status: 'submitted', mismatch: true });
+    expect(d.version.figures).toMatchObject({ meta: { vatReturnMismatch: { reason: 'Old record was a test' } } });
+  });
+
+  it('concurrent finalise of one period: one lock, one version, the loser told it was just finalised', async () => {
+    const p = { periodStart: '2026-08-01', periodEnd: '2026-09-30' };
+    const [a, b] = await Promise.all([post(rf.admin.token, p), post(rf.manager.token, p)]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const loser = a.status === 409 ? a : b;
+    expect(JSON.stringify(loser.body)).toMatch(/already|just/);
+    const rows = (await sql`SELECT COUNT(*)::INT AS n FROM tax_return_versions WHERE company_id = ${c()}::UUID
+      AND period_start = ${p.periodStart}::DATE`) as Row[];
+    expect(rows[0]!.n).toBe(1);
+    const locks = (await sql`SELECT COUNT(*)::INT AS n FROM vat_period_locks WHERE company_id = ${c()}::UUID
+      AND period_start = ${p.periodStart}::DATE`) as Row[];
+    expect(locks[0]!.n).toBe(1);
+  });
+
+  it('drift is positive when the recorded figures or boxes no longer match the ledger', async () => {
+    await sql`UPDATE tax_return_versions SET figures = jsonb_set(jsonb_set(figures, '{outputTax}', '50'),
+      '{sarsFields}', '[{"box":"1"}]'::jsonb)
+      WHERE company_id = ${c()}::UUID AND period_start = ${CLEAN.periodStart}::DATE`;
+    const r = await list(c(), rf.admin.token, CLEAN);
+    const v = (r.body as { data: { versions: { drift: { drifted: boolean; fields: { name: string }[]; changed: string[] } }[] } }).data.versions[0]!;
+    expect(v.drift.drifted).toBe(true);
+    expect(v.drift.fields.map((f) => f.name)).toEqual(['outputTax']);
+    expect(v.drift.changed).toEqual(['sarsFields']);
+  });
+
+  it('dead end after an out-of-lifecycle unlock (pinned, L1b amend owns the way out): finalising again is 409, and so is an overlapping period', async () => {
+    await sql`UPDATE vat_period_locks SET unlocked_at = now(), unlocked_by = ${rf.admin.userId}, unlock_reason = 'direct'
+      WHERE company_id = ${c()}::UUID AND period_start = ${CLEAN.periodStart}::DATE AND unlocked_at IS NULL`;
+    const locks = await count('vat_period_locks', c());
+    expect((await post(rf.admin.token, CLEAN)).status).toBe(409);
+    await sql`UPDATE companies SET vat_period = 'monthly' WHERE id = ${c()}::UUID`;
+    const overlap = await post(rf.admin.token, { periodStart: '2026-03-01', periodEnd: '2026-03-31' });
+    await sql`UPDATE companies SET vat_period = 'bi-monthly' WHERE id = ${c()}::UUID`;
+    expect(overlap.status).toBe(409);
+    expect(JSON.stringify(overlap.body)).toMatch(/overlaps/);
+    expect(await count('vat_period_locks', c())).toBe(locks);
+  });
+
   it('another company sees no versions of this one, and finalising there writes only there', async () => {
     const seen = await list(other.fx.companyId, other.admin.token, CLEAN);
     expect((seen.body as { data: { versions: Row[] } }).data.versions).toEqual([]);
+    const mine = await count('tax_return_versions', c());
     const own = await callRoute(finalise, other.fx.companyId, other.admin.token, 'POST', { form: 'vat201' }, CLEAN);
     expect(own.status).toBe(200);
-    expect(await count('tax_return_versions', c())).toBe(2);
+    expect(await count('tax_return_versions', c())).toBe(mine);
     expect(await count('tax_return_versions', other.fx.companyId)).toBe(1);
   });
 });

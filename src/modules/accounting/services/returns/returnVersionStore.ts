@@ -1,7 +1,7 @@
 /** Reads and the one insert of tax_return_versions (wave 5 L1a). */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import type { ReturnForm, ReturnVersion, ReturnVersionStatus } from './returnVersionTypes';
+import { ReturnRefusal, type ReturnForm, type ReturnVersion, type ReturnVersionStatus } from './returnVersionTypes';
 
 const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v ?? ''));
 const day = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? '').slice(0, 10));
@@ -81,4 +81,26 @@ export async function insertVersion(v: NewVersion): Promise<ReturnVersion> {
 export function nextVersion(existing: ReturnVersion[]): { versionNo: number; amendsVersionId: string | null } {
   const latest = existing[0];
   return latest ? { versionNo: latest.versionNo + 1, amendsVersionId: latest.id } : { versionNo: 1, amendsVersionId: null };
+}
+
+/**
+ * Refuses (409) when a live (non-superseded) version of this form overlaps the period. Called
+ * before the finalise and again once the VAT exclusive key is held, so a concurrent finalise
+ * that committed in between is seen.
+ */
+export async function assertNoLiveOverlap(
+  companyId: string, form: ReturnForm, periodStart: string, periodEnd: string,
+): Promise<void> {
+  const rows = (await sql`
+    SELECT version_no, status, period_start, period_end FROM tax_return_versions
+    WHERE company_id = ${companyId}::UUID AND form_type = ${form} AND status <> 'superseded'
+      AND period_start <= ${periodEnd}::DATE AND period_end >= ${periodStart}::DATE
+    LIMIT 1
+  `) as DbRow[];
+  const r = rows[0];
+  if (!r) return;
+  const same = day(r.period_start) === periodStart && day(r.period_end) === periodEnd;
+  throw new ReturnRefusal(409, same
+    ? `This ${form} is already ${String(r.status)} as version ${Number(r.version_no)}. Amend it before finalising again.`
+    : `This period overlaps the ${form} already ${String(r.status)} for ${day(r.period_start)} to ${day(r.period_end)}.`);
 }

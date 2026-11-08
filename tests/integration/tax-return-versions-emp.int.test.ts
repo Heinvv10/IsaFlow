@@ -17,12 +17,18 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
 type Row = Record<string, unknown>;
 
+const lastDay = (m: number) => new Date(Date.UTC(2026, m, 0)).getUTCDate();
 const pad = (m: number) => String(m).padStart(2, '0');
-const month = (m: number, to = m) => ({ periodStart: `2026-${pad(m)}-01`, periodEnd: `2026-${pad(to)}-28` });
+/** One calendar month of 2026. */
+const month = (m: number) => ({ periodStart: `2026-${pad(m)}-01`, periodEnd: `2026-${pad(m)}-${lastDay(m)}` });
 let rf: ReturnFixture;
 const c = () => rf.fx.companyId;
-const post = (token: string, m: number, to = m) =>
-  callRoute(finalise, c(), token, 'POST', { form: 'emp201' }, month(m, to));
+const post = (token: string, m: number) => callRoute(finalise, c(), token, 'POST', { form: 'emp201' }, month(m));
+const postRaw = (body: Record<string, unknown>) => callRoute(finalise, c(), rf.admin.token, 'POST', { form: 'emp201' }, body);
+const getV = (m: number) => callRoute(versions, c(), rf.admin.token, 'GET', { form: 'emp201', ...month(m) });
+type Drift = { drifted: boolean; fields: { name: string }[]; changed: string[]; unfinalRuns: number };
+const driftOf = async (m: number) =>
+  ((await getV(m)).body as { data: { versions: { drift: Drift }[] } }).data.versions[0]!.drift;
 
 /** A run. `final` = grandfathered under 951 (R-035 final). Otherwise approved with no reviewed plan. */
 async function run(m: number, status: string, final: boolean, paye: number): Promise<string> {
@@ -50,22 +56,58 @@ describeIfDb('EMP201 finalise, against real pay runs', () => {
     expect(await count('tax_return_versions', c())).toBe(0);
   });
 
-  it('a final run alongside a calculated one in the same period: 409, no version', async () => {
-    await run(4, 'approved', true, 4000);
-    await run(5, 'calculated', false, 0);
-    expect((await post(rf.admin.token, 4, 5)).status).toBe(409);
+  it('a calculated run of the period (not summed, not final): 409, no version', async () => {
+    await run(2, 'calculated', false, 0);
+    expect((await post(rf.admin.token, 2)).status).toBe(409);
     expect(await count('tax_return_versions', c())).toBe(0);
+  });
+
+  it('a cancelled run is excluded from the gate: the month finalises as a nil return', async () => {
+    await run(4, 'cancelled', false, 777);
+    const r = await post(rf.admin.token, 4);
+    expect(r.status).toBe(200);
+    expect((r.body as { data: { version: Row } }).data.version.figures).toMatchObject({ totalPAYE: 0, runs: [] });
+  });
+
+  it('a month with no runs at all finalises as a nil return (SARS requires one), posted_through = now', async () => {
+    const r = await post(rf.admin.token, 8);
+    expect(r.status).toBe(200);
+    const v = (r.body as { data: { version: Row } }).data.version;
+    expect(v.figures).toMatchObject({ totalPAYE: 0, runs: [] });
+    expect(Math.abs(Date.now() - new Date(String(v.postedThrough)).getTime())).toBeLessThan(60_000);
+  });
+
+  it('only a whole ended calendar month: anything else is 400, nothing written', async () => {
+    const before = await count('tax_return_versions', c());
+    for (const p of [
+      { periodStart: '2026-10-02', periodEnd: '2026-10-31' }, // not the 1st
+      { periodStart: '2026-02-01', periodEnd: '2026-02-27' }, // not the last day (28th)
+      { periodStart: '2026-01-01', periodEnd: '2026-12-31' }, // a whole year
+      { periodStart: '2026-09-01', periodEnd: '2026-10-31' }, // two months
+      { periodStart: '2026-11-01', periodEnd: '2026-11-30' }, // the current month has not ended
+      { periodStart: '2027-01-01', periodEnd: '2027-01-31' }, // the future
+      { periodStart: '2026-02-01', periodEnd: '2026-02-31' }, // not a date
+    ]) expect((await postRaw(p)).status).toBe(400);
+    expect(await count('tax_return_versions', c())).toBe(before);
+  });
+
+  it('a month ending on its last day (28 Feb, 31 Jan) is accepted', async () => {
+    await sql`DELETE FROM payroll_run_headers WHERE company_id = ${c()}::UUID AND period_month IN (1, 2)`;
+    expect((await post(rf.admin.token, 1)).status).toBe(200);
+    expect((await post(rf.admin.token, 2)).status).toBe(200);
   });
 
   it('Login-as is refused: 403, nothing written', async () => {
     await run(3, 'approved', true, 4000);
+    const n = await count('tax_return_versions', c());
     expect((await post(await loginAsToken(rf), 3)).status).toBe(403);
-    expect(await count('tax_return_versions', c())).toBe(0);
+    expect(await count('tax_return_versions', c())).toBe(n);
   });
 
   it('a viewer cannot finalise: 403', async () => {
+    const n = await count('tax_return_versions', c());
     expect((await post(rf.viewer.token, 3)).status).toBe(403);
-    expect(await count('tax_return_versions', c())).toBe(0);
+    expect(await count('tax_return_versions', c())).toBe(n);
   });
 
   it('every run final: 200, figures from the runs, run ids and posted_through = latest approved_at, no payroll lock', async () => {
@@ -80,16 +122,24 @@ describeIfDb('EMP201 finalise, against real pay runs', () => {
     expect((await post(rf.admin.token, 3)).status).toBe(409); // already finalised
   });
 
-  it('drift: a run added to the period afterwards shows as drift on the live version', async () => {
-    await run(6, 'approved', true, 4000);
-    expect((await post(rf.admin.token, 6, 7)).status).toBe(200);
-    const before = await callRoute(versions, c(), rf.admin.token, 'GET', { form: 'emp201', ...month(6, 7) });
-    expect((before.body as { data: { versions: Row[] } }).data.versions[0]!.drift).toEqual({ drifted: false, fields: [] });
-    await run(7, 'approved', true, 1000);
-    const after = await callRoute(versions, c(), rf.admin.token, 'GET', { form: 'emp201', ...month(6, 7) });
-    const drift = (after.body as { data: { versions: { drift: { drifted: boolean; fields: { name: string }[] } }[] } }).data.versions[0]!.drift;
-    expect(drift.drifted).toBe(true);
-    expect(drift.fields.map((f) => f.name)).toContain('totalPAYE');
+  it('drift: no drift at first; a changed figure, a changed plan hash and a reopened run each show', async () => {
+    expect(await driftOf(3)).toEqual({ drifted: false, fields: [], changed: [], unfinalRuns: 0 });
+    await sql`UPDATE payroll_run_headers SET total_paye = 5000 WHERE company_id = ${c()}::UUID AND period_month = 3`;
+    const figure = await driftOf(3);
+    expect(figure.drifted).toBe(true);
+    expect(figure.fields.map((f) => f.name)).toContain('totalPAYE');
+    await sql`UPDATE payroll_run_headers SET total_paye = 4000, approved_plan_hash = 'changed'
+      WHERE company_id = ${c()}::UUID AND period_month = 3`;
+    expect((await driftOf(3)).changed).toEqual(['runs']);
+    await sql`UPDATE payroll_run_headers SET approved_plan_hash = NULL, approval_grandfathered_at = NULL
+      WHERE company_id = ${c()}::UUID AND period_month = 3`;
+    expect((await driftOf(3)).unfinalRuns).toBe(1);
+  });
+
+  it('directive payments: stored as totals only, never per-person rows', async () => {
+    const v = ((await getV(3)).body as { data: { versions: { figures: Row }[] } }).data.versions[0]!.figures;
+    expect(v.directivePayments).toEqual([]);
+    expect(v.directiveTotals).toEqual({ count: 0, gross: 0, paye: 0 });
   });
 
   it('company B asks for company A\'s months and sees nothing', async () => {

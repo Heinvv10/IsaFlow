@@ -17,11 +17,17 @@
 --   - A VAT201 version names its lock; an EMP201 version names none.
 --   - users.id is character varying: the actor columns are TEXT, never UUID.
 --
--- WRITES. app_user may SELECT and INSERT named columns only: id and the stamps
--- take their defaults (a writable stamp gets forged). No UPDATE or DELETE: L1b
--- grants the columns an amend or a filing writes. History is never deleted.
+-- WRITES. app_user may SELECT and INSERT named columns only: id, status and the
+-- stamps take their defaults (a writable stamp gets forged; a row is born
+-- 'finalised'). No UPDATE or DELETE: L1b grants the columns an amend or a
+-- filing writes. History is never deleted.
 --
--- Rollback: DROP TABLE tax_return_versions (nothing references it).
+-- A BEFORE INSERT trigger (SECURITY INVOKER) refuses an amends_version_id,
+-- vat_period_lock_id or sars_submission_id that is not this company's (and, for
+-- a version it amends, not this form and period): the plain foreign keys alone
+-- would accept another tenant's id.
+--
+-- Rollback: DROP TABLE tax_return_versions; DROP FUNCTION public.tax_return_versions_same_company() (nothing references them).
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
@@ -59,7 +65,8 @@ CREATE TABLE IF NOT EXISTS tax_return_versions (
         AND amend_reason IS NOT NULL AND btrim(amend_reason) <> '')
   ),
   CONSTRAINT tax_return_versions_filed_ck CHECK (
-    (filed_at IS NULL AND filed_by IS NULL) OR (filed_at IS NOT NULL AND filed_by IS NOT NULL)
+    ((filed_at IS NULL AND filed_by IS NULL) OR (filed_at IS NOT NULL AND filed_by IS NOT NULL))
+    AND (status <> 'filed' OR (filed_at IS NOT NULL AND filed_by IS NOT NULL))
   )
 );
 
@@ -73,6 +80,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_tax_return_versions_one_current
 CREATE INDEX IF NOT EXISTS idx_tax_return_versions_lock
   ON tax_return_versions (vat_period_lock_id) WHERE vat_period_lock_id IS NOT NULL;
 
+CREATE OR REPLACE FUNCTION public.tax_return_versions_same_company()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NEW.amends_version_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM tax_return_versions v
+        WHERE v.id = NEW.amends_version_id AND v.company_id = NEW.company_id
+          AND v.form_type = NEW.form_type AND v.period_start = NEW.period_start AND v.period_end = NEW.period_end) THEN
+    RAISE EXCEPTION 'amends_version_id % is not a version of this company''s same return', NEW.amends_version_id
+      USING ERRCODE = '23514';
+  END IF;
+  IF NEW.vat_period_lock_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM vat_period_locks l WHERE l.id = NEW.vat_period_lock_id AND l.company_id = NEW.company_id) THEN
+    RAISE EXCEPTION 'vat_period_lock_id % is not this company''s lock', NEW.vat_period_lock_id USING ERRCODE = '23514';
+  END IF;
+  IF NEW.sars_submission_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM sars_submissions s WHERE s.id = NEW.sars_submission_id AND s.company_id = NEW.company_id) THEN
+    RAISE EXCEPTION 'sars_submission_id % is not this company''s submission', NEW.sars_submission_id USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_tax_return_versions_same_company ON tax_return_versions;
+CREATE TRIGGER trg_tax_return_versions_same_company BEFORE INSERT ON tax_return_versions
+  FOR EACH ROW EXECUTE FUNCTION public.tax_return_versions_same_company();
+ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_same_company;
+
 ALTER TABLE tax_return_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tax_return_versions FORCE ROW LEVEL SECURITY;
 
@@ -83,5 +120,5 @@ CREATE POLICY tenant_isolation ON tax_return_versions FOR ALL TO app_user
 
 GRANT SELECT ON tax_return_versions TO app_user;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON tax_return_versions FROM app_user;
-GRANT INSERT (company_id, form_type, period_start, period_end, version_no, status, figures, posted_through,
+GRANT INSERT (company_id, form_type, period_start, period_end, version_no, figures, posted_through,
   vat_period_lock_id, amends_version_id, finalised_by) ON tax_return_versions TO app_user;

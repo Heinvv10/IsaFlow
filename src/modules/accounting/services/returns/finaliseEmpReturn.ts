@@ -8,7 +8,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { isPayRunFinal } from '@/modules/accounting/services/payroll/payslipFinal';
-import { insertVersion, nextVersion } from './returnVersionStore';
+import { directiveTotals } from './empDrift';
+import { insertVersion, listVersionRows, nextVersion } from './returnVersionStore';
 import { ReturnRefusal, type ReturnActor, type ReturnVersion } from './returnVersionTypes';
 
 interface RunHeader {
@@ -38,7 +39,7 @@ async function periodRuns(companyId: string, periodStart: string, periodEnd: str
 }
 
 export async function finaliseEmpReturn(
-  companyId: string, periodStart: string, periodEnd: string, actor: ReturnActor, existing: ReturnVersion[],
+  companyId: string, periodStart: string, periodEnd: string, actor: ReturnActor,
 ): Promise<ReturnVersion> {
   const runs = await periodRuns(companyId, periodStart, periodEnd);
   const notFinal: string[] = [];
@@ -59,11 +60,14 @@ export async function finaliseEmpReturn(
     throw new ReturnRefusal(409, 'The pay runs changed while the EMP201 was being finalised. Try again.');
   }
   const approved = used.map((r) => r.approvedAt).filter((a): a is string => a !== null).sort();
-  const next = nextVersion(existing);
+  const next = nextVersion(await listVersionRows(companyId, 'EMP201', periodStart, periodEnd));
   return insertVersion({
     companyId, form: 'EMP201', periodStart, periodEnd, ...next,
     figures: {
       ...figures,
+      // One person's pay each: totals only, never the per-payment rows (sars-emp201 withholds them from readers).
+      directivePayments: [],
+      directiveTotals: directiveTotals(figures.directivePayments),
       runs: used.map((r) => ({ id: r.id, approvedPlanHash: r.approvedPlanHash, approvedAt: r.approvedAt })),
     },
     postedThrough: approved[approved.length - 1] ?? new Date().toISOString(),

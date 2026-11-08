@@ -47,4 +47,17 @@ export interface FinaliseOptions {
   overrideReason?: string;
   /** Record a period failing SARS's 15% check, as the lock route's force does. */
   force?: boolean;
+  /** Proceed although a submitted vat_returns row for the period disagrees; the reason is kept in figures.meta. */
+  acknowledgeVatReturnMismatch?: { reason: string };
+}
+
+export interface VatReturnRecord {
+  status: string;
+  outputTax: number;
+  inputTax: number;
+  netVat: number;
+  sarsReference: string | null;
+  submittedAt: string | null;
+  /** True when its figures differ from the version's (or, before finalising, the figures about to be recorded). */
+  mismatch: boolean;
 }

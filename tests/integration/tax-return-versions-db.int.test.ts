@@ -1,0 +1,133 @@
+/**
+ * The table's own rules (migration 969), below the services: what app_user may not do, what the
+ * CHECKs and the unique index refuse, and the same-company trigger. App_user checks run inside a
+ * transaction with SET LOCAL ROLE app_user and withAuth's GUCs, so RLS and grants are the real ones.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { PoolClient } from 'pg';
+import { sql } from '@/lib/neon';
+import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
+import { dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
+
+const DATABASE_URL = process.env.DATABASE_URL;
+const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
+type Row = Record<string, unknown>;
+let a: ReturnFixture;
+let b: ReturnFixture;
+const P = { start: '2026-02-01', end: '2026-03-31' };
+
+const insertSql = (cols: string) => `INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end,
+  version_no, figures, posted_through, finalised_by${cols}) VALUES`;
+
+async function lockFor(f: ReturnFixture): Promise<string> {
+  return String(((await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax,
+    net_vat, posted_through, locked_by) VALUES (${f.fx.companyId}::UUID, ${P.start}::DATE, ${P.end}::DATE, 0, 0, 0, now(), ${f.admin.userId})
+    RETURNING id`) as Row[])[0]!.id);
+}
+
+/** Runs `fn` as app_user for `f`'s admin, in a transaction that is always rolled back. */
+async function asAppUser<T>(f: ReturnFixture, fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  const c = await a.fx.pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('SET LOCAL ROLE app_user');
+    await c.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: f.admin.userId })]);
+    await c.query(`SELECT set_config('app.current_company_id', $1, true)`, [f.fx.companyId]);
+    return await fn(c);
+  } finally {
+    await c.query('ROLLBACK').catch(() => undefined);
+    c.release();
+  }
+}
+
+/** The error code of one statement, run in its own savepoint so the transaction survives it. */
+async function codeOf(c: PoolClient, text: string, params: unknown[] = []): Promise<string> {
+  await c.query('SAVEPOINT s');
+  try {
+    await c.query(text, params);
+    return 'ok';
+  } catch (err) {
+    await c.query('ROLLBACK TO SAVEPOINT s');
+    return (err as { code: string }).code;
+  } finally {
+    await c.query('RELEASE SAVEPOINT s').catch(() => undefined);
+  }
+}
+
+describeIfDb('tax_return_versions rules (migration 969)', () => {
+  beforeAll(async () => {
+    assertNotProductionDb('This test seeds companies and writes tax_return_versions rows.');
+    a = await seedReturnFixture('RVD', DATABASE_URL!);
+    b = await seedReturnFixture('RVD2', DATABASE_URL!);
+  }, 240000);
+  afterAll(async () => {
+    if (a) await dropReturnFixture(a);
+    if (b) await dropReturnFixture(b);
+  }, 120000);
+
+  it('app_user may insert its own company\'s version, and may not set status, update or delete', async () => {
+    const lock = await lockFor(a);
+    await asAppUser(a, async (c) => {
+      const vals = `($1, 'VAT201', '${P.start}', '${P.end}', 1, '{}', now(), $2`;
+      expect(await codeOf(c, `${insertSql(', vat_period_lock_id')} ${vals}, $3)`, [a.fx.companyId, a.admin.userId, lock])).toBe('ok');
+      expect(await codeOf(c, `${insertSql(', vat_period_lock_id, status')} ${vals}, $3, 'filed')`,
+        [a.fx.companyId, a.admin.userId, lock])).toBe('42501'); // status is not a column app_user may write
+      expect(await codeOf(c, `UPDATE tax_return_versions SET status = 'superseded'`)).toBe('42501');
+      expect(await codeOf(c, `DELETE FROM tax_return_versions`)).toBe('42501');
+    });
+  });
+
+  it('RLS refuses an insert for another company, and a version of company B is invisible to company A', async () => {
+    const lockB = await lockFor(b);
+    await sql`INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures, posted_through,
+      vat_period_lock_id, finalised_by) VALUES (${b.fx.companyId}::UUID, 'VAT201', ${P.start}::DATE, ${P.end}::DATE, 1, '{}', now(),
+      ${lockB}::UUID, ${b.admin.userId})`;
+    await asAppUser(a, async (c) => {
+      expect(await codeOf(c, `${insertSql('')} ($1, 'EMP201', '2026-02-01', '2026-02-28', 1, '{}', now(), $2)`,
+        [b.fx.companyId, a.admin.userId])).toBe('42501');
+      expect((await c.query('SELECT 1 FROM tax_return_versions WHERE company_id = $1', [b.fx.companyId])).rowCount).toBe(0);
+    });
+  });
+
+  it('the trigger refuses another company\'s lock or amended version, and an amend of another period', async () => {
+    const lockB = (await sql`SELECT id FROM vat_period_locks WHERE company_id = ${b.fx.companyId}::UUID`) as Row[];
+    const verB = (await sql`SELECT id FROM tax_return_versions WHERE company_id = ${b.fx.companyId}::UUID`) as Row[];
+    const c = await a.fx.pool.connect();
+    await c.query('BEGIN');
+    try {
+      const w = (lock: unknown, amends: unknown, no: number, end = P.end) =>
+        codeOf(c, `${insertSql(', vat_period_lock_id, amends_version_id')} ($1, 'VAT201', '${P.start}', '${end}', ${no}, '{}', now(), $2, $3, $4)`,
+          [a.fx.companyId, a.admin.userId, lock, amends]);
+      expect(await w(lockB[0]!.id, null, 1)).toBe('23514');
+      const ownLock = (await sql`SELECT id FROM vat_period_locks WHERE company_id = ${a.fx.companyId}::UUID`) as Row[];
+      expect(await w(ownLock[0]!.id, verB[0]!.id, 2)).toBe('23514');
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
+
+  it('the CHECKs and the unique index: chain, lock, filed and one live version per period', async () => {
+    const ownLock = String(((await sql`SELECT id FROM vat_period_locks WHERE company_id = ${a.fx.companyId}::UUID`) as Row[])[0]!.id);
+    await sql`INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures,
+      posted_through, vat_period_lock_id, finalised_by) VALUES (${a.fx.companyId}::UUID, 'VAT201', ${P.start}::DATE, ${P.end}::DATE,
+      1, '{}', now(), ${ownLock}::UUID, ${a.admin.userId})`;
+    const c = await a.fx.pool.connect();
+    await c.query('BEGIN');
+    try {
+      const ins = (extra: string, vals: string, form = 'VAT201', no = 1, start = P.start) =>
+        codeOf(c, `${insertSql(extra)} ($1, '${form}', '${start}', '${P.end}', ${no}, '{}', now(), $2${vals})`,
+          [a.fx.companyId, a.admin.userId]);
+      expect(await ins('', '', 'VAT201', 2)).toBe('23514'); // version 2 with no amends_version_id
+      expect(await ins('', '')).toBe('23514'); // a VAT201 with no lock
+      expect(await ins(', vat_period_lock_id', `, '${ownLock}'`, 'EMP201')).toBe('23514'); // an EMP201 with a lock
+      expect(await ins(', vat_period_lock_id', `, '${ownLock}'`)).toBe('23505'); // a second live version of the period
+      expect(await codeOf(c, `${insertSql(', vat_period_lock_id, status')} ($1, 'VAT201', '2026-04-01', '2026-05-31', 1, '{}', now(), $2, $3, 'filed')`,
+        [a.fx.companyId, a.admin.userId, ownLock])).toBe('23514'); // filed with no filed_at / filed_by
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
+});
+
