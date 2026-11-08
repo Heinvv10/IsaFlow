@@ -4,12 +4,11 @@
  * `packLineBreaks.pieces` splits at spaces, after hyphens, around dashes, and between grapheme clusters that
  * Chromium breaks between (`packBreakRanges.ts`). For each text, Chromium's min-content width is the widest of the
  * pieces the model breaks it into, each measured on its own; and the table of code points that break is re-derived
- * from Chromium and compared with the committed one.
+ * from production's image and compared with the committed one (`printParity/packBreakTablesImage.test.ts`).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
 import { launchPrintChromium } from './printChromium';
-import { SELF_BREAKING, breaksBetween } from '@/modules/accounting/services/packs/pages/packBreakRanges';
 import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
 import { measure, openProbePage } from './measureWidths';
 
@@ -153,44 +152,5 @@ describe('every pair of clusters', () => {
   }, 600_000);
 });
 
-describe('the table of code points Chromium breaks between', () => {
-  // One layout per batch: every candidate's run of four is set twice (min-content and one line) and read after.
-  it('re-scanned in Chromium, it is the committed table (U+00A0 to U+FFFF, U+10000 to U+1FFFF, U+20000 to U+323AF)', async () => {
-    const page = await browser.newPage();
-    try {
-      await page.setContent('<html><head><style>body{font:14px sans-serif}.a{width:min-content;white-space:normal}.b{width:max-content;white-space:nowrap}</style></head><body><div id="host"></div></body></html>');
-      const ranges: Array<[number, number]> = [[0xa0, 0xffff], [0x10000, 0x1ffff], [0x20000, 0x323af]];
-      const scanned = await page.evaluate((rs) => {
-        const skip = /[\p{M}\p{Cc}\p{Cf}\p{Cn}\p{Co}\p{Cs}\p{Z}]|[\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}\p{Script=Balinese}\p{Script=Batak}\p{Script=Javanese}\p{Script=Sundanese}\p{Script=Cham}\p{Script=Tai_Le}\p{Script=New_Tai_Lue}\p{Script=Tai_Tham}\p{Script=Tai_Viet}]/u;
-        const candidates: number[] = [];
-        for (const [lo, hi] of rs) for (let cp = lo; cp <= hi; cp += 1) if (!skip.test(String.fromCodePoint(cp))) candidates.push(cp);
-        const host = document.getElementById('host')!;
-        const out: number[] = [];
-        for (let i = 0; i < candidates.length; i += 8192) {
-          const batch = candidates.slice(i, i + 8192);
-          const pairs = batch.map((cp) => {
-            const a = document.createElement('div');
-            const b = document.createElement('div');
-            a.className = 'a';
-            b.className = 'b';
-            a.textContent = String.fromCodePoint(cp).repeat(4);
-            b.textContent = a.textContent;
-            host.append(a, b);
-            return [a, b] as const;
-          });
-          pairs.forEach(([a, b], j) => { if (a.getBoundingClientRect().width < b.getBoundingClientRect().width - 0.5) out.push(batch[j]!); });
-          host.replaceChildren();
-        }
-        return out;
-      }, ranges);
-      const committed = [] as number[];
-      for (const [lo, hi] of SELF_BREAKING) for (let cp = lo; cp <= hi; cp += 1) committed.push(cp);
-      expect(scanned.length).toBe(committed.length);
-      expect(scanned.filter((cp, i) => cp !== committed[i])).toEqual([]);
-      expect(breaksBetween(0x65e5)).toBe(true);
-      expect(breaksBetween(0x61)).toBe(false);
-    } finally {
-      await page.close();
-    }
-  }, 120_000);
-});
+// The table of code points Chromium breaks between depends on the host's fallback fonts: it is held to production's
+// image, velo only (`tests/unit/printParity/packBreakTablesImage.test.ts`).
