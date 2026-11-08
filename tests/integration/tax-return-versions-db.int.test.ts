@@ -129,5 +129,57 @@ describeIfDb('tax_return_versions rules (migration 969)', () => {
       c.release();
     }
   });
+
+  it('no role but the owner can write: platform_admin, app_service and app_user hold no UPDATE/DELETE, and the table refuses even a superuser', async () => {
+    const priv = async (role: string, p: string) => ((await sql`SELECT has_table_privilege(${role}, 'tax_return_versions', ${p}) AS ok`) as Row[])[0]!.ok;
+    for (const role of ['platform_admin', 'app_service', 'app_user']) {
+      for (const p of ['UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) expect(await priv(role, p), `${role} ${p}`).toBe(false);
+    }
+    expect(await priv('platform_admin', 'INSERT')).toBe(false);
+    expect(await priv('platform_admin', 'SELECT')).toBe(true);
+    expect(await priv('app_user', 'SELECT')).toBe(true);
+    const c = await a.fx.pool.connect();
+    await c.query('BEGIN');
+    try {
+      expect(await codeOf(c, `UPDATE tax_return_versions SET figures = '{"outputTax": 1}' WHERE company_id = $1`, [a.fx.companyId])).toBe('23514');
+      expect(await codeOf(c, `UPDATE tax_return_versions SET company_id = $1 WHERE company_id = $2`, [b.fx.companyId, a.fx.companyId])).toBe('23514');
+      expect(await codeOf(c, `UPDATE tax_return_versions SET finalised_by = 'someone else' WHERE company_id = $1`, [a.fx.companyId])).toBe('23514');
+      expect(await codeOf(c, `DELETE FROM tax_return_versions WHERE company_id = $1`, [a.fx.companyId])).toBe('23514');
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
+
+  it('the lock must be this company\'s ACTIVE lock for THIS period; an amend must name the same return; amend stamps are all-or-none on a superseded row', async () => {
+    const live = (await sql`SELECT id, vat_period_lock_id FROM tax_return_versions WHERE company_id = ${a.fx.companyId}::UUID`) as Row[];
+    const lock = String(live[0]!.vat_period_lock_id);
+    const v1 = String(live[0]!.id);
+    const other = { start: '2026-04-01', end: '2026-05-31' };
+    const otherLock = String(((await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax, net_vat,
+      posted_through, locked_by) VALUES (${a.fx.companyId}::UUID, ${other.start}::DATE, ${other.end}::DATE, 0, 0, 0, now(), ${a.admin.userId})
+      RETURNING id`) as Row[])[0]!.id);
+    const unlocked = String(((await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax, net_vat,
+      posted_through, locked_by, unlocked_at, unlocked_by, unlock_reason) VALUES (${a.fx.companyId}::UUID, '2026-06-01', '2026-07-31', 0, 0, 0,
+      now(), ${a.admin.userId}, now(), ${a.admin.userId}, 'direct') RETURNING id`) as Row[])[0]!.id);
+    const c = await a.fx.pool.connect();
+    await c.query('BEGIN');
+    try {
+      const ins = (start: string, end: string, no: number, lockId: string, amends: string | null, extra = '', vals = '') =>
+        codeOf(c, `${insertSql(', vat_period_lock_id, amends_version_id' + extra)} ($1, 'VAT201', $3, $4, ${no}, '{}', now(), $2, $5, $6${vals})`,
+          [a.fx.companyId, a.admin.userId, start, end, lockId, amends]);
+      expect(await ins(P.start, P.end, 2, otherLock, v1)).toBe('23514'); // another period's lock
+      expect(await ins(other.start, other.end, 1, unlocked, null)).toBe('23514'); // an unlocked lock (and another period's)
+      expect(await ins('2026-06-01', '2026-07-31', 1, unlocked, null)).toBe('23514'); // the right period, but unlocked
+      expect(await ins(other.start, other.end, 2, otherLock, v1)).toBe('23514'); // amends a version of ANOTHER period, same company
+      expect(await ins(P.start, P.end, 2, lock, v1)).toBe('23505'); // v1 is still live: one live version per period
+      // amend_ck: stamps on a row that is not superseded, and a blank reason on a superseded one
+      expect(await ins(other.start, other.end, 1, otherLock, null, ", amended_by, amend_reason, amended_at", ", 'u', 'why', now()")).toBe('23514');
+      expect(await ins(other.start, other.end, 1, otherLock, null, ", status, amended_by, amend_reason, amended_at", ", 'superseded', 'u', '  ', now()")).toBe('23514');
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
 });
 

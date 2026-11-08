@@ -8,7 +8,7 @@ import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { seedInvoice } from './helpers/l1FifoFixture';
 import {
-  callRoute, count, dropReturnFixture, loginAsToken, seedReturnFixture, type ReturnFixture,
+  callRoute, count, dropReturnFixture, loginAsToken, seedReturnFixture, withVersionsMutable, type ReturnFixture,
 } from './helpers/returnVersionsFixture';
 import finalise from '../../pages/api/accounting/sars/returns/[form]/finalise';
 import versions from '../../pages/api/accounting/sars/returns/[form]/versions';
@@ -180,9 +180,10 @@ describeIfDb('VAT201 finalise, against a real ledger', () => {
   });
 
   it('drift is positive when the recorded figures or boxes no longer match the ledger', async () => {
-    await sql`UPDATE tax_return_versions SET figures = jsonb_set(jsonb_set(figures, '{outputTax}', '50'),
+    // The table refuses this UPDATE (immutability trigger); lift it only to fake a ledger that moved.
+    await withVersionsMutable(() => sql`UPDATE tax_return_versions SET figures = jsonb_set(jsonb_set(figures, '{outputTax}', '50'),
       '{sarsFields}', '[{"box":"1"}]'::jsonb)
-      WHERE company_id = ${c()}::UUID AND period_start = ${CLEAN.periodStart}::DATE`;
+      WHERE company_id = ${c()}::UUID AND period_start = ${CLEAN.periodStart}::DATE`);
     const r = await list(c(), rf.admin.token, CLEAN);
     const v = (r.body as { data: { versions: { drift: { drifted: boolean; fields: { name: string }[]; changed: string[] } }[] } }).data.versions[0]!;
     expect(v.drift.drifted).toBe(true);

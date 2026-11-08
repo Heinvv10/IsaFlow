@@ -67,9 +67,19 @@ export async function count(table: 'tax_return_versions' | 'vat_period_locks' | 
   return Number((rows as Row[])[0]!.n);
 }
 
+/** Runs `fn` with the immutability trigger off (the table refuses every DELETE and recorded-figure UPDATE), then back on. */
+export async function withVersionsMutable<T>(fn: () => Promise<T>): Promise<T> {
+  await sql`ALTER TABLE tax_return_versions DISABLE TRIGGER trg_tax_return_versions_immutable`;
+  try {
+    return await fn();
+  } finally {
+    await sql`ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_immutable`;
+  }
+}
+
 export async function dropReturnFixture(rf: ReturnFixture): Promise<void> {
   const c = rf.fx.companyId;
-  await sql`DELETE FROM tax_return_versions WHERE company_id = ${c}::UUID`;
+  await withVersionsMutable(() => sql`DELETE FROM tax_return_versions WHERE company_id = ${c}::UUID`);
   await sql`DELETE FROM vat_returns WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM vat_gate_overrides WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM vat_period_locks WHERE company_id = ${c}::UUID`;
