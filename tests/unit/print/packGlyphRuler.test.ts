@@ -12,6 +12,7 @@ import * as fontkit from 'fontkit';
 import { runPx, scriptRuns, type FaceWeight } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
 import { launchPrintChromium } from './printChromium';
 import { measure } from './measureWidths';
+import { mulberry32 } from './support/mulberry32';
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
@@ -21,14 +22,13 @@ const face = fontkit.create(readFileSync(path.join(process.cwd(), 'public/fonts/
 const GLYPHS = face.characterSet.filter((c) => c > 0x20 && c !== 0xad && !/[\p{M}\p{C}\p{Z}]/u.test(String.fromCodePoint(c)));
 
 /** A fixed pseudo-random sequence, so a failure names the same strings every run. */
-function* lcg(seed: number): Generator<number> { let s = seed; for (;;) { s = (s * 1103515245 + 12345) % 2147483648; yield s / 2147483648; } }
 
 const SIZES = [6, 8, 9.3333, 10, 10.5757, 12, 13.3333, 14.6667, 16, 22, 29.3333];
 const WEIGHTS: FaceWeight[] = [400, 500, 600];
 const outside = (cluster: string): number => { throw new Error(`not in the face: ${cluster}`); };
 
 it('never short of Chromium, at most 1/32px over', async () => {
-  const random = lcg(7);
+  const random = mulberry32(7);
   const next = (): number => random.next().value as number;
   const texts: string[] = ['(133 500 000)', '9 000 000', 'Telecommunications', 'office', 'ffi', 'AVATAR WAVE', '45.0%', 'R&D', '…', '‰', 'Total equity and liabilities', '–1 234.5'];
   for (let i = 0; i < 600; i += 1) {

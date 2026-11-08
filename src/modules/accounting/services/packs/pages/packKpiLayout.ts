@@ -22,7 +22,7 @@ import {
 } from './packFigureFit';
 import { ptToPx, textExactPx } from './packFigureWidth';
 import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, CHROMIUM_MOST, clustersOf, fitUnitsPx, inFace } from './packGlyphRuler';
-import { pieces } from './packLineBreaks';
+import { markedPieces } from './packLineBreaks';
 import { reasonExactPx } from './packReasonWidth';
 import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
 
@@ -121,14 +121,14 @@ export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orien
  * the line summed exactly and floored to the 1/64px unit once, with Chromium's noise margin (`packGlyphRuler.fitUnitsPx`;
  * `exactOf`: `textExactPx`, `reasonExactPx`). `lead` is the delta's arrow cue, its own box at the width Chromium sets it,
  * with `leadText` (the space after it) measured with the first line's words; `mark` is a footnote mark's exact sum, which
- * stays with the last piece. A line that ends at a soft hyphen carries the hyphen Chromium sets there (`Piece.hyphen`).
+ * stays with the last piece (or is a word of its own after a trailing space: `markedPieces`). A line that ends at a soft hyphen carries the hyphen Chromium sets there (`Piece.hyphen`).
  *
  * No guard is kept off the column, and the column is the narrowest Chromium can make it (`kpiColumnBoundsPx`): a line
  * the model fits, Chromium fits (`packLineFit.test.ts`: the rule is never short on the 630-case grid and the ruler's
  * random strings; `packKpiLayoutGrid.test.ts`: no block short, and none a line over, on the grid's 11,520 packs).
  */
 function lineCount(text: string, exactOf: (line: string, hyphen: boolean) => number, avail: number, lead = 0, mark = 0, leadText = ''): number {
-  const all = pieces(text);
+  const all = markedPieces(text, mark > 0);
   let lines = 1;
   let line = '';
   let first = true;

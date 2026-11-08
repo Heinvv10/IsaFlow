@@ -3,8 +3,7 @@
  * (`packGlyphRuler.fitMarginUnits`): 18,000 lines, six streams of 3,000 (seeds 1 to 6), each line random pack words and
  * runs of the glyphs all three faces set until its exact sum passes a random target of 100 to 1,700px; half at 12px
  * (a weight each), a quarter at 10.67px (a heading's size), a quarter 11pt reasons. Seeded, so the set is the one the
- * margin was measured on; a line of one piece (it never wraps) is left out. `mulberry32`: a generator whose state stays
- * inside 32 bits (an LCG multiplied in doubles loses its low bits past 2^53 and repeats).
+ * margin was measured on; a line of one piece (it never wraps) is left out (`support/mulberry32.ts`).
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -13,23 +12,13 @@ import { textExactPx, type FigureWeight } from '@/modules/accounting/services/pa
 import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
 import { reasonExactPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
 import { reasonCase, runCase, type Case } from '../support/lineFitHarness';
+import { mulberry32 } from '../support/mulberry32';
 
 const FILES = ['IBMPlexSans-Regular.woff2', 'IBMPlexSans-Medium.woff2', 'IBMPlexSans-SemiBold.woff2'];
 
 const WORDS = ('the of and to in revenue profit margin AVATAR WAVE Ty To Yo LTA office ffi fluffy Telecommunications 1 234 567 (13 350 000) '
   + '45.0% R&D VAT W nnnn iiii llll mmm Ωμέγα Выручка Ærø prior period budget same month last year not meaningful because comparative base '
   + 'negative Depreciation amortisation Inventories receivables Proceeds disposal property plant equipment intangibles').split(' ');
-
-function* mulberry32(seed: number): Generator<number> {
-  let a = seed >>> 0;
-  for (;;) {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    yield ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  }
-}
 
 export function longLines(): Case[] {
   const sets = FILES.map((f) => new Set(fontkit.create(readFileSync(path.join(process.cwd(), 'public/fonts', f))).characterSet));

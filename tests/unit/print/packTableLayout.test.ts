@@ -169,6 +169,26 @@ describe('a label that ends at a soft hyphen (its last line keeps the hyphen\'s 
   }, 600_000);
 });
 
+describe('a label that ends at a space before its footnote mark (a tenant\'s GL name can): the mark is a word of its own', () => {
+  it('columns within 0.1px of Chromium, never a label line too few, the height never short', async () => {
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const wrong: string[] = [];
+    const labels = [...[14, 30, 38].flatMap((n) => [`${'n'.repeat(n)} ab `, `ab ${'n'.repeat(n)} `]), 'Intercompany recharges ', 'Trade and other receivables\t', 'Gross margin\u00AD ', 'Interest\u00A0cover\u00A0'];
+    for (const label of labels) {
+      for (const digits of [9, 12]) {
+        const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker: true });
+        const real = (await measureTables(atTheFloor(doc), browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;
+        const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
+        const say = `${JSON.stringify(label)}, ${digits} digits`;
+        model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > COLUMN_ERROR_PX) wrong.push(`${say}: column ${c} model ${px.toFixed(3)} vs ${real.columnsPx[c]!.toFixed(3)}`); });
+        if (model.labelLines.some((l, r) => l < real.labelLines[r]!)) wrong.push(`${say}: lines ${model.labelLines} vs ${real.labelLines}`);
+        if (statementTableBodyMm(table, doc.numberConvention.scale, 'portrait') < real.heightMm) wrong.push(`${say}: height short`);
+      }
+    }
+    expect(wrong.slice(0, 10)).toEqual([]);
+  }, 600_000);
+});
+
 describe('adjacent heavy rows share their rules', () => {
   // `border-collapse: collapse`: two rows meet at ONE border, as wide as the wider of the two, half of it on each row;
   // the rule under the last row is shared with the table's edge.

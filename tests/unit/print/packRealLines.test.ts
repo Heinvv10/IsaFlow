@@ -19,6 +19,7 @@ import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks
 import { allShapes, input } from '../services/packs/fixtures/packGridInputs';
 import { launchPrintChromium } from './printChromium';
 import { deltaCase, hold, labelCase, reasonCase, runCase, type Case } from './support/lineFitHarness';
+import { mulberry32 } from './support/mulberry32';
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
@@ -68,9 +69,10 @@ function wording(): { labels: Map<string, number | null>; bases: Set<string>; re
 }
 
 /**
- * How many over by a unit each set may have: measured 1,224 of 2,097 KPI lines and 38 of 60 table lines (the noise
- * margin, `FIT_NOISE_UNITS`, takes a unit wherever an exact sum's fraction of a unit is past a half), and a stated
- * headroom of 3% beside each.
+ * How many over by a unit each set may have: measured 1,205 of 2,085 KPI lines and 38 of 60 table lines (the noise
+ * margin, `packGlyphRuler.fitMarginUnits`, takes a unit wherever an exact sum's fraction of a unit is past one less the
+ * margin), and about 5% of headroom beside each. The delta values are drawn by `support/mulberry32.ts` (113 distinct
+ * texts of 120 draws: values that round alike).
  */
 const OVER = { kpi: 1260, table: 40 } as const;
 
@@ -85,8 +87,8 @@ it('every candidate line of the KPI wording (labels with marks, deltas over a va
   }
   // The values a delta prints: a sweep of magnitudes 0.1 to 50,000, both signs, in percent and in points, over every
   // basis the packs use.
-  let seed = 12345;
-  const next = (): number => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const random = mulberry32(12345);
+  const next = (): number => random.next().value as number;
   const deltas = new Set<string>();
   for (const basis of bases) {
     for (let i = 0; i < 120; i += 1) {

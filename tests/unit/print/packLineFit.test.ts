@@ -21,13 +21,16 @@ import * as fontkit from 'fontkit';
 import { textExactPx, type FigureWeight } from '@/modules/accounting/services/packs/pages/packFigureWidth';
 import { labelMarkExactPx, type KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { kpiTileLines } from '@/modules/accounting/services/packs/pages/packKpiLayout';
-import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
+import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
+import { markedPieces, pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
 import { linesForText } from '@/modules/accounting/services/packs/pages/packLineWrap';
+import { labelLineCount } from '@/modules/accounting/services/packs/pages/packTableLayout';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packTableModel';
 import { launchPrintChromium } from './printChromium';
 import { deltaCase, fillCase, headingCase, hold, labelCase, reasonCase, runCase, type Case } from './support/lineFitHarness';
 import { ADVERSARY_SHORT_LINES } from './fixtures/lineFitShortLines';
 import { longLines } from './fixtures/lineFitLongLines';
+import { mulberry32 } from './support/mulberry32';
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
@@ -37,18 +40,18 @@ const WEIGHTS: FigureWeight[] = [400, 500, 600];
 const FILES = ['IBMPlexSans-Regular.woff2', 'IBMPlexSans-Medium.woff2', 'IBMPlexSans-SemiBold.woff2'];
 const sets = FILES.map((f) => new Set(fontkit.create(readFileSync(path.join(process.cwd(), 'public/fonts', f))).characterSet));
 const GLYPHS = [...sets[0]!].filter((c) => sets.every((s) => s.has(c)) && c > 0x20 && c !== 0xad && !/[\p{M}\p{C}\p{Z}]/u.test(String.fromCodePoint(c))).sort((a, b) => a - b);
-function* lcg(seed: number): Generator<number> { let s = seed; for (;;) { s = (s * 1103515245 + 12345) % 2147483648; yield s / 2147483648; } }
 
 
 /**
- * How many over by a unit each set may have. Measured: grid 353 of 630, random 297 of 600, labels 107 of 128, deltas 24
- * of 48, the adversary's lines 2 of 57 and mixed 723 of 1,500 (0 and 665 at a flat half-unit margin), headings 124 of 289,
- * soft hyphens 84 of 148, long lines 6,862 of 17,996 (the noise margin, `packGlyphRuler.fitMarginUnits`, takes a unit
+ * How many over by a unit each set may have. Measured: grid 353 of 630, random 308 of 600, labels 107 of 128, deltas 24
+ * of 48, the adversary's lines 2 of 57 and mixed 729 of 1,500 (0 and 683 at a flat half-unit margin), headings 124 of 289,
+ * soft hyphens 153 of 228, marks after a trailing space 165 of 242, long lines 6,862 of 17,996 (the noise margin, `packGlyphRuler.fitMarginUnits`, takes a unit
  * wherever an exact sum's fraction of a unit is past one less the margin; a heading's mark box and a soft hyphen's
  * hyphen are rounded up on their own). The caps are those and about 5% of headroom (3 lines on the adversary's 57; 2 of
- * a set of 48).
+ * a set of 48). The random sets are drawn by `support/mulberry32.ts` (600 and 1,500 distinct lines; the LCG they were drawn
+ * by overflowed and repeated: the mixed set was 627 distinct).
  */
-const OVER = { grid: 370, random: 315, labels: 115, deltas: 26, adversary: 3, mixed: 760, headings: 131, softHyphen: 88, long: 7200 } as const;
+const OVER = { grid: 370, random: 325, labels: 115, deltas: 26, adversary: 3, mixed: 760, headings: 131, softHyphen: 161, spacedMark: 174, long: 7200 } as const;
 
 it('the 630-case grid: never narrower than Chromium', async () => {
   const texts = ['(133 500 000)', '9 000 000', 'Telecommunications', 'AVATAR WAVE', 'Revenue', '45.0%', 'To', 'xy', 'Operating expenses', 'W', 'nnnnnnnnnnnnnnnnnnnn', 'R&D', 'Ff', 'office', 'VAT'];
@@ -59,7 +62,7 @@ it('the 630-case grid: never narrower than Chromium', async () => {
 }, 300_000);
 
 it('600 random strings of the glyphs every face sets: never narrower than Chromium', async () => {
-  const random = lcg(11);
+  const random = mulberry32(11);
   const next = (): number => random.next().value as number;
   const sizes = [6, 8, 9.3333, 10, 10.5757, 12, 13.3333, 14.6667, 16, 22, 29.3333];
   const cases: Case[] = [];
@@ -69,6 +72,8 @@ it('600 random strings of the glyphs every face sets: never narrower than Chromi
     for (let j = 0; j < n; j += 1) t += String.fromCodePoint(GLYPHS[Math.floor(next() * GLYPHS.length)]!);
     cases.push(runCase(`a ${t}`, sizes[i % sizes.length]!, WEIGHTS[i % 3]!));
   }
+  // Every line its own (a generator that repeats would hold fewer lines than it says).
+  expect(new Set(cases.map((c) => c.name)).size).toBe(cases.length);
   report('random', await hold(browser, cases, OVER.random), cases.length);
 }, 300_000);
 
@@ -99,7 +104,7 @@ const WORDS = ('the of and to in revenue profit margin AVATAR WAVE Ty To Yo LTA 
   + 'negative Depreciation amortisation Inventories receivables Proceeds disposal property plant equipment intangibles').split(' ');
 
 it('1,500 random lines, multi-box and long (2 to 23 words, 40 to 80 characters among them): never narrower than Chromium', async () => {
-  const random = lcg(29);
+  const random = mulberry32(29);
   const next = (): number => random.next().value as number;
   const pick = <T,>(a: readonly T[]): T => a[Math.floor(next() * a.length)]!;
   const cases: Case[] = [];
@@ -120,6 +125,8 @@ it('1,500 random lines, multi-box and long (2 to 23 words, 40 to 80 characters a
     else if (kind === 3) cases.push(reasonCase(text));
     else cases.push(runCase(text, pick([10.6667, 12, 14.6667]), pick(WEIGHTS)));
   }
+  // Every line its own (a generator that repeats would hold fewer lines than it says).
+  expect(new Set(cases.map((c) => c.name)).size).toBe(cases.length);
   report('mixed', await hold(browser, cases, OVER.mixed), cases.length);
 }, 900_000);
 
@@ -138,17 +145,33 @@ it('every column heading line (each run of two words or more) with each mark 1 t
   report('headings', await hold(browser, cases, OVER.headings), cases.length);
 }, 300_000);
 
+/** A KPI tile of `label` and its mark, nothing else. */
+const tile = (label: string, mark: number | null): KpiTile => ({ label, trendFootnote: mark, figure: { value: 1 }, delta: null, sparklineSvg: null }) as unknown as KpiTile;
+const sup = (mark: number | null): string => (mark === null ? '' : `<sup class="pack-footnote-marker">${mark}</sup>`);
+
+/**
+ * Each text as a KPI label and a table row label at each weight, bare and with marks 3 and 12, by the production fills.
+ * A KPI label holding a tab or a line feed is refused (`packKpiLayout.inPackFaces`), so it is a table label only. A
+ * label and mark of one piece never wrap, so they decide nothing and are left out.
+ */
+function markedFills(texts: readonly string[]): Case[] {
+  return texts.flatMap((text) => [null, 3, 12].filter((mark) => markedPieces(text, mark !== null).length > 1).flatMap((mark) => [
+    ...(/[\t\n\r]/.test(text) ? [] : [fillCase(`kpi label ${JSON.stringify(text)}^${mark}`, `<span class="pack-kpi-label">${text}${sup(mark)}</span>`, (px) => kpiTileLines(tile(text, mark), px).label)]),
+    ...WEIGHTS.map((w) => fillCase(`table label ${w} ${JSON.stringify(text)}^${mark}`, `<span style="font-size:12px;font-weight:${w};white-space:normal">${text}${sup(mark)}</span>`,
+      (px) => labelLineCount(text, mark, w, px, 0))),
+  ]));
+}
+
+it('a label that ends at a space (a tab, a line feed, a run of them) before its mark: the mark is a word of its own, never narrower than Chromium', async () => {
+  const texts = [...LABELS.map((l) => `${l} `), 'Gross margin\u00AD ', 'Net profit\t', 'Debtor days\n', 'Revenue growth   ', 'Interest\u00A0cover '];
+  const cases = markedFills(texts);
+  expect(() => kpiTileLines(tile('Net profit\t', 3), 100)).toThrow(PackRefusal);
+  report('spacedMark', await hold(browser, cases, OVER.spacedMark), cases.length);
+}, 300_000);
+
 it('a text that ends at a soft hyphen keeps the hyphen\'s room on its last line (KPI labels, table labels at each weight): never narrower than Chromium', async () => {
   const texts = [...LABELS.map((l) => `${l}\u00AD`), 'Operating ex\u00ADpenses\u00AD', 'Return on equity\u00AD\u00AD', 'Gross margin\u00AD '];
-  const tile = (label: string, mark: number | null): KpiTile => ({ label, trendFootnote: mark, figure: { value: 1 }, delta: null, sparklineSvg: null }) as unknown as KpiTile;
-  // A mark after a label's trailing space is a word of its own, which no fill models (and no label prints): no mark there.
-  const cases: Case[] = texts.flatMap((text) => [
-    ...(text.endsWith(' ') ? [null] : [null, 3]).map((mark) => fillCase(`kpi label ${JSON.stringify(text)}^${mark}`, `<span class="pack-kpi-label">${text}${mark === null ? '' : `<sup class="pack-footnote-marker">${mark}</sup>`}</span>`,
-      (px) => kpiTileLines(tile(text, mark), px).label)),
-    ...WEIGHTS.flatMap((w) => (text.endsWith(' ') ? [null] : [null, 3]).map((mark) => fillCase(`table label ${w} ${JSON.stringify(text)}^${mark}`,
-      `<span style="font-size:12px;font-weight:${w};white-space:normal">${text}${mark === null ? '' : `<sup class="pack-footnote-marker">${mark}</sup>`}</span>`,
-      (px) => linesForText(pieces(text), (t, hyphen) => textExactPx(t, 12, w, hyphen), labelMarkExactPx(mark, w), px, 0)))),
-  ]);
+  const cases = markedFills(texts);
   report('softHyphen', await hold(browser, cases, OVER.softHyphen), cases.length);
   // A soft hyphen alone after a space: Chromium keeps the hyphen's room after the words and hangs the space; the model
   // counts the space too, so it is over by the space (never short: unfixed, the model fitted it 5px short).

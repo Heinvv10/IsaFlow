@@ -189,3 +189,15 @@ export function pieces(text: string): Piece[] {
   return text.split(COLLAPSIBLE).filter((word) => word !== '').flatMap((word, wi) => wordPieces(word)
     .map((piece, pi) => ({ text: piece, spaced: wi > 0 && pi === 0, hyphen: endsAtSoftHyphen(piece) })));
 }
+
+/**
+ * `text`'s pieces when a footnote mark follows it (`marked`, the `<sup>` printed straight after the label). A label that
+ * ends at a collapsible space (a tenant's GL name can) keeps one space before the mark, where Chromium may break like
+ * any other: the mark is then a word of its own, an empty piece after a space, that a line can end before. Measured:
+ * "Gross margin " with mark 3 sets on one line at 5048/64px, its words, the space and the mark; the mark taken with the
+ * last word, no space, fitted it 2.8px short. Otherwise the mark stays with the last piece (`packLabelMark.test.ts`).
+ */
+export function markedPieces(text: string, marked: boolean): Piece[] {
+  const out = pieces(text);
+  return marked && out.length > 0 && /[ \t\n\r]$/.test(text) ? [...out, { text: '', spaced: true, hyphen: false }] : out;
+}

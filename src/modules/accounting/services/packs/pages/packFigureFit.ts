@@ -27,7 +27,7 @@ import { GUTTER_MM } from './packDisclosureHeight';
 import { type FigureWeight, ptToPx, textExactPx, textPx, textPxUnsnapped } from './packFigureWidth';
 import { NEVER_SHORT, runExactPx, runPx, type Slack } from './packGlyphRuler';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
-import { pieces } from './packLineBreaks';
+import { markedPieces, pieces } from './packLineBreaks';
 import { reasonPx } from './packReasonWidth';
 import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
 import { deltaDirection } from '@/modules/accounting/services/packs/narrative/derivedTileCaptions';
@@ -136,10 +136,11 @@ export function cellPx(cell: FigureCell, fontPx: number, slack: Slack = NEVER_SH
 /**
  * The narrowest a 9pt label (a statement row's, a KPI tile's) can be set: its widest piece, with the footnote mark
  * after the LAST piece, not the longest. Chromium never breaks between a word and the `<sup>` after it, so the mark
- * wraps with the last piece (`packLabelMark.test.ts`).
+ * wraps with the last piece (`packLabelMark.test.ts`), unless a space comes between: then the mark is a word of its own
+ * (`packLineBreaks.markedPieces`).
  */
 export function labelWidestPiecePx(label: string, footnote: number | null | undefined, weight: FigureWeight, slack: Slack = NEVER_SHORT): number {
-  const widths = pieces(label).map((piece) => textPx(piece.text, Math.round(ptToPx(TABLE_FIGURE_MAX_PT)), weight, piece.hyphen, slack));
+  const widths = markedPieces(label, footnote !== null && footnote !== undefined).map((piece) => textPx(piece.text, Math.round(ptToPx(TABLE_FIGURE_MAX_PT)), weight, piece.hyphen, slack));
   const mark = labelMarkPx(footnote, weight, slack);
   return Math.max(0, ...widths.map((w, i) => (i === widths.length - 1 ? w + mark : w)));
 }
