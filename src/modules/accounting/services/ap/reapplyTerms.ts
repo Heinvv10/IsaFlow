@@ -19,17 +19,19 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { localDateFromISO } from '@/lib/dateUtils';
-import { describePaymentTerms, dueDateFromTerms, readTerms } from '../shared/paymentTerms';
-import { isDueDateSource, type DueDateSource } from '../shared/dueDateSource';
+import { dueDateFromTerms, readTerms } from '../shared/paymentTerms';
+import type { DueDateSource } from '../shared/dueDateSource';
+import {
+  REAPPLY_EPS as EPS, REAPPLY_MAX, REAPPLY_UUID as UUID, ReapplyRefusal, fmtTerms, parseReapplyItems, previewTick,
+  reapplyDecision, sourceOfRow, type ReapplyResult,
+} from '../shared/reapplyTermsShared';
 import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 
+// Shared with the AR twin (ar/reapplyTerms.ts); re-exported so the AP callers' imports stay as they were.
+export { REAPPLY_MAX, ReapplyRefusal, parseReapplyItems };
+export type { ReapplyItem, ReapplyResult, ReapplySkipReason } from '../shared/reapplyTermsShared';
+
 export const REAPPLY_OPEN_STATUSES = ['draft', 'pending_approval', 'approved', 'partially_paid'] as const;
-/** The most bills one preview lists, and one apply writes. */
-export const REAPPLY_MAX = 2000;
-const EPS = 0.005;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface ReapplyRow {
   id: string;
@@ -60,11 +62,6 @@ export interface ReapplyPreview {
   /** True when more than REAPPLY_MAX bills would be listed; narrow by supplier. */
   truncated: boolean;
 }
-
-const fmtTerms = (days: number | null, type: string | null): string => {
-  const t = readTerms(days, type);
-  return t ? describePaymentTerms(t.days, t.type) : 'Not set';
-};
 
 export async function previewReapplyTerms(companyId: string, opts: { supplierId?: string } = {}): Promise<ReapplyPreview> {
   if (opts.supplierId !== undefined && !UUID.test(opts.supplierId)) throw new ReapplyRefusal('supplierId must be a supplier id');
@@ -100,56 +97,18 @@ export async function previewReapplyTerms(companyId: string, opts: { supplierId?
     }
     const current = r.due_date == null ? null : String(r.due_date);
     if (current === newDue) { unchanged += 1; continue; }
-    const source: DueDateSource = isDueDateSource(r.due_date_source) ? r.due_date_source : 'legacy';
-    const handSet = source === 'manual' || source === 'document';
+    const source = sourceOfRow(r.due_date_source);
     out.push({
       id: String(r.id), invoiceNumber: String(r.invoice_number), supplierId: String(r.supplier_id),
       supplierName: String(r.supplier_name), status: String(r.status), invoiceDate: String(r.invoice_date), balance,
       currentDueDate: current, currentSource: source, newDueDate: newDue, terms: fmtTerms(days, type),
-      preselected: !handSet,
-      note: handSet ? (source === 'manual' ? 'Due date was set by hand' : 'Due date came from the document') : null,
+      ...previewTick(source),
     });
   }
   return {
     rows: out.slice(0, REAPPLY_MAX), unchanged, truncated: out.length > REAPPLY_MAX,
     skippedSuppliers: [...skipped.values()],
   };
-}
-
-export class ReapplyRefusal extends Error {
-  constructor(message: string) { super(message); this.name = 'ReapplyRefusal'; }
-}
-
-export type ReapplySkipReason = 'not_found' | 'not_open' | 'date_changed' | 'terms_not_set' | 'terms_changed' | 'already_dated';
-export interface ReapplyResult {
-  updated: { id: string; invoiceNumber: string; from: string | null; to: string }[];
-  skipped: { id: string; reason: ReapplySkipReason }[];
-}
-
-/** A confirmed bill: its new date, and the due date (null: none) and source the preview showed it with. */
-export interface ReapplyItem { id: string; dueDate: string; fromDueDate: string | null; fromSource: DueDateSource }
-
-const isRealDate = (v: unknown): v is string => typeof v === 'string' && ISO.test(v) && localDateFromISO(v) !== null;
-
-/** Parse the confirmed items: every one a bill id, a real new date, the previewed date and source; no bill twice; at most REAPPLY_MAX. */
-export function parseReapplyItems(raw: unknown): ReapplyItem[] {
-  if (!Array.isArray(raw) || raw.length === 0) throw new ReapplyRefusal('items must list at least one bill and its new due date');
-  if (raw.length > REAPPLY_MAX) throw new ReapplyRefusal(`At most ${REAPPLY_MAX} bills at a time`);
-  const seen = new Set<string>();
-  return raw.map((it, i) => {
-    const o = (it ?? {}) as Record<string, unknown>;
-    const id = typeof o.id === 'string' ? o.id.toLowerCase() : '';
-    const dueDate = typeof o.dueDate === 'string' ? o.dueDate : '';
-    if (!UUID.test(id)) throw new ReapplyRefusal(`items[${i}].id must be a bill id`);
-    if (!isRealDate(dueDate)) throw new ReapplyRefusal(`items[${i}].dueDate must be a real date as YYYY-MM-DD`);
-    if (!(o.fromDueDate === null || isRealDate(o.fromDueDate))) {
-      throw new ReapplyRefusal(`items[${i}].fromDueDate must be the previewed current due date (YYYY-MM-DD, or null when it had none)`);
-    }
-    if (!isDueDateSource(o.fromSource)) throw new ReapplyRefusal(`items[${i}].fromSource must be the previewed current source (terms, manual, document or legacy)`);
-    if (seen.has(id)) throw new ReapplyRefusal(`items[${i}]: bill ${id} is listed twice`);
-    seen.add(id);
-    return { id, dueDate, fromDueDate: o.fromDueDate, fromSource: o.fromSource };
-  });
 }
 
 /** Write the confirmed dates. Runs in the request's transaction (withAuth): the row locks hold to its commit. */
@@ -173,25 +132,20 @@ export async function applyReapplyTerms(companyId: string, rawItems: unknown): P
       LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
       WHERE si.id = ${item.id}::UUID AND si.company_id = ${companyId}::UUID
     `) as DbRow[];
-    // The date or its source moved since the preview (someone set an agreed date by hand, say): what was confirmed was
-    // a different bill state, so it is never overwritten unseen. Unknown sources read as `legacy`, as the preview does.
+    // A date or source that moved since the preview (an agreed date set by hand, say) is never overwritten unseen;
+    // unknown sources read as `legacy`, as the preview does (reapplyDecision).
     const from = d?.due_date == null ? null : String(d.due_date);
-    const fromSource: DueDateSource = isDueDateSource(d?.due_date_source) ? d.due_date_source : 'legacy';
-    if (from !== item.fromDueDate || fromSource !== item.fromSource) {
-      result.skipped.push({ id: item.id, reason: 'date_changed' }); continue;
-    }
     const days = d?.payment_terms == null ? null : Number(d.payment_terms);
     const type = d?.payment_terms_type == null ? null : String(d.payment_terms_type);
     const newDue = d && readTerms(days, type) ? dueDateFromTerms(String(d.invoice_date), days, type) : null;
-    if (newDue === null) { result.skipped.push({ id: item.id, reason: 'terms_not_set' }); continue; }
-    if (newDue !== item.dueDate) { result.skipped.push({ id: item.id, reason: 'terms_changed' }); continue; }
-    if (from === newDue) { result.skipped.push({ id: item.id, reason: 'already_dated' }); continue; }
+    const decision = reapplyDecision(item, { dueDate: from, source: sourceOfRow(d?.due_date_source) }, newDue);
+    if ('skip' in decision) { result.skipped.push({ id: item.id, reason: decision.skip }); continue; }
     await sql`
-      UPDATE supplier_invoices SET due_date = ${newDue}::DATE, due_date_source = 'terms', updated_at = NOW()
+      UPDATE supplier_invoices SET due_date = ${decision.write}::DATE, due_date_source = 'terms', updated_at = NOW()
       WHERE id = ${item.id}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
         AND status = ANY(${[...REAPPLY_OPEN_STATUSES]}::TEXT[])
     `;
-    result.updated.push({ id: item.id, invoiceNumber: String(row.invoice_number), from, to: newDue });
+    result.updated.push({ id: item.id, invoiceNumber: String(row.invoice_number), from, to: decision.write });
   }
   return result;
 }

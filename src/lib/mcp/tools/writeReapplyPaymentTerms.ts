@@ -14,15 +14,7 @@ import {
   previewReapplyTerms,
 } from '@/modules/accounting/services/ap/reapplyTerms';
 import { castableArgError, ok, strArg, toolError } from './toolHelpers';
-
-/** The tool's snake_case items as the service's { id, dueDate, fromDueDate, fromSource } (validated by parseReapplyItems). */
-function toPairs(raw: unknown): unknown {
-  if (!Array.isArray(raw)) return raw;
-  return raw.map((it) => {
-    const o = (it ?? {}) as Record<string, unknown>;
-    return { id: o.invoice_id, dueDate: o.due_date, fromDueDate: o.current_due_date, fromSource: o.current_source };
-  });
-}
+import { itemsCheckOf, reapplyItemsSchema, toPairs } from './reapplyToolShared';
 
 export const reapplyPaymentTermsTool: McpTool = {
   name: 'reapply_payment_terms',
@@ -45,22 +37,7 @@ export const reapplyPaymentTermsTool: McpTool = {
     properties: {
       supplier_id: { type: 'string', description: 'Limit the preview to one supplier (UUID from list_suppliers).' },
       dry_run: { type: 'boolean', description: 'true previews and writes nothing; false applies `items`. Required, so a bare call never writes.' },
-      items: {
-        type: 'array',
-        maxItems: REAPPLY_MAX,
-        description: 'Required when dry_run is false: the confirmed rows, taken from the preview. With dry_run true they are checked as the live call checks them and items_check says what each would do: update, date_changed, terms_changed, or not_listed (not in this preview: already on that date, closed, outside supplier_id, or past a truncated list).',
-        items: {
-          type: 'object',
-          properties: {
-            invoice_id: { type: 'string', description: 'Bill UUID from the preview row.' },
-            due_date: { type: 'string', format: 'date', description: 'The preview row\'s new_due_date, YYYY-MM-DD.' },
-            current_due_date: { type: ['string', 'null'], description: 'The preview row\'s current_due_date (null when it had none).' },
-            current_source: { type: 'string', enum: ['terms', 'manual', 'document', 'legacy'], description: 'The preview row\'s current_source.' },
-          },
-          required: ['invoice_id', 'due_date', 'current_due_date', 'current_source'],
-          additionalProperties: false,
-        },
-      },
+      items: reapplyItemsSchema(REAPPLY_MAX, 'Bill', 'supplier_id'),
       idempotency_key: { type: 'string' },
     },
     required: ['dry_run', 'idempotency_key'],
@@ -79,14 +56,7 @@ export const reapplyPaymentTermsTool: McpTool = {
         // and each one is matched against this preview, so the agent can dry-run exactly what it will send.
         const pairs = args.items === undefined ? null : parseReapplyItems(toPairs(args.items));
         const p = await previewReapplyTerms(ctx.companyId, { supplierId: strArg(args, 'supplier_id') });
-        const listed = new Map(p.rows.map((r) => [r.id, r]));
-        const itemsCheck = pairs?.map(({ id, dueDate, fromDueDate, fromSource }) => {
-          const r = listed.get(id);
-          const would = !r ? 'not_listed'
-            : r.currentDueDate !== fromDueDate || r.currentSource !== fromSource ? 'date_changed'
-              : r.newDueDate === dueDate ? 'update' : 'terms_changed';
-          return { invoice_id: id, would };
-        });
+        const itemsCheck = pairs ? itemsCheckOf(pairs, p.rows) : undefined;
         // A preview writes nothing: it must not occupy the idempotency key the confirmed call reuses (registry.ts).
         return { ...ok({
           dry_run: true,
