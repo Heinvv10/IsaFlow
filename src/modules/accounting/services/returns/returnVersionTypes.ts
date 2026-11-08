@@ -1,0 +1,50 @@
+/** Types and refusals for tax return versions (wave 5 L1a). */
+
+export type ReturnForm = 'VAT201' | 'EMP201';
+export type ReturnVersionStatus = 'finalised' | 'filed' | 'superseded';
+
+export interface ReturnVersion {
+  id: string;
+  formType: ReturnForm;
+  periodStart: string;
+  periodEnd: string;
+  versionNo: number;
+  status: ReturnVersionStatus;
+  /** VAT201: outputTax, inputTax, netVat, sarsFields. EMP201: generateEMP201's figures plus runs. */
+  figures: Record<string, unknown>;
+  postedThrough: string;
+  vatPeriodLockId: string | null;
+  sarsSubmissionId: string | null;
+  filedReference: string | null;
+  amendsVersionId: string | null;
+  finalisedBy: string;
+  finalisedAt: string;
+  filedBy: string | null;
+  filedAt: string | null;
+  amendedBy: string | null;
+  amendReason: string | null;
+  amendedAt: string | null;
+}
+
+/** A finalise the caller can fix or must wait out. Raised before the first write. */
+export class ReturnRefusal extends Error {
+  readonly status: 400 | 409;
+  constructor(status: 400 | 409, message: string) {
+    super(message);
+    this.name = 'ReturnRefusal';
+    this.status = status;
+  }
+}
+
+export interface ReturnActor {
+  userId: string;
+  /** The caller's company role, from withAuth. */
+  role: string;
+}
+
+export interface FinaliseOptions {
+  /** Owner/admin only: records an override when blocking VAT exceptions are outstanding. */
+  overrideReason?: string;
+  /** Record a period failing SARS's 15% check, as the lock route's force does. */
+  force?: boolean;
+}
