@@ -2,10 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const mocks = vi.hoisted(() => ({
+  assertNot: vi.fn(),
   vat: vi.fn(), emp: vi.fn(), actor: vi.fn(), limit: vi.fn(),
 }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
+vi.mock('@/lib/auth/impersonationGuard', async () => {
+  const real = await vi.importActual<typeof import('@/lib/auth/impersonationGuard')>('@/lib/auth/impersonationGuard');
+  return { ...real, assertNotImpersonating: mocks.assertNot };
+});
 vi.mock('@/lib/auth/impersonationSessions', () => ({ currentSessionActor: mocks.actor }));
 vi.mock('@/lib/rateLimit', () => ({ checkReportRateLimit: mocks.limit, INTERACTIVE_REPORT_LIMIT: { max: 120, windowSecs: 900 } }));
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -34,6 +39,7 @@ describe('GET /api/accounting/sars/return-drill', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.actor.mockResolvedValue('self');
+    mocks.assertNot.mockResolvedValue(undefined);
     mocks.limit.mockResolvedValue(true);
     mocks.vat.mockResolvedValue({ source: 'none' });
     mocks.emp.mockResolvedValue({ rows: [] });
@@ -59,6 +65,16 @@ describe('GET /api/accounting/sars/return-drill', () => {
     expect(r.status).toBe(403);
     expect(JSON.stringify(r.body)).toContain('AGENT_FORBIDDEN');
     expect(mocks.emp).not.toHaveBeenCalled();
+  });
+
+  it('refuses Login-as for EMP201 (403 IMPERSONATION_FORBIDDEN) but not for VAT', async () => {
+    const { ImpersonationForbiddenError } = await import('@/lib/auth/impersonationGuard');
+    mocks.assertNot.mockRejectedValue(new ImpersonationForbiddenError());
+    const emp = await call('owner', { ...Q, return: 'emp201', field: 'paye' });
+    expect(emp.status).toBe(403);
+    expect(JSON.stringify(emp.body)).toContain('IMPERSONATION_FORBIDDEN');
+    expect(mocks.emp).not.toHaveBeenCalled();
+    expect((await call('owner', { ...Q, return: 'vat201', field: '4' })).status).toBe(200);
   });
 
   it('another company\'s (or any unknown) run is 404, scoped to the caller\'s company', async () => {

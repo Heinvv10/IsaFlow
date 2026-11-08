@@ -15,6 +15,7 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { canWrite } from '@/lib/auth/writeRoles';
 import { withNoStore } from '@/lib/auth/withNoStore';
+import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { currentSessionActor } from '@/lib/auth/impersonationSessions';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
@@ -55,6 +56,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if ((await currentSessionActor()) === 'unknown') {
       return apiResponse.error(res, ErrorCode.FORBIDDEN, 'Only a person signed in as themselves can read payroll detail; an agent or a job cannot.',
         { reason: 'AGENT_FORBIDDEN' });
+    }
+    // Per-employee pay for everyone: refused under a platform admin's Login-as, as the payslip export is.
+    try {
+      await assertNotImpersonating();
+    } catch (err) {
+      if (respondIfImpersonationForbidden(res, err)) return;
+      throw err;
     }
   }
   if (!(await checkReportRateLimit(companyId, `return-drill:${ret}:u:${user.id}`, INTERACTIVE_REPORT_LIMIT))) {
