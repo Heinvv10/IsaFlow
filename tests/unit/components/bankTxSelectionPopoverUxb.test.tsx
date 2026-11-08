@@ -22,6 +22,7 @@ describe('Selection popover: Enter on an option', () => {
     fireEvent.keyDown(screen.getByRole('group', { name: /Bank transactions/ }), { key: 'ArrowDown' }); // row a: can be accepted
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`Choose account, ${label}`) }));
     const option = screen.getByRole('button', { name: /7000/ });
+    option.focus(); // keyboard users Tab from the search box to an option
     const notPrevented = fireEvent.keyDown(option, { key: 'Enter' });
     expect(notPrevented, 'the browser may still turn Enter into the button click').toBe(true);
     expect(p.onAccept).not.toHaveBeenCalled();
