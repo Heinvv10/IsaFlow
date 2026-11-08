@@ -17,14 +17,14 @@ import { formatFigureText } from '@/components/accounting/packs/primitives/packF
 import { GUTTER_MM } from './packDisclosureHeight';
 import type { PackPageBlock } from './packPageModel';
 import { PACK_SCALE } from './packScale';
-import { CONTAINER_WIDTH_MM, PAGE_WIDTH_MM, PT_MM, textWidthEms, type PageOrientation } from './packTextMetrics';
+import { kpiFit } from './packFigureFit';
+import { PAGE_WIDTH_MM, PT_MM, textWidthEms, type PageOrientation } from './packTextMetrics';
 
 type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
 
 export const KPI_COLUMNS = 4;
-/** `.pack-kpi-value`: 22pt, never below 12pt. */
+/** `.pack-kpi-value`: 22pt, unless the figure fit stamped a smaller size. */
 const FIGURE_MAX_PT = 22;
-const FIGURE_MIN_PT = 12;
 
 const MM_PX = 96 / 25.4;
 
@@ -40,17 +40,13 @@ function widestEmsOf(tiles: readonly KpiTile[]): number[] {
 }
 
 /**
- * The size `.pack-kpi-value` sets a row's figures at, in px: `max(12pt, min(22pt, (100cqw - 3 * gutter) / ems))`, with
- * 100cqw the width a container query reads in production's print (`CONTAINER_WIDTH_MM`, 1/64px more than the width
- * lines break at) and the ems as the component states them (`--pack-fit-ems`, to two decimals). So the model's size is
- * the printed one (`tests/unit/print/packKpiFigureSize.test.ts` holds it to Chromium's computed size).
+ * The size `.pack-kpi-value` sets a row's figures at, in px: 22pt, or the whole-pixel size the figure fit stamped on
+ * the row (`packFigureFit.kpiFit`, `.pack-kpi-tiles.is-fitted`). Nothing in it comes from the content width any more,
+ * so the 1/64px a container query reads beyond the line width cannot move it
+ * (`tests/unit/print/packKpiFigureSize.test.ts` holds it to Chromium's computed size).
  */
 export function kpiFigurePx(tiles: readonly KpiTile[], orientation: PageOrientation = 'portrait'): number {
-  const totalEms = Number(widestEmsOf(tiles).reduce((sum, ems) => sum + ems, 0).toFixed(2));
-  const maxPx = FIGURE_MAX_PT * PT_MM * MM_PX;
-  if (totalEms === 0) return maxPx;
-  const roomPx = (CONTAINER_WIDTH_MM[orientation] - (KPI_COLUMNS - 1) * GUTTER_MM) * MM_PX;
-  return Math.min(maxPx, Math.max(FIGURE_MIN_PT * PT_MM * MM_PX, roomPx / totalEms));
+  return kpiFit(tiles, PACK_SCALE, orientation).px ?? FIGURE_MAX_PT * PT_MM * MM_PX;
 }
 
 /** The width of each of the four columns, in millimetres. */
