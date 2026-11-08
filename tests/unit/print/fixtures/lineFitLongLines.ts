@@ -46,3 +46,20 @@ export function longLines(): Case[] {
   }
   return cases;
 }
+
+/**
+ * Lines of ONE glyph repeated, then a space and the glyph (so the line breaks somewhere), at widths of 150 to 1,800px:
+ * the narrow and the wide glyphs, punctuation and digits, at the pack's sizes. Chromium's noise gathers glyph by glyph,
+ * so a line of many narrow glyphs runs furthest past its exact sum for its width (the adversary's review of #1235 round
+ * 2: "WWWW..." at 10.67px/500 and 914px left 0.112 of a unit).
+ */
+export function repeatedGlyphLines(): Case[] {
+  const chars = "i l j . , ' | ! : ; I f t r 1 ı · ʼ ‘ ’ - ( ) [ ] / 0 W m".split(' ');
+  const sizes: Array<[number, FigureWeight]> = [[12, 400], [12, 500], [12, 600], [10.6667, 500], [14.6667, 400]];
+  const cases: Case[] = [];
+  for (const c of chars) for (const [px, weight] of sizes) for (let target = 150; target <= 1800; target += 75) {
+    const n = Math.max(1, Math.round(target / textExactPx(c, px, weight)));
+    cases.push(runCase(`${c.repeat(n)} ${c}`, px, weight));
+  }
+  return cases;
+}

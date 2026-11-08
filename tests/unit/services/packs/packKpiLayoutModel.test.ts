@@ -44,7 +44,7 @@ describe('a tile line at the edge of its column', () => {
     const source = all.find((t) => t.delta !== null)!;
     const tile = alone(source, { delta: source.delta, figure: { ...source.figure, value: source.figure.value ?? 1 } });
     // The cue and the words summed exactly, floored once.
-    const whole = fitUnitsPx(CUE + exact(` ${deltaText(tile)}`));
+    const whole = fitUnitsPx(CUE + exact(` ${deltaText(tile)}`), 12);
     expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(LABEL_LINE_MM, 6);
   });
 
@@ -52,7 +52,7 @@ describe('a tile line at the edge of its column', () => {
     const source = all.find((t) => t.trendFootnote != null && t.label.includes(' '))!;
     const tile = alone(source, { label: source.label, trendFootnote: source.trendFootnote, figure: { ...source.figure, value: source.figure.value ?? 1 } });
     // The label and its mark summed exactly, floored once (each floored on its own reads a unit narrower).
-    const whole = fitUnitsPx(exact(tile.label) + labelMarkExactPx(tile.trendFootnote));
+    const whole = fitUnitsPx(exact(tile.label) + labelMarkExactPx(tile.trendFootnote), 12);
     expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(LABEL_LINE_MM, 6);
   });
 
@@ -60,14 +60,14 @@ describe('a tile line at the edge of its column', () => {
     const source = all.find((t) => t.figure.value !== null)!;
     const tile = alone(source, { label: 'Ab Cd\u00ADefghijklmnop' });
     // "Ab Cd-" fits a column exactly its width with the hyphen, and not 1/128px less (then "Cd-" and the rest wrap).
-    const withHyphen = fitUnitsPx(textExactPx('Ab Cd\u00AD', 12, 400, true));
+    const withHyphen = fitUnitsPx(textExactPx('Ab Cd\u00AD', 12, 400, true), 12);
     expect(kpiTileMm(tile, withHyphen - HAIR) - kpiTileMm(tile, withHyphen)).toBeCloseTo(LABEL_LINE_MM, 6);
   });
 
   it('a not-meaningful reason fits the exact width of the whole reason, and no narrower', () => {
     const source = all.find((t) => t.figure.value === null && (t.figure.unavailable ?? '').includes(' '))!;
     const tile = alone(source, {});
-    const whole = fitUnitsPx(reasonExactPx(tile.figure.unavailable ?? ''));
+    const whole = fitUnitsPx(reasonExactPx(tile.figure.unavailable ?? ''), ptToPx(11));
     expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(REASON_LINE_MM, 6);
   });
 });
@@ -100,7 +100,8 @@ describe('a column a figure holds open', () => {
   it('where the narrowest and widest Chromium can set it differ, it is the narrowest, strictly below the widest', () => {
     const base = tiles(DEMO);
     let checked = 0;
-    for (let n = 0; n < 400 && checked < 3; n += 1) {
+    let belowRoundedUp = 0;
+    for (let n = 0; n < 400 && (checked < 3 || belowRoundedUp < 1); n += 1) {
       const word = `Intercompanyrechargesreceivable${Array.from(String(n), (d) => 'aeilmnorst'[Number(d)]).join('')}`;
       const row = base.map((t, i) => (i === 0 ? { ...t, label: word, trendFootnote: null } : t));
       const fontPx = kpiFit(row, SCALE, 'portrait').px ?? ptToPx(KPI_FIGURE_MAX_PT);
@@ -112,8 +113,12 @@ describe('a column a figure holds open', () => {
       checked += 1;
       expect(columns[0], word).toBe(least);
       expect(columns[0]!, word).toBeLessThan(most);
+      // Where the exact sum sits just past a grid point, the narrowest is that grid point, a unit below the sum rounded
+      // up: Chromium's noise can set it there.
+      if (least < kpiColumnMinPx(row, SCALE, fontPx, AS_CHROMIUM_SETS)[0]!) belowRoundedUp += 1;
     }
-    expect(checked, 'no held-open column whose bounds differ: the test is vacuous').toBe(3);
+    expect(checked, 'no held-open column whose bounds differ: the test is vacuous').toBeGreaterThanOrEqual(3);
+    expect(belowRoundedUp, 'no held-open column whose narrowest bound is below its exact width rounded up').toBeGreaterThan(0);
   });
 });
 

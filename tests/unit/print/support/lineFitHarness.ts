@@ -25,14 +25,14 @@ const sup = (n: number | null): string => (n === null ? '' : `<sup class="pack-f
 export const runCase = (text: string, px: number, weight: FigureWeight, mark: number | null = null): Case => ({
   name: `${px}px/${weight} ${JSON.stringify(text)}${mark === null ? '' : `^${mark}`}`,
   html: `<span style="font-size:${px}px;font-weight:${weight};white-space:normal">${esc(text)}${sup(mark)}</span>`,
-  model: fitUnitsPx(textExactPx(text, px, weight) + (mark === null ? 0 : textExactPx(String(mark), 0.7 * px, weight))),
+  model: fitUnitsPx(textExactPx(text, px, weight) + (mark === null ? 0 : textExactPx(String(mark), 0.7 * px, weight)), px),
 });
 
 /** A KPI tile's label (9pt) with its footnote mark, as the tile prints it. */
 export const labelCase = (text: string, mark: number | null): Case => ({
   name: `label ${JSON.stringify(text)}${mark === null ? '' : `^${mark}`}`,
   html: `<span class="pack-kpi-label">${esc(text)}${sup(mark)}</span>`,
-  model: fitUnitsPx(textExactPx(text, 12, 400) + labelMarkExactPx(mark)),
+  model: fitUnitsPx(textExactPx(text, 12, 400) + labelMarkExactPx(mark), 12),
 });
 
 /** The widest of the three arrow cues, its own box at the width Chromium sets it. */
@@ -43,14 +43,14 @@ export const deltaCase = (text: string, arrow: string | null): Case => ({
   name: `delta ${arrow ?? '(later line)'} ${JSON.stringify(text)}`,
   html: arrow === null ? `<span class="pack-kpi-delta is-favourable">${esc(text)}</span>`
     : `<span class="pack-kpi-delta is-favourable"><span class="pack-kpi-delta-cue">${arrow}</span> ${esc(text)}</span>`,
-  model: arrow === null ? fitUnitsPx(textExactPx(text, 12, 400)) : fitUnitsPx(cuePx(arrow) + textExactPx(` ${text}`, 12, 400)),
+  model: arrow === null ? fitUnitsPx(textExactPx(text, 12, 400), 12) : fitUnitsPx(cuePx(arrow) + textExactPx(` ${text}`, 12, 400), 12),
 });
 
 /** A KPI tile's not-meaningful reason (11pt italic). */
 export const reasonCase = (text: string): Case => ({
   name: `reason ${JSON.stringify(text)}`,
   html: `<span class="pack-kpi-unavailable">${esc(text)}</span>`,
-  model: fitUnitsPx(reasonExactPx(text)),
+  model: fitUnitsPx(reasonExactPx(text), ptToPx(11)),
 });
 
 /**

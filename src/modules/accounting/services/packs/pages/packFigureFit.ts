@@ -62,7 +62,7 @@ export const labelMarkExactPx = (number: number | null | undefined, weight: Figu
 export const labelMarkPx = (number: number | null | undefined, weight: FigureWeight = 400, slack: Slack = NEVER_SHORT): number => (number === null || number === undefined ? 0 : markPx(String(number), 12, weight, slack));
 
 /** `.pack-table th`: 8pt, weight 500, uppercase, 0.06em letter-spacing (which a superscript inherits as computed). */
-const HEADING_PX = ptToPx(8);
+export const HEADING_PX = ptToPx(8);
 const HEADING_TRACKING_PX = 0.06 * HEADING_PX;
 const headingRunPx = (text: string, fontPx: number, slack: Slack = NEVER_SHORT): number => runPx(text, fontPx, 500,
   (cluster, sizePx) => textPx(cluster, sizePx, 500) + HEADING_TRACKING_PX, HEADING_TRACKING_PX, false, slack);

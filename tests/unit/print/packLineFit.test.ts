@@ -9,9 +9,10 @@
  * glyphs all three faces set, KPI labels with their marks and delta lines with their cues, every line the adversary's
  * review of #1235 found short at a 1/16-unit margin, 1,500 random lines of 2 to 23 words and 40 to 80 characters
  * (runs at the pack's sizes and weights with and without a mark, labels with marks, delta lines, reasons), every
- * column heading line with each mark it can carry, texts that end at a soft hyphen, and 18,000 lines of 100 to 1,800px
- * (the noise margin grows with the line: `packGlyphRuler.fitMarginUnits`). `packRealLines.test.ts` walks the pack's own
- * wording.
+ * column heading line with each mark it can carry, texts that end at a soft hyphen, marked labels at every ending (and
+ * their line counts from min-content up), and 21,331 lines of 100 to 1,800px, random and of one glyph repeated (the
+ * noise margin grows with the line and its glyphs: `packGlyphRuler.fitMarginUnits`). `packRealLines.test.ts` walks the
+ * pack's own wording.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
@@ -29,7 +30,7 @@ import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pag
 import { launchPrintChromium } from './printChromium';
 import { deltaCase, fillCase, headingCase, hold, holdLines, labelCase, reasonCase, runCase, type Case } from './support/lineFitHarness';
 import { ADVERSARY_SHORT_LINES } from './fixtures/lineFitShortLines';
-import { longLines } from './fixtures/lineFitLongLines';
+import { longLines, repeatedGlyphLines } from './fixtures/lineFitLongLines';
 import { mulberry32 } from './support/mulberry32';
 
 let browser: Browser;
@@ -44,14 +45,15 @@ const GLYPHS = [...sets[0]!].filter((c) => sets.every((s) => s.has(c)) && c > 0x
 
 /**
  * How many over by a unit each set may have. Measured: grid 353 of 630, random 308 of 600, labels 107 of 128, deltas 24
- * of 48, the adversary's lines 2 of 57 and mixed 729 of 1,500 (0 and 683 at a flat half-unit margin), headings 124 of 289,
- * soft hyphens 153 of 228, marks after a trailing space 165 of 242, marks at each ending 377 of 496, long lines 6,862 of 17,996 (the noise margin, `packGlyphRuler.fitMarginUnits`, takes a unit
- * wherever an exact sum's fraction of a unit is past one less the margin; a heading's mark box and a soft hyphen's
- * hyphen are rounded up on their own). The caps are those and about 5% of headroom (3 lines on the adversary's 57; 2 of
+ * of 48, the adversary's lines 0 of 57 and mixed 718 of 1,500 (0 and 683 at a flat half-unit margin), headings 124 of 289,
+ * soft hyphens 153 of 228, marks after a trailing space 165 of 242, marks at each ending 377 of 496, long lines 7,257
+ * of 17,996, one glyph repeated 1,181 of 3,335 (the noise margin, `packGlyphRuler.fitMarginUnits`, takes a unit wherever
+ * an exact sum's fraction of a unit is past one less the margin; a heading's mark box and a soft hyphen's hyphen are
+ * rounded up on their own). The caps are those and about 5% of headroom (3 lines on the adversary's 57; 2 of
  * a set of 48). The random sets are drawn by `support/mulberry32.ts` (600 and 1,500 distinct lines; the LCG they were drawn
  * by overflowed and repeated: the mixed set was 627 distinct).
  */
-const OVER = { grid: 370, random: 325, labels: 115, deltas: 26, adversary: 3, mixed: 760, headings: 131, softHyphen: 161, spacedMark: 174, markEnds: 395, long: 7200 } as const;
+const OVER = { grid: 370, random: 325, labels: 115, deltas: 26, adversary: 3, mixed: 760, headings: 131, softHyphen: 161, spacedMark: 174, markEnds: 395, long: 7620, repeated: 1240 } as const;
 
 it('the 630-case grid: never narrower than Chromium', async () => {
   const texts = ['(133 500 000)', '9 000 000', 'Telecommunications', 'AVATAR WAVE', 'Revenue', '45.0%', 'To', 'xy', 'Operating expenses', 'W', 'nnnnnnnnnnnnnnnnnnnn', 'R&D', 'Ff', 'office', 'VAT'];
@@ -178,15 +180,24 @@ it('a text that ends at a soft hyphen keeps the hyphen\'s room on its last line 
   // A soft hyphen alone after a space: Chromium keeps the hyphen's room after the words and hangs the space; the model
   // counts the space too, so it is over by the space (never short: unfixed, the model fitted it 5px short).
   const lone = WEIGHTS.map((w) => fillCase(`table label ${w} "Net profit \u00AD"`, `<span style="font-size:12px;font-weight:${w};white-space:normal">Net profit \u00AD</span>`,
-    (px) => linesForText(pieces('Net profit \u00AD'), (t, hyphen) => textExactPx(t, 12, w, hyphen), 0, px, 0)));
+    (px) => linesForText(pieces('Net profit \u00AD'), { exactPx: (t, hyphen) => textExactPx(t, 12, w, hyphen), fontPx: 12 }, 0, px, 0)));
   await hold(browser, lone, lone.length, 64 * 3);
 }, 300_000);
 
-it('18,000 lines of 100 to 1,800px at the pack\'s sizes (12px at each weight, 10.67px, 11pt reasons): never narrower than Chromium, the margin growing with the line', async () => {
+it('18,000 random lines of 100 to 1,800px at the pack\'s sizes (12px at each weight, 10.67px, 11pt reasons): never narrower than Chromium, the margin growing with the line', async () => {
   const cases = longLines();
   expect(cases.length).toBeGreaterThan(17_000);
-  // Past 1,536px the margin itself passes a unit, so a line can be two units over.
+  // Past about 1,400px the margin itself passes a unit, so a line can be two units over.
   report('long', await hold(browser, cases, OVER.long, 2), cases.length);
+}, 900_000);
+
+// One glyph repeated is where Chromium's noise runs furthest for a line's width ("fff..." at 10.67px/500 is 1.39 units
+// past its exact sum at 1,741px), so these hold the margin's growth. Over is not bounded here: Chromium sets a run of
+// slashes at 10.67px/500 up to 5 units NARROWER than its exact sum (the model is over, the safe way).
+it('3,335 lines of one glyph repeated, 150 to 1,800px at the pack\'s sizes: never narrower than Chromium', async () => {
+  const cases = repeatedGlyphLines();
+  expect(cases).toHaveLength(3335);
+  report('repeated', await hold(browser, cases, OVER.repeated, 64), cases.length);
 }, 900_000);
 
 // Chromium reads across the <sup>: it breaks before a mark wherever it would break before a digit. Each ending held: the

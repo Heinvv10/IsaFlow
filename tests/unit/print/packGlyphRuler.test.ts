@@ -9,9 +9,10 @@ import type { Browser } from 'playwright';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
-import { runPx, scriptRuns, type FaceWeight } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
+import { AS_CHROMIUM_SETS, runPx, scriptRuns, type FaceWeight } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
 import { launchPrintChromium } from './printChromium';
 import { measure } from './measureWidths';
+import { labelWidestPiecePx } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { mulberry32 } from './support/mulberry32';
 
 let browser: Browser;
@@ -92,6 +93,21 @@ it('what Chromium sets as nothing (the soft hyphen, the zero-width space, the wo
     return model < res[i]!.widthPx - 1e-6 || model > res[i]!.widthPx + 2 / 64 + 1e-6 ? [`${JSON.stringify(it.text)} at ${it.fontPx}px/${it.weight}: model ${model}, Chromium ${res[i]!.widthPx}`] : [];
   });
   expect(wrong).toEqual([]);
+}, 300_000);
+
+it('a word that ends at a soft hyphen: its min-content is the word and the hyphen, each rounded up on its own (a column\'s min as Chromium sets it, within a unit either way)', async () => {
+  const words = ['growth\u00AD', 'margin\u00AD', 'Telecommunications\u00AD', 'Intercompany\u00AD', 'Revenue growth\u00AD', 'ex\u00ADpenses\u00AD', 'office\u00AD', 'AVATAR\u00AD', 'Ty\u00AD', 'Debtors\u00AD\u00AD'];
+  const items = words.flatMap((text) => WEIGHTS.map((weight) => ({ text, weight })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'label' as const, text: it.text, weight: it.weight, html: `<span style="display:inline-block;width:min-content;white-space:normal">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const model = labelWidestPiecePx(it.text, null, it.weight, AS_CHROMIUM_SETS);
+    return Math.abs(model - res[i]!.widthPx) > 1 / 64 + 1e-6 ? [`${JSON.stringify(it.text)}/${it.weight}: model ${model * 64}/64, Chromium ${res[i]!.widthPx * 64}/64`] : [];
+  });
+  expect(wrong).toEqual([]);
+  // The measurement the hyphen's own rounding rests on: "growth\u00AD" at 12px/400 is 2713/64 (the word's 2406 and the
+  // hyphen's 307), where the two summed and rounded once read 2712.
+  expect(res[0]!.widthPx * 64).toBe(2713);
+  expect(labelWidestPiecePx('growth\u00AD', null, 400, AS_CHROMIUM_SETS) * 64).toBe(2713);
 }, 300_000);
 
 it('a character whose Script Extensions leave out the run\'s script starts a new run, and a closing bracket goes with its opener, as Chromium shapes them: never short of Chromium, at most 1/32px over', async () => {

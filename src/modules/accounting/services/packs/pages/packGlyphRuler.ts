@@ -241,23 +241,29 @@ export function runExactPx(
  * HOW FAR CHROMIUM'S OWN SUM OF A LINE CAN RUN PAST THE EXACT ONE, in units: the margin added before flooring, so a line
  * the model fits, Chromium fits (`fitMarginUnits`). Measured as the narrowest one-line width less the line's exact sum
  * (`packLineFit.test.ts` holds every set): a single run of 1 to 14 glyphs within 0.045 of a unit, a label with its mark
- * 0.056, a delta line with its cue 0.192. It GROWS with the line, Chromium's float noise gathering glyph by glyph: over
- * 18,000 random lines of 100 to 1,800px it reached px/2,048 at 12px, px/1,600 at 10.67px (a heading's size) and only
- * 0.13 at 14.67px (a reason's): at most 0.27 to 512px, 0.58 to 1,000px and 0.99 at 1,732px (`fixtures/lineFitLongLines.ts`).
- * A flat half unit read a 12px line short past about 1,000px and a 10.67px one past 800 (#1235's final reviews). So the
- * margin is half a unit to `FIT_NOISE_FLAT_PX` (where the KPI and table grids proved the fit) and grows by a unit for
- * every `FIT_NOISE_PX_PER_UNIT` past it: at least 0.15 of a unit over the worst seen at every width to 1,000px (no
- * column the pack sets a line in is wider than `PRINT_CONTENT_PX`'s 987px), 0.23 to 512px, and 0.046 at its tightest,
- * a 10.67px line of 1,589px, where CI pins it (at 0.45 that line reads short). At 1/16 the adversary's review of #1235
- * read labels with marks and delta lines 1/64px short (`fixtures/lineFitShortLines.ts`).
+ * 0.056, a delta line with its cue 0.192. It GROWS with the line, Chromium's float noise gathering glyph by glyph, so
+ * with the glyphs a line holds: the measure is the line's width at 12px, `exactPx` x (12 / `fontPx`)^2 (a smaller face
+ * sets more glyphs a pixel; the square is what the sizes measured). Over 21,331 lines of 100 to 1,800px
+ * (`fixtures/lineFitLongLines.ts`: 17,996 random, 3,335 of one glyph repeated, the narrow ones furthest) it reached 0.34
+ * to 512px, 0.71 to 1,000px and 1.39 at 1,741px ("fff..." at 10.67px/500). So the margin is half a unit to
+ * `FIT_NOISE_FLAT_PX` (where the KPI and table grids proved the fit) and grows by a unit for every
+ * `FIT_NOISE_PX_PER_UNIT` past it: at least 0.18 of a unit over the worst seen at every width to 1,000px (no column the
+ * pack sets a line in is wider than `PRINT_CONTENT_PX`'s 987px; 0.21 for the 12px lines), and 0.023 at its tightest,
+ * that 1,741px line, where CI pins it (a margin of 0.45, flat to 580px or growing from 576 reads it short). A flat half
+ * unit read a 12px line short past about 1,000px and a 10.67px one past 800 (#1235's final reviews); measured on the
+ * width alone, without the size, the repeated narrow glyphs read 10 lines short (its round-2 review). At 1/16 the
+ * adversary's review of #1235 read labels with marks and delta lines 1/64px short (`fixtures/lineFitShortLines.ts`).
  */
 export const FIT_NOISE_UNITS = 1 / 2;
-/** The line width (px) the noise margin is flat to (`FIT_NOISE_UNITS`). */
+/** The 12px-equivalent line width (px) the noise margin is flat to (`FIT_NOISE_UNITS`). */
 export const FIT_NOISE_FLAT_PX = 512;
-/** Past `FIT_NOISE_FLAT_PX`, the line width (px) that adds a unit to the noise margin. */
-export const FIT_NOISE_PX_PER_UNIT = 2048;
-/** The noise margin, in units, of a line whose exact sum is `exactPx` (`FIT_NOISE_UNITS`). */
-export const fitMarginUnits = (exactPx: number): number => FIT_NOISE_UNITS + Math.max(0, exactPx - FIT_NOISE_FLAT_PX) / FIT_NOISE_PX_PER_UNIT;
+/** Past `FIT_NOISE_FLAT_PX`, the 12px-equivalent line width (px) that adds a unit to the noise margin. */
+export const FIT_NOISE_PX_PER_UNIT = 1856;
+/** The size the margin's widths are measured at. */
+const FIT_NOISE_SIZE_PX = 12;
+/** The noise margin, in units, of a line whose exact sum is `exactPx`, set at `fontPx` (`FIT_NOISE_UNITS`). */
+export const fitMarginUnits = (exactPx: number, fontPx: number): number => FIT_NOISE_UNITS
+  + Math.max(0, exactPx * (FIT_NOISE_SIZE_PX / fontPx) ** 2 - FIT_NOISE_FLAT_PX) / FIT_NOISE_PX_PER_UNIT;
 
 /**
  * Chromium's own float noise on ONE run's width (a min-content or max-content width a column is sized by), in units:
@@ -268,7 +274,7 @@ export const RUN_NOISE_UNITS = 1 / 16;
 
 /**
  * The width a line takes as Chromium's line breaker counts it: `exactPx`, the exact advance sum of the line (its words,
- * a soft hyphen's hyphen, a 9pt label's mark: `packLineWrap.linesForText`), plus the noise margin for its width
- * (`fitMarginUnits`), floored to the 1/64px unit ONCE for the whole line.
+ * a soft hyphen's hyphen, a 9pt label's mark: `packLineWrap.linesForText`), set at `fontPx`, plus the noise margin for
+ * its width and size (`fitMarginUnits`), floored to the 1/64px unit ONCE for the whole line.
  */
-export const fitUnitsPx = (exactPx: number): number => Math.floor(exactPx * UNIT + fitMarginUnits(exactPx)) / UNIT;
+export const fitUnitsPx = (exactPx: number, fontPx: number): number => Math.floor(exactPx * UNIT + fitMarginUnits(exactPx, fontPx)) / UNIT;

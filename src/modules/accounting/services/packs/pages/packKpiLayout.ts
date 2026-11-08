@@ -24,6 +24,7 @@ import { ptToPx, textExactPx } from './packFigureWidth';
 import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, CHROMIUM_MOST, clustersOf, fitUnitsPx, inFace } from './packGlyphRuler';
 import { asShaped } from './packGlyphShaping';
 import { markedPieces } from './packLineBreaks';
+import type { LineMeasure } from './packLineWrap';
 import { reasonExactPx } from './packReasonWidth';
 import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
 
@@ -117,10 +118,10 @@ export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orien
 }
 
 /**
- * How many lines Chromium sets `text` in, `avail` px wide: a greedy fill over the places it may break (`pieces`), each
+ * How many lines Chromium sets `source` in, `avail` px wide: a greedy fill over the places it may break (`pieces`), each
  * candidate line measured as ONE string, the way Chromium's line breaker decides that a piece still fits: every box on
  * the line summed exactly and floored to the 1/64px unit once, with Chromium's noise margin (`packGlyphRuler.fitUnitsPx`;
- * `exactOf`: `textExactPx`, `reasonExactPx`). `lead` is the delta's arrow cue, its own box at the width Chromium sets it,
+ * `line`: `textExactPx`, `reasonExactPx` at their sizes). `lead` is the delta's arrow cue, its own box at the width Chromium sets it,
  * with `leadText` (the space after it) measured with the first line's words; `mark` is a footnote mark's exact sum, which
  * stays with the last piece (or is a word of its own after a trailing space: `markedPieces`). A line that ends at a soft hyphen carries the hyphen Chromium sets there (`Piece.hyphen`).
  *
@@ -128,23 +129,24 @@ export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orien
  * the model fits, Chromium fits (`packLineFit.test.ts`: the rule is never short on the 630-case grid and the ruler's
  * random strings; `packKpiLayoutGrid.test.ts`: no block short, and none a line over, on the grid's 11,520 packs).
  */
-function lineCount(text: string, exactOf: (line: string, hyphen: boolean) => number, avail: number, lead = 0, mark = 0, leadText = ''): number {
-  const all = markedPieces(text, mark > 0);
+function lineCount(source: string, line: LineMeasure, avail: number, lead = 0, mark = 0, leadText = ''): number {
+  const all = markedPieces(source, mark > 0);
   let lines = 1;
-  let line = '';
+  let text = '';
   let first = true;
   all.forEach((piece, i) => {
-    const candidate = line === '' ? piece.text : `${line}${piece.spaced ? ' ' : ''}${piece.text}`;
+    const candidate = text === '' ? piece.text : `${text}${piece.spaced ? ' ' : ''}${piece.text}`;
     const before = first ? lead : 0;
     // A mark after the last piece ends the line there, not at a soft hyphen the piece ends with: no hyphen's room.
     const hyphen = piece.hyphen && !(i === all.length - 1 && mark > 0);
-    const w = fitUnitsPx(before + exactOf(first ? `${leadText}${candidate}` : candidate, hyphen) + (i === all.length - 1 ? mark : 0));
-    if ((line !== '' || before > 0) && w > avail) { lines += 1; line = piece.text; first = false; } else line = candidate;
+    const w = fitUnitsPx(before + line.exactPx(first ? `${leadText}${candidate}` : candidate, hyphen) + (i === all.length - 1 ? mark : 0), line.fontPx);
+    if ((text !== '' || before > 0) && w > avail) { lines += 1; text = piece.text; first = false; } else text = candidate;
   });
   return lines;
 }
 
-const plainExact = (line: string, hyphen = false): number => textExactPx(line, TEXT_PX, 400, hyphen);
+const plain: LineMeasure = { exactPx: (line, hyphen) => textExactPx(line, TEXT_PX, 400, hyphen), fontPx: TEXT_PX };
+const reason: LineMeasure = { exactPx: (line, hyphen) => reasonExactPx(line, hyphen), fontPx: ptToPx(11) };
 /** The delta's arrow cue, its own inline box: at the width Chromium sets it (the exact sum rounded up to the unit). */
 const DELTA_CUE_FIT_PX = deltaCuePx(AS_CHROMIUM_SETS);
 
@@ -178,10 +180,10 @@ export interface KpiTileLines { label: number; reason: number; delta: number }
 
 export function kpiTileLines(tile: KpiTile, columnPx: number): KpiTileLines {
   return {
-    label: lineCount(inPackFaces(tile.label), plainExact, columnPx, 0, labelMarkExactPx(tile.trendFootnote)),
-    reason: tile.figure.value === null ? lineCount(inPackFaces(tile.figure.unavailable ?? ''), reasonExactPx, columnPx) : 0,
+    label: lineCount(inPackFaces(tile.label), plain, columnPx, 0, labelMarkExactPx(tile.trendFootnote)),
+    reason: tile.figure.value === null ? lineCount(inPackFaces(tile.figure.unavailable ?? ''), reason, columnPx) : 0,
     // The arrow cue is a box of its own, then a space and the words (`</span>{' '}`): a break may follow the cue.
-    delta: tile.delta === null ? 0 : lineCount(inPackFaces(deltaText(tile)), plainExact, columnPx, DELTA_CUE_FIT_PX, 0, ' '),
+    delta: tile.delta === null ? 0 : lineCount(inPackFaces(deltaText(tile)), plain, columnPx, DELTA_CUE_FIT_PX, 0, ' '),
   };
 }
 

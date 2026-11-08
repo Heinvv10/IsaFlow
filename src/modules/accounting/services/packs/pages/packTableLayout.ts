@@ -22,7 +22,7 @@ import { createHash } from 'node:crypto';
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
 import {
-  CELL_SIDE_PX, cellPx, headingLineExactPx, headingLinePx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL,
+  CELL_SIDE_PX, cellPx, headingLineExactPx, headingLinePx, headingMarkPx, headingWordsPx, HEADING_PX, INDENT_PX_PER_LEVEL,
   labelMarkExactPx, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT, tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT, type FigureCell,
 } from './packFigureFit';
 import { ptToPx, textExactPx, textPx, type FigureWeight } from './packFigureWidth';
@@ -179,7 +179,7 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
  * where the label ends at a space (`packLineBreaks.markedPieces`).
  */
 export function labelLineCount(label: string, footnote: number | null | undefined, weight: FigureWeight, availPx: number, guardPx: number): number {
-  return linesForText(markedPieces(label, footnote !== null && footnote !== undefined), (text, hyphen) => textExactPx(text, LABEL_FONT_PX, weight, hyphen),
+  return linesForText(markedPieces(label, footnote !== null && footnote !== undefined), { exactPx: (text, hyphen) => textExactPx(text, LABEL_FONT_PX, weight, hyphen), fontPx: LABEL_FONT_PX },
     labelMarkExactPx(footnote, weight), availPx, guardPx);
 }
 
@@ -189,7 +189,7 @@ export function labelLineCount(label: string, footnote: number | null | undefine
  * is a fixed English label: no soft hyphen, so no hyphen to set.
  */
 export function headingLineCount(label: string, footnote: number | undefined, availPx: number, guardPx: number): number {
-  return linesForText(pieces(label), (text) => headingLineExactPx(text), 0, availPx, guardPx, headingMarkPx(footnote, CHROMIUM_MOST));
+  return linesForText(pieces(label), { exactPx: (text) => headingLineExactPx(text), fontPx: HEADING_PX }, 0, availPx, guardPx, headingMarkPx(footnote, CHROMIUM_MOST));
 }
 
 /**

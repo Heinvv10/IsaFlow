@@ -119,7 +119,7 @@ describe('whether a label line still holds a piece is decided as Chromium\'s lin
         const table = { ...base, rows: base.rows.map((r, i) => (i === row ? { ...r, label } : r)) };
         const layout = tableLayout(table, SCALE, 'portrait');
         const avail = layout.columnsPx[0]! - CELL_SIDE_PX - WRAP_GUARD.portrait;
-        if (fitUnitsPx(textExactPx(label, 12, weight)) <= avail && textPx(label, 12, weight) > avail) {
+        if (fitUnitsPx(textExactPx(label, 12, weight), 12) <= avail && textPx(label, 12, weight) > avail) {
           found += 1;
           expect(layout.labelLines[row], `"${label}" fits at its floored exact width`).toBe(1);
         }

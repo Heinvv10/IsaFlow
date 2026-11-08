@@ -37,10 +37,11 @@ export const WRAP_GUARD: Readonly<Record<PageOrientation, number>> = { portrait:
 export const WRAP_GUARD_PX = WRAP_GUARD.portrait;
 
 /**
- * A greedy fill of `parts` into lines of `avail` pixels, each candidate line measured WHOLE by `lineWidth` (Chromium
+ * A greedy fill of `parts` into lines of `avail` pixels, each candidate line measured WHOLE by `line.exactPx` (Chromium
  * shapes a line as one run: kerning across a space and the rounding of one width, not a sum of rounded pieces), with
- * the hyphen a soft one sets where the candidate would end the line (`Piece.hyphen`). `lineWidth` is an EXACT advance
- * sum (unrounded): the line is floored once, with Chromium's noise margin (`packGlyphRuler.fitUnitsPx`).
+ * the hyphen a soft one sets where the candidate would end the line (`Piece.hyphen`). `line.exactPx` is an EXACT advance
+ * sum (unrounded), set at `line.fontPx`: the line is floored once, with Chromium's noise margin for its width and size
+ * (`packGlyphRuler.fitUnitsPx`).
  *
  * A footnote mark stays with the last part, and is counted one of two ways. Chromium's line breaker sets each inline
  * item at its own width rounded up to the unit, and lets the last item on the line run up to a unit past the room, so a
@@ -52,19 +53,20 @@ export const WRAP_GUARD_PX = WRAP_GUARD.portrait;
  * box it would read one or two units over, a line too many at a near tie. Both are held never short of Chromium
  * (`packLineFit.test.ts`: headings with their marks, labels with theirs).
  */
+export interface LineMeasure { exactPx: (text: string, hyphen: boolean) => number; fontPx: number }
+
 export function linesForText(
-  parts: readonly Piece[], lineWidth: (text: string, hyphen: boolean) => number, marker: number, avail: number, guardPx: number = WRAP_GUARD_PX,
-  markerBoxPx = 0,
+  parts: readonly Piece[], line: LineMeasure, marker: number, avail: number, guardPx: number = WRAP_GUARD_PX, markerBoxPx = 0,
 ): number {
   let lines = 1;
-  let line = '';
+  let text = '';
   parts.forEach((part, i) => {
     const last = i === parts.length - 1;
-    const candidate = line === '' ? part.text : `${line}${part.spaced ? ' ' : ''}${part.text}`;
+    const candidate = text === '' ? part.text : `${text}${part.spaced ? ' ' : ''}${part.text}`;
     // A mark after the last part ends the line there, not at a soft hyphen the part ends with: no hyphen's room.
     const marked = last && (marker > 0 || markerBoxPx > 0);
-    const width = fitUnitsPx(lineWidth(candidate, part.hyphen && !marked) + (last ? marker : 0)) + (last ? markerBoxPx : 0);
-    if (line !== '' && width > avail - guardPx) { lines += 1; line = part.text; } else line = candidate;
+    const width = fitUnitsPx(line.exactPx(candidate, part.hyphen && !marked) + (last ? marker : 0), line.fontPx) + (last ? markerBoxPx : 0);
+    if (text !== '' && width > avail - guardPx) { lines += 1; text = part.text; } else text = candidate;
   });
   return lines;
 }
