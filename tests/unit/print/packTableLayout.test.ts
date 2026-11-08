@@ -173,7 +173,7 @@ describe('a label that ends at a space before its footnote mark (a tenant\'s GL 
   it('columns within 0.1px of Chromium, never a label line too few, the height never short', async () => {
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
-    const labels = [...[14, 30, 38].flatMap((n) => [`${'n'.repeat(n)} ab `, `ab ${'n'.repeat(n)} `]), 'Intercompany recharges ', 'Trade and other receivables\t', 'Gross margin\u00AD ', 'Interest\u00A0cover\u00A0'];
+    const labels = [...[14, 30, 38].flatMap((n) => [`${'n'.repeat(n)} ab `, `ab ${'n'.repeat(n)} `]), 'Intercompany recharges ', 'Trade and other receivables\t', 'Gross margin\u00AD ', `${'n'.repeat(22)} ab\u00A0`, `\u00A0${'n'.repeat(22)} ab`];
     for (const label of labels) {
       for (const digits of [9, 12]) {
         const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker: true });
