@@ -1,7 +1,7 @@
 /**
  * A payslip's year to date (wave 4 PS): the employee's stored lines on the runs of
  * the same PAYE tax year (1 March to February, `payeTaxYearOf`), up to and including
- * this run's period, that are FINAL by the same test the slip uses (the approval stamp, `payslipFinal`),
+ * this run's period, that are FINAL by the same test the slip uses (`payslipFinal`),
  * plus this run's own line. A DRAFT slip's year to date therefore includes its own
  * draft figures, under the slip's DRAFT mark.
  *
@@ -58,7 +58,7 @@ export async function payslipYearToDate(
   const rows = (await sql`
     SELECT prl.run_id::text AS run_id, prl.employee_id::text AS employee_id,
            prl.gross_pay, prl.taxable_income, prl.paye, prl.uif_employee, prl.net_pay,
-           (prh.status IN ('approved', 'paid') AND prh.payslips_final_at IS NOT NULL) AS final
+           (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS final
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
      WHERE prh.company_id = ${companyId}::uuid

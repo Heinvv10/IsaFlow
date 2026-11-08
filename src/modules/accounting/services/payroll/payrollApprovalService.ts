@@ -145,8 +145,6 @@ export async function approvePayrollRun(
         lines_confirmed_at = clock_timestamp(),
         approved_plan_hash = ${gate.planHash},
         approval_plan_hash = ${gate.planHash},
-        payslips_final_at = clock_timestamp(),
-        payslips_final_by = ${approvedBy}::text,
         updated_at  = NOW()
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
     RETURNING *

@@ -479,6 +479,7 @@ async function seedPayrollRuns(): Promise<void> {
       period_month: run.period_month,
       period_year: run.period_year,
       status: 'approved',
+      approved_at: new Date(`${run.run_date}T00:00:00Z`).toISOString(), // final payslips (approved_at, wave 5 FS)
       run_date: run.run_date,
       total_gross: Math.round(totalGross * 100) / 100,
       total_taxable: Math.round(totalGross * 100) / 100,

@@ -2,8 +2,8 @@
  * Payslips from a pay run's STORED lines (wave 4 PS). `getPayslips` reads the run
  * header, its lines and breakdowns, each employee's name, number and tax number, the last four digits of the active bank account (cut in SQL, so the
  * whole number never leaves the database) and the year to date. Nothing is
- * recalculated (`payslipItems`). Final or DRAFT is `isPayRunFinal` alone, the
- * R-035 guard, never the status column. Never the ID number.
+ * recalculated (`payslipItems`). Final or DRAFT is `isPayRunFinal` alone: approved or paid with an
+ * approval time, never the status column by itself. Never the ID number.
  *
  * Every read is scoped by company: a run of another company is `PayslipNotFound`,
  * as is a cancelled run (the history hides it too) and an employee with no line on it.

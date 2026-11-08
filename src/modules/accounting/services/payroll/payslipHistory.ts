@@ -2,7 +2,7 @@
  * Payslip history and the payslip download record (wave 4 PS).
  *
  * `listEmployeePayslips`: the employee's runs, newest first (period, final or DRAFT by
- * the same stamp the PDF uses, the stored net). Company-scoped: an employee of
+ * the same test the PDF uses, the stored net). Company-scoped: an employee of
  * another company is null (404 at the route).
  *
  * `auditPayslipDownload`: one `audit_log` `export` row per download, in the request
@@ -10,7 +10,7 @@
  * the actor, the session, the run, the employees and whether the session is a Login-as
  * (then also the platform admin behind it, `impersonatorUserId`); never a figure.
  *
- * Final is the run's approval stamp (`payslips_final_at`, see payslipFinal), read in the same
+ * Final is the run's approval time (see payslipFinal), read in the same
  * query: one statement, however many runs. The history is capped at PAYSLIP_HISTORY_LIMIT runs.
  */
 import { sql } from '@/lib/neon';
@@ -33,7 +33,7 @@ export async function listEmployeePayslips(companyId: string, employeeId: string
   if (employee.length === 0) return null;
   const rows = (await sql`
     SELECT prh.id::text AS run_id, prh.period_month, prh.period_year, prl.net_pay,
-           (prh.status IN ('approved', 'paid') AND prh.payslips_final_at IS NOT NULL) AS final
+           (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS final
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
      WHERE prh.company_id = ${companyId}::uuid

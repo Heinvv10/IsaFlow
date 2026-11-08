@@ -3,7 +3,7 @@
  * against the disposable fixture. Who may download (payroll-detail roles, a person's own
  * session; Login-as for one employee only), tenancy, no-store on every answer, one audit
  * row per download in the request transaction, the bank account's last four digits only,
- * final versus DRAFT by the approval stamp (wave 5 FS), and the year to date tied to the IRP5 totals.
+ * final versus DRAFT by the approval time (wave 5 FS), and the year to date tied to the IRP5 totals.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SignJWT } from 'jose';
@@ -190,7 +190,7 @@ describe('what the PDF says', () => {
     expect(await pdfText((await slip(r.tokens[r.admin]!, runs.mar!, { employeeId: emp })).state.body as Buffer)).toContain('DRAFT');
   });
 
-  it('an approved row with no approval stamp is DRAFT', async () => {
+  it('an approved row with no approval time is DRAFT', async () => {
     const id = await run(2026, 4, false);
     await r.pool.query(`UPDATE payroll_run_headers SET status = 'approved', approved_plan_hash = 'never-reviewed' WHERE id = $1`, [id]);
     expect(await pdfText((await slip(r.tokens[r.admin]!, id, { employeeId: emp })).state.body as Buffer)).toContain('DRAFT');

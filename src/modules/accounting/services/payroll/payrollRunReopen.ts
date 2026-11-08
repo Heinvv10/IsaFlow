@@ -1,6 +1,6 @@
 /**
- * Reopen an approved payroll run (split out of payrollRunLock.ts, a pure move). The lock order and the
- * rule for what may be reopened are documented at the top of payrollRunLock.ts.
+ * Reopen an approved payroll run (split out of payrollRunLock.ts). The lock order and the
+ * rule for what may be reopened are documented at the top of payrollRunLock.ts (its lock-order notes cover this function).
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -37,7 +37,7 @@ export async function reopenPayrollRun(opts: {
 
   // Locked with the 5s wait approve and calculate use (round 5): the bare read
   // and UPDATE here waited on a peer's hold of the row for as long as it lasted.
-  // The company approval lock first, in their order (see the top of this file).
+  // The company approval lock first, in their order (see the top of payrollRunLock.ts).
   await lockCompanyPayrollApprovals(opts.runId, opts.companyId);
   const run = await lockPayrollRunHeader(opts.runId, opts.companyId);
   if (!run) throw new PayrollRunReopenRefusedError('Payroll run not found');
@@ -69,8 +69,6 @@ export async function reopenPayrollRun(opts: {
            approved_at = NULL,
            approval_grandfathered_at = NULL,
            approval_plan_hash = NULL,
-           payslips_final_at = NULL,    -- payslips are DRAFT again (migration 968)
-           payslips_final_by = NULL,
            approval_revision = gen_random_uuid(),
            reopened_at = c.now,
            approval_history = COALESCE(h.approval_history, '{}'::tstzmultirange)
@@ -107,7 +105,7 @@ export async function reopenPayrollRun(opts: {
       previousStatus,
       reason,
     },
-    'payrollRunLock',
+    'payrollRunReopen',
   );
 
   return { runId: opts.runId, previousStatus, newStatus: 'calculated' };

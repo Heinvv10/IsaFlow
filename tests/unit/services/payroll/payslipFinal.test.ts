@@ -1,9 +1,8 @@
 /**
- * Wave 5 FS: `isPayRunFinal` reads the approval stamp (`payslips_final_at`), nothing else.
- * It is final only while the run is approved or paid and stamped; a failed read (a TypeError,
+ * Wave 5 FS: `isPayRunFinal` reads the run header only: approved or paid with an approval time
+ * (`COALESCE(approved_at, approval_grandfathered_at)`), never the R-035 guard. A failed read (a TypeError,
  * a dropped connection, a Postgres error) is re-thrown, never a slip that silently says DRAFT.
- * The stamp itself (approve sets it, reopen clears it, the backfill) and the inverted wave-4
- * "known limit" are proven against real Postgres in tests/integration/fs-payslip-final.int.test.ts.
+ * Approve, reopen and the inverted wave-4 "known limit" are proven against real Postgres in tests/integration/fs-payslip-final.int.test.ts.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -23,18 +22,18 @@ import { isPayRunFinal } from '@/modules/accounting/services/payroll/payslipFina
 
 beforeEach(() => { st.rows = []; st.failWith = null; st.queries = []; st.params = []; });
 
-describe('isPayRunFinal: the stamp decides', () => {
-  it('a stamped approved/paid run is final; no row (not stamped, not approved, other company) is DRAFT', async () => {
+describe('isPayRunFinal: the approval time decides', () => {
+  it('an approved/paid run with an approval time is final; no row (no approval time, not approved, other company) is DRAFT', async () => {
     st.rows = [{ '?column?': 1 }];
     expect(await isPayRunFinal('c', 'r')).toBe(true);
     st.rows = [];
     expect(await isPayRunFinal('c', 'r')).toBe(false);
   });
 
-  it('reads one company-scoped statement on the stamp and the status, never the approval guard', async () => {
+  it('reads one company-scoped statement on status and approval time, never the approval guard', async () => {
     await isPayRunFinal('co-1', 'run-1');
     expect(st.queries).toHaveLength(1);
-    expect(st.queries[0]).toContain('payslips_final_at IS NOT NULL');
+    expect(st.queries[0]).toContain('COALESCE(approved_at, approval_grandfathered_at) IS NOT NULL');
     expect(st.queries[0]).toContain("status IN ('approved', 'paid')");
     expect(st.params[0]).toEqual(['run-1', 'co-1']);
   });

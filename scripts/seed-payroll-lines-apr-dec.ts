@@ -100,8 +100,6 @@ async function resetHeader(runId: string, journalEntryId: string | null): Promis
     `UPDATE payroll_run_headers
      SET journal_entry_id = NULL,
          status           = 'draft',
-         payslips_final_at = NULL,
-         payslips_final_by = NULL,
          updated_at       = NOW()
      WHERE id          = $1
        AND company_id  = $2`,
