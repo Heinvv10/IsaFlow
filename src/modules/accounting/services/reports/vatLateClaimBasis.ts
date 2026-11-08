@@ -35,6 +35,7 @@ import {
   SA_VAT_RATE,
   classifyVatJournalLine,
   deriveVatBoxes,
+  type VatBaseSink,
   type VatBasisResult,
   type VatBoxRow,
   type VatLineInput,
@@ -72,7 +73,7 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function deriveVatBoxesWithLateClaims(lines: readonly LateClaimAwareLine[]): VatBasisWithLateClaims {
+export function deriveVatBoxesWithLateClaims(lines: readonly LateClaimAwareLine[], onBase?: VatBaseSink): VatBasisWithLateClaims {
   const lateEntries = new Set(
     lines.filter((l) => l.entrySource === VAT_LATE_CLAIM_SOURCE).map((l) => l.journalEntryId),
   );
@@ -90,7 +91,7 @@ export function deriveVatBoxesWithLateClaims(lines: readonly LateClaimAwareLine[
   // The coded-base rule (vatCodedBase) decides which base lines the tax is on.
   const ordinary = applyCodedBaseRule(lines.filter((l) => !lateEntries.has(l.journalEntryId)
     && (l.accountSubtype !== VAT_LATE_CLAIM_SUBTYPE || outputEntries.has(l.journalEntryId))));
-  const basis = deriveVatBoxes(ordinary);
+  const basis = deriveVatBoxes(ordinary, onBase);
   const rows = new Map<string, LateClaimBoxRow>(
     basis.boxes.map((b) => [`${b.direction}:${b.vatType}`, { ...b, lateClaimTax: 0 }]),
   );
@@ -113,7 +114,10 @@ export function deriveVatBoxesWithLateClaims(lines: readonly LateClaimAwareLine[
     row.tax = r2(row.tax + c.amount);
     row.lateClaimTax = r2(row.lateClaimTax + c.amount);
     if (line.lateClaimBase == null) lateWithoutBase.add(line.journalEntryId);
-    else row.base = r2(row.base + line.lateClaimBase);
+    else {
+      row.base = r2(row.base + line.lateClaimBase);
+      onBase?.({ journalEntryId: line.journalEntryId, direction: c.direction, vatType, base: line.lateClaimBase });
+    }
     rows.set(key, row);
   }
 

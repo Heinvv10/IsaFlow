@@ -71,7 +71,8 @@ describe('the bank transactions page', () => {
     render(<BankTransactionsPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^2 attachments - view, .*WITH FILES/ }));
     expect(await screen.findByRole('dialog', { name: 'Attachment preview' })).toBeTruthy();
-    expect(screen.getByRole('img', { name: 'slip.png' })).toBeTruthy();
+    // The image is set from an effect (blob URL) after the dialog mounts, so it must be awaited, not read at once.
+    expect(await screen.findByRole('img', { name: 'slip.png' })).toBeTruthy();
   });
 
   it('opens the list, not the viewer, from a plain paperclip', async () => {

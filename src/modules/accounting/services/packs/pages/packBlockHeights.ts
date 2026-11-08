@@ -13,12 +13,10 @@ import type { PackFigure } from '@/modules/accounting/services/packs/figures/pac
 import { GUTTER_MM } from './packDisclosureHeight';
 import type { PackNarrative } from './packPageModel';
 
-/** The disclosure's arithmetic and the KPI tile's split to
- *  `packDisclosureHeight.ts` and `packKpiTileHeight.ts` for the 300-line cap.
- *  Re-exported because every existing caller imports them here. */
+/** The disclosure's arithmetic split to `packDisclosureHeight.ts` for the 300-line cap.
+ *  Re-exported because every existing caller imports it here. */
 export { GUTTER_MM };
 export { disclosureMm, balancedLines } from './packDisclosureHeight';
-export { kpiTileHeight } from './packKpiTileHeight';
 
 /**
  * `.pack-narrative-columns.is-pending .pack-narrative-actions`'s measure —

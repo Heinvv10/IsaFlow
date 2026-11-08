@@ -28,18 +28,14 @@ import { ScorecardTable } from '../primitives/ScorecardTable';
 import { NarrativeColumns } from '../primitives/NarrativeColumns';
 import { StatTile } from '../primitives/StatTile';
 import { formatFigureText } from '../primitives/packFigureText';
-import { kpiFitStyle } from '../primitives/packFigureFit';
+import { fitAttributes, type StampedPackPage, type StampedPackPageBlock } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import { MattersTable } from '../primitives/MattersTable';
 import { PackChartBlock, PackSmallMultiples } from './PackChartBlock';
 import { PackDefinitionsBlock, PackDisclosureBlock } from './PackNoteBlocks';
 import type { MoneyScale } from '@/lib/format/money';
-import type {
-  PackPage,
-  PackPageBlock,
-} from '@/modules/accounting/services/packs/pages/packPageModel';
 
 export interface PackBlockViewProps {
-  block: PackPageBlock;
+  block: StampedPackPageBlock;
   /** The document's `numberConvention.scale`. Required at every level of
    *  this tree for the reason `formatFigureText` gives: an optional scale
    *  makes the 1000x misread the default path. */
@@ -48,14 +44,17 @@ export interface PackBlockViewProps {
 
 export function PackBlockView({ block, scale }: PackBlockViewProps) {
   switch (block.kind) {
-    case 'kpiTiles':
+    case 'kpiTiles': {
+      // The size the server decided (`packFigureFitStamp`); a block without one never gets here (`unstampedFigure`).
+      const fit = fitAttributes(block.fit, 'kpi');
       return (
-        <div className="pack-kpi-tiles" style={kpiFitStyle(block.tiles.map((tile) => (tile.figure.value === null ? null : formatFigureText(tile.figure, scale))))}>
+        <div className={fit.className === undefined ? 'pack-kpi-tiles' : `pack-kpi-tiles ${fit.className}`} style={fit.style}>
           {block.tiles.map((tile, index) => (
             <KpiTileWithSparkline key={`${tile.label}-${index}`} tile={tile} scale={scale} />
           ))}
         </div>
       );
+    }
     case 'statTiles':
       return (
         <div className="pack-stat-groups">
@@ -103,7 +102,7 @@ export function PackBlockView({ block, scale }: PackBlockViewProps) {
 }
 
 export interface PackBlocksProps {
-  page: PackPage;
+  page: StampedPackPage;
   scale: MoneyScale;
 }
 
