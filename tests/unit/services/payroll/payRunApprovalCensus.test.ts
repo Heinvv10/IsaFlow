@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 const source = (path: string) => readFileSync(path, 'utf8');
+
+function tsFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const p = join(dir, name);
+    if (name === 'node_modules' || name === 'migrations') return [];
+    return statSync(p).isDirectory() ? tsFiles(p) : /\.tsx?$/.test(name) ? [p] : [];
+  });
+}
 
 describe('pay-run approval mutation census', () => {
   it('gates approve-and-post before its first payroll write', () => {
@@ -19,10 +28,23 @@ describe('pay-run approval mutation census', () => {
   });
 
   it('invalidates clearance on calculate and reopen', () => {
-    const text = source('src/modules/accounting/services/payroll/payrollRunLock.ts');
+    const text = source('src/modules/accounting/services/payroll/payrollRunLock.ts')
+      + source('src/modules/accounting/services/payroll/payrollRunReopen.ts');
     expect(text.match(/approval_plan_hash = NULL/g)).toHaveLength(2);
     expect(text.match(/approval_revision = gen_random_uuid\(\)/g)).toHaveLength(2);
     expect(text).toContain('approval_grandfathered_at = NULL');
+  });
+
+  it('every writer that sets a pay run approved also sets approved_at in the same statement (payslip finality reads it)', () => {
+    const writers: string[] = [];
+    for (const file of [...tsFiles('src'), ...tsFiles('pages'), ...tsFiles('scripts')]) {
+      for (const m of source(file).matchAll(/UPDATE\s+(?:public\.)?payroll_run_headers[^`]*/g)) {
+        // A literal 'approved'/'paid', or a status taken from a variable ($1, ${...}): the latter could be either.
+        if (/status\s*=\s*(?:'(?:approved|paid)'|\$\{|\$\d)/.test(m[0])) writers.push(`${file}: ${/approved_at\s*=/.test(m[0]) ? 'ok' : 'MISSING approved_at'}`);
+      }
+    }
+    expect(writers.length).toBeGreaterThan(0); // the scan finds the approve UPDATE, so it is not vacuous
+    expect(writers.filter((w) => w.endsWith('MISSING approved_at'))).toEqual([]);
   });
 
   it('records the six distinct human/control stages plus decline', () => {

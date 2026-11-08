@@ -48,6 +48,7 @@
     "docx": "^9.15.0",
     "echarts": "^6.1.0",
     "exceljs": "^4.4.0",
+    "fontkit": "2.0.4",
     "formidable": "^3.5.4",
     "gray-matter": "4.0.3",
     "imapflow": "1.7.8",

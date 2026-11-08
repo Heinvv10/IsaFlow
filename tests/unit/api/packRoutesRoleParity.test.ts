@@ -34,7 +34,7 @@ vi.mock('@/modules/accounting/services/packs/pages/packFurniture', () => ({
   buildPackFurniture: vi.fn(async () => ({ companyName: 'Acme Fibre (Pty) Ltd' })),
 }));
 vi.mock('@/modules/accounting/services/packs/pages/boardPackDocument', () => ({
-  buildBoardPackDocument: vi.fn(async () => ({ pages: [] })),
+  buildBoardPackDocument: vi.fn(async () => ({ pages: [], numberConvention: { scale: "R'000" } })),
 }));
 vi.mock('@/modules/accounting/services/packs/pages/packDocumentWire', () => ({
   serialisePackPagesDocument: (d: unknown) => d,

@@ -17,14 +17,14 @@
  *    task brief's own security section forbids. Fixed to call the real
  *    `renderChartSvg`, same pattern already used in packPagesView.test.tsx.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { ComparativeTable } from '@/components/accounting/packs/primitives/ComparativeTable';
 import { KpiTileWithSparkline } from '@/components/accounting/packs/primitives/KpiTileWithSparkline';
 import { FootnoteMarker } from '@/components/accounting/packs/primitives/FootnoteMarker';
 import { FootnoteList } from '@/components/accounting/packs/primitives/FootnoteList';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
-import type { PackTable } from '@/modules/accounting/services/packs/pages/packPageModel';
+import type { StampedPackTable } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import { ScorecardTable } from '@/components/accounting/packs/primitives/ScorecardTable';
 
 const sparklineSvg = renderChartSvg({}, { widthMm: 10, heightMm: 10 });
@@ -89,8 +89,8 @@ describe('KpiTileWithSparkline', () => {
 });
 
 describe('ComparativeTable', () => {
-  const table: PackTable = {
-    scale: "R'000", columns: ['actual', 'prior', 'change', 'changePct'],
+  const table: StampedPackTable = {
+    scale: "R'000", columns: ['actual', 'prior', 'change', 'changePct'], figureFit: { px: null, fits: true },
     rows: [
       { label: 'Revenue', level: 0, role: 'line',
         figures: {
@@ -104,6 +104,18 @@ describe('ComparativeTable', () => {
         } },
     ],
   };
+
+  it('prints no table at a figure size the server did not decide: none, one that does not fit, one out of range', () => {
+    const silence = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      for (const figureFit of [undefined, { px: null, fits: false }, { px: 10, fits: false }, { px: 9, fits: true }, { px: 12, fits: true }, { px: 10.5, fits: true }]) {
+        expect(() => render(<ComparativeTable scale="R" table={{ ...table, figureFit } as StampedPackTable} />), JSON.stringify(figureFit)).toThrow(/figure size the server did not decide/);
+      }
+    } finally {
+      silence.mockRestore();
+    }
+    expect(render(<ComparativeTable scale="R" table={{ ...table, figureFit: { px: 10, fits: true } }} />).container.querySelector('table')!.style.getPropertyValue('--pack-fit-size')).toBe('10px');
+  });
 
   it('states the scale once, in the header', () => {
     render(<ComparativeTable scale="R" table={table} />);
@@ -278,9 +290,10 @@ describe('FootnoteList', () => {
  * thousand, and no assertion read one against the other in the DOM.
  */
 describe('a rendered cell agrees with the header above it', () => {
-  const thousands: PackTable = {
+  const thousands: StampedPackTable = {
     scale: "R'000",
     columns: ['actual'],
+    figureFit: { px: null, fits: true },
     rows: [{
       label: 'Revenue',
       level: 0,
