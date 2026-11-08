@@ -77,6 +77,14 @@ describe('EmployeeWorkCard', () => {
     expect(onSaved.mock.calls[0]![0]).toMatchObject({ occupation: 'Clerk (server)', hoursPerWeek: 40, taxStatus: 'employee' });
   });
 
+  it('text that is not a number is refused in the card and nothing is sent (it would clear the value as null)', () => {
+    render(<EmployeeWorkCard employee={{ ...base, employmentType: 'permanent', hourlyRate: 120 }} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Hourly rate (R)'), { target: { value: '12,5x' } });
+    fireEvent.click(screen.getByRole('button', { name: /save work terms/i }));
+    expect(screen.getByRole('alert').textContent).toMatch(/Hourly rate must be a number/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('shows the server refusal and does not report a save', async () => {
     fetchMock.mockImplementation(async () => new Response(JSON.stringify({ success: false, error: { message: 'hoursPerWeek must be more than 0' } }), { status: 400 }));
     const onSaved = vi.fn();

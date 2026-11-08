@@ -33,6 +33,7 @@ const draftOf = (e: Employee): Draft => ({
 });
 /** Blank clears; anything else goes as a number, and the server judges it. */
 const numberOrNull = (v: string) => (v.trim() === '' ? null : Number(v));
+const NUMERIC: Array<[keyof Draft, string]> = [['hoursPerWeek', 'Hours a week'], ['hoursPerDay', 'Hours a day'], ['hourlyRate', 'Hourly rate'], ['dailyRate', 'Daily rate']];
 
 export function EmployeeWorkCard({ employee, onSaved }: { employee: Employee; onSaved: (e: Employee) => void }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(employee));
@@ -43,6 +44,12 @@ export function EmployeeWorkCard({ employee, onSaved }: { employee: Employee; on
   const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(employee));
 
   async function save(): Promise<void> {
+    // Text that is not a number would reach the server as null and silently clear the value: refuse it here.
+    const unreadable = NUMERIC.find(([k]) => draft[k].trim() !== '' && !Number.isFinite(Number(draft[k])));
+    if (unreadable) {
+      setError(`${unreadable[1]} must be a number.`);
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -83,12 +90,12 @@ export function EmployeeWorkCard({ employee, onSaved }: { employee: Employee; on
         <Input label="Occupation" maxLength={100} value={draft.occupation} onChange={e => set('occupation')(e.target.value)} />
       </div>
       {prompt && (
-        <div role="status" className="mt-4 flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
+        <div role="status" className="mt-4 flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
           <span>This employee is a director by employment type, but the tax status is Employee.</span>
           <Button size="sm" variant="secondary" onClick={() => set('taxStatus')('director')}>{prompt}</Button>
         </div>
       )}
-      {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
+      {error && <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-400">{error}</p>}
       <div className="mt-4 flex justify-end">
         <Button onClick={save} disabled={!dirty} loading={saving}>Save work terms</Button>
       </div>

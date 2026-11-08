@@ -43,15 +43,7 @@ import {
   isValidSarsTaxNumber,
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
 import { refuseEmployeeTermArgs } from './employeeTermsRefusal';
-import {
-  NOT_FOUND,
-  guardCastableArgs,
-  hasWholeCents,
-  ok,
-  safeErrorText,
-  strArg,
-  toolError,
-} from './toolHelpers';
+import { NOT_FOUND, guardCastableArgs, hasWholeCents, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 const EMPLOYMENT_TYPES: readonly EmploymentType[] = ['permanent', 'contract', 'casual', 'director'];
 
@@ -129,10 +121,8 @@ export const createEmployeeTool: McpTool = {
 
     const bad = guardCastableArgs(args, {
       date: ['start_date', 'end_date', 'date_of_birth'],
-    });
+    }) ?? refuseEmployeeTermArgs(args);
     if (bad) return bad;
-    const termsRefused = refuseEmployeeTermArgs(args);
-    if (termsRefused) return termsRefused;
 
     // Shape-checked before the write, not after. Both reach SARS submissions
     // (EMP201, IRP5) where a malformed number is rejected months later by
@@ -231,10 +221,8 @@ export const updateEmployeeTool: McpTool = {
     const bad = guardCastableArgs(args, {
       uuid: ['employee_id'],
       date: ['end_date', 'date_of_birth'],
-    });
+    }) ?? refuseEmployeeTermArgs(args);
     if (bad) return bad;
-    const termsRefused = refuseEmployeeTermArgs(args);
-    if (termsRefused) return termsRefused;
 
     const employmentType = strArg(args, 'employment_type');
     if (employmentType !== undefined && !EMPLOYMENT_TYPES.includes(employmentType as EmploymentType)) {
