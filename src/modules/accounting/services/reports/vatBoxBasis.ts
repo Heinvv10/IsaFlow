@@ -259,6 +259,12 @@ interface EntryAccumulator {
 }
 
 /**
+ * Receives the base each (journal, direction, VAT type) contributes to its box, unrounded, as
+ * the box adds it. The VAT201 drill-down reads its per-row base from here rather than re-deriving it.
+ */
+export type VatBaseSink = (share: { journalEntryId: string; direction: VatDirection; vatType: string; base: number }) => void;
+
+/**
  * Fold every posted line of every VAT-bearing journal in the period into the
  * VAT201 boxes.
  *
@@ -269,7 +275,7 @@ interface EntryAccumulator {
  * preserves the 15% relationship on each box; where it is wrong, the variance
  * on that box says so.
  */
-export function deriveVatBoxes(lines: readonly VatLineInput[]): VatBasisResult {
+export function deriveVatBoxes(lines: readonly VatLineInput[], onBase?: VatBaseSink): VatBasisResult {
   const entries = new Map<string, EntryAccumulator>();
   const excluded = new Map<string, VatExcludedLine>();
   let taxLegCount = 0;
@@ -349,6 +355,7 @@ export function deriveVatBoxes(lines: readonly VatLineInput[]): VatBasisResult {
           direction, vatType, base: 0, tax: 0, impliedTax: 0, variance: 0,
         };
         row.base = r2(row.base + base * share);
+        onBase?.({ journalEntryId: entryId, direction, vatType, base: base * share });
         row.tax = r2(row.tax + tax);
         boxTotals.set(key, row);
       }

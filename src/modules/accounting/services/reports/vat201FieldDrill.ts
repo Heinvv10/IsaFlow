@@ -19,7 +19,7 @@
 import { MAX_DRILL_PAGE_SIZE } from './drillPaging';
 import { getVatPeriodLines } from './vatBoxBasisQuery';
 import { classifyVatJournalLine, type VatDirection } from './vatBoxBasis';
-import { VAT_LATE_CLAIM_SOURCE, VAT_LATE_CLAIM_SUBTYPE, deriveVatBoxesWithLateClaims } from './vatLateClaimBasis';
+import { deriveVatBoxesWithLateClaims } from './vatLateClaimBasis';
 import { boxFor, reportTotals, toBox } from './vat201ReportService';
 import { getNilRatedSupplies } from './vat201NilRatedSupplies';
 import {
@@ -98,48 +98,65 @@ function pageOf<T>(all: readonly T[], page: number, pageSize: number): T[] {
   return all.slice((page - 1) * pageSize, page * pageSize);
 }
 
-/** The tax legs a tax-leg field selects, from the period's journal lines. Pure. */
-export function selectTaxRows(lines: readonly LateClaimAwareLine[], field: string): Vat201DrillTaxRow[] {
+/** Split `total` cents over `weights` so the parts add up to it exactly (largest remainder). */
+function allocate(total: number, weights: readonly number[]): number[] {
+  const sum = weights.reduce((s, w) => s + w, 0);
+  const w = sum === 0 ? weights.map(() => 1) : weights;
+  const wSum = sum === 0 ? weights.length : sum;
+  const exact = w.map((x) => (total * x) / wSum);
+  const parts = exact.map(Math.floor);
+  let left = total - parts.reduce((s, x) => s + x, 0);
+  const order = exact.map((e, i) => [e - Math.floor(e), i] as const).sort((x, y) => y[0] - x[0] || x[1] - y[1]);
+  for (let k = 0; left > 0 && k < order.length; k++, left--) parts[order[k]![1]]! += 1;
+  return parts;
+}
+
+/** The base each (journal, direction, VAT type) puts in its box, as the box derivation adds it. */
+export type DrillBases = Map<string, number>;
+export const baseKey = (journalEntryId: string, direction: VatDirection, vatType: string): string =>
+  `${journalEntryId}|${direction}|${vatType}`;
+
+/** Derive the boxes AND the per-journal bases in one pass of the report's own derivation. */
+export function deriveWithBases(lines: readonly LateClaimAwareLine[]) {
+  const bases: DrillBases = new Map();
+  const basis = deriveVatBoxesWithLateClaims(lines, (s) => {
+    const k = baseKey(s.journalEntryId, s.direction, s.vatType);
+    bases.set(k, (bases.get(k) ?? 0) + s.base);
+  });
+  return { basis, bases };
+}
+
+/**
+ * The tax legs a tax-leg field selects. Pure. `journalBase` is the base the box derivation
+ * (deriveVatBoxesWithLateClaims: coded-base rule, pro-rata by tax, late-claim bases) attributed to the leg's
+ * journal and VAT type, split over that type's legs by tax with the cents allocated so they sum exactly.
+ */
+export function selectTaxRows(lines: readonly LateClaimAwareLine[], field: string, bases: DrillBases): Vat201DrillTaxRow[] {
   const sel = TAX_SELECTORS[field];
   if (!sel) return [];
-  // The journal's base legs and tax legs per journal, to apportion the base across its tax legs pro-rata
-  // by tax exactly as deriveVatBoxes does, so the rows' journalBase never add up to more than the journal's base.
-  const baseByEntry = new Map<string, number>();
-  const taxByEntry = new Map<string, number>();
-  const legsByEntry = new Map<string, number>();
-  const outputEntries = new Set<string>();
-  for (const l of lines) {
-    const c = classifyVatJournalLine(l);
-    if (c.role === 'base' && l.accountSubtype !== VAT_LATE_CLAIM_SUBTYPE) {
-      const signed = sel.direction === 'output' ? l.credit - l.debit : l.debit - l.credit;
-      baseByEntry.set(l.journalEntryId, (baseByEntry.get(l.journalEntryId) ?? 0) + cents(signed));
-    } else if (c.role === 'tax' && c.direction === sel.direction) {
-      taxByEntry.set(l.journalEntryId, (taxByEntry.get(l.journalEntryId) ?? 0) + cents(c.amount));
-      legsByEntry.set(l.journalEntryId, (legsByEntry.get(l.journalEntryId) ?? 0) + 1);
-    } else if (c.role === 'tax' && c.direction === 'output') {
-      outputEntries.add(l.journalEntryId);
-    }
-  }
-  const rows: Vat201DrillTaxRow[] = [];
+  const picked: Vat201DrillTaxRow[] = [];
   for (const l of lines) {
     const c = classifyVatJournalLine(l);
     if (c.role !== 'tax' || c.direction !== sel.direction) continue;
     const vatType = c.vatType ?? 'standard';
     const box = boxFor(c.direction, vatType).box;
     if (sel.residual === sel.boxes.includes(box)) continue;
-    const totalTax = taxByEntry.get(l.journalEntryId) ?? 0;
-    const share = totalTax === 0 ? ((legsByEntry.get(l.journalEntryId) ?? 0) === 1 ? 1 : 0) : cents(c.amount) / totalTax;
-    // A late claim's base is the one recorded on its own line (vatLateClaimBasis), not the journal's legs.
-    const lateClaim = l.entrySource === VAT_LATE_CLAIM_SOURCE && !outputEntries.has(l.journalEntryId);
-    const base = lateClaim ? cents(l.lateClaimBase ?? 0) : (baseByEntry.get(l.journalEntryId) ?? 0) * share;
-    rows.push({
+    picked.push({
       lineId: l.lineId, journalEntryId: l.journalEntryId, entryNumber: l.entryNumber, entryDate: l.entryDate,
-      accountCode: l.accountCode, accountName: l.accountName, vatType, box, tax: c.amount,
-      journalBase: rands(Math.round(base)),
+      accountCode: l.accountCode, accountName: l.accountName, vatType, box, tax: c.amount, journalBase: 0,
       residual: sel.residual && box !== field,
     });
   }
-  return rows.sort((a, b) => a.entryDate.localeCompare(b.entryDate)
+  const groups = new Map<string, Vat201DrillTaxRow[]>();
+  for (const r of picked) {
+    const k = baseKey(r.journalEntryId, sel.direction, r.vatType);
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
+  for (const [k, legs] of groups) {
+    const parts = allocate(cents(bases.get(k) ?? 0), legs.map((r) => cents(r.tax)));
+    legs.forEach((r, i) => { r.journalBase = rands(parts[i]!); });
+  }
+  return picked.sort((a, b) => a.entryDate.localeCompare(b.entryDate)
     || a.entryNumber.localeCompare(b.entryNumber) || a.lineId.localeCompare(b.lineId));
 }
 
@@ -151,7 +168,7 @@ export async function vat201FieldDrill(
   const size = Math.min(Math.max(Math.trunc(pageSize) || 100, 1), MAX_DRILL_PAGE_SIZE);
   const pg = Math.max(Math.trunc(page) || 1, 1);
   const { lines } = await getVatPeriodLines(companyId, periodStart, periodEnd);
-  const basis = deriveVatBoxesWithLateClaims(lines);
+  const { basis, bases } = deriveWithBases(lines);
   const nilRated = await getNilRatedSupplies(companyId, periodStart, periodEnd);
   const form = buildVat201SarsFields({ boxes: basis.boxes.map(toBox), totals: reportTotals(basis) }, nilRated);
   const meta = form.find((f) => f.field === field) as Vat201SarsField;
@@ -178,7 +195,7 @@ export async function vat201FieldDrill(
       hasMore: pg * size < all.length, rows,
     };
   }
-  const all = selectTaxRows(lines, field);
+  const all = selectTaxRows(lines, field, bases);
   const total = rands(all.reduce((s, r) => s + cents(r.tax), 0));
   const supplyValue = field === '1' || field === '1A';
   return {

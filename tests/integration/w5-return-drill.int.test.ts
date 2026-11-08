@@ -66,6 +66,13 @@ beforeAll(async () => {
   await run(A, 'draft', 5, 'draft', 1600, ea);
   await run(A, 'cancelled', 6, 'cancelled', 3200, ea);
   await run(B, 'b-approved', 1, 'approved', 6400, eb);
+  // July: a line whose employee row is another company's (the FK allows it). The employee join finds no row
+  // for A, but the line is still pay in the run and its non-cash benefit is still remuneration.
+  await run(A, 'foreign-emp', 7, 'approved', 5, eb);
+  await pool.query(
+    `UPDATE payroll_run_lines SET gross_pay = 50, component_breakdown = '[{"amount": 25, "isNonCash": true}]'::jsonb WHERE run_id = $1`,
+    [runs['foreign-emp']]);
+  await pool.query(`UPDATE payroll_run_headers SET total_gross = 50 WHERE id = $1`, [runs['foreign-emp']]);
 
   const revA = await account(A, 'W5-4000', 'revenue', 'sales');
   const revB = await account(B, 'W5-4000', 'revenue', 'sales');
@@ -81,8 +88,8 @@ afterAll(async () => { await pool.end(); });
 describe('EMP201 drill: which runs, whose rows', () => {
   it('drills only the approved and paid runs of the company', async () => {
     const r = await emp201FieldDrill(A, FROM, TO, 'paye');
-    expect(r!.runs.map((x) => x.runId).sort()).toEqual([runs.approved, runs.paid].sort());
-    expect(r).toMatchObject({ total: 300, rowsTotal: 300, ties: true, rowCount: 2 });
+    expect(r!.runs.map((x) => x.runId).sort()).toEqual([runs.approved, runs.paid, runs['foreign-emp']].sort());
+    expect(r).toMatchObject({ total: 305, rowsTotal: 305, ties: true, rowCount: 3 });
   });
 
   it('a calculated, a reopened, a draft and a cancelled run each 404 by id', async () => {
@@ -95,7 +102,13 @@ describe('EMP201 drill: which runs, whose rows', () => {
     expect(await emp201FieldDrill(B, FROM, TO, 'paye')).toMatchObject({ total: 6400, rowCount: 1 });
     expect(await emp201FieldDrill(A, FROM, TO, 'paye', { runId: runs['b-approved']! })).toBeNull();
     const a = await emp201FieldDrill(A, FROM, TO, 'paye');
-    expect(a!.rows.every((x) => x.employeeNumber === 'A1')).toBe(true);
+    expect(a!.rows.map((x) => x.employeeNumber).sort()).toEqual(['', 'A1', 'A1']);  // never B1
+  });
+
+  it('a line whose employee row is not the company\'s still counts, non-cash included', async () => {
+    const r = await emp201FieldDrill(A, '2026-07-01', '2026-07-31', 'remuneration');
+    expect(r).toMatchObject({ rowCount: 1, rowsTotal: 75, total: 75, ties: true });
+    expect(r!.rows[0]).toMatchObject({ employeeName: '', amount: 75 });
   });
 
   it('respects the period window', async () => {
