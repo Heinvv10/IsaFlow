@@ -63,6 +63,17 @@ describe('the date-only edit of an approved bill', () => {
     expect(history[0]!.after).toEqual({ invoice_number: before.invoice_number, due_date: '2026-12-31', due_date_source: 'manual' });
   });
 
+  it.each([['approved'], ['partially_paid']])('a %s bill with nothing owing is refused and untouched', async (status) => {
+    const c = await company();
+    const id = await bill(c, status, { paid: 1150 }); // fully paid, its status not yet moved to paid
+    const before = await rowOf(id);
+    const res = await put(admin, c, { id, dueDate: '2026-12-31' });
+    expect(res.state.statusCode, messageOf(res)).toBe(400);
+    expect(messageOf(res)).toMatch(/fully paid: its due date can't be changed/);
+    expect(await rowOf(id)).toEqual(before);
+    expect(await changesOf(pool, id)).toHaveLength(0);
+  });
+
   it.each([['draft'], ['pending_approval'], ['paid'], ['cancelled']])('a %s bill is refused and untouched', async (status) => {
     const c = await company();
     const id = await bill(c, status, { paid: status === 'paid' ? 1150 : 0 });
