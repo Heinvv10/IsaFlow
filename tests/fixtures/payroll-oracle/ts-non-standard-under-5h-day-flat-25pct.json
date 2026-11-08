@@ -1,0 +1,44 @@
+{
+  "id": "ts-non-standard-under-5h-day-flat-25pct",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 28 (non-standard employment, less than 5 hours per day, earns less than R394 that day: 25% deduction)",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "Non-standard employment, 4 hours a day at R300 a day for 15 days = R4 500. Under 5 hours a day: 25% = R1 125.00 (G21 p. 28, summary table row 5, taken as printed). NAMED LIMIT: row 3 and row 5 differ only in the hours (5 or more: nil; under 5: 25%) for a daily pay under R394; row 5 reads as printed, but a misprint is possible: LOW-MEDIUM confidence, and the adversarial reviewer should confirm against the SARS table in the Fourth Schedule para 9. Tables give nil. Only PAYE is asserted.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "non_standard",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4500,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "unmodelled": {
+      "ordinaryHoursPerWeek": 12,
+      "hoursPerDay": 4,
+      "dayRate": 300,
+      "daysWorked": 15,
+      "employmentBasis": "non-standard"
+    }
+  },
+  "expected": {
+    "paye": 1125
+  }
+}

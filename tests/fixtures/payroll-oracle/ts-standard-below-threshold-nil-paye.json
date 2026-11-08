@@ -1,0 +1,44 @@
+{
+  "id": "ts-standard-below-threshold-nil-paye",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 28 (standard employment, remuneration not exceeding the R99 000 threshold: no employees tax)",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "Required to work 40 hours a week (standard employment, at least 22 hours), R8 000 a month = R96 000 a year, under the R99 000 under-65 threshold: no employees' tax (G21 p. 28, summary table row 2). The tables give the same, so this passes today; it guards TS-b against taxing a standard employee at 25%. UIF 80.00 and SDL 80.00 (1% each).",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 8000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "unmodelled": {
+      "ordinaryHoursPerWeek": 40,
+      "employmentBasis": "standard"
+    }
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 80,
+    "uifEmployer": 80,
+    "sdl": 80
+  }
+}

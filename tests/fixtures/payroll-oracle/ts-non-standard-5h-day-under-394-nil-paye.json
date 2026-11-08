@@ -1,0 +1,44 @@
+{
+  "id": "ts-non-standard-5h-day-under-394-nil-paye",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 28 (non-standard employment, at least 5 hours per day, earns less than R394 that day: no employees tax)",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "Non-standard employment (casual, under 22 hours a week, no declaration), 5 hours a day at R390 a day for 22 days = R8 580. The daily pay is under R394, so no employees' tax (G21 p. 28, summary table row 3). The tables would tax it (x12 = 102 960, 18% = 18 532.80, less 17 820 = 712.80, /12 = 59.40), so the calculator is wrong. Only PAYE is asserted: UIF/SDL for casual workers are not given by this table.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "non_standard",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 8580,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "unmodelled": {
+      "ordinaryHoursPerWeek": 21,
+      "hoursPerDay": 5,
+      "dayRate": 390,
+      "daysWorked": 22,
+      "employmentBasis": "non-standard"
+    }
+  },
+  "expected": {
+    "paye": 0
+  }
+}

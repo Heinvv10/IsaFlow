@@ -1,0 +1,51 @@
+{
+  "id": "rf-employer-contribution-15pct-rfi-cap-binds-on-total",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 5 (retirement deduction: lesser of R430 000 and 27.5% of the higher of remuneration or taxable income); BRS V25.3.0 codes 4472/4473 and 4001 p. 101-103",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf ; SARS e@syFile Employer Reconciliation BRS (SARS_PAYE_BRS V25.3.0, Jun-26)",
+  "notes": "R20 000 salary (the fund RFI base), employee retirement contribution (4001) R4 000, employer contribution 15% of RFI = R3 000. The employer contribution is a taxable fringe benefit (Seventh Schedule para 12D, not fetched) and is deemed paid by the employee, so it adds to remuneration and enters s11F with the employee's own (BRS 4001: \"paid and deemed paid by employee\"). Remuneration 23 000; cap = lesser of 27.5% x 23 000 = 6 325 and R430 000/12; contributions 4 000 + 3 000 = 7 000, so 6 325 is allowed (the employee's R4 000 alone is under 27.5% x 20 000 = 5 500: it is the combination that binds). Taxable 16 675; x12 = 200 100; tax = 18% x 200 100 = 36 018; less 17 820 = 18 198; /12 = 1516.50. The calculator ignores the employer contribution (EMPLOYER_CONTRIBUTION_NOT_SUPPORTED) and allows the R4 000. RFI is only the fund's contribution base here, never a tax limit; s11F is 27.5% of the greater of remuneration or taxable income. NAMED LIMIT: that the benefit sits in the 27.5% base is by Fourth Schedule \"remuneration\" and para 12D, not a worked SARS example: MEDIUM confidence. A case where the cap does not bind is deliberately not added: the fringe and the deemed deduction cancel and PAYE is unchanged.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 20000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "4001",
+        "name": "Employee pension contribution",
+        "type": "deduction",
+        "amount": 4000,
+        "taxable": true,
+        "uif": false,
+        "sdl": false
+      }
+    ],
+    "unmodelled": {
+      "erRetirementPctOfRfi": 15,
+      "rfiBase": 20000
+    }
+  },
+  "expected": {
+    "paye": 1516.5,
+    "uifEmployee": 177.12
+  }
+}

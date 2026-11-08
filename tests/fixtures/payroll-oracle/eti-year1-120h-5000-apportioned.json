@@ -1,0 +1,45 @@
+{
+  "id": "eti-year1-120h-5000-apportioned",
+  "source": "sars-guide:SARS ETI page, \"Employment Tax Incentive (ETI)\" (table from 1 April 2025; \"grossed up to 160 hours ... grossed down in the same ratio\"), fetched 2026-11-08; ETI Act s4(1)(b)(ii) as amended from 1 April 2025",
+  "sourceRef": "https://www.sars.gov.za/types-of-tax/pay-as-you-earn/employment-tax-incentive-eti/",
+  "notes": "June 2025, employee aged 24, employed since 1 March 2025 (month 4), R5 000 for 120 hours (R41.67 an hour, above the R28.79 minimum wage). Gross up to 160 hours: 5 000 x 160/120 = 6 666.67. April 2025 table, first 12 months: R5 500 - R7 499.99 is R1 500 - 75% x (6 666.67 - 5 500) = 625.00. Gross down: 625.00 x 120/160 = 468.75. The calculator has no hours and takes the R2 500-R5 499.99 flat band: R1 500.00. PAYE nil (60 000 below 95 750); UIF 50.00; SDL 50.00; net 4 950.00. NAMED LIMIT: the ETI guide section (5.3) is not fetched; the SARS page wording and the Act s4(1)(b)(ii) text are the sources. eti-year2-flat-5000 is the existing year-2 case.",
+  "input": {
+    "period": {
+      "year": 2025,
+      "month": 6
+    },
+    "taxYear": 2026,
+    "employee": {
+      "dateOfBirth": "2001-01-01",
+      "startDate": "2025-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 5000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "unmodelled": {
+      "monthlyHours": 120
+    }
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 50,
+    "uifEmployer": 50,
+    "sdl": 50,
+    "eti": 468.75,
+    "net": 4950
+  }
+}
