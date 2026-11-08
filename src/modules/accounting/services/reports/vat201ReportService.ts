@@ -34,7 +34,9 @@ import {
   type VatExcludedLine,
   type VatLineInput,
 } from './vatBoxBasis';
-import { VAT_LATE_CLAIM_SUBTYPE, deriveVatBoxesWithLateClaims, type LateClaimBoxRow } from './vatLateClaimBasis';
+import {
+  VAT_LATE_CLAIM_SUBTYPE, deriveVatBoxesWithLateClaims, type LateClaimBoxRow, type VatBasisWithLateClaims,
+} from './vatLateClaimBasis';
 
 /**
  * (direction, vat_type) → SARS box. Identical to the map `vatReturnService` has
@@ -147,11 +149,23 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function boxFor(direction: VatDirection, vatType: string): { box: string; label: string } {
+export function boxFor(direction: VatDirection, vatType: string): { box: string; label: string } {
   return BOX_NUMBERS[`${direction}:${vatType}`] ?? { box: 'unclassified', label: `Unmapped VAT type "${vatType}"` };
 }
 
-function toBox(row: LateClaimBoxRow): Vat201Box {
+/** The report's totals from a derived basis; the VAT201 drill-down reads the same ones. */
+export function reportTotals(basis: VatBasisWithLateClaims): Vat201Report['totals'] {
+  return {
+    outputTax: basis.outputTax,
+    inputTax: basis.inputTax,
+    netVat: r2(basis.outputTax - basis.inputTax),
+    standardRatedSupplies: basis.boxes.find((b) => b.direction === 'output' && b.vatType === 'standard')?.base ?? 0,
+    standardRatedPurchases: basis.boxes.find((b) => b.direction === 'input' && b.vatType === 'standard')?.base ?? 0,
+    lateClaimInputTax: basis.lateClaimInputTax,
+  };
+}
+
+export function toBox(row: LateClaimBoxRow): Vat201Box {
   const { box, label } = boxFor(row.direction, row.vatType);
   return {
     box, label, direction: row.direction, vatType: row.vatType, base: row.base, tax: row.tax,
@@ -241,14 +255,7 @@ export async function getVat201Report(
     periodEnd,
     detail,
     boxes: basis.boxes.map(toBox),
-    totals: {
-      outputTax: basis.outputTax,
-      inputTax: basis.inputTax,
-      netVat: r2(basis.outputTax - basis.inputTax),
-      standardRatedSupplies: basis.boxes.find((b) => b.direction === 'output' && b.vatType === 'standard')?.base ?? 0,
-      standardRatedPurchases: basis.boxes.find((b) => b.direction === 'input' && b.vatType === 'standard')?.base ?? 0,
-      lateClaimInputTax: basis.lateClaimInputTax,
-    },
+    totals: reportTotals(basis),
     rateCheck: {
       rate: SA_VAT_RATE,
       outputImpliedTax: basis.outputImpliedTax,
