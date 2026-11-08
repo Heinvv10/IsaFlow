@@ -289,9 +289,20 @@ describe('notify.undoable', () => {
 });
 
 describe('the toast surface (UXB, wave 5)', () => {
-  it('is a polite status of its own, so a reader that skips the announcer still finds it', () => {
+  /** Live regions on the page whose text holds `text`: role status/alert/log or any aria-live, unless it is "off". */
+  const speaking = (text: string) => Array.from(document.querySelectorAll('[role="status"],[role="alert"],[role="log"],[aria-live]'))
+    .filter((el) => el.getAttribute('aria-live') !== 'off' && (el.textContent ?? '').includes(text));
+
+  it('is a status of its own, and not a second live region', () => {
     open();
     expect(surface()).toHaveAttribute('role', 'status');
-    expect(surface()).toHaveAttribute('aria-live', 'polite');
+    expect(surface()).toHaveAttribute('aria-live', 'off');
+  });
+
+  it('the title is in exactly one live region: the announcer', () => {
+    open();
+    const regions = speaking('Transaction excluded');
+    expect(regions).toHaveLength(1);
+    expect(regions[0]).toBe(announcer());
   });
 });

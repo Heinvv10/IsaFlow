@@ -53,8 +53,10 @@ export function UndoToast({ t, title, opts, undoOnce }: Props) {
   return (
     <div
       data-testid="undo-toast"
+      // A status of its own, but not a live region: UndoAnnouncer (mounted before the toast) is the one that speaks,
+      // because a live region that arrives with its text is not read. Two regions would say it twice.
       role="status"
-      aria-live="polite"
+      aria-live="off"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
