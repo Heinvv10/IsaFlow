@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { Search, Upload } from 'lucide-react';
 import { formatCurrency as fmtCurrency } from '@/utils/formatters';
 import { todayInSast } from '@/lib/saDateParser';
+import { Select, type SelectOption } from '@/components/ui/Select';
 import type { BankAccountGroup } from './groupBankAccounts';
 import {
   STALE_DAYS, isStale, worklistSummary, worklistView, type WorklistFilter, type WorklistSort,
@@ -27,10 +28,10 @@ const CHIPS: { id: WorklistFilter; label: string }[] = [
   { id: 'stale', label: `Stale >${STALE_DAYS}d` },
   { id: 'none', label: 'No statements' },
 ];
-const SORTS: { id: WorklistSort; label: string }[] = [
-  { id: 'attention', label: 'Attention' },
-  { id: 'name', label: 'Name' },
-  { id: 'balance', label: 'Balance' },
+const SORT_OPTIONS: SelectOption[] = [
+  { value: 'attention', label: 'Attention' },
+  { value: 'name', label: 'Name' },
+  { value: 'balance', label: 'Balance' },
 ];
 
 const amountClass = (n: number) => (n >= 0 ? 'text-teal-700 dark:text-teal-400' : 'text-red-700 dark:text-red-300');
@@ -89,13 +90,11 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Props) 
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-1 text-xs text-[var(--ff-text-secondary)]">
-          Sort
-          <select value={sort} onChange={e => setSort(e.target.value as WorklistSort)} data-testid="worklist-sort"
-            className="ff-select py-0.5 text-xs">
-            {SORTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-          </select>
-        </label>
+        <div className="flex items-center gap-1 text-xs text-[var(--ff-text-secondary)]" data-testid="worklist-sort">
+          <span aria-hidden="true">Sort</span>
+          <Select label="Sort" labelClassName="sr-only" size="sm" className="w-40"
+            options={SORT_OPTIONS} value={sort} onChange={v => { if (v) setSort(v as WorklistSort); }} />
+        </div>
       </div>
       <div className="max-h-[28rem] overflow-y-auto divide-y divide-[var(--ff-border-light)]" data-testid="bank-group-rows">
         {view.rows.map(a => {

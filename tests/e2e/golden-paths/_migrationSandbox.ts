@@ -24,6 +24,7 @@
 import { expect, type BrowserContext } from '@playwright/test';
 import { ApiError, type Api } from './_api';
 import { failOnManifestRace, retryDropped } from '../helpers/droppedConnection';
+import { resetHostedOnboardingLimit } from './helpers/hostedOnboardingLimit';
 
 export const MIGRATION_SANDBOX_NAME = '0GP Golden Migration Sandbox';
 /** Fixed onboarding key: a repeat create returns the same company (migration 895). */
@@ -48,6 +49,7 @@ export async function findOrCreateSandbox(api: Api, spec: SandboxSpec): Promise<
   };
   const found = await find();
   if (found) return found;
+  await resetHostedOnboardingLimit();
   const setup = await api.postRaw('/api/onboarding/complete-setup', {
     requestKey: spec.onboardingId,
     entityType: 'other', // the one entity with no proof document to upload

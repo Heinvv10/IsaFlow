@@ -1,5 +1,5 @@
 /**
- * SDL year to date on real Postgres (payrollRunLineWriter, payrollYearToDate, payrollSdlYearToDate; SDL Act s3(4);
+ * SDL year to date on real Postgres (payrollRunLineWriter, payrollYearToDate, payrollSdlYearToDate; SDL Act s3(3);
  * SARS SDL-GEN-01-G01 Rev 5 s6 and s4(b); migration 957).
  *
  * 1. The real writer and loader: runs calculated by calculatePayrollRun (the only writer of payroll_run_lines) store

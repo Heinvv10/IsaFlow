@@ -119,6 +119,23 @@ describe('document-capture-action', () => {
     expect(m.attachBank).toHaveBeenCalledTimes(2);
   });
 
+  it('match_bank_tx: 409 naming the other claim when the document already backs a VAT claim', async () => {
+    m.attachBank.mockResolvedValue({ ok: false, reason: 'document_backs_other_claim', otherClaim: { kind: 'journal', id: ID, reference: 'JE-9' } });
+    m.sql.mockResolvedValue([row({ read_state: 'done' })]);
+    const r = await call(action, { id: ID, action: 'match_bank_tx', data: { bankTxId: ID } });
+    expect(r.statusCode).toBe(409);
+    expect(JSON.stringify(r.sent)).toContain('already supports the VAT on journal JE-9');
+    expect(JSON.stringify(r.sent)).toContain('"otherClaim"');
+  });
+
+  it('match_bank_tx: 503, retryable, when the bank line or document lock is held', async () => {
+    const { BankTransactionLockTimeoutError } = await import('@/modules/accounting/services/bank/bankTxLock');
+    m.attachBank.mockRejectedValue(new BankTransactionLockTimeoutError(ID));
+    m.sql.mockResolvedValue([row({ read_state: 'done' })]);
+    const r = await call(action, { id: ID, action: 'match_bank_tx', data: { bankTxId: ID } });
+    expect(r.statusCode).toBe(503);
+  });
+
   it('reject: allowed while the document is being read (the gate is asked for the reject action)', async () => {
     m.releaseClaim.mockResolvedValue('ok');
     const r = await call(action, { id: ID, action: 'reject' });
