@@ -18,12 +18,12 @@ import type { MoneyScale } from '@/lib/format/money';
 import { PackRefusal } from '../packRefusal';
 import { GUTTER_MM } from './packDisclosureHeight';
 import {
-  deltaText, kpiColumnMinPx, kpiFit, KPI_GAP_PX, KPI_FIGURE_MAX_PT, labelMarkFitPx, MM_PX, type KpiTile,
+  deltaText, kpiColumnMinPx, kpiFit, KPI_GAP_PX, KPI_FIGURE_MAX_PT, labelMarkExactPx, MM_PX, type KpiTile,
 } from './packFigureFit';
-import { ptToPx, textFitPx, textPx } from './packFigureWidth';
-import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, CHROMIUM_MOST, clustersOf, inFace } from './packGlyphRuler';
+import { ptToPx, textExactPx, textPx } from './packFigureWidth';
+import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, CHROMIUM_MOST, clustersOf, fitUnitsPx, inFace } from './packGlyphRuler';
 import { pieces } from './packLineBreaks';
-import { reasonFitPx } from './packReasonWidth';
+import { reasonExactPx } from './packReasonWidth';
 import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
 
 /** One CSS pixel, in mm. */
@@ -94,7 +94,7 @@ function tracks(mins: readonly number[], gapPx: number, orientation: PageOrienta
 export function kpiColumnBoundsPx(tiles: readonly KpiTile[], scale: MoneyScale, orientation: PageOrientation): { line: number[]; spark: number[] } {
   const figurePx = kpiFigurePx(tiles, scale, orientation);
   const mins = kpiColumnMinPx(tiles, scale, figurePx);
-  const old = tracks(mins, KPI_GAP_PX, orientation);
+  const neverShort = tracks(mins, KPI_GAP_PX, orientation);
   // Lines break in the narrowest each column can be: a column a figure (or a word) holds open at the narrowest Chromium
   // can set that, and a shared `1fr` column at the share left once every held-open column is the widest Chromium can set
   // it, floored to the unit (Chromium's grid sizes tracks in it).
@@ -102,7 +102,7 @@ export function kpiColumnBoundsPx(tiles: readonly KpiTile[], scale: MoneyScale, 
   const least = kpiColumnMinPx(tiles, scale, figurePx, CHROMIUM_LEAST);
   const line = most.columns.map((c, i) => (most.frozen[i] ? least[i]! : floor64(most.share)));
   const wide = tracks(mins.map((m) => m - 2 / 64), floor64(KPI_GAP_PX), orientation);
-  return { line, spark: old.columns.map((c, i) => (old.frozen[i] ? c : Math.max(c, wide.columns[i]!))) };
+  return { line, spark: neverShort.columns.map((c, i) => (neverShort.frozen[i] ? c : Math.max(c, wide.columns[i]!))) };
 }
 
 /** The width of each of the four columns lines break in, in pixels: the grid's `1fr` tracks over their min-content widths. */
@@ -112,17 +112,17 @@ export function kpiColumnsPx(tiles: readonly KpiTile[], scale: MoneyScale, orien
 
 /**
  * How many lines Chromium sets `text` in, `avail` px wide: a greedy fill over the places it may break (`pieces`), each
- * candidate line measured as ONE string, the way Chromium's line breaker decides that a piece still fits: by its exact
- * advance sum floored to the 1/64px unit (`fitOf`: `textFitPx`, `reasonFitPx`; `packGlyphRuler.fitUnitsPx`). Each
- * inline box on the line counts on its own: `lead` is the delta's arrow cue, its own box set at its width as Chromium
- * sets it, with `leadText` (the space after it) measured with the first line's words; `mark` is a footnote mark that
+ * candidate line measured as ONE string, the way Chromium's line breaker decides that a piece still fits: every box on
+ * the line summed exactly and floored to the 1/64px unit once, with Chromium's noise margin (`packGlyphRuler.fitUnitsPx`;
+ * `exactOf`: `textExactPx`, `reasonExactPx`). `lead` is the delta's arrow cue, its own box at the width Chromium sets it,
+ * with `leadText` (the space after it) measured with the first line's words; `mark` is a footnote mark's exact sum, which
  * stays with the last piece. A line that ends at a soft hyphen carries the hyphen Chromium sets there (`Piece.hyphen`).
  *
  * No guard is kept off the column, and the column is the narrowest Chromium can make it (`kpiColumnBoundsPx`): a line
  * the model fits, Chromium fits (`packLineFit.test.ts`: the rule is never short on the 630-case grid and the ruler's
  * random strings; `packKpiLayoutGrid.test.ts`: no block short, and none a line over, on the grid's 11,520 packs).
  */
-function lineCount(text: string, fitOf: (line: string, hyphen: boolean) => number, avail: number, lead = 0, mark = 0, leadText = ''): number {
+function lineCount(text: string, exactOf: (line: string, hyphen: boolean) => number, avail: number, lead = 0, mark = 0, leadText = ''): number {
   const all = pieces(text);
   let lines = 1;
   let line = '';
@@ -130,13 +130,13 @@ function lineCount(text: string, fitOf: (line: string, hyphen: boolean) => numbe
   all.forEach((piece, i) => {
     const candidate = line === '' ? piece.text : `${line}${piece.spaced ? ' ' : ''}${piece.text}`;
     const before = first ? lead : 0;
-    const w = before + fitOf(first ? `${leadText}${candidate}` : candidate, piece.hyphen) + (i === all.length - 1 ? mark : 0);
+    const w = fitUnitsPx(before + exactOf(first ? `${leadText}${candidate}` : candidate, piece.hyphen) + (i === all.length - 1 ? mark : 0));
     if ((line !== '' || before > 0) && w > avail) { lines += 1; line = piece.text; first = false; } else line = candidate;
   });
   return lines;
 }
 
-const plainFit = (line: string, hyphen = false): number => textFitPx(line, TEXT_PX, 400, hyphen);
+const plainExact = (line: string, hyphen = false): number => textExactPx(line, TEXT_PX, 400, hyphen);
 /** The delta's arrow cue, its own inline box: at the width Chromium sets it (the exact sum rounded up to the unit). */
 const DELTA_CUE_FIT_PX = Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400, false, AS_CHROMIUM_SETS)));
 
@@ -170,10 +170,10 @@ export interface KpiTileLines { label: number; reason: number; delta: number }
 
 export function kpiTileLines(tile: KpiTile, columnPx: number): KpiTileLines {
   return {
-    label: lineCount(inPackFaces(tile.label), plainFit, columnPx, 0, labelMarkFitPx(tile.trendFootnote)),
-    reason: tile.figure.value === null ? lineCount(inPackFaces(tile.figure.unavailable ?? ''), reasonFitPx, columnPx) : 0,
+    label: lineCount(inPackFaces(tile.label), plainExact, columnPx, 0, labelMarkExactPx(tile.trendFootnote)),
+    reason: tile.figure.value === null ? lineCount(inPackFaces(tile.figure.unavailable ?? ''), reasonExactPx, columnPx) : 0,
     // The arrow cue is a box of its own, then a space and the words (`</span>{' '}`): a break may follow the cue.
-    delta: tile.delta === null ? 0 : lineCount(inPackFaces(deltaText(tile)), plainFit, columnPx, DELTA_CUE_FIT_PX, 0, ' '),
+    delta: tile.delta === null ? 0 : lineCount(inPackFaces(deltaText(tile)), plainExact, columnPx, DELTA_CUE_FIT_PX, 0, ' '),
   };
 }
 

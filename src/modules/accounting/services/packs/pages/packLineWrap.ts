@@ -4,6 +4,7 @@
  * (`packTableLayout.ts`) fill with it. Where text may break is `packLineBreaks.ts` (measured in Chromium, which is not
  * UAX 14).
  */
+import { fitUnitsPx } from './packGlyphRuler';
 import type { Piece } from './packLineBreaks';
 import type { PageOrientation } from './packTextMetrics';
 
@@ -37,17 +38,19 @@ export const WRAP_GUARD_PX = WRAP_GUARD.portrait;
  * A greedy fill of `parts` into lines of `avail` pixels, each candidate line measured WHOLE by `lineWidth` (Chromium
  * shapes a line as one run: kerning across a space and the rounding of one width, not a sum of rounded pieces), with
  * the hyphen a soft one sets where the candidate would end the line (`Piece.hyphen`); `marker` is a footnote mark that
- * stays with the last part. `lineWidth` must never be short: this decides whether a piece still fits.
+ * stays with the last part. `lineWidth` and `marker` are EXACT advance sums (unrounded): the line is floored once, with
+ * Chromium's noise margin (`packGlyphRuler.fitUnitsPx`).
  */
 export function linesForText(
   parts: readonly Piece[], lineWidth: (text: string, hyphen: boolean) => number, marker: number, avail: number, guardPx: number = WRAP_GUARD_PX,
 ): number {
+  // The line and its mark summed exactly and floored once, as Chromium's line breaker counts them (`fitUnitsPx`).
   let lines = 1;
   let line = '';
   parts.forEach((part, i) => {
     const mark = i === parts.length - 1 ? marker : 0;
     const candidate = line === '' ? part.text : `${line}${part.spaced ? ' ' : ''}${part.text}`;
-    if (line !== '' && lineWidth(candidate, part.hyphen) + mark > avail - guardPx) { lines += 1; line = part.text; } else line = candidate;
+    if (line !== '' && fitUnitsPx(lineWidth(candidate, part.hyphen) + mark) > avail - guardPx) { lines += 1; line = part.text; } else line = candidate;
   });
   return lines;
 }

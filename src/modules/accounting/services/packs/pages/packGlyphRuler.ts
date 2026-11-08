@@ -94,7 +94,7 @@ export function scriptRuns(text: string): string[] {
  * How a width is rounded to Chromium's unit: `NEVER_SHORT` (the exact sum rounded up, and one unit more) for a decision
  * that must never be short (does a row fit the sheet?); `AS_CHROMIUM_SETS` (rounded up, no unit added) for a layout
  * model that reproduces Chromium's columns (`packTableLayout.ts`); `CHROMIUM_LEAST` and `CHROMIUM_MOST`, the narrowest
- * and widest Chromium can set it once its own float noise (`FIT_NOISE_UNITS`) is counted either way: the bounds a
+ * and widest Chromium can set it once its own float noise on a single run (`RUN_NOISE_UNITS`) is counted either way: the bounds a
  * model takes a column at when it must be no wider (or no narrower) than Chromium's (`packKpiLayout.kpiColumnBoundsPx`).
  * An argument, never a setting: a measure in flight cannot change another's.
  */
@@ -135,8 +135,8 @@ export function runPx(
 ): number {
   if (text === '' && !hyphen) return 0;
   const exact = runExactPx(text, fontPx, weight, fallbackPx, letterSpacingPx, hyphen) * UNIT;
-  if (slack === 'least') return Math.ceil(exact - FIT_NOISE_UNITS) / UNIT;
-  if (slack === 'most') return Math.ceil(exact + FIT_NOISE_UNITS) / UNIT;
+  if (slack === 'least') return Math.ceil(exact - RUN_NOISE_UNITS) / UNIT;
+  if (slack === 'most') return Math.ceil(exact + RUN_NOISE_UNITS) / UNIT;
   return Math.ceil(exact - 1e-7) / UNIT + slack / UNIT;
 }
 
@@ -172,11 +172,26 @@ export function runExactPx(
 }
 
 /**
- * Chromium's own float sum of a run is the exact one to within 0.024 of a unit either way (measured); this much is
- * added before flooring, so a run the model fits Chromium fits (`packLineFit.test.ts`: never short on the grid and the
- * random strings, over by one unit on about 8% of them).
+ * HOW FAR CHROMIUM'S OWN SUM OF A LINE CAN RUN PAST THE EXACT ONE, in units: the margin added before flooring, so a line
+ * the model fits, Chromium fits. Measured as the narrowest one-line width less the line's exact sum (`packLineFit.test.ts`
+ * holds every set): a single run of 1 to 14 glyphs within 0.045 of a unit, a label with its mark 0.056, a delta line
+ * with its cue 0.192 (3,000 random lines of 2 to 23 words), and up to 0.272 over 1,500 random lines of 2 to 23 words and
+ * 40 to 80 characters (labels with marks, deltas with cues, reasons, runs at the pack's sizes and weights). It does not
+ * grow with the line's length past that. Half a unit is the worst seen and 0.228 of headroom; at 1/16 the adversary's
+ * review of #1235 read labels with marks and delta lines 1/64px short (`fixtures/lineFitShortLines.ts`).
  */
-export const FIT_NOISE_UNITS = 1 / 16;
+export const FIT_NOISE_UNITS = 1 / 2;
 
-/** The width a run takes on a line as Chromium's line breaker counts it: its exact sum, floored to the 1/64px unit. */
+/**
+ * Chromium's own float noise on ONE run's width (a min-content or max-content width a column is sized by), in units:
+ * within 0.024 of a unit either way on the 630-case grid and 600 random strings (`packLineFit.test.ts`); a sixteenth.
+ * The bounds `CHROMIUM_LEAST` and `CHROMIUM_MOST` take a column at count it.
+ */
+export const RUN_NOISE_UNITS = 1 / 16;
+
+/**
+ * The width a line takes as Chromium's line breaker counts it: `exactPx`, the exact advance sum of every box on it
+ * (the words, a footnote mark, a soft hyphen's hyphen, the delta's cue), plus the noise margin, floored to the 1/64px
+ * unit ONCE for the whole line (each box floored on its own reads up to two units narrower than Chromium with a mark).
+ */
 export const fitUnitsPx = (exactPx: number): number => Math.floor(exactPx * UNIT + FIT_NOISE_UNITS) / UNIT;

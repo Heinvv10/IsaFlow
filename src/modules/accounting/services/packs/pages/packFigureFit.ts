@@ -24,8 +24,8 @@ import { collectReasons, noteMark } from '@/components/accounting/packs/primitiv
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { MoneyScale } from '@/lib/format/money';
 import { GUTTER_MM } from './packDisclosureHeight';
-import { type FigureWeight, ptToPx, textPx, textPxUnsnapped, textFitPx } from './packFigureWidth';
-import { fitUnitsPx, NEVER_SHORT, runExactPx, runPx, type Slack } from './packGlyphRuler';
+import { type FigureWeight, ptToPx, textExactPx, textPx, textPxUnsnapped } from './packFigureWidth';
+import { NEVER_SHORT, runExactPx, runPx, type Slack } from './packGlyphRuler';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
 import { pieces } from './packLineBreaks';
 import { reasonPx } from './packReasonWidth';
@@ -53,9 +53,12 @@ const NOT_MEANINGFUL = 'n/m';
  * holds a label or an n/m cell with its mark to Chromium.
  */
 const markPx = (text: string, hostPx: number, weight: FigureWeight, slack: Slack = NEVER_SHORT): number => textPxUnsnapped(text, 0.7 * hostPx, weight, slack);
+/**
+ * A row's or KPI tile's footnote mark, its EXACT advance sum (unrounded), to be summed with the rest of its line and
+ * floored once (`packGlyphRuler.fitUnitsPx`): for "does this line fit", never for a width a column is sized by.
+ */
+export const labelMarkExactPx = (number: number | null | undefined, weight: FigureWeight = 400): number => (number === null || number === undefined ? 0 : textExactPx(String(number), 0.7 * 12, weight));
 /** A row's or KPI tile's footnote number after its 9pt label. */
-/** A label's footnote mark as a line FITS it (`packFigureWidth.textFitPx`): never for a width a column is sized by. */
-export const labelMarkFitPx = (number: number | null | undefined, weight: FigureWeight = 400): number => (number === null || number === undefined ? 0 : textFitPx(String(number), 0.7 * 12, weight));
 export const labelMarkPx = (number: number | null | undefined, weight: FigureWeight = 400, slack: Slack = NEVER_SHORT): number => (number === null || number === undefined ? 0 : markPx(String(number), 12, weight, slack));
 
 /** `.pack-table th`: 8pt, weight 500, uppercase, 0.06em letter-spacing (which a superscript inherits as computed). */
@@ -75,11 +78,11 @@ export const HEADING_WORD_PX: Readonly<Record<PackTableColumnKey, number>> = Obj
     Math.max(...headingWordsPx(label))]),
 ) as Record<PackTableColumnKey, number>;
 
-/** A heading line (or its mark) as a line FITS it (`packGlyphRuler.fitUnitsPx`): the exact tracked sum, floored. */
-const headingRunFitPx = (text: string, fontPx: number): number => fitUnitsPx(runExactPx(text, fontPx, 500,
-  (cluster, sizePx) => textPx(cluster, sizePx, 500) + HEADING_TRACKING_PX, HEADING_TRACKING_PX));
-export const headingLineFitPx = (text: string): number => headingRunFitPx(text.toUpperCase(), HEADING_PX);
-export const headingMarkFitPx = (number: number | undefined): number => (number === undefined ? 0 : headingRunFitPx(String(number), 0.7 * HEADING_PX));
+/** A heading line (or its mark), its exact tracked advance sum, unrounded: summed with its line, floored once. */
+const headingRunExactPx = (text: string, fontPx: number): number => runExactPx(text, fontPx, 500,
+  (cluster, sizePx) => textPx(cluster, sizePx, 500) + HEADING_TRACKING_PX, HEADING_TRACKING_PX);
+export const headingLineExactPx = (text: string): number => headingRunExactPx(text.toUpperCase(), HEADING_PX);
+export const headingMarkExactPx = (number: number | undefined): number => (number === undefined ? 0 : headingRunExactPx(String(number), 0.7 * HEADING_PX));
 
 /** A line of a column heading, in pixels, as `.pack-table th` sets it (shaped whole, tracked). */
 export const headingLinePx = (text: string, slack: Slack = NEVER_SHORT): number => headingRunPx(text.toUpperCase(), HEADING_PX, slack);

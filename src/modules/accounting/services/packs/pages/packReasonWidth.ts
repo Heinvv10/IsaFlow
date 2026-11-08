@@ -19,6 +19,11 @@ export function reasonPx(text: string, hyphen = false, slack: Slack = NEVER_SHOR
 
 /** The width a reason line takes as Chromium decides whether it fits (`packFigureWidth.textFitPx`). */
 export function reasonFitPx(text: string, hyphen = false): number {
+  return fitUnitsPx(reasonExactPx(text, hyphen));
+}
+
+/** A reason line's exact advance sum, unrounded (`packFigureWidth.textExactPx`). */
+export function reasonExactPx(text: string, hyphen = false): number {
   if (text === '' && !hyphen) return 0;
-  return fitUnitsPx(runExactPx(text, REASON_PX, 400, (cluster, sizePx) => fallbackClusterPx(cluster, 'reason', sizePx, sizePx), 0, hyphen));
+  return runExactPx(text, REASON_PX, 400, (cluster, sizePx) => fallbackClusterPx(cluster, 'reason', sizePx, sizePx), 0, hyphen);
 }

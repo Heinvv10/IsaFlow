@@ -1,8 +1,9 @@
 /**
  * A PRINT-PARITY TEST SKIPS ONLY INSIDE GITHUB ACTIONS OR WHEN TOLD TO, NAMING THE ACTUAL CAUSE, AND NEVER AGAINST ANOTHER IMAGE.
  */
-import { describe, expect, it } from 'vitest';
-import { orphanedContainers, PRODUCTION_GOTENBERG_IMAGE } from './gotenbergParity';
+import { describe, expect, it, vi } from 'vitest';
+import { orphanedContainers, PRODUCTION_GOTENBERG_IMAGE, removeContainer } from './gotenbergParity';
+import { log } from '@/lib/logger';
 import { paritySkip } from './paritySkip';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -107,5 +108,19 @@ describe('orphanedContainers', () => {
     const alive = (pid: number) => pid === 100;
     expect(orphanedContainers(['isaflow-print-parity-100', 'isaflow-print-parity-3484459', 'gotenberg', 'isaflow-print-parity-x', 'my-isaflow-print-parity-7'], alive))
       .toEqual(['isaflow-print-parity-3484459']);
+  });
+});
+
+describe('removeContainer', () => {
+  it('never throws when docker cannot remove the container: it logs, so a failed start keeps its own error', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    try {
+      const calls: string[][] = [];
+      expect(() => removeContainer('isaflow-print-parity-1', (args) => { calls.push(args); throw new Error('Cannot connect to the Docker daemon'); })).not.toThrow();
+      expect(calls).toEqual([['rm', '-fv', 'isaflow-print-parity-1']]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not remove'), expect.objectContaining({ name: 'isaflow-print-parity-1', error: 'Cannot connect to the Docker daemon' }), 'print-parity');
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

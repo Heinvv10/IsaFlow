@@ -32,8 +32,13 @@ export function textPx(text: string, fontPx: number, weight: FigureWeight, hyphe
  * floored to the unit. For "does this line hold one more piece", never for a width a column is sized by (`textPx`).
  */
 export function textFitPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false): number {
+  return fitUnitsPx(textExactPx(text, fontPx, weight, hyphen));
+}
+
+/** `text`'s exact advance sum, unrounded: a line's boxes are summed exactly and floored once (`fitUnitsPx`). */
+export function textExactPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false): number {
   if (text === '' && !hyphen) return 0;
-  return fitUnitsPx(runExactPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX), 0, hyphen));
+  return runExactPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX), 0, hyphen);
 }
 
 /**

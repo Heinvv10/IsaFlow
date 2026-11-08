@@ -79,6 +79,15 @@ function removeOrphans(): void {
   for (const name of orphanedContainers(names)) execFileSync('docker', ['rm', '-fv', name], { stdio: 'ignore' });
 }
 
+/** Removes the parity container `name` with its volumes; never throws (a failure is logged, and the next run removes it). */
+export function removeContainer(name: string, docker: (args: string[]) => void = (args) => { execFileSync('docker', args, { stdio: 'ignore' }); }): void {
+  try {
+    docker(['rm', '-fv', name]);
+  } catch (err) {
+    log.warn('print parity: could not remove the Gotenberg container; the next run removes it', { name, error: err instanceof Error ? err.message : String(err) }, 'print-parity');
+  }
+}
+
 /**
  * A throwaway Gotenberg of the production image, removed with its volumes when `stop` is called (the tests' afterAll)
  * or when this process exits, and, if it was killed outright or interrupted, by the next run (`orphanedContainers`).
@@ -94,11 +103,7 @@ export async function startGotenberg(): Promise<Gotenberg> {
     if (stopped) return;
     stopped = true;
     process.off('exit', stop);
-    try {
-      execFileSync('docker', ['rm', '-fv', name], { stdio: 'ignore' });
-    } catch (err) {
-      log.warn('print parity: could not remove the Gotenberg container; the next run removes it', { name, error: err instanceof Error ? err.message : String(err) }, 'print-parity');
-    }
+    removeContainer(name);
   };
   process.once('exit', stop);
   try {

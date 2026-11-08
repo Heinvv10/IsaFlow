@@ -2,7 +2,7 @@
  * THE KPI MODEL FITS A TILE'S LINE AS CHROMIUM'S LINE BREAKER DOES: EACH BOX'S EXACT SUM FLOORED TO THE UNIT.
  *
  * Whether a line holds its words is decided on the whole line's exact advance sum, floored to Chromium's 1/64px unit
- * (`textFitPx`, `reasonFitPx`, `labelMarkFitPx`; the delta's arrow cue its own box at the width Chromium sets it). The
+ * (every box on the line summed exactly and floored once with Chromium's noise margin, `fitUnitsPx`; the delta's arrow cue its own box at the width Chromium sets it). The
  * Chromium proof is `tests/unit/print/packLineFit.test.ts` and, over packs, `packKpiLayout.test.ts`; this pins the
  * model's own boundary without a browser: a column that width sets the line on one line, a column 1/128px narrower on
  * two. A model that fits on the never-short width (wraps it in the exact column) or sums the line piece by piece goes red
@@ -11,9 +11,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { log } from '@/lib/logger';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { deltaText, KPI_FIGURE_MAX_PT, kpiColumnMinPx, kpiFit, labelMarkFitPx, type KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
-import { ptToPx, textFitPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
-import { AS_CHROMIUM_SETS, CHROMIUM_LEAST } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
+import { deltaText, KPI_FIGURE_MAX_PT, kpiColumnMinPx, kpiFit, labelMarkExactPx, type KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { ptToPx, textExactPx, textFitPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
+import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, fitUnitsPx } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
 import { kpiColumnsPx, kpiTileMm, LABEL_LINE_MM, REASON_LINE_MM } from '@/modules/accounting/services/packs/pages/packKpiLayout';
 import { reasonFitPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
@@ -32,7 +32,7 @@ function tiles(shape: Shape): KpiTile[] {
 
 const DEMO: Shape = { tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1, plug: 0.2, sg: [-1, 1, -1, 1] };
 const NET_DEBIT: Shape = { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 300000, plug: 0.05, sg: [-1, -1, 1, 1] };
-const plain = (text: string): number => textFitPx(text, 12, 400);
+const exact = (text: string): number => textExactPx(text, 12, 400);
 const CUE = Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400, false, AS_CHROMIUM_SETS)));
 
 describe('a tile line at the edge of its column', () => {
@@ -43,14 +43,16 @@ describe('a tile line at the edge of its column', () => {
   it('a delta line (its arrow cue, a space, the words) fits the exact width of the whole line, and no narrower', () => {
     const source = all.find((t) => t.delta !== null)!;
     const tile = alone(source, { delta: source.delta, figure: { ...source.figure, value: source.figure.value ?? 1 } });
-    const whole = CUE + plain(` ${deltaText(tile)}`);
+    // The cue and the words summed exactly, floored once.
+    const whole = fitUnitsPx(CUE + exact(` ${deltaText(tile)}`));
     expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(LABEL_LINE_MM, 6);
   });
 
   it('a label and its footnote mark fit the exact width of the two, and no narrower', () => {
     const source = all.find((t) => t.trendFootnote != null && t.label.includes(' '))!;
     const tile = alone(source, { label: source.label, trendFootnote: source.trendFootnote, figure: { ...source.figure, value: source.figure.value ?? 1 } });
-    const whole = plain(tile.label) + labelMarkFitPx(tile.trendFootnote);
+    // The label and its mark summed exactly, floored once (each floored on its own reads a unit narrower).
+    const whole = fitUnitsPx(exact(tile.label) + labelMarkExactPx(tile.trendFootnote));
     expect(kpiTileMm(tile, whole - HAIR) - kpiTileMm(tile, whole)).toBeCloseTo(LABEL_LINE_MM, 6);
   });
 
@@ -71,12 +73,11 @@ describe('a tile line at the edge of its column', () => {
 });
 
 describe('a shared column', () => {
-  it('is on Chromium\'s unit: the share left once every held-open column is the widest Chromium can set it, floored', () => {
-    for (const shape of [DEMO, NET_DEBIT]) {
-      const columns = kpiColumnsPx(tiles(shape), SCALE, 'portrait');
-      const share = Math.min(...columns);
-      expect(Number.isInteger(share * 64), `${share}`).toBe(true);
-    }
+  it('is the share left of the sheet, floored to Chromium\'s unit: worked by hand for the demo row, no column held open', () => {
+    // 658px less three 8mm gaps at Chromium's unit (30.236 floored to 30.234375): 567.296875, over four columns
+    // 141.82421875, floored to the unit: 141.8125 (Chromium sets the first three at that, the last at 141.828125).
+    const columns = kpiColumnsPx(tiles(DEMO), SCALE, 'portrait');
+    expect(columns).toEqual([141.8125, 141.8125, 141.8125, 141.8125]);
   });
 });
 

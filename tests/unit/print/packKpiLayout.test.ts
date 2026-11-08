@@ -31,11 +31,11 @@ for (const k of [1, 30, 1000, 30000, 300000, 3e7, 2.7e8]) for (const negative of
 
 /**
  * The blocks of this sample in the one-line band, pinned: a width model that drifts moves the count either way, and
- * the near ties are named in the failure. None: the four it held (net-debit packs at k=300,000, "Gross margin" and its
- * mark a unit over its column, and two at k=3e7) went when lines were fitted as Chromium fits them (`textFitPx`) in a
- * column the narrowest Chromium can make it (`kpiColumnBoundsPx`).
+ * the near ties are named in the failure. Two, both at k=3e7 (outside the grid): the tile's delta line "↓ down 9.9%",
+ * exact 4592.656 units in a 4592-unit column, which Chromium fits and the line fit's half-unit noise margin
+ * (`FIT_NOISE_UNITS`, sized to the worst noise seen on long and multi-box lines) wraps: one line over, never short.
  */
-const IN_BAND = { portrait: 0, landscape: 0 } as const;
+const IN_BAND = { portrait: 2, landscape: 0 } as const;
 
 describe('the KPI block of a stratified sample of packs', () => {
   it.each(['portrait', 'landscape'] as const)(`${SHAPES.length} packs, %s: columns within 1px, rows and the block never short, within ${MOST_OVER}mm but the band`, async (orientation) => {

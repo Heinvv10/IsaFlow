@@ -22,10 +22,10 @@ import { createHash } from 'node:crypto';
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
 import {
-  CELL_SIDE_PX, cellPx, headingLineFitPx, headingLinePx, headingMarkFitPx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL,
-  labelMarkFitPx, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT, tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT, type FigureCell,
+  CELL_SIDE_PX, cellPx, headingLineExactPx, headingLinePx, headingMarkExactPx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL,
+  labelMarkExactPx, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT, tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT, type FigureCell,
 } from './packFigureFit';
-import { ptToPx, textFitPx, textPx } from './packFigureWidth';
+import { ptToPx, textExactPx, textPx } from './packFigureWidth';
 import { AS_CHROMIUM_SETS } from './packGlyphRuler';
 import { linesForText, minPx, WRAP_GUARD } from './packLineWrap';
 import { pieces } from './packLineBreaks';
@@ -57,7 +57,7 @@ export interface TableLayout {
  * The layout of `table`. The figures are at the size the fit sets (a decision that must never be short). The columns
  * are shared out from widths as Chromium sets them (`AS_CHROMIUM_SETS`), so they are Chromium's to within a few
  * hundredths of a pixel; whether a line still holds a piece is decided the way Chromium's line breaker decides it
- * (`textFitPx`: each box's exact sum floored to the unit), against the column less the guard (`WRAP_GUARD`, the
+ * (`fitUnitsPx`: the line's boxes summed exactly, floored once), against the column less the guard (`WRAP_GUARD`, the
  * columns' error). The columns are shared out
  * in Chromium's 1/64px unit: each column's share truncated to it, the last column taking what is left.
  */
@@ -140,11 +140,11 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
   const labelBox = inputs.rows.map((row) => {
     const weight = ROW_WEIGHT[row.role];
     const parts = pieces(row.label);
-    const line = (text: string, hyphen: boolean): number => textFitPx(text, LABEL_FONT_PX, weight, hyphen);
+    const line = (text: string, hyphen: boolean): number => textExactPx(text, LABEL_FONT_PX, weight, hyphen);
     const indent = row.level * INDENT_PX_PER_LEVEL;
     const marker = labelMarkPx(row.footnote, weight, AS_CHROMIUM_SETS);
     return {
-      indent, parts, line, markerLine: labelMarkFitPx(row.footnote, weight),
+      indent, parts, line, markerLine: labelMarkExactPx(row.footnote, weight),
       min: indent + labelWidestPiecePx(row.label, row.footnote, weight, AS_CHROMIUM_SETS) + CELL_SIDE_PX,
       max: indent + textPx(row.label.trim().replace(/[ \t\n\r]+/g, ' '), LABEL_FONT_PX, weight, false, AS_CHROMIUM_SETS) + marker + CELL_SIDE_PX,
     };
@@ -157,7 +157,7 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
     const marker = headingMarkPx(footnote, AS_CHROMIUM_SETS);
     const label = PACK_TABLE_COLUMN_LABEL[col];
     return {
-      col, parts: pieces(label), markerLine: headingMarkFitPx(footnote),
+      col, parts: pieces(label), markerLine: headingMarkExactPx(footnote),
       min: Math.max(figures, minPx(headingWordsPx(label, AS_CHROMIUM_SETS).map((w) => ({ w })), marker)) + 2 * CELL_SIDE_PX,
       max: Math.max(figures, headingLinePx(label, AS_CHROMIUM_SETS) + marker) + 2 * CELL_SIDE_PX,
     };
@@ -168,7 +168,7 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
   const labelPx = columnsPx[0]!;
   const labelLines = labelBox.map((b) => linesForText(b.parts, b.line, b.markerLine, labelPx - b.indent - CELL_SIDE_PX, guardPx));
   // A column heading is a fixed English label: no soft hyphen, so no hyphen to set.
-  const headingLine = (text: string): number => headingLineFitPx(text);
+  const headingLine = (text: string): number => headingLineExactPx(text);
   const headingLines = Math.max(1, ...data.map((d, i) => linesForText(d.parts, headingLine, d.markerLine, columnsPx[i + 1]! - 2 * CELL_SIDE_PX, guardPx)));
   return { columnsPx, labelLines, headingLines };
 }
