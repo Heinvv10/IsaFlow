@@ -206,7 +206,7 @@ export default function SupplierInvoiceDetailPage() {
             dates={dates}
           />
           <DueDateEditor
-            kind="bill" invoiceId={invoiceId as string} status={invoice.status} invoiceDate={invoice.invoiceDate}
+            kind="bill" invoiceId={invoiceId as string} status={invoice.status} balance={invoice.balance} invoiceDate={invoice.invoiceDate}
             dueDate={invoice.dueDate} dueDateSource={invoice.dueDateSource} onSaved={loadInvoice}
           />
 

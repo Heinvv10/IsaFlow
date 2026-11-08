@@ -2,10 +2,11 @@
  * The one change an approved bill accepts: its due date (payment-terms programme PR 2; Hein, 2026-11-05: due_date is
  * the single source of truth, hand-editable on an approved bill, date only, audited).
  *
- * Only an OPEN posted bill: approved or partially_paid, with something still owing. A draft or pending bill has its own editors; a paid or cancelled
- * one owes nothing. The due date is outside the approval digest (migration 708: it changes nothing posted or owed), so
- * the approval stands. Only due_date and due_date_source move ('manual'), and the history is the database's: migration
- * 962's capture records who, when, through which channel, and the date and source before and after.
+ * Only an OPEN posted bill: approved or partially_paid, with something still owing. A draft or pending bill has its own
+ * editors; a paid or cancelled one owes nothing. The due date is outside the approval digest (migration 708: it changes
+ * nothing posted or owed), so the approval stands. Only due_date and due_date_source move ('manual'), and the history is
+ * the database's: migration 962's capture records who, when, through which channel, and the date and source before and
+ * after.
  *
  * Runs in the request's transaction (withAuth): the bill row is locked, its status and dates read under the lock, and
  * the UPDATE names the same statuses, so a payment or cancellation committing first is seen, never overwritten.
@@ -57,9 +58,9 @@ export async function setApprovedBillDueDate(
       400,
     );
   }
-  // Something must still be owing (the same test Re-apply uses): a fully paid bill's status can lag its balance.
+  // Something must still be owing (the same test Re-apply uses): a fully paid or overpaid bill's status can lag its balance.
   if (Number(row.total_amount ?? 0) - Number(row.amount_paid ?? 0) <= REAPPLY_EPS) {
-    throw new BillDueDateEditRefusal(`Supplier invoice ${number} is fully paid: its due date can't be changed.`, 400);
+    throw new BillDueDateEditRefusal(`Supplier invoice ${number} has nothing owing: its due date can't be changed.`, 400);
   }
   const invoiceDate = fmtDate(row.invoice_date);
   if (dueDate < invoiceDate) {

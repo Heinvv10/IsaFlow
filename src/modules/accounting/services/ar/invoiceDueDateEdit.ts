@@ -57,9 +57,9 @@ export async function setOpenInvoiceDueDate(
       400,
     );
   }
-  // Something must still be owing (the same test Re-apply uses): a fully paid invoice's status can lag its balance.
+  // Something must still be owing (the same test Re-apply uses): a fully paid or overpaid invoice's status can lag its balance.
   if (Number(row.total_amount ?? 0) - Number(row.amount_paid ?? 0) <= REAPPLY_EPS) {
-    throw new InvoiceDueDateEditRefusal(`Invoice ${number} is fully paid: its due date can't be changed.`, 400);
+    throw new InvoiceDueDateEditRefusal(`Invoice ${number} has nothing owing: its due date can't be changed.`, 400);
   }
   const invoiceDate = String(row.invoice_date);
   if (dueDate < invoiceDate) {
