@@ -23,6 +23,7 @@ import { useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/acc
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { useWipLines } from '@/components/accounting/customer-invoices/useWipLines';
 import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
+import { useDueDateFollowsTerms } from '@/components/accounting/customer-invoices/useDueDateFollowsTerms';
 import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { autosaveProblem, invoicePutBody, saveProblem, type EditLine, type StoredDates } from '@/components/accounting/customer-invoices/invoicePutBody';
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
@@ -54,6 +55,7 @@ export default function EditCustomerInvoicePage() {
   // Read only to warn: a stored invoice is not refilled, so Save waits for a customer changed here, not for the one it loaded with.
   const [loadedClient, setLoadedClient] = useState('');
   const customer = useCustomerLookup(form.clientId, CUSTOMER_FAILED);
+  const { load: loadDueTerms, touch: touchDue, hint: dueHint } = useDueDateFollowsTerms(form, setForm, customer.defaults); // a terms-sourced due date follows a new date or customer
   const [rateEditing, setRateEditing] = useState(false);
   const [approved, setApproved] = useState(false);
   // Which invoice the form holds, and which of its dates were stored (the server keeps one the body leaves out).
@@ -113,6 +115,7 @@ export default function EditCustomerInvoicePage() {
       setTaxMode(storedRate === 0 ? 'none' : 'exclusive'); // this invoice's own mode, not the one opened before it
       clearDates();
       const clientId = String(invoice.client_id || invoice.customer_id || '');
+      loadDueTerms({ invoiceDate: String(invoice.invoice_date || '').slice(0, 10), clientId, dueDate: invoice.due_date ? String(invoice.due_date).slice(0, 10) : '', source: invoice.due_date_source ?? null });
       setLoadedClient(clientId);
       setForm({
         clientId,
@@ -135,7 +138,7 @@ export default function EditCustomerInvoicePage() {
       setLoading(false);
     });
     return () => { gone = true; };
-  }, [invoiceId, clearDates, reloads, wipLoaded]);
+  }, [invoiceId, clearDates, reloads, wipLoaded, loadDueTerms]);
 
   const updateLine = (key: string, field: keyof LineItem, value: string | number) =>
     setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
@@ -261,7 +264,7 @@ export default function EditCustomerInvoicePage() {
 
               <fieldset disabled={approve.busy || approved} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
-                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={pickTaxMode} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} onRateEditing={setRateEditing} />
+                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={pickTaxMode} hints={{ dueDate: dueHint }} onDueDateEdited={touchDue} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} onRateEditing={setRateEditing} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}

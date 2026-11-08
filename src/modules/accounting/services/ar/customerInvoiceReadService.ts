@@ -212,7 +212,7 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
            ci.subtotal, ci.tax_rate, ci.tax_amount, ci.total_amount,
            ci.amount_paid, ci.status,
            to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date,
-           to_char(ci.due_date, 'YYYY-MM-DD') AS due_date,
+           to_char(ci.due_date, 'YYYY-MM-DD') AS due_date, ci.due_date_source,
            ci.sent_at, ci.paid_at, ci.notes, ci.internal_notes,
            ci.project_id, ci.gl_journal_entry_id,
            ci.email_sent_at, ci.email_sent_to,
