@@ -1,6 +1,7 @@
 /**
- * The paperclip of a bank row. A row with attachments is coloured and numbered, and named "N attachment(s) - view",
- * so it reads at a glance and to a screen reader; a row without any keeps the plain grey "Attachments" button.
+ * The paperclip of a bank row. A row with attachments is coloured and named "N attachment(s) - view", so it reads at
+ * a glance and to a screen reader; a row without any keeps the plain grey "Attachments" button. The count badge shows
+ * from two files up: most rows carry one slip, and a "1" on nearly every row was noise.
  * The name follows the grid's "{title}, {row}" convention (bankTxTableNaming.test).
  */
 
@@ -23,7 +24,7 @@ export function BankTxAttachmentButton({ txId, count, rowName, onOpen }: Props) 
         ? 'relative mr-1 p-1 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400'
         : 'p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]'}>
       <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
-      {n > 0 && (
+      {n > 1 && (
         <span aria-hidden="true"
           className="absolute -top-1.5 -right-1.5 min-w-4 h-4 px-0.5 rounded-full bg-blue-500 text-white text-xs leading-4 font-semibold">
           {n > 9 ? '9+' : n}
