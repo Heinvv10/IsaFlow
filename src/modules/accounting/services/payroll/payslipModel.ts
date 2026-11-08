@@ -14,7 +14,6 @@
 import { sql } from '@/lib/neon';
 import { getCompanyDetailsFromCompany } from '@/modules/accounting/services/core/pdfShared';
 import { itemisePayslip, readBreakdown, type PayslipLines } from './payslipItems';
-import { isPayRunFinal } from './payslipFinal';
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
 
 export class PayslipNotFound extends Error {
@@ -65,6 +64,7 @@ interface LineRow {
   sdl: string | number;
   net_pay: string | number;
   component_breakdown: unknown;
+  run_final: boolean;
 }
 
 const dateOnly = (d: string | Date | null): string | null =>
@@ -76,7 +76,8 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
            pe.tax_number, pe.payment_method,
            RIGHT(bd.account_number, 4) AS bank_last_four, bd.bank_name,
            prl.gross_pay, prl.paye, prl.uif_employee, prl.uif_employer, prl.sdl, prl.net_pay,
-           prl.component_breakdown
+           prl.component_breakdown,
+           (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS run_final
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       JOIN payroll_employees pe ON pe.id = prl.employee_id AND pe.company_id = prh.company_id
@@ -114,7 +115,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
 
   const run = { id: runId, periodMonth: Number(header.period_month), periodYear: Number(header.period_year) };
   // One after another: they share the request's transaction connection.
-  const final = await isPayRunFinal(companyId, runId);
+  const final = lines[0]!.run_final === true; // read in the lines' own statement: the figures and their final state cannot tear
   const types = await componentTypes(companyId, lines);
   const ytd = await payslipYearToDate(companyId, run, lines.map((l) => l.employee_id));
   const company = await getCompanyDetailsFromCompany(companyId);
