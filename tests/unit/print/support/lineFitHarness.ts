@@ -16,7 +16,7 @@ import { headingLineCount } from '@/modules/accounting/services/packs/pages/pack
 import { openProbePage } from '../measureWidths';
 
 /** `th`: the markup is set inside a statement table's column heading (`.pack-table th`), not a KPI tile. */
-export interface Case { name: string; html: string; model: number; th?: boolean }
+export interface Case { name: string; html: string; model: number; th?: boolean; lines?: (px: number) => number }
 
 const esc = (t: string): string => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const sup = (n: number | null): string => (n === null ? '' : `<sup class="pack-footnote-marker">${n}</sup>`);
@@ -64,7 +64,7 @@ export function fillCase(name: string, html: string, lines: (px: number) => numb
     const mid = Math.floor((lo + hi) / 2);
     if (lines(mid / 64) === 1) hi = mid; else lo = mid;
   }
-  return { name, html, model: hi / 64, th };
+  return { name, html, model: hi / 64, th, lines };
 }
 
 /** A column heading line (8pt, 500, uppercase, tracked) with its footnote mark, fitted by `headingLineCount`. */
@@ -134,4 +134,50 @@ export async function hold(browser: Browser, cases: readonly Case[], overAtMost:
   expect(far.slice(0, 10)).toEqual([]);
   expect(over, `${over} of ${cases.length} over by a unit`).toBeLessThanOrEqual(overAtMost);
   return over;
+}
+
+/**
+ * Never a line fewer than Chromium, at each of `steps + 1` widths from the markup's min-content up to past one line: a
+ * case's production fill (`fillCase`) against the lines Chromium sets (a mark on a line of its own counted). Returns
+ * how many (case, width) pairs the model sets more lines at.
+ */
+export async function holdLines(browser: Browser, cases: readonly Case[], steps = 8): Promise<number> {
+  const page = await openProbePage(browser);
+  let measured: Array<Array<{ px: number; lines: number }>>;
+  try {
+    measured = await page.evaluate(([list, n]) => {
+      const host = document.querySelector('.pack-page')!;
+      return list.map((html) => {
+        const d = document.createElement('div');
+        d.className = 'pack-kpi-tile';
+        d.innerHTML = html;
+        host.appendChild(d);
+        const span = d.firstElementChild as HTMLElement;
+        const lines = (): number => new Set(Array.from(span.getClientRects()).filter((r) => r.width > 0).map((r) => Math.round(r.bottom))).size;
+        d.style.cssText = 'display:block;width:min-content';
+        const min = Math.ceil(d.getBoundingClientRect().width * 64);
+        d.style.cssText = 'display:block;width:8000px';
+        const max = Math.ceil((span.getBoundingClientRect().width + 12) * 64);
+        const out: Array<{ px: number; lines: number }> = [];
+        for (let k = 0; k <= n; k += 1) {
+          const px = Math.round(min + ((max - min) * k) / n) / 64;
+          d.style.cssText = `display:block;width:${px}px`;
+          out.push({ px, lines: lines() });
+        }
+        d.remove();
+        return out;
+      });
+    }, [cases.map((c) => c.html), steps] as const);
+  } finally {
+    await page.close();
+  }
+  const fewer: string[] = [];
+  let more = 0;
+  cases.forEach((c, i) => measured[i]!.forEach(({ px, lines }) => {
+    const model = c.lines!(px);
+    if (model < lines) fewer.push(`${c.name} at ${px * 64}/64: model ${model} lines, Chromium ${lines}`);
+    if (model > lines) more += 1;
+  }));
+  expect(fewer.slice(0, 10), `${fewer.length} widths a line too few`).toEqual([]);
+  return more;
 }

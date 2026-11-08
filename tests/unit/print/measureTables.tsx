@@ -62,7 +62,11 @@ export async function measureTables(document: PackPagesDocument, browser: Browse
         if (text === null || text === undefined) return 1;
         const range = document.createRange();
         range.selectNodeContents(text);
-        return new Set(Array.from(range.getClientRects()).map((r) => Math.round(r.top))).size;
+        const rects = Array.from(range.getClientRects());
+        // A footnote mark Chromium broke before sits on a line of its own: its superscript below the words' last line.
+        const sup = cell!.querySelector('sup');
+        const alone = sup !== null && rects.length > 0 && sup.getBoundingClientRect().bottom > rects[rects.length - 1]!.bottom + 4;
+        return new Set(rects.map((r) => Math.round(r.top))).size + (alone ? 1 : 0);
       };
       return Array.from(document.querySelectorAll('table.pack-table:not(.pack-matters):not(.pack-scorecard-group):not(.pack-definition-bridge)')).map((table) => {
         const head = Array.from(table.querySelectorAll('thead tr:first-child th'));

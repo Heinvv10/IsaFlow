@@ -147,7 +147,7 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
     // space is not collapsible: it stays, as it does in Chromium). A cell's max-content is never below its min-content:
     // a label that ends at a soft hyphen keeps the hyphen's room on its last line (`packLineBreaks.pieces`) but draws
     // none, so its longest piece can be wider than the whole label.
-    const whole = row.label.replace(/^[ \t\n\r]+|[ \t\n\r]+$/g, '').replace(/[ \t\n\r]+/g, ' ') + (parts[parts.length - 1]?.text === '' ? ' ' : '');
+    const whole = row.label.replace(/^[ \t\n\r]+|[ \t\n\r]+$/g, '').replace(/[ \t\n\r]+/g, ' ') + (parts[parts.length - 1]?.text === '' && parts[parts.length - 1]!.spaced ? ' ' : '');
     const max = indent + textPx(whole, LABEL_FONT_PX, weight, false, AS_CHROMIUM_SETS) + marker + CELL_SIDE_PX;
     return { row, weight, indent, min, max: Math.max(min, max) };
   });

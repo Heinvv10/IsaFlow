@@ -150,23 +150,27 @@ describe('a footnote mark sits on the LAST word of a label', () => {
 describe('a label that ends at a soft hyphen (its last line keeps the hyphen\'s room, and draws none)', () => {
   // A long word that ends at one is the widest piece with the hyphen's room and the whole label without it, so the
   // column's min-content is past its max-content; Chromium holds the max at the min (`packTableLayout.layoutAt`).
-  it('columns within 0.1px of Chromium, never a label line too few, the height never short, for words and phrases that end at one', async () => {
+  // With a footnote mark, Chromium breaks between the soft hyphen and the <sup>: the mark is a word of its own
+  // (`packLineBreaks.markedPieces`), and the column's min-content the word and its hyphen, without the mark.
+  it('columns within 0.1px of Chromium, never a label line too few, the height never short, for words and phrases that end at one, bare and with a mark', async () => {
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
-    const labels = [...[14, 22, 30, 38].map((n) => `${'n'.repeat(n)}\u00AD`), 'Intercompany recharges\u00AD', 'Trade and other receiv\u00ADables\u00AD'];
-    for (const label of labels) {
+    const labels = [...[14, 22, 30, 38].map((n) => `${'n'.repeat(n)}\u00AD`), `ab ${'n'.repeat(30)}\u00AD`, 'Intercompany recharges\u00AD', 'Trade and other receiv\u00ADables\u00AD',
+      'Gross margin\u00AD', `${'n'.repeat(30)}-`, `${'n'.repeat(30)}\u2013`, `${'n'.repeat(30)}\u200B`, `${'n'.repeat(30)}\u2026`];
+    for (const label of labels) for (const labelMarker of [false, true]) {
       for (const digits of [9, 12]) {
-        const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label);
+        const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });
         const real = (await measureTables(atTheFloor(doc), browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;
         const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
-        const say = `${JSON.stringify(label)}, ${digits} digits`;
+        const say = `${JSON.stringify(label)}${labelMarker ? '^1' : ''}, ${digits} digits`;
         model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > COLUMN_ERROR_PX) wrong.push(`${say}: column ${c} model ${px.toFixed(3)} vs ${real.columnsPx[c]!.toFixed(3)}`); });
         if (model.labelLines.some((l, r) => l < real.labelLines[r]!)) wrong.push(`${say}: lines ${model.labelLines} vs ${real.labelLines}`);
-        if (statementTableBodyMm(table, doc.numberConvention.scale, 'portrait') < real.heightMm) wrong.push(`${say}: height short`);
+        const height = statementTableBodyMm(table, doc.numberConvention.scale, 'portrait');
+        if (height < real.heightMm) wrong.push(`${say}: height short, model ${height.toFixed(2)}mm vs Chromium ${real.heightMm.toFixed(2)}`);
       }
     }
     expect(wrong.slice(0, 10)).toEqual([]);
-  }, 600_000);
+  }, 900_000);
 });
 
 describe('a label that ends at a space before its footnote mark (a tenant\'s GL name can): the mark is a word of its own', () => {

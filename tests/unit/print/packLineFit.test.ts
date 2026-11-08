@@ -27,7 +27,7 @@ import { linesForText } from '@/modules/accounting/services/packs/pages/packLine
 import { labelLineCount } from '@/modules/accounting/services/packs/pages/packTableLayout';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packTableModel';
 import { launchPrintChromium } from './printChromium';
-import { deltaCase, fillCase, headingCase, hold, labelCase, reasonCase, runCase, type Case } from './support/lineFitHarness';
+import { deltaCase, fillCase, headingCase, hold, holdLines, labelCase, reasonCase, runCase, type Case } from './support/lineFitHarness';
 import { ADVERSARY_SHORT_LINES } from './fixtures/lineFitShortLines';
 import { longLines } from './fixtures/lineFitLongLines';
 import { mulberry32 } from './support/mulberry32';
@@ -45,13 +45,13 @@ const GLYPHS = [...sets[0]!].filter((c) => sets.every((s) => s.has(c)) && c > 0x
 /**
  * How many over by a unit each set may have. Measured: grid 353 of 630, random 308 of 600, labels 107 of 128, deltas 24
  * of 48, the adversary's lines 2 of 57 and mixed 729 of 1,500 (0 and 683 at a flat half-unit margin), headings 124 of 289,
- * soft hyphens 153 of 228, marks after a trailing space 165 of 242, long lines 6,862 of 17,996 (the noise margin, `packGlyphRuler.fitMarginUnits`, takes a unit
+ * soft hyphens 153 of 228, marks after a trailing space 165 of 242, marks at each ending 377 of 496, long lines 6,862 of 17,996 (the noise margin, `packGlyphRuler.fitMarginUnits`, takes a unit
  * wherever an exact sum's fraction of a unit is past one less the margin; a heading's mark box and a soft hyphen's
  * hyphen are rounded up on their own). The caps are those and about 5% of headroom (3 lines on the adversary's 57; 2 of
  * a set of 48). The random sets are drawn by `support/mulberry32.ts` (600 and 1,500 distinct lines; the LCG they were drawn
  * by overflowed and repeated: the mixed set was 627 distinct).
  */
-const OVER = { grid: 370, random: 325, labels: 115, deltas: 26, adversary: 3, mixed: 760, headings: 131, softHyphen: 161, spacedMark: 174, long: 7200 } as const;
+const OVER = { grid: 370, random: 325, labels: 115, deltas: 26, adversary: 3, mixed: 760, headings: 131, softHyphen: 161, spacedMark: 174, markEnds: 395, long: 7200 } as const;
 
 it('the 630-case grid: never narrower than Chromium', async () => {
   const texts = ['(133 500 000)', '9 000 000', 'Telecommunications', 'AVATAR WAVE', 'Revenue', '45.0%', 'To', 'xy', 'Operating expenses', 'W', 'nnnnnnnnnnnnnnnnnnnn', 'R&D', 'Ff', 'office', 'VAT'];
@@ -154,8 +154,8 @@ const sup = (mark: number | null): string => (mark === null ? '' : `<sup class="
  * A KPI label holding a tab or a line feed is refused (`packKpiLayout.inPackFaces`), so it is a table label only. A
  * label and mark of one piece never wrap, so they decide nothing and are left out.
  */
-function markedFills(texts: readonly string[]): Case[] {
-  return texts.flatMap((text) => [null, 3, 12].filter((mark) => markedPieces(text, mark !== null).length > 1).flatMap((mark) => [
+function markedFills(texts: readonly string[], marks: ReadonlyArray<number | null> = [null, 3, 12]): Case[] {
+  return texts.flatMap((text) => marks.filter((mark) => markedPieces(text, mark !== null).length > 1).flatMap((mark) => [
     ...(/[\t\n\r]/.test(text) ? [] : [fillCase(`kpi label ${JSON.stringify(text)}^${mark}`, `<span class="pack-kpi-label">${text}${sup(mark)}</span>`, (px) => kpiTileLines(tile(text, mark), px).label)]),
     ...WEIGHTS.map((w) => fillCase(`table label ${w} ${JSON.stringify(text)}^${mark}`, `<span style="font-size:12px;font-weight:${w};white-space:normal">${text}${sup(mark)}</span>`,
       (px) => labelLineCount(text, mark, w, px, 0))),
@@ -167,12 +167,14 @@ it('a label that ends at a space (a tab, a line feed, a run of them) before its 
   const cases = markedFills(texts);
   expect(() => kpiTileLines(tile('Net profit\t', 3), 100)).toThrow(PackRefusal);
   report('spacedMark', await hold(browser, cases, OVER.spacedMark), cases.length);
+  lineReport('spacedMark', await holdLines(browser, cases));
 }, 300_000);
 
 it('a text that ends at a soft hyphen keeps the hyphen\'s room on its last line (KPI labels, table labels at each weight): never narrower than Chromium', async () => {
   const texts = [...LABELS.map((l) => `${l}\u00AD`), 'Operating ex\u00ADpenses\u00AD', 'Return on equity\u00AD\u00AD', 'Gross margin\u00AD '];
   const cases = markedFills(texts);
   report('softHyphen', await hold(browser, cases, OVER.softHyphen), cases.length);
+  lineReport('softHyphen', await holdLines(browser, cases));
   // A soft hyphen alone after a space: Chromium keeps the hyphen's room after the words and hangs the space; the model
   // counts the space too, so it is over by the space (never short: unfixed, the model fitted it 5px short).
   const lone = WEIGHTS.map((w) => fillCase(`table label ${w} "Net profit \u00AD"`, `<span style="font-size:12px;font-weight:${w};white-space:normal">Net profit \u00AD</span>`,
@@ -186,6 +188,23 @@ it('18,000 lines of 100 to 1,800px at the pack\'s sizes (12px at each weight, 10
   // Past 1,536px the margin itself passes a unit, so a line can be two units over.
   report('long', await hold(browser, cases, OVER.long, 2), cases.length);
 }, 900_000);
+
+// Chromium reads across the <sup>: it breaks before a mark wherever it would break before a digit. Each ending held: the
+// ones that break (a soft hyphen, a hyphen, the dashes, a zero-width space, break-after spaces, an ellipsis, a question
+// mark, U+2010 and U+2012) and ones that hold (a slash, a closing bracket, stops, a percent sign, a no-break space or hyphen).
+it('a marked label at each ending: the one-line width never narrower than Chromium, and never a line fewer at any width from its min-content up (the mark on a line of its own counted)', async () => {
+  const ends = ['\u00AD', '-', '\u2013', '\u2014', '\u200B', '\u2009', '\u2002', '\u2026', '?', '\u2010', '\u2012', '/', ')', '.', ',', '%', '\u00A0', '\u2011', '\u00AD\u00AD'];
+  const texts = ['Gross margin', 'Telecommunications', 'Intercompany', `ab ${'n'.repeat(30)}`].flatMap((base) => ends.map((end) => `${base}${end}`));
+  const cases = markedFills(texts, [1, 12]);
+  expect(cases.length).toBeGreaterThan(450);
+  report('markEnds', await hold(browser, cases, OVER.markEnds), cases.length);
+  lineReport('markEnds', await holdLines(browser, cases));
+}, 600_000);
+
+/** How many (case, width) pairs the model sets a line more than Chromium at, printed (never fewer is what is held). */
+function lineReport(set: string, more: number): void {
+  process.stdout.write(`LINEFIT ${set} lines: ${more} widths a line over\n`);
+}
 
 /** The over count each set measured, printed so a cap can be set from it. */
 function report(set: keyof typeof OVER, over: number, of: number): void {

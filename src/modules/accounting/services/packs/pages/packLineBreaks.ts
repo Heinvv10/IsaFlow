@@ -54,6 +54,14 @@ const ZWSP = '\u200B';
 const IDEOGRAPHIC_SPACE = '\u3000';
 /** The space separators Chromium breaks after, keeping them on the line they end (they do not hang). */
 const BREAK_AFTER_SPACE = /^[\u1680\u2000-\u2006\u2008-\u200A\u2028\u2029\u205F\u3000]$/u;
+/**
+ * Punctuation Chromium breaks after, between two word clusters (measured: "ab?cd", "12\u202634", "ab\u2010Cd",
+ * "12\u201234"; a scan of every character the faces set between letters and digits). Before a quote or a bracket it is
+ * not measured here, and the model takes no break there.
+ */
+const BREAK_AFTER_PUNCTUATION = new Set(['?', '\u2010', '\u2012', '\u2026']);
+/** The acute accent: Chromium breaks before it, after a word cluster ("ab|\u00B4cd", "12|\u00B434"). */
+const ACUTE = '\u00B4';
 /** The white space CSS collapses: the only separators a break consumes. */
 const COLLAPSIBLE = /[ \t\n\r]+/;
 
@@ -167,7 +175,8 @@ function wordPieces(word: string): string[] {
     const aroundEm = (cluster === EM_DASH && isWordCluster(next)) || (next === EM_DASH && isWordCluster(cluster));
     const afterSpace = BREAK_AFTER_SPACE.test(cluster) && !BREAK_AFTER_SPACE.test(next);
     const between = breaksBetweenClusters(cluster, next);
-    if (afterDash || aroundEm || afterSpace || between) {
+    const punctuation = (BREAK_AFTER_PUNCTUATION.has(cluster) && isWordCluster(prev) && isWordCluster(next)) || (next === ACUTE && isWordCluster(cluster));
+    if (afterDash || aroundEm || afterSpace || between || punctuation) {
       pieces.push(clusters.slice(start, i + 1).join(''));
       start = i + 1;
     }
@@ -191,13 +200,20 @@ export function pieces(text: string): Piece[] {
 }
 
 /**
- * `text`'s pieces when a footnote mark follows it (`marked`, the `<sup>` printed straight after the label). A label that
- * ends at a collapsible space (a tenant's GL name can) keeps one space before the mark, where Chromium may break like
- * any other: the mark is then a word of its own, an empty piece after a space, that a line can end before. Measured:
- * "Gross margin " with mark 3 sets on one line at 5048/64px, its words, the space and the mark; the mark taken with the
- * last word, no space, fitted it 2.8px short. Otherwise the mark stays with the last piece (`packLabelMark.test.ts`).
+ * `text`'s pieces when a footnote mark follows it (`marked`, the `<sup>` printed straight after the label). Chromium's
+ * line breaker reads across the `<sup>`: it breaks before the mark wherever it would break before a digit (the mark's
+ * first character), and the mark is then a word of its own, an empty piece a line can end before:
+ *  - after a collapsible space (a tenant's GL name can end at one), which stays, one space, before the mark
+ *    (`spaced`): "Gross margin " with mark 3 sets on one line at 5048/64px, its words, the space and the mark;
+ *  - after a soft hyphen, a hyphen, a dash, a zero-width space or a break-after space, glued (`spaced: false`):
+ *    "Gross margin\u00AD" with mark 1 is 3 lines in a 41.97px column (its min-content, the word and its hyphen), the
+ *    line before the mark taking the hyphen, and the mark on one with no hyphen's room.
+ * Elsewhere the mark stays with the last piece (`packLabelMark.test.ts`). Held to Chromium, ending by ending, in
+ * `packLineFit.test.ts`.
  */
 export function markedPieces(text: string, marked: boolean): Piece[] {
   const out = pieces(text);
-  return marked && out.length > 0 && /[ \t\n\r]$/.test(text) ? [...out, { text: '', spaced: true, hyphen: false }] : out;
+  if (!marked || out.length === 0) return out;
+  if (/[ \t\n\r]$/.test(text)) return [...out, { text: '', spaced: true, hyphen: false }];
+  return pieces(`${text}0`).length > out.length ? [...out, { text: '', spaced: false, hyphen: false }] : out;
 }
