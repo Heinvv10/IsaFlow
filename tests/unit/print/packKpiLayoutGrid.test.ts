@@ -3,6 +3,10 @@
  *
  *   KPI_GRID=1 ./node_modules/.bin/vitest run --config vitest.print.config.ts tests/unit/print/packKpiLayoutGrid.test.ts
  *
+ * CI does not run it, so its pins hold only if someone runs it: ANY change to the width model the KPI block reads
+ * (`packGlyphRuler`, `packFigureWidth`, `packReasonWidth`, `packFigureFit`'s min-content widths, `packLineBreaks`,
+ * `PRINT_CONTENT_PX`) or to `packKpiLayout.ts` must run this before it merges, and say so in its PR.
+ *
  * Every pack of the grid (`allShapes`: 11,520), each distinct KPI block measured once in production's layout and
  * held to `kpiLayoutCheck.ts`: columns within a pixel, every row and the block never short, never more than
  * `MOST_OVER` over but in the one-line band (pinned, `IN_BAND`). Then every pack is composed again with its KPI block

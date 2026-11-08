@@ -104,16 +104,18 @@ describe('the sparkline the model sizes', () => {
 
   it('is charged at its own height over width, the column\'s width high', () => {
     const tile = withSparkline[0]!;
-    const [, w, hgt] = /^<svg width="([\d.]+)" height="([\d.]+)"/.exec(String(tile.sparklineSvg))!;
+    expect(String(tile.sparklineSvg)).toMatch(/^<svg width="227" height="181" /);
     const without = kpiTileMm({ ...tile, sparklineSvg: null }, 100);
-    const px = 25.4 / 96;
-    // The sparkline as Chromium sets it, its height taken up to the 1/64px unit, and the tile's 1mm gap floored to it.
-    expect(kpiTileMm(tile, 100) - without).toBeCloseTo((Math.ceil(100 * (Number(hgt) / Number(w)) * 64) / 64 + Math.floor((96 / 25.4) * 64) / 64) * px, 9);
+    // Worked by hand. In a 100px column the 227 x 181 sparkline is 100 x 181 / 227 = 79.7357px; Chromium floors a
+    // sparkline's height to its 1/64px unit (measured: in a 97.09375px column, 77.4196 is set at 77.40625), 79.734375, and
+    // the model takes a unit up, 79.75px (5104/64); the tile's 1mm gap is 3.7795px, floored to 3.765625 (241/64). The
+    // two are 83.515625px = 83.515625 x 25.4 / 96 = 22.09684245mm.
+    expect(kpiTileMm(tile, 100) - without).toBeCloseTo(22.09684245, 7);
   });
 
   it('is refused, not guessed at, where its root carries no width and height', () => {
     const tile = withSparkline[0]!;
-    expect(() => kpiTileMm({ ...tile, sparklineSvg: '<svg viewBox="0 0 227 181"></svg>' as typeof tile.sparklineSvg }, 100)).toThrow(/sparkline SVG/);
+    expect(() => kpiTileMm({ ...tile, sparklineSvg: '<svg viewBox="0 0 227 181"></svg>' as typeof tile.sparklineSvg }, 100)).toThrow(PackRefusal);
   });
 });
 
