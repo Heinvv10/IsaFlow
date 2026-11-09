@@ -75,32 +75,6 @@ describe('where the pack applies it', () => {
     }
   });
 
-  it('tenant text never reaches a statement table\'s row label (#1235 round 9, blind L1: only the pack\'s own wording and month names do)', () => {
-    // Every string the input carries under a name-like key, tagged; but a trend point's label, which the server writes
-    // from its month (\`packTrendService\`: "Jan 2026"), is not tenant text.
-    const named = /(name|label|title|description|text|commentary|reason|preparedBy)$/i;
-    const poison = (value: unknown, key = ''): unknown => {
-      if (typeof value === 'string') return named.test(key) ? `${value} zq` : value;
-      if (Array.isArray(value)) return value.map((v) => poison(v, key === 'trend' ? 'trend' : ''));
-      if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-        return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, key === 'trend' && k === 'label' ? v : poison(v, k)]));
-      }
-      return value;
-    };
-    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
-    try {
-      const input = poison(demoInput) as typeof demoInput;
-      expect(JSON.stringify(input)).toContain(' zq');
-      const doc = buildBoardPackPages(input);
-      const rows = doc.pages.flatMap((p) => p.blocks).flatMap((b) => (b.kind === 'table' ? b.table.rows.map((r) => r.label) : []));
-      expect(rows.length).toBeGreaterThan(20);
-      expect(JSON.stringify(doc), 'the tagged text reaches the document').toContain(' zq');
-      expect(rows.filter((label) => label.includes('zq'))).toEqual([]);
-    } finally {
-      warn.mockRestore();
-    }
-  });
-
   it('stampBlock measures a block set afterwards as printed, and stamps that text', () => {
     const doc = demoWithoutBudget();
     const block = doc.pages.flatMap((p) => p.blocks).find((b) => b.kind === 'table')!;

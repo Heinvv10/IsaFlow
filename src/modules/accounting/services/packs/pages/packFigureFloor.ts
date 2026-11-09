@@ -40,11 +40,12 @@ export function assertFiguresReadable(pages: ReadonlyArray<Omit<PackPage, 'numbe
     if (found.label !== undefined) {
       throw new PackRefusal(
         `assertFiguresReadable: "${page.navLabel}": a table whose row label "${found.label}" holds a character the print `
-          + 'cannot break across lines, wider than the room its figures leave; refusing to print the label over the figures.',
-        `The "${page.navLabel}" page of this pack has a row label, "${found.label}", holding a character (such as a `
-          + 'combined emoji or a stacked letter) too wide to sit beside the figures on one sheet: a character is never '
-          + 'split across lines. The pack has not been produced, rather than print that label over the figures. Your '
-          + 'figures are not the problem — please contact support with the period you asked for.',
+          + 'cannot break across lines, and the room kept for it is more than its figures leave (at its own width the '
+          + 'table would fit); refusing to print the label over the figures.',
+        `The "${page.navLabel}" page of this pack has a row label, "${found.label}", that needs more room than its `
+          + 'figures leave on one sheet: the pack keeps room beside it for its widest character, which is never split '
+          + 'across lines. The pack has not been produced, rather than print that label over the figures. Please contact '
+          + 'support with the period you asked for.',
       );
     }
     throw new PackRefusal(

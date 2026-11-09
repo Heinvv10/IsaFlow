@@ -107,8 +107,11 @@ describe('the floor in the fit gate, the layout and the print', () => {
         const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });
         expect(table.figureFit!.fits, `${JSON.stringify(label)}, ${digits} digits`).toBe(false);
         expect(table.figureFit!.labelFloorPx).toBe(anywhereFloorPx([{ label, weight: 400 }]));
-        expect(unreadableBlock(doc.pages[index]!, SCALE)).toEqual({ kind: 'table', label });
-        expect(() => assertFiguresReadable(doc.pages, SCALE)).toThrow(`row label "${label}" holds a character the print cannot break`);
+        // The label is named where the table fits with it at its own widest piece and the floor alone breaks it. Three
+        // are too wide even so (fifteen emoji in one grapheme, a 41-letter conjunct chain): those stand as the figures'.
+        const own = [`Rent ${FAMILIES[0]!(14)}|12`, `Telecommunications ${FAMILIES[4]!(40)}|9`, `Telecommunications ${FAMILIES[4]!(40)}|12`].includes(`${label}|${digits}`);
+        expect(unreadableBlock(doc.pages[index]!, SCALE)).toEqual(own ? { kind: 'table' } : { kind: 'table', label });
+        if (!own) expect(() => assertFiguresReadable(doc.pages, SCALE)).toThrow(`row label "${label}" holds a character the print cannot break`);
       }
     }
   });

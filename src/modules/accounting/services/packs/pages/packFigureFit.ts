@@ -166,11 +166,16 @@ export function labelWidestPiecePx(label: string, footnote: number | null | unde
   return Math.max(0, ...widths.map((w, i) => (i === widths.length - 1 ? w + mark : w)));
 }
 
-/** The narrowest a row label can be set: its widest piece and marker (it wraps), its indent, its right padding. */
-function labelMinPx(table: PackTable, floorPx: number | null): number {
-  // A label printed to break anywhere holds its column open by its floor (`packAnywhereLabel.anywhereFloorPx`).
+const rulerPiecePx = (row: PackTableRow): number => labelWidestPiecePx(row.label, row.footnote, ROW_WEIGHT[row.role]);
+
+/**
+ * The narrowest a row label can be set: its widest piece and marker (it wraps), its indent, its right padding. A label
+ * printed to break anywhere holds its column open by its floor (`packAnywhereLabel.anywhereFloorPx`); `floorPx` 'ruler'
+ * sets it as if it were not printed so, at its widest piece (the baseline `refusingLabel` judges the floor against).
+ */
+function labelMinPx(table: PackTable, floorPx: number | null | 'ruler'): number {
   return Math.max(0, ...table.rows.map((row) => row.level * INDENT_PX_PER_LEVEL
-    + (printsAnywhere(row.label) ? floorPx ?? 0 : labelWidestPiecePx(row.label, row.footnote, ROW_WEIGHT[row.role])) + CELL_SIDE_PX));
+    + (!printsAnywhere(row.label) || floorPx === 'ruler' ? rulerPiecePx(row) : floorPx ?? 0) + CELL_SIDE_PX));
 }
 
 /** The floor of `table`'s labels printed to break anywhere (null where none is), as the print sets it on each. */
@@ -179,7 +184,7 @@ export function tableLabelFloorPx(table: PackTable): number | null {
 }
 
 /** The total of the columns' min-content widths for a table whose figures are set at `fontPx`. */
-function tableMinPx(table: PackTable, scale: MoneyScale, fontPx: number, floorPx: number | null): number {
+function tableMinPx(table: PackTable, scale: MoneyScale, fontPx: number, floorPx: number | null | 'ruler'): number {
   const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
   const texts = tableColumnCells(table, scale);
   const dataPx = columns.reduce((sum, col, i) => {
@@ -202,15 +207,17 @@ export function tableFit(table: PackTable, scale: MoneyScale, orientation: PageO
 }
 
 /**
- * The label that keeps `table` from fitting, where one does: a label printed to break anywhere whose floor (a grapheme
- * the print cannot break) is the widest, when the table would fit at the floor size without that floor. Null where the
- * figures do not fit either way. The refusal names it (`packFigureFloor`), rather than blaming the figures.
+ * The label that keeps `table` from fitting, where one does: the label printed to break anywhere whose floor (room for
+ * its widest grapheme, which the print never breaks) is the table's, when the table fits at the floor size with every
+ * such label at its own widest piece (as if it were not printed to break anywhere) and the floor alone breaks it. Null
+ * otherwise: where the figures, or the labels at their own width, do not fit either way, the figures' refusal stands.
+ * The refusal names it (`packFigureFloor`).
  */
 export function refusingLabel(table: PackTable, scale: MoneyScale, orientation: PageOrientation = 'portrait'): string | null {
   const floorPx = tableLabelFloorPx(table);
-  if (floorPx === null || tableMinPx(table, scale, FIT_PX.table.floor, null) > measurePx(orientation)) return null;
+  if (floorPx === null || tableMinPx(table, scale, FIT_PX.table.floor, 'ruler') > measurePx(orientation)) return null;
   if (tableMinPx(table, scale, FIT_PX.table.floor, floorPx) <= measurePx(orientation)) return null;
-  return table.rows.find((row) => anywhereFloorPx([{ label: row.label, weight: ROW_WEIGHT[row.role] }]) === floorPx)?.label ?? null;
+  return table.rows.find((row) => printsAnywhere(row.label) && anywhereFloorPx([{ label: row.label, weight: ROW_WEIGHT[row.role] }]) === floorPx)?.label ?? null;
 }
 
 export type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
