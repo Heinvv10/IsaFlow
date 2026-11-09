@@ -94,3 +94,84 @@ describe('the stream follows its row', () => {
     expect(focused[0]).toBe(rowOf('Client pay'));
   });
 });
+
+describe('modifier chords are not hotkeys', () => {
+  const mods = ['ctrlKey', 'metaKey', 'altKey'] as const;
+  const cases = mods.flatMap(m => ['Enter', 'x', 's', 'e'].map(k => [m, k] as const));
+  it.each(cases)('%s + %s on the focused row does nothing and is left alone', (mod, key) => {
+    const p = tableProps();
+    render(<BankTxTable {...p} />);
+    const rowA = rows()[0]!;
+    fireEvent.click(rowA);
+    const notPrevented = fireEvent.keyDown(rowA, { key, [mod]: true });
+    expect(notPrevented).toBe(true);
+    expect(p.onAccept).not.toHaveBeenCalled();
+    expect(p.onExclude).not.toHaveBeenCalled();
+    expect(p.onSplit).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox', { name: /^Search/ })).toBeNull();
+  });
+});
+
+describe('a held E does not toggle the picker', () => {
+  it('the repeat of E opens nothing; the press does', () => {
+    render(<BankTxTable {...tableProps()} />);
+    const rowA = rows()[0]!;
+    fireEvent.click(rowA);
+    fireEvent.keyDown(rowA, { key: 'e', repeat: true });
+    expect(screen.queryByRole('textbox', { name: /^Search accounts$/ })).toBeNull();
+    fireEvent.keyDown(rowA, { key: 'e' });
+    expect(screen.getByRole('textbox', { name: /^Search accounts$/ })).toBeInTheDocument();
+  });
+});
+
+describe('when the focused row leaves the list', () => {
+  const without = (id: string) => TXS.filter(t => t.id !== id);
+
+  it('our own exclude: the stream moves on and the next row is focused', () => {
+    const p = tableProps();
+    const { rerender } = render(<BankTxTable {...p} />);
+    const rowA = rows()[0]!;
+    fireEvent.click(rowA);
+    fireEvent.keyDown(rowA, { key: 'x' }); // excluded: the parent reloads without it
+    rerender(<BankTxTable {...p} transactions={without('a')} />);
+    expect(document.activeElement).toBe(rows()[0]);
+    expect(rows()[0]).toHaveAttribute('data-focused', 'true');
+  });
+
+  it('same length, row replaced: focus is on the row now at that index, not the body', () => {
+    const p = tableProps();
+    const { rerender } = render(<BankTxTable {...p} />);
+    const rowA = rows()[0]!;
+    fireEvent.click(rowA);
+    fireEvent.keyDown(rowA, { key: 'x' });
+    const replaced = [{ ...TXS[1]!, id: 'z', description: 'Replacement' }, ...TXS.slice(1)];
+    rerender(<BankTxTable {...p} transactions={replaced} />);
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(rows()[0]);
+  });
+
+  it('a filter took it (not our key): no row is picked for the user; the grid has focus and Enter accepts nothing', () => {
+    const p = tableProps();
+    const { rerender } = render(<BankTxTable {...p} />);
+    fireEvent.click(rows()[0]!);
+    rerender(<BankTxTable {...p} transactions={without('a')} />);
+    expect(document.activeElement).toBe(grid());
+    expect(rows().some(r => r.hasAttribute('data-focused'))).toBe(false);
+    fireEvent.keyDown(grid(), { key: 'Enter' });
+    fireEvent.keyDown(grid(), { key: 'x' });
+    expect(p.onAccept).not.toHaveBeenCalled();
+    expect(p.onExclude).not.toHaveBeenCalled();
+    fireEvent.keyDown(grid(), { key: 'ArrowDown' }); // the arrows enter the stream again
+    expect(document.activeElement).toBe(rows()[0]);
+  });
+
+  it('a filter typed in a field outside the grid does not take the focus', () => {
+    const p = tableProps();
+    const { rerender } = render(<div><input aria-label="outside" /><BankTxTable {...p} /></div>);
+    fireEvent.click(rows()[0]!);
+    const outside = screen.getByLabelText('outside');
+    outside.focus();
+    rerender(<div><input aria-label="outside" /><BankTxTable {...p} transactions={without('a')} /></div>);
+    expect(document.activeElement).toBe(outside);
+  });
+});

@@ -55,11 +55,15 @@ export function useBankTxKeyboardNav({
   const focusedIndexRef = useRef<number | null>(null);
   /** The focused row by id: a sort, a filter or a refresh moves rows, and the index must follow the row. */
   const focusedIdRef = useRef<string | null>(null);
+  /** The row our own accept / exclude / split was just pressed on: its leaving the list is the stream moving on. */
+  const actedIdRef = useRef<string | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { focusedIndexRef.current = focusedIndex; }, [focusedIndex]);
 
   const setFocus = useCallback((index: number, id: string | undefined) => {
     focusedIdRef.current = id ?? null;
+    actedIdRef.current = null;
     setFocusedIndex(index);
   }, []);
 
@@ -85,11 +89,23 @@ export function useBankTxKeyboardNav({
     const movedTo = focusedIdRef.current === null ? -1 : transactions.findIndex((t) => t.id === focusedIdRef.current);
     if (movedTo >= 0) { if (movedTo !== cur) setFocusedIndex(movedTo); return; }
 
-    // The focused row is gone (accepted, excluded): the index now points at the next one.
-    const next = Math.min(cur, transactions.length - 1);
-    focusedIdRef.current = transactions[next]?.id ?? null;
-    if (next !== cur) setFocusedIndex(next);
-    if (transactions.length < prevLen) focusRow(next);
+    // The focused row is gone. Focus was on it, so it is now on the body (or still inside the grid).
+    const active = document.activeElement;
+    const focusWasHere = active === document.body || !!containerRef.current?.contains(active);
+    if (actedIdRef.current !== null && actedIdRef.current === focusedIdRef.current) {
+      // We accepted / excluded / split it: the stream moves on, the index now points at the next row.
+      const next = Math.min(cur, transactions.length - 1);
+      focusedIdRef.current = transactions[next]?.id ?? null;
+      actedIdRef.current = null;
+      if (next !== cur) setFocusedIndex(next);
+      if (focusWasHere) focusRow(next);
+      return;
+    }
+    // A filter or refresh took it: no row is picked for the user, or a reflexive Enter would accept an unseen one.
+    // The grid itself takes the focus, where only the arrows act.
+    focusedIdRef.current = null;
+    setFocusedIndex(null);
+    if (focusWasHere) containerRef.current?.focus();
   }, [transactions, focusRow]);
 
   const registerRow = useCallback((index: number, el: HTMLTableRowElement | null) => {
@@ -98,6 +114,8 @@ export function useBankTxKeyboardNav({
 
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (transactions.length === 0 || isDropdownKey(e)) return;
+    // Ctrl/Cmd/Alt chords are the browser's and the page's (Ctrl+S, Ctrl+X, Cmd+E ...), never row hotkeys.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     // Row hotkeys belong to the row itself (or, for the arrow that enters the stream, the grid). A key pressed on
     // anything inside a row (a button, checkbox, link, field) is that control's own: Enter on a Notes button must not
     // accept whichever row happens to be focused, and X in a field is a letter. Only Escape pops out of a field.
@@ -142,7 +160,7 @@ export function useBankTxKeyboardNav({
     if (!action) return;
     e.preventDefault();
     // A key held down repeats: one accept, exclude or split per press, never a chain over refocused rows.
-    if (e.repeat && (action === 'accept' || action === 'exclude' || action === 'split')) return;
+    if (e.repeat && (action === 'accept' || action === 'exclude' || action === 'split' || action === 'edit')) return;
 
     switch (action) {
       case 'next': {
@@ -153,9 +171,9 @@ export function useBankTxKeyboardNav({
         const pi = Math.max(index - 1, 0);
         setFocus(pi, transactions[pi]?.id); focusRow(pi); break;
       }
-      case 'accept':  onAccept(tx.id); break;
-      case 'exclude': onExclude(tx.id); break;
-      case 'split':   onSplit(tx.id); break;
+      case 'accept':  actedIdRef.current = tx.id; onAccept(tx.id); break;
+      case 'exclude': actedIdRef.current = tx.id; onExclude(tx.id); break;
+      case 'split':   actedIdRef.current = tx.id; onSplit(tx.id); break;
       case 'edit': {
         const row = rowRefs.current[index];
         const toggle = row?.querySelector<HTMLElement>('[data-bank-toggle]');
@@ -170,7 +188,7 @@ export function useBankTxKeyboardNav({
     }
   }, [transactions, rowSelections, focusedIndex, focusRow, setFocus, onAccept, onExclude, onSplit]);
 
-  const containerProps = useMemo(() => ({ onKeyDown }), [onKeyDown]);
+  const containerProps = useMemo(() => ({ onKeyDown, ref: containerRef }), [onKeyDown]);
 
   const getRowProps = (index: number): RowProps => ({
     ref: (el: HTMLTableRowElement | null) => registerRow(index, el),
