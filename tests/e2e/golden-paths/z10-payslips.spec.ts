@@ -113,7 +113,12 @@ async function seriousAxe(page: Page): Promise<string[]> {
 async function storedNet(api: Api, runId: string, employeeId: string): Promise<string> {
   const net = (await api.get<{ lines: Array<{ employeeId: string; netPay: number }> }>(`/api/payroll/runs/${runId}`))
     .lines.find((l) => l.employeeId === employeeId)!.netPay;
-  return net.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // The slip prints the app's money format: a non-breaking space groups the thousands, whatever the PDF encoding makes of it.
+  return net.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+function hasMoney(pdf: string, text: string): boolean {
+  return new RegExp(text.replace('.', '\\.').replace(/ /g, '[\\s\\u00a0]')).test(pdf);
 }
 
 test('calculated run: the Payslip drawer opens and the PDF is DRAFT, with the stored net and the last four digits', async ({ page, context, baseURL }) => {
@@ -125,8 +130,11 @@ test('calculated run: the Payslip drawer opens and the PDF is DRAFT, with the st
     await snap(page, 'payslip-drawer-draft', 'session-theme');
     const draft = await slipText(page, runId, employeeId);
     expect(draft).toContain('DRAFT: this run is not approved');
-    expect(draft).toContain(netText);
-    expect(draft).toContain('account ending 3456');
+    expect(hasMoney(draft, netText)).toBe(true);
+    expect(draft).toContain('EFT to FNB');
+    expect(draft).toContain('3456');
+    expect(draft).not.toContain('account ending');
+    expect(draft).toContain('Occupation');
     expect(draft).not.toContain(ACCOUNT);
   } finally {
     await api.dispose();
@@ -153,7 +161,7 @@ test('cleared through R-035 and approved: the payslip is final and the page says
     await expect(page.getByText(/^Payslips are ready\./)).toBeVisible();
     const final = await slipText(page, runId, employeeId);
     expect(final).not.toContain('DRAFT');
-    expect(final).toContain(netText);
+    expect(hasMoney(final, netText)).toBe(true);
     await snap(page, 'payslip-ready', 'session-theme');
   } finally {
     if (approved) await api.post(`/api/payroll/runs/${runId}/reopen`, { reason: 'z10 golden sandbox reset' });

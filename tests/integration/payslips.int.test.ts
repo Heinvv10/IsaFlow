@@ -180,8 +180,10 @@ describe('what the PDF says', () => {
     expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
     const net = Number((await r.pool.query('SELECT net_pay FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [runs.feb, emp])).rows[0]!.net_pay);
     const text = await pdfText(pdf);
-    expect(text).toContain(net.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','));
-    expect(text).toContain('account ending 3456');
+    // The app's money format groups thousands with a non-breaking space (formatMoney); \s covers it.
+    expect(text.replace(/\s+/g, ' ')).toContain(net.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' '));
+    expect(text).toContain('\u2022\u2022\u2022\u2022 3456');
+    expect(text).not.toContain('account ending');
     expect(text).not.toContain(ACCOUNT);
     expect(text).not.toContain('DRAFT');
   });
