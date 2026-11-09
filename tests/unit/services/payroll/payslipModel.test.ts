@@ -115,9 +115,15 @@ describe('getPayslips: hours captured on the run (s33(1)(g))', () => {
     expect(text).toContain('Overtime hours: 12.5 hours');
   });
 
-  it('a quantity on a component the run did not pay is ignored; hours and days of one code are never summed', async () => {
+  it('a quantity on a component the run did not pay is ignored', async () => {
     open();
-    db.qty = [row('c-other', '3601', 99), row('c-salary', '3601', 8), row('c-salary', '3601', 1, 'day')];
+    db.qty = [row('c-other', '3601', 99)];
+    expect((await getPayslips(CO, RUN)).payslips[0]).toMatchObject({ workedOrdinary: null, workedOvertime: null });
+  });
+
+  it('hours and days of one code are never summed', async () => {
+    open();
+    db.qty = [row('c-salary', '3601', 8), row('c-salary', '3601', 1, 'day')];
     expect((await getPayslips(CO, RUN)).payslips[0]).toMatchObject({ workedOrdinary: null, workedOvertime: null });
   });
 });
