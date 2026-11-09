@@ -87,10 +87,15 @@ describe('missing terms are never silent', () => {
     expect(kind({ hoursPerWeek: 20, dailyRate: 300 })).toBe('undetermined');
   });
 
-  it('tax year 2025 has no verified daily threshold (G19 not fetched): a case that turns on it is undetermined', () => {
-    expect(kind({ hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 300 }, 2025)).toBe('undetermined');
-    // but 5 hours or fewer a day does not need it.
-    expect(kind({ hoursPerWeek: 20, hoursPerDay: 4, dailyRate: 300 }, 2025)).toBe('non_standard_flat');
+  it('a year with a null daily threshold (2025: G19 not fetched) never classifies daily-rated staff', () => {
+    for (const t of [
+      { hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 300 }, { hoursPerWeek: 20, hoursPerDay: 4, dailyRate: 300 },
+      { hoursPerWeek: 20, hoursPerDay: 6, dailyRate: 900 }, { hoursPerWeek: 20, hoursPerDay: 4 },
+      { payBasis: 'monthly' as const, hoursPerWeek: 20, hoursPerDay: 4, dailyRate: 300 },
+    ]) expect(kind(t, 2025)).toBe('undetermined');
+    // hours of 22 or more need no threshold; 2026 and 2027 have one.
+    expect(kind({ hoursPerWeek: 22 }, 2025)).toBe('standard');
+    expect(kind({ hoursPerWeek: 20, hoursPerDay: 4, dailyRate: 300 }, 2026)).toBe('non_standard_flat');
   });
 
   it('a director and a contractor are not classified by hours', () => {

@@ -67,6 +67,14 @@ describe('independent contractor: no PAYE, UIF, SDL or ETI (G21 p. 26)', () => {
       .toEqual([0, 0, 0, 0, 0, 0, 0, 7_000]);
     expect(r.validationResults.find(v => v.code === 'PAYE_OUTSIDE_TABLES')?.treatment).toBe('none');
   });
+
+  it('default earnings (UIF and SDL flagged on, as the company components are) still give UIF = SDL = 0, with the named warning', () => {
+    const r = cost(employee({ taxStatus: 'independent_contractor' }), [earn(7_000)]);
+    expect(earn(7_000).component.isUifApplicable && earn(7_000).component.isSdlApplicable).toBe(true);
+    expect([r.uif.employeeContribution, r.uif.employerContribution, r.sdl]).toEqual([0, 0, 0]);
+    const w = r.validationResults.find(v => v.code === 'CONTRACTOR_UIF_SDL_IGNORED');
+    expect(w?.severity).toBe('warning');
+  });
 });
 
 describe('director: on the tables, UIF and SDL as an employee (G21 p. 27)', () => {

@@ -59,11 +59,15 @@ export function classifyEmployment(terms: WorkTerms, taxYear: number): Employmen
   if (hoursPerWeek >= STANDARD_HOURS_PER_WEEK) {
     return result('standard', `Required to work ${hoursPerWeek} hours a week, at least ${STANDARD_HOURS_PER_WEEK} (G21 p. 27-28).`);
   }
+  const threshold = getTaxYearConfig(taxYear).nonStandardDailyThreshold;
+  // A year with no verified daily threshold never classifies daily-rated staff: it would be a guess (blocking, not silent).
+  if (threshold == null && (terms.payBasis === 'daily' || terms.dailyRate != null)) {
+    return result('undetermined', `Daily-rated employee under ${STANDARD_HOURS_PER_WEEK} hours a week, and the daily threshold for tax year ${taxYear} is not verified, so G21 p. 28 cannot say whether the employment is standard.`);
+  }
   if (hoursPerDay != null && hoursPerDay < DEEMED_STANDARD_HOURS_PER_DAY) {
     return result('non_standard_flat', `Under ${STANDARD_HOURS_PER_WEEK} hours a week and under ${DEEMED_STANDARD_HOURS_PER_DAY} hours a day: non-standard employment (G21 p. 28).`);
   }
   const pay = dayPay(terms);
-  const threshold = getTaxYearConfig(taxYear).nonStandardDailyThreshold;
   if (pay != null && threshold != null && cents(pay) >= cents(threshold)) {
     return result('non_standard_flat', `Under ${STANDARD_HOURS_PER_WEEK} hours a week and paid R${threshold} or more a day: non-standard employment (G21 p. 28).`);
   }
