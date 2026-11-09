@@ -26,6 +26,7 @@ function slipOf(breakdown: object[], types: Map<string, string>, stored: { gross
     }, types),
     employeeId: 'e1', employeeNumber: 'E-001', employeeName: 'Zanele Slip', taxNumber: '0123456789', paymentMethod: 'eft',
     bankLastFour: '3456', bankName: 'FNB',
+    occupation: null, payBasis: 'monthly', hoursPerWeek: null, hoursPerDay: null, hourlyRate: null, dailyRate: null,
     yearToDate: { grossPay: stored.gross, taxableIncome: stored.gross, paye: stored.paye, uifEmployee: stored.uif, netPay: stored.net },
   };
 }
@@ -104,7 +105,7 @@ describe('figures and particulars', () => {
     expect(text).not.toContain('calculated before items were recorded');
   });
 
-  it('occupation: "Occupation not recorded"', async () => {
+  it('occupation: "Occupation not recorded" when none is captured', async () => {
     const [text] = await pages(await buildPayslipPdf(runOf(longSlip(), true)));
     expect(text).toContain('Occupation: Occupation not recorded');
   });
@@ -122,5 +123,56 @@ describe('figures and particulars', () => {
     const slip = slipOf([item('s', 'Salary', '3601', 100), item('er', 'Employer Pension', '4472', 15)], types, { gross: 100, paye: 0, uif: 1, net: 99 });
     const [text] = await pages(await buildPayslipPdf(runOf(slip, true)));
     expect(text.indexOf('Employer Pension')).toBeGreaterThan(text.indexOf('Employer contributions'));
+  });
+});
+
+describe('PS2: BCEA s33(1) particulars, formats, payment line', () => {
+  const base = () => slipOf([item('s', 'Salary', '3601', 100)], new Map([['s', 'earning']]), { gross: 100, paye: 0, uif: 1, net: 99 });
+  const textOf = async (slip: Payslip, run: Partial<PayslipRun> = {}) =>
+    (await pages(await buildPayslipPdf({ ...runOf(slip, true), ...run })))[0]!;
+
+  it('prints the captured occupation, hours and rate', async () => {
+    const slip = { ...base(), occupation: 'Splicer', payBasis: 'hourly', hoursPerWeek: 40, hoursPerDay: 8, hourlyRate: 1234.5 };
+    const text = await textOf(slip);
+    expect(text).toContain('Occupation: Splicer');
+    expect(text).toContain('Ordinary hours: 8 per day, 40 per week (contracted)');
+    expect(text).toContain('Rate of pay: R 1 234.50 per hour');
+    expect(text).toContain('Overtime hours: Overtime hours not recorded');
+  });
+
+  it('prints "not recorded" for hours when none are stored, never a figure', async () => {
+    const text = await textOf(base());
+    expect(text).toContain('Ordinary hours: not recorded');
+    expect(text).not.toContain('Rate of pay');
+  });
+
+  it('dates and money use the app formats', async () => {
+    const text = await textOf(base());
+    expect(text).toContain('Pay date: 25 Nov 2026');
+    expect(text).toContain('01 Nov 2026 to 30 Nov 2026');
+    expect(text).not.toContain('25/11/2026');
+    expect(text).toMatch(/Gross pay R 100\.00/);
+  });
+
+  it('no pay-date line when the run has no pay date', async () => {
+    expect(await textOf(base(), { runDate: null })).not.toContain('Pay date');
+  });
+
+  it('Paid by: EFT with last four, Cash, EFT with no bank details', async () => {
+    expect(await textOf(base())).toContain('Paid by: EFT to FNB \u2022\u2022\u2022\u2022 3456');
+    expect(await textOf({ ...base(), paymentMethod: 'cash' })).toContain('Paid by: Cash');
+    expect(await textOf({ ...base(), bankLastFour: null, bankName: null })).toContain('Paid by: EFT: bank details missing');
+  });
+
+  it('the employer address never prints empty parts', async () => {
+    const text = await textOf(base(), { employer: { name: 'Fixture Payroll (Pty) Ltd', address: '1 Main Road, , ,  , Durban, ' } });
+    expect(text).toContain('1 Main Road, Durban');
+    expect(text).not.toMatch(/, ,|,\s*,/);
+  });
+
+  it('a FINAL slip keeps rendering with nothing captured', async () => {
+    const text = await textOf({ ...base(), occupation: null, bankLastFour: null, taxNumber: null }, { runDate: null });
+    expect(text).toContain('Net pay');
+    expect(text).not.toContain('DRAFT');
   });
 });

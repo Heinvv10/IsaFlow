@@ -41,6 +41,7 @@ const EMP = '00000000-0000-4000-8000-0000000000e1';
 const LINE_ROW = {
   employee_id: EMP, employee_number: 'E-001', first_name: 'Zanele', last_name: 'Slip',
   tax_number: '0123456789', payment_method: 'eft', bank_last_four: '3456', bank_name: 'FNB',
+  occupation: 'Splicer', pay_basis: 'hourly', hours_per_week: '40.00', hours_per_day: '8.00', hourly_rate: '150.00', daily_rate: null,
   gross_pay: '30000.00', paye: '5000.00', uif_employee: '177.12', uif_employer: '177.12', sdl: '300.00', net_pay: '23022.88',
   component_breakdown: [
     { componentId: 'c-salary', componentName: 'Basic Salary', sarsSourceCode: '3601', amount: 30000, isTaxable: true, isUifApplicable: true },
@@ -107,9 +108,10 @@ describe('buildPayslipPdf', () => {
     db.header = header({ status: 'approved', approved_at: null, approval_grandfathered_at: null });
     const text = await pdfText(await buildPayslipPdf(await getPayslips(CO, RUN)));
     expect(text).toContain(DRAFT_MARK);
-    expect(text).toContain('23,022.88');
+    expect(text).toContain('23 022.88');
     expect(text).toContain('Fixture Payroll (Pty) Ltd');
-    expect(text).toContain('Occupation: Occupation not recorded'); // no occupation field yet; never the EE level or department
+    expect(text).toContain('Occupation: Splicer'); // from the profile; never the EE level or department
+    expect(text).toContain('Ordinary hours: 8 per day, 40 per week (contracted)');
   });
 
   it('prints no DRAFT on a final run', async () => {
@@ -120,7 +122,8 @@ describe('buildPayslipPdf', () => {
   it('holds the bank account\'s last four digits and no ID number', async () => {
     db.header = header({ status: 'calculated', approved_at: null, approval_grandfathered_at: null });
     const text = await pdfText(await buildPayslipPdf(await getPayslips(CO, RUN)));
-    expect(text).toContain('account ending 3456');
+    expect(text).toContain('\u2022\u2022\u2022\u2022 3456');
+    expect(text).not.toContain('account ending');
     expect(text).not.toMatch(/\bID\b|identity/i);
   });
 });
