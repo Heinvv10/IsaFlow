@@ -40,6 +40,8 @@ beforeEach(() => {
     '/api/payroll/employees/b2': () => json(B),
     '/api/payroll/employees/b2/components': () => json([]),
     '/api/payroll/runs': () => json([]),
+    '/api/payroll/employees/a1/has-final-run': () => json({ hasFinalRun: false }),
+    '/api/payroll/employees/b2/has-final-run': () => json({ hasFinalRun: false }),
     '/api/payroll/employees/a1/bank-details?view=masked': () => json(null),
     '/api/payroll/employees/b2/bank-details?view=masked': () => json(null),
   };
