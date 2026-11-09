@@ -136,7 +136,7 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     employeeNumber: c.id,
     firstName: 'Oracle',
     lastName: 'Case',
-    employmentType: 'permanent',
+    employmentType: input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent',
     startDate: parseDate(input.employee.startDate),
     ...(input.employee.dateOfBirth ? { dateOfBirth: parseDate(input.employee.dateOfBirth) } : {}),
     uifExcluded: input.employee.uifExcluded,

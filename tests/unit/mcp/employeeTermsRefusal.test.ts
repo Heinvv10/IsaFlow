@@ -8,7 +8,7 @@ describe('refuseEmployeeTermArgs', () => {
   });
 
   it('refuses employment_type director, in either spelling: the tax status is what makes a director', () => {
-    for (const args of [{ employment_type: 'director' }, { employmentType: 'director' }]) {
+    for (const args of [{ employment_type: 'director' }, { employmentType: 'director' }, { employment_type: 'Director' }, { employment_type: ' DIRECTOR ' }, { employmentType: 'dIrEcToR' }]) {
       const out = refuseEmployeeTermArgs(args);
       expect(out?.isError).toBe(true);
       expect(JSON.stringify(out)).toContain('tax status to Director');

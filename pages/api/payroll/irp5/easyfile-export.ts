@@ -42,6 +42,7 @@ import {
   listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeSummary,
 } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
+import { contractorFiling } from '@/modules/accounting/services/payroll/easyFileContractor';
 import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -79,7 +80,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       WHERE id = ${companyId}::uuid
     ` as Promise<DbRow[]>,
     sql`
-      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date, date_of_birth
+      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date, date_of_birth, tax_status
       FROM   payroll_employees
       WHERE  company_id = ${companyId}::uuid
       ORDER  BY last_name, first_name
@@ -159,6 +160,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       annualPayments: annualByEmployee.get(String(row.id)) ?? 0, lumpSums: employeeLumpSums,
     });
     const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
+    // An independent contractor's income is 3616, not 3601, and with no PAYE there is no certificate to write (easyFileContractor).
+    const filing = contractorFiling({
+      taxStatus: String(row.tax_status ?? 'employee'), who, salaryIncome: split.grossSalary3601,
+      paye: Math.round((Number(agg.total_paye ?? 0) + standalone.paye) * 100) / 100, hasLumpSums: employeeLumpSums.length > 0,
+    });
+    if (filing.kind === 'skip') { warnings.push(filing.warning); continue; }
     // The writer's rule (cents dropped, a nil field left out): no income code of R1 or more, no
     // certificate. Skipped, not refused for the whole company, unless PAYE was withheld: no
     // certificate could carry it and 4102 would under-report, so the file is refused, naming it.
@@ -204,6 +211,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       employmentEndDate: certEndDate,
       periodsInYoA: monthsBetween(periodStart, periodEnd),
       ...split,
+      ...(filing.kind === 'certificate' ? { grossSalary3601: 0, independentContractor3616: filing.income3616 } : {}),
       fringeBenefits,
       lumpSums: employeeLumpSums.map(l => ({
         sourceCode: l.sourceCode,

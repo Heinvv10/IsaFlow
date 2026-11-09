@@ -109,7 +109,11 @@ describe('occupation', () => {
 
 describe('priced terms', () => {
   it('moves only when a priced term differs from the stored one', () => {
-    expect(movesPricedTerm({ occupation: 'x', hoursPerWeek: 40 }, DEFAULT_TERMS)).toBe(false);
+    expect(movesPricedTerm({ occupation: 'x' }, DEFAULT_TERMS)).toBe(false);
+    // Hours classify the employment (G21 p. 28), so they are priced.
+    expect(movesPricedTerm({ hoursPerWeek: 40 }, DEFAULT_TERMS)).toBe(true);
+    expect(movesPricedTerm({ hoursPerDay: 5 }, DEFAULT_TERMS)).toBe(true);
+    expect(movesPricedTerm({ hoursPerWeek: 40 }, { ...DEFAULT_TERMS, hoursPerWeek: 40 })).toBe(false);
     expect(movesPricedTerm({ taxStatus: 'employee' }, DEFAULT_TERMS)).toBe(false);
     expect(movesPricedTerm({ taxStatus: 'director' }, DEFAULT_TERMS)).toBe(true);
     expect(movesPricedTerm({ hourlyRate: 10 }, DEFAULT_TERMS)).toBe(true);

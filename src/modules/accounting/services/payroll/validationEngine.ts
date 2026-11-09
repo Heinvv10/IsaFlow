@@ -137,7 +137,9 @@ export function validateEti(
 
 /**
  * What the employee's terms of work say about how they are taxed (employmentTerms, taxStatusTreatment):
- *  - HOURS_NOT_RECORDED (info): a monthly employee with no hours is standard employment by default, never silently;
+ *  - HOURS_NOT_RECORDED: a monthly employee with no hours is standard employment by default, never silently. Info for a
+ *    permanent employee; a WARNING for a contract or casual one, whose hours are the likelier thing to be under 22 a week;
+ *  - DAY_PAY_FROM_EARNINGS (warning): the line's earnings per scheduled day differ from the recorded rate and decided the class;
  *  - EMPLOYMENT_UNDETERMINED (error): the guide cannot classify from the terms recorded (G21 p. 28);
  *  - DIRECTOR_STATUS_NOT_SET (error): employment type "director" with tax status "employee": the card asks, nothing
  *    changes silently (grill 24), so the run stops until someone sets one;
@@ -145,7 +147,7 @@ export function validateEti(
  *    is taken from a contractor), so the figures are right and the flags are only noise.
  */
 export function validateEmploymentTerms(
-  employee: Pick<PayrollEmployee, 'id' | 'firstName' | 'lastName' | 'employmentType' | 'taxStatus'>,
+  employee: Pick<PayrollEmployee, 'id' | 'firstName' | 'lastName' | 'employeeNumber' | 'employmentType' | 'taxStatus'>,
   classification: EmploymentClassification,
   components: readonly EmployeeComponent[],
 ): ValidationResult[] {
@@ -153,7 +155,14 @@ export function validateEmploymentTerms(
   const link = { field: 'workTerms', deepLink: `/payroll/employees/${employee.id}#work-terms` };
   const results: ValidationResult[] = [];
   if (classification.hoursNotRecorded) {
-    results.push({ code: 'HOURS_NOT_RECORDED', severity: 'info', message: `${name}: ${classification.reason}.`, ...link });
+    const likelyPartTime = employee.employmentType === 'contract' || employee.employmentType === 'casual';
+    results.push({
+      code: 'HOURS_NOT_RECORDED', severity: likelyPartTime ? 'warning' : 'info', ...link,
+      message: `${name}: ${classification.reason}.${likelyPartTime ? ` A ${employee.employmentType} employee may work under 22 hours a week (non-standard employment, 25% PAYE, G21 p. 28): record the hours.` : ''}`,
+    });
+  }
+  if (classification.dayPayNote) {
+    results.push({ code: 'DAY_PAY_FROM_EARNINGS', severity: 'warning', message: `${name}: ${classification.dayPayNote}`, ...link });
   }
   if (classification.kind === 'undetermined') {
     results.push({ code: 'EMPLOYMENT_UNDETERMINED', severity: 'error', message: `${name}: ${classification.reason} Record the terms of work, then recalculate.`, ...link });
@@ -161,7 +170,9 @@ export function validateEmploymentTerms(
   if (employee.employmentType === 'director' && employee.taxStatus === 'employee') {
     results.push({
       code: 'DIRECTOR_STATUS_NOT_SET', severity: 'error',
-      message: `${name} has employment type Director but tax status Employee. Set the tax status to Director (or the employment type to something else), then recalculate.`,
+      message: `${name} (employee ${employee.employeeNumber}) has employment type Director but tax status Employee, so this run cannot be approved. `
+        + 'Fix: open the employee profile, go to Work terms, set Tax status to Director, save, then recalculate the run. '
+        + 'If the person is not a director, change the employment type instead.',
       ...link,
     });
   }

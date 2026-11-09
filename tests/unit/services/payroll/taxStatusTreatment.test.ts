@@ -53,7 +53,7 @@ describe('the line flag', () => {
   });
 });
 
-const person = (o: Partial<PayrollEmployee>) => ({ id: 'e1', firstName: 'A', lastName: 'B', employmentType: 'permanent', taxStatus: 'employee', ...o }) as PayrollEmployee;
+const person = (o: Partial<PayrollEmployee>) => ({ id: 'e1', employeeNumber: 'E7', firstName: 'A', lastName: 'B', employmentType: 'permanent', taxStatus: 'employee', ...o }) as PayrollEmployee;
 const earning = (uif: boolean, sdl: boolean): EmployeeComponent => ({
   component: { id: 'c', name: 'Fees', sarsSourceCode: '3601', componentType: 'earning', isTaxable: true, isUifApplicable: uif, isSdlApplicable: sdl }, amount: 1000,
 });
@@ -70,6 +70,11 @@ describe('validateEmploymentTerms', () => {
   it('employment type director with tax status employee: a blocking error (the card asks)', () => {
     expect(codes(validateEmploymentTerms(person({ employmentType: 'director' }), classification('standard'), []))).toEqual(['error:DIRECTOR_STATUS_NOT_SET']);
     expect(validateEmploymentTerms(person({ employmentType: 'director', taxStatus: 'director' }), classification('standard'), [])).toEqual([]);
+    // The fix is named: who, which field, where.
+    const [director] = validateEmploymentTerms(person({ employmentType: 'director' }), classification('standard'), []);
+    expect(director!.message).toContain('A B (employee E7)');
+    expect(director!.message).toContain('Work terms');
+    expect(director!.message).toContain('Tax status to Director');
   });
   it('a contractor whose earnings carry UIF or SDL flags: a warning that they are set aside', () => {
     const c = person({ taxStatus: 'independent_contractor' });

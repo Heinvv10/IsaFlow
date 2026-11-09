@@ -67,7 +67,7 @@ describe('the request log', () => {
 });
 
 describe('priced terms: owner and admin only', () => {
-  it.each([{ taxStatus: 'director' }, { payBasis: 'hourly', hourlyRate: 100 }, { dailyRate: 5 }])('a manager creating with %j is 403 and writes nothing', async (over) => {
+  it.each([{ taxStatus: 'director' }, { payBasis: 'hourly', hourlyRate: 100 }, { dailyRate: 5 }, { hoursPerWeek: 14 }, { hoursPerDay: 4 }])('a manager creating with %j is 403 and writes nothing', async (over) => {
     const res = await call(indexHandler, 'POST', 'manager', { ...BASE, ...over });
     expect(apiResponse.forbidden).toHaveBeenCalled();
     expect(createPayrollEmployee).not.toHaveBeenCalled();

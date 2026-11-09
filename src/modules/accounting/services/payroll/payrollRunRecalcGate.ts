@@ -115,7 +115,7 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
       code: 'employment_terms_unresolved',
       detail: `${unresolved.map((r) => String(r.employee_number)).join(', ')}: the terms of work do not say how the employee is taxed `
         + '(hours or pay for a day missing for a part-time employee, or employment type Director with tax status Employee). '
-        + 'Fix the employee\'s work terms, then recalculate the run.',
+        + 'Fix: employee profile, Work terms (Tax status Director for a director; hours and day pay for a part-timer), then recalculate the run.',
     };
   }
   return null;

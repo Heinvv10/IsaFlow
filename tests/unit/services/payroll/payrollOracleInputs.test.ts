@@ -39,6 +39,7 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     expect(employee.hoursPerWeek ?? null).toBe(typeof u.ordinaryHoursPerWeek === 'number' ? u.ordinaryHoursPerWeek : null);
     expect(employee.hoursPerDay ?? null).toBe(typeof u.hoursPerDay === 'number' ? u.hoursPerDay : null);
     expect(employee.dailyRate ?? null).toBe(typeof u.dayRate === 'number' ? u.dayRate : null);
+    expect(employee.employmentType).toBe(c.input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent');
   });
 
   it('the cases that turn on them are there: a contractor, a director, hours and a day rate', () => {

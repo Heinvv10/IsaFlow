@@ -14,7 +14,8 @@ const SPELLINGS: readonly string[] = TERM_ARGS.flatMap((k) => [k, camel(k)]);
 export function refuseEmployeeTermArgs(args: Record<string, unknown>): McpToolResult | null {
   // "director" is a tax status (the engine reads tax_status, not employment_type), and this tool cannot set one: a director made here
   // would be an employee on the tables with a contradicting label, which the pay run refuses to approve (DIRECTOR_STATUS_NOT_SET).
-  if (args.employment_type === 'director' || args.employmentType === 'director') {
+  const isDirector = (v: unknown) => typeof v === 'string' && v.trim().toLowerCase() === 'director';
+  if (isDirector(args.employment_type) || isDirector(args.employmentType)) {
     return toolError('employment_type director cannot be set through this tool: create the employee as permanent, contract or casual, then set the tax status to Director on the employee profile.');
   }
   const given = Object.keys(args).filter((k) => SPELLINGS.includes(k) && args[k] !== undefined);

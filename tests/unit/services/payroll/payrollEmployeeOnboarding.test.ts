@@ -284,19 +284,19 @@ describe('employeeChangesOf: the end date that goes on is the day that was judge
   });
 });
 
-describe('work terms: the priced ones (status, basis, rates) are owner/admin only', () => {
+describe('work terms: the priced ones (status, basis, hours, rates) are owner/admin only', () => {
   const asManager = (over: Record<string, unknown>) => createEmployeeWithPay(COMPANY, 'u1', { ...BASE, ...over }, false);
 
   it('a manager creating a director, hourly or contractor employee is forbidden before any write', async () => {
-    for (const over of [{ taxStatus: 'director' }, { payBasis: 'hourly', hourlyRate: 100 }, { taxStatus: 'independent_contractor' }, { payBasis: 'daily', dailyRate: 800 }]) {
+    for (const over of [{ taxStatus: 'director' }, { payBasis: 'hourly', hourlyRate: 100 }, { taxStatus: 'independent_contractor' }, { payBasis: 'daily', dailyRate: 800 }, { hoursPerWeek: 14 }, { hoursPerDay: 4 }]) {
       const err = await asManager(over).then(() => null, e => e as Error);
       expect(err).toBeInstanceOf(EmployeeTermsForbidden);
     }
     expect(createPayrollEmployee).not.toHaveBeenCalled();
   });
 
-  it('a manager may create with the defaults the form always sends, plus hours and occupation', async () => {
-    await asManager({ taxStatus: 'employee', payBasis: 'monthly', hoursPerWeek: 40, occupation: 'Clerk' });
+  it('a manager may create with the defaults the form always sends, plus an occupation', async () => {
+    await asManager({ taxStatus: 'employee', payBasis: 'monthly', occupation: 'Clerk' });
     expect(createPayrollEmployee).toHaveBeenCalledTimes(1);
   });
 
@@ -309,6 +309,10 @@ describe('work terms: the priced ones (status, basis, rates) are owner/admin onl
     const current = { startDate: new Date('2020-01-01'), taxStatus: 'employee' as const, payBasis: 'monthly' as const };
     expect(() => employeeChangesOf({ taxStatus: 'director' }, current)).toThrow(EmployeeTermsForbidden);
     expect(() => employeeChangesOf({ hourlyRate: 90 }, current)).toThrow(EmployeeTermsForbidden);
+    // Hours classify the employment (G21 p. 28), so a lower role may not move them either.
+    expect(() => employeeChangesOf({ hoursPerWeek: 10 }, current)).toThrow(EmployeeTermsForbidden);
+    expect(() => employeeChangesOf({ hoursPerDay: 3 }, current)).toThrow(EmployeeTermsForbidden);
+    expect(employeeChangesOf({ hoursPerWeek: 10 }, current, true).hoursPerWeek).toBe(10);
     expect(employeeChangesOf({ occupation: 'Clerk', taxStatus: 'employee' }, current).occupation).toBe('Clerk');
     expect(employeeChangesOf({ taxStatus: 'director' }, current, true).taxStatus).toBe('director');
   });

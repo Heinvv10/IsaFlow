@@ -97,3 +97,57 @@ describe('the terms results ride on the line', () => {
     expect(r.paye.monthlyPaye).toBe(0);
   });
 });
+
+describe('G21 p. 27-28 summary table: the class AND the PAYE figure, row by row (2027, March 2026)', () => {
+  const paye = (e: Partial<PayrollEmployee>, pay: number) => cost(employee(e), [earn(pay)]).paye.monthlyPaye;
+  it('row 1: 22 h a week, over the R99 000 threshold: the tables (R12 000 a month = R675.00, not flat R3 000)', () => {
+    expect(paye({ hoursPerWeek: 22, hoursPerDay: 4.4 }, 12_000)).toBe(675);
+  });
+  it('row 2: 22 h a week, within the threshold (R8 250 a month = R99 000 a year): nil', () => {
+    expect(paye({ hoursPerWeek: 22, hoursPerDay: 4.4 }, 8_250)).toBe(0);
+  });
+  it('row 2 against row 1: R1 more a year and the tables start (R8 250.09 a month)', () => {
+    expect(paye({ hoursPerWeek: 22, hoursPerDay: 4.4 }, 8_250.09)).toBeGreaterThan(0);
+  });
+  it('row 3: 5+ h a day under R394, under 22 h a week: nil (deemed standard; the tables give the guide\'s "no tax")', () => {
+    expect(paye({ payBasis: 'daily', hoursPerWeek: 21, hoursPerDay: 5, dailyRate: 390 }, 7_020)).toBe(0);
+  });
+  it('row 4: 5+ h a day over R394: 25% (R5 000 = R1 250.00)', () => {
+    expect(paye({ payBasis: 'daily', hoursPerWeek: 14, hoursPerDay: 6, dailyRate: 500 }, 5_000)).toBe(1_250);
+  });
+  it('row 5: under 5 h a day, under R394: 25% (R4 500 = R1 125.00)', () => {
+    expect(paye({ payBasis: 'daily', hoursPerWeek: 14, hoursPerDay: 4, dailyRate: 300 }, 4_500)).toBe(1_125);
+  });
+  it('under 5 h a day, R394 or more (no printed row): the residual definition, 25% (R4 500)', () => {
+    expect(paye({ payBasis: 'daily', hoursPerWeek: 14, hoursPerDay: 4, dailyRate: 450 }, 4_500)).toBe(1_125);
+  });
+});
+
+describe('what the line pays per day decides the class (A-H1)', () => {
+  const R70 = { payBasis: 'hourly' as const, hoursPerWeek: 20, hoursPerDay: 5, hourlyRate: 70 };
+  it('R70 an hour, 20 h a week, 5 h days, paid R15 000: flat 25% = R3 750, with the day-pay warning', () => {
+    const r = cost(employee(R70), [earn(15_000)]);
+    expect(r.paye.monthlyPaye).toBe(3_750);
+    expect(r.validationResults.map(v => v.code)).toEqual(expect.arrayContaining(['DAY_PAY_FROM_EARNINGS', 'PAYE_OUTSIDE_TABLES']));
+  });
+  it('the same terms paid what the rate says (R6 062.50 = R350 x 17.3 days): tables, nil', () => {
+    expect(cost(employee(R70), [earn(6_062.5)]).paye.monthlyPaye).toBe(0);
+  });
+  it('an overtime day lifts R390 over R394: R7 800 on a 20 h, 5 h-day schedule is flat (R1 950), R6 760 is not', () => {
+    const t = { payBasis: 'hourly' as const, hoursPerWeek: 20, hoursPerDay: 5, hourlyRate: 78 };
+    expect(cost(employee(t), [earn(7_800)]).paye.monthlyPaye).toBe(1_950);
+    expect(cost(employee(t), [earn(6_760)]).paye.monthlyPaye).toBe(0);
+  });
+  it('a bonus (3605, annual payment) is not periodic earnings and does not move the class', () => {
+    const t = { payBasis: 'hourly' as const, hoursPerWeek: 20, hoursPerDay: 5, hourlyRate: 78 };
+    const r = cost(employee(t), [earn(6_760), earn(20_000, '3605')]);
+    expect(r.validationResults.map(v => v.code)).not.toContain('DAY_PAY_FROM_EARNINGS');
+    expect(r.validationResults.map(v => v.code)).not.toContain('PAYE_OUTSIDE_TABLES');
+  });
+});
+
+describe('HOURS_NOT_RECORDED: info for permanent, a warning for contract and casual', () => {
+  const sev = (employmentType: PayrollEmployee['employmentType']) =>
+    cost(employee({ employmentType }), [earn(5_000)]).validationResults.find(v => v.code === 'HOURS_NOT_RECORDED')?.severity;
+  it.each([['permanent', 'info'], ['contract', 'warning'], ['casual', 'warning']] as const)('%s -> %s', (t, severity) => expect(sev(t)).toBe(severity));
+});

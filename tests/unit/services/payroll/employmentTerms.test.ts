@@ -53,6 +53,11 @@ describe('boundaries', () => {
     expect(kind({ hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 394 })).toBe('non_standard_flat');
   });
 
+  it('2026 is strict at the cent too: R382.99 is deemed standard, R383.00 is flat (G20 p. 28)', () => {
+    expect(kind({ hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 382.99 }, 2026)).toBe('deemed_standard');
+    expect(kind({ hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 383 }, 2026)).toBe('non_standard_flat');
+  });
+
   it('the 2026 threshold is R383 (G20 p. 28): R383.00 is flat there, deemed standard in 2027', () => {
     expect(kind({ hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 383 }, 2026)).toBe('non_standard_flat');
     expect(kind({ hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 383 }, 2027)).toBe('deemed_standard');
@@ -101,5 +106,36 @@ describe('missing terms are never silent', () => {
   it('a director and a contractor are not classified by hours', () => {
     expect(kind({ taxStatus: 'director', hoursPerWeek: 5, hoursPerDay: 1, dailyRate: 900 })).toBe('standard');
     expect(kind({ taxStatus: 'independent_contractor', hoursPerWeek: 5 })).toBe('standard');
+  });
+});
+
+describe('day pay follows what the line pays (G21 p. 28 "earns ... for that day")', () => {
+  // R70 an hour, 20 hours a week in 5-hour days: R350 a day by the rate (deemed standard), but R15 000 a month over 4 days a week.
+  const R70 = terms({ payBasis: 'hourly', hoursPerWeek: 20, hoursPerDay: 5, hourlyRate: 70 });
+
+  it('the recorded R350 day says deemed standard without earnings; R15 000 a month says flat, with a note', () => {
+    expect(classifyEmployment(R70, 2027).kind).toBe('deemed_standard');
+    const c = classifyEmployment(R70, 2027, 15_000);
+    expect(c.kind).toBe('non_standard_flat');
+    expect(c.dayPayNote).toMatch(/R\s350\.00/);
+    expect(c.dayPayNote).toContain('periodic earnings');
+  });
+
+  it('overtime that lifts a day over R394 makes it flat: R78 an hour (R390) with R7 800 paid over 17.3 days', () => {
+    const t = terms({ payBasis: 'hourly', hoursPerWeek: 20, hoursPerDay: 5, hourlyRate: 78 });
+    expect(classifyEmployment(t, 2027, 6_760).kind).toBe('deemed_standard'); // exactly the scheduled days at the rate
+    expect(classifyEmployment(t, 2027, 7_800).kind).toBe('non_standard_flat');
+    expect(classifyEmployment(t, 2027, 7_800).dayPayNote).toBeDefined();
+  });
+
+  it('earnings within 3% of the rate leave the recorded rate to decide, exactly (R393.99 stays deemed standard)', () => {
+    const t = terms({ hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 393.99 });
+    const c = classifyEmployment(t, 2027, 6_800); // 6 800 / 17.33 = R392.3, within 3%
+    expect([c.kind, c.dayPayNote]).toEqual(['deemed_standard', undefined]);
+  });
+
+  it('with no recorded rate the earned day pay stands in (and with no schedule it cannot)', () => {
+    expect(classifyEmployment(terms({ hoursPerWeek: 20, hoursPerDay: 5 }), 2027, 15_000).kind).toBe('non_standard_flat');
+    expect(classifyEmployment(terms({ hoursPerWeek: 20 }), 2027, 15_000).kind).toBe('undetermined');
   });
 });

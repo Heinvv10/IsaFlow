@@ -48,6 +48,7 @@ const EXPECTED_CASE_IDS = [
   'sage-2027-03-kesh-bonus-40000',
   'sage-2027-03-kg',
   'sage-2027-03-lungi',
+  'sage-2027-03-marco',
   'sage-2027-03-phekis',
   'sage-2027-03-qdk',
   'sage-2027-03-rassie',

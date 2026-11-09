@@ -2,7 +2,7 @@
   "id": "ts-standard-22h-boundary-tables-not-flat-25pct",
   "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 28 (standard employment: required to work at least 22 hours a week; employees tax from the tables) with the 2027 rates of tax",
   "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
-  "notes": "Required to work exactly 22 hours a week: standard employment (G21 p. 27-28, summary table rows 1-2), so the tables apply, not the flat 25% (R3 000.00). R12 000 a month = R144 000 a year: tax 18% x 144 000 = 25 920 less the primary rebate 17 820 = 8 100, / 12 = R675.00 (2027 brackets and rebate, SARS rates of tax for individuals). UIF 120.00 and SDL 120.00 (1% each, under the UIF ceiling). Net 12 000 - 675 - 120 = 11 205. This is the 22-hour boundary: ts-non-standard-under-5h-day-flat-25pct is the same employee class one side of it (under 22 hours, taxed flat). Replaces sage-2027-03-marco's hours-blind Sage figure (spec section 4 TS-b), with the adversarial reviewer's written agreement.",
+  "notes": "Required to work exactly 22 hours a week: standard employment (G21 p. 27-28, summary table rows 1-2), so the tables apply, not the flat 25% (R3 000.00). R12 000 a month = R144 000 a year: tax 18% x 144 000 = 25 920 less the primary rebate 17 820 = 8 100, / 12 = R675.00 (2027 brackets and rebate, SARS rates of tax for individuals). UIF 120.00 and SDL 120.00 (1% each, under the UIF ceiling). Net 12 000 - 675 - 120 = 11 205. This is the 22-hour boundary: ts-non-standard-under-5h-day-flat-25pct is the same employee class one side of it (under 22 hours, taxed flat). Five 4.4-hour days a week. Carries the casual temporary_part_time label so a hours-based classification is the only thing separating it from a flat-rated part-timer; with the 22-hour boundary broken (22 h read as under 22) the engine gives the flat R3 000.00 and this case goes red. Sits beside sage-2027-03-marco, which stays a named hours-blind Sage gap (spec section 4 TS-b, adversarial agreement conditions).",
   "input": {
     "period": {
       "year": 2026,
@@ -12,7 +12,7 @@
     "employee": {
       "dateOfBirth": "1986-01-01",
       "startDate": "2020-03-01",
-      "taxStatus": "statutory",
+      "taxStatus": "temporary_part_time",
       "uifExcluded": false,
       "medicalAidMainMember": false,
       "medicalAidDependantsCount": 0,
@@ -32,6 +32,7 @@
     ],
     "unmodelled": {
       "ordinaryHoursPerWeek": 22,
+      "hoursPerDay": 4.4,
       "employmentBasis": "standard"
     }
   },

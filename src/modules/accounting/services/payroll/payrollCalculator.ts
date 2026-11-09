@@ -50,13 +50,6 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const taxYearEnd = new Date(taxYear, 2, 0);
   const rebateAge = employee.dateOfBirth ? getAge(employee.dateOfBirth, taxYearEnd) : 30;
 
-  // How the employee is taxed (TS-b): the tables, a flat 25% (non-standard), or none (contractor). A line off the tables is costed
-  // as a first period (no year to date), then replaced below; its month stays out of every later table month's base.
-  const classification = classifyEmployment(employee, taxYear);
-  const treatment = taxStatusTreatment(employee.taxStatus, classification.kind);
-  const onTables = treatment.paye === 'tables';
-  const ytdForTables = onTables ? input.ytd : undefined;
-
   const acc = accumulateComponents(components);
   const { grossPay, allEarnings, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings } = acc;
   let { periodicTaxable, annualPayments } = acc;
@@ -74,6 +67,13 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   }
   const periodicRemuneration = remuneration.periodic;
   const annualPaymentRemuneration = remuneration.annualPayment;
+  // How the employee is taxed (TS-b): the tables, a flat 25% (non-standard), or none (contractor). The class reads what the line pays
+  // per day (employmentTerms). A line off the tables is costed as a first period (no year to date), then replaced below; its month
+  // stays out of every later table month's base.
+  const classification = classifyEmployment(employee, taxYear, remuneration.periodic);
+  const treatment = taxStatusTreatment(employee.taxStatus, classification.kind);
+  const onTables = treatment.paye === 'tables';
+  const ytdForTables = onTables ? input.ytd : undefined;
 
   const medicalBeneficiaries = employee.medicalAidMainMember
     ? 1 + employee.medicalAidDependantsCount

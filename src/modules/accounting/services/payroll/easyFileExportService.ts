@@ -92,6 +92,8 @@ export interface EmployeeInput {
   sdl4142: number;                // 4142 (SDL) — cents kept
   /** Annual payments (3605), NOT included in grossSalary3601. Their PAYE stays in 4102. */
   annualPayments3605?: number;
+  /** An independent contractor's income, code 3616 (G21 p. 26), INSTEAD of 3601 (easyFileContractor.ts). */
+  independentContractor3616?: number;
   /** Non-cash fringe benefits by income code (3801), NOT included in grossSalary3601; cents dropped. */
   fringeBenefits?: { sourceCode: string; amount: number }[];
   /** Lump sums paid under a directive, NOT included in grossSalary3601. */
@@ -233,6 +235,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     ]),
     formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
     formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
+    formatField(3616, (emp.independentContractor3616 ?? 0) > 0 ? emp.independentContractor3616! : null, 'N'),
     // Income codes in code order, as the BRS file layout lists them: 36xx, 38xx, then 39xx.
     ...[...(emp.fringeBenefits ?? [])].sort((a, b) => a.sourceCode.localeCompare(b.sourceCode)).map(f => formatField(Number(f.sourceCode), f.amount >= 1 ? f.amount : null, 'N')),
     ...lumpIncome(lumpSums),
