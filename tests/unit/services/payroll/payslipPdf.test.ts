@@ -25,7 +25,7 @@ function slipOf(breakdown: object[], types: Map<string, string>, stored: { gross
       grossPay: stored.gross, paye: stored.paye, uifEmployee: stored.uif, uifEmployer: stored.uif, sdl: 0, netPay: stored.net, breakdown,
     }, types),
     employeeId: 'e1', employeeNumber: 'E-001', employeeName: 'Zanele Slip', taxNumber: '0123456789', paymentMethod: 'eft',
-    bankLastFour: '3456', bankName: 'FNB',
+    bankLastFour: '3456', bankName: 'FNB', bankIncomplete: false,
     occupation: null, payBasis: 'monthly', hoursPerWeek: null, hoursPerDay: null, hourlyRate: null, dailyRate: null,
     yearToDate: { grossPay: stored.gross, taxableIncome: stored.gross, paye: stored.paye, uifEmployee: stored.uif, netPay: stored.net },
   };
@@ -162,6 +162,7 @@ describe('PS2: BCEA s33(1) particulars, formats, payment line', () => {
     expect(await textOf(base())).toContain('Paid by: EFT to FNB \u2022\u2022\u2022\u2022 3456');
     expect(await textOf({ ...base(), paymentMethod: 'cash' })).toContain('Paid by: Cash');
     expect(await textOf({ ...base(), bankLastFour: null, bankName: null })).toContain('Paid by: EFT: bank details missing');
+    expect(await textOf({ ...base(), bankLastFour: null, bankIncomplete: true })).toContain('Paid by: EFT: bank details incomplete');
   });
 
   it('the employer address never prints empty parts', async () => {

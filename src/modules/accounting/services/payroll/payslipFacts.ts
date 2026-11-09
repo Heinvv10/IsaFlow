@@ -24,11 +24,12 @@ export function paidBy(slip: Payslip): string {
   const method = slip.paymentMethod.trim().toLowerCase();
   if (method === 'cash') return 'Cash';
   if (method !== 'eft') return slip.paymentMethod.trim() === '' ? 'Not recorded' : slip.paymentMethod.trim();
+  if (slip.bankIncomplete) return 'EFT: bank details incomplete';
   if (!slip.bankLastFour) return 'EFT: bank details missing';
   return `EFT to ${slip.bankName ? `${slip.bankName} ` : ''}•••• ${slip.bankLastFour}`;
 }
 
-/** s33(1)(g)/(h): the stored terms of work. They are contracted hours, never presented as hours worked. */
+/** s33(1)(g) (hours, where relevant to the calculation): the stored terms of work. They are contracted hours, never presented as hours worked. */
 export function ordinaryHours(slip: Payslip): string {
   const week = num(slip.hoursPerWeek);
   const day = num(slip.hoursPerDay);

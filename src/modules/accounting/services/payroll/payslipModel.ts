@@ -33,6 +33,8 @@ export interface Payslip extends PayslipLines {
   /** The active bank account's last four digits; null when none is on file. */
   bankLastFour: string | null;
   bankName: string | null;
+  /** A bank account is on file but too short to mask (fewer than four characters). */
+  bankIncomplete: boolean;
   /** BCEA s33(1)(b): the employee's occupation as captured on the profile; null when none. */
   occupation: string | null;
   payBasis: string;
@@ -65,6 +67,7 @@ interface LineRow {
   tax_number: string | null;
   payment_method: string;
   bank_last_four: string | null;
+  bank_length: string | number | null;
   bank_name: string | null;
   occupation: string | null;
   pay_basis: string;
@@ -92,7 +95,7 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
     SELECT prl.employee_id::text AS employee_id, pe.employee_number, pe.first_name, pe.last_name,
            pe.tax_number, pe.payment_method,
            pe.occupation, pe.pay_basis, pe.hours_per_week, pe.hours_per_day, pe.hourly_rate, pe.daily_rate,
-           RIGHT(bd.account_number, 4) AS bank_last_four, bd.bank_name,
+           RIGHT(btrim(bd.account_number), 4) AS bank_last_four, char_length(btrim(bd.account_number)) AS bank_length, bd.bank_name,
            prl.gross_pay, prl.paye, prl.uif_employee, prl.uif_employer, prl.sdl, prl.net_pay,
            prl.component_breakdown,
            (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS run_final
@@ -151,7 +154,9 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
       employeeName: `${l.first_name} ${l.last_name}`.trim(),
       taxNumber: l.tax_number,
       paymentMethod: String(l.payment_method),
-      bankLastFour: l.bank_last_four,
+      // A masked form needs four real characters: a shorter (or blank) number is incomplete, never printed as is.
+      bankLastFour: Number(l.bank_length ?? 0) >= 4 ? l.bank_last_four : null,
+      bankIncomplete: l.bank_length != null && Number(l.bank_length) < 4,
       bankName: l.bank_name,
       occupation: l.occupation,
       payBasis: String(l.pay_basis),

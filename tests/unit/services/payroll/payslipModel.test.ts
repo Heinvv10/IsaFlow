@@ -40,7 +40,7 @@ const RUN = '00000000-0000-4000-8000-0000000000a1';
 const EMP = '00000000-0000-4000-8000-0000000000e1';
 const LINE_ROW = {
   employee_id: EMP, employee_number: 'E-001', first_name: 'Zanele', last_name: 'Slip',
-  tax_number: '0123456789', payment_method: 'eft', bank_last_four: '3456', bank_name: 'FNB',
+  tax_number: '0123456789', payment_method: 'eft', bank_last_four: '3456', bank_length: 11, bank_name: 'FNB',
   occupation: 'Splicer', pay_basis: 'hourly', hours_per_week: '40.00', hours_per_day: '8.00', hourly_rate: '150.00', daily_rate: null,
   gross_pay: '30000.00', paye: '5000.00', uif_employee: '177.12', uif_employer: '177.12', sdl: '300.00', net_pay: '23022.88',
   component_breakdown: [
@@ -89,6 +89,23 @@ describe('getPayslips: the figures', () => {
 });
 
 const AT = '2026-11-25T10:00:00Z';
+describe('getPayslips: the bank mask', () => {
+  it('a 3-character account number is incomplete: no digits printed', async () => {
+    db.header = header({ status: 'calculated', approved_at: null, approval_grandfathered_at: null });
+    db.line = { ...LINE_ROW, bank_last_four: 'X7Q', bank_length: 3 };
+    const run = await getPayslips(CO, RUN);
+    expect(run.payslips[0]).toMatchObject({ bankLastFour: null, bankIncomplete: true });
+    const text = await pdfText(await buildPayslipPdf(run));
+    expect(text).toContain('EFT: bank details incomplete');
+    expect(text).not.toContain('X7Q');
+  });
+  it('no bank row: missing, not incomplete', async () => {
+    db.header = header({ status: 'calculated', approved_at: null, approval_grandfathered_at: null });
+    db.line = { ...LINE_ROW, bank_last_four: null, bank_length: null, bank_name: null };
+    expect((await getPayslips(CO, RUN)).payslips[0]).toMatchObject({ bankLastFour: null, bankIncomplete: false });
+  });
+});
+
 describe('getPayslips: final or DRAFT, by the approval time only', () => {
   it.each([
     ['a calculated run', { status: 'calculated', approved_at: null, approval_grandfathered_at: null }, false],
