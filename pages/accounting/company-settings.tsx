@@ -11,7 +11,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
-import { Company, DocumentNumber, CompanyDocument } from '@/components/accounting/settings/settingsTypes';
+import { Company, DocumentNumber, CompanyDocument, documentsFromList } from '@/components/accounting/settings/settingsTypes';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
 import { SettingsSidebar } from '@/components/accounting/settings/SettingsSidebar';
 import { parseTabId, settingsTabTitle, type TabId } from '@/components/accounting/settings/settingsNav';
@@ -100,7 +100,7 @@ export default function CompanySettingsPage() {
     if (numRes.status === 'rejected') setDocNumbers([]);
     if (msgRes.status === 'rejected') setMessages({});
     setDispLoadFailed(dispRes.status === 'rejected'); // never write the default display fields over unread real ones
-    if (docsRes.status === 'fulfilled' && docsRes.value.data) setDocuments(docsRes.value.data as CompanyDocument[]);
+    if (docsRes.status === 'fulfilled') setDocuments(documentsFromList(docsRes.value.data));
     if (numRes.status === 'fulfilled' && numRes.value.data) setDocNumbers(numRes.value.data as DocumentNumber[]);
     if (msgRes.status === 'fulfilled' && msgRes.value.data) {
       const map: Record<string, string> = {};

@@ -161,7 +161,13 @@ export interface CompanyDocument {
   documentName: string;
   mimeType: string;
   fileSize: number;
-  createdAt: string;
+  uploadedAt: string;
+}
+
+/** GET /api/accounting/company-documents answers `{ items: [...] }` inside the envelope's `data`. */
+export function documentsFromList(data: unknown): CompanyDocument[] {
+  const items = (data as { items?: unknown } | null | undefined)?.items;
+  return Array.isArray(items) ? (items as CompanyDocument[]) : [];
 }
 
 export const INPUT_CLS = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none';
