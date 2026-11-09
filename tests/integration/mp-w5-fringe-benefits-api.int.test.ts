@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
+import { INTERACTIVE_REPORT_LIMIT } from '../../src/lib/rateLimit';
 import { SignJWT } from 'jose';
 import fringe from '../../pages/api/payroll/employees/[id]/fringe-benefits';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
@@ -270,16 +271,18 @@ describe('the medical gross-up opt-in', () => {
     expect((await send('POST', { ...body, determinedValue: 1000 })).statusCode).toBe(400);
     expect((await send('POST', body)).statusCode).toBe(201);
     expect((await send('POST', { ...body, effectiveFrom: '2037-01-01' })).statusCode).toBe(400);
+    expect((await send('POST', { ...body, businessUseAtLeast80: true, effectiveFrom: '2040-01-01' })).statusCode).toBe(400);
   });
 });
 
 describe('the GET rate limit', () => {
-  it('answers 429 once a user passes the interactive limit, and the write path is unaffected', async () => {
+  it('answers 429 once a user passes the interactive limit (the constant the route uses), and a write still succeeds', async () => {
     const statuses: number[] = [];
-    for (let i = 0; i < 125; i += 1) statuses.push((await send('GET', undefined, approver)).statusCode);
-    expect(statuses.slice(0, 5).every((c) => c === 200)).toBe(true);
-    expect(statuses.at(-1)).toBe(429);
-    expect(statuses.filter((c) => c === 429).length).toBeGreaterThanOrEqual(1);
+    for (let i = 0; i < INTERACTIVE_REPORT_LIMIT.max + 5; i += 1) statuses.push((await send('GET', undefined, approver)).statusCode);
+    expect(statuses.slice(0, INTERACTIVE_REPORT_LIMIT.max).every((c) => c === 200)).toBe(true);
+    expect(statuses.slice(INTERACTIVE_REPORT_LIMIT.max).every((c) => c === 429)).toBe(true);
+    const write = await send('POST', { kind: 'travel_allowance', businessUseAtLeast80: true, effectiveFrom: '2038-01-01' }, approver);
+    expect(write.statusCode).toBe(201);
   });
 });
 

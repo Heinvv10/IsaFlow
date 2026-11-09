@@ -64,6 +64,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const parsed = CreateBody.safeParse(req.body);
         if (!parsed.success) return apiResponse.badRequest(res, parsed.error.issues[0]?.message ?? 'Invalid body');
         const b = parsed.data;
+        if (b.kind === 'medical_gross_up' && b.businessUseAtLeast80) return apiResponse.badRequest(res, 'A medical gross-up has no business-use flag');
         const created = await createFringeBenefit(companyId, employeeId, {
           kind: b.kind, determinedValue: b.determinedValue ?? null, maintenancePlan: b.maintenancePlan ?? false,
           businessUseAtLeast80: b.businessUseAtLeast80, effectiveFrom: b.effectiveFrom, effectiveTo: b.effectiveTo ?? null,

@@ -66,7 +66,7 @@ export interface Irp5EmployeeTotals {
    * grossSalary + these is the remuneration.
    */
   fringeBenefits: NonCashBenefitFiling[];
-  /** Cash allowances the certificate shows under their own code (3701), INSIDE grossSalary (payrollAllowanceFiling). */
+  /** Cash allowances the certificate shows under their own code (3701, whole rand), INSIDE grossSalary (payrollAllowanceFiling). */
   cashAllowances: NonCashBenefitFiling[];
   /** 4582: the part of 3701 + 3802 PAYE was withheld on (BRS V25.3.0 p. 105); null when the employee has neither. */
   paye4582: number | null;
@@ -231,8 +231,8 @@ export async function getIrp5EmployeeTotals(
       runsIncluded: Number(r.runs_included) || 0,
       lumpSums: lumpSums.get(String(r.id)) ?? [],
       fringeBenefits: fringeBenefits.get(String(r.id)) ?? [],
-      cashAllowances: (allowances.get(String(r.id))?.cash3701 ?? 0) > 0 ? [{ sourceCode: '3701', amount: allowances.get(String(r.id))!.cash3701 }] : [],
-      paye4582: allowanceCertificateFields(allowances.get(String(r.id)), '').paye4582 ?? null,
+      cashAllowances: allowanceCertificateFields(allowances.get(String(r.id))).cashAllowances,
+      paye4582: allowanceCertificateFields(allowances.get(String(r.id))).paye4582 ?? null,
     };
   });
 

@@ -67,7 +67,7 @@ export async function listRunAllowanceFiling(
 }
 
 /** The 3701 income field and 4582 for a certificate, and what to say when 4582 had to be clamped into SARS's band. */
-export function allowanceCertificateFields(a: AllowanceFiling | undefined, who: string): {
+export function allowanceCertificateFields(a: AllowanceFiling | undefined, who = ''): {
   cashAllowances: { sourceCode: string; amount: number }[]; paye4582?: number; warnings: string[];
 } {
   if (!a) return { cashAllowances: [], warnings: [] };
