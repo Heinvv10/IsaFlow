@@ -6,13 +6,14 @@
 import { useState } from 'react';
 import { CalendarClock, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
-import { DUE_DATE_SOURCE_LABELS, isDueDateSource } from '@/modules/accounting/services/shared/dueDateSource';
+import { DUE_DATE_SOURCE_LABELS, isDueDateSource, NOTHING_OWING_EPS } from '@/modules/accounting/services/shared/dueDateSource';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
 
 /**
  * Which documents take the edit, and where: the statuses are the server's (ap/billDueDateEdit, ar/invoiceDueDateEdit;
- * a test holds them equal), kept here because those modules cannot be imported into a browser bundle.
+ * a test holds them equal), kept here because those modules cannot be imported into a browser bundle. The servers also
+ * refuse a document with nothing owing (its status can lag its balance), so the editor hides for one too.
  */
 export const DUE_DATE_EDITORS = {
   bill: { endpoint: '/api/accounting/supplier-invoices-due-date', statuses: ['approved', 'partially_paid'] },
@@ -23,20 +24,22 @@ interface Props {
   kind: keyof typeof DUE_DATE_EDITORS;
   invoiceId: string;
   status: string;
+  /** What is still owing (total less paid). At or under NOTHING_OWING_EPS the server refuses the edit. */
+  balance: number;
   invoiceDate: string;
   dueDate?: string;
   dueDateSource?: string;
   onSaved: () => void | Promise<void>;
 }
 
-export function DueDateEditor({ kind, invoiceId, status, invoiceDate, dueDate, dueDateSource, onSaved }: Props) {
+export function DueDateEditor({ kind, invoiceId, status, balance, invoiceDate, dueDate, dueDateSource, onSaved }: Props) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(dueDate ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [refused, setRefused] = useState(false);
   const editor = DUE_DATE_EDITORS[kind];
-  if (!(editor.statuses as readonly string[]).includes(status)) return null;
+  if (!(editor.statuses as readonly string[]).includes(status) || !(Number(balance) > NOTHING_OWING_EPS)) return null;
 
   const source = isDueDateSource(dueDateSource) ? DUE_DATE_SOURCE_LABELS[dueDateSource] : null;
   const tooEarly = value !== '' && value < invoiceDate;

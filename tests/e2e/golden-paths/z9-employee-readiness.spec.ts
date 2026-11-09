@@ -6,6 +6,7 @@
  *    "Ready to pay" and the bank card shows "•••• 1234".
  *  - Create without bank details: the profile says "1 thing before the first pay run: bank details", and its
  *    link takes focus to the bank card.
+ *  - /payroll/employees: the search box is reachable by its label "Search employees" (wave 5 UXP).
  *  - The blank bank section carries no asterisks; one keystroke stars the three fields.
  *  - axe reports 0 critical and 0 serious on both profiles, in both themes; 390 px does not scroll sideways.
  *  - EVIDENCE_DIR=<dir> saves screenshots (light and dark, 1568 and 390).
@@ -114,6 +115,14 @@ test('create without bank details: one thing before the first pay run, and the l
   await expect(add).toBeVisible({ timeout: 30_000 });
   await card.getByRole('link', { name: 'bank details' }).click();
   await expect(add).toBeFocused();
+});
+
+test('the employee list search has a real label and filters', async ({ page }) => {
+  await page.goto('/payroll/employees');
+  const search = page.getByLabel('Search employees');
+  await expect(search).toBeVisible({ timeout: 30_000 });
+  await search.fill('zzz-no-such-employee');
+  await expect(page.getByText('0 employees')).toBeVisible();
 });
 
 for (const theme of THEMES) {

@@ -214,7 +214,7 @@ export default function CustomerInvoiceDetailPage() {
             currencyCode={invoice.currency_code || 'ZAR'}
           />
           <DueDateEditor
-            kind="invoice" invoiceId={invoice.id} status={invoice.status} invoiceDate={invoice.invoice_date}
+            kind="invoice" invoiceId={invoice.id} status={invoice.status} balance={balance} invoiceDate={invoice.invoice_date}
             dueDate={invoice.due_date} dueDateSource={invoice.due_date_source} onSaved={reloadOpen}
           />
           {/* GL Journal link — body anchor for discoverability, matching supplier page */}
