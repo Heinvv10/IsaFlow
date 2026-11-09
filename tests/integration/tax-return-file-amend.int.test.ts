@@ -223,6 +223,28 @@ describeIfDb('file and amend a return, against a real ledger', () => {
     expect((await row(String(e.id))).status).toBe('finalised');
   });
 
+  it('the filed submission carries the version\'s figures, whatever the page saved; an in-flight eFiling draft is not overwritten (409)', async () => {
+    const per = (m: number) => ({ periodStart: `2026-${String(m).padStart(2, '0')}-01`, periodEnd: `2026-${String(m).padStart(2, '0')}-${new Date(Date.UTC(2026, m, 0)).getUTCDate()}` });
+    const fin = async (m: number) => versionOf(await callRoute(finalise, c(), rf.admin.token, 'POST', { form: 'emp201' }, per(m)));
+    // a draft the page saved with other figures
+    const e = await fin(6);
+    await sql`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data)
+      VALUES (${c()}::UUID, 'EMP201', ${per(6).periodStart}::DATE, ${per(6).periodEnd}::DATE, 'draft', ${JSON.stringify({ totalPAYE: 99999, note: 'page' })}::jsonb)`;
+    const r = await fileV(String(e.id), { reference: 'EMP-FIG' }, rf.admin.token, 'emp201');
+    expect(r.status).toBe(200);
+    const fd = (r.body as { data: { submission: { formData: Row } } }).data.submission.formData;
+    expect(fd).toMatchObject({ ...(e.figures as Row), returnVersionId: e.id, versionNo: 1, pageDraft: { totalPAYE: 99999, note: 'page' } });
+    expect(fd.totalPAYE).toBe((e.figures as Row).totalPAYE);
+    // an in-flight ISV submit on the open draft: refused, nothing changes
+    const e2 = await fin(5);
+    const inflight = String(((await sql`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data,
+      efiling_correlation_id) VALUES (${c()}::UUID, 'EMP201', ${per(5).periodStart}::DATE, ${per(5).periodEnd}::DATE, 'draft', '{"k":1}'::jsonb,
+      'corr-1') RETURNING id`) as Row[])[0]!.id);
+    expect((await fileV(String(e2.id), { reference: 'EMP-ISV' }, rf.admin.token, 'emp201')).status).toBe(409);
+    expect((await row(String(e2.id))).status).toBe('finalised');
+    expect(((await sql`SELECT status, form_data FROM sars_submissions WHERE id = ${inflight}::UUID`) as Row[])[0]).toEqual({ status: 'draft', form_data: { k: 1 } });
+  });
+
   it('EMP201: a nil month files with no VAT gate, amends (no lock involved) and v2 files', async () => {
     const r = await callRoute(finalise, c(), rf.admin.token, 'POST', { form: 'emp201' },
       { periodStart: '2026-08-01', periodEnd: '2026-08-31' });

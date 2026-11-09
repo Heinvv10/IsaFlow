@@ -3,11 +3,13 @@
  * holds the submission row, the VAT gate (VAT201 only) and its override record, markSubmitted, the version's move to
  * filed and the audit row, so a refusal leaves no submission, no override row and no version change even though
  * withAuth commits a 4xx. Owner/admin only; a version that has drifted from the ledger or payroll is refused (amend it
- * first). The submission is the company's open draft for the period (its form_data, the page's report, is kept) or a
- * new one holding the version's figures; after it is marked submitted the next filing of the period (an amended
+ * first). The submission is the company's open draft for the period or a new one; its form_data is ALWAYS the version's
+ * figures plus returnVersionId/versionNo (a draft the page saved is kept under `pageDraft`), so the filed submission and the
+ * filed version agree. A draft with an in-flight ISV submit (efiling_correlation_id) is refused. After it is marked submitted the next filing of the period (an amended
  * version) gets a new row.
  */
-import { withSavepoint } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertVatGateClear } from '@/modules/accounting/services/reports/vatGateOverrideService';
 import { markSubmitted, saveDraftSubmission, type SARSSubmission } from '@/modules/accounting/services/reports/sarsComplianceService';
@@ -48,8 +50,12 @@ export async function markReturnFiled(
   return withSavepoint('file_return', async () => {
     const draft = await saveDraftSubmission(
       companyId, v.formType, v.periodStart, v.periodEnd,
-      { ...v.figures, returnVersionId: v.id, versionNo: v.versionNo }, actor.userId, { keepExisting: true },
+      { ...v.figures, returnVersionId: v.id, versionNo: v.versionNo }, actor.userId, { keepExistingAs: 'pageDraft' },
     );
+    const inFlight = (await sql`SELECT efiling_correlation_id FROM sars_submissions WHERE id = ${draft.id}::UUID`) as DbRow[];
+    if (inFlight[0]?.efiling_correlation_id != null) {
+      throw new ReturnRefusal(409, 'The open draft for this period has an eFiling submission in flight. Let it finish or clear it first.');
+    }
     if (v.formType === 'VAT201') {
       await assertVatGateClear(
         companyId, v.periodStart, v.periodEnd, 'sars_submission', draft.id,

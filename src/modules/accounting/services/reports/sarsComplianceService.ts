@@ -62,8 +62,8 @@ export class SubmissionNotOpenError extends Error {
 }
 
 /**
- * Saves the company's open draft for the period: updates it when one exists (keepExisting leaves its form_data
- * alone), inserts it otherwise. One open draft per company, form and period, held by an advisory lock on that key
+ * Saves the company's open draft for the period: updates it when one exists (keepExistingAs stores its previous
+ * form_data under that key of the new one, so nothing the page saved is lost), inserts it otherwise. One open draft per company, form and period, held by an advisory lock on that key
  * and a row lock on the draft, not by an index (migration 971 explains why): concurrent saves queue, the second
  * sees the first's draft. A period already filed is not refused; a correction is a new submission.
  */
@@ -74,7 +74,7 @@ export async function saveDraftSubmission(
   periodEnd: string,
   formData: Record<string, unknown>,
   userId: string,
-  opts: { keepExisting?: boolean } = {},
+  opts: { keepExistingAs?: string } = {},
 ): Promise<SARSSubmission> {
   log.info('Saving draft submission', { formType, periodStart, periodEnd }, 'sarsComplianceService');
 
@@ -87,11 +87,13 @@ export async function saveDraftSubmission(
     LIMIT 1
     FOR UPDATE
   `) as DbRow[];
-  if (open[0] && opts.keepExisting) return mapSubmissionRow(open[0]);
   const rows = (open[0]
     ? await sql`
       UPDATE sars_submissions
-      SET form_data = ${JSON.stringify(formData)}::jsonb, submitted_by = ${userId}, updated_at = NOW()
+      SET form_data = ${JSON.stringify(formData)}::jsonb
+            || CASE WHEN ${opts.keepExistingAs ?? null}::TEXT IS NULL THEN '{}'::jsonb
+                    ELSE jsonb_build_object(${opts.keepExistingAs ?? ''}::TEXT, form_data) END,
+          submitted_by = ${userId}, updated_at = NOW()
       WHERE id = ${String(open[0].id)}::UUID AND company_id = ${companyId}::UUID
       RETURNING *`
     : await sql`
