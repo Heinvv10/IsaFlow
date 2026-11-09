@@ -20,14 +20,16 @@ const COR = { id: 'doc-1', documentType: 'cipc_certificate', documentName: 'COR1
   fileSize: 2048, uploadedAt: '2026-11-09T08:00:00.000Z', notes: null };
 const SHARE = { ...COR, id: 'doc-2', documentType: 'share_certificate', documentName: 'Share cert.pdf' };
 let listed: unknown[] = [COR];
+let afterUpload: unknown[] = [SHARE, COR];
 
 beforeEach(() => {
   listed = [COR];
+  afterUpload = [SHARE, COR];
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
     const u = String(url);
     if (u.startsWith('/api/accounting/companies?')) return Response.json({ success: true, data: { id: 'company-a', name: 'Example Co' } });
     if (u === '/api/accounting/company-documents' && init?.method === 'POST') {
-      listed = [SHARE, COR];
+      listed = afterUpload;
       return Response.json({ success: true, data: { id: 'doc-2' } });
     }
     if (u.startsWith('/api/accounting/company-documents?companyId=company-a')) {
@@ -56,5 +58,26 @@ it('a fresh upload refreshes the list from data.items', async () => {
   fireEvent.change(input, { target: { files: [new File(['x'.repeat(2048)], 'Share cert.pdf', { type: 'application/pdf' })] } });
   await screen.findByText('Share cert.pdf');
   await waitFor(() => expect(docRows()).toHaveLength(2));
+  expect(screen.getByText('COR14.3.pdf')).toBeTruthy();
+});
+
+it('a list in any other shape is reported, not shown as "No documents uploaded yet."', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    const u = String(url);
+    if (u.startsWith('/api/accounting/companies?')) return Response.json({ success: true, data: { id: 'company-a', name: 'Example Co' } });
+    if (u.includes('financial-year-end-change')) return new Response('{}', { status: 503 });
+    return Response.json({ success: true, data: [COR] }); // bare array: not the documents list shape
+  });
+  render(<CompanySettingsPage />);
+  await screen.findByText(/Could not load the statutory documents/);
+});
+
+it('a refresh in any other shape after an upload is reported', async () => {
+  const { container } = render(<CompanySettingsPage />);
+  await screen.findByText('COR14.3.pdf');
+  afterUpload = [{ id: 7, documentName: null }];
+  const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [new File(['x'.repeat(2048)], 'Share cert.pdf', { type: 'application/pdf' })] } });
+  await screen.findByText(/uploaded but the list could not be refreshed/);
   expect(screen.getByText('COR14.3.pdf')).toBeTruthy();
 });

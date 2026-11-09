@@ -50,7 +50,9 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
       const updated = await apiFetch(`/api/accounting/company-documents?companyId=${company.id}`);
       await assertOk(updated, 'The document was uploaded but the list could not be refreshed - reload the page');
       const json = await updated.json();
-      onDocumentsChange(documentsFromList(json.data));
+      const docs = documentsFromList(json.data);
+      if (docs) onDocumentsChange(docs);
+      else onError('The document was uploaded but the list could not be refreshed - reload the page');
     } catch (err) {
       onError(apiErrorMessage(err, 'Could not upload the document - try again'));
     } finally {

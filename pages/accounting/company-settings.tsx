@@ -100,7 +100,11 @@ export default function CompanySettingsPage() {
     if (numRes.status === 'rejected') setDocNumbers([]);
     if (msgRes.status === 'rejected') setMessages({});
     setDispLoadFailed(dispRes.status === 'rejected'); // never write the default display fields over unread real ones
-    if (docsRes.status === 'fulfilled') setDocuments(documentsFromList(docsRes.value.data));
+    if (docsRes.status === 'fulfilled') {
+      const docs = documentsFromList(docsRes.value.data);
+      if (!docs) setError('Could not load the statutory documents - reload the page');
+      setDocuments(docs ?? []);
+    }
     if (numRes.status === 'fulfilled' && numRes.value.data) setDocNumbers(numRes.value.data as DocumentNumber[]);
     if (msgRes.status === 'fulfilled' && msgRes.value.data) {
       const map: Record<string, string> = {};
