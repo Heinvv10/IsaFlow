@@ -6,7 +6,8 @@
  *  - the stand-ins' other members beside the faces' punctuation, on every break;
  *  - the labels #1235's third round found short, in a statement table laid out at production's print width: never a
  *    label line too few, the height never short (the print tests' Chromium breaks some of them where production's does
- *    not, so `packTableLayout.test.ts` holds only the rest);
+ *    not, so `packTableLayout.test.ts` holds only the rest), never wider than the page, and no label past its cell
+ *    (round 8); a table the fit refuses is never printed, and the pack is refused (`packFigureFloor`);
  *  - with REGENERATE_BREAK_PAIRS=1, the table itself is scanned afresh there (`breakPairsScan.scanPairs`, about three
  *    hours) and written to `packBreakPairsData.ts` (`breakPairsTable.ts`).
  * Fallback faces set the characters the pack's faces lack, and another Chromium or another host's fonts can move a
@@ -25,6 +26,7 @@ import { PAIR_CLASS_RANGES } from '@/modules/accounting/services/packs/pages/pac
 import { statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
 import { carriesMarks, printedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import { PRINT_CONTENT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { unreadableBlock } from '@/modules/accounting/services/packs/pages/packFigureFloor';
 import { TABLES_OF } from '../print/measureTables';
 import { atTheFloor } from '../print/support/atTheFloor';
 import { demoWithoutBudget, withWidenedTable } from '../services/packs/fixtures/widenedFigures';
@@ -37,6 +39,7 @@ import { flatStylesheet } from './parityPage';
 import { paritySkip } from './paritySkip';
 import { adversaryCensus, BREAKS_OF, CENSUS, heldLines, LINES_OF, linesHtml, modelBreaks, randomStrings, readBreaks, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_SEVEN_LABELS, ROUND_SIX_LABELS, ROUND_THREE_LABELS } from '../print/fixtures/breakPairsCensus';
 import { allDifferences, standInCensus } from '../print/fixtures/everyBreakCensus';
+import { ROUND_EIGHT_FITTING, ROUND_EIGHT_LABELS } from '../print/fixtures/anywhereFamilies';
 
 const DATA = path.resolve(__dirname, '../../../src/modules/accounting/services/packs/pages/packBreakPairsData.ts');
 const unavailable = paritySkip();
@@ -93,36 +96,51 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
     expect(wrong.slice(0, 20).map((w) => w.replace(/^[0-9a-f.]+/, (h) => JSON.stringify(textOf(h)))), `${wrong.length} of ${items.length} differ`).toEqual([]);
   }, 1_800_000);
 
-  it('the round-3 to round-7 labels in a statement table, in production: never a label line too few, the height never short, never wider than the page', async () => {
+  it('the round-3 to round-8 labels in a statement table, in production: never a label line too few, the height never short, never wider than the page, no label past its cell', async () => {
     // The print tests' Chromium breaks after a word-opening en dash where production's does not: this is where those are held.
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
     let held = 0;
-    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS, ...ROUND_SEVEN_LABELS];
+    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS, ...ROUND_SEVEN_LABELS, ...ROUND_EIGHT_LABELS, ...ROUND_EIGHT_FITTING];
+    const refused: string[] = [];
     for (const [label, labelMarker] of labels) {
       for (const digits of [9, 12]) {
         const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });
         const page = doc.pages[index]!.number;
+        const say = `${JSON.stringify(label)}${labelMarker ? '^1' : ''}, ${digits} digits`;
+        held += 1;
+        const fits = table.figureFit?.fits === true;
+        // A table the fit refuses (a grapheme wider than the room the figures leave its label) never prints: the pack
+        // is refused, never set with the label over the figures. Printed anyway (`atTheFloor`), it runs past the page.
+        if (!fits && unreadableBlock(doc.pages[index]!, doc.numberConvention.scale)?.kind !== 'table') wrong.push(`${say}: the fit refuses it, the pack does not`);
         const body = renderToStaticMarkup(createElement(PackPagesView, { document: atTheFloor(doc) }));
-        const lines = await inImage(`${TABLES_OF}\nfunction answer() { return tablesOf(${96 / 25.4}).filter(function (t) { return t.page === ${page}; }).map(function (t) { return 'T|' + t.heightMm + '|' + t.labelLines.join(',') + '|' + t.columnsPx.reduce(function (a, b) { return a + b; }, 0) + '|' + t.columnsPx[0]; }); }`, body);
-        const [, heightMm, labelLines, widthPx, labelPx] = lines.find((l) => l.startsWith('T|'))?.split('|') ?? [];
+        // How far any label printed to break anywhere runs past its cell's right edge (into the figures), in px.
+        const overrun = `Math.max.apply(null, [-1e9].concat(Array.from(document.querySelectorAll('.pack-label-anywhere')).map(function (s) { var r = document.createRange(); r.selectNodeContents(s); var right = -1e9; Array.from(r.getClientRects()).forEach(function (x) { right = Math.max(right, x.right); }); return right - s.closest('td').getBoundingClientRect().right; })))`;
+        const lines = await inImage(`${TABLES_OF}\nfunction answer() { var over = ${overrun}; return tablesOf(${96 / 25.4}).filter(function (t) { return t.page === ${page}; }).map(function (t) { return 'T|' + t.heightMm + '|' + t.labelLines.join(',') + '|' + t.columnsPx.reduce(function (a, b) { return a + b; }, 0) + '|' + t.columnsPx[0] + '|' + over; }); }`, body);
+        const [, heightMm, labelLines, widthPx, labelPx, overPx] = lines.find((l) => l.startsWith('T|'))?.split('|') ?? [];
         expect(labelLines, `${JSON.stringify(label)}: the image's table came back incomplete`).toBeDefined();
         const real = labelLines!.split(',').map(Number);
         const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
+        if (!fits) {
+          // The fit counts widths never under Chromium's, so a refusal can be a pixel or two early, never late.
+          if (Number(widthPx) <= PRINT_CONTENT_PX.portrait - 2) wrong.push(`${say}: refused, yet ${Number(widthPx).toFixed(3)}px wide in production`);
+          refused.push(`${say} (${Number(widthPx).toFixed(1)}px)`);
+          continue;
+        }
         expect(real.length === model.labelLines.length && real.every((l) => l >= 1) && Number(heightMm) > 10, `${JSON.stringify(label)}: read ${lines.find((l) => l.startsWith('T|'))}`).toBe(true);
-        const say = `${JSON.stringify(label)}${labelMarker ? '^1' : ''}, ${digits} digits`;
         if (model.labelLines.some((l, r) => l < real[r]!)) wrong.push(`${say}: lines ${model.labelLines} vs production ${real}`);
         const height = statementTableBodyMm(table, doc.numberConvention.scale, 'portrait');
         if (height < Number(heightMm)) wrong.push(`${say}: height short, model ${height.toFixed(2)}mm vs production ${Number(heightMm).toFixed(2)}`);
         // A table the model passes (`tableFit`) must fit the page in production: a label column too narrow widens it.
         // The label column never narrower than production's (a mark the faces lack is drawn: round 6).
-        // A label holding a mark adds nothing to its column, in the model and in the print (`packAnywhereLabel.ts`).
+        // A label holding a mark holds its column at its floor and no more, in the model and in the print (`packAnywhereLabel.ts`).
         if (carriesMarks(printedText(label)) && Math.abs(model.columnsPx[0]! - Number(labelPx)) > 0.1) wrong.push(`${say}: label column ${model.columnsPx[0]!.toFixed(3)}px, production ${Number(labelPx).toFixed(3)}, a marked label moved it`);
         if (model.columnsPx[0]! < Number(labelPx) - 0.1) wrong.push(`${say}: label column ${model.columnsPx[0]!.toFixed(3)}px, production ${Number(labelPx).toFixed(3)}`);
-        if (table.figureFit?.fits === true && Number(widthPx) > PRINT_CONTENT_PX.portrait + 0.02) wrong.push(`${say}: ${Number(widthPx).toFixed(3)}px wide in production, past the page's ${PRINT_CONTENT_PX.portrait}`);
-        held += 1;
+        if (Number(widthPx) > PRINT_CONTENT_PX.portrait + 0.02) wrong.push(`${say}: ${Number(widthPx).toFixed(3)}px wide in production, past the page's ${PRINT_CONTENT_PX.portrait}`);
+        if (Number(overPx) > 0) wrong.push(`${say}: the label runs ${Number(overPx).toFixed(1)}px past its cell, over the figures`);
       }
     }
+    process.stdout.write(`ROUND LABELS refused ${refused.length}: ${refused.join('; ')}\n`);
     expect(wrong.slice(0, 10)).toEqual([]);
     expect(held, 'labels held').toBe(labels.length * 2);
   }, 1_800_000);

@@ -9,6 +9,7 @@
  * refused where the document is adopted (`packDocumentWire`) and again where it is rendered (`unstampedFigure`), and
  * the page says why (`markPrintError('pages')`) rather than printing a row nobody checked.
  */
+import { carriesMarks } from './packPrintedText';
 import type { PackPage, PackPageBlock, PackPagesDocument, PackTable } from './packPageModel';
 
 export interface FigureFit {
@@ -16,6 +17,13 @@ export interface FigureFit {
   px: number | null;
   /** False where it fits at no size down to the floor (the composer refuses such a pack: `packFigureFloor`). */
   fits: boolean;
+  /**
+   * A statement table's only, and only where a row label carries a mark: the `min-width` in whole pixels each such
+   * label is printed at, the widest any of its graphemes can be (`packAnywhereLabel.anywhereFloorPx`), which the fit
+   * counted in the label column's min-content. The print cannot break inside a grapheme, so without it a wide one
+   * runs over the figures.
+   */
+  labelFloorPx?: number;
 }
 
 /** The ordinary and smallest figure sizes, in points: 22pt / 12pt KPI figures, 9pt / 7.5pt table figures. */
@@ -45,8 +53,9 @@ const statedCeiling = (kind: FitKind): number => (kind === 'table' ? FIT_PX.tabl
 /** Is `value` a fit the server could have stamped on a printable `kind` row: it fits, at null or a whole size in range? */
 export function isFigureFit(value: unknown, kind: FitKind): value is FigureFit {
   if (typeof value !== 'object' || value === null) return false;
-  const { px, fits } = value as Record<string, unknown>;
+  const { px, fits, labelFloorPx } = value as Record<string, unknown>;
   if (fits !== true) return false;
+  if (labelFloorPx !== undefined && (kind !== 'table' || typeof labelFloorPx !== 'number' || !Number.isInteger(labelFloorPx) || labelFloorPx < 1)) return false;
   return px === null || (typeof px === 'number' && Number.isInteger(px) && px >= FIT_PX[kind].floor && px <= statedCeiling(kind));
 }
 
@@ -57,6 +66,15 @@ export function isFigureFit(value: unknown, kind: FitKind): value is FigureFit {
 export function fitAttributes(fit: FigureFit, kind: FitKind): { className?: string; style?: Record<string, string> } {
   if (!isFigureFit(fit, kind)) throw new Error(`fitAttributes: refusing to print a ${kind} row at a figure size the server did not decide (${JSON.stringify(fit ?? null)})`);
   return fit.px === null ? {} : { className: 'is-fitted', style: { '--pack-fit-size': `${fit.px}px` } };
+}
+
+/**
+ * The `min-width`, in pixels, a statement table's label printed to break anywhere is set at: the floor the server
+ * counted in the fit (`FigureFit.labelFloorPx`). Throws where there is none: such a label would run over the figures.
+ */
+export function anywhereFloor(fit: FigureFit): number {
+  if (fit.labelFloorPx === undefined) throw new Error('anywhereFloor: refusing to print a label that carries a mark without the floor the server decided for it');
+  return fit.labelFloorPx;
 }
 
 /** A statement table as a page prints it: with its fit. */
@@ -74,6 +92,9 @@ export type StampedPackPagesDocument = Omit<PackPagesDocument, 'pages'> & { page
 export function unstampedBlock(block: PackPageBlock): string | null {
   if (block.kind === 'table' && !isFigureFit(block.table.figureFit, 'table')) {
     return `a statement table without a printable figure size (${JSON.stringify(block.table.figureFit ?? null)})`;
+  }
+  if (block.kind === 'table' && block.table.figureFit!.labelFloorPx === undefined && block.table.rows.some((row) => carriesMarks(row.label))) {
+    return 'a statement table with a label printed to break anywhere and no floor for it (labelFloorPx)';
   }
   if (block.kind === 'kpiTiles' && !isFigureFit(block.fit, 'kpi')) {
     return `a KPI row without a printable figure size (${JSON.stringify(block.fit ?? null)})`;

@@ -19,6 +19,7 @@
  * wraps to its longest word) plus padding and gaps is no more than the measure. It is checked against Chromium
  * at every scale in `tests/unit/print/packNothingPassesTheEdge.test.ts`.
  */
+import { anywhereFloorPx } from './packAnywhereLabel';
 import { carriesMarks } from './packPrintedText';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import { collectReasons, noteMark } from '@/components/accounting/packs/primitives/notMeaningfulNotes';
@@ -166,14 +167,19 @@ export function labelWidestPiecePx(label: string, footnote: number | null | unde
 }
 
 /** The narrowest a row label can be set: its widest piece and marker (it wraps), its indent, its right padding. */
-function labelMinPx(table: PackTable): number {
-  // A label printed to break anywhere adds its indent and padding only (`packAnywhereLabel.ts`).
+function labelMinPx(table: PackTable, floorPx: number | null): number {
+  // A label printed to break anywhere holds its column open by its floor (`packAnywhereLabel.anywhereFloorPx`).
   return Math.max(0, ...table.rows.map((row) => row.level * INDENT_PX_PER_LEVEL
-    + (carriesMarks(row.label) ? 0 : labelWidestPiecePx(row.label, row.footnote, ROW_WEIGHT[row.role])) + CELL_SIDE_PX));
+    + (carriesMarks(row.label) ? floorPx ?? 0 : labelWidestPiecePx(row.label, row.footnote, ROW_WEIGHT[row.role])) + CELL_SIDE_PX));
+}
+
+/** The floor of `table`'s labels printed to break anywhere (null where none is), as the print sets it on each. */
+export function tableLabelFloorPx(table: PackTable): number | null {
+  return anywhereFloorPx(table.rows.map((row) => ({ label: row.label, weight: ROW_WEIGHT[row.role] })));
 }
 
 /** The total of the columns' min-content widths for a table whose figures are set at `fontPx`. */
-function tableMinPx(table: PackTable, scale: MoneyScale, fontPx: number): number {
+function tableMinPx(table: PackTable, scale: MoneyScale, fontPx: number, floorPx: number | null): number {
   const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
   const texts = tableColumnCells(table, scale);
   const dataPx = columns.reduce((sum, col, i) => {
@@ -181,15 +187,18 @@ function tableMinPx(table: PackTable, scale: MoneyScale, fontPx: number): number
     const heading = HEADING_WORD_PX[col] + headingMarkPx(table.columnNotes?.find((n) => n.column === col)?.footnote);
     return sum + Math.max(figures, heading) + 2 * CELL_SIDE_PX;
   }, 0);
-  return labelMinPx(table) + dataPx;
+  return labelMinPx(table, floorPx) + dataPx;
 }
 
 export function tableFit(table: PackTable, scale: MoneyScale, orientation: PageOrientation = 'portrait'): FigureFit {
   const { ordinary: ceiling, floor } = FIT_PX.table;
+  // The floor a marked label holds its column open by travels with the fit: the print sets the one the gate counted.
+  const labelFloorPx = tableLabelFloorPx(table);
+  const stamped = (fit: FigureFit): FigureFit => (labelFloorPx === null ? fit : { ...fit, labelFloorPx });
   for (let px = ceiling; px >= floor; px -= 1) {
-    if (tableMinPx(table, scale, px) <= measurePx(orientation)) return { px: px === ceiling ? null : px, fits: true };
+    if (tableMinPx(table, scale, px, labelFloorPx) <= measurePx(orientation)) return stamped({ px: px === ceiling ? null : px, fits: true });
   }
-  return { px: floor, fits: false };
+  return stamped({ px: floor, fits: false });
 }
 
 export type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];

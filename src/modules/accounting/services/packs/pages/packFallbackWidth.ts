@@ -10,7 +10,11 @@
  *  - a cluster costs the sum of its code points (a family, a skin-toned hand, a flag: at least as wide as the one
  *    glyph Chromium may draw for it), and an emoji presentation (a VS16 sequence, a keycap) at least the widest emoji
  *    presentation: "ℹ" with VS16 (U+2139 U+FE0F) is an 18px emoji, not the 4px letter its first code point is.
- * Whole pixels rounded up: an upper bound, never short. At a size other than the one measured, scaled and rounded up.
+ * Whole pixels rounded up, and at a size other than the one measured, scaled and rounded up: an upper bound for a
+ * cluster without a mark. NOT for one that carries a mark: a mark, a joiner and a selector are priced at nothing here,
+ * and Chromium may set such a cluster in another face, base and all, and wider ("\u00AE" with U+036B is 9.98px against
+ * 7). No priced path gives one this table: a row label that carries a mark is priced per code point at the widest
+ * fallback glyph (`packAnywhereLabel.ts`), and a KPI tile refuses one (`packKpiLayout.inPackFaces`).
  */
 import { EXACT_RANGES, FALLBACK, type FallbackStyle } from './packFallbackWidthData';
 

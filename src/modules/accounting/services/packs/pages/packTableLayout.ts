@@ -18,7 +18,7 @@
  * Words are the shaped widths of `packFigureWidth.ts`; a heading's too, with its tracking (`HEADING_WORDS_PX`). The
  * table is as wide as production prints a page (`PRINT_CONTENT_PX`).
  */
-import { anywhereLineCount } from './packAnywhereLabel';
+import { anywhereFloorPx, anywhereLineCount } from './packAnywhereLabel';
 import { carriesMarks } from './packPrintedText';
 import { createHash } from 'node:crypto';
 import type { MoneyScale } from '@/lib/format/money';
@@ -139,13 +139,15 @@ function shareOut(mins: readonly number[], maxs: readonly number[], sheet: numbe
 
 function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: number, fitPx: number): TableLayout {
   const { columns, cells } = inputs;
+  const floorPx = anywhereFloorPx(inputs.rows.map((row) => ({ label: row.label, weight: ROW_WEIGHT[row.role] }))) ?? 0;
   const labelBox = inputs.rows.map((row) => {
     const weight = ROW_WEIGHT[row.role];
     const parts = markedPieces(row.label, row.footnote !== null && row.footnote !== undefined);
     const indent = row.level * INDENT_PX_PER_LEVEL;
     const marker = labelMarkPx(row.footnote, weight, AS_CHROMIUM_SETS);
-    // A label printed to break anywhere adds nothing to the column but its indent and padding (`packAnywhereLabel.ts`).
-    if (carriesMarks(row.label)) return { row, weight, indent, min: indent + CELL_SIDE_PX, max: indent + CELL_SIDE_PX };
+    // A label printed to break anywhere holds the column open by its floor, its `min-width`, and no more: its content
+    // adds nothing (`packAnywhereLabel.ts`).
+    if (carriesMarks(row.label)) return { row, weight, indent, min: indent + floorPx + CELL_SIDE_PX, max: indent + floorPx + CELL_SIDE_PX };
     const min = indent + labelWidestPiecePx(row.label, row.footnote, weight, AS_CHROMIUM_SETS) + CELL_SIDE_PX;
     // Its whole line: collapsible spaces collapsed, and trimmed but for one before a mark that follows one (a no-break
     // space is not collapsible: it stays, as it does in Chromium). A cell's max-content is never below its min-content:
