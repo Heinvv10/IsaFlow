@@ -123,7 +123,7 @@ describe('a concurrent owner change during a manager PATCH', () => {
 });
 
 describe('a concurrent rate change during an owner PATCH of the same rate', () => {
-  it("records the change from the rate that was actually stored (150), not from the one the route read (100)", async () => {
+  it("records the change from the rate that was actually stored (150), not from the one read before the lock (100)", async () => {
     await pool.query("UPDATE payroll_employees SET pay_basis='hourly', hourly_rate=100 WHERE id = $1", [mine]);
     hooks.concurrentWriteInsideService = async () => {
       await pool.query('UPDATE payroll_employees SET hourly_rate=150 WHERE id = $1', [mine]);
