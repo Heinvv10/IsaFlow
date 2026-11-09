@@ -23,8 +23,8 @@ export function rateOf(employee: Pick<PayrollEmployee, 'payBasis' | 'hourlyRate'
 }
 
 /** quantity x rate in cents: both taken to hundredths first, so the product is exact (no 0.1 x 3 float noise). */
-export const hoursAmountCents = (quantity: number, rate: number): number =>
-  Math.round((Math.round(quantity * 100) * Math.round(rate * 100)) / 100);
+export const hoursAmountCents = (quantity: number, unitPrice: number): number =>
+  Math.round((Math.round(quantity * 100) * Math.round(unitPrice * 100)) / 100);
 
 const isBasic = (c: EmployeeComponent) => c.component.componentType === 'earning' && normaliseSarsCode(c.component.sarsSourceCode) === '3601';
 
