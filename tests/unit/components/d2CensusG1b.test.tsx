@@ -53,6 +53,7 @@ interface Site {
 }
 // valid empty answers for the company-settings page's other mount requests
 const settingsEmpty = (u: string) => (u.includes('/companies?id=') ? ok({ id: 'co1', name: 'D2 Co' })
+  : u.includes('company-documents?') ? ok({ items: [] })
   : u.includes('accounting-settings') ? ok({ key: 'document_display_fields', value: null }) : ok([]));
 const tx = { id: 't1', transactionDate: '2026-01-01', amount: 100, description: 'D2 receipt from Acme', reference: 'R1' };
 const cust = { id: 'c1', name: 'D2 Customer Ltd', is_active: true, created_at: '2026-01-01' };

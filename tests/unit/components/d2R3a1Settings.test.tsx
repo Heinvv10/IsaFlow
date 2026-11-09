@@ -169,7 +169,8 @@ describe('two-factor panel', () => {
 });
 
 describe('company document upload', () => {
-  function upload(post: () => Response, docs: () => Response = () => ok([{ id: 'd1' }])) {
+  const DOC = { id: 'd1', documentName: 'cert.pdf' };
+  function upload(post: () => Response, docs: () => Response = () => ok({ items: [DOC] })) {
     route((_u, method) => (method === 'POST' ? post() : docs()));
     const props = { company: { id: 'co-1', name: 'D2 Co' } as never, onChange: vi.fn(), onCompanyChange: vi.fn(),
       documents: [], onDocumentsChange: vi.fn(), onError: vi.fn() };
@@ -189,7 +190,7 @@ describe('company document upload', () => {
   });
   it('a good upload refreshes the document list', async () => {
     const p = upload(() => ok({}));
-    await waitFor(() => expect(p.onDocumentsChange).toHaveBeenCalledWith([{ id: 'd1' }]));
+    await waitFor(() => expect(p.onDocumentsChange).toHaveBeenCalledWith([DOC]));
     expect(p.onError).not.toHaveBeenCalledWith(expect.stringMatching(/./));
   });
 });
