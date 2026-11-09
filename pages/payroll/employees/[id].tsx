@@ -99,7 +99,7 @@ export default function EmployeeDetailPage() {
           ) : (
             <>
             {employeeId && (
-              <EmployeeReadinessCard employeeId={employeeId} refreshKey={bankVersion} assignments={assignments}
+              <EmployeeReadinessCard employeeId={employeeId} refreshKey={bankVersion} assignments={assignments} mayWrite={mayWrite}
                 employee={{ taxNumber: d.savedTaxNumber, paymentMethod: employee.paymentMethod }} />
             )}
 

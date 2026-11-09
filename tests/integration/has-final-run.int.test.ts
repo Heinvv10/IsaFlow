@@ -23,10 +23,10 @@ async function plainEmployee(company: string, number: string): Promise<string> {
 }
 
 /** A run header with one line for the employee, set to `status` (and grandfathered or planned as asked). */
-async function runFor(company: string, employee: string, month: number, status: string, extra = ''): Promise<void> {
+async function runFor(company: string, employee: string, month: number, status: string, extra = '', year = 2026): Promise<void> {
   const run = (await r.pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status) VALUES ($1, $2, 2026, 'calculated') RETURNING id::text AS id`,
-    [company, month])).rows[0]!.id;
+    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status) VALUES ($1, $2, $3, 'calculated') RETURNING id::text AS id`,
+    [company, month, year])).rows[0]!.id;
   await r.pool.query(`INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, net_pay) VALUES ($1, $2, 10000, 9000)`, [run, employee]);
   await r.pool.query(`UPDATE payroll_run_headers SET status = $2 ${extra} WHERE id = $1`, [run, status]);
 }
@@ -54,6 +54,10 @@ beforeAll(async () => {
   await runFor(r.company, ids.unreviewed, 3, 'approved', `, approved_plan_hash = 'never-reviewed'`);
   ids.grandfathered = await plainEmployee(r.company, 'HFR-GF');
   await runFor(r.company, ids.grandfathered, 4, 'approved', ', approval_grandfathered_at = clock_timestamp()');
+  // 25 newer drafts and one older final run: a capped history would miss the final one.
+  ids.many = await plainEmployee(r.company, 'HFR-MANY');
+  await runFor(r.company, ids.many, 1, 'approved', ', approved_at = clock_timestamp()', 2020);
+  for (let i = 0; i < 25; i++) await runFor(r.company, ids.many, (i % 12) + 1, 'calculated', '', i < 12 ? 2027 : i < 24 ? 2028 : 2029);
   ids.none = await plainEmployee(r.company, 'HFR-NONE');
   otherCompany = crypto.randomUUID();
   await r.pool.query('INSERT INTO companies(id, name) VALUES ($1, $2)', [otherCompany, 'HFR other company']);
@@ -69,6 +73,8 @@ describe('GET has-final-run', () => {
   it('an approved row the R-035 guard never cleared, not grandfathered, is false', async () => { expect(await answer(ids.unreviewed!)).toBe(false); });
   it('an employee on an approved and cleared run is true', async () => { expect(await answer(cleared)).toBe(true); });
   it('an employee on a run approved under the grandfather rule is true', async () => { expect(await answer(ids.grandfathered!)).toBe(true); });
+
+  it('25 newer draft runs and one older final run is true (no history cap)', async () => { expect(await answer(ids.many!)).toBe(true); });
 
   it('another company\'s employee is 404 through the route', async () => {
     expect((await ask(otherEmp)).state.statusCode).toBe(404);

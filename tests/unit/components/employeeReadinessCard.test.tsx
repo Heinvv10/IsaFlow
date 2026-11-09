@@ -77,6 +77,25 @@ describe('EmployeeReadinessCard', () => {
     expect(screen.getByText('Ready to pay')).toBeTruthy();
   });
 
+  it('makes no read and draws nothing for a role that may not write', async () => {
+    serveBank(() => ok(null));
+    const { container } = render(<EmployeeReadinessCard {...props} mayWrite={false} />);
+    await new Promise(r => setTimeout(r, 20));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(container.innerHTML).toBe('');
+  });
+
+  it('reads the final-run answer again when the refresh key changes', async () => {
+    finalRun = { hasFinalRun: false };
+    serveBank(() => ok(null));
+    const { rerender } = render(<EmployeeReadinessCard {...props} refreshKey={0} />);
+    expect(await screen.findByText('1 thing before the first pay run: bank details')).toBeTruthy();
+    finalRun = { hasFinalRun: true };
+    rerender(<EmployeeReadinessCard {...props} refreshKey={1} />);
+    expect(await screen.findByText('1 thing before the next pay run: bank details')).toBeTruthy();
+    expect(urls().filter(u => u.endsWith('/has-final-run')).length).toBe(2);
+  });
+
   it('says "next" once the employee has a line on a final run, "first" when they have none', async () => {
     finalRun = { hasFinalRun: true };
     serveBank(() => ok(null));

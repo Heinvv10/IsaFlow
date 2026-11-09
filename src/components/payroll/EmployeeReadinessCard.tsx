@@ -13,6 +13,8 @@ interface Props {
   assignments: ReadinessAssignment[];
   /** Change it after the bank details change to read them again. */
   refreshKey?: number;
+  /** The reads are refused to a role that may not see pay and bank details: none is made, and nothing is drawn. */
+  mayWrite?: boolean;
 }
 
 function goTo(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
@@ -27,7 +29,7 @@ function goTo(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
   target.focus();
 }
 
-export function EmployeeReadinessCard({ employeeId, employee, assignments, refreshKey = 0 }: Props) {
+export function EmployeeReadinessCard({ employeeId, employee, assignments, refreshKey = 0, mayWrite = true }: Props) {
   // Each read lands on its own, so the card shows what it knows (the tax number) at once and fills in the rest.
   const [bank, setBank] = useState<BankRead>('pending');
   const [runMonth, setRunMonth] = useState<string | null>(null);
@@ -36,18 +38,22 @@ export function EmployeeReadinessCard({ employeeId, employee, assignments, refre
   const bankFor = useRef(employeeId);
   useEffect(() => {
     let stale = false;
-    if (bankFor.current !== employeeId) { bankFor.current = employeeId; setBank('pending'); }
+    if (!mayWrite) return undefined;
+    if (bankFor.current !== employeeId) { bankFor.current = employeeId; setBank('pending'); setHasFinalRun('pending'); }
     void loadBankState(employeeId).then(b => { if (!stale) setBank(b); });
-    return () => { stale = true; };
-  }, [employeeId, refreshKey]);
-  useEffect(() => {
-    let stale = false;
-    setRunMonth(null);
-    setHasFinalRun('pending');
-    void loadRunMonth().then(m => { if (!stale) setRunMonth(m); });
+    // Re-read with the bank (a first run may have just become a final one), keeping the last answer meanwhile.
     void loadHasFinalRun(employeeId).then(f => { if (!stale) setHasFinalRun(f); });
     return () => { stale = true; };
-  }, [employeeId]);
+  }, [employeeId, refreshKey, mayWrite]);
+  useEffect(() => {
+    let stale = false;
+    if (!mayWrite) return undefined;
+    setRunMonth(null);
+    void loadRunMonth().then(m => { if (!stale) setRunMonth(m); });
+    return () => { stale = true; };
+  }, [employeeId, mayWrite]);
+
+  if (!mayWrite) return null;
 
   const result = employeeReadiness({ employee, components: assignments, bank, runMonth });
   const checking = !result.ready && result.missing.length === 0;

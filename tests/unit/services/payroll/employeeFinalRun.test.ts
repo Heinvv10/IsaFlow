@@ -1,43 +1,43 @@
-/** Wave 5 UXP: "has a line on a final run", short-circuiting, company-scoped, judged by the R-035 guard only. */
+/** Wave 5 UXP: "has a line on a final run" is one company-scoped EXISTS over the one finality predicate. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const st = vi.hoisted(() => ({ employee: true, runs: [] as string[], final: new Set<string>(), judged: [] as string[] }));
+const st = vi.hoisted(() => ({ employee: true, hasFinal: false, queries: [] as string[], values: [] as unknown[][] }));
 
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(async (strings: TemplateStringsArray) => {
+  sql: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const q = strings.join('?');
+    st.queries.push(q);
+    st.values.push(values);
     if (q.includes('FROM payroll_employees')) return st.employee ? [{ '?column?': 1 }] : [];
-    if (q.includes('FROM payroll_run_lines')) return st.runs.map(run_id => ({ run_id }));
+    if (q.includes('EXISTS')) return [{ has_final: st.hasFinal }];
     throw new Error(`unexpected query ${q.slice(0, 60)}`);
   }),
-}));
-vi.mock('@/modules/accounting/services/payroll/payslipFinal', () => ({
-  isPayRunFinal: vi.fn(async (_c: string, runId: string) => { st.judged.push(runId); return st.final.has(runId); }),
 }));
 
 import { employeeHasFinalRun } from '@/modules/accounting/services/payroll/employeeFinalRun';
 
 const C = '00000000-0000-4000-8000-000000000001';
 const E = '11111111-1111-4111-8111-111111111111';
-beforeEach(() => { st.employee = true; st.runs = []; st.final = new Set(); st.judged = []; });
+beforeEach(() => { st.employee = true; st.hasFinal = false; st.queries = []; st.values = []; });
 
 describe('employeeHasFinalRun', () => {
-  it('is null for an employee the company does not have', async () => {
+  it('is null for an employee the company does not have, and reads no runs', async () => {
     st.employee = false;
     expect(await employeeHasFinalRun(C, E)).toBeNull();
+    expect(st.queries.some(q => q.includes('EXISTS'))).toBe(false);
   });
-  it('is false with no runs', async () => {
-    expect(await employeeHasFinalRun(C, E)).toBe(false);
-  });
-  it('is false when every run is a draft (an approved row the guard has not cleared is not final)', async () => {
-    st.runs = ['r2', 'r1'];
-    expect(await employeeHasFinalRun(C, E)).toBe(false);
-    expect(st.judged).toEqual(['r2', 'r1']);
-  });
-  it('stops at the first final run, newest first', async () => {
-    st.runs = ['r3', 'r2', 'r1'];
-    st.final = new Set(['r3', 'r1']);
+  it('is the EXISTS answer, true and false', async () => {
+    st.hasFinal = true;
     expect(await employeeHasFinalRun(C, E)).toBe(true);
-    expect(st.judged).toEqual(['r3']);
+    st.hasFinal = false;
+    expect(await employeeHasFinalRun(C, E)).toBe(false);
+  });
+  it('asks for the one finality predicate, scoped to the company, with no row cap', async () => {
+    await employeeHasFinalRun(C, E);
+    const q = st.queries.find(x => x.includes('EXISTS'))!;
+    expect(q).toContain("prh.status IN ('approved', 'paid')");
+    expect(q).toContain('COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL');
+    expect(q).toContain('prh.company_id =');
+    expect(q).not.toContain('LIMIT');
   });
 });
