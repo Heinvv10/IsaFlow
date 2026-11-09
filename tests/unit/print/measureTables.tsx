@@ -32,6 +32,39 @@ export interface PrintedTable {
   heightMm: number;
 }
 
+/**
+ * A page script: `tablesOf(pxPerMm)`, each statement table of the page as a `PrintedTable`. Run in the print tests'
+ * Chromium (`measureTables`) and in production's image (`printParity/packBreakPairsImage.test.ts`).
+ */
+export const TABLES_OF = `function tablesOf(pxMm) {
+  const linesOf = (cell) => {
+    const text = cell === undefined ? null : Array.from(cell.childNodes).find((n) => n.nodeType === 3);
+    if (text === null || text === undefined) return 1;
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    const rects = Array.from(range.getClientRects());
+    // A footnote mark Chromium broke before sits on a line of its own: its superscript below the words' last line.
+    const sup = cell.querySelector('sup');
+    const alone = sup !== null && rects.length > 0 && sup.getBoundingClientRect().bottom > rects[rects.length - 1].bottom + 4;
+    return new Set(rects.map((r) => Math.round(r.top))).size + (alone ? 1 : 0);
+  };
+  return Array.from(document.querySelectorAll('table.pack-table:not(.pack-matters):not(.pack-scorecard-group):not(.pack-definition-bridge)')).map((table) => {
+    const head = Array.from(table.querySelectorAll('thead tr:first-child th'));
+    const rows = Array.from(table.querySelectorAll('tbody tr'));
+    const owner = table.closest('.pack-page');
+    return {
+      page: Number((owner?.id ?? '').replace('pack-page-', '')),
+      columnsPx: head.map((c) => c.getBoundingClientRect().width),
+      labelLines: rows.map((r) => linesOf(r.children[0])),
+      headingLines: Math.max(1, ...head.map((c) => linesOf(c))),
+      captionMm: (table.querySelector('caption')?.getBoundingClientRect().height ?? 0) / pxMm,
+      headMm: (table.querySelector('thead tr')?.getBoundingClientRect().height ?? 0) / pxMm,
+      rowsMm: rows.map((r) => ({ role: r.className || 'line', mm: r.getBoundingClientRect().height / pxMm })),
+      heightMm: table.getBoundingClientRect().height / pxMm,
+    };
+  });
+}`;
+
 /** `orientation`: the width every page is laid out at (a landscape page's tables are measured at the landscape width). */
 export async function measureTables(document: PackPagesDocument, browser: Browser, orientation: PageOrientation = 'portrait'): Promise<PrintedTable[]> {
   const body = renderToStaticMarkup(<PackPagesView document={document} />);
@@ -56,34 +89,7 @@ export async function measureTables(document: PackPagesDocument, browser: Browse
     // Production prints a page's content PRINT_CONTENT_PX wide (658px portrait, 987px landscape, measured in its
     // Gotenberg image; not 174mm = 657.6). A viewport is whole pixels, so the root is set to it inside one a pixel wider.
     await page.evaluate((w) => { document.documentElement.style.width = `${w}px`; }, PRINT_CONTENT_PX[orientation]);
-    return await page.evaluate((pxMm) => {
-      const linesOf = (cell: Element | undefined): number => {
-        const text = cell === undefined ? null : Array.from(cell.childNodes).find((n) => n.nodeType === 3);
-        if (text === null || text === undefined) return 1;
-        const range = document.createRange();
-        range.selectNodeContents(text);
-        const rects = Array.from(range.getClientRects());
-        // A footnote mark Chromium broke before sits on a line of its own: its superscript below the words' last line.
-        const sup = cell!.querySelector('sup');
-        const alone = sup !== null && rects.length > 0 && sup.getBoundingClientRect().bottom > rects[rects.length - 1]!.bottom + 4;
-        return new Set(rects.map((r) => Math.round(r.top))).size + (alone ? 1 : 0);
-      };
-      return Array.from(document.querySelectorAll('table.pack-table:not(.pack-matters):not(.pack-scorecard-group):not(.pack-definition-bridge)')).map((table) => {
-        const head = Array.from(table.querySelectorAll('thead tr:first-child th'));
-        const rows = Array.from(table.querySelectorAll('tbody tr'));
-        const owner = table.closest('.pack-page');
-        return {
-          page: Number((owner?.id ?? '').replace('pack-page-', '')),
-          columnsPx: head.map((c) => c.getBoundingClientRect().width),
-          labelLines: rows.map((r) => linesOf(r.children[0])),
-          headingLines: Math.max(1, ...head.map((c) => linesOf(c))),
-          captionMm: (table.querySelector('caption')?.getBoundingClientRect().height ?? 0) / pxMm,
-          headMm: (table.querySelector('thead tr')?.getBoundingClientRect().height ?? 0) / pxMm,
-          rowsMm: rows.map((r) => ({ role: r.className || 'line', mm: r.getBoundingClientRect().height / pxMm })),
-          heightMm: table.getBoundingClientRect().height / pxMm,
-        };
-      });
-    }, PX_PER_MM);
+    return await page.evaluate(`(function () { ${TABLES_OF}; return tablesOf(${PX_PER_MM}); })()`) as PrintedTable[];
   } finally {
     await page.close();
   }

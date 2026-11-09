@@ -8,7 +8,9 @@ import { linesForText, minPx, WRAP_GUARD_PX } from '@/modules/accounting/service
 import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
 import { textExactPx, textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
 import { HEADING_PX, headingLineExactPx, headingMarkPx } from '@/modules/accounting/services/packs/pages/packFigureFit';
-import { headingLineCount } from '@/modules/accounting/services/packs/pages/packTableLayout';
+import { headingLineCount, labelLineCount } from '@/modules/accounting/services/packs/pages/packTableLayout';
+import { kpiTileLines } from '@/modules/accounting/services/packs/pages/packKpiLayout';
+import type { KpiTile } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { AS_CHROMIUM_SETS, CHROMIUM_MOST, fitUnitsPx } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
 
 const width = (text: string): number => textPx(text, 12, 400);
@@ -79,5 +81,30 @@ describe('a line fits as Chromium\'s line breaker fits it: its exact sum and noi
     const box = 5;
     const width = fitUnitsPx(exactPx('Ab cd', false), 12) + box;
     expect(linesForText(pieces('Ab cd\u00AD'), exact, 0, width, 0, box)).toBe(1);
+  });
+
+  // Each fill measures its margin at its own size (`fitMarginUnits`): a long line set at 12px (a table row label, a KPI
+  // label) or 10.67px (a heading) is fitted with that size's margin. A label whose fitted width moves by a unit with the
+  // size is set on one line at its own size's fitted width and on two 1/128px under it; read at 14.67px, the margin is
+  // smaller and the same label would fit 1/128px under.
+  it('every fill measures its line at its own size: a table label at 12px, a KPI label at 12px, a heading at 10.67px', () => {
+    const words = 'Intercompany receivables and payables for the financial year ending February subsidiaries'.split(' ');
+    const candidates = words.flatMap((unused, i) => [4, 5, 6, 7, 8].map((n) => words.slice(i, i + n).join(' '))).map((c) => `${c} ${c} ${c}`);
+    const pick = (exactOf: (t: string) => number, fontPx: number): string => {
+      const found = candidates.find((c) => fitUnitsPx(exactOf(c), fontPx) !== fitUnitsPx(exactOf(c), 44 / 3));
+      expect(found, 'no label whose fitted width moves with the size: the check is vacuous').toBeDefined();
+      return found!;
+    };
+    const label = pick((t) => textExactPx(t, 12, 400), 12);
+    const at = fitUnitsPx(textExactPx(label, 12, 400), 12);
+    expect(labelLineCount(label, null, 400, at, 0)).toBe(1);
+    expect(labelLineCount(label, null, 400, at - 1 / 128, 0)).toBe(2);
+    const tile = { label, trendFootnote: null, figure: { value: 1 }, delta: null, sparklineSvg: null } as unknown as KpiTile;
+    expect(kpiTileLines(tile, at).label).toBe(1);
+    expect(kpiTileLines(tile, at - 1 / 128).label).toBe(2);
+    const heading = pick((t) => headingLineExactPx(t), HEADING_PX);
+    const hat = fitUnitsPx(headingLineExactPx(heading), HEADING_PX);
+    expect(headingLineCount(heading, undefined, hat, 0)).toBe(1);
+    expect(headingLineCount(heading, undefined, hat - 1 / 128, 0)).toBe(2);
   });
 });

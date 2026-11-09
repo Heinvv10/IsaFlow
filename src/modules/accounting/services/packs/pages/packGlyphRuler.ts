@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
-import { asShaped, LONE_SLASH, shapingInput } from './packGlyphShaping';
+import { asShaped, shapingInput } from './packGlyphShaping';
 
 export type FaceWeight = 400 | 500 | 600;
 
@@ -64,7 +64,7 @@ function face(weight: FaceWeight): Face {
 /** Does the pack's own face have a glyph for every code point of `cluster` (its marks and selectors included)? */
 export function inFace(cluster: string): boolean {
   const f = face(400);
-  return Array.from(cluster).every((ch) => f.hasGlyphForCodePoint(ch === LONE_SLASH ? 0x2044 : ch.codePointAt(0)!));
+  return Array.from(cluster).every((ch) => f.hasGlyphForCodePoint(ch.codePointAt(0)!));
 }
 
 const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
@@ -110,7 +110,7 @@ export function scriptRuns(text: string): string[] {
   // brackets it holds.
   const open: Array<{ close: string; run: Run }> = [];
   for (const ch of text) {
-    let scripts = scriptSetOf(ch === LONE_SLASH ? '\u2044' : ch);
+    let scripts = scriptSetOf(ch);
     for (let at = open.length - 1; at >= 0; at -= 1) {
       if (open[at]!.close !== ch) continue;
       scripts = open[at]!.run.scripts;
@@ -247,8 +247,10 @@ export function runExactPx(
  * (`fixtures/lineFitLongLines.ts`: 17,996 random, 3,335 of one glyph repeated, the narrow ones furthest) it reached 0.34
  * to 512px, 0.71 to 1,000px and 1.39 at 1,741px ("fff..." at 10.67px/500). So the margin is half a unit to
  * `FIT_NOISE_FLAT_PX` (where the KPI and table grids proved the fit) and grows by a unit for every
- * `FIT_NOISE_PX_PER_UNIT` past it: at least 0.18 of a unit over the worst seen at every width to 1,000px (no column the
- * pack sets a line in is wider than `PRINT_CONTENT_PX`'s 987px; 0.21 for the 12px lines), and 0.023 at its tightest,
+ * `FIT_NOISE_PX_PER_UNIT` past it: at least 0.085 of a unit over the worst seen at every width to 1,000px (no column
+ * the pack sets a line in is wider than `PRINT_CONTENT_PX`'s 987px): 0.085 for a 10.67px run of one narrow glyph at
+ * 899px, 0.135 for the 12px lines ("/" repeated, 593px), 0.43 for the reasons (#1235 round 3's 18,060 repeated-glyph
+ * lines); and 0.023 at its tightest,
  * that 1,741px line, where CI pins it (a margin of 0.45, flat to 580px or growing from 576 reads it short). A flat half
  * unit read a 12px line short past about 1,000px and a 10.67px one past 800 (#1235's final reviews); measured on the
  * width alone, without the size, the repeated narrow glyphs read 10 lines short (its round-2 review). At 1/16 the

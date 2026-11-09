@@ -13,6 +13,7 @@ import { AS_CHROMIUM_SETS, runPx, scriptRuns, type FaceWeight } from '@/modules/
 import { launchPrintChromium } from './printChromium';
 import { measure } from './measureWidths';
 import { labelWidestPiecePx } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
 import { mulberry32 } from './support/mulberry32';
 
 let browser: Browser;
@@ -108,6 +109,22 @@ it('a word that ends at a soft hyphen: its min-content is the word and the hyphe
   // hyphen's 307), where the two summed and rounded once read 2712.
   expect(res[0]!.widthPx * 64).toBe(2713);
   expect(labelWidestPiecePx('growth\u00AD', null, 400, AS_CHROMIUM_SETS) * 64).toBe(2713);
+}, 300_000);
+
+it('a private-use character is the fallback glyph Chromium sets (U+E044 is not a slash): never short of Chromium', async () => {
+  // The blind round-3 review's texts (probe/texts2.json and texts3.json), exactly.
+  const n = 'n'.repeat(26);
+  const texts = [
+    'Net\uE044profit', 'Gross \uE044\uE044\uE044 margin', '1\uE0442 share', 'Net profit \uE044', '\uE000\uE001 cost', 'Loan \uF0B7 fees',
+    `${n} \uE044\uE044\uE044 ${n}`, `Gross margin \uE044\uE044\uE044\uE044\uE044\uE044 ${n}`, `${n}\uE044\uE044\uE044\uE044`,
+  ];
+  const items = texts.flatMap((text) => WEIGHTS.map((weight) => ({ text, weight })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'label' as const, text: it.text, weight: it.weight, html: `<span style="white-space:pre">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const model = textPx(it.text, 12, it.weight);
+    return model < res[i]!.widthPx - 1e-6 ? [`${JSON.stringify(it.text)}/${it.weight}: model ${model}, Chromium ${res[i]!.widthPx}`] : [];
+  });
+  expect(wrong).toEqual([]);
 }, 300_000);
 
 it('a character whose Script Extensions leave out the run\'s script starts a new run, and a closing bracket goes with its opener, as Chromium shapes them: never short of Chromium, at most 1/32px over', async () => {

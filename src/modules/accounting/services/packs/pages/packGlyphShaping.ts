@@ -9,13 +9,6 @@
  */
 import type * as fontkit from 'fontkit';
 
-const FRACTION_SLASH = 0x2044;
-/**
- * A fraction slash that makes no fraction, in a run handed to `shapingInput` (a private-use code point the faces never
- * set and no text carries): it is set as U+2044, standing for no code point.
- */
-export const LONE_SLASH = '\uE044';
-
 /**
  * What Chromium sets as nothing and kerns across ("A\u2060V" is "AV"'s 929/64px at 12px), measured one by one in print
  * Chromium (`packGlyphRuler.test.ts`): the soft hyphen, the zero-width space, the word joiner and the invisible
@@ -33,12 +26,13 @@ export const SET_AS_NOTHING = /^[\u00AD\u200B\u200E\u202A\u202C\u2060-\u2064\u20
 const isDecimal = (ch: string | undefined): boolean => ch !== undefined && /\p{Nd}/u.test(ch);
 
 /**
- * `text` as the ruler shapes it, read IN THE TEXT AS GIVEN (before anything is set as nothing), as HarfBuzz reads it:
- * every fraction slash without a decimal digit right on each side made `LONE_SLASH`; what Chromium sets as nothing
- * removed, but for a run of it between two digits, which stays one zero-width space (a zero-advance glyph the faces
- * set, and no digit), so fontkit's numerator or denominator stops there as HarfBuzz's does ("a 11\u00AD1\u204422" is
- * the full-size "11" and a fraction "1\u20442": 2459/64px at 12px/500, not the 2051 of "111\u204422"); and a line or
- * paragraph separator set as the space Chromium sets it as.
+ * `text` as the ruler shapes it, read IN THE TEXT AS GIVEN, as HarfBuzz reads it: what Chromium sets as nothing removed,
+ * but for a run of it between two digits or beside a fraction slash, which stays one zero-width space (a zero-advance
+ * glyph the faces set, and no digit), so fontkit's numerator, denominator or fraction stops there as HarfBuzz's does
+ * ("a 11\u00AD1\u204422" is the full-size "11" and a fraction "1\u20442": 2459/64px at 12px/500, not the 2051 of
+ * "111\u204422"; "1\u00AD\u20442" makes no fraction); and a line or paragraph separator set as the space Chromium sets it
+ * as. No character stands for anything else: a code point a tenant can type means only itself (a private-use one is a
+ * fallback glyph, as Chromium sets it).
  */
 export function asShaped(text: string): string {
   const chars = Array.from(text);
@@ -47,11 +41,13 @@ export function asShaped(text: string): string {
     if (SET_AS_NOTHING.test(chars[i]!)) {
       let end = i;
       while (end < chars.length && SET_AS_NOTHING.test(chars[end]!)) end += 1;
-      if (isDecimal(chars[i - 1]) && isDecimal(chars[end])) out += '\u200B';
+      const before = chars[i - 1];
+      const after = chars[end];
+      if ((isDecimal(before) && isDecimal(after)) || before === '\u2044' || after === '\u2044') out += '\u200B';
       i = end;
     } else {
       const ch = chars[i]!;
-      out += ch === '\u2044' && !(isDecimal(chars[i - 1]) && isDecimal(chars[i + 1])) ? LONE_SLASH : ch === '\u2028' || ch === '\u2029' ? ' ' : ch;
+      out += ch === '\u2028' || ch === '\u2029' ? ' ' : ch;
       i += 1;
     }
   }
@@ -66,7 +62,8 @@ export function asShaped(text: string): string {
  *    depend on what was shaped before it (measured: after "\u00BD", "1\u20442" was no longer a fraction).
  *  - Both shapers apply the faces' fractions around U+2044 by default (numr on the digits before it, dnom on those
  *    after), but HarfBuzz makes a fraction only of a slash with a digit on EACH side, and fontkit of any slash next to a
- *    digit. So a slash without a digit on both sides (here, or in the text as given: `LONE_SLASH`) stands for no code
+ *    digit. So a slash without a digit on both sides (in the run, where `asShaped` keeps a zero-width space for what
+ *    stood between) stands for no code
  *    point, which leaves its neighbours as they are. Measured: "a \u20441" at 14.67px/500 is 1441/64px in Chromium, and
  *    fontkit's one-sided fraction read 1217/64; "a 1\u20442" is a fraction in both.
  * A run whose glyphs are not one a code point (fontkit folds a variation selector into the glyph before it; the faces
@@ -76,9 +73,6 @@ export function shapingInput(f: fontkit.Font, run: string): string | fontkit.Gly
   const glyphs = f.glyphsForString(run);
   const chars = Array.from(run);
   if (glyphs.length !== chars.length) return run;
-  const lone = (i: number): boolean => chars[i] === LONE_SLASH || (chars[i] === '\u2044' && !(isDecimal(chars[i - 1]) && isDecimal(chars[i + 1])));
-  return glyphs.map((g, i) => {
-    const glyph = chars[i] === LONE_SLASH ? f.glyphForCodePoint(FRACTION_SLASH) : g;
-    return Object.assign(Object.create(Object.getPrototypeOf(glyph) as object) as fontkit.Glyph, glyph, { codePoints: lone(i) ? [] : [chars[i]!.codePointAt(0)!] });
-  });
+  const lone = (i: number): boolean => chars[i] === '\u2044' && !(isDecimal(chars[i - 1]) && isDecimal(chars[i + 1]));
+  return glyphs.map((g, i) => Object.assign(Object.create(Object.getPrototypeOf(g) as object) as fontkit.Glyph, g, { codePoints: lone(i) ? [] : [chars[i]!.codePointAt(0)!] }));
 }

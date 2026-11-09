@@ -5,18 +5,15 @@
  * pieces with it; they used to split at slightly different places, and a hyphenated label was refused by one and
  * wrapped by the other. Measured in Chromium (`packLineBreaks.test.ts`), which is NOT what UAX 14 reads like:
  *  - a break is allowed at a collapsible space (space, tab, line feed, carriage return: it hangs, so it adds nothing
- *    to either line). NOT at a no-break space (U+00A0, U+2007, U+202F, U+FEFF), a vertical tab or a form feed, which
- *    hold the word together. After a run of the other space separators (U+1680, U+2000 to U+200A but U+2007, U+2028,
- *    U+2029, U+205F, U+3000), and the run stays on the line it ends: it is part of the piece before the break;
- *  - after a hyphen or an en dash, and before and after an em dash, where the dash stands between two WORD clusters (a
- *    letter or digit of an alphabetic script, with its marks): "2024-25" breaks after "2024-", and so does "abc-5",
- *    where UAX 14's HY x NU would not; "a–b" after the dash, "abc—def" on both sides of it; after a word, a hyphen
- *    also breaks before another hyphen or an em dash ("abc-|-def", "ab-|—cd"), and one that opens the word or follows
- *    another breaks before a letter ("-|abc", "abc-|-|def"; "-5" is a sign and holds). Not next to punctuation, a
- *    bracket, a quote, a sign, a symbol, a space of any kind, a joiner, an ideograph, another dash or an emoji
- *    (".-", ")–", "$-", "-⁠", "––", "(—", "々-" are one piece in Chromium), and not after a dash that opens the word;
- *  - between two grapheme clusters that Chromium breaks between (`packBreakRanges.ts`: ideographs, kana, Hangul,
- *    full-width forms, Thai, emoji, currency signs, the degree and plus-minus signs). A cluster is one piece of the
+ *    to either line);
+ *  - between two characters the pack's faces set, where the pair table says (`packBreakPairs.ts`, scanned in production's
+ *    image): by the classes of the two and of what stands either side of them, the hyphens and dashes ("2024-25" breaks
+ *    after "2024-", "-5" holds), punctuation ("ab?cd", "12\u202634"), quotes, brackets ("!(" breaks before the bracket),
+ *    signs and currency, and the spaces Chromium breaks after (U+2000 to U+200A but U+2007: the run stays on the line it
+ *    ends) or holds at (the no-break spaces);
+ *  - where a character the faces lack stands, between two grapheme clusters that Chromium breaks between
+ *    (`packBreakRanges.ts`: ideographs, kana, Hangul, full-width forms, emoji), and after the space separators the faces
+ *    lack (U+1680, U+205F, U+3000). A cluster is one piece of the
  *    run: a ZWJ family, a skin-toned hand, a flag or a letter with its variation selector never splits. A cluster
  *    meets the cluster BEFORE it as its first code point and the one AFTER it as its last (past the marks, selectors,
  *    skin tones and tags that extend it): a head shaking sideways (U+1F642 ZWJ U+2194 U+FE0F) ends in an arrow,
@@ -26,13 +23,12 @@
  *    sets a visible hyphen (U+2010), as it does where a soft hyphen ends a word before a space or an ideographic space,
  *    and not where the break falls after a zero-width space, another space or a mark that follows it: `Piece.hyphen`
  *    (a text that ends at one keeps the hyphen's room on its last line, and draws none there).
- *    A word starts after either (a hyphen after one breaks before a letter, not a digit). The line and paragraph
- *    separators always break after them;
- *  - NOT after a slash, dot, comma, colon, ampersand or plus, and not inside a run of ordinary letters.
+ *    The line and paragraph separators always break after them.
  * It breaks exactly where Chromium does: a piece the model leaves whole that Chromium breaks is a row refused that would
  * have fitted (and a line count short), a piece the model breaks that Chromium keeps would be a row passed that
  * overflows.
  */
+import { AFTER, BEFORE, contextOf, pairBreaks, pairClass } from './packBreakPairs';
 import { breaksBetween } from './packBreakRanges';
 import { holdsAfterSoftHyphen, holdsAfterZeroWidthSpace } from './packSoftBreakRanges';
 
@@ -43,25 +39,13 @@ import { holdsAfterSoftHyphen, holdsAfterZeroWidthSpace } from './packSoftBreakR
  */
 export interface Piece { text: string; spaced: boolean; hyphen: boolean }
 
-const HYPHEN = '-';
-const EN_DASH = '–';
-const EM_DASH = '—';
-
 const ZWJ = '\u200D';
 const SOFT_HYPHEN = '\u00AD';
 const ZWSP = '\u200B';
 /** The one break-after space a soft hyphen before it still shows its hyphen at (the others drop it). */
 const IDEOGRAPHIC_SPACE = '\u3000';
-/** The space separators Chromium breaks after, keeping them on the line they end (they do not hang). */
-const BREAK_AFTER_SPACE = /^[\u1680\u2000-\u2006\u2008-\u200A\u2028\u2029\u205F\u3000]$/u;
-/**
- * Punctuation Chromium breaks after, between two word clusters (measured: "ab?cd", "12\u202634", "ab\u2010Cd",
- * "12\u201234"; a scan of every character the faces set between letters and digits). Before a quote or a bracket it is
- * not measured here, and the model takes no break there.
- */
-const BREAK_AFTER_PUNCTUATION = new Set(['?', '\u2010', '\u2012', '\u2026']);
-/** The acute accent: Chromium breaks before it, after a word cluster ("ab|\u00B4cd", "12|\u00B434"). */
-const ACUTE = '\u00B4';
+/** The space separators the faces lack that Chromium breaks after, keeping them on the line they end (they do not hang). */
+const BREAK_AFTER_SPACE = /^[\u1680\u205F\u3000]$/u;
 /** The white space CSS collapses: the only separators a break consumes. */
 const COLLAPSIBLE = /[ \t\n\r]+/;
 
@@ -83,12 +67,8 @@ const isAffix = (code: number): boolean => breaksBetween(code) && !isWide(code);
 /** A letter or digit that is not an ideograph, kana or other wide form (the iteration mark 々 is a letter that never takes a break before it). */
 const isPlain = (code: number): boolean => /[\p{L}\p{N}]/u.test(String.fromCodePoint(code)) && !breaksBetween(code)
   && !WIDE_RANGES.some(([from, to]) => code >= from && code <= to);
-/** A word cluster: a plain letter or digit with only combining marks after it (not a keycap or an emoji presentation). */
-const isWordCluster = (cluster: string | undefined): boolean => cluster !== undefined
-  && /^[\p{L}\p{N}]\p{M}*$/u.test(cluster) && !/[\uFE0E\uFE0F\u20E3]/u.test(cluster) && isPlain(cluster.codePointAt(0)!);
-
 /** Extends the code point before it: a mark (variation selectors, the keycap), a skin tone, a tag. */
-const EXTENDS = /[\p{M}\p{Emoji_Modifier}\u{E0020}-\u{E007F}]/u;
+const EXTENDS = /[\p{Grapheme_Extend}\p{Emoji_Modifier}\u{E0020}-\u{E007F}]/u;
 
 /** The code point a cluster meets the next one with: its last that is not an extender; null after a joiner. */
 function trailingCode(cluster: string): number | null {
@@ -117,22 +97,25 @@ const breaksBetweenClusters = (cluster: string, next: string): boolean => {
 /** A soft hyphen with the marks after it (Chromium breaks after the marks, and shows no hyphen there). */
 const isSoftHyphen = (cluster: string): boolean => cluster.startsWith(SOFT_HYPHEN);
 
-/** `word`'s grapheme clusters, a soft hyphen taking the combining marks after it. */
+/**
+ * The prepended concatenation marks (Grapheme_Cluster_Break=Prepend, to U+30FF): a cluster with the character after
+ * them, but Chromium's line breaker reads them as characters of their own ("ab\u0600\u4E2D" breaks before the ideograph).
+ */
+const PREPEND = /^[\u0600-\u0605\u06DD\u070F\u0890\u0891\u08E2\u0D4E]/u;
+
+/** `word`'s grapheme clusters, a soft hyphen taking the combining marks after it, a prepended mark on its own. */
 function wordClusters(word: string): string[] {
   const out: string[] = [];
-  for (const cluster of clustersOf(word)) {
+  for (const whole of clustersOf(word)) {
+    let cluster = whole;
+    // Split before the character it is prepended to; marks right after it stay with it ("\u0600\uFE0F").
+    while (cluster.length > 1 && PREPEND.test(cluster) && !EXTENDS.test(cluster[1]!)) { out.push(cluster[0]!); cluster = cluster.slice(1); }
     const last = out[out.length - 1];
     if (last !== undefined && isSoftHyphen(last) && /^\p{M}+$/u.test(cluster)) out[out.length - 1] = last + cluster;
     else out.push(cluster);
   }
   return out;
 }
-
-/** The cluster the rules see before `clusters[i]`: after a soft hyphen or a zero-width space, a word starts. */
-const previousOf = (clusters: readonly string[], i: number): string | undefined => {
-  const prev = clusters[i - 1];
-  return prev === undefined || prev === ZWSP || isSoftHyphen(prev) ? undefined : prev;
-};
 
 /** The line and paragraph separators: a line always ends after one. */
 const MANDATORY = /^[\u2028\u2029]$/;
@@ -149,8 +132,46 @@ function softBreak(cluster: string, next: string): boolean | null {
   return null;
 }
 
-/** The pieces of one word. */
-function wordPieces(word: string): string[] {
+/**
+ * The pair class `cluster` meets a neighbour with at `code`: its base's, a variation selector after it too (Chromium
+ * breaks beside "\u263A\uFE0F" as beside the base, in all but 13 of 48,775 census strings, `packBreakPairs.test.ts`);
+ * none for a keycap ("1\uFE0F\u20E3" is not a digit to Chromium: `packBreakRanges`).
+ */
+const classOf = (cluster: string, code: number | null): number | null => (code === null || cluster.includes('\u20E3') ? null : pairClass(code));
+
+/** The context before `clusters[i]` (`packBreakPairs.BEFORE`): `first`, the text's first word. */
+function beforeContext(clusters: readonly string[], i: number, first: boolean): number {
+  const prev = clusters[i - 1];
+  if (prev === undefined) return first ? BEFORE.start : BEFORE.space;
+  if (prev === ZWSP) return BEFORE.zeroWidthSpace;
+  if (isSoftHyphen(prev)) return BEFORE.softHyphen;
+  return contextOf(classOf(prev, trailingCode(prev)));
+}
+
+/** The context after `clusters[i]` (`packBreakPairs.AFTER`): `last`, the text's last word. */
+function afterContext(clusters: readonly string[], i: number, last: boolean): number {
+  const next = clusters[i + 1];
+  if (next === undefined) return last ? AFTER.end : AFTER.space;
+  if (next === ZWSP) return AFTER.zeroWidthSpace;
+  if (isSoftHyphen(next)) return AFTER.softHyphen;
+  return contextOf(classOf(next, next.codePointAt(0)!));
+}
+
+/**
+ * Does Chromium break between `clusters[i]` and the cluster after it (not at a soft hyphen or a zero-width space)? By the
+ * pair table where the faces set both, by the ranges and spaces of the faces' fallback otherwise.
+ */
+function breaksAfter(clusters: readonly string[], i: number, first: boolean, last: boolean): boolean {
+  const cluster = clusters[i]!;
+  const next = clusters[i + 1]!;
+  const a = classOf(cluster, trailingCode(cluster));
+  const b = classOf(next, next.codePointAt(0)!);
+  if (a !== null && b !== null) return pairBreaks(beforeContext(clusters, i, first), a, b, afterContext(clusters, i + 1, last));
+  return (BREAK_AFTER_SPACE.test(cluster) && !BREAK_AFTER_SPACE.test(next)) || breaksBetweenClusters(cluster, next);
+}
+
+/** The pieces of one word, the text's `first` and `last` or not. */
+function wordPieces(word: string, first: boolean, last: boolean): string[] {
   const pieces: string[] = [];
   let start = 0;
   const clusters = wordClusters(word);
@@ -158,25 +179,7 @@ function wordPieces(word: string): string[] {
     const next = clusters[i + 1];
     if (next === undefined) return;
     const soft = softBreak(cluster, next);
-    if (soft !== null) {
-      if (soft) {
-        pieces.push(clusters.slice(start, i + 1).join(''));
-        start = i + 1;
-      }
-      return;
-    }
-    const prev = previousOf(clusters, i);
-    // After a word, a hyphen breaks before a word, another hyphen or an em dash; one that opens the word or follows
-    // another breaks before a letter (not a digit: "-5" is a sign).
-    const afterHyphen = cluster === HYPHEN && (isWordCluster(prev)
-      ? isWordCluster(next) || next === HYPHEN || next === EM_DASH
-      : (prev === undefined || prev === HYPHEN) && isWordCluster(next) && /^\p{L}/u.test(next));
-    const afterDash = afterHyphen || (cluster === EN_DASH && isWordCluster(prev) && isWordCluster(next));
-    const aroundEm = (cluster === EM_DASH && isWordCluster(next)) || (next === EM_DASH && isWordCluster(cluster));
-    const afterSpace = BREAK_AFTER_SPACE.test(cluster) && !BREAK_AFTER_SPACE.test(next);
-    const between = breaksBetweenClusters(cluster, next);
-    const punctuation = (BREAK_AFTER_PUNCTUATION.has(cluster) && isWordCluster(prev) && isWordCluster(next)) || (next === ACUTE && isWordCluster(cluster));
-    if (afterDash || aroundEm || afterSpace || between || punctuation) {
+    if (soft === null ? breaksAfter(clusters, i, first, last) : soft) {
       pieces.push(clusters.slice(start, i + 1).join(''));
       start = i + 1;
     }
@@ -195,7 +198,8 @@ const endsAtSoftHyphen = (piece: string): boolean => piece.replace(new RegExp(`$
  * of its words, and "growth­" alone has a min-content of its word and the hyphen (`packLineFit.test.ts`).
  */
 export function pieces(text: string): Piece[] {
-  return text.split(COLLAPSIBLE).filter((word) => word !== '').flatMap((word, wi) => wordPieces(word)
+  const words = text.split(COLLAPSIBLE).filter((word) => word !== '');
+  return words.flatMap((word, wi) => wordPieces(word, wi === 0, wi === words.length - 1)
     .map((piece, pi) => ({ text: piece, spaced: wi > 0 && pi === 0, hyphen: endsAtSoftHyphen(piece) })));
 }
 
@@ -208,12 +212,24 @@ export function pieces(text: string): Piece[] {
  *  - after a soft hyphen, a hyphen, a dash, a zero-width space or a break-after space, glued (`spaced: false`):
  *    "Gross margin\u00AD" with mark 1 is 3 lines in a 41.97px column (its min-content, the word and its hyphen), the
  *    line before the mark taking the hyphen, and the mark on one with no hyphen's room.
- * Elsewhere the mark stays with the last piece (`packLabelMark.test.ts`). Held to Chromium, ending by ending, in
- * `packLineFit.test.ts`.
+ * Elsewhere the mark stays with the last piece (`packLabelMark.test.ts`). The digit can also hold together what stands
+ * before it: a sign before a bracket or a low quote holds to it before a number ("ab\u20AC(" is two pieces, and one
+ * with a mark), so the pieces are the text's with a digit after it. Held to Chromium, ending by ending, in
+ * `packLineFit.test.ts`, and on the adversary's census in `packBreakPairs.test.ts`.
  */
 export function markedPieces(text: string, marked: boolean): Piece[] {
   const out = pieces(text);
   if (!marked || out.length === 0) return out;
   if (/[ \t\n\r]$/.test(text)) return [...out, { text: '', spaced: true, hyphen: false }];
-  return pieces(`${text}0`).length > out.length ? [...out, { text: '', spaced: false, hyphen: false }] : out;
+  const withMark = pieces(`${text}0`);
+  const last = withMark[withMark.length - 1]!;
+  const same = (list: readonly Piece[]): boolean => list.length === out.length
+    && list.every((p, i) => p.text === out[i]!.text && p.spaced === out[i]!.spaced && p.hyphen === out[i]!.hyphen);
+  if (last.text === '0') {
+    const before = withMark.slice(0, -1);
+    return [...(same(before) ? out : before), { text: '', spaced: false, hyphen: false }];
+  }
+  const kept = last.text.slice(0, -1);
+  const joined = [...withMark.slice(0, -1), { text: kept, spaced: last.spaced, hyphen: endsAtSoftHyphen(kept) }];
+  return same(joined) ? out : joined;
 }

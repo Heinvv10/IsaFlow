@@ -21,6 +21,7 @@ import { demoWithoutBudget, withWidenedStatement, withWidenedTable } from '../se
 import { measure } from './measureWidths';
 import { measureTables } from './measureTables';
 import { atTheFloor } from './support/atTheFloor';
+import { alike, ROUND_THREE_LABELS } from './fixtures/breakPairsCensus';
 import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 
 let browser: Browser;
@@ -191,6 +192,34 @@ describe('a label that ends at a space before its footnote mark (a tenant\'s GL 
     }
     expect(wrong.slice(0, 10)).toEqual([]);
   }, 600_000);
+});
+
+describe('labels #1235\'s round-3 reviews found short (a break the splitter missed, a private-use character read as a slash)', () => {
+  // Breaks after a dash, an ellipsis or a question mark whatever stands before them, between an ideograph and a symbol
+  // (the pair table, `packBreakPairs.ts`); a private-use character priced as the fallback glyph Chromium sets.
+  it('never a label line too few, the height never short; the columns within 0.1px of Chromium where the faces set every character', async () => {
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const wrong: string[] = [];
+    // A label the two Chromiums break differently (a word-opening en dash) is held in production's image instead
+    // (`printParity/packBreakPairsImage.test.ts`).
+    const labels = ROUND_THREE_LABELS.filter(([label]) => alike(label));
+    expect(labels.length).toBe(ROUND_THREE_LABELS.length - 3);
+    for (const [label, labelMarker] of labels) {
+      for (const digits of [9, 12]) {
+        const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });
+        const real = (await measureTables(atTheFloor(doc), browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;
+        const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
+        const say = `${JSON.stringify(label)}${labelMarker ? '^1' : ''}, ${digits} digits`;
+        if (!/[\u4E2D\p{Co}]/u.test(label)) {
+          model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > COLUMN_ERROR_PX) wrong.push(`${say}: column ${c} model ${px.toFixed(3)} vs ${real.columnsPx[c]!.toFixed(3)}`); });
+        }
+        if (model.labelLines.some((l, r) => l < real.labelLines[r]!)) wrong.push(`${say}: lines ${model.labelLines} vs ${real.labelLines}`);
+        const height = statementTableBodyMm(table, doc.numberConvention.scale, 'portrait');
+        if (height < real.heightMm) wrong.push(`${say}: height short, model ${height.toFixed(2)}mm vs Chromium ${real.heightMm.toFixed(2)}`);
+      }
+    }
+    expect(wrong.slice(0, 10)).toEqual([]);
+  }, 900_000);
 });
 
 describe('adjacent heavy rows share their rules', () => {

@@ -46,14 +46,14 @@ const GLYPHS = [...sets[0]!].filter((c) => sets.every((s) => s.has(c)) && c > 0x
 /**
  * How many over by a unit each set may have. Measured: grid 353 of 630, random 308 of 600, labels 107 of 128, deltas 24
  * of 48, the adversary's lines 0 of 57 and mixed 718 of 1,500 (0 and 683 at a flat half-unit margin), headings 124 of 289,
- * soft hyphens 153 of 228, marks after a trailing space 165 of 242, marks at each ending 377 of 496, long lines 7,257
+ * soft hyphens 153 of 228, marks after a trailing space 165 of 242, marks at each ending 479 of 624, long lines 7,257
  * of 17,996, one glyph repeated 1,181 of 3,335 (the noise margin, `packGlyphRuler.fitMarginUnits`, takes a unit wherever
  * an exact sum's fraction of a unit is past one less the margin; a heading's mark box and a soft hyphen's hyphen are
  * rounded up on their own). The caps are those and about 5% of headroom (3 lines on the adversary's 57; 2 of
  * a set of 48). The random sets are drawn by `support/mulberry32.ts` (600 and 1,500 distinct lines; the LCG they were drawn
  * by overflowed and repeated: the mixed set was 627 distinct).
  */
-const OVER = { grid: 370, random: 325, labels: 115, deltas: 26, adversary: 3, mixed: 760, headings: 131, softHyphen: 161, spacedMark: 174, markEnds: 395, long: 7620, repeated: 1240 } as const;
+const OVER = { grid: 370, random: 325, labels: 115, deltas: 26, adversary: 3, mixed: 760, headings: 131, softHyphen: 161, spacedMark: 174, markEnds: 503, long: 7620, repeated: 1240 } as const;
 
 it('the 630-case grid: never narrower than Chromium', async () => {
   const texts = ['(133 500 000)', '9 000 000', 'Telecommunications', 'AVATAR WAVE', 'Revenue', '45.0%', 'To', 'xy', 'Operating expenses', 'W', 'nnnnnnnnnnnnnnnnnnnn', 'R&D', 'Ff', 'office', 'VAT'];
@@ -202,9 +202,10 @@ it('3,335 lines of one glyph repeated, 150 to 1,800px at the pack\'s sizes: neve
 
 // Chromium reads across the <sup>: it breaks before a mark wherever it would break before a digit. Each ending held: the
 // ones that break (a soft hyphen, a hyphen, the dashes, a zero-width space, break-after spaces, an ellipsis, a question
-// mark, U+2010 and U+2012) and ones that hold (a slash, a closing bracket, stops, a percent sign, a no-break space or hyphen).
+// mark, U+2010 and U+2012, the acute accent, and the doubled dash, ellipsis and question mark) and ones that hold (a slash,
+// a closing bracket, stops, a percent sign, a no-break space or hyphen).
 it('a marked label at each ending: the one-line width never narrower than Chromium, and never a line fewer at any width from its min-content up (the mark on a line of its own counted)', async () => {
-  const ends = ['\u00AD', '-', '\u2013', '\u2014', '\u200B', '\u2009', '\u2002', '\u2026', '?', '\u2010', '\u2012', '/', ')', '.', ',', '%', '\u00A0', '\u2011', '\u00AD\u00AD'];
+  const ends = ['\u00AD', '-', '\u2013', '\u2014', '\u200B', '\u2009', '\u2002', '\u2026', '?', '\u2010', '\u2012', '/', ')', '.', ',', '%', '\u00A0', '\u2011', '\u00AD\u00AD', '\u00B4', '\u2013\u2013', '\u2026\u2026', '??'];
   const texts = ['Gross margin', 'Telecommunications', 'Intercompany', `ab ${'n'.repeat(30)}`].flatMap((base) => ends.map((end) => `${base}${end}`));
   const cases = markedFills(texts, [1, 12]);
   expect(cases.length).toBeGreaterThan(450);

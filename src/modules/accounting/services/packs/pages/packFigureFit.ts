@@ -27,8 +27,8 @@ import { GUTTER_MM } from './packDisclosureHeight';
 import { type FigureWeight, ptToPx, textExactPx, textPx, textPxUnsnapped } from './packFigureWidth';
 import { NEVER_SHORT, runExactPx, runPx, type Slack } from './packGlyphRuler';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
-import { markedPieces, pieces } from './packLineBreaks';
-import { reasonPx } from './packReasonWidth';
+import { markedPieces, pieces, type Piece } from './packLineBreaks';
+import { reasonExactPx, reasonPx } from './packReasonWidth';
 import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
 import { deltaDirection } from '@/modules/accounting/services/packs/narrative/derivedTileCaptions';
 import type { PackPageBlock, PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
@@ -134,13 +134,32 @@ export function cellPx(cell: FigureCell, fontPx: number, slack: Slack = NEVER_SH
 }
 
 /**
+ * Each piece's width as Chromium's min-content counts it: a break inside a word leaves the kerning across it on the piece
+ * before (a hyphen kerns 10 font units wider before a round letter: "ab-cd" has a min-content of 1178/64px at 12px,
+ * "ab-" alone 1170), so a piece is widened by a kerning that widens, rounded up to the unit (never short;
+ * `packBreakPairs.test.ts` holds the min-content of the census of the faces' characters).
+ */
+function pieceWidths(parts: readonly Piece[], width: (piece: Piece) => number, exact: (text: string) => number): number[] {
+  return parts.map((piece, i) => {
+    const next = parts[i + 1];
+    const w = width(piece);
+    if (next === undefined || next.spaced || next.text === '' || piece.text === '') return w;
+    const a = Array.from(piece.text).pop()!;
+    const b = Array.from(next.text)[0]!;
+    const kern = exact(a + b) - exact(a) - exact(b);
+    return kern > 0 ? w + Math.ceil(kern * 64 - 1e-7) / 64 : w;
+  });
+}
+
+/**
  * The narrowest a 9pt label (a statement row's, a KPI tile's) can be set: its widest piece, with the footnote mark
  * after the LAST piece, not the longest. Chromium never breaks between a word and the `<sup>` after it, so the mark
  * wraps with the last piece (`packLabelMark.test.ts`), unless a space comes between: then the mark is a word of its own
  * (`packLineBreaks.markedPieces`).
  */
 export function labelWidestPiecePx(label: string, footnote: number | null | undefined, weight: FigureWeight, slack: Slack = NEVER_SHORT): number {
-  const widths = markedPieces(label, footnote !== null && footnote !== undefined).map((piece) => textPx(piece.text, Math.round(ptToPx(TABLE_FIGURE_MAX_PT)), weight, piece.hyphen, slack));
+  const px = Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
+  const widths = pieceWidths(markedPieces(label, footnote !== null && footnote !== undefined), (piece) => textPx(piece.text, px, weight, piece.hyphen, slack), (t) => textExactPx(t, px, weight));
   const mark = labelMarkPx(footnote, weight, slack);
   return Math.max(0, ...widths.map((w, i) => (i === widths.length - 1 ? w + mark : w)));
 }
@@ -183,7 +202,7 @@ export function deltaText(tile: KpiTile): string {
 
 /** The longest unbreakable run of `text` (`packLineBreaks.ts`, the one splitter), with the hyphen a soft one sets. */
 function longestRunPx(text: string, fontPx: number, weight: FigureWeight, slack: Slack = NEVER_SHORT): number {
-  return Math.max(0, ...pieces(text).map((piece) => textPx(piece.text, fontPx, weight, piece.hyphen, slack)));
+  return Math.max(0, ...pieceWidths(pieces(text), (piece) => textPx(piece.text, fontPx, weight, piece.hyphen, slack), (t) => textExactPx(t, fontPx, weight)));
 }
 
 /**
@@ -195,7 +214,7 @@ function longestRunPx(text: string, fontPx: number, weight: FigureWeight, slack:
 function tileOtherMinPx(tile: KpiTile, slack: Slack): number {
   const labelPx = labelWidestPiecePx(tile.label, tile.trendFootnote, 400, slack);
   const reasonWidth = tile.figure.value === null && tile.figure.unavailable !== undefined && tile.figure.unavailable !== null
-    ? Math.max(0, ...pieces(tile.figure.unavailable).map((piece) => reasonPx(piece.text, piece.hyphen, slack))) : 0;
+    ? Math.max(0, ...pieceWidths(pieces(tile.figure.unavailable), (piece) => reasonPx(piece.text, piece.hyphen, slack), (t) => reasonExactPx(t))) : 0;
   // The arrow cue is a run of its own (`</span>{' '}` after it is a break opportunity): it never holds a column open
   // past the words it precedes.
   const deltaPx = tile.delta === null ? 0 : Math.max(deltaCuePx(slack), longestRunPx(deltaText(tile), 12, 400, slack));
