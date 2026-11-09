@@ -97,6 +97,43 @@ describe('a pending action that never settles', () => {
   });
 });
 
+describe('the in-flight guard\'s timers', () => {
+  it('are cleared on unmount: no warning 30 s later', async () => {
+    vi.useFakeTimers();
+    try {
+      const p = tableProps({ onAccept: vi.fn(() => new Promise<boolean>(() => undefined)) });
+      const { unmount } = render(<BankTxTable {...p} />);
+      const rowA = rows()[0]!;
+      fireEvent.click(rowA);
+      fireEvent.keyDown(rowA, { key: 'Enter' });
+      unmount();
+      await act(async () => { vi.advanceTimersByTime(60_000); });
+      expect(vi.mocked(log.warn)).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a late settle of a released request does not unguard the newer one', async () => {
+    vi.useFakeTimers();
+    try {
+      const settle: Array<(ok: boolean) => void> = [];
+      const p = tableProps({ onAccept: vi.fn(() => new Promise<boolean>(r => { settle.push(r); })) });
+      render(<BankTxTable {...p} />);
+      const rowA = rows()[0]!;
+      fireEvent.click(rowA);
+      fireEvent.keyDown(rowA, { key: 'Enter' });
+      await act(async () => { vi.advanceTimersByTime(30_000); }); // released
+      fireEvent.keyDown(rowA, { key: 'Enter' }); // the second request
+      expect(p.onAccept).toHaveBeenCalledTimes(2);
+      await act(async () => { settle[0]!(false); await Promise.resolve(); }); // the first one finally settles
+      fireEvent.keyDown(rowA, { key: 'Enter' });
+      expect(p.onAccept).toHaveBeenCalledTimes(2); // still guarded by the second
+      await act(async () => { settle[1]!(false); await Promise.resolve(); });
+      fireEvent.keyDown(rowA, { key: 'Enter' });
+      expect(p.onAccept).toHaveBeenCalledTimes(3);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
 describe('Escape', () => {
   it('from a field in a row the stream does not hold goes to that row', () => {
     render(<BankTxTable {...tableProps()} />);
@@ -243,6 +280,24 @@ describe('when the focused row leaves the list', () => {
     fireEvent.keyDown(rows()[1]!, { key: 'ArrowUp' });
     expect(rows()[0]).toHaveAttribute('data-focused', 'true');
     rerender(<BankTxTable {...p} transactions={without('a')} />); // a filter takes it: not ours any more
+    expect(document.activeElement).toBe(grid());
+  });
+
+  it('A pending, focus moves to B, A resolves true and then leaves: focus does not jump', async () => {
+    let finish: (ok: boolean) => void = () => undefined;
+    const p = tableProps({ onExclude: vi.fn(() => new Promise<boolean>(r => { finish = r; })) });
+    const { rerender } = render(<BankTxTable {...p} />);
+    fireEvent.keyDown(holdRowA(), { key: 'x' });
+    fireEvent.keyDown(rows()[0]!, { key: 'ArrowDown' }); // the stream is on B now
+    const focusedB = rows()[1]!;
+    expect(focusedB).toHaveAttribute('data-focused', 'true');
+    await act(async () => { finish(true); await Promise.resolve(); });
+    rerender(<BankTxTable {...p} transactions={without('a')} />);
+    expect(document.activeElement).toBe(rows()[0]); // B, now first
+    expect(rows()[0]!.textContent).toContain('Pending row');
+    expect(rows()[0]).toHaveAttribute('data-focused', 'true');
+    // and the stream is B's: a later filter that takes B is not read as an action of ours
+    rerender(<BankTxTable {...p} transactions={without('a').filter(t => t.id !== 'b')} />);
     expect(document.activeElement).toBe(grid());
   });
 

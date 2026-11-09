@@ -116,28 +116,34 @@ export function useBankTxKeyboardNav({
     if (focusWasHere) containerRef.current?.focus();
   }, [transactions, focusRow]);
 
-  /** Rows whose accept / exclude / split is still pending: a second press on the same row sends nothing. */
-  const inFlightRef = useRef(new Set<string>());
+  /** Rows whose accept / exclude / split is still pending, each with its own token: a press on such a row sends nothing. */
+  const inFlightRef = useRef(new Map<string, { token: number; timer: ReturnType<typeof setTimeout> }>());
+  const tokenRef = useRef(0);
+  useEffect(() => {
+    const inFlight = inFlightRef.current;
+    return () => { inFlight.forEach((entry) => clearTimeout(entry.timer)); inFlight.clear(); };
+  }, []);
 
   /**
    * Runs a row action. A row is "acted on" only when its handler's promise says it was really posted, excluded or
-   * split; until the promise settles the row is in flight and presses on it are ignored.
+   * split; until the promise settles (or 30 s pass) the row is in flight and presses on it are ignored.
    */
   const runRowAction = useCallback((id: string, call: (txId: string) => void | Promise<boolean>) => {
-    if (inFlightRef.current.has(id)) return;
-    // Acting on a row ends any other row's mark.
-    if (actedIdRef.current !== id) actedIdRef.current = null;
+    const inFlight = inFlightRef.current;
+    if (inFlight.has(id)) return;
     const outcome = call(id);
     if (!outcome) return;
-    inFlightRef.current.add(id);
-    // A request that never settles must not lock the row for good.
-    const release = setTimeout(() => {
+    const token = ++tokenRef.current;
+    const leave = () => { if (inFlight.get(id)?.token === token) inFlight.delete(id); };
+    // A request that never settles must not lock the row for good; a late settle of a released request must not
+    // unlock a newer one (hence the token).
+    const timer = setTimeout(() => {
       log.warn('Bank row action still pending: releasing the row', { txId: id, afterMs: IN_FLIGHT_LIMIT_MS }, 'banking');
-      inFlightRef.current.delete(id);
+      leave();
     }, IN_FLIGHT_LIMIT_MS);
-    // The mark is only for the row the stream still holds: the user may have moved on while it was pending.
-    outcome.then((done) => { if (done && focusedIdRef.current === id) actedIdRef.current = id; }, (err: unknown) => log.warn('Bank row action rejected', { error: err }, 'banking'))
-      .finally(() => { clearTimeout(release); inFlightRef.current.delete(id); });
+    inFlight.set(id, { token, timer });
+    outcome.then((done) => { if (done) actedIdRef.current = id; }, (err: unknown) => log.warn('Bank row action rejected', { error: err }, 'banking'))
+      .finally(() => { clearTimeout(timer); leave(); });
   }, []);
 
   const registerRow = useCallback((index: number, el: HTMLTableRowElement | null) => {
