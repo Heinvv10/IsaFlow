@@ -9,6 +9,7 @@ import { SignJWT } from 'jose';
 import fringe from '../../pages/api/payroll/employees/[id]/fringe-benefits';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
+import { runLinesRefusal } from '../../src/modules/accounting/services/payroll/payrollRunRecalcGate';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
@@ -146,5 +147,36 @@ describe('a paid month cannot change', () => {
     expect(await rows(empA)).toBe(before);
     // A later start is fine: April is not paid.
     expect((await send('POST', { kind: 'travel_allowance', businessUseAtLeast80: true, effectiveFrom: '2026-04-01' })).statusCode).toBe(201);
+  });
+});
+
+describe('a run costs the recorded benefits', () => {
+  it('June: travel at 20%, the vehicle as a non-cash 3802 at 20% of 13 000, and the stored line is what the engine derives', async () => {
+    const travelComponent = (await pool.query<{ id: string }>(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Travel allowance', '3701', 'earning', true) RETURNING id`, [companyA])).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, 5000, '2026-04-01')`,
+      [empA, travelComponent]);
+    // The vehicle row was ended 2026-08-31 above: June is inside it (maintenance plan, business use at least 80%).
+    const runId = await calculatedRun(call, 6);
+    const line = (await pool.query<{ gross_pay: string; periodic_taxable: string; component_breakdown: Array<Record<string, unknown>> }>(
+      'SELECT gross_pay, periodic_taxable, component_breakdown FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [runId, empA])).rows[0]!;
+    expect(Number(line.gross_pay)).toBe(25000);
+    expect(Number(line.periodic_taxable)).toBe(23600);
+    const vehicleItem = line.component_breakdown.find((b) => b.sarsSourceCode === '3802');
+    expect(vehicleItem).toMatchObject({ amount: 13000, isNonCash: true, payeInclusionRate: 0.2 });
+    expect(line.component_breakdown.find((b) => b.sarsSourceCode === '3701')).toMatchObject({ amount: 5000, payeInclusionRate: 0.2 });
+  });
+});
+
+describe('the approval gate sees a benefit changed after calculation', () => {
+  it('ending the open travel allowance after a run was calculated says recalculate', async () => {
+    const runId = await calculatedRun(call, 7);
+    expect(await runLinesRefusal(companyA, runId)).toBeNull();
+    const open = (await pool.query<{ id: string }>(
+      "SELECT id FROM payroll_employee_fringe_benefits WHERE employee_id = $1 AND kind = 'travel_allowance' AND effective_to IS NULL", [empA])).rows[0]!.id;
+    expect((await send('PATCH', { benefitId: open, effectiveTo: '2026-12-31' })).statusCode).toBe(200);
+    expect((await runLinesRefusal(companyA, runId))?.code).toBe('components_changed_after_calculation');
   });
 });

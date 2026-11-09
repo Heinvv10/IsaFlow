@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyFringeBenefits,
+  FringeBenefitConfigError,
   benefitActiveInPeriod,
   includedInPaye,
   payeInclusionRate,
@@ -67,7 +68,7 @@ describe('applyFringeBenefits', () => {
     expect(out[1]).toMatchObject({ amount: 13000, isNonCash: true, payeInclusionRate: 0.2 });
   });
   it('a vehicle record with no 3802 earning component is refused, never silently dropped', () => {
-    expect(() => applyFringeBenefits(base, [vehicle()], null, period)).toThrow(/3802/);
+    expect(() => applyFringeBenefits(base, [vehicle()], null, period)).toThrow(FringeBenefitConfigError);
   });
   it('an assigned 3802 earning beside a vehicle record is refused (double-counted otherwise)', () => {
     const both: EmployeeComponent[] = [...base, { component: earning('3802'), amount: 14000 }];

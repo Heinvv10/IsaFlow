@@ -70,6 +70,14 @@ export function benefitActiveInPeriod(b: Pick<FringeBenefit, 'effectiveFrom' | '
   return b.effectiveFrom <= last && (b.effectiveTo === null || b.effectiveTo >= first);
 }
 
+/** A recorded benefit that cannot be put on the payslip: the caller says so on the line, never drops it silently. */
+export class FringeBenefitConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FringeBenefitConfigError';
+  }
+}
+
 type RatedComponent = EmployeeComponent & { payeInclusionRate?: number };
 
 /**
@@ -91,12 +99,12 @@ export function applyFringeBenefits(
       ? { ...c, payeInclusionRate: payeInclusionRate(travel.businessUseAtLeast80) }
       : c);
   for (const v of active.filter((b) => b.kind === 'company_vehicle')) {
-    if (v.determinedValue === null) throw new Error('A company vehicle benefit has no determined value');
+    if (v.determinedValue === null) throw new FringeBenefitConfigError('A company vehicle benefit has no determined value');
     if (!vehicleComponent) {
-      throw new Error('A company vehicle is recorded but the company has no active taxable earning coded 3802 to carry the benefit');
+      throw new FringeBenefitConfigError('A company vehicle is recorded but the company has no active taxable earning coded 3802 to carry the benefit');
     }
     if (rated.some((c) => c.component.componentType === 'earning' && normaliseSarsCode(c.component.sarsSourceCode) === VEHICLE_CODE)) {
-      throw new Error('A company vehicle is recorded and a 3802 earning is already assigned: remove one, the benefit would be counted twice');
+      throw new FringeBenefitConfigError('A company vehicle is recorded and a 3802 earning is already assigned: remove one, the benefit would be counted twice');
     }
     rated.push({
       component: vehicleComponent,

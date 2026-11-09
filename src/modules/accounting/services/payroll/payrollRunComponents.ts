@@ -1,4 +1,7 @@
 import { getEmployeeComponents } from './payrollComponentService';
+import { applyFringeBenefits, FringeBenefitConfigError } from './fringeBenefits';
+import { loadFringeBenefitsByEmployee, loadVehicleBenefitComponent } from './fringeBenefitService';
+import { markNonCashEmployerBenefits } from './employerContributions';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
@@ -19,6 +22,8 @@ export async function prepareRunComponents(args: {
 }): Promise<PreparedRunEmployee[]> {
   const { companyId, runId, period, readDate, population } = args;
   const prepared: PreparedRunEmployee[] = [];
+  const benefits = await loadFringeBenefitsByEmployee(companyId, population.map((p) => p.employee.id));
+  const vehicleComponent = await loadVehicleBenefitComponent(companyId);
   for (const { employee, severanceOnly: onlySeverance } of population) {
     const terminationWarnings: ValidationResult[] = [];
     const components = onlySeverance
@@ -27,7 +32,28 @@ export async function prepareRunComponents(args: {
         companyId, runId, employee, await getEmployeeComponents(employee.id, companyId, readDate), period, terminationWarnings,
       );
     if (onlySeverance && components.length === 0) continue;
-    prepared.push({ employee, severanceOnly: onlySeverance, components, terminationWarnings });
+    prepared.push({
+      employee, severanceOnly: onlySeverance, terminationWarnings,
+      components: onlySeverance ? components : withFringe(components, benefits.get(employee.id) ?? [], vehicleComponent, period, terminationWarnings),
+    });
   }
   return prepared;
+}
+
+/**
+ * The employee's components with their fringe benefits applied (vehicle 3802, travel 3701 inclusion) and a 3810
+ * earning marked non-cash. A benefit that cannot be shown is an error on the line (blocks approval), not a silent drop.
+ */
+export function withFringe(
+  components: EmployeeComponent[], benefits: Parameters<typeof applyFringeBenefits>[1],
+  vehicleComponent: Parameters<typeof applyFringeBenefits>[2], period: PayrollPeriod, warnings: ValidationResult[],
+): EmployeeComponent[] {
+  const marked = markNonCashEmployerBenefits(components);
+  try {
+    return applyFringeBenefits(marked, benefits, vehicleComponent, period);
+  } catch (err) {
+    if (!(err instanceof FringeBenefitConfigError)) throw err;
+    warnings.push({ code: 'FRINGE_BENEFIT_NOT_APPLIED', severity: 'error', message: `${err.message}. The benefit was left off this line: fix it and recalculate.` });
+    return marked;
+  }
 }
