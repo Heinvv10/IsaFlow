@@ -81,3 +81,16 @@ it('a refresh in any other shape after an upload is reported', async () => {
   await screen.findByText(/uploaded but the list could not be refreshed/);
   expect(screen.getByText('COR14.3.pdf')).toBeTruthy();
 });
+
+it('an earlier load error is kept when the documents list is also in another shape', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    const u = String(url);
+    if (u.startsWith('/api/accounting/companies?')) return Response.json({ success: true, data: { id: 'company-a', name: 'Example Co' } });
+    if (u.includes('type=messages')) return new Response('{}', { status: 500 });
+    if (u.includes('financial-year-end-change')) return new Response('{}', { status: 503 });
+    return Response.json({ success: true, data: [COR] });
+  });
+  render(<CompanySettingsPage />);
+  await screen.findByText(/Could not load some company settings/);
+  expect(screen.queryByText(/Could not load the statutory documents/)).toBeNull();
+});
