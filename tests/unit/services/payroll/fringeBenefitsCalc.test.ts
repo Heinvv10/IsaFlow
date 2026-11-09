@@ -147,6 +147,12 @@ describe('3810 edge cases (review M2a, M2b, L3)', () => {
     expect(r.validationResults.find((v) => v.code === 'MEDICAL_GROSS_UP_PATTERN')).toMatchObject({ severity: 'info' });
     expect(r.validationResults.some((v) => v.code === 'MEDICAL_SPLIT_ASSUMED')).toBe(false);
   });
+  it('a gross-up opt-in with no 4005 deduction warns that a gross-up needs the premium deduction', () => {
+    const gross = { id: 'g', kind: 'medical_gross_up' as const, determinedValue: null, maintenancePlan: false, businessUseAtLeast80: false, effectiveFrom: '2026-01-01', effectiveTo: null };
+    const r = cost(applyFringeBenefits([salary(25000), er(2000)], [gross], null, { year: 2026, month: 3 }));
+    expect(r.validationResults.find((v) => v.code === 'MEDICAL_GROSS_UP_WITHOUT_4005')).toMatchObject({ severity: 'warning' });
+    expect(r.validationResults.some((v) => v.code === 'MEDICAL_GROSS_UP_PATTERN')).toBe(false);
+  });
   it('a 3810 for an employee with no medical membership warns that no credit was given', () => {
     const e = { ...employee(new Date(1986, 0, 1)), medicalAidMainMember: false };
     const r = calculatePayrollLine({ employee: e, components: markNonCashEmployerBenefits([salary(25000), er(3000)]), period: { year: 2026, month: 3 }, taxYear: 2027, annualPayrollEstimate: 1_000_000 });

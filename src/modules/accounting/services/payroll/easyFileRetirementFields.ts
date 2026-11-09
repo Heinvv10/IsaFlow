@@ -37,7 +37,11 @@ export function retirementFieldLines(r: RetirementContributions | undefined): { 
 
 const DEDUCTION_CODE = /^4[045]\d\d$/;
 
-/** The record with 4497 (the sum of its emitted 40xx / 44xx / 45xx values) in code order; unchanged when none. */
+/**
+ * The record with 4497 (the sum of its emitted 40xx / 44xx / 45xx values) in code order; unchanged when none. BRS V25.3.0
+ * p. 57: 4497 is the "Total of all values specified under 40-deduction, 44-contribution and 45-information codes", so
+ * 4474 (employer's medical contribution) and 4582 (the PAYE portion of 3701 / 3802) are in it.
+ */
 export function withDeductionTotal(record: string[]): string[] {
   let last = -1;
   let firstAbove = -1;

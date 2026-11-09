@@ -117,3 +117,24 @@ describe('one benefit per kind per month: the row with the most days, a tie to t
     expect(out[0]?.payeInclusionRate).toBe(0.2);
   });
 });
+
+describe('the implicit default competes for the days no row covers (travel at 80%, the medical split)', () => {
+  const gross = (over: Partial<FringeBenefit> = {}): FringeBenefit => ({
+    id: 'g', kind: 'medical_gross_up', determinedValue: null, maintenancePlan: false, businessUseAtLeast80: false, effectiveFrom: '2026-01-01', effectiveTo: null, ...over });
+  it('a gross-up opt-in from 11-30 leaves November the split; from 11-01 it decides', () => {
+    expect(selectBenefit([gross({ effectiveFrom: '2026-11-30' })], 'medical_gross_up', { year: 2026, month: 11 })).toBeUndefined();
+    expect(selectBenefit([gross({ effectiveFrom: '2026-11-01' })], 'medical_gross_up', { year: 2026, month: 11 })?.id).toBe('g');
+  });
+  it('the first business-use travel record from 06-25 leaves June at 80%', () => {
+    const out = applyFringeBenefits([{ component: earning('3701'), amount: 5000 }], [travel({ effectiveFrom: '2026-06-25', businessUseAtLeast80: true })], null, { year: 2026, month: 6 });
+    expect(out[0]?.payeInclusionRate).toBeUndefined();
+  });
+  it('a record covering exactly half and the month end decides; a record that ends at half does not', () => {
+    const june = { year: 2026, month: 6 };
+    expect(selectBenefit([travel({ effectiveFrom: '2026-06-16', businessUseAtLeast80: true })], 'travel_allowance', june)?.id).toBe('b2');
+    expect(selectBenefit([travel({ effectiveFrom: '2026-01-01', effectiveTo: '2026-06-15', businessUseAtLeast80: true })], 'travel_allowance', june)).toBeUndefined();
+  });
+  it('a vehicle has no default: one that starts on 06-25 still carries June', () => {
+    expect(selectBenefit([vehicle({ effectiveFrom: '2026-06-25' })], 'company_vehicle', { year: 2026, month: 6 })?.id).toBe('b1');
+  });
+});

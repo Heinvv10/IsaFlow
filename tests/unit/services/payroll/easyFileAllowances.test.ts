@@ -13,7 +13,7 @@ const base: EmployeeInput = {
   idNumber: '9001015009087', taxNumber: '0123456789', employmentStartDate: '20250301', employmentEndDate: null, periodsInYoA: 12,
   grossSalary3601: 360_000, paye4102: 54_000, uifEmployee: 177.12, uifEmployer: 177.12, sdl4142: 3_600,
 };
-const filing = (cash3701: number, vehicle3802: number, payeIncluded: number, legacyLines = 0) => ({ cash3701, vehicle3802, payeIncluded, legacyLines });
+const filing = (cash3701: number, vehicle3802: number, payeIncluded: number, legacyLines = 0, taxableCash3701 = cash3701) => ({ cash3701, taxableCash3701, vehicle3802, payeIncluded, legacyLines });
 
 describe('allowanceCertificateFields', () => {
   it('R30 000 + R5 000 travel at 80%: 3701 5 000 and 4582 4 000', () => {
@@ -40,6 +40,10 @@ describe('allowanceCertificateFields', () => {
   it('the cents of a certified 3701 stay in 3601: 5 000.75 is certified as 5 000', () => {
     expect(allowanceCertificateFields(filing(5000.75, 0, 4000.6), 'T').cashAllowances).toEqual([{ sourceCode: '3701', amount: 5000 }]);
   });
+  it('a non-taxable 3701 is not in the band sum: alone it carries no 4582, beside a vehicle it adds nothing to the band', () => {
+    expect(allowanceCertificateFields(filing(1000, 0, 0, 0, 0), 'T').paye4582).toBeUndefined();
+    expect(allowanceCertificateFields(filing(1000, 14000, 11200, 0, 0), 'T').paye4582).toBe(11200);
+  });
   it('an employee with neither has no 4582', () => {
     expect(allowanceCertificateFields(undefined, 'T')).toEqual({ cashAllowances: [], warnings: [] });
     expect(allowanceCertificateFields(filing(0, 0, 0), 'T').paye4582).toBeUndefined();
@@ -64,5 +68,16 @@ describe('the record', () => {
   });
   it('a certificate whose only income is a 3701 is an income code above zero', () => {
     expect(() => buildEmployeeRecord({ ...base, grossSalary3601: 0, paye4102: 100, cashAllowances: [{ sourceCode: '3701', amount: 2_000 }], paye4582: 1_600 })).not.toThrow();
+  });
+});
+
+describe('the split default on the certificate: R25 000 salary, a 3810 of 2 000 and a 4005 of 2 000 (BRS V25.3.0 p. 101, 103, 57)', () => {
+  it('3810 2 000, 4474 2 000, 4005 4 000 (paid 2 000 + deemed 2 000) and 4497 6 000 (4005 + 4474)', () => {
+    const lines = buildEmployeeRecord({
+      ...base, grossSalary3601: 25_000, paye4102: 3_000,
+      fringeBenefits: [{ sourceCode: '3810', amount: 2_000 }],
+      medical: { fees: 4_000, credit: 752, additionalCredit: 0, age65OrOlder: false, recorded: true },
+    });
+    expect(lines.filter((l) => /^(3810|4005|4474|4497),/.test(l))).toEqual(['3810,2000', '4005,4000', '4474,2000', '4497,6000']);
   });
 });

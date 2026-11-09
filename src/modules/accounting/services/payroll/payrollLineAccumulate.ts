@@ -105,6 +105,10 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
           warnings.push({ code: 'MEDICAL_BENEFIT_NOT_TAXABLE', severity: 'error',
             message: `${component.name} (code 3810, ${formatMoney(amount)}) is an employer medical contribution, a taxable fringe benefit (Seventh Schedule para 12A), but the component is not taxable: `
               + 'no PAYE and no deemed medical fees were taken from it. Mark the component taxable and recalculate.' });
+        } else if (medicalGrossUp && employeeMedical4005 <= 0) {
+          warnings.push({ code: 'MEDICAL_GROSS_UP_WITHOUT_4005', severity: 'warning',
+            message: `${component.name} (code 3810, ${formatMoney(amount)}) is under the medical gross-up recorded for this employee, but there is no 4005 deduction `
+              + 'taking the premium back: a gross-up needs the 4005 premium deduction. Add the deduction, or end the gross-up record so the 3810 is the employer\'s share.' });
         } else if (medicalGrossUp) {
           warnings.push({ code: 'MEDICAL_GROSS_UP_PATTERN', severity: 'info',
             message: `${component.name} (code 3810) is treated as cash under the medical gross-up recorded for this employee: it is taxed as cash and `

@@ -35,6 +35,14 @@ describe('withFringe: a vehicle that cannot be shown', () => {
     expect(warnings[0]).toMatchObject({ code: 'FRINGE_BENEFIT_NOT_APPLIED', severity: 'error' });
     expect(warnings[0]?.message).toMatch(/3802/);
   });
+  it('the gross-up opt-in still decides the 3810 when the vehicle cannot be shown (the catch path)', () => {
+    const gross: FringeBenefit = { id: 'g', kind: 'medical_gross_up', determinedValue: null, maintenancePlan: false, businessUseAtLeast80: false, effectiveFrom: '2026-01-01', effectiveTo: null };
+    const warnings: ValidationResult[] = [];
+    const out = withFringe([salary, { component: comp('3810'), amount: 3000 }], [vehicle, gross], null, period, warnings);
+    expect(warnings.map((w) => w.code)).toEqual(['FRINGE_BENEFIT_NOT_APPLIED']);
+    expect(out[1]).toMatchObject({ medicalGrossUp: true });
+    expect(out[1]).not.toHaveProperty('isNonCash');
+  });
   it('applies the benefit and marks a 3810 non-cash when it can', () => {
     const warnings: ValidationResult[] = [];
     const out = withFringe([salary, { component: comp('3810'), amount: 3000 }], [vehicle], comp('3802'), period, warnings);

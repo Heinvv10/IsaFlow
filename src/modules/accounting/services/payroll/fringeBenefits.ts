@@ -98,15 +98,31 @@ export function benefitActiveInPeriod(b: Pick<FringeBenefit, 'effectiveFrom' | '
   return benefitDaysInPeriod(b, period) > 0;
 }
 
+/** Kinds whose absence is itself a treatment (a travel allowance at 80%, the medical split): they have an implicit default row. */
+const HAS_IMPLICIT_DEFAULT: ReadonlySet<FringeKind> = new Set<FringeKind>(['travel_allowance', 'medical_gross_up']);
+
 /**
- * The one row of a kind that decides a month: the one covering the most days of it, a tie going to the later start.
- * A mid-month car swap or flag change then never counts two benefits, and never blocks the run. NAMED LIMIT: the
- * Seventh Schedule values the use per month; the most-days rule is IsaFlow's, not stated in the SARS guide.
+ * The one row of a kind that decides a month: the one covering the most days of it, a tie going to whichever covers the
+ * month's last day (for two rows, the later start). For a kind with an implicit default (travel at 80%, the medical
+ * split) the days no row covers are the default's own: a row covering fewer days than that does not decide the month
+ * (a gross-up recorded from 11-30 leaves November the split; a first business-use travel record from 06-25 leaves June
+ * at 80%). A vehicle has no default: any month it touches carries it. A mid-month car swap or flag change therefore
+ * never counts two benefits and never blocks the run. NAMED LIMIT: the Seventh Schedule values the use per month; the
+ * most-days rule is IsaFlow's, not stated in the SARS guide.
  */
 export function selectBenefit(benefits: readonly FringeBenefit[], kind: FringeKind, period: PayrollPeriod): FringeBenefit | undefined {
-  return benefits
+  const lastDay = new Date(Date.UTC(period.year, period.month, 0)).getUTCDate();
+  const end = ymd(period.year, period.month, lastDay);
+  const rows = benefits
     .filter((b) => b.kind === kind && benefitActiveInPeriod(b, period))
-    .sort((a, b) => benefitDaysInPeriod(b, period) - benefitDaysInPeriod(a, period) || b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
+    .sort((a, b) => benefitDaysInPeriod(b, period) - benefitDaysInPeriod(a, period) || b.effectiveFrom.localeCompare(a.effectiveFrom));
+  const best = rows[0];
+  if (!best || !HAS_IMPLICIT_DEFAULT.has(kind)) return best;
+  const bestDays = benefitDaysInPeriod(best, period);
+  const uncovered = lastDay - rows.reduce((n, r) => n + benefitDaysInPeriod(r, period), 0);
+  if (uncovered > bestDays) return undefined;
+  const coversLast = best.effectiveTo === null || best.effectiveTo >= end;
+  return uncovered === bestDays && !coversLast ? undefined : best;
 }
 
 /** A recorded benefit that cannot be put on the payslip: the caller says so on the line, never drops it silently. */

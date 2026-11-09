@@ -1,5 +1,5 @@
 import { getEmployeeComponents } from './payrollComponentService';
-import { applyFringeBenefits, FringeBenefitConfigError } from './fringeBenefits';
+import { applyFringeBenefits, FringeBenefitConfigError, selectBenefit } from './fringeBenefits';
 import { loadFringeBenefitsByEmployee, loadVehicleBenefitComponent } from './fringeBenefitService';
 import { markNonCashEmployerBenefits } from './employerContributions';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
@@ -53,6 +53,7 @@ export function withFringe(
   } catch (err) {
     if (!(err instanceof FringeBenefitConfigError)) throw err;
     warnings.push({ code: 'FRINGE_BENEFIT_NOT_APPLIED', severity: 'error', message: `${err.message}. The benefit was left off this line: fix it and recalculate.` });
-    return markNonCashEmployerBenefits(components);
+    // The opt-in still decides the 3810, whether or not the vehicle could be shown.
+    return markNonCashEmployerBenefits(components, selectBenefit(benefits, 'medical_gross_up', period) !== undefined);
   }
 }

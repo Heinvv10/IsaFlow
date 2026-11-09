@@ -23,11 +23,13 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  *  - PAYE: remuneration (Fourth Schedule para 1 (a) takes in para (i) of "gross income"),
  *    so it is periodic taxable pay like cash. loadLoanComponents takes only a taxable 3801.
  *  - UIF: the component's is_uif_applicable flag, as for every earning; setup-components
- *    creates the 3801 with it off. Whether UIF's "remuneration" takes in a benefit is not
- *    settled here (no SARS/UIF source fetched): the flag is the one switch.
+ *    creates the 3801 with it off. A taxable 3701 / 3802 counts at its PAYE share (80% or 20%),
+ *    as the Fourth Schedule para 1 "remuneration" UIF Contributions Act s1 refers to.
  *  - SDL: leviable when is_sdl_applicable (setup default on; SDL Act s3(3) is para 1
- *    remuneration), and part of the employer's s4(b) threshold basis, `remuneration`.
- *  - ETI: in "monthly remuneration" (the para 1 remuneration), as when it was paid as cash.
+ *    remuneration; a 3701 / 3802 at its PAYE share), and part of the employer's s4(b)
+ *    threshold basis, `remuneration` (which still takes the full amount).
+ *  - ETI: in "monthly remuneration" (the para 1 remuneration), as when it was paid as cash;
+ *    a 3701 / 3802 at its PAYE share.
  *  - Cash: NOT in grossPay, so not in netPay or the journal (DR labour = gross = cash),
  *    though the PAYE on it is withheld from the cash.
  * Stored per line: gross_pay (and the header's total_gross) = cash earnings only;

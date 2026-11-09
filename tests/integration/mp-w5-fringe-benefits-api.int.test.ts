@@ -4,6 +4,7 @@
  * body writes nothing; a month a paid run read cannot change; every answer is no-store.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import fringe from '../../pages/api/payroll/employees/[id]/fringe-benefits';
@@ -279,5 +280,34 @@ describe('the GET rate limit', () => {
     expect(statuses.slice(0, 5).every((c) => c === 200)).toBe(true);
     expect(statuses.at(-1)).toBe(429);
     expect(statuses.filter((c) => c === 429).length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('migration 970 backfills the gross-up opt-in for existing 3810 users, once', () => {
+  const mig = readFileSync(`${__dirname}/../../scripts/migrations/sql/970_payroll_employee_fringe_benefits.sql`, 'utf8');
+  let active = '';
+  let ended = '';
+  let none = '';
+  it('an employee with an ACTIVE 3810 assignment gets one medical_gross_up row from its start; ended and absent ones get none; a re-run adds nothing', async () => {
+    const comp = (await pool.query<{ id: string }>(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Employer medical', '3810', 'earning', true) RETURNING id`, [companyA])).rows[0]!.id;
+    const emp = async (n: string) => (await pool.query<{ id: string }>(
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date) VALUES ($1, $2, 'B', $2, '2020-01-01') RETURNING id`, [companyA, n])).rows[0]!.id;
+    active = await emp('BF-ACTIVE'); ended = await emp('BF-ENDED'); none = await emp('BF-NONE');
+    await pool.query("INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, 2000, '2024-05-01'), ($1, $2, 2500, '2025-03-01')", [active, comp]);
+    await pool.query("INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to) VALUES ($1, $2, 2000, '2023-01-01', '2024-12-31')", [ended, comp]);
+    await pool.query(mig);
+    const rowsOf = (id: string) => pool.query<{ kind: string; from: string; by: string }>(
+      "SELECT kind, to_char(effective_from,'YYYY-MM-DD') AS from, created_by AS by FROM payroll_employee_fringe_benefits WHERE employee_id = $1", [id]);
+    expect((await rowsOf(active)).rows).toEqual([{ kind: 'medical_gross_up', from: '2024-05-01', by: 'migration:970' }]);
+    expect((await rowsOf(ended)).rows).toEqual([]);
+    expect((await rowsOf(none)).rows).toEqual([]);
+    await pool.query(mig);
+    expect((await rowsOf(active)).rows).toHaveLength(1);
+  });
+  it('the backfilled opt-in is listed on the profile API as medical_gross_up', async () => {
+    const r = await send('GET', undefined, owner, active);
+    expect((r.body.data as unknown as Array<{ kind: string }>).map((b) => b.kind)).toEqual(['medical_gross_up']);
   });
 });
