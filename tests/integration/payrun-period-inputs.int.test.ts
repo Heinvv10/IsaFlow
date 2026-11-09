@@ -50,7 +50,7 @@ describe('setting a once-off period amount', () => {
     expect(after.gross).toBeCloseTo(before.gross + 1000, 2);
     expect(res.body.data!.run.lines[0].grossPay).toBeCloseTo(after.gross, 2);
     expect(res.body.data!.run.lines[0].netPay).toBeCloseTo(after.net, 2);
-    expect(res.body.data!.inputs.amounts).toEqual([{ employeeId: employee, componentId: comp.overtime, amount: 1000, conflict: false }]);
+    expect(res.body.data!.inputs.amounts).toEqual([{ employeeId: employee, componentId: comp.overtime, amount: 1000, conflict: false, quantity: null }]);
     expect((await fx.header(nov)).gross).toBeCloseTo(after.gross, 2);
   });
 

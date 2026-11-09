@@ -7,6 +7,7 @@ import { calculateSDL } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
 import { sdlLeviableToDate } from './sdlLeviableCumulative';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
+import { hoursValidation, runHoursOf } from './payrollRunHours';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -193,6 +194,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     eti: etiRaw,
     netPay: Math.max(0, netPay),
     componentBreakdown: breakdown,
-    validationResults: warnings,
+    validationResults: [...warnings, ...hoursValidation(employee, components)],
+    hours: runHoursOf(employee, components),
   };
 }

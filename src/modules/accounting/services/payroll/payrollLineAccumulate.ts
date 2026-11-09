@@ -50,7 +50,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
 
-  for (const { component, amount, isNonCash, directive } of components) {
+  for (const { component, amount, isNonCash, directive, quantity, quantityUnit } of components) {
     // Only a retirement contribution can be paid outside payroll (CHECK on payroll_components, migration 948).
     const contribution = component.componentType === 'deduction' && isRetirementContributionCode(component.sarsSourceCode);
     const outsidePayroll = contribution && component.paidOutsidePayroll === true;
@@ -64,6 +64,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       isUifApplicable: component.isUifApplicable,
       // Counted toward the SDL-applicable remuneration below: the year to date rebuilds it from this (payrollSdlYearToDate).
       isSdlApplicable: component.componentType === 'earning' && component.isSdlApplicable,
+      ...(quantity != null && quantityUnit != null ? { quantity, quantityUnit, rate: Math.round((amount / quantity) * 10000) / 10000 } : {}),
       ...(isNonCash ? { isNonCash: true } : {}),
       ...(directive ? { directive } : {}),
       // Marked on the line itself, so the certificate never re-reads today's components (payrollRetirementRecord).

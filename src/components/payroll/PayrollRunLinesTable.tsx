@@ -94,6 +94,8 @@ const num = 'py-2 px-4 text-right tabular-nums';
 
 /** The grid's extra columns: a cell per line and its row index; the save status sits under the name, always on screen. */
 export interface RunLinesEdit {
+  /** HD: hours or days for the hourly and daily, before the once-off earning. */
+  hours?: RunLinesColumn;
   earning: RunLinesColumn;
   deduction?: RunLinesColumn;
   statusCell: (line: RunLineAmounts) => ReactNode;
@@ -126,7 +128,7 @@ export function PayrollRunLinesTable({ lines, edit, onPayslip }: {
     <table className="w-full text-sm">
       <thead>
         <tr className="bg-[var(--ff-bg-secondary)] text-xs">
-          <th colSpan={edit ? 4 : 3} />
+          <th colSpan={(edit ? 4 : 3) + (edit?.hours ? 1 : 0)} />
           <th colSpan={edit?.deduction ? 4 : 3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employee deductions</th>
           <th className="border-l border-[var(--ff-border-primary)]" />
           <th colSpan={3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employer contributions</th>
@@ -135,6 +137,7 @@ export function PayrollRunLinesTable({ lines, edit, onPayslip }: {
         <tr className="bg-[var(--ff-bg-secondary)] text-left">
           <th className={th}>Emp #</th>
           <th className={th}>Name</th>
+          {edit?.hours && <th className={`${th} text-right`}>{edit.hours.head}</th>}
           {edit && <th className={`${th} text-right`}>{edit.earning.head}</th>}
           <th className={`${th} text-right`}>Gross</th>
           <th className={`${th} text-right border-l border-[var(--ff-border-primary)]`}>PAYE</th>
@@ -154,6 +157,7 @@ export function PayrollRunLinesTable({ lines, edit, onPayslip }: {
           <tr key={l.employeeId} className="border-t border-[var(--ff-border-primary)]">
             <td className="py-2 px-4 font-id text-xs text-[var(--ff-text-secondary)]">{l.employeeNumber}</td>
             <td className="py-2 px-4 text-[var(--ff-text-primary)]">{l.employeeName}{edit?.statusCell(l)}</td>
+            {edit?.hours && <td className={num}>{edit.hours.cell(l, row)}</td>}
             {edit && <td className={num}>{edit.earning.cell(l, row)}</td>}
             <GrossCell line={l} />
             <td className={`${num} text-[var(--ff-text-secondary)] border-l border-[var(--ff-border-primary)]`}>{formatCurrency(l.paye)}</td>
@@ -178,7 +182,7 @@ export function PayrollRunLinesTable({ lines, edit, onPayslip }: {
       </tbody>
       <tfoot>
         <tr className="border-t-2 border-[var(--ff-border-primary)] font-semibold text-[var(--ff-text-primary)]">
-          <td className="py-2 px-4" colSpan={edit ? 3 : 2}>Totals</td>
+          <td className="py-2 px-4" colSpan={(edit ? 3 : 2) + (edit?.hours ? 1 : 0)}>Totals</td>
           <td className={num}>{formatCurrency(t.grossPay)}</td>
           <td className={`${num} border-l border-[var(--ff-border-primary)]`}>{formatCurrency(t.paye)}</td>
           <td className={num}>{formatCurrency(t.uifEmployee)}</td>

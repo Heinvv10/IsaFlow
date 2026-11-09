@@ -37,27 +37,27 @@
  * refusal no paid month can reach it), INSERTs naming supersede_inferred = FALSE (mig 953), and an audit row per
  * write in the savepoint, before the recalculation stamps the run (payrollRunRecalcGate reads it; a removal is a
  * 'delete' naming the employee, since its row is gone).
+ *
+ * The write itself is payrollRunRowWrite.ts, shared with setRunHours (payrollRunHoursInput.ts, HD: hours and days of an
+ * hourly or daily employee, priced on the server). An hourly or daily employee's Basic Salary takes no typed amount here.
  */
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { log } from '@/lib/logger';
-import { formatMoney } from '@/lib/money/formatMoney';
-import { TransactionRefusal } from '@/lib/transactionRefusal';
 import { normaliseSarsCode } from './payeAnnualPayment';
 import { journalInForceOrNull } from './payrollJournalChain';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
-import {
-  calculatePayrollRun, getPayrollRun, getPayrollRunLines, type PayrollRunLine, type PayrollRunSummary,
-} from './payrollRunService';
-import { findOverdrawnLines } from './payrollRunLines';
-import { lockPaidRows, monthBounds, readAmounts, type RunPeriod } from './payrollRunPeriodInputsRead';
-import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
-import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
-import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
+import { getPayrollRun, getPayrollRunLines, type PayrollRunLine, type PayrollRunSummary } from './payrollRunService';
+import { lockPaidRows, readAmounts, type RunPeriod } from './payrollRunPeriodInputsRead';
+import type { ComponentChangeActor } from './payrollComponentAudit';
+import { PayrollRunInputRefusedError } from './payrollRunInputRefused';
+import { writeRunRow } from './payrollRunRowWrite';
 import { getTaxYear, getTaxYearConfig, UnsupportedTaxYearError } from './taxTables';
 import { describePayRunApproval } from './payRunApprovalControl';
+import { unitOf } from './payrollRunHours';
+import { basicSalaryOf, hoursInputsOf, type RunInputHours } from './payrollRunHoursRead';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 const EDITABLE_EARNING_CODES: ReadonlySet<string> = new Set(['3601', '3606', '3607']);
@@ -66,8 +66,8 @@ export const EDITABLE_LOCAL_DEDUCTION_CODES: ReadonlySet<string> = new Set(['UNI
 const EDITABLE_STATUSES: ReadonlySet<string> = new Set(['draft', 'calculated']);
 /** NUMERIC(14,2). */
 const MAX_AMOUNT = 999_999_999_999.99;
-const CONFLICTING_ROWS = 'Edit this on the employee page: this month already pays an amount for this component that this cell cannot show.';
-const CHANGED = 'Someone else changed this amount. The stored amount is back in the cell: check it, then enter yours again.';
+export const CONFLICTING_ROWS = 'Edit this on the employee page: this month already pays an amount for this component that this cell cannot show.';
+export const CHANGED = 'Someone else changed this amount. The stored amount is back in the cell: check it, then enter yours again.';
 
 export interface EditableComponentFacts {
   sarsSourceCode: string;
@@ -82,15 +82,7 @@ export function isEditableRunComponent(c: EditableComponentFacts): boolean {
   return false;
 }
 
-/** Raised before the first write, or inside the savepoint that undoes it, so answering it as a 4xx commits nothing. */
-export class PayrollRunInputRefusedError extends TransactionRefusal {
-  readonly status: 400 | 404 | 409;
-  constructor(status: 400 | 404 | 409, message: string) {
-    super(message);
-    this.name = 'PayrollRunInputRefusedError';
-    this.status = status;
-  }
-}
+export { PayrollRunInputRefusedError };
 
 export interface RunInputComponent {
   id: string;
@@ -105,6 +97,8 @@ export interface RunInputAmount {
   /** Null on a conflict: the grid cannot say which one a cell would be. */
   amount: number | null;
   conflict: boolean;
+  /** HD: the hours or days behind the amount, null on a plain amount (and on a conflict). */
+  quantity: number | null;
 }
 
 /** What the run pays every month on this component, shown beside the once-off cell. */
@@ -116,12 +110,16 @@ export interface RunInputRecurring {
 
 export interface RunInputsState {
   run: PayrollRunSummary & { lines: PayrollRunLine[]; approval: DocumentApprovalState | null };
-  inputs: { components: RunInputComponent[]; employeeIds: string[]; amounts: RunInputAmount[]; recurring: RunInputRecurring[] };
+  inputs: {
+    components: RunInputComponent[]; employeeIds: string[]; amounts: RunInputAmount[]; recurring: RunInputRecurring[];
+    /** HD: the Basic Salary component the hours are recorded on (null: none, so none can be entered) and who is paid by the hour or day. */
+    hours: RunInputHours;
+  };
 }
 
 type Period = RunPeriod;
 
-async function listEditableComponents(companyId: string): Promise<RunInputComponent[]> {
+export async function listEditableComponents(companyId: string): Promise<RunInputComponent[]> {
   const rows = (await sql`
     SELECT id, name, sars_source_code, component_type, is_taxable
     FROM payroll_components
@@ -153,7 +151,8 @@ export async function getRunInputs(companyId: string, runId: string): Promise<Ru
   const employees = await listPayrollRunEmployees(companyId, period);
   const components = await listEditableComponents(companyId);
   const captured = await readAmounts(companyId, period, components.map((c) => c.id), employees.map((e) => e.id));
-  return { run: { ...run, lines, approval }, inputs: { components, employeeIds: employees.map((e) => e.id), ...captured } };
+  const hours = { componentId: basicSalaryOf(components)?.id ?? null, employees: hoursInputsOf(employees) };
+  return { run: { ...run, lines, approval }, inputs: { components, employeeIds: employees.map((e) => e.id), ...captured, hours } };
 }
 
 function assertAmount(amount: number): void {
@@ -163,7 +162,7 @@ function assertAmount(amount: number): void {
   }
 }
 
-async function assertRunEditable(companyId: string, runId: string, run: DbRow, period: Period): Promise<void> {
+export async function assertRunEditable(companyId: string, runId: string, run: DbRow, period: Period): Promise<void> {
   if (!EDITABLE_STATUSES.has(String(run.status))) {
     throw new PayrollRunInputRefusedError(400, `This run is ${String(run.status)}: only a draft or calculated run can be edited.`);
   }
@@ -181,11 +180,9 @@ async function assertRunEditable(companyId: string, runId: string, run: DbRow, p
   }
 }
 
-const centsOf = (rand: number) => Math.round(rand * 100);
+export const centsOf = (rand: number) => Math.round(rand * 100);
 
 
-const shortfallOf = async (companyId: string, runId: string, employeeId: string) =>
-  (await findOverdrawnLines(companyId, runId)).find((l) => l.employeeId === employeeId)?.shortfall ?? 0;
 
 /**
  * `expectedAmount` is what the cell last showed, 0 when empty. It must match what is stored, or a change
@@ -218,40 +215,14 @@ export async function setRunPeriodAmount(
   const row = matches[0];
   if (matches.length > 1 || (row && row.on_key !== true)) throw new PayrollRunInputRefusedError(409, CONFLICTING_ROWS);
   if (centsOf(row ? Number(row.amount) : 0) !== centsOf(expectedAmount)) throw new PayrollRunInputRefusedError(409, CHANGED);
+  // Hours and days are priced by the server: a typed amount beside them would leave quantity x rate untrue (HD).
+  const paidByUnit = basicSalaryOf([component]) != null && unitOf(employees.find((e) => e.id === employeeId)!) != null;
+  if (row?.quantity != null || paidByUnit) {
+    throw new PayrollRunInputRefusedError(400, 'This employee is paid by the hour or day: enter their hours or days, not an amount.');
+  }
 
-  const { from, to } = monthBounds(period);
-  const rowId = row ? String(row.id) : null;
-  await withTransaction(async (tx) => {
-    // From a calculation, not the stored line: another writer may have moved the inputs since it was stored.
-    await calculatePayrollRun(runId, companyId, actor.userId);
-    const shortfallBefore = await shortfallOf(companyId, runId, employeeId);
-    const window = { from, to, recurring: false };
-    if (rowId && amount === 0) {
-      await tx`DELETE FROM payroll_employee_components WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;
-      await auditComponentChange(tx, companyId, rowId, window, window, 'run_input_remove', actor, { removed: { employeeId } });
-    } else if (rowId) {
-      await tx`UPDATE payroll_employee_components SET amount = ${amount} WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;
-      await auditComponentChange(tx, companyId, rowId, window, window, 'run_input', actor);
-    } else if (amount !== 0) {
-      try {
-        await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, ...window });
-      } catch (err) {
-        if (err instanceof EmployeeComponentRefused) throw new PayrollRunInputRefusedError(400, err.message);
-        throw err;
-      }
-      const inserted = (await tx`
-        INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred)
-        VALUES (${employeeId}::uuid, ${componentId}::uuid, ${amount}, ${from}, ${to}, FALSE, FALSE) RETURNING id
-      `) as DbRow[];
-      await auditComponentChange(tx, companyId, String(inserted[0]!.id), null, window, 'run_input', actor);
-    }
-    await calculatePayrollRun(runId, companyId, actor.userId);
-    // Only what this edit makes worse. Refusing every flagged line would refuse the edits that repair one.
-    const shortfall = await shortfallOf(companyId, runId, employeeId);
-    if (shortfall > shortfallBefore) {
-      const remedy = component.componentType === 'earning' ? 'Enter a higher amount.' : 'Enter a lower amount.';
-      throw new PayrollRunInputRefusedError(400, `That would take ${formatMoney(shortfall)} more than this employee's pay. ${remedy}`);
-    }
+  await writeRunRow({
+    companyId, runId, employeeId, componentId, componentType: component.componentType, period, rowId: row ? String(row.id) : null, amount, quantity: null, actor,
   });
   log.info('Payroll run period amount set', { companyId, runId, employeeId, componentId }, 'payrollRunPeriodInputs');
 

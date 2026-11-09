@@ -29,7 +29,8 @@
  *   3. for a fresh journal, termination pay-outs another approved or paid run
  *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then a
  *      recurring row needing a manual pro-rata (`recurring_needs_pro_rata`,
- *      payrollRecurringProRata), then the line refusals of payrollLineBlockers (`run_lines_unreadable`,
+ *      payrollRecurringProRata), then an hourly or daily employee with no hours or days (`hours_missing`,
+ *      payrollRunHoursGate), then the line refusals of payrollLineBlockers (`run_lines_unreadable`,
  *      `loan_payments_off_payslip`, `loan_deduction_missing`, `loan_fringe_not_recorded`,
  *      `loan_instalment_exceeds_pay`, `deductions_exceed_pay`), then every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
@@ -52,6 +53,7 @@ import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
 import { findFringeNotRecordedLines, findLoanPaymentsOffPayslip, findOverdrawnLines, findWithheldLoanLines } from './payrollRunLines';
 import { lineBlocker } from './payrollLineBlockers';
+import { hoursMissingBlocker } from './payrollRunHoursGate';
 import { runProRataBlocker } from './payrollRecurringProRata';
 import { recalculateRequiredRefusal, runLinesRefusal } from './payrollRunRecalcGate';
 import { hashOf } from './payrollApprovalHash';
@@ -261,6 +263,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     // A recurring row the last-day read pays in full or drops (payrollRecurringProRata): first, it changes the lines.
     const proRata = await runProRataBlocker(companyId, runId);
     if (proRata) return proRata;
+    // An hourly or daily employee with no hours or days on the stored line (payrollRunHoursGate).
+    const noHours = await hoursMissingBlocker(companyId, runId);
+    if (noHours) return noHours;
     // Unreadable lines, loans off the payslip, withheld or above pay, an unrecorded fringe benefit, a shortfall (payrollLineBlockers).
     const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId), loanPayments.offPayslip,
       [...await findFringeNotRecordedLines(companyId, runId), ...loanPayments.fringeNotRecorded]);
