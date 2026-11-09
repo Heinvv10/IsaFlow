@@ -82,9 +82,10 @@ export function useBankTxKeyboardNav({
   useEffect(() => {
     rowRefs.current = rowRefs.current.slice(0, transactions.length);
 
-    // A completed action's mark serves the very next list update only, whether or not the row left with it.
+    // A completed action's mark waits for the update in which that row actually leaves; an unrelated update (a poll,
+    // a peer's edit) keeps it.
     const acted = actedIdRef.current;
-    actedIdRef.current = null;
+    if (acted !== null && !transactions.some((t) => t.id === acted)) actedIdRef.current = null;
 
     const cur = focusedIndexRef.current;
     if (cur === null) return;
@@ -112,10 +113,20 @@ export function useBankTxKeyboardNav({
     if (focusWasHere) containerRef.current?.focus();
   }, [transactions, focusRow]);
 
-  /** A row is "acted on" only when its handler's promise says it was really posted, excluded or split. */
-  const markWhenDone = useCallback((id: string, outcome: void | Promise<boolean>) => {
+  /** Rows whose accept / exclude / split is still pending: a second press on the same row sends nothing. */
+  const inFlightRef = useRef(new Set<string>());
+
+  /**
+   * Runs a row action. A row is "acted on" only when its handler's promise says it was really posted, excluded or
+   * split; until the promise settles the row is in flight and presses on it are ignored.
+   */
+  const runRowAction = useCallback((id: string, call: (txId: string) => void | Promise<boolean>) => {
+    if (inFlightRef.current.has(id)) return;
+    const outcome = call(id);
     if (!outcome) return;
-    outcome.then((done) => { if (done) actedIdRef.current = id; }, (err: unknown) => log.warn('Bank row action rejected', { error: err }, 'banking'));
+    inFlightRef.current.add(id);
+    outcome.then((done) => { if (done) actedIdRef.current = id; }, (err: unknown) => log.warn('Bank row action rejected', { error: err }, 'banking'))
+      .finally(() => { inFlightRef.current.delete(id); });
   }, []);
 
   const registerRow = useCallback((index: number, el: HTMLTableRowElement | null) => {
@@ -181,9 +192,9 @@ export function useBankTxKeyboardNav({
         const pi = Math.max(index - 1, 0);
         setFocus(pi, transactions[pi]?.id); focusRow(pi); break;
       }
-      case 'accept':  markWhenDone(tx.id, onAccept(tx.id)); break;
-      case 'exclude': markWhenDone(tx.id, onExclude(tx.id)); break;
-      case 'split':   markWhenDone(tx.id, onSplit(tx.id)); break;
+      case 'accept':  runRowAction(tx.id, onAccept); break;
+      case 'exclude': runRowAction(tx.id, onExclude); break;
+      case 'split':   runRowAction(tx.id, onSplit); break;
       case 'edit': {
         const row = rowRefs.current[index];
         const toggle = row?.querySelector<HTMLElement>('[data-bank-toggle]');
@@ -196,14 +207,17 @@ export function useBankTxKeyboardNav({
         break;
       }
     }
-  }, [transactions, rowSelections, focusedIndex, focusRow, setFocus, markWhenDone, onAccept, onExclude, onSplit]);
+  }, [transactions, rowSelections, focusedIndex, focusRow, setFocus, runRowAction, onAccept, onExclude, onSplit]);
 
   const containerProps = useMemo(() => ({
     onKeyDown,
     ref: containerRef,
     onFocus: () => { focusInGridRef.current = true; },
+    // Focus left the grid: to another control, or to nothing (a click on blank space). A focused row that is being
+    // removed is not a departure, so a target that is no longer in the document is ignored.
     onBlur: (e: React.FocusEvent<HTMLDivElement>) => {
-      if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node)) focusInGridRef.current = false;
+      if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
+      if ((e.target as Node).isConnected) focusInGridRef.current = false;
     },
   }), [onKeyDown]);
 

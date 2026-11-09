@@ -55,6 +55,23 @@ describe('a held key', () => {
   });
 });
 
+describe('a pending action', () => {
+  it('a second Enter on the same row while its accept is pending sends nothing; after it settles, it can be pressed again', async () => {
+    let finish: (ok: boolean) => void = () => undefined;
+    const p = tableProps({ onAccept: vi.fn(() => new Promise<boolean>(r => { finish = r; })) });
+    render(<BankTxTable {...p} />);
+    const rowA = rows()[0]!;
+    fireEvent.click(rowA);
+    fireEvent.keyDown(rowA, { key: 'Enter' });
+    fireEvent.keyDown(rowA, { key: 'Enter' });
+    fireEvent.keyDown(rowA, { key: 'Enter' });
+    expect(p.onAccept).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(false); await Promise.resolve(); });
+    fireEvent.keyDown(rowA, { key: 'Enter' });
+    expect(p.onAccept).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('Escape', () => {
   it('from a field in a row the stream does not hold goes to that row', () => {
     render(<BankTxTable {...tableProps()} />);
@@ -179,14 +196,17 @@ describe('when the focused row leaves the list', () => {
     expect(rows().some(r => r.hasAttribute('data-focused'))).toBe(false);
   });
 
-  it('a completed action\'s mark serves the next list update only: a later filter is not ours', async () => {
+  it('an unrelated update (a poll) keeps the mark: the reload that follows still moves the stream on', async () => {
     const p = tableProps({ onExclude: vi.fn().mockResolvedValue(true) });
     const { rerender } = render(<BankTxTable {...p} />);
     fireEvent.keyDown(holdRowA(), { key: 'x' });
     await settled();
-    rerender(<BankTxTable {...p} transactions={[...TXS]} />); // the next update: row a is still there (a peer refresh)
-    rerender(<BankTxTable {...p} transactions={without('a')} />); // now a filter takes it
-    expect(document.activeElement).toBe(grid());
+    rerender(<BankTxTable {...p} transactions={TXS.map(t => (t.id === 'b' ? { ...t, notes: 'polled' } : t))} />); // row a is still there
+    expect(document.activeElement).toBe(rows()[0]); // nothing moved
+    rerender(<BankTxTable {...p} transactions={without('a')} />); // the reload takes the acted row
+    expect(document.activeElement).toBe(rows()[0]);
+    expect(rows()[0]).toHaveAttribute('data-focused', 'true');
+    expect(rows()[0]!.textContent).toContain('Pending row');
   });
 
   it('focus that never was in the grid is left alone', () => {
@@ -194,6 +214,15 @@ describe('when the focused row leaves the list', () => {
     const { rerender } = render(<BankTxTable {...p} />);
     fireEvent.click(rows()[0]!); // a click event alone does not focus
     expect(document.activeElement).toBe(document.body);
+    rerender(<BankTxTable {...p} transactions={without('a')} />);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('a click on blank space (focus leaves to nothing) means a later filter does not take the focus', () => {
+    const p = tableProps();
+    const { rerender } = render(<BankTxTable {...p} />);
+    holdRowA();
+    act(() => { (document.activeElement as HTMLElement).blur(); }); // focus goes to the body: relatedTarget is null
     rerender(<BankTxTable {...p} transactions={without('a')} />);
     expect(document.activeElement).toBe(document.body);
   });

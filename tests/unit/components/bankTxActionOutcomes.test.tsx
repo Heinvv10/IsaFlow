@@ -26,6 +26,8 @@ const TX = { id: 'tx-1', status: 'imported', transactionDate: '2026-06-01', amou
 const ACTION = '/api/accounting/bank-transactions-action';
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const events: string[] = [];
+const refreshBankAccounts = vi.fn();
+const reloadCurrentView = vi.fn();
 
 function actions(over: { entityId?: string; outcome?: ReturnType<typeof useBankTxOutcome>; excludingTxId?: string | null } = {}) {
   return buildBankTxActions({
@@ -34,7 +36,9 @@ function actions(over: { entityId?: string; outcome?: ReturnType<typeof useBankT
     batchType: 'account', excludingTxId: over.excludingTxId ?? null, createEntityTxId: null,
     setSmartRunning: vi.fn(), setRowSelections: vi.fn(), setTransactions: vi.fn(), setSelectedIds: vi.fn(),
     setShowBatchEdit: vi.fn(), setRulePrompt: vi.fn(), setExcludingTxId: vi.fn(), excludeOutcome: over.outcome,
-    loadTransactions: () => { setTimeout(() => events.push('reload'), 0); }, // the list lands later: it is a network round trip refreshBankAccounts: vi.fn(), reloadCurrentView: vi.fn(),
+    // The list lands later: it is a network round trip.
+    loadTransactions: () => { setTimeout(() => events.push('reload'), 0); },
+    refreshBankAccounts, reloadCurrentView,
   } as never);
 }
 
@@ -56,6 +60,10 @@ describe('handleAccept', () => {
     await done;
     await new Promise((r) => setTimeout(r, 5));
     expect(events).toEqual(['resolved true', 'reload']);
+    expect(refreshBankAccounts).toHaveBeenCalledTimes(1);
+    expect(reloadCurrentView).not.toHaveBeenCalled(); // that is the undo's, not the accept's
+    expect(refreshBankAccounts).toHaveBeenCalledTimes(1);
+    expect(reloadCurrentView).not.toHaveBeenCalled(); // that is the undo's, not the accept's
   });
 
   it('resolves false when the server refuses', async () => {
