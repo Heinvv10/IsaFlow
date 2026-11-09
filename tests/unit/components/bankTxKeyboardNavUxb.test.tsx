@@ -59,10 +59,11 @@ describe('a held key', () => {
 describe('Escape', () => {
   it('from a field in a row the stream does not hold goes to that row', () => {
     render(<BankTxTable {...tableProps()} />);
-    fireEvent.click(rows()[0]!); // the stream holds row a
     const rowC = rowOf('Client pay');
-    fireEvent.click(rowC.querySelector('button[aria-label^="Add note"]') as HTMLElement);
+    fireEvent.click(rowC.querySelector('button[aria-label^="Add note"]') as HTMLElement); // opens the field (and holds row c)
     const field = screen.getByRole('textbox', { name: /^Note, / });
+    fireEvent.click(rows()[0]!); // the stream now holds row a; the field stays open in row c
+    expect(rows()[0]).toHaveAttribute('data-focused', 'true');
     field.focus();
     fireEvent.keyDown(field, { key: 'Escape' });
     expect(document.activeElement).toBe(rowC);
