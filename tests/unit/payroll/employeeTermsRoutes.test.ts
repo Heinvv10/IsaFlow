@@ -92,6 +92,22 @@ describe('priced terms: owner and admin only', () => {
     expect(patch).not.toHaveProperty('payBasis');
   });
 
+  it.each([{ hoursPerWeek: 14 }, { hoursPerDay: 4 }, { employmentType: 'casual' }, { employmentType: 'director' }])(
+    'a manager PATCHing %j is 403 and nothing is updated; an admin may', async (change) => {
+      const res = await call(idHandler, 'PATCH', 'manager', change);
+      expect(apiResponse.forbidden).toHaveBeenCalled();
+      expect(updatePayrollEmployee).not.toHaveBeenCalled();
+      expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
+      await call(idHandler, 'PATCH', 'admin', change);
+      expect(updatePayrollEmployee).toHaveBeenCalledTimes(1);
+    });
+
+  it('a manager resending the stored employment type is fine and it is not written back', async () => {
+    await call(idHandler, 'PATCH', 'manager', { employmentType: 'permanent', occupation: 'Clerk' });
+    expect(updatePayrollEmployee).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updatePayrollEmployee).mock.calls[0]![2]).not.toHaveProperty('employmentType');
+  });
+
   it('a refused body (hours 200) is a 400, no-store, nothing updated', async () => {
     const res = await call(idHandler, 'PATCH', 'owner', { hoursPerWeek: 200 });
     expect(apiResponse.badRequest).toHaveBeenCalled();

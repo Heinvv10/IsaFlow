@@ -96,7 +96,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         SUM(prl.sdl)          AS total_sdl,
         -- An independent contractor's months (PAYE_OUTSIDE_TABLES, treatment none) are code 3616, decided per line (easyFileContractor).
         COALESCE(SUM(prl.gross_pay) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_gross,
-        COUNT(*) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false))::int AS contractor_lines,
         -- The taxable 3605 inside those lines stays 3605, not 3616.
         COALESCE(SUM((
           SELECT COALESCE(SUM((item->>'amount')::numeric), 0)
@@ -162,14 +161,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const standalone = lumpSums.standaloneTotals.get(String(row.id)) ?? { gross: 0, paye: 0 };
     const agg = aggMap.get(String(row.id)) ?? (standalone.gross > 0 ? ({} as DbRow) : undefined);
     if (!agg) continue;
-    const { salaryGross: gross, income3616 } = splitContractorIncome({
-      totalGross: Number(agg.total_gross ?? 0), contractorGross: Number(agg.contractor_gross ?? 0), contractorAnnual: Number(agg.contractor_annual ?? 0), standaloneGross: standalone.gross,
+    const { salaryGross: gross, annualPayments, income3616 } = splitContractorIncome({
+      totalGross: Number(agg.total_gross ?? 0), contractorGross: Number(agg.contractor_gross ?? 0), contractorAnnual: Number(agg.contractor_annual ?? 0),
+      annualAll: annualByEmployee.get(String(row.id)) ?? 0, standaloneGross: standalone.gross,
     });
     const fringeBenefits = fringeByEmployee.get(String(row.id)) ?? [];
     const employeeLumpSums = lumpSums.byEmployee.get(String(row.id)) ?? [];
     const split = splitCertificateIncome({
       gross, paye: Number(agg.total_paye ?? 0) + standalone.paye,
-      annualPayments: annualByEmployee.get(String(row.id)) ?? 0, lumpSums: employeeLumpSums,
+      annualPayments, lumpSums: employeeLumpSums,
     });
     const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
     // The writer's rule (cents dropped, a nil field left out): no income code of R1 or more, no
@@ -218,7 +218,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       periodsInYoA: monthsBetween(periodStart, periodEnd),
       ...split,
       ...(income3616 > 0 ? { independentContractor3616: income3616 } : {}),
-      ...(Number(agg.contractor_lines ?? 0) > 0 ? { hadContractorLines: true } : {}),
       fringeBenefits,
       lumpSums: employeeLumpSums.map(l => ({
         sourceCode: l.sourceCode,

@@ -126,9 +126,11 @@ describe('e@syFile: a contractor is 3616, decided per line', () => {
     expect(r.some(l => l.startsWith('3601,'))).toBe(false);
   });
 
-  it('a contractor paid only an annual payment: 3605, reason 03, no 3616 and no 3601', async () => {
-    const r = recordOf((await exportFile()).body, 'Bonusonly');
-    expect(r).toEqual(expect.arrayContaining(['3605,150000', '4150,03']));
-    expect(r.some(l => l.startsWith('3616,') || l.startsWith('3601,'))).toBe(false);
+  it('a contractor paid only what the payroll calls an annual payment: all of it is 3616, reason 03, the file accepted', async () => {
+    const file = await exportFile();
+    expect(file.status).toBe(200);
+    const r = recordOf(file.body, 'Bonusonly');
+    expect(r).toEqual(expect.arrayContaining(['3616,150000', '4150,03']));
+    expect(r.some(l => l.startsWith('3605,') || l.startsWith('3601,'))).toBe(false);
   });
 });

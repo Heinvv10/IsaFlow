@@ -235,9 +235,13 @@ describe('employment type in bulk (TS-b): the enum and the payroll-approval lock
     found();
     await applyBulkEmployeeUpdate(COMPANY_ID, { department: 'OPS' }, { employmentType: 'casual' }, USER_ID);
     const lock = sqlCalls.findIndex(c => c.viaTx && c.sql.includes('pg_advisory_xact_lock'));
+    const read = sqlCalls.findIndex(c => c.sql.includes('FROM payroll_employees') && !c.sql.includes('UPDATE'));
     const update = sqlCalls.findIndex(c => c.sql.includes('UPDATE payroll_employees'));
     expect(lock).toBeGreaterThanOrEqual(0);
-    expect(lock).toBeLessThan(update);
+    // The lock first, then the matching rows are read (inside the same transaction), then they are written.
+    expect(lock).toBeLessThan(read);
+    expect(sqlCalls[read]!.viaTx).toBe(true);
+    expect(read).toBeLessThan(update);
   });
 
   it('a department-only update does not take it', async () => {

@@ -100,8 +100,9 @@ function hasAnyUpdate(u: BulkUpdate): boolean {
 async function findMatchingEmployees(
   companyId: string,
   filter: BulkFilter,
+  db: typeof sql = sql,
 ): Promise<DbRow[]> {
-  return (await sql`
+  return (await db`
     SELECT id, employee_number, first_name, last_name, department, cost_centre_id, employment_type
       FROM payroll_employees
      WHERE company_id = ${companyId}::uuid
@@ -165,14 +166,6 @@ export async function applyBulkEmployeeUpdate(
   if (!hasAnyFilter(filter)) throw new EmptyFilterError();
   judgeEmploymentType(update);
 
-  const rows = await findMatchingEmployees(companyId, filter);
-  if (rows.length === 0) return { updated: 0 };
-
-  log.info(
-    'Applying bulk employee update',
-    { companyId, userId, matchCount: rows.length, update },
-    'payrollBulkEmployeeService',
-  );
 
   // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
   // the ALS request client (`neon/query.ts` LazyQuery.run), which is the transaction
@@ -194,8 +187,16 @@ export async function applyBulkEmployeeUpdate(
   // outside a request transaction, `recordEmployeeChange` must take the `tx`.
   return withTransaction(async (tx) => {
     // The employment type feeds the run's figures (the hours warning, the director check): it waits for the company's
-    // payroll-approval lock like the single-employee write does, so an approval in flight is not left on old figures.
+    // payroll-approval lock like the single-employee write does, so an approval in flight is not left on old figures. The lock
+    // comes BEFORE the matching rows are read, so what is read is what is written.
     if (update.employmentType !== undefined) await lockCompanyPayrollForComponentChange(tx, companyId);
+    const rows = await findMatchingEmployees(companyId, filter, tx as typeof sql);
+    if (rows.length === 0) return { updated: 0 };
+    log.info(
+      'Applying bulk employee update',
+      { companyId, userId, matchCount: rows.length, update },
+      'payrollBulkEmployeeService',
+    );
     for (const r of rows) {
       const id = String(r.id);
       await tx`
