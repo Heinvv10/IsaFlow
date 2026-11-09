@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { inTx } from './helpers/l1FifoFixture';
+import { inTx, runOn } from './helpers/l1FifoFixture';
 import { dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
 import { markSubmitted, saveDraftSubmission } from '../../src/modules/accounting/services/reports/sarsComplianceService';
 
@@ -273,13 +273,28 @@ describeIfDb('tax_return_versions filing and amend rules (migration 971)', () =>
     expect(String(((await sql`SELECT status FROM sars_submissions WHERE id = ${first.id}::UUID`) as Row[])[0]!.status)).toBe('submitted');
   });
 
-  it('concurrent draft saves for one period leave ONE open draft (an advisory lock and a row lock, no index)', async () => {
-    const save = (v: number) =>
-      inTx(a.fx, () => saveDraftSubmission(a.fx.companyId, 'EMP201', '2026-09-01', '2026-09-30', { v }, a.admin.userId));
-    const saved = await Promise.all([1, 2, 3, 4, 5, 6].map(save));
-    expect(new Set(saved.map((r) => r.id)).size).toBe(1);
-    const open = (await sql`SELECT COUNT(*)::INT AS n FROM sars_submissions WHERE company_id = ${a.fx.companyId}::UUID
-      AND form_type = 'EMP201' AND period_start = '2026-09-01'::DATE AND status = 'draft'`) as Row[];
-    expect(open[0]!.n).toBe(1);
+  it('a draft save that overlaps another\'s open transaction waits for it and updates its draft: ONE open draft (advisory lock + row lock, no index)', async () => {
+    const save = (v: number) => saveDraftSubmission(a.fx.companyId, 'EMP201', '2026-09-01', '2026-09-30', { v }, a.admin.userId);
+    const c1 = await a.fx.pool.connect();
+    const c2 = await a.fx.pool.connect();
+    try {
+      await c1.query('BEGIN');
+      const first = await runOn(a.fx, c1, () => save(1)); // inserted, not yet committed
+      await c2.query('BEGIN');
+      const second = runOn(a.fx, c2, () => save(2)); // must wait for c1, then see its draft
+      await new Promise((r) => setTimeout(r, 400));
+      await c1.query('COMMIT');
+      const saved = await second;
+      await c2.query('COMMIT');
+      expect(saved.id).toBe(first.id);
+    } finally {
+      await c1.query('ROLLBACK').catch(() => undefined);
+      await c2.query('ROLLBACK').catch(() => undefined);
+      c1.release();
+      c2.release();
+    }
+    const open = (await sql`SELECT COUNT(*)::INT AS n, MAX(form_data ->> 'v') AS v FROM sars_submissions
+      WHERE company_id = ${a.fx.companyId}::UUID AND form_type = 'EMP201' AND period_start = '2026-09-01'::DATE AND status = 'draft'`) as Row[];
+    expect(open[0]).toMatchObject({ n: 1, v: '2' });
   });
 });
