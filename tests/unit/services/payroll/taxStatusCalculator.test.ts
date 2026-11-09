@@ -35,6 +35,14 @@ describe('non-standard employment: 25% of the balance of remuneration (G21 p. 28
     expect(cost(employee(FLAT), [earn(5_000)], YTD).paye.monthlyPaye).toBe(1_250);
   });
 
+  it('a year to date does not widen the s11F cap of a flat month (27.5% of R5 000 = R1 375 comes off, R906.25 is taxed)', () => {
+    // Read as a table month with this year to date, R5 000 of contributions would all be allowed (to date, 6 periods of a bigger base): PAYE nil.
+    const pay = [earn(5_000), deduct(5_000, '4001')];
+    expect(cost(employee(FLAT), pay).paye.monthlyPaye).toBe(906.25);
+    expect(cost(employee(FLAT), pay, YTD).paye.monthlyPaye).toBe(906.25);
+    expect(cost(employee({ hoursPerWeek: 40 }), pay, YTD).paye.monthlyPaye).not.toBe(906.25);
+  });
+
   it('is on the balance after a retirement contribution (the allowed deduction), and gives no medical credit', () => {
     const r = cost(employee({ ...FLAT, medicalAidMainMember: true }), [earn(5_000), deduct(500, '4001'), deduct(300, '4005')]);
     expect(r.paye.monthlyPaye).toBe(1_125); // 25% x (5 000 - 500)
