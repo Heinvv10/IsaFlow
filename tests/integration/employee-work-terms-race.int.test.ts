@@ -1,6 +1,6 @@
 /**
- * Employee work terms under a concurrent writer (real routes, real Postgres). The window is opened deterministically:
- * straight after the route's read of the employee (what it judged the patch against), another connection commits an owner's change, as a
+ * Employee work terms under a concurrent writer (real routes, real Postgres). The window is opened deterministically,
+ * inside the service before its first locking statement: another connection commits an owner's change, as a
  * concurrent PATCH would. The writer that read first must (1) never log the owner's change a second time under its own
  * name, and (2) answer a refusal (400), not a 500 from the database CHECK, when the owner's change makes its patch
  * unreachable.
@@ -14,26 +14,24 @@ import { cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } fr
 
 const hooks = vi.hoisted(() => ({ afterFirstRead: null as null | (() => Promise<void>), fired: 0 }));
 
-// Every statement goes to the real database untouched except the first plain read of payroll_employees (the route's own,
-// before the service takes any lock), after which the hook runs once. Lazy: sql returns a LazyQuery, so only the matched statement is wrapped.
+// The window is opened inside the service: updatePayrollEmployee opens its transaction through withTransaction, and the
+// hook runs at the start of that transaction, before the service's first locking statement (the company advisory lock
+// or the row's FOR UPDATE). Only the call made from updatePayrollEmployee counts (the stack names it); everything
+// else, the request's own transactions included, goes through untouched.
 vi.mock('@/lib/neon', async (orig) => {
   const real = await orig<Record<string, unknown>>();
-  const realSql = real.sql as ((s: TemplateStringsArray, ...v: unknown[]) => unknown) & Record<string, unknown>;
-  const sql = (strings: TemplateStringsArray, ...values: unknown[]) => {
-    const text = strings.join('?');
+  const realTx = real.withTransaction as <T>(fn: (tx: unknown) => Promise<T>, ...rest: unknown[]) => Promise<T>;
+  const withTransaction = <T,>(fn: (tx: unknown) => Promise<T>, ...rest: unknown[]): Promise<T> => {
     const hook = hooks.afterFirstRead;
-    if (hook && /^\s*SELECT \* FROM payroll_employees/.test(text) && !text.includes('FOR UPDATE')) {
-      hooks.afterFirstRead = null;
-      return (async () => {
-        const rows = await realSql(strings, ...values);
-        hooks.fired += 1;
-        await hook();
-        return rows;
-      })();
-    }
-    return realSql(strings, ...values);
+    if (!hook || !new Error().stack?.includes('updatePayrollEmployee')) return realTx(fn, ...rest);
+    hooks.afterFirstRead = null;
+    return realTx(async (tx) => {
+      hooks.fired += 1;
+      await hook();
+      return fn(tx);
+    }, ...rest);
   };
-  return { ...real, sql: Object.assign(sql, realSql) };
+  return { ...real, withTransaction };
 });
 
 assertDisposable();
@@ -104,6 +102,17 @@ describe('a concurrent owner change during a manager PATCH', () => {
     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
     const row = (await pool.query('SELECT pay_basis, hourly_rate::float AS hr FROM payroll_employees WHERE id = $1', [mine])).rows[0];
     expect(row).toEqual({ pay_basis: 'hourly', hr: 150 });
+  });
+});
+
+describe('a concurrent owner change during an owner PATCH that takes the company lock', () => {
+  it('an hours change logs only the hours: the concurrent rate change is not logged a second time', async () => {
+    hooks.afterFirstRead = ownersChange;
+    const out = await patch(owner, { hoursPerWeek: 38 });
+    expect(hooks.fired, 'the race window was opened').toBe(1);
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
+    expect(await history('hourly_rate')).toHaveLength(1);
+    expect(await history('hours_per_week')).toHaveLength(1);
   });
 });
 

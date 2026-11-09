@@ -25,6 +25,12 @@ describe('EmployeeWorkCard for a manager (no priced terms)', () => {
     expect((screen.getByLabelText('Hourly rate (R)') as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText('Daily rate (R)') as HTMLInputElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: 'Set tax status to Director?' })).toBeNull();
+    // The kit Select is a combobox, not an input: it carries aria-disabled and leaves the tab order.
+    for (const name of ['Tax status', 'Pay basis']) {
+      const box = screen.getByRole('combobox', { name });
+      expect(box.getAttribute('aria-disabled'), name).toBe('true');
+      expect(box.getAttribute('tabindex'), name).toBe('-1');
+    }
     expect((screen.getByLabelText('Hours a week') as HTMLInputElement).disabled).toBe(false);
     expect((screen.getByLabelText('Occupation') as HTMLInputElement).disabled).toBe(false);
   });
@@ -33,6 +39,7 @@ describe('EmployeeWorkCard for a manager (no priced terms)', () => {
     render(<EmployeeWorkCard employee={base} onSaved={vi.fn()} canEditPriced />);
     expect(screen.queryByTestId('priced-terms-hint')).toBeNull();
     expect((screen.getByLabelText('Hourly rate (R)') as HTMLInputElement).disabled).toBe(false);
+    expect(screen.getByRole('combobox', { name: 'Tax status' }).getAttribute('aria-disabled')).toBe('false');
   });
 });
 

@@ -58,7 +58,8 @@ async function handler(
     } catch (err) {
       if (err instanceof EmployeeTermsForbidden) return apiResponse.forbidden(res, err.message);
       if (err instanceof EmployeeOnboardingRefused || err instanceof EmployeeTermsRefused) return apiResponse.badRequest(res, err.message);
-      // An end date waits for the company's payroll lock (an approval in flight): retry, not a server error.
+      // An end date, any s18A value or a status/basis/hours/rate key waits for the company's payroll lock (an approval in
+      // flight), and every patch for the employee's row lock: a timeout is a retry, not a server error.
       if (respondIfLockTimeout(res, err)) return;
       throw err;
     }
