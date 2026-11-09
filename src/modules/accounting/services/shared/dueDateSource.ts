@@ -34,3 +34,7 @@ export function dueDateSourceOf(
   if (!given) return 'terms';
   return given === termsDate ? 'terms' : givenAs;
 }
+
+/** At or under this much owing a document owes nothing: Re-apply skips it and the due-date edit refuses it (AP and AR).
+ * Here, not in reapplyTermsShared, so the browser editor can share it (this module is client-safe). */
+export const NOTHING_OWING_EPS = 0.005;

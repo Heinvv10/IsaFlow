@@ -22,8 +22,8 @@ useApiJsonOverMock();
 afterEach(() => { cleanup(); vi.mocked(apiFetch).mockReset(); });
 
 const ALL = ['draft', 'pending_approval', 'approved', 'sent', 'overdue', 'partially_paid', 'paid', 'cancelled'];
-const render_ = (kind: 'bill' | 'invoice', status: string, onSaved = vi.fn()) =>
-  render(<DueDateEditor kind={kind} invoiceId="i-1" status={status} invoiceDate="2026-09-16" dueDate="2026-12-15" dueDateSource="terms" onSaved={onSaved} />);
+const render_ = (kind: 'bill' | 'invoice', status: string, onSaved = vi.fn(), balance = 1150) =>
+  render(<DueDateEditor kind={kind} invoiceId="i-1" status={status} balance={balance} invoiceDate="2026-09-16" dueDate="2026-12-15" dueDateSource="terms" onSaved={onSaved} />);
 
 describe('DueDateEditor', () => {
   it('its statuses are the services\'', () => {
@@ -39,6 +39,17 @@ describe('DueDateEditor', () => {
   it.each(ALL)('a supplier bill that is %s: editable exactly when the server accepts it', (status) => {
     render_('bill', status);
     expect(Boolean(screen.queryByText('Change due date'))).toBe((DUE_DATE_EDITABLE_STATUSES as readonly string[]).includes(status));
+  });
+
+  it.each([['bill', 0], ['bill', -50], ['invoice', 0], ['invoice', 0.004]] as const)(
+    'a %s with %s owing (fully paid, status not yet moved): no editor, as the server refuses it', (kind, balance) => {
+    render_(kind, 'partially_paid', vi.fn(), balance);
+    expect(screen.queryByText('Change due date')).toBeNull();
+  });
+
+  it.each(['bill', 'invoice'] as const)('a %s owing one cent keeps the editor', (kind) => {
+    render_(kind, 'partially_paid', vi.fn(), 0.01);
+    expect(screen.queryByText('Change due date')).toBeTruthy();
   });
 
   it.each([

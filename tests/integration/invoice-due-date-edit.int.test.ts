@@ -2,7 +2,8 @@
  * Payment-terms programme, AR parity with PR 2: an approved, sent, overdue or part-paid CUSTOMER invoice's due date can
  * be changed, and nothing else; the change is recorded in the entity history (entity_type customer_invoice). Through the
  * real route, the real withAuth and the real capture: the date and its source move and no other column does; drafts,
- * pending, paid, cancelled, deleted and another company's invoices are refused and untouched; a
+ * pending, paid, cancelled, deleted and another company's invoices, and an open one with nothing owing (fully paid; an
+ * overpaid one cannot exist, migration 899; one cent owing still edits), are refused and untouched; a
  * body naming any other field is refused whole; a viewer cannot write; any member can read the history.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -73,15 +74,24 @@ describe('the date-only edit of an open customer invoice', () => {
     expect(await changesOf(pool, id)).toHaveLength(0);
   });
 
-  it.each([['sent'], ['approved'], ['overdue']])('a %s invoice with nothing owing is refused and untouched', async (status) => {
+  it.each([['sent', 1150], ['approved', 1150], ['overdue', 1150]])(
+    'a %s invoice with nothing owing (paid %s of 1150) is refused and untouched', async (status, paid) => {
     const c = await company();
-    const id = await invoice(c, status, { paid: 1150 }); // fully paid, its status not yet moved to paid
+    const id = await invoice(c, status as string, { paid: paid as number }); // its status not yet moved to paid
     const before = await rowOf(id);
     const res = await put(admin, c, { id, dueDate: '2026-12-31' });
     expect(res.state.statusCode, messageOf(res)).toBe(400);
-    expect(messageOf(res)).toMatch(/fully paid: its due date can't be changed/);
+    expect(messageOf(res)).toMatch(/has nothing owing: its due date can't be changed/);
     expect(await rowOf(id)).toEqual(before);
     expect(await changesOf(pool, id)).toHaveLength(0);
+  });
+
+  it('an invoice owing one cent still takes the edit', async () => {
+    const c = await company();
+    const id = await invoice(c, 'partially_paid', { paid: 1149.99 });
+    const res = await put(admin, c, { id, dueDate: '2026-12-31' });
+    expect(res.state.statusCode, messageOf(res)).toBe(200);
+    expect((await rowOf(id)).due_date_source).toBe('manual');
   });
 
   it('a deleted invoice and another company\'s invoice are not found, and untouched', async () => {

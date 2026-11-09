@@ -5,11 +5,11 @@
  */
 import { localDateFromISO } from '@/lib/dateUtils';
 import { describePaymentTerms, dueDateFromTerms, readTerms } from './paymentTerms';
-import { isDueDateSource, type DueDateSource } from './dueDateSource';
+import { isDueDateSource, NOTHING_OWING_EPS, type DueDateSource } from './dueDateSource';
 
 /** The most documents one preview lists, and one apply writes. */
 export const REAPPLY_MAX = 2000;
-export const REAPPLY_EPS = 0.005;
+export const REAPPLY_EPS = NOTHING_OWING_EPS;
 export const REAPPLY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
