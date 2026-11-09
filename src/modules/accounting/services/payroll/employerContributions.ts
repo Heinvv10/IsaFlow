@@ -6,12 +6,13 @@
  * "the same value included as a taxable benefit (code 3810) should be added to value of the contributions made by
  * the employee (code 4005)" for the medical scheme fees tax credit (s6A) and the age-65 additional credit (s6B).
  * PAYE-GEN-01-G21 (2027 tax year) Rev 1 p. 11-12 (PDF pages 11-12), "Medical scheme fees tax credit",
- * IRP5/IT3(a) details. The IRP5 shows 4474 for contributions the employee paid, 3810 for the fringe benefit and 4005
- * for the deemed contributions; BRS V25.3.0 codes 3810 p. 94, 4474 p. 103.
+ * IRP5/IT3(a) details. On the certificate: 3810 is the benefit, 4474 "Employer's medical scheme fees (contributions) paid for the benefit of
+ * employees" (BRS V25.3.0 p. 103) equals it, and 4005 "paid and 'deemed paid' by employee" (p. 101) is what the employee paid
+ * plus the 3810 amount (the line's stored medical_scheme_fees).
  *
  * A 3810 earning is non-cash: taxed (100%, para 12A has no 80 / 20 rule) but not paid, so it is not in gross pay
- * and net pay. NAMED LIMIT: the Seventh Schedule text itself was not fetched; the G21 wording is the source. Whether
- * the 4005 deemed amount is also reported on the certificate is the IRP5 builder's, not this file's.
+ * and net pay. NAMED LIMIT: the Seventh Schedule text itself was not fetched; the G21 wording is the source. The
+ * certificate side (3810, 4474, 4005) is easyFileExportService and payrollMedicalRecord.
  */
 import { normaliseSarsCode } from './payeAnnualPayment';
 import type { EmployeeComponent } from './payrollTypes';
