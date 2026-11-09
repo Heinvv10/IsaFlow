@@ -27,6 +27,7 @@ vi.mock('@/lib/neon', () => ({
     }
     if (q.includes('FROM payroll_components')) return [{ id: 'c-salary', component_type: 'earning' }, { id: 'c-med', component_type: 'deduction' }];
     if (q.includes('prl.taxable_income')) return [{ run_id: RUN, employee_id: EMP, gross_pay: 30000, taxable_income: 30000, paye: 5000, uif_employee: 177.12, net_pay: 23022.88 }];
+    if (q.includes('quantity')) return db.hoursEverywhere ? [HOURS_ROW] : []; // a live reader of hours finds them only when the flag is set
     if (db.hoursEverywhere) return [{ employee_id: EMP, component_id: 'c-salary', sars_source_code: '3601', quantity: 99, quantity_unit: 'hour', quantityUnit: 'hour' }];
     throw new Error(`unexpected query: ${q.slice(0, 120)}`);
   }),
@@ -40,6 +41,7 @@ vi.mock('@/modules/accounting/services/core/pdfShared', async (actual) => ({
 import { getPayslips } from '@/modules/accounting/services/payroll/payslipModel';
 import { buildPayslipPdf, DRAFT_MARK } from '@/modules/accounting/services/payroll/payslipPdf';
 
+const HOURS_ROW = { employee_id: '00000000-0000-4000-8000-0000000000e1', component_id: 'c-salary', sars_source_code: '3601', quantity: 99, quantity_unit: 'hour', quantityUnit: 'hour' };
 const CO = '00000000-0000-4000-8000-0000000000c0';
 const RUN = '00000000-0000-4000-8000-0000000000a1';
 const EMP = '00000000-0000-4000-8000-0000000000e1';
