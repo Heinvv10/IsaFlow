@@ -231,8 +231,8 @@ export async function getIrp5EmployeeTotals(
       runsIncluded: Number(r.runs_included) || 0,
       lumpSums: lumpSums.get(String(r.id)) ?? [],
       fringeBenefits: fringeBenefits.get(String(r.id)) ?? [],
-      ...(({ cashAllowances, paye4582 }) => ({ cashAllowances, paye4582: paye4582 ?? null }))(
-        allowanceCertificateFields(allowances.get(String(r.id)), String(r.employee_number ?? ''))),
+      cashAllowances: (allowances.get(String(r.id))?.cash3701 ?? 0) > 0 ? [{ sourceCode: '3701', amount: allowances.get(String(r.id))!.cash3701 }] : [],
+      paye4582: allowanceCertificateFields(allowances.get(String(r.id)), '').paye4582 ?? null,
     };
   });
 

@@ -71,6 +71,14 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // Fees deducted for a scheme the employee is not recorded as a member of: no MTC (and, 65+, no
   // additional credit) is given, so PAYE is over-deducted. Warned, not corrected: the membership is data.
+  // The employer's medical contribution earns the credits only for a member: with no membership none is given.
+  if (employerMedicalFees > 0 && medicalBeneficiaries <= 0) {
+    warnings.push({
+      code: 'MEDICAL_BENEFIT_WITHOUT_MEMBERSHIP', severity: 'warning',
+      message: `${formatMoney(employerMedicalFees)} of the employer's medical contribution (code 3810) is taxed, but the employee is not marked as a medical aid member `
+        + 'and has no dependants, so no medical tax credit was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
+    });
+  }
   // A 3810-only employee has no deducted fees to warn about (the employer's contribution is the benefit).
   if (medicalSchemeFees - employerMedicalFees > 0 && medicalBeneficiaries <= 0) {
     warnings.push({

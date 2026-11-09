@@ -1,6 +1,6 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
-import { deemedMedicalFees, hasGrossUpPattern, isEmployerMedicalFringeCode } from './employerContributions';
+import { deemedMedicalFees, isEmployerMedicalFringeCode } from './employerContributions';
 import { effectiveInclusionRate, includedInPaye, VEHICLE_CODE } from './fringeBenefits';
 import { notPayeDeductibleWarning } from './payrollLinePaye';
 import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode } from './retirementFund';
@@ -57,11 +57,12 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
   const employerMedicalFees = deemedMedicalFees(components);
+  const employeeMedical4005 = components.filter((c) => c.component.componentType === 'deduction' && normaliseSarsCode(c.component.sarsSourceCode) === '4005').reduce((n, c) => n + c.amount, 0);
   medicalSchemeFees += employerMedicalFees;
 
-  for (const { component, amount, isNonCash, directive, payeInclusionRate: given } of components) {
+  for (const { component, amount, isNonCash, directive, medicalGrossUp, payeInclusionRate: given } of components) {
     // 3701 is 80% remuneration unless a record says business use is at least 80%; one default (fringeBenefits.ts, G21 p. 5).
-    const payeInclusionRate = component.componentType === 'earning' ? effectiveInclusionRate(component.sarsSourceCode, given) : undefined;
+    const payeInclusionRate = component.componentType === 'earning' && component.isTaxable ? effectiveInclusionRate(component.sarsSourceCode, given) : undefined;
     const included = payeInclusionRate === undefined ? amount : includedInPaye(amount, payeInclusionRate);
     // Only a retirement contribution can be paid outside payroll (CHECK on payroll_components, migration 948).
     const contribution = component.componentType === 'deduction' && isRetirementContributionCode(component.sarsSourceCode);
@@ -88,9 +89,9 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       allEarnings += amount;
       levyRemuneration += included;
       if (!isNonCash) grossPay += amount;
-      // UIF stays on the whole amount (no SARS/UIF source fetched for the Fourth Schedule share: LOW confidence); SDL is
-      // levied on "remuneration" (SDL Act s3, Fourth Schedule para 1), which takes in a 3701 / 3802 at its PAYE share.
-      if (component.isUifApplicable) uifLeviable += amount;
+      // SDL (SDL Act s3) and UIF (UIF Contributions Act s1: remuneration as the Fourth Schedule para 1 defines it) are
+      // levied on "remuneration", which takes in a taxable 3701 / 3802 at its PAYE share. A non-taxable earning has no share.
+      if (component.isUifApplicable) uifLeviable += included;
       if (component.isSdlApplicable) sdlLeviable += included;
       if (normaliseSarsCode(component.sarsSourceCode) === VEHICLE_CODE && !isNonCash) {
         warnings.push({ code: 'FRINGE_RECORD_MISSING', severity: 'warning',
@@ -104,10 +105,14 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
           warnings.push({ code: 'MEDICAL_BENEFIT_NOT_TAXABLE', severity: 'error',
             message: `${component.name} (code 3810, ${formatMoney(amount)}) is an employer medical contribution, a taxable fringe benefit (Seventh Schedule para 12A), but the component is not taxable: `
               + 'no PAYE and no deemed medical fees were taken from it. Mark the component taxable and recalculate.' });
-        } else if (hasGrossUpPattern(components)) {
-          warnings.push({ code: 'MEDICAL_GROSS_UP_PATTERN', severity: 'warning',
-            message: `${component.name} (code 3810) is paid as cash beside a medical aid deduction (4005): it was kept as configured, taxed as cash, and not counted as deemed medical fees a second time. `
-              + 'To certify it as the employer\'s contribution (3810 / 4474), remove the 4005 deduction.' });
+        } else if (medicalGrossUp) {
+          warnings.push({ code: 'MEDICAL_GROSS_UP_PATTERN', severity: 'info',
+            message: `${component.name} (code 3810) is treated as cash under the medical gross-up recorded for this employee: it is taxed as cash and `
+              + 'its fees are the 4005 deduction alone, not counted a second time.' });
+        } else if (employeeMedical4005 >= amount) {
+          warnings.push({ code: 'MEDICAL_SPLIT_ASSUMED', severity: 'info',
+            message: `${component.name} (code 3810, ${formatMoney(amount)}) is treated as the employer's share of the medical contribution (a non-cash benefit deemed paid by the employee) `
+              + `and the 4005 deduction as the employee's own share. If the 3810 is paid in cash and the whole premium deducted as 4005, record "Medical gross-up" on the employee profile.` });
         }
       }
       if (isEmployerFundBenefitCode(component.sarsSourceCode)) warnings.push(employerFundBenefitWarning(component.name, component.sarsSourceCode, amount));

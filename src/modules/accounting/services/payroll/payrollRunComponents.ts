@@ -48,12 +48,11 @@ export function withFringe(
   components: EmployeeComponent[], benefits: Parameters<typeof applyFringeBenefits>[1],
   vehicleComponent: Parameters<typeof applyFringeBenefits>[2], period: PayrollPeriod, warnings: ValidationResult[],
 ): EmployeeComponent[] {
-  const marked = markNonCashEmployerBenefits(components);
   try {
-    return applyFringeBenefits(marked, benefits, vehicleComponent, period);
+    return applyFringeBenefits(components, benefits, vehicleComponent, period);
   } catch (err) {
     if (!(err instanceof FringeBenefitConfigError)) throw err;
     warnings.push({ code: 'FRINGE_BENEFIT_NOT_APPLIED', severity: 'error', message: `${err.message}. The benefit was left off this line: fix it and recalculate.` });
-    return marked;
+    return markNonCashEmployerBenefits(components);
   }
 }

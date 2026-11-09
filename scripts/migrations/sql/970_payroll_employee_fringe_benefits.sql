@@ -12,6 +12,11 @@
 --     80% of the amount is remuneration for PAYE, or 20% where the employer is
 --     satisfied that at least 80% of the use is business.
 --
+-- A third kind, medical_gross_up, is the explicit opt-in for the gross-up pattern some companies use for medical aid:
+-- a 3810 earning paid in cash beside a 4005 deduction that takes the premium back. The default is the employer /
+-- employee split (3810 is the employer's share, a non-cash benefit deemed paid by the employee; 4005 is the employee's
+-- own share); the two cannot be told apart from the amounts, so the gross-up is never inferred.
+--
 -- One row per period of use. A row is never deleted (a finalised payslip was
 -- costed from it): it is ended with effective_to. Overlapping rows of one kind
 -- for one employee are refused by the service under the company payroll lock and,
@@ -31,7 +36,7 @@ CREATE TABLE IF NOT EXISTS payroll_employee_fringe_benefits (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   employee_id UUID NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('company_vehicle', 'travel_allowance')),
+  kind TEXT NOT NULL CHECK (kind IN ('company_vehicle', 'travel_allowance', 'medical_gross_up')),
   determined_value NUMERIC(14, 2) CHECK (determined_value IS NULL OR determined_value > 0),
   maintenance_plan BOOLEAN NOT NULL DEFAULT FALSE,
   business_use_at_least_80 BOOLEAN NOT NULL DEFAULT FALSE,
@@ -43,10 +48,10 @@ CREATE TABLE IF NOT EXISTS payroll_employee_fringe_benefits (
   CONSTRAINT payroll_fringe_employee_company_fk FOREIGN KEY (employee_id, company_id)
     REFERENCES payroll_employees (id, company_id) ON DELETE CASCADE,
   CONSTRAINT payroll_fringe_dates_ordered CHECK (effective_to IS NULL OR effective_to >= effective_from),
-  -- A vehicle benefit is a percentage of a value: no value, no benefit. A travel allowance has no determined value.
+  -- A vehicle benefit is a percentage of a value: no value, no benefit. The other kinds have no determined value.
   CONSTRAINT payroll_fringe_kind_shape CHECK (
     (kind = 'company_vehicle' AND determined_value IS NOT NULL)
-    OR (kind = 'travel_allowance' AND determined_value IS NULL AND maintenance_plan = FALSE)
+    OR (kind IN ('travel_allowance', 'medical_gross_up') AND determined_value IS NULL AND maintenance_plan = FALSE)
   )
 );
 
@@ -57,6 +62,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_fringe_one_open_per_kind
   ON payroll_employee_fringe_benefits (employee_id, kind) WHERE effective_to IS NULL;
 
 -- No two rows of one kind may overlap for an employee (whole days, both ends inclusive). Only where btree_gist exists.
+-- NAMED LIMIT: a database without btree_gist has only the service's company payroll lock as the overlap guard (migrations
+-- 502 and 644 already create the extension, so production should have it; this migration never creates it).
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'btree_gist')

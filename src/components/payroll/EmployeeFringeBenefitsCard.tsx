@@ -13,12 +13,13 @@ import { formatCurrency } from '@/utils/formatters';
 import { vehicleMonthlyBenefit, type FringeBenefit, type FringeKind } from '@/modules/accounting/services/payroll/fringeBenefits';
 
 const FAILED = 'Could not load the fringe benefits - try again';
-const KIND_LABEL: Record<FringeKind, string> = { company_vehicle: 'Company vehicle', travel_allowance: 'Travel allowance' };
+const KIND_LABEL: Record<FringeKind, string> = { company_vehicle: 'Company vehicle', travel_allowance: 'Travel allowance', medical_gross_up: 'Medical gross-up' };
 const INPUT = 'w-full rounded-md border border-[var(--ff-border-primary)] bg-[var(--ff-surface-secondary)] px-3 py-2 text-sm text-[var(--ff-text-primary)]';
 const BTN = 'rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50';
 
 function describe(b: FringeBenefit): string {
   const share = b.businessUseAtLeast80 ? '20%' : '80%';
+  if (b.kind === 'medical_gross_up') return 'a 3810 earning is paid as cash and the whole premium is deducted as 4005';
   if (b.kind === 'travel_allowance') return `${share} of the allowance is taxed`;
   const monthly = vehicleMonthlyBenefit(b.determinedValue ?? 0, b.maintenancePlan);
   return `${formatCurrency(monthly)} a month (${b.maintenancePlan ? '3.25%' : '3.5%'} of ${formatCurrency(b.determinedValue ?? 0)}), ${share} taxed`;
@@ -69,7 +70,7 @@ export function EmployeeFringeBenefitsCard({ employeeId }: { employeeId: string 
     if (vehicle && !(amount > 0)) { setError('Enter the vehicle\'s determined value'); return; }
     const ok = await send('POST', {
       kind, determinedValue: vehicle ? amount : null, maintenancePlan: vehicle && maintenance,
-      businessUseAtLeast80: business, effectiveFrom: from ?? '',
+      businessUseAtLeast80: kind !== 'medical_gross_up' && business, effectiveFrom: from ?? '',
     }, 'Could not save the fringe benefit - try again');
     if (ok) { setValue(''); setMaintenance(false); setBusiness(false); }
   }
@@ -124,6 +125,17 @@ export function EmployeeFringeBenefitsCard({ employeeId }: { employeeId: string 
             </button>
           ))}
         </div>
+        {kind === 'medical_gross_up' && (
+          <p className="text-sm text-[var(--ff-text-secondary)]">
+            Only if this company pays the employer medical contribution (3810) in cash and deducts the whole premium as 4005. By default the 3810 is the employer&apos;s share (a non-cash benefit) and the 4005 the employee&apos;s own.
+          </p>
+        )}
+        {kind !== 'medical_gross_up' && (
+          <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+            <input type="checkbox" checked={business} onChange={(e) => setBusiness(e.target.checked)} />
+            Employer is satisfied at least 80% of the use is business (PAYE on 20%, not 80%)
+          </label>
+        )}
         {kind === 'company_vehicle' && (
           <>
             <label className="block text-sm text-[var(--ff-text-secondary)]">Determined value (R)
@@ -135,10 +147,6 @@ export function EmployeeFringeBenefitsCard({ employeeId }: { employeeId: string 
             </label>
           </>
         )}
-        <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
-          <input type="checkbox" checked={business} onChange={(e) => setBusiness(e.target.checked)} />
-          Employer is satisfied at least 80% of the use is business (PAYE on 20%, not 80%)
-        </label>
         <DateField label="From" value={from} onChange={(iso) => setFrom(iso)} />
         <button type="button" onClick={() => void add()} disabled={saving || !from} className={BTN}>{saving ? 'Saving…' : 'Add'}</button>
       </fieldset>

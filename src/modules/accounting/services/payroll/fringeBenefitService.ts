@@ -102,8 +102,8 @@ function checkInput(i: FringeBenefitInput): void {
   if (i.kind === 'company_vehicle' && !(i.determinedValue !== null && i.determinedValue > 0)) {
     throw new FringeBenefitRefused('A company vehicle needs its determined value (Seventh Schedule para 7)');
   }
-  if (i.kind === 'travel_allowance' && (i.determinedValue !== null || i.maintenancePlan)) {
-    throw new FringeBenefitRefused('A travel allowance has no determined value or maintenance plan');
+  if (i.kind !== 'company_vehicle' && (i.determinedValue !== null || i.maintenancePlan)) {
+    throw new FringeBenefitRefused('Only a company vehicle has a determined value or maintenance plan');
   }
 }
 

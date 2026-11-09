@@ -2,7 +2,7 @@
  * The travel allowance and vehicle on the e@syFile certificate (wave 5 FB review, H1). SARS BRS PAYE Employer
  * Reconciliation V25.3.0: 3701 is its own income code (p. 47, 105), 4582 "The portion (80 or 20%) of the allowance and
  * benefit which is subject to PAYE" (p. 105; mandatory when 3701 + 3802 + 3816 is above zero and within 20-80% of it,
- * p. 54), 4474 the employer's medical contribution = 3810 (p. 103), 4497 totals the 40 / 44 / 45 codes.
+ * p. 54), 4474 the employer's medical contribution = 3810 (p. 103), 4497 totals the 40 / 44 / 45 codes (p. 57: "Total of all values specified under 40-deduction, 44-contribution and 45-information codes", so 4474 and 4582 count).
  */
 import { describe, expect, it } from 'vitest';
 import { buildEmployeeRecord, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
@@ -31,6 +31,14 @@ describe('allowanceCertificateFields', () => {
     const r = allowanceCertificateFields(filing(5000, 0, 5000, 3), 'Thandi');
     expect(r.paye4582).toBe(4000);
     expect(r.warnings[0]).toMatch(/Thandi.*4582.*20% to 80%.*3 line/);
+  });
+  it('a cash 3701 under R1 is not certified as 3701 (it stays in 3601) and carries no 4582', () => {
+    const r = allowanceCertificateFields(filing(0.6, 0, 0.48), 'T');
+    expect(r.cashAllowances).toEqual([]);
+    expect(r.paye4582).toBeUndefined();
+  });
+  it('the cents of a certified 3701 stay in 3601: 5 000.75 is certified as 5 000', () => {
+    expect(allowanceCertificateFields(filing(5000.75, 0, 4000.6), 'T').cashAllowances).toEqual([{ sourceCode: '3701', amount: 5000 }]);
   });
   it('an employee with neither has no 4582', () => {
     expect(allowanceCertificateFields(undefined, 'T')).toEqual({ cashAllowances: [], warnings: [] });

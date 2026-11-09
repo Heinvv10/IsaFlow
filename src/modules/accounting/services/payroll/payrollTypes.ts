@@ -68,6 +68,8 @@ export interface EmployeeComponent {
   isNonCash?: boolean;
   /** The share of a taxable periodic earning that is remuneration for PAYE (0.8 or 0.2; fringeBenefits.ts). Absent = all of it. */
   payeInclusionRate?: number;
+  /** A 3810 earning under the explicit gross-up opt-in: paid as cash, its fees are the 4005 deduction's (employerContributions.ts). */
+  medicalGrossUp?: boolean;
   /** Set on a lump-sum (39xx) component paid under a directive; see payrollCalculator. */
   directive?: DirectiveFigures;
   /** The assignment's is_recurring, when read from payroll_employee_components (the termination base takes recurring rows only). */

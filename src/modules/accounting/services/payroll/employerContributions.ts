@@ -27,27 +27,24 @@ const is3810Earning = (c: EmployeeComponent): boolean =>
   c.component.componentType === 'earning' && isEmployerMedicalFringeCode(c.component.sarsSourceCode);
 
 /**
- * The gross-up pattern some companies use: a 3810 earning beside a 4005 deduction of the premium. The earning is cash
- * paid to the employee and the deduction takes the premium back, so the fees are already counted once (the 4005) and
- * the 3810 must neither become non-cash nor count a second time. Kept as configured, with a warning.
+ * A 3810 earning is the employer's share of a medical scheme contribution: never paid in cash, so flagged non-cash as the
+ * loan benefit is, and deemed paid by the employee. The employee's own share is a 4005 deduction beside it; the two cannot be
+ * told apart from the amounts. Some companies instead pay the 3810 in cash and deduct the whole premium as 4005 (the
+ * gross-up): only the explicit `medical_gross_up` record (fringeBenefits.ts) says so, and then the 3810 stays the cash it
+ * is and its fees are the 4005 deduction's alone (`medicalGrossUp`). Input is not mutated.
  */
-export function hasGrossUpPattern(components: readonly EmployeeComponent[]): boolean {
-  return components.some(is3810Earning) && components.some((c) =>
-    c.component.componentType === 'deduction' && normaliseSarsCode(c.component.sarsSourceCode) === '4005' && c.amount > 0);
-}
-
-/** A 3810 earning is never paid in cash: flag it, as the loan benefit is (not in the gross-up pattern). Input is not mutated. */
-export function markNonCashEmployerBenefits(components: readonly EmployeeComponent[]): EmployeeComponent[] {
-  if (hasGrossUpPattern(components)) return [...components];
-  return components.map((c) => (is3810Earning(c) ? { ...c, isNonCash: true } : c));
+export function markNonCashEmployerBenefits(components: readonly EmployeeComponent[], grossUp = false): EmployeeComponent[] {
+  return components.map((c) => {
+    if (!is3810Earning(c)) return c;
+    return grossUp ? { ...c, medicalGrossUp: true } : { ...c, isNonCash: true };
+  });
 }
 
 /**
  * The value deemed paid by the employee for the medical credits (G21 p. 12): the taxable 3810 earnings. A 3810 that is
- * not taxable is no taxable benefit, so nothing is deemed (and the line is refused, MEDICAL_BENEFIT_NOT_TAXABLE); in
- * the gross-up pattern the 4005 deduction already carries the fees.
+ * not taxable is no taxable benefit, so nothing is deemed (and the line is refused, MEDICAL_BENEFIT_NOT_TAXABLE); under
+ * the gross-up opt-in the 4005 deduction already carries the fees.
  */
 export function deemedMedicalFees(components: readonly EmployeeComponent[]): number {
-  if (hasGrossUpPattern(components)) return 0;
-  return Math.round(components.filter((c) => is3810Earning(c) && c.component.isTaxable).reduce((s, c) => s + c.amount, 0) * 100) / 100;
+  return Math.round(components.filter((c) => is3810Earning(c) && c.component.isTaxable && c.medicalGrossUp !== true).reduce((s, c) => s + c.amount, 0) * 100) / 100;
 }

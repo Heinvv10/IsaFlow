@@ -37,14 +37,17 @@ export async function listRunAllowanceFiling(
     SELECT l.employee_id,
       COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE code = '3701' AND item->>'isNonCash' IS DISTINCT FROM 'true'), 0)::numeric AS cash_3701,
       COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE code = '3802' AND item->>'isNonCash' = 'true'), 0)::numeric AS vehicle_3802,
-      COALESCE(SUM(CASE WHEN item->>'isTaxable' = 'true'
-        THEN COALESCE((item->>'payeIncludedAmount')::numeric, (item->>'amount')::numeric) ELSE 0 END), 0)::numeric AS included,
-      COUNT(*) FILTER (WHERE item->>'isTaxable' = 'true' AND item->>'payeIncludedAmount' IS NULL)::int AS legacy
+      COALESCE(SUM(CASE WHEN counted THEN COALESCE((item->>'payeIncludedAmount')::numeric, (item->>'amount')::numeric) ELSE 0 END), 0)::numeric AS included,
+      COUNT(*) FILTER (WHERE counted AND item->>'payeIncludedAmount' IS NULL)::int AS legacy
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id
     JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
     CROSS JOIN LATERAL (
-      SELECT i AS item, regexp_replace(i->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') AS code
+      SELECT i AS item, regexp_replace(i->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') AS code,
+        -- 4582 counts what the band sum counts: a taxable cash 3701 and a taxable NON-CASH 3802 (a hand-assigned cash 3802 is plain income).
+        (i->>'isTaxable' = 'true'
+          AND ((regexp_replace(i->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3701' AND i->>'isNonCash' IS DISTINCT FROM 'true')
+            OR (regexp_replace(i->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3802' AND i->>'isNonCash' = 'true'))) AS counted
       FROM jsonb_array_elements(CASE WHEN jsonb_typeof(l.component_breakdown) = 'array' THEN l.component_breakdown ELSE '[]'::jsonb END) AS i
     ) c
     WHERE h.company_id = ${companyId}::uuid
@@ -65,7 +68,8 @@ export function allowanceCertificateFields(a: AllowanceFiling | undefined, who: 
   cashAllowances: { sourceCode: string; amount: number }[]; paye4582?: number; warnings: string[];
 } {
   if (!a) return { cashAllowances: [], warnings: [] };
-  const cashAllowances = a.cash3701 > 0 ? [{ sourceCode: '3701', amount: a.cash3701 }] : [];
+  // Certified in whole rand (the writer drops cents): what is under R1 stays in 3601, never vanishes from both.
+  const cashAllowances = Math.floor(a.cash3701) >= 1 ? [{ sourceCode: '3701', amount: Math.floor(a.cash3701) }] : [];
   // The certified values drop cents, and SARS's 20-80% band is judged on them.
   const sum = Math.floor(a.cash3701) + Math.floor(a.vehicle3802);
   if (sum <= 0) return { cashAllowances, warnings: [] };

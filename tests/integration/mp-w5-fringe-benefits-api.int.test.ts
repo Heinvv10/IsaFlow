@@ -262,3 +262,22 @@ describe('the certificate data carries 3701 and 4582 from the stored lines', () 
     expect(row.grossSalary).toBe(45000);
   });
 });
+
+describe('the medical gross-up opt-in', () => {
+  it('is recorded like the other kinds, carries no value, and does not overlap itself', async () => {
+    const body = { kind: 'medical_gross_up', businessUseAtLeast80: false, effectiveFrom: '2036-01-01' };
+    expect((await send('POST', { ...body, determinedValue: 1000 })).statusCode).toBe(400);
+    expect((await send('POST', body)).statusCode).toBe(201);
+    expect((await send('POST', { ...body, effectiveFrom: '2037-01-01' })).statusCode).toBe(400);
+  });
+});
+
+describe('the GET rate limit', () => {
+  it('answers 429 once a user passes the interactive limit, and the write path is unaffected', async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 125; i += 1) statuses.push((await send('GET', undefined, approver)).statusCode);
+    expect(statuses.slice(0, 5).every((c) => c === 200)).toBe(true);
+    expect(statuses.at(-1)).toBe(429);
+    expect(statuses.filter((c) => c === 429).length).toBeGreaterThanOrEqual(1);
+  });
+});

@@ -85,9 +85,15 @@ describe('SDL and ETI read the Fourth Schedule para 1 remuneration (SDL Act s3):
   it('R30 000 + a 3701 of 5 000 at 80%: SDL is 1% of 34 000 = 340.00', () => {
     expect(cost([salary(30000), { component: sdlOn('3701'), amount: 5000 }]).sdl).toBe(340);
   });
-  it('UIF stays on the whole component amount (LOW confidence: no UIF source fetched)', () => {
+  it('UIF takes the same share (UIF Contributions Act s1, remuneration as the Fourth Schedule para 1): R10 000 + a 3701 of 5 000 is UIF on 14 000', () => {
     const r = cost([salary(10000), { component: comp('3701', { isUifApplicable: true }), amount: 5000 }]);
-    expect(r.uif.employeeContribution).toBe(150);
+    expect(r.uif.employeeContribution).toBe(140);
+  });
+  it('a non-taxable 3701 has no share: SDL and UIF stay on the whole 5 000 and the breakdown stores no rate', () => {
+    const r = cost([salary(30000), { component: comp('3701', { isTaxable: false, isSdlApplicable: true, isUifApplicable: true }), amount: 5000 }]);
+    expect(r.sdl).toBe(300 + 50);
+    expect(r.uif.employeeContribution).toBe(177.12);
+    expect(r.componentBreakdown.find((b) => b.sarsSourceCode === '3701')).not.toHaveProperty('payeInclusionRate');
   });
 });
 
@@ -121,14 +127,30 @@ describe('3810 edge cases (review M2a, M2b, L3)', () => {
     expect(r.additionalMedicalCredit).toBe(0);
     expect(r.validationResults.find((v) => v.code === 'MEDICAL_BENEFIT_NOT_TAXABLE')).toMatchObject({ severity: 'error' });
   });
-  it('the gross-up pattern (3810 earning + 4005 deduction) stays cash, counts the fees once, and warns', () => {
-    const input = [salary(25000), er(3000), fee4005(3000)];
-    const marked = markNonCashEmployerBenefits(input);
-    expect(marked[1]).not.toHaveProperty('isNonCash');
+  it('the default is the split: R25 000 + a 3810 of 2 000 + a 4005 of 2 000 is non-cash, fees 4 000, net excludes the 2 000', () => {
+    const marked = markNonCashEmployerBenefits([salary(25000), er(2000), fee4005(2000)]);
+    expect(marked[1]?.isNonCash).toBe(true);
     const r = cost(marked, old);
-    expect(r.medicalSchemeFees).toBe(3000);
-    expect(r.grossPay).toBe(28000);
-    expect(r.validationResults.find((v) => v.code === 'MEDICAL_GROSS_UP_PATTERN')).toMatchObject({ severity: 'warning' });
+    expect(r.medicalSchemeFees).toBe(4000);
+    expect(r.grossPay).toBe(25000);
+    expect(r.netPay).toBe(Math.round((25000 - 2000 - r.paye.monthlyPaye - r.uif.employeeContribution) * 100) / 100);
+    expect(r.validationResults.find((v) => v.code === 'MEDICAL_SPLIT_ASSUMED')).toMatchObject({ severity: 'info' });
+    expect(r.validationResults.some((v) => v.code === 'MEDICAL_GROSS_UP_PATTERN')).toBe(false);
+  });
+  it('the explicit medical_gross_up opt-in keeps the 3810 as cash and counts the fees once', () => {
+    const gross = { id: 'g', kind: 'medical_gross_up' as const, determinedValue: null, maintenancePlan: false, businessUseAtLeast80: false, effectiveFrom: '2026-01-01', effectiveTo: null };
+    const out = applyFringeBenefits([salary(25000), er(2000), fee4005(2000)], [gross], null, { year: 2026, month: 3 });
+    expect(out[1]).not.toHaveProperty('isNonCash');
+    const r = cost(out, old);
+    expect(r.medicalSchemeFees).toBe(2000);
+    expect(r.grossPay).toBe(27000);
+    expect(r.validationResults.find((v) => v.code === 'MEDICAL_GROSS_UP_PATTERN')).toMatchObject({ severity: 'info' });
+    expect(r.validationResults.some((v) => v.code === 'MEDICAL_SPLIT_ASSUMED')).toBe(false);
+  });
+  it('a 3810 for an employee with no medical membership warns that no credit was given', () => {
+    const e = { ...employee(new Date(1986, 0, 1)), medicalAidMainMember: false };
+    const r = calculatePayrollLine({ employee: e, components: markNonCashEmployerBenefits([salary(25000), er(3000)]), period: { year: 2026, month: 3 }, taxYear: 2027, annualPayrollEstimate: 1_000_000 });
+    expect(r.validationResults.find((v) => v.code === 'MEDICAL_BENEFIT_WITHOUT_MEMBERSHIP')).toMatchObject({ severity: 'warning' });
   });
   it('a 3810-only employee with no medical membership gets no "4005 is deducted" warning', () => {
     const e = { ...employee(new Date(1986, 0, 1)), medicalAidMainMember: false };

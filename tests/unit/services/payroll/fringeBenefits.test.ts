@@ -7,6 +7,8 @@ import {
   applyFringeBenefits,
   FringeBenefitConfigError,
   benefitActiveInPeriod,
+  benefitDaysInPeriod,
+  selectBenefit,
   includedInPaye,
   payeInclusionRate,
   vehicleMonthlyBenefit,
@@ -87,5 +89,31 @@ describe('applyFringeBenefits', () => {
     const withTravel: EmployeeComponent[] = [...base, { component: earning('3701'), amount: 5000 }];
     applyFringeBenefits(withTravel, [travel()], null, period);
     expect(withTravel[1]).not.toHaveProperty('payeInclusionRate');
+  });
+});
+
+describe('one benefit per kind per month: the row with the most days, a tie to the later start', () => {
+  const june = { year: 2026, month: 6 };
+  const carA = vehicle({ id: 'A', determinedValue: 300000, effectiveFrom: '2026-01-01', effectiveTo: '2026-06-15' });
+  const carB = vehicle({ id: 'B', determinedValue: 500000, effectiveFrom: '2026-06-16', effectiveTo: null });
+  it('counts the days of the month', () => {
+    expect(benefitDaysInPeriod(carA, june)).toBe(15);
+    expect(benefitDaysInPeriod(carB, june)).toBe(15);
+    expect(benefitDaysInPeriod(carA, { year: 2026, month: 7 })).toBe(0);
+  });
+  it('a car swapped on 06-15 / 06-16 ties 15 days each: the later car decides, one 3802, no refusal', () => {
+    expect(selectBenefit([carA, carB], 'company_vehicle', june)?.id).toBe('B');
+    const out = applyFringeBenefits([{ component: earning('3601'), amount: 40000 }], [carA, carB], earning('3802'), june);
+    expect(out.filter((c) => c.component.sarsSourceCode === '3802')).toHaveLength(1);
+    expect(out[1]?.amount).toBe(vehicleMonthlyBenefit(500000, false));
+  });
+  it('the row with more days wins: A to 06-20 against B from 06-21', () => {
+    expect(selectBenefit([{ ...carA, effectiveTo: '2026-06-20' }, { ...carB, effectiveFrom: '2026-06-21' }], 'company_vehicle', june)?.id).toBe('A');
+  });
+  it('a business-use flag changed mid-month: the row with the most days sets the rate', () => {
+    const before = travel({ id: 't1', effectiveTo: '2026-06-09', businessUseAtLeast80: false });
+    const after = travel({ id: 't2', effectiveFrom: '2026-06-10', businessUseAtLeast80: true });
+    const out = applyFringeBenefits([{ component: earning('3701'), amount: 5000 }], [before, after], null, june);
+    expect(out[0]?.payeInclusionRate).toBe(0.2);
   });
 });

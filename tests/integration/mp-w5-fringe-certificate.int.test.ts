@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
+import { listRunAllowanceFiling } from '../../src/modules/accounting/services/payroll/payrollAllowanceFiling';
 import easyfileExport from '../../pages/api/payroll/irp5/easyfile-export';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
 
@@ -14,6 +15,8 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const company = crypto.randomUUID();
 const user = crypto.randomUUID();
+let runId = '';
+let f2 = '';
 
 const item = (code: string, amount: number, extra: Record<string, unknown> = {}) => ({
   componentId: code, componentName: code, sarsSourceCode: code, amount, isTaxable: true, isUifApplicable: false, ...extra,
@@ -40,6 +43,16 @@ beforeAll(async () => {
   await pool.query(
     `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, medical_scheme_fees, component_breakdown)
      VALUES ($1, $2, 35000, 49200, 9000, 177.12, 177.12, 0, 3000, $3::jsonb)`, [run, emp, JSON.stringify(items)]);
+  // F2: a NON-TAXABLE cash 3701 and a hand-assigned CASH 3802 (no flag, no rate): neither is part of the 4582 portion.
+  f2 = (await pool.query(
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, id_number, tax_number)
+     VALUES ($1, 'F2', 'Test', 'Zed', '2020-01-01', '1980-01-01', '8001015009087', '0123456789') RETURNING id`, [company])).rows[0]!.id;
+  await pool.query(
+    `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, component_breakdown)
+     VALUES ($1, $2, 33000, 32000, 5000, 177.12, 177.12, 0, $3::jsonb)`, [run, f2, JSON.stringify([
+      item('3601', 30_000), item('3701', 1_000, { isTaxable: false }), item('3802', 2_000),
+    ])]);
+  runId = run;
 });
 
 afterAll(async () => {
@@ -75,14 +88,38 @@ async function exportFile(): Promise<{ status: number; body: string; warnings: s
   return out;
 }
 
+/** One employee's certificate lines (a record runs from its 3010 to the next). */
+function recordOf(body: string, surname: string): string[] {
+  const records = body.split(/\r?\n/).reduce<string[][]>((acc, l) => { if (l.startsWith('3010,')) acc.push([]); acc.at(-1)?.push(l); return acc; }, []);
+  const found = records.find((r) => r.some((l) => l.toLowerCase() === `3030,"${surname.toLowerCase()}"`));
+  if (!found) throw new Error(`no certificate for ${surname}`);
+  return found;
+}
+
 describe('e@syFile certificate for 30 000 salary + 5 000 travel + a 14 000 vehicle + a 3 000 employer medical contribution', () => {
   it('3601 30 000, 3701 5 000, 3802 14 000, 3810 3 000, 4474 3 000 and 4582 15 200 (4 000 + 11 200)', async () => {
     const file = await exportFile();
     expect(file.status, file.body).toBe(200);
-    const lines = file.body.split(/\r?\n/);
+    const lines = recordOf(file.body, 'Fringe');
     expect(lines.filter((l) => /^(3601|3701|3802|3810|4474|4497|4582),/.test(l))).toEqual([
       '3601,30000', '3701,5000', '3802,14000', '3810,3000', '4474,3000', '4497,18200', '4582,15200',
     ]);
-    expect(file.warnings.filter((w) => /4582/.test(w))).toEqual([]);
+    expect(file.warnings.filter((w) => /4582/.test(w) && /Test Fringe/.test(w))).toEqual([]);
+  });
+});
+
+describe('4582 counts only what the band sum counts', () => {
+  it('a non-taxable 3701 and a hand-assigned cash 3802 add nothing to the PAYE portion', async () => {
+    const m = await listRunAllowanceFiling(company, { start: '2026-03-01', end: '2027-02-28' }, f2);
+    expect(m.get(f2)).toEqual({ cash3701: 1000, vehicle3802: 0, payeIncluded: 0, legacyLines: 0 });
+  });
+  it('the cash 3701 under R1 is not certified as 3701 and its cents stay in 3601', async () => {
+    await pool.query("UPDATE payroll_run_lines SET component_breakdown = $2::jsonb WHERE run_id = $1 AND employee_id = $3", [runId, JSON.stringify([item('3601', 34_999.4), item('3701', 0.6, { payeInclusionRate: 0.8, payeIncludedAmount: 0.48 })]), f2]);
+    await pool.query("UPDATE payroll_run_lines SET gross_pay = 35000 WHERE run_id = $1 AND employee_id = $2", [runId, f2]);
+    const file = await exportFile();
+    expect(file.status, file.body).toBe(200);
+    const zed = recordOf(file.body, 'Zed');
+    expect(zed).toContain('3601,35000');
+    expect(zed.some((l) => l.startsWith('3701,') || l.startsWith('4582,'))).toBe(false);
   });
 });

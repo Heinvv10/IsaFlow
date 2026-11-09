@@ -30,7 +30,7 @@ const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').refine(isR
 const cents = z.number().min(0.01).max(99_999_999_999).refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6, 'At most two decimals');
 
 const CreateBody = z.object({
-  kind: z.enum(['company_vehicle', 'travel_allowance']),
+  kind: z.enum(['company_vehicle', 'travel_allowance', 'medical_gross_up']),
   determinedValue: cents.nullable().optional(),
   maintenancePlan: z.boolean().optional(),
   businessUseAtLeast80: z.boolean(),

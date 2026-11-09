@@ -18,6 +18,14 @@ const comp = (code: string, type: PayrollComponent['componentType'] = 'earning')
 });
 
 describe('3810', () => {
+  it('under the gross-up opt-in a 3810 stays cash and deems no fees', () => {
+    const out = markNonCashEmployerBenefits([{ component: comp('3810'), amount: 3000 }], true);
+    expect(out[0]).not.toHaveProperty('isNonCash');
+    expect(deemedMedicalFees(out)).toBe(0);
+  });
+  it('a non-taxable 3810 deems nothing', () => {
+    expect(deemedMedicalFees([{ component: { ...comp('3810'), isTaxable: false }, amount: 3000 }])).toBe(0);
+  });
   it('is recognised after the calculator trim', () => {
     expect(isEmployerMedicalFringeCode('3810')).toBe(true);
     expect(isEmployerMedicalFringeCode(' 3810\n')).toBe(true);

@@ -18,9 +18,10 @@
  * benefit follow its component's flags, as for any earning (payrollCalculator's non-cash design note).
  */
 import { normaliseSarsCode } from './payeAnnualPayment';
+import { markNonCashEmployerBenefits } from './employerContributions';
 import type { EmployeeComponent, PayrollComponent, PayrollPeriod } from './payrollTypes';
 
-export type FringeKind = 'company_vehicle' | 'travel_allowance';
+export type FringeKind = 'company_vehicle' | 'travel_allowance' | 'medical_gross_up';
 
 export interface FringeBenefit {
   id: string;
@@ -79,12 +80,33 @@ export function includedInPaye(amount: number, share: number): number {
   return round2(amount * share);
 }
 
-/** A benefit counts for a whole month if its dates touch the month (para 7 values the use "per month"). */
+const ymd = (y: number, m: number, d: number): string => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+const dayNumber = (iso: string): number => Math.floor(Date.parse(`${iso}T00:00:00Z`) / 86_400_000);
+
+/** The days of the month a benefit's dates cover (both ends inclusive); 0 when they do not touch it. */
+export function benefitDaysInPeriod(b: Pick<FringeBenefit, 'effectiveFrom' | 'effectiveTo'>, period: PayrollPeriod): number {
+  const last = new Date(Date.UTC(period.year, period.month, 0)).getUTCDate();
+  const first = ymd(period.year, period.month, 1);
+  const end = ymd(period.year, period.month, last);
+  const from = b.effectiveFrom > first ? b.effectiveFrom : first;
+  const to = b.effectiveTo !== null && b.effectiveTo < end ? b.effectiveTo : end;
+  return from > to ? 0 : dayNumber(to) - dayNumber(from) + 1;
+}
+
+/** A benefit counts for the month if its dates touch it (para 7 values the use per month). */
 export function benefitActiveInPeriod(b: Pick<FringeBenefit, 'effectiveFrom' | 'effectiveTo'>, period: PayrollPeriod): boolean {
-  const mm = String(period.month).padStart(2, '0');
-  const first = `${period.year}-${mm}-01`;
-  const last = `${period.year}-${mm}-${String(new Date(Date.UTC(period.year, period.month, 0)).getUTCDate()).padStart(2, '0')}`;
-  return b.effectiveFrom <= last && (b.effectiveTo === null || b.effectiveTo >= first);
+  return benefitDaysInPeriod(b, period) > 0;
+}
+
+/**
+ * The one row of a kind that decides a month: the one covering the most days of it, a tie going to the later start.
+ * A mid-month car swap or flag change then never counts two benefits, and never blocks the run. NAMED LIMIT: the
+ * Seventh Schedule values the use per month; the most-days rule is IsaFlow's, not stated in the SARS guide.
+ */
+export function selectBenefit(benefits: readonly FringeBenefit[], kind: FringeKind, period: PayrollPeriod): FringeBenefit | undefined {
+  return benefits
+    .filter((b) => b.kind === kind && benefitActiveInPeriod(b, period))
+    .sort((a, b) => benefitDaysInPeriod(b, period) - benefitDaysInPeriod(a, period) || b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
 }
 
 /** A recorded benefit that cannot be put on the payslip: the caller says so on the line, never drops it silently. */
@@ -99,9 +121,10 @@ type RatedComponent = EmployeeComponent & { payeInclusionRate?: number };
 
 /**
  * The components a run costs with the employee's fringe benefits applied: a non-cash 3802 earning at the monthly
- * vehicle benefit, and the PAYE inclusion rate on a 3701 travel allowance. Input is not mutated. Throws, rather than
- * leaving a benefit off the payslip, when a vehicle is recorded and the company has no 3802 earning to carry it, or
- * when the employee already has an assigned 3802 earning (the benefit would be counted twice).
+ * vehicle benefit (one per month, selectBenefit), the PAYE inclusion rate on a 3701 travel allowance, and a 3810
+ * earning marked non-cash (or, with the explicit medical_gross_up opt-in, kept as the cash it is paid as). Input is not
+ * mutated. Throws FringeBenefitConfigError, rather than leaving a benefit off the payslip, when a vehicle is recorded
+ * and the company has no 3802 earning to carry it, or the employee already has an assigned 3802 earning.
  */
 export function applyFringeBenefits(
   components: readonly EmployeeComponent[],
@@ -109,13 +132,13 @@ export function applyFringeBenefits(
   vehicleComponent: PayrollComponent | null,
   period: PayrollPeriod,
 ): EmployeeComponent[] {
-  const active = benefits.filter((b) => benefitActiveInPeriod(b, period));
-  const travel = active.find((b) => b.kind === 'travel_allowance');
+  const travel = selectBenefit(benefits, 'travel_allowance', period);
   const rated: RatedComponent[] = components.map((c) =>
     travel && c.component.componentType === 'earning' && normaliseSarsCode(c.component.sarsSourceCode) === TRAVEL_CODE
       ? { ...c, payeInclusionRate: payeInclusionRate(travel.businessUseAtLeast80) }
       : c);
-  for (const v of active.filter((b) => b.kind === 'company_vehicle')) {
+  const v = selectBenefit(benefits, 'company_vehicle', period);
+  if (v) {
     if (v.determinedValue === null) throw new FringeBenefitConfigError('A company vehicle benefit has no determined value');
     if (!vehicleComponent) {
       throw new FringeBenefitConfigError('A company vehicle is recorded but the company has no active taxable earning coded 3802 to carry the benefit');
@@ -130,5 +153,5 @@ export function applyFringeBenefits(
       payeInclusionRate: payeInclusionRate(v.businessUseAtLeast80),
     });
   }
-  return rated;
+  return markNonCashEmployerBenefits(rated, selectBenefit(benefits, 'medical_gross_up', period) !== undefined);
 }
