@@ -145,14 +145,6 @@ export async function updatePayrollEmployee(
 ): Promise<PayrollEmployee | null> {
   log.info('Updating payroll employee', { id, companyId }, 'payrollEmployeeService');
 
-  // An unlocked read, only to decide which path to take. What is logged and compared is re-read under the row lock.
-  const beforeRows = (await sql`
-    SELECT * FROM payroll_employees
-     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-     LIMIT 1
-  `) as Row[];
-  const before = beforeRows[0];
-
   const toIso = (v: unknown): string | null => (v ? fmtDate(v) : null);
   const dobIso = toIso(data.dateOfBirth);
   const endIso = toIso(data.endDate);
@@ -161,15 +153,15 @@ export async function updatePayrollEmployee(
   const todayIso = new Date().toISOString().split('T')[0]!;
   const status = endIso && endIso <= todayIso ? 'terminated' : null;
 
-  // An end date moves who a run pays and the termination base, and the s18A tick moves PAYE and SDL: under the
-  // company's payroll-approval lock, as every change the approval gate re-checks (payrollRunRecalcGate). Other fields
-  // need no lock.
-  // Read before the lock, so only a tick seen to move is written: an "unchanged" one read stale writes nothing.
-  const tickMoved = data.s18aReceiptHeld !== undefined && data.s18aReceiptHeld !== before?.s18a_receipt_held;
+  // An end date moves who a run pays and the termination base, the s18A tick moves PAYE and SDL, and the tax status,
+  // pay basis, hours and rates feed the figures from TS-b on: each waits for the company's payroll-approval lock, as every
+  // change the approval gate re-checks (payrollRunRecalcGate). Whether a tick MOVED is decided on the row locked below,
+  // never on an earlier read. Other fields need the row lock only.
   // Terms: a key present (null clears the optional ones) is written; the tax status and pay basis feed the figures
   // from TS-b on, so any touch of the terms waits for the same lock.
   const has = (k: keyof EmployeeTerms) => data[k] !== undefined;
-  const termsTouched = (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate'] as const).some(has);
+  const needsCompanyLock = endIso !== null || data.s18aReceiptHeld !== undefined
+    || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate'] as const).some(has);
   const write = (db: typeof sql, now: Row) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
@@ -216,8 +208,9 @@ export async function updatePayrollEmployee(
     }
     return written;
   };
-  const rows = (endIso === null && !tickMoved && !termsTouched ? await writeLocked(sql) : await withTransaction(async (tx) => {
-    await lockCompanyPayrollForComponentChange(tx, companyId);
+  // Always one transaction, so the row lock is a lock: the company lock first where the change needs it.
+  const rows = (await withTransaction(async (tx) => {
+    if (needsCompanyLock) await lockCompanyPayrollForComponentChange(tx, companyId);
     return writeLocked(tx as typeof sql);
   })) as Row[];
 
