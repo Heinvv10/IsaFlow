@@ -31,6 +31,8 @@ export interface BreakdownItem {
   componentId: string;
   amount: number;
   isUifApplicable: boolean;
+  /** What the calculator took of a taxable 3701 / 3802 (its PAYE share), the UIF base too (UIF Contributions Act s1). */
+  payeIncludedAmount?: number;
 }
 
 export interface UifLineBase {
@@ -103,7 +105,7 @@ export function rebuildUifLeviable(
       ? 'earning'
       : types.get(item.componentId);
     if (type === undefined) return null;
-    if (type === 'earning') leviable += item.amount;
+    if (type === 'earning') leviable += typeof item.payeIncludedAmount === 'number' ? item.payeIncludedAmount : item.amount;
   }
   return leviable;
 }

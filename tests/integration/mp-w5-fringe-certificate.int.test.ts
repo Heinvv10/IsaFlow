@@ -41,8 +41,8 @@ beforeAll(async () => {
     item('3810', 3_000, { isNonCash: true }),
   ];
   await pool.query(
-    `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, medical_scheme_fees, component_breakdown)
-     VALUES ($1, $2, 35000, 49200, 9000, 177.12, 177.12, 0, 3000, $3::jsonb)`, [run, emp, JSON.stringify(items)]);
+    `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, medical_scheme_fees, medical_credit, additional_medical_credit, component_breakdown)
+     VALUES ($1, $2, 35000, 49200, 9000, 177.12, 177.12, 0, 3000, 752, 0, $3::jsonb)`, [run, emp, JSON.stringify(items)]);
   // F2: a NON-TAXABLE cash 3701 and a hand-assigned CASH 3802 (no flag, no rate): neither is part of the 4582 portion.
   f2 = (await pool.query(
     `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, id_number, tax_number)
@@ -97,12 +97,12 @@ function recordOf(body: string, surname: string): string[] {
 }
 
 describe('e@syFile certificate for 30 000 salary + 5 000 travel + a 14 000 vehicle + a 3 000 employer medical contribution', () => {
-  it('3601 30 000, 3701 5 000, 3802 14 000, 3810 3 000, 4474 3 000 and 4582 15 200 (4 000 + 11 200)', async () => {
+  it('3601 30 000, 3701 5 000, 3802 14 000, 3810 3 000, 4005 3 000, 4474 3 000, 4497 21 200 and 4582 15 200 (4 000 + 11 200)', async () => {
     const file = await exportFile();
     expect(file.status, file.body).toBe(200);
     const lines = recordOf(file.body, 'Fringe');
-    expect(lines.filter((l) => /^(3601|3701|3802|3810|4474|4497|4582),/.test(l))).toEqual([
-      '3601,30000', '3701,5000', '3802,14000', '3810,3000', '4474,3000', '4497,18200', '4582,15200',
+    expect(lines.filter((l) => /^(3601|3701|3802|3810|4005|4474|4497|4582),/.test(l))).toEqual([
+      '3601,30000', '3701,5000', '3802,14000', '3810,3000', '4005,3000', '4474,3000', '4497,21200', '4582,15200',
     ]);
     expect(file.warnings.filter((w) => /4582/.test(w) && /Test Fringe/.test(w))).toEqual([]);
   });

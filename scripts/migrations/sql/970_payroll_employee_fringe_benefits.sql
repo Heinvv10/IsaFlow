@@ -19,11 +19,13 @@
 --
 -- BACKFILL (no figure change on deploy): before this migration every 3810 earning was paid and taxed as cash, whether
 -- or not the company also deducted the premium as 4005. The new default (the split: 3810 non-cash and deemed) would move
--- the net pay and the deemed fees of such a setup, so every employee with an ACTIVE 3810 earning assignment gets a
--- medical_gross_up row from the assignment's start, created_by 'migration:970'. Existing 3810 users keep today's cash
--- behaviour until a company ends the opt-in; a 3810 assigned after deploy defaults to the split. Deterministic (the
--- earliest start of the employee's active 3810 assignments) and idempotent (never a second row, so a re-run adds
--- nothing). It runs before row security is enabled below and as a role that bypasses it (postgres, as the deploy does).
+-- the net pay and the deemed fees of such a setup, so every employee with a 3810 earning assignment that is open or that
+-- ended in a month a run can still compute gets a medical_gross_up row, created_by 'migration:970'. It starts on the
+-- first day of the month of the earliest such assignment (a hire on 11-20 stays cash for all of November) and, when none
+-- of them is open-ended, ends on the month end of the last to end (a leaver ending 11-30 stays cash in November). A run
+-- can still compute any month from the earliest draft or calculated run of the company (else last month). Existing 3810
+-- users keep today's cash behaviour until a company ends the opt-in; a 3810 assigned after the row ends defaults to the
+-- split. Deterministic and idempotent (never a second row, so a re-run adds nothing). It runs before row security is enabled below and as a role that bypasses it (postgres, as the deploy does).
 --
 -- One row per period of use. A row is never deleted (a finalised payslip was
 -- costed from it): it is ended with effective_to. Overlapping rows of one kind
@@ -83,14 +85,26 @@ BEGIN
 END
 $$;
 
-INSERT INTO payroll_employee_fringe_benefits (company_id, employee_id, kind, business_use_at_least_80, effective_from, created_by)
-SELECT e.company_id, e.id, 'medical_gross_up', FALSE, MIN(pec.effective_from), 'migration:970'
+INSERT INTO payroll_employee_fringe_benefits (company_id, employee_id, kind, business_use_at_least_80, effective_from, effective_to, created_by)
+SELECT e.company_id, e.id, 'medical_gross_up', FALSE,
+       date_trunc('month', MIN(pec.effective_from))::date,
+       -- Open-ended while any qualifying assignment is open; else the month end of the last one to end.
+       CASE WHEN bool_or(pec.effective_to IS NULL) THEN NULL
+            ELSE (date_trunc('month', MAX(pec.effective_to)) + INTERVAL '1 month - 1 day')::date END,
+       'migration:970'
   FROM payroll_employee_components pec
   JOIN payroll_components c ON c.id = pec.component_id AND c.component_type = 'earning'
                            AND BTRIM(c.sars_source_code, E' \t\r\n') = '3810'
   JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = c.company_id
+  -- The first month a run can still compute: the earliest month with a draft or calculated run, else last month.
+  CROSS JOIN LATERAL (
+    SELECT COALESCE(
+      (SELECT MIN(make_date(h.period_year, h.period_month, 1)) FROM payroll_run_headers h
+        WHERE h.company_id = e.company_id AND h.status IN ('draft', 'calculated')),
+      (date_trunc('month', CURRENT_DATE) - INTERVAL '1 month')::date) AS cutoff
+  ) w
  WHERE pec.superseded_at IS NULL
-   AND (pec.effective_to IS NULL OR (pec.effective_to >= pec.effective_from AND pec.effective_to >= CURRENT_DATE))
+   AND (pec.effective_to IS NULL OR (pec.effective_to >= pec.effective_from AND pec.effective_to >= w.cutoff))
    AND NOT EXISTS (SELECT 1 FROM payroll_employee_fringe_benefits f WHERE f.employee_id = e.id AND f.kind = 'medical_gross_up')
  GROUP BY e.company_id, e.id;
 

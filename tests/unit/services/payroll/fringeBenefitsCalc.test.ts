@@ -182,3 +182,15 @@ describe('a hand-assigned 3802 (review L1)', () => {
     expect(r.validationResults.some((v) => v.code === 'FRINGE_RECORD_MISSING')).toBe(false);
   });
 });
+
+describe('a 3810 assigned after a backfilled opt-in ended defaults to the split (migration 970)', () => {
+  const backfilled = { id: 'm', kind: 'medical_gross_up' as const, determinedValue: null, maintenancePlan: false, businessUseAtLeast80: false, effectiveFrom: '2025-02-01', effectiveTo: '2026-11-30' };
+  const input: EmployeeComponent[] = [salary(25000), { component: comp('3810'), amount: 3000 }];
+  it('November, still inside the backfilled row, stays cash; December is the split', () => {
+    const nov = applyFringeBenefits(input, [backfilled], null, { year: 2026, month: 11 });
+    expect(nov[1]).toMatchObject({ medicalGrossUp: true });
+    const dec = applyFringeBenefits(input, [backfilled], null, { year: 2026, month: 12 });
+    expect(dec[1]?.isNonCash).toBe(true);
+    expect(dec[1]).not.toHaveProperty('medicalGrossUp');
+  });
+});
