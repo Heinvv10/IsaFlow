@@ -36,7 +36,7 @@ import { gotenbergPdf, startGotenberg, withPdfFile, type Gotenberg } from './got
 import { breaksInImage, inImage as runInImage } from './inImage';
 import { flatStylesheet } from './parityPage';
 import { paritySkip } from './paritySkip';
-import { adversaryCensus, BREAKS_OF, CENSUS, heldLines, LINES_OF, linesHtml, modelBreaks, randomStrings, readBreaks, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_THREE_LABELS } from '../print/fixtures/breakPairsCensus';
+import { adversaryCensus, BREAKS_OF, CENSUS, heldLines, LINES_OF, linesHtml, modelBreaks, randomStrings, readBreaks, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_SIX_LABELS, ROUND_THREE_LABELS } from '../print/fixtures/breakPairsCensus';
 import { allDifferences, extraBreaks, markedCensus, standInCensus, VS16_CENSUS } from '../print/fixtures/everyBreakCensus';
 
 const DATA = path.resolve(__dirname, '../../../src/modules/accounting/services/packs/pages/packBreakPairsData.ts');
@@ -107,19 +107,19 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
     expect(wrong.slice(0, 20).map((w) => w.replace(/^[0-9a-f.]+/, (h) => JSON.stringify(textOf(h)))), `${wrong.length} of ${items.length} differ`).toEqual([]);
   }, 1_800_000);
 
-  it('the round-3, round-4 and round-5 labels in a statement table, in production: never a label line too few, the height never short, never wider than the page', async () => {
+  it('the round-3 to round-6 labels in a statement table, in production: never a label line too few, the height never short, never wider than the page', async () => {
     // The print tests' Chromium breaks after a word-opening en dash where production's does not: this is where those are held.
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
     let held = 0;
-    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS];
+    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS];
     for (const [label, labelMarker] of labels) {
       for (const digits of [9, 12]) {
         const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });
         const page = doc.pages[index]!.number;
         const body = renderToStaticMarkup(createElement(PackPagesView, { document: atTheFloor(doc) }));
-        const lines = await inImage(`${TABLES_OF}\nfunction answer() { return tablesOf(${96 / 25.4}).filter(function (t) { return t.page === ${page}; }).map(function (t) { return 'T|' + t.heightMm + '|' + t.labelLines.join(',') + '|' + t.columnsPx.reduce(function (a, b) { return a + b; }, 0); }); }`, body);
-        const [, heightMm, labelLines, widthPx] = lines.find((l) => l.startsWith('T|'))?.split('|') ?? [];
+        const lines = await inImage(`${TABLES_OF}\nfunction answer() { return tablesOf(${96 / 25.4}).filter(function (t) { return t.page === ${page}; }).map(function (t) { return 'T|' + t.heightMm + '|' + t.labelLines.join(',') + '|' + t.columnsPx.reduce(function (a, b) { return a + b; }, 0) + '|' + t.columnsPx[0]; }); }`, body);
+        const [, heightMm, labelLines, widthPx, labelPx] = lines.find((l) => l.startsWith('T|'))?.split('|') ?? [];
         expect(labelLines, `${JSON.stringify(label)}: the image's table came back incomplete`).toBeDefined();
         const real = labelLines!.split(',').map(Number);
         const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
@@ -129,6 +129,8 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
         const height = statementTableBodyMm(table, doc.numberConvention.scale, 'portrait');
         if (height < Number(heightMm)) wrong.push(`${say}: height short, model ${height.toFixed(2)}mm vs production ${Number(heightMm).toFixed(2)}`);
         // A table the model passes (`tableFit`) must fit the page in production: a label column too narrow widens it.
+        // The label column never narrower than production's (a mark the faces lack is drawn: round 6).
+        if (model.columnsPx[0]! < Number(labelPx) - 0.1) wrong.push(`${say}: label column ${model.columnsPx[0]!.toFixed(3)}px, production ${Number(labelPx).toFixed(3)}`);
         if (table.figureFit?.fits === true && Number(widthPx) > PRINT_CONTENT_PX.portrait + 0.02) wrong.push(`${say}: ${Number(widthPx).toFixed(3)}px wide in production, past the page's ${PRINT_CONTENT_PX.portrait}`);
         held += 1;
       }

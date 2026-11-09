@@ -236,3 +236,15 @@ export const ROUND_FIVE_LABELS: ReadonlyArray<readonly [string, boolean]> = [
   ['Telecommunications*\uFE0F[Telecommunications]', false], ['Telecommunications&\u0301(Telecommunications)', false],
   ['Telecommunications2024\uFE0F-2025', false], ['Cafe\u0301-2024Telecommunications', false],
 ];
+
+/**
+ * #1235 round 6's labels: a mark or selector off the pair's first character (the model held these, production breaks
+ * them), and marks the faces lack, which production draws wider than nothing ("A\u20D7").
+ */
+export const ROUND_SIX_LABELS: ReadonlyArray<readonly [string, boolean]> = [
+  ['Telecommunications-\u00A9\uFE0FTelecommunications', false], ['Sponsorship-\u00A9\uFE0FTelecommunications', false],
+  ['Telecommunications\u00AE\uFE0F-Telecommunications', true], ['Telecommunications/\u00A9\uFE0FTelecommunications and royalties payable', false],
+  [`Telecommunications${'A\u20D7'.repeat(4)}`, false], [`Telecommunications${'A\u20D7'.repeat(6)}`, false], [`Telecommunications${'x\u20D7'.repeat(6)}`, false],
+  ['Telecommunications&\u20D7Telecommunications', false], ['Telecommunicationsn\u20DDTelecommunications', false],
+  ['Telecommunicationsn\u20E0Telecommunications', false], ['Telecomq\u0301munications', false],
+];

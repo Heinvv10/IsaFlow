@@ -16,8 +16,8 @@ const VARIATION_BASES = new Set(EMOJI_VARIATION_BASES);
  */
 export function asPrinted(text: string): string {
   const out: string[] = [];
-  for (const c of text.normalize('NFC')) if (c !== '\uFE0F' || VARIATION_BASES.has(out[out.length - 1]?.codePointAt(0) ?? -1)) out.push(c);
-  return out.join('');
+  for (const c of text) if (c !== '\uFE0F' || VARIATION_BASES.has(out[out.length - 1]?.codePointAt(0) ?? -1)) out.push(c);
+  return out.join('').normalize('NFC');
 }
 
 /** Every character the table covers with a variation selector 16 after it, in eleven contexts (the blind review's six of round 4 among them), as typed. */

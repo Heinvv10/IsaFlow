@@ -17,10 +17,13 @@
 /** U+FE0F after a code point that is not \p{Emoji} (another selector or a mark counts as none). */
 const STRAY_VS16 = /(?<!\p{Emoji})\uFE0F/gu;
 
-/** `text` as the pack prints it: composed (NFC), and no stray selector. */
+/**
+ * `text` as the pack prints it: no stray selector, then composed (NFC). In that order: a selector between a letter and
+ * its accent ("Cafe\uFE0F\u0301") blocks the composition until it is gone, and the result is NFC.
+ */
 export function printedText(text: string): string {
-  const composed = text.normalize('NFC');
-  return composed.includes('\uFE0F') ? composed.replace(STRAY_VS16, '') : composed;
+  const stripped = text.includes('\uFE0F') ? text.replace(STRAY_VS16, '') : text;
+  return stripped.normalize('NFC');
 }
 
 const isPlain = (value: object): boolean => {

@@ -8,7 +8,7 @@
  *    a character the host draws with no width, where no break can be read (`fixtures/breakPairsCensus.readBreaks`);
  *  - the numeric census of #1235's fourth round: Unicode's numeric rule, which reads past the pair (`packNumericHold.ts`);
  *  - every character the table covers with a variation selector 16 after it, as the pack prints it (`packPrintedText.ts`,
- *    held to Unicode's emoji data); a mark on an ASCII character, never a break Chromium does not take;
+ *    held to Unicode's emoji data); a mark on a Latin-1 character, both ways;
  *  - the stand-ins' other members (an ideograph that is not U+4E2D, ...) beside the faces' punctuation, on every break;
  *  - the adversary's census of #1235's third round, as line counts at width 0, with and without a mark;
  *  - the min-content of the census strings that break, in the faces: the model's widest piece is never narrower than
@@ -30,7 +30,7 @@ import { NUMERIC_CENSUS, numericPool } from './fixtures/numericCensus';
 import { openProbePage } from './measureWidths';
 import { fillCase, holdLines } from './support/lineFitHarness';
 import { adversaryCensus, alike, asProduction, BREAKS_OF, CENSUS, heldLines, inFaces, LINES_OF, linesHtml, modelBreaks, randomStrings, readable, readBreaks } from './fixtures/breakPairsCensus';
-import { allDifferences, asPrinted, extraBreaks, markedCensus, standInCensus, VS16_CENSUS, VS16_TYPED } from './fixtures/everyBreakCensus';
+import { allDifferences, asPrinted, markedCensus, standInCensus, VS16_CENSUS, VS16_TYPED } from './fixtures/everyBreakCensus';
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
@@ -110,11 +110,12 @@ it(`every character with a variation selector 16 after it (${VS16_CENSUS.length}
   expect(wrong.map((t) => JSON.stringify(t)).slice(0, 20), `${wrong.length} of ${texts.length} differ`).toEqual([]);
 }, 600_000);
 
-it('a mark on an ASCII character (#1235 round 5: "Telecoms*\uFE0E(Telecommunications)"): the model never breaks where Chromium holds', async () => {
-  const texts = markedCensus().filter(alike);
-  expect(texts.length).toBeGreaterThan(3000);
-  const extra = extraBreaks(texts, await rawBreaks(texts));
-  expect(extra.slice(0, 20), `${extra.length} of ${texts.length}`).toEqual([]);
+it('a mark on a Latin-1 character (#1235 rounds 5 and 6: "Telecoms*\uFE0E(Telecommunications)", "ab-\u00A9\uFE0Fcd"), as printed: the model breaks exactly where Chromium does, both ways', async () => {
+  // U+034F (the grapheme joiner) after a Latin-1 sign breaks otherwise in this Chromium than in production's: the image's.
+  const texts = markedCensus().map(printedText).filter((t) => alike(t) && !t.includes('\u034F'));
+  expect(texts.length).toBeGreaterThan(50_000);
+  const wrong = allDifferences(texts, await rawBreaks(texts));
+  expect(wrong.map((t) => JSON.stringify(t)).slice(0, 20), `${wrong.length} of ${texts.length} differ`).toEqual([]);
 }, 600_000);
 
 it('the stand-ins\' other members (\u65E5 \u6536 \uAC00 \uD7A3 \uFF3A \uFF5A U+F900 U+20000 U+F0000) beside every punctuation mark and symbol the faces set, and the rules beside the table: every break is Chromium\'s', async () => {

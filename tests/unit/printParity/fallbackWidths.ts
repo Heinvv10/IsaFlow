@@ -70,7 +70,7 @@ const SCRIPT = (groups: string): string => `(async function () {
 const escape = (t: string): string => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 /** Measures `units` (each a group id and its texts) in one Gotenberg print: per group, each text's width. */
-async function measureGroups(gotenberg: Gotenberg, units: ReadonlyArray<{ id: string; cellStyle: string; cls: string; texts: readonly string[] }>): Promise<Map<string, number[]>> {
+export async function measureGroups(gotenberg: Gotenberg, units: ReadonlyArray<{ id: string; cellStyle: string; cls: string; texts: readonly string[] }>): Promise<Map<string, number[]>> {
   const body = units.map((u) => inTableCell(u.id, u.cellStyle, ['||', ...u.texts.map((t) => `|${t}|`)]
     .map((t) => `<div><span class="${u.cls}">${escape(t)}</span></div>`).join(''))).join('');
   const { html, fonts } = parityDocument(body);
@@ -121,4 +121,29 @@ export async function measureEmojiAndFingerprint(gotenberg: Gotenberg): Promise<
     fingerprint[style] = res.get(`${style}:x`)!;
   }
   return { emoji, fingerprint };
+}
+
+/** The bases a mark is measured on: narrow and wide, a letter, a symbol, a digit, an ideograph. */
+export const MARK_BASES = ['n', 'A', 'W', '&', 'x', '1', 'i', '\u4E2D'];
+
+/**
+ * Each style's price of every combining mark (\p{M}, FIRST..LAST): the most it adds to any of `MARK_BASES` in the
+ * image (the cluster's width less the base's), in whole pixels rounded up. A mark the faces lack is drawn from a
+ * fallback face, often wider than nothing ("A\u20D7" is 13.36px, "A" 8px at 12px/400).
+ */
+export async function measureMarks(gotenberg: Gotenberg): Promise<Record<FallbackStyle, Map<number, number>>> {
+  const marks: number[] = [];
+  for (let cp = FIRST; cp <= LAST; cp += 1) if (/\p{M}/u.test(glyph(cp))) marks.push(cp);
+  const result = {} as Record<FallbackStyle, Map<number, number>>;
+  for (const [style, cellStyle, cls] of STYLES) {
+    const units = MARK_BASES.map((b, k) => ({ id: `${style}:x${k}`, cellStyle, cls, texts: [b, ...marks.map((m) => `${b}${String.fromCodePoint(m)}`)] }));
+    const res = await measureGroups(gotenberg, units);
+    const adds = new Map<number, number>();
+    MARK_BASES.forEach((unused, k) => {
+      const w = res.get(`${style}:x${k}`)!;
+      marks.forEach((m, i) => { const px = Math.max(0, Math.ceil((w[i + 1]! - w[0]!) / 64 - 0.001)); if (px > (adds.get(m) ?? 0)) adds.set(m, px); });
+    });
+    result[style] = adds;
+  }
+  return result;
 }

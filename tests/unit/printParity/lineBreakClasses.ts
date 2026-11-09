@@ -38,6 +38,9 @@ export function classRuns(classes: ReadonlyMap<number, string>, wanted: readonly
 
 const runLines = (runs: ReadonlyArray<readonly [number, number, number]>): string => Array.from({ length: Math.ceil(runs.length / 8) }, (unused, i) => `  ${runs.slice(i * 8, i * 8 + 8).map(([a, b, c]) => `[0x${a.toString(16)}, 0x${b.toString(16)}, ${c}]`).join(', ')},`).join('\n');
 
+/** `source` with every character past ASCII written as an escape (a generated file is ASCII). */
+export const ascii = (source: string): string => source.replace(/[^\x00-\x7F]/g, (c) => `\\u${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`);
+
 /** The classes `packNumericHold.ts` reads, in its order. */
 export const NUMERIC_CLASSES = ['NU', 'SY', 'IS', 'CL', 'CP', 'PO', 'PR', 'OP', 'HY'] as const;
 
@@ -121,4 +124,52 @@ export const EMOJI_VARIATION_BASES: readonly number[] = [
 ${lines.join('\n')}
 ];
 `;
+}
+
+/**
+ * A Latin-1 pair with a mark on its first character (\`packMarkedLatin1.ts\`), as production's Chromium breaks it: `codes`
+ * the Latin-1 characters the pair table covers, `breaks[a * codes.length + b]` whether it breaks between codes[a] with a
+ * mark and codes[b], a letter either side ("a" + x + U+0301 + y + "a", probed in the image); `opening` the same with
+ * nothing before (x + U+0301 + y + "a"); `hyphenAfter` an unmarked hyphen after a marked character (c + U+0301 + "-" + y).
+ */
+export function markedLatin1Source(
+  codes: readonly number[], breaks: readonly boolean[], opening: readonly boolean[], hyphenAfter: readonly boolean[], opensAfter: readonly number[], holdsAfter: readonly number[],
+): string {
+  const lines = (bits: readonly boolean[]): string => {
+    const bytes = new Uint8Array(Math.ceil(bits.length / 8));
+    bits.forEach((b, i) => { if (b) bytes[i >> 3] = bytes[i >> 3]! | (1 << (7 - (i & 7))); });
+    const b64 = Buffer.from(bytes).toString('base64');
+    return Array.from({ length: Math.ceil(b64.length / 160) }, (unused, i) => `  '${b64.slice(i * 160, (i + 1) * 160)}',`).join('\n');
+  };
+  const codeLines = Array.from({ length: Math.ceil(codes.length / 16) }, (unused, i) => `  ${codes.slice(i * 16, i * 16 + 16).map((c) => `0x${c.toString(16)}`).join(', ')},`);
+  return ascii(`/**
+ * GENERATED in production's image by \`tests/unit/printParity/packMarkedLatin1Image.test.ts\` (REGENERATE_MARKED=1): do not
+ * edit by hand. Read by \`packMarkedLatin1.ts\`: whether production's Chromium breaks between a Latin-1 character with a
+ * mark on it and the Latin-1 character after it, a letter either side. ${codes.length} characters, ${breaks.filter(Boolean).length} breaks.
+ */
+export const MARKED_LATIN1_CODES: readonly number[] = [
+${codeLines.join('\n')}
+];
+
+/** Bits by first x ${codes.length} + second (the first the high bit), base64: after a letter. */
+export const MARKED_LATIN1_BREAKS = [
+${lines(breaks)}
+].join('');
+
+/** The same where the first character opens a word (nothing before it). */
+export const MARKED_LATIN1_OPENING = [
+${lines(opening)}
+].join('');
+
+/** A hyphen after codes[c] with a mark: whether it breaks before codes[y], by c x ${codes.length} + y ("?\u0301-\u00B2" breaks). */
+export const MARKED_LATIN1_HYPHEN_AFTER = [
+${lines(hyphenAfter)}
+].join('');
+
+/** Before a marked hyphen, one of each pair class that breaks it as \`MARKED_LATIN1_OPENING\` does (a no-break space, ...). */
+export const MARKED_HYPHEN_OPENS_AFTER: readonly number[] = [${opensAfter.map((c) => `0x${c.toString(16)}`).join(', ')}];
+
+/** Before a marked hyphen, one of each pair class after which it never breaks (a Hebrew letter). */
+export const MARKED_HYPHEN_HOLDS_AFTER: readonly number[] = [${holdsAfter.map((c) => `0x${c.toString(16)}`).join(', ')}];
+`);
 }
