@@ -36,7 +36,7 @@ describe('Select panel side', () => {
   });
 
   it('keeps its side while the list shrinks under a search (no flip under the pointer)', () => {
-    layout(700); // 68px below the trigger, 684 above: a 12-row list opens upward, a 1-row list would fit below
+    layout(650); // 106px below the trigger, 634 above: a 12-row list opens upward, a 1-row list would fit below
     render(<Select label="X" searchable options={OPTIONS} value={null} onChange={noop} />);
     fireEvent.click(screen.getByRole('combobox', { name: 'X' }));
     expect(panel().style.bottom).not.toBe('');
