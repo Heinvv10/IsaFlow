@@ -30,13 +30,15 @@ type Drift = { drifted: boolean; fields: { name: string }[]; changed: string[]; 
 const driftOf = async (m: number) =>
   ((await getV(m)).body as { data: { versions: { drift: Drift }[] } }).data.versions[0]!.drift;
 
-/** A run. `final` = grandfathered under 951 (R-035 final). Otherwise approved with no reviewed plan. */
+/**
+ * A run. `final` = `approved` with an approval time (FS: COALESCE(approved_at, approval_grandfathered_at) is not null).
+ * Otherwise an `approved` row with neither column is a DRAFT payslip, as an approval that never completed leaves it.
+ */
 async function run(m: number, status: string, final: boolean, paye: number): Promise<string> {
   return String(((await sql`
     INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_gross, total_paye,
-      total_uif, total_sdl, total_eti, employee_count, approved_at, approval_grandfathered_at)
+      total_uif, total_sdl, total_eti, employee_count, approved_at)
     VALUES (${c()}::UUID, 2026, ${m}, ${status}, 50000, ${paye}, 500, 500, 0, 1,
-      ${status === 'approved' ? '2026-03-31T10:00:00Z' : null}::TIMESTAMPTZ,
       ${final ? '2026-03-31T10:00:00Z' : null}::TIMESTAMPTZ)
     RETURNING id`) as Row[])[0]!.id);
 }
@@ -131,7 +133,7 @@ describeIfDb('EMP201 finalise, against real pay runs', () => {
     await sql`UPDATE payroll_run_headers SET total_paye = 4000, approved_plan_hash = 'changed'
       WHERE company_id = ${c()}::UUID AND period_month = 3`;
     expect((await driftOf(3)).changed).toEqual(['runs']);
-    await sql`UPDATE payroll_run_headers SET approved_plan_hash = NULL, approval_grandfathered_at = NULL
+    await sql`UPDATE payroll_run_headers SET approved_at = NULL, approval_grandfathered_at = NULL
       WHERE company_id = ${c()}::UUID AND period_month = 3`;
     expect((await driftOf(3)).unfinalRuns).toBe(1);
   });
