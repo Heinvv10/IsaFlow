@@ -162,7 +162,7 @@ describeIfDb('tax_return_versions rules (migration 969)', () => {
     await c.query('BEGIN');
     try {
       const updates: Record<string, string> = {
-        company_id: `'${b.fx.companyId}'::UUID`, form_type: "'EMP201'", period_start: "'2026-01-01'::DATE",
+        id: 'gen_random_uuid()', company_id: `'${b.fx.companyId}'::UUID`, form_type: "'EMP201'", period_start: "'2026-01-01'::DATE",
         period_end: "'2026-04-30'::DATE", version_no: '7', figures: `'{"outputTax": 1}'::JSONB`,
         posted_through: "now() + interval '1 day'", vat_period_lock_id: 'NULL', amends_version_id: 'gen_random_uuid()',
         finalised_by: "'someone else'", finalised_at: "now() + interval '1 day'",

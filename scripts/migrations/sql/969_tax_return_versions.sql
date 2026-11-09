@@ -132,10 +132,10 @@ BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'tax_return_versions rows are history and are never deleted' USING ERRCODE = '23514';
   END IF;
-  IF (NEW.company_id, NEW.form_type, NEW.period_start, NEW.period_end, NEW.version_no, NEW.figures, NEW.posted_through,
+  IF (NEW.id, NEW.company_id, NEW.form_type, NEW.period_start, NEW.period_end, NEW.version_no, NEW.figures, NEW.posted_through,
       NEW.vat_period_lock_id, NEW.amends_version_id, NEW.finalised_by, NEW.finalised_at)
      IS DISTINCT FROM
-     (OLD.company_id, OLD.form_type, OLD.period_start, OLD.period_end, OLD.version_no, OLD.figures, OLD.posted_through,
+     (OLD.id, OLD.company_id, OLD.form_type, OLD.period_start, OLD.period_end, OLD.version_no, OLD.figures, OLD.posted_through,
       OLD.vat_period_lock_id, OLD.amends_version_id, OLD.finalised_by, OLD.finalised_at) THEN
     RAISE EXCEPTION 'a finalised return''s recorded figures, period, chain and lock are never changed' USING ERRCODE = '23514';
   END IF;
@@ -193,6 +193,16 @@ BEGIN
   LOOP
     EXECUTE pg_catalog.format('REVOKE UPDATE, DELETE, TRUNCATE ON public.tax_return_versions FROM %s CASCADE', v_grantee);
   END LOOP;
+  -- Postcondition: nobody but the owner and migration_admin may still hold a writer privilege.
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class c
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
+    WHERE c.oid = 'public.tax_return_versions'::pg_catalog.regclass
+      AND a.privilege_type IN ('UPDATE', 'DELETE', 'TRUNCATE') AND a.grantee <> c.relowner
+      AND a.grantee IS DISTINCT FROM pg_catalog.to_regrole('migration_admin')::pg_catalog.oid
+  ) THEN
+    RAISE EXCEPTION 'migration 969: tax_return_versions still grants UPDATE, DELETE or TRUNCATE to a role other than its owner and migration_admin';
+  END IF;
 END $$;
 GRANT SELECT ON tax_return_versions TO app_user, platform_admin;
 GRANT INSERT (company_id, form_type, period_start, period_end, version_no, figures, posted_through,
