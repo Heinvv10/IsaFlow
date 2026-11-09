@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { useEmployeeDetail } from '@/components/payroll/useEmployeeDetail';
 import { User, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
 import { EmployeeProfileCard } from '@/components/payroll/EmployeeProfileCard';
+import { EmployeeWorkCard } from '@/components/payroll/EmployeeWorkCard';
 import { EmployeeComponentsCard } from '@/components/payroll/EmployeeComponentsCard';
 import { EmployeeTerminationCard } from '@/components/payroll/EmployeeTerminationCard';
 import { CostCentreAssignmentCard } from '@/components/payroll/CostCentreAssignmentCard';
@@ -22,7 +23,7 @@ import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
 import { EmployeePayslipsCard } from '@/components/payroll/EmployeePayslipsCard';
 import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { useCompany } from '@/contexts/CompanyContext';
-import { canWrite } from '@/lib/auth/writeRoles';
+import { canSetPayrollNetPay, canWrite } from '@/lib/auth/writeRoles';
 
 /** The readiness links land here when the card has no field drawn yet; the kit's focus ring shows where focus went. */
 const ANCHOR = 'rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2';
@@ -99,7 +100,7 @@ export default function EmployeeDetailPage() {
           ) : (
             <>
             {employeeId && (
-              <EmployeeReadinessCard employeeId={employeeId} refreshKey={bankVersion} assignments={assignments}
+              <EmployeeReadinessCard employeeId={employeeId} refreshKey={bankVersion} assignments={assignments} mayWrite={mayWrite}
                 employee={{ taxNumber: d.savedTaxNumber, paymentMethod: employee.paymentMethod }} />
             )}
 
@@ -109,6 +110,8 @@ export default function EmployeeDetailPage() {
               onSave={d.saveProfile}
               saving={savingProfile}
             />
+
+            <EmployeeWorkCard key={employee.id} employee={employee} onSaved={setEmployee} canEditPriced={canSetPayrollNetPay(companyRole)} />
 
             <div id="employee-pay" className={ANCHOR}>
             <EmployeeComponentsCard

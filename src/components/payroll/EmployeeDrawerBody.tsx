@@ -11,7 +11,7 @@ import { todayInSast } from '@/lib/saDateParser';
 import { Money } from '@/components/ui/Money';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import type { Assignment } from './EmployeeComponentsCard';
-import { loadBankState, loadRunMonth } from './employeeBankState';
+import { loadBankState, loadHasFinalRun, loadRunMonth } from './employeeBankState';
 import { employeeReadiness, readinessSummary, type BankState } from './employeeReadiness';
 
 interface Employee {
@@ -30,6 +30,8 @@ interface Loaded {
   /** Unknown when pay is hidden: no verdict is given without the whole picture. */
   bank: BankState;
   runMonth: string;
+  /** Already has a line on a final run (null: unread or failed). */
+  hasFinalRun: boolean | null;
 }
 
 async function loadEmployee(employeeId: string, mayWrite: boolean): Promise<Loaded> {
@@ -37,15 +39,15 @@ async function loadEmployee(employeeId: string, mayWrite: boolean): Promise<Load
   await assertOk(res, 'Could not load the employee - try again');
   const json = await res.json();
   const employee = (json.data ?? json) as Employee;
-  if (!mayWrite) return { employee, pay: null, bank: 'unknown', runMonth: '' };
+  if (!mayWrite) return { employee, pay: null, bank: 'unknown', runMonth: '', hasFinalRun: null };
   // Pay, the bank and the run month are independent reads: ask for them together.
-  const [payRes, bank, runMonth] = await Promise.all([
-    apiFetch(`/api/payroll/employees/${employeeId}/components`), loadBankState(employeeId), loadRunMonth(),
+  const [payRes, bank, runMonth, hasFinalRun] = await Promise.all([
+    apiFetch(`/api/payroll/employees/${employeeId}/components`), loadBankState(employeeId), loadRunMonth(), loadHasFinalRun(employeeId),
   ]);
-  if (payRes.status === 403) return { employee, pay: null, bank: 'unknown', runMonth };
+  if (payRes.status === 403) return { employee, pay: null, bank: 'unknown', runMonth, hasFinalRun };
   await assertOk(payRes, 'Could not load their pay - try again');
   const payJson = await payRes.json();
-  return { employee, pay: (payJson.data ?? payJson) as Assignment[], bank, runMonth };
+  return { employee, pay: (payJson.data ?? payJson) as Assignment[], bank, runMonth, hasFinalRun };
 }
 
 const stillRuns = (a: Assignment, today: string) =>
@@ -89,7 +91,7 @@ export function EmployeeDrawerBody({ employeeId, mayWrite }: { employeeId: strin
 
   const today = todayInSast();
   const pay = loaded?.pay?.filter(a => stillRuns(a, today));
-  const verdict = loaded?.pay ? readinessSummary(employeeReadiness({ employee: loaded.employee, components: loaded.pay, bank: loaded.bank, runMonth: loaded.runMonth })) : null;
+  const verdict = loaded?.pay ? readinessSummary(employeeReadiness({ employee: loaded.employee, components: loaded.pay, bank: loaded.bank, runMonth: loaded.runMonth }), loaded.hasFinalRun) : null;
 
   return (
     <div ref={body} tabIndex={-1} className="space-y-6 outline-none">

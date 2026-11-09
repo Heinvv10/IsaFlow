@@ -29,10 +29,12 @@ import { launchPrintChromium } from './printChromium';
 import { readPackPrintCss } from './packPrintCss';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { HEADER_HTML, PDF_MARGIN_MM, mm } from '@/lib/pdf/pdfTransport';
+import { PRINT_CONTENT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import {
   PACK_FOOTER_FACE_FILE, PACK_FOOTER_FONT_FAMILY, packFooterFaceCss,
 } from '@/lib/charts/packFont';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { LAST_GLYPH_PX } from './support/lastGlyph';
 
 const ROOT = path.resolve(__dirname, '../../..');
 const HOST = 'http://pack.print.local/';
@@ -106,6 +108,8 @@ export interface PrintedPack {
    * as the printing browser resolved their (fitted) font size. Null where the page has none.
    */
   figurePt: Array<{ id: string; kpi: number | null; table: number | null }>;
+  /** Every KPI value and table figure as laid out: its text, its font size and its measured width in px. */
+  figureEms: Array<{ text: string; fontPx: number; weight: number; widthPx: number; kpi: boolean; hasMark: boolean }>;
   /** Sheets of paper, from the PDF itself. The number that matters. */
   sheets: number;
   /**
@@ -130,6 +134,15 @@ export interface PrintedPack {
    * a nineteen-sheet pack most easily introduces.
    */
   overflow: Array<{ id: string; over: number; widest: string }>;
+  /**
+   * Every page's room to spare at its right edge, to the subpixel: the content width less how far right any box on it
+   * reaches (negative: past the edge). `overflow` reads whole pixels (`scrollWidth`), so a row a fraction of a pixel
+   * past the edge is in this and not in that. A box that holds text directly (an inline box: a line of a label, a
+   * reason, a figure) is allowed exactly `LAST_GLYPH_PX` past the edge and no more (`support/lastGlyph.ts`): Chromium
+   * lets a line's last glyph reach that far past the box it is set in, and it is not a row past the edge. A block box
+   * is allowed nothing.
+   */
+  spare: Array<{ id: string; px: number }>;
   /**
    * How tall each `.pack-page` box actually is, in millimetres, beside the
    * box the paper gives it.
@@ -257,7 +270,6 @@ const PX_PER_MM = 96 / 25.4;
 
 /** A landscape sheet's content width — A4's long edge less the same left and
  *  right margins. */
-const LANDSCAPE_WIDTH_PX = Math.round((297 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right) * PX_PER_MM);
 
 
 /**
@@ -300,14 +312,14 @@ export async function printBoardPack(
     '<!doctype html><html class="print-mode"><head><meta charset="utf-8">' +
     `<style>${printStylesheet()}</style></head><body>${body}</body></html>`;
 
-  // The viewport is the PAPER's content box, not a screen: 174mm wide (A4
-  // less the left and right margins) at 96dpi. Measured at 1280px the pages
-  // wrap differently and every height read back is a height no sheet ever
-  // has — the measurement has to happen at the width the document is printed
-  // at or it describes a different document.
+  // The page is laid out at the width PRODUCTION prints its content at
+  // (`PRINT_CONTENT_PX`: 658px portrait, measured in its Gotenberg image), not a
+  // screen's: measured at 1280px the pages wrap differently and every height
+  // read back is a height no sheet ever has. A viewport is a whole number of
+  // pixels, so the root is set to that width inside a viewport a pixel wider.
   const page = await browser.newPage({
     viewport: {
-      width: Math.round((210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right) * PX_PER_MM),
+      width: Math.ceil(PRINT_CONTENT_PX.portrait) + 1,
       height: Math.round(CONTENT_BOX_MM * PX_PER_MM),
     },
   });
@@ -330,6 +342,8 @@ export async function printBoardPack(
     // The self-hosted IBM Plex faces are `font-display: block`, so a render
     // that did not wait would measure the fallback's metrics.
     await page.evaluate(() => document.fonts.ready);
+    const setRootWidth = (px: number | null) => page.evaluate((w) => { document.documentElement.style.width = w === null ? '' : `${w}px`; }, px);
+    await setRootWidth(PRINT_CONTENT_PX.portrait);
 
     // Measured at the paper's own content width — the viewport is set to it
     // above — so this is the document overflowing the SHEET, not a browser
@@ -338,7 +352,7 @@ export async function printBoardPack(
     // against the portrait box every landscape page reads as 90mm too wide,
     // which is the harness's viewport, not the pack.
     const overflow = await page.evaluate((boxes) => {
-      const box = document.documentElement.clientWidth;
+      const box = boxes.portrait;
       const out: Array<{ id: string; over: number; widest: string }> = [];
       for (const el of Array.from(document.querySelectorAll('.pack-page'))) {
         const page = el as HTMLElement;
@@ -354,7 +368,15 @@ export async function printBoardPack(
         out.push({ id: page.id || 'page', over, widest });
       }
       return out;
-    }, { landscape: LANDSCAPE_WIDTH_PX });
+    }, { portrait: PRINT_CONTENT_PX.portrait, landscape: PRINT_CONTENT_PX.landscape });
+    const spare = await page.evaluate(({ limit, glyph }) => Array.from(document.querySelectorAll('.pack-page:not([data-print-landscape])')).map((el) => {
+      const left = el.getBoundingClientRect().left;
+      // An inline box's reach is less the last glyph's allowance; a block's is its own.
+      const reach = Math.max(...Array.from(el.querySelectorAll('*')).map((child) => child.getBoundingClientRect().right - left
+        - (getComputedStyle(child).display === 'inline' ? glyph : 0)));
+      // Boxes are read back in single precision: a millionth of a pixel either way is that, not a layout unit.
+      return { id: (el as HTMLElement).id || 'page', px: Math.round((limit - reach) * 1024) / 1024 };
+    }), { limit: PRINT_CONTENT_PX.portrait, glyph: LAST_GLYPH_PX });
 
     const measure = (mmPerPx: { px: number; portrait: number; landscape: number }) =>
       Array.from(document.querySelectorAll('.pack-page')).map((el) => {
@@ -406,9 +428,10 @@ export async function printBoardPack(
     // page and a passing sheet count at the same time. So the landscape pages
     // are re-measured in a second layout at their own width.
     await page.setViewportSize({
-      width: LANDSCAPE_WIDTH_PX,
+      width: Math.ceil(PRINT_CONTENT_PX.landscape) + 1,
       height: Math.round(LANDSCAPE_BOX_MM * PX_PER_MM),
     });
+    await setRootWidth(PRINT_CONTENT_PX.landscape);
     const landscapePass = await page.evaluate(measure, geometry);
     const foreignClassNames = await page.evaluate(() => {
       const found = new Set<string>();
@@ -437,9 +460,10 @@ export async function printBoardPack(
       return Math.round((el.getBoundingClientRect().width / pxPerMm) * 10) / 10;
     }, PX_PER_MM);
     await page.setViewportSize({
-      width: Math.round((210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right) * PX_PER_MM),
+      width: Math.ceil(PRINT_CONTENT_PX.portrait) + 1,
       height: Math.round(CONTENT_BOX_MM * PX_PER_MM),
     });
+    await setRootWidth(PRINT_CONTENT_PX.portrait);
     const heights = portraitPass.map((h, i) => (h.landscape ? landscapePass[i]! : h));
 
     const pageNames = await page.evaluate(() => {
@@ -514,6 +538,9 @@ export async function printBoardPack(
 
     if (footerHtml !== undefined) await loadFooterFace(page);
 
+    // Printed, the page takes the paper's own width (Playwright's PDF: 658px, 25/64px under production's); a root
+    // wider than the paper would make Chromium shrink the whole page to fit.
+    await setRootWidth(null);
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
@@ -538,9 +565,16 @@ export async function printBoardPack(
       return Array.from(document.querySelectorAll('.pack-page')).map((pg) => ({
         id: (pg as HTMLElement).id || 'page',
         kpi: smallest(Array.from(pg.querySelectorAll('.pack-kpi-value'))),
-        table: smallest(Array.from(pg.querySelectorAll('.pack-table-box .pack-table td:not(:first-child)'))),
+        table: smallest(Array.from(pg.querySelectorAll('.pack-table:not(.pack-scorecard-group):not(.pack-matters):not(.pack-definition-bridge) td:not(:first-child)'))),
       }));
     });
+    const figureEms = await page.evaluate(() => Array.from(document.querySelectorAll('.pack-kpi-value, .pack-table:not(.pack-scorecard-group):not(.pack-matters):not(.pack-definition-bridge) td:not(:first-child)')).flatMap((el) => {
+      const text = (el.textContent ?? '').trim();
+      if (text === '') return [];
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return [{ text, fontPx: parseFloat(getComputedStyle(el).fontSize), weight: Number(getComputedStyle(el).fontWeight), widthPx: range.getBoundingClientRect().width, kpi: el.classList.contains('pack-kpi-value'), hasMark: el.querySelector('sup') !== null }];
+    }));
     // `pdf-parse` is already a dependency, and the count comes from the
     // DOCUMENT rather than from anything this harness believes about how tall
     // a page was — the two disagreeing is the whole defect.
@@ -551,7 +585,7 @@ export async function printBoardPack(
     };
     const { total, pages } = await new PDFParse({ data: pdf }).getText();
     return {
-      sheets: total, sheetText: pages.map((p) => p.text), overflow, heights, figurePt,
+      sheets: total, sheetText: pages.map((p) => p.text), overflow, spare, heights, figurePt, figureEms,
       coverBand, pageNames, headingRanks, pendingNarrative, landscapeWidthMm, foreignClassNames, pdf,
     };
   } finally {

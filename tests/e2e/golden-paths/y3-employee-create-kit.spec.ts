@@ -40,6 +40,8 @@ test('keyboard only: create an employee from the kit form', async ({ page }) => 
   await expect(start).toBeFocused();
   expect(new URL(page.url()).pathname).toBe(NEW);
 
+  // Tax status defaults to Employee; the occupation is typed, and both are stored (mig 967).
+  await page.getByLabel('Occupation', { exact: true }).fill('Golden tester');
   await start.fill('t');
   await page.keyboard.press('Tab'); // commits "t" to today
   await page.getByLabel('First name *').focus();
@@ -52,6 +54,8 @@ test('keyboard only: create an employee from the kit form', async ({ page }) => 
   const created = ((await res.json()) as { data?: Record<string, string> }).data!;
   expect(created.employeeNumber).toBe(number);
   expect(created.firstName).toBe('Golden');
+  expect(created).toMatchObject({ taxStatus: 'employee', payBasis: 'monthly', occupation: 'Golden tester' });
+  await expect(page.getByTestId('employee-work-card')).toBeVisible();
 });
 
 for (const theme of THEMES) {

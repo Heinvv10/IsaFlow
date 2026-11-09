@@ -30,7 +30,7 @@ vi.mock('@/lib/neon', async (orig) => {
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import { als } from '@/lib/als';
-import { reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';

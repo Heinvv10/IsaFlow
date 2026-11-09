@@ -35,6 +35,7 @@
  * pages are built and where that guarantee does its work.
  */
 
+import { asStamped, isFigureFit, type FigureFit, type FitKind, type StampedPackPagesDocument } from './packFigureFitCss';
 import { adoptTrustedChartSvg, type TrustedChartSvg } from '@/lib/charts/trustedChartSvg';
 import { toMoneyScale } from '@/lib/format/money';
 import {
@@ -125,6 +126,19 @@ function adoptScorecardGroup(group: Unbranded<PackScorecardGroup>): PackScorecar
   return { ...group, rows: group.rows.map(adoptScorecardRow) };
 }
 
+/**
+ * A table's or KPI row's figure size, as the server decided it (`packFigureFitStamp`). The page cannot decide it (the
+ * fit shapes text from font files the browser does not have), so a document without one (built before fits were
+ * stamped, or edited since) is refused, and the page reports it rather than printing a row unchecked. So is one whose
+ * fit does not fit (`fits: false`: the composer refuses such a pack) or states a size the fit model never decides.
+ */
+function adoptFit(fit: unknown, kind: FitKind, what: string): FigureFit {
+  if (!isFigureFit(fit, kind)) {
+    throw new Error(`adoptPackPagesDocument: refusing ${what} without a printable figure size the server decided (${JSON.stringify(fit ?? null)})`);
+  }
+  return fit;
+}
+
 function adoptBlock(block: Unbranded<PackPageBlock>): PackPageBlock {
   switch (block.kind) {
     case 'chart':
@@ -132,7 +146,7 @@ function adoptBlock(block: Unbranded<PackPageBlock>): PackPageBlock {
     case 'smallMultiples':
       return { kind: 'smallMultiples', panels: block.panels.map(adoptChart) };
     case 'kpiTiles':
-      return { kind: 'kpiTiles', tiles: block.tiles.map(adoptTile) };
+      return { kind: 'kpiTiles', tiles: block.tiles.map(adoptTile), fit: adoptFit(block.fit, 'kpi', 'a KPI row') };
     case 'scorecard':
       return {
         kind: 'scorecard',
@@ -149,6 +163,7 @@ function adoptBlock(block: Unbranded<PackPageBlock>): PackPageBlock {
     // slipping through unadopted — which is the exact hole this file exists
     // to close.
     case 'table':
+      return { kind: 'table', table: { ...block.table, figureFit: adoptFit(block.table.figureFit, 'table', 'a statement table') } };
     case 'statTiles':
     case 'narrative':
     case 'matters':
@@ -189,7 +204,7 @@ function replayProvenance(figures: PackFigure[]): PackFigureProvenance {
  * becomes print-ready: the renderer fails loudly and nothing reaches a
  * director.
  */
-export function adoptPackPagesDocument(raw: SerialisedPackPagesDocument): PackPagesDocument {
+export function adoptPackPagesDocument(raw: SerialisedPackPagesDocument): StampedPackPagesDocument {
   const { provenance, pages, numberConvention, ...rest } = raw;
 
   // `PackNumberConvention.scale` is typed `MoneyScale`, and a type guarantee
@@ -206,10 +221,10 @@ export function adoptPackPagesDocument(raw: SerialisedPackPagesDocument): PackPa
     );
   }
 
-  return {
+  return asStamped({
     ...rest,
     numberConvention: { ...numberConvention, scale },
     pages: pages.map(adoptPage),
     provenance: replayProvenance(provenance),
-  };
+  });
 }
