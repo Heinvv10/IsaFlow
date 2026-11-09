@@ -35,7 +35,7 @@ vi.mock('@/modules/accounting/services/ar/standingPaymentLink', async (orig) => 
 vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', async (orig) => ({
   ...(await orig<object>()), approvePayrollRun: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/payroll/payrollRunLock', async (orig) => ({
+vi.mock('@/modules/accounting/services/payroll/payrollRunReopen', async (orig) => ({
   ...(await orig<object>()), reopenPayrollRun: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({ calculatePayrollRun: vi.fn() }));
@@ -72,7 +72,7 @@ import { enableOnlinePayment, InvoiceNotApprovedError } from '@/modules/accounti
 import { ensureStandingLink, revokeStandingLink } from '@/modules/accounting/services/ar/standingPaymentLink';
 import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/customerInvoiceLock';
 import { approvePayrollRun, PayrollApprovalConflictError } from '@/modules/accounting/services/payroll/payrollApprovalService';
-import { reopenPayrollRun, PayrollRunReopenRefusedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { reopenPayrollRun, PayrollRunReopenRefusedError } from '@/modules/accounting/services/payroll/payrollRunReopen';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { closeLoan } from '@/modules/accounting/services/payroll/payrollLoanService';
 import { PayrollLoanLockTimeoutError, PayrollRunJournalPostedError } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';

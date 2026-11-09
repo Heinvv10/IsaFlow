@@ -45,8 +45,11 @@ export const updateSupplierInvoiceTool: McpTool = {
     + 'them would drop. A line that leaves out cc1 / cc2 / bu keeps the value every stored line shares; when '
     + 'the stored lines differ on one, name it on every line. A line of a bill raised from a bank-first slip that '
     + 'still names no cc1 / cc2 / bu takes the slip\'s provisional journal\'s dimensions when they match it; the '
-    + 'result lists those as inherited_dimensions. due_date is never re-derived from payment_terms — '
-    + 'send it when the dates change.',
+    + 'result lists those as inherited_dimensions. due_date: when invoice_date or supplier_id changes and the bill\'s '
+    + 'due date came from payment terms (not set by hand or taken from the document), it is re-dated by the terms a '
+    + 'new bill gets (the payment_terms sent here, else the supplier\'s, else the company default) unless you send a '
+    + 'different due_date, which is kept as set by hand; a due date set by hand or from the document never moves, '
+    + 'and payment_terms alone does not re-date. The result lists it in changed when it was re-dated.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {

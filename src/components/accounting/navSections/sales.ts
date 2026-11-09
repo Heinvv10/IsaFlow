@@ -22,6 +22,7 @@ export const salesTab: Tab = {
         { label: 'Customer Categories', href: '/accounting/customer-categories' },
         { label: 'Debtors Manager', href: '/accounting/debtors-manager' },
         { label: 'Find & Merge Duplicates', href: '/accounting/customers/dedup' },
+        { label: 'Re-apply Payment Terms', href: '/accounting/customer-invoices/reapply-terms' },
       ],
     },
     {

@@ -52,6 +52,7 @@
   "tests/integration/dims-approval-rebind.int.test.ts": 3,
   "tests/integration/docnum-bank-rules-held-number.int.test.ts": 6,
   "tests/integration/docnum-lock-timeout.int.test.ts": 22,
+  "tests/integration/employee-work-terms.int.test.ts": 20,
   "tests/integration/fleet-records.int.test.ts": 11,
   "tests/integration/g01-every-reader.int.test.ts": 4,
   "tests/integration/header-account-chart-edit-race.int.test.ts": 4,

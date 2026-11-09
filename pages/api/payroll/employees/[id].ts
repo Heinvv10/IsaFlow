@@ -15,12 +15,14 @@ import {
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
-import { canWrite } from '@/lib/auth/writeRoles';
+import { canSetPayrollNetPay, canWrite } from '@/lib/auth/writeRoles';
 import { employeeNamesOnly } from '@/modules/accounting/services/payroll/payrollEmployeeRedaction';
 import {
   EmployeeOnboardingRefused,
+  EmployeeTermsForbidden,
   employeeChangesOf,
 } from '@/modules/accounting/services/payroll/payrollEmployeeOnboarding';
+import { EMPLOYEE_TERM_LOG_KEYS, EmployeeTermsRefused } from '@/modules/accounting/services/payroll/payrollEmployeeTerms';
 import {
   getPayrollEmployee,
   updatePayrollEmployee,
@@ -32,6 +34,8 @@ async function handler(
 ): Promise<void> {
   const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   const { id } = req.query;
+  // Employee terms and personal data: never cached (wave-5 rule 14).
+  res.setHeader('Cache-Control', 'no-store');
 
   if (typeof id !== 'string') {
     return apiResponse.badRequest(res, 'Invalid employee ID');
@@ -47,13 +51,15 @@ async function handler(
     const current = await getPayrollEmployee(id, companyId);
     if (!current) return apiResponse.notFound(res, 'PayrollEmployee', id);
     try {
-      const changes = employeeChangesOf(req.body as Record<string, unknown>, current);
+      const changes = employeeChangesOf(req.body as Record<string, unknown>, current, canSetPayrollNetPay(companyRole));
       const updated = await updatePayrollEmployee(id, companyId, changes, user.id);
       if (!updated) return apiResponse.notFound(res, 'PayrollEmployee', id);
       return apiResponse.success(res, updated);
     } catch (err) {
-      if (err instanceof EmployeeOnboardingRefused) return apiResponse.badRequest(res, err.message);
-      // An end date waits for the company's payroll lock (an approval in flight): retry, not a server error.
+      if (err instanceof EmployeeTermsForbidden) return apiResponse.forbidden(res, err.message);
+      if (err instanceof EmployeeOnboardingRefused || err instanceof EmployeeTermsRefused) return apiResponse.badRequest(res, err.message);
+      // An end date, any s18A value or a status/basis/hours/rate key waits for the company's payroll lock (an approval in
+      // flight), and every patch for the employee's row lock: a timeout is a retry, not a server error.
       if (respondIfLockTimeout(res, err)) return;
       throw err;
     }
@@ -62,4 +68,5 @@ async function handler(
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PATCH']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+// The terms are pay detail: the request log masks them.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler)), { maskBodyKeys: EMPLOYEE_TERM_LOG_KEYS }));

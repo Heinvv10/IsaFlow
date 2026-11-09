@@ -30,3 +30,22 @@ export async function loadRunMonth(): Promise<string> {
     return nextRunMonth([]);
   }
 }
+
+/**
+ * Whether the employee already has a line on a final run (so the next run is not their first). A failed or
+ * malformed read is null: the copy then says "next", never "first".
+ */
+export async function loadHasFinalRun(employeeId: string): Promise<boolean | null> {
+  try {
+    const res = await apiFetch(`/api/payroll/employees/${employeeId}/has-final-run`);
+    if (!res.ok) {
+      log.warn('final-run read refused', { status: res.status }, 'employeeBankState');
+      return null;
+    }
+    const json = (await res.json()) as { data?: { hasFinalRun?: unknown } };
+    return typeof json.data?.hasFinalRun === 'boolean' ? json.data.hasFinalRun : null;
+  } catch (err) {
+    log.warn('final-run read failed', { error: err }, 'employeeBankState');
+    return null;
+  }
+}

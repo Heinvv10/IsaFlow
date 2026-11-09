@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
+import { PAYROLL_RUN_CHANGED } from './payrollRunEvents';
 
 interface PeriodContext {
   companyName: string;
@@ -44,20 +45,26 @@ export function PayrollPeriodBar() {
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
+    let latest = 0; // overlapping reads: only the newest answer may land
+    const read = async () => {
+      const mine = ++latest;
       try {
         const res = await apiFetch('/api/payroll/period-context');
         await assertOk(res, 'Could not load the payroll period');
         const json = await res.json() as { data?: PeriodContext };
-        if (!cancelled && json.data) setCtx(json.data);
+        if (!cancelled && mine === latest && json.data) setCtx(json.data);
       } catch (err) {
         // Bar is informational; failure shouldn't block the page — log only.
         log.error('Failed to load payroll period context', { error: err }, 'payroll-ui');
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && mine === latest) setLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
+    };
+    void read();
+    // The run page moved a run's status (calculate, approve, reopen): read the strip again, without the spinner.
+    const again = () => { void read(); };
+    window.addEventListener(PAYROLL_RUN_CHANGED, again);
+    return () => { cancelled = true; window.removeEventListener(PAYROLL_RUN_CHANGED, again); };
   }, []);
 
   if (loading) {

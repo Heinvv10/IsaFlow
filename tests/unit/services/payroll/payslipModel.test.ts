@@ -1,41 +1,32 @@
 /**
- * Wave 4 PS: the payslip model built from a fixture run. Final versus DRAFT is the R-035
- * guard (`assertPayRunApproved`, run for real here against fixture header rows; only the
- * generic approval gate under it is stubbed), never the status column. The PDF holds the
+ * Wave 4 PS / wave 5 FS: the payslip model built from a fixture run. Final versus DRAFT is the
+ * approval time (`approved_at`, or `approval_grandfathered_at`), counted only while the
+ * run is approved or paid. The finality query is answered by the fixture header as Postgres would. The PDF holds the
  * bank account's last four digits only and never an ID number.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-type Header = { status: string; approval_grandfathered_at: string | null; approved_plan_hash: string | null };
-const db = vi.hoisted(() => ({ header: null as null | Record<string, unknown>, cleared: false, line: null as null | Record<string, unknown> }));
+type Header = { status: string; approved_at: string | null; approval_grandfathered_at: string | null };
+const db = vi.hoisted(() => ({ header: null as null | Record<string, unknown>, line: null as null | Record<string, unknown> }));
 
 vi.mock('@/lib/neon', () => ({
   withSavepoint: vi.fn(),
   sql: vi.fn(async (strings: TemplateStringsArray) => {
     const q = strings.join('?');
     if (q.includes('FROM payroll_run_headers') && !q.includes('payroll_run_lines')) return db.header ? [db.header] : [];
-    if (q.includes('FROM payroll_run_lines prl') && q.includes('component_breakdown')) return [db.line ?? LINE_ROW];
+    if (q.includes('FROM payroll_run_lines prl') && q.includes('component_breakdown')) {
+      // The finality is computed by the lines' own statement, as Postgres would from the header row.
+      expect(q).toContain('COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL');
+      const h = db.header;
+      const run_final = !!h && ['approved', 'paid'].includes(String(h.status)) && !!(h.approved_at ?? h.approval_grandfathered_at);
+      return [{ ...(db.line ?? LINE_ROW), run_final }];
+    }
     if (q.includes('FROM payroll_components')) return [{ id: 'c-salary', component_type: 'earning' }, { id: 'c-med', component_type: 'deduction' }];
     if (q.includes('prl.taxable_income')) return [{ run_id: RUN, employee_id: EMP, gross_pay: 30000, taxable_income: 30000, paye: 5000, uif_employee: 177.12, net_pay: 23022.88 }];
     throw new Error(`unexpected query: ${q.slice(0, 120)}`);
   }),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('@/modules/accounting/services/gl/approvalGate', async (actual) => {
-  const real = await actual<typeof import('@/modules/accounting/services/gl/approvalGate')>();
-  return {
-    ApprovalRequiredError: real.ApprovalRequiredError,
-    describeApprovalGateForDocument: vi.fn(),
-    assertApprovalClearedForDocument: vi.fn(async () => {
-      if (!db.cleared) {
-        throw new real.ApprovalRequiredError({
-          reason: 'APPROVAL_REQUIRED', requiredRole: 'admin', ruleName: 'Payroll', requestId: null, documentType: 'pay_run', documentReference: null,
-        });
-      }
-    }),
-  };
-});
-vi.mock('@/modules/accounting/services/payroll/payrollApprovalGate', () => ({ judgePayrollApproval: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/pdfShared', async (actual) => ({
   ...(await actual<object>()),
   getCompanyDetailsFromCompany: vi.fn(async () => ({ name: 'Fixture Payroll (Pty) Ltd', address: '1 Main Road, Durban' })),
@@ -65,11 +56,11 @@ async function pdfText(pdf: Buffer): Promise<string> {
   return (await new PDFParse({ data: pdf }).getText()).text.replace(/\s+/g, ' ');
 }
 
-beforeEach(() => { db.header = null; db.cleared = false; db.line = null; });
+beforeEach(() => { db.header = null; db.line = null; });
 
 describe('getPayslips: the figures', () => {
   it('earnings, deductions, PAYE, UIF and net equal the stored line', async () => {
-    db.header = header({ status: 'calculated', approval_grandfathered_at: null, approved_plan_hash: null });
+    db.header = header({ status: 'calculated', approved_at: null, approval_grandfathered_at: null });
     const [slip] = (await getPayslips(CO, RUN)).payslips;
     expect(slip).toMatchObject({
       employeeName: 'Zanele Slip', taxNumber: '0123456789', bankLastFour: '3456',
@@ -81,7 +72,7 @@ describe('getPayslips: the figures', () => {
   });
 
   it('a breakdown stored as a JSON string is typed from the catalogue too, not left "Not itemised"', async () => {
-    db.header = header({ status: 'calculated', approval_grandfathered_at: null, approved_plan_hash: null });
+    db.header = header({ status: 'calculated', approved_at: null, approval_grandfathered_at: null });
     db.line = { ...LINE_ROW, component_breakdown: JSON.stringify(LINE_ROW.component_breakdown) };
     const [slip] = (await getPayslips(CO, RUN)).payslips;
     expect(slip).toMatchObject({
@@ -96,23 +87,24 @@ describe('getPayslips: the figures', () => {
   });
 });
 
-describe('getPayslips: final or DRAFT, by the R-035 guard only', () => {
+const AT = '2026-11-25T10:00:00Z';
+describe('getPayslips: final or DRAFT, by the approval time only', () => {
   it.each([
-    ['a calculated run', { status: 'calculated', approval_grandfathered_at: null, approved_plan_hash: null }, false, false],
-    ['an approved row R-035 never cleared, not grandfathered', { status: 'approved', approval_grandfathered_at: null, approved_plan_hash: 'h1' }, false, false],
-    ['a paid row R-035 never cleared, not grandfathered', { status: 'paid', approval_grandfathered_at: null, approved_plan_hash: 'h1' }, false, false],
-    ['a cleared approved run', { status: 'approved', approval_grandfathered_at: null, approved_plan_hash: 'h1' }, true, true],
-    ['a grandfathered approved run', { status: 'approved', approval_grandfathered_at: '2026-10-01T00:00:00Z', approved_plan_hash: null }, false, true],
-  ] as const)('%s', async (_name, row, cleared, final) => {
+    ['a calculated run', { status: 'calculated', approved_at: null, approval_grandfathered_at: null }, false],
+    ['an approved row with neither approved_at nor grandfathered', { status: 'approved', approved_at: null, approval_grandfathered_at: null }, false],
+    ['a calculated run carrying a stale approved_at', { status: 'calculated', approved_at: AT, approval_grandfathered_at: null }, false],
+    ['an approved run', { status: 'approved', approved_at: AT, approval_grandfathered_at: null }, true],
+    ['a grandfathered approved run', { status: 'approved', approved_at: null, approval_grandfathered_at: AT }, true],
+    ['a paid run', { status: 'paid', approved_at: AT, approval_grandfathered_at: null }, true],
+  ] as const)('%s', async (_name, row, final) => {
     db.header = header(row);
-    db.cleared = cleared;
     expect((await getPayslips(CO, RUN)).final).toBe(final);
   });
 });
 
 describe('buildPayslipPdf', () => {
   it('prints DRAFT on a run that is not final, and the stored net', async () => {
-    db.header = header({ status: 'approved', approval_grandfathered_at: null, approved_plan_hash: 'h1' });
+    db.header = header({ status: 'approved', approved_at: null, approval_grandfathered_at: null });
     const text = await pdfText(await buildPayslipPdf(await getPayslips(CO, RUN)));
     expect(text).toContain(DRAFT_MARK);
     expect(text).toContain('23,022.88');
@@ -121,13 +113,12 @@ describe('buildPayslipPdf', () => {
   });
 
   it('prints no DRAFT on a final run', async () => {
-    db.header = header({ status: 'approved', approval_grandfathered_at: null, approved_plan_hash: 'h1' });
-    db.cleared = true;
+    db.header = header({ status: 'approved', approved_at: AT, approval_grandfathered_at: null });
     expect(await pdfText(await buildPayslipPdf(await getPayslips(CO, RUN)))).not.toContain('DRAFT');
   });
 
   it('holds the bank account\'s last four digits and no ID number', async () => {
-    db.header = header({ status: 'calculated', approval_grandfathered_at: null, approved_plan_hash: null });
+    db.header = header({ status: 'calculated', approved_at: null, approval_grandfathered_at: null });
     const text = await pdfText(await buildPayslipPdf(await getPayslips(CO, RUN)));
     expect(text).toContain('account ending 3456');
     expect(text).not.toMatch(/\bID\b|identity/i);

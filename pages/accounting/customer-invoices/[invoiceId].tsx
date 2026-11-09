@@ -29,6 +29,7 @@ import { invoiceSavesSettled, takeUnsavedLeave } from '@/lib/pendingInvoiceSaves
 import { approvalShown } from '@/components/accounting/customer-invoices/approveShown';
 import { openInvoiceLoads } from '@/components/invoices/openInvoiceLoads';
 import { rateText } from '@/modules/accounting/services/ar/customerInvoiceStaleView';
+import { DueDateEditor } from '@/components/accounting/terms/DueDateEditor';
 
 export default function CustomerInvoiceDetailPage() {
   const router = useRouter();
@@ -211,6 +212,10 @@ export default function CustomerInvoiceDetailPage() {
             notes={invoice.notes}
             items={invoice.items}
             currencyCode={invoice.currency_code || 'ZAR'}
+          />
+          <DueDateEditor
+            kind="invoice" invoiceId={invoice.id} status={invoice.status} balance={balance} invoiceDate={invoice.invoice_date}
+            dueDate={invoice.due_date} dueDateSource={invoice.due_date_source} onSaved={reloadOpen}
           />
           {/* GL Journal link — body anchor for discoverability, matching supplier page */}
           {invoice.gl_journal_entry_id && (

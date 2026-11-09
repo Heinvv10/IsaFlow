@@ -67,7 +67,7 @@ export const isLocalDraftData = (v: unknown): v is LocalDraftData =>
 /** User-restorable state only: editing a line drops this internal default-tracking marker even when typed back blank. */
 const comparableDraft = (d: LocalDraftData | null): string | null => d && JSON.stringify({
   ...d,
-  lines: d.lines.map(({ discountFromDefault: _defaultTracking, ...line }) => line),
+  lines: d.lines.map(({ discountFromDefault: _defaultTracking, accountFromDefault: _accountTracking, ...line }) => line),
 });
 
 /** The signed-in user and the active company, or nulls outside their providers. */

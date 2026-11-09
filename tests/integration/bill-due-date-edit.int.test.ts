@@ -1,9 +1,10 @@
 /**
  * Payment-terms programme PR 2 (migration 962): an approved or part-paid bill's due date can be changed, and nothing
  * else; the change is recorded in the entity history. Through the real route, the real withAuth and the real capture:
- * the date and its source move and no other column does; drafts, pending, paid, cancelled, deleted and another
- * company's bills are refused and untouched; a body naming any other field is refused whole; a viewer cannot write;
- * any member can read the history, and an invoice's history copies no other column (customer_invoices.portal_token).
+ * the date and its source move and no other column does; drafts, pending, paid, cancelled, deleted, another company's
+ * bills and an approved or part-paid bill with nothing owing (amounts are whole cents, so one cent owing is the boundary)
+ * are refused and untouched; a body naming any other field is refused whole; a viewer cannot write; any member can read
+ * the history, and an invoice's history copies no other column (customer_invoices.portal_token).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -61,6 +62,26 @@ describe('the date-only edit of an approved bill', () => {
     expect((history[0] as unknown as { changed: string[] }).changed).toEqual(['due_date', 'due_date_source']);
     expect(history[0]!.before).toEqual({ invoice_number: before.invoice_number, due_date: '2026-12-15', due_date_source: 'legacy' });
     expect(history[0]!.after).toEqual({ invoice_number: before.invoice_number, due_date: '2026-12-31', due_date_source: 'manual' });
+  });
+
+  it.each([['approved', 1150], ['partially_paid', 1150], ['approved', 1200]])(
+    'a %s bill with nothing owing (paid %s of 1150) is refused and untouched', async (status, paid) => {
+    const c = await company();
+    const id = await bill(c, status as string, { paid: paid as number }); // its status not yet moved to paid
+    const before = await rowOf(id);
+    const res = await put(admin, c, { id, dueDate: '2026-12-31' });
+    expect(res.state.statusCode, messageOf(res)).toBe(400);
+    expect(messageOf(res)).toMatch(/has nothing owing: its due date can't be changed/);
+    expect(await rowOf(id)).toEqual(before);
+    expect(await changesOf(pool, id)).toHaveLength(0);
+  });
+
+  it('a bill owing one cent still takes the edit', async () => {
+    const c = await company();
+    const id = await bill(c, 'partially_paid', { paid: 1149.99 });
+    const res = await put(admin, c, { id, dueDate: '2026-12-31' });
+    expect(res.state.statusCode, messageOf(res)).toBe(200);
+    expect((await rowOf(id)).due_date_source).toBe('manual');
   });
 
   it.each([['draft'], ['pending_approval'], ['paid'], ['cancelled']])('a %s bill is refused and untouched', async (status) => {

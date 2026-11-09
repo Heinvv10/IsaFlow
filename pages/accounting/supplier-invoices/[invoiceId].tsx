@@ -26,7 +26,7 @@ import { SupplierInvoiceApprovalPanel } from '@/components/accounting/ap/Supplie
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 import { useDateGate } from '@/hooks/useDateGate';
 import { BudgetApproveDialog } from '@/components/accounting/ap/BudgetApproveDialog';
-import { BillDueDateEditor } from '@/components/accounting/ap/BillDueDateEditor';
+import { DueDateEditor } from '@/components/accounting/terms/DueDateEditor';
 import { useBudgetApprove } from '@/components/accounting/ap/useBudgetApprove';
 
 function StatusBadge({ status }: { status: string }) {
@@ -124,7 +124,9 @@ export default function SupplierInvoiceDetailPage() {
       const res = await apiFetch('/api/accounting/supplier-invoices-detail', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: invoiceId, ...editForm }),
+        // The due date only when the user changed it: the form's copy is the date as loaded, which may have moved since
+        // (Re-apply, another tab), and sending it back would undo that and record it as set by hand.
+        body: JSON.stringify({ id: invoiceId, ...editForm, dueDate: editForm.dueDate !== (invoice?.dueDate || '') ? editForm.dueDate : undefined }),
       });
       await assertOk(res, 'Could not save the invoice - try again');
       setEditing(false);
@@ -203,8 +205,8 @@ export default function SupplierInvoiceDetailPage() {
             onEditFormChange={(patch) => setEditForm(p => ({ ...p, ...patch }))}
             dates={dates}
           />
-          <BillDueDateEditor
-            invoiceId={invoiceId as string} status={invoice.status} invoiceDate={invoice.invoiceDate}
+          <DueDateEditor
+            kind="bill" invoiceId={invoiceId as string} status={invoice.status} balance={invoice.balance} invoiceDate={invoice.invoiceDate}
             dueDate={invoice.dueDate} dueDateSource={invoice.dueDateSource} onSaved={loadInvoice}
           />
 

@@ -34,10 +34,11 @@ export interface EmployeeHistoryEntry {
   createdAt: Date;
 }
 
-export async function recordEmployeeChange(input: RecordChangeInput): Promise<void> {
+/** `db`: the transaction of the write being logged (default: the request's own `sql`). */
+export async function recordEmployeeChange(input: RecordChangeInput, db: typeof sql = sql): Promise<void> {
   if (input.oldValue === input.newValue) return;
 
-  await sql`
+  await db`
     INSERT INTO payroll_employee_history
       (company_id, employee_id, field_name, old_value, new_value, effective_from, change_reason, changed_by)
     VALUES (

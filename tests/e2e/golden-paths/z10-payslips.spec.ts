@@ -3,7 +3,7 @@
  * Golden path (z10): payslips from the pay run (master plan wave 4, PS).
  *
  *  - A calculated run: the row's Payslip opens the drawer; the PDF is a PDF, carries the stored net, the bank
- *    account's last four digits only, and "DRAFT" (the R-035 guard has not cleared the run).
+ *    account's last four digits only, and "DRAFT" (the run is not approved, so it has no approval time).
  *  - R-035, then approve: no DRAFT, and the page says "Payslips are ready". Cleared by clearPayRunApproval, as
  *    h-payroll-run does: with E2E_APPROVER_EMAIL / _PASSWORD set (reporting-qa-approver@isaflow.dev on dev, a member
  *    of the sandbox) a second person decides; without them, the suite user is the sandbox's sole eligible approver

@@ -3,12 +3,16 @@ import type { FieldValidity } from '@/components/ui/useParsedField';
 import { isValidSaIdNumber, isValidSarsTaxNumber } from '@/modules/accounting/services/payroll/employeeFieldRules';
 
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
+export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
 
 export interface FormState {
   firstName: string;
   lastName: string;
   employeeNumber: string;
   employmentType: EmploymentType;
+  /** The status the engine reads (mig 967); employment type is display and HR. */
+  taxStatus: TaxStatus;
+  occupation: string;
   startDate: string;
   idNumber: string;
   taxNumber: string;
@@ -38,7 +42,7 @@ export const FIELD_ORDER: readonly FieldKey[] = [
 /** Medical aid stays off by default (D1): a new employee is not assumed to have a tax credit. */
 export const initialForm = (today: string): FormState => ({
   firstName: '', lastName: '', employeeNumber: '',
-  employmentType: 'permanent', startDate: today,
+  employmentType: 'permanent', taxStatus: 'employee', occupation: '', startDate: today,
   idNumber: '', taxNumber: '', dateOfBirth: '',
   uifExcluded: false, medicalAidMainMember: false, s18aReceiptHeld: false,
   medicalAidDependantsCount: '0',
@@ -79,6 +83,8 @@ export const buildBody = (form: FormState) => ({
   lastName: form.lastName,
   employeeNumber: form.employeeNumber,
   employmentType: form.employmentType,
+  taxStatus: form.taxStatus,
+  occupation: form.occupation.trim() || undefined,
   startDate: form.startDate,
   taxNumber: form.taxNumber || undefined,
   idNumber: form.idNumber || undefined,
