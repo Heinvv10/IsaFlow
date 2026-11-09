@@ -1,0 +1,45 @@
+{
+  "id": "ts-standard-22h-boundary-tables-not-flat-25pct",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 28 (standard employment: required to work at least 22 hours a week; employees tax from the tables) with the 2027 rates of tax",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "Required to work exactly 22 hours a week: standard employment (G21 p. 27-28, summary table rows 1-2), so the tables apply, not the flat 25% (R3 000.00). R12 000 a month = R144 000 a year: tax 18% x 144 000 = 25 920 less the primary rebate 17 820 = 8 100, / 12 = R675.00 (2027 brackets and rebate, SARS rates of tax for individuals). UIF 120.00 and SDL 120.00 (1% each, under the UIF ceiling). Net 12 000 - 675 - 120 = 11 205. This is the 22-hour boundary: ts-non-standard-under-5h-day-flat-25pct is the same employee class one side of it (under 22 hours, taxed flat). Replaces sage-2027-03-marco's hours-blind Sage figure (spec section 4 TS-b), with the adversarial reviewer's written agreement.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 12000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "unmodelled": {
+      "ordinaryHoursPerWeek": 22,
+      "employmentBasis": "standard"
+    }
+  },
+  "expected": {
+    "paye": 675,
+    "uifEmployee": 120,
+    "uifEmployer": 120,
+    "sdl": 120,
+    "net": 11205
+  }
+}

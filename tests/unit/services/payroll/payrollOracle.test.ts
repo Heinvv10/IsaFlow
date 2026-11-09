@@ -48,7 +48,6 @@ const EXPECTED_CASE_IDS = [
   'sage-2027-03-kesh-bonus-40000',
   'sage-2027-03-kg',
   'sage-2027-03-lungi',
-  'sage-2027-03-marco',
   'sage-2027-03-phekis',
   'sage-2027-03-qdk',
   'sage-2027-03-rassie',
@@ -64,6 +63,7 @@ const EXPECTED_CASE_IDS = [
   'ts-non-standard-5h-day-over-394-flat-25pct',
   'ts-non-standard-5h-day-under-394-nil-paye',
   'ts-non-standard-under-5h-day-flat-25pct',
+  'ts-standard-22h-boundary-tables-not-flat-25pct',
   'ts-standard-below-threshold-nil-paye',
   'uif-ceiling-20000',
 ];

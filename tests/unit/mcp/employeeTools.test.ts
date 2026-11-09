@@ -134,8 +134,14 @@ describe('create_employee', () => {
     expect(String(out.next_step)).toContain('assign_employee_component');
   });
 
-  it('accepts only the four real employment types', async () => {
-    for (const t of ['permanent', 'contract', 'casual', 'director']) {
+  it('refuses employment_type director: the tax status makes a director, and this tool cannot set one (TS-b)', async () => {
+    const r = await createEmployeeTool.handler(newArgs({ employment_type: 'director' }), ctx());
+    expect(errText(r)).toContain('tax status to Director');
+    expect(createPayrollEmployee).not.toHaveBeenCalled();
+  });
+
+  it('accepts only the real employment types it can set', async () => {
+    for (const t of ['permanent', 'contract', 'casual']) {
       vi.clearAllMocks();
       vi.mocked(createPayrollEmployee).mockResolvedValue(made as never);
       const r = await createEmployeeTool.handler(newArgs({ employment_type: t }), ctx());

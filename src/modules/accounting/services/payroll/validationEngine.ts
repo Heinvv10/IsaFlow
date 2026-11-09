@@ -1,5 +1,9 @@
 import { ETI_TABLE_UNCONFIRMED_MESSAGE, isEtiTableUnconfirmed } from './etiTables';
-import type { EtiMissingInput, EtiResult, PayrollEmployee, ValidationResult } from './payrollTypes';
+import type { EmployeeComponent, EtiMissingInput, EtiResult, PayrollEmployee, ValidationResult } from './payrollTypes';
+import type { EmploymentClassification } from './employmentTerms';
+
+/** Error results that refuse approval of the run (payrollRunRecalcGate.employmentTermsRefusal). */
+export const EMPLOYMENT_TERMS_BLOCKING_CODES = ['EMPLOYMENT_UNDETERMINED', 'DIRECTOR_STATUS_NOT_SET'] as const;
 
 const MONTHLY_THRESHOLD = 95_750 / 12;
 
@@ -129,4 +133,45 @@ export function validateEti(
     field: eti.missingInputs[0] === 'date_of_birth' ? 'dateOfBirth' : 'startDate',
     deepLink: `/payroll/employees/${employee.id}#${eti.missingInputs[0]!.replace(/_/g, '-')}`,
   }];
+}
+
+/**
+ * What the employee's terms of work say about how they are taxed (employmentTerms, taxStatusTreatment):
+ *  - HOURS_NOT_RECORDED (info): a monthly employee with no hours is standard employment by default, never silently;
+ *  - EMPLOYMENT_UNDETERMINED (error): the guide cannot classify from the terms recorded (G21 p. 28);
+ *  - DIRECTOR_STATUS_NOT_SET (error): employment type "director" with tax status "employee": the card asks, nothing
+ *    changes silently (grill 24), so the run stops until someone sets one;
+ *  - CONTRACTOR_UIF_SDL_IGNORED (warning): a contractor's earnings carry UIF or SDL flags, which are set aside (no UIF or SDL
+ *    is taken from a contractor), so the figures are right and the flags are only noise.
+ */
+export function validateEmploymentTerms(
+  employee: Pick<PayrollEmployee, 'id' | 'firstName' | 'lastName' | 'employmentType' | 'taxStatus'>,
+  classification: EmploymentClassification,
+  components: readonly EmployeeComponent[],
+): ValidationResult[] {
+  const name = `${employee.firstName} ${employee.lastName}`.trim();
+  const link = { field: 'workTerms', deepLink: `/payroll/employees/${employee.id}#work-terms` };
+  const results: ValidationResult[] = [];
+  if (classification.hoursNotRecorded) {
+    results.push({ code: 'HOURS_NOT_RECORDED', severity: 'info', message: `${name}: ${classification.reason}.`, ...link });
+  }
+  if (classification.kind === 'undetermined') {
+    results.push({ code: 'EMPLOYMENT_UNDETERMINED', severity: 'error', message: `${name}: ${classification.reason} Record the terms of work, then recalculate.`, ...link });
+  }
+  if (employee.employmentType === 'director' && employee.taxStatus === 'employee') {
+    results.push({
+      code: 'DIRECTOR_STATUS_NOT_SET', severity: 'error',
+      message: `${name} has employment type Director but tax status Employee. Set the tax status to Director (or the employment type to something else), then recalculate.`,
+      ...link,
+    });
+  }
+  const flagged = employee.taxStatus === 'independent_contractor'
+    && components.some(c => c.component.componentType === 'earning' && (c.component.isUifApplicable || c.component.isSdlApplicable));
+  if (flagged) {
+    results.push({
+      code: 'CONTRACTOR_UIF_SDL_IGNORED', severity: 'warning',
+      message: `${name} is an independent contractor: UIF and SDL are not taken, whatever the earnings' UIF and SDL flags say.`, ...link,
+    });
+  }
+  return results;
 }

@@ -28,7 +28,7 @@ export interface PayrollEmployee {
   occupationalLevelId?: string | null;
   /** How net pay reaches them (mig 455): cash is paid from the cash register, not by EFT. */
   paymentMethod?: 'eft' | 'cash';
-  /** Tax status (mig 967): nothing reads it in the calculator yet. */
+  /** Tax status (mig 967): decides the PAYE, UIF, SDL and ETI treatment (taxStatusTreatment). */
   taxStatus: TaxStatus;
   payBasis: PayBasis;
   hoursPerWeek?: number | null;
@@ -115,6 +115,8 @@ export interface ValidationResult {
   deepLink?: string;
   /** PAYE_LATER_PERIODS_APPROVED only: the later months it names, YYYY-MM. The approval gate matches on this, not the message. */
   periods?: string[];
+  /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment); the year to date leaves such a month out. */
+  treatment?: 'flat_25' | 'none';
   /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */
   rawNet?: number;
   /** LOAN_DEDUCTION_MISSING only: the loan numbers whose instalment was not taken. */

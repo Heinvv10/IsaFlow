@@ -1,25 +1,5 @@
 [
   {
-    "case": "sage-2027-03-marco",
-    "engineActual": {
-      "paye": 0,
-      "net": 4455
-    },
-    "reason": "Sage parity only: Sage taxes its 'Temporary/Part time' status at a flat 25% (R1 125.00). The calculator has no tax-status input and applies the tables (R0.00), which is the statutory figure if the employee is in standard employment (22+ hours a week). G21 Rev 1 p. 27-28 decides the treatment from hours and day rate, not from a status label.",
-    "closedBy": "W3 tax status: hours-per-week and day-rate inputs that classify standard / deemed standard / non-standard employment per G21 p. 27-28. Must NOT be closed by taxing a status label at a flat 25%; if the inputs show standard employment, the fix is to correct this fixture's expectation instead."
-  },
-  {
-    "case": "sage-2027-03-rassie",
-    "engineActual": {
-      "uifEmployee": 70,
-      "uifEmployer": 70,
-      "sdl": 70,
-      "net": 6930
-    },
-    "reason": "Sage excludes an independent contractor from UIF and SDL. Costed with the default employee set-up (UIF and SDL on), the calculator levies R70.00 each. A contractor set up correctly (uifExcluded true, earning not SDL-applicable) matches Sage: see sage-2027-03-rassie-contractor-setup. The gap is that no tax status drives those defaults.",
-    "closedBy": "W3 tax status: an independent-contractor status that sets the UIF and SDL defaults"
-  },
-  {
     "case": "fixed-rate-directive-20pct",
     "engineActual": {
       "paye": 4681,
@@ -84,22 +64,6 @@
     },
     "reason": "The employer retirement contribution (15% of RFI = R3 000) is ignored (EMPLOYER_CONTRIBUTION_NOT_SUPPORTED), so the employee R4 000 is allowed in full. As a taxable fringe benefit deemed paid by the employee it joins the s11F pool: 27.5% x 23 000 = 6 325 binds on the R7 000 total. Expected 1 516.50.",
     "closedBy": "RF (RFI and employer retirement contributions)"
-  },
-  {
-    "case": "ts-non-standard-5h-day-over-394-flat-25pct",
-    "engineActual": {
-      "paye": 0
-    },
-    "reason": "No hours or day-rate input: the tables give nil on R5 000. G21 p. 28: non-standard employment over R394 a day is taxed at 25% of the balance of remuneration (R1 250).",
-    "closedBy": "TS-b (classification and tax-status treatment). TS-b must wire taxStatus and the hours into runCase and the ts-* guard cases must then go red if the status is ignored."
-  },
-  {
-    "case": "ts-non-standard-under-5h-day-flat-25pct",
-    "engineActual": {
-      "paye": 0
-    },
-    "reason": "No hours or day-rate input: the tables give nil on R4 500. G21 p. 28 (summary table row 5): non-standard employment under 5 hours a day is taxed at 25% (R1 125).",
-    "closedBy": "TS-b (classification and tax-status treatment). TS-b must wire taxStatus and the hours into runCase and the ts-* guard cases must then go red if the status is ignored."
   },
   {
     "case": "fixed-amount-directive-2500",

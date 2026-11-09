@@ -7,6 +7,9 @@ import { calculateSDL } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
 import { sdlLeviableToDate } from './sdlLeviableCumulative';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
+import { classifyEmployment } from './employmentTerms';
+import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
+import { validateEmploymentTerms } from './validationEngine';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -47,6 +50,13 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const taxYearEnd = new Date(taxYear, 2, 0);
   const rebateAge = employee.dateOfBirth ? getAge(employee.dateOfBirth, taxYearEnd) : 30;
 
+  // How the employee is taxed (TS-b): the tables, a flat 25% (non-standard), or none (contractor). A line off the tables is costed
+  // as a first period (no year to date), then replaced below; its month stays out of every later table month's base.
+  const classification = classifyEmployment(employee, taxYear);
+  const treatment = taxStatusTreatment(employee.taxStatus, classification.kind);
+  const onTables = treatment.paye === 'tables';
+  const ytdForTables = onTables ? input.ytd : undefined;
+
   const acc = accumulateComponents(components);
   const { grossPay, allEarnings, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings } = acc;
   let { periodicTaxable, annualPayments } = acc;
@@ -85,19 +95,22 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     receiptHeld: employee.s18aReceiptHeld === true,
     payeInput: {
       periodicRemuneration, annualPaymentRemuneration,
-      ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
+      ytd: ytdForTables ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
       taxYear, rebateAge, monthlyMedicalBeneficiaries: medicalBeneficiaries, medicalSchemeFees, retirementContributions,
     },
-    ytd: input.ytd,
+    ytd: ytdForTables,
   });
-  warnings.push(...donation.warnings);
+  warnings.push(...donation.warnings, ...validateEmploymentTerms(employee, classification, components));
   // Taxable remuneration BEFORE the retirement fund deduction, which is its own figure (retirementDeduction): a
   // line's record can exceed its pay (a catch-up contribution), and taxable_income must not go negative.
   const taxableIncome = regularTaxable + annualTaxable;
-  const payeSplit = { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye, directive: round2(directivePaye) };
+  // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
+  const treated = payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, taxableIncome - retirementDeduction);
+  const payeSplit = { regular: treated.regular, annualPayment: treated.annualPayment, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
+  if (treatment.paye !== 'tables') warnings.push(...outsideTablesResult(treatment.paye));
 
-  const uif = employee.uifExcluded
+  const uif = employee.uifExcluded || !treatment.uif
     ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
     : calculateUIF(uifLeviable, taxYear);
 
@@ -105,8 +118,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // year (sdlLeviableCumulative). No other deduction reduces PAYE or SDL; the s4(b) threshold stays on gross.
   // The pay enters the cumulative maths as the cent figure the line stores (sdl_applicable), so the year to date and
   // this line work from exactly the same numbers.
-  const sdlApplicable = round2(sdlLeviable);
-  const sdlLeviableAfterDeductions = sdlLeviableToDate(employee.id, sdlApplicable, round2(retirementDeduction + donation.sdlDeduction), input.ytd);
+  const sdlApplicable = treatment.sdl ? round2(sdlLeviable) : 0;
+  const sdlLeviableAfterDeductions = treatment.sdl
+    ? sdlLeviableToDate(employee.id, sdlApplicable, round2(retirementDeduction + donation.sdlDeduction), input.ytd) : 0;
 
   // Leviability depends on the employer's twelve-month remuneration, not on
   // this line, so a caller costing a full run defers and applies the threshold
@@ -139,7 +153,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       ...resolved, isEligible: false, isDeterminable: true, missingInputs: [], monthlyEti: 0,
       ineligibilityReason: 'Not employed in this period (paid after leaving): ETI is apportioned by hours employed, none here.',
     }
-    : resolved;
+    : !treatment.eti
+      ? { ...resolved, isEligible: false, isDeterminable: true, missingInputs: [], monthlyEti: 0, ineligibilityReason: 'Independent contractor: not an employee, so no ETI.' }
+      : resolved;
 
   const netPay = Math.round(
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,
@@ -178,8 +194,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     annualPaymentRemuneration: round2(annualPaymentRemuneration),
     paye,
     payeSplit,
-    medicalCredit,
-    additionalMedicalCredit,
+    medicalCredit: onTables ? medicalCredit : 0,
+    additionalMedicalCredit: onTables ? additionalMedicalCredit : 0,
     medicalSchemeFees: round2(medicalSchemeFees),
     retirementContributions: round2(retirementContributions),
     retirementDeduction,
