@@ -53,8 +53,15 @@ export function useBankTxKeyboardNav({
   const rowRefs = useRef<Array<HTMLTableRowElement | null>>([]);
   const prevLenRef = useRef(transactions.length);
   const focusedIndexRef = useRef<number | null>(null);
+  /** The focused row by id: a sort, a filter or a refresh moves rows, and the index must follow the row. */
+  const focusedIdRef = useRef<string | null>(null);
 
   useEffect(() => { focusedIndexRef.current = focusedIndex; }, [focusedIndex]);
+
+  const setFocus = useCallback((index: number, id: string | undefined) => {
+    focusedIdRef.current = id ?? null;
+    setFocusedIndex(index);
+  }, []);
 
   const focusRow = useCallback((index: number) => {
     rowRefs.current[index]?.focus();
@@ -72,12 +79,18 @@ export function useBankTxKeyboardNav({
 
     const cur = focusedIndexRef.current;
     if (cur === null) return;
-    if (transactions.length === 0) { setFocusedIndex(null); return; }
+    if (transactions.length === 0) { focusedIdRef.current = null; setFocusedIndex(null); return; }
 
+    // The focused row moved (sort, filter, refresh): the index follows it, so data-focused matches DOM focus.
+    const movedTo = focusedIdRef.current === null ? -1 : transactions.findIndex((t) => t.id === focusedIdRef.current);
+    if (movedTo >= 0) { if (movedTo !== cur) setFocusedIndex(movedTo); return; }
+
+    // The focused row is gone (accepted, excluded): the index now points at the next one.
     const next = Math.min(cur, transactions.length - 1);
+    focusedIdRef.current = transactions[next]?.id ?? null;
     if (next !== cur) setFocusedIndex(next);
     if (transactions.length < prevLen) focusRow(next);
-  }, [transactions.length, focusRow]);
+  }, [transactions, focusRow]);
 
   const registerRow = useCallback((index: number, el: HTMLTableRowElement | null) => {
     rowRefs.current[index] = el;
@@ -95,12 +108,15 @@ export function useBankTxKeyboardNav({
       const ownIndex = own ? rowRefs.current.indexOf(own) : -1;
       if (e.key === 'Escape' && isTypingTarget(document.activeElement) && ownIndex >= 0) {
         e.preventDefault();
-        setFocusedIndex(ownIndex);
+        setFocus(ownIndex, transactions[ownIndex]?.id);
         (document.activeElement as HTMLElement | null)?.blur();
         focusRow(ownIndex);
       }
       return;
     }
+    // The grid itself takes only the arrows: after a click on empty grid space or a Shift+Tab, Enter and X would
+    // otherwise act on whichever row the stream last held.
+    if (target === e.currentTarget && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
     if (rowIndex >= 0 && rowIndex !== focusedIndex) return; // a row that is not the stream's current one
     if (focusedIndex === null) {
       // Nothing focused yet: only an arrow key enters the stream (focus row 0).
@@ -109,7 +125,7 @@ export function useBankTxKeyboardNav({
       const entryAction = resolveBankTxKey(e.key, { isEditingCell: isTypingTarget(document.activeElement), canAccept: false });
       if (entryAction === 'next' || entryAction === 'prev') {
         e.preventDefault();
-        setFocusedIndex(0);
+        setFocus(0, transactions[0]?.id);
         focusRow(0);
       }
       return;
@@ -125,15 +141,17 @@ export function useBankTxKeyboardNav({
     const action = resolveBankTxKey(e.key, ctx);
     if (!action) return;
     e.preventDefault();
+    // A key held down repeats: one accept, exclude or split per press, never a chain over refocused rows.
+    if (e.repeat && (action === 'accept' || action === 'exclude' || action === 'split')) return;
 
     switch (action) {
       case 'next': {
         const ni = Math.min(index + 1, transactions.length - 1);
-        setFocusedIndex(ni); focusRow(ni); break;
+        setFocus(ni, transactions[ni]?.id); focusRow(ni); break;
       }
       case 'prev': {
         const pi = Math.max(index - 1, 0);
-        setFocusedIndex(pi); focusRow(pi); break;
+        setFocus(pi, transactions[pi]?.id); focusRow(pi); break;
       }
       case 'accept':  onAccept(tx.id); break;
       case 'exclude': onExclude(tx.id); break;
@@ -150,7 +168,7 @@ export function useBankTxKeyboardNav({
         break;
       }
     }
-  }, [transactions, rowSelections, focusedIndex, focusRow, onAccept, onExclude, onSplit]);
+  }, [transactions, rowSelections, focusedIndex, focusRow, setFocus, onAccept, onExclude, onSplit]);
 
   const containerProps = useMemo(() => ({ onKeyDown }), [onKeyDown]);
 
@@ -158,7 +176,7 @@ export function useBankTxKeyboardNav({
     ref: (el: HTMLTableRowElement | null) => registerRow(index, el),
     tabIndex: -1,
     'data-focused': focusedIndex === index ? true : undefined,
-    onClick: () => setFocusedIndex(index),
+    onClick: () => setFocus(index, transactions[index]?.id),
   });
 
   return { focusedIndex, containerProps, getRowProps };
