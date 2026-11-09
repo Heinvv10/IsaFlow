@@ -1,8 +1,10 @@
 /**
  * ROW LABELS PRINTED TO BREAK ANYWHERE, IN THE PRINT TESTS' CHROMIUM (#1235 round 8): the CI half of
  * `printParity/packAnywhereLabelImage.test.ts`, which holds the same in production's image.
- *  - Graphemes that hold several glyphs that advance, with a footnote mark after them and without (blind L2: a mark on
- *    such a label was held nowhere): never a line more than the model, none past its block, the block the model's.
+ *  - The families' labels the pack's own faces set (the footnote-mark sweep), with a footnote mark after them and
+ *    without (blind L2: a mark on such a label was held nowhere): never a line more than the model, none past its block,
+ *    the block the model's. The families a fallback face sets are the image test's alone: this Chromium sets them in the
+ *    host's fallback fonts, which are not production's (#1235 merge queue, 3033bed38: GitHub's runner).
  *  - Statement tables whose labels all carry marks, or every other one (blind M1: the label column fell to its
  *    padding): the columns are the model's, the lines and the height never short.
  */
@@ -16,6 +18,7 @@ import { openProbePage } from './measureWidths';
 import { measureTables } from './measureTables';
 import { ANYWHERE_LINES_OF, anywhereArgs, judgeAnywhere, type AnywhereCase } from './anywhereLines';
 import { anywhereFamilies } from './fixtures/anywhereFamilies';
+import { inFaces } from './fixtures/breakPairsCensus';
 import { MARKED_TABLES, relabelledStatement } from './fixtures/markedTables';
 
 let browser: Browser;
@@ -25,8 +28,13 @@ afterAll(async () => { await browser?.close(); });
 const COLUMN_ERROR_PX = 0.1;
 
 describe('a label printed to break anywhere, in Chromium', () => {
-  it('the round-8 families, with a footnote mark and without, at seven widths and three weights: never a line more than the model, none past its block', async () => {
-    const texts = anywhereFamilies().map(printedText).filter(printsAnywhere);
+  it('the round-8 families the pack\'s faces set, with a footnote mark and without, at seven widths and three weights: never a line more than the model, none past its block', async () => {
+    // Only labels the pack's own faces set (the footnote-mark sweep, "q\u0301 n..."): how a fallback face sets a glyph is
+    // the host's (GitHub's runner sets Syriac's final SADHE wide enough to run 1.078px past its block; production never
+    // runs past it), so the fallback families are held to production's image, velo only
+    // (`printParity/packAnywhereLabelImage.test.ts`, the same families).
+    const texts = anywhereFamilies().map(printedText).filter(printsAnywhere).filter(inFaces);
+    expect(texts.length).toBeGreaterThan(150);
     const cases: AnywhereCase[] = texts.flatMap((text) => [null, 1, 12].map((footnote) => ({ text, footnote })));
     const page = await openProbePage(browser);
     const wrong: string[] = [];

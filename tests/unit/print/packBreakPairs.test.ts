@@ -108,11 +108,14 @@ it('the stand-ins\' other members (\u65E5 \u6536 \uAC00 \uD7A3 \uFF3A \uFF5A U+F
   expect(wrong.map((t) => JSON.stringify(t)).slice(0, 20), `${wrong.length} of ${texts.length} differ`).toEqual([]);
 }, 600_000);
 
-it('the adversary\'s census (#1235 round 3: every character to U+30FF in fifteen contexts, every pair of the faces\' punctuation, with and without a mark): the model\'s lines are Chromium\'s', async () => {
+it('the adversary\'s census (#1235 round 3: every character to U+30FF in fifteen contexts, every pair of the faces\' punctuation, with and without a mark), the texts the faces set: the model\'s lines are Chromium\'s', async () => {
   // Where the two Chromiums differ (a word-opening hyphen before a letter, the braille blank), production's is held, by the image test.
   // A label holding a mark is printed to break anywhere (`packAnywhereLabel.ts`): the pair table never reads it.
-  const items = adversaryCensus().filter(({ text }) => alike(text) && !carriesMarks(printedText(text)));
-  expect(items.length).toBeGreaterThan(110_000);
+  // Only texts the pack's own faces set: where Chromium breaks beside a glyph a fallback face sets depends on the host's
+  // fallback fonts (GitHub's runner read "ab\u1B6A\u1B6Acd" as 4 lines; production sets it in 2, as the model reads it),
+  // so those are held to production's image, velo only (`printParity/packBreakPairsImage.test.ts`, the same census).
+  const items = adversaryCensus().filter(({ text }) => alike(text) && !carriesMarks(printedText(text)) && inFaces(text));
+  expect(items.length).toBeGreaterThan(55_000);
   const page = await openProbePage(browser);
   const real: string[] = [];
   try {
