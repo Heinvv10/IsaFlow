@@ -5,7 +5,7 @@
  * - The "Not itemised" note is worded by cause and lands on a page (never off the bottom).
  * - Total deductions is rounded like every other figure.
  * - BCEA s33(1): the employer's address, or a visible "Employer address not recorded" on a
- *   final slip; "Occupation not recorded" (payroll has no occupation field).
+ *   final slip; the occupation from the profile, or "Not recorded" when none is captured.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -26,7 +26,7 @@ function slipOf(breakdown: object[], types: Map<string, string>, stored: { gross
     }, types),
     employeeId: 'e1', employeeNumber: 'E-001', employeeName: 'Zanele Slip', taxNumber: '0123456789', paymentMethod: 'eft',
     bankLastFour: '3456', bankName: 'FNB', bankIncomplete: false,
-    occupation: null, payBasis: 'monthly', hoursPerWeek: null, hoursPerDay: null, hourlyRate: null, dailyRate: null,
+    workedOrdinary: null, workedOvertime: null, occupation: null, payBasis: 'monthly', hoursPerWeek: null, hoursPerDay: null, hourlyRate: null, dailyRate: null,
     yearToDate: { grossPay: stored.gross, taxableIncome: stored.gross, paye: stored.paye, uifEmployee: stored.uif, netPay: stored.net },
   };
 }
@@ -107,7 +107,7 @@ describe('figures and particulars', () => {
 
   it('occupation: "Occupation not recorded" when none is captured', async () => {
     const [text] = await pages(await buildPayslipPdf(runOf(longSlip(), true)));
-    expect(text).toContain('Occupation: not recorded');
+    expect(text).toContain('Occupation: Not recorded');
   });
 
   it('a FINAL slip with no employer address says "Employer address not recorded"', async () => {
@@ -137,12 +137,12 @@ describe('PS2: BCEA s33(1) particulars, formats, payment line', () => {
     expect(text).toContain('Occupation: Splicer');
     expect(text).toContain('Ordinary hours: 8 per day, 40 per week (contracted)');
     expect(text).toContain('Rate of pay: R 1 234.50 per hour');
-    expect(text).toContain('Overtime hours: not recorded');
+    expect(text).toContain('Overtime hours: Not recorded');
   });
 
-  it('prints "not recorded" for hours when none are stored, never a figure', async () => {
+  it('prints "Not recorded" for hours when none are stored, never a figure', async () => {
     const text = await textOf(base());
-    expect(text).toContain('Ordinary hours: not recorded');
+    expect(text).toContain('Ordinary hours: Not recorded');
     expect(text).not.toContain('Rate of pay');
   });
 
@@ -175,5 +175,27 @@ describe('PS2: BCEA s33(1) particulars, formats, payment line', () => {
     const text = await textOf({ ...base(), occupation: null, bankLastFour: null, taxNumber: null }, { runDate: null });
     expect(text).toContain('Net pay');
     expect(text).not.toContain('DRAFT');
+  });
+
+  it('hours captured on the run print as worked, beside the contracted terms; overtime when captured', async () => {
+    const slip = { ...base(), hoursPerWeek: 40, workedOrdinary: { quantity: 152, unit: 'hour' as const }, workedOvertime: { quantity: 12.5, unit: 'hour' as const } };
+    const text = await textOf(slip);
+    expect(text).toContain('Ordinary hours: 152 hours worked; 40 per week (contracted)');
+    expect(text).toContain('Overtime hours: 12.5 hours');
+  });
+
+  it('days captured print as days, and 1 is singular', async () => {
+    const text = await textOf({ ...base(), workedOrdinary: { quantity: 1, unit: 'day' as const } });
+    expect(text).toContain('Ordinary hours: 1 day worked');
+  });
+
+  it('a whitespace-only tax number prints "Not recorded"', async () => {
+    expect(await textOf({ ...base(), taxNumber: '   ' })).toContain('Income tax number: Not recorded');
+  });
+
+  it('a raw payment method prints capitalised, not raw', async () => {
+    const text = await textOf({ ...base(), paymentMethod: 'cheque' });
+    expect(text).toContain('Paid by: Cheque');
+    expect(text).not.toContain('Paid by: cheque');
   });
 });
