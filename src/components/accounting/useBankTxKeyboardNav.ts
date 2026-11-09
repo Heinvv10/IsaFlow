@@ -29,6 +29,9 @@ export interface RowProps {
   onClick: () => void;
 }
 
+/** An accept / exclude / split that has not settled after this long no longer locks its row. */
+const IN_FLIGHT_LIMIT_MS = 30_000;
+
 function isTypingTarget(el: Element | null): boolean {
   if (!el) return false;
   const tag = el.tagName;
@@ -122,11 +125,19 @@ export function useBankTxKeyboardNav({
    */
   const runRowAction = useCallback((id: string, call: (txId: string) => void | Promise<boolean>) => {
     if (inFlightRef.current.has(id)) return;
+    // Acting on a row ends any other row's mark.
+    if (actedIdRef.current !== id) actedIdRef.current = null;
     const outcome = call(id);
     if (!outcome) return;
     inFlightRef.current.add(id);
-    outcome.then((done) => { if (done) actedIdRef.current = id; }, (err: unknown) => log.warn('Bank row action rejected', { error: err }, 'banking'))
-      .finally(() => { inFlightRef.current.delete(id); });
+    // A request that never settles must not lock the row for good.
+    const release = setTimeout(() => {
+      log.warn('Bank row action still pending: releasing the row', { txId: id, afterMs: IN_FLIGHT_LIMIT_MS }, 'banking');
+      inFlightRef.current.delete(id);
+    }, IN_FLIGHT_LIMIT_MS);
+    // The mark is only for the row the stream still holds: the user may have moved on while it was pending.
+    outcome.then((done) => { if (done && focusedIdRef.current === id) actedIdRef.current = id; }, (err: unknown) => log.warn('Bank row action rejected', { error: err }, 'banking'))
+      .finally(() => { clearTimeout(release); inFlightRef.current.delete(id); });
   }, []);
 
   const registerRow = useCallback((index: number, el: HTMLTableRowElement | null) => {

@@ -62,8 +62,6 @@ describe('handleAccept', () => {
     expect(events).toEqual(['resolved true', 'reload']);
     expect(refreshBankAccounts).toHaveBeenCalledTimes(1);
     expect(reloadCurrentView).not.toHaveBeenCalled(); // that is the undo's, not the accept's
-    expect(refreshBankAccounts).toHaveBeenCalledTimes(1);
-    expect(reloadCurrentView).not.toHaveBeenCalled(); // that is the undo's, not the accept's
   });
 
   it('resolves false when the server refuses', async () => {

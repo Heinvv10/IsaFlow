@@ -8,8 +8,11 @@ import React from 'react';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import { BankTxTable } from '@/components/accounting/BankTxTable';
 import { TXS, tableProps } from './bankTxTableFixture';
+import { log } from '@/lib/logger';
 
-afterEach(() => { cleanup(); });
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+
+afterEach(() => { cleanup(); vi.mocked(log.warn).mockClear(); });
 
 const rows = () => Array.from(document.querySelectorAll('tbody tr')) as HTMLElement[];
 const rowOf = (text: string) => rows().find(r => r.textContent?.includes(text))!;
@@ -69,6 +72,28 @@ describe('a pending action', () => {
     await act(async () => { finish(false); await Promise.resolve(); });
     fireEvent.keyDown(rowA, { key: 'Enter' });
     expect(p.onAccept).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('a pending action that never settles', () => {
+  it('releases its row after 30 s, with a warning', async () => {
+    vi.useFakeTimers();
+    try {
+      const p = tableProps({ onAccept: vi.fn(() => new Promise<boolean>(() => undefined)) });
+      render(<BankTxTable {...p} />);
+      const rowA = rows()[0]!;
+      fireEvent.click(rowA);
+      fireEvent.keyDown(rowA, { key: 'Enter' });
+      fireEvent.keyDown(rowA, { key: 'Enter' });
+      expect(p.onAccept).toHaveBeenCalledTimes(1);
+      await act(async () => { vi.advanceTimersByTime(29_999); });
+      fireEvent.keyDown(rowA, { key: 'Enter' });
+      expect(p.onAccept).toHaveBeenCalledTimes(1);
+      await act(async () => { vi.advanceTimersByTime(1); });
+      expect(vi.mocked(log.warn)).toHaveBeenCalledTimes(1);
+      fireEvent.keyDown(rowA, { key: 'Enter' });
+      expect(p.onAccept).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
   });
 });
 
@@ -207,6 +232,18 @@ describe('when the focused row leaves the list', () => {
     expect(document.activeElement).toBe(rows()[0]);
     expect(rows()[0]).toHaveAttribute('data-focused', 'true');
     expect(rows()[0]!.textContent).toContain('Pending row');
+  });
+
+  it('a row that stays visible leaves no stale mark once the user moves to another row and back', async () => {
+    const p = tableProps({ onExclude: vi.fn().mockResolvedValue(true) });
+    const { rerender } = render(<BankTxTable {...p} />);
+    fireEvent.keyDown(holdRowA(), { key: 'x' });
+    await settled(); // completed, but row a is still listed
+    fireEvent.keyDown(rows()[0]!, { key: 'ArrowDown' });
+    fireEvent.keyDown(rows()[1]!, { key: 'ArrowUp' });
+    expect(rows()[0]).toHaveAttribute('data-focused', 'true');
+    rerender(<BankTxTable {...p} transactions={without('a')} />); // a filter takes it: not ours any more
+    expect(document.activeElement).toBe(grid());
   });
 
   it('focus that never was in the grid is left alone', () => {
