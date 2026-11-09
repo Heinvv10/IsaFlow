@@ -158,10 +158,13 @@ export async function listEntityChanges(companyId: string, opts: ListEntityChang
   };
 }
 
+/** HD: what an hourly or daily line was priced and judged on. Any change after calculation counts, for any employee. */
+const WORK_TERMS = ['pay_basis', 'hourly_rate', 'daily_rate', 'hours_per_day'];
 /** The payroll_employees columns whose change after calculation sends a pay run back for recalculation. */
 const PAYROLL_TERMS = [
   'end_date', 'termination_reason', 'termination_notice_period_days', 'termination_served_notice_days',
   'termination_severance_weeks_per_year', 'termination_include_leave_payout', 's18a_receipt_held',
+  ...WORK_TERMS,
 ];
 /** The termination details: they count only for an employee whose end date is on or before the run's last day. */
 const TERMINATION_TERMS = PAYROLL_TERMS.filter(t => t.startsWith('termination_'));
@@ -225,6 +228,8 @@ export async function payrollTermsChangedSinceCalculation(
           AND c.after->>'end_date' IS NOT NULL AND (c.after->>'end_date')::date <= p.last_day)
         -- The s18A receipt tick moves PAYE and SDL for any employee, in either direction.
         OR 's18a_receipt_held' = ANY(c.changed)
+        -- Pay basis, the rates and hours per day (HD): a line's hours, price and ETI hang on them.
+        OR c.changed && ${WORK_TERMS}::text[]
       )
   `) as Array<{ entity_id: string }>;
   return rows.map((r) => String(r.entity_id));

@@ -135,12 +135,18 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
     send(key, () => ({ employeeId, componentId, amount: cents / 100, expectedAmount: amountAt(known.current, key)?.amount ?? 0 }));
   }, [send]);
 
-  /** Hours or days (HD): the server prices them from the employee's rate; the cell expects the quantity it last showed. */
-  const commitHours = useCallback((employeeId: string, hundredths: number) => {
+  /**
+   * Hours or days (HD): the server prices them from the employee's rate. The cell expects the quantity it last showed (null: none),
+   * and names the plain amount it replaces, if it showed one. `hundredths` null clears the row; 0 is an entered nil.
+   */
+  const commitHours = useCallback((employeeId: string, hundredths: number | null) => {
     send(hoursKey(employeeId), () => {
       const basic = known.current?.hours.componentId;
-      const held = basic ? amountAt(known.current, cellKey(employeeId, basic))?.quantity : null;
-      return { employeeId, quantity: hundredths / 100, expectedQuantity: held ?? 0 };
+      const held = basic ? amountAt(known.current, cellKey(employeeId, basic)) : undefined;
+      return {
+        employeeId, quantity: hundredths == null ? null : hundredths / 100, expectedQuantity: held?.quantity ?? null,
+        ...(held && held.quantity == null && held.amount != null ? { expectedAmount: held.amount } : {}),
+      };
     });
   }, [send]);
 

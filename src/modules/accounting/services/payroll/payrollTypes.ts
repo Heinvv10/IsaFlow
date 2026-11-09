@@ -163,7 +163,10 @@ export interface ComponentBreakdownItem {
   amount: number;
   isTaxable: boolean;
   isUifApplicable: boolean;
-  /** HD: the hours or days behind `amount`, and the rate per unit it was paid at (amount / quantity). */
+  /**
+   * HD: the hours or days behind `amount` (0 is an entered nil; the keys are omitted when none was recorded), and `rate` = amount / quantity,
+   * the EFFECTIVE rate it was paid at, to four decimals: the employee's rate at entry, not looked up again. Omitted at quantity 0.
+   */
   quantity?: number;
   quantityUnit?: QuantityUnit;
   rate?: number;

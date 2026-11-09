@@ -49,6 +49,10 @@ describe('run hours', () => {
     expect(runHoursOf(employee(), [])).toBeNull();
     expect(runHoursOf(employee({ payBasis: 'monthly' }), [worked(160, 'hour', 13680)])).toBeNull();
   });
+  it('an entered nil is 0 hours (said, not defaulted); two rows cannot be told, never summed', () => {
+    expect(runHoursOf(employee(), [worked(0, 'hour', 0)])).toBe(0);
+    expect(runHoursOf(employee(), [worked(80, 'hour', 6840), worked(80, 'hour', 6840)])).toBeNull();
+  });
 });
 
 describe('validation', () => {
@@ -59,19 +63,37 @@ describe('validation', () => {
     expect(v!.message).toContain('hours');
     expect(hoursValidation(employee({ payBasis: 'daily', dailyRate: 640 }), [])[0]!.message).toContain('days');
   });
-  it('hours kept after the employee moved to days count as missing', () => {
-    expect(codes(employee({ payBasis: 'daily', dailyRate: 640 }), [worked(160, 'hour', 13680)])).toEqual(['HOURS_MISSING']);
+  it('hours kept after the employee moved to days are a mismatch, and the days are still missing', () => {
+    expect(codes(employee({ payBasis: 'daily', dailyRate: 640 }), [worked(160, 'hour', 13680)])).toEqual(['HOURS_UNIT_MISMATCH', 'HOURS_MISSING']);
+  });
+  it('hours left on an employee who moved to monthly are a mismatch beside the recurring salary (R15 000 + R14 834.25)', () => {
+    const monthly = employee({ payBasis: 'monthly', hourlyRate: null });
+    const salary: EmployeeComponent = { component: basic, amount: 15000, isRecurring: true };
+    const found = hoursValidation(monthly, [salary, worked(173.5, 'hour', 14834.25)]);
+    expect(found.map((v) => [v.code, v.severity])).toEqual([['HOURS_UNIT_MISMATCH', 'error']]);
+    expect(found[0]!.message).toContain('monthly');
   });
   it('a monthly employee is never asked for hours', () => {
     expect(codes(employee({ payBasis: 'monthly' }), [])).toEqual([]);
   });
+  it('a nil entry counts as entered', () => {
+    expect(codes(employee(), [worked(0, 'hour', 0)])).toEqual([]);
+  });
+  it('two rows recording hours are an error, not a sum', () => {
+    expect(codes(employee(), [worked(80, 'hour', 6840), worked(80, 'hour', 6840)])).toEqual(['HOURS_DUPLICATE']);
+  });
   it('a rate changed since the hours were entered is a warning, the stored amount stays the pay', () => {
     expect(codes(employee(), [worked(160, 'hour', 13600)])).toEqual(['HOURS_RATE_CHANGED']);
-    expect(codes(employee(), [worked(160, 'hour', hoursAmountCents(160, 85.5) / 100)])).toEqual([]);
+    expect(codes(employee(), [worked(160, 'hour', 13680)])).toEqual([]); // 160 x 85.50, by hand
   });
-  it('a recurring Basic Salary on top of hours is warned: it pays twice', () => {
+  it('any other Basic Salary row beside the hours is a blocking error: it pays twice', () => {
     const recurring: EmployeeComponent = { component: basic, amount: 5000, isRecurring: true };
-    expect(codes(employee(), [worked(160, 'hour', 13680), recurring])).toContain('HOURS_WITH_RECURRING_BASIC');
+    const plainOnce: EmployeeComponent = { component: basic, amount: 700, isRecurring: false };
+    for (const other of [recurring, plainOnce]) {
+      const found = hoursValidation(employee(), [worked(160, 'hour', 13680), other]);
+      expect(found.map((v) => [v.code, v.severity])).toEqual([['HOURS_WITH_OTHER_BASIC', 'error']]);
+    }
+    expect(codes(employee(), [worked(160, 'hour', 13680), { component: basic, amount: 0, isRecurring: true }])).toEqual([]);
   });
 });
 
@@ -85,6 +107,23 @@ describe('through the calculator', () => {
     expect(line.hours).toBe(160);
     expect(line.grossPay).toBe(13680);
   });
+  it('a nil entry pays nothing, keeps the quantity 0 on the breakdown with no rate, and is not flagged', () => {
+    const line = calculatePayrollLine({
+      employee: employee(), components: [worked(0, 'hour', 0)], period: { month: 11, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 'defer',
+    });
+    expect(line.componentBreakdown[0]).toEqual(expect.objectContaining({ amount: 0, quantity: 0, quantityUnit: 'hour' }));
+    expect(line.componentBreakdown[0]).not.toHaveProperty('rate');
+    expect(line.hours).toBe(0);
+    expect(line.validationResults.filter((v) => v.code.startsWith('HOURS_'))).toEqual([]);
+  });
+  it('a severance-only leaver is not judged on hours', () => {
+    const line = calculatePayrollLine({
+      employee: employee(), components: [], period: { month: 11, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 'defer',
+      notEmployedInPeriod: true,
+    });
+    expect(line.validationResults.map((v) => v.code)).not.toContain('HOURS_MISSING');
+    expect(line.hours).toBeNull();
+  });
   it('no hours: no pay is invented, hours is null and the line is flagged', () => {
     const line = calculatePayrollLine({
       employee: employee(), components: [], period: { month: 11, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 'defer',
@@ -92,5 +131,30 @@ describe('through the calculator', () => {
     expect(line.grossPay).toBe(0);
     expect(line.hours).toBeNull();
     expect(line.validationResults.map((v) => v.code)).toContain('HOURS_MISSING');
+  });
+});
+
+describe('ETI until ET apportions by hours (80 h x R30 case)', () => {
+  const young = (extra: Partial<PayrollEmployee> = {}) => employee({
+    dateOfBirth: new Date(2004, 5, 1), startDate: new Date(2026, 0, 1), hourlyRate: 30, ...extra,
+  });
+  const run = (e: PayrollEmployee, c: EmployeeComponent[]) => calculatePayrollLine({
+    employee: e, components: c, period: { month: 11, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 'defer',
+  });
+
+  it('80 hours at R30 claims no ETI and says why; the same pay as a monthly employee does claim', () => {
+    const hourly = run(young(), [worked(80, 'hour', 2400)]);
+    expect(hourly.eti.monthlyEti).toBe(0);
+    expect(hourly.validationResults.map((v) => v.code)).toContain('ETI_HOURS_APPORTIONMENT_PENDING');
+    const monthly = run(young({ payBasis: 'monthly' }), [{ component: basic, amount: 2400, isRecurring: true }]);
+    expect(monthly.eti.monthlyEti).toBeGreaterThan(0); // proves the guard, not the data, zeroed it
+    expect(monthly.validationResults.map((v) => v.code)).not.toContain('ETI_HOURS_APPORTIONMENT_PENDING');
+  });
+  it('a full month (160 h) keeps the ETI the engine works out; hours that cannot be told claim none', () => {
+    const full = run(young({ hourlyRate: 30 }), [worked(160, 'hour', 4800)]);
+    expect(full.eti.monthlyEti).toBeGreaterThan(0);
+    expect(full.validationResults.map((v) => v.code)).not.toContain('ETI_HOURS_APPORTIONMENT_PENDING');
+    const daily = run(young({ payBasis: 'daily', dailyRate: 240, hoursPerDay: null }), [worked(10, 'day', 2400)]);
+    expect(daily.eti.monthlyEti).toBe(0);
   });
 });

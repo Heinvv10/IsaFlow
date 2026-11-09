@@ -2,8 +2,9 @@
  * The pay-run review grid's period inputs (master plan wave 3, R).
  * GET /api/payroll/runs/[id]/inputs  - the run, what it may edit, what is captured
  * PUT /api/payroll/runs/[id]/inputs  - { employeeId, componentId, amount, expectedAmount } in rand; 0 clears
- *                                    or (HD) { employeeId, quantity, expectedQuantity } hours or days; the amount is
- *                                    worked out on the server from the employee's rate; 0 clears
+ *                                    or (HD) { employeeId, quantity, expectedQuantity[, expectedAmount] } hours or days; the amount
+ *                                    is worked out on the server from the employee's rate. quantity null clears the row, 0 is an
+ *                                    entered nil; expectedQuantity null = no row; expectedAmount names a plain amount it replaces
  *
  * Both answer the same shape, so a PUT hands the grid the recalculated lines.
  * expectedAmount is what the cell last showed: a mismatch answers 409.
@@ -47,8 +48,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (hours) {
     if (!isUuid(employeeId)) return apiResponse.badRequest(res, 'employeeId is required');
     if (componentId !== undefined || amount !== undefined) return apiResponse.badRequest(res, 'Send hours or days, or an amount, not both');
-    if (typeof quantity !== 'number') return apiResponse.badRequest(res, 'quantity must be a number');
-    if (typeof expectedQuantity !== 'number') return apiResponse.badRequest(res, 'expectedQuantity must be a number');
+    if (quantity !== null && typeof quantity !== 'number') return apiResponse.badRequest(res, 'quantity must be a number, or null to clear');
+    if (expectedQuantity !== null && typeof expectedQuantity !== 'number') return apiResponse.badRequest(res, 'expectedQuantity must be a number, or null for none');
+    if (expectedAmount !== undefined && expectedAmount !== null && typeof expectedAmount !== 'number') return apiResponse.badRequest(res, 'expectedAmount must be a number');
   } else {
     if (!isUuid(employeeId) || !isUuid(componentId)) return apiResponse.badRequest(res, 'employeeId and componentId are required');
     if (typeof amount !== 'number') return apiResponse.badRequest(res, 'amount must be a number');
@@ -57,7 +59,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   try {
     return apiResponse.success(res, hours
-      ? await setRunHours(companyId, id, employeeId as string, quantity as number, expectedQuantity as number, actor)
+      ? await setRunHours(companyId, id, employeeId as string, quantity as number | null, {
+        quantity: expectedQuantity as number | null, amount: (expectedAmount ?? null) as number | null,
+      }, actor)
       : await setRunPeriodAmount(companyId, id, employeeId as string, componentId as string, amount as number, expectedAmount as number, actor));
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;

@@ -216,13 +216,17 @@ export async function setRunPeriodAmount(
   if (matches.length > 1 || (row && row.on_key !== true)) throw new PayrollRunInputRefusedError(409, CONFLICTING_ROWS);
   if (centsOf(row ? Number(row.amount) : 0) !== centsOf(expectedAmount)) throw new PayrollRunInputRefusedError(409, CHANGED);
   // Hours and days are priced by the server: a typed amount beside them would leave quantity x rate untrue (HD).
-  const paidByUnit = basicSalaryOf([component]) != null && unitOf(employees.find((e) => e.id === employeeId)!) != null;
-  if (row?.quantity != null || paidByUnit) {
-    throw new PayrollRunInputRefusedError(400, 'This employee is paid by the hour or day: enter their hours or days, not an amount.');
+  const unit = unitOf(employees.find((e) => e.id === employeeId)!);
+  if (row?.quantity != null || (unit != null && basicSalaryOf([component]) != null)) {
+    throw new PayrollRunInputRefusedError(400, unit == null
+      ? 'This amount still holds hours or days recorded for another pay basis. Edit or end it on the employee page.'
+      : row && row.quantity == null
+        ? 'This employee is paid by the hour or day, so basic pay is entered as hours or days. Enter their hours or days: that replaces this amount.'
+        : 'This employee is paid by the hour or day: enter their hours or days, not an amount.');
   }
 
   await writeRunRow({
-    companyId, runId, employeeId, componentId, componentType: component.componentType, period, rowId: row ? String(row.id) : null, amount, quantity: null, actor,
+    companyId, runId, employeeId, componentId, componentType: component.componentType, period, rowId: row ? String(row.id) : null, amount, clear: amount === 0, quantity: null, actor,
   });
   log.info('Payroll run period amount set', { companyId, runId, employeeId, componentId }, 'payrollRunPeriodInputs');
 

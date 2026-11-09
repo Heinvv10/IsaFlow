@@ -56,7 +56,7 @@ type InputsState = { inputs: { amounts: Array<{ employeeId: string; quantity: nu
 /** The grid's own request: the quantity, with what the cell holds; the server prices it. */
 async function setHours(api: Api, runId: string, employeeId: string, quantity: number): Promise<void> {
   const { inputs } = await api.get<InputsState>(`/api/payroll/runs/${runId}/inputs`);
-  const held = inputs.amounts.find((a) => a.employeeId === employeeId)?.quantity ?? 0;
+  const held = inputs.amounts.find((a) => a.employeeId === employeeId)?.quantity ?? null;
   if (held !== quantity) await api.put(`/api/payroll/runs/${runId}/inputs`, { employeeId, quantity, expectedQuantity: held });
 }
 

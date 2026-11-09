@@ -57,7 +57,7 @@ describe('hours cell', () => {
     type(input, '7,5');
     fireEvent.blur(input);
     await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(body(0)).toMatchObject({ quantity: 7.5, expectedQuantity: 0 });
+    expect(body(0)).toMatchObject({ quantity: 7.5, expectedQuantity: null });
     type(input, '1,234.5');
     fireEvent.blur(input);
     await settle();
@@ -67,6 +67,33 @@ describe('hours cell', () => {
     fireEvent.blur(input);
     expect(await screen.findByText(/at most 744 hours/)).toBeTruthy();
     expect(puts()).toHaveLength(1);
+  });
+
+  it('0 is an entered nil, sent as 0; emptying the cell clears the row, sent as null', async () => {
+    serve(() => ok(inputsBody(run, withHours([stored(160, 13680)]))), { run, inputs: withHours([stored(160, 13680)]) });
+    render(<PayrollRunDetailPage />);
+    const input = await cell('Riaan Smit', 'Hours');
+    type(input, '0');
+    fireEvent.blur(input);
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(body(0)).toEqual({ employeeId: 'e-1', quantity: 0, expectedQuantity: 160 });
+    type(input, '');
+    fireEvent.blur(input);
+    await waitFor(() => expect(puts()).toHaveLength(2));
+    expect(body(1)).toMatchObject({ quantity: null });
+  });
+
+  it('a plain basic-pay amount from before hours existed is offered for replacement, sending that amount as the check', async () => {
+    const plain = { employeeId: 'e-1', componentId: BASIC, amount: 500, quantity: null, conflict: false };
+    serve(() => ok(inputsBody(run, withHours([plain]))), { run, inputs: withHours([plain]) });
+    render(<PayrollRunDetailPage />);
+    const input = await cell('Riaan Smit', 'Hours');
+    expect(input.value).toBe('');
+    expect(screen.getByText(/Replaces .*500\.00 entered as an amount/)).toBeTruthy();
+    type(input, '160');
+    fireEvent.blur(input);
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(body(0)).toEqual({ employeeId: 'e-1', quantity: 160, expectedQuantity: null, expectedAmount: 500 });
   });
 
   it('shows what the server priced it at', async () => {

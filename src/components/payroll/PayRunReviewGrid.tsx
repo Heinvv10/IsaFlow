@@ -28,7 +28,7 @@ interface Props {
   saves: Record<string, RowSave>;
   resets: Record<string, number>;
   commit: (employeeId: string, componentId: string, cents: number) => void;
-  commitHours: (employeeId: string, hundredths: number) => void;
+  commitHours: (employeeId: string, hundredths: number | null) => void;
   refuse: (employeeId: string, componentId: string) => void;
   forgetRefused: (componentId: string) => void;
   onPayslip?: (line: RunLineAmounts) => void;
@@ -123,12 +123,14 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
     const e = byUnit.find((x) => x.employeeId === l.employeeId);
     if (!e || !basicId) return <span className="text-[var(--ff-text-tertiary)]">—</span>;
     const captured = inputs.amounts.find((a) => a.employeeId === l.employeeId && a.componentId === basicId);
-    if (captured?.conflict || (captured && captured.quantity == null)) {
+    if (captured?.conflict) {
       return <Link href={`/payroll/employees/${l.employeeId}`} className="text-xs text-teal-700 dark:text-teal-300 underline">Edit on the employee page</Link>;
     }
+    // A plain basic-pay amount from before hours existed: entering hours replaces it.
+    const replaces = captured && captured.quantity == null ? captured.amount : null;
     return (
       <RunHoursCell id={`run-${runId}-hours-${row}`} employeeId={l.employeeId} employeeName={l.employeeName} unit={e.unit} rate={e.rate}
-        quantity={captured?.quantity ?? null} amount={captured?.amount ?? null} resetKey={resets[hoursKey(l.employeeId)] ?? 0}
+        quantity={captured?.quantity ?? null} amount={captured?.amount ?? null} replaces={replaces} resetKey={resets[hoursKey(l.employeeId)] ?? 0}
         onCommit={(h) => commitHours(l.employeeId, h)} onRefuse={() => refuse(l.employeeId, 'hours')} />
     );
   };

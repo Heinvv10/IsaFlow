@@ -8,6 +8,7 @@
  */
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
 import type { ComponentChangeActor } from './payrollComponentAudit';
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
@@ -24,11 +25,19 @@ const MAX_AMOUNT_CENTS = 99_999_999_999_999; // NUMERIC(14,2)
 const refuse = (message: string) => new PayrollRunInputRefusedError(400, message);
 const hundredths = (n: number) => Math.round(n * 100);
 
+/** What the caller says the cell held: a quantity (null: no row) and, for a plain amount it replaces, that amount. */
+export interface HoursExpectation { quantity: number | null; amount?: number | null }
+
+/**
+ * `quantity` null clears the row; 0 is an entered nil (stored, amount 0, counts as entered). A plain once-off Basic Salary
+ * amount of this month (not hours) is replaced only when `expected.amount` names it, the same check as an amount edit.
+ * A monthly employee's stale hours row (kept from an earlier pay basis) can be cleared here, nothing else.
+ */
 export async function setRunHours(
-  companyId: string, runId: string, employeeId: string, quantity: number, expectedQuantity: number, actor: ComponentChangeActor,
+  companyId: string, runId: string, employeeId: string, quantity: number | null, expected: HoursExpectation, actor: ComponentChangeActor,
 ): Promise<RunInputsState> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
-  if (!Number.isFinite(quantity) || quantity < 0 || Math.abs(quantity * 100 - hundredths(quantity)) > 1e-6) {
+  if (quantity !== null && (!Number.isFinite(quantity) || quantity < 0 || Math.abs(quantity * 100 - hundredths(quantity)) > 1e-6)) {
     throw refuse('Enter hours or days of zero or more, to two decimals.');
   }
   await lockCompanyPayrollApprovals(runId, companyId);
@@ -41,29 +50,45 @@ export async function setRunHours(
   if (!employee) throw refuse('This employee is not on this run.');
   const name = `${employee.firstName} ${employee.lastName}`.trim();
   const unit = unitOf(employee);
-  if (unit == null) throw refuse(`${name} is paid monthly: there are no hours or days to enter.`);
-  const noun = unit === 'hour' ? 'hours' : 'days';
-  if (quantity > maxQuantity(unit)) throw refuse(`A month holds at most ${maxQuantity(unit)} ${noun}.`);
-  const rate = rateOf(employee);
-  if (rate == null || rate <= 0) throw refuse(`${name} has no rate per ${unit}: set it on the employee page before entering their ${noun}.`);
   const component = basicSalaryOf(await listEditableComponents(companyId));
-  if (!component) throw refuse('This company has no active taxable Basic Salary (3601) component to record hours or days on.');
-  const cents = hoursAmountCents(quantity, rate);
-  if (cents > MAX_AMOUNT_CENTS) throw refuse(`${quantity} ${noun} at that rate is more than a pay amount can hold.`);
+  if (unit == null && quantity !== null) throw refuse(`${name} is paid monthly: there are no hours or days to enter. Clear any old hours with an empty entry.`);
+  if (!component && quantity !== null) throw refuse('This company has no active taxable Basic Salary (3601) component to record hours or days on.');
+  if (!component) throw refuse('No Basic Salary (3601) component: there is no hours row to clear.');
+  const noun = unit === 'hour' ? 'hours' : 'days';
+  let cents = 0;
+  if (quantity !== null && unit != null) {
+    if (quantity > maxQuantity(unit)) throw refuse(`A month holds at most ${maxQuantity(unit)} ${noun}.`);
+    const rate = rateOf(employee);
+    if (rate == null || rate <= 0) throw refuse(`${name} has no rate per ${unit}: set it on the employee page before entering their ${noun}.`);
+    cents = hoursAmountCents(quantity, rate);
+    if (quantity > 0 && cents === 0) throw refuse(`${quantity} ${noun} at ${rate} per ${unit} comes to less than one cent: enter more, or 0 for none.`);
+    if (cents > MAX_AMOUNT_CENTS) throw refuse(`${quantity} ${noun} at that rate is more than a pay amount can hold.`);
+  }
 
   const matches = await withBoundedLockWait(runId, (tx) => lockPaidRows(tx, companyId, employeeId, component.id, period));
   const row = matches[0];
   if (matches.length > 1 || (row && row.on_key !== true)) throw new PayrollRunInputRefusedError(409, CONFLICTING_ROWS);
-  // A plain amount on this month's key is not hours: writing over it would drop it unseen.
-  if (row && row.quantity == null) throw new PayrollRunInputRefusedError(409, CONFLICTING_ROWS);
-  if (hundredths(row ? Number(row.quantity) : 0) !== hundredths(expectedQuantity)) throw new PayrollRunInputRefusedError(409, CHANGED);
+  const plain = row != null && row.quantity == null;
+  if (plain) {
+    // Pre-HD basic pay typed as an amount: replaced by hours only when the caller names that amount (it saw it).
+    if (expected.amount == null || hundredths(Number(row.amount)) !== hundredths(expected.amount)) {
+      throw new PayrollRunInputRefusedError(409, `This month already pays ${formatMoney(Number(row.amount))} of basic pay as a plain amount for ${name}. `
+        + 'Enter the hours again with that amount shown to replace it, or edit it on the employee page.');
+    }
+  } else if ((row ? hundredths(Number(row.quantity)) : null) !== (expected.quantity == null ? null : hundredths(expected.quantity))) {
+    throw new PayrollRunInputRefusedError(409, CHANGED);
+  }
+  if (quantity === null && !row) return await readState(companyId, runId);
 
   await writeRunRow({
     companyId, runId, employeeId, componentId: component.id, componentType: 'earning', period, rowId: row ? String(row.id) : null,
-    amount: cents / 100, quantity: quantity === 0 ? null : { value: quantity, unit }, actor,
+    amount: cents / 100, clear: quantity === null, quantity: quantity === null || unit == null ? null : { value: quantity, unit }, actor,
   });
   log.info('Payroll run hours set', { companyId, runId, employeeId, unit }, 'payrollRunHoursInput');
+  return await readState(companyId, runId);
+}
 
+async function readState(companyId: string, runId: string): Promise<RunInputsState> {
   const state = await getRunInputs(companyId, runId);
   if (!state) throw new Error('Payroll run vanished under its own lock');
   return state;

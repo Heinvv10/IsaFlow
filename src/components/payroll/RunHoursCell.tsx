@@ -33,18 +33,21 @@ interface Props {
   /** The stored quantity and the amount the server priced it at. */
   quantity: number | null;
   amount: number | null;
+  /** A plain basic-pay amount the hours replace, when one is stored instead of hours. */
+  replaces: number | null;
   resetKey: number;
-  onCommit: (hundredths: number) => void;
+  /** Hundredths; null when the cell was emptied (clears the row). 0 is an entered nil. */
+  onCommit: (hundredths: number | null) => void;
   onRefuse: () => void;
 }
 
-export function RunHoursCell({ id, employeeId, employeeName, unit, rate, quantity, amount, resetKey, onCommit, onRefuse }: Props) {
+export function RunHoursCell({ id, employeeId, employeeName, unit, rate, quantity, amount, replaces, resetKey, onCommit, onRefuse }: Props) {
   const noun = unit === 'hour' ? 'Hours' : 'Days';
   const stored = quantity == null ? null : Math.round(quantity * 100);
   const field = useParsedField<number, Code>({
     value: stored, format: show, parse: (text) => parseQuantity(text, unit), resetKey,
     onChange: (hundredths: number | null, validity: FieldValidity<Code>) => {
-      if (validity.valid) onCommit(hundredths ?? 0);
+      if (validity.valid) onCommit(hundredths);
       else onRefuse();
     },
   });
@@ -55,7 +58,7 @@ export function RunHoursCell({ id, employeeId, employeeName, unit, rate, quantit
       </Link>
     );
   }
-  const priced = amount != null && quantity != null ? `${formatCurrency(amount)} at ${formatCurrency(rate)} per ${unit}` : `${formatCurrency(rate)} per ${unit}`;
+  const priced = replaces != null ? `Replaces ${formatCurrency(replaces)} entered as an amount` : amount != null && quantity != null ? `${formatCurrency(amount)} at ${formatCurrency(rate)} per ${unit}` : `${formatCurrency(rate)} per ${unit}`;
   return (
     <div className="w-40 min-w-40 [&_label]:sr-only">
       <Input id={id} label={`${noun}, ${employeeName}`} type="text" inputMode="decimal" autoComplete="off" spellCheck={false}

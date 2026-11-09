@@ -26,11 +26,12 @@
  *                   `datedForReplacement` (payrollReplacementDating), with an advisory when
  *                   net pay's target differs from the replaced journal's (payrollNetPayTargetChange);
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
+ *   2b. hours and days (`hours_missing`, `hours_inconsistent`, payrollRunHoursGate) are judged with the recalculation gates, before
+ *      the journal-in-force branch, so a re-approval meets them too;
  *   3. for a fresh journal, termination pay-outs another approved or paid run
  *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then a
  *      recurring row needing a manual pro-rata (`recurring_needs_pro_rata`,
- *      payrollRecurringProRata), then an hourly or daily employee with no hours or days (`hours_missing`,
- *      payrollRunHoursGate), then the line refusals of payrollLineBlockers (`run_lines_unreadable`,
+ *      payrollRecurringProRata), then the line refusals of payrollLineBlockers (`run_lines_unreadable`,
  *      `loan_payments_off_payslip`, `loan_deduction_missing`, `loan_fringe_not_recorded`,
  *      `loan_instalment_exceeds_pay`, `deductions_exceed_pay`), then every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
@@ -212,6 +213,10 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     // re-approval onto a journal in force.
     const lines = await runLinesRefusal(companyId, runId);
     if (lines) return lines;
+    // An hourly or daily employee with no hours, or hours that cannot be trusted, on the stored line (payrollRunHoursGate).
+    // Before the journal-in-force branch: a re-approval onto a journal in force must meet it too.
+    const hoursIssue = await hoursMissingBlocker(companyId, runId);
+    if (hoursIssue) return hoursIssue;
     if (linkedId && !out) {
       const numbers = chain?.journals.map((j) => j.entryNumber).join(', ');
       if (!chain || !linked || chain.state === 'unclear') {
@@ -263,9 +268,6 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     // A recurring row the last-day read pays in full or drops (payrollRecurringProRata): first, it changes the lines.
     const proRata = await runProRataBlocker(companyId, runId);
     if (proRata) return proRata;
-    // An hourly or daily employee with no hours or days on the stored line (payrollRunHoursGate).
-    const noHours = await hoursMissingBlocker(companyId, runId);
-    if (noHours) return noHours;
     // Unreadable lines, loans off the payslip, withheld or above pay, an unrecorded fringe benefit, a shortfall (payrollLineBlockers).
     const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId), loanPayments.offPayslip,
       [...await findFringeNotRecordedLines(companyId, runId), ...loanPayments.fringeNotRecorded]);

@@ -26,6 +26,8 @@ export interface RunRowWrite {
   /** The once-off row on the run month's key the caller locked, null when there is none yet. */
   rowId: string | null;
   amount: number;
+  /** Delete the row (a plain amount of 0, or hours cleared). A nil entry of hours is NOT a clear: it is stored, at amount 0. */
+  clear: boolean;
   /** HD: the hours or days the amount is for; null for a plain amount. */
   quantity: { value: number; unit: QuantityUnit } | null;
   actor: ComponentChangeActor;
@@ -37,6 +39,7 @@ export interface RunRowWrite {
  */
 export async function writeRunRow(w: RunRowWrite): Promise<void> {
   const { companyId, runId, employeeId, componentId, rowId, amount, actor } = w;
+  const clear = w.clear;
   const { from, to } = monthBounds(w.period);
   const quantity = w.quantity?.value ?? null;
   const unit = w.quantity?.unit ?? null;
@@ -45,13 +48,13 @@ export async function writeRunRow(w: RunRowWrite): Promise<void> {
     await calculatePayrollRun(runId, companyId, actor.userId);
     const shortfallBefore = await shortfallOf(companyId, runId, employeeId);
     const window = { from, to, recurring: false };
-    if (rowId && amount === 0) {
+    if (rowId && clear) {
       await tx`DELETE FROM payroll_employee_components WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;
       await auditComponentChange(tx, companyId, rowId, window, window, 'run_input_remove', actor, { removed: { employeeId } });
     } else if (rowId) {
       await tx`UPDATE payroll_employee_components SET amount = ${amount}, quantity = ${quantity}::numeric, quantity_unit = ${unit} WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;
       await auditComponentChange(tx, companyId, rowId, window, window, 'run_input', actor);
-    } else if (amount !== 0) {
+    } else if (!clear) {
       try {
         await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, ...window });
       } catch (err) {
