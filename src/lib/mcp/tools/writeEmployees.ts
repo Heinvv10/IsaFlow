@@ -31,19 +31,14 @@ import {
   getPayrollEmployee,
   updatePayrollEmployee,
 } from '@/modules/accounting/services/payroll/payrollEmployeeService';
-import {
-  assignComponentToEmployee,
-  endEmployeeComponent,
-} from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
-import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentRefused';
-import { listComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
 import type { EmploymentType } from '@/modules/accounting/services/payroll/payrollTypes';
 import {
   isValidSaIdNumber,
   isValidSarsTaxNumber,
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
 import { refuseEmployeeTermArgs } from './employeeTermsRefusal';
-import { NOT_FOUND, guardCastableArgs, hasWholeCents, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { asDate } from './mcpDates';
+import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 const EMPLOYMENT_TYPES: readonly EmploymentType[] = ['permanent', 'contract', 'casual', 'director'];
 
@@ -56,20 +51,7 @@ const EMPLOYMENT_TYPES: readonly EmploymentType[] = ['permanent', 'contract', 'c
  * prevent, so the check has to be the same one.
  */
 
-/**
- * `YYYY-MM-DD` from the agent, as a Date the services take.
- *
- * LOCAL midnight, not UTC. The services render these back through `fmtDate`,
- * which uses local calendar getters on purpose — `toISOString()` there reported
- * the PREVIOUS day on the UTC+2 host and shifted journal dates across VAT
- * period boundaries (see `src/lib/pgTypes.ts`). A Date built at UTC midnight
- * survives that on a UTC or UTC-plus host and silently loses a day on a
- * UTC-minus one, so it is built where it is read instead.
- */
-export function asDate(value: string): Date {
-  const [y, m, d] = value.split('-').map(Number) as [number, number, number];
-  return new Date(y, m - 1, d);
-}
+export { asDate };
 
 export const createEmployeeTool: McpTool = {
   name: 'create_employee',
@@ -289,142 +271,4 @@ export const updateEmployeeTool: McpTool = {
   },
 };
 
-export const assignEmployeeComponentTool: McpTool = {
-  name: 'assign_employee_component',
-  description:
-    'Give an employee a pay component — a basic salary, an allowance, a deduction. '
-    + 'This is what makes an employee payable: the run costs earnings from components, so an '
-    + 'employee with none costs to R0. Resolve component_id with list_payroll_components first. '
-    + 'A RECURRING assignment runs every month from effective_from until it is ended; a once-off '
-    + '(is_recurring: false) dies at the end of the month it was captured for. '
-    + 'Amounts are to the cent and post NOTHING to the ledger.',
-  scope: 'write:payroll',
-  requiresWriteRole: true,
-  write: true,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      employee_id: { type: 'string' },
-      component_id: { type: 'string', description: 'From list_payroll_components' },
-      amount: { type: 'number', description: 'Monthly amount, to the cent' },
-      effective_from: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
-      effective_to: { type: 'string', format: 'date' },
-      is_recurring: { type: 'boolean', description: 'Default true' },
-      idempotency_key: { type: 'string' },
-    },
-    required: ['employee_id', 'component_id', 'amount', 'effective_from', 'idempotency_key'],
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const employeeId = strArg(args, 'employee_id');
-    const componentId = strArg(args, 'component_id');
-    const effectiveFrom = strArg(args, 'effective_from');
-    if (!employeeId) return toolError('employee_id is required');
-    if (!componentId) return toolError('component_id is required');
-    if (!effectiveFrom) return toolError('effective_from is required (YYYY-MM-DD)');
-
-    const bad = guardCastableArgs(args, {
-      uuid: ['employee_id', 'component_id'],
-      date: ['effective_from', 'effective_to'],
-    });
-    if (bad) return bad;
-
-    const amount = Number(args.amount);
-    if (!Number.isFinite(amount)) return toolError('amount must be a number');
-    if (!hasWholeCents(amount)) {
-      return toolError(`amount has more than two decimal places (${amount}) — amounts are stored to the cent.`);
-    }
-
-    // Ownership before the write. `assignComponentToEmployee` checks the
-    // employee and the component itself and throws, but a throw after the registry's savepoint
-    // opened is a worse answer than a refusal before it.
-    if (!(await getPayrollEmployee(employeeId, ctx.companyId))) return toolError(NOT_FOUND);
-    const components = await listComponents(ctx.companyId);
-    const component = components.find((c) => c.id === componentId);
-    if (!component) return toolError(NOT_FOUND);
-
-    const effectiveTo = strArg(args, 'effective_to');
-    let assignment: Awaited<ReturnType<typeof assignComponentToEmployee>>;
-    try {
-      assignment = await assignComponentToEmployee(
-        ctx.companyId,
-        employeeId,
-        componentId,
-        amount,
-        effectiveFrom,
-        effectiveTo,
-        args.is_recurring !== false,
-        { userId: ctx.userId, channel: 'mcp' },
-      );
-    } catch (err) {
-      if (err instanceof EmployeeComponentRefused) return toolError(err.message);
-      throw err;
-    }
-
-    return ok({
-      id: assignment.id,
-      employee_id: employeeId,
-      component_id: componentId,
-      component_name: component.name,
-      component_type: component.componentType,
-      amount,
-      effective_from: effectiveFrom,
-      is_recurring: args.is_recurring !== false,
-    });
-  },
-};
-
-export const endEmployeeComponentTool: McpTool = {
-  name: 'end_employee_component',
-  description:
-    'Stop a pay component from a given date — a salary that changed, an allowance that ended. '
-    + 'The assignment is CLOSED, never deleted, so past runs that costed it stay explainable. '
-    + 'To change a salary: end the old assignment and assign a new one from the following month. '
-    + 'An end only shortens. An assignment no approved run has paid is cancelled (voided, never paid) when it is a '
-    + 'once-off, when effective_to is before its start, or with cancel: true. '
-    + 'Resolve assignment_id with list_employee_components.',
-  scope: 'write:payroll',
-  requiresWriteRole: true,
-  write: true,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      assignment_id: { type: 'string', description: 'From list_employee_components' },
-      effective_to: { type: 'string', format: 'date', description: 'Last date the component applies' },
-      cancel: {
-        type: 'boolean',
-        description: 'Cancel (void) an assignment no approved run has paid, instead of ending it: it is then never paid. '
-          + 'Refused once a paid run read it. A once-off no run has paid is always cancelled by an end.',
-      },
-      idempotency_key: { type: 'string' },
-    },
-    required: ['assignment_id', 'effective_to', 'idempotency_key'],
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const assignmentId = strArg(args, 'assignment_id');
-    const effectiveTo = strArg(args, 'effective_to');
-    if (!assignmentId) return toolError('assignment_id is required');
-    if (!effectiveTo) return toolError('effective_to is required (YYYY-MM-DD)');
-    const bad = guardCastableArgs(args, { uuid: ['assignment_id'], date: ['effective_to'] });
-    if (bad) return bad;
-
-    // The service reports whether a row was ACTUALLY closed. It scopes its
-    // UPDATE through the employee's company, so a stale or foreign assignment
-    // matches nothing and the statement succeeds having changed nothing —
-    // answering `ended: true` there would tell an agent an old salary was
-    // stopped while it stayed live, and the next costed run would pay it.
-    let ended: boolean;
-    try {
-      ended = await endEmployeeComponent(ctx.companyId, assignmentId, effectiveTo, { userId: ctx.userId, channel: 'mcp' }, {
-        cancel: args.cancel === true,
-      });
-    } catch (err) {
-      // End's guards (payrollComponentDateEdit): a refusal is the agent's to read; anything else is not.
-      if (err instanceof EmployeeComponentRefused) return toolError(err.message);
-      throw err;
-    }
-    if (!ended) return toolError(NOT_FOUND);
-    return ok({ assignment_id: assignmentId, effective_to: effectiveTo, ended: true });
-  },
-};
+export { assignEmployeeComponentTool, endEmployeeComponentTool } from './writeEmployeeComponents';
