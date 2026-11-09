@@ -175,6 +175,10 @@ describeIfDb('file and amend a return, against a real ledger', () => {
     const f1 = await fileV(String(e1.id), { reference: 'EMP-0001' }, rf.admin.token, 'emp201');
     expect(f1.status).toBe(200);
     expect(await overrides()).toBe(ov); // no VAT gate for an EMP201
+    // No VAT lock is involved, so the amend's own Login-as guard is the only one in the way.
+    const before = await row(String(e1.id));
+    expect((await amendV(String(e1.id), { reason: 'Late payroll correction' }, await loginAsToken(rf), 'emp201')).status).toBe(403);
+    expect(await row(String(e1.id))).toEqual(before);
     expect((await amendV(String(e1.id), { reason: 'Late payroll correction' }, rf.admin.token, 'emp201')).status).toBe(200);
     const e2 = versionOf(await callRoute(finalise, c(), rf.admin.token, 'POST', { form: 'emp201' },
       { periodStart: '2026-08-01', periodEnd: '2026-08-31' }));
