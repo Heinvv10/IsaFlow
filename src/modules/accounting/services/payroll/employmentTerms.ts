@@ -20,6 +20,7 @@
  */
 import type { PayrollEmployee } from './payrollTypes';
 import { getTaxYearConfig } from './taxTables';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export const STANDARD_HOURS_PER_WEEK = 22;
 export const DEEMED_STANDARD_HOURS_PER_DAY = 5;
@@ -69,10 +70,10 @@ export function classifyEmployment(terms: WorkTerms, taxYear: number): Employmen
   }
   const pay = dayPay(terms);
   if (pay != null && threshold != null && cents(pay) >= cents(threshold)) {
-    return result('non_standard_flat', `Under ${STANDARD_HOURS_PER_WEEK} hours a week and paid R${threshold} or more a day: non-standard employment (G21 p. 28).`);
+    return result('non_standard_flat', `Under ${STANDARD_HOURS_PER_WEEK} hours a week and paid ${formatMoney(threshold)} or more a day: non-standard employment (G21 p. 28).`);
   }
   if (hoursPerDay != null && pay != null && threshold != null) {
-    return result('deemed_standard', `At least ${DEEMED_STANDARD_HOURS_PER_DAY} hours a day and paid under R${threshold} a day: deemed standard employment (G21 p. 28).`);
+    return result('deemed_standard', `At least ${DEEMED_STANDARD_HOURS_PER_DAY} hours a day and paid under ${formatMoney(threshold)} a day: deemed standard employment (G21 p. 28).`);
   }
   const missing = threshold == null
     ? `the daily threshold for tax year ${taxYear} is not verified`
