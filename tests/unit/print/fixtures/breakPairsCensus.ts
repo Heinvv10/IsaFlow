@@ -12,8 +12,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
 import { markedPieces, pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
+import { printedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import { PAIR_DOMAIN } from '../../printParity/breakPairsDomain';
 import { mulberry32 } from '../support/mulberry32';
+import { LETTER_RANGES } from './lineBreakLetterData';
 
 const FACES = ['Regular', 'Medium', 'SemiBold'].map((w) => new Set<number>(fontkit.create(readFileSync(path.join(process.cwd(), 'public/fonts', `IBMPlexSans-${w}.woff2`))).characterSet));
 // A noncharacter the faces set (U+FFFF) is not drawn with their glyph: Chromium sets it narrower, from no face.
@@ -21,8 +23,10 @@ const FACE_SET = new Set([...FACES[0]!].filter((c) => FACES.every((f) => f.has(c
 export const DOMAIN = PAIR_DOMAIN().map((c) => String.fromCodePoint(c));
 const DOMAIN_SET = new Set(DOMAIN);
 const LEFTS = ['ab', '12', '', 'a ', '(', '.', '\u00A0'];
-const RIGHTS = ['cd', '34', 'Cd', '(c', '[c', '{c', '\u201Cc', '\u00ABc', '\u2018c', '\u00BFc', '$5', '\u20AC5', ' x', '', '0'];
-export const CENSUS = DOMAIN.flatMap((x) => LEFTS.flatMap((l) => RIGHTS.map((r) => `${l}${x}${r}`))).filter((t) => t.trim() !== '');
+const RIGHTS = ['cd', '34', 'Cd', '(c', '[c', '{c', '\u201Cc', '\u00ABc', '\u2018c', '\u00BFc', '$5', '\u20AC5', ' x', '', '0', '\u30FCx'];
+/** Strings a mutation needs that no context above makes: a closing quote or guillemet after a soft hyphen, before an ideograph. */
+const PINNED = ['ab\u00AD\u201D\u4E2D', 'ab\u00AD\u2019\u4E2D', 'ab\u00AD\u00BB\u4E2D'];
+export const CENSUS = [...DOMAIN.flatMap((x) => LEFTS.flatMap((l) => RIGHTS.map((r) => `${l}${x}${r}`))).filter((t) => t.trim() !== ''), ...PINNED];
 
 export function randomStrings(count: number): string[] {
   const random = mulberry32(1235);
@@ -41,20 +45,37 @@ export function randomStrings(count: number): string[] {
  */
 export const covered = (t: string, at: number): boolean => DOMAIN_SET.has(t[at - 1]!) && DOMAIN_SET.has(t[at]!);
 
-/** Every character the table covers with a variation selector 16 after it (an emoji presentation), in five contexts. */
-export const VS16_CENSUS = DOMAIN.flatMap((x) => [`ab${x}\uFE0Fcd`, `${x}\uFE0F${x}\uFE0F`, `12${x}\uFE0F34`, `\u4E2D${x}\uFE0F\u4E2D`, `(${x}\uFE0F)`]);
+/**
+ * Every character the table covers with a variation selector 16 after it, in eleven contexts (the blind review's six of
+ * round 4 among them), AS THE PACK PRINTS IT (`packPrintedText.printedText`: the selector after a character with no
+ * emoji presentation dropped, the one after an emoji kept).
+ */
+export const VS16_CENSUS: readonly string[] = DOMAIN.flatMap((x) => [
+  `ab${x}\uFE0Fcd`, `${x}\uFE0F${x}\uFE0F`, `12${x}\uFE0F34`, `\u4E2D${x}\uFE0F\u4E2D`, `(${x}\uFE0F)`, `Gross${x}\uFE0Fmargin`,
+  `Gross ${x}\uFE0F margin`, `${x}\uFE0FGross`, `Gross${x}\uFE0F12`, `12${x}\uFE0Fab`, `ab${x}\uFE0F${x}\uFE0Fcd`,
+].map(printedText));
 
 /**
- * The census strings where both Chromiums break otherwise than the base the model reads them by: a variation selector 16
- * after nine ASCII signs (Chromium breaks after "!\uFE0F" before a letter, between "$\uFE0F$\uFE0F", and not after
- * "-\uFE0F"). No account name carries one; held as they are, so a change shows.
+ * Members of each stand-in's kind other than the stand-in itself (`packBreakPairs.SCRIPT_STAND_INS`): two ideographs,
+ * two Hangul syllables, two full-width letters, a compatibility ideograph, a supplementary-plane ideograph and a
+ * supplementary private-use character, each beside every punctuation mark and symbol the faces set, a letter and a digit;
+ * and the rules beside the table (below). Compared on every break (`allDifferences`), not only those between two of the
+ * table's own characters.
  */
-export const VS16_RESIDUAL: ReadonlySet<string> = new Set([
-  '$\uFE0F$\uFE0F', '%\uFE0F%\uFE0F', '+\uFE0F+\uFE0F', '-\uFE0F-\uFE0F', '12!\uFE0F34', '12-\uFE0F34', '12|\uFE0F34', '12}\uFE0F34', '\\\uFE0F\\\uFE0F', 'ab!\uFE0Fcd', 'ab/\uFE0Fcd', 'ab|\uFE0Fcd', 'ab}\uFE0Fcd',
-]);
+export function standInCensus(): string[] {
+  const members = ['\u65E5', '\u6536', '\uAC00', '\uD7A3', '\uFF3A', '\uFF5A', '\uF900', '\u{20000}', '\u{F0000}'];
+  const marks = [...FACE_SET].map((c) => String.fromCodePoint(c)).filter((c) => /[\p{P}\p{S}]/u.test(c));
+  const stands = members.flatMap((m) => [`ab${m}cd`, `12${m}34`, `${m}${m}`, ...marks.flatMap((p) => [`${m}${p}ab`, `ab${p}${m}`, `${m}${p}1`, `${p}${m}`, `${m}${p}`])]);
+  // The space separators the faces lack before a character the table lacks (an emoji, a Thai letter, Linear B), and a
+  // prepended mark with a combining mark on it (#1235 round 4: each read by its own rule, beside the table).
+  const spaces = ['\u3000', '\u205F', '\u1680'].flatMap((sp) => ['\u{1F600}', '\u0E01', '\u{10000}'].flatMap((y) => [`ab${sp}${y}`, `${sp}${y}`, `ab${sp}${y}cd`]));
+  const prepended = ['\u0600', '\u0601', '\u0605', '\u06DD', '\u070F', '\u0890', '\u08E2', '\u0D4E'].flatMap((p) => ['\u0301', '\u0651', '\u064B', '\u0D4D']
+    .flatMap((mk) => [`\u4E2D${p}${mk}\u4E2D`, `ab${p}${mk}cd`, `12${p}${mk}34`, `(${p}${mk})`]));
+  return [...stands, ...spaces, ...prepended];
+}
 
 /** Each of `texts` whose breaks the model and `breaksOf`'s answer (`raw`) disagree on, but where none can be read. */
-export function vs16Differences(texts: readonly string[], raw: readonly number[][]): string[] {
+export function allDifferences(texts: readonly string[], raw: readonly number[][]): string[] {
   return texts.flatMap((t, i) => {
     const blind = new Set(raw[i]!.filter((b) => b < 0).map((b) => -b));
     const real = raw[i]!.filter((b) => b > 0 && !blind.has(b));
@@ -98,6 +119,18 @@ const OPENING_HYPHEN = '[\\u058A\\u05BE\\u1400\\u2012\\u2013\\u2E17\\u2E40\\u2E5
 const BEFORE_OPENING = '[ \\t\\n\\r\\u200B\\u00A0\\u2007\\u2011\\u202F\\u034F\\u180E\\u0F08\\u0F0C\\u0F12]';
 const OPENS_A_WORD = new RegExp(`(^|${BEFORE_OPENING})${OPENING_HYPHEN}`, 'u');
 
+/** Is `code` of line-break class AL or HL? Binary search over `LETTER_RANGES`. */
+function isAlphabetic(code: number): boolean {
+  let lo = 0;
+  let hi = LETTER_RANGES.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const [from, to] = LETTER_RANGES[mid]!;
+    if (code < from) hi = mid - 1; else if (code > to) lo = mid + 1; else return true;
+  }
+  return false;
+}
+
 /**
  * The breaks of `text` the print tests' Chromium takes, read as production's: the break after a word-opening hyphen
  * before a letter ("\u2013cd", "a \u2012Cd", "\u00A0\u058Acd", "ab\u2011\u2013cd") dropped. The table is production's; the image test
@@ -106,9 +139,8 @@ const OPENS_A_WORD = new RegExp(`(^|${BEFORE_OPENING})${OPENING_HYPHEN}`, 'u');
 export function asProduction(text: string, breaks: readonly number[]): number[] {
   const hyphen = new RegExp(`^${OPENING_HYPHEN}$`, 'u');
   const opening = new RegExp(`^${BEFORE_OPENING}$`, 'u');
-  // Before a letter that is not an ideograph, a kana, a Hangul syllable or a full-width form (Chromium breaks before those).
-  const letter = /^(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\uFF00-\uFFEF])\p{L}$/u;
-  return breaks.filter((b) => !(hyphen.test(text[b - 1]!) && (b === 1 || opening.test(text[b - 2]!)) && letter.test(text[b]!)));
+  // Before a letter of line-break class AL or HL (`lineBreakLetterData.ts`): not an ideograph, a kana or U+30FC (CJ).
+  return breaks.filter((b) => !(hyphen.test(text[b - 1]!) && (b === 1 || opening.test(text[b - 2]!)) && isAlphabetic(text.codePointAt(b)!)));
 }
 
 /** Production's Chromium breaks either side of the braille blank (U+2800) and the print tests' does not: a text holding one is the image's alone. */
@@ -228,4 +260,14 @@ export const ROUND_THREE_LABELS: ReadonlyArray<readonly [string, boolean]> = [
   ['Net\uE044profit', false], ['Gross \uE044\uE044\uE044 margin', false], ['1\uE0442 share', false], ['Net profit \uE044', false],
   ['\uE000\uE001 cost', false], ['Loan \uF0B7 fees', false], [`${n(26)} \uE044\uE044\uE044 ${n(26)}`, false],
   [`Gross margin \uE044\uE044\uE044\uE044\uE044\uE044 ${n(26)}`, false], [`${n(26)}\uE044\uE044\uE044\uE044`, false],
+];
+
+/**
+ * The table labels #1235's round-4 reviews found wrong, [label, with a mark]: a variation selector 16 after a sign
+ * (dropped as printed, `packPrintedText.ts`), and signed amounts the numeric rule holds (`packNumericHold.ts`).
+ */
+export const ROUND_FOUR_LABELS: ReadonlyArray<readonly [string, boolean]> = [
+  ['Profit!\uFE0FTelecommunications', false], ['Directors/\uFE0FTelecommunications', false], ['Telecommunications-\uFE0F2024', false],
+  ['Telecommunications\u20AC(.5m)', false], ['Telecommunications(1.)\u20AC', false], [`\u2212(.5${n(36)})`, false], [`\u2212(.5${n(36)})`, true],
+  [`\u20AC(.5${n(36)})`, false], [`Telecommunications ${n(26)}1/:\u2033`, false],
 ];

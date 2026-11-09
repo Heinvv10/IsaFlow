@@ -21,7 +21,7 @@ import { demoWithoutBudget, withWidenedStatement, withWidenedTable } from '../se
 import { measure } from './measureWidths';
 import { measureTables } from './measureTables';
 import { atTheFloor } from './support/atTheFloor';
-import { alike, ROUND_THREE_LABELS } from './fixtures/breakPairsCensus';
+import { alike, ROUND_FOUR_LABELS, ROUND_THREE_LABELS } from './fixtures/breakPairsCensus';
 import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 
 let browser: Browser;
@@ -202,8 +202,8 @@ describe('labels #1235\'s round-3 reviews found short (a break the splitter miss
     const wrong: string[] = [];
     // A label the two Chromiums break differently (a word-opening en dash) is held in production's image instead
     // (`printParity/packBreakPairsImage.test.ts`).
-    const labels = ROUND_THREE_LABELS.filter(([label]) => alike(label));
-    expect(labels.length).toBe(ROUND_THREE_LABELS.length - 3);
+    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS].filter(([label]) => alike(label));
+    expect(labels.length).toBe(ROUND_THREE_LABELS.length + ROUND_FOUR_LABELS.length - 3);
     for (const [label, labelMarker] of labels) {
       for (const digits of [9, 12]) {
         const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });

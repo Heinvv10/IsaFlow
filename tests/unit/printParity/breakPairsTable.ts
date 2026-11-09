@@ -1,5 +1,6 @@
 /**
- * THE PAIR TABLE AS SOURCE: a scan (`breakPairsScan.ts`) written as `packBreakPairsData.ts`, compacted without loss.
+ * THE PAIR TABLE AS SOURCE: a scan (`breakPairsScan.ts`) written as `packBreakPairsData.ts`, compacted without losing
+ * one of the scanned 4-grams (what Chromium decides past them is not in a scan: `packNumericHold.ts`).
  * The scan reads Chromium's break for every 4-gram (context before, class A, class B, context after) as the two tables
  * and their flips; here that is folded:
  *  - contexts that break every pair alike are one group (the hundred-odd before a pair are some fifty groups, and those

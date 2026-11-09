@@ -24,12 +24,17 @@
  *    and not where the break falls after a zero-width space, another space or a mark that follows it: `Piece.hyphen`
  *    (a text that ends at one keeps the hyphen's room on its last line, and draws none there).
  *    The line and paragraph separators always break after them.
- * It breaks exactly where Chromium does: a piece the model leaves whole that Chromium breaks is a row refused that would
- * have fitted (and a line count short), a piece the model breaks that Chromium keeps would be a row passed that
- * overflows.
+ * Between two characters the pair table covers, it breaks where production's Chromium does on every census the image
+ * tests hold (`printParity/packBreakPairsImage.test.ts`, `printParity/packNumericHoldImage.test.ts`): the pairs in
+ * every context of one character either side, Unicode's numeric rule past them, the reviews' censuses. Not held, and
+ * known to differ (#1235 round 4, for a follow-up): full-width punctuation and the wide currency signs, which take the
+ * fallback rules, and a hyphen after U+2028 or carrying a combining mark. A piece the model leaves whole that Chromium
+ * breaks is a row refused that would have fitted (and a line count short), a piece the model breaks that Chromium keeps
+ * would be a row passed that overflows.
  */
 import { AFTER, BEFORE, contextOf, pairBreaks, pairClass } from './packBreakPairs';
 import { breaksBetween } from './packBreakRanges';
+import { heldByNumber } from './packNumericHold';
 import { holdsAfterSoftHyphen, holdsAfterZeroWidthSpace } from './packSoftBreakRanges';
 
 /**
@@ -134,7 +139,8 @@ function softBreak(cluster: string, next: string): boolean | null {
 
 /**
  * The pair class `cluster` meets a neighbour with at `code`: its base's, a variation selector after it too (Chromium
- * breaks beside "\u263A\uFE0F" as beside the base, in all but 13 of 48,775 census strings, `packBreakPairs.test.ts`);
+ * breaks beside "\u263A\uFE0F" as beside the base, on the whole census of them as the pack prints them, where the selector
+ * after a character with no emoji presentation is dropped: `packPrintedText.ts`, `packBreakPairs.test.ts`);
  * none for a keycap ("1\uFE0F\u20E3" is not a digit to Chromium: `packBreakRanges`).
  */
 const classOf = (cluster: string, code: number | null): number | null => (code === null || cluster.includes('\u20E3') ? null : pairClass(code));
@@ -159,14 +165,16 @@ function afterContext(clusters: readonly string[], i: number, last: boolean): nu
 
 /**
  * Does Chromium break between `clusters[i]` and the cluster after it (not at a soft hyphen or a zero-width space)? By the
- * pair table where the faces set both, by the ranges and spaces of the faces' fallback otherwise.
+ * pair table where it covers both, but where the numeric rule holds what the table's one character of context cannot
+ * see (`packNumericHold.ts`; `codes`, each cluster's base code point); by the ranges and spaces of the faces' fallback
+ * otherwise.
  */
-function breaksAfter(clusters: readonly string[], i: number, first: boolean, last: boolean): boolean {
+function breaksAfter(clusters: readonly string[], codes: ReadonlyArray<number | null>, i: number, first: boolean, last: boolean): boolean {
   const cluster = clusters[i]!;
   const next = clusters[i + 1]!;
   const a = classOf(cluster, trailingCode(cluster));
   const b = classOf(next, next.codePointAt(0)!);
-  if (a !== null && b !== null) return pairBreaks(beforeContext(clusters, i, first), a, b, afterContext(clusters, i + 1, last));
+  if (a !== null && b !== null) return pairBreaks(beforeContext(clusters, i, first), a, b, afterContext(clusters, i + 1, last)) && !heldByNumber(codes, i);
   return (BREAK_AFTER_SPACE.test(cluster) && !BREAK_AFTER_SPACE.test(next)) || breaksBetweenClusters(cluster, next);
 }
 
@@ -175,11 +183,12 @@ function wordPieces(word: string, first: boolean, last: boolean): string[] {
   const pieces: string[] = [];
   let start = 0;
   const clusters = wordClusters(word);
+  const codes = clusters.map((c) => c.codePointAt(0)!);
   clusters.forEach((cluster, i) => {
     const next = clusters[i + 1];
     if (next === undefined) return;
     const soft = softBreak(cluster, next);
-    if (soft === null ? breaksAfter(clusters, i, first, last) : soft) {
+    if (soft === null ? breaksAfter(clusters, codes, i, first, last) : soft) {
       pieces.push(clusters.slice(start, i + 1).join(''));
       start = i + 1;
     }

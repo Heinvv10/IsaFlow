@@ -17,9 +17,10 @@ beforeAll(async () => { browser = await launchPrintChromium(); }, 180_000);
 afterAll(async () => { await browser?.close(); });
 
 const TEXTS = [
-  // The breaks the pair table holds (`packBreakPairs.ts`), among them the acute accent's (#1235 round 3). A word-opening en
-  // dash breaks in this Chromium and not in production's (`fixtures/breakPairsCensus.asProduction`): the table test has it.
-  'ab\u00B4cd', '12\u00B434', '\u2026Telecommunications', 'Pty.-Ltd', 'Equipment (net)-Cape Town', 'VAT 15%-inclusive', 'ab\u2013\u2013cd',
+  // The breaks the pair table holds (`packBreakPairs.ts`), among them the acute accent's (#1235 round 3), and the break
+  // after the space separators the faces lack (round 4). A word-opening en dash breaks in this Chromium and not in
+  // production's (`fixtures/breakPairsCensus.asProduction`): the table test has it.
+  'ab\u00B4cd', '12\u00B434', 'ab\u3000cd', 'ab\u205Fcd', 'ab\u1680cd', '\u2026Telecommunications', 'Pty.-Ltd', 'Equipment (net)-Cape Town', 'VAT 15%-inclusive', 'ab\u2013\u2013cd',
   '2024-25', 'abc-def', 'abc-5', 'abc/def', 'abc/5', '1/2', 'abc–def', '5–6', 'abc—def', '————', 'ab——cd',
   '-5', '-abc', '(abc-def)', 'abc--def', 'a-b-c', 'Fy2024/25', 'abc.def', 'abc,def', 'abc:def', 'R&D',
   '\u{1F600}\u{1F600}\u{1F600}\u{1F600}', '\u{1F44D}\u{1F3FD}\u{1F44D}\u{1F3FD}\u{1F44D}\u{1F3FD}', '\u{1F468}‍\u{1F469}‍\u{1F467}\u{1F468}‍\u{1F469}‍\u{1F467}\u{1F468}‍\u{1F469}‍\u{1F467}',

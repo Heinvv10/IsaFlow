@@ -32,6 +32,7 @@ export const PRINT_PARITY_FILES = [
   'tests/unit/printParity/packFallbackGuardImage.test.ts', // the same
   'tests/unit/printParity/packBreakTablesImage.test.ts', // the same
   'tests/unit/printParity/packBreakPairsImage.test.ts', // the same
+  'tests/unit/printParity/packNumericHoldImage.test.ts', // the same
 ];
 
 export const VELO_MACHINE_FILES = [

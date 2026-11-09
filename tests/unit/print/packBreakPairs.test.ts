@@ -6,7 +6,9 @@
  *    nothing; and 3,000 random strings of them with spaces, soft hyphens, zero-width spaces and an ideograph. Set at
  *    width 0 (every opportunity taken), the model breaks at exactly Chromium's places, no more and no fewer, but beside
  *    a character the host draws with no width, where no break can be read (`fixtures/breakPairsCensus.readBreaks`);
- *  - every character the table covers with a variation selector 16 after it (read by its base), but for the 13 known;
+ *  - the numeric census of #1235's fourth round: Unicode's numeric rule, which reads past the pair (`packNumericHold.ts`);
+ *  - every character the table covers with a variation selector 16 after it, as the pack prints it (`packPrintedText.ts`);
+ *  - the stand-ins' other members (an ideograph that is not U+4E2D, ...) beside the faces' punctuation, on every break;
  *  - the adversary's census of #1235's third round, as line counts at width 0, with and without a mark;
  *  - the min-content of the census strings that break, in the faces: the model's widest piece is never narrower than
  *    Chromium's narrowest width, and at most 1/32px over (`textPx` is never short); a character the faces lack takes
@@ -22,9 +24,10 @@ import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks
 import { labelWidestPiecePx } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { labelLineCount } from '@/modules/accounting/services/packs/pages/packTableLayout';
 import { launchPrintChromium } from './printChromium';
+import { NUMERIC_CENSUS, numericPool } from './fixtures/numericCensus';
 import { openProbePage } from './measureWidths';
 import { fillCase, holdLines } from './support/lineFitHarness';
-import { adversaryCensus, alike, asProduction, BREAKS_OF, CENSUS, heldLines, inFaces, LINES_OF, linesHtml, modelBreaks, randomStrings, readable, readBreaks, VS16_CENSUS, vs16Differences, VS16_RESIDUAL } from './fixtures/breakPairsCensus';
+import { adversaryCensus, alike, asProduction, BREAKS_OF, CENSUS, heldLines, inFaces, LINES_OF, linesHtml, modelBreaks, randomStrings, readable, readBreaks, standInCensus, VS16_CENSUS, allDifferences } from './fixtures/breakPairsCensus';
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
@@ -74,8 +77,16 @@ it('3,000 random strings of the faces\' characters, spaces, soft hyphens, zero-w
   expect(breaks, 'breaks between two of the faces\' characters').toBeGreaterThan(500);
 }, 900_000);
 
-it(`every character with a variation selector 16 after it (${VS16_CENSUS.length} strings): the model breaks where Chromium breaks, but for the known`, async () => {
-  const texts = VS16_CENSUS.filter(readable);
+it('the numeric census and the blind review\'s 60,000-string pool (#1235 round 4, Unicode\'s numeric rule past the pair): the same breaks', async () => {
+  // A word-opening hyphen breaks in this Chromium before more than letters, where production holds: those are the image's.
+  const texts = [...NUMERIC_CENSUS, ...numericPool()].filter(alike);
+  const { wrong, breaks } = await differences(texts);
+  expect(wrong.slice(0, 20), `${wrong.length} of ${texts.length} differ`).toEqual([]);
+  expect(breaks).toBeGreaterThan(45_000);
+}, 900_000);
+
+/** Every break the print tests' Chromium takes in `texts` (`breaksOf`'s answer: blind offsets negated). */
+async function rawBreaks(texts: readonly string[]): Promise<number[][]> {
   const page = await openProbePage(browser);
   const raw: number[][] = [];
   try {
@@ -85,9 +96,20 @@ it(`every character with a variation selector 16 after it (${VS16_CENSUS.length}
   } finally {
     await page.close();
   }
-  const wrong = vs16Differences(texts, raw);
-  expect(wrong.filter((t) => !VS16_RESIDUAL.has(t)).map((t) => JSON.stringify(t)).slice(0, 20)).toEqual([]);
-  expect(wrong.length).toBe(VS16_RESIDUAL.size);
+  return raw;
+}
+
+it(`every character with a variation selector 16 after it (${VS16_CENSUS.length} strings), as the pack prints it: the model breaks where Chromium breaks`, async () => {
+  const texts = VS16_CENSUS.filter(alike);
+  const wrong = allDifferences(texts, await rawBreaks(texts));
+  expect(wrong.map((t) => JSON.stringify(t)).slice(0, 20), `${wrong.length} of ${texts.length} differ`).toEqual([]);
+}, 600_000);
+
+it('the stand-ins\' other members (\u65E5 \u6536 \uAC00 \uD7A3 \uFF3A \uFF5A U+F900 U+20000 U+F0000) beside every punctuation mark and symbol the faces set, and the rules beside the table: every break is Chromium\'s', async () => {
+  const texts = standInCensus().filter(alike);
+  expect(texts.length).toBeGreaterThan(5000);
+  const wrong = allDifferences(texts, await rawBreaks(texts));
+  expect(wrong.map((t) => JSON.stringify(t)).slice(0, 20), `${wrong.length} of ${texts.length} differ`).toEqual([]);
 }, 600_000);
 
 it('the adversary\'s census (#1235 round 3: every character to U+30FF in fifteen contexts, every pair of the faces\' punctuation, with and without a mark): the model\'s lines are Chromium\'s', async () => {

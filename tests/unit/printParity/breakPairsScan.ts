@@ -129,10 +129,11 @@ function readTables(lines: string[], k: number, nl: number, nr: number): { left:
 const contexts = (special: readonly string[], reps: readonly number[]): string[] => [...special, ...reps.map((cp) => String.fromCodePoint(cp))];
 
 /** The whole scan over `domain`, starting from `seed` (one code point of each class a former scan found). */
-export async function scanPairs(run: PairRunner, domain: readonly number[], seed: readonly number[], log: (line: string) => void = () => undefined, chunk = 300): Promise<PairScan> {
+export async function scanPairs(run: PairRunner, domain: readonly number[], seed: readonly number[], log: (line: string) => void = () => undefined, chunk = 300, rounds = 8): Promise<PairScan> {
   let reps = [...seed].sort((a, b) => a - b);
   let classOf = new Map<number, number>();
-  for (let round = 0; round < 8; round += 1) {
+  let stable = false;
+  for (let round = 0; round < rounds && !stable; round += 1) {
     const lefts = contexts(SPECIAL_LEFT, reps);
     const rights = contexts(SPECIAL_RIGHT, reps);
     const t = readTables(done(await run({ kind: 'tables', reps, lefts, rights }), 'tables'), reps.length, lefts.length, rights.length);
@@ -151,11 +152,12 @@ export async function scanPairs(run: PairRunner, domain: readonly number[], seed
       if (!keys.has(h)) { keys.set(h, keys.size); next.push(cp); }
       classOf.set(cp, keys.get(h)!);
     }
-    const stable = next.length === reps.length && next.every((cp, i) => cp === reps[i]);
+    stable = next.length === reps.length && next.every((cp, i) => cp === reps[i]);
     reps = next;
     if (reps.length > 160) throw new Error(`the pair scan split the domain into ${reps.length} classes: too many to table`);
-    if (stable) break;
   }
+  // A table written from classes still splitting would read some code points as a class they do not break as.
+  if (!stable) throw new Error(`the pair scan's classes did not settle in ${rounds} rounds (${reps.length} classes at the last)`);
   const lefts = contexts(SPECIAL_LEFT, reps);
   const rights = contexts(SPECIAL_RIGHT, reps);
   const k = reps.length;

@@ -1,0 +1,56 @@
+/**
+ * THE TEXT THE PACK PRINTS IS THE TEXT IT MEASURES (`packPrintedText.ts`): a variation selector 16 after a character with
+ * no emoji presentation dropped, at the pack's input and where a block is stamped; after an emoji it stays.
+ */
+import { describe, expect, it, vi } from 'vitest';
+import { log } from '@/lib/logger';
+import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { stampBlock } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
+import { printedText, withPrintedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
+import type { PackPageBlock } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { demoInput } from './fixtures/boardPackInputs';
+import { demoWithoutBudget } from './fixtures/widenedFigures';
+
+describe('printedText', () => {
+  it.each([
+    ['Profit!\uFE0FTelecommunications', 'Profit!Telecommunications'], ['Directors/\uFE0F', 'Directors/'], ['-\uFE0F2024', '-2024'],
+    ['$\uFE0F$\uFE0F', '$$'], ['a\uFE0F\uFE0Fb', 'ab'], ['e\u0301\uFE0F', 'e\u0301'],
+    ['\u2764\uFE0F', '\u2764\uFE0F'], ['1\uFE0F\u20E3', '1\uFE0F\u20E3'], ['#\uFE0F\u20E3', '#\uFE0F\u20E3'], ['\u00A9\uFE0F', '\u00A9\uFE0F'], ['\u2122\uFE0F', '\u2122\uFE0F'],
+    ['Gross margin', 'Gross margin'],
+  ])('%j as printed is %j', (text, printed) => {
+    expect(printedText(text)).toBe(printed);
+  });
+
+  it('withPrintedText rewrites every string through arrays and plain objects, and leaves the rest (and an unchanged value) as it is', () => {
+    const at = new Date(0);
+    const value = { a: ['x!\uFE0F', { b: 'y/\uFE0F', n: 3 }], at, same: { c: 'z' } };
+    const out = withPrintedText(value);
+    expect(out).toEqual({ a: ['x!', { b: 'y/', n: 3 }], at, same: { c: 'z' } });
+    expect(out.at).toBe(at);
+    expect(out.same).toBe(value.same);
+    expect(withPrintedText(value.same)).toBe(value.same);
+  });
+});
+
+describe('where the pack applies it', () => {
+  it('buildBoardPackPages reads its input as printed: no stray selector reaches the document', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    try {
+      const doc = buildBoardPackPages({ ...demoInput, companyLegalName: 'Acme!\uFE0F Holdings' });
+      const text = JSON.stringify(doc);
+      expect(text).toContain('Acme! Holdings');
+      expect(text).not.toContain('!\uFE0F');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('stampBlock measures a block set afterwards as printed, and stamps that text', () => {
+    const doc = demoWithoutBudget();
+    const block = doc.pages.flatMap((p) => p.blocks).find((b) => b.kind === 'table')!;
+    const table = (block as Extract<PackPageBlock, { kind: 'table' }>).table;
+    const given = { ...block, table: { ...table, rows: table.rows.map((r, i) => (i === 0 ? { ...r, label: 'Profit!\uFE0FTelecommunications' } : r)) } } as PackPageBlock;
+    const stamped = stampBlock(given, doc.numberConvention.scale, 'portrait') as Extract<PackPageBlock, { kind: 'table' }>;
+    expect(stamped.table.rows[0]!.label).toBe('Profit!Telecommunications');
+  });
+});

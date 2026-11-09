@@ -8,9 +8,11 @@
  * the joiners, combining marks and the line separators, which the splitter decides on its own) is in one of about a
  * hundred classes, of the code points that break alike: against one of each class, on either side, in every context
  * (`tests/unit/printParity/breakPairsDomain.ts`). Whether Chromium
- * breaks between A and B then depends on the classes and on what stands either side of the pair: the context before
+ * breaks between A and B then depends, but where Unicode's numeric rule reads further, on the classes and on what
+ * stands either side of the pair: the context before
  * (the class of the character there, a word's start, a space, a soft hyphen, a zero-width space, a character the faces
- * lack) and the one after. The scan reads every such 4-gram; the table holds them folded without loss: contexts that
+ * lack) and the one after. The scan reads every such 4-gram; the table holds those 4-grams, folded without losing one
+ * (rules that read further, as Unicode's numeric rule does, are `packNumericHold.ts`'s): contexts that
  * break every pair alike are one group, each pair is one of a hundred-odd kinds, and a kind is a row of breaks by group
  * after for each group before. Each lookup is O(1): a class by code point from a 64K array, then three bytes and a bit.
  */
@@ -18,6 +20,7 @@ import {
   PAIR_AFTER_GROUP, PAIR_BEFORE_GROUP, PAIR_CLASSES, PAIR_CLASS_RANGES, PAIR_GROUPS_AFTER, PAIR_GROUPS_BEFORE, PAIR_KINDS, PAIR_KIND_ROWS, PAIR_LEFTS,
   PAIR_RIGHTS, PAIR_ROWS,
 } from './packBreakPairsData';
+import { pairTableReader } from './packBreakPairsReader';
 
 /** The contexts beside the classes, in the scan's order (`breakPairsScan.SPECIAL_LEFT` and `SPECIAL_RIGHT`). */
 export const BEFORE = { start: 0, space: 1, softHyphen: 2, zeroWidthSpace: 3, other: 4 } as const;
@@ -28,24 +31,10 @@ const NO_CLASS = 255;
 const CLASS = new Uint8Array(0x10000).fill(NO_CLASS);
 for (const [from, to, cls] of PAIR_CLASS_RANGES) CLASS.fill(cls, from, to + 1);
 
-const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-function bytesOf(base64: string): Uint8Array {
-  const clean = base64.replace(/=+$/, '');
-  const out = new Uint8Array(Math.floor((clean.length * 6) / 8));
-  let acc = 0;
-  let bits = 0;
-  let at = 0;
-  for (const c of clean) {
-    acc = (acc << 6) | BASE64.indexOf(c);
-    bits += 6;
-    if (bits >= 8) { bits -= 8; out[at] = (acc >> bits) & 0xff; at += 1; }
-  }
-  return out;
-}
-const KIND = bytesOf(PAIR_KINDS);
-const KIND_ROW = bytesOf(PAIR_KIND_ROWS);
-const ROWS = bytesOf(PAIR_ROWS);
-const ROW_BYTES = Math.ceil(PAIR_GROUPS_AFTER / 8);
+const READ = pairTableReader({
+  classes: PAIR_CLASSES, lefts: PAIR_LEFTS, rights: PAIR_RIGHTS, groupsBefore: PAIR_GROUPS_BEFORE, groupsAfter: PAIR_GROUPS_AFTER,
+  beforeGroup: PAIR_BEFORE_GROUP, afterGroup: PAIR_AFTER_GROUP, kinds: PAIR_KINDS, kindRows: PAIR_KIND_ROWS, rows: PAIR_ROWS,
+}, SPECIALS);
 
 /**
  * One character of each kind past U+30FF that breaks alike throughout, scanned with the table: a code point the table
@@ -78,12 +67,5 @@ export const contextOf = (cls: number | null): number => (cls === null ? BEFORE.
  * `after` it (`BEFORE`, `AFTER`, `contextOf`)?
  */
 export function pairBreaks(before: number, a: number, b: number, after: number): boolean {
-  const row = KIND_ROW[KIND[a * PAIR_CLASSES + b]! * PAIR_GROUPS_BEFORE + PAIR_BEFORE_GROUP[before]!]!;
-  const g = PAIR_AFTER_GROUP[after]!;
-  return ((ROWS[row * ROW_BYTES + (g >> 3)]! >> (7 - (g & 7))) & 1) === 1;
-}
-
-if (PAIR_LEFTS !== SPECIALS + PAIR_CLASSES || PAIR_RIGHTS !== SPECIALS + PAIR_CLASSES
-  || PAIR_BEFORE_GROUP.length !== PAIR_LEFTS || PAIR_AFTER_GROUP.length !== PAIR_RIGHTS || KIND.length !== PAIR_CLASSES * PAIR_CLASSES) {
-  throw new Error(`packBreakPairs: the table's contexts (${PAIR_LEFTS}, ${PAIR_RIGHTS}) or kinds (${KIND.length}) do not fit its ${PAIR_CLASSES} classes`);
+  return READ(before, a, b, after);
 }
