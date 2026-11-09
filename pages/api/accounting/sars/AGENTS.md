@@ -11,6 +11,7 @@ SARS return preparation + eFiling submissions tracking + compliance calendar. VA
 - `GET|POST /api/accounting/sars/sars-submissions` — list / mark-submitted `{ id, action: 'mark_submitted', reference, overrideReason? }`. For a VAT201 submission, refuses with getVatExceptions' blocking exceptions UNLESS the caller is owner/admin and supplies `overrideReason` — recorded in `vat_gate_overrides` (migration 704, `reports/vatGateOverrideService`), never consulted by the ISV `efiling-submit` gate below. No MCP equivalent (this route has no MCP tool at all today)
 - `GET|POST /api/accounting/sars/sars-vat201` — GET `?from=&to=` build; POST `{ periodStart, periodEnd }` save draft. Both answer from `getVat201Return` (vat201Return.ts) = `getLedgerVAT201` (journal-derived) + `sarsFields` (the SARS VAT201 form), `warnings` (classification calls to confirm) and `filability` (fields 1, 1A, 2, 2A, 3, 4, 4A, 5-20; `vat201SarsFields.ts`); the invoice-derived `generateVAT201` is the exceptions recon's input only
 - `GET|POST /api/accounting/sars/sars-emp201` — monthly PAYE/UIF/SDL; same query shape as VAT201
+- `GET /api/accounting/sars/returns/[form]/versions?periodStart=&periodEnd=` and `POST /api/accounting/sars/returns/[form]/finalise` (`form` = `vat201` | `emp201`; the only subdirectory here) — wave 5 L1a, `services/returns/.claude.md`. Finalise runs the same exceptions gate as `POST /vat-period-locks` (VAT201), or refuses 409 unless every pay run of the period is R-035 final (EMP201); both `no-store`, refusals before the first write, one savepoint
 - `GET|POST /api/accounting/sars/irp6` — provisional tax (1st/2nd/top-up)
 - `GET /api/accounting/sars/emp501` — bi-annual employer recon summary
 - `GET /api/accounting/sars/vat-exceptions` — `?from=&to=`; pre-filing VAT exceptions (uncoded GL VAT lines, invoice tax-code issues, invoice↔GL mismatches, VAT201-vs-GL-control recon); informational for the panel, **but the eFiling submit path re-runs it as a HARD gate**
@@ -59,3 +60,4 @@ All routes: `withAuth(withErrorHandler(withWriteAccess(handler)))`.
 - 2026-04-24: second pentest batch — M1, M6, M14/M15, M20, M21, L4 + codemod
 - 2026-04-18: codemod handlers onto withAuth / withUserAuth
 - 2026-04-15: BL-106..BL-117 — withCsrf applied to 100 non-money-moving routes (Batch H1)
+- 2026-11-08 (master plan wave 5 L1a): `returns/[form]/{versions,finalise}` added. `tax_return_versions` (mig 969). The 'no subdirs' note above no longer holds for `returns/`.
