@@ -9,7 +9,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 type Header = { status: string; approved_at: string | null; approval_grandfathered_at: string | null };
 const db = vi.hoisted(() => ({
   header: null as null | Record<string, unknown>, line: null as null | Record<string, unknown>,
-  qty: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock('@/lib/neon', () => ({
@@ -24,14 +23,10 @@ vi.mock('@/lib/neon', () => ({
       const run_final = !!h && ['approved', 'paid'].includes(String(h.status)) && !!(h.approved_at ?? h.approval_grandfathered_at);
       return [{ ...(db.line ?? LINE_ROW), run_final }];
     }
-    if (q.includes('pec.quantity')) return db.qty;
     if (q.includes('FROM payroll_components')) return [{ id: 'c-salary', component_type: 'earning' }, { id: 'c-med', component_type: 'deduction' }];
     if (q.includes('prl.taxable_income')) return [{ run_id: RUN, employee_id: EMP, gross_pay: 30000, taxable_income: 30000, paye: 5000, uif_employee: 177.12, net_pay: 23022.88 }];
     throw new Error(`unexpected query: ${q.slice(0, 120)}`);
   }),
-}));
-vi.mock('@/modules/accounting/services/payroll/payrollComponentService', () => ({
-  getEmployeeComponents: vi.fn(async () => [{ assignmentId: 'pec-1' }, { assignmentId: 'pec-2' }]),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/core/pdfShared', async (actual) => ({
@@ -64,7 +59,7 @@ async function pdfText(pdf: Buffer): Promise<string> {
   return (await new PDFParse({ data: pdf }).getText()).text.replace(/\s+/g, ' ');
 }
 
-beforeEach(() => { db.header = null; db.line = null; db.qty = []; });
+beforeEach(() => { db.header = null; db.line = null; });
 
 describe('getPayslips: the figures', () => {
   it('earnings, deductions, PAYE, UIF and net equal the stored line', async () => {
@@ -96,18 +91,15 @@ describe('getPayslips: the figures', () => {
 });
 
 const AT = '2026-11-25T10:00:00Z';
-describe('getPayslips: hours captured on the run (s33(1)(g))', () => {
-  const row = (componentId: string, code: string, quantity: number, unit = 'hour', employee = EMP) =>
-    ({ employee_id: employee, component_id: componentId, sars_source_code: code, quantity, quantity_unit: unit });
+describe('getPayslips: hours stamped on the stored breakdown (s33(1)(g))', () => {
   const open = () => { db.header = header({ status: 'calculated', approved_at: null, approval_grandfathered_at: null }); };
+  const item = (id: string, code: string, extra: object = {}) =>
+    ({ componentId: id, componentName: id, sarsSourceCode: code, amount: 100, isTaxable: true, isUifApplicable: true, ...extra });
+  const lineWith = (items: object[]) => { db.line = { ...LINE_ROW, component_breakdown: [...items, LINE_ROW.component_breakdown[1]] }; };
 
-  it('basic-pay and overtime quantities are read onto the slip and printed', async () => {
+  it('quantity and quantityUnit on the 3601 and 3607 items are printed', async () => {
     open();
-    db.line = { ...LINE_ROW, component_breakdown: [
-      ...LINE_ROW.component_breakdown,
-      { componentId: 'c-ot', componentName: 'Overtime', sarsSourceCode: '3607', amount: 100, isTaxable: true, isUifApplicable: true },
-    ] };
-    db.qty = [row('c-salary', '3601', 152), row('c-ot', '3607', 12.5)];
+    lineWith([item('c-salary', '3601', { amount: 30000, quantity: 152, quantityUnit: 'hour' }), item('c-ot', '3607', { quantity: 12.5, quantityUnit: 'hour' })]);
     const run = await getPayslips(CO, RUN);
     expect(run.payslips[0]).toMatchObject({ workedOrdinary: { quantity: 152, unit: 'hour' }, workedOvertime: { quantity: 12.5, unit: 'hour' } });
     const text = await pdfText(await buildPayslipPdf(run));
@@ -115,15 +107,26 @@ describe('getPayslips: hours captured on the run (s33(1)(g))', () => {
     expect(text).toContain('Overtime hours: 12.5 hours');
   });
 
-  it('a quantity on a component the run did not pay is ignored', async () => {
+  it('a breakdown without quantities prints "Not recorded"', async () => {
     open();
-    db.qty = [row('c-other', '3601', 99)];
-    expect((await getPayslips(CO, RUN)).payslips[0]).toMatchObject({ workedOrdinary: null, workedOvertime: null });
+    const run = await getPayslips(CO, RUN);
+    expect(run.payslips[0]).toMatchObject({ workedOrdinary: null, workedOvertime: null });
+    const text = await pdfText(await buildPayslipPdf(run));
+    expect(text).toContain('Ordinary hours: 8 per day');
+    expect(text).toContain('Overtime hours: Not recorded');
   });
 
-  it('hours and days of one code are never summed', async () => {
+  it('a live assignment quantity edited after the run does not change the slip (no assignment is read)', async () => {
     open();
-    db.qty = [row('c-salary', '3601', 8), row('c-salary', '3601', 1, 'day')];
+    const { sql } = await import('@/lib/neon');
+    await getPayslips(CO, RUN);
+    const queries = (sql as unknown as { mock: { calls: Array<[TemplateStringsArray]> } }).mock.calls.map((c) => c[0].join('?'));
+    expect(queries.some((q) => q.includes('payroll_employee_components'))).toBe(false);
+  });
+
+  it('other codes are not read; hours and days of one code are never summed', async () => {
+    open();
+    lineWith([item('c-salary', '3601', { quantity: 8, quantityUnit: 'hour' }), item('c-x', '3601', { quantity: 1, quantityUnit: 'day' }), item('c-b', '3606', { quantity: 5, quantityUnit: 'hour' })]);
     expect((await getPayslips(CO, RUN)).payslips[0]).toMatchObject({ workedOrdinary: null, workedOvertime: null });
   });
 });

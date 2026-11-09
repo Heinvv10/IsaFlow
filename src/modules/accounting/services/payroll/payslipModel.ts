@@ -14,7 +14,7 @@
  */
 import { sql } from '@/lib/neon';
 import { getCompanyDetailsFromCompany } from '@/modules/accounting/services/core/pdfShared';
-import { readQuantities, type WorkedQuantity } from './payslipQuantities';
+import { quantitiesFromBreakdown, type WorkedQuantity } from './payslipQuantities';
 import { itemisePayslip, readBreakdown, type PayslipLines } from './payslipItems';
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
 
@@ -36,7 +36,7 @@ export interface Payslip extends PayslipLines {
   bankName: string | null;
   /** A bank account is on file but too short to mask (fewer than four characters). */
   bankIncomplete: boolean;
-  /** Hours or days captured on the run's basic-pay (3601) and overtime (3607) components; null when none. */
+  /** Hours or days stamped on the line's stored breakdown for basic pay (3601) and overtime (3607); null when none. */
   workedOrdinary: WorkedQuantity | null;
   workedOvertime: WorkedQuantity | null;
   /** BCEA s33(1)(b): the employee's occupation as captured on the profile; null when none. */
@@ -87,6 +87,12 @@ interface LineRow {
   net_pay: string | number;
   component_breakdown: unknown;
   run_final: boolean;
+}
+
+/** Hours or days stamped on the stored breakdown at calculation time (payslipQuantities). */
+function workedOf(breakdown: unknown): { workedOrdinary: WorkedQuantity | null; workedOvertime: WorkedQuantity | null } {
+  const q = quantitiesFromBreakdown(breakdown);
+  return { workedOrdinary: q.ordinary, workedOvertime: q.overtime };
 }
 
 const numOrNull = (v: string | number | null): number | null => (v == null ? null : Number(v));
@@ -143,8 +149,6 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
   const final = lines[0]!.run_final === true; // read in the lines' own statement: the figures and their final state cannot tear
   const types = await componentTypes(companyId, lines);
   const ytd = await payslipYearToDate(companyId, run, lines.map((l) => l.employee_id));
-  const paid = new Map(lines.map((l) => [l.employee_id, new Set(readBreakdown(l.component_breakdown).map((i) => String(i.componentId ?? '')))]));
-  const worked = await readQuantities(companyId, { month: run.periodMonth, year: run.periodYear }, paid);
   const company = await getCompanyDetailsFromCompany(companyId);
 
   return {
@@ -164,8 +168,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
       bankLastFour: Number(l.bank_length ?? 0) >= 4 ? l.bank_last_four : null,
       bankIncomplete: l.bank_length != null && Number(l.bank_length) < 4,
       bankName: l.bank_name,
-      workedOrdinary: worked.get(l.employee_id)?.ordinary ?? null,
-      workedOvertime: worked.get(l.employee_id)?.overtime ?? null,
+      ...workedOf(l.component_breakdown),
       occupation: l.occupation,
       payBasis: String(l.pay_basis),
       hoursPerWeek: numOrNull(l.hours_per_week),
