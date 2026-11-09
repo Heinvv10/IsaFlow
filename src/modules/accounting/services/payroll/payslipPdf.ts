@@ -4,15 +4,16 @@
  *
  * BCEA s33(1) particulars: the employer's name and address ("Employer address not
  * recorded", in red on a final slip, when none is on file); the employee's name, and
- * "Occupation not recorded" (payroll has no occupation field yet); the period paid for;
- * the remuneration in money; each deduction; the actual amount paid. Hours (s33(1)(e)-(h))
- * are not stored by payroll yet and are not printed.
+ * the occupation from the employee profile ("Occupation not recorded" when none); the period paid for;
+ * the remuneration in money; each deduction; the actual amount paid; the stored ordinary hours and rate
+ * (`payslipFacts`), with overtime "not recorded" until payroll captures it. Dates and money use the app's formats.
  *
  * No ID number; the bank account as its last four digits only. A run that is not final
  * (the R-035 guard) carries the DRAFT line and the faint DRAFT mark on EVERY page, drawn
  * after layout so a slip that flows onto more pages carries them too.
  */
-import { COLORS, fmtDate, fmtZAR, type JsPdfDoc } from '@/modules/accounting/services/core/pdfShared';
+import { COLORS, type JsPdfDoc } from '@/modules/accounting/services/core/pdfShared';
+import { cleanAddress, money, particulars, shortDate } from './payslipFacts';
 import { BENEFIT_NOTE, notItemisedNote, PAID_DIRECTLY_NOTE, type PayslipItem } from './payslipItems';
 import type { Payslip, PayslipRun } from './payslipModel';
 
@@ -29,10 +30,10 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 export function payPeriodLabel(month: number, year: number): string {
   const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return `${fmtDate(`${year}-${pad(month)}-01`)} to ${fmtDate(`${year}-${pad(month)}-${pad(last)}`)}`;
+  return `${shortDate(`${year}-${pad(month)}-01`)} to ${shortDate(`${year}-${pad(month)}-${pad(last)}`)}`;
 }
 
-const itemRow = (i: PayslipItem): string[] => [i.code ? `${i.label} (${i.code})` : i.label, fmtZAR(i.amount)];
+const itemRow = (i: PayslipItem): string[] => [i.code ? `${i.label} (${i.code})` : i.label, money(i.amount)];
 
 function lastY(doc: JsPdfDoc, fallback: number): number {
   return (doc as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? fallback;
@@ -42,7 +43,7 @@ function table(doc: JsPdfDoc, autoTable: AutoTable, y: number, title: string, ro
   autoTable(doc, {
     head: [[title, { content: 'Amount', styles: { halign: 'right' } }]],
     body: rows.map(([label, amount]) => [label, { content: amount, styles: { halign: 'right' } }]),
-    foot: total ? [[total[0], { content: fmtZAR(total[1]), styles: { halign: 'right' } }]] : undefined,
+    foot: total ? [[total[0], { content: money(total[1]), styles: { halign: 'right' } }]] : undefined,
     startY: y,
     margin: { top: TOP, left: MARGIN, right: MARGIN },
     styles: { fontSize: 9, cellPadding: 1.6, textColor: COLORS.TEXT_PRIMARY },
@@ -87,8 +88,9 @@ function heading(doc: JsPdfDoc, run: PayslipRun, slip: Payslip, pageW: number): 
   doc.text(run.employer.name, pageW - MARGIN, 18, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
-  const hasAddress = run.employer.address.trim() !== '';
-  const address: string[] = hasAddress ? doc.splitTextToSize(run.employer.address, 80) : ['Employer address not recorded'];
+  const employerAddress = cleanAddress(run.employer.address);
+  const hasAddress = employerAddress !== '';
+  const address: string[] = hasAddress ? doc.splitTextToSize(employerAddress, 80) : ['Employer address not recorded'];
   if (!hasAddress && run.final) { // BCEA s33(1)(a): a final slip must say plainly that a particular is missing
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLORS.DANGER);
@@ -97,17 +99,8 @@ function heading(doc: JsPdfDoc, run: PayslipRun, slip: Payslip, pageW: number): 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...COLORS.TEXT_PRIMARY);
   let y = 24 + address.length * 3.6;
-  const bank = slip.bankLastFour
-    ? `${slip.bankName ? `${slip.bankName}, ` : ''}account ending ${slip.bankLastFour}`
-    : 'No bank account on file';
-  const facts: Array<[string, string]> = [
-    ['Employee', `${slip.employeeName} (${slip.employeeNumber})`],
-    ['Occupation', 'Occupation not recorded'], // no occupation field yet; never the EE level or department
-    ['Income tax number', slip.taxNumber ?? 'Not recorded'],
-    ['Pay period', `${MONTHS[run.periodMonth - 1]} ${run.periodYear}: ${payPeriodLabel(run.periodMonth, run.periodYear)}`],
-    ['Pay date', run.runDate ? fmtDate(run.runDate) : 'Not set'],
-    ['Paid by', slip.paymentMethod === 'eft' ? `EFT to ${bank}` : slip.paymentMethod],
-  ];
+  const periodLabel = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}: ${payPeriodLabel(run.periodMonth, run.periodYear)}`;
+  const facts = particulars(run, slip, periodLabel);
   y = Math.max(y, 30);
   for (const [label, value] of facts) {
     doc.setFont('helvetica', 'bold');
@@ -133,12 +126,12 @@ function slipPage(doc: JsPdfDoc, autoTable: AutoTable, run: PayslipRun, slip: Pa
   let y = heading(doc, run, slip, pageW);
   y = table(doc, autoTable, y, 'Earnings', slip.earnings.map(itemRow), ['Gross pay', slip.grossPay]);
   const deductions = [
-    ['PAYE (income tax)', fmtZAR(slip.paye)],
-    ['UIF (employee)', fmtZAR(slip.uifEmployee)],
+    ['PAYE (income tax)', money(slip.paye)],
+    ['UIF (employee)', money(slip.uifEmployee)],
     ...slip.deductions.map(itemRow),
   ];
   y = table(doc, autoTable, y, 'Deductions', deductions, ['Total deductions', round2(slip.paye + slip.uifEmployee + slip.otherDeductions)]);
-  y = table(doc, autoTable, y, 'Amount paid', [['Net pay', fmtZAR(slip.netPay)]]);
+  y = table(doc, autoTable, y, 'Amount paid', [['Net pay', money(slip.netPay)]]);
   if (slip.benefits.length > 0) {
     y = table(doc, autoTable, y, BENEFIT_NOTE, slip.benefits.map(itemRow));
   }
@@ -146,12 +139,12 @@ function slipPage(doc: JsPdfDoc, autoTable: AutoTable, run: PayslipRun, slip: Pa
     y = table(doc, autoTable, y, PAID_DIRECTLY_NOTE, slip.paidDirectly.map(itemRow));
   }
   y = table(doc, autoTable, y, 'Employer contributions (not deducted from your pay)', [
-    ['UIF (employer)', fmtZAR(slip.uifEmployer)], ['Skills development levy', fmtZAR(slip.sdl)],
+    ['UIF (employer)', money(slip.uifEmployer)], ['Skills development levy', money(slip.sdl)],
     ...slip.employerContributions.map(itemRow),
   ]);
   const ytd = slip.yearToDate;
   y = table(doc, autoTable, y, 'Year to date (this tax year)', [
-    ['Gross pay', fmtZAR(ytd.grossPay)], ['PAYE', fmtZAR(ytd.paye)], ['UIF (employee)', fmtZAR(ytd.uifEmployee)], ['Net pay', fmtZAR(ytd.netPay)],
+    ['Gross pay', money(ytd.grossPay)], ['PAYE', money(ytd.paye)], ['UIF (employee)', money(ytd.uifEmployee)], ['Net pay', money(ytd.netPay)],
   ]);
   const note = notItemisedNote(slip);
   if (note) {
