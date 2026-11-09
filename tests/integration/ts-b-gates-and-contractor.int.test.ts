@@ -25,7 +25,11 @@ beforeAll(() => {
 });
 afterAll(async () => {
   vi.useRealTimers();
-  try { await cleanSeveranceFixtures(pool, fixtures); } finally { await pool.end(); }
+  try {
+    // The UI-19 test leaves a declaration row, which holds the company.
+    await pool.query('DELETE FROM uif_declarations WHERE company_id = ANY($1::uuid[])', [fixtures.map(f => f.company)]);
+    await cleanSeveranceFixtures(pool, fixtures);
+  } finally { await pool.end(); }
 });
 
 const number = async (id: string) => String((await pool.query('SELECT employee_number FROM payroll_employees WHERE id = $1', [id])).rows[0]!.employee_number);
