@@ -170,6 +170,8 @@ export interface ComponentBreakdownItem {
   isNonCash?: true;
   /** As on EmployeeComponent: the PAYE inclusion the line was costed with, kept so a reader need not re-derive it. */
   payeInclusionRate?: number;
+  /** What the calculator took as remuneration for PAYE from this item (amount x rate, to the cent): exact for the certificate's 4582. */
+  payeIncludedAmount?: number;
   directive?: DirectiveFigures;
   /** Set on an employee retirement fund contribution (4001/4003/4006 deduction; PAYE 4c, migration 948). */
   retirementContribution?: true;

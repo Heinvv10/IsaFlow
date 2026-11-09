@@ -7,8 +7,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import fringe from '../../pages/api/payroll/employees/[id]/fringe-benefits';
+import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
+import { getIrp5EmployeeTotals } from '../../src/modules/accounting/services/payroll/irp5DataService';
 import { runLinesRefusal } from '../../src/modules/accounting/services/payroll/payrollRunRecalcGate';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
@@ -24,6 +26,7 @@ const tokens: Record<string, string> = {};
 const call = routeCaller(tokens, { user: owner, company: companyA });
 const sign = (sub: string) => new SignJWT({ sub, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
   .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+let juneRun = '';
 let empA = '';
 let empB = '';
 
@@ -160,6 +163,7 @@ describe('a run costs the recorded benefits', () => {
       [empA, travelComponent]);
     // The vehicle row was ended 2026-08-31 above: June is inside it (maintenance plan, business use at least 80%).
     const runId = await calculatedRun(call, 6);
+    juneRun = runId;
     const line = (await pool.query<{ gross_pay: string; periodic_taxable: string; component_breakdown: Array<Record<string, unknown>> }>(
       'SELECT gross_pay, periodic_taxable, component_breakdown FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [runId, empA])).rows[0]!;
     expect(Number(line.gross_pay)).toBe(25000);
@@ -178,5 +182,83 @@ describe('the approval gate sees a benefit changed after calculation', () => {
       "SELECT id FROM payroll_employee_fringe_benefits WHERE employee_id = $1 AND kind = 'travel_allowance' AND effective_to IS NULL", [empA])).rows[0]!.id;
     expect((await send('PATCH', { benefitId: open, effectiveTo: '2026-12-31' })).statusCode).toBe(200);
     expect((await runLinesRefusal(companyA, runId))?.code).toBe('components_changed_after_calculation');
+  });
+});
+
+describe('refusals: calendar dates and whole cents (400, never 500)', () => {
+  it('a date that is not on the calendar, a value under one cent and a value with a fraction of a cent', async () => {
+    const before = await rows(empA);
+    expect((await send('POST', { kind: 'travel_allowance', businessUseAtLeast80: true, effectiveFrom: '2026-02-31' })).statusCode).toBe(400);
+    expect((await send('POST', { kind: 'travel_allowance', businessUseAtLeast80: true, effectiveFrom: '2027-01-01', effectiveTo: '2027-13-01' })).statusCode).toBe(400);
+    expect((await send('PATCH', { benefitId: crypto.randomUUID(), effectiveTo: '2026-06-31' })).statusCode).toBe(400);
+    expect((await send('POST', vehicle({ determinedValue: 0.001, effectiveFrom: '2028-01-01' }))).statusCode).toBe(400);
+    expect((await send('POST', vehicle({ determinedValue: 400000.005, effectiveFrom: '2028-01-01' }))).statusCode).toBe(400);
+    expect(await rows(empA)).toBe(before);
+  });
+});
+
+describe('the table itself', () => {
+  it('refuses a row whose company is not the employee\'s (composite foreign key)', async () => {
+    await expect(pool.query(
+      `INSERT INTO payroll_employee_fringe_benefits (company_id, employee_id, kind, business_use_at_least_80, effective_from)
+       VALUES ($1, $2, 'travel_allowance', false, '2031-01-01')`, [companyB, empA])).rejects.toMatchObject({ code: '23503' });
+  });
+  it('refuses an overlapping row of one kind even from outside the service (EXCLUDE, where btree_gist exists)', async () => {
+    await pool.query(
+      `INSERT INTO payroll_employee_fringe_benefits (company_id, employee_id, kind, business_use_at_least_80, effective_from, effective_to)
+       VALUES ($1, $2, 'travel_allowance', false, '2032-01-01', '2032-12-31')`, [companyA, empA]);
+    await expect(pool.query(
+      `INSERT INTO payroll_employee_fringe_benefits (company_id, employee_id, kind, business_use_at_least_80, effective_from, effective_to)
+       VALUES ($1, $2, 'travel_allowance', true, '2032-06-01', '2033-06-01')`, [companyA, empA])).rejects.toMatchObject({ code: '23P01' });
+  });
+  it('lets the app role end a row but not rewrite its value, delete it, or change its dates', async () => {
+    const id = (await pool.query<{ id: string }>(
+      `INSERT INTO payroll_employee_fringe_benefits (company_id, employee_id, kind, determined_value, effective_from)
+       VALUES ($1, $2, 'company_vehicle', 100000, '2034-01-01') RETURNING id`, [companyA, empA])).rows[0]!.id;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query("SELECT set_config('app.current_company_id', $1, true)", [companyA]);
+      const attempt = async (sqlText: string) => {
+        await client.query('SAVEPOINT a');
+        try { await client.query(sqlText, [id]); return 'ok'; } catch (e) { await client.query('ROLLBACK TO SAVEPOINT a'); return (e as { code?: string }).code ?? 'err'; }
+      };
+      expect(await attempt('UPDATE payroll_employee_fringe_benefits SET determined_value = 1 WHERE id = $1')).toBe('42501');
+      expect(await attempt('UPDATE payroll_employee_fringe_benefits SET effective_from = effective_from WHERE id = $1')).toBe('42501');
+      expect(await attempt('DELETE FROM payroll_employee_fringe_benefits WHERE id = $1')).toBe('42501');
+      await client.query('ROLLBACK');
+    } finally { client.release(); }
+  });
+});
+
+describe('a benefit that cannot be shown blocks approval', () => {
+  it('with the 3802 earning switched off, the August line carries the error and the gate says fringe_benefit_not_applied', async () => {
+    await pool.query("UPDATE payroll_components SET is_active = false WHERE company_id = $1 AND sars_source_code = '3802'", [companyA]);
+    const runId = await calculatedRun(call, 8);
+    const refusal = await runLinesRefusal(companyA, runId);
+    expect(refusal?.code).toBe('fringe_benefit_not_applied');
+    const line = (await pool.query<{ v: Array<{ code: string; severity: string }> }>(
+      'SELECT validation_results AS v FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [runId, empA])).rows[0]!.v;
+    expect(line).toContainEqual(expect.objectContaining({ code: 'FRINGE_BENEFIT_NOT_APPLIED', severity: 'error' }));
+    await pool.query("UPDATE payroll_components SET is_active = true WHERE company_id = $1 AND sars_source_code = '3802'", [companyA]);
+  });
+});
+
+describe('the certificate data carries 3701 and 4582 from the stored lines', () => {
+  it('after June is approved: the allowance under its own code, 4582 = the 20% shares of 3701 and 3802', async () => {
+    // The travel row was ended after June was calculated (the gate test above): recalculate, as the gate demands.
+    expect((await call(calculate as Route, 'POST', `/api/payroll/runs/${juneRun}/calculate`, juneRun)).statusCode).toBe(200);
+    await authorisePayRun(call, juneRun, approver);
+    const plan = await call(journalPlan as Route, 'GET', `/api/payroll/runs/${juneRun}/journal-plan`, juneRun);
+    expect((await call(approve as Route, 'POST', `/api/payroll/runs/${juneRun}/approve`, juneRun, { body: { expectedPlanHash: plan.body.data!.planHash } })).statusCode).toBe(200);
+    const data = await getIrp5EmployeeTotals(companyA, 2027, { employeeId: empA });
+    const row = data.rows[0]!;
+    expect(row.cashAllowances).toEqual([{ sourceCode: '3701', amount: 5000 }]);
+    expect(row.fringeBenefits).toEqual([{ sourceCode: '3802', amount: 13000 }]);
+    // 5 000 x 20% + 13 000 x 20%
+    expect(row.paye4582).toBe(3600);
+    // March 20 000 + June 25 000 cash (the vehicle is non-cash)
+    expect(row.grossSalary).toBe(45000);
   });
 });

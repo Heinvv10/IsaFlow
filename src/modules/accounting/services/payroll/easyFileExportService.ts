@@ -35,7 +35,7 @@
  *   - ETI (codes 3026, 3190, 7002-7009)
  *   - Foreign nationals / passport / alternate ID (codes 3061/3090/3100)
  *   - Fixed-rate PAYE directives
- *   - Allowances (3701-3713); other fringe benefits (a hand-made 38xx is paid as cash, so in 3601)
+ *   - Allowances 3702-3713 (paid as cash, so in 3601; 3701 is certified under its own code, payrollAllowanceFiling); other fringe benefits (a hand-made 38xx is paid as cash, so in 3601)
  *   - Non-natural persons / directors / asylum seekers
  *
  * The service throws UsageError on missing employer data so the caller can
@@ -94,6 +94,10 @@ export interface EmployeeInput {
   annualPayments3605?: number;
   /** Non-cash fringe benefits by income code (3801), NOT included in grossSalary3601; cents dropped. */
   fringeBenefits?: { sourceCode: string; amount: number }[];
+  /** Cash allowances under their own income code (3701, the travel allowance), NOT included in grossSalary3601; cents dropped. */
+  cashAllowances?: { sourceCode: string; amount: number }[];
+  /** 4582: the part of 3701 + 3802 that PAYE was withheld on (payrollAllowanceFiling); absent = none of them. */
+  paye4582?: number;
   /** Lump sums paid under a directive, NOT included in grossSalary3601. */
   lumpSums?: LumpSumInput[];
   /**
@@ -208,6 +212,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // directive beside taxable pay over the threshold is no reason 04 either.
   const it3a = emp.paye4102 <= 0 && paye4115 <= 0;
   const reason = it3a ? nilTaxReason(emp) : null;
+  const employerMedical = Math.floor((emp.fringeBenefits ?? []).filter(f => f.sourceCode === '3810').reduce((n, f) => n + f.amount, 0));
   const medical = medicalFieldLines(emp);
   const retirement = retirementFieldLines(emp.retirementFund);
   const lines: (string | null)[] = [
@@ -234,7 +239,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
     formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
     // Income codes in code order, as the BRS file layout lists them: 36xx, 38xx, then 39xx.
-    ...[...(emp.fringeBenefits ?? [])].sort((a, b) => a.sourceCode.localeCompare(b.sourceCode)).map(f => formatField(Number(f.sourceCode), f.amount >= 1 ? f.amount : null, 'N')),
+    ...[...(emp.cashAllowances ?? []), ...(emp.fringeBenefits ?? [])].sort((a, b) => a.sourceCode.localeCompare(b.sourceCode)).map(f => formatField(Number(f.sourceCode), f.amount >= 1 ? f.amount : null, 'N')),
     ...lumpIncome(lumpSums),
     ...retirement.beforeMedical,
     ...medical.fees,
@@ -247,6 +252,10 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     formatField(4141, Math.round((emp.uifEmployee + emp.uifEmployer) * 100) / 100, 'N_CENTS'),
     formatField(4142, emp.sdl4142, 'N_CENTS'),
     reason ? `4150,${reason}` : null,
+    // 4474 = the employer's medical contribution, equal to code 3810 (BRS V25.3.0 p. 103; V13.1 rule "3810 must equal 4474").
+    employerMedical > 0 ? formatField(4474, employerMedical, 'N') : null,
+    // 4582 (BRS p. 105): mandatory with 3701 / 3802, kept inside 20-80% of them (allowanceCertificateFields).
+    emp.paye4582 !== undefined ? formatField(4582, emp.paye4582, 'N') : null,
     '9999,9999',
   ];
   const record = withDeductionTotal(lines.filter((l): l is string => l !== null));

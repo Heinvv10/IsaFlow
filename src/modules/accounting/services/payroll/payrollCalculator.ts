@@ -48,7 +48,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const rebateAge = employee.dateOfBirth ? getAge(employee.dateOfBirth, taxYearEnd) : 30;
 
   const acc = accumulateComponents(components);
-  const { grossPay, allEarnings, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings } = acc;
+  const { grossPay, allEarnings, levyRemuneration, employerMedicalFees, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings } = acc;
   let { periodicTaxable, annualPayments } = acc;
 
   // A month counts as a periodic-remuneration period when periodic remuneration
@@ -71,11 +71,12 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // Fees deducted for a scheme the employee is not recorded as a member of: no MTC (and, 65+, no
   // additional credit) is given, so PAYE is over-deducted. Warned, not corrected: the membership is data.
-  if (medicalSchemeFees > 0 && medicalBeneficiaries <= 0) {
+  // A 3810-only employee has no deducted fees to warn about (the employer's contribution is the benefit).
+  if (medicalSchemeFees - employerMedicalFees > 0 && medicalBeneficiaries <= 0) {
     warnings.push({
       code: 'MEDICAL_FEES_WITHOUT_MEMBERSHIP',
       severity: 'warning',
-      message: `R${medicalSchemeFees.toFixed(2)} of medical aid contributions (code 4005) is deducted, but the employee is not marked as a `
+      message: `R${(medicalSchemeFees - employerMedicalFees).toFixed(2)} of medical aid contributions (code 4005) is deducted, but the employee is not marked as a `
         + `medical aid member and has no dependants, so no medical tax credit${rebateAge >= 65 ? ' (nor the 65+ additional credit)' : ''} `
         + 'was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
     });
@@ -128,7 +129,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     dateOfBirth: employee.dateOfBirth,
     employmentStartDate: employee.startDate,
     periodDate,
-    monthlyRemuneration: allEarnings,
+    monthlyRemuneration: levyRemuneration,
     isUifExcluded: employee.uifExcluded,
   }, taxYear);
   // A leaver paid after leaving worked no hours in the period, and ETI is

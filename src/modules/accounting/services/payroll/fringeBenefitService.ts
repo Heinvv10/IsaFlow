@@ -8,11 +8,11 @@
  * recalculate (payrollRunRecalcGate). Refusals are thrown before the first write (a 4xx commits).
  */
 import { sql, withTransaction } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import type { DbRow, TxSql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
-import { benefitActiveInPeriod, type FringeBenefit, type FringeKind } from './fringeBenefits';
+import { benefitActiveInPeriod, isRealIsoDay, type FringeBenefit, type FringeKind } from './fringeBenefits';
 import { lockCompanyPayrollForComponentChange, paidPeriodsOf, periodLabel } from './payrollComponentPaidMonths';
 import type { ComponentChangeActor } from './payrollComponentAudit';
 import type { PayrollComponent, PayrollPeriod } from './payrollTypes';
@@ -33,7 +33,6 @@ export interface FringeBenefitInput {
   effectiveTo: string | null;
 }
 
-const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 function mapRow(r: DbRow): FringeBenefit {
   return {
@@ -80,8 +79,8 @@ export async function loadFringeBenefitsByEmployee(companyId: string, employeeId
 }
 
 /** The earning a vehicle benefit is shown with: the first active taxable earning coded 3802 (as the loan benefit's 3801). */
-export async function loadVehicleBenefitComponent(companyId: string): Promise<PayrollComponent | null> {
-  const rows = (await sql`
+export async function loadVehicleBenefitComponent(companyId: string, db: TxSql | typeof sql = sql): Promise<PayrollComponent | null> {
+  const rows = (await db`
     SELECT id, name, sars_source_code, component_type, is_taxable, is_uif_applicable, is_sdl_applicable
       FROM payroll_components
      WHERE company_id = ${companyId}::uuid AND is_active = true AND component_type = 'earning' AND is_taxable = true
@@ -98,7 +97,7 @@ export async function loadVehicleBenefitComponent(companyId: string): Promise<Pa
 }
 
 function checkInput(i: FringeBenefitInput): void {
-  if (!ISO.test(i.effectiveFrom) || (i.effectiveTo !== null && !ISO.test(i.effectiveTo))) throw new FringeBenefitRefused('Dates must be YYYY-MM-DD');
+  if (!isRealIsoDay(i.effectiveFrom) || (i.effectiveTo !== null && !isRealIsoDay(i.effectiveTo))) throw new FringeBenefitRefused('Dates must be YYYY-MM-DD');
   if (i.effectiveTo !== null && i.effectiveTo < i.effectiveFrom) throw new FringeBenefitRefused('The end date is before the start date');
   if (i.kind === 'company_vehicle' && !(i.determinedValue !== null && i.determinedValue > 0)) {
     throw new FringeBenefitRefused('A company vehicle needs its determined value (Seventh Schedule para 7)');
@@ -131,7 +130,7 @@ export async function createFringeBenefit(
   checkInput(input);
   return withTransaction(async (tx) => {
     await lockEmployee(tx, companyId, employeeId);
-    if (input.kind === 'company_vehicle' && !(await loadVehicleBenefitComponent(companyId))) {
+    if (input.kind === 'company_vehicle' && !(await loadVehicleBenefitComponent(companyId, tx))) {
       throw new FringeBenefitRefused('Add a taxable earning coded 3802 to the pay components first: the vehicle benefit is shown on the payslip with it');
     }
     const existing = (await tx`
@@ -166,7 +165,7 @@ export async function createFringeBenefit(
 export async function endFringeBenefit(
   companyId: string, employeeId: string, benefitId: string, effectiveTo: string, actor: ComponentChangeActor,
 ): Promise<boolean> {
-  if (!ISO.test(effectiveTo)) throw new FringeBenefitRefused('Dates must be YYYY-MM-DD');
+  if (!isRealIsoDay(effectiveTo)) throw new FringeBenefitRefused('Dates must be YYYY-MM-DD');
   return withTransaction(async (tx) => {
     await lockEmployee(tx, companyId, employeeId);
     const rows = (await tx`

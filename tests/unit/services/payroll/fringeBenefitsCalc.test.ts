@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
-import { applyFringeBenefits } from '@/modules/accounting/services/payroll/fringeBenefits';
+import { applyFringeBenefits, effectiveInclusionRate } from '@/modules/accounting/services/payroll/fringeBenefits';
 import { markNonCashEmployerBenefits } from '@/modules/accounting/services/payroll/employerContributions';
 import type { EmployeeComponent, PayrollComponent, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
 
@@ -72,5 +72,85 @@ describe('employer medical contribution 3810 [G21 p. 11-12; Seventh Schedule par
     expect(viaEmployer.medicalSchemeFees).toBe(6000);
     expect(viaEmployer.additionalMedicalCredit).toBe(viaDeduction.additionalMedicalCredit);
     expect(none.additionalMedicalCredit).toBe(0);
+  });
+});
+
+describe('SDL and ETI read the Fourth Schedule para 1 remuneration (SDL Act s3): a 3701 / 3802 at its PAYE share', () => {
+  const sdlOn = (code: string): PayrollComponent => comp(code, { isSdlApplicable: true });
+  it('R40 000 + a vehicle of 13 000 taxed at 20%: SDL is 1% of 42 600 = 426.00', () => {
+    const benefit = { id: 'b', kind: 'company_vehicle' as const, determinedValue: 400000, maintenancePlan: true, businessUseAtLeast80: true, effectiveFrom: '2026-01-01', effectiveTo: null };
+    const r = cost(applyFringeBenefits([salary(40000)], [benefit], sdlOn('3802'), { year: 2026, month: 3 }));
+    expect(r.sdl).toBe(426);
+  });
+  it('R30 000 + a 3701 of 5 000 at 80%: SDL is 1% of 34 000 = 340.00', () => {
+    expect(cost([salary(30000), { component: sdlOn('3701'), amount: 5000 }]).sdl).toBe(340);
+  });
+  it('UIF stays on the whole component amount (LOW confidence: no UIF source fetched)', () => {
+    const r = cost([salary(10000), { component: comp('3701', { isUifApplicable: true }), amount: 5000 }]);
+    expect(r.uif.employeeContribution).toBe(150);
+  });
+});
+
+describe('the breakdown keeps the exact PAYE share for the certificate (4582)', () => {
+  it('stores rate and included amount; a non-taxable 3701 stores no included amount', () => {
+    const r = cost([salary(30000), { component: comp('3701'), amount: 5000.55 }]);
+    expect(r.componentBreakdown.find((b) => b.sarsSourceCode === '3701')).toMatchObject({ payeInclusionRate: 0.8, payeIncludedAmount: 4000.44 });
+    const nt = cost([salary(30000), { component: comp('3701', { isTaxable: false }), amount: 5000 }]);
+    expect(nt.componentBreakdown.find((b) => b.sarsSourceCode === '3701')).not.toHaveProperty('payeIncludedAmount');
+  });
+});
+
+describe('one source for the 3701 default', () => {
+  it('applyFringeBenefits with a default record and the calculator with no record use the same rate', () => {
+    const travel = { id: 't', kind: 'travel_allowance' as const, determinedValue: null, maintenancePlan: false, businessUseAtLeast80: false, effectiveFrom: '2026-01-01', effectiveTo: null };
+    const out = applyFringeBenefits([{ component: comp('3701'), amount: 5000 }], [travel], null, { year: 2026, month: 3 });
+    expect(out[0]?.payeInclusionRate).toBe(effectiveInclusionRate('3701', undefined));
+    expect(effectiveInclusionRate('3601', undefined)).toBeUndefined();
+    expect(effectiveInclusionRate('3701', 0.2)).toBe(0.2);
+  });
+});
+
+describe('3810 edge cases (review M2a, M2b, L3)', () => {
+  const er = (n: number, over: Partial<PayrollComponent> = {}): EmployeeComponent => ({ component: comp('3810', over), amount: n });
+  const fee4005 = (n: number): EmployeeComponent => ({ component: comp('4005', { componentType: 'deduction', isTaxable: false }), amount: n });
+  const old = new Date(1955, 0, 1);
+
+  it('a non-taxable 3810 is not deemed paid and the line carries a blocking error (65+ credit stays nil)', () => {
+    const r = cost(markNonCashEmployerBenefits([salary(25000), er(6000, { isTaxable: false })]), old);
+    expect(r.medicalSchemeFees).toBe(0);
+    expect(r.additionalMedicalCredit).toBe(0);
+    expect(r.validationResults.find((v) => v.code === 'MEDICAL_BENEFIT_NOT_TAXABLE')).toMatchObject({ severity: 'error' });
+  });
+  it('the gross-up pattern (3810 earning + 4005 deduction) stays cash, counts the fees once, and warns', () => {
+    const input = [salary(25000), er(3000), fee4005(3000)];
+    const marked = markNonCashEmployerBenefits(input);
+    expect(marked[1]).not.toHaveProperty('isNonCash');
+    const r = cost(marked, old);
+    expect(r.medicalSchemeFees).toBe(3000);
+    expect(r.grossPay).toBe(28000);
+    expect(r.validationResults.find((v) => v.code === 'MEDICAL_GROSS_UP_PATTERN')).toMatchObject({ severity: 'warning' });
+  });
+  it('a 3810-only employee with no medical membership gets no "4005 is deducted" warning', () => {
+    const e = { ...employee(new Date(1986, 0, 1)), medicalAidMainMember: false };
+    const r = calculatePayrollLine({ employee: e, components: markNonCashEmployerBenefits([salary(25000), er(3000)]), period: { year: 2026, month: 3 }, taxYear: 2027, annualPayrollEstimate: 1_000_000 });
+    expect(r.validationResults.some((v) => v.code === 'MEDICAL_FEES_WITHOUT_MEMBERSHIP')).toBe(false);
+  });
+  it('a deducted 4005 with no membership still warns, for the deducted amount only', () => {
+    const e = { ...employee(new Date(1986, 0, 1)), medicalAidMainMember: false };
+    const r = calculatePayrollLine({ employee: e, components: markNonCashEmployerBenefits([salary(25000), er(3000), fee4005(500)]), period: { year: 2026, month: 3 }, taxYear: 2027, annualPayrollEstimate: 1_000_000 });
+    expect(r.validationResults.some((v) => v.code === 'MEDICAL_FEES_WITHOUT_MEMBERSHIP')).toBe(true);
+  });
+});
+
+describe('a hand-assigned 3802 (review L1)', () => {
+  it('is taxed in full as cash and says so (FRINGE_RECORD_MISSING); no figure change', () => {
+    const r = cost([salary(40000), { component: comp('3802'), amount: 14000 }]);
+    expect(r.periodicTaxable).toBe(54000);
+    expect(r.validationResults.find((v) => v.code === 'FRINGE_RECORD_MISSING')).toMatchObject({ severity: 'warning' });
+  });
+  it('an injected, non-cash 3802 does not warn', () => {
+    const b = { id: 'b', kind: 'company_vehicle' as const, determinedValue: 400000, maintenancePlan: false, businessUseAtLeast80: false, effectiveFrom: '2026-01-01', effectiveTo: null };
+    const r = cost(applyFringeBenefits([salary(40000)], [b], comp('3802'), { year: 2026, month: 3 }));
+    expect(r.validationResults.some((v) => v.code === 'FRINGE_RECORD_MISSING')).toBe(false);
   });
 });

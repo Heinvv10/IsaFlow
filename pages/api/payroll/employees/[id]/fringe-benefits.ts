@@ -14,6 +14,9 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withNoStore } from '@/lib/auth/withNoStore';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { isRealIsoDay } from '@/modules/accounting/services/payroll/fringeBenefits';
+import { log } from '@/lib/logger';
+import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
 import {
   createFringeBenefit,
   endFringeBenefit,
@@ -22,11 +25,13 @@ import {
 } from '@/modules/accounting/services/payroll/fringeBenefitService';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').refine(isRealIsoDay, 'Not a real date');
+// Whole cents: 400000.005 is refused, not rounded.
+const cents = z.number().min(0.01).max(99_999_999_999).refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6, 'At most two decimals');
 
 const CreateBody = z.object({
   kind: z.enum(['company_vehicle', 'travel_allowance']),
-  determinedValue: z.number().positive().max(99_999_999_999).nullable().optional(),
+  determinedValue: cents.nullable().optional(),
   maintenancePlan: z.boolean().optional(),
   businessUseAtLeast80: z.boolean(),
   effectiveFrom: day,
@@ -42,6 +47,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const actor = { userId: user.id, userEmail: user.email, channel: 'rest' as const };
 
   if (req.method === 'GET') {
+    if (!(await checkReportRateLimit(companyId, `fringe-benefits:u:${user.id}`, INTERACTIVE_REPORT_LIMIT))) {
+      log.warn('Fringe benefits rate limit exceeded', { companyId, userId: user.id }, 'fringe-benefits');
+      return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
+    }
     const list = await listFringeBenefits(companyId, employeeId);
     if (!list) return apiResponse.notFound(res, 'Employee');
     return apiResponse.success(res, list);

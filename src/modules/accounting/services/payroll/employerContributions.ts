@@ -25,12 +25,28 @@ export function isEmployerMedicalFringeCode(code: string | null | undefined): bo
 const is3810Earning = (c: EmployeeComponent): boolean =>
   c.component.componentType === 'earning' && isEmployerMedicalFringeCode(c.component.sarsSourceCode);
 
-/** A 3810 earning is never paid in cash: flag it, as the loan benefit is. Input is not mutated. */
+/**
+ * The gross-up pattern some companies use: a 3810 earning beside a 4005 deduction of the premium. The earning is cash
+ * paid to the employee and the deduction takes the premium back, so the fees are already counted once (the 4005) and
+ * the 3810 must neither become non-cash nor count a second time. Kept as configured, with a warning.
+ */
+export function hasGrossUpPattern(components: readonly EmployeeComponent[]): boolean {
+  return components.some(is3810Earning) && components.some((c) =>
+    c.component.componentType === 'deduction' && normaliseSarsCode(c.component.sarsSourceCode) === '4005' && c.amount > 0);
+}
+
+/** A 3810 earning is never paid in cash: flag it, as the loan benefit is (not in the gross-up pattern). Input is not mutated. */
 export function markNonCashEmployerBenefits(components: readonly EmployeeComponent[]): EmployeeComponent[] {
+  if (hasGrossUpPattern(components)) return [...components];
   return components.map((c) => (is3810Earning(c) ? { ...c, isNonCash: true } : c));
 }
 
-/** The value deemed paid by the employee for the medical credits: the sum of the 3810 earnings (G21 p. 12). */
+/**
+ * The value deemed paid by the employee for the medical credits (G21 p. 12): the taxable 3810 earnings. A 3810 that is
+ * not taxable is no taxable benefit, so nothing is deemed (and the line is refused, MEDICAL_BENEFIT_NOT_TAXABLE); in
+ * the gross-up pattern the 4005 deduction already carries the fees.
+ */
 export function deemedMedicalFees(components: readonly EmployeeComponent[]): number {
-  return Math.round(components.filter(is3810Earning).reduce((s, c) => s + c.amount, 0) * 100) / 100;
+  if (hasGrossUpPattern(components)) return 0;
+  return Math.round(components.filter((c) => is3810Earning(c) && c.component.isTaxable).reduce((s, c) => s + c.amount, 0) * 100) / 100;
 }

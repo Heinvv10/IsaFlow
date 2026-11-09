@@ -46,6 +46,14 @@ export const PAYE_INCLUSION_DEFAULT = 0.8;
 /** G21 p. 5: where the employer is satisfied that at least 80% of the use is business. */
 export const PAYE_INCLUSION_BUSINESS_USE = 0.2;
 
+/** A real calendar day, YYYY-MM-DD (2026-02-31 is not). */
+export function isRealIsoDay(s: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
+}
+
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /** The monthly vehicle fringe benefit (the IRP5 figure, code 3802). */
@@ -55,6 +63,15 @@ export function vehicleMonthlyBenefit(determinedValue: number, maintenancePlan: 
 
 export function payeInclusionRate(businessUseAtLeast80: boolean): number {
   return businessUseAtLeast80 ? PAYE_INCLUSION_BUSINESS_USE : PAYE_INCLUSION_DEFAULT;
+}
+
+/**
+ * The PAYE inclusion of an earning, by its code: an explicit rate wins; a travel allowance (3701) with none is 80%
+ * (G21 p. 5, Hein 2026-11-08: every existing 3701 earning); every other code has none (taxed whole). The one place the
+ * default lives: the calculator and applyFringeBenefits both read it.
+ */
+export function effectiveInclusionRate(code: string | null | undefined, given: number | undefined): number | undefined {
+  return given ?? (normaliseSarsCode(code) === TRAVEL_CODE ? payeInclusionRate(false) : undefined);
 }
 
 /** The part of an amount that is remuneration for PAYE, to the cent. */

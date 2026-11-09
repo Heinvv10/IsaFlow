@@ -5,6 +5,7 @@
  *     than PAYROLL_CALCULATION_VERSION: its lines were read under other rules.
  *   - components_changed_after_calculation: an employee on the run had an assignment's dates changed (Edit dates,
  *     End, cancel, the pay-run grid: audit_log entity payroll_employee_component; a removal by its metadata) after calculation.
+ *   - fringe_benefit_not_applied: a line carries FRINGE_BENEFIT_NOT_APPLIED or MEDICAL_BENEFIT_NOT_TAXABLE as an error (wave 5 FB).
  *   - termination_base_missing: a leaver's line carries TERMINATION_BASE_MISSING as an error (a termination reason,
  *     no recurring earnings on the end date, and a pay-out that needs that base). As a warning it does not refuse.
  * Both run on every approval, also a re-approval onto a journal still in force. The changed check covers the run's
@@ -19,6 +20,8 @@ import { payrollTermsChangedSinceCalculation } from '@/modules/accounting/servic
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 
 export const TERMINATION_BASE_MISSING = 'TERMINATION_BASE_MISSING';
+export const FRINGE_BENEFIT_NOT_APPLIED = 'FRINGE_BENEFIT_NOT_APPLIED';
+export const MEDICAL_BENEFIT_NOT_TAXABLE = 'MEDICAL_BENEFIT_NOT_TAXABLE';
 
 /** Whether the run was calculated by this calculation version. Applies to every approval. */
 export async function recalculateRequiredRefusal(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
@@ -108,6 +111,24 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
       detail: `${baseless.map((r) => String(r.employee_number)).join(', ')}: a termination reason is captured but there are no recurring `
         + 'earnings on the end date, so leave and notice pay have no base. Correct the pay components (or the end date) '
         + 'and recalculate.',
+    };
+  }
+  // A fringe benefit that could not be put on the payslip, or a 3810 that is not taxable: PAYE is understated, so the
+  // run is blocked (a benefit silently missing from tax is worse than a blocked run).
+  const untaxed = (await sql`
+    SELECT e.employee_number
+    FROM payroll_run_lines l
+    JOIN payroll_run_headers h ON h.id = l.run_id
+    JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
+    WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+      AND jsonb_path_exists(l.validation_results, ${`$[*] ? (@.severity == "error" && (@.code == "${FRINGE_BENEFIT_NOT_APPLIED}" || @.code == "${MEDICAL_BENEFIT_NOT_TAXABLE}"))`}::jsonpath)
+    ORDER BY 1
+  `) as DbRow[];
+  if (untaxed.length > 0) {
+    return {
+      code: 'fringe_benefit_not_applied',
+      detail: `${untaxed.map((r) => String(r.employee_number)).join(', ')}: a fringe benefit (company vehicle, or an employer medical contribution coded 3810) is not on the payslip `
+        + 'or is not taxable, so PAYE is understated. Fix the component or the vehicle record (see the line\'s validation message) and recalculate.',
     };
   }
   return null;

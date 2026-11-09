@@ -14,16 +14,23 @@
 --
 -- One row per period of use. A row is never deleted (a finalised payslip was
 -- costed from it): it is ended with effective_to. Overlapping rows of one kind
--- for one employee are refused by the service under the company payroll lock;
--- the partial unique index below only guarantees a single OPEN row per kind.
--- employee_id is the payroll_employees id; created_by is a users.id (TEXT).
+-- for one employee are refused by the service under the company payroll lock and,
+-- where the btree_gist extension is already installed (never created here), by an
+-- EXCLUDE constraint as well; the partial unique index guarantees a single OPEN row
+-- per kind either way.
+-- employee_id is the payroll_employees id and is tied to company_id by a composite
+-- foreign key, so a row can never name another company's employee; created_by is a
+-- users.id (TEXT).
 
 SET LOCAL lock_timeout = '5s';
+
+-- The composite foreign key below needs a unique target (id is already unique, so this adds no restriction).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_employees_id_company ON payroll_employees (id, company_id);
 
 CREATE TABLE IF NOT EXISTS payroll_employee_fringe_benefits (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-  employee_id UUID NOT NULL REFERENCES payroll_employees(id) ON DELETE CASCADE,
+  employee_id UUID NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('company_vehicle', 'travel_allowance')),
   determined_value NUMERIC(14, 2) CHECK (determined_value IS NULL OR determined_value > 0),
   maintenance_plan BOOLEAN NOT NULL DEFAULT FALSE,
@@ -33,6 +40,8 @@ CREATE TABLE IF NOT EXISTS payroll_employee_fringe_benefits (
   created_by TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT payroll_fringe_employee_company_fk FOREIGN KEY (employee_id, company_id)
+    REFERENCES payroll_employees (id, company_id) ON DELETE CASCADE,
   CONSTRAINT payroll_fringe_dates_ordered CHECK (effective_to IS NULL OR effective_to >= effective_from),
   -- A vehicle benefit is a percentage of a value: no value, no benefit. A travel allowance has no determined value.
   CONSTRAINT payroll_fringe_kind_shape CHECK (
@@ -47,6 +56,18 @@ CREATE INDEX IF NOT EXISTS idx_payroll_fringe_employee
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_fringe_one_open_per_kind
   ON payroll_employee_fringe_benefits (employee_id, kind) WHERE effective_to IS NULL;
 
+-- No two rows of one kind may overlap for an employee (whole days, both ends inclusive). Only where btree_gist exists.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'btree_gist')
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payroll_fringe_no_overlap'
+                       AND conrelid = 'payroll_employee_fringe_benefits'::regclass) THEN
+    ALTER TABLE payroll_employee_fringe_benefits ADD CONSTRAINT payroll_fringe_no_overlap
+      EXCLUDE USING gist (employee_id WITH =, kind WITH =, daterange(effective_from, effective_to, '[]') WITH &&);
+  END IF;
+END
+$$;
+
 ALTER TABLE payroll_employee_fringe_benefits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payroll_employee_fringe_benefits FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON payroll_employee_fringe_benefits;
@@ -54,9 +75,10 @@ DROP POLICY IF EXISTS tenant_isolation ON payroll_employee_fringe_benefits;
 CREATE POLICY tenant_isolation ON payroll_employee_fringe_benefits FOR ALL TO app_user
   USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
   WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
--- No DELETE: a fringe row is ended, never removed.
-REVOKE DELETE ON payroll_employee_fringe_benefits FROM app_user;
-GRANT SELECT, INSERT, UPDATE ON payroll_employee_fringe_benefits TO app_user;
+-- No DELETE, and an UPDATE only ends a row: a fringe row is ended, never removed or rewritten.
+REVOKE ALL ON payroll_employee_fringe_benefits FROM app_user;
+GRANT SELECT, INSERT ON payroll_employee_fringe_benefits TO app_user;
+GRANT UPDATE (effective_to, updated_at) ON payroll_employee_fringe_benefits TO app_user;
 
 DROP TRIGGER IF EXISTS trg_payroll_fringe_updated_at ON payroll_employee_fringe_benefits;
 CREATE TRIGGER trg_payroll_fringe_updated_at BEFORE UPDATE ON payroll_employee_fringe_benefits
