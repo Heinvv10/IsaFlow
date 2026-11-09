@@ -9,7 +9,7 @@ import { ChevronDown, X } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { SelectDropdown, selectOptionId } from './SelectDropdown';
 import { useSelectKeyboard } from './useSelectKeyboard';
-import { placePanel } from './panelPlacement';
+import { chooseSide, placePanel, type PanelSide } from './panelPlacement';
 
 export interface SelectOption {
   value: string;
@@ -90,6 +90,7 @@ export function Select(props: SelectProps) {
   const [search, setSearch] = useState('');
   const [activeValue, setActiveValue] = useState<string | null>(null);
   const [pos, setPos] = useState({ top: 0, bottom: 0, left: 0, width: 0 });
+  const [side, setSide] = useState<PanelSide>('down');
 
   const triggerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -109,7 +110,7 @@ export function Select(props: SelectProps) {
   const setActiveIndex = (u: number | ((i: number) => number)) =>
     setActiveValue((prev) => filteredOptions[typeof u === 'function' ? u(indexOf(prev)) : u]?.value ?? null);
 
-  const wantedHeight = panelWantedHeight(filteredOptions.length, searchable);
+  const optionCount = options.length + (onCreateNew ? 1 : 0);
   const recalculate = useCallback(() => {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
@@ -119,11 +120,13 @@ export function Select(props: SelectProps) {
     setPos({ top: r.top, bottom: r.bottom, left, width: r.width });
   }, [size]);
 
-  // Down or up is decided from the trigger's box at render, so a list that grows or shrinks as it is searched re-decides it.
-  const placement = placePanel(pos, typeof document === 'undefined' ? 0 : document.documentElement.clientHeight, wantedHeight);
-
   const closeDropdown = useCallback(() => { setOpen(false); setSearch(''); setActiveValue(null); }, []);
-  const openDropdown = useCallback(() => { if (disabled) return; recalculate(); setOpen(true); setActiveValue(null); }, [disabled, recalculate]);
+  const openDropdown = useCallback(() => {
+    if (disabled) return;
+    // The side is fixed here, from the whole list: a list that shrinks as it is searched must not flip the panel.
+    if (triggerRef.current) setSide(chooseSide(triggerRef.current.getBoundingClientRect(), document.documentElement.clientHeight, panelWantedHeight(optionCount, searchable)));
+    recalculate(); setOpen(true); setActiveValue(null);
+  }, [disabled, recalculate, optionCount, searchable]);
 
   function closeAndRefocus() { closeDropdown(); triggerRef.current?.focus(); }
 
@@ -251,7 +254,7 @@ export function Select(props: SelectProps) {
               labelId={labelId}
               inputId={inputId}
               isMulti={isMulti}
-              pos={{ ...placement, left: pos.left, width: pos.width }}
+              pos={{ ...placePanel(pos, document.documentElement.clientHeight, side), left: pos.left, width: pos.width }}
               minWidth={size !== 'md' ? COMPACT_PANEL_MIN_WIDTH : undefined}
               searchRef={searchRef}
               listRef={listRef}

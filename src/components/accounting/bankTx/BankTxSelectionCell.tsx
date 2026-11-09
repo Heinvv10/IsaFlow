@@ -39,7 +39,11 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
   const options = (isOpen && !search) ? sortByDescriptionMatch(rawOptions, tx.description || '') : rawOptions;
   const place = useBankTxSelectionPlacement(toggleRef, isOpen, options.length + 1, !!onCreateEntity && rowType !== 'transfer');
   /** The grid's row: where keys go once the popover is closed (a removed option would drop focus to the body). */
-  const focusRow = () => toggleRef.current?.closest('tr')?.focus();
+  const focusRow = () => {
+    const row = toggleRef.current?.closest('tr');
+    // Keyboard nav off: the row is not focusable, so the toggle keeps focus.
+    (row?.hasAttribute('tabindex') ? row : toggleRef.current)?.focus();
+  };
   const closePopover = () => { setOpenSel(null); focusRow(); };
   const triggerText = sel?.entityId ? sel.label : (
     rowType === 'supplier' ? 'Select Supplier'
@@ -70,6 +74,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
           <button
             data-bank-toggle
             ref={toggleRef}
+            onKeyDown={(e) => { if (e.key === 'Escape' && isOpen) { e.stopPropagation(); closePopover(); } }}
             onClick={() => {
               if (isOpen) { setOpenSel(null); return; }
               setOpenSel(tx.id); setSearch('');

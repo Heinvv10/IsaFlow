@@ -1,8 +1,12 @@
 /**
  * Where a portalled or fixed dropdown panel goes relative to its trigger (viewport coordinates).
- * Down unless there is less room below than the panel wants and more room above; the panel's own
- * max height is the room on the chosen side, so it never runs off the viewport.
+ * The side is chosen once, when the panel opens (`chooseSide`): down unless there is less room below than the
+ * panel wants and more above. It is then kept, so typing in a search box cannot flip the panel under the pointer.
+ * `placePanel` places the panel on that side; its max height is the room on that side (the list scrolls inside
+ * it), so it never runs off the viewport, even where both sides are short.
  */
+
+export type PanelSide = 'down' | 'up';
 
 export interface PanelPlacement {
   /** Viewport y of the panel's top edge when it opens downward. */
@@ -12,17 +16,21 @@ export interface PanelPlacement {
   maxHeight: number;
 }
 
+type Box = { top: number; bottom: number };
+
 const GAP = 4;
 const MARGIN = 8;
-/** A panel is never squeezed below this: a shorter one cannot show a row and its search box. */
-const MIN_HEIGHT = 120;
 
-/** `wanted` is the panel's natural height (search box + list + footer). */
-export function placePanel(trigger: { top: number; bottom: number }, viewportHeight: number, wanted: number): PanelPlacement {
-  const below = viewportHeight - trigger.bottom - GAP - MARGIN;
-  const above = trigger.top - GAP - MARGIN;
-  if (below >= wanted || below >= above) {
-    return { top: trigger.bottom + GAP, maxHeight: Math.max(below, MIN_HEIGHT) };
-  }
-  return { bottom: viewportHeight - trigger.top + GAP, maxHeight: Math.max(above, MIN_HEIGHT) };
+const roomBelow = (t: Box, vh: number): number => vh - t.bottom - GAP - MARGIN;
+const roomAbove = (t: Box): number => t.top - GAP - MARGIN;
+
+/** `wanted` is the panel's natural height (search box + list + footer) when it opens. */
+export function chooseSide(trigger: Box, viewportHeight: number, wanted: number): PanelSide {
+  const below = roomBelow(trigger, viewportHeight);
+  return below >= wanted || below >= roomAbove(trigger) ? 'down' : 'up';
+}
+
+export function placePanel(trigger: Box, viewportHeight: number, side: PanelSide): PanelPlacement {
+  if (side === 'down') return { top: trigger.bottom + GAP, maxHeight: Math.max(roomBelow(trigger, viewportHeight), 0) };
+  return { bottom: viewportHeight - trigger.top + GAP, maxHeight: Math.max(roomAbove(trigger), 0) };
 }

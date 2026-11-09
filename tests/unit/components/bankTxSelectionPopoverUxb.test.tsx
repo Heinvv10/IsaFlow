@@ -58,12 +58,36 @@ describe('Selection popover: focus', () => {
     expect(document.activeElement).toBe(row);
   });
 
-  it('PINNED (existing behaviour, logged): Enter on the toggle with a selection accepts the row', () => {
-    const { p, row } = openByKey();
+  it('Enter on the toggle presses it: the row is not accepted, and the picker opens', () => {
+    const p = tableProps();
+    render(<BankTxTable {...p} />);
+    fireEvent.keyDown(screen.getByRole('group', { name: /Bank transactions/ }), { key: 'ArrowDown' }); // row a: can be accepted
+    const toggle = screen.getByRole('button', { name: new RegExp(`Choose account, ${label}`) });
+    toggle.focus();
+    const notPrevented = fireEvent.keyDown(toggle, { key: 'Enter' });
+    expect(notPrevented, 'the browser turns Enter into the click').toBe(true);
+    expect(p.onAccept).not.toHaveBeenCalled();
+    fireEvent.click(toggle);
+    expect(screen.getByRole('textbox', { name: /^Search accounts$/ })).toBeInTheDocument();
+  });
+
+  it('Escape with focus on the toggle closes an open popover and keeps focus on the row', () => {
+    const { row } = openByKey();
     const toggle = row.querySelector('[data-bank-toggle]') as HTMLElement;
     toggle.focus();
-    fireEvent.keyDown(toggle, { key: 'Enter' });
-    expect(p.onAccept).toHaveBeenCalledWith('a');
+    fireEvent.keyDown(toggle, { key: 'Escape' });
+    expect(screen.queryByRole('textbox', { name: /^Search accounts$/ })).toBeNull();
+    expect(document.activeElement).toBe(row);
+  });
+
+  it('with keyboard nav off (not the New tab) choosing an option leaves focus on the toggle, not the body', () => {
+    render(<BankTxTable {...tableProps({ tab: 'reviewed' })} />);
+    const toggle = screen.getByRole('button', { name: new RegExp(`Choose account, ${label}`) });
+    fireEvent.click(toggle);
+    const option = screen.getByRole('button', { name: /7000/ });
+    option.focus();
+    fireEvent.click(option);
+    expect(document.activeElement).toBe(toggle);
   });
 });
 
