@@ -3,6 +3,7 @@
  * approval hand-over, split out of pages/payroll/runs/[id].tsx.
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { announcePayrollRunChanged } from './payrollRunEvents';
 import { apiFetch, assertOk, apiErrorMessage, apiJson, ApiRequestError } from '@/lib/apiFetch';
 import type { ApproveResult } from '@/components/payroll/PayrollApproveDialog';
 import type { RunLineWarning } from '@/components/payroll/PayrollRunWarnings';
@@ -74,6 +75,8 @@ export function useRunDetail(runId: string) {
       const loaded = (await apiJson(`/api/payroll/runs/${runId}`, undefined, 'Could not load the payroll run - try again')) as RunDetail;
       if (currentRun.current !== runId) return; // the page moved to another run while this one was loading
       setRun(loaded);
+      // A reload of a run already on screen follows calculate / approve / reopen: the period strip reads again.
+      if (hasRun.current) announcePayrollRunChanged();
       hasRun.current = true;
       if (!keepNotice) setApprovedNow(null);
     } catch (err) {

@@ -16,7 +16,7 @@ import Page from '@/../pages/payroll/employees/new';
 import { initialForm } from '@/components/payroll/employeeCreate/types';
 
 // Captured from the pre-kit page (same inputs) on 2026-10-27, key order included.
-const BODY_BEFORE_KIT = '{"firstName":"Thandi","lastName":"Nkosi","employeeNumber":"E-001","employmentType":"contract","startDate":"2026-03-01","taxNumber":"1234567890","idNumber":"8001015009087","dateOfBirth":"1980-01-01","uifExcluded":true,"medicalAidMainMember":true,"s18aReceiptHeld":false,"medicalAidDependantsCount":2}';
+const BODY_BEFORE_KIT = '{"firstName":"Thandi","lastName":"Nkosi","employeeNumber":"E-001","employmentType":"contract","taxStatus":"employee","startDate":"2026-03-01","taxNumber":"1234567890","idNumber":"8001015009087","dateOfBirth":"1980-01-01","uifExcluded":true,"medicalAidMainMember":true,"s18aReceiptHeld":false,"medicalAidDependantsCount":2}';
 
 const fetchMock = vi.fn();
 beforeEach(() => {
@@ -109,7 +109,7 @@ describe('employee create form', () => {
     submit();
     await waitFor(() => expect(posts()).toHaveLength(1));
     const body = JSON.parse(String((posts()[0]![1] as RequestInit).body));
-    expect(Object.keys(body)).toEqual(['firstName', 'lastName', 'employeeNumber', 'employmentType', 'startDate',
+    expect(Object.keys(body)).toEqual(['firstName', 'lastName', 'employeeNumber', 'employmentType', 'taxStatus', 'startDate',
       'uifExcluded', 'medicalAidMainMember', 's18aReceiptHeld', 'medicalAidDependantsCount']);
     expect(String((posts()[0]![1] as RequestInit).body)).not.toMatch(/taxNumber|idNumber|dateOfBirth/);
     expect(body.medicalAidDependantsCount).toBe(0);

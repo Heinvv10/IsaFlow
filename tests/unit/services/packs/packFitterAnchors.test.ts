@@ -46,12 +46,18 @@ const requiredBlock = (notes: number, extra = ''): PackPageBlock => ({
 
 /** Five footnotes: 1-4 ordinary, 5 required; the required block's first note one line longer, so the page outgrows the
  * sheet production prints (966px, `PRINT_CONTENT_HEIGHT_PX`) and not only a 255mm one. Row 0 -> 1, row 1 -> 2, rows 2 and 3 -> 3, row 4 -> 4, prior column -> 5. */
+/**
+ * Eleven notes in the required block: the table is modelled at its exact height (the lines Chromium sets it in) and the
+ * sheet is the 966px production prints, so this is what crowds it enough for the fitter to drop footnotes 3 and 4.
+ */
+const CROWD_NOTES = 11;
+const CROWD_EXTRA = '';
 function crowdedPage(): PackPage {
   const text = (n: number) => `Footnote ${n} is about its own anchor. ${SENTENCE}`;
   const footnotes: PackFootnote[] = [1, 2, 3, 4, 5].map((n) => ({ number: n, text: text(n), ...(n === 5 ? { required: true as const } : {}) }));
   return {
     number: 6, title: 'Income statement', navLabel: 'Income statement', section: 'Financials', orientation: 'portrait', density: 'high',
-    blocks: [tableAnchoredAt({ 0: 1, 1: 2, 2: 3, 3: 3, 4: 4 }, [{ column: 'prior', footnote: 5 }]), requiredBlock(10, ' A short clause that goes on a little longer than that.')],
+    blocks: [tableAnchoredAt({ 0: 1, 1: 2, 2: 3, 3: 3, 4: 4 }, [{ column: 'prior', footnote: 5 }]), requiredBlock(CROWD_NOTES, CROWD_EXTRA)],
     footnotes,
   };
 }

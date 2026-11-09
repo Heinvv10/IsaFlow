@@ -1,27 +1,23 @@
 /**
- * Whether a pay run's payslips are final (wave 4 PS, spec rule 6). ONLY the
- * R-035 finalisation guard decides: `assertPayRunApproved` resolving means final.
- * Never a status string: an `approved` row that R-035 has not cleared (and that
- * migration 951 did not grandfather) is a DRAFT payslip.
+ * Whether a pay run's payslips are final (wave 5 FS). Final = the run is `approved` or `paid` and
+ * carries an approval time: `COALESCE(approved_at, approval_grandfathered_at) IS NOT NULL`.
+ * `approvePayrollRun` sets `approved_at` in the same UPDATE as the status (after the R-035 guard
+ * cleared the run), reopen clears `approved_at` and `approval_grandfathered_at` in its UPDATE, and
+ * migration 951 grandfathered the older runs. So the answer never depends on today's enforcement
+ * or rules (the wave-4 limit: a run approved while enforcement was off turned DRAFT when it was
+ * switched on), and an approved row with neither column is DRAFT, as before.
  *
- * Only the guard's own refusals are DRAFT: `PayRunNotApprovedError` (not found, not
- * approved, no reviewed plan) and `ApprovalRequiredError` (R-035 not cleared).
- * Anything else (a Postgres error, a dropped connection, a bug) is re-thrown, so a
- * failed read is a 500, never a slip that silently says DRAFT for the wrong reason.
- *
- * Known limit (wave 5): the guard judges against TODAY's enforcement and rules, so a
- * run paid while pay-run enforcement was off turns DRAFT once it is switched on
- * (pinned in tests/unit/services/payroll/payslipFinal.test.ts).
+ * Not a column of its own: code running on the other blue/green colour, or after a code-only
+ * rollback, approves through the same two columns and so stays correct.
+ * A failed read is a thrown error (a 500), never a slip that silently says DRAFT.
  */
-import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
-import { assertPayRunApproved, PayRunNotApprovedError } from './payRunApprovalControl';
+import { sql } from '@/lib/neon';
 
 export async function isPayRunFinal(companyId: string, runId: string): Promise<boolean> {
-  try {
-    await assertPayRunApproved(companyId, runId);
-    return true;
-  } catch (err) {
-    if (err instanceof PayRunNotApprovedError || err instanceof ApprovalRequiredError) return false;
-    throw err;
-  }
+  const rows = (await sql`
+    SELECT 1 FROM payroll_run_headers
+     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+       AND status IN ('approved', 'paid') AND COALESCE(approved_at, approval_grandfathered_at) IS NOT NULL
+  `) as unknown[];
+  return rows.length > 0;
 }

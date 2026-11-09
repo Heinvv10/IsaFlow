@@ -2,10 +2,10 @@
  * "Ready to pay" at the head of the employee profile (wave 4 B): one verdict, and for anything missing a link that
  * takes the reader to the field. Silent until the bank read answers, so it never says "ready" too early.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
-import { loadBankState, loadRunMonth } from './employeeBankState';
-import { employeeReadiness, readinessSummary, type BankState, type ReadinessAssignment } from './employeeReadiness';
+import { loadBankState, loadHasFinalRun, loadRunMonth } from './employeeBankState';
+import { employeeReadiness, readinessSummary, type BankRead, type ReadinessAssignment } from './employeeReadiness';
 
 interface Props {
   employeeId: string;
@@ -13,6 +13,8 @@ interface Props {
   assignments: ReadinessAssignment[];
   /** Change it after the bank details change to read them again. */
   refreshKey?: number;
+  /** The reads are refused to a role that may not see pay and bank details: none is made, and nothing is drawn. */
+  mayWrite?: boolean;
 }
 
 function goTo(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
@@ -27,30 +29,50 @@ function goTo(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
   target.focus();
 }
 
-export function EmployeeReadinessCard({ employeeId, employee, assignments, refreshKey = 0 }: Props) {
-  const [read, setRead] = useState<{ bank: BankState; runMonth: string } | null>(null);
+export function EmployeeReadinessCard({ employeeId, employee, assignments, refreshKey = 0, mayWrite = true }: Props) {
+  // Each read lands on its own, so the card shows what it knows (the tax number) at once and fills in the rest.
+  const [bank, setBank] = useState<BankRead>('pending');
+  const [runMonth, setRunMonth] = useState<string | null>(null);
+  const [hasFinalRun, setHasFinalRun] = useState<boolean | null | 'pending'>('pending');
+  // Pending on first load and for another employee; a re-read after the bank details change keeps the last answer on screen.
+  const bankFor = useRef(employeeId);
   useEffect(() => {
     let stale = false;
-    void Promise.all([loadBankState(employeeId), loadRunMonth()]).then(([bank, runMonth]) => { if (!stale) setRead({ bank, runMonth }); });
+    if (!mayWrite) return undefined;
+    if (bankFor.current !== employeeId) { bankFor.current = employeeId; setBank('pending'); setHasFinalRun('pending'); }
+    void loadBankState(employeeId).then(b => { if (!stale) setBank(b); });
+    // Re-read with the bank (a first run may have just become a final one), keeping the last answer meanwhile.
+    void loadHasFinalRun(employeeId).then(f => { if (!stale) setHasFinalRun(f); });
     return () => { stale = true; };
-  }, [employeeId, refreshKey]);
+  }, [employeeId, refreshKey, mayWrite]);
+  useEffect(() => {
+    let stale = false;
+    if (!mayWrite) return undefined;
+    setRunMonth(null);
+    void loadRunMonth().then(m => { if (!stale) setRunMonth(m); });
+    return () => { stale = true; };
+  }, [employeeId, mayWrite]);
 
-  if (read === null) return <p className="text-sm text-[var(--ff-text-secondary)]" role="status">Checking…</p>;
-  const result = employeeReadiness({ employee, components: assignments, bank: read.bank, runMonth: read.runMonth });
+  if (!mayWrite) return null;
+
+  const result = employeeReadiness({ employee, components: assignments, bank, runMonth });
+  const checking = !result.ready && result.missing.length === 0;
   const Icon = result.ready ? CheckCircle2 : AlertTriangle;
   const tone = result.ready
     ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300'
+    : checking ? 'border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)]'
     : 'border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-300';
   return (
     <section role="status" data-testid="employee-readiness-card" className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${tone}`}>
       <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
       <div>
-        <p className="font-medium">{readinessSummary(result)}</p>
-        {!result.ready && (
+        <p className="font-medium">{readinessSummary(result, hasFinalRun)}</p>
+        {!result.ready && !checking && (
           <ul className="mt-1 list-inside list-disc">
             {result.missing.map(m => (
               <li key={m.key}><a href={m.href} onClick={e => goTo(e, m.href)} className="underline">{m.label}</a></li>
             ))}
+            {result.pending.map(c => <li key={c} className="list-none text-xs opacity-80">Checking {c}…</li>)}
           </ul>
         )}
       </div>

@@ -38,7 +38,8 @@ vi.mock('@/modules/accounting/services/packs/pages/packFurniture', () => ({
   buildPackFurniture: vi.fn(async () => ({ companyName: 'Access Fixture' })),
 }));
 vi.mock('@/modules/accounting/services/packs/pages/boardPackDocument', () => ({
-  buildBoardPackDocument: vi.fn(async (r: { companyId: string }) => { reached.calls.push(`pages:${r.companyId}`); return { pages: [] }; }),
+  // The route stamps every figure size on the document it serves (`stampFigureFits`), which reads its scale.
+  buildBoardPackDocument: vi.fn(async (r: { companyId: string }) => { reached.calls.push(`pages:${r.companyId}`); return { pages: [], numberConvention: { scale: "R'000" } }; }),
 }));
 vi.mock('@/modules/accounting/services/packs/pages/packDocumentWire', () => ({
   serialisePackPagesDocument: (d: unknown) => d,

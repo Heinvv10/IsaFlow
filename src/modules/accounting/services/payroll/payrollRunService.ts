@@ -2,7 +2,6 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
-import { getEmployeeComponents } from './payrollComponentService';
 import { payrollRunReadDate } from './payrollRunReadDate';
 import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
@@ -13,17 +12,16 @@ import {
   isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals,
 } from './payrollRunLock';
 import { journalInForceOrNull } from './payrollJournalChain';
-import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
+import type { PayrollEmployee, PayrollPeriod } from './payrollTypes';
 import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
 import { appendLoanComponents, loadLoanComponents } from './payrollRunLoanComponents';
 import { fringeNotRecordedResults, runOfficialRate, withheldLineResults, type WithheldLoan } from './payrollLoanWithholding';
-import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
+import { prepareRunComponents } from './payrollRunComponents';
 import { listSeveranceOnlyRunEmployees } from './payrollSeveranceDirective';
 import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
 import { laterPeriodsWarnings, loadPayeYearToDate } from './payrollYearToDate';
-import { judgePayrollApproval } from './payrollApprovalGate';
-import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
+import { recordPreparedApproval } from './payrollRunPrepared';
 import { blockedLoanValidation, judgeLoanApplications } from './payrollRunLoanDecision';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
@@ -175,18 +173,7 @@ export async function calculatePayrollRun(
   // Recurring rows the last-day read pays in full or drops: flagged on the line, refused at approval.
   const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));
 
-  type Prepared = { employee: PayrollEmployee; severanceOnly: boolean; components: EmployeeComponent[]; terminationWarnings: ValidationResult[] };
-  const prepared: Prepared[] = [];
-  for (const { employee, severanceOnly: onlySeverance } of population) {
-    const terminationWarnings: ValidationResult[] = [];
-    const components = onlySeverance
-      ? await severanceOnlyComponents(companyId, runId, employee, period, terminationWarnings)
-      : await appendTerminationIfEndingThisPeriod(
-        companyId, runId, employee, await getEmployeeComponents(employee.id, companyId, readDate), period, terminationWarnings,
-      );
-    if (onlySeverance && components.length === 0) continue;
-    prepared.push({ employee, severanceOnly: onlySeverance, components, terminationWarnings });
-  }
+  const prepared = await prepareRunComponents({ companyId, runId, period, readDate, population });
 
   // Preview all due loans before any payment write. A blocked employee takes none of them.
   const loanComponents = await loadLoanComponents(companyId);
@@ -294,17 +281,7 @@ export async function calculatePayrollRun(
     sdl: r(totalSdl), eti: r(totalEti), net: r(totalNet), employeeCount: lineInserts.length,
   }, preparedBy ?? (run.created_by == null ? null : String(run.created_by)));
   const author = preparedBy ?? (run.created_by == null ? null : String(run.created_by));
-  const approval = await judgePayrollApproval(companyId, runId);
-  if (!approval) throw new Error('Calculated payroll run disappeared before its approval plan was recorded');
-  await sql`
-    UPDATE payroll_run_headers SET approval_plan_hash = ${approval.planHash}
-    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-  `;
-  if (author) {
-    await recordPayRunApprovalAudit({
-      companyId, runId, actorId: author, event: 'prepared', planHash: approval.planHash,
-    });
-  }
+  await recordPreparedApproval(companyId, runId, author);
 
   log.info(
     'Payroll run calculated',

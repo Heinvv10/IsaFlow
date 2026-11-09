@@ -1,0 +1,54 @@
+{
+  "id": "fb-vehicle-3802-325pct-maintenance-plan-20pct-taxed",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 5 (3.25% with a maintenance plan); BRS V25.3.0 code 4582 p. 105",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf ; SARS e@syFile Employer Reconciliation BRS (SARS_PAYE_BRS V25.3.0, Jun-26)",
+  "notes": "R400 000 determined value, maintenance plan included in the purchase price: 3.25% = R13 000 a month (G21 p. 5). Employer satisfied that business use is at least 80%: only 20% of the benefit is remuneration for PAYE = R2 600 (BRS code 4582 p. 105). Taxable remuneration 42 600; x12 = 511 200; tax = 79 998 + 31% x (511 200 - 383 100) = 119 709; less 17 820 = 101 889; /12 = 8490.75. The calculator taxes the full R13 000. Same named limit as fb-vehicle-3802-35pct-80pct-taxed (80/20 on the vehicle benefit is the BRS 4582 wording, not a G21 sentence).",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 40000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "3802",
+        "name": "Use of motor vehicle (non-cash)",
+        "type": "earning",
+        "amount": 13000,
+        "taxable": true,
+        "uif": false,
+        "sdl": false
+      }
+    ],
+    "unmodelled": {
+      "vehicleDeterminedValue": 400000,
+      "vehicleBenefitPctOfValue": 3.25,
+      "maintenancePlanIncluded": true,
+      "businessUseAtLeast80Pct": true
+    }
+  },
+  "expected": {
+    "paye": 8490.75,
+    "uifEmployee": 177.12,
+    "uifEmployer": 177.12
+  }
+}

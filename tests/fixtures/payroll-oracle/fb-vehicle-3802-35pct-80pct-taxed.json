@@ -1,0 +1,54 @@
+{
+  "id": "fb-vehicle-3802-35pct-80pct-taxed",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 5 (3.5% a month of the determined value); BRS V25.3.0 code 4582 p. 105 (80 or 20% of 3802 is remuneration)",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf ; SARS e@syFile Employer Reconciliation BRS (SARS_PAYE_BRS V25.3.0, Jun-26)",
+  "notes": "R400 000 determined value, no maintenance plan: 3.5% = R14 000 a month (G21 p. 5). Employer-provided vehicle with business use below 80%: 80% of the benefit is remuneration for PAYE = R11 200 (BRS code 4582 p. 105: \"The portion (80 or 20%) of the allowance and benefit which is subject to PAYE\", listing 3802). Taxable remuneration 40 000 + 11 200 = 51 200; x12 = 614 400; tax = 125 599 + 36% x (614 400 - 530 200) = 155 911; less the R17 820 rebate = 138 091; /12 = 11507.58. The calculator taxes the full R14 000 benefit as cash. NAMED LIMIT: the G21 text states the 80/20 rule only for the travel allowance (p. 5); for the vehicle benefit it is the BRS code 4582 description plus Seventh Schedule para 7 / Fourth Schedule para 9(1) (not fetched): MEDIUM confidence on the 80%. UIF and SDL on a non-cash benefit are not asserted (no source); employee UIF is at the R177.12 ceiling either way. The 3802 amount is the full benefit (the IRP5 figure).",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 40000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "3802",
+        "name": "Use of motor vehicle (non-cash)",
+        "type": "earning",
+        "amount": 14000,
+        "taxable": true,
+        "uif": false,
+        "sdl": false
+      }
+    ],
+    "unmodelled": {
+      "vehicleDeterminedValue": 400000,
+      "vehicleBenefitPctOfValue": 3.5,
+      "maintenancePlanIncluded": false,
+      "businessUseAtLeast80Pct": false
+    }
+  },
+  "expected": {
+    "paye": 11507.58,
+    "uifEmployee": 177.12,
+    "uifEmployer": 177.12
+  }
+}

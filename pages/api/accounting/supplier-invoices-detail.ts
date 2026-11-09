@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { withContentEditorStamp } from '@/modules/accounting/services/ap/supplierInvoiceContentEditor';
+import { draftBillEditDueDate } from '@/modules/accounting/services/ap/draftBillDueDate';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -41,20 +42,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       // R-035: an edit that moves the approval digest makes this user its author.
       const userId = (req as CompanyAuthedRequest).user.id;
-      const updatedRows = await withContentEditorStamp(companyId, id, userId, () => sql`
+      const updatedRows = await withContentEditorStamp(companyId, id, userId, async () => {
+        // Part A: a terms-sourced due date follows a moved invoice date (read under the lock withContentEditorStamp took).
+        const due = await draftBillEditDueDate(companyId, id, { invoiceDate, dueDate, paymentTerms });
+        return sql`
         UPDATE supplier_invoices
         SET invoice_number = COALESCE(${invoiceNumber || null}, invoice_number),
             invoice_date = COALESCE(${invoiceDate || null}, invoice_date),
-            due_date = COALESCE(${dueDate || null}, due_date),
-            -- Migration 962: a due date this edit moves is a hand-set one (the SET reads the stored due_date).
-            due_date_source = CASE WHEN ${dueDate || null}::DATE IS DISTINCT FROM due_date AND ${dueDate || null}::DATE IS NOT NULL
-                                   THEN 'manual' ELSE due_date_source END,
+            due_date = COALESCE(${due.dueDate}, due_date),
+            -- Migration 962: a due date this edit moves is a hand-set one (the SET reads the stored due_date); a re-dated one names its source.
+            due_date_source = COALESCE(${due.source}, CASE WHEN ${due.dueDate}::DATE IS DISTINCT FROM due_date AND ${due.dueDate}::DATE IS NOT NULL
+                                   THEN 'manual' ELSE due_date_source END),
             payment_terms = COALESCE(${paymentTerms || null}, payment_terms),
             notes = COALESCE(${notes || null}, notes),
             updated_at = NOW()
         WHERE id = ${id}::UUID AND company_id = ${companyId} AND status IN ('draft', 'pending_approval')
         RETURNING id
-      `);
+      `;
+      });
       if (updatedRows.length === 0) {
         const existing = await getSupplierInvoiceById(companyId, id);
         if (!existing) return apiResponse.notFound(res, 'Supplier invoice', id);

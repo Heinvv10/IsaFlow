@@ -48,6 +48,8 @@ export interface CustomerInvoiceDetail {
   status: string;
   invoice_date: string;
   due_date: string;
+  /** Where the due date came from (migration 962): terms, manual, document or legacy. */
+  due_date_source?: string;
   billing_period_start: string;
   billing_period_end: string;
   subtotal: number;

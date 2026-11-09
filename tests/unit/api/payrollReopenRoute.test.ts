@@ -19,12 +19,12 @@ vi.mock('@/lib/auth', async () => ({
   withWriteAccess: (await import('@/lib/auth/withWriteAccess')).withWriteAccess,
 }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
-vi.mock('@/modules/accounting/services/payroll/payrollRunLock', async (orig) => ({
-  ...(await orig<typeof import('@/modules/accounting/services/payroll/payrollRunLock')>()),
+vi.mock('@/modules/accounting/services/payroll/payrollRunReopen', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/payroll/payrollRunReopen')>()),
   reopenPayrollRun: vi.fn(),
 }));
 
-import { PayrollRunReopenRefusedError, reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { PayrollRunReopenRefusedError, reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
 import handler from '../../../pages/api/payroll/runs/[id]/reopen';
 
 const RUN = '22222222-2222-4222-8222-222222222222';
