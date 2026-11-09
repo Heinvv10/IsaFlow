@@ -78,6 +78,8 @@ test('create with bank details: the profile shows the masked number and the last
 
   const card = page.getByTestId('employee-bank-card');
   await expect(card.getByText('•••• 1234')).toBeVisible({ timeout: 30_000 });
+  // The profile now carries the work terms card (mig 967) beside the bank card; neither hides the other.
+  await expect(page.getByTestId('employee-work-card').getByRole('heading', { name: 'Work terms' })).toBeVisible();
   const summary = card.locator('dl');
   await expect(summary.getByText('FNB')).toBeVisible();
   await expect(summary.getByText('…55')).toBeVisible();

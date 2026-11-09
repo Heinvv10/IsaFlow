@@ -26,6 +26,13 @@ export interface Employee {
   payScaleId?: string | null;
   occupationalLevelId?: string | null;
   paymentMethod?: 'eft' | 'cash';
+  taxStatus?: 'employee' | 'director' | 'independent_contractor';
+  payBasis?: 'monthly' | 'hourly' | 'daily';
+  hoursPerWeek?: number | null;
+  hoursPerDay?: number | null;
+  hourlyRate?: number | null;
+  dailyRate?: number | null;
+  occupation?: string | null;
 }
 
 interface Props {

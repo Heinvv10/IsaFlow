@@ -59,7 +59,7 @@ function postApi(extra: Record<string, unknown> = {}) {
     method: 'POST', query: {}, body: { ...BASE_BODY, ...extra },
     companyId: COMPANY, companyRole: 'owner', user: { id: 'u1' },
   } as unknown as NextApiRequest;
-  return (indexHandler as Handler)(req, {} as NextApiResponse);
+  return (indexHandler as Handler)(req, { setHeader: vi.fn() } as unknown as NextApiResponse);
 }
 
 function createdWith(): PayrollEmployee {
