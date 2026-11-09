@@ -317,6 +317,14 @@ describe('work terms: the priced ones (status, basis, hours, rates) are owner/ad
     expect(employeeChangesOf({ taxStatus: 'director' }, current, true).taxStatus).toBe('director');
   });
 
+  it('PATCH: the employment type is priced too: a manager may resend the stored one (never written back) but not move it', () => {
+    const current = { startDate: new Date('2020-01-01'), employmentType: 'permanent' as const, taxStatus: 'employee' as const, payBasis: 'monthly' as const };
+    expect(() => employeeChangesOf({ employmentType: 'casual' }, current)).toThrow(EmployeeTermsForbidden);
+    expect(() => employeeChangesOf({ employmentType: 'director' }, current)).toThrow(EmployeeTermsForbidden);
+    expect(employeeChangesOf({ employmentType: 'permanent', occupation: 'Clerk' }, current)).not.toHaveProperty('employmentType');
+    expect(employeeChangesOf({ employmentType: 'casual' }, current, true).employmentType).toBe('casual');
+  });
+
   it('PATCH: a manager sending priced terms equal to the stored ones writes none of them (no stale write-back)', () => {
     const current = { startDate: new Date('2020-01-01'), taxStatus: 'director' as const, payBasis: 'hourly' as const, hourlyRate: 120 };
     const out = employeeChangesOf({ taxStatus: 'director', payBasis: 'hourly', hourlyRate: 120, dailyRate: null, occupation: 'Clerk' }, current);

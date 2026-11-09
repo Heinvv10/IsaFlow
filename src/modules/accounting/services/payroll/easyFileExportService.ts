@@ -95,6 +95,8 @@ export interface EmployeeInput {
   annualPayments3605?: number;
   /** An independent contractor's income, code 3616 (G21 p. 26), INSTEAD of 3601 (easyFileContractor.ts). */
   independentContractor3616?: number;
+  /** The employee had a contractor line in the year: a certificate with no tax is reason 03 even when 3616 is nil (easyFileContractor). */
+  hadContractorLines?: boolean;
   /** Non-cash fringe benefits by income code (3801), NOT included in grossSalary3601; cents dropped. */
   fringeBenefits?: { sourceCode: string; amount: number }[];
   /** Lump sums paid under a directive, NOT included in grossSalary3601. */
@@ -211,7 +213,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // directive beside taxable pay over the threshold is no reason 04 either.
   const it3a = emp.paye4102 <= 0 && paye4115 <= 0;
   // A contractor's certificate with no tax is reason 03 (BRS V25.3.0 p. 109), at any amount: easyFileContractor.
-  const reason = it3a ? ((emp.independentContractor3616 ?? 0) > 0 ? CONTRACTOR_NON_DEDUCTION_REASON : nilTaxReason(emp)) : null;
+  const reason = it3a ? ((emp.independentContractor3616 ?? 0) > 0 || emp.hadContractorLines === true ? CONTRACTOR_NON_DEDUCTION_REASON : nilTaxReason(emp)) : null;
   const medical = medicalFieldLines(emp);
   const retirement = retirementFieldLines(emp.retirementFund);
   const lines: (string | null)[] = [

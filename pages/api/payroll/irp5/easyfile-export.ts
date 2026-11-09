@@ -42,7 +42,8 @@ import {
   listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeSummary,
 } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
-import { contractorIncome3616 } from '@/modules/accounting/services/payroll/easyFileContractor';
+import { splitContractorIncome } from '@/modules/accounting/services/payroll/easyFileContractor';
+import { contractorLineFlag } from '@/modules/accounting/services/payroll/payrollOutsideTables';
 import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -80,7 +81,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       WHERE id = ${companyId}::uuid
     ` as Promise<DbRow[]>,
     sql`
-      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date, date_of_birth, tax_status
+      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date, date_of_birth
       FROM   payroll_employees
       WHERE  company_id = ${companyId}::uuid
       ORDER  BY last_name, first_name
@@ -92,7 +93,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         SUM(prl.paye)         AS total_paye,
         SUM(prl.uif_employee) AS total_uif_emp,
         SUM(prl.uif_employer) AS total_uif_empr,
-        SUM(prl.sdl)          AS total_sdl
+        SUM(prl.sdl)          AS total_sdl,
+        -- An independent contractor's months (PAYE_OUTSIDE_TABLES, treatment none) are code 3616, decided per line (easyFileContractor).
+        COALESCE(SUM(prl.gross_pay) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_gross,
+        COUNT(*) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false))::int AS contractor_lines,
+        -- The taxable 3605 inside those lines stays 3605, not 3616.
+        COALESCE(SUM((
+          SELECT COALESCE(SUM((item->>'amount')::numeric), 0)
+            FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array' THEN prl.component_breakdown ELSE '[]'::jsonb END) item
+           WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605' AND COALESCE((item->>'isTaxable')::boolean, false)
+        )) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_annual
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       WHERE prh.company_id = ${companyId}::uuid
@@ -152,7 +162,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const standalone = lumpSums.standaloneTotals.get(String(row.id)) ?? { gross: 0, paye: 0 };
     const agg = aggMap.get(String(row.id)) ?? (standalone.gross > 0 ? ({} as DbRow) : undefined);
     if (!agg) continue;
-    const gross = Number(agg.total_gross ?? 0) + standalone.gross;
+    const { salaryGross: gross, income3616 } = splitContractorIncome({
+      totalGross: Number(agg.total_gross ?? 0), contractorGross: Number(agg.contractor_gross ?? 0), contractorAnnual: Number(agg.contractor_annual ?? 0), standaloneGross: standalone.gross,
+    });
     const fringeBenefits = fringeByEmployee.get(String(row.id)) ?? [];
     const employeeLumpSums = lumpSums.byEmployee.get(String(row.id)) ?? [];
     const split = splitCertificateIncome({
@@ -160,12 +172,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       annualPayments: annualByEmployee.get(String(row.id)) ?? 0, lumpSums: employeeLumpSums,
     });
     const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
-    // An independent contractor's income is 3616, not 3601 (easyFileContractor).
-    const contractor3616 = contractorIncome3616({ taxStatus: String(row.tax_status ?? 'employee'), salaryIncome: split.grossSalary3601 });
     // The writer's rule (cents dropped, a nil field left out): no income code of R1 or more, no
     // certificate. Skipped, not refused for the whole company, unless PAYE was withheld: no
     // certificate could carry it and 4102 would under-report, so the file is refused, naming it.
-    const incomes = [split.grossSalary3601, split.annualPayments3605, ...employeeLumpSums.map(l => l.amount), ...fringeBenefits.map(f => f.amount)];
+    const incomes = [split.grossSalary3601, income3616, split.annualPayments3605, ...employeeLumpSums.map(l => l.amount), ...fringeBenefits.map(f => f.amount)];
     if (!incomes.some(a => Math.floor(a) >= 1)) {
       const paye = Math.round((Number(agg.total_paye ?? 0) + standalone.paye) * 100) / 100;
       if (paye !== 0) {
@@ -207,7 +217,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       employmentEndDate: certEndDate,
       periodsInYoA: monthsBetween(periodStart, periodEnd),
       ...split,
-      ...(contractor3616 != null ? { grossSalary3601: 0, independentContractor3616: contractor3616 } : {}),
+      ...(income3616 > 0 ? { independentContractor3616: income3616 } : {}),
+      ...(Number(agg.contractor_lines ?? 0) > 0 ? { hadContractorLines: true } : {}),
       fringeBenefits,
       lumpSums: employeeLumpSums.map(l => ({
         sourceCode: l.sourceCode,

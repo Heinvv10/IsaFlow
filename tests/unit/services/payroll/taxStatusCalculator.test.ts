@@ -146,6 +146,43 @@ describe('what the line pays per day decides the class (A-H1)', () => {
   });
 });
 
+describe('earnings for time worked only (M-a): basic pay 3601 and overtime 3607', () => {
+  const R350 = { payBasis: 'daily' as const, hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 350 };
+  const codes = (r: ReturnType<typeof cost>) => r.validationResults.map(v => v.code);
+  it('R350 a day (R6 062.50) plus R900 commission (3606) stays deemed standard: commission is not pay for a day', () => {
+    const r = cost(employee(R350), [earn(6_062.5, '3601'), earn(900, '3606')]);
+    expect(codes(r)).not.toContain('PAYE_OUTSIDE_TABLES');
+    expect(r.paye.monthlyPaye).toBe(0);
+  });
+  it('an allowance (3701) does not count either', () => {
+    expect(codes(cost(employee(R350), [earn(6_062.5, '3601'), earn(5_000, '3701')]))).not.toContain('PAYE_OUTSIDE_TABLES');
+  });
+  it('overtime (3607) does: R6 062.50 basic plus R2 600 overtime lifts a day over R394 and the line is flat', () => {
+    const r = cost(employee(R350), [earn(6_062.5, '3601'), earn(2_600, '3607')]);
+    expect(codes(r)).toContain('PAYE_OUTSIDE_TABLES');
+    expect(r.paye.monthlyPaye).toBe(2_165.63); // 25% of 8 662.50
+  });
+});
+
+describe('a short month never lowers the withholding (H1-new), through the calculator', () => {
+  const t = { payBasis: 'daily' as const, hoursPerWeek: 12, hoursPerDay: 6, dailyRate: 500 };
+  it('a starter on the 16th paid R2 236.56: flat, 25% = R559.14', () => {
+    const r = cost(employee({ ...t, startDate: new Date(2026, 2, 16) }), [earn(2_236.56)]);
+    expect([r.paye.monthlyPaye, r.validationResults.some(v => v.code === 'PAYE_OUTSIDE_TABLES')]).toEqual([559.14, true]);
+  });
+  it('R1 500 paid in a month scheduled for R4 333 (unpaid leave): still flat, R375', () => {
+    expect(cost(employee(t), [earn(1_500)]).paye.monthlyPaye).toBe(375);
+  });
+  it('hourly R100, 10 h a week in 5 h days, 40 hours paid (R4 000): flat, R1 000', () => {
+    const h = { payBasis: 'hourly' as const, hoursPerWeek: 10, hoursPerDay: 5, hourlyRate: 100 };
+    expect(cost(employee(h), [earn(4_000)]).paye.monthlyPaye).toBe(1_000);
+  });
+  it('no recorded rate, a starter on the 16th with R4 000: flat (R1 000), not deemed standard', () => {
+    const r = cost(employee({ payBasis: 'daily', hoursPerWeek: 20, hoursPerDay: 5, startDate: new Date(2026, 2, 16) }), [earn(4_000)]);
+    expect(r.paye.monthlyPaye).toBe(1_000);
+  });
+});
+
 describe('HOURS_NOT_RECORDED: info for permanent, a warning for contract and casual', () => {
   const sev = (employmentType: PayrollEmployee['employmentType']) =>
     cost(employee({ employmentType }), [earn(5_000)]).validationResults.find(v => v.code === 'HOURS_NOT_RECORDED')?.severity;

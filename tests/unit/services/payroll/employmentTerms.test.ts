@@ -8,7 +8,7 @@
  * and the case the table does not print (under 5 h a day, R394 or more), which the residual definition catches (25%).
  */
 import { describe, expect, it } from 'vitest';
-import { classifyEmployment, type WorkTerms } from '@/modules/accounting/services/payroll/employmentTerms';
+import { classifyEmployment, employedShareOfMonth, type WorkTerms } from '@/modules/accounting/services/payroll/employmentTerms';
 
 const terms = (t: Partial<WorkTerms>): WorkTerms => ({
   taxStatus: 'employee', payBasis: 'daily', hoursPerWeek: null, hoursPerDay: null, hourlyRate: null, dailyRate: null, ...t,
@@ -115,27 +115,81 @@ describe('day pay follows what the line pays (G21 p. 28 "earns ... for that day"
 
   it('the recorded R350 day says deemed standard without earnings; R15 000 a month says flat, with a note', () => {
     expect(classifyEmployment(R70, 2027).kind).toBe('deemed_standard');
-    const c = classifyEmployment(R70, 2027, 15_000);
+    const c = classifyEmployment(R70, 2027, { earnings: 15_000 });
     expect(c.kind).toBe('non_standard_flat');
     expect(c.dayPayNote).toMatch(/R\s350\.00/);
-    expect(c.dayPayNote).toContain('periodic earnings');
+    expect(c.dayPayNote).toContain('basic pay and overtime');
   });
 
   it('overtime that lifts a day over R394 makes it flat: R78 an hour (R390) with R7 800 paid over 17.3 days', () => {
     const t = terms({ payBasis: 'hourly', hoursPerWeek: 20, hoursPerDay: 5, hourlyRate: 78 });
-    expect(classifyEmployment(t, 2027, 6_760).kind).toBe('deemed_standard'); // exactly the scheduled days at the rate
-    expect(classifyEmployment(t, 2027, 7_800).kind).toBe('non_standard_flat');
-    expect(classifyEmployment(t, 2027, 7_800).dayPayNote).toBeDefined();
+    expect(classifyEmployment(t, 2027, { earnings: 6_760 }).kind).toBe('deemed_standard'); // exactly the scheduled days at the rate
+    expect(classifyEmployment(t, 2027, { earnings: 7_800 }).kind).toBe('non_standard_flat');
+    expect(classifyEmployment(t, 2027, { earnings: 7_800 }).dayPayNote).toBeDefined();
   });
 
   it('earnings within 3% of the rate leave the recorded rate to decide, exactly (R393.99 stays deemed standard)', () => {
     const t = terms({ hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 393.99 });
-    const c = classifyEmployment(t, 2027, 6_800); // 6 800 / 17.33 = R392.3, within 3%
+    const c = classifyEmployment(t, 2027, { earnings: 6_800 }); // 6 800 / 17.33 = R392.3, within 3%
     expect([c.kind, c.dayPayNote]).toEqual(['deemed_standard', undefined]);
   });
 
   it('with no recorded rate the earned day pay stands in (and with no schedule it cannot)', () => {
-    expect(classifyEmployment(terms({ hoursPerWeek: 20, hoursPerDay: 5 }), 2027, 15_000).kind).toBe('non_standard_flat');
-    expect(classifyEmployment(terms({ hoursPerWeek: 20 }), 2027, 15_000).kind).toBe('undetermined');
+    expect(classifyEmployment(terms({ hoursPerWeek: 20, hoursPerDay: 5 }), 2027, { earnings: 15_000 }).kind).toBe('non_standard_flat');
+    expect(classifyEmployment(terms({ hoursPerWeek: 20 }), 2027, { earnings: 15_000 }).kind).toBe('undetermined');
+  });
+});
+
+describe('earnings may only raise the day pay (a short month never lowers the withholding)', () => {
+  // 12 h a week in 6 h days = 2 days a week = 8.67 scheduled days a month; R500 a day recorded.
+  const R500 = terms({ hoursPerWeek: 12, hoursPerDay: 6, dailyRate: 500 });
+
+  it('a starter on the 16th, paid half the month: earned day pay is not below the rate, class stays flat, no note', () => {
+    const half = employedShareOfMonth({ year: 2026, month: 3 }, new Date(2026, 2, 16));
+    expect(half).toBeCloseTo(16 / 31, 5);
+    const c = classifyEmployment(R500, 2027, { earnings: 500 * 8.6667 * half, employedShare: half });
+    expect([c.kind, c.dayPayNote]).toEqual(['non_standard_flat', undefined]);
+  });
+
+  it('10 of 17 days unpaid (earnings far under the schedule): the R500 rate still decides, flat', () => {
+    expect(classifyEmployment(R500, 2027, { earnings: 500 * 3 }).kind).toBe('non_standard_flat');
+  });
+
+  it('hourly R100, scheduled 10 h a week in 5 h days (R500 a day), paid for 40 hours (R4 000): flat', () => {
+    const t = terms({ payBasis: 'hourly', hoursPerWeek: 10, hoursPerDay: 5, hourlyRate: 100 });
+    expect(classifyEmployment(t, 2027, { earnings: 4_000 }).kind).toBe('non_standard_flat');
+  });
+
+  it('a short month cannot lower a deemed-standard rate into... nothing: R390 recorded, earnings far under, stays deemed standard', () => {
+    const t = terms({ hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 390 });
+    expect(classifyEmployment(t, 2027, { earnings: 1_000 }).kind).toBe('deemed_standard');
+  });
+
+  it('no recorded rate, a part month: the scheduled days shrink with the days employed (R4 000 over half a month is R447 a day: flat; unscaled it would be R231)', () => {
+    const t = terms({ hoursPerWeek: 20, hoursPerDay: 5 });
+    const half = employedShareOfMonth({ year: 2026, month: 3 }, new Date(2026, 2, 16));
+    expect(classifyEmployment(t, 2027, { earnings: 4_000, employedShare: half }).kind).toBe('non_standard_flat');
+    expect(classifyEmployment(t, 2027, { earnings: 4_000 }).kind).toBe('deemed_standard');
+  });
+
+  it('the tolerance governs the warning only: recorded R390 and earned about R401 (2.8% over) is flat, with no note', () => {
+    const t = terms({ hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 390 });
+    const c = classifyEmployment(t, 2027, { earnings: 401 * (20 / 5) * (52 / 12) });
+    expect([c.kind, c.dayPayNote]).toEqual(['non_standard_flat', undefined]);
+  });
+
+  it('the note says earnings only raise the day pay', () => {
+    const c = classifyEmployment(terms({ payBasis: 'hourly', hoursPerWeek: 20, hoursPerDay: 5, hourlyRate: 70 }), 2027, { earnings: 15_000 });
+    expect(c.dayPayNote).toContain('can only raise');
+  });
+});
+
+describe('employedShareOfMonth', () => {
+  const march = { year: 2026, month: 3 };
+  it('is 1 for a full month, a leaver on the 15th is 15/31, a starter and leaver in one month count their days, an end before the month is 1', () => {
+    expect(employedShareOfMonth(march, new Date(2020, 0, 1))).toBe(1);
+    expect(employedShareOfMonth(march, new Date(2020, 0, 1), new Date(2026, 2, 15))).toBeCloseTo(15 / 31, 5);
+    expect(employedShareOfMonth(march, new Date(2026, 2, 10), new Date(2026, 2, 19))).toBeCloseTo(10 / 31, 5);
+    expect(employedShareOfMonth(march, new Date(2020, 0, 1), new Date(2026, 1, 20))).toBe(1);
   });
 });

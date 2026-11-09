@@ -99,6 +99,7 @@ export async function estimateAnnualRemuneration(
                    THEN prl.component_breakdown ELSE '[]'::jsonb END) item
                 WHERE prl.run_id = prh.id
                   AND item->>'isNonCash' = 'true'
+                  AND NOT COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)
              ), 0) END AS remuneration
         FROM payroll_run_headers prh
        WHERE prh.company_id = ${companyId}::uuid
