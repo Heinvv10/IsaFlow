@@ -12,14 +12,13 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
 import { markedPieces, pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
-import { printedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import { PAIR_DOMAIN } from '../../printParity/breakPairsDomain';
 import { mulberry32 } from '../support/mulberry32';
 import { LETTER_RANGES } from './lineBreakLetterData';
 
 const FACES = ['Regular', 'Medium', 'SemiBold'].map((w) => new Set<number>(fontkit.create(readFileSync(path.join(process.cwd(), 'public/fonts', `IBMPlexSans-${w}.woff2`))).characterSet));
 // A noncharacter the faces set (U+FFFF) is not drawn with their glyph: Chromium sets it narrower, from no face.
-const FACE_SET = new Set([...FACES[0]!].filter((c) => FACES.every((f) => f.has(c)) && !/\p{Cn}/u.test(String.fromCodePoint(c))));
+export const FACE_SET = new Set([...FACES[0]!].filter((c) => FACES.every((f) => f.has(c)) && !/\p{Cn}/u.test(String.fromCodePoint(c))));
 export const DOMAIN = PAIR_DOMAIN().map((c) => String.fromCodePoint(c));
 const DOMAIN_SET = new Set(DOMAIN);
 const LEFTS = ['ab', '12', '', 'a ', '(', '.', '\u00A0'];
@@ -44,47 +43,6 @@ export function randomStrings(count: number): string[] {
  * (`packBreakRanges.ts`), one at a space is every model's.
  */
 export const covered = (t: string, at: number): boolean => DOMAIN_SET.has(t[at - 1]!) && DOMAIN_SET.has(t[at]!);
-
-/**
- * Every character the table covers with a variation selector 16 after it, in eleven contexts (the blind review's six of
- * round 4 among them), AS THE PACK PRINTS IT (`packPrintedText.printedText`: the selector after a character with no
- * emoji presentation dropped, the one after an emoji kept).
- */
-export const VS16_CENSUS: readonly string[] = DOMAIN.flatMap((x) => [
-  `ab${x}\uFE0Fcd`, `${x}\uFE0F${x}\uFE0F`, `12${x}\uFE0F34`, `\u4E2D${x}\uFE0F\u4E2D`, `(${x}\uFE0F)`, `Gross${x}\uFE0Fmargin`,
-  `Gross ${x}\uFE0F margin`, `${x}\uFE0FGross`, `Gross${x}\uFE0F12`, `12${x}\uFE0Fab`, `ab${x}\uFE0F${x}\uFE0Fcd`,
-].map(printedText));
-
-/**
- * Members of each stand-in's kind other than the stand-in itself (`packBreakPairs.SCRIPT_STAND_INS`): two ideographs,
- * two Hangul syllables, two full-width letters, a compatibility ideograph, a supplementary-plane ideograph and a
- * supplementary private-use character, each beside every punctuation mark and symbol the faces set, a letter and a digit;
- * and the rules beside the table (below). Compared on every break (`allDifferences`), not only those between two of the
- * table's own characters.
- */
-export function standInCensus(): string[] {
-  const members = ['\u65E5', '\u6536', '\uAC00', '\uD7A3', '\uFF3A', '\uFF5A', '\uF900', '\u{20000}', '\u{F0000}'];
-  const marks = [...FACE_SET].map((c) => String.fromCodePoint(c)).filter((c) => /[\p{P}\p{S}]/u.test(c));
-  const stands = members.flatMap((m) => [`ab${m}cd`, `12${m}34`, `${m}${m}`, ...marks.flatMap((p) => [`${m}${p}ab`, `ab${p}${m}`, `${m}${p}1`, `${p}${m}`, `${m}${p}`])]);
-  // The space separators the faces lack before a character the table lacks (an emoji, a Thai letter, Linear B), and a
-  // prepended mark with a combining mark on it (#1235 round 4: each read by its own rule, beside the table).
-  const spaces = ['\u3000', '\u205F', '\u1680'].flatMap((sp) => ['\u{1F600}', '\u0E01', '\u{10000}'].flatMap((y) => [`ab${sp}${y}`, `${sp}${y}`, `ab${sp}${y}cd`]));
-  const prepended = ['\u0600', '\u0601', '\u0605', '\u06DD', '\u070F', '\u0890', '\u08E2', '\u0D4E'].flatMap((p) => ['\u0301', '\u0651', '\u064B', '\u0D4D']
-    .flatMap((mk) => [`\u4E2D${p}${mk}\u4E2D`, `ab${p}${mk}cd`, `12${p}${mk}34`, `(${p}${mk})`]));
-  return [...stands, ...spaces, ...prepended];
-}
-
-/** Each of `texts` whose breaks the model and `breaksOf`'s answer (`raw`) disagree on, but where none can be read. */
-export function allDifferences(texts: readonly string[], raw: readonly number[][]): string[] {
-  return texts.flatMap((t, i) => {
-    const blind = new Set(raw[i]!.filter((b) => b < 0).map((b) => -b));
-    const real = raw[i]!.filter((b) => b > 0 && !blind.has(b));
-    let at = 0;
-    const model: number[] = [];
-    pieces(t).forEach((p, k) => { const from = t.indexOf(p.text, at); if (k > 0 && !blind.has(from)) model.push(from); at = from + p.text.length; });
-    return model.join(',') === real.join(',') ? [] : [t];
-  });
-}
 
 /** `breaksOf`'s answer for `text`: the breaks the table decides, and the offsets no break can be read at. */
 export function readBreaks(text: string, raw: readonly number[]): { real: number[]; blind: Set<number> } {
@@ -270,4 +228,11 @@ export const ROUND_FOUR_LABELS: ReadonlyArray<readonly [string, boolean]> = [
   ['Profit!\uFE0FTelecommunications', false], ['Directors/\uFE0FTelecommunications', false], ['Telecommunications-\uFE0F2024', false],
   ['Telecommunications\u20AC(.5m)', false], ['Telecommunications(1.)\u20AC', false], [`\u2212(.5${n(36)})`, false], [`\u2212(.5${n(36)})`, true],
   [`\u20AC(.5${n(36)})`, false], [`Telecommunications ${n(26)}1/:\u2033`, false],
+];
+
+/** #1235 round 5's labels: a mark or selector on an ASCII character in a long word, and a decomposed accent ("Cafe\u0301-"). */
+export const ROUND_FIVE_LABELS: ReadonlyArray<readonly [string, boolean]> = [
+  ['Telecoms*\uFE0E(Telecommunications)', false], ['Telecommunications#\uFE0F(Telecommunications)', false],
+  ['Telecommunications*\uFE0F[Telecommunications]', false], ['Telecommunications&\u0301(Telecommunications)', false],
+  ['Telecommunications2024\uFE0F-2025', false], ['Cafe\u0301-2024Telecommunications', false],
 ];

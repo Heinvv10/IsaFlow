@@ -8,14 +8,19 @@
  * character (after "!\uFE0F" before a letter, not after "-\uFE0F"): measured in production's image, a statement table
  * read a line short (#1235 round 4). After an emoji ("\u2764\uFE0F"), a keycap's digit, "#", "*", "\u00A9", "\u00AE"
  * or "\u2122" it stays: there Chromium breaks as beside the character it follows (`packBreakPairs.test.ts`).
+ *
+ * And the text is composed (NFC): a decomposed accent, as macOS and iOS paste it ("Cafe\u0301-2024"), is set by Chromium
+ * as the composed letter, which the ruler and the pair table read as it is (#1235 round 5: production holds the break
+ * in "Cafe\u0301-2024" and printed the table 666px wide; "Caf\u00E9-2024" breaks as measured).
  */
 
 /** U+FE0F after a code point that is not \p{Emoji} (another selector or a mark counts as none). */
 const STRAY_VS16 = /(?<!\p{Emoji})\uFE0F/gu;
 
-/** `text` as the pack prints it. */
+/** `text` as the pack prints it: composed (NFC), and no stray selector. */
 export function printedText(text: string): string {
-  return text.includes('\uFE0F') ? text.replace(STRAY_VS16, '') : text;
+  const composed = text.normalize('NFC');
+  return composed.includes('\uFE0F') ? composed.replace(STRAY_VS16, '') : composed;
 }
 
 const isPlain = (value: object): boolean => {

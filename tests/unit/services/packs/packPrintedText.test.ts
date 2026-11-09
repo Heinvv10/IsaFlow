@@ -8,17 +8,23 @@ import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/b
 import { stampBlock } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 import { printedText, withPrintedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import type { PackPageBlock } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { asPrinted, VS16_TYPED } from '../../print/fixtures/everyBreakCensus';
 import { demoInput } from './fixtures/boardPackInputs';
 import { demoWithoutBudget } from './fixtures/widenedFigures';
 
 describe('printedText', () => {
   it.each([
     ['Profit!\uFE0FTelecommunications', 'Profit!Telecommunications'], ['Directors/\uFE0F', 'Directors/'], ['-\uFE0F2024', '-2024'],
-    ['$\uFE0F$\uFE0F', '$$'], ['a\uFE0F\uFE0Fb', 'ab'], ['e\u0301\uFE0F', 'e\u0301'],
+    ['$\uFE0F$\uFE0F', '$$'], ['a\uFE0F\uFE0Fb', 'ab'], ['e\u0301\uFE0F', '\u00E9'], ['&\u0301\uFE0F', '&\u0301'],
     ['\u2764\uFE0F', '\u2764\uFE0F'], ['1\uFE0F\u20E3', '1\uFE0F\u20E3'], ['#\uFE0F\u20E3', '#\uFE0F\u20E3'], ['\u00A9\uFE0F', '\u00A9\uFE0F'], ['\u2122\uFE0F', '\u2122\uFE0F'],
-    ['Gross margin', 'Gross margin'],
+    ['Gross margin', 'Gross margin'], ['Cafe\u0301-2024', 'Caf\u00E9-2024'], ['A\u030A', '\u00C5'], ['&\u0301(', '&\u0301('],
   ])('%j as printed is %j', (text, printed) => {
     expect(printedText(text)).toBe(printed);
+  });
+
+  it('on every character the pair table covers, a U+FE0F stays exactly where Unicode\'s emoji data gives an emoji style', () => {
+    expect(VS16_TYPED.length).toBeGreaterThan(100_000);
+    expect(VS16_TYPED.filter((t) => printedText(t) !== asPrinted(t)).map((t) => JSON.stringify(t)).slice(0, 20)).toEqual([]);
   });
 
   it('withPrintedText rewrites every string through arrays and plain objects, and leaves the rest (and an unchanged value) as it is', () => {

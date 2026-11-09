@@ -164,6 +164,20 @@ function afterContext(clusters: readonly string[], i: number, last: boolean): nu
 }
 
 /**
+ * A Latin-1 pair with a mark in its 4-gram ("*\uFE0E(", "=\u0301(", "1\u0301-34"): Chromium sets a bare Latin-1 pair by its
+ * own table, with the character before it ("1-34" breaks after the hyphen, "a\u0301-34" not), which the pair table holds,
+ * but a mark on either character or on its neighbours sends it to Chromium's general rules, which hold where the table
+ * breaks (#1235 round 5: "Telecoms*\uFE0E(Telecommunications)" is one piece in production). Held, every one: where
+ * production does break there ("ab!\u0301cd"), the model's piece is only wider.
+ */
+function markedLatin1Pair(clusters: readonly string[], i: number): boolean {
+  const before = trailingCode(clusters[i]!);
+  const after = clusters[i + 1]!.codePointAt(0)!;
+  if (before === null || before >= 0x100 || after >= 0x100) return false;
+  return [clusters[i - 1], clusters[i], clusters[i + 1], clusters[i + 2]].some((c) => c !== undefined && Array.from(c).length > 1);
+}
+
+/**
  * Does Chromium break between `clusters[i]` and the cluster after it (not at a soft hyphen or a zero-width space)? By the
  * pair table where it covers both, but where the numeric rule holds what the table's one character of context cannot
  * see (`packNumericHold.ts`; `codes`, each cluster's base code point); by the ranges and spaces of the faces' fallback
@@ -174,6 +188,7 @@ function breaksAfter(clusters: readonly string[], codes: ReadonlyArray<number | 
   const next = clusters[i + 1]!;
   const a = classOf(cluster, trailingCode(cluster));
   const b = classOf(next, next.codePointAt(0)!);
+  if (a !== null && b !== null && markedLatin1Pair(clusters, i)) return false;
   if (a !== null && b !== null) return pairBreaks(beforeContext(clusters, i, first), a, b, afterContext(clusters, i + 1, last)) && !heldByNumber(codes, i);
   return (BREAK_AFTER_SPACE.test(cluster) && !BREAK_AFTER_SPACE.test(next)) || breaksBetweenClusters(cluster, next);
 }

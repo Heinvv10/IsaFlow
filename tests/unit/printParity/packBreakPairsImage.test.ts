@@ -4,6 +4,7 @@
  *    (`print/fixtures/breakPairsCensus.ts`) and, as line counts, on the adversary's census of #1235's third round: where
  *    the print tests' Chromium differs from production's (`asProduction`), production's is the one held;
  *  - every character the table covers with a variation selector 16 after it, as the pack prints it (`packPrintedText.ts`);
+ *  - a mark on an ASCII character: never a break production does not take;
  *  - the stand-ins' other members beside the faces' punctuation, on every break;
  *  - the labels #1235's third round found short, in a statement table laid out at production's print width: never a
  *    label line too few, the height never short (the print tests' Chromium breaks some of them where production's does
@@ -35,7 +36,8 @@ import { gotenbergPdf, startGotenberg, withPdfFile, type Gotenberg } from './got
 import { breaksInImage, inImage as runInImage } from './inImage';
 import { flatStylesheet } from './parityPage';
 import { paritySkip } from './paritySkip';
-import { adversaryCensus, BREAKS_OF, CENSUS, heldLines, LINES_OF, linesHtml, modelBreaks, randomStrings, readBreaks, ROUND_FOUR_LABELS, ROUND_THREE_LABELS, standInCensus, VS16_CENSUS, allDifferences } from '../print/fixtures/breakPairsCensus';
+import { adversaryCensus, BREAKS_OF, CENSUS, heldLines, LINES_OF, linesHtml, modelBreaks, randomStrings, readBreaks, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_THREE_LABELS } from '../print/fixtures/breakPairsCensus';
+import { allDifferences, extraBreaks, markedCensus, standInCensus, VS16_CENSUS } from '../print/fixtures/everyBreakCensus';
 
 const DATA = path.resolve(__dirname, '../../../src/modules/accounting/services/packs/pages/packBreakPairsData.ts');
 const unavailable = paritySkip();
@@ -77,6 +79,12 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
     expect(wrong.map((t) => JSON.stringify(t)).slice(0, 20), `${wrong.length} of ${VS16_CENSUS.length} differ`).toEqual([]);
   }, 1_800_000);
 
+  it('a mark on an ASCII character (#1235 round 5): the model never breaks where production\'s Chromium holds', async () => {
+    const texts = markedCensus();
+    const extra = extraBreaks(texts, await breaksInImage(gotenberg!, BREAKS_OF, texts));
+    expect(extra.slice(0, 20), `${extra.length} of ${texts.length}`).toEqual([]);
+  }, 1_800_000);
+
   it('the stand-ins\' other members beside every punctuation mark and symbol the faces set, and the rules beside the table: every break is production\'s', async () => {
     const texts = standInCensus();
     const wrong = allDifferences(texts, await breaksInImage(gotenberg!, BREAKS_OF, texts));
@@ -99,12 +107,12 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
     expect(wrong.slice(0, 20).map((w) => w.replace(/^[0-9a-f.]+/, (h) => JSON.stringify(textOf(h)))), `${wrong.length} of ${items.length} differ`).toEqual([]);
   }, 1_800_000);
 
-  it('the round-3 and round-4 labels in a statement table, in production: never a label line too few, the height never short, never wider than the page', async () => {
+  it('the round-3, round-4 and round-5 labels in a statement table, in production: never a label line too few, the height never short, never wider than the page', async () => {
     // The print tests' Chromium breaks after a word-opening en dash where production's does not: this is where those are held.
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
     let held = 0;
-    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS];
+    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS];
     for (const [label, labelMarker] of labels) {
       for (const digits of [9, 12]) {
         const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });

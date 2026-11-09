@@ -4,7 +4,7 @@
  * (`packBreakPairs.test.ts`) and in production's image (`printParity/packNumericHoldImage.test.ts`):
  *  - the adversary's 18,630: a prefix sign before an opener or a hyphen and a decimal, an opener and a separator before
  *    a digit or a letter, a number with its separators and closer before a postfix or prefix sign;
- *  - a number's separators before a digit, past Latin-1 ("1./\u0665");
+ *  - a number's separators before a digit, past Latin-1 ("1./\u0665"), and a postfix sign before an opener and a decimal;
  *  - the blind review's labels, and its 60,000 random five-character strings of the faces' punctuation, digits and
  *    letters (`numericPool`).
  */
@@ -45,7 +45,15 @@ function separatorRuns(): string[] {
   return ['1', 'a', '\u0661', 'ab', '12'].flatMap((pre) => seps.flatMap((s1) => [...seps, ''].flatMap((s2) => ['5', '\u0665', '\u0967'].map((d) => `${pre}${s1}${s2}${d}`))));
 }
 
-export const NUMERIC_CENSUS: readonly string[] = [...NUMERIC_LABELS, ...adversaryNumbers(), ...separatorRuns()];
+/** A postfix sign before an opener or a hyphen and a decimal (#1235 round 5: the adversary's set has prefix signs only). */
+function postfixBeforeOpener(): string[] {
+  const tails = ['5', 'a', '.5', ',5', '..5', '/5'];
+  return ['ab', '12', '', 'a ', '1 '].flatMap((l) => PO.flatMap((p) => [...OP, ...HY].flatMap((o) => tails.flatMap((t) => [`${l}${p}${o}${t}`, `${l}${p}${o}-${t}`]))));
+}
+
+export const NUMERIC_CENSUS: readonly string[] = [
+  ...NUMERIC_LABELS, 'Rate %(.5)', 'Rate \u2030(.5)', 'Rise \u2032(.5)', ...adversaryNumbers(), ...separatorRuns(), ...postfixBeforeOpener(),
+];
 
 /** The blind review's pool (`zzR4Image`, SEED 7): 60,000 strings of five of these, those not all space. */
 export function numericPool(): string[] {
