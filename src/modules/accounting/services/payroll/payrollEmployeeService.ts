@@ -5,7 +5,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PayrollEmployee } from './payrollTypes';
 import { recordEmployeeChange } from './payrollEmployeeHistoryService';
-import { movedTerms, termsFromRow, type EmployeeTerms } from './payrollEmployeeTerms';
+import { EmployeeTermsRefused, judgeTerms, movedTerms, termsFromRow, TERM_KEYS, type EmployeeTerms } from './payrollEmployeeTerms';
 
 type Row = DbRow;
 
@@ -145,6 +145,7 @@ export async function updatePayrollEmployee(
 ): Promise<PayrollEmployee | null> {
   log.info('Updating payroll employee', { id, companyId }, 'payrollEmployeeService');
 
+  // An unlocked read, only to decide which path to take. What is logged and compared is re-read under the row lock.
   const beforeRows = (await sql`
     SELECT * FROM payroll_employees
      WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
@@ -169,7 +170,7 @@ export async function updatePayrollEmployee(
   // from TS-b on, so any touch of the terms waits for the same lock.
   const has = (k: keyof EmployeeTerms) => data[k] !== undefined;
   const termsTouched = (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate'] as const).some(has);
-  const write = (db: typeof sql) => db`
+  const write = (db: typeof sql, now: Row) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
       last_name                    = COALESCE(${data.lastName ?? null}, last_name),
@@ -182,7 +183,7 @@ export async function updatePayrollEmployee(
       uif_excluded                 = COALESCE(${data.uifExcluded ?? null}, uif_excluded),
       medical_aid_main_member      = COALESCE(${data.medicalAidMainMember ?? null}, medical_aid_main_member),
       medical_aid_dependants_count = COALESCE(${data.medicalAidDependantsCount ?? null}, medical_aid_dependants_count),
-      s18a_receipt_held            = COALESCE(${tickMoved ? data.s18aReceiptHeld ?? null : null}, s18a_receipt_held),
+      s18a_receipt_held            = COALESCE(${data.s18aReceiptHeld !== undefined && data.s18aReceiptHeld !== now.s18a_receipt_held ? data.s18aReceiptHeld ?? null : null}, s18a_receipt_held),
       tax_status                   = CASE WHEN ${has('taxStatus')} THEN ${data.taxStatus ?? null} ELSE tax_status END,
       pay_basis                    = CASE WHEN ${has('payBasis')} THEN ${data.payBasis ?? null} ELSE pay_basis END,
       hours_per_week               = CASE WHEN ${has('hoursPerWeek')} THEN ${data.hoursPerWeek ?? null}::numeric ELSE hours_per_week END,
@@ -194,32 +195,40 @@ export async function updatePayrollEmployee(
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `;
-  // Each moved term is logged through the transaction that wrote it, so a rolled-back write leaves no history row.
-  const logTerms = async (db: typeof sql, row: Row | undefined) => {
-    if (!userId || !before || !row) return;
-    for (const m of movedTerms(termsFromRow(before), termsFromRow(row))) {
-      await recordEmployeeChange({ companyId, employeeId: id, fieldName: m.field, oldValue: m.oldValue, newValue: m.newValue, userId }, db);
+  // Under the row lock: re-read the row as it stands now, judge the terms against it again (an owner's concurrent
+  // change may have made a pair unreachable that looked fine before), write, and log only the terms this patch carried,
+  // through the same transaction, so another admin's change is never logged a second time under this one's name.
+  let locked: Row | undefined;
+  const writeLocked = async (db: typeof sql): Promise<Row[]> => {
+    locked = ((await db`
+      SELECT * FROM payroll_employees WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid FOR UPDATE
+    `) as Row[])[0];
+    if (!locked) return [];
+    const carried = TERM_KEYS.filter(has);
+    if (carried.length > 0) {
+      judgeTerms({ ...termsFromRow(locked), ...Object.fromEntries(carried.map((k) => [k, data[k]])) } as EmployeeTerms, (m) => new EmployeeTermsRefused(m));
     }
+    const written = (await write(db, locked)) as Row[];
+    if (userId && written[0]) {
+      for (const m of movedTerms(termsFromRow(locked), termsFromRow(written[0]), carried)) {
+        await recordEmployeeChange({ companyId, employeeId: id, fieldName: m.field, oldValue: m.oldValue, newValue: m.newValue, userId }, db);
+      }
+    }
+    return written;
   };
-  const rows = (endIso === null && !tickMoved && !termsTouched ? await (async () => {
-    const written = (await write(sql)) as Row[];
-    await logTerms(sql, written[0]);
-    return written;
-  })() : await withTransaction(async (tx) => {
+  const rows = (endIso === null && !tickMoved && !termsTouched ? await writeLocked(sql) : await withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
-    const written = (await write(tx as typeof sql)) as Row[];
-    await logTerms(tx as typeof sql, written[0]);
-    return written;
+    return writeLocked(tx as typeof sql);
   })) as Row[];
 
   const updated = rows.length > 0 && rows[0] ? mapPayrollEmployeeRow(rows[0]) : null;
 
-  if (userId && before && updated && data.employmentType !== undefined) {
+  if (userId && locked && updated && data.employmentType !== undefined) {
     await recordEmployeeChange({
       companyId,
       employeeId: id,
       fieldName: 'employment_type',
-      oldValue: before.employment_type == null ? null : String(before.employment_type),
+      oldValue: locked.employment_type == null ? null : String(locked.employment_type),
       newValue: updated.employmentType,
       userId,
     });

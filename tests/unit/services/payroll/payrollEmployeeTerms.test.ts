@@ -122,8 +122,19 @@ describe('priced terms', () => {
 });
 
 describe('termsFromRow on a stored status the CHECK cannot hold', () => {
-  it('throws instead of defaulting to employee', () => {
+  it('throws on a value it cannot map, instead of defaulting to employee', () => {
     expect(() => termsFromRow({ tax_status: 'boss' })).toThrow(/tax_status/);
-    expect(() => termsFromRow({ pay_basis: null })).toThrow(/pay_basis/);
+    expect(() => termsFromRow({ pay_basis: 'weekly' })).toThrow(/pay_basis/);
+  });
+
+  it('a NULL column reads as the default, like a column the row does not carry', () => {
+    expect(termsFromRow({ tax_status: null, pay_basis: null })).toMatchObject({ taxStatus: 'employee', payBasis: 'monthly' });
+  });
+
+  it('movedTerms looks only at the keys the patch carried', () => {
+    const before = termsFromRow({ hourly_rate: null, occupation: null });
+    const after = termsFromRow({ hourly_rate: '150', occupation: 'Clerk' });
+    expect(movedTerms(before, after, ['occupation'])).toEqual([{ field: 'occupation', oldValue: null, newValue: 'Clerk' }]);
+    expect(movedTerms(before, after).map((m) => m.field).sort()).toEqual(['hourly_rate', 'occupation']);
   });
 });

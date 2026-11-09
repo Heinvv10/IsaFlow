@@ -23,7 +23,7 @@ import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
 import { EmployeePayslipsCard } from '@/components/payroll/EmployeePayslipsCard';
 import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { useCompany } from '@/contexts/CompanyContext';
-import { canWrite } from '@/lib/auth/writeRoles';
+import { canSetPayrollNetPay, canWrite } from '@/lib/auth/writeRoles';
 
 /** The readiness links land here when the card has no field drawn yet; the kit's focus ring shows where focus went. */
 const ANCHOR = 'rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2';
@@ -111,7 +111,7 @@ export default function EmployeeDetailPage() {
               saving={savingProfile}
             />
 
-            <EmployeeWorkCard key={employee.id} employee={employee} onSaved={setEmployee} />
+            <EmployeeWorkCard key={employee.id} employee={employee} onSaved={setEmployee} canEditPriced={canSetPayrollNetPay(companyRole)} />
 
             <div id="employee-pay" className={ANCHOR}>
             <EmployeeComponentsCard

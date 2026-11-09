@@ -35,7 +35,14 @@ const draftOf = (e: Employee): Draft => ({
 const numberOrNull = (v: string) => (v.trim() === '' ? null : Number(v));
 const NUMERIC: Array<[keyof Draft, string]> = [['hoursPerWeek', 'Hours a week'], ['hoursPerDay', 'Hours a day'], ['hourlyRate', 'Hourly rate'], ['dailyRate', 'Daily rate']];
 
-export function EmployeeWorkCard({ employee, onSaved }: { employee: Employee; onSaved: (e: Employee) => void }) {
+interface Props {
+  employee: Employee;
+  onSaved: (e: Employee) => void;
+  /** Owner or admin: tax status, pay basis and rates are priced, and the API refuses them (403) to anyone else. */
+  canEditPriced: boolean;
+}
+
+export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(employee));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -81,15 +88,20 @@ export function EmployeeWorkCard({ employee, onSaved }: { employee: Employee; on
         <h3 className="text-base font-semibold text-[var(--ff-text-primary)]">Work terms</h3>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Select label="Tax status" options={TAX_STATUS} value={draft.taxStatus} onChange={v => v && set('taxStatus')(v)} />
-        <Select label="Pay basis" options={PAY_BASIS} value={draft.payBasis} onChange={v => v && set('payBasis')(v)} />
+        <Select label="Tax status" options={TAX_STATUS} value={draft.taxStatus} disabled={!canEditPriced} onChange={v => v && set('taxStatus')(v)} />
+        <Select label="Pay basis" options={PAY_BASIS} value={draft.payBasis} disabled={!canEditPriced} onChange={v => v && set('payBasis')(v)} />
         <Input label="Hours a week" type="number" min={0} max={168} step="0.01" value={draft.hoursPerWeek} onChange={e => set('hoursPerWeek')(e.target.value)} />
         <Input label="Hours a day" type="number" min={0} max={24} step="0.01" value={draft.hoursPerDay} onChange={e => set('hoursPerDay')(e.target.value)} />
-        <Input label="Hourly rate (R)" type="number" min={0} step="0.01" value={draft.hourlyRate} onChange={e => set('hourlyRate')(e.target.value)} />
-        <Input label="Daily rate (R)" type="number" min={0} step="0.01" value={draft.dailyRate} onChange={e => set('dailyRate')(e.target.value)} />
+        <Input label="Hourly rate (R)" type="number" min={0} step="0.01" disabled={!canEditPriced} value={draft.hourlyRate} onChange={e => set('hourlyRate')(e.target.value)} />
+        <Input label="Daily rate (R)" type="number" min={0} step="0.01" disabled={!canEditPriced} value={draft.dailyRate} onChange={e => set('dailyRate')(e.target.value)} />
         <Input label="Occupation" maxLength={100} value={draft.occupation} onChange={e => set('occupation')(e.target.value)} />
       </div>
-      {prompt && (
+      {!canEditPriced && (
+        <p className="mt-3 text-sm text-[var(--ff-text-secondary)]" data-testid="priced-terms-hint">
+          Only an owner or admin can change the tax status, pay basis and rates. Hours and occupation you can edit.
+        </p>
+      )}
+      {prompt && canEditPriced && (
         <div role="status" className="mt-4 flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
           <span>This employee is a director by employment type, but the tax status is Employee.</span>
           <Button size="sm" variant="secondary" onClick={() => set('taxStatus')('director')}>{prompt}</Button>

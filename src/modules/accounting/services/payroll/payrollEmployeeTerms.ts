@@ -31,6 +31,14 @@ export function movesPricedTerm(patch: Partial<EmployeeTerms>, current: Employee
   return PRICED_KEYS.some((k) => patch[k] !== undefined && patch[k] !== current[k]);
 }
 
+/** Raised by the service when the terms, re-judged against the row as locked, break a rule another writer just made reachable (answered 400). */
+export class EmployeeTermsRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EmployeeTermsRefused';
+  }
+}
+
 /** Raised before the first write; the callers answer it as a 400 (the onboarding error class does). */
 export type Refuse = (message: string) => Error;
 
@@ -119,11 +127,11 @@ export function directorStatusPrompt(e: Pick<PayrollEmployee, 'employmentType' |
 
 const numOrNull = (v: unknown): number | null => (v == null ? null : Number(v));
 
-/** The terms as stored: NUMERIC arrives from pg as text. A column the row does not carry (a fixture) is the default; a value the CHECK cannot have stored throws. */
+/** The terms as stored: NUMERIC arrives from pg as text. A column the row does not carry (a fixture) or holds NULL is the default; a value the CHECK cannot have stored throws. */
 export function termsFromRow(r: Record<string, unknown>): EmployeeTerms {
   return {
-    taxStatus: oneOf(r.tax_status === undefined ? 'employee' : r.tax_status, TAX_STATUSES, 'tax_status', (m) => new Error(`Stored ${m}`)),
-    payBasis: oneOf(r.pay_basis === undefined ? 'monthly' : r.pay_basis, PAY_BASES, 'pay_basis', (m) => new Error(`Stored ${m}`)),
+    taxStatus: oneOf(r.tax_status ?? 'employee', TAX_STATUSES, 'tax_status', (m) => new Error(`Stored ${m}`)),
+    payBasis: oneOf(r.pay_basis ?? 'monthly', PAY_BASES, 'pay_basis', (m) => new Error(`Stored ${m}`)),
     hoursPerWeek: numOrNull(r.hours_per_week),
     hoursPerDay: numOrNull(r.hours_per_day),
     hourlyRate: numOrNull(r.hourly_rate),
@@ -137,10 +145,12 @@ const COLUMN_OF: Record<(typeof TERM_KEYS)[number], string> = {
   hourlyRate: 'hourly_rate', dailyRate: 'daily_rate', occupation: 'occupation',
 };
 
-/** The terms a patch moved, as history rows (old and new as text), for the change log. */
-export function movedTerms(before: EmployeeTerms, after: EmployeeTerms): Array<{ field: string; oldValue: string | null; newValue: string | null }> {
+/** The terms a patch moved, as history rows (old and new as text), for the change log; `only`: the keys the patch carried. */
+export function movedTerms(
+  before: EmployeeTerms, after: EmployeeTerms, only: readonly (typeof TERM_KEYS)[number][] = TERM_KEYS,
+): Array<{ field: string; oldValue: string | null; newValue: string | null }> {
   const text = (v: unknown) => (v == null ? null : String(v));
-  return TERM_KEYS
+  return only
     .filter((k) => text(before[k]) !== text(after[k]))
     .map((k) => ({ field: COLUMN_OF[k], oldValue: text(before[k]), newValue: text(after[k]) }));
 }
