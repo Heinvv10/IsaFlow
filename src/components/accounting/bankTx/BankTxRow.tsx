@@ -121,7 +121,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
           onChange={() => onToggleSelect(tx.id)} className="accent-teal-500"
           aria-label={`Select ${label}`} />
       </td>
-      <td className="py-1 px-2 tabular-nums text-xs text-[var(--ff-text-secondary)]">
+      <td className="py-1 px-2 tabular-nums text-xs whitespace-nowrap text-[var(--ff-text-secondary)]">
         {formatDisplayDate(tx.transactionDate)}
       </td>
       <td className="py-1 px-2 text-[var(--ff-text-primary)]">

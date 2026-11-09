@@ -180,6 +180,11 @@ for (const theme of THEMES) {
       await expect(row).toBeVisible({ timeout: 60_000 });
       expect(await nativeSelects(page)).toBe(0);
       await expectNoSeriousA11yViolations(page, { baseline: NOTHING_EXCUSED });
+      await row.getByRole('combobox', { name: /^VAT, / }).click();
+      await expect(page.getByRole('listbox')).toBeVisible();
+      await expectNoSeriousA11yViolations(page, { baseline: NOTHING_EXCUSED });
+      if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `bank-tx-kit-selects-${theme}.png`) });
+      await page.keyboard.press('Escape');
       // UXB: the row is 41 px (py-1 cells, sm selects), and 33 px once the header toggle says compact (xs selects).
       const rowHeight = async () => (await row.boundingBox())!.height;
       expect(Math.abs((await rowHeight()) - 41), `comfortable row is ${await rowHeight()} px`).toBeLessThanOrEqual(1);
@@ -198,12 +203,7 @@ for (const theme of THEMES) {
       expect(box.y, 'popover top is on screen').toBeGreaterThanOrEqual(0);
       expect(box.y + box.height, 'popover bottom is on screen').toBeLessThanOrEqual(900);
       if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `bank-tx-customer-picker-${theme}.png`) });
-      await row.getByRole('button', { name: /Choose customer, / }).click();
-      await row.getByRole('combobox', { name: /^VAT, / }).click();
-      await expect(page.getByRole('listbox')).toBeVisible();
-      await expectNoSeriousA11yViolations(page, { baseline: NOTHING_EXCUSED });
-      if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `bank-tx-kit-selects-${theme}.png`) });
-      await page.keyboard.press('Escape');
+      await row.getByRole('button', { name: /Choose customer, / }).click(); // closes it (a Customer row has no VAT cell: this goes last)
     } finally {
       await api.post('/api/accounting/bank-transactions-action', { action: 'delete', bankTransactionIds: [id] });
       await api.dispose();
