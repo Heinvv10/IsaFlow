@@ -479,6 +479,9 @@ async function seedPayrollRuns(): Promise<void> {
       period_month: run.period_month,
       period_year: run.period_year,
       status: 'approved',
+      // Grandfathered, not approved_at: these runs have no R-035 plan, so a real approval time would claim one
+      // that assertPayRunApproved / readApprovedPlan then refuse. Grandfathered rows are final for every reader.
+      approval_grandfathered_at: new Date(`${run.run_date}T00:00:00Z`).toISOString(),
       run_date: run.run_date,
       total_gross: Math.round(totalGross * 100) / 100,
       total_taxable: Math.round(totalGross * 100) / 100,

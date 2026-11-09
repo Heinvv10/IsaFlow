@@ -1,0 +1,46 @@
+{
+  "id": "eti-min-wage-exactly-at-minimum-4606-40",
+  "source": "sars-guide:SARS ETI page, \"Employment Tax Incentive (ETI)\" (table from 1 April 2025; \"grossed up to 160 hours ... grossed down in the same ratio\"), fetched 2026-11-08; ETI Act s4(1)(b)(ii) as amended from 1 April 2025; National Minimum Wage R28.79 an ordinary hour from 1 March 2025 (gov.za media statement 5 Feb 2025)",
+  "sourceRef": "https://www.sars.gov.za/types-of-tax/pay-as-you-earn/employment-tax-incentive-eti/",
+  "notes": "June 2025, employee aged 24 in month 4, 160 ordinary hours, R4 606.40 = 160 x R28.79: exactly the national minimum wage, so the employee qualifies and ETI is the flat R1 500 (R2 500-R5 499.99 band). The calculator gives the same today (no minimum-wage test), so this passes; it is the upper edge of the pair with eti-min-wage-1c-below-4606-39 and guards ET against a \"<=\" mutation. UIF 46.06, SDL 46.06, net 4 560.34. The floor is the employer's applicable minimum (a wage regulating measure, else the National Minimum Wage); the NMW R28.79 is assumed here because no sectoral measure is recorded. ET must compare in whole cents (4 606.40 vs 4 606.39), not in floating-point rand.",
+  "input": {
+    "period": {
+      "year": 2025,
+      "month": 6
+    },
+    "taxYear": 2026,
+    "employee": {
+      "dateOfBirth": "2001-01-01",
+      "startDate": "2025-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4606.4,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "unmodelled": {
+      "monthlyHours": 160,
+      "ordinaryHoursWage": 4606.4
+    }
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 46.06,
+    "uifEmployer": 46.06,
+    "sdl": 46.06,
+    "eti": 1500,
+    "net": 4560.34
+  }
+}

@@ -1,7 +1,7 @@
 /**
  * A payslip's year to date (wave 4 PS): the employee's stored lines on the runs of
  * the same PAYE tax year (1 March to February, `payeTaxYearOf`), up to and including
- * this run's period, that are FINAL by the same test the slip uses (`isPayRunFinal`),
+ * this run's period, that are FINAL by the same test the slip uses (`payslipFinal`),
  * plus this run's own line. A DRAFT slip's year to date therefore includes its own
  * draft figures, under the slip's DRAFT mark.
  *
@@ -11,7 +11,6 @@
  */
 import { sql } from '@/lib/neon';
 import { PAYE_TAX_YEAR_START_MONTH, payeTaxYearOf } from '@/modules/accounting/utils/payeTaxYear';
-import { isPayRunFinal } from './payslipFinal';
 
 export interface PayslipYearToDate {
   grossPay: number;
@@ -29,6 +28,7 @@ interface YtdRow {
   paye: string | number;
   uif_employee: string | number;
   net_pay: string | number;
+  final: boolean;
 }
 
 const ZERO: PayslipYearToDate = { grossPay: 0, taxableIncome: 0, paye: 0, uifEmployee: 0, netPay: 0 };
@@ -57,7 +57,8 @@ export async function payslipYearToDate(
   // (23505). Drop the constraint and this bound must name the run too.
   const rows = (await sql`
     SELECT prl.run_id::text AS run_id, prl.employee_id::text AS employee_id,
-           prl.gross_pay, prl.taxable_income, prl.paye, prl.uif_employee, prl.net_pay
+           prl.gross_pay, prl.taxable_income, prl.paye, prl.uif_employee, prl.net_pay,
+           (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS final
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
      WHERE prh.company_id = ${companyId}::uuid
@@ -67,13 +68,9 @@ export async function payslipYearToDate(
      ORDER BY prh.period_year, prh.period_month, prl.run_id
   `) as YtdRow[];
 
-  const finalRuns = new Map<string, boolean>([[run.id, true]]); // this slip's own line always counts
-  for (const runId of new Set(rows.map((r) => r.run_id))) {
-    if (!finalRuns.has(runId)) finalRuns.set(runId, await isPayRunFinal(companyId, runId));
-  }
   const totals = new Map<string, PayslipYearToDate>(employeeIds.map((id) => [id, ZERO]));
   for (const row of rows) {
-    if (finalRuns.get(row.run_id) !== true) continue;
+    if (row.run_id !== run.id && row.final !== true) continue; // this slip's own line always counts
     totals.set(row.employee_id, add(totals.get(row.employee_id) ?? ZERO, row));
   }
   return totals;

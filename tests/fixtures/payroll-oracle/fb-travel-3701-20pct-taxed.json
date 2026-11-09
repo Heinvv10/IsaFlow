@@ -1,0 +1,51 @@
+{
+  "id": "fb-travel-3701-20pct-taxed",
+  "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 5 (travelling allowance: only 20% where the employer is satisfied at least 80% of use is business)",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf ; SARS e@syFile Employer Reconciliation BRS (SARS_PAYE_BRS V25.3.0, Jun-26)",
+  "notes": "As fb-travel-3701-80pct-taxed, but the employer is satisfied that at least 80% of the vehicle use is business: only 20% = R1 000 of the R5 000 allowance is remuneration (G21 p. 5). Taxable 31 000; x12 = 372 000; tax = 44 118 + 26% x (372 000 - 245 100) = 77 112; less 17 820 = 59 292; /12 = 4941.00. The calculator taxes the whole allowance.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 1000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 30000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "3701",
+        "name": "Travel allowance",
+        "type": "earning",
+        "amount": 5000,
+        "taxable": true,
+        "uif": false,
+        "sdl": false
+      }
+    ],
+    "unmodelled": {
+      "travelBusinessUseAtLeast80Pct": true
+    }
+  },
+  "expected": {
+    "paye": 4941.0,
+    "uifEmployee": 177.12,
+    "uifEmployer": 177.12
+  }
+}

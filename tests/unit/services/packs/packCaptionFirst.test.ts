@@ -18,7 +18,9 @@ import { input, type Shape } from './fixtures/page6Grid';
 
 const SHAPES: Array<[string, Shape]> = [
   ['net-debit revenue, no prior, R-demo scale', { tr: 'demo', budget: true, prior: false, negative: true, loss: false, k: 1, plug: 0.05, sg: [-1, 1, -1, 1] }],
-  ['ordinary revenue at R1m, prior and budget', { tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 1000, plug: 0.2, sg: [-1, 1, -1, -1] }],
+  // k=1,000 kept its columns only because the table was modelled 4.4mm short of the paper's (it printed 3.2mm past
+  // its foot); at its exact height the columns go there, and k=30 is where the caption still pays for them.
+  ['ordinary revenue at R30k, prior and budget', { tr: 'demo', budget: true, prior: true, negative: false, loss: false, k: 30, plug: 0.2, sg: [-1, 1, -1, 1] }],
 ];
 
 function p6(shape: Shape): PackPage {

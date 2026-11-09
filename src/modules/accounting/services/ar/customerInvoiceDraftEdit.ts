@@ -36,24 +36,20 @@ import { customerFnoId, deriveRevenueDimensions } from '../gl/dimensions/dimensi
 import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { isDimensionRefusal, type DimensionIds } from '../gl/dimensions/dimensionTypes';
+import { draftEditDueDate } from './customerInvoiceDraftDueDate';
+import type { CustomerInvoiceDraftEditResult } from './customerInvoiceDraftEditResult';
 
 type Row = Record<string, unknown>;
 const idOrNull = (v: unknown): string | null => (v == null ? null : String(v));
 
 export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
-
-export type CustomerInvoiceDraftEditResult =
-  | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' }
-  | { kind: 'bad_line'; message: string } | { kind: 'wip_link_refused'; message: string; code: string } | { kind: 'stale_view' }
-  | { kind: 'bad_amount'; message: string }
-  | { kind: 'currency_refused'; message: string }
-  | { kind: 'bad_dimensions'; message: string };
+export type { CustomerInvoiceDraftEditResult };
 
 export async function editDraftCustomerInvoice(
   companyId: string, editedBy: string, edit: CustomerInvoiceDraftEdit,
 ): Promise<CustomerInvoiceDraftEditResult> {
   const {
-    id, notes, internalNotes, dueDate,
+    id, notes, internalNotes,
     clientId, invoiceDate, billingPeriodStart, billingPeriodEnd,
     taxRate, currencyCode, exchangeRate, items, projectId,
   } = edit;
@@ -72,6 +68,7 @@ export async function editDraftCustomerInvoice(
   return withTransaction(async (tx) => {
     const ownedRows = (await tx`
       SELECT status, currency_code, exchange_rate, tax_rate, total_amount, project_id, COALESCE(client_id, customer_id) AS customer_id,
+             to_char(invoice_date, 'YYYY-MM-DD') AS invoice_date, to_char(due_date, 'YYYY-MM-DD') AS due_date, due_date_source,
              approval_document_digest(company_id, 'customer_invoice', id) AS digest
         FROM customer_invoices
        WHERE id = ${id}::UUID AND company_id = ${companyId}
@@ -225,13 +222,15 @@ export async function editDraftCustomerInvoice(
       return { kind: 'bad_amount' as const, message: 'The invoice total is too large' };
     }
 
+    // Part A: a terms-sourced due date follows a moved invoice date or customer (read under the FOR UPDATE above).
+    const due = await draftEditDueDate(companyId, ownedRows[0]!, edit);
     await tx`
       UPDATE customer_invoices
          SET notes = COALESCE(${notes ?? null}, notes),
              internal_notes = COALESCE(${internalNotes ?? null}, internal_notes),
-             due_date = COALESCE(${dueDate ?? null}, due_date),
-             due_date_source = CASE WHEN ${dueDate ?? null}::DATE IS DISTINCT FROM due_date AND ${dueDate ?? null}::DATE IS NOT NULL
-                                    THEN 'manual' ELSE due_date_source END, -- 962: a moved due date is hand-set
+             due_date = COALESCE(${due.dueDate}, due_date),
+             due_date_source = COALESCE(${due.source}, CASE WHEN ${due.dueDate}::DATE IS DISTINCT FROM due_date AND ${due.dueDate}::DATE IS NOT NULL
+                                    THEN 'manual' ELSE due_date_source END), -- 962: a moved due date is hand-set
              customer_id = COALESCE(${clientId ?? null}::UUID, customer_id),
              client_id = COALESCE(${clientId ?? null}::UUID, client_id),
              invoice_date = COALESCE(${invoiceDate ?? null}, invoice_date),
