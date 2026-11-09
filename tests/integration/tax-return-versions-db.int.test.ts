@@ -80,14 +80,15 @@ describeIfDb('tax_return_versions rules (migration 969)', () => {
     if (b) await dropReturnFixture(b);
   }, 120000);
 
-  it('app_user may insert its own company\'s version, and may not set status, update or delete', async () => {
+  it('app_user may insert its own company\'s version, and may not set status on insert, update a recorded column or delete', async () => {
     const lock = await lockFor(a);
     await asAppUser(a, async (c) => {
       const vals = `($1, 'VAT201', '${P.start}', '${P.end}', 1, '{}', now(), $2`;
       expect(await codeOf(c, `${insertSql(', vat_period_lock_id')} ${vals}, $3)`, [a.fx.companyId, a.admin.userId, lock])).toBe('ok');
       expect(await codeOf(c, `${insertSql(', vat_period_lock_id, status')} ${vals}, $3, 'filed')`,
         [a.fx.companyId, a.admin.userId, lock])).toBe('42501'); // status is not a column app_user may write
-      expect(await codeOf(c, `UPDATE tax_return_versions SET status = 'superseded'`)).toBe('42501');
+      expect(await codeOf(c, `UPDATE tax_return_versions SET figures = '{}'`)).toBe('42501'); // recorded columns have no UPDATE grant (971 grants the eight filing and amend columns)
+      expect(await codeOf(c, `UPDATE tax_return_versions SET status = 'superseded'`)).toBe('23514'); // granted, but the trigger wants the amend stamps
       expect(await codeOf(c, `DELETE FROM tax_return_versions`)).toBe('42501');
     });
   });

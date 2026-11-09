@@ -28,6 +28,7 @@ import { log } from '@/lib/logger';
 import { takeVatLockExclusive } from '../gl/journalVatLockGuard';
 import { VatPeriodLockRefusal, assertLockablePeriod } from './vatPeriodLockBounds';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertLockNotInLiveVersion } from '@/modules/accounting/services/returns/liveVersionGuard';
 import { scheduleAutoSnapshot } from '@/modules/accounting/services/audit/autoSnapshotQueue';
 
 export { VatPeriodLockRefusal } from './vatPeriodLockBounds';
@@ -243,6 +244,8 @@ export async function unlockVatPeriod(
   if (rows[0].unlocked_at != null) {
     throw new VatPeriodUnlockRefusal('This VAT period lock is already unlocked.');
   }
+  // A live return version names this lock: amend the return instead. Judged before any write.
+  await assertLockNotInLiveVersion(companyId, lockId);
 
   const updated = (await sql`
     UPDATE vat_period_locks

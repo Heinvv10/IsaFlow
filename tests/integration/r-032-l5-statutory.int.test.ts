@@ -22,9 +22,11 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const fx = loginAsFixture(pool, 'R032 L5 SARS');
 const SARS = 'http://sars-efiling.r032.invalid';
 
+let drafts = 0;
 async function draft(formType: 'VAT201' | 'EMP201'): Promise<string> {
+  // A different period start per draft: only one open draft may exist per company, form and period (migration 971).
   const { rows } = await pool.query(`INSERT INTO sars_submissions(company_id,form_type,period_start,period_end,submitted_by)
-    VALUES($1,$2,'2026-07-01','2026-08-31',$3) RETURNING id`, [fx.company, formType, fx.target]);
+    VALUES($1,$2,'2026-07-01'::date + $4::int,'2026-08-31',$3) RETURNING id`, [fx.company, formType, fx.target, drafts++]);
   return rows[0].id as string;
 }
 

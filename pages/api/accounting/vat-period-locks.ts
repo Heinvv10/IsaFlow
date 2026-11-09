@@ -34,6 +34,7 @@ import { UUID } from '@/lib/schemas/common';
 import {
   VatPeriodLockRefusal, VatPeriodUnlockRefusal, getVatPeriodLock, listVatPeriodLocks, lockVatPeriod, unlockVatPeriod,
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
+import { VatPeriodAmendRequired } from '@/modules/accounting/services/returns/liveVersionGuard';
 import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
 import {
   assertVatGateClear, VatGateBlockedError, VatGateOverrideForbiddenError,
@@ -121,6 +122,8 @@ async function unlock(req: NextApiRequest, res: NextApiResponse, body: UnlockBod
     log.info('VAT period unlock via API', { companyId, lockId: unlocked.id }, 'accounting-api');
     return apiResponse.success(res, { lock: unlocked });
   } catch (err) {
+    // A live return version names the lock: 409, amend the return. Refused before any write.
+    if (err instanceof VatPeriodAmendRequired) return apiResponse.conflict(res, err.message);
     // Refused before any write: blank reason, not this company's lock, or already unlocked.
     if (err instanceof VatPeriodUnlockRefusal) return apiResponse.badRequest(res, err.message);
     if (respondIfLockTimeout(res, err)) return;

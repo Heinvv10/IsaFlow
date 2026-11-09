@@ -91,6 +91,7 @@ async function withVersionsMutable(pool: Pool, fn: (c: PoolClient) => Promise<un
 export async function dropReturnFixture(rf: ReturnFixture): Promise<void> {
   const c = rf.fx.companyId;
   await withVersionsMutable(rf.fx.pool, (cl) => cl.query('DELETE FROM tax_return_versions WHERE company_id = $1', [c]));
+  await sql`DELETE FROM sars_submissions WHERE company_id = ${c}::UUID`; // after the versions that name them
   await sql`DELETE FROM vat_returns WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM vat_gate_overrides WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM vat_period_locks WHERE company_id = ${c}::UUID`;

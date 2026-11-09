@@ -52,6 +52,7 @@ function mapSubmissionRow(row: DbRow): SARSSubmission {
 // Submissions CRUD
 // ---------------------------------------------------------------------------
 
+/** Saves the company's open draft for the period: updates it when one exists, inserts it otherwise. */
 export async function saveDraftSubmission(
   companyId: string,
   formType: string,
@@ -65,6 +66,10 @@ export async function saveDraftSubmission(
   const rows = (await sql`
     INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)
     VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})
+    -- One open draft per company, form and period (migration 971): a second save updates it. A period already
+    -- filed is not refused; a correction is a new submission.
+    ON CONFLICT (company_id, form_type, period_start, period_end) WHERE status = 'draft'
+    DO UPDATE SET form_data = EXCLUDED.form_data, submitted_by = EXCLUDED.submitted_by, updated_at = NOW()
     RETURNING *
   `) as DbRow[];
 
