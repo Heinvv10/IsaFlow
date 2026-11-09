@@ -6,6 +6,7 @@
  */
 import { SignJWT } from 'jose';
 import { randomUUID } from 'crypto';
+import type { Pool, PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { request, response } from '../mfa-impersonation-postgres.helpers';
 import { dropFixture, seedFixture, type Fixture } from './l1FifoFixture';
@@ -67,19 +68,29 @@ export async function count(table: 'tax_return_versions' | 'vat_period_locks' | 
   return Number((rows as Row[])[0]!.n);
 }
 
-/** Runs `fn` with the immutability trigger off (the table refuses every DELETE and recorded-figure UPDATE), then back on. */
-export async function withVersionsMutable<T>(fn: () => Promise<T>): Promise<T> {
-  await sql`ALTER TABLE tax_return_versions DISABLE TRIGGER trg_tax_return_versions_immutable`;
+/**
+ * Teardown only: DISABLE TRIGGER, `fn`, ENABLE ALWAYS in ONE transaction on one client, so no other session ever
+ * sees the immutability trigger off (the table refuses every DELETE and recorded-figure UPDATE).
+ */
+async function withVersionsMutable(pool: Pool, fn: (c: PoolClient) => Promise<unknown>): Promise<void> {
+  const c = await pool.connect();
   try {
-    return await fn();
+    await c.query('BEGIN');
+    await c.query('ALTER TABLE tax_return_versions DISABLE TRIGGER trg_tax_return_versions_immutable');
+    await fn(c);
+    await c.query('ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_immutable');
+    await c.query('COMMIT');
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => undefined);
+    throw err;
   } finally {
-    await sql`ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_immutable`;
+    c.release();
   }
 }
 
 export async function dropReturnFixture(rf: ReturnFixture): Promise<void> {
   const c = rf.fx.companyId;
-  await withVersionsMutable(() => sql`DELETE FROM tax_return_versions WHERE company_id = ${c}::UUID`);
+  await withVersionsMutable(rf.fx.pool, (cl) => cl.query('DELETE FROM tax_return_versions WHERE company_id = $1', [c]));
   await sql`DELETE FROM vat_returns WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM vat_gate_overrides WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM vat_period_locks WHERE company_id = ${c}::UUID`;

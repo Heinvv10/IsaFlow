@@ -8,7 +8,7 @@ import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { seedInvoice } from './helpers/l1FifoFixture';
 import {
-  callRoute, count, dropReturnFixture, loginAsToken, seedReturnFixture, withVersionsMutable, type ReturnFixture,
+  callRoute, count, dropReturnFixture, loginAsToken, seedReturnFixture, type ReturnFixture,
 } from './helpers/returnVersionsFixture';
 import finalise from '../../pages/api/accounting/sars/returns/[form]/finalise';
 import versions from '../../pages/api/accounting/sars/returns/[form]/versions';
@@ -179,15 +179,22 @@ describeIfDb('VAT201 finalise, against a real ledger', () => {
     expect(locks[0]!.n).toBe(1);
   });
 
-  it('drift is positive when the recorded figures or boxes no longer match the ledger', async () => {
-    // The table refuses this UPDATE (immutability trigger); lift it only to fake a ledger that moved.
-    await withVersionsMutable(() => sql`UPDATE tax_return_versions SET figures = jsonb_set(jsonb_set(figures, '{outputTax}', '50'),
-      '{sarsFields}', '[{"box":"1"}]'::jsonb)
-      WHERE company_id = ${c()}::UUID AND period_start = ${CLEAN.periodStart}::DATE`);
-    const r = await list(c(), rf.admin.token, CLEAN);
-    const v = (r.body as { data: { versions: { drift: { drifted: boolean; fields: { name: string }[]; changed: string[] } }[] } }).data.versions[0]!;
+  it('drift is positive when the ledger moves after the return was finalised (output tax and the boxes)', async () => {
+    const P = { periodStart: '2025-12-01', periodEnd: '2026-01-31' };
+    expect((await post(rf.admin.token, P)).status).toBe(200);
+    expect((await list(c(), rf.admin.token, P).then((r) => (r.body as { data: { versions: { drift: { drifted: boolean } }[] } }).data.versions[0]!.drift.drifted))).toBe(false);
+    // A posted VAT sale dated inside the period, written straight to the ledger as a late back-dated posting would be.
+    const acct = async (code: string) => String(((await sql`SELECT id FROM gl_accounts WHERE company_id = ${c()}::UUID AND account_code = ${code}`) as Row[])[0]!.id);
+    const je = String(((await sql`INSERT INTO gl_journal_entries (company_id, entry_date, description, status, created_by)
+      VALUES (${c()}::UUID, '2026-01-15', 'late sale', 'posted', ${rf.fx.userId}::UUID) RETURNING id`) as Row[])[0]!.id);
+    for (const [code, debit, credit] of [['1100', 115, 0], ['2120', 0, 15], ['6000', 0, 100]] as const) {
+      await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
+        VALUES (${c()}::UUID, ${je}::UUID, ${await acct(code)}::UUID, ${debit}, ${credit})`;
+    }
+    const r = await list(c(), rf.admin.token, P);
+    const v = (r.body as { data: { versions: { drift: { drifted: boolean; fields: { name: string; current: number }[]; changed: string[] } }[] } }).data.versions[0]!;
     expect(v.drift.drifted).toBe(true);
-    expect(v.drift.fields.map((f) => f.name)).toEqual(['outputTax']);
+    expect(v.drift.fields.find((f) => f.name === 'outputTax')?.current).toBe(15);
     expect(v.drift.changed).toEqual(['sarsFields']);
   });
 

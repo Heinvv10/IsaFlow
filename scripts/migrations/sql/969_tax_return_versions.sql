@@ -28,7 +28,7 @@
 -- would accept another tenant's id. The lock must be the active lock of the same period. A second
 -- trigger refuses every DELETE and any change to what was recorded.
 --
--- Rollback: DROP TABLE tax_return_versions; DROP FUNCTION public.tax_return_versions_same_company(); DROP FUNCTION public.tax_return_versions_immutable() (nothing references them).
+-- Rollback: DROP TABLE tax_return_versions; DROP FUNCTION public.tax_return_versions_same_company(); DROP FUNCTION public.tax_return_versions_immutable(); DROP FUNCTION public.tax_return_versions_no_truncate() (nothing references them).
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
@@ -95,12 +95,16 @@ BEGIN
     RAISE EXCEPTION 'amends_version_id % is not a version of this company''s same return', NEW.amends_version_id
       USING ERRCODE = '23514';
   END IF;
-  IF NEW.vat_period_lock_id IS NOT NULL AND NOT EXISTS (
-       SELECT 1 FROM vat_period_locks l
-        WHERE l.id = NEW.vat_period_lock_id AND l.company_id = NEW.company_id
-          AND l.period_start = NEW.period_start AND l.period_end = NEW.period_end AND l.unlocked_at IS NULL) THEN
-    RAISE EXCEPTION 'vat_period_lock_id % is not this company''s active lock for this period', NEW.vat_period_lock_id
-      USING ERRCODE = '23514';
+  IF NEW.vat_period_lock_id IS NOT NULL THEN
+    -- FOR SHARE: an unlock racing this insert waits for it, so the lock cannot be released between check and insert.
+    PERFORM 1 FROM vat_period_locks l
+      WHERE l.id = NEW.vat_period_lock_id AND l.company_id = NEW.company_id
+        AND l.period_start = NEW.period_start AND l.period_end = NEW.period_end AND l.unlocked_at IS NULL
+      FOR SHARE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'vat_period_lock_id % is not this company''s active lock for this period', NEW.vat_period_lock_id
+        USING ERRCODE = '23514';
+    END IF;
   END IF;
   IF NEW.sars_submission_id IS NOT NULL AND NOT EXISTS (
        SELECT 1 FROM sars_submissions s WHERE s.id = NEW.sars_submission_id AND s.company_id = NEW.company_id) THEN
@@ -116,7 +120,8 @@ ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_sa
 
 -- A finalised return is history: no DELETE ever, and no UPDATE of what was recorded (the figures, the period, the
 -- chain, the lock, who finalised). Only status, filed_*, amended_* and sars_submission_id may change, and L1b is
--- the one to grant and widen that. ENABLE ALWAYS so it binds every role, BYPASSRLS and the owner included.
+-- the one to grant and widen that. ENABLE ALWAYS, so it also binds BYPASSRLS roles and replication; the table's owner
+-- (and a superuser) can still DISABLE TRIGGER, which is why the privileges below are revoked too.
 CREATE OR REPLACE FUNCTION public.tax_return_versions_immutable()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -142,6 +147,22 @@ CREATE TRIGGER trg_tax_return_versions_immutable BEFORE UPDATE OR DELETE ON tax_
   FOR EACH ROW EXECUTE FUNCTION public.tax_return_versions_immutable();
 ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_immutable;
 
+-- TRUNCATE skips row triggers and RLS, and migration_admin and the owner keep the privilege: a statement trigger.
+CREATE OR REPLACE FUNCTION public.tax_return_versions_no_truncate()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  RAISE EXCEPTION 'tax_return_versions rows are history and are never truncated' USING ERRCODE = '23514';
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_tax_return_versions_no_truncate ON tax_return_versions;
+CREATE TRIGGER trg_tax_return_versions_no_truncate BEFORE TRUNCATE ON tax_return_versions
+  FOR EACH STATEMENT EXECUTE FUNCTION public.tax_return_versions_no_truncate();
+ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_no_truncate;
+
 ALTER TABLE tax_return_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tax_return_versions FORCE ROW LEVEL SECURITY;
 
@@ -152,9 +173,26 @@ CREATE POLICY tenant_isolation ON tax_return_versions FOR ALL TO app_user
 
 -- Migration 352's default privileges leave platform_admin (BYPASSRLS) with UPDATE and DELETE, and 348 gives
 -- migration_admin ALL: clear the writers, then give back only what each needs (952 does the same). A table-level
--- REVOKE also clears column grants. The owner and migration_admin keep theirs; the trigger below binds them too.
+-- REVOKE also clears column grants. The owner and migration_admin keep theirs (the triggers above refuse their writes).
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON tax_return_versions
   FROM app_user, app_service, platform_admin, PUBLIC;
+-- Whoever else holds them, seen or not (production's ACL is not read here): every grantee but the owner and
+-- migration_admin loses UPDATE, DELETE and TRUNCATE, as 952 does.
+DO $$
+DECLARE
+  v_grantee pg_catalog.text;
+BEGIN
+  FOR v_grantee IN
+    SELECT DISTINCT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.quote_ident(pg_catalog.pg_get_userbyid(a.grantee)) END
+    FROM pg_catalog.pg_class c
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
+    WHERE c.oid = 'public.tax_return_versions'::pg_catalog.regclass
+      AND a.privilege_type IN ('UPDATE', 'DELETE', 'TRUNCATE') AND a.grantee <> c.relowner
+      AND a.grantee IS DISTINCT FROM pg_catalog.to_regrole('migration_admin')::pg_catalog.oid
+  LOOP
+    EXECUTE pg_catalog.format('REVOKE UPDATE, DELETE, TRUNCATE ON public.tax_return_versions FROM %s CASCADE', v_grantee);
+  END LOOP;
+END $$;
 GRANT SELECT ON tax_return_versions TO app_user, platform_admin;
 GRANT INSERT (company_id, form_type, period_start, period_end, version_no, figures, posted_through,
   vat_period_lock_id, amends_version_id, finalised_by) ON tax_return_versions TO app_user;

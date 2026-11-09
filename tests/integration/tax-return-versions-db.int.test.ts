@@ -40,6 +40,21 @@ async function asAppUser<T>(f: ReturnFixture, fn: (c: PoolClient) => Promise<T>)
   }
 }
 
+/** 'ok', or `<code> <message>` of one statement: the message names the constraint or trigger that refused it. */
+async function failOf(c: PoolClient, text: string, params: unknown[] = []): Promise<string> {
+  await c.query('SAVEPOINT f');
+  try {
+    await c.query(text, params);
+    return 'ok';
+  } catch (err) {
+    await c.query('ROLLBACK TO SAVEPOINT f');
+    const e = err as { code: string; message: string };
+    return `${e.code} ${e.message}`;
+  } finally {
+    await c.query('RELEASE SAVEPOINT f').catch(() => undefined);
+  }
+}
+
 /** The error code of one statement, run in its own savepoint so the transaction survives it. */
 async function codeOf(c: PoolClient, text: string, params: unknown[] = []): Promise<string> {
   await c.query('SAVEPOINT s');
@@ -116,14 +131,19 @@ describeIfDb('tax_return_versions rules (migration 969)', () => {
     await c.query('BEGIN');
     try {
       const ins = (extra: string, vals: string, form = 'VAT201', no = 1, start = P.start) =>
-        codeOf(c, `${insertSql(extra)} ($1, '${form}', '${start}', '${P.end}', ${no}, '{}', now(), $2${vals})`,
+        failOf(c, `${insertSql(extra)} ($1, '${form}', '${start}', '${P.end}', ${no}, '{}', now(), $2${vals})`,
           [a.fx.companyId, a.admin.userId]);
-      expect(await ins('', '', 'VAT201', 2)).toBe('23514'); // version 2 with no amends_version_id
-      expect(await ins('', '')).toBe('23514'); // a VAT201 with no lock
-      expect(await ins(', vat_period_lock_id', `, '${ownLock}'`, 'EMP201')).toBe('23514'); // an EMP201 with a lock
-      expect(await ins(', vat_period_lock_id', `, '${ownLock}'`)).toBe('23505'); // a second live version of the period
-      expect(await codeOf(c, `${insertSql(', vat_period_lock_id, status')} ($1, 'VAT201', '2026-04-01', '2026-05-31', 1, '{}', now(), $2, $3, 'filed')`,
-        [a.fx.companyId, a.admin.userId, ownLock])).toBe('23514'); // filed with no filed_at / filed_by
+      expect(await ins('', '', 'VAT201', 2)).toMatch(/^23514 .*tax_return_versions_chain_ck/); // version 2 with no amends_version_id
+      expect(await ins('', '')).toMatch(/^23514 .*tax_return_versions_lock_ck/); // a VAT201 with no lock
+      expect(await ins(', vat_period_lock_id', `, '${ownLock}'`, 'EMP201')).toMatch(/^23514 .*tax_return_versions_lock_ck/); // an EMP201 with a lock
+      expect(await ins(', vat_period_lock_id', `, '${ownLock}'`)).toMatch(/^23505 .*uq_tax_return_versions_version/); // v1 again
+      // filed_ck alone: its own active lock for ITS period, so no trigger fires first
+      const fl = String(((await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax, net_vat,
+        posted_through, locked_by) VALUES (${a.fx.companyId}::UUID, '2026-08-01', '2026-09-30', 0, 0, 0, now(), ${a.admin.userId}) RETURNING id`) as Row[])[0]!.id);
+      expect(await failOf(c, `${insertSql(', vat_period_lock_id, status')} ($1, 'VAT201', '2026-08-01', '2026-09-30', 1, '{}', now(), $2, $3, 'filed')`,
+        [a.fx.companyId, a.admin.userId, fl])).toMatch(/^23514 .*tax_return_versions_filed_ck/); // filed with no filed_at / filed_by
+      expect(await failOf(c, `${insertSql(', vat_period_lock_id, status, filed_at, filed_by')} ($1, 'VAT201', '2026-08-01', '2026-09-30', 1, '{}', now(), $2, $3, 'filed', now(), 'u')`,
+        [a.fx.companyId, a.admin.userId, fl])).toBe('ok'); // the control: complete stamps pass
     } finally {
       await c.query('ROLLBACK');
       c.release();
@@ -141,10 +161,19 @@ describeIfDb('tax_return_versions rules (migration 969)', () => {
     const c = await a.fx.pool.connect();
     await c.query('BEGIN');
     try {
-      expect(await codeOf(c, `UPDATE tax_return_versions SET figures = '{"outputTax": 1}' WHERE company_id = $1`, [a.fx.companyId])).toBe('23514');
-      expect(await codeOf(c, `UPDATE tax_return_versions SET company_id = $1 WHERE company_id = $2`, [b.fx.companyId, a.fx.companyId])).toBe('23514');
-      expect(await codeOf(c, `UPDATE tax_return_versions SET finalised_by = 'someone else' WHERE company_id = $1`, [a.fx.companyId])).toBe('23514');
-      expect(await codeOf(c, `DELETE FROM tax_return_versions WHERE company_id = $1`, [a.fx.companyId])).toBe('23514');
+      const updates: Record<string, string> = {
+        company_id: `'${b.fx.companyId}'::UUID`, form_type: "'EMP201'", period_start: "'2026-01-01'::DATE",
+        period_end: "'2026-04-30'::DATE", version_no: '7', figures: `'{"outputTax": 1}'::JSONB`,
+        posted_through: "now() + interval '1 day'", vat_period_lock_id: 'NULL', amends_version_id: 'gen_random_uuid()',
+        finalised_by: "'someone else'", finalised_at: "now() + interval '1 day'",
+      };
+      for (const [col, value] of Object.entries(updates)) {
+        // Each recorded column alone, refused by the trigger (not by a CHECK that happens to fail too).
+        expect(await failOf(c, `UPDATE tax_return_versions SET ${col} = ${value} WHERE company_id = '${a.fx.companyId}'`), col)
+          .toMatch(/^23514 .*never changed/);
+      }
+      expect(await failOf(c, `DELETE FROM tax_return_versions WHERE company_id = $1`, [a.fx.companyId])).toMatch(/^23514 .*never deleted/);
+      expect(await failOf(c, `TRUNCATE tax_return_versions`)).toMatch(/^23514 .*never truncated/);
     } finally {
       await c.query('ROLLBACK');
       c.release();
@@ -166,19 +195,40 @@ describeIfDb('tax_return_versions rules (migration 969)', () => {
     await c.query('BEGIN');
     try {
       const ins = (start: string, end: string, no: number, lockId: string, amends: string | null, extra = '', vals = '') =>
-        codeOf(c, `${insertSql(', vat_period_lock_id, amends_version_id' + extra)} ($1, 'VAT201', $3, $4, ${no}, '{}', now(), $2, $5, $6${vals})`,
+        failOf(c, `${insertSql(', vat_period_lock_id, amends_version_id' + extra)} ($1, 'VAT201', $3, $4, ${no}, '{}', now(), $2, $5, $6${vals})`,
           [a.fx.companyId, a.admin.userId, start, end, lockId, amends]);
-      expect(await ins(P.start, P.end, 2, otherLock, v1)).toBe('23514'); // another period's lock
-      expect(await ins(other.start, other.end, 1, unlocked, null)).toBe('23514'); // an unlocked lock (and another period's)
-      expect(await ins('2026-06-01', '2026-07-31', 1, unlocked, null)).toBe('23514'); // the right period, but unlocked
-      expect(await ins(other.start, other.end, 2, otherLock, v1)).toBe('23514'); // amends a version of ANOTHER period, same company
-      expect(await ins(P.start, P.end, 2, lock, v1)).toBe('23505'); // v1 is still live: one live version per period
+      expect(await ins(P.start, P.end, 2, otherLock, v1)).toMatch(/^23514 .*active lock for this period/); // another period's lock
+      expect(await ins(other.start, other.end, 1, unlocked, null)).toMatch(/^23514 .*active lock for this period/); // an unlocked lock (and another period's)
+      expect(await ins('2026-06-01', '2026-07-31', 1, unlocked, null)).toMatch(/^23514 .*active lock for this period/); // the right period, but unlocked
+      expect(await ins(other.start, other.end, 2, otherLock, v1)).toMatch(/^23514 .*same return/); // amends a version of ANOTHER period, same company
+      expect(await ins(P.start, P.end, 2, lock, v1)).toMatch(/^23505 .*uq_tax_return_versions_one_current/); // v1 is still live: one live version per period
       // amend_ck: stamps on a row that is not superseded, and a blank reason on a superseded one
-      expect(await ins(other.start, other.end, 1, otherLock, null, ", amended_by, amend_reason, amended_at", ", 'u', 'why', now()")).toBe('23514');
-      expect(await ins(other.start, other.end, 1, otherLock, null, ", status, amended_by, amend_reason, amended_at", ", 'superseded', 'u', '  ', now()")).toBe('23514');
+      expect(await ins(other.start, other.end, 1, otherLock, null, ", amended_by, amend_reason, amended_at", ", 'u', 'why', now()")).toMatch(/^23514 .*tax_return_versions_amend_ck/);
+      expect(await ins(other.start, other.end, 1, otherLock, null, ", status, amended_by, amend_reason, amended_at", ", 'superseded', 'u', '  ', now()")).toMatch(/^23514 .*tax_return_versions_amend_ck/);
     } finally {
       await c.query('ROLLBACK');
       c.release();
+    }
+  });
+
+  it('an unlock cannot slip in between the lock check and the insert (the check holds the lock row FOR SHARE)', async () => {
+    const lockId = String(((await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax, net_vat,
+      posted_through, locked_by) VALUES (${a.fx.companyId}::UUID, '2025-10-01', '2025-11-30', 0, 0, 0, now(), ${a.admin.userId}) RETURNING id`) as Row[])[0]!.id);
+    const inserter = await a.fx.pool.connect();
+    const unlocker = await a.fx.pool.connect();
+    try {
+      await inserter.query('BEGIN');
+      await inserter.query(`${insertSql(', vat_period_lock_id')} ($1, 'VAT201', '2025-10-01', '2025-11-30', 1, '{}', now(), $2, $3)`,
+        [a.fx.companyId, a.admin.userId, lockId]);
+      await unlocker.query('BEGIN');
+      await unlocker.query(`SET LOCAL lock_timeout = '300ms'`);
+      const unlock = await failOf(unlocker, `UPDATE vat_period_locks SET unlocked_at = now(), unlocked_by = 'u', unlock_reason = 'race' WHERE id = $1`, [lockId]);
+      expect(unlock).toMatch(/^55P03/); // the unlock waits for the inserting transaction
+    } finally {
+      await inserter.query('ROLLBACK');
+      await unlocker.query('ROLLBACK');
+      inserter.release();
+      unlocker.release();
     }
   });
 });
