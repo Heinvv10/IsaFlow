@@ -37,6 +37,27 @@ describe('assertFiguresReadable', () => {
     expect(user).not.toContain('assertFiguresReadable');
   });
 
+  it('a table a label keeps from fitting is refused naming the label, not blaming the figures (#1235 round 9, blind L1)', () => {
+    // A grapheme of four code points or more (an emoji ZWJ sequence, a conjunct) is a floor of 348px: no figure size
+    // leaves room for it beside the demo's six columns. The figures alone fit.
+    for (const label of ['Pride donations \u{1F3F3}\uFE0F\u200D\u{1F308}', 'Marketing \u2764\uFE0F\u200D\u{1F525}', '\u0915\u094D\u0937\u0947\u0924\u094D\u0930\u0940\u092F \u0915\u093E\u0930\u094D\u092F\u093E\u0932\u092F']) {
+      for (const digits of [1, 6, 12]) {
+        const { doc, index } = withWidenedTable(demoWithoutBudget(), digits, label);
+        expect(withWidenedTable(demoWithoutBudget(), digits).table.figureFit!.fits).toBe(true);
+        expect(unreadableBlock(doc.pages[index]!, SCALE)).toEqual({ kind: 'table', label });
+        const { user, diagnostic } = packRefusalMessages(refusalOf(() => assertFiguresReadable(doc.pages, SCALE)));
+        expect(diagnostic).toContain(`row label "${label}" holds a character the print cannot break`);
+        expect(user).toContain(`row label, "${label}"`);
+        expect(user).toContain('Your figures are not the problem');
+        expect(user).not.toContain('too wide to print legibly');
+      }
+    }
+    // Figures that fit at no size are still the figures, a marked label or not.
+    const { doc, index } = withWidenedTable(demoWithoutBudget(), 40, 'Telecomq\u0301munications');
+    expect(unreadableBlock(doc.pages[index]!, SCALE)).toEqual({ kind: 'table' });
+    expect(packRefusalMessages(refusalOf(() => assertFiguresReadable(doc.pages, SCALE))).user).toContain('too wide to print legibly');
+  });
+
   it('refuses a KPI row the same way', () => {
     const { doc } = withWidenedKpi(demoWithoutBudget(), 40);
     const refusal = refusalOf(() => assertFiguresReadable(doc.pages, SCALE));

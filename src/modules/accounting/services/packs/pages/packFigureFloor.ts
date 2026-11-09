@@ -8,17 +8,23 @@
  */
 import type { MoneyScale } from '@/lib/format/money';
 import { PackRefusal } from '../packRefusal';
-import { kpiFit, tableFit } from './packFigureFit';
+import { kpiFit, refusingLabel, tableFit } from './packFigureFit';
 import type { PackPage } from './packPageModel';
 
 export {
   KPI_FIGURE_FLOOR_PT, KPI_FIGURE_MAX_PT, TABLE_FIGURE_FLOOR_PT, TABLE_FIGURE_MAX_PT,
 } from './packFigureFit';
 
-/** The first block of `page` whose figures fit at no size down to their floor. */
-export function unreadableBlock(page: Omit<PackPage, 'number'>, scale: MoneyScale): { kind: 'table' | 'kpi' } | null {
+/**
+ * The first block of `page` whose figures fit at no size down to their floor; for a table, the row label that keeps it
+ * from fitting, where it is one (`packFigureFit.refusingLabel`: a character the print cannot break, too wide).
+ */
+export function unreadableBlock(page: Omit<PackPage, 'number'>, scale: MoneyScale): { kind: 'table' | 'kpi'; label?: string } | null {
   for (const block of page.blocks) {
-    if (block.kind === 'table' && !tableFit(block.table, scale, page.orientation).fits) return { kind: 'table' };
+    if (block.kind === 'table' && !tableFit(block.table, scale, page.orientation).fits) {
+      const label = refusingLabel(block.table, scale, page.orientation);
+      return label === null ? { kind: 'table' } : { kind: 'table', label };
+    }
     if (block.kind === 'kpiTiles') {
       if (!kpiFit(block.tiles, scale, page.orientation).fits) return { kind: 'kpi' };
     }
@@ -31,6 +37,16 @@ export function assertFiguresReadable(pages: ReadonlyArray<Omit<PackPage, 'numbe
   for (const page of pages) {
     const found = unreadableBlock(page, scale);
     if (found === null) continue;
+    if (found.label !== undefined) {
+      throw new PackRefusal(
+        `assertFiguresReadable: "${page.navLabel}": a table whose row label "${found.label}" holds a character the print `
+          + 'cannot break across lines, wider than the room its figures leave; refusing to print the label over the figures.',
+        `The "${page.navLabel}" page of this pack has a row label, "${found.label}", holding a character (such as a `
+          + 'combined emoji or a stacked letter) too wide to sit beside the figures on one sheet: a character is never '
+          + 'split across lines. The pack has not been produced, rather than print that label over the figures. Your '
+          + 'figures are not the problem — please contact support with the period you asked for.',
+      );
+    }
     throw new PackRefusal(
       `assertFiguresReadable: "${page.navLabel}": a ${found.kind === 'kpi' ? 'KPI row' : 'table'} whose figures fit at no `
         + 'size down to the pack\'s smallest text (12pt KPI, 7.5pt table); refusing to print them past the sheet\'s edge.',

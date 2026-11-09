@@ -107,8 +107,8 @@ describe('the floor in the fit gate, the layout and the print', () => {
         const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });
         expect(table.figureFit!.fits, `${JSON.stringify(label)}, ${digits} digits`).toBe(false);
         expect(table.figureFit!.labelFloorPx).toBe(anywhereFloorPx([{ label, weight: 400 }]));
-        expect(unreadableBlock(doc.pages[index]!, SCALE)).toEqual({ kind: 'table' });
-        expect(() => assertFiguresReadable(doc.pages, SCALE)).toThrow(/assertFiguresReadable/);
+        expect(unreadableBlock(doc.pages[index]!, SCALE)).toEqual({ kind: 'table', label });
+        expect(() => assertFiguresReadable(doc.pages, SCALE)).toThrow(`row label "${label}" holds a character the print cannot break`);
       }
     }
   });

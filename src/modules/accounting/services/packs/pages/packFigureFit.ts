@@ -201,6 +201,18 @@ export function tableFit(table: PackTable, scale: MoneyScale, orientation: PageO
   return stamped({ px: floor, fits: false });
 }
 
+/**
+ * The label that keeps `table` from fitting, where one does: a label printed to break anywhere whose floor (a grapheme
+ * the print cannot break) is the widest, when the table would fit at the floor size without that floor. Null where the
+ * figures do not fit either way. The refusal names it (`packFigureFloor`), rather than blaming the figures.
+ */
+export function refusingLabel(table: PackTable, scale: MoneyScale, orientation: PageOrientation = 'portrait'): string | null {
+  const floorPx = tableLabelFloorPx(table);
+  if (floorPx === null || tableMinPx(table, scale, FIT_PX.table.floor, null) > measurePx(orientation)) return null;
+  if (tableMinPx(table, scale, FIT_PX.table.floor, floorPx) <= measurePx(orientation)) return null;
+  return table.rows.find((row) => anywhereFloorPx([{ label: row.label, weight: ROW_WEIGHT[row.role] }]) === floorPx)?.label ?? null;
+}
+
 export type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
 
 /** The words a KPI tile's delta line prints (the same call the tile makes): "up 12.0% prior period". */
