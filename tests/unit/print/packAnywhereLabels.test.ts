@@ -5,6 +5,8 @@
  *    without (blind L2: a mark on such a label was held nowhere): never a line more than the model, none past its block,
  *    the block the model's. The families a fallback face sets are the image test's alone: this Chromium sets them in the
  *    host's fallback fonts, which are not production's (#1235 merge queue, 3033bed38: GitHub's runner).
+ *  - A long run the faces set and then a marked grapheme, at every width from the floor to 214px (round 13: a fit bound
+ *    loosened by 3px passed every test): never a line more than the model.
  *  - Statement tables whose labels all carry marks, or every other one (blind M1: the label column fell to its
  *    padding): the columns are the model's, the lines and the height never short.
  */
@@ -17,7 +19,7 @@ import { launchPrintChromium } from './printChromium';
 import { openProbePage } from './measureWidths';
 import { measureTables } from './measureTables';
 import { ANYWHERE_LINES_OF, anywhereArgs, judgeAnywhere, type AnywhereCase } from './anywhereLines';
-import { anywhereFamilies } from './fixtures/anywhereFamilies';
+import { anywhereFamilies, footnoteSweep, TAIL_WIDTHS, tailSweep } from './fixtures/anywhereFamilies';
 import { inFaces } from './fixtures/breakPairsCensus';
 import { MARKED_TABLES, relabelledStatement } from './fixtures/markedTables';
 
@@ -27,28 +29,38 @@ afterAll(async () => { await browser?.close(); });
 
 const COLUMN_ERROR_PX = 0.1;
 
-describe('a label printed to break anywhere, in Chromium', () => {
-  it('the round-8 families the pack\'s faces set, with a footnote mark and without, at seven widths and three weights: never a line more than the model, none past its block', async () => {
-    // Only labels the pack's own faces set (the footnote-mark sweep, "q\u0301 n..."): how a fallback face sets a glyph is
-    // the host's (GitHub's runner sets Syriac's final SADHE wide enough to run 1.078px past its block; production never
-    // runs past it), so the fallback families are held to production's image, velo only
-    // (`printParity/packAnywhereLabelImage.test.ts`, the same families).
-    const texts = anywhereFamilies().map(printedText).filter(printsAnywhere).filter(inFaces);
-    expect(texts.length).toBeGreaterThan(150);
-    const cases: AnywhereCase[] = texts.flatMap((text) => [null, 1, 12].map((footnote) => ({ text, footnote })));
-    const page = await openProbePage(browser);
-    const wrong: string[] = [];
-    try {
-      for (const weight of [400, 500, 600] as const) {
-        for (const w of [18, 140, 200, 230, 260, 320, 400]) {
-          const lines = await page.evaluate(`(function () { ${ANYWHERE_LINES_OF}; return anywhereLines(document.body, ${anywhereArgs(cases, weight)}, ${w}, ${weight}); })()`) as string[];
-          wrong.push(...judgeAnywhere(cases, lines, w, weight));
-        }
+/** What is wrong with `cases` set in this Chromium at each of `widths` and every weight (`anywhereLines.judgeAnywhere`). */
+async function wrongIn(cases: readonly AnywhereCase[], widths: readonly number[]): Promise<string[]> {
+  const page = await openProbePage(browser);
+  const wrong: string[] = [];
+  try {
+    for (const weight of [400, 500, 600] as const) {
+      for (const w of widths) {
+        const lines = await page.evaluate(`(function () { ${ANYWHERE_LINES_OF}; return anywhereLines(document.body, ${anywhereArgs(cases, weight)}, ${w}, ${weight}); })()`) as string[];
+        wrong.push(...judgeAnywhere(cases, lines, w, weight));
       }
-    } finally {
-      await page.close();
     }
-    expect(wrong.slice(0, 20), `${wrong.length} of ${cases.length * 21}`).toEqual([]);
+  } finally {
+    await page.close();
+  }
+  return wrong.slice(0, 20);
+}
+
+describe('a label printed to break anywhere, in Chromium', () => {
+  it('the footnote-mark sweep (the families\' labels the pack\'s faces set), with a footnote mark and without, at seven widths and three weights: never a line more than the model, none past its block', async () => {
+    // Only labels the pack's own faces set: how a fallback face sets a glyph is the host's (GitHub's runner sets Syriac's
+    // final SADHE wide enough to run 1.078px past its block; production never runs past it), so the fallback families are
+    // held to production's image, velo only (`printParity/packAnywhereLabelImage.test.ts`, the same families).
+    const texts = anywhereFamilies().map(printedText).filter(printsAnywhere).filter(inFaces);
+    expect(texts, 'the families\' labels the faces set are the footnote-mark sweep, and only it').toEqual(footnoteSweep());
+    const cases: AnywhereCase[] = texts.flatMap((text) => [null, 1, 12].map((footnote) => ({ text, footnote })));
+    expect(await wrongIn(cases, [18, 140, 200, 230, 260, 320, 400])).toEqual([]);
+  }, 900_000);
+
+  it('a long run the faces set and then a marked grapheme, at every width from the floor to 214px and three weights: never a line more than the model', async () => {
+    const cases: AnywhereCase[] = tailSweep().map((text) => ({ text, footnote: null }));
+    expect(cases.every(({ text }) => inFaces(text) && printsAnywhere(text))).toBe(true);
+    expect(await wrongIn(cases, TAIL_WIDTHS)).toEqual([]);
   }, 900_000);
 });
 

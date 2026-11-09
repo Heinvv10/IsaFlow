@@ -76,9 +76,7 @@ export function anywhereFamilies(): string[] {
   out.add(`${cp(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467, 0x200d, 0x1f466, 0xfe0f)}`);
   out.add(`Telecommunications ${cp(0x1f441, 0xfe0f, 0x200d, 0x1f5e8, 0xfe0f)}`);
   for (const label of joiningFamilies()) out.add(label);
-  // A last line the ruler prices exactly, at every length: somewhere it ends so near the edge that a footnote mark after
-  // it takes a line of its own (blind round 8, L2: the mark's line was held nowhere).
-  for (let k = 1; k <= 80; k += 1) { out.add(`q\u0301 ${'n'.repeat(k)}`); out.add(`Rq\u0301 Telecommunications ${'m'.repeat(k)}`); }
+  for (const label of footnoteSweep()) out.add(label);
   return [...out];
 }
 
@@ -148,3 +146,22 @@ export function joiningSweep(): string[] {
   for (const a of letters) for (const b of letters) if (a >> 7 === b >> 7) out.push(times(cp(a, b), 4));
   return out;
 }
+
+/**
+ * A last line the ruler prices exactly, at every length: somewhere it ends so near the edge that a footnote mark after
+ * it takes a line of its own (blind round 8, L2: the mark's line was held nowhere). Every character the pack's faces set.
+ */
+export function footnoteSweep(): string[] {
+  return Array.from({ length: 80 }, (unused, i) => [`q\u0301 ${'n'.repeat(i + 1)}`, `Rq\u0301 Telecommunications ${'m'.repeat(i + 1)}`]).flat();
+}
+
+/**
+ * A long run the faces set and then a grapheme that carries a mark (#1235 round 13: a fit bound loosened by 3px passed
+ * every test). The run's lines are priced exactly as the print sets them, nothing over-priced before them, so a looser
+ * bound puts one more letter on a line than the print does and, over a few dozen lines, reads a line short. Set at every
+ * width from the floor (174px) to 214px, where some width leaves each letter's line within 3px of one more.
+ */
+export function tailSweep(): string[] {
+  return [150, 300, 600].flatMap((k) => ['n', 'm', 'e'].map((ch) => `${ch.repeat(k)} q\u0301`));
+}
+export const TAIL_WIDTHS: readonly number[] = Array.from({ length: 41 }, (unused, i) => 174 + i);

@@ -26,7 +26,7 @@ import { startGotenberg, type Gotenberg } from './gotenbergParity';
 import { inImage } from './inImage';
 import { paritySkip } from './paritySkip';
 import { markedCensus } from '../print/fixtures/everyBreakCensus';
-import { anywhereFamilies, joiningSweep } from '../print/fixtures/anywhereFamilies';
+import { anywhereFamilies, joiningSweep, TAIL_WIDTHS, tailSweep } from '../print/fixtures/anywhereFamilies';
 import { ANYWHERE_LINES_OF, anywhereArgs, judgeAnywhere, type AnywhereCase, type Weight } from '../print/anywhereLines';
 
 const unavailable = paritySkip();
@@ -83,6 +83,13 @@ describe.skipIf(unavailable !== null)(`labels printed to break anywhere, in prod
     for (const weight of [400, 500, 600] as const) for (const w of FAMILY_WIDTHS) wrong.push(...await check(cases, w, weight));
     expect(wrong.slice(0, 20), `${wrong.length} of ${cases.length * 36}`).toEqual([]);
   }, 3_600_000);
+
+  it('a long run the faces set and then a marked grapheme (round 13), at every width from the floor to 214px and three weights: never a line more, none past its block', async () => {
+    const cases = tailSweep().map((text) => ({ text, footnote: null }));
+    const wrong: string[] = [];
+    for (const weight of [400, 500, 600] as const) for (const w of TAIL_WIDTHS) wrong.push(...await check(cases, w, weight));
+    expect(wrong.slice(0, 20), `${wrong.length} of ${cases.length * TAIL_WIDTHS.length * 3}`).toEqual([]);
+  }, 1_800_000);
 
   it('every joining letter the faces lack, repeated and paired, alone and after a marked word (round 9), at three widths and three weights: never a line more, none past its block', async () => {
     const cases = printedMarked(joiningSweep()).map((text) => ({ text, footnote: null }));
