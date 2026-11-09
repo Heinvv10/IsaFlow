@@ -12,26 +12,42 @@ import employee from '../../pages/api/payroll/employees/[id]';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
-const hooks = vi.hoisted(() => ({ afterFirstRead: null as null | (() => Promise<void>), fired: 0 }));
+const hooks = vi.hoisted(() => ({ concurrentWriteInsideService: null as null | (() => Promise<void>), fired: 0 }));
 
-// The window is opened inside the service: updatePayrollEmployee opens its transaction through withTransaction, and the
-// hook runs at the start of that transaction, before the service's first locking statement (the company advisory lock
-// or the row's FOR UPDATE). Only the call made from updatePayrollEmployee counts (the stack names it); everything
-// else, the request's own transactions included, goes through untouched.
+// The window is opened inside the service, on whichever shape it has: the hook runs once, either right after the first
+// statement updatePayrollEmployee issues through sql (a read before the lock) or, if that comes first, at the start of its
+// withTransaction (before its first locking statement). Only calls made from updatePayrollEmployee count (the stack
+// names it); everything else, the request's own statements and transactions included, goes through untouched.
 vi.mock('@/lib/neon', async (orig) => {
   const real = await orig<Record<string, unknown>>();
+  const realSql = real.sql as ((s: TemplateStringsArray, ...v: unknown[]) => unknown) & Record<string, unknown>;
   const realTx = real.withTransaction as <T>(fn: (tx: unknown) => Promise<T>, ...rest: unknown[]) => Promise<T>;
+  const fromService = () => Boolean(new Error().stack?.includes('updatePayrollEmployee'));
+  const take = () => {
+    const hook = hooks.concurrentWriteInsideService;
+    hooks.concurrentWriteInsideService = null;
+    return hook;
+  };
+  const sql = (strings: TemplateStringsArray, ...values: unknown[]) => {
+    if (!hooks.concurrentWriteInsideService || !fromService()) return realSql(strings, ...values);
+    const hook = take()!;
+    return (async () => {
+      const rows = await realSql(strings, ...values);
+      hooks.fired += 1;
+      await hook();
+      return rows;
+    })();
+  };
   const withTransaction = <T,>(fn: (tx: unknown) => Promise<T>, ...rest: unknown[]): Promise<T> => {
-    const hook = hooks.afterFirstRead;
-    if (!hook || !new Error().stack?.includes('updatePayrollEmployee')) return realTx(fn, ...rest);
-    hooks.afterFirstRead = null;
+    if (!hooks.concurrentWriteInsideService || !fromService()) return realTx(fn, ...rest);
+    const hook = take()!;
     return realTx(async (tx) => {
       hooks.fired += 1;
       await hook();
       return fn(tx);
     }, ...rest);
   };
-  return { ...real, withTransaction };
+  return { ...real, sql: Object.assign(sql, realSql), withTransaction };
 });
 
 assertDisposable();
@@ -59,6 +75,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   hooks.fired = 0;
+  hooks.concurrentWriteInsideService = null;
   await pool.query("UPDATE payroll_employees SET pay_basis='monthly', hourly_rate=NULL, occupation=NULL, s18a_receipt_held=false WHERE id = $1", [mine]);
   await pool.query('DELETE FROM payroll_employee_history WHERE employee_id = $1', [mine]);
 });
@@ -84,7 +101,7 @@ const history = async (field: string) => (await pool.query<{ changed_by: string 
 
 describe('a concurrent owner change during a manager PATCH', () => {
   it("is logged once, under the owner's name; the manager logs only the occupation they changed", async () => {
-    hooks.afterFirstRead = ownersChange;
+    hooks.concurrentWriteInsideService = ownersChange;
     const out = await patch(manager, { occupation: 'Fitter' });
     expect(hooks.fired, 'the race window was opened').toBe(1);
     expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
@@ -95,7 +112,7 @@ describe('a concurrent owner change during a manager PATCH', () => {
   });
 
   it("a patch the owner's change made unreachable is a 400 and writes nothing, not a database 500", async () => {
-    hooks.afterFirstRead = ownersChange;
+    hooks.concurrentWriteInsideService = ownersChange;
     // Valid against the monthly row the route read; the owner then made the employee hourly, so clearing the rate is refused.
     const out = await patch(owner, { hourlyRate: null });
     expect(hooks.fired, 'the race window was opened').toBe(1);
@@ -105,9 +122,27 @@ describe('a concurrent owner change during a manager PATCH', () => {
   });
 });
 
+describe('a concurrent rate change during an owner PATCH of the same rate', () => {
+  it("records the change from the rate that was actually stored (150), not from the one the route read (100)", async () => {
+    await pool.query("UPDATE payroll_employees SET pay_basis='hourly', hourly_rate=100 WHERE id = $1", [mine]);
+    hooks.concurrentWriteInsideService = async () => {
+      await pool.query('UPDATE payroll_employees SET hourly_rate=150 WHERE id = $1', [mine]);
+      await pool.query(
+        `INSERT INTO payroll_employee_history (company_id, employee_id, field_name, old_value, new_value, effective_from, changed_by)
+         VALUES ($1, $2, 'hourly_rate', '100', '150', CURRENT_DATE, $3)`, [company, mine, owner]);
+    };
+    const out = await patch(owner, { hourlyRate: 200 });
+    expect(hooks.fired, 'the race window was opened').toBe(1);
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
+    const rows = (await pool.query<{ old_value: string; new_value: string }>(
+      "SELECT old_value, new_value FROM payroll_employee_history WHERE employee_id = $1 AND field_name = 'hourly_rate' ORDER BY new_value", [mine])).rows;
+    expect(rows).toEqual([{ old_value: '100', new_value: '150' }, { old_value: '150', new_value: '200' }]);
+  });
+});
+
 describe('a concurrent owner change during an owner PATCH that takes the company lock', () => {
   it('an hours change logs only the hours: the concurrent rate change is not logged a second time', async () => {
-    hooks.afterFirstRead = ownersChange;
+    hooks.concurrentWriteInsideService = ownersChange;
     const out = await patch(owner, { hoursPerWeek: 38 });
     expect(hooks.fired, 'the race window was opened').toBe(1);
     expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
@@ -121,14 +156,14 @@ describe('a concurrent s18A toggle during a PATCH', () => {
   const tick = async () => (await pool.query<{ t: boolean }>('SELECT s18a_receipt_held AS t FROM payroll_employees WHERE id = $1', [mine])).rows[0]!.t;
 
   it("a request for the value another writer just set leaves it set (nothing doubled)", async () => {
-    hooks.afterFirstRead = setTick(true);
+    hooks.concurrentWriteInsideService = setTick(true);
     expect((await patch(owner, { s18aReceiptHeld: true })).statusCode).toBe(200);
     expect(hooks.fired, 'the race window was opened').toBe(1);
     expect(await tick()).toBe(true);
   });
 
   it('a request to clear it, read as unchanged before the other writer set it, still clears it (nothing lost)', async () => {
-    hooks.afterFirstRead = setTick(true);
+    hooks.concurrentWriteInsideService = setTick(true);
     expect((await patch(owner, { s18aReceiptHeld: false })).statusCode).toBe(200);
     expect(hooks.fired, 'the race window was opened').toBe(1);
     expect(await tick()).toBe(false);
