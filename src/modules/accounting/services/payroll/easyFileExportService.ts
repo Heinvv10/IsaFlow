@@ -46,6 +46,7 @@ import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, 
 import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
+import { CONTRACTOR_NON_DEDUCTION_REASON } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
 import { retirementFieldLines, withDeductionTotal, type RetirementContributions } from './easyFileRetirementFields';
 
@@ -209,7 +210,8 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // (medical credits) above it. Lump sums are outside 3601/3605: a nil
   // directive beside taxable pay over the threshold is no reason 04 either.
   const it3a = emp.paye4102 <= 0 && paye4115 <= 0;
-  const reason = it3a ? nilTaxReason(emp) : null;
+  // A contractor's certificate with no tax is reason 03 (BRS V25.3.0 p. 109), at any amount: easyFileContractor.
+  const reason = it3a ? ((emp.independentContractor3616 ?? 0) > 0 ? CONTRACTOR_NON_DEDUCTION_REASON : nilTaxReason(emp)) : null;
   const medical = medicalFieldLines(emp);
   const retirement = retirementFieldLines(emp.retirementFund);
   const lines: (string | null)[] = [
