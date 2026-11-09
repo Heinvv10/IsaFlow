@@ -1,4 +1,6 @@
 import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
+import { isEmployerMedicalFringeCode } from './employerContributions';
+import { includedInPaye, TRAVEL_CODE, PAYE_INCLUSION_DEFAULT } from './fringeBenefits';
 import { notPayeDeductibleWarning } from './payrollLinePaye';
 import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode } from './retirementFund';
 import type { ComponentBreakdownItem, EmployeeComponent, ValidationResult } from './payrollTypes';
@@ -36,9 +38,8 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
   let sdlLeviable = 0;
   let totalDeductions = 0;
   // Medical scheme fees the employee pays through payroll: deductions coded
-  // 4005 (e@syFile 4005; BRS V25.3.0 p. 52-53, 101). Employer-paid medical aid
-  // (the 3810 fringe benefit, deemed paid by the employee) is not supported.
-  // They decide the 65+ additional medical expenses tax credit (payeEngine).
+  // 4005 (e@syFile 4005; BRS V25.3.0 p. 52-53, 101), plus the employer's contribution (the 3810 fringe
+  // benefit), which is deemed paid by the employee (G21 p. 12, employerContributions.ts). They decide the 65+ additional medical expenses tax credit (payeEngine).
   let medicalSchemeFees = 0;
   let loanInstalments = 0;
   // Employee retirement fund contributions: deductions coded 4001/4003/4006,
@@ -50,7 +51,9 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
 
-  for (const { component, amount, isNonCash, directive } of components) {
+  for (const { component, amount, isNonCash, directive, payeInclusionRate: given } of components) {
+    // A travel allowance is 80% remuneration unless a record says the business use is at least 80% (G21 p. 5).
+    const payeInclusionRate = given ?? (component.componentType === 'earning' && normaliseSarsCode(component.sarsSourceCode) === TRAVEL_CODE ? PAYE_INCLUSION_DEFAULT : undefined);
     // Only a retirement contribution can be paid outside payroll (CHECK on payroll_components, migration 948).
     const contribution = component.componentType === 'deduction' && isRetirementContributionCode(component.sarsSourceCode);
     const outsidePayroll = contribution && component.paidOutsidePayroll === true;
@@ -65,6 +68,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       // Counted toward the SDL-applicable remuneration below: the year to date rebuilds it from this (payrollSdlYearToDate).
       isSdlApplicable: component.componentType === 'earning' && component.isSdlApplicable,
       ...(isNonCash ? { isNonCash: true } : {}),
+      ...(payeInclusionRate !== undefined ? { payeInclusionRate } : {}),
       ...(directive ? { directive } : {}),
       // Marked on the line itself, so the certificate never re-reads today's components (payrollRetirementRecord).
       ...(contribution ? { retirementContribution: true as const } : {}),
@@ -76,6 +80,8 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       if (!isNonCash) grossPay += amount;
       if (component.isUifApplicable) uifLeviable += amount;
       if (component.isSdlApplicable) sdlLeviable += amount;
+      // The employer's medical contribution is deemed paid by the employee for the credits (G21 p. 12).
+      if (isEmployerMedicalFringeCode(component.sarsSourceCode)) medicalSchemeFees += amount;
       if (isEmployerFundBenefitCode(component.sarsSourceCode)) warnings.push(employerFundBenefitWarning(component.name, component.sarsSourceCode, amount));
       const treatment = payeTreatment(component.sarsSourceCode);
       // Any lump-sum earning, taxable flag or not: para 9(3) of the Fourth
@@ -94,7 +100,9 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       } else if (treatment === 'annual') {
         annualPayments += amount;
       } else {
-        periodicTaxable += amount;
+        // A travel allowance (3701) and a company vehicle (3802) are remuneration only in part: 80%, or 20% where
+        // the employer is satisfied at least 80% of the use is business (fringeBenefits.ts, G21 p. 5).
+        periodicTaxable += payeInclusionRate === undefined ? amount : includedInPaye(amount, payeInclusionRate);
       }
     } else if (component.componentType === 'deduction') {
       // Paid by the employee to the fund directly: off the tax, not off the pay (nor the 2175 journal line).

@@ -66,6 +66,8 @@ export interface EmployeeComponent {
   amount: number;
   /** Taxable remuneration reported on the payslip but not paid to the employee in cash. */
   isNonCash?: boolean;
+  /** The share of a taxable periodic earning that is remuneration for PAYE (0.8 or 0.2; fringeBenefits.ts). Absent = all of it. */
+  payeInclusionRate?: number;
   /** Set on a lump-sum (39xx) component paid under a directive; see payrollCalculator. */
   directive?: DirectiveFigures;
   /** The assignment's is_recurring, when read from payroll_employee_components (the termination base takes recurring rows only). */
@@ -166,6 +168,8 @@ export interface ComponentBreakdownItem {
   isSdlApplicable?: boolean;
   /** True when the earning is taxable remuneration but is not paid in cash. */
   isNonCash?: true;
+  /** As on EmployeeComponent: the PAYE inclusion the line was costed with, kept so a reader need not re-derive it. */
+  payeInclusionRate?: number;
   directive?: DirectiveFigures;
   /** Set on an employee retirement fund contribution (4001/4003/4006 deduction; PAYE 4c, migration 948). */
   retirementContribution?: true;

@@ -10,6 +10,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
 import type { EmployeeComponent, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
+import { withFringeBenefits } from './fringeInput';
 import { ORACLE_FIELDS, validateCase, type OracleField } from './validate';
 
 export { ORACLE_FIELDS, type OracleField };
@@ -133,13 +134,14 @@ export function runCase(c: OracleCase): Record<OracleField, number> {
     medicalAidDependantsCount: input.employee.medicalAidDependantsCount,
     s18aReceiptHeld: input.employee.s18aReceiptHeld,
   };
-  const components: EmployeeComponent[] = input.components.map((x, i) => ({
+  const base: EmployeeComponent[] = input.components.map((x, i) => ({
     component: {
       id: `${c.id}-${i}`, name: x.name, sarsSourceCode: x.code, componentType: x.type,
       isTaxable: x.taxable, isUifApplicable: x.uif, isSdlApplicable: x.sdl,
     },
     amount: x.amount,
   }));
+  const components = withFringeBenefits(base, input.unmodelled, input.period);
   const r = calculatePayrollLine({
     employee, components, period: input.period, taxYear: input.taxYear,
     annualPayrollEstimate: input.employerAnnualRemuneration,
