@@ -3,7 +3,7 @@
  * The side is chosen once, when the panel opens (`chooseSide`): down unless there is less room below than the
  * panel wants and more above. It is then kept, so typing in a search box cannot flip the panel under the pointer.
  * `placePanel` places the panel on that side; its max height is the room on that side (the list scrolls inside
- * it), so it never runs off the viewport, even where both sides are short.
+ * it), so it stays inside the viewport; only where both sides are shorter than a search box plus one option does it keep that minimum.
  */
 
 export type PanelSide = 'down' | 'up';
@@ -20,6 +20,8 @@ type Box = { top: number; bottom: number };
 
 const GAP = 4;
 const MARGIN = 8;
+/** Never smaller than a search box plus one option: a shorter panel is invisible, not usable. */
+const MIN_HEIGHT = 88;
 
 const roomBelow = (t: Box, vh: number): number => vh - t.bottom - GAP - MARGIN;
 const roomAbove = (t: Box): number => t.top - GAP - MARGIN;
@@ -31,6 +33,6 @@ export function chooseSide(trigger: Box, viewportHeight: number, wanted: number)
 }
 
 export function placePanel(trigger: Box, viewportHeight: number, side: PanelSide): PanelPlacement {
-  if (side === 'down') return { top: trigger.bottom + GAP, maxHeight: Math.max(roomBelow(trigger, viewportHeight), 0) };
-  return { bottom: viewportHeight - trigger.top + GAP, maxHeight: Math.max(roomAbove(trigger), 0) };
+  if (side === 'down') return { top: trigger.bottom + GAP, maxHeight: Math.max(roomBelow(trigger, viewportHeight), MIN_HEIGHT) };
+  return { bottom: viewportHeight - trigger.top + GAP, maxHeight: Math.max(roomAbove(trigger), MIN_HEIGHT) };
 }

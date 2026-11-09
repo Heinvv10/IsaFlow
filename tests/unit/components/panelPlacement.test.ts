@@ -22,8 +22,12 @@ describe('placePanel', () => {
     expect(p.top).toBeUndefined();
   });
 
-  it('never outgrows the room: a short viewport gets a short panel, never a negative one', () => {
+  it('a short viewport gets a short panel: the room on its side', () => {
     expect(placePanel({ top: 150, bottom: 182 }, 400, 'down').maxHeight).toBe(400 - 182 - 12);
-    expect(placePanel({ top: 0, bottom: 40 }, 40, 'down').maxHeight).toBe(0);
+  });
+
+  it('never invisible: with no room at all it keeps a search box plus one option (88 px)', () => {
+    expect(placePanel({ top: 0, bottom: 40 }, 40, 'down').maxHeight).toBe(88);
+    expect(placePanel({ top: 10, bottom: 40 }, 40, 'up').maxHeight).toBe(88);
   });
 });

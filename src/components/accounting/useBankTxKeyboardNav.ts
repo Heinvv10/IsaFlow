@@ -42,10 +42,6 @@ function isTypingTarget(el: Element | null): boolean {
  */
 function isDropdownKey(e: React.KeyboardEvent<HTMLElement>): boolean {
   if (!e.currentTarget.contains(e.target as Node)) return true;
-  // The Selection popover's options are plain buttons: Enter on one chooses it, it does not accept the row.
-  if ((e.target as Element).closest('[data-bank-dropdown]')) return true;
-  // Enter on the "Choose ..." toggle presses it (opens or closes the picker); it must not accept the row, which posts.
-  if (e.key === 'Enter' && (e.target as Element).closest('[data-bank-toggle]')) return true;
   const el = document.activeElement;
   return el?.getAttribute('role') === 'combobox' && el.getAttribute('aria-expanded') === 'true';
 }
@@ -89,6 +85,23 @@ export function useBankTxKeyboardNav({
 
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (transactions.length === 0 || isDropdownKey(e)) return;
+    // Row hotkeys belong to the row itself (or, for the arrow that enters the stream, the grid). A key pressed on
+    // anything inside a row (a button, checkbox, link, field) is that control's own: Enter on a Notes button must not
+    // accept whichever row happens to be focused, and X in a field is a letter. Only Escape pops out of a field.
+    const target = e.target as HTMLElement;
+    const rowIndex = rowRefs.current.indexOf(target as HTMLTableRowElement);
+    if (target !== e.currentTarget && rowIndex < 0) {
+      const own = target.closest('tr');
+      const ownIndex = own ? rowRefs.current.indexOf(own) : -1;
+      if (e.key === 'Escape' && isTypingTarget(document.activeElement) && ownIndex >= 0) {
+        e.preventDefault();
+        setFocusedIndex(ownIndex);
+        (document.activeElement as HTMLElement | null)?.blur();
+        focusRow(ownIndex);
+      }
+      return;
+    }
+    if (rowIndex >= 0 && rowIndex !== focusedIndex) return; // a row that is not the stream's current one
     if (focusedIndex === null) {
       // Nothing focused yet: only an arrow key enters the stream (focus row 0).
       // canAccept is passed false here purely because no row is selected — it is

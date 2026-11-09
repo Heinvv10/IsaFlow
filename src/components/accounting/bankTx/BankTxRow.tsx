@@ -127,8 +127,6 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
       <td className="py-1 px-2 text-[var(--ff-text-primary)]">
         {onOpenDetails ? (
           <button type="button" onClick={() => onOpenDetails(tx.id)} aria-label={`Details, ${label}`}
-            // Enter here opens the drawer. Bubbled to the grid, it would accept the row, which posts a journal.
-            onKeyDown={e => { if (e.key === 'Enter') e.stopPropagation(); }}
             className="block w-full text-left hover:underline">
             <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
           </button>

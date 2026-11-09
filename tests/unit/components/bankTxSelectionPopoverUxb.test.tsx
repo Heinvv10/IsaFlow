@@ -3,7 +3,7 @@
  * not reach the row-stream hotkeys (Enter there accepts the row, which posts a journal). Rows are 41 px comfortable
  * and 33 px compact: the cells are py-1 and the kit selects are sm (32 px) / xs (24 px).
  */
-import { afterEach, describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { BankTxTable } from '@/components/accounting/BankTxTable';
@@ -88,6 +88,55 @@ describe('Selection popover: focus', () => {
     option.focus();
     fireEvent.click(option);
     expect(document.activeElement).toBe(toggle);
+  });
+});
+
+describe('row hotkeys belong to the row itself', () => {
+  // Click row a (the stream's current row: suggested, can be accepted), then press keys on controls of row c.
+  const setup = () => {
+    const p = tableProps({ onOpenDetails: vi.fn() });
+    render(<BankTxTable {...p} />);
+    const rows = Array.from(document.querySelectorAll('tbody tr')) as HTMLElement[];
+    fireEvent.click(rows[0]!); // focusedIndex = row a
+    const rowC = rows.find(r => r.textContent?.includes('Client pay'))!;
+    return { p, rowC };
+  };
+  const controls: [string, (row: HTMLElement) => HTMLElement][] = [
+    ['Notes button', row => row.querySelector('button[aria-label^="Add note"], button[aria-label^="Note,"]') as HTMLElement],
+    ['row checkbox', row => row.querySelector('input[type="checkbox"]') as HTMLElement],
+    ['Choose toggle', row => row.querySelector('[data-bank-toggle]') as HTMLElement],
+    ['Details button', row => row.querySelector('button[aria-label^="Details,"]') as HTMLElement],
+  ];
+
+  it.each(controls)('Enter, X and S on the %s of another row act on no row', (_name, find) => {
+    const { p, rowC } = setup();
+    const el = find(rowC);
+    expect(el, 'the control exists').toBeTruthy();
+    el.focus();
+    for (const key of ['Enter', 'x', 's', 'e']) {
+      const notPrevented = fireEvent.keyDown(el, { key });
+      expect(notPrevented, `${key} is left to the control`).toBe(true);
+    }
+    expect(p.onAccept).not.toHaveBeenCalled();
+    expect(p.onExclude).not.toHaveBeenCalled();
+    expect(p.onSplit).not.toHaveBeenCalled();
+  });
+
+  it('on the row itself the hotkeys still work: Enter accepts, X excludes', () => {
+    const p = tableProps();
+    render(<BankTxTable {...p} />);
+    const rowA = document.querySelector('tbody tr') as HTMLElement;
+    fireEvent.click(rowA);
+    fireEvent.keyDown(rowA, { key: 'x' });
+    expect(p.onExclude).toHaveBeenCalledWith('a');
+    fireEvent.keyDown(rowA, { key: 'Enter' });
+    expect(p.onAccept).toHaveBeenCalledWith('a');
+  });
+
+  it('a row that is not the stream\'s current row ignores its own hotkeys', () => {
+    const { p, rowC } = setup();
+    fireEvent.keyDown(rowC, { key: 'Enter' });
+    expect(p.onAccept).not.toHaveBeenCalled();
   });
 });
 
