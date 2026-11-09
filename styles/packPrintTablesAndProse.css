@@ -18,6 +18,11 @@
  * allowed to wrap — a figure that wraps mid-number is a figure a reader has
  * to reassemble. */
 .pack-table td:first-child { font-family: var(--pack-font-sans); white-space: normal; }
+/* A row label holding a combining mark or a variation selector (`packPrintedText.carriesMarks`) may break between any
+ * two graphemes and adds nothing to its column's width: the fit model reads such a label by a plain fill of its
+ * graphemes, each mark-carrying one at an upper bound (`packAnywhereLabel.ts`), not by the pair table, which cannot say
+ * where Chromium breaks beside a mark. */
+.pack-table td:first-child .pack-label-anywhere { display: block; contain: inline-size; line-break: anywhere; overflow-wrap: anywhere; }
 .pack-table tbody tr.is-subtotal td { font-weight: 500; border-top: 1pt solid var(--pack-rule); }
 .pack-table tbody tr.is-total td { font-weight: 600; border-top: 1pt solid var(--pack-ink); }
 .pack-table tbody tr.is-grand-total td { font-weight: 600; border-top: 1pt solid var(--pack-ink); border-bottom: 3pt double var(--pack-ink); }

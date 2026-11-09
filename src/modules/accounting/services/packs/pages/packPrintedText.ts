@@ -26,6 +26,12 @@ export function printedText(text: string): string {
   return stripped.normalize('NFC');
 }
 
+/**
+ * Does `text` (as printed) hold a combining mark or a variation selector? Such a row label is printed to break between
+ * any two graphemes (`pack-label-anywhere`) and measured as such (`packAnywhereLabel.ts`).
+ */
+export const carriesMarks = (text: string): boolean => /\p{M}/u.test(text);
+
 const isPlain = (value: object): boolean => {
   const proto = Object.getPrototypeOf(value) as unknown;
   return proto === Object.prototype || proto === null;

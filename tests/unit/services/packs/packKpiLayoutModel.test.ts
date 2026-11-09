@@ -156,6 +156,7 @@ describe('a tile whose text the pack\'s faces do not set', () => {
     ['a Devanagari label', { label: 'परिचालन राजस्व' }],
     ['an emoji in a label', { label: 'Revenue 📈' }],
     ['a private-use character in a label (one the ruler once read as a slash)', { label: 'Net\uE044profit' }],
+    ['a combining mark the faces set (where Chromium breaks beside one is not modelled, #1235 round 7)', { label: 'Netq\u0301 profit' }],
     ['an Arabic delta basis', { delta: { ...tile.delta!, basis: 'الإيرادات التشغيلية' } }],
   ] as Array<[string, Partial<KpiTile>]>)('%s is refused: its fallback face\'s line box is taller than any the model charges', (_name, part) => {
     expect(() => kpiTileMm({ ...tile, ...part }, 150)).toThrow(PackRefusal);

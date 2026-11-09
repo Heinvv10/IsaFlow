@@ -19,6 +19,7 @@
  * wraps to its longest word) plus padding and gaps is no more than the measure. It is checked against Chromium
  * at every scale in `tests/unit/print/packNothingPassesTheEdge.test.ts`.
  */
+import { carriesMarks } from './packPrintedText';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import { collectReasons, noteMark } from '@/components/accounting/packs/primitives/notMeaningfulNotes';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
@@ -166,8 +167,9 @@ export function labelWidestPiecePx(label: string, footnote: number | null | unde
 
 /** The narrowest a row label can be set: its widest piece and marker (it wraps), its indent, its right padding. */
 function labelMinPx(table: PackTable): number {
+  // A label printed to break anywhere adds its indent and padding only (`packAnywhereLabel.ts`).
   return Math.max(0, ...table.rows.map((row) => row.level * INDENT_PX_PER_LEVEL
-    + labelWidestPiecePx(row.label, row.footnote, ROW_WEIGHT[row.role]) + CELL_SIDE_PX));
+    + (carriesMarks(row.label) ? 0 : labelWidestPiecePx(row.label, row.footnote, ROW_WEIGHT[row.role])) + CELL_SIDE_PX));
 }
 
 /** The total of the columns' min-content widths for a table whose figures are set at `fontPx`. */

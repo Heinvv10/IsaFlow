@@ -42,13 +42,13 @@ export function numericClass(code: number | null): number | null {
  * a word's clusters (null where a cluster has none that counts: a soft hyphen or zero-width space ends a number, as
  * in Chromium). Unicode 15.1's LB25 where it reads past the pair's neighbours (the pair table holds the rest):
  *  NU (SY|IS)* (CL|CP)? x (PO|PR);  (PO|PR) x (OP|HY)? IS? NU;  NU (SY|IS)* x NU.
- * Not between two Latin-1 characters (`latin1PairsExempt`; a marked one is ICU's, `packMarkedLatin1.ts`), and not for the code points production holds no number beside (left out of
+ * Not between two Latin-1 characters, and not for the code points production holds no number beside (left out of
  * `packNumericClassData.ts` when it was probed in the image).
  */
-export function heldByNumber(codes: ReadonlyArray<number | null>, i: number, latin1PairsExempt = true): boolean {
+export function heldByNumber(codes: ReadonlyArray<number | null>, i: number): boolean {
   // Two Latin-1 characters meet by Chromium's own table, pair by pair, which the pair table holds as it is: "$(.5",
   // "1.)%" and "$\u00A1.5" break where production breaks them ("\u20AC(.5" and "1.)\u2030" are held).
-  if (latin1PairsExempt && (codes[i] ?? 0x100) < 0x100 && (codes[i + 1] ?? 0x100) < 0x100) return false;
+  if ((codes[i] ?? 0x100) < 0x100 && (codes[i + 1] ?? 0x100) < 0x100) return false;
   const at = (k: number): number | null => (k < 0 || k >= codes.length ? null : numericClass(codes[k]!));
   const a = at(i);
   const b = at(i + 1);

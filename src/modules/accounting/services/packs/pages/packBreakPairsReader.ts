@@ -12,8 +12,7 @@ export interface PairTableData {
 }
 
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-/** `base64` as its bytes (no Buffer: the pack's modules run in the browser too). */
-export function bytesOf(base64: string): Uint8Array {
+function bytesOf(base64: string): Uint8Array {
   const clean = base64.replace(/=+$/, '');
   const out = new Uint8Array(Math.floor((clean.length * 6) / 8));
   let acc = 0;

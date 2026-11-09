@@ -270,7 +270,10 @@ export const fitMarginUnits = (exactPx: number, fontPx: number): number => FIT_N
 /**
  * Chromium's own float noise on ONE run's width (a min-content or max-content width a column is sized by), in units:
  * within 0.024 of a unit either way on the 630-case grid and 600 random strings (`packLineFit.test.ts`); a sixteenth.
- * The bounds `CHROMIUM_LEAST` and `CHROMIUM_MOST` take a column at count it.
+ * The bounds `CHROMIUM_LEAST` and `CHROMIUM_MOST` take a column at count it. NOT a bound on every run: production sets
+ * some a unit past their exact sum rounded up (#1235 round 7: "Bg\u00F1LkDLBQP\u00E0\u00E1mDQ\u00F1bm\u00F6" at 400 is
+ * 9065/64px against an exact 9063.936), so a width that must never be short is `NEVER_SHORT`'s, as the KPI share's is
+ * (`packKpiLayout.kpiColumnBoundsPx`, `printParity/packRunNoiseImage.test.ts`).
  */
 export const RUN_NOISE_UNITS = 1 / 16;
 

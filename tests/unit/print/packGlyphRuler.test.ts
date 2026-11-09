@@ -9,7 +9,8 @@ import type { Browser } from 'playwright';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
-import { AS_CHROMIUM_SETS, runPx, scriptRuns, type FaceWeight } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
+import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, runPx, scriptRuns, type FaceWeight } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
+import { runNoiseWords } from './fixtures/runNoiseWords';
 import { launchPrintChromium } from './printChromium';
 import { measure } from './measureWidths';
 import { labelWidestPiecePx } from '@/modules/accounting/services/packs/pages/packFigureFit';
@@ -158,3 +159,15 @@ it('splits a line of 100 000 brackets in linear time: a closer never searches pa
   expect(runs.join('')).toBe(hostile);
   expect(ms).toBeLessThan(500); // 20ms here; the unbounded search took 4 000ms
 });
+
+it('one run (#1235 round 7: 8,000 words of 6 to 19 letters, accented among them): the never-short width never under Chromium, the least never over', async () => {
+  const words = runNoiseWords();
+  const items = words.flatMap((text) => WEIGHTS.map((weight) => ({ text, fontPx: 12, weight })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'td' as const, ...it, html: `<span style="white-space:pre">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const never = textPx(it.text, 12, it.weight);
+    const least = textPx(it.text, 12, it.weight, false, CHROMIUM_LEAST);
+    return never < res[i]!.widthPx - 1e-9 || least > res[i]!.widthPx + 1e-9 ? [`${JSON.stringify(it.text)}/${it.weight}: never short ${never}, least ${least}, Chromium ${res[i]!.widthPx}`] : [];
+  });
+  expect(wrong.slice(0, 20), `${wrong.length} of ${items.length}`).toEqual([]);
+}, 600_000);

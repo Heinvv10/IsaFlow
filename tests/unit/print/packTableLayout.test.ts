@@ -21,8 +21,8 @@ import { demoWithoutBudget, withWidenedStatement, withWidenedTable } from '../se
 import { measure } from './measureWidths';
 import { measureTables } from './measureTables';
 import { atTheFloor } from './support/atTheFloor';
-import { printedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
-import { alike, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_SIX_LABELS, ROUND_THREE_LABELS } from './fixtures/breakPairsCensus';
+import { carriesMarks, printedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
+import { alike, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_SEVEN_LABELS, ROUND_SIX_LABELS, ROUND_THREE_LABELS } from './fixtures/breakPairsCensus';
 import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 
 let browser: Browser;
@@ -203,18 +203,17 @@ describe('labels #1235\'s round-3 reviews found short (a break the splitter miss
     const wrong: string[] = [];
     // A label the two Chromiums break differently (a word-opening en dash) is held in production's image instead
     // (`printParity/packBreakPairsImage.test.ts`).
-    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS].filter(([label]) => alike(label));
-    expect(labels.length).toBe(ROUND_THREE_LABELS.length + ROUND_FOUR_LABELS.length + ROUND_FIVE_LABELS.length + ROUND_SIX_LABELS.length - 3);
+    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS, ...ROUND_SEVEN_LABELS].filter(([label]) => alike(label));
+    expect(labels.length).toBe(ROUND_THREE_LABELS.length + ROUND_FOUR_LABELS.length + ROUND_FIVE_LABELS.length + ROUND_SIX_LABELS.length + ROUND_SEVEN_LABELS.length - 3);
     for (const [label, labelMarker] of labels) {
       for (const digits of [9, 12]) {
         const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });
         const real = (await measureTables(atTheFloor(doc), browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;
         const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
         const say = `${JSON.stringify(label)}${labelMarker ? '^1' : ''}, ${digits} digits`;
-        // A mark the ruler cannot compose is priced to be never under Chromium's (`packFallbackMarkData.ts`): the label
-        // column never narrower, the rest as Chromium sets them where no mark or fallback glyph is in the label.
-        if (/\p{M}/u.test(printedText(label)) && model.columnsPx[0]! < real.columnsPx[0]! - COLUMN_ERROR_PX) wrong.push(`${say}: label column model ${model.columnsPx[0]!.toFixed(3)} vs ${real.columnsPx[0]!.toFixed(3)}`);
-        if (!/[\u4E2D\p{Co}\p{M}]/u.test(printedText(label))) {
+        // A label holding a mark adds nothing to its column (`packAnywhereLabel.ts`): every column as Chromium sets it,
+        // but where a fallback glyph without a mark is in the label.
+        if (!/[\u4E2D\p{Co}]/u.test(printedText(label)) || carriesMarks(printedText(label))) {
           model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > COLUMN_ERROR_PX) wrong.push(`${say}: column ${c} model ${px.toFixed(3)} vs ${real.columnsPx[c]!.toFixed(3)}`); });
         }
         if (model.labelLines.some((l, r) => l < real.labelLines[r]!)) wrong.push(`${say}: lines ${model.labelLines} vs ${real.labelLines}`);

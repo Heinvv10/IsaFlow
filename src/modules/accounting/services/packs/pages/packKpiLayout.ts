@@ -21,7 +21,7 @@ import {
   deltaCuePx, deltaText, kpiColumnMinPx, kpiFit, KPI_GAP_PX, KPI_FIGURE_MAX_PT, labelMarkExactPx, MM_PX, type KpiTile,
 } from './packFigureFit';
 import { ptToPx, textExactPx } from './packFigureWidth';
-import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, CHROMIUM_MOST, clustersOf, fitUnitsPx, inFace } from './packGlyphRuler';
+import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, clustersOf, fitUnitsPx, inFace, NEVER_SHORT } from './packGlyphRuler';
 import { asShaped } from './packGlyphShaping';
 import { markedPieces } from './packLineBreaks';
 import type { LineMeasure } from './packLineWrap';
@@ -94,7 +94,7 @@ function tracks(mins: readonly number[], gapPx: number, orientation: PageOrienta
  * The width of each of the four columns, in pixels, two ways. `line`: the narrowest Chromium can make it, which lines
  * break in, so a line the model fits, Chromium fits: a column a figure or a word holds open at the narrowest Chromium can
  * set that (`CHROMIUM_LEAST`), a shared `1fr` column at the share left once every held-open column is the widest
- * Chromium can set it (`CHROMIUM_MOST`), floored to the unit. `spark`: the widest (each figure a unit off either way and
+ * Chromium can set it (its never-short width), floored to the unit. `spark`: the widest (each figure a unit off either way and
  * its one unit of slack taken back, the 8mm gaps floored to Chromium's unit), which a sparkline's height follows, so the
  * height is never short either.
  */
@@ -105,7 +105,8 @@ export function kpiColumnBoundsPx(tiles: readonly KpiTile[], scale: MoneyScale, 
   // Lines break in the narrowest each column can be: a column a figure (or a word) holds open at the narrowest Chromium
   // can set that, and a shared `1fr` column at the share left once every held-open column is the widest Chromium can set
   // it, floored to the unit (Chromium's grid sizes tracks in it).
-  const most = tracks(kpiColumnMinPx(tiles, scale, figurePx, CHROMIUM_MOST), floor64(KPI_GAP_PX), orientation);
+  // Never short, not `CHROMIUM_MOST`: production sets a run up to a unit past its exact sum rounded up (`RUN_NOISE_UNITS`).
+  const most = tracks(kpiColumnMinPx(tiles, scale, figurePx, NEVER_SHORT), floor64(KPI_GAP_PX), orientation);
   const least = kpiColumnMinPx(tiles, scale, figurePx, CHROMIUM_LEAST);
   const line = most.columns.map((c, i) => (most.frozen[i] ? least[i]! : floor64(most.share)));
   const wide = tracks(mins.map((m) => m - 2 / 64), floor64(KPI_GAP_PX), orientation);
@@ -162,7 +163,8 @@ const IN_FACE = new Set<string>();
 function inPackFaces(text: string): string {
   if (IN_FACE.has(text)) return text;
   // What Chromium sets as nothing out, a line or paragraph separator as a space (`packGlyphShaping.asShaped`).
-  const outside = clustersOf(asShaped(text)).find((cluster) => !inFace(cluster));
+  // A combining mark or selector too: where Chromium breaks beside one is not modelled here (`packAnywhereLabel.ts`).
+  const outside = clustersOf(asShaped(text)).find((cluster) => !inFace(cluster) || /\p{M}/u.test(cluster));
   if (outside !== undefined) {
     const code = Array.from(outside, (ch) => `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`).join(' ');
     throw new PackRefusal(

@@ -1,8 +1,11 @@
 /**
- * THE CENSUSES COMPARED ON EVERY BREAK, not only those between two of the pair table's characters (`breakPairsCensus.ts`
- * holds those): the variation selector 16 as the pack prints it, marks on ASCII characters, the stand-ins' other members
- * and the rules beside the table. Held in the print tests' Chromium (`packBreakPairs.test.ts`) and in production's image
- * (`printParity/packBreakPairsImage.test.ts`).
+ * THE CENSUSES BEYOND THE PAIR TABLE'S OWN (`breakPairsCensus.ts` holds those):
+ *  - the stand-ins' other members and the rules beside the table, compared on every break (`allDifferences`), in the
+ *    print tests' Chromium (`packBreakPairs.test.ts`) and in production's image (`printParity/packBreakPairsImage.test.ts`);
+ *  - labels holding a mark (the marked census), which are printed to break anywhere and held as line counts in
+ *    production (`printParity/packAnywhereLabelImage.test.ts`);
+ *  - the variation selector 16 as Unicode's emoji data says the pack should print it (`asPrinted`), the unit test's
+ *    reading of `packPrintedText.printedText` apart from its own.
  */
 import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
 import { DOMAIN, FACE_SET } from './breakPairsCensus';
@@ -26,13 +29,10 @@ export const VS16_TYPED: readonly string[] = DOMAIN.flatMap((x) => [
   `Gross ${x}\uFE0F margin`, `${x}\uFE0FGross`, `Gross${x}\uFE0F12`, `12${x}\uFE0Fab`, `ab${x}\uFE0F${x}\uFE0Fcd`,
 ]);
 
-/** The same as the pack should print them (`asPrinted`): the selector after a character with no emoji style dropped. */
-export const VS16_CENSUS: readonly string[] = VS16_TYPED.map(asPrinted);
-
 /**
  * A mark (U+0301, U+FE0E, U+FE00, U+034F, U+20D7) on an ASCII character, before or after it, in eight contexts (#1235
- * round 5's blind probe), its labels, and the adversary's strings of the same round: held to never breaking where
- * Chromium holds (`extraBreaks`).
+ * round 5's blind probe), its labels, and the adversary's strings of the same round: labels printed to break anywhere,
+ * held to their line counts in production (`packAnywhereLabelImage.test.ts`).
  */
 export function markedCensus(): string[] {
   const marks = ['\u0301', '\uFE0E', '\uFE00', '\u034F', '\u20D7'];
@@ -62,18 +62,6 @@ function adversaryMarks(): string[] {
   return [...out];
 }
 
-/** Each of `texts` where the model breaks and `breaksOf`'s answer (`raw`) does not, but where none can be read. */
-export function extraBreaks(texts: readonly string[], raw: readonly number[][]): string[] {
-  return texts.flatMap((t, i) => {
-    const blind = new Set(raw[i]!.filter((b) => b < 0).map((b) => -b));
-    const real = new Set(raw[i]!.filter((b) => b > 0));
-    let at = 0;
-    const extra: number[] = [];
-    pieces(t).forEach((p, k) => { const from = t.indexOf(p.text, at); if (k > 0 && !blind.has(from) && !real.has(from)) extra.push(from); at = from + p.text.length; });
-    return extra.length > 0 ? [`${JSON.stringify(t)} at ${extra.join(',')}`] : [];
-  });
-}
-
 /**
  * Members of each stand-in's kind other than the stand-in itself (`packBreakPairs.SCRIPT_STAND_INS`): two ideographs,
  * two Hangul syllables, two full-width letters, a compatibility ideograph, a supplementary-plane ideograph and a
@@ -85,12 +73,10 @@ export function standInCensus(): string[] {
   const members = ['\u65E5', '\u6536', '\uAC00', '\uD7A3', '\uFF3A', '\uFF5A', '\uF900', '\u{20000}', '\u{F0000}'];
   const marks = [...FACE_SET].map((c) => String.fromCodePoint(c)).filter((c) => /[\p{P}\p{S}]/u.test(c));
   const stands = members.flatMap((m) => [`ab${m}cd`, `12${m}34`, `${m}${m}`, ...marks.flatMap((p) => [`${m}${p}ab`, `ab${p}${m}`, `${m}${p}1`, `${p}${m}`, `${m}${p}`])]);
-  // The space separators the faces lack before a character the table lacks (an emoji, a Thai letter, Linear B), and a
-  // prepended mark with a combining mark on it (#1235 round 4: each read by its own rule, beside the table).
+  // The space separators the faces lack before a character the table lacks (an emoji, a Thai letter, Linear B: read by
+  // their own rule, beside the table, #1235 round 4).
   const spaces = ['\u3000', '\u205F', '\u1680'].flatMap((sp) => ['\u{1F600}', '\u0E01', '\u{10000}'].flatMap((y) => [`ab${sp}${y}`, `${sp}${y}`, `ab${sp}${y}cd`]));
-  const prepended = ['\u0600', '\u0601', '\u0605', '\u06DD', '\u070F', '\u0890', '\u08E2', '\u0D4E'].flatMap((p) => ['\u0301', '\u0651', '\u064B', '\u0D4D']
-    .flatMap((mk) => [`\u4E2D${p}${mk}\u4E2D`, `ab${p}${mk}cd`, `12${p}${mk}34`, `(${p}${mk})`]));
-  return [...stands, ...spaces, ...prepended];
+  return [...stands, ...spaces];
 }
 
 /** Each of `texts` whose breaks the model and `breaksOf`'s answer (`raw`) disagree on, but where none can be read. */

@@ -51,6 +51,30 @@ describe('where the pack applies it', () => {
     }
   });
 
+  it('tenant text never reaches a KPI tile (whose layout has no wrap guard, and refuses a mark): every name, label, title and text the input carries tagged, the tiles hold none of it', () => {
+    const named = /^(name|label|title|description|text|commentary|accountName|companyLegalName|preparedBy|reason)$/;
+    const poison = (value: unknown, key = ''): unknown => {
+      if (typeof value === 'string') return named.test(key) ? `${value} zq` : value;
+      if (Array.isArray(value)) return value.map((v) => poison(v));
+      if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+        return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, poison(v, k)]));
+      }
+      return value;
+    };
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    try {
+      const input = poison(demoInput) as typeof demoInput;
+      expect(JSON.stringify(input)).toContain(' zq');
+      const doc = buildBoardPackPages(input);
+      const tiles = doc.pages.flatMap((p) => p.blocks).flatMap((b) => (b.kind === 'kpiTiles' ? b.tiles : []));
+      expect(tiles.length).toBeGreaterThan(0);
+      expect(JSON.stringify(doc), 'the tagged text reaches the document').toContain(' zq');
+      expect(JSON.stringify(tiles.map((t) => [t.label, t.figure.unavailable ?? null, t.delta?.basis ?? null]))).not.toContain('zq');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('stampBlock measures a block set afterwards as printed, and stamps that text', () => {
     const doc = demoWithoutBudget();
     const block = doc.pages.flatMap((p) => p.blocks).find((b) => b.kind === 'table')!;

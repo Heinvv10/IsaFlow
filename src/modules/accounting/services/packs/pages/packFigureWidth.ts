@@ -16,7 +16,7 @@ export type FigureWeight = FaceWeight;
 
 /** The 9pt label the fallback tables are measured at. */
 const LABEL_PX = 12;
-const LABEL_STYLE: Readonly<Record<FigureWeight, FallbackStyle>> = { 400: 'label400', 500: 'label500', 600: 'label600' };
+export const LABEL_STYLE: Readonly<Record<FigureWeight, FallbackStyle>> = { 400: 'label400', 500: 'label500', 600: 'label600' };
 
 /**
  * The width of `text` in pixels at `fontPx` and `weight`, no wrapping: never short, at most 1/32px over in the face.

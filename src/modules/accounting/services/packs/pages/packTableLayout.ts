@@ -18,6 +18,8 @@
  * Words are the shaped widths of `packFigureWidth.ts`; a heading's too, with its tracking (`HEADING_WORDS_PX`). The
  * table is as wide as production prints a page (`PRINT_CONTENT_PX`).
  */
+import { anywhereLineCount } from './packAnywhereLabel';
+import { carriesMarks } from './packPrintedText';
 import { createHash } from 'node:crypto';
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
@@ -142,6 +144,8 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
     const parts = markedPieces(row.label, row.footnote !== null && row.footnote !== undefined);
     const indent = row.level * INDENT_PX_PER_LEVEL;
     const marker = labelMarkPx(row.footnote, weight, AS_CHROMIUM_SETS);
+    // A label printed to break anywhere adds nothing to the column but its indent and padding (`packAnywhereLabel.ts`).
+    if (carriesMarks(row.label)) return { row, weight, indent, min: indent + CELL_SIDE_PX, max: indent + CELL_SIDE_PX };
     const min = indent + labelWidestPiecePx(row.label, row.footnote, weight, AS_CHROMIUM_SETS) + CELL_SIDE_PX;
     // Its whole line: collapsible spaces collapsed, and trimmed but for one before a mark that follows one (a no-break
     // space is not collapsible: it stays, as it does in Chromium). A cell's max-content is never below its min-content:
@@ -179,6 +183,7 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
  * where the label ends at a space (`packLineBreaks.markedPieces`).
  */
 export function labelLineCount(label: string, footnote: number | null | undefined, weight: FigureWeight, availPx: number, guardPx: number): number {
+  if (carriesMarks(label)) return anywhereLineCount(label, labelMarkExactPx(footnote, weight), weight, availPx, guardPx);
   return linesForText(markedPieces(label, footnote !== null && footnote !== undefined), { exactPx: (text, hyphen) => textExactPx(text, LABEL_FONT_PX, weight, hyphen), fontPx: LABEL_FONT_PX },
     labelMarkExactPx(footnote, weight), availPx, guardPx);
 }

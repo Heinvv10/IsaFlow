@@ -248,3 +248,39 @@ export const ROUND_SIX_LABELS: ReadonlyArray<readonly [string, boolean]> = [
   ['Telecommunications&\u20D7Telecommunications', false], ['Telecommunicationsn\u20DDTelecommunications', false],
   ['Telecommunicationsn\u20E0Telecommunications', false], ['Telecomq\u0301munications', false],
 ];
+
+/**
+ * #1235 round 7's labels (both reviews): marks the pair table read wrongly (U+035C, U+0361, U+FE20) and marks on bases
+ * whose fallback glyph is wider than the face's (\u00AE, |, \u2122, the tatweel, M). Printed to break anywhere and held
+ * in production's statement table (`printParity/packBreakPairsImage.test.ts`).
+ */
+export const ROUND_SEVEN_LABELS: ReadonlyArray<readonly [string, boolean]> = [
+  ['Telecommunications\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B', false],
+  ['Telecommunications\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B', false],
+  ['Telecommunications\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350', false],
+  ['Telecommunications|\u0952|\u0952|\u0952|\u0952|\u0952|\u0952', false],
+  ['Telecommunications\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591', false],
+  ['TelecommunicationsM\u0305M\u0305M\u0305M\u0305M\u0305M\u0305M\u0305M\u0305M\u0305M\u0305M\u0305M\u0305', false],
+  ['Telecommunications\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B', false],
+  ['Telecommunications\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B', false],
+  ['Telecommunications\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B\u00AE\u036B', false],
+  ['Telecommunications\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350', false],
+  ['Telecommunications\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350', false],
+  ['Telecommunications\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350\u0640\u0350', false],
+  ['Telecommunications\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591', false],
+  ['Telecommunications\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591\u2122\u0591', false],
+  ['Telecommunications/\u0361Telecommunications', false],
+  ['Telecommunications/\u0361Telecommunications/\u0361Telecommunications', false],
+  ['Telecommunications?\u035CTelecommunications', false],
+  ['Telecommunications?\u035CTelecommunications?\u035CTelecommunications', false],
+  ['Telecommunications}\u0361Telecommunications', false],
+  ['Telecommunications}\u0361Telecommunications}\u0361Telecommunications', false],
+  ['Telecommunications!\u0361Telecommunications', false],
+  ['Telecommunications!\u0361Telecommunications!\u0361Telecommunications', false],
+  ['Telecommunications/\uFE20Telecommunications', false],
+  ['Telecommunications/\uFE20Telecommunications/\uFE20Telecommunications', false],
+  ['Telecommunications\u00AE\u0489\u00AE\u0489\u00AE\u0489\u00AE\u0489\u00AE\u0489\u00AE\u0489', false],
+  ['Telecommunications\u00AE\u1DC0\u00AE\u1DC0\u00AE\u1DC0Telecommunications', false],
+  ['Telecommunications|\u0489|\u0489|\u0489|\u0489|\u0489|\u0489|\u0489|\u0489', false],
+];
+

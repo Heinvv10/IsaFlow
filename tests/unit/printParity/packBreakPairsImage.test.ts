@@ -3,8 +3,6 @@
  *  - the splitter breaks where production's Chromium breaks, with nothing dropped, on the census and random strings
  *    (`print/fixtures/breakPairsCensus.ts`) and, as line counts, on the adversary's census of #1235's third round: where
  *    the print tests' Chromium differs from production's (`asProduction`), production's is the one held;
- *  - every character the table covers with a variation selector 16 after it, as the pack prints it (`packPrintedText.ts`);
- *  - a mark on an ASCII character: never a break production does not take;
  *  - the stand-ins' other members beside the faces' punctuation, on every break;
  *  - the labels #1235's third round found short, in a statement table laid out at production's print width: never a
  *    label line too few, the height never short (the print tests' Chromium breaks some of them where production's does
@@ -25,6 +23,7 @@ import { log } from '@/lib/logger';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { PAIR_CLASS_RANGES } from '@/modules/accounting/services/packs/pages/packBreakPairsData';
 import { statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
+import { carriesMarks, printedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import { PRINT_CONTENT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { TABLES_OF } from '../print/measureTables';
 import { atTheFloor } from '../print/support/atTheFloor';
@@ -36,8 +35,8 @@ import { gotenbergPdf, startGotenberg, withPdfFile, type Gotenberg } from './got
 import { breaksInImage, inImage as runInImage } from './inImage';
 import { flatStylesheet } from './parityPage';
 import { paritySkip } from './paritySkip';
-import { adversaryCensus, BREAKS_OF, CENSUS, heldLines, LINES_OF, linesHtml, modelBreaks, randomStrings, readBreaks, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_SIX_LABELS, ROUND_THREE_LABELS } from '../print/fixtures/breakPairsCensus';
-import { allDifferences, extraBreaks, markedCensus, standInCensus, VS16_CENSUS } from '../print/fixtures/everyBreakCensus';
+import { adversaryCensus, BREAKS_OF, CENSUS, heldLines, LINES_OF, linesHtml, modelBreaks, randomStrings, readBreaks, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_SEVEN_LABELS, ROUND_SIX_LABELS, ROUND_THREE_LABELS } from '../print/fixtures/breakPairsCensus';
+import { allDifferences, standInCensus } from '../print/fixtures/everyBreakCensus';
 
 const DATA = path.resolve(__dirname, '../../../src/modules/accounting/services/packs/pages/packBreakPairsData.ts');
 const unavailable = paritySkip();
@@ -71,20 +70,6 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
     expect(breaks).toBeGreaterThan(3_000);
   }, 1_800_000);
 
-  it('every character with a variation selector 16 after it, in five contexts: as the pack prints it: the model breaks where production\'s Chromium breaks', async () => {
-    const lines = await inImage(`${BREAKS_OF}\nfunction answer() { return breaksOf(${JSON.stringify(VS16_CENSUS)}).map(function (b) { return 'B|' + b.join(','); }); }`);
-    const got = lines.filter((l) => l.startsWith('B|')).map((l) => (l.length > 2 ? l.slice(2).split(',').map(Number) : []));
-    expect(got.length, 'the image\'s census came back incomplete').toBe(VS16_CENSUS.length);
-    const wrong = allDifferences(VS16_CENSUS, got);
-    expect(wrong.map((t) => JSON.stringify(t)).slice(0, 20), `${wrong.length} of ${VS16_CENSUS.length} differ`).toEqual([]);
-  }, 1_800_000);
-
-  it('a mark on an ASCII character (#1235 round 5): the model never breaks where production\'s Chromium holds', async () => {
-    const texts = markedCensus();
-    const extra = extraBreaks(texts, await breaksInImage(gotenberg!, BREAKS_OF, texts));
-    expect(extra.slice(0, 20), `${extra.length} of ${texts.length}`).toEqual([]);
-  }, 1_800_000);
-
   it('the stand-ins\' other members beside every punctuation mark and symbol the faces set, and the rules beside the table: every break is production\'s', async () => {
     const texts = standInCensus();
     const wrong = allDifferences(texts, await breaksInImage(gotenberg!, BREAKS_OF, texts));
@@ -92,7 +77,8 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
   }, 1_800_000);
 
   it('on the adversary\'s census, as line counts with and without a mark, the model\'s lines are production\'s', async () => {
-    const items = adversaryCensus();
+    // A label holding a mark is printed to break anywhere (`packAnywhereLabel.ts`): the pair table never reads it.
+    const items = adversaryCensus().filter(({ text }) => !carriesMarks(printedText(text)));
     const wrong: string[] = [];
     for (let at = 0; at < items.length; at += 15_000) {
       const slice = items.slice(at, at + 15_000);
@@ -107,12 +93,12 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
     expect(wrong.slice(0, 20).map((w) => w.replace(/^[0-9a-f.]+/, (h) => JSON.stringify(textOf(h)))), `${wrong.length} of ${items.length} differ`).toEqual([]);
   }, 1_800_000);
 
-  it('the round-3 to round-6 labels in a statement table, in production: never a label line too few, the height never short, never wider than the page', async () => {
+  it('the round-3 to round-7 labels in a statement table, in production: never a label line too few, the height never short, never wider than the page', async () => {
     // The print tests' Chromium breaks after a word-opening en dash where production's does not: this is where those are held.
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
     let held = 0;
-    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS];
+    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS, ...ROUND_SEVEN_LABELS];
     for (const [label, labelMarker] of labels) {
       for (const digits of [9, 12]) {
         const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });
@@ -130,6 +116,8 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
         if (height < Number(heightMm)) wrong.push(`${say}: height short, model ${height.toFixed(2)}mm vs production ${Number(heightMm).toFixed(2)}`);
         // A table the model passes (`tableFit`) must fit the page in production: a label column too narrow widens it.
         // The label column never narrower than production's (a mark the faces lack is drawn: round 6).
+        // A label holding a mark adds nothing to its column, in the model and in the print (`packAnywhereLabel.ts`).
+        if (carriesMarks(printedText(label)) && Math.abs(model.columnsPx[0]! - Number(labelPx)) > 0.1) wrong.push(`${say}: label column ${model.columnsPx[0]!.toFixed(3)}px, production ${Number(labelPx).toFixed(3)}, a marked label moved it`);
         if (model.columnsPx[0]! < Number(labelPx) - 0.1) wrong.push(`${say}: label column ${model.columnsPx[0]!.toFixed(3)}px, production ${Number(labelPx).toFixed(3)}`);
         if (table.figureFit?.fits === true && Number(widthPx) > PRINT_CONTENT_PX.portrait + 0.02) wrong.push(`${say}: ${Number(widthPx).toFixed(3)}px wide in production, past the page's ${PRINT_CONTENT_PX.portrait}`);
         held += 1;

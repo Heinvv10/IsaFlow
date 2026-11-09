@@ -30,7 +30,7 @@ function allBreaks(scan: PairScan): Uint8Array {
       for (let r = 0; r < scan.rights; r += 1) out[(l * k2 + w) * scan.rights + r] = right[w * scan.rights + r]!;
     }
   }
-  for (const f of scan.flips) out[f] ^= 1;
+  for (const f of scan.flips) out[f] = out[f]! ^ 1;
   return out;
 }
 

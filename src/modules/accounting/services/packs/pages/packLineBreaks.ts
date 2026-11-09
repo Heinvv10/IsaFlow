@@ -26,15 +26,15 @@
  *    The line and paragraph separators always break after them.
  * Between two characters the pair table covers, it breaks where production's Chromium does on every census the image
  * tests hold (`printParity/packBreakPairsImage.test.ts`, `printParity/packNumericHoldImage.test.ts`): the pairs in
- * every context of one character either side, Unicode's numeric rule past them, the reviews' censuses. Not held, and
- * known to differ (#1235 round 4, for a follow-up): full-width punctuation and the wide currency signs, which take the
- * fallback rules, and a hyphen after U+2028 or carrying a combining mark. A piece the model leaves whole that Chromium
- * breaks is a row refused that would have fitted (and a line count short), a piece the model breaks that Chromium keeps
- * would be a row passed that overflows.
+ * every context of one character either side, Unicode's numeric rule past them, the reviews' censuses. Text holding a
+ * combining mark or a variation selector never reaches it: a row label is printed to break anywhere and measured as such
+ * (`packAnywhereLabel.ts`), and a KPI tile refuses it. Not held, and known to differ (#1235 round 4, for a follow-up):
+ * full-width punctuation and the wide currency signs, which take the fallback rules, and a hyphen after U+2028. A
+ * piece the model leaves whole that Chromium breaks is a row refused that would have fitted (and a line count short),
+ * a piece the model breaks that Chromium keeps would be a row passed that overflows.
  */
 import { AFTER, BEFORE, contextOf, pairBreaks, pairClass } from './packBreakPairs';
 import { breaksBetween } from './packBreakRanges';
-import { markedLatin1Breaks } from './packMarkedLatin1';
 import { heldByNumber } from './packNumericHold';
 import { holdsAfterSoftHyphen, holdsAfterZeroWidthSpace } from './packSoftBreakRanges';
 
@@ -114,8 +114,7 @@ function wordClusters(word: string): string[] {
   const out: string[] = [];
   for (const whole of clustersOf(word)) {
     let cluster = whole;
-    // Split before the character it is prepended to; marks right after it stay with it ("\u0600\uFE0F").
-    while (cluster.length > 1 && PREPEND.test(cluster) && !EXTENDS.test(cluster[1]!)) { out.push(cluster[0]!); cluster = cluster.slice(1); }
+    while (cluster.length > 1 && PREPEND.test(cluster)) { out.push(cluster[0]!); cluster = cluster.slice(1); }
     const last = out[out.length - 1];
     if (last !== undefined && isSoftHyphen(last) && /^\p{M}+$/u.test(cluster)) out[out.length - 1] = last + cluster;
     else out.push(cluster);
@@ -170,14 +169,11 @@ function afterContext(clusters: readonly string[], i: number, last: boolean): nu
  * see (`packNumericHold.ts`; `codes`, each cluster's base code point); by the ranges and spaces of the faces' fallback
  * otherwise.
  */
-function breaksAfter(clusters: readonly string[], codes: readonly number[], sizes: readonly number[], i: number, first: boolean, last: boolean): boolean {
+function breaksAfter(clusters: readonly string[], codes: readonly number[], i: number, first: boolean, last: boolean): boolean {
   const cluster = clusters[i]!;
   const next = clusters[i + 1]!;
   const a = classOf(cluster, trailingCode(cluster));
   const b = classOf(next, next.codePointAt(0)!);
-  // A mark makes a Latin-1 pair ICU's, not Chromium's own table's (`packMarkedLatin1.ts`).
-  const marked = a !== null && b !== null ? markedLatin1Breaks(codes, sizes, i, i === 0) : null;
-  if (marked !== null) return marked;
   if (a !== null && b !== null) return pairBreaks(beforeContext(clusters, i, first), a, b, afterContext(clusters, i + 1, last)) && !heldByNumber(codes, i);
   return (BREAK_AFTER_SPACE.test(cluster) && !BREAK_AFTER_SPACE.test(next)) || breaksBetweenClusters(cluster, next);
 }
@@ -188,12 +184,11 @@ function wordPieces(word: string, first: boolean, last: boolean): string[] {
   let start = 0;
   const clusters = wordClusters(word);
   const codes = clusters.map((c) => c.codePointAt(0)!);
-  const sizes = clusters.map((c) => Array.from(c).length);
   clusters.forEach((cluster, i) => {
     const next = clusters[i + 1];
     if (next === undefined) return;
     const soft = softBreak(cluster, next);
-    if (soft === null ? breaksAfter(clusters, codes, sizes, i, first, last) : soft) {
+    if (soft === null ? breaksAfter(clusters, codes, i, first, last) : soft) {
       pieces.push(clusters.slice(start, i + 1).join(''));
       start = i + 1;
     }

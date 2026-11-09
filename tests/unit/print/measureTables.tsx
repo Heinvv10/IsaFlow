@@ -38,7 +38,9 @@ export interface PrintedTable {
  */
 export const TABLES_OF = `function tablesOf(pxMm) {
   const linesOf = (cell) => {
-    const text = cell === undefined ? null : Array.from(cell.childNodes).find((n) => n.nodeType === 3);
+    // A label printed to break anywhere sits in its own block (\`pack-label-anywhere\`), its text and mark inside.
+    const host = cell === undefined ? undefined : (cell.querySelector('.pack-label-anywhere') || cell);
+    const text = host === undefined ? null : Array.from(host.childNodes).find((n) => n.nodeType === 3);
     if (text === null || text === undefined) return 1;
     const range = document.createRange();
     range.selectNodeContents(text);

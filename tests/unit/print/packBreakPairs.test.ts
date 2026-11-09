@@ -7,10 +7,9 @@
  *    width 0 (every opportunity taken), the model breaks at exactly Chromium's places, no more and no fewer, but beside
  *    a character the host draws with no width, where no break can be read (`fixtures/breakPairsCensus.readBreaks`);
  *  - the numeric census of #1235's fourth round: Unicode's numeric rule, which reads past the pair (`packNumericHold.ts`);
- *  - every character the table covers with a variation selector 16 after it, as the pack prints it (`packPrintedText.ts`,
- *    held to Unicode's emoji data); a mark on a Latin-1 character, both ways;
  *  - the stand-ins' other members (an ideograph that is not U+4E2D, ...) beside the faces' punctuation, on every break;
- *  - the adversary's census of #1235's third round, as line counts at width 0, with and without a mark;
+ *  - the adversary's census of #1235's third round, as line counts at width 0, with and without a footnote mark (but a
+ *    label holding a combining mark, which is printed to break anywhere: `packAnywhereLabel.ts`);
  *  - the min-content of the census strings that break, in the faces: the model's widest piece is never narrower than
  *    Chromium's narrowest width, and at most 1/32px over (`textPx` is never short); a character the faces lack takes
  *    the host's fallback face, which the image holds (`packFallbackWidthData.ts`);
@@ -22,7 +21,7 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
 import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
-import { printedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
+import { carriesMarks, printedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import { labelWidestPiecePx } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { labelLineCount } from '@/modules/accounting/services/packs/pages/packTableLayout';
 import { launchPrintChromium } from './printChromium';
@@ -30,7 +29,7 @@ import { NUMERIC_CENSUS, numericPool } from './fixtures/numericCensus';
 import { openProbePage } from './measureWidths';
 import { fillCase, holdLines } from './support/lineFitHarness';
 import { adversaryCensus, alike, asProduction, BREAKS_OF, CENSUS, heldLines, inFaces, LINES_OF, linesHtml, modelBreaks, randomStrings, readable, readBreaks } from './fixtures/breakPairsCensus';
-import { allDifferences, asPrinted, markedCensus, standInCensus, VS16_CENSUS, VS16_TYPED } from './fixtures/everyBreakCensus';
+import { allDifferences, standInCensus } from './fixtures/everyBreakCensus';
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
@@ -102,22 +101,6 @@ async function rawBreaks(texts: readonly string[]): Promise<number[][]> {
   return raw;
 }
 
-it(`every character with a variation selector 16 after it (${VS16_CENSUS.length} strings), as the pack prints it: the model breaks where Chromium breaks`, async () => {
-  // The pack prints what Unicode's emoji data says it should (`asPrinted`, read apart from `packPrintedText.ts`).
-  expect(VS16_TYPED.filter((t) => printedText(t) !== asPrinted(t)).map((t) => JSON.stringify(t)).slice(0, 20)).toEqual([]);
-  const texts = VS16_CENSUS.filter(alike);
-  const wrong = allDifferences(texts, await rawBreaks(texts));
-  expect(wrong.map((t) => JSON.stringify(t)).slice(0, 20), `${wrong.length} of ${texts.length} differ`).toEqual([]);
-}, 600_000);
-
-it('a mark on a Latin-1 character (#1235 rounds 5 and 6: "Telecoms*\uFE0E(Telecommunications)", "ab-\u00A9\uFE0Fcd"), as printed: the model breaks exactly where Chromium does, both ways', async () => {
-  // U+034F (the grapheme joiner) after a Latin-1 sign breaks otherwise in this Chromium than in production's: the image's.
-  const texts = markedCensus().map(printedText).filter((t) => alike(t) && !t.includes('\u034F'));
-  expect(texts.length).toBeGreaterThan(50_000);
-  const wrong = allDifferences(texts, await rawBreaks(texts));
-  expect(wrong.map((t) => JSON.stringify(t)).slice(0, 20), `${wrong.length} of ${texts.length} differ`).toEqual([]);
-}, 600_000);
-
 it('the stand-ins\' other members (\u65E5 \u6536 \uAC00 \uD7A3 \uFF3A \uFF5A U+F900 U+20000 U+F0000) beside every punctuation mark and symbol the faces set, and the rules beside the table: every break is Chromium\'s', async () => {
   const texts = standInCensus().filter(alike);
   expect(texts.length).toBeGreaterThan(5000);
@@ -127,7 +110,8 @@ it('the stand-ins\' other members (\u65E5 \u6536 \uAC00 \uD7A3 \uFF3A \uFF5A U+F
 
 it('the adversary\'s census (#1235 round 3: every character to U+30FF in fifteen contexts, every pair of the faces\' punctuation, with and without a mark): the model\'s lines are Chromium\'s', async () => {
   // Where the two Chromiums differ (a word-opening hyphen before a letter, the braille blank), production's is held, by the image test.
-  const items = adversaryCensus().filter(({ text }) => alike(text));
+  // A label holding a mark is printed to break anywhere (`packAnywhereLabel.ts`): the pair table never reads it.
+  const items = adversaryCensus().filter(({ text }) => alike(text) && !carriesMarks(printedText(text)));
   expect(items.length).toBeGreaterThan(110_000);
   const page = await openProbePage(browser);
   const real: string[] = [];
