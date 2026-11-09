@@ -121,7 +121,7 @@ ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_sa
 -- A finalised return is history: no DELETE ever, and no UPDATE of what was recorded (the figures, the period, the
 -- chain, the lock, who finalised). Only status, filed_*, amended_* and sars_submission_id may change, and L1b is
 -- the one to grant and widen that. ENABLE ALWAYS, so it also binds BYPASSRLS roles and replication; the table's owner
--- (and a superuser) can still DISABLE TRIGGER, which is why the privileges below are revoked too.
+-- (and a superuser) can still switch a trigger off, which is why the privileges below are revoked too.
 CREATE OR REPLACE FUNCTION public.tax_return_versions_immutable()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -147,7 +147,8 @@ CREATE TRIGGER trg_tax_return_versions_immutable BEFORE UPDATE OR DELETE ON tax_
   FOR EACH ROW EXECUTE FUNCTION public.tax_return_versions_immutable();
 ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_immutable;
 
--- TRUNCATE skips row triggers and RLS, and migration_admin and the owner keep the privilege: a statement trigger.
+-- Emptying the table in one statement skips row triggers and RLS, and migration_admin and the owner keep that
+-- privilege: a statement-level trigger refuses it.
 CREATE OR REPLACE FUNCTION public.tax_return_versions_no_truncate()
 RETURNS trigger
 LANGUAGE plpgsql
