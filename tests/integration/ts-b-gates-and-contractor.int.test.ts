@@ -108,6 +108,23 @@ describe('a contractor is not remuneration (SDL s4(b)) and not a UIF contributor
     expect((await pool.query('SELECT sdl::float8 AS sdl FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [april, f.employee])).rows[0]!.sdl).toBe(0);
   });
 
+  it('a contractor\'s non-cash benefit in the history is not remuneration either (the s4(b) non-cash subquery)', async () => {
+    const f = await seedEmployee(pool, fixtures, 'tsb sdl noncash', 33_333.33);
+    const contractor = await addEmployee(pool, f, 'sdl-nc', 1);
+    const march = await newRun(pool, f, 3);
+    await pool.query(`UPDATE payroll_run_headers SET status = 'approved', total_gross = 33333.33 WHERE id = $1`, [march]);
+    await pool.query(
+      `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, component_breakdown, validation_results)
+       VALUES ($1, $2, 0, 20000, 0, 0, 0, 0, $3::jsonb, $4::jsonb)`,
+      [march, contractor,
+        JSON.stringify([{ componentId: 'b', componentName: 'Benefit', sarsSourceCode: '3801', amount: 20_000, isTaxable: true, isUifApplicable: false, isNonCash: true }]),
+        JSON.stringify([{ code: 'PAYE_OUTSIDE_TABLES', severity: 'warning', treatment: 'none', message: 'contractor' }])]);
+    const april = await newRun(pool, f, 4);
+    await calculatePayrollRun(april, f.company);
+    // Counted, it would be (33 333.33 + 20 000 + 33 333.33) / 2 x 12 = R520 000: SDL due. Left out it is R400 000: exempt.
+    expect((await pool.query('SELECT sdl::float8 AS sdl FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [april, f.employee])).rows[0]!.sdl).toBe(0);
+  });
+
   it('the UI-19 leaves the contractor off: one employee, his UIF, no line for the contractor', async () => {
     const f = await seedEmployee(pool, fixtures, 'tsb ui19', 20_000);
     const contractor = await addEmployee(pool, f, 'ui19-c', 10_000);
