@@ -1,20 +1,30 @@
--- 971: file, amend and one open draft (master plan wave 5, L1b).
+-- 971: file and amend a return (master plan wave 5, L1b).
 --
 -- WHAT.
---   1. sars_submissions: at most one OPEN DRAFT per company, form and period. History is never deduped: only
---      duplicate drafts are marked superseded (the latest by updated_at, then created_at, then id, stays), then a
---      partial unique index holds the rule. saveDraftSubmission becomes an upsert on that index.
---   2. tax_return_versions: app_user may now UPDATE the columns a filing and an amend write (status,
---      sars_submission_id, filed_*, amended_*), and the immutability trigger gains a status-transition guard.
---   3. The same-company trigger also fires ON UPDATE OF sars_submission_id, amends_version_id, vat_period_lock_id.
+--   1. tax_return_versions: app_user may now UPDATE the columns a filing and an amend write (status,
+--      sars_submission_id, filed_*, amended_*), and the immutability trigger gains a status-transition guard and
+--      judges who and when (see RULES).
+--   2. The same-company trigger also fires ON UPDATE OF sars_submission_id, amends_version_id, vat_period_lock_id.
+--   3. A BEFORE UPDATE trigger on sars_submissions refuses to change status, submission_reference or submitted_at of
+--      a submission a return version names: the legacy mark-submitted route cannot re-file a filed return.
+--   4. A BEFORE UPDATE trigger on vat_period_locks refuses to unlock a lock a live (non-superseded) version names:
+--      the amend is the only way out, for every role.
+--   NOT in this migration (deliberately, a follow-up after the next deploy): a unique index of one open draft per
+--   company, form and period, and the dedupe of existing duplicate drafts. The old colour of a blue/green deploy
+--   (and a code-only rollback) still INSERTs drafts plainly; a unique index would turn that into 23505 for as long as
+--   it runs. saveDraftSubmission serialises on an advisory lock instead.
 --
 -- RULES IN THE DATABASE (tax_return_versions, every role, owner included).
 --   - Status moves finalised to filed, finalised to superseded, or filed to superseded; never out of superseded.
 --   - A superseded row is frozen: no column of it changes again.
 --   - Filing stamps (sars_submission_id, filed_reference, filed_by, filed_at) are set together, only by the move
 --     finalised to filed, and once only. The submission must be this company's, for this form and period, and
---     already submitted.
---   - A move to superseded must carry the amend stamps (amended_by, amend_reason, amended_at).
+--     already submitted. The filing reference must hold a visible character.
+--   - A move to superseded must carry the amend stamps (amended_by, amend_reason, amended_at); the reason must hold a
+--     visible character.
+--   - filed_by and amended_by must equal the session user (the sub of request.jwt.claims that withAuth sets), and
+--     filed_at and amended_at must be within five minutes of the clock: a stamp cannot be forged, and a session with
+--     no user (direct SQL) cannot file or supersede.
 --   - The figures, period, chain, lock and finalised_* stay unchangeable, as 969 made them.
 --
 -- WRITES. UPDATE is granted to app_user on the eight named columns only, never at table level. 969's sweep still
@@ -23,32 +33,13 @@
 --
 -- Rollback: restore the 969 versions of tax_return_versions_immutable() and tax_return_versions_same_company(),
 -- recreate trg_tax_return_versions_same_company as BEFORE INSERT, REVOKE UPDATE on the eight columns from app_user,
--- DROP INDEX uq_sars_submissions_one_open_draft. Superseded drafts keep their status (a note says why).
+-- DROP TRIGGER trg_sars_submissions_filed_frozen ON sars_submissions, DROP TRIGGER trg_vat_period_locks_in_return ON
+-- vat_period_locks, and drop the two functions behind them.
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
--- 1. One open draft per key. The table is locked against writers so no draft lands between the dedupe and the index.
-LOCK TABLE sars_submissions IN SHARE ROW EXCLUSIVE MODE;
-
-UPDATE sars_submissions s
-   SET status = 'superseded',
-       notes = CASE WHEN s.notes IS NULL OR s.notes = '' THEN '' ELSE s.notes || E'\n' END
-               || 'Superseded by migration 971: a later draft for this company, form and period was kept.'
-  FROM (
-    SELECT id, ROW_NUMBER() OVER (
-             PARTITION BY company_id, form_type, period_start, period_end
-             ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC) AS rn
-      FROM sars_submissions
-     WHERE status = 'draft'
-  ) d
- WHERE s.id = d.id AND d.rn > 1;
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_sars_submissions_one_open_draft
-  ON sars_submissions (company_id, form_type, period_start, period_end)
-  WHERE status = 'draft';
-
--- 3. The same-company check, now also on UPDATE. On an UPDATE a reference is judged only when it changed, so a
+-- The same-company check, now also on UPDATE. On an UPDATE a reference is judged only when it changed, so a
 -- filing (which leaves the lock and the chain alone) is not refused because its lock was released by an amend.
 CREATE OR REPLACE FUNCTION public.tax_return_versions_same_company()
 RETURNS trigger
@@ -97,13 +88,19 @@ CREATE TRIGGER trg_tax_return_versions_same_company
   FOR EACH ROW EXECUTE FUNCTION public.tax_return_versions_same_company();
 ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_same_company;
 
--- 2. The immutability trigger with the transition guard. The first two checks are 969's, unchanged.
+-- The immutability trigger with the transition guard. The first two checks are 969's, unchanged.
 CREATE OR REPLACE FUNCTION public.tax_return_versions_immutable()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
+DECLARE
+  v_user pg_catalog.text;
+  v_by pg_catalog.text;
+  v_at pg_catalog.timestamptz;
+  -- Anything but whitespace and zero-width or invisible characters (the service strips the same set).
+  v_visible CONSTANT pg_catalog.text := '[^[:space:]\u00A0\u180E\u1680\u2000-\u200F\u2028-\u202F\u205F-\u2064\u3000\uFEFF]';
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'tax_return_versions rows are history and are never deleted' USING ERRCODE = '23514';
@@ -144,9 +141,74 @@ BEGIN
   IF NEW.status = 'superseded' AND (NEW.amended_by IS NULL OR NEW.amend_reason IS NULL OR NEW.amended_at IS NULL) THEN
     RAISE EXCEPTION 'a return is superseded only by an amend that records who, when and why' USING ERRCODE = '23514';
   END IF;
+  -- Who and when are the session's, never the caller's say-so.
+  IF (NEW.status = 'filed' AND OLD.status = 'finalised') OR (NEW.status = 'superseded') THEN
+    v_user := nullif(pg_catalog.current_setting('request.jwt.claims', true), '')::pg_catalog.jsonb ->> 'sub';
+    IF NEW.status = 'filed' THEN
+      v_by := NEW.filed_by; v_at := NEW.filed_at;
+      IF NEW.filed_reference !~ v_visible THEN
+        RAISE EXCEPTION 'a filing reference must hold a visible character' USING ERRCODE = '23514';
+      END IF;
+    ELSE
+      v_by := NEW.amended_by; v_at := NEW.amended_at;
+      IF NEW.amend_reason !~ v_visible THEN
+        RAISE EXCEPTION 'an amend reason must hold a visible character' USING ERRCODE = '23514';
+      END IF;
+    END IF;
+    IF v_user IS NULL OR v_by IS DISTINCT FROM v_user
+       OR abs(extract(epoch FROM (pg_catalog.clock_timestamp() - v_at))) > 300 THEN
+      RAISE EXCEPTION 'filed_by and amended_by are the session user, and filed_at and amended_at the current time' USING ERRCODE = '23514';
+    END IF;
+  END IF;
   RETURN NEW;
 END;
 $$;
+
+-- A submission a return version names keeps its status, reference and time: the legacy mark-submitted route (and any
+-- other writer) cannot re-file it. The lifecycle marks the submission submitted BEFORE a version names it.
+CREATE OR REPLACE FUNCTION public.sars_submissions_filed_frozen()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF (NEW.status, NEW.submission_reference, NEW.submitted_at)
+     IS DISTINCT FROM (OLD.status, OLD.submission_reference, OLD.submitted_at)
+     AND EXISTS (SELECT 1 FROM tax_return_versions v WHERE v.sars_submission_id = OLD.id) THEN
+    RAISE EXCEPTION 'submission % is named by a return version: file through the return lifecycle', OLD.id USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_sars_submissions_filed_frozen ON sars_submissions;
+CREATE TRIGGER trg_sars_submissions_filed_frozen
+  BEFORE UPDATE OF status, submission_reference, submitted_at ON sars_submissions
+  FOR EACH ROW EXECUTE FUNCTION public.sars_submissions_filed_frozen();
+ALTER TABLE sars_submissions ENABLE ALWAYS TRIGGER trg_sars_submissions_filed_frozen;
+
+-- A lock a live version names is released by an amend, never directly. The amend supersedes the version first, in
+-- the same transaction, so its own unlock passes. SECURITY INVOKER: a BYPASSRLS role sees every version, app_user
+-- sees its own company's, which is where its locks are.
+CREATE OR REPLACE FUNCTION public.vat_period_locks_in_return()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF OLD.unlocked_at IS NULL AND NEW.unlocked_at IS NOT NULL AND EXISTS (
+       SELECT 1 FROM tax_return_versions v WHERE v.vat_period_lock_id = OLD.id AND v.status <> 'superseded') THEN
+    RAISE EXCEPTION 'vat period lock % is named by a live return version: amend the return instead', OLD.id USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_vat_period_locks_in_return ON vat_period_locks;
+CREATE TRIGGER trg_vat_period_locks_in_return
+  BEFORE UPDATE OF unlocked_at ON vat_period_locks
+  FOR EACH ROW EXECUTE FUNCTION public.vat_period_locks_in_return();
+ALTER TABLE vat_period_locks ENABLE ALWAYS TRIGGER trg_vat_period_locks_in_return;
 
 -- The columns a filing and an amend write; nothing else is ever granted.
 GRANT UPDATE (status, sars_submission_id, filed_reference, filed_by, filed_at, amended_by, amend_reason, amended_at)

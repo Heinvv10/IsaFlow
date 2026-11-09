@@ -1,14 +1,19 @@
 /**
  * Mark a finalised return filed (wave 5 L1b). Everything is judged before the first write; then ONE savepoint
- * holds the submission row, the VAT gate (VAT201 only) and its override record, markSubmitted and the version's move
- * to filed, so a refusal leaves no submission, no override row and no version change even though withAuth commits a 4xx.
- * The submission is the company's open draft for the period (replaced with the version's recorded figures) or a new
- * one; after it is marked submitted the next filing of the period (an amended version) gets a new row.
+ * holds the submission row, the VAT gate (VAT201 only) and its override record, markSubmitted, the version's move to
+ * filed and the audit row, so a refusal leaves no submission, no override row and no version change even though
+ * withAuth commits a 4xx. Owner/admin only; a version that has drifted from the ledger or payroll is refused (amend it
+ * first). The submission is the company's open draft for the period (its form_data, the page's report, is kept) or a
+ * new one holding the version's figures; after it is marked submitted the next filing of the period (an amended
+ * version) gets a new row.
  */
 import { withSavepoint } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertVatGateClear } from '@/modules/accounting/services/reports/vatGateOverrideService';
 import { markSubmitted, saveDraftSubmission, type SARSSubmission } from '@/modules/accounting/services/reports/sarsComplianceService';
+import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { driftOf } from './returnDrift';
+import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
 import { ReturnRefusal, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
 
@@ -21,8 +26,8 @@ export async function markReturnFiled(
   companyId: string, form: ReturnForm, versionId: string, reference: string, actor: ReturnActor, overrideReason?: string,
 ): Promise<FiledReturn> {
   await assertNotImpersonating(); // R-032: a filing is refused to a Login-as session
-  const ref = reference.trim();
-  if (!ref) throw new ReturnRefusal(400, 'A filing reference is required.');
+  assertMayActOnReturns(actor.role, 'file');
+  const ref = visibleText(reference, 'A filing reference');
   const v = await getVersionForUpdate(companyId, versionId);
   if (!v || v.formType !== form) throw new ReturnRefusal(404, 'Return version not found.');
   if (v.status !== 'finalised') {
@@ -34,10 +39,16 @@ export async function markReturnFiled(
     throw new ReturnRefusal(409,
       'The VAT period lock of this version was removed outside the return lifecycle. Amend the return, then finalise again.');
   }
+  const drift = await driftOf(companyId, v);
+  if (drift.drifted) {
+    const what = [...drift.fields.map((f) => f.name), ...drift.changed, ...(drift.unfinalRuns > 0 ? ['unfinalRuns'] : [])];
+    throw new ReturnRefusal(409,
+      `Version ${v.versionNo} no longer matches the ledger or payroll (${what.join(', ')}). Amend it and finalise again before filing.`);
+  }
   return withSavepoint('file_return', async () => {
     const draft = await saveDraftSubmission(
       companyId, v.formType, v.periodStart, v.periodEnd,
-      { returnVersionId: v.id, versionNo: v.versionNo, figures: v.figures }, actor.userId,
+      { ...v.figures, returnVersionId: v.id, versionNo: v.versionNo }, actor.userId, { keepExisting: true },
     );
     if (v.formType === 'VAT201') {
       await assertVatGateClear(
@@ -45,8 +56,16 @@ export async function markReturnFiled(
         { userId: actor.userId, role: actor.role }, overrideReason,
       );
     }
-    const submission = await markSubmitted(companyId, draft.id, ref);
+    const submission = await markSubmitted(companyId, draft.id, ref, { lifecycle: true });
     const version = await markVersionFiled(companyId, v.id, submission.id, ref, actor.userId);
+    await logAuditOrThrow({
+      companyId, userId: actor.userId, action: 'update', entityType: 'tax_return_version', entityId: v.id,
+      entityRef: `${v.formType} ${v.periodStart} to ${v.periodEnd} v${v.versionNo}`,
+      changes: {
+        fields: [{ field: 'status', old: 'finalised', new: 'filed', label: 'Status' }],
+        metadata: { reference: ref, submissionId: submission.id, ...(overrideReason ? { vatGateOverridden: 'yes' } : {}) },
+      },
+    });
     return { version, submission };
   });
 }

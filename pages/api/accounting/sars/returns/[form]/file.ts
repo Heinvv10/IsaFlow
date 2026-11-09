@@ -14,6 +14,7 @@ import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type Compa
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { log } from '@/lib/logger';
+import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
 import { UUID } from '@/lib/schemas/common';
 import { markReturnFiled } from '@/modules/accounting/services/returns/fileReturn';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
@@ -39,6 +40,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   const { companyId, companyRole } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
+  if (!(await checkReportRateLimit(companyId, `return-file:u:${userId}`, INTERACTIVE_REPORT_LIMIT))) {
+    return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
+  }
   try {
     const out = await markReturnFiled(companyId, form, parsed.data.versionId, parsed.data.reference,
       { userId, role: companyRole }, parsed.data.overrideReason);

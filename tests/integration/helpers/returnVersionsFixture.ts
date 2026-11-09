@@ -88,6 +88,26 @@ async function withVersionsMutable(pool: Pool, fn: (c: PoolClient) => Promise<un
   }
 }
 
+/**
+ * Releases a lock the way only a direct write can once 971's trigger forbids it for a lock a live version names:
+ * the trigger off, the UPDATE, the trigger back ON ALWAYS, in one transaction on one client.
+ */
+export async function releaseLockDirectly(pool: Pool, lockId: string, userId: string): Promise<void> {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('ALTER TABLE vat_period_locks DISABLE TRIGGER trg_vat_period_locks_in_return');
+    await c.query(`UPDATE vat_period_locks SET unlocked_at = now(), unlocked_by = $2, unlock_reason = 'direct' WHERE id = $1`, [lockId, userId]);
+    await c.query('ALTER TABLE vat_period_locks ENABLE ALWAYS TRIGGER trg_vat_period_locks_in_return');
+    await c.query('COMMIT');
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    c.release();
+  }
+}
+
 export async function dropReturnFixture(rf: ReturnFixture): Promise<void> {
   const c = rf.fx.companyId;
   await withVersionsMutable(rf.fx.pool, (cl) => cl.query('DELETE FROM tax_return_versions WHERE company_id = $1', [c]));
