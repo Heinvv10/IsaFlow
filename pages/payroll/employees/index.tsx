@@ -11,6 +11,7 @@ import { WriteOnly } from '@/components/payroll/WriteOnly';
 import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { ListEmpty } from '@/components/ui/ListEmpty';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { Input } from '@/components/ui/Input';
 import { Drawer } from '@/components/ui/Drawer';
 import { EmployeeDrawerBody } from '@/components/payroll/EmployeeDrawerBody';
 import { MedicalAidReviewBanner } from '@/components/payroll/MedicalAidReviewBanner';
@@ -102,19 +103,20 @@ export default function EmployeesListPage() {
 
         <div className="p-6">
           <MedicalAidReviewBanner />
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-6">
-            <div className="relative w-full sm:w-auto">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
-              <input
-                type="text"
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-2 mb-6">
+            <div className="w-full sm:w-80">
+              <label htmlFor="employee-search" className="mb-1 block text-sm font-medium text-[var(--ff-text-secondary)]">Search employees</label>
+              <Input
+                id="employee-search"
+                type="search"
+                leftIcon={Search}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name or employee number..."
-                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-full sm:w-80 focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
             </div>
             {!isLoading && (
-              <span className="text-sm text-[var(--ff-text-secondary)]">
+              <span className="pb-2 text-sm text-[var(--ff-text-secondary)]">
                 {filtered.length} employee{filtered.length !== 1 ? 's' : ''}
               </span>
             )}

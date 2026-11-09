@@ -12,7 +12,7 @@ const keys = (r: ReturnType<typeof employeeReadiness>) => r.missing.map(m => m.k
 
 describe('employeeReadiness', () => {
   it('is ready with a valid tax number, a running salary and bank details', () => {
-    expect(employeeReadiness(base)).toEqual({ ready: true, missing: [] });
+    expect(employeeReadiness(base)).toEqual({ ready: true, missing: [], pending: [] });
   });
 
   it.each([['blank', ''], ['short', '12345'], ['bad lead digit', '5123456789'], ['absent', undefined]])('a %s tax number is missing', (_n, taxNumber) => {
@@ -101,14 +101,31 @@ describe('the window is the next run month, not today', () => {
 describe('readinessSummary', () => {
   it('reads "Ready to pay" or counts what is missing', () => {
     expect(readinessSummary(employeeReadiness(base))).toBe('Ready to pay');
-    expect(readinessSummary(employeeReadiness({ ...base, bank: 'none' }))).toBe('1 thing before the first pay run: bank details');
+    expect(readinessSummary(employeeReadiness({ ...base, bank: 'none' }), false)).toBe('1 thing before the first pay run: bank details');
+    expect(readinessSummary(employeeReadiness({ ...base, bank: 'none' }), true)).toBe('1 thing before the next pay run: bank details');
+    expect(readinessSummary(employeeReadiness({ ...base, bank: 'none' }))).toBe('1 thing before the next pay run: bank details');
     expect(readinessSummary(employeeReadiness({ ...base, employee: { taxNumber: '' }, components: [] })))
-      .toBe('2 things before the first pay run: a valid tax number, a salary');
+      .toBe('2 things before the next pay run: a valid tax number, a salary');
   });
 });
 
 describe('the unanswered-read summary', () => {
   it('names the check', () => {
-    expect(readinessSummary(employeeReadiness({ ...base, bank: 'unknown' }))).toBe('1 thing before the first pay run: Could not check bank details');
+    expect(readinessSummary(employeeReadiness({ ...base, bank: 'unknown' }))).toBe('1 thing before the next pay run: Could not check bank details');
+  });
+});
+
+describe('reads that have not answered', () => {
+  it('is never ready while the bank or run month is pending, and names the open check', () => {
+    const r = employeeReadiness({ ...base, bank: 'pending', runMonth: null });
+    expect(r.ready).toBe(false);
+    expect(r.missing).toEqual([]);
+    expect(r.pending).toEqual(['salary', 'bank details']);
+    expect(readinessSummary(r)).toBe('Checking salary and bank details…');
+  });
+  it('a pending read does not hide a missing tax number', () => {
+    const r = employeeReadiness({ ...base, employee: { taxNumber: '' }, bank: 'pending' });
+    expect(r.missing.map(m => m.key)).toEqual(['tax']);
+    expect(r.pending).toEqual(['bank details']);
   });
 });

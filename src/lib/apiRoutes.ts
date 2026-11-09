@@ -194,6 +194,8 @@ interface DynamicRoutes extends BudgetDynamicRoutes {
   '/api/payroll/runs/{}/inputs': RunInputsState;
   // Wave 4 PS. GET only; null (404) never reaches the caller.
   '/api/payroll/employees/{}/payslips': EmployeePayslipEntry[];
+  // Wave 5 UXP. GET only; null (404) never reaches the caller.
+  '/api/payroll/employees/{}/has-final-run': { hasFinalRun: boolean };
   // Fleet records (mig 853): GET the list, POST the new record, DELETE `{ deleted, id }` — the list and the item of
   // one resource, so a union (see above). The bank-links read is GET only; null (404) never reaches the caller.
   '/api/accounting/assets/{}/fuel': FuelRecord[] | FuelRecord | { deleted: true; id: string };
