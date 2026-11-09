@@ -107,7 +107,7 @@ describe('figures and particulars', () => {
 
   it('occupation: "Occupation not recorded" when none is captured', async () => {
     const [text] = await pages(await buildPayslipPdf(runOf(longSlip(), true)));
-    expect(text).toContain('Occupation: Occupation not recorded');
+    expect(text).toContain('Occupation: not recorded');
   });
 
   it('a FINAL slip with no employer address says "Employer address not recorded"', async () => {
@@ -137,7 +137,7 @@ describe('PS2: BCEA s33(1) particulars, formats, payment line', () => {
     expect(text).toContain('Occupation: Splicer');
     expect(text).toContain('Ordinary hours: 8 per day, 40 per week (contracted)');
     expect(text).toContain('Rate of pay: R 1 234.50 per hour');
-    expect(text).toContain('Overtime hours: Overtime hours not recorded');
+    expect(text).toContain('Overtime hours: not recorded');
   });
 
   it('prints "not recorded" for hours when none are stored, never a figure', async () => {

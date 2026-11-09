@@ -46,7 +46,7 @@ export function particulars(run: PayslipRun, slip: Payslip, periodLabel: string)
   const rate = rateOfPay(slip);
   const facts: Array<[string, string]> = [
     ['Employee', `${slip.employeeName} (${slip.employeeNumber})`],
-    ['Occupation', slip.occupation?.trim() || `Occupation ${NOT_RECORDED}`],
+    ['Occupation', slip.occupation?.trim() || NOT_RECORDED],
     ['Income tax number', slip.taxNumber ?? 'Not recorded'],
     ['Pay period', periodLabel],
   ];
@@ -54,6 +54,6 @@ export function particulars(run: PayslipRun, slip: Payslip, periodLabel: string)
   facts.push(['Paid by', paidBy(slip)]);
   facts.push(['Ordinary hours', ordinaryHours(slip)]);
   if (rate) facts.push(['Rate of pay', rate]);
-  facts.push(['Overtime hours', `Overtime hours ${NOT_RECORDED}`]);
+  facts.push(['Overtime hours', NOT_RECORDED]);
   return facts;
 }
