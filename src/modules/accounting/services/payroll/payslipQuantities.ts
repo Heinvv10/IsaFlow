@@ -29,9 +29,10 @@ interface Captured { code: string; quantity: number; unit: 'hour' | 'day' }
 function captured(breakdown: unknown): Captured[] {
   const out: Captured[] = [];
   for (const item of readBreakdown(breakdown) as unknown as Array<Record<string, unknown>>) {
-    const quantity = Number(item.quantity);
+    const quantity = item.quantity;
     const unit = item.quantityUnit;
-    if ((unit === 'hour' || unit === 'day') && Number.isFinite(quantity) && quantity > 0) {
+    // A JSON number only: true, "8" or null are not a captured quantity.
+    if ((unit === 'hour' || unit === 'day') && typeof quantity === 'number' && Number.isFinite(quantity) && quantity > 0) {
       out.push({ code: String(item.sarsSourceCode ?? '').trim(), quantity, unit });
     }
   }

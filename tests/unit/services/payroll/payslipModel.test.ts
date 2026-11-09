@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 type Header = { status: string; approved_at: string | null; approval_grandfathered_at: string | null };
 const db = vi.hoisted(() => ({
   header: null as null | Record<string, unknown>, line: null as null | Record<string, unknown>,
+  // When set, EVERY otherwise-unrecognised query returns an hours row: a live read of any table would pick it up.
+  hoursEverywhere: false,
 }));
 
 vi.mock('@/lib/neon', () => ({
@@ -25,6 +27,7 @@ vi.mock('@/lib/neon', () => ({
     }
     if (q.includes('FROM payroll_components')) return [{ id: 'c-salary', component_type: 'earning' }, { id: 'c-med', component_type: 'deduction' }];
     if (q.includes('prl.taxable_income')) return [{ run_id: RUN, employee_id: EMP, gross_pay: 30000, taxable_income: 30000, paye: 5000, uif_employee: 177.12, net_pay: 23022.88 }];
+    if (db.hoursEverywhere) return [{ employee_id: EMP, component_id: 'c-salary', sars_source_code: '3601', quantity: 99, quantity_unit: 'hour', quantityUnit: 'hour' }];
     throw new Error(`unexpected query: ${q.slice(0, 120)}`);
   }),
 }));
@@ -59,7 +62,7 @@ async function pdfText(pdf: Buffer): Promise<string> {
   return (await new PDFParse({ data: pdf }).getText()).text.replace(/\s+/g, ' ');
 }
 
-beforeEach(() => { db.header = null; db.line = null; });
+beforeEach(() => { db.header = null; db.line = null; db.hoursEverywhere = false; });
 
 describe('getPayslips: the figures', () => {
   it('earnings, deductions, PAYE, UIF and net equal the stored line', async () => {
@@ -116,12 +119,20 @@ describe('getPayslips: hours stamped on the stored breakdown (s33(1)(g))', () =>
     expect(text).toContain('Overtime hours: Not recorded');
   });
 
-  it('a live assignment quantity edited after the run does not change the slip (no assignment is read)', async () => {
+  it('hours held by any other source (any table, any query) never reach the slip', async () => {
     open();
-    const { sql } = await import('@/lib/neon');
-    await getPayslips(CO, RUN);
-    const queries = (sql as unknown as { mock: { calls: Array<[TemplateStringsArray]> } }).mock.calls.map((c) => c[0].join('?'));
-    expect(queries.some((q) => q.includes('payroll_employee_components'))).toBe(false);
+    db.hoursEverywhere = true;
+    const run = await getPayslips(CO, RUN);
+    expect(run.payslips[0]).toMatchObject({ workedOrdinary: null, workedOvertime: null });
+    const text = await pdfText(await buildPayslipPdf(run));
+    expect(text).toContain('Overtime hours: Not recorded');
+    expect(text).not.toContain('99 hours');
+  });
+
+  it('a quantity that is not a JSON number (true, "8") is not a captured quantity', async () => {
+    open();
+    lineWith([item('c-salary', '3601', { quantity: true, quantityUnit: 'hour' }), item('c-ot', '3607', { quantity: '8', quantityUnit: 'hour' })]);
+    expect((await getPayslips(CO, RUN)).payslips[0]).toMatchObject({ workedOrdinary: null, workedOvertime: null });
   });
 
   it('other codes are not read; hours and days of one code are never summed', async () => {
