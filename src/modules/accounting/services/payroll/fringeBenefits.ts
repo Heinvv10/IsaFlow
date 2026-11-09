@@ -106,7 +106,8 @@ const HAS_IMPLICIT_DEFAULT: ReadonlySet<FringeKind> = new Set<FringeKind>(['trav
  * month's last day (for two rows, the later start). For a kind with an implicit default (travel at 80%, the medical
  * split) the days no row covers are the default's own: a row covering fewer days than that does not decide the month
  * (a gross-up recorded from 11-30 leaves November the split; a first business-use travel record from 06-25 leaves June
- * at 80%). A vehicle has no default: any month it touches carries it. A mid-month car swap or flag change therefore
+ * at 80%). A vehicle has no default: any month it touches carries it, even for one day (the Seventh Schedule values the
+ * use per month, so a vehicle that covers 1 day of the month is intended to carry it). A mid-month car swap or flag change therefore
  * never counts two benefits and never blocks the run. NAMED LIMIT: the Seventh Schedule values the use per month; the
  * most-days rule is IsaFlow's, not stated in the SARS guide.
  */
