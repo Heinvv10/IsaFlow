@@ -36,7 +36,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     ? await describePayRunApproval(companyId, id) : null;
   // Whether the approval was decided by the requester's own sole-approver self-approval (no ids leave the server).
   const approvalDecision = await describePayRunDecision(companyId, id, run.status);
-  // The payslips' final/DRAFT state: the R-035 guard itself, never the status (wave 4 PS).
+  // The payslips' final/DRAFT state: `isPayRunFinal`: approved/paid with an approval time, never the status alone (wave 4 PS, wave 5 FS).
   const payslipsFinal = lines.length > 0 && await isPayRunFinal(companyId, id);
   return apiResponse.success(res, { ...run, lines, approval, approvalDecision, payslipsFinal });
 }

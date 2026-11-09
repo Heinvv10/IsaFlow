@@ -33,13 +33,22 @@ interface Draft { form: InvoiceHeaderForm; lines: readonly EditLine[]; taxMode: 
  */
 const savedLines = (lines: readonly EditLine[]) => lines.filter((l) => l.timeEntryId || l.description || l.unitPrice); // a time-entry line is never dropped (its time would be unbilled)
 
-export function invoicePutBody(id: string, { form, lines, taxMode }: Draft): InvoicePutBody {
+/**
+ * `omitDueDate`: leave the due date out. A save names the due date only when the page has something to say about it (the
+ * user typed it, or the page recalculated it for a moved date or customer: useDueDateFollowsTerms); an untouched one is
+ * the page's old copy, and sending it would put back a date that moved since the page loaded (Re-apply, another tab)
+ * and record it as set by hand. The server keeps a date the body leaves out.
+ * `markClearedDue`: the user cleared a due date the invoice has. The body then carries '' (it must differ from the one
+ * with the date untouched, or autosave sees no change and never says why it holds); that body is never sent, since
+ * clearedDateProblem refuses it first.
+ */
+export function invoicePutBody(id: string, { form, lines, taxMode }: Draft, opts: { omitDueDate?: boolean; markClearedDue?: boolean } = {}): InvoicePutBody {
   const taxRate = effectiveTaxRate(taxMode, form.taxRate);
   return {
     id,
     clientId: form.clientId,
     invoiceDate: form.invoiceDate,
-    dueDate: form.dueDate || undefined,
+    dueDate: opts.omitDueDate ? undefined : form.dueDate || (opts.markClearedDue ? '' : undefined),
     billingPeriodStart: form.billingPeriodStart || undefined,
     billingPeriodEnd: form.billingPeriodEnd || undefined,
     taxRate,

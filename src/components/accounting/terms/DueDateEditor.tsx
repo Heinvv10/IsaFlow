@@ -1,6 +1,7 @@
 /**
- * Change an approved or part-paid bill's due date (payment-terms programme PR 2). Date only: everything else on an
- * approved bill stays locked. The change is recorded in the bill's history (migration 962).
+ * Change a posted document's due date (payment-terms programme PR 2; AR parity): an approved or part-paid supplier bill,
+ * or an approved, sent, overdue or part-paid customer invoice. Date only: everything else on it stays locked. The change
+ * is recorded in the document's history (migration 962).
  */
 import { useState } from 'react';
 import { CalendarClock, Loader2 } from 'lucide-react';
@@ -9,7 +10,17 @@ import { DUE_DATE_SOURCE_LABELS, isDueDateSource } from '@/modules/accounting/se
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
 
+/**
+ * Which documents take the edit, and where: the statuses are the server's (ap/billDueDateEdit, ar/invoiceDueDateEdit;
+ * a test holds them equal), kept here because those modules cannot be imported into a browser bundle.
+ */
+export const DUE_DATE_EDITORS = {
+  bill: { endpoint: '/api/accounting/supplier-invoices-due-date', statuses: ['approved', 'partially_paid'] },
+  invoice: { endpoint: '/api/accounting/customer-invoices-due-date', statuses: ['approved', 'sent', 'overdue', 'partially_paid'] },
+} as const;
+
 interface Props {
+  kind: keyof typeof DUE_DATE_EDITORS;
   invoiceId: string;
   status: string;
   invoiceDate: string;
@@ -18,13 +29,14 @@ interface Props {
   onSaved: () => void | Promise<void>;
 }
 
-export function BillDueDateEditor({ invoiceId, status, invoiceDate, dueDate, dueDateSource, onSaved }: Props) {
+export function DueDateEditor({ kind, invoiceId, status, invoiceDate, dueDate, dueDateSource, onSaved }: Props) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(dueDate ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [refused, setRefused] = useState(false);
-  if (status !== 'approved' && status !== 'partially_paid') return null;
+  const editor = DUE_DATE_EDITORS[kind];
+  if (!(editor.statuses as readonly string[]).includes(status)) return null;
 
   const source = isDueDateSource(dueDateSource) ? DUE_DATE_SOURCE_LABELS[dueDateSource] : null;
   const tooEarly = value !== '' && value < invoiceDate;
@@ -33,7 +45,7 @@ export function BillDueDateEditor({ invoiceId, status, invoiceDate, dueDate, due
     setSaving(true);
     setError('');
     try {
-      const res = await apiFetch('/api/accounting/supplier-invoices-due-date', {
+      const res = await apiFetch(editor.endpoint, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: invoiceId, dueDate: value }),
@@ -49,7 +61,7 @@ export function BillDueDateEditor({ invoiceId, status, invoiceDate, dueDate, due
   };
 
   return (
-    <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4" data-testid="bill-due-date-editor">
+    <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4" data-testid="due-date-editor">
       <div className="flex flex-wrap items-center gap-3">
         <CalendarClock className="h-4 w-4 text-teal-500" />
         <span className="text-sm text-[var(--ff-text-secondary)]">Due date</span>

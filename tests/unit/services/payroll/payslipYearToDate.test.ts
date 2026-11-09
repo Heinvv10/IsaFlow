@@ -15,16 +15,13 @@ vi.mock('@/lib/neon', () => ({
     return db.rows;
   }),
 }));
-vi.mock('@/modules/accounting/services/payroll/payslipFinal', () => ({
-  isPayRunFinal: vi.fn(async (_c: string, runId: string) => db.final.has(runId)),
-}));
 
 import { payslipYearToDate } from '@/modules/accounting/services/payroll/payslipYearToDate';
 
 /** [startYear, startMonth, endYear, endMonth] as bound into the query. */
 const bounds = () => db.params.at(-1)!.slice(2);
 const row = (runId: string, gross: string) =>
-  ({ run_id: runId, employee_id: 'e', gross_pay: gross, taxable_income: gross, paye: '1.00', uif_employee: '0.10', net_pay: '0.50' });
+  ({ run_id: runId, final: db.final.has(runId), employee_id: 'e', gross_pay: gross, taxable_income: gross, paye: '1.00', uif_employee: '0.10', net_pay: '0.50' });
 
 beforeEach(() => { db.params = []; db.rows = []; db.final = new Set(); });
 
