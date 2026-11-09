@@ -161,7 +161,21 @@ export interface CompanyDocument {
   documentName: string;
   mimeType: string;
   fileSize: number;
-  createdAt: string;
+  uploadedAt: string;
+}
+
+const isDocument = (d: unknown): d is CompanyDocument => {
+  const r = d as Partial<CompanyDocument> | null;
+  return typeof r === 'object' && r !== null && typeof r.id === 'string' && typeof r.documentName === 'string';
+};
+
+/**
+ * GET /api/accounting/company-documents answers `{ items: [...] }` inside the envelope's `data`.
+ * Any other shape is null, never `[]`: callers report it rather than show "No documents uploaded yet."
+ */
+export function documentsFromList(data: unknown): CompanyDocument[] | null {
+  const items = (data as { items?: unknown } | null | undefined)?.items;
+  return Array.isArray(items) && items.every(isDocument) ? items : null;
 }
 
 export const INPUT_CLS = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none';
