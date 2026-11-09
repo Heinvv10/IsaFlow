@@ -189,7 +189,9 @@ describe('migration 967: CHECKs and the director backfill', () => {
   it.each([
     ['hourly with no rate', "pay_basis|'hourly'"], ['hourly with rate 0', "pay_basis, hourly_rate|'hourly', 0"],
     ['daily with no rate', "pay_basis|'daily'"], ['a day longer than the week', 'hours_per_week, hours_per_day|8, 9'],
-    ['an unknown tax status', "tax_status|'boss'"], ['hours over 168', 'hours_per_week|169'], ['a negative rate', 'hourly_rate|-1'],
+    ['an unknown tax status', "tax_status|'boss'"], ['an unknown pay basis', "pay_basis|'weekly'"], ['hours over 168', 'hours_per_week|169'],
+    ['hours a day over 24', 'hours_per_day|25'], ['a negative hourly rate', 'hourly_rate|-1'], ['a negative daily rate', 'daily_rate|-1'],
+    ['an occupation over 100 characters', "occupation|repeat('x', 101)"],
   ])('the database refuses %s', async (name, extra) => {
     await expect(insert(`CK-${Math.random().toString(36).slice(2, 9)}`, extra)).rejects.toMatchObject({ code: '23514' });
   });
