@@ -24,7 +24,7 @@ import { log } from '@/lib/logger';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { PAIR_CLASS_RANGES } from '@/modules/accounting/services/packs/pages/packBreakPairsData';
 import { statementTableBodyMm, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
-import { carriesMarks, printedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
+import { carriesMarks, printedText, printsAnywhere } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import { PRINT_CONTENT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { unreadableBlock } from '@/modules/accounting/services/packs/pages/packFigureFloor';
 import { TABLES_OF } from '../print/measureTables';
@@ -39,7 +39,7 @@ import { flatStylesheet } from './parityPage';
 import { paritySkip } from './paritySkip';
 import { adversaryCensus, BREAKS_OF, CENSUS, heldLines, LINES_OF, linesHtml, modelBreaks, randomStrings, readBreaks, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_SEVEN_LABELS, ROUND_SIX_LABELS, ROUND_THREE_LABELS } from '../print/fixtures/breakPairsCensus';
 import { allDifferences, standInCensus } from '../print/fixtures/everyBreakCensus';
-import { ROUND_EIGHT_FITTING, ROUND_EIGHT_LABELS } from '../print/fixtures/anywhereFamilies';
+import { ROUND_EIGHT_FITTING, ROUND_EIGHT_LABELS, ROUND_NINE_LABELS } from '../print/fixtures/anywhereFamilies';
 
 const DATA = path.resolve(__dirname, '../../../src/modules/accounting/services/packs/pages/packBreakPairsData.ts');
 const unavailable = paritySkip();
@@ -101,7 +101,7 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
     let held = 0;
-    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS, ...ROUND_SEVEN_LABELS, ...ROUND_EIGHT_LABELS, ...ROUND_EIGHT_FITTING];
+    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS, ...ROUND_SEVEN_LABELS, ...ROUND_EIGHT_LABELS, ...ROUND_EIGHT_FITTING, ...ROUND_NINE_LABELS];
     const refused: string[] = [];
     for (const [label, labelMarker] of labels) {
       for (const digits of [9, 12]) {
@@ -134,7 +134,7 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
         // A table the model passes (`tableFit`) must fit the page in production: a label column too narrow widens it.
         // The label column never narrower than production's (a mark the faces lack is drawn: round 6).
         // A label holding a mark holds its column at its floor and no more, in the model and in the print (`packAnywhereLabel.ts`).
-        if (carriesMarks(printedText(label)) && Math.abs(model.columnsPx[0]! - Number(labelPx)) > 0.1) wrong.push(`${say}: label column ${model.columnsPx[0]!.toFixed(3)}px, production ${Number(labelPx).toFixed(3)}, a marked label moved it`);
+        if (printsAnywhere(printedText(label)) && Math.abs(model.columnsPx[0]! - Number(labelPx)) > 0.1) wrong.push(`${say}: label column ${model.columnsPx[0]!.toFixed(3)}px, production ${Number(labelPx).toFixed(3)}, a marked label moved it`);
         if (model.columnsPx[0]! < Number(labelPx) - 0.1) wrong.push(`${say}: label column ${model.columnsPx[0]!.toFixed(3)}px, production ${Number(labelPx).toFixed(3)}`);
         if (Number(widthPx) > PRINT_CONTENT_PX.portrait + 0.02) wrong.push(`${say}: ${Number(widthPx).toFixed(3)}px wide in production, past the page's ${PRINT_CONTENT_PX.portrait}`);
         if (Number(overPx) > 0) wrong.push(`${say}: the label runs ${Number(overPx).toFixed(1)}px past its cell, over the figures`);

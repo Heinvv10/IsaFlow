@@ -1,32 +1,36 @@
 /**
- * A ROW LABEL THAT CARRIES A MARK, AS PRINTED AND AS MEASURED (#1235 round 7, Hein's decision).
+ * A ROW LABEL THAT CARRIES A MARK OR A JOINING LETTER, AS PRINTED AND AS MEASURED (#1235 rounds 7-9, Hein's decision).
  *
  * Where Chromium breaks beside a combining mark or a variation selector, and how wide it draws a cluster that carries
- * one, depend on the mark, the base and the fallback face Chromium takes for both; the pair table and the fallback
- * tables cannot say. So such a label (`packPrintedText.carriesMarks`) is printed in a block of its own that may break
- * between any two graphemes and adds to its column's width only the floor it is set at (`pack-label-anywhere`:
- * `contain: inline-size; line-break: anywhere`, and a `min-width`), and is measured here:
+ * one, depend on the mark, the base and the fallback face Chromium takes for both; and a letter that joins its
+ * neighbours (Arabic, Syriac, Mongolian, ...) is set in a joined form the fallback tables, measured alone, cannot price
+ * (round 9: Syriac SADHE is 7.52px alone and 410px forty times over). The pair table and the fallback tables cannot
+ * say. So such a label (`packPrintedText.printsAnywhere`) is printed in a block of its own that may break between any
+ * two graphemes and adds to its column's width only the floor it is set at (`pack-label-anywhere`: `contain:
+ * inline-size; line-break: anywhere`, and a `min-width`), and is measured here:
  *  - its column is the other rows', or the label's FLOOR where that is wider: the print gives the block a `min-width`
  *    (`anywhereFloorPx`, stamped on the table's fit, `ComparativeTable`), and the fit gate counts it, so a grapheme the
  *    print cannot break is never wider than its column; where the floor leaves the figures no room the table does not
  *    fit and the pack is refused (`packFigureFloor`), never printed with the label over the figures (round 8);
- *  - its lines are a plain greedy fill of its graphemes into the column, each run of graphemes without a mark at its
- *    exact width as the ruler sets it, each grapheme that carries a mark at an upper bound: the widest advance of any
- *    glyph in production's fallback faces (`packFallbackWidthData.FALLBACK.widest`) for EVERY code point in it. One
- *    grapheme can hold several glyphs that each advance (seven emoji joined by ZWJ, a conjunct chain, a run of Hangul
- *    leading jamo or of prepended marks, a mark drawn on a dotted circle, stacked spacing marks), and none of ZWJ, a
- *    variation selector or a mark is zero-advance on every base (VS16 turns a text-default emoji into its emoji
- *    presentation, ZWJ changes how a conjunct is shaped, an off-script mark draws a dotted circle), so none is priced
- *    at nothing. A soft hyphen at the hyphen's width. Every width at or over the print's, and the fill greedy as
- *    Chromium's, the lines are never fewer (`printParity/packAnywhereLabelImage.test.ts`, in production). It may split
- *    a word, and it reads far more lines than the print where a script writes most letters with a mark: the demo's
- *    income statement in Thai prints as tall as in English (68.7mm), and the model reads it at 123.9mm. These labels
- *    are rare, and that is accepted (round 7). The floor is two glyphs at the least (174px at 9pt), so a table of them
- *    keeps a label column (round 7 left it its padding, 39.9px, where every label carried a mark).
+ *  - its lines are a plain greedy fill of its graphemes into the column: each run of graphemes the pack's own faces set
+ *    without a mark at its exact width as the ruler sets it; every other grapheme (one that carries a mark, or that a
+ *    fallback face sets) at an upper bound, the widest advance of any glyph in production's fallback faces
+ *    (`packFallbackWidthData.FALLBACK.widest`) for EVERY code point in it. One grapheme can hold several glyphs that
+ *    each advance (seven emoji joined by ZWJ, a conjunct chain, a run of Hangul leading jamo or of prepended marks, a
+ *    mark drawn on a dotted circle, stacked spacing marks), and none of ZWJ, a variation selector or a mark is
+ *    zero-advance on every base (VS16 turns a text-default emoji into its emoji presentation, ZWJ changes how a
+ *    conjunct is shaped, an off-script mark draws a dotted circle), so none is priced at nothing. A soft hyphen at the
+ *    hyphen's width. Every width at or over the print's, and the fill greedy as Chromium's, the lines are never fewer
+ *    (`printParity/packAnywhereLabelImage.test.ts`, in production). It may split a word, and it reads far more lines
+ *    than the print where a script the faces lack is written: see `markedTables` in that test for the demo's income
+ *    statement in Thai, Arabic and Syriac, which print as tall as in English. These labels are rare, and that is
+ *    accepted (rounds 7 and 9). The floor is one fallback glyph at the least (87px at 9pt), so a table of them keeps a
+ *    label column (round 7 left it its padding, 39.9px, where every label carried a mark).
  */
 import { FALLBACK } from './packFallbackWidthData';
 import { LABEL_STYLE, textExactPx, type FigureWeight } from './packFigureWidth';
-import { clustersOf, fitUnitsPx } from './packGlyphRuler';
+import { clustersOf, fitUnitsPx, inFace } from './packGlyphRuler';
+import { printsAnywhere } from './packPrintedText';
 
 const LABEL_FONT_PX = 12;
 const MARK = /\p{M}/u;
@@ -40,7 +44,7 @@ export function markedClusterPx(cluster: string, weight: FigureWeight): number {
 }
 
 /**
- * The narrowest a column can hold `labels` printed to break anywhere (the ones that carry a mark; null where none
+ * The narrowest a column can hold `labels` printed to break anywhere (`printsAnywhere`; null where none
  * does): the widest any of their graphemes can be (`markedClusterPx`, for one without a mark too), in whole pixels, so
  * the print's `min-width` is the model's to the unit. The footnote mark is a box of its own the print may break before,
  * and narrower than any grapheme of a marked label (two code points at the least).
@@ -48,18 +52,22 @@ export function markedClusterPx(cluster: string, weight: FigureWeight): number {
 export function anywhereFloorPx(labels: ReadonlyArray<{ label: string; weight: FigureWeight }>): number | null {
   let floor: number | null = null;
   for (const { label, weight } of labels) {
-    if (!MARK.test(label)) continue;
+    if (!printsAnywhere(label)) continue;
     for (const cluster of clustersOf(label)) floor = Math.max(floor ?? 0, Math.ceil(markedClusterPx(cluster, weight)));
   }
   return floor;
 }
 
-/** The width a line of `clusters` is fitted by: runs without a mark exact, a cluster with one at its upper bound. */
+/**
+ * The width a line of `clusters` is fitted by: runs the pack's faces set exact, as the ruler sets them; a cluster that
+ * carries a mark or that a fallback face sets at its upper bound (round 9: a fallback letter's advance is measured
+ * alone, and a joined form can be wider, Syriac SADHE by a third).
+ */
 function lineExactPx(clusters: readonly string[], weight: FigureWeight): number {
   let px = 0;
   let run = '';
   for (const c of clusters) {
-    if (MARK.test(c)) {
+    if (MARK.test(c) || !inFace(c)) {
       if (run !== '') px += textExactPx(run, LABEL_FONT_PX, weight);
       run = '';
       px += markedClusterPx(c, weight);

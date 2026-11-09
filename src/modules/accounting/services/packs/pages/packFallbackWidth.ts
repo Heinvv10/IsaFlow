@@ -13,8 +13,9 @@
  * Whole pixels rounded up, and at a size other than the one measured, scaled and rounded up: an upper bound for a
  * cluster without a mark. NOT for one that carries a mark: a mark, a joiner and a selector are priced at nothing here,
  * and Chromium may set such a cluster in another face, base and all, and wider ("\u00AE" with U+036B is 9.98px against
- * 7). No priced path gives one this table: a row label that carries a mark is priced per code point at the widest
- * fallback glyph (`packAnywhereLabel.ts`), and a KPI tile refuses one (`packKpiLayout.inPackFaces`).
+ * 7). Nor for a letter that joins (its joined form can be wider than the advance measured alone: round 9). No priced
+ * path gives either this table: a row label holding one is printed to break anywhere and priced per code point at the
+ * widest fallback glyph (`packAnywhereLabel.ts`), and a KPI tile refuses any fallback glyph (`packKpiLayout.inPackFaces`).
  */
 import { EXACT_RANGES, FALLBACK, type FallbackStyle } from './packFallbackWidthData';
 

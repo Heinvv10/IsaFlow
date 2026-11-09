@@ -19,7 +19,7 @@
  * table is as wide as production prints a page (`PRINT_CONTENT_PX`).
  */
 import { anywhereFloorPx, anywhereLineCount } from './packAnywhereLabel';
-import { carriesMarks } from './packPrintedText';
+import { printsAnywhere } from './packPrintedText';
 import { createHash } from 'node:crypto';
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
@@ -147,7 +147,7 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
     const marker = labelMarkPx(row.footnote, weight, AS_CHROMIUM_SETS);
     // A label printed to break anywhere holds the column open by its floor, its `min-width`, and no more: its content
     // adds nothing (`packAnywhereLabel.ts`).
-    if (carriesMarks(row.label)) return { row, weight, indent, min: indent + floorPx + CELL_SIDE_PX, max: indent + floorPx + CELL_SIDE_PX };
+    if (printsAnywhere(row.label)) return { row, weight, indent, min: indent + floorPx + CELL_SIDE_PX, max: indent + floorPx + CELL_SIDE_PX };
     const min = indent + labelWidestPiecePx(row.label, row.footnote, weight, AS_CHROMIUM_SETS) + CELL_SIDE_PX;
     // Its whole line: collapsible spaces collapsed, and trimmed but for one before a mark that follows one (a no-break
     // space is not collapsible: it stays, as it does in Chromium). A cell's max-content is never below its min-content:
@@ -185,7 +185,7 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
  * where the label ends at a space (`packLineBreaks.markedPieces`).
  */
 export function labelLineCount(label: string, footnote: number | null | undefined, weight: FigureWeight, availPx: number, guardPx: number): number {
-  if (carriesMarks(label)) return anywhereLineCount(label, labelMarkExactPx(footnote, weight), weight, availPx, guardPx);
+  if (printsAnywhere(label)) return anywhereLineCount(label, labelMarkExactPx(footnote, weight), weight, availPx, guardPx);
   return linesForText(markedPieces(label, footnote !== null && footnote !== undefined), { exactPx: (text, hyphen) => textExactPx(text, LABEL_FONT_PX, weight, hyphen), fontPx: LABEL_FONT_PX },
     labelMarkExactPx(footnote, weight), availPx, guardPx);
 }

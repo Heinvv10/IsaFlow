@@ -20,7 +20,7 @@
  * at every scale in `tests/unit/print/packNothingPassesTheEdge.test.ts`.
  */
 import { anywhereFloorPx } from './packAnywhereLabel';
-import { carriesMarks } from './packPrintedText';
+import { printsAnywhere } from './packPrintedText';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import { collectReasons, noteMark } from '@/components/accounting/packs/primitives/notMeaningfulNotes';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
@@ -170,7 +170,7 @@ export function labelWidestPiecePx(label: string, footnote: number | null | unde
 function labelMinPx(table: PackTable, floorPx: number | null): number {
   // A label printed to break anywhere holds its column open by its floor (`packAnywhereLabel.anywhereFloorPx`).
   return Math.max(0, ...table.rows.map((row) => row.level * INDENT_PX_PER_LEVEL
-    + (carriesMarks(row.label) ? floorPx ?? 0 : labelWidestPiecePx(row.label, row.footnote, ROW_WEIGHT[row.role])) + CELL_SIDE_PX));
+    + (printsAnywhere(row.label) ? floorPx ?? 0 : labelWidestPiecePx(row.label, row.footnote, ROW_WEIGHT[row.role])) + CELL_SIDE_PX));
 }
 
 /** The floor of `table`'s labels printed to break anywhere (null where none is), as the print sets it on each. */

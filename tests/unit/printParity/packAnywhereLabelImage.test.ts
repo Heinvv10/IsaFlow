@@ -21,12 +21,12 @@ import { PRINT_CONTENT_PX } from '@/modules/accounting/services/packs/pages/pack
 import { asStamped } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import { TABLES_OF } from '../print/measureTables';
 import { MARKED_TABLES, relabelledStatement } from '../print/fixtures/markedTables';
-import { carriesMarks, printedText } from '@/modules/accounting/services/packs/pages/packPrintedText';
+import { printedText, printsAnywhere } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import { startGotenberg, type Gotenberg } from './gotenbergParity';
 import { inImage } from './inImage';
 import { paritySkip } from './paritySkip';
 import { markedCensus } from '../print/fixtures/everyBreakCensus';
-import { anywhereFamilies } from '../print/fixtures/anywhereFamilies';
+import { anywhereFamilies, joiningSweep } from '../print/fixtures/anywhereFamilies';
 import { ANYWHERE_LINES_OF, anywhereArgs, judgeAnywhere, type AnywhereCase, type Weight } from '../print/anywhereLines';
 
 const unavailable = paritySkip();
@@ -49,7 +49,7 @@ function labels(): string[] {
   return printedMarked([...out]);
 }
 
-const printedMarked = (texts: readonly string[]): string[] => texts.map(printedText).filter(carriesMarks);
+const printedMarked = (texts: readonly string[]): string[] => texts.map(printedText).filter(printsAnywhere);
 
 /** Every width under the floor (174px and up) is the floor; the families are wider, so they are tried wider too. */
 const WIDTHS = [18, 200, 250, 400];
@@ -82,6 +82,14 @@ describe.skipIf(unavailable !== null)(`labels printed to break anywhere, in prod
     const wrong: string[] = [];
     for (const weight of [400, 500, 600] as const) for (const w of FAMILY_WIDTHS) wrong.push(...await check(cases, w, weight));
     expect(wrong.slice(0, 20), `${wrong.length} of ${cases.length * 36}`).toEqual([]);
+  }, 3_600_000);
+
+  it('every joining letter the faces lack, repeated and paired, alone and after a marked word (round 9), at three widths and three weights: never a line more, none past its block', async () => {
+    const cases = printedMarked(joiningSweep()).map((text) => ({ text, footnote: null }));
+    expect(cases.length).toBeGreaterThan(40_000);
+    const wrong: string[] = [];
+    for (const weight of [400, 500, 600] as const) for (const w of [18, 200, 320]) wrong.push(...await check(cases, w, weight));
+    expect(wrong.slice(0, 20), `${wrong.length} of ${cases.length * 9}`).toEqual([]);
   }, 3_600_000);
 
   it('statement tables whose labels all carry marks, or every other one: the columns the model\'s, never short, never past the page or a cell, and as tall as the plain table', async () => {

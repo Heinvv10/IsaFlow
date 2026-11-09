@@ -9,7 +9,7 @@
  * refused where the document is adopted (`packDocumentWire`) and again where it is rendered (`unstampedFigure`), and
  * the page says why (`markPrintError('pages')`) rather than printing a row nobody checked.
  */
-import { carriesMarks } from './packPrintedText';
+import { printsAnywhere } from './packPrintedText';
 import type { PackPage, PackPageBlock, PackPagesDocument, PackTable } from './packPageModel';
 
 export interface FigureFit {
@@ -18,8 +18,8 @@ export interface FigureFit {
   /** False where it fits at no size down to the floor (the composer refuses such a pack: `packFigureFloor`). */
   fits: boolean;
   /**
-   * A statement table's only, and only where a row label carries a mark: the `min-width` in whole pixels each such
-   * label is printed at, the widest any of its graphemes can be (`packAnywhereLabel.anywhereFloorPx`), which the fit
+   * A statement table's only, and only where a row label prints anywhere (`printsAnywhere`): the `min-width` in whole
+   * pixels each such label is printed at, the widest any of its graphemes can be (`packAnywhereLabel.anywhereFloorPx`), which the fit
    * counted in the label column's min-content. The print cannot break inside a grapheme, so without it a wide one
    * runs over the figures.
    */
@@ -73,7 +73,7 @@ export function fitAttributes(fit: FigureFit, kind: FitKind): { className?: stri
  * counted in the fit (`FigureFit.labelFloorPx`). Throws where there is none: such a label would run over the figures.
  */
 export function anywhereFloor(fit: FigureFit): number {
-  if (fit.labelFloorPx === undefined) throw new Error('anywhereFloor: refusing to print a label that carries a mark without the floor the server decided for it');
+  if (fit.labelFloorPx === undefined) throw new Error('anywhereFloor: refusing to print a label printed to break anywhere without the floor the server decided for it');
   return fit.labelFloorPx;
 }
 
@@ -93,7 +93,7 @@ export function unstampedBlock(block: PackPageBlock): string | null {
   if (block.kind === 'table' && !isFigureFit(block.table.figureFit, 'table')) {
     return `a statement table without a printable figure size (${JSON.stringify(block.table.figureFit ?? null)})`;
   }
-  if (block.kind === 'table' && block.table.figureFit!.labelFloorPx === undefined && block.table.rows.some((row) => carriesMarks(row.label))) {
+  if (block.kind === 'table' && block.table.figureFit!.labelFloorPx === undefined && block.table.rows.some((row) => printsAnywhere(row.label))) {
     return 'a statement table with a label printed to break anywhere and no floor for it (labelFloorPx)';
   }
   if (block.kind === 'kpiTiles' && !isFigureFit(block.fit, 'kpi')) {

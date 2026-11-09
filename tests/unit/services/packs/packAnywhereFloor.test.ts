@@ -16,7 +16,8 @@ import { anywhereFloor, isFigureFit, unstampedBlock, type StampedPackTable } fro
 import { assertFiguresReadable, unreadableBlock } from '@/modules/accounting/services/packs/pages/packFigureFloor';
 import { labelLineCount, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
 import { WRAP_GUARD_PX } from '@/modules/accounting/services/packs/pages/packLineWrap';
-import { FAMILIES, ROUND_EIGHT_FITTING, ROUND_EIGHT_LABELS } from '../../print/fixtures/anywhereFamilies';
+import { FAMILIES, ROUND_EIGHT_FITTING, ROUND_EIGHT_LABELS, ROUND_NINE_LABELS } from '../../print/fixtures/anywhereFamilies';
+import { printsAnywhere } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import { demoWithoutBudget, SCALE, withWidenedTable } from './fixtures/widenedFigures';
 
 const WIDEST = FALLBACK.label400.widest;
@@ -42,6 +43,31 @@ describe('a grapheme that carries a mark is priced per code point', () => {
     const chain = `${'\u{1F600}\u200D'.repeat(6)}\u{1F600}`;
     expect(anywhereFloorPx([{ label: `q\u0301 ${chain}`, weight: 400 }, { label: 'Revenue', weight: 600 }])).toBe(13 * WIDEST);
     expect(anywhereFloorPx([{ label: `Rent ${FAMILIES[0]!(14)}`, weight: 500 }])).toBe(43 * FALLBACK.label500.widest);
+  });
+});
+
+describe('a letter that joins, which the faces lack, is printed to break anywhere and priced at the bound (round 9)', () => {
+  const sadhe = (n: number): string => '\u0728'.repeat(n);
+  it('prints anywhere: Arabic, Syriac, Mongolian, N\'Ko, Adlam; not Latin, CJK, an emoji ZWJ sequence or ZWNJ alone', () => {
+    for (const t of [sadhe(17), 'Rent \u0628\u064A\u0646', '\u182E\u1823\u1829', '\u07DE\u07CA', '\u{1E900}\u{1E923}', '\u0640']) expect(printsAnywhere(t), t).toBe(true);
+    for (const t of ['Revenue', '\u4E2D\u6587', '\u{1F600}\u200D\u{1F600}', 'a\u200Cb', '\u0660\u0661']) expect(printsAnywhere(t), t).toBe(false);
+  });
+
+  it('each joining letter at the widest fallback glyph, in a line and in the floor: a SADHE run of 40 at 200px is 20 lines', () => {
+    expect(anywhereFloorPx([{ label: sadhe(17), weight: 400 }])).toBe(WIDEST);
+    expect(labelLineCount(sadhe(40), null, 400, 200, WRAP_GUARD_PX)).toBe(20);
+    // After a marked word too (H1): "q\u0301 " then the run, two letters a line.
+    expect(labelLineCount(`q\u0301 ${sadhe(40)}`, null, 400, 200, WRAP_GUARD_PX)).toBe(21);
+    // A run the faces set is priced as the ruler sets it.
+    expect(labelLineCount('q\u0301 Revenue', null, 400, 400, WRAP_GUARD_PX)).toBe(1);
+  });
+
+  it('the review\'s round-9 tables carry a floor, and a SADHE label\'s column holds it', () => {
+    for (const [label, labelMarker] of ROUND_NINE_LABELS) {
+      const { table } = withWidenedTable(demoWithoutBudget(), 12, label, { labelMarker });
+      expect(table.figureFit!.labelFloorPx, JSON.stringify(label)).toBe(anywhereFloorPx([{ label, weight: 400 }]));
+      if (table.figureFit!.fits) expect(tableLayout(table, SCALE, 'portrait').columnsPx[0]!).toBeGreaterThanOrEqual(table.figureFit!.labelFloorPx! + 2 * INDENT_PX_PER_LEVEL + CELL_SIDE_PX - 1e-6);
+    }
   });
 });
 
