@@ -54,6 +54,9 @@ export function anywhereFamilies(): string[] {
   out.add(`Telecommunications ${cp(0x1f1ff, 0x1f1e6, 0x0301, 0x1f1ff, 0x1f1e6, 0x0301)}`);
   out.add(`${cp(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467, 0x200d, 0x1f466, 0xfe0f)}`);
   out.add(`Telecommunications ${cp(0x1f441, 0xfe0f, 0x200d, 0x1f5e8, 0xfe0f)}`);
+  // A last line the ruler prices exactly, at every length: somewhere it ends so near the edge that a footnote mark after
+  // it takes a line of its own (blind round 8, L2: the mark's line was held nowhere).
+  for (let k = 1; k <= 80; k += 1) { out.add(`q\u0301 ${'n'.repeat(k)}`); out.add(`Rq\u0301 Telecommunications ${'m'.repeat(k)}`); }
   return [...out];
 }
 

@@ -11,10 +11,11 @@ import { describe, expect, it } from 'vitest';
 import { ComparativeTable } from '@/components/accounting/packs/primitives/ComparativeTable';
 import { anywhereFloorPx, markedClusterPx } from '@/modules/accounting/services/packs/pages/packAnywhereLabel';
 import { FALLBACK } from '@/modules/accounting/services/packs/pages/packFallbackWidthData';
-import { CELL_SIDE_PX, INDENT_PX_PER_LEVEL, tableFit } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { CELL_SIDE_PX, INDENT_PX_PER_LEVEL, labelMarkExactPx, tableFit } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { anywhereFloor, isFigureFit, unstampedBlock, type StampedPackTable } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import { assertFiguresReadable, unreadableBlock } from '@/modules/accounting/services/packs/pages/packFigureFloor';
-import { tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
+import { labelLineCount, tableLayout } from '@/modules/accounting/services/packs/pages/packTableLayout';
+import { WRAP_GUARD_PX } from '@/modules/accounting/services/packs/pages/packLineWrap';
 import { FAMILIES, ROUND_EIGHT_FITTING, ROUND_EIGHT_LABELS } from '../../print/fixtures/anywhereFamilies';
 import { demoWithoutBudget, SCALE, withWidenedTable } from './fixtures/widenedFigures';
 
@@ -41,6 +42,20 @@ describe('a grapheme that carries a mark is priced per code point', () => {
     const chain = `${'\u{1F600}\u200D'.repeat(6)}\u{1F600}`;
     expect(anywhereFloorPx([{ label: `q\u0301 ${chain}`, weight: 400 }, { label: 'Revenue', weight: 600 }])).toBe(13 * WIDEST);
     expect(anywhereFloorPx([{ label: `Rent ${FAMILIES[0]!(14)}`, weight: 500 }])).toBe(43 * FALLBACK.label500.widest);
+  });
+});
+
+describe('a footnote mark after a label printed to break anywhere', () => {
+  // The print may break before the mark (`pack-label-anywhere` breaks anywhere), so where the last line leaves less
+  // room than the mark it takes a line of its own. No label in production's image needs it: a marked grapheme is
+  // priced so far over what it prints (two glyphs at the least) that every last line the print fills the model has
+  // already broken. It is held here (blind round 8, L2, mutation B).
+  it('takes a line of its own where the last line leaves less room than it, and none where it fits', () => {
+    const avail = 2 * WIDEST + WRAP_GUARD_PX + 1;
+    expect(labelLineCount('q\u0301', null, 400, avail, WRAP_GUARD_PX)).toBe(1);
+    expect(labelMarkExactPx(1, 400)).toBeGreaterThan(1);
+    expect(labelLineCount('q\u0301', 1, 400, avail, WRAP_GUARD_PX)).toBe(2);
+    expect(labelLineCount('q\u0301', 1, 400, avail + labelMarkExactPx(1, 400), WRAP_GUARD_PX)).toBe(1);
   });
 });
 

@@ -53,7 +53,8 @@ export function judgeAnywhere(cases: readonly AnywhereCase[], lines: readonly st
     const at = `${JSON.stringify(text)}${footnote === null ? '' : `^${footnote}`} at ${w}px/${weight}`;
     return [
       ...(model < set! ? [`${at}: model ${model} lines, the browser ${set}`] : []),
-      ...(overrun! > 0.01 ? [`${at}: a line runs ${overrun}px past its block`] : []),
+      // Chromium fits a line its unit (1/64px) over the box: still inside the cell, whose padding is 7.56px.
+      ...(overrun! > 1 / 64 + 0.001 ? [`${at}: a line runs ${overrun}px past its block`] : []),
       ...(Math.abs(width! - avail) > 0.02 ? [`${at}: the block is ${width}px, the model's column ${avail}px`] : []),
     ];
   });
