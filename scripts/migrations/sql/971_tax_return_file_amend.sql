@@ -103,7 +103,8 @@ DECLARE
   v_user pg_catalog.text;
   v_by pg_catalog.text;
   v_at pg_catalog.timestamptz;
-  -- Anything but whitespace and zero-width or invisible characters (the service strips the same set).
+  -- Anything but whitespace and zero-width or invisible characters. The service (returnGuards.visibleText) refuses
+  -- invisible-only text with the same set, and a NUL, before the database is reached; keep the two in step.
   v_visible CONSTANT pg_catalog.text := '[^[:space:]\u00AD\u0085\u00A0\u034F\u061C\u115F-\u1160\u1680\u17B4-\u17B5\u180B-\u180F\u2000-\u200F\u2028-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\U000E0000-\U000E0FFF\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A]';
 BEGIN
   IF TG_OP = 'DELETE' THEN

@@ -10,7 +10,7 @@ import { dropReturnFixture, seedReturnFixture, type ReturnFixture } from './help
 import * as rules from './helpers/returnFileDbRules';
 import { als } from '@/lib/als';
 import { inTx, runOn } from './helpers/l1FifoFixture';
-import { applyPollResult, insertEfilingEventCommitted } from '../../src/modules/accounting/services/reports/sarsEfilingRepo';
+import { applyPollResult, insertEfilingEventCommitted, withEventWriter } from '../../src/modules/accounting/services/reports/sarsEfilingRepo';
 import { markSubmitted, saveDraftSubmission } from '../../src/modules/accounting/services/reports/sarsComplianceService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -111,7 +111,7 @@ describeIfDb('sars_submissions, locks and drafts under migration 971', () => {
     expect(String(((await sql`SELECT status FROM sars_submissions WHERE id = ${superseded}::UUID`) as Row[])[0]!.status)).toBe('superseded');
   });
 
-  it('the ISV intent event commits in an app_user transaction of its own (never a migration credential): it survives the request rolling back', async () => {
+  it('insertEfilingEventCommitted: an app_user transaction of its own (never a migration credential), the request\'s company as the GUC, committed past the request\'s ROLLBACK, a cross-company write refused', async () => {
     const sub = await submission(a, 12, 'draft', 'VAT201');
     const c = await a.fx.pool.connect();
     try {
@@ -160,6 +160,27 @@ describeIfDb('sars_submissions, locks and drafts under migration 971', () => {
       await o.query('ROLLBACK').catch(() => undefined);
       o.release();
     }
+  });
+
+  it('withEventWriter holds ONE app_user connection for several committed events; a failed write does not poison the next', async () => {
+    const sub = await submission(a, 12, 'draft', 'VAT201');
+    const write = (kind: string, submissionId = sub) => ({
+      companyId: a.fx.companyId, submissionId, eventType: 'submit' as const, efilingStatus: kind, createdBy: U(),
+    });
+    const c = await a.fx.pool.connect();
+    try {
+      await c.query('BEGIN');
+      await als.run({ client: c, userId: U(), companyId: a.fx.companyId, claims: { sub: U() } } as never, () => withEventWriter(async (events) => {
+        await events.write(write('sending'));
+        await expect(events.write(write('bad', '00000000-0000-4000-8000-000000000066'))).rejects.toThrow(); // FK: no such submission
+        await events.write(write('received'));
+      }));
+      await c.query('ROLLBACK'); // the request fails; the events were committed on the writer's own connection
+    } finally {
+      c.release();
+    }
+    const kept = (await sql`SELECT efiling_status FROM sars_efiling_events WHERE submission_id = ${sub}::UUID ORDER BY created_at`) as Row[];
+    expect(kept).toEqual([{ efiling_status: 'sending' }, { efiling_status: 'received' }]);
   });
 
   it('saveDraftSubmission updates the open draft, and a period already filed gets a new draft (a correction)', async () => {
