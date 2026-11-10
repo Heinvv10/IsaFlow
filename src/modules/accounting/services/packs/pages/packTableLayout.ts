@@ -18,17 +18,19 @@
  * Words are the shaped widths of `packFigureWidth.ts`; a heading's too, with its tracking (`HEADING_WORDS_PX`). The
  * table is as wide as production prints a page (`PRINT_CONTENT_PX`).
  */
+import { anywhereFloorPx, anywhereLineCount } from './packAnywhereLabel';
+import { printsAnywhere } from './packPrintedText';
 import { createHash } from 'node:crypto';
 import type { MoneyScale } from '@/lib/format/money';
 import { notMeaningfulNotesMm } from './packBlockHeights';
 import {
-  CELL_SIDE_PX, cellPx, headingLinePx, headingMarkPx, headingWordsPx, INDENT_PX_PER_LEVEL, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT,
-  tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT, type FigureCell,
+  CELL_SIDE_PX, cellPx, headingLineExactPx, headingLinePx, headingMarkPx, headingWordsPx, HEADING_PX, INDENT_PX_PER_LEVEL,
+  labelMarkExactPx, labelMarkPx, labelWidestPiecePx, ROW_WEIGHT, tableColumnCells, tableFit, TABLE_FIGURE_MAX_PT, type FigureCell,
 } from './packFigureFit';
-import { ptToPx, textPx } from './packFigureWidth';
-import { AS_CHROMIUM_SETS, NEVER_SHORT } from './packGlyphRuler';
+import { ptToPx, textExactPx, textPx, type FigureWeight } from './packFigureWidth';
+import { AS_CHROMIUM_SETS, CHROMIUM_MOST } from './packGlyphRuler';
 import { linesForText, minPx, WRAP_GUARD } from './packLineWrap';
-import { pieces } from './packLineBreaks';
+import { markedPieces, pieces } from './packLineBreaks';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
 import { PRINT_CONTENT_PX, type PageOrientation } from './packTextMetrics';
@@ -56,8 +58,9 @@ export interface TableLayout {
 /**
  * The layout of `table`. The figures are at the size the fit sets (a decision that must never be short). The columns
  * are shared out from widths as Chromium sets them (`AS_CHROMIUM_SETS`), so they are Chromium's to within a few
- * hundredths of a pixel; whether a line still holds a piece is a decision, made on widths that are never short
- * (`NEVER_SHORT`), against the column less the guard (`WRAP_GUARD`, the columns' error). The columns are shared out
+ * hundredths of a pixel; whether a line still holds a piece is decided the way Chromium's line breaker decides it
+ * (`fitUnitsPx`: the line's boxes summed exactly, floored once), against the column less the guard (`WRAP_GUARD`, the
+ * columns' error). The columns are shared out
  * in Chromium's 1/64px unit: each column's share truncated to it, the last column taking what is left.
  */
 export function tableLayout(table: PackTable, scale: MoneyScale, orientation: PageOrientation, guardPx: number = WRAP_GUARD[orientation]): TableLayout {
@@ -136,17 +139,23 @@ function shareOut(mins: readonly number[], maxs: readonly number[], sheet: numbe
 
 function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: number, fitPx: number): TableLayout {
   const { columns, cells } = inputs;
+  const floorPx = anywhereFloorPx(inputs.rows.map((row) => ({ label: row.label, weight: ROW_WEIGHT[row.role] }))) ?? 0;
   const labelBox = inputs.rows.map((row) => {
     const weight = ROW_WEIGHT[row.role];
-    const parts = pieces(row.label);
-    const line = (text: string, hyphen: boolean): number => textPx(text, LABEL_FONT_PX, weight, hyphen, NEVER_SHORT);
+    const parts = markedPieces(row.label, row.footnote !== null && row.footnote !== undefined);
     const indent = row.level * INDENT_PX_PER_LEVEL;
     const marker = labelMarkPx(row.footnote, weight, AS_CHROMIUM_SETS);
-    return {
-      indent, parts, line, markerLine: labelMarkPx(row.footnote, weight, NEVER_SHORT),
-      min: indent + labelWidestPiecePx(row.label, row.footnote, weight, AS_CHROMIUM_SETS) + CELL_SIDE_PX,
-      max: indent + textPx(row.label.trim().replace(/[ \t\n\r]+/g, ' '), LABEL_FONT_PX, weight, false, AS_CHROMIUM_SETS) + marker + CELL_SIDE_PX,
-    };
+    // A label printed to break anywhere holds the column open by its floor, its `min-width`, and no more: its content
+    // adds nothing (`packAnywhereLabel.ts`).
+    if (printsAnywhere(row.label)) return { row, weight, indent, min: indent + floorPx + CELL_SIDE_PX, max: indent + floorPx + CELL_SIDE_PX };
+    const min = indent + labelWidestPiecePx(row.label, row.footnote, weight, AS_CHROMIUM_SETS) + CELL_SIDE_PX;
+    // Its whole line: collapsible spaces collapsed, and trimmed but for one before a mark that follows one (a no-break
+    // space is not collapsible: it stays, as it does in Chromium). A cell's max-content is never below its min-content:
+    // a label that ends at a soft hyphen keeps the hyphen's room on its last line (`packLineBreaks.pieces`) but draws
+    // none, so its longest piece can be wider than the whole label.
+    const whole = row.label.replace(/^[ \t\n\r]+|[ \t\n\r]+$/g, '').replace(/[ \t\n\r]+/g, ' ') + (parts[parts.length - 1]?.text === '' && parts[parts.length - 1]!.spaced ? ' ' : '');
+    const max = indent + textPx(whole, LABEL_FONT_PX, weight, false, AS_CHROMIUM_SETS) + marker + CELL_SIDE_PX;
+    return { row, weight, indent, min, max: Math.max(min, max) };
   });
   const labelMin = Math.max(0, ...labelBox.map((b) => b.min));
   const labelMax = Math.max(0, ...labelBox.map((b) => b.max));
@@ -156,7 +165,7 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
     const marker = headingMarkPx(footnote, AS_CHROMIUM_SETS);
     const label = PACK_TABLE_COLUMN_LABEL[col];
     return {
-      col, parts: pieces(label), markerLine: headingMarkPx(footnote, NEVER_SHORT),
+      footnote, label,
       min: Math.max(figures, minPx(headingWordsPx(label, AS_CHROMIUM_SETS).map((w) => ({ w })), marker)) + 2 * CELL_SIDE_PX,
       max: Math.max(figures, headingLinePx(label, AS_CHROMIUM_SETS) + marker) + 2 * CELL_SIDE_PX,
     };
@@ -165,11 +174,29 @@ function layoutAt(inputs: LayoutInputs, orientation: PageOrientation, guardPx: n
   const maxs = [labelMax, ...data.map((d) => d.max)];
   const columnsPx = shareOut(mins, maxs, PRINT_CONTENT_PX[orientation]);
   const labelPx = columnsPx[0]!;
-  const labelLines = labelBox.map((b) => linesForText(b.parts, b.line, b.markerLine, labelPx - b.indent - CELL_SIDE_PX, guardPx));
-  // A column heading is a fixed English label: no soft hyphen, so no hyphen to set.
-  const headingLine = (text: string): number => headingLinePx(text, NEVER_SHORT);
-  const headingLines = Math.max(1, ...data.map((d, i) => linesForText(d.parts, headingLine, d.markerLine, columnsPx[i + 1]! - 2 * CELL_SIDE_PX, guardPx)));
+  const labelLines = labelBox.map((b) => labelLineCount(b.row.label, b.row.footnote, b.weight, labelPx - b.indent - CELL_SIDE_PX, guardPx));
+  const headingLines = Math.max(1, ...data.map((d, i) => headingLineCount(d.label, d.footnote, columnsPx[i + 1]! - 2 * CELL_SIDE_PX, guardPx)));
   return { columnsPx, labelLines, headingLines };
+}
+
+/**
+ * The lines a row label takes `availPx` wide (inside its indent and padding), at its row's `weight`: its words fitted as
+ * Chromium's line breaker fits them, its footnote mark summed with the last line (`linesForText`), or a word of its own
+ * where the label ends at a space (`packLineBreaks.markedPieces`).
+ */
+export function labelLineCount(label: string, footnote: number | null | undefined, weight: FigureWeight, availPx: number, guardPx: number): number {
+  if (printsAnywhere(label)) return anywhereLineCount(label, labelMarkExactPx(footnote, weight), weight, availPx, guardPx);
+  return linesForText(markedPieces(label, footnote !== null && footnote !== undefined), { exactPx: (text, hyphen) => textExactPx(text, LABEL_FONT_PX, weight, hyphen), fontPx: LABEL_FONT_PX },
+    labelMarkExactPx(footnote, weight), availPx, guardPx);
+}
+
+/**
+ * The lines a column heading takes `availPx` wide (inside its padding): its words fitted as Chromium's line breaker fits
+ * them, its footnote mark at the widest Chromium sets the mark's box (`linesForText`, `markerBoxPx`). A column heading
+ * is a fixed English label: no soft hyphen, so no hyphen to set.
+ */
+export function headingLineCount(label: string, footnote: number | undefined, availPx: number, guardPx: number): number {
+  return linesForText(pieces(label), { exactPx: (text) => headingLineExactPx(text), fontPx: HEADING_PX }, 0, availPx, guardPx, headingMarkPx(footnote, CHROMIUM_MOST));
 }
 
 /**

@@ -31,6 +31,9 @@ function optionsOf(method: (typeof METHODS)[number], args: unknown[]): { args?: 
   return (method === 'launchPersistentContext' ? args[1] : args[0]) as { args?: unknown } | undefined;
 }
 
+/** A Chromium switch about fonts or text rendering, by its name. */
+const TEXT_FLAG = /font|lcd-text|subpixel|text-contrast|text-gamma|text-rendering|hinting|antialias/i;
+
 /** Why `this` launch is refused, or null. */
 export function refusal(browserName: string, method: string, launchArgs: unknown): string | null {
   if (browserName !== 'chromium') return `a print test may launch only Chromium (${browserName}.${method})`;
@@ -40,9 +43,10 @@ export function refusal(browserName: string, method: string, launchArgs: unknown
   if (hinting[hinting.length - 1] !== '--font-render-hinting=none') {
     return `a print test launched Chromium (${method}) without --font-render-hinting=none as its last hinting flag: use launchPrintChromium()`;
   }
-  // Any other flag about fonts (--disable-font-subpixel-positioning, ...) is a text layout production does not have.
-  const other = flags.filter((f) => /font/i.test(f) && !f.startsWith('--font-render-hinting'));
-  if (other.length > 0) return `a print test launched Chromium (${method}) with ${other.join(' ')}: production passes no font flag but --font-render-hinting=none`;
+  // Any other flag about fonts or how text is rendered (--disable-font-subpixel-positioning, --disable-lcd-text, ...) is
+  // a text layout production does not have. Judged by the flag's NAME: a value (--user-data-dir=/tmp/fonts) is not one.
+  const other = flags.filter((f) => !f.startsWith('--font-render-hinting') && TEXT_FLAG.test(f.split('=')[0]!));
+  if (other.length > 0) return `a print test launched Chromium (${method}) with ${other.join(' ')}: production passes no font or text-rendering flag but --font-render-hinting=none`;
   return null;
 }
 

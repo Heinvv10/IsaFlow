@@ -23,6 +23,7 @@
  * page's requirement or leaking unapproved text.
  */
 
+import { withPrintedText } from './packPrintedText';
 import { stampFigureFits } from './packFigureFitStamp';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import {
@@ -87,7 +88,9 @@ import type {
  *  300-line cap. Re-exported because every existing caller imports it here. */
 export type { BoardPackInput };
 
-export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
+export function buildBoardPackPages(given: BoardPackInput): PackPagesDocument {
+  // Tenant text as the pack prints it, before anything measures it (`packPrintedText.ts`).
+  const input = withPrintedText(given);
   const { set, trend, generatedAt } = input;
   const draft = input.draftReasons.length > 0;
   const p = new PackFigureProvenance();
