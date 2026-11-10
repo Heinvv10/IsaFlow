@@ -71,6 +71,8 @@ for (const theme of THEMES) test(`exclude an imported line, Undo, and it is back
 
     const undo = page.getByRole('button', { name: 'Undo', exact: true });
     await expect(undo).toBeVisible();
+    // UXB: the toast surface is a status of its own (aria-live off: the announcer speaks).
+    await expect(page.getByTestId('undo-toast')).toHaveAttribute('role', 'status');
     await expect(row).toHaveCount(0);
     expect(await lineId('excluded')).toBe(id);
 

@@ -7,6 +7,8 @@
  *    searchable cost-centre cell; Accept by Space. The posted journal carries the VAT line and the CC1 on the
  *    expense line. The line is imported for the run, then reversed and deleted.
  * 2. The page has no native select, and axe reports 0 critical and 0 serious (nothing excused), in both themes.
+ * 3. (wave 5, UXB) At 1568x900 a row is 41 px comfortable and 33 px compact, and the Selection popover of a customer
+ *    row stays inside the viewport with its search box and an option reachable.
  *
  * Enter is never pressed on a focused row: with a choice made it accepts, which posts.
  * Dev-only: axe, a sandbox company, a write. BANK_SELECTS_EVIDENCE_DIR=<dir> saves a screenshot per theme.
@@ -156,7 +158,7 @@ test('allocate an imported line by keyboard: account, VAT and CC1 reach the post
 
 for (const theme of THEMES) {
   test(`no native select, axe 0 critical / 0 serious with a kit cell open (sandbox, ${theme})`, async ({ page, context, baseURL }) => {
-    await page.setViewportSize({ width: 1568, height: 1000 });
+    await page.setViewportSize({ width: 1568, height: 900 });
     await seedTheme(page, theme);
     const api = await Api.login(baseURL!);
     const sandboxId = await findOrCreateSandbox(api, { name: SANDBOX_NAME, onboardingId: SANDBOX_ONBOARDING_ID });
@@ -183,6 +185,25 @@ for (const theme of THEMES) {
       await expectNoSeriousA11yViolations(page, { baseline: NOTHING_EXCUSED });
       if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `bank-tx-kit-selects-${theme}.png`) });
       await page.keyboard.press('Escape');
+      // UXB: the row is 41 px (py-1 cells, sm selects), and 33 px once the header toggle says compact (xs selects).
+      const rowHeight = async () => (await row.boundingBox())!.height;
+      expect(Math.abs((await rowHeight()) - 41), `comfortable row is ${await rowHeight()} px`).toBeLessThanOrEqual(1);
+      await page.getByRole('button', { name: /^Compact/ }).first().click();
+      await expect.poll(rowHeight).toBeLessThanOrEqual(34);
+      expect(Math.abs((await rowHeight()) - 33), `compact row is ${await rowHeight()} px`).toBeLessThanOrEqual(1);
+      await page.getByRole('button', { name: /^Comfortable/ }).first().click();
+      await expect.poll(rowHeight).toBeGreaterThanOrEqual(40);
+      // UXB: the customer picker is reachable at 1568x900: inside the viewport, search box and an option visible.
+      await row.getByRole('combobox', { name: /^Allocation type, / }).click();
+      await page.getByRole('option', { name: 'Customer', exact: true }).click();
+      await row.getByRole('button', { name: /Choose customer, / }).click();
+      const popover = row.locator('[data-bank-dropdown]');
+      await expect(popover.getByRole('textbox', { name: 'Search customers' })).toBeVisible();
+      const box = (await popover.boundingBox())!;
+      expect(box.y, 'popover top is on screen').toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height, 'popover bottom is on screen').toBeLessThanOrEqual(900);
+      if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `bank-tx-customer-picker-${theme}.png`) });
+      await row.getByRole('button', { name: /Choose customer, / }).click(); // closes it (a Customer row has no VAT cell: this goes last)
     } finally {
       await api.post('/api/accounting/bank-transactions-action', { action: 'delete', bankTransactionIds: [id] });
       await api.dispose();

@@ -4,6 +4,7 @@
  * and all derived handler functions.
  */
 
+import type { BankTxOutcome } from './useBankTxOutcome';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { log } from '@/lib/logger';
@@ -32,6 +33,8 @@ interface ActionDeps {
   setShowBatchEdit: (v: boolean) => void;
   setRulePrompt: (v: RulePrompt | null) => void;
   setExcludingTxId: (v: string | null) => void;
+  /** Settled by the exclude flow: true when the row was excluded, false on cancel or error. Absent: nobody listens. */
+  excludeOutcome?: BankTxOutcome;
   loadTransactions: () => void;
   refreshBankAccounts: () => void;
   /** For a toast's Undo, which runs long after this render: reloads the view on screen by then. */
@@ -42,7 +45,7 @@ interface ActionDeps {
 export function buildBankTxActions(deps: ActionDeps) {
   const {
     transactions, bankAccounts, selectedBank, selectedIds, rowSelections,
-    excludingTxId,
+    excludingTxId, excludeOutcome,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds,
     setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts, reloadCurrentView, onLlmResidual,
   } = deps;
@@ -72,7 +75,8 @@ export function buildBankTxActions(deps: ActionDeps) {
     }).then(r => assertOk(r, 'Could not save the cost centres - try again')).catch(e => notify.error(apiErrorMessage(e, 'Could not save the cost centres - try again')));
   };
 
-  const handleAccept = async (txId: string) => {
+  /** Posts the allocation. `onPosted` fires as soon as the allocate request succeeded, before the list reloads. */
+  const acceptRow = async (txId: string, onPosted: () => void) => {
     const sel = rowSelections[txId];
     if (!sel?.entityId) { notify.error('Select an account/supplier/customer first'); return; }
     const tx = transactions.find(t => t.id === txId);
@@ -91,6 +95,7 @@ export function buildBankTxActions(deps: ActionDeps) {
         if (sel.buId) body.buId = sel.buId;
       }
       const allocated = await callAction(body);
+      onPosted();
       const journalEntryId: unknown = allocated?.data?.journalEntryId;
       if (typeof journalEntryId === 'string' && isUndoableAllocation(sel, bankAccounts)) {
         offerAllocationUndo(txId, journalEntryId, sel.type === 'account', { callAction, reloadCurrentView });
@@ -121,17 +126,24 @@ export function buildBankTxActions(deps: ActionDeps) {
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not allocate the transaction - try again')); }
   };
 
-  const handleExclude = (txId: string) => setExcludingTxId(txId);
+  /** Resolves true once the row was actually posted (the grid's keyboard stream moves on only then), false on any failure. */
+  const handleAccept = (txId: string): Promise<boolean> => new Promise((resolve) => {
+    void acceptRow(txId, () => resolve(true)).finally(() => resolve(false));
+  });
+
+  const handleExclude = (txId: string): Promise<boolean> => { setExcludingTxId(txId); return excludeOutcome?.begin() ?? Promise.resolve(false); };
+  const handleExcludeClose = () => { excludeOutcome?.settle(false); setExcludingTxId(null); };
   const handleExcludeConfirm = async (reason: string) => {
-    if (!excludingTxId) return;
+    if (!excludingTxId) { excludeOutcome?.settle(false); return; }
     const txId = excludingTxId;
     setExcludingTxId(null);
     try {
       const excluded = await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
+      excludeOutcome?.settle(true);
       if (excluded?.data?.priorStatus === 'imported') offerExcludeUndo(txId, { callAction, reloadCurrentView });
       else notify.success('Transaction excluded');
       loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
+    } catch (e) { excludeOutcome?.settle(false); notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
   };
   const handleUnmatch = async (txId: string) => {
     try { await callAction({ action: 'unmatch', bankTransactionId: txId }); notify.success('Allocation undone'); loadTransactions(); refreshBankAccounts(); }
@@ -273,7 +285,7 @@ export function buildBankTxActions(deps: ActionDeps) {
   };
   return {
     saveSelection, saveDimensions,
-    handleAccept, handleExclude, handleExcludeConfirm, handleUnmatch, handleUpdateNotes,
+    handleAccept, handleExclude, handleExcludeClose, handleExcludeConfirm, handleUnmatch, handleUpdateNotes,
     handleBatchAccept, handleBatchDelete, handleBulkAccept, handleApplyRules, handleReverse,
     handleDownloadReport,
     ...buildBankTxSelectionActions(deps, saveSelection, saveDimensions),

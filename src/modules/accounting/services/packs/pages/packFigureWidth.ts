@@ -8,7 +8,7 @@
  * production image's own fallback fonts (`packFallbackWidth.ts`, measured at the 9pt label; scaled to other sizes and
  * rounded up). There is no whole-pixel rounding of each advance any more: that was the test browser's, not production's.
  */
-import { NEVER_SHORT, runPx, type FaceWeight, type Slack } from './packGlyphRuler';
+import { NEVER_SHORT, runExactPx, runPx, type FaceWeight, type Slack } from './packGlyphRuler';
 import { fallbackClusterPx, type FallbackStyle } from './packFallbackWidth';
 
 /** Weights the pack sets figures in: a line row, a subtotal row (and every KPI figure), a total row. */
@@ -16,7 +16,7 @@ export type FigureWeight = FaceWeight;
 
 /** The 9pt label the fallback tables are measured at. */
 const LABEL_PX = 12;
-const LABEL_STYLE: Readonly<Record<FigureWeight, FallbackStyle>> = { 400: 'label400', 500: 'label500', 600: 'label600' };
+export const LABEL_STYLE: Readonly<Record<FigureWeight, FallbackStyle>> = { 400: 'label400', 500: 'label500', 600: 'label600' };
 
 /**
  * The width of `text` in pixels at `fontPx` and `weight`, no wrapping: never short, at most 1/32px over in the face.
@@ -25,6 +25,12 @@ const LABEL_STYLE: Readonly<Record<FigureWeight, FallbackStyle>> = { 400: 'label
  */
 export function textPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false, slack: Slack = NEVER_SHORT): number {
   return runPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX), 0, hyphen, slack);
+}
+
+/** `text`'s exact advance sum, unrounded: a line's boxes are summed exactly and floored once (`packGlyphRuler.fitUnitsPx`). */
+export function textExactPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false): number {
+  if (text === '' && !hyphen) return 0;
+  return runExactPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX), 0, hyphen);
 }
 
 /**

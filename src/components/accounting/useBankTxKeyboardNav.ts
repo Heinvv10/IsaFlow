@@ -9,15 +9,17 @@
  * accepted row drops out, so a fixed index naturally points at the next row.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { log } from '@/lib/logger';
 import { resolveBankTxKey } from '@/components/accounting/bankTxKeyboard';
 import type { BankTx, RowSelection } from '@/components/accounting/BankTxTable';
 
 interface UseBankTxKeyboardNavArgs {
   transactions: BankTx[];
   rowSelections: Record<string, RowSelection>;
-  onAccept: (txId: string) => void;
-  onExclude: (txId: string) => void;
-  onSplit: (txId: string) => void;
+  /** A returned promise resolves true when the row was actually posted / excluded / split, false on error or cancel. */
+  onAccept: (txId: string) => void | Promise<boolean>;
+  onExclude: (txId: string) => void | Promise<boolean>;
+  onSplit: (txId: string) => void | Promise<boolean>;
 }
 
 export interface RowProps {
@@ -26,6 +28,9 @@ export interface RowProps {
   'data-focused': true | undefined;
   onClick: () => void;
 }
+
+/** An accept / exclude / split that has not settled after this long no longer locks its row. */
+const IN_FLIGHT_LIMIT_MS = 30_000;
 
 function isTypingTarget(el: Element | null): boolean {
   if (!el) return false;
@@ -51,10 +56,22 @@ export function useBankTxKeyboardNav({
 }: UseBankTxKeyboardNavArgs) {
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const rowRefs = useRef<Array<HTMLTableRowElement | null>>([]);
-  const prevLenRef = useRef(transactions.length);
   const focusedIndexRef = useRef<number | null>(null);
+  /** The focused row by id: a sort, a filter or a refresh moves rows, and the index must follow the row. */
+  const focusedIdRef = useRef<string | null>(null);
+  /** The row our own accept / exclude / split actually completed on: its leaving the list is the stream moving on. */
+  const actedIdRef = useRef<string | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  /** Focus last sat inside the grid. A removed focused row drops focus to the body without a blur, so this is kept. */
+  const focusInGridRef = useRef(false);
 
   useEffect(() => { focusedIndexRef.current = focusedIndex; }, [focusedIndex]);
+
+  const setFocus = useCallback((index: number, id: string | undefined) => {
+    focusedIdRef.current = id ?? null;
+    actedIdRef.current = null;
+    setFocusedIndex(index);
+  }, []);
 
   const focusRow = useCallback((index: number) => {
     rowRefs.current[index]?.focus();
@@ -66,18 +83,68 @@ export function useBankTxKeyboardNav({
   // to the row now at the clamped index. Without this the unmounted <tr> drops
   // focus to <body>, outside the keydown container, stalling the stream.
   useEffect(() => {
-    const prevLen = prevLenRef.current;
-    prevLenRef.current = transactions.length;
     rowRefs.current = rowRefs.current.slice(0, transactions.length);
+
+    // A completed action's mark waits for the update in which that row actually leaves; an unrelated update (a poll,
+    // a peer's edit) keeps it.
+    const acted = actedIdRef.current;
+    if (acted !== null && !transactions.some((t) => t.id === acted)) actedIdRef.current = null;
 
     const cur = focusedIndexRef.current;
     if (cur === null) return;
-    if (transactions.length === 0) { setFocusedIndex(null); return; }
+    if (transactions.length === 0) { focusedIdRef.current = null; setFocusedIndex(null); return; }
 
-    const next = Math.min(cur, transactions.length - 1);
-    if (next !== cur) setFocusedIndex(next);
-    if (transactions.length < prevLen) focusRow(next);
-  }, [transactions.length, focusRow]);
+    // The focused row moved (sort, filter, refresh): the index follows it, so data-focused matches DOM focus.
+    const movedTo = focusedIdRef.current === null ? -1 : transactions.findIndex((t) => t.id === focusedIdRef.current);
+    if (movedTo >= 0) { if (movedTo !== cur) setFocusedIndex(movedTo); return; }
+
+    // The focused row is gone. Focus was on it, so it is now on the body (or still inside the grid).
+    const active = document.activeElement;
+    const focusWasHere = focusInGridRef.current && (active === document.body || !!containerRef.current?.contains(active));
+    if (acted !== null && acted === focusedIdRef.current) {
+      // We accepted / excluded / split it: the stream moves on, the index now points at the next row.
+      const next = Math.min(cur, transactions.length - 1);
+      focusedIdRef.current = transactions[next]?.id ?? null;
+      if (next !== cur) setFocusedIndex(next);
+      if (focusWasHere) focusRow(next);
+      return;
+    }
+    // A filter or refresh took it: no row is picked for the user, or a reflexive Enter would accept an unseen one.
+    // The grid itself takes the focus, where only the arrows act.
+    focusedIdRef.current = null;
+    setFocusedIndex(null);
+    if (focusWasHere) containerRef.current?.focus();
+  }, [transactions, focusRow]);
+
+  /** Rows whose accept / exclude / split is still pending, each with its own token: a press on such a row sends nothing. */
+  const inFlightRef = useRef(new Map<string, { token: number; timer: ReturnType<typeof setTimeout> }>());
+  const tokenRef = useRef(0);
+  useEffect(() => {
+    const inFlight = inFlightRef.current;
+    return () => { inFlight.forEach((entry) => clearTimeout(entry.timer)); inFlight.clear(); };
+  }, []);
+
+  /**
+   * Runs a row action. A row is "acted on" only when its handler's promise says it was really posted, excluded or
+   * split; until the promise settles (or 30 s pass) the row is in flight and presses on it are ignored.
+   */
+  const runRowAction = useCallback((id: string, call: (txId: string) => void | Promise<boolean>) => {
+    const inFlight = inFlightRef.current;
+    if (inFlight.has(id)) return;
+    const outcome = call(id);
+    if (!outcome) return;
+    const token = ++tokenRef.current;
+    const leave = () => { if (inFlight.get(id)?.token === token) inFlight.delete(id); };
+    // A request that never settles must not lock the row for good; a late settle of a released request must not
+    // unlock a newer one (hence the token).
+    const timer = setTimeout(() => {
+      log.warn('Bank row action still pending: releasing the row', { txId: id, afterMs: IN_FLIGHT_LIMIT_MS }, 'banking');
+      leave();
+    }, IN_FLIGHT_LIMIT_MS);
+    inFlight.set(id, { token, timer });
+    outcome.then((done) => { if (done) actedIdRef.current = id; }, (err: unknown) => log.warn('Bank row action rejected', { error: err }, 'banking'))
+      .finally(() => { clearTimeout(timer); leave(); });
+  }, []);
 
   const registerRow = useCallback((index: number, el: HTMLTableRowElement | null) => {
     rowRefs.current[index] = el;
@@ -85,6 +152,28 @@ export function useBankTxKeyboardNav({
 
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (transactions.length === 0 || isDropdownKey(e)) return;
+    // Ctrl/Cmd/Alt chords are the browser's and the page's (Ctrl+S, Ctrl+X, Cmd+E ...), never row hotkeys.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // Row hotkeys belong to the row itself (or, for the arrow that enters the stream, the grid). A key pressed on
+    // anything inside a row (a button, checkbox, link, field) is that control's own: Enter on a Notes button must not
+    // accept whichever row happens to be focused, and X in a field is a letter. Only Escape pops out of a field.
+    const target = e.target as HTMLElement;
+    const rowIndex = rowRefs.current.indexOf(target as HTMLTableRowElement);
+    if (target !== e.currentTarget && rowIndex < 0) {
+      const own = target.closest('tr');
+      const ownIndex = own ? rowRefs.current.indexOf(own) : -1;
+      if (e.key === 'Escape' && isTypingTarget(document.activeElement) && ownIndex >= 0) {
+        e.preventDefault();
+        setFocus(ownIndex, transactions[ownIndex]?.id);
+        (document.activeElement as HTMLElement | null)?.blur();
+        focusRow(ownIndex);
+      }
+      return;
+    }
+    // The grid itself takes only the arrows: after a click on empty grid space or a Shift+Tab, Enter and X would
+    // otherwise act on whichever row the stream last held.
+    if (target === e.currentTarget && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    if (rowIndex >= 0 && rowIndex !== focusedIndex) return; // a row that is not the stream's current one
     if (focusedIndex === null) {
       // Nothing focused yet: only an arrow key enters the stream (focus row 0).
       // canAccept is passed false here purely because no row is selected — it is
@@ -92,7 +181,7 @@ export function useBankTxKeyboardNav({
       const entryAction = resolveBankTxKey(e.key, { isEditingCell: isTypingTarget(document.activeElement), canAccept: false });
       if (entryAction === 'next' || entryAction === 'prev') {
         e.preventDefault();
-        setFocusedIndex(0);
+        setFocus(0, transactions[0]?.id);
         focusRow(0);
       }
       return;
@@ -108,19 +197,21 @@ export function useBankTxKeyboardNav({
     const action = resolveBankTxKey(e.key, ctx);
     if (!action) return;
     e.preventDefault();
+    // A key held down repeats: one accept, exclude or split per press, never a chain over refocused rows.
+    if (e.repeat && (action === 'accept' || action === 'exclude' || action === 'split' || action === 'edit')) return;
 
     switch (action) {
       case 'next': {
         const ni = Math.min(index + 1, transactions.length - 1);
-        setFocusedIndex(ni); focusRow(ni); break;
+        setFocus(ni, transactions[ni]?.id); focusRow(ni); break;
       }
       case 'prev': {
         const pi = Math.max(index - 1, 0);
-        setFocusedIndex(pi); focusRow(pi); break;
+        setFocus(pi, transactions[pi]?.id); focusRow(pi); break;
       }
-      case 'accept':  onAccept(tx.id); break;
-      case 'exclude': onExclude(tx.id); break;
-      case 'split':   onSplit(tx.id); break;
+      case 'accept':  runRowAction(tx.id, onAccept); break;
+      case 'exclude': runRowAction(tx.id, onExclude); break;
+      case 'split':   runRowAction(tx.id, onSplit); break;
       case 'edit': {
         const row = rowRefs.current[index];
         const toggle = row?.querySelector<HTMLElement>('[data-bank-toggle]');
@@ -133,15 +224,25 @@ export function useBankTxKeyboardNav({
         break;
       }
     }
-  }, [transactions, rowSelections, focusedIndex, focusRow, onAccept, onExclude, onSplit]);
+  }, [transactions, rowSelections, focusedIndex, focusRow, setFocus, runRowAction, onAccept, onExclude, onSplit]);
 
-  const containerProps = useMemo(() => ({ onKeyDown }), [onKeyDown]);
+  const containerProps = useMemo(() => ({
+    onKeyDown,
+    ref: containerRef,
+    onFocus: () => { focusInGridRef.current = true; },
+    // Focus left the grid: to another control, or to nothing (a click on blank space). A focused row that is being
+    // removed is not a departure, so a target that is no longer in the document is ignored.
+    onBlur: (e: React.FocusEvent<HTMLDivElement>) => {
+      if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
+      if ((e.target as Node).isConnected) focusInGridRef.current = false;
+    },
+  }), [onKeyDown]);
 
   const getRowProps = (index: number): RowProps => ({
     ref: (el: HTMLTableRowElement | null) => registerRow(index, el),
     tabIndex: -1,
     'data-focused': focusedIndex === index ? true : undefined,
-    onClick: () => setFocusedIndex(index),
+    onClick: () => setFocus(index, transactions[index]?.id),
   });
 
   return { focusedIndex, containerProps, getRowProps };

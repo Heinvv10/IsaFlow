@@ -44,7 +44,7 @@ runSiteCases([
   { name: 'company settings: document list after upload',
     ui: () => { onError.mockClear(); onDocumentsChange.mockClear();
       return <DetailsTab company={company} onChange={vi.fn()} onCompanyChange={vi.fn()} documents={[]} onDocumentsChange={onDocumentsChange} onError={onError} />; },
-    hit: (u, init) => u.includes('company-documents?companyId=') && !init?.method, okData: DOCS,
+    hit: (u, init) => u.includes('company-documents?companyId=') && !init?.method, okData: { items: DOCS },
     act: async () => {
       const input = document.querySelector('input[type="file"]')!;
       fireEvent.change(input, { target: { files: [new File(['x'], 'cert.pdf', { type: 'application/pdf' })] } });

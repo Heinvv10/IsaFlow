@@ -7,6 +7,7 @@ import { type KeyboardEvent, type RefObject } from 'react';
 import { Check, Search } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type { SelectOption } from './Select';
+import type { PanelPlacement } from './panelPlacement';
 
 interface SelectDropdownProps {
   options: SelectOption[];
@@ -18,7 +19,7 @@ interface SelectDropdownProps {
   labelId: string;
   inputId: string;
   isMulti: boolean;
-  pos: { top: number; left: number; width: number };
+  pos: { left: number; width: number } & PanelPlacement;
   /** The panel is at least this wide (px), whatever the trigger's width. */
   minWidth?: number;
   searchRef: RefObject<HTMLInputElement>;
@@ -76,7 +77,7 @@ export function SelectDropdown({
       ref={panelRef}
       // A press in the panel must not take focus from the trigger (its keys are what drive the list); the search box keeps its own.
       onMouseDown={(e) => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); }}
-      style={{ top: pos.top, left: pos.left, width: pos.width, minWidth }}
+      style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width, minWidth, maxHeight: pos.maxHeight }}
       className={cn(
         'fixed z-[9999] flex flex-col overflow-hidden rounded-lg',
         'border border-gray-200 bg-white shadow-lg',
@@ -121,7 +122,7 @@ export function SelectDropdown({
         tabIndex={0}
         onKeyDown={onKeyDown}
         aria-activedescendant={activeDescendant}
-        className={cn('max-h-60 overflow-y-auto py-1 focus:outline-none', !showList && 'hidden')}
+        className={cn('max-h-60 min-h-0 overflow-y-auto py-1 focus:outline-none', !showList && 'hidden')}
       >
         {(showList ? options : []).map((option, i) => {
           const isSelected = selectedValues.includes(option.value);

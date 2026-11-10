@@ -3,21 +3,20 @@
  * trigger, and its popover with search, the pinned suggestion and "New …".
  */
 
-import type { Dispatch, SetStateAction } from 'react';
+import { useRef, type Dispatch, type SetStateAction } from 'react';
 import { Search, SearchCheck, Plus } from 'lucide-react';
 import { AllocatedAccountCell } from '../BankTxAllocatedAccountCell';
 import { SharedPoolHint } from '../bank-transactions/SharedPoolHint';
 import type { AllocType, BankTx, BankTxTableProps, RowSelection } from './bankTxTypes';
+import { useBankTxSelectionPlacement } from './useBankTxSelectionPlacement';
 import { filterOptions, getOptionsForType, getSuggestedOption, sortByDescriptionMatch } from './bankTxOptions';
 
 /** The table's single open-popover state, handed to every row. */
 export interface BankTxDropdownState {
   openSel: string | null;
   search: string;
-  dropUp: boolean;
   setOpenSel: Dispatch<SetStateAction<string | null>>;
   setSearch: Dispatch<SetStateAction<string>>;
-  setDropUp: Dispatch<SetStateAction<boolean>>;
 }
 
 interface Props {
@@ -33,10 +32,19 @@ interface Props {
 
 export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dropdown }: Props) {
   const { suppliersLoading, onRowEntityChange, onCreateEntity } = table;
-  const { openSel, search, dropUp, setOpenSel, setSearch, setDropUp } = dropdown;
+  const { openSel, search, setOpenSel, setSearch } = dropdown;
   const isOpen = openSel === tx.id;
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const rawOptions = filterOptions(getOptionsForType(rowType, table), isOpen ? search : '');
   const options = (isOpen && !search) ? sortByDescriptionMatch(rawOptions, tx.description || '') : rawOptions;
+  const place = useBankTxSelectionPlacement(toggleRef, isOpen, options.length + 1, !!onCreateEntity && rowType !== 'transfer');
+  /** The grid's row: where keys go once the popover is closed (a removed option would drop focus to the body). */
+  const focusRow = () => {
+    const row = toggleRef.current?.closest('tr');
+    // Keyboard nav off: the row is not focusable, so the toggle keeps focus.
+    (row?.hasAttribute('tabindex') ? row : toggleRef.current)?.focus();
+  };
+  const closePopover = () => { setOpenSel(null); focusRow(); };
   const triggerText = sel?.entityId ? sel.label : (
     rowType === 'supplier' ? 'Select Supplier'
     : rowType === 'customer' ? 'Select Customer'
@@ -47,7 +55,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
   const searchNoun = rowType === 'supplier' ? 'suppliers' : rowType === 'customer' ? 'customers' : rowType === 'transfer' ? 'bank accounts' : 'accounts';
 
   return (
-    <td className="py-2 px-2 relative">
+    <td className="py-1 px-2 relative">
       {isNew ? (
         <>
           {/* Confidence dot for suggested allocations — green=HIGH, yellow=MEDIUM, grey=LOW */}
@@ -65,10 +73,10 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
           )}
           <button
             data-bank-toggle
-            onClick={(e) => {
+            ref={toggleRef}
+            onKeyDown={(e) => { if (e.key === 'Escape' && isOpen) { e.stopPropagation(); closePopover(); } }}
+            onClick={() => {
               if (isOpen) { setOpenSel(null); return; }
-              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              setDropUp(rect.bottom + 260 > window.innerHeight);
               setOpenSel(tx.id); setSearch('');
             }}
             aria-label={`${triggerText}. Choose ${entityNoun}, ${label}`}
@@ -90,8 +98,11 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
             {triggerText}
           </button>
           <SharedPoolHint suggestedStrategy={tx.suggestedStrategy} suggestedGlAccountId={tx.suggestedGlAccountId} selectedEntityId={sel?.entityId} />
-          {isOpen && (
-            <div data-bank-dropdown className={`absolute z-50 left-0 w-80 bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg shadow-xl ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+          {isOpen && place && (
+            <div data-bank-dropdown
+              onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); closePopover(); } }}
+              style={{ top: place.top, bottom: place.bottom, left: place.left, maxHeight: place.maxHeight }}
+              className="fixed z-50 flex w-80 flex-col overflow-hidden bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg shadow-xl">
               <div className="p-2">
                 <div className="relative">
                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--ff-text-tertiary)]" />
@@ -103,7 +114,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                     autoFocus />
                 </div>
               </div>
-              <div className="max-h-48 overflow-y-auto">
+              <div className="min-h-0 max-h-48 overflow-y-auto">
                 {/* Suggested option pinned at top */}
                 {(() => {
                   const suggested = getSuggestedOption(tx, rowType);
@@ -117,7 +128,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                       <button
                         onClick={() => {
                           onRowEntityChange(tx.id, suggested.id, suggested.code ? `${suggested.code} ${suggested.name}` : suggested.name);
-                          setOpenSel(null);
+                          closePopover();
                         }}
                         className="w-full text-left px-3 py-1.5 hover:bg-teal-500/10 text-xs flex items-center gap-2 bg-teal-500/5 border-b border-teal-500/20"
                       >
@@ -131,7 +142,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
                   <button key={o.id}
                     onClick={() => {
                       onRowEntityChange(tx.id, o.id, o.code ? `${o.code} ${o.name}` : o.name);
-                      setOpenSel(null);
+                      closePopover();
                     }}
                     className="w-full text-left px-3 py-1.5 hover:bg-[var(--ff-bg-primary)] text-xs flex items-center gap-2"
                   >
@@ -146,7 +157,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
               {onCreateEntity && rowType !== 'transfer' && (
                 <div className="border-t border-[var(--ff-border-light)] p-1.5">
                   <button
-                    onClick={() => { onCreateEntity(tx.id, rowType); setOpenSel(null); }}
+                    onClick={() => { onCreateEntity(tx.id, rowType); closePopover(); }}
                     className="w-full text-left px-3 py-1.5 text-xs text-teal-400 hover:bg-teal-500/10 rounded flex items-center gap-1.5"
                   >
                     <Plus className="h-3 w-3" />

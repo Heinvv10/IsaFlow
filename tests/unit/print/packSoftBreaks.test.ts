@@ -125,12 +125,15 @@ describe('a soft hyphen and a zero-width space', () => {
           if (chromiumBreaks.has(at) !== modelBreaks.has(at)) wrong.push(`${say} (at ${at})`);
         } else if (modelBreaks.has(at) && !chromiumBreaks.has(at)) wrong.push(`${say} (a break Chromium does not take, at ${at})`);
       }
-      // A hyphen, at every line end that is also a piece end (every soft-hyphen break is one, by the loop above).
+      // A hyphen, at every line end that is also a piece end (every soft-hyphen break is one, by the loop above). The
+      // text's last piece keeps a soft hyphen's room, and Chromium draws none there (`packLineBreaks.pieces`;
+      // `packLineFit.test.ts` holds the room).
       chromiumAt.forEach((line, j) => {
         const k = modelAt.findIndex((p) => p.to === line.to);
         if (k < 0) return;
         const drawn = lines[j]!.width - lines[j]!.alone > 1;
-        if (drawn !== model[k]!.hyphen) wrong.push(`${say}: line ${JSON.stringify(lines[j]!.text)} hyphen drawn ${drawn}, model ${model[k]!.hyphen}`);
+        const drawsHyphen = model[k]!.hyphen && k < model.length - 1;
+        if (drawn !== drawsHyphen) wrong.push(`${say}: line ${JSON.stringify(lines[j]!.text)} hyphen drawn ${drawn}, model ${drawsHyphen}`);
       });
       model.forEach((p, k) => { if (p.hyphen && !chromiumAt.some((l) => l.to === modelAt[k]!.to)) wrong.push(`${say}: the model's hyphen after ${JSON.stringify(p.text)} ends no line`); });
     });
@@ -156,9 +159,11 @@ describe('a soft hyphen and a zero-width space', () => {
         if (k < 0) return;
         compared += 1;
         const piece = model[k]!;
-        if (piece.hyphen) hyphens += 1;
-        const px = reasonPx(piece.text, piece.hyphen);
-        if (px < line.width - 1e-6 || px > line.width + 1 / 32 + 1e-6) off.push(`${JSON.stringify(piece.text)}${piece.hyphen ? ' + hyphen' : ''}: model ${px}, Chromium ${line.width}`);
+        // The drawn line: a soft hyphen's room on the last line is kept, not drawn (above).
+        const drawsHyphen = piece.hyphen && k < model.length - 1;
+        if (drawsHyphen) hyphens += 1;
+        const px = reasonPx(piece.text, drawsHyphen);
+        if (px < line.width - 1e-6 || px > line.width + 1 / 32 + 1e-6) off.push(`${JSON.stringify(piece.text)}${drawsHyphen ? ' + hyphen' : ''}: model ${px}, Chromium ${line.width}`);
       });
     });
     expect(off.slice(0, 30)).toEqual([]);

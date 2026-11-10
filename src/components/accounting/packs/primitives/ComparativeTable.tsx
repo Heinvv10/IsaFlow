@@ -12,9 +12,10 @@
 import { formatFigureText } from './packFigureText';
 import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import { FootnoteMarker } from './FootnoteMarker';
-import { fitAttributes, type StampedPackTable } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
+import { anywhereFloor, fitAttributes, type StampedPackTable } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import type { MoneyScale } from '@/lib/format/money';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packBlockModel';
+import { printsAnywhere } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import type {
   PackTableColumnKey,
   PackTableRow,
@@ -109,8 +110,17 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
         {table.rows.map((row, index) => (
           <tr key={`${row.label}-${index}`} className={ROW_ROLE_CLASS[row.role]}>
             <td style={{ paddingLeft: `${row.level * INDENT_MM_PER_LEVEL}mm` }}>
-              {row.label}
-              <FootnoteMarker number={row.footnote ?? null} />
+              {printsAnywhere(row.label) ? (
+                <span className="pack-label-anywhere" style={{ minWidth: `${anywhereFloor(table.figureFit)}px` }}>
+                  {row.label}
+                  <FootnoteMarker number={row.footnote ?? null} />
+                </span>
+              ) : (
+                <>
+                  {row.label}
+                  <FootnoteMarker number={row.footnote ?? null} />
+                </>
+              )}
             </td>
             {columns.map((col) => (
               <td key={col}>{cell(row, col)}</td>
