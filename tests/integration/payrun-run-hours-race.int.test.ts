@@ -46,6 +46,9 @@ describe('a second hours row (same component) appearing between the anchor read 
     const res = await hours(state.nov, 150, 160);
     expect(hook.on).toBe(0);
     expect(res.statusCode).toBe(409);
-    expect(await stored()).toEqual([{ amount: 13680, quantity: 160, unit: 'hour' }]); // the anchor's row is as it was
+    // The anchor's row is as it was (160 h, not the requested 150); the only other row is the one the writer slipped in.
+    expect((await stored()).sort((a, b) => b.quantity - a.quantity)).toEqual([
+      { amount: 13680, quantity: 160, unit: 'hour' }, { amount: 100, quantity: 8, unit: 'hour' },
+    ]);
   });
 });
