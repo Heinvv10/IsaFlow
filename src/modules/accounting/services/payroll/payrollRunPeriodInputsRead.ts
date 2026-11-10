@@ -28,11 +28,11 @@ type Period = RunPeriod;
  */
 async function paidByRun(companyId: string, employeeIds: string[], period: Period, componentIds: string[]) {
   const wanted = new Set(componentIds);
-  const paid: Array<{ employeeId: string; componentId: string; id: string; recurring: boolean; amount: number }> = [];
+  const paid: Array<{ employeeId: string; componentId: string; id: string; recurring: boolean; amount: number; quantity: number | null }> = [];
   for (const employeeId of employeeIds) {
     for (const c of await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period))) {
       if (wanted.has(c.component.id) && c.assignmentId) {
-        paid.push({ employeeId, componentId: c.component.id, id: c.assignmentId, recurring: c.isRecurring !== false, amount: c.amount });
+        paid.push({ employeeId, componentId: c.component.id, id: c.assignmentId, recurring: c.isRecurring !== false, amount: c.amount, quantity: c.quantity ?? null });
       }
     }
   }
@@ -55,13 +55,16 @@ export async function readAmounts(companyId: string, period: Period, componentId
     if (p.recurring) cell.recurring += p.amount; else cell.once.push(p);
     cells.set(k, cell);
   }
+  // One entry per quantity row the run pays, recurring or once-off, BEFORE a cell with several rows is nulled as a conflict: the very set the
+  // write path (setRunHours) counts, so the grid and the write cannot disagree about duplicates.
+  const quantityRows = paid.filter((p) => p.quantity != null).map((p) => ({ employeeId: p.employeeId, componentId: p.componentId }));
   const amounts: RunInputAmount[] = [...cells.values()].filter((c) => c.once.length > 0).map((c) => {
     const conflict = c.once.length !== 1 || !keyed.has(c.once[0]!.id);
-    return { employeeId: c.employeeId, componentId: c.componentId, amount: conflict ? null : c.once[0]!.amount, conflict };
+    return { employeeId: c.employeeId, componentId: c.componentId, amount: conflict ? null : c.once[0]!.amount, conflict, quantity: conflict ? null : c.once[0]!.quantity };
   });
   const recurring: RunInputRecurring[] = [...cells.values()].filter((c) => c.recurring !== 0)
     .map((c) => ({ employeeId: c.employeeId, componentId: c.componentId, amount: c.recurring }));
-  return { amounts, recurring };
+  return { amounts, recurring, quantityRows };
 }
 
 /** The once-off rows this run pays for the cell (its own reader: paidByRun), locked, with whether each sits on the row key. */
@@ -69,7 +72,7 @@ export async function lockPaidRows(tx: TxSql, companyId: string, employeeId: str
   const { from, to } = monthBounds(period);
   const ids = (await paidByRun(companyId, [employeeId], period, [componentId])).filter((p) => !p.recurring).map((p) => p.id);
   return (await tx`
-    SELECT pec.id, pec.amount, (pec.effective_from = ${from}::date AND pec.effective_to = ${to}::date) AS on_key
+    SELECT pec.id, pec.amount, pec.quantity, (pec.effective_from = ${from}::date AND pec.effective_to = ${to}::date) AS on_key
     FROM payroll_employee_components pec
     JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
     WHERE pec.id = ANY(${ids}::uuid[])

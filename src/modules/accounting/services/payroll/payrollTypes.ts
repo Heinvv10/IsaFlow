@@ -5,6 +5,8 @@ export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
 export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
 export type PayBasis = 'monthly' | 'hourly' | 'daily';
+/** The unit of a run's quantity on a component row (migration 967). */
+export type QuantityUnit = 'hour' | 'day';
 
 export interface PayrollEmployee {
   id: string;
@@ -76,6 +78,9 @@ export interface EmployeeComponent {
   isRecurring?: boolean;
   /** The payroll_employee_components row it was read from (the pro-rata guard asks which rows the reader paid). */
   assignmentId?: string;
+  /** Hours or days this row pays (HD, migration 967): amount = quantity x the rate at entry. Absent on a plain amount. */
+  quantity?: number | null;
+  quantityUnit?: QuantityUnit | null;
 }
 
 export interface PayrollPeriod {
@@ -163,6 +168,13 @@ export interface ComponentBreakdownItem {
   isTaxable: boolean;
   isUifApplicable: boolean;
   /**
+   * HD: the hours or days behind `amount` (0 is an entered nil; the keys are omitted when none was recorded), and `rate` = amount / quantity,
+   * the EFFECTIVE rate it was paid at, to four decimals: the employee's rate at entry, not looked up again. Omitted at quantity 0.
+   */
+  quantity?: number;
+  quantityUnit?: QuantityUnit;
+  rate?: number;
+  /**
    * The item counted toward this line's SDL-applicable remuneration, as costed: an earning flagged
    * is_sdl_applicable (payrollCalculator's sdlLeviable). Absent on a line costed before it existed;
    * payrollYearToDate then reads today's catalogue instead.
@@ -238,4 +250,6 @@ export interface PayrollLineResult {
   netPay: number;
   componentBreakdown: ComponentBreakdownItem[];
   validationResults: ValidationResult[];
+  /** Hours worked on this run (HD): hours, or days x hours per day. Null when not recorded or not determinable, never 0. */
+  hours: number | null;
 }

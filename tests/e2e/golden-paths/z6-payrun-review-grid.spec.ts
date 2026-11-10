@@ -4,6 +4,8 @@
  *
  *  - Type a once-off amount, Enter: the cursor moves down, the row says Saved and the server's new net is on screen, with no Calculate.
  *  - Open approve, read the plain sentence, Cancel. Nothing is approved.
+ *  - HD: an hourly employee (Z6-3) has an Hours cell; typing hours shows the server's pricing (hours x rate) and the line's gross
+ *    is exactly that. The monthly employees have no Hours cell. An hourly employee with no hours blocks the approval sentence.
  *  - axe reports 0 critical and 0 serious, in both themes.
  *  - At 390 the page does not scroll sideways: the table scrolls inside its own frame.
  *  - EVIDENCE_DIR=<dir> saves screenshots (light and dark, 1568 and 390).
@@ -24,6 +26,7 @@ const SANDBOX_NAME = '0GP Golden Pay Run Sandbox';
 const SANDBOX_ONBOARDING_ID = '0f6d1a52-7c3e-4e0b-9a44-5b1e6c2f7d10';
 const RUN = { month: 11, year: 2026 };
 const EMPLOYEES = [['Z6-1', 'Zanele', 'Grid', 30000], ['Z6-2', 'Pieter', 'Grid', 24000]] as const;
+const HOURLY = { employeeNumber: 'Z6-3', firstName: 'Hanna', lastName: 'Grid', rate: 85.5, baseline: 160 } as const;
 const CELL = 'Once-off earning, Zanele Grid';
 
 type Named = { id: string; name: string };
@@ -48,8 +51,17 @@ async function voidStrayOvertime(api: Api, employeeId: string, overtimeId: strin
   }
 }
 
+type InputsState = { inputs: { amounts: Array<{ employeeId: string; quantity: number | null }>; hours: { componentId: string | null } } };
+
+/** The grid's own request: the quantity, with what the cell holds; the server prices it. */
+async function setHours(api: Api, runId: string, employeeId: string, quantity: number): Promise<void> {
+  const { inputs } = await api.get<InputsState>(`/api/payroll/runs/${runId}/inputs`);
+  const held = inputs.amounts.find((a) => a.employeeId === employeeId)?.quantity ?? null;
+  if (held !== quantity) await api.put(`/api/payroll/runs/${runId}/inputs`, { employeeId, quantity, expectedQuantity: held });
+}
+
 /** One sandbox run with two salaried employees and an Overtime component, made once through the API. */
-async function sandboxRun(api: Api): Promise<{ runId: string; overtimeId: string; employeeId: string }> {
+async function sandboxRun(api: Api): Promise<{ runId: string; overtimeId: string; employeeId: string; hourlyId: string }> {
   const components = await api.get<Named[]>('/api/payroll/components');
   const component = async (name: string, sarsSourceCode: string) => components.find((c) => c.name === name)?.id
     ?? (await api.post<Named>('/api/payroll/components', { name, sarsSourceCode, componentType: 'earning' })).id;
@@ -68,6 +80,11 @@ async function sandboxRun(api: Api): Promise<{ runId: string; overtimeId: string
     }
     ids.push(id);
   }
+  // HD: one hourly employee, paid in hours only (no salary row).
+  const hourlyId = existing.find((e) => e.employeeNumber === HOURLY.employeeNumber)?.id ?? (await api.post<{ id: string }>('/api/payroll/employees', {
+    employeeNumber: HOURLY.employeeNumber, firstName: HOURLY.firstName, lastName: HOURLY.lastName, employmentType: 'permanent',
+    startDate: '2024-01-01', payBasis: 'hourly', hourlyRate: HOURLY.rate, hoursPerWeek: 40, hoursPerDay: 8,
+  })).id;
 
   const runs = await api.get<Run[]>('/api/payroll/runs');
   const found = runs.find((r) => r.periodMonth === RUN.month && r.periodYear === RUN.year);
@@ -76,8 +93,10 @@ async function sandboxRun(api: Api): Promise<{ runId: string; overtimeId: string
   for (const a of inputs.amounts.filter((x) => x.conflict && x.componentId === overtimeId && ids.includes(x.employeeId))) {
     await voidStrayOvertime(api, a.employeeId, overtimeId);
   }
+  // The baseline the other tests approve against: an hourly employee with no hours blocks the approval sentence.
+  await setHours(api, runId, hourlyId, HOURLY.baseline);
   await api.post(`/api/payroll/runs/${runId}/calculate`);
-  return { runId, overtimeId, employeeId: ids[0]! };
+  return { runId, overtimeId, employeeId: ids[0]!, hourlyId };
 }
 
 async function open(page: Page, runId: string): Promise<void> {
@@ -131,7 +150,7 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: /review & approve/i }).click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog.getByText(/^Paying 2 employees R\s[\d\s]+\.\d\d net for November 2026\. Cost to the company R\s[\d\s]+\.\d\d \(gross plus employer UIF and SDL, less ETI used\)\.$/))
+    await expect(dialog.getByText(/^Paying 3 employees R\s[\d\s]+\.\d\d net for November 2026\. Cost to the company R\s[\d\s]+\.\d\d \(gross plus employer UIF and SDL, less ETI used\)\.$/))
       .toBeVisible({ timeout: 15_000 });
     await snap(page, 'payrun-approve-sentence', 'light');
     await dialog.getByRole('button', { name: 'Cancel' }).click();
@@ -141,6 +160,34 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
     const { inputs } = await api.get<{ inputs: { amounts: Array<{ employeeId: string; componentId: string; amount: number | null }> } }>(`/api/payroll/runs/${runId}/inputs`);
     const held = inputs.amounts.find((a) => a.employeeId === employeeId && a.componentId === overtimeId);
     await api.put(`/api/payroll/runs/${runId}/inputs`, { employeeId, componentId: overtimeId, amount: 0, expectedAmount: held?.amount ?? 0 });
+    await api.dispose();
+  }
+});
+
+test('hours: an hourly employee has an Hours cell, the server prices it, a monthly one has none', async ({ page, context, baseURL }) => {
+  const { api, runId, hourlyId } = await sandbox(context, baseURL!);
+  const grossOf = async () => (await api.get<{ lines: Array<{ employeeId: string; grossPay: number }> }>(`/api/payroll/runs/${runId}`))
+    .lines.find((l) => l.employeeId === hourlyId)!.grossPay;
+  try {
+    await open(page, runId);
+    await expect(page.getByLabel('Hours, Zanele Grid')).toHaveCount(0);
+    const hours = page.getByLabel('Hours, Hanna Grid');
+    await expect(hours).toHaveValue(String(HOURLY.baseline));
+    await hours.click();
+    await hours.fill('173,5');
+    await hours.press('Enter');
+    const hanna = page.getByRole('row').filter({ hasText: 'Z6-3' });
+    await expect(hanna.getByText(/^Saved/)).toBeInViewport({ timeout: 15_000 });
+    await expect(hours).toHaveValue('173.5');
+    expect(await grossOf()).toBeCloseTo(173.5 * HOURLY.rate, 2); // 14 834.25
+    await expect(hanna).toContainText(formatCurrency(173.5 * HOURLY.rate));
+    await snap(page, 'payrun-grid-hours', 'light');
+    await hours.fill('745');
+    await hours.press('Tab');
+    await expect(page.getByText('A month holds at most 744 hours.')).toBeVisible();
+    await snap(page, 'payrun-grid-hours-refused', 'light');
+  } finally {
+    await setHours(api, runId, hourlyId, HOURLY.baseline);
     await api.dispose();
   }
 });

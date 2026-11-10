@@ -8,6 +8,8 @@
  * 2: an unaffordable loan keeps its taxable 3801 benefit while omitting the cash instalment.
  * 3: s18A donations need a receipt and stop at 5%, off PAYE and SDL (migration 959).
  * 4: only retirement contributions and s18A donations reduce PAYE; any other taxable deduction is warned.
- * 5: fringe benefits: 3701 and 3802 are taxed at 80% (20% with business use of at least 80%); a 3810 earning is deemed medical fees.
+ * 5: an hourly or daily employee with no hours or days on the run is flagged HOURS_MISSING and refused at approval (HD).
+ * 6: reserved for TS-b (tax status), not merged yet.
+ * 7: fringe benefits: 3701 and 3802 are taxed at 80% (20% with business use of at least 80%), SDL / UIF / ETI read the PAYE share, a 3810 earning is non-cash and deemed medical fees (FB).
  */
-export const PAYROLL_CALCULATION_VERSION = 5;
+export const PAYROLL_CALCULATION_VERSION = 7;

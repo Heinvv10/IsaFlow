@@ -35,7 +35,7 @@ describe('a once-off the run pays but a cell cannot show', () => {
     await recalculate(state.nov);
     expect((await line(state.nov)).gross).toBeCloseTo(SALARY + 2000, 2);
 
-    expect(await amountsFor(comp.overtime!)).toEqual([{ employeeId: state.employee, componentId: comp.overtime, amount: null, conflict: true }]);
+    expect(await amountsFor(comp.overtime!)).toEqual([{ employeeId: state.employee, componentId: comp.overtime, amount: null, conflict: true, quantity: null }]);
     const res = await set(state.nov, comp.overtime!, 2000);
     expect(res.statusCode).toBe(409);
     expect(res.body.error?.message).toContain('Edit this on the employee page');
@@ -55,7 +55,7 @@ describe('a once-off the run pays but a cell cannot show', () => {
     }
     expect((await rows(comp.commission!)).map((r) => r.amount).sort((a, b) => a - b)).toEqual([50, 400]);
     expect((await line(state.nov)).gross).toBe(before.gross);
-    expect(await amountsFor(comp.commission!)).toEqual([{ employeeId: state.employee, componentId: comp.commission, amount: null, conflict: true }]);
+    expect(await amountsFor(comp.commission!)).toEqual([{ employeeId: state.employee, componentId: comp.commission, amount: null, conflict: true, quantity: null }]);
   });
 
   // The window is the reader's: for each row, the cell conflicts exactly when the run really pays it.
@@ -83,7 +83,7 @@ describe('a once-off the run pays but a cell cannot show', () => {
 
   it('the row exactly on the key is the cell, not a conflict', async () => {
     await addRow(comp.overtime!, 700, '2026-11-01', '2026-11-30');
-    expect(await amountsFor(comp.overtime!)).toEqual([{ employeeId: state.employee, componentId: comp.overtime, amount: 700, conflict: false }]);
+    expect(await amountsFor(comp.overtime!)).toEqual([{ employeeId: state.employee, componentId: comp.overtime, amount: 700, conflict: false, quantity: null }]);
   });
 
   it('a recurring amount is no conflict, and is reported beside the cell', async () => {
