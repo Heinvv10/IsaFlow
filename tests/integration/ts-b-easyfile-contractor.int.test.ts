@@ -16,7 +16,8 @@ const company = crypto.randomUUID();
 const refusing = crypto.randomUUID();
 const directiveCo = crypto.randomUUID();
 const reversalCo = crypto.randomUUID();
-const everyCompany = [company, refusing, directiveCo, reversalCo];
+const crossYearCo = crypto.randomUUID();
+const everyCompany = [company, refusing, directiveCo, reversalCo, crossYearCo];
 const user = crypto.randomUUID();
 
 const item = (code: string, amount: number) => ({ componentId: code, componentName: code, sarsSourceCode: code, amount, isTaxable: true, isUifApplicable: false });
@@ -77,8 +78,12 @@ beforeAll(async () => {
   await line(3, reversed, 150_000, 0, [item('3601', 100_000), dir(50_000)], true, reversalCo);
   await line(4, reversed, -50_000, 0, [dir(-50_000)], true, reversalCo);
   // (a) A cross-year reversal on a pure contractor: this export year sees 100 000 of fees and the -50 000 reversal of a payment made last year.
-  const crossYear = await employee('Crossyear', reversalCo);
-  await line(3, crossYear, 50_000, 0, [item('3601', 100_000), dir(-50_000)], true, reversalCo);
+  const crossYear = await employee('Crossyear', crossYearCo);
+  const crossId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO tax_directives (id, company_id, employee_id, employee_name, directive_number, directive_type, amount, tax_rate, effective_date, status)
+     VALUES ($1, $2, $3, 'Test Crossyear', '1234567892', 'severance', 50000, 0, '2025-03-01', 'approved')`, [crossId, crossYearCo, crossYear]);
+  await line(3, crossYear, 50_000, 0, [item('3601', 100_000), { ...item('3901', -50_000), directive: { id: crossId, number: '1234567892', paye: 0 } }], true, crossYearCo);
   // (b) Paid on an employee line (with PAYE), reversed on a contractor line beside 100 000 of fees: 3601 100 000, 3616 100 000.
   const paidThenReversed = await employee('Paidthenreversed', reversalCo);
   await line(3, paidThenReversed, 150_000, 1_000, [item('3601', 100_000), dir(50_000)], false, reversalCo);
@@ -217,10 +222,10 @@ describe('e@syFile: a contractor is 3616, decided per line', () => {
     expect(r.some(l => l.startsWith('3901,') || l.startsWith('3601,'))).toBe(false);
   });
 
-  it('(a) a cross-year reversal on a pure contractor: the directive nets below nil as the lump-sum list nets it, so 3601 is nil and 3616 is the 100 000', async () => {
-    const r = recordOf((await exportFile(reversalCo)).body, 'Crossyear');
-    expect(r).toContain('3616,100000');
-    expect(r.some(l => l.startsWith('3601,'))).toBe(false);
+  it('(a) a cross-year reversal on a pure contractor nets the directive below nil (the split is proved in easyFileContractor.test.ts); the writer then refuses the negative lump sum, as it does for any employee (BRS 3233), so the file names it instead of mis-filing 50 000', async () => {
+    const file = await exportFile(crossYearCo);
+    expect(file.status).toBe(422);
+    expect(file.body).toMatch(/3233 cannot be negative/);
   });
 
   it('(b) paid on an employee line and reversed on a contractor line beside 100 000 of fees: 3601 100 000, 3616 100 000', async () => {
