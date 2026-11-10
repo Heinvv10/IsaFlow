@@ -17,7 +17,8 @@ const refusing = crypto.randomUUID();
 const directiveCo = crypto.randomUUID();
 const reversalCo = crypto.randomUUID();
 const crossYearCo = crypto.randomUUID();
-const everyCompany = [company, refusing, directiveCo, reversalCo, crossYearCo];
+const splitCo = crypto.randomUUID();
+const everyCompany = [company, refusing, directiveCo, reversalCo, crossYearCo, splitCo];
 const user = crypto.randomUUID();
 
 const item = (code: string, amount: number) => ({ componentId: code, componentName: code, sarsSourceCode: code, amount, isTaxable: true, isUifApplicable: false });
@@ -88,6 +89,20 @@ beforeAll(async () => {
   const paidThenReversed = await employee('Paidthenreversed', reversalCo);
   await line(3, paidThenReversed, 150_000, 1_000, [item('3601', 100_000), dir(50_000)], false, reversalCo);
   await line(4, paidThenReversed, 50_000, 0, [item('3601', 100_000), dir(-50_000)], true, reversalCo);
+  // H1 repro 1: employee 200 000 salary + a 100 000 directive; a contractor line of 50 000 fees and a -100 000 reversal (more than its fees).
+  // H1 repro 2: employee 200 000 + a 50 000 directive; a contractor line holding only the -50 000 reversal.
+  for (const [name, directive, contractorItems, contractorGross] of [
+    ['Splitone', 100_000, [item('3601', 50_000)], -50_000], ['Splittwo', 50_000, [], -50_000],
+  ] as const) {
+    const who = await employee(name, splitCo);
+    const id = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO tax_directives (id, company_id, employee_id, employee_name, directive_number, directive_type, amount, tax_rate, effective_date, status)
+       VALUES ($1, $2, $3, $4, $5, 'severance', $6, 0, '2026-03-01', 'approved')`, [id, splitCo, who, `Test ${name}`, name === 'Splitone' ? '1234567893' : '1234567894', directive]);
+    const dirItem = (amount: number) => ({ ...item('3901', amount), directive: { id, number: '1234567893', paye: 0 } });
+    await line(3, who, 200_000 + directive, 1_000, [item('3601', 200_000), dirItem(directive)], false, splitCo);
+    await line(4, who, contractorGross, 0, [...contractorItems, dirItem(-directive)], true, splitCo);
+  }
   // An ORPHAN directive item (no tax_directives row): the lump-sum list does not file it, so it must not leave 3616 either.
   const orphan = await employee('Orphan', reversalCo);
   await line(3, orphan, 120_000, 0, [
@@ -231,5 +246,18 @@ describe('e@syFile: a contractor is 3616, decided per line', () => {
   it('(b) paid on an employee line and reversed on a contractor line beside 100 000 of fees: 3601 100 000, 3616 100 000', async () => {
     const r = recordOf((await exportFile(reversalCo)).body, 'Paidthenreversed');
     expect(r).toEqual(expect.arrayContaining(['3601,100000', '3616,100000']));
+  });
+
+  it('H1 repro 1: a contractor-line reversal larger than its fees: 3601 200 000, 3616 50 000 (a floor on the contractor gross gave 150 000 / 100 000)', async () => {
+    const file = await exportFile(splitCo);
+    expect(file.status, file.body.slice(0, 300)).toBe(200);
+    const r = recordOf(file.body, 'Splitone');
+    expect(r).toEqual(expect.arrayContaining(['3601,200000', '3616,50000']));
+  });
+
+  it('H1 repro 2: a contractor line holding only the reversal: 3601 200 000 and no 3616', async () => {
+    const r = recordOf((await exportFile(splitCo)).body, 'Splittwo');
+    expect(r).toContain('3601,200000');
+    expect(r.some(l => l.startsWith('3616,'))).toBe(false);
   });
 });

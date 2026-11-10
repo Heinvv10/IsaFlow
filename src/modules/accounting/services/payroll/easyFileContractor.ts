@@ -36,15 +36,14 @@ export interface ContractorSplitInput {
  * directives added so the lump-sum split removes each once, and the employee's own annual payments) and the 3616 income.
  */
 export function splitContractorIncome(i: ContractorSplitInput): { salaryGross: number; annualPayments: number; income3616: number } {
-  const contractor = Math.min(Math.max(0, i.contractorGross), i.totalGross);
-  // No lower floor: a reversal beside the year's fees (or of a payment on an employee line) nets the directive below nil, exactly as the
-  // lump-sum list nets it, and the same figure comes back out of 3616 and the lump-sum split.
-  const directive = Math.min(i.contractorDirective, contractor);
-  const annual = Math.min(Math.max(0, i.contractorAnnual), contractor);
+  // No floor anywhere on the contractor lines' totals: a directive reversal on a contractor line can exceed the line's fees (or be all the
+  // line holds) while the year's lump-sum net is nil, so gross and directive are both taken signed. The fees are what is left of the
+  // contractor gross once the directive lump sums (netted as listRunLumpSums nets them) are out; only the fees are floored, at nil.
+  const fees = i.contractorGross - i.contractorDirective;
   return {
-    salaryGross: i.totalGross - contractor + directive + i.standaloneGross,
-    annualPayments: Math.max(0, i.annualAll - annual),
-    income3616: contractor - directive + Math.max(0, i.contractorNonCash),
+    salaryGross: i.totalGross - i.contractorGross + i.contractorDirective + i.standaloneGross,
+    annualPayments: Math.max(0, i.annualAll - Math.max(0, i.contractorAnnual)),
+    income3616: Math.max(0, fees) + Math.max(0, i.contractorNonCash),
   };
 }
 

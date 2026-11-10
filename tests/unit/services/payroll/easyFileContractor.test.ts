@@ -45,6 +45,16 @@ describe('splitContractorIncome: decided per line, never from the status today; 
     const r = splitContractorIncome({ ...z, totalGross: 200_000, contractorGross: 50_000, contractorDirective: -50_000, standaloneGross: 0 });
     expect([r.income3616, r.salaryGross - 0]).toEqual([100_000, 100_000]); // the lump sum nets to nil across the year
   });
+  it('H1 repro 1: employee 200 000 + a 100 000 directive; a contractor line of 50 000 fees and a -100 000 reversal: 3601 200 000, 3616 50 000', () => {
+    const r = splitContractorIncome({ ...z, totalGross: 250_000, contractorGross: -50_000, contractorDirective: -100_000, standaloneGross: 0 });
+    expect(r.income3616).toBe(50_000);
+    expect(r.salaryGross - 0).toBe(200_000); // the lump sums net to nil over the year, so splitCertificateIncome removes nothing
+  });
+  it('H1 repro 2: employee 200 000 + a 50 000 directive; a contractor line holding only the -50 000 reversal: 3601 200 000 and no 3616', () => {
+    const r = splitContractorIncome({ ...z, totalGross: 200_000, contractorGross: -50_000, contractorDirective: -50_000, standaloneGross: 0 });
+    expect(r.income3616).toBe(0);
+    expect(r.salaryGross - 0).toBe(200_000);
+  });
   it('a contractor non-cash benefit is 3616, outside gross_pay', () => {
     expect(splitContractorIncome({ ...z, totalGross: 50_000, contractorGross: 50_000, contractorNonCash: 7_000, standaloneGross: 0 }).income3616).toBe(57_000);
   });
