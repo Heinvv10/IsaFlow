@@ -38,8 +38,6 @@
  * file too — which is what the measurement test exists to force.
  */
 
-import { FALLBACK, SELF_HOSTED } from './packFallbackWidthData';
-
 export const PT_MM = 25.4 / 72;
 
 export type PageOrientation = 'portrait' | 'landscape';
@@ -138,36 +136,8 @@ const NARROW = new Set([...'ijltfr.,;:\'"!|()[]{}-…/']);
 /** The two letters set wider than an en — `m` and `w`, and their capitals. */
 const WIDE = new Set([...'mwMW']);
 
-/**
- * THE WIDEST A CHARACTER THE FACES DO NOT SET CAN BE, in ems: the widest fallback glyph production sets
- * (`packFallbackWidthData.FALLBACK.widest`, measured at 12px for labels and 11pt for reasons), about 7.25em. U+FDFD is set
- * at 7.2em, and a quoted row label can hold any character (#1261 adversarial H1: a 13th sheet).
- */
-export const FALLBACK_EMS = Math.max(
-  FALLBACK.label400.widest / 12, FALLBACK.label500.widest / 12, FALLBACK.label600.widest / 12, FALLBACK.reason.widest / ((11 * 96) / 72),
-);
-
-function selfHosted(cp: number): boolean {
-  let lo = 0;
-  let hi = SELF_HOSTED.length - 1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const [from, to] = SELF_HOSTED[mid]!;
-    if (cp < from) hi = mid - 1;
-    else if (cp > to) lo = mid + 1;
-    else return true;
-  }
-  return false;
-}
-
-/** How wide one character is, in ems: its class, or the widest fallback glyph for one the faces do not set. */
+/** How wide one character is, in ems. */
 function charEms(ch: string): number {
-  if (!selfHosted(ch.codePointAt(0)!) && !/\s/u.test(ch)) return FALLBACK_EMS;
-  return classEms(ch);
-}
-
-/** The class a character the faces set is charged by. */
-function classEms(ch: string): number {
   if (ch === ' ') return EM_SPACE;
   if (WIDE.has(ch)) return EM_WIDE;
   if (NARROW.has(ch)) return EM_NARROW;
