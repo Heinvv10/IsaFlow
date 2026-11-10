@@ -121,7 +121,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
   const hoursHead = units.size > 1 ? 'Hours or days' : units.has('day') ? 'Days' : 'Hours';
   const hoursCell = (l: RunLineAmounts, row: number) => {
     const e = byUnit.find((x) => x.employeeId === l.employeeId);
-    if (e?.duplicate) return <Link href={`/payroll/employees/${l.employeeId}`} className="text-xs text-teal-700 dark:text-teal-300 underline">Edit on the employee page</Link>;
+    if (inputs.hours.duplicates.includes(l.employeeId)) return <Link href={`/payroll/employees/${l.employeeId}`} className="text-xs text-teal-700 dark:text-teal-300 underline">Edit on the employee page</Link>;
     if (!e || !e.componentId) return <span className="text-[var(--ff-text-tertiary)]">—</span>;
     const captured = inputs.amounts.find((a) => a.employeeId === l.employeeId && a.componentId === e.componentId);
     if (captured?.conflict) {
@@ -163,7 +163,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
       </div>
       <div className="overflow-x-auto">
         <PayrollRunLinesTable lines={lines} edit={{
-          hours: byUnit.some((e) => e.componentId) ? { head: hoursHead, cell: hoursCell } : undefined,
+          hours: byUnit.some((e) => e.componentId) || inputs.hours.duplicates.length > 0 ? { head: hoursHead, cell: hoursCell } : undefined,
           earning: { head: COLUMN_LABEL.earning, cell: cell('earning', earningId) },
           deduction: deductions.length > 0 ? { head: COLUMN_LABEL.deduction, cell: cell('deduction', deductionId) } : undefined,
           statusCell: save,

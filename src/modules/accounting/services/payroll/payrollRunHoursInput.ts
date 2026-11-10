@@ -76,10 +76,11 @@ export async function setRunHours(
   }
 
   const matches = await withBoundedLockWait(runId, (tx) => lockPaidRows(tx, companyId, employeeId, component.id, period));
-  // Re-verified under the locks (the company approval lock and the run header are held since the top, as every writer of these
-  // rows takes them first; the rows of this component are now locked FOR UPDATE): a move of the hours since the anchor was read
-  // cannot redirect this write.
-  if ((await anchorNow()).componentId !== anchor.componentId) throw new PayrollRunInputRefusedError(409, CHANGED);
+  // Re-verified (the whole anchor: component AND duplicate) now that this component's rows are locked FOR UPDATE. The employee-component
+  // writers (employee page, batch, MCP) take the company lock but NOT the approval or run-header locks held here, so this narrows the race
+  // between reading the anchor and writing; it does not close it. A move after this point is caught by the next calculation
+  // (HOURS_DUPLICATE / HOURS_UNIT_MISMATCH block approval).
+  if (JSON.stringify(await anchorNow()) !== JSON.stringify(anchor)) throw new PayrollRunInputRefusedError(409, CHANGED);
   const row = matches[0];
   if (matches.length > 1 || (row && row.on_key !== true)) throw new PayrollRunInputRefusedError(409, CONFLICTING_ROWS);
   const plain = row != null && row.quantity == null;

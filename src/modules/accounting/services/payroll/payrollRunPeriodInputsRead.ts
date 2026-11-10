@@ -55,13 +55,16 @@ export async function readAmounts(companyId: string, period: Period, componentId
     if (p.recurring) cell.recurring += p.amount; else cell.once.push(p);
     cells.set(k, cell);
   }
+  // One entry per quantity row the run pays, recurring or once-off, BEFORE a cell with several rows is nulled as a conflict: the very set the
+  // write path (setRunHours) counts, so the grid and the write cannot disagree about duplicates.
+  const quantityRows = paid.filter((p) => p.quantity != null).map((p) => ({ employeeId: p.employeeId, componentId: p.componentId }));
   const amounts: RunInputAmount[] = [...cells.values()].filter((c) => c.once.length > 0).map((c) => {
     const conflict = c.once.length !== 1 || !keyed.has(c.once[0]!.id);
     return { employeeId: c.employeeId, componentId: c.componentId, amount: conflict ? null : c.once[0]!.amount, conflict, quantity: conflict ? null : c.once[0]!.quantity };
   });
   const recurring: RunInputRecurring[] = [...cells.values()].filter((c) => c.recurring !== 0)
     .map((c) => ({ employeeId: c.employeeId, componentId: c.componentId, amount: c.recurring }));
-  return { amounts, recurring };
+  return { amounts, recurring, quantityRows };
 }
 
 /** The once-off rows this run pays for the cell (its own reader: paidByRun), locked, with whether each sits on the row key. */

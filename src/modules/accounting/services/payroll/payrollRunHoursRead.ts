@@ -11,7 +11,9 @@ export interface RunInputHours {
   componentId: string | null;
   problem: string | null;
   /** `componentId`: where THIS employee's hours sit this month (the row they already have), else the company's hours component. */
-  employees: Array<{ employeeId: string; unit: QuantityUnit; rate: number | null; componentId: string | null; duplicate: boolean }>;
+  employees: Array<{ employeeId: string; unit: QuantityUnit; rate: number | null; componentId: string | null }>;
+  /** Employees of ANY pay basis with more than one quantity row this month (the write refuses them 409): the grid sends them to the employee page. */
+  duplicates: string[];
 }
 
 /** The name the seeded hours component carries; a company with several 3601 earnings is told apart by it (and refused when still unclear). */
@@ -45,16 +47,19 @@ export function anchorOf(rowComponentIds: string[]): { componentId: string | nul
 }
 
 /**
- * Who is paid by the hour or day, and the component each one's hours sit on: the anchor (anchorOf) of the quantity row they
+ * Who is paid by the hour or day, and the component each one's hours sit on: the anchor (anchorOf) of the quantity rows they
  * already have this month (so a company that later adds a second 3601 earning does not move them), else `fallback`.
+ * `quantityRows` is readAmounts' set, the one the write counts. Duplicates are listed for every pay basis.
  */
 export function hoursInputsOf(
-  employees: PayrollEmployee[], amounts: Array<{ employeeId: string; componentId: string; quantity: number | null }>, fallback: string | null,
-): RunInputHours['employees'] {
-  return employees.flatMap((e) => {
-    const unit = unitOf(e);
-    if (unit == null) return [];
-    const anchor = anchorOf(amounts.filter((a) => a.employeeId === e.id && a.quantity != null).map((a) => a.componentId));
-    return [{ employeeId: e.id, unit, rate: rateOf(e), componentId: anchor.componentId ?? fallback, duplicate: anchor.duplicate }];
-  });
+  employees: PayrollEmployee[], quantityRows: Array<{ employeeId: string; componentId: string }>, fallback: string | null,
+): Pick<RunInputHours, 'employees' | 'duplicates'> {
+  const anchors = new Map(employees.map((e) => [e.id, anchorOf(quantityRows.filter((r) => r.employeeId === e.id).map((r) => r.componentId))]));
+  return {
+    duplicates: employees.filter((e) => anchors.get(e.id)!.duplicate).map((e) => e.id),
+    employees: employees.flatMap((e) => {
+      const unit = unitOf(e);
+      return unit == null ? [] : [{ employeeId: e.id, unit, rate: rateOf(e), componentId: anchors.get(e.id)!.componentId ?? fallback }];
+    }),
+  };
 }

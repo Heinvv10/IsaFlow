@@ -38,7 +38,7 @@ describe('approval', () => {
 
   it('a monthly employee is never asked for hours', async () => {
     expect((await line(state.nov)).gross).toBeCloseTo(SALARY, 2);
-    expect((await get(state.nov)).body.data!.inputs.hours).toEqual({ componentId: basicId(), problem: null, employees: [] });
+    expect((await get(state.nov)).body.data!.inputs.hours).toEqual({ componentId: basicId(), problem: null, duplicates: [], employees: [] });
     expect((await preview(state.nov)).body.data!.blocker).toBeNull();
   });
 
@@ -216,14 +216,47 @@ describe('hours stay on the component they were entered on (round 3 L1)', () => 
        VALUES ($1, $2, 6840, 80, 'hour', '2026-11-01', '2026-11-30', FALSE), ($1, $3, 6840, 80, 'hour', '2026-11-01', '2026-11-30', FALSE)`,
       [state.employee, basicId(), other]);
     await recalculate(state.nov);
-    const shown = (await get(state.nov)).body.data!.inputs.hours.employees[0];
-    expect(shown).toMatchObject({ duplicate: true, componentId: [basicId(), other].sort()[0] });
+    const shown = (await get(state.nov)).body.data!.inputs.hours;
+    expect(shown.duplicates).toEqual([state.employee]);
+    expect(shown.employees[0]).toMatchObject({ componentId: [basicId(), other].sort()[0] });
     const refused = await hours(state.nov, 90, 80);
     expect(refused.statusCode).toBe(409);
     expect(refused.body.error?.message).toContain('more than one row');
     const l = await line(state.nov);
     expect(codesOf(l)).toContain('HOURS_DUPLICATE');
     expect(l.validation_results.find((v: { code: string }) => v.code === 'HOURS_DUPLICATE').message).toContain('Basic Salary and Wages');
+  });
+
+  it('the grid and the write count the same rows: two once-off rows on ONE component, and a recurring row on A plus a once-off on B', async () => {
+    await makeHourly();
+    const insert = (component: string, from: string, to: string | null, recurring: boolean) => pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring)
+       VALUES ($1, $2, 6840, 80, 'hour', $3, $4, $5)`, [state.employee, component, from, to, recurring]);
+    // Two once-off rows on the SAME component: the grid cell is a conflict (quantity nulled), yet the state still says duplicate.
+    await insert(basicId(), '2026-11-01', '2026-11-30', false);
+    await insert(basicId(), '2026-11-01', '2026-11-30', false);
+    expect((await get(state.nov)).body.data!.inputs.hours.duplicates).toEqual([state.employee]);
+    expect((await hours(state.nov, 90, 80)).statusCode).toBe(409);
+    await pool.query('DELETE FROM payroll_employee_components WHERE employee_id = $1 AND quantity IS NOT NULL', [state.employee]);
+    expect((await get(state.nov)).body.data!.inputs.hours.duplicates).toEqual([]);
+    // A recurring quantity row on A plus a once-off on B: both readers see two rows.
+    const other = await fx.addComponent(state.coA, 'Wages', '3601', 'earning', true);
+    await insert(basicId(), '2020-01-01', null, true);
+    await insert(other, '2026-11-01', '2026-11-30', false);
+    expect((await get(state.nov)).body.data!.inputs.hours.duplicates).toEqual([state.employee]);
+    expect((await hours(state.nov, 90, 80)).statusCode).toBe(409);
+  });
+
+  it('a monthly employee with two stale hours rows is listed as a duplicate too (the grid shows the way out)', async () => {
+    const other = await fx.addComponent(state.coA, 'Wages', '3601', 'earning', true);
+    for (const component of [basicId(), other]) {
+      await pool.query(
+        `INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring)
+         VALUES ($1, $2, 100, 8, 'hour', '2026-11-01', '2026-11-30', FALSE)`, [state.employee, component]);
+    }
+    const hoursState = (await get(state.nov)).body.data!.inputs.hours;
+    expect(hoursState.duplicates).toEqual([state.employee]);
+    expect(hoursState.employees).toEqual([]);
   });
 
   it('a recurring 3601 on another component beside the hours is a warning, not a block (a possible double salary)', async () => {

@@ -21,13 +21,24 @@ const BASIC = 'c-basic';
 const lines = [line('1', 'Riaan Smit'), line('2', 'Thandi Nkosi')];
 const run = runBody({ lines });
 const withHours = (amounts: Array<Record<string, unknown>> = []) => ({
-  hours: { componentId: BASIC, employees: [{ employeeId: 'e-1', unit: 'hour', rate: 85.5, componentId: BASIC, duplicate: false }] },
+  hours: { componentId: BASIC, problem: null, duplicates: [], employees: [{ employeeId: 'e-1', unit: 'hour', rate: 85.5, componentId: BASIC }] },
   amounts,
 });
 const stored = (quantity: number, amount: number) => ({ employeeId: 'e-1', componentId: BASIC, amount, quantity, conflict: false });
 
 beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+describe('duplicate hours rows', () => {
+  it('an employee with more than one quantity row gets the way out, whatever their pay basis (a monthly employee with two stale rows included)', async () => {
+    const inputs = { hours: { componentId: BASIC, problem: null, duplicates: ['e-2'], employees: [] }, amounts: [] };
+    serve(() => ok(inputsBody(run)), { run, inputs });
+    render(<PayrollRunDetailPage />);
+    const link = await screen.findByRole('link', { name: 'Edit on the employee page' });
+    expect(link.getAttribute('href')).toBe('/payroll/employees/e-2');
+    expect(screen.getByRole('columnheader', { name: 'Hours' })).toBeTruthy();
+  });
+});
 
 describe('hours cell', () => {
   it('shows an Hours cell for the hourly employee only; the monthly one has none', async () => {
@@ -104,7 +115,7 @@ describe('hours cell', () => {
   });
 
   it('with no rate, links to the employee instead of offering a cell', async () => {
-    const inputs = { hours: { componentId: BASIC, employees: [{ employeeId: 'e-1', unit: 'hour', rate: null, componentId: BASIC, duplicate: false }] }, amounts: [] };
+    const inputs = { hours: { componentId: BASIC, problem: null, duplicates: [], employees: [{ employeeId: 'e-1', unit: 'hour', rate: null, componentId: BASIC }] }, amounts: [] };
     serve(() => ok(inputsBody(run)), { run, inputs });
     render(<PayrollRunDetailPage />);
     expect(await screen.findByRole('link', { name: /Set the hourly rate first/ })).toBeTruthy();
