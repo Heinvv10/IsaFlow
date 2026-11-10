@@ -38,6 +38,12 @@ describe('commentaryCost', () => {
     expect(commentaryCost([alt])).toBeGreaterThanOrEqual(commentaryCost([uniform]));
   });
 
+  it('charges 90 Chinese characters what master does, well inside the budget (#1261 round 2, blind L1: a 7.25em charge made it 673)', () => {
+    const chinese = '\u6536'.repeat(90);
+    expect(Math.round(commentaryCost([chinese]))).toBe(132);
+    expect(commentaryCost([chinese])).toBeLessThan(MAX_APPROVED_PACK_EMS);
+  });
+
   it('charges by glyph width, not by count: capitals and CJK cost more than lowercase', () => {
     const run = (ch: string) => ch.repeat(300);
     expect(commentaryCost([run('W')])).toBeGreaterThan(commentaryCost([run('a')]) * 1.3);

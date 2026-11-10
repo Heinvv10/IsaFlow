@@ -21,7 +21,7 @@ import type { UnnumberedPage } from './packFrontMatter';
 import { buildIncomeStatementSheet } from './packIncomeSheet';
 import { unreadableBlock } from './packFigureFloor';
 import { fitRelaidPage } from './packNarrativeFit';
-import { BUDGET_COLUMNS_DROPPED_NOTE, warnCaptionDropped } from './packOmissionFootnote';
+import { BUDGET_COLUMNS_DROPPED_NOTE, budgetColumnsDroppedNote, warnCaptionDropped } from './packOmissionFootnote';
 import type { PackChartSpec, PackFootnote, PackTable } from './packPageModel';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
 import { budgetColumnFootnote } from './packStatementFootnotes';
@@ -86,12 +86,17 @@ function composedIncomeSheet(
   const sheet = buildIncomeStatementSheet(
     anchorColumn(income, 'budget', budgetNotes[0]!.number), set, scale, panels, [...statementNotes, ...budgetNotes], merge);
   let diagnostic: string;
+  // The row label that kept the eight columns from fitting, where it was a label and not the figures.
+  let label: string | undefined;
   try {
     const { page: fitted, dropped } = fitRelaidPage(sheet);
-    if (unreadableBlock(fitted, scale) !== null) {
+    const unreadable = unreadableBlock(fitted, scale);
+    if (unreadable !== null) {
       // Eight data columns at these figures fit at no size down to the pack's smallest text: the columns go (a
       // budget is a comparison the pack can do without) before the pack is refused for them.
-      diagnostic = 'the Budget and Variance columns make the figures too wide for the sheet at any legible size';
+      label = unreadable.label;
+      diagnostic = label === undefined ? 'the Budget and Variance columns make the figures too wide for the sheet at any legible size'
+        : `the row label "${label}" needs more room than the eight columns' figures leave it`;
     } else if (fitted.footnotes.some((note) => note.text === budgetNotes[0]!.text)) {
       // This fitted page is the one used, so a caption it dropped is logged here.
       warnCaptionDropped('Income statement', dropped);
@@ -109,7 +114,7 @@ function composedIncomeSheet(
   // derived caption (the fitter's first lever: derived prose is worth less than a figure the reader is told
   // is missing). A page that would have to drop a note or a footnote (anchored ones included) or is refused
   // for it is composed as it was without the note (the #1121 ruling): see `columnsLeftOut` below.
-  const droppedNote: PackFootnote = { number: statementNotes.length + 1, text: BUDGET_COLUMNS_DROPPED_NOTE, required: true };
+  const droppedNote: PackFootnote = { number: statementNotes.length + 1, text: budgetColumnsDroppedNote(label !== undefined), required: true };
   // `columnsLeftOut` here too: the page carries the dropped-columns note, but if the fit then has to print an
   // omission note (the caption went) that note must not say every figure is complete either.
   const noted: UnnumberedPage = {
