@@ -92,7 +92,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     loadMedicalRecord(companyId, bounds),
     loadRetirementContributions(companyId, bounds),
     // Non-cash benefits: outside gross_pay, so outside 3601; under their own code (3801).
-    listRunNonCashBenefits(companyId, bounds),
+    listRunNonCashBenefits(companyId, bounds, null, { excludeContractorLines: true }),
     // 3801 items paid in cash (no flag): in 3601, and said so below.
     listRunUnflaggedFringe(companyId, bounds),
   ]);
@@ -137,6 +137,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     if (!agg) continue;
     const { salaryGross: gross, annualPayments, income3616 } = splitContractorIncome({
       totalGross: Number(agg.total_gross ?? 0), contractorGross: Number(agg.contractor_gross ?? 0), contractorAnnual: Number(agg.contractor_annual ?? 0),
+      contractorDirective: Number(agg.contractor_directive ?? 0), contractorNonCash: Number(agg.contractor_noncash ?? 0),
       annualAll: annualByEmployee.get(String(row.id)) ?? 0, standaloneGross: standalone.gross,
     });
     const fringeBenefits = fringeByEmployee.get(String(row.id)) ?? [];
