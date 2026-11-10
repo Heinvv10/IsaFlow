@@ -4,7 +4,8 @@
  *
  * The letters that join their neighbours (Joining_Type D, R, L or C: Arabic, Syriac, Mongolian, N'Ko, Adlam, Phags-pa,
  * Manichaean, ...) that the pack's own faces do not set, as runs [first, last]. Production sets a joined form, which
- * can be wider than the isolated form the fallback tables measure (`packPrintedText.printsAnywhere`).
+ * can be wider than the isolated form the fallback tables measure; every one prints anywhere, being a fallback glyph
+ * (`packPrintedText.printsAnywhere`), and `anywhereFamilies.joiningSweep` holds each in production's image.
  */
 export const JOINING_FALLBACK: ReadonlyArray<readonly [number, number]> = [
   [0x620, 0x620], [0x622, 0x64a], [0x66e, 0x66f], [0x671, 0x673], [0x675, 0x6d3], [0x6d5, 0x6d5], [0x6ee, 0x6ef], [0x6fa, 0x6fc],

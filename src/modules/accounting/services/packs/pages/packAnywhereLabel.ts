@@ -1,11 +1,13 @@
 /**
- * A ROW LABEL THAT CARRIES A MARK OR A JOINING LETTER, AS PRINTED AND AS MEASURED (#1235 rounds 7-9, Hein's decision).
+ * A ROW LABEL THAT CARRIES A MARK OR A CHARACTER THE PACK'S FACES DO NOT SET, AS PRINTED AND AS MEASURED (#1235
+ * rounds 7-9 and its follow-up, Hein's decision: "proven set + safe fallback").
  *
  * Where Chromium breaks beside a combining mark or a variation selector, and how wide it draws a cluster that carries
- * one, depend on the mark, the base and the fallback face Chromium takes for both; and a letter that joins its
- * neighbours (Arabic, Syriac, Mongolian, ...) is set in a joined form the fallback tables, measured alone, cannot price
- * (round 9: Syriac SADHE is 7.52px alone and 410px forty times over). The pair table and the fallback tables cannot
- * say. So such a label (`packPrintedText.printsAnywhere`) is printed in a block of its own that may break between any
+ * one, depend on the mark, the base and the fallback face Chromium takes for both. And any character the pack's faces
+ * do not set is drawn in a fallback face whose widths depend on more than the character: a joined form (round 9: Syriac
+ * SADHE is 7.52px alone and 410px forty times over), the face's kerning (round 10: kana in Noto Sans CJK kerned apart,
+ * "\u30D0\u30F3" 0.61px over), the face Chromium takes for the whole run from its first character (round 10: U+23B0
+ * then U+2350.. 53.6px over). The pair table and the fallback tables cannot say. So such a label (`packPrintedText.printsAnywhere`) is printed in a block of its own that may break between any
  * two graphemes and adds to its column's width only the floor it is set at (`pack-label-anywhere`: `contain:
  * inline-size; line-break: anywhere`, and a `min-width`), and is measured here:
  *  - its column is the other rows', or the label's FLOOR where that is wider: the print gives the block a `min-width`
@@ -34,6 +36,8 @@ import { printsAnywhere } from './packPrintedText';
 
 const LABEL_FONT_PX = 12;
 const MARK = /\p{M}/u;
+/** ZWNJ, ZWJ, ZWNBSP: production kerns across them and the ruler does not, so a cluster holding one is priced at the bound (#1261 M2). */
+const KERNED_ACROSS = /[\u200C\u200D\uFEFF]/u;
 
 /** The most one code point of a grapheme that carries a mark can add, at `weight`: the widest fallback glyph. */
 const codePointPx = (weight: FigureWeight): number => FALLBACK[LABEL_STYLE[weight]].widest;
@@ -60,14 +64,15 @@ export function anywhereFloorPx(labels: ReadonlyArray<{ label: string; weight: F
 
 /**
  * The width a line of `clusters` is fitted by: runs the pack's faces set exact, as the ruler sets them; a cluster that
- * carries a mark or that a fallback face sets at its upper bound (round 9: a fallback letter's advance is measured
- * alone, and a joined form can be wider, Syriac SADHE by a third).
+ * carries a mark, that a fallback face sets, or that holds ZWNJ, ZWJ or ZWNBSP (production kerns across those and the
+ * ruler does not) at its upper bound (round 9: a fallback letter's advance is measured alone, and a joined form can be
+ * wider, Syriac SADHE by a third).
  */
 function lineExactPx(clusters: readonly string[], weight: FigureWeight): number {
   let px = 0;
   let run = '';
   for (const c of clusters) {
-    if (MARK.test(c) || !inFace(c)) {
+    if (MARK.test(c) || !inFace(c) || KERNED_ACROSS.test(c)) {
       if (run !== '') px += textExactPx(run, LABEL_FONT_PX, weight);
       run = '';
       px += markedClusterPx(c, weight);
