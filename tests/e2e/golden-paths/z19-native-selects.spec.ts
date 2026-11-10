@@ -39,7 +39,7 @@ async function expectAxeClean(page: Page): Promise<void> {
 
 async function profilePath(page: Page): Promise<string> {
   await page.goto('/payroll/employees');
-  const link = page.locator('a[href^="/payroll/employees/"]').filter({ hasNotText: /^(New|Add)/ }).first();
+  const link = page.locator('main a[href^="/payroll/employees/"]:not([href$="/new"]):not([href$="/bulk-update"])').first();
   await expect(link).toBeVisible({ timeout: 60_000 });
   const href = await link.getAttribute('href');
   expect(href).toMatch(/^\/payroll\/employees\/[0-9a-f-]{36}$/);
