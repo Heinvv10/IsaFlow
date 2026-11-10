@@ -96,6 +96,7 @@ export async function releaseLockDirectly(pool: Pool, lockId: string, userId: st
   const c = await pool.connect();
   try {
     await c.query('BEGIN');
+    await c.query(`SET LOCAL lock_timeout = '5s'`);
     await c.query('ALTER TABLE vat_period_locks DISABLE TRIGGER trg_vat_period_locks_in_return');
     await c.query(`UPDATE vat_period_locks SET unlocked_at = now(), unlocked_by = $2, unlock_reason = 'direct' WHERE id = $1`, [lockId, userId]);
     await c.query('ALTER TABLE vat_period_locks ENABLE ALWAYS TRIGGER trg_vat_period_locks_in_return');

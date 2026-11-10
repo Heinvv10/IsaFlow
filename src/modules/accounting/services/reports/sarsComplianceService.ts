@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { als } from '@/lib/als';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { getComplianceCalendar } from './sarsTaxPeriodsService';
@@ -55,7 +56,7 @@ function mapSubmissionRow(row: DbRow): SARSSubmission {
 
 /** A submission that may not be marked submitted this way. The route answers 409. */
 export class SubmissionNotOpenError extends Error {
-  readonly code = 'SUBMISSION_NOT_OPEN';
+  // No `readonly code`: no MCP tool reaches markSubmitted, so there is no agent-facing refusal to allowlist.
   constructor(message: string) {
     super(message);
     this.name = 'SubmissionNotOpenError';
@@ -78,6 +79,9 @@ export async function saveDraftSubmission(
   opts: { keepExistingAs?: string } = {},
 ): Promise<SARSSubmission> {
   log.info('Saving draft submission', { formType, periodStart, periodEnd }, 'sarsComplianceService');
+  // The advisory lock below is transaction-scoped: outside a request transaction it would release at once and
+  // serialise nothing.
+  if (!als.getStore()?.client) throw new Error('saveDraftSubmission must run inside a request transaction');
 
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`sars-draft:${companyId}:${formType}:${periodStart}:${periodEnd}`}, 0))`;
   const open = (await sql`

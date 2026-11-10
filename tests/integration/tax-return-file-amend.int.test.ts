@@ -318,4 +318,16 @@ describeIfDb('file and amend a return, against a real ledger', () => {
     expect(e2).toMatchObject({ versionNo: 2, amendsVersionId: e1.id });
     expect((await fileV(String(e2.id), { reference: 'EMP-0002' }, rf.admin.token, 'emp201')).status).toBe(200);
   });
+
+  it('both routes answer 429 once a user is over the rate limit (checked before any lookup or write)', async () => {
+    const id = '00000000-0000-4000-8000-000000000098';
+    const call = (route: typeof file | typeof amend, body: Record<string, unknown>) =>
+      callRoute(route, c(), rf.manager.token, 'POST', { form: 'vat201' }, { versionId: id, ...body });
+    // the manager is write-capable and refused 403 by the service, so each call spends one unit of its own budget
+    for (const [route, body] of [[file, { reference: 'R' }], [amend, { reason: 'why' }]] as const) {
+      let last = 0;
+      for (let i = 0; i < 125 && last !== 429; i += 1) last = (await call(route, body)).status;
+      expect(last).toBe(429);
+    }
+  });
 });

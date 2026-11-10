@@ -268,9 +268,6 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // VAT-gaps batch item 1). Names no id/amount beyond the caller's own
   // journal/document, scoped by company_id. Pre-write.
   'JOURNAL_DOCUMENT_LINK_REFUSED',
-  // A SARS submission marked submitted that is not an open draft, belongs to a return version, or covers a period with a
-  // live return version (reports/sarsComplianceService, wave 5 L1b). Names only the caller's own submission id; pre-write.
-  'SUBMISSION_NOT_OPEN',
   // The exclusive VAT-lock key was not free within 5s (posts in flight).
   // Says "retry"; raised before any write.
   // Blocking VAT exceptions refused a lock/mark-submitted with no override, or

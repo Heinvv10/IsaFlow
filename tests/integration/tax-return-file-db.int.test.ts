@@ -314,6 +314,11 @@ describeIfDb('tax_return_versions filing and amend rules (migration 971)', () =>
     expect(String(((await sql`SELECT status FROM sars_submissions WHERE id = ${first.id}::UUID`) as Row[])[0]!.status)).toBe('submitted');
   });
 
+  it('saveDraftSubmission refuses to run outside a request transaction (its advisory lock would serialise nothing)', async () => {
+    await expect(saveDraftSubmission(a.fx.companyId, 'EMP201', '2026-08-01', '2026-08-31', {}, a.admin.userId))
+      .rejects.toThrow(/inside a request transaction/);
+  });
+
   it('a draft save that overlaps another\'s open transaction waits for it and updates its draft: ONE open draft (advisory lock + row lock, no index)', async () => {
     const save = (v: number) => saveDraftSubmission(a.fx.companyId, 'EMP201', '2026-09-01', '2026-09-30', { v }, a.admin.userId);
     const c1 = await a.fx.pool.connect();
