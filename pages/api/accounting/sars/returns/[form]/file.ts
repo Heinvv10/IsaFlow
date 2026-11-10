@@ -27,8 +27,8 @@ const Body = z.object({
   // A blank reference is the service's 400 (a schema failure would be a 422).
   reference: z.string().max(200).default(''),
   overrideReason: z.string().trim().min(1).max(2000).optional(),
-  /** Needed when the period was already filed the legacy way (409 LEGACY_SUBMISSION_EXISTS names it). */
-  correctsLegacySubmissionId: UUID.optional(),
+  /** Needed when the period was already filed the legacy way (409 LEGACY_SUBMISSION_EXISTS names them, all of them). */
+  correctsLegacySubmissionIds: z.array(UUID).max(50).optional(),
   reason: z.string().max(2000).optional(),
 });
 
@@ -49,7 +49,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const out = await markReturnFiled(companyId, form, parsed.data.versionId, parsed.data.reference,
       { userId, role: companyRole },
-      { overrideReason: parsed.data.overrideReason, correctsLegacySubmissionId: parsed.data.correctsLegacySubmissionId, reason: parsed.data.reason });
+      { overrideReason: parsed.data.overrideReason, correctsLegacySubmissionIds: parsed.data.correctsLegacySubmissionIds, reason: parsed.data.reason });
     log.info('Return filed', { companyId, form, versionId: out.version.id }, 'sars-returns');
     return apiResponse.success(res, out);
   } catch (err) {

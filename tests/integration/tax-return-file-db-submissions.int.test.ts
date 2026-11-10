@@ -10,7 +10,7 @@ import { dropReturnFixture, seedReturnFixture, type ReturnFixture } from './help
 import * as rules from './helpers/returnFileDbRules';
 import { als } from '@/lib/als';
 import { inTx, runOn } from './helpers/l1FifoFixture';
-import { insertEfilingEventCommitted } from '../../src/modules/accounting/services/reports/sarsEfilingRepo';
+import { applyPollResult, insertEfilingEventCommitted } from '../../src/modules/accounting/services/reports/sarsEfilingRepo';
 import { markSubmitted, saveDraftSubmission } from '../../src/modules/accounting/services/reports/sarsComplianceService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -91,6 +91,24 @@ describeIfDb('sars_submissions, locks and drafts under migration 971', () => {
     await asAppUser(a, async (c) => {
       expect(await failOf(c, `UPDATE sars_submissions SET submission_reference = 'OK' WHERE id = '${other}'`)).toBe('ok');
     });
+  });
+
+  it('the ISV poll records SARS\'s verdict on a row it submitted even where a version exists; nothing else leaves a non-draft row, nothing leaves superseded', async () => {
+    const mk = async (status: string, corr: string | null) => String(((await sql`INSERT INTO sars_submissions (company_id, form_type, period_start,
+      period_end, status, efiling_correlation_id) VALUES (${a.fx.companyId}::UUID, 'EMP201', ${day(7)}::DATE, ${day(7, true)}::DATE, ${status}, ${corr})
+      RETURNING id`) as Row[])[0]!.id);
+    const polled = await mk('submitted', 'CORR-1'); // the period has a (superseded) version: this file's lifecycle test made it
+    const noCorrelation = await mk('submitted', null);
+    const superseded = await mk('superseded', 'CORR-2');
+    const poll = (id: string, status: string, ref: string | null) =>
+      inTx(a.fx, () => applyPollResult(a.fx.companyId, id, { submissionStatus: status, efilingStatus: status, sarsReference: ref }));
+    await poll(polled, 'submitted', null); // still processing: no change to the watched columns
+    await poll(polled, 'accepted', 'SARS-REF-1');
+    expect(((await sql`SELECT status, submission_reference FROM sars_submissions WHERE id = ${polled}::UUID`) as Row[])[0])
+      .toEqual({ status: 'accepted', submission_reference: 'SARS-REF-1' });
+    await expect(poll(noCorrelation, 'accepted', 'X')).rejects.toThrow(/return lifecycle/);
+    await expect(poll(superseded, 'submitted', null).then(() => poll(superseded, 'accepted', 'X'))).rejects.toThrow(/return lifecycle/);
+    expect(String(((await sql`SELECT status FROM sars_submissions WHERE id = ${superseded}::UUID`) as Row[])[0]!.status)).toBe('superseded');
   });
 
   it('the ISV intent event commits in an app_user transaction of its own (never a migration credential): it survives the request rolling back', async () => {

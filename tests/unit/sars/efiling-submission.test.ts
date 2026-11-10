@@ -21,6 +21,7 @@ const m = vi.hoisted(() => ({
   applyPollResult: vi.fn(),
   insertEfilingEvent: vi.fn(),
   insertEfilingEventCommitted: vi.fn(),
+  withEventWriter: vi.fn(),
   periodHasReturnVersion: vi.fn(),
   takeDraftPeriodLock: vi.fn(),
   order: [] as string[],
@@ -59,6 +60,7 @@ vi.mock('@/modules/accounting/services/reports/sarsEfilingRepo', () => ({
   applyPollResult: m.applyPollResult,
   insertEfilingEvent: m.insertEfilingEvent,
   insertEfilingEventCommitted: m.insertEfilingEventCommitted,
+  withEventWriter: m.withEventWriter,
 }));
 // Wave 5 L1b: a period with a return version is the lifecycle's, and the ISV path queues behind the period's draft key.
 vi.mock('@/modules/accounting/services/returns/versionExists', () => ({ periodHasReturnVersion: m.periodHasReturnVersion }));
@@ -110,7 +112,12 @@ beforeEach(() => {
   m.order.length = 0;
   m.periodHasReturnVersion.mockResolvedValue(false);
   m.takeDraftPeriodLock.mockImplementation(async () => { m.order.push('lock'); });
-  m.insertEfilingEventCommitted.mockImplementation(async () => { m.order.push('intent'); });
+  m.insertEfilingEventCommitted.mockResolvedValue(undefined);
+  // the event connection is opened FIRST (before the draft lock), and every event on it is a committed write
+  m.withEventWriter.mockImplementation(async (fn: (w: { write: unknown }) => Promise<unknown>) => {
+    m.order.push('connection');
+    return fn({ write: async (evt: { efilingStatus?: string; eventType: string }) => { m.order.push(`event:${evt.eventType}:${evt.efilingStatus ?? ''}`); return m.insertEfilingEventCommitted(evt); } });
+  });
   m.authenticate.mockImplementation(async () => { m.order.push('authenticate'); return { token: 'tok' }; });
   m.getEfilingConfig.mockReturnValue({ baseUrl: 'http://x', isvLogin: 'l', activationKey: 'k' });
   m.getEfilingSubmission.mockResolvedValue({
@@ -144,7 +151,9 @@ describe('evaluateEfilingGate (pure)', () => {
 describe('the ISV path before anything leaves for SARS (wave 5 L1b)', () => {
   it('takes the period draft lock, then commits the intent in its own transaction, then authenticates and sends', async () => {
     await submitVAT201ToSars(CID, SID, UID);
-    expect(m.order).toEqual(['lock', 'intent', 'authenticate']);
+    // the connection first, then the lock, the intent, SARS, and the RESULT (with the correlation id) committed too
+    expect(m.order).toEqual(['connection', 'lock', 'event:submit:sending', 'authenticate', 'event:submit:received']);
+    expect(m.insertEfilingEventCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ eventType: 'submit', correlationId: 'CORR-1' }));
     expect(m.takeDraftPeriodLock).toHaveBeenCalledWith(CID, 'VAT201', '2026-03-01', '2026-03-31');
     expect(m.insertEfilingEventCommitted).toHaveBeenCalledWith(expect.objectContaining({ submissionId: SID, eventType: 'submit', efilingStatus: 'sending' }));
   });
@@ -280,7 +289,7 @@ describe('submitVAT201ToSars', () => {
     expect(payload).toMatchObject({ vatNumber: '4123456789' });
     expect(payload.fields.field11_vatPayableOrRefundable).toBe(50000);
     expect(m.markSubmissionSubmitted).toHaveBeenCalledWith(CID, SID, 'CORR-1', 'received', UID);
-    expect(m.insertEfilingEvent).toHaveBeenCalledWith(
+    expect(m.insertEfilingEventCommitted).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'submit', correlationId: 'CORR-1' }),
     );
   });
@@ -289,7 +298,7 @@ describe('submitVAT201ToSars', () => {
     m.authenticate.mockRejectedValue(Object.assign(new Error('auth 500'), { httpStatus: 500 }));
     await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toThrow();
     expect(m.markSubmissionSubmitted).not.toHaveBeenCalled();
-    expect(m.insertEfilingEvent).toHaveBeenCalledWith(
+    expect(m.insertEfilingEventCommitted).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'error', httpStatus: 500 }),
     );
   });
@@ -487,5 +496,17 @@ describe('pollVAT201Status', () => {
       submissionStatus: 'accepted', efilingStatus: 'accepted', sarsReference: 'REF-1',
     }));
     expect(m.insertEfilingEvent).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'poll' }));
+  });
+
+  it('records a poll failure on a connection of its own, so a transaction the failure aborted (25P02) cannot swallow it', async () => {
+    m.getEfilingSubmission.mockResolvedValue({
+      id: SID, companyId: CID, formType: 'VAT201',
+      periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'submitted',
+      efilingCorrelationId: 'CORR-1', efilingLastStatus: 'received', formData: { ...FILED_FIELDS },
+    });
+    m.applyPollResult.mockRejectedValue(Object.assign(new Error('trigger refused'), { httpStatus: null }));
+    await expect(pollVAT201Status(CID, SID)).rejects.toThrow('trigger refused');
+    expect(m.insertEfilingEventCommitted).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'error', message: 'trigger refused' }));
+    expect(m.insertEfilingEvent).not.toHaveBeenCalledWith(expect.objectContaining({ eventType: 'error' }));
   });
 });

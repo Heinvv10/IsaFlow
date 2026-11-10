@@ -26,6 +26,7 @@ import {
   applyPollResult,
   insertEfilingEvent,
   insertEfilingEventCommitted,
+  withEventWriter,
 } from './sarsEfilingRepo';
 import { takeDraftPeriodLock } from './sarsComplianceService';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
@@ -190,50 +191,55 @@ export async function submitVAT201ToSars(
     throw new EfilingBlockedError(reason);
   }
 
-  // Before anything leaves for SARS: queue behind any filing or draft save of this period (the lifecycle's own key),
-  // judge the period and the submission again under it, and record the intent in a transaction of its OWN, committed
-  // now, so a send whose request later rolls back still leaves its trace.
-  await takeDraftPeriodLock(companyId, 'VAT201', submission.periodStart, submission.periodEnd);
-  const again = await getEfilingSubmission(companyId, submissionId);
-  if (!again || again.efilingCorrelationId || again.status !== 'draft') {
-    throw new EfilingAlreadyFiledError(again?.efilingCorrelationId ?? '');
-  }
-  if (await periodHasReturnVersion(companyId, 'VAT201', submission.periodStart, submission.periodEnd)) {
-    throw new EfilingBlockedError('This period has a return version: file through the return lifecycle.');
-  }
-  await insertEfilingEventCommitted({
-    companyId, submissionId, eventType: 'submit', efilingStatus: 'sending', message: 'about to send to SARS',
-    detail: { periodStart: submission.periodStart, periodEnd: submission.periodEnd }, createdBy: userId,
+  // The event connection FIRST, then the lock: submits queued on the period's lock must not each need a second pool
+  // connection while holding the first. Before anything leaves for SARS: queue behind any filing, finalise or draft save of
+  // this period (the lifecycle's own key), judge the period and the submission again under it, and record the intent, the
+  // result and any failure in transactions of their OWN, committed at once, so a send whose request later rolls back
+  // still leaves its trace and its correlation id.
+  return withEventWriter(async (events) => {
+    await takeDraftPeriodLock(companyId, 'VAT201', submission.periodStart, submission.periodEnd);
+    const again = await getEfilingSubmission(companyId, submissionId);
+    if (!again || again.efilingCorrelationId || again.status !== 'draft') {
+      throw new EfilingAlreadyFiledError(again?.efilingCorrelationId ?? '');
+    }
+    if (await periodHasReturnVersion(companyId, 'VAT201', submission.periodStart, submission.periodEnd)) {
+      throw new EfilingBlockedError('This period has a return version: file through the return lifecycle.');
+    }
+    await events.write({
+      companyId, submissionId, eventType: 'submit', efilingStatus: 'sending', message: 'about to send to SARS',
+      detail: { periodStart: submission.periodStart, periodEnd: submission.periodEnd }, createdBy: userId,
+    });
+
+    const taxPeriod = submission.periodStart.replace(/-/g, '').slice(0, 6); // CCYYMM
+    const {
+      degradedSources: _drop, outputInvoices: _o, inputInvoices: _i,
+      periodStart: _ps, periodEnd: _pe, rateCheck: _rc, sarsFields: _sf, warnings: _w, filability: _fb, ...fields
+    } = vat201;
+
+    try {
+      const auth = await authenticate(config);
+      const result = await submitVAT201(config, auth.token, {
+        vatNumber, taxPeriod, fields: fields as unknown as Record<string, number>,
+      });
+      await events.write({
+        companyId, submissionId, eventType: 'submit',
+        efilingStatus: result.status, httpStatus: result.httpStatus, correlationId: result.correlationId,
+        detail: { taxPeriod, companyName, netVat: vat201.field11_vatPayableOrRefundable },
+        createdBy: userId,
+      });
+      await markSubmissionSubmitted(companyId, submissionId, result.correlationId, result.status, userId);
+      log.info('VAT201 submitted to SARS', { companyId, submissionId, correlationId: result.correlationId }, 'sarsEfilingSubmissionService');
+      return { submissionId, correlationId: result.correlationId, status: result.status };
+    } catch (err) {
+      const httpStatus = (err as { httpStatus?: number }).httpStatus ?? null;
+      await events.write({
+        companyId, submissionId, eventType: 'error', httpStatus,
+        message: err instanceof Error ? err.message : 'SARS eFiling transport error', createdBy: userId,
+      }).catch((writeErr: unknown) => log.warn('Could not record the eFiling error event',
+        { message: writeErr instanceof Error ? writeErr.message : String(writeErr) }, 'sarsEfilingSubmissionService'));
+      throw err;
+    }
   });
-
-  const taxPeriod = submission.periodStart.replace(/-/g, '').slice(0, 6); // CCYYMM
-  const {
-    degradedSources: _drop, outputInvoices: _o, inputInvoices: _i,
-    periodStart: _ps, periodEnd: _pe, rateCheck: _rc, sarsFields: _sf, warnings: _w, filability: _fb, ...fields
-  } = vat201;
-
-  try {
-    const auth = await authenticate(config);
-    const result = await submitVAT201(config, auth.token, {
-      vatNumber, taxPeriod, fields: fields as unknown as Record<string, number>,
-    });
-    await insertEfilingEvent({
-      companyId, submissionId, eventType: 'submit',
-      efilingStatus: result.status, httpStatus: result.httpStatus, correlationId: result.correlationId,
-      detail: { taxPeriod, companyName, netVat: vat201.field11_vatPayableOrRefundable },
-      createdBy: userId,
-    });
-    await markSubmissionSubmitted(companyId, submissionId, result.correlationId, result.status, userId);
-    log.info('VAT201 submitted to SARS', { companyId, submissionId, correlationId: result.correlationId }, 'sarsEfilingSubmissionService');
-    return { submissionId, correlationId: result.correlationId, status: result.status };
-  } catch (err) {
-    const httpStatus = (err as { httpStatus?: number }).httpStatus ?? null;
-    await insertEfilingEvent({
-      companyId, submissionId, eventType: 'error', httpStatus,
-      message: err instanceof Error ? err.message : 'SARS eFiling transport error', createdBy: userId,
-    });
-    throw err;
-  }
 }
 
 export interface PollOutcome {
@@ -276,11 +282,13 @@ export async function pollVAT201Status(companyId: string, submissionId: string, 
     return { status: result.status, submissionStatus, sarsReference: result.sarsReference, errors: result.errors };
   } catch (err) {
     const httpStatus = (err as { httpStatus?: number }).httpStatus ?? null;
-    await insertEfilingEvent({
+    // On a connection of its own: the request's transaction may be aborted by the very error being recorded (25P02).
+    await insertEfilingEventCommitted({
       companyId, submissionId, eventType: 'error', httpStatus,
       message: err instanceof Error ? err.message : 'SARS eFiling transport error',
       createdBy: userId ?? null,
-    });
+    }).catch((writeErr: unknown) => log.warn('Could not record the eFiling error event',
+      { message: writeErr instanceof Error ? writeErr.message : String(writeErr) }, 'sarsEfilingSubmissionService'));
     throw err;
   }
 }

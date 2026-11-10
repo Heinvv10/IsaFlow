@@ -28,8 +28,8 @@ export interface FiledReturn {
 export interface FileOptions {
   /** VAT201: owner/admin override of blocking VAT exceptions, with a reason. */
   overrideReason?: string;
-  /** The legacy submission this filing corrects (see LEGACY_SUBMISSION_EXISTS), with the reason. */
-  correctsLegacySubmissionId?: string;
+  /** EVERY legacy submission of the period this filing corrects (see LEGACY_SUBMISSION_EXISTS), with the reason. */
+  correctsLegacySubmissionIds?: string[];
   reason?: string;
 }
 
@@ -79,10 +79,11 @@ export async function markReturnFiled(
   let correction: string | null = null;
   if (legacy.length > 0) {
     const named = legacy.map((l) => `${l.id} (${l.status}, reference ${l.reference ?? 'none'})`).join('; ');
-    if (opts.correctsLegacySubmissionId !== legacy[0]!.id) {
+    const given = new Set(opts.correctsLegacySubmissionIds ?? []);
+    if (given.size !== legacy.length || !legacy.every((l) => given.has(l.id))) {
       throw new ReturnRefusal(409,
-        `This period was already filed the legacy way: ${named}. Filing this version supersedes it: send correctsLegacySubmissionId `
-        + `${legacy[0]!.id} and a reason.`, 'LEGACY_SUBMISSION_EXISTS');
+        `This period was already filed the legacy way: ${named}. Filing this version supersedes ALL of them: send `
+        + `correctsLegacySubmissionIds [${legacy.map((l) => l.id).join(', ')}] and a reason.`, 'LEGACY_SUBMISSION_EXISTS');
     }
     correction = visibleText(opts.reason ?? '', 'A reason for correcting the legacy filing');
   }

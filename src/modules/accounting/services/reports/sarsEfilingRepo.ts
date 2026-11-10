@@ -110,38 +110,55 @@ export interface EfilingEventInput {
   createdBy?: string | null;
 }
 
+export interface EventWriter {
+  /** One event in a transaction of its own on the held connection, committed before this returns. */
+  write(evt: EfilingEventInput): Promise<void>;
+}
+
 /**
- * The same row in a transaction of its OWN, committed before this returns: the record that a submit is about to leave
- * for SARS must survive the request's own rollback. An ordinary app_user connection from the withAuth pool (never a
- * migration credential), with the request's verified claims and company as the RLS GUCs, exactly as withAuth sets them.
+ * Holds ONE ordinary app_user connection (the withAuth pool; never a migration credential) for a caller that must record
+ * events that survive the request's own rollback: the record that a submit is about to leave for SARS, its result and
+ * its failure. The connection is taken BEFORE the caller takes any lock, so a queue of submits waiting on the period's
+ * advisory lock never needs a second pool connection while holding the first (it would starve the pool). Each `write`
+ * runs BEGIN, the request's verified claims and company as the RLS GUCs exactly as withAuth sets them, the INSERT, COMMIT.
  */
-export async function insertEfilingEventCommitted(evt: EfilingEventInput): Promise<void> {
+export async function withEventWriter<T>(fn: (writer: EventWriter) => Promise<T>): Promise<T> {
   const store = als.getStore();
   const claims = store?.claims ?? {};
-  // The authenticated request's company, as withAuth sets it; the event's own is the fallback outside a request.
-  const companyGuc = store?.companyId ?? evt.companyId;
-  const client = await connectObserved(getAuthPool(), 'isv-submit-intent');
+  const client = await connectObserved(getAuthPool(), 'isv-event-writer');
   let unusable = false; // R-176: a ROLLBACK that failed leaves the transaction open; destroy the connection, do not pool it
+  const write = async (evt: EfilingEventInput): Promise<void> => {
+    // The authenticated request's company, as withAuth sets it; the event's own is the fallback outside a request.
+    const companyGuc = store?.companyId ?? evt.companyId;
+    try {
+      await client.query('BEGIN');
+      await client.query(`SET LOCAL lock_timeout = '5s'`);
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
+      await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyGuc]);
+      await client.query(
+        `INSERT INTO sars_efiling_events
+           (company_id, submission_id, event_type, efiling_status, http_status, correlation_id, detail, message, created_by)
+         VALUES ($1::UUID, $2::UUID, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+        [evt.companyId, evt.submissionId, evt.eventType, evt.efilingStatus ?? null, evt.httpStatus ?? null,
+          evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      unusable = await rollbackFailed(client, 'isv-event-writer');
+      throw err;
+    }
+  };
   try {
-    await client.query('BEGIN');
-    await client.query(`SET LOCAL lock_timeout = '5s'`);
-    await client.query('SET LOCAL ROLE app_user');
-    await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
-    await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyGuc]);
-    await client.query(
-      `INSERT INTO sars_efiling_events
-         (company_id, submission_id, event_type, efiling_status, http_status, correlation_id, detail, message, created_by)
-       VALUES ($1::UUID, $2::UUID, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
-      [evt.companyId, evt.submissionId, evt.eventType, evt.efilingStatus ?? null, evt.httpStatus ?? null,
-        evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],
-    );
-    await client.query('COMMIT');
-  } catch (err) {
-    unusable = await rollbackFailed(client, 'isv-submit-intent');
-    throw err;
+    return await fn({ write });
   } finally {
     client.release(unusable);
   }
+}
+
+/** One committed event on a connection of its own (for a caller that writes a single one, such as a poll's failure). */
+export async function insertEfilingEventCommitted(evt: EfilingEventInput): Promise<void> {
+  await withEventWriter((w) => w.write(evt));
 }
 
 export async function insertEfilingEvent(evt: EfilingEventInput): Promise<void> {

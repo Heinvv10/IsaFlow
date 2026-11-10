@@ -76,6 +76,7 @@ describeIfDb('file and amend a return: guards on their own company', () => {
     const per = { periodStart: '2026-03-01', periodEnd: '2026-03-31' };
     const e = versionOf(await callRoute(finalise, c(), rf.admin.token, 'POST', { form: 'emp201' }, per));
     const legacyRow = await draftRow('EMP201', per.periodStart, per.periodEnd, 'submitted'); // filed the legacy way, before versions
+    const legacyRow2 = await draftRow('EMP201', per.periodStart, per.periodEnd, 'accepted'); // and a second one
     const subs = async () => ((await sql`SELECT id, status FROM sars_submissions WHERE company_id = ${c()}::UUID AND form_type = 'EMP201'
       AND period_start = ${per.periodStart}::DATE ORDER BY status`) as Row[]);
     const before = await subs();
@@ -84,19 +85,25 @@ describeIfDb('file and amend a return: guards on their own company', () => {
     expect(JSON.stringify(r.body)).toMatch(/LEGACY_SUBMISSION_EXISTS/);
     expect(JSON.stringify(r.body)).toContain(legacyRow);
     // the wrong id, and the right id with no reason
-    const wrong = await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionId: '00000000-0000-4000-8000-000000000077', reason: 'because' }, rf.admin.token, 'emp201');
+    const wrong = await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionIds: ['00000000-0000-4000-8000-000000000077'], reason: 'because' }, rf.admin.token, 'emp201');
     expect(wrong.status).toBe(409);
-    expect((await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionId: legacyRow }, rf.admin.token, 'emp201')).status).toBe(400);
-    expect((await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionId: legacyRow, reason: INVISIBLE }, rf.admin.token, 'emp201')).status).toBe(400);
+    expect((await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionIds: [legacyRow, legacyRow2] }, rf.admin.token, 'emp201')).status).toBe(400);
+    expect((await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionIds: [legacyRow, legacyRow2], reason: INVISIBLE }, rf.admin.token, 'emp201')).status).toBe(400);
     expect(await subs()).toEqual(before);
     expect((await row(String(e.id))).status).toBe('finalised');
+    // two legacy rows and only one named: still 409, and the answer lists the current set
+    const partial = await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionIds: [legacyRow], reason: 'Re-filed through the lifecycle' }, rf.admin.token, 'emp201');
+    expect(partial.status).toBe(409);
+    expect(JSON.stringify(partial.body)).toContain(legacyRow2);
+    expect(await subs()).toEqual(before);
     // acknowledged: the legacy row is superseded, ONE live submitted row remains, and the audit names both
-    const ok = await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionId: legacyRow, reason: 'Re-filed through the lifecycle' }, rf.admin.token, 'emp201');
+    const ok = await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionIds: [legacyRow, legacyRow2], reason: 'Re-filed through the lifecycle' }, rf.admin.token, 'emp201');
     expect(ok.status).toBe(200);
     const after = (await sql`SELECT id, status, notes FROM sars_submissions WHERE company_id = ${c()}::UUID AND form_type = 'EMP201'
       AND period_start = ${per.periodStart}::DATE`) as Row[];
     expect(after.filter((x) => x.status === 'submitted')).toHaveLength(1);
     expect(after.find((x) => x.id === legacyRow)).toMatchObject({ status: 'superseded' });
+    expect(after.find((x) => x.id === legacyRow2)).toMatchObject({ status: 'superseded' });
     expect(String(after.find((x) => x.id === legacyRow)!.notes)).toMatch(/Re-filed through the lifecycle/);
     expect(JSON.stringify((await audits(String(e.id)))[0]!.changes)).toContain(legacyRow);
   });
@@ -142,6 +149,25 @@ describeIfDb('file and amend a return: guards on their own company', () => {
     } finally {
       await approver.query('ROLLBACK').catch(() => undefined);
       approver.release();
+    }
+  });
+
+  it('a finalise queues behind a send in flight: it waits for the period\'s draft lock the ISV path holds', async () => {
+    const period = { periodStart: '2026-02-01', periodEnd: '2026-02-28' };
+    const holder = await rf.fx.pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+        [`sars-draft:${c()}:EMP201:${period.periodStart}:${period.periodEnd}`]);
+      let done = false;
+      const finalising = callRoute(finalise, c(), rf.admin.token, 'POST', { form: 'emp201' }, period).then((r) => { done = true; return r; });
+      await new Promise((r) => setTimeout(r, 500));
+      expect(done).toBe(false); // waiting on the lock
+      await holder.query('COMMIT');
+      expect((await finalising).status).toBe(200);
+    } finally {
+      await holder.query('ROLLBACK').catch(() => undefined);
+      holder.release();
     }
   });
 
