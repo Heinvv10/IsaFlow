@@ -30,7 +30,8 @@ export interface HoursExpectation { quantity: number | null; amount?: number | n
 
 /**
  * `quantity` null clears the row; 0 is an entered nil (stored, amount 0, counts as entered). A plain once-off Basic Salary
- * amount of this month (not hours) is replaced only when `expected.amount` names it, the same check as an amount edit.
+ * amount of this month (not hours) is replaced only when `expected.amount` names it, the same check as an amount edit; with
+ * `quantity` null and that amount named it is DELETED (the cell was emptied: the amount goes with it, as intended).
  * A monthly employee's stale hours row (kept from an earlier pay basis) can be cleared here, nothing else.
  */
 export async function setRunHours(

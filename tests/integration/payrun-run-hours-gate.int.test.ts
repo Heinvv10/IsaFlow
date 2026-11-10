@@ -1,0 +1,193 @@
+/**
+ * HD: approval, recalculation and the rules for other rows. An hourly employee with no hours is refused at approval; a change of
+ * pay basis or rate after calculation sends the run back; hours beside another row on the hours component, two hours rows or a
+ * unit that no longer fits are blocking errors; other 3601 earnings are ordinary pay; a stale-stamped line is recalculated.
+ * Disposable fixture DB only.
+ */
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import reopen from '../../pages/api/payroll/runs/[id]/reopen';
+import { SALARY } from './payrun-period-inputs.helpers';
+import type { Route } from './w3-01-payroll.helpers';
+import { hoursFixture } from './payrun-run-hours.helpers';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+const { fx, ctx, hours, makeHourly, makeDaily, stored, breakdownOf, codesOf, each } = hoursFixture(pool);
+const { state, get, put, rows, line, preview, recalculate } = fx;
+const basicId = () => ctx.basic;
+
+beforeAll(fx.setUp);
+beforeEach(each);
+afterEach(fx.dropCompany);
+afterAll(fx.tearDown);
+
+describe('approval', () => {
+  it('an hourly employee with no hours is flagged and the approval preview refuses, naming them; entering hours lifts it', async () => {
+    await makeHourly();
+    const l = await line(state.nov);
+    expect(l.gross).toBe(0);
+    expect(codesOf(l)).toContain('HOURS_MISSING');
+    const refused = (await preview(state.nov)).body.data!.blocker;
+    expect(refused?.code).toBe('hours_missing');
+    expect(refused?.detail).toContain('W301-1');
+    await hours(state.nov, 160);
+    expect((await preview(state.nov)).body.data!.blocker).toBeNull();
+  });
+
+  it('a monthly employee is never asked for hours', async () => {
+    expect((await line(state.nov)).gross).toBeCloseTo(SALARY, 2);
+    expect((await get(state.nov)).body.data!.inputs.hours).toEqual({ componentId: basicId(), problem: null, employees: [] });
+    expect((await preview(state.nov)).body.data!.blocker).toBeNull();
+  });
+
+  it('a run approved with hours, then reopened with no hours, meets the refusal on re-approval (journal in force)', async () => {
+    await makeHourly();
+    await hours(state.nov, 160);
+    const ok = await fx.doApprove(state.nov, (await preview(state.nov)).body.data!.planHash);
+    expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+    expect((await fx.header(state.nov)).journal_entry_id).not.toBeNull();
+    // Reopened: the journal stays in force. The hours are then removed outside the grid (the employee page, a batch).
+    expect((await fx.call(reopen as Route, 'POST', `/api/payroll/runs/${state.nov}/reopen`, state.nov, { body: { reason: 'HD re-approval test' } })).statusCode).toBe(200);
+    await pool.query('DELETE FROM payroll_employee_components WHERE employee_id = $1 AND component_id = $2 AND NOT is_recurring', [state.employee, basicId()]);
+    await recalculate(state.nov);
+    expect(codesOf(await line(state.nov))).toContain('HOURS_MISSING');
+    expect((await preview(state.nov)).body.data!.blocker?.code).toBe('hours_missing');
+  });
+});
+
+describe('a change of pay basis or rate after calculation (H1)', () => {
+  it('hourly to monthly leaves hours beside a recurring salary: R15 000 + R14 834.25 is flagged, blocked, and the change forces a recalculation', async () => {
+    await makeHourly();
+    await hours(state.nov, 173.5);
+    expect((await stored())[0]!.amount).toBe(14834.25);
+    await pool.query(`UPDATE payroll_employees SET pay_basis = 'monthly' WHERE id = $1`, [state.employee]);
+    await fx.addRow(basicId(), 15000, '2020-01-01', null, true);
+    // Not recalculated yet: the approval gate sends the run back first (the terms changed after calculation).
+    expect((await preview(state.nov)).body.data!.blocker?.code).toBe('components_changed_after_calculation');
+    await recalculate(state.nov);
+    const l = await line(state.nov);
+    expect(l.gross).toBeCloseTo(29834.25, 2); // both are paid
+    expect(codesOf(l)).toContain('HOURS_UNIT_MISMATCH');
+    const blocked = (await preview(state.nov)).body.data!.blocker;
+    expect(blocked?.code).toBe('hours_inconsistent');
+    expect(blocked?.detail).toContain('monthly');
+  });
+
+  it('monthly to hourly with the salary still recurring: no hours is missing, and hours beside the salary pay twice', async () => {
+    await pool.query(`UPDATE payroll_employees SET pay_basis = 'hourly', hourly_rate = 85.5, hours_per_week = 40, hours_per_day = 8 WHERE id = $1`, [state.employee]);
+    expect((await preview(state.nov)).body.data!.blocker?.code).toBe('components_changed_after_calculation');
+    await recalculate(state.nov);
+    expect(codesOf(await line(state.nov))).toContain('HOURS_MISSING');
+    expect((await preview(state.nov)).body.data!.blocker?.code).toBe('hours_missing');
+    expect((await hours(state.nov, 160)).statusCode).toBe(200);
+    expect(codesOf(await line(state.nov))).toContain('HOURS_WITH_OTHER_BASIC');
+    expect((await preview(state.nov)).body.data!.blocker?.code).toBe('hours_inconsistent');
+  });
+
+  it('a rate change alone after calculation sends the run back for recalculation', async () => {
+    await makeHourly();
+    await hours(state.nov, 160);
+    expect((await preview(state.nov)).body.data!.blocker).toBeNull();
+    await pool.query('UPDATE payroll_employees SET hourly_rate = 90 WHERE id = $1', [state.employee]);
+    expect((await preview(state.nov)).body.data!.blocker?.code).toBe('components_changed_after_calculation');
+  });
+
+  it('a monthly employee\'s stale hours row can be cleared from the grid, and the amount edit says why it is refused', async () => {
+    await makeHourly();
+    await hours(state.nov, 160);
+    await pool.query(`UPDATE payroll_employees SET pay_basis = 'monthly' WHERE id = $1`, [state.employee]);
+    const typed = await fx.set(state.nov, basicId(), 500, state.employee, 13680);
+    expect(typed.statusCode).toBe(400);
+    expect(typed.body.error?.message).toContain('another pay basis');
+    expect((await hours(state.nov, 5)).statusCode).toBe(400);
+    expect((await hours(state.nov, null, 160)).statusCode).toBe(200);
+    expect(await stored()).toEqual([]);
+  });
+});
+
+describe('another Basic Salary row beside the hours (H3)', () => {
+  it('a recurring row (the employee page) is a blocking error', async () => {
+    await makeHourly();
+    await hours(state.nov, 160);
+    await fx.addRow(basicId(), 5000, '2020-01-01', null, true);
+    await recalculate(state.nov);
+    expect(codesOf(await line(state.nov))).toContain('HOURS_WITH_OTHER_BASIC');
+    expect((await preview(state.nov)).body.data!.blocker?.code).toBe('hours_inconsistent');
+  });
+  it('a once-off plain amount written outside the grid (employee page, MCP) on another day of the month is a blocking error', async () => {
+    await makeHourly();
+    await hours(state.nov, 160);
+    await fx.addRow(basicId(), 700, '2026-11-15', '2026-11-30');
+    await recalculate(state.nov);
+    expect(codesOf(await line(state.nov))).toContain('HOURS_WITH_OTHER_BASIC');
+    expect((await preview(state.nov)).body.data!.blocker?.code).toBe('hours_inconsistent');
+  });
+  it('two hours rows are an error, never a sum', async () => {
+    await makeHourly();
+    await hours(state.nov, 80);
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring)
+       VALUES ($1, $2, 6840, 80, 'hour', '2026-11-15', '2026-11-30', FALSE)`, [state.employee, basicId()]);
+    await recalculate(state.nov);
+    const l = await line(state.nov);
+    expect(codesOf(l)).toContain('HOURS_DUPLICATE');
+    expect((await preview(state.nov)).body.data!.blocker?.code).toBe('hours_inconsistent');
+    expect(await hours(state.nov, 90, 80).then((r) => r.statusCode)).toBe(409);
+  });
+});
+
+describe('other 3601 earnings are ordinary pay, the hours component is found by id (M-1)', () => {
+  it('160 h + a R500 shift allowance on another 3601 component pays R14 180 with no block; a -R500 correction is allowed too', async () => {
+    await makeHourly();
+    const shift = await fx.addComponent(state.coA, 'Shift allowance', '3601', 'earning', true);
+    expect((await hours(state.nov, 160)).statusCode).toBe(200); // two 3601 components: the one named Basic Salary takes the hours
+    expect(await stored()).toEqual([{ amount: 13680, quantity: 160, unit: 'hour' }]);
+    await fx.addRow(shift, 500, '2026-11-01', '2026-11-30');
+    await recalculate(state.nov);
+    const paid = await line(state.nov);
+    expect(paid.gross).toBe(14180);
+    expect(codesOf(paid).filter((c) => c.startsWith('HOURS_'))).toEqual([]);
+    expect((await preview(state.nov)).body.data!.blocker).toBeNull();
+    await pool.query('UPDATE payroll_employee_components SET amount = -500 WHERE employee_id = $1 AND component_id = $2', [state.employee, shift]);
+    await recalculate(state.nov);
+    const corrected = await line(state.nov);
+    expect(corrected.gross).toBe(13180);
+    expect(codesOf(corrected).filter((c) => c.startsWith('HOURS_'))).toEqual([]);
+    // But a second row on the hours component itself is still blocked.
+    await fx.addRow(basicId(), 100, '2026-11-20', '2026-11-30');
+    await recalculate(state.nov);
+    expect(codesOf(await line(state.nov))).toContain('HOURS_WITH_OTHER_BASIC');
+    expect((await preview(state.nov)).body.data!.blocker?.code).toBe('hours_inconsistent');
+  });
+
+  it('several 3601 earnings and none named Basic Salary: hours are refused 400, not first-matched', async () => {
+    await makeHourly();
+    await pool.query(`UPDATE payroll_components SET name = 'Salary A' WHERE id = $1`, [basicId()]);
+    await fx.addComponent(state.coA, 'Salary B', '3601', 'earning', true);
+    const res = await hours(state.nov, 160);
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error?.message).toContain('Salary A, Salary B');
+    expect((await get(state.nov)).body.data!.inputs.hours).toMatchObject({ componentId: null });
+    expect(await stored()).toEqual([]);
+  });
+});
+
+describe('a line costed without the hours rules but stamped with the current version (H-1)', () => {
+  it('an hourly line with no quantity and no HOURS_* result must be recalculated, not approved', async () => {
+    await makeHourly();
+    await hours(state.nov, 160);
+    expect((await preview(state.nov)).body.data!.blocker).toBeNull();
+    // What a build without HD would have stored: same version stamp, no quantity on the items, no hours result.
+    await pool.query(
+      `UPDATE payroll_run_lines SET component_breakdown = (SELECT COALESCE(jsonb_agg(i - 'quantity' - 'quantityUnit' - 'rate'), '[]'::jsonb)
+         FROM jsonb_array_elements(component_breakdown) i), validation_results = '[]'::jsonb WHERE run_id = $1`, [state.nov]);
+    const blocked = (await preview(state.nov)).body.data!.blocker;
+    expect(blocked?.code).toBe('recalculate_required');
+    expect(blocked?.detail).toContain('W301-1');
+    await recalculate(state.nov);
+    expect((await preview(state.nov)).body.data!.blocker).toBeNull();
+  });
+});
+
