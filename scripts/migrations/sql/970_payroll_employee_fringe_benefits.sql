@@ -23,7 +23,8 @@
 -- ended in a month a run can still compute gets a medical_gross_up row, created_by 'migration:970'. It starts on the
 -- first day of the month of the earliest such assignment (a hire on 11-20 stays cash for all of November) and, when none
 -- of them is open-ended, ends on the month end of the last to end (a leaver ending 11-30 stays cash in November). A run
--- can still compute any month from the earliest draft or calculated run of the company (else last month). Existing 3810
+-- can still compute any month from the earliest draft or calculated run of the company (else the earlier of last month and the
+-- month after its latest final run). Existing 3810
 -- users keep today's cash behaviour until a company ends the opt-in; a 3810 assigned after the row ends defaults to the
 -- split. Deterministic and idempotent (never a second row, so a re-run adds nothing). It runs before row security is enabled below and as a role that bypasses it (postgres, as the deploy does).
 --
@@ -96,12 +97,17 @@ SELECT e.company_id, e.id, 'medical_gross_up', FALSE,
   JOIN payroll_components c ON c.id = pec.component_id AND c.component_type = 'earning'
                            AND BTRIM(c.sars_source_code, E' \t\r\n') = '3810'
   JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = c.company_id
-  -- The first month a run can still compute: the earliest month with a draft or calculated run, else last month.
+  -- The first month a run can still compute: the earliest month with a draft or calculated run of the company; without
+  -- one, the earlier of last month and the month after the company's latest final (approved or paid) run (a company
+  -- that is behind on its payroll can still compute the months after its last final run).
   CROSS JOIN LATERAL (
     SELECT COALESCE(
       (SELECT MIN(make_date(h.period_year, h.period_month, 1)) FROM payroll_run_headers h
         WHERE h.company_id = e.company_id AND h.status IN ('draft', 'calculated')),
-      (date_trunc('month', CURRENT_DATE) - INTERVAL '1 month')::date) AS cutoff
+      LEAST(
+        (date_trunc('month', CURRENT_DATE) - INTERVAL '1 month')::date,
+        (SELECT (MAX(make_date(h.period_year, h.period_month, 1)) + INTERVAL '1 month')::date FROM payroll_run_headers h
+          WHERE h.company_id = e.company_id AND h.status IN ('approved', 'paid')))) AS cutoff
   ) w
  WHERE pec.superseded_at IS NULL
    AND (pec.effective_to IS NULL OR (pec.effective_to >= pec.effective_from AND pec.effective_to >= w.cutoff))
