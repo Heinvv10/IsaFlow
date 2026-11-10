@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { buildIncomeStatementTable } from '@/modules/accounting/services/packs/pages/packStatementTables';
 import { incomeSheetWithBudget } from '@/modules/accounting/services/packs/pages/packIncomeBudget';
-import { BUDGET_COLUMNS_DROPPED_NOTE, budgetColumnsDroppedNote, isBudgetColumnsDroppedNote, NOTHING, omissionFootnote } from '@/modules/accounting/services/packs/pages/packOmissionFootnote';
+import { BUDGET_COLUMNS_DROPPED_BY_LABEL_NOTE, BUDGET_COLUMNS_DROPPED_NOTE, budgetColumnsDroppedNote, isBudgetColumnsDroppedNote, NOTHING, omissionFootnote } from '@/modules/accounting/services/packs/pages/packOmissionFootnote';
 import { demoInput } from './fixtures/boardPackInputs';
 import { ComparativeTable } from '@/components/accounting/packs/primitives/ComparativeTable';
 import { anywhereFloorPx, markedClusterPx } from '@/modules/accounting/services/packs/pages/packAnywhereLabel';
@@ -54,13 +54,13 @@ describe('a grapheme that carries a mark is priced per code point', () => {
 
 describe('a character the faces do not set is printed to break anywhere and priced at the bound (round 9, and the follow-up)', () => {
   const sadhe = (n: number): string => '\u0728'.repeat(n);
-  it('prints anywhere: any character the faces do not set (joining letters, CJK and kana, math symbols, Cherokee, full-width punctuation and currency, emoji, compatibility jamo), a line or paragraph separator; not text the faces set, ZWNJ or a tab', () => {
+  it('prints anywhere: any character the faces do not set (joining letters, CJK and kana, math symbols, Cherokee, full-width punctuation and currency, emoji, compatibility jamo), a line or paragraph separator, ZWNJ, ZWJ or ZWNBSP (#1261 M2: production kerns across them); not other text the faces set, or a tab', () => {
     const fallback = [sadhe(17), 'Rent \u0628\u064A\u0646', '\u182E\u1823\u1829', '\u07DE\u07CA', '\u{1E900}\u{1E923}', '\u0640',
       '\u30D0\u30F3\u30AF\u624B\u6570\u6599', '\u4E2D\u6587', '\u23B0\u2350\u2351', '\u{1D670}\u{1D650}', '\u13A0\u13AD',
       'Fees \uFF08net\uFF09', 'Rent\uFF0C water', '\uFF04100', '\uFFE5', '\uFE69', '\uA838', '\u{1F600}\u200D\u{1F600}', '\u3131\u314F',
-      '\u0660\u0661', 'Gross\u3000margin', 'a\u2028-b', 'a\u2029b'];
+      '\u0660\u0661', 'Gross\u3000margin', 'a\u2028-b', 'a\u2029b', 'r\u200C\u2019', 'r\u200D\u2019', 'r\uFEFF\u2019'];
     for (const t of fallback) expect(printsAnywhere(t), t).toBe(true);
-    for (const t of ['Revenue', 'a\u200Cb', 'Rent\tand\nrates', 'Caf\u00E9 \u2013 2024 \u20AC', '\u0416\u0438\u0437\u043D\u044C', 'R\u00A0100\u00AD000']) expect(printsAnywhere(t), t).toBe(false);
+    for (const t of ['Revenue', 'Rent\tand\nrates', 'Caf\u00E9 \u2013 2024 \u20AC', '\u0416\u0438\u0437\u043D\u044C', 'R\u00A0100\u00AD000']) expect(printsAnywhere(t), t).toBe(false);
   });
 
   it('each joining letter at the widest fallback glyph, in a line and in the floor: a SADHE run of 40 at 200px is 20 lines', () => {
@@ -150,7 +150,7 @@ describe('the floor in the fit gate, the layout and the print', () => {
 });
 
 describe('page 6 with a budget, where a row label keeps the eight columns from fitting', () => {
-  it('leaves the Budget and Variance columns out under a note that names the label, not the figures; the figures keep the old note', () => {
+  it('leaves the Budget and Variance columns out under a note that says a row label caused it (not quoting it), not the figures; the figures keep the old note', () => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     try {
       const page6 = (label: string) => {
@@ -165,8 +165,11 @@ describe('page 6 with a budget, where a row label keeps the eight columns from f
       const { columns, notes } = page6(label);
       expect(columns).not.toContain('budget');
       const note = notes.find(isBudgetColumnsDroppedNote);
-      expect(note).toBe(budgetColumnsDroppedNote(label));
-      expect(note).toContain(`row label “${label}”`);
+      expect(note).toBe(budgetColumnsDroppedNote(true));
+      expect(note).toBe(BUDGET_COLUMNS_DROPPED_BY_LABEL_NOTE);
+      // It says a row label caused it, and does not quote the label: tenant text the prose model cannot price (#1261 M1).
+      expect(note).toContain('a row label');
+      expect(note).not.toContain(label);
       expect(note).not.toContain('figures are too wide');
       // An English label keeps all eight columns, and the plain note is the figures' wording.
       expect(page6('Revenue').columns).toContain('budget');

@@ -1,9 +1,11 @@
 /**
  * LABELS OF CHARACTERS THE PACK'S FACES DO NOT SET, which the pair table read short and now print to break anywhere
  * (#1235's follow-up, Hein's "proven set + safe fallback"): the round-10 adversarial review's three faults and the
- * items #1235 deferred. Held in production's image only (`printParity/packAnywhereLabelImage.test.ts`, through
- * `anywhereFamilies`; the statement tables in `printParity/packBreakPairsImage.test.ts`): a fallback face's widths are
- * the host's, and GitHub's are not production's.
+ * items #1235 deferred, and #1261's kerning across ZWNJ, ZWJ and ZWNBSP. Held in production's image
+ * (`printParity/packAnywhereLabelImage.test.ts`, through `anywhereFamilies`; the statement tables in
+ * `printParity/packBreakPairsImage.test.ts`). The ones of text the faces set (the separators, the marked hyphens and the
+ * kerned-across runs) also run in the print tests' Chromium (`packAnywhereLabels.test.ts`); the rest are fallback text,
+ * whose widths are the host's, and GitHub's are not production's.
  *  - M1: Noto Sans CJK kerns some kana pairs apart (U+30D0 U+30F3 +0.61px, U+30D1 U+30F3, U+304F U+307F, U+30CF U+30C8,
  *    U+3063 U+306E, U+304E U+304F, U+30C0 U+30B7), in runs, words and the review's real labels.
  *  - M2: a run of fallback characters is set in the face Chromium takes for its first (U+23B0 then U+2350..2377,
@@ -12,6 +14,7 @@
  *  - L1: Cherokee kerning ((U+13A0 U+13AD) x15).
  *  - Deferred: full-width punctuation and wide currency; a hyphen after a line or paragraph separator; breaks beside an
  *    emoji or a compatibility jamo.
+ *  - #1261 M2: production kerns across U+200C, U+200D and U+FEFF ("r\u200C\u2019" 8.344px, the ruler 7.680).
  */
 const cp = (...points: number[]): string => String.fromCodePoint(...points);
 const times = (text: string, n: number): string => Array.from({ length: n }, () => text).join('');
@@ -52,6 +55,12 @@ export function fallbackFamilies(): string[] {
   // A hyphen after a line or paragraph separator (#1235 round 4, L1), and after one carrying a mark.
   for (const sep of ['\u2028', '\u2029']) for (const dash of ['-', '\u2013', '\u2010']) for (const tail of ['\u00E9x', 'ax', 'cd', '2024']) out.add(`ab${sep}${dash}${tail}`);
   for (const t of ['-\u0301cd', '12-\u030112', 'Telecommunications-\u0301Telecommunications']) out.add(t);
+  // Kerned across ZWNJ, ZWJ and ZWNBSP (#1261 M2), in runs and words.
+  for (const sep of [0x200c, 0x200d, 0xfeff]) {
+    for (const n of [1, 6, 20, 26]) out.add(times(cp(0x72, sep, 0x2019), n));
+    out.add(times(cp(0x5f, sep, 0x414), 10));
+    out.add(`Fees ${times(`${times(cp(0x72, sep, 0x2019), 4)} `, 6)}`);
+  }
   // Breaks beside an emoji or a compatibility jamo.
   for (const x of ['\u{1F600}', '\u2764', '\u3131', '\u314F', '\u3164']) for (const t of [`Revenue${x}Total`, `ab${x}-cd`, `ab-${x}cd`, `Rent ${x}/${x} water`, `${x}(${x})${x}`]) out.add(t);
   return [...out];
@@ -72,3 +81,9 @@ export const ROUND_TEN_LABELS: ReadonlyArray<readonly [string, boolean]> = [
   ['Fees\uFF08net\uFF09\uFF0Cwater \uFF04100 \uFF05', false],
   ['ab\u2028-\u00E9x', false],
 ];
+
+/**
+ * #1261's statement tables kerned across ZWNJ (`fits=true`, printed wider than the page or a line short): (U+0072
+ * U+200C U+2019) x22 at 12 digits (670px), x26, x30 and x34 at 9 (72.96mm against 68.80; 659px; 673px).
+ */
+export const KERNED_ACROSS_LABELS: ReadonlyArray<readonly [string, boolean]> = [22, 26, 30, 34].map((n) => [times(cp(0x72, 0x200c, 0x2019), n), false] as const);

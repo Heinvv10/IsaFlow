@@ -114,7 +114,7 @@ function composedIncomeSheet(
   // derived caption (the fitter's first lever: derived prose is worth less than a figure the reader is told
   // is missing). A page that would have to drop a note or a footnote (anchored ones included) or is refused
   // for it is composed as it was without the note (the #1121 ruling): see `columnsLeftOut` below.
-  const droppedNote: PackFootnote = { number: statementNotes.length + 1, text: budgetColumnsDroppedNote(label), required: true };
+  const droppedNote: PackFootnote = { number: statementNotes.length + 1, text: budgetColumnsDroppedNote(label !== undefined), required: true };
   // `columnsLeftOut` here too: the page carries the dropped-columns note, but if the fit then has to print an
   // omission note (the caption went) that note must not say every figure is complete either.
   const noted: UnnumberedPage = {

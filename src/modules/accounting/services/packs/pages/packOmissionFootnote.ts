@@ -91,20 +91,22 @@ export const OMISSION_MARK = 'Not printed on this page';
 export const BUDGET_COLUMNS_DROPPED_NOTE =
   'The Budget and Variance columns are left out of this page because the figures are too wide to fit it.';
 
-const LABEL_DROPPED_LEAD = 'The Budget and Variance columns are left out of this page because the row label ';
-
 /**
- * The note page 6 prints where it leaves the Budget and Variance columns out: naming the row label where that label,
- * not the figures, kept the eight columns from fitting (a character the print never splits needs more room than the
- * figures leave it: `packFigureFit.refusingLabel`).
+ * The same note where a row label, not the figures, kept the eight columns from fitting (a character the print never
+ * splits needs more room than the figures leave it: `packFigureFit.refusingLabel`). It says "a row label" and does not
+ * quote it: the label is tenant text the prose model cannot price (#1261 adversarial M1: quoted, the required footnote
+ * set 3-4 lines where the model read 2, and page 6 came out 5-16mm taller).
  */
-export function budgetColumnsDroppedNote(label?: string): string {
-  return label === undefined ? BUDGET_COLUMNS_DROPPED_NOTE
-    : `${LABEL_DROPPED_LEAD}\u201c${label}\u201d needs more room beside the figures than the sheet leaves with them.`;
+export const BUDGET_COLUMNS_DROPPED_BY_LABEL_NOTE =
+  'The Budget and Variance columns are left out of this page because a row label needs more room beside the figures than the sheet leaves with them.';
+
+/** The note page 6 prints where it leaves the Budget and Variance columns out: the label's wording where one caused it. */
+export function budgetColumnsDroppedNote(byLabel = false): string {
+  return byLabel ? BUDGET_COLUMNS_DROPPED_BY_LABEL_NOTE : BUDGET_COLUMNS_DROPPED_NOTE;
 }
 
 /** Is `text` the note that says the Budget and Variance columns are left out (either wording)? */
-export const isBudgetColumnsDroppedNote = (text: string): boolean => text === BUDGET_COLUMNS_DROPPED_NOTE || text.startsWith(LABEL_DROPPED_LEAD);
+export const isBudgetColumnsDroppedNote = (text: string): boolean => text === BUDGET_COLUMNS_DROPPED_NOTE || text === BUDGET_COLUMNS_DROPPED_BY_LABEL_NOTE;
 
 function omissionText(dropped: Dropped, footnotes: readonly PackFootnote[]): string {
   // The disclosure headings name where NOTES were taken from, so the clause is attached to the note

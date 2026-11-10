@@ -54,9 +54,10 @@ describe('a label printed to break anywhere, in Chromium', () => {
     // final SADHE wide enough to run 1.078px past its block; production never runs past it), so the fallback families are
     // held to production's image, velo only (`printParity/packAnywhereLabelImage.test.ts`, the same families).
     const texts = anywhereFamilies().map(printedText).filter(printsAnywhere).filter(inFaces);
-    // The faces set the separators and the marked hyphens #1235 deferred (27), and the footnote-mark sweep (160).
+    // The faces set the separators and the marked hyphens #1235 deferred (27), the runs kerned across ZWNJ, ZWJ and
+    // ZWNBSP (#1261, 18) and the footnote-mark sweep (160).
     const deferred = fallbackFamilies().map(printedText).filter(printsAnywhere).filter(inFaces);
-    expect(deferred.length).toBe(27);
+    expect(deferred.length).toBe(45);
     expect(texts, 'the families\' labels the faces set are the deferred separators and marked hyphens and the footnote-mark sweep, and only them').toEqual([...deferred, ...footnoteSweep()]);
     const cases: AnywhereCase[] = texts.flatMap((text) => [null, 1, 12].map((footnote) => ({ text, footnote })));
     expect(await wrongIn(cases, [18, 140, 200, 230, 260, 320, 400])).toEqual([]);

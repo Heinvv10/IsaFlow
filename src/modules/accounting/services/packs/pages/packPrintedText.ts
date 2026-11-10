@@ -46,13 +46,19 @@ function selfHosted(cp: number): boolean {
 
 /** Whitespace the fill collapses (`packAnywhereLabel`, `packLineBreaks`) and the faces need not set. */
 const COLLAPSED = new Set([0x09, 0x0a, 0x0d]);
-/** The line and paragraph separators: the faces set them, but production holds a hyphen after one as no rule here reads (#1235 round 4, L1). */
-const SEPARATORS = new Set([0x2028, 0x2029]);
+/**
+ * Code points the faces set that the pair table cannot read beside: the line and paragraph separators (production holds
+ * a hyphen after one as no rule here reads: #1235 round 4, L1), and ZWNJ, ZWJ and ZWNBSP, which HarfBuzz skips when it
+ * kerns, so production kerns the letters either side of one and the ruler does not ("r\u200C\u2019" is 8.344px, the
+ * ruler 7.680: #1261 adversarial M2).
+ */
+const SEPARATORS = new Set([0x2028, 0x2029, 0x200c, 0x200d, 0xfeff]);
 
 /**
  * Is `text` (as printed) a row label printed to break between any two graphemes (`pack-label-anywhere`) and measured as
  * such (`packAnywhereLabel.ts`)? Where it holds a combining mark or a variation selector (`carriesMarks`), a code point
- * the pack's own faces do not set (`packFallbackWidthData.SELF_HOSTED`) or a line or paragraph separator. Only text the
+ * the pack's own faces do not set (`packFallbackWidthData.SELF_HOSTED`), a line or paragraph separator, or ZWNJ, ZWJ or
+ * ZWNBSP. Only text the
  * faces set is read by the pair table: a fallback face's widths and breaks depend on the face Chromium takes, its
  * kerning and its joined forms, which no table here holds (#1235 round 9: Syriac SADHE 7.52px alone, 410px forty times
  * over; round 10: kana kerned apart in Noto Sans CJK, a run of math symbols set in its first character's face).

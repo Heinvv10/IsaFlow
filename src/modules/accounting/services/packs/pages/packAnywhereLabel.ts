@@ -36,6 +36,8 @@ import { printsAnywhere } from './packPrintedText';
 
 const LABEL_FONT_PX = 12;
 const MARK = /\p{M}/u;
+/** ZWNJ, ZWJ, ZWNBSP: production kerns across them and the ruler does not, so a cluster holding one is priced at the bound (#1261 M2). */
+const KERNED_ACROSS = /[\u200C\u200D\uFEFF]/u;
 
 /** The most one code point of a grapheme that carries a mark can add, at `weight`: the widest fallback glyph. */
 const codePointPx = (weight: FigureWeight): number => FALLBACK[LABEL_STYLE[weight]].widest;
@@ -62,14 +64,15 @@ export function anywhereFloorPx(labels: ReadonlyArray<{ label: string; weight: F
 
 /**
  * The width a line of `clusters` is fitted by: runs the pack's faces set exact, as the ruler sets them; a cluster that
- * carries a mark or that a fallback face sets at its upper bound (round 9: a fallback letter's advance is measured
- * alone, and a joined form can be wider, Syriac SADHE by a third).
+ * carries a mark, that a fallback face sets, or that holds ZWNJ, ZWJ or ZWNBSP (production kerns across those and the
+ * ruler does not) at its upper bound (round 9: a fallback letter's advance is measured alone, and a joined form can be
+ * wider, Syriac SADHE by a third).
  */
 function lineExactPx(clusters: readonly string[], weight: FigureWeight): number {
   let px = 0;
   let run = '';
   for (const c of clusters) {
-    if (MARK.test(c) || !inFace(c)) {
+    if (MARK.test(c) || !inFace(c) || KERNED_ACROSS.test(c)) {
       if (run !== '') px += textExactPx(run, LABEL_FONT_PX, weight);
       run = '';
       px += markedClusterPx(c, weight);
