@@ -312,8 +312,10 @@ describe('CommentaryPanel approve with edits', () => {
 
   it('accepts text that exactly fills the room', async () => {
     const box = await openEditor();
+    // The longest run of x the budget holds, by bisection (the cost only grows with the run).
     let n = 0;
-    while (commentaryCost(['x'.repeat(n + 1)]) <= MAX_APPROVED_PACK_EMS) n += 1;
+    let over = 4000;
+    while (over - n > 1) { const mid = Math.floor((n + over) / 2); if (commentaryCost(['x'.repeat(mid)]) <= MAX_APPROVED_PACK_EMS) n = mid; else over = mid; }
     typeInto(box, 'x'.repeat(n));
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(false);
     typeInto(box, 'x'.repeat(n + 1));

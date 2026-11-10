@@ -7,17 +7,20 @@
  * "@" "&", long words. The CI Chromium's fallback faces are not production's, so this text is held only here
  * (`tests/unit/print/packTextMetrics.test.ts` holds the faces' text there).
  *
+ * And on what round 1 found short (#1263): CJK runs of 60 to 200 characters in the matters' columns, which break between
+ * their ideographs, and tokens wider than a line with breaks inside them; and at the model's own boundary width.
+ *
  * Not held: a joined script in a fallback face (Syriac SADHE is 7.52px alone, about 10.3px joined, and 80 of them read a
  * line short): the KNOWN LIMIT `packProseLines` records, reached by no fixture. Velo only.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PAGE_WIDTH_MM } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { GUTTER_MM, PAGE_WIDTH_MM } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { proseLines } from '@/modules/accounting/services/packs/pages/packProseLines';
-import { proseLinesBound } from '@/modules/accounting/services/packs/pages/packProseBound';
+import { PROSE_FACES } from '@/modules/accounting/services/packs/pages/packProseFallbackData';
 import { PROSE, type ProseStyle } from '@/modules/accounting/services/packs/pages/packProseStyles';
 import { startGotenberg, type Gotenberg } from './gotenbergParity';
-import { inImage } from './inImage';
 import { paritySkip } from './paritySkip';
+import { inBlock, inMattersCell, MM_PX, shortCells, type Cell } from './proseCells';
 
 const rep = (s: string, n: number, sep = ''): string => Array.from({ length: n }, () => s).join(sep);
 
@@ -38,20 +41,25 @@ const TEXTS: readonly string[] = [
   'Journal JE-2026-00061 (recorded well after its entry date): Payroll run 2026-01 posted to the wrong period by the bureau.',
 ];
 
-interface Kind { cls: string; tag: string; style: ProseStyle; mm: number; leading: string }
 const W = PAGE_WIDTH_MM.portrait;
-const KINDS: readonly Kind[] = [
-  { cls: 'pack-disclosure-body', tag: 'p', style: PROSE.disclosureBody, mm: W, leading: '' },
-  { cls: 'pack-narrative-body', tag: 'div', style: PROSE.narrativeBody, mm: W, leading: '' },
-  { cls: 'pack-footnote-text', tag: 'span', style: PROSE.footnote, mm: W - 6, leading: 'line-height:11pt;' },
+/** The pack's prose rules: a disclosure's body, page 4's commentary, a footnote. */
+const KINDS: ReadonlyArray<{ cell: ReturnType<typeof inBlock>; style: ProseStyle; mm: number }> = [
+  { cell: inBlock('pack-disclosure-body', 'p'), style: PROSE.disclosureBody, mm: W },
+  { cell: inBlock('pack-narrative-body'), style: PROSE.narrativeBody, mm: W },
+  { cell: inBlock('pack-footnote-text', 'span', 'line-height:11pt;'), style: PROSE.footnote, mm: W - 6 },
 ];
 const FRACTIONS = [1, 0.8, 0.6, 0.45];
 
-/** Each case's lines as production sets them: the distinct tops of its text's line boxes. */
-const LINES_SCRIPT = `function answer() { return Array.from(document.querySelectorAll('.case .m')).map(function (m) {
-  var r = document.createRange(); r.selectNodeContents(m); var tops = {};
-  Array.from(r.getClientRects()).forEach(function (x) { if (x.width > 0) tops[Math.round(x.top)] = 1; });
-  return 'N|' + Object.keys(tops).length; }); }`;
+const CHINESE = '这是一笔来自客户的付款，金额与银行对账单上的余额不符，需要财务部门在本月底之前完成核对。'.repeat(8);
+const JAPANESE = '株式会社テストへの支払い、三月分の家賃は銀行明細の残高と一致しないため、月末までに経理部門による照合が必要です。'.repeat(6);
+/** The matters' column widths (`mattersColumnsMm`): the owner and decision columns, the issue column at its three. */
+const MATTERS_MM = [24.4, 31.5, 34, 43.4, 52.8, 67, 90.7];
+/** Tokens wider than a line with break opportunities inside them (the blind review of #1263, H1). */
+const LONG_TOKENS = [
+  `Note ${Array.from({ length: 6 }, () => 'm'.repeat(40)).join('-')} end`, Array.from({ length: 6 }, () => 'a'.repeat(30)).join('-'),
+  '%'.repeat(200), 'm'.repeat(1400),
+  'The schedules are in Q3-board-pack-final-v2-reviewed-by-audit-committee-2026-10-31.xlsx and were reviewed by the committee.',
+];
 
 const unavailable = paritySkip();
 let gotenberg: Gotenberg | undefined;
@@ -60,20 +68,48 @@ afterAll(() => { gotenberg?.stop(); });
 
 describe.skipIf(unavailable !== null)(`the pack's prose lines in production's image${unavailable === null ? '' : ` (SKIPPED: ${unavailable})`}`, () => {
   it('the page model and the commentary gate never read a line short of production, in any of 300 settings', async () => {
-    const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    const cases = TEXTS.flatMap((text) => KINDS.flatMap((kind) => FRACTIONS.map((f) => ({ text, kind, mm: kind.mm * f }))));
-    const html = cases.map(({ text, kind, mm }) => `<div class="case" style="font-family:var(--pack-font-sans)"><${kind.tag} class="${kind.cls} m" `
-      + `style="display:block;width:${(mm * 96) / 25.4}px;font-size:${kind.style.pt}pt;${kind.leading}">${esc(text)}</${kind.tag}></div>`).join('');
-    const got = (await inImage(gotenberg!, LINES_SCRIPT, `<div class="pack-pages"><div class="pack-page">${html}</div></div>`))
-      .filter((l) => l.startsWith('N|')).map((l) => Number(l.slice(2)));
-    expect(got.length, 'the image\'s line counts came back incomplete').toBe(cases.length);
-    const short: string[] = [];
-    cases.forEach(({ text, kind, mm }, i) => {
-      const at = `${kind.cls} ${mm.toFixed(1)}mm ${JSON.stringify(text).slice(0, 40)}: production ${got[i]}`;
-      const model = proseLines(text, kind.style, mm);
-      if (model < got[i]!) short.push(`${at}, model ${model}`);
-      if (kind.style.weight === 400 && proseLinesBound(text, kind.style, mm) < got[i]!) short.push(`${at}, bound ${proseLinesBound(text, kind.style, mm)}`);
-    });
-    expect(short, `${short.length} of ${cases.length} settings read short`).toEqual([]);
+    const cells = TEXTS.flatMap((text) => KINDS.flatMap((k) => FRACTIONS.map((f) => k.cell(text, k.style, k.mm * f))));
+    const short = await shortCells(gotenberg!, cells);
+    expect(short, `${short.length} of ${cells.length} settings read short`).toEqual([]);
+  }, 1_800_000);
+
+  it('nor on CJK runs of 60 to 200 characters in the matters\' columns, or tokens wider than a line (#1263 H1)', async () => {
+    const runs = [CHINESE, JAPANESE].flatMap((t) => [60, 80, 120, 160, 200].map((n) => Array.from(t).slice(0, n).join('')));
+    const cells: Cell[] = [
+      ...runs.flatMap((t) => MATTERS_MM.map((mm) => inMattersCell(t, PROSE.mattersCell, mm))),
+      inMattersCell('\u6536'.repeat(600), PROSE.mattersCell, 174),
+      ...[...LONG_TOKENS, ...runs].flatMap((t) => [
+        inMattersCell(t, PROSE.mattersCell, 34), inBlock('pack-narrative-body')(t, PROSE.narrativeBody, 110.7),
+        inBlock('pack-narrative-body')(t, PROSE.narrativeBody, ((W - GUTTER_MM) * 2) / 3), inBlock('pack-disclosure-body', 'p')(t, PROSE.disclosureBody, 34.8),
+        inBlock('pack-footnote-text', 'span', 'line-height:11pt;')(t, PROSE.footnote, 33.6),
+      ]),
+    ];
+    const short = await shortCells(gotenberg!, cells);
+    expect(short.slice(0, 20), `${short.length} of ${cells.length} settings read short`).toEqual([]);
+  }, 1_800_000);
+
+  it('at the model\'s own boundary, and half a pixel under it, production sets no more lines than the model reads', async () => {
+    // The guard (`PROSE_GUARD_PX`) is not relied on: each setting is printed at the narrowest width, to 1/64px, at which
+    // the model still reads its lines, and 0.5px narrower, where the model reads one more (the blind review's L1). On
+    // the faces' own text: a fallback glyph is priced by the tables, measured alone, and in a run the fallback face can
+    // set one wider (katakana "\u30D0\u30F3" at 2.5% over), and a format character (ZWNJ, ZWNBSP) can shape across; both
+    // are held at the guard by the settings above, not at the boundary.
+    const facesOnly = (t: string): boolean => Array.from(t).every((ch) => !/\p{Cf}/u.test(ch) && PROSE_FACES.some(([a, b]) => ch.codePointAt(0)! >= a && ch.codePointAt(0)! <= b));
+    const cells: Cell[] = [];
+    const want: number[] = [];
+    for (const text of [...TEXTS.filter(facesOnly), ...LONG_TOKENS]) {
+      for (const k of KINDS) {
+        for (const f of [0.8, 0.45]) {
+          const at = (px: number): number => proseLines(text, k.style, px / MM_PX);
+          const lines = at(k.mm * f * MM_PX);
+          let lo = 1;
+          let hi = Math.ceil(k.mm * f * MM_PX * 64);
+          while (lo < hi) { const mid = Math.floor((lo + hi) / 2); if (at(mid / 64) <= lines) hi = mid; else lo = mid + 1; }
+          for (const under of [0, 0.5]) { cells.push(k.cell(text, k.style, k.mm * f, lo / 64 - under)); want.push(lines); }
+        }
+      }
+    }
+    const short = await shortCells(gotenberg!, cells, (c) => want[cells.indexOf(c)]!);
+    expect(short.slice(0, 20), `${short.length} of ${cells.length} settings read short`).toEqual([]);
   }, 1_800_000);
 });

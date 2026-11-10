@@ -17,42 +17,17 @@
  * path gives either this table: a row label holding one is printed to break anywhere and priced per code point at the
  * widest fallback glyph (`packAnywhereLabel.ts`), and a KPI tile refuses any fallback glyph (`packKpiLayout.inPackFaces`).
  */
+import { fallbackAdvanceIn, fallbackClusterIn } from './packFallbackWidthCore';
 import { EXACT_RANGES, FALLBACK, type FallbackStyle } from './packFallbackWidthData';
 
 export type { FallbackStyle } from './packFallbackWidthData';
 
-const BLOCK = 32;
-/** Joiners and selectors add nothing to the glyph they join or select. */
-const ADDS_NOTHING = /^[\p{M}\u200C\u200D\uFE00-\uFE0F\u{E0100}-\u{E01EF}]$/u;
-
-function exactIndex(cp: number): number {
-  let offset = 0;
-  for (const [from, to] of EXACT_RANGES) {
-    if (cp >= from && cp <= to) return offset + cp - from;
-    offset += to - from + 1;
-  }
-  return -1;
-}
-
 /** One code point's advance in whole pixels, at the size the style is measured at. */
 export function fallbackAdvancePx(cp: number, style: FallbackStyle): number {
-  const table = FALLBACK[style];
-  const ch = String.fromCodePoint(cp);
-  if (ADDS_NOTHING.test(ch)) return 0;
-  const at = exactIndex(cp);
-  let px: number;
-  if (at >= 0) px = table.wide[cp] ?? Number.parseInt(table.exact[at]!, 36);
-  else {
-    const block = Math.floor(cp / BLOCK);
-    px = block < table.blocks.length ? table.wide[block * BLOCK] ?? Number.parseInt(table.blocks[block]!, 36) : table.widest;
-  }
-  return px === 0 ? table.widest : px;
+  return fallbackAdvanceIn(FALLBACK[style], EXACT_RANGES, cp);
 }
 
 /** A cluster's cost at the size the style is measured at (`measuredPx`), scaled to `sizePx` and rounded up. */
 export function fallbackClusterPx(cluster: string, style: FallbackStyle, sizePx: number, measuredPx: number): number {
-  let px = 0;
-  for (const ch of cluster) px += fallbackAdvancePx(ch.codePointAt(0)!, style);
-  if (/[\uFE0F\u20E3]/u.test(cluster)) px = Math.max(px, FALLBACK[style].emoji);
-  return Math.ceil((px * sizePx) / measuredPx);
+  return fallbackClusterIn(FALLBACK[style], EXACT_RANGES, cluster, sizePx, measuredPx);
 }

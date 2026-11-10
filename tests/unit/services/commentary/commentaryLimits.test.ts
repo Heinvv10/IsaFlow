@@ -43,6 +43,13 @@ describe('commentaryCost', () => {
     expect(commentaryCost([chinese])).toBeLessThan(MAX_APPROVED_PACK_EMS);
   });
 
+  it('charges a token wider than the line at its own breaks: the blind review\'s two hyphenated runs cost past the cap (#1263 H1)', () => {
+    // Production sets each in 13 lines at 110.7mm; filled as if it broke anywhere the gate read 8, and the two 542.9.
+    const token = `Note ${Array.from({ length: 6 }, () => 'm'.repeat(40)).join('-')} end`;
+    expect(proseLinesBound(token, PROSE.narrativeBody, 110.7)).toBeGreaterThanOrEqual(13);
+    expect(commentaryCost([token, token])).toBeGreaterThan(MAX_APPROVED_PACK_EMS);
+  });
+
   it('charges by glyph width, not by count: capitals and CJK cost more than lowercase', () => {
     const run = (ch: string) => ch.repeat(300);
     expect(commentaryCost([run('W')])).toBeGreaterThan(commentaryCost([run('a')]) * 1.3);

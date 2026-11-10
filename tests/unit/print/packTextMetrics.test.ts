@@ -71,50 +71,67 @@ let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
 afterAll(async () => { await browser?.close(); });
 
+/** The lines Chromium sets each paragraph in: one per case, at its size and measure, in the real face. */
+async function drawnLines(cases: ReadonlyArray<{ text: string; pt: number; widthMm: number }>): Promise<number[]> {
+  const pack = readPackPrintCss(ROOT);
+  const html = '<!doctype html><html class="print-mode"><head><meta charset="utf-8"><style>'
+    + `body{margin:0;font-family:'IBM Plex Sans',sans-serif}${pack}</style></head><body>`
+    + cases.map((c, i) =>
+      `<p id="s${i}" style="margin:0;width:${c.widthMm}mm;font-size:${c.pt}pt;line-height:100pt">`
+      + `${c.text}</p>`).join('')
+    + '</body></html>';
+  const page = await browser.newPage();
+  try {
+    await page.route(`${HOST}**`, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
+      if (url.pathname.startsWith('/fonts/')) {
+        return route.fulfill({ contentType: 'font/woff2', body: readFileSync(path.join(ROOT, 'public', url.pathname)) });
+      }
+      return route.abort();
+    });
+    await page.goto(HOST, { waitUntil: 'load' });
+    await page.evaluate(() => document.fonts.ready);
+    // 100pt of leading per line makes the line COUNT readable off the
+    // element's height without trusting a second height model.
+    return await page.evaluate((n) => Array.from({ length: n }, (unused, i) => {
+      const el = document.getElementById(`s${i}`)!;
+      return Math.round(el.getBoundingClientRect().height / (100 * (96 / 72)));
+    }), cases.length);
+  } finally {
+    await page.close();
+  }
+}
+
 describe('the pack text ruler', () => {
   it('never counts fewer lines than Chromium sets, in any script', async () => {
-    const pack = readPackPrintCss(ROOT);
     // One paragraph per sample per measure, at the real size, in the real
     // face — a fallback face has different advances and would measure a
     // different document.
     const cases = MEASURES.flatMap(([style, widthMm]) =>
       SAMPLES.map(([name, text]) => ({ name, text, style, pt: style.pt, widthMm })));
-    const html = '<!doctype html><html class="print-mode"><head><meta charset="utf-8"><style>'
-      + `body{margin:0;font-family:'IBM Plex Sans',sans-serif}${pack}</style></head><body>`
-      + cases.map((c, i) =>
-        `<p id="s${i}" style="margin:0;width:${c.widthMm}mm;font-size:${c.pt}pt;line-height:100pt">`
-        + `${c.text}</p>`).join('')
-      + '</body></html>';
+    const drawn = await drawnLines(cases);
+    const short = cases
+      .map((c, i) => ({ ...c, browser: drawn[i]!, model: proseLines(c.text, c.style, c.widthMm) }))
+      .filter((c) => c.model < c.browser);
+    expect(
+      short.map((c) => `${c.name} at ${c.pt}pt/${c.widthMm}mm: model ${c.model}, browser ${c.browser}`),
+      'the ruler reads short — the direction that puts a page on a second sheet',
+    ).toEqual([]);
+  }, 120_000);
 
-    const page = await browser.newPage();
-    try {
-      await page.route(`${HOST}**`, async (route) => {
-        const url = new URL(route.request().url());
-        if (url.pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
-        if (url.pathname.startsWith('/fonts/')) {
-          return route.fulfill({ contentType: 'font/woff2', body: readFileSync(path.join(ROOT, 'public', url.pathname)) });
-        }
-        return route.abort();
-      });
-      await page.goto(HOST, { waitUntil: 'load' });
-      await page.evaluate(() => document.fonts.ready);
-      // 100pt of leading per line makes the line COUNT readable off the
-      // element's height without trusting a second height model.
-      const drawn = await page.evaluate((n) => Array.from({ length: n }, (unused, i) => {
-        const el = document.getElementById(`s${i}`)!;
-        return Math.round(el.getBoundingClientRect().height / (100 * (96 / 72)));
-      }), cases.length);
-
-      const short = cases
-        .map((c, i) => ({ ...c, browser: drawn[i]!, model: proseLines(c.text, c.style, c.widthMm) }))
-        .filter((c) => c.model < c.browser);
-      expect(
-        short.map((c) => `${c.name} at ${c.pt}pt/${c.widthMm}mm: model ${c.model}, browser ${c.browser}`),
-        'the ruler reads short — the direction that puts a page on a second sheet',
-      ).toEqual([]);
-    } finally {
-      await page.close();
-    }
+  /**
+   * AND A LINE IS SHAPED ACROSS EACH BREAK IN IT. A hyphen before a round capital kerns OUT ("a-O" is 0.2px wider than
+   * "a-" and "O" apart at 10pt), so a chain of such pieces summed piece by piece reads its lines short; the model
+   * measures each piece against the one before it. Swept over the measure, so a line that ends a join or two from full
+   * is among the cases.
+   */
+  it('measures a hyphenated chain across its joins, never short at any measure', async () => {
+    const chain = `Ref ${'Ca-Oa-Ga-Qa-'.repeat(12)}end and ${'sa-Ca-Oa-'.repeat(10)}done`;
+    const cases = Array.from({ length: 121 }, (unused, i) => ({ text: chain, pt: PROSE.disclosureBody.pt, widthMm: 40 + i * 0.5 }));
+    const drawn = await drawnLines(cases);
+    const short = cases.filter((c, i) => proseLines(c.text, PROSE.disclosureBody, c.widthMm) < drawn[i]!).map((c) => c.widthMm);
+    expect(short, 'mm at which the model reads the chain short').toEqual([]);
   }, 120_000);
 
   /**

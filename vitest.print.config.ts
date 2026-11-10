@@ -36,6 +36,7 @@ export const PRINT_PARITY_FILES = [
   'tests/unit/printParity/packAnywhereLabelImage.test.ts', // the same
   'tests/unit/printParity/packRunNoiseImage.test.ts', // the same
   'tests/unit/printParity/packProseLinesImage.test.ts', // the same
+  'tests/unit/printParity/packProseLinksImage.test.ts', // the same
 ];
 
 export const VELO_MACHINE_FILES = [
