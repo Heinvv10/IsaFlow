@@ -19,16 +19,18 @@
  * wraps to its longest word) plus padding and gaps is no more than the measure. It is checked against Chromium
  * at every scale in `tests/unit/print/packNothingPassesTheEdge.test.ts`.
  */
+import { anywhereFloorPx } from './packAnywhereLabel';
+import { printsAnywhere } from './packPrintedText';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import { collectReasons, noteMark } from '@/components/accounting/packs/primitives/notMeaningfulNotes';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { MoneyScale } from '@/lib/format/money';
 import { GUTTER_MM } from './packDisclosureHeight';
-import { type FigureWeight, ptToPx, textPx, textPxUnsnapped } from './packFigureWidth';
-import { NEVER_SHORT, runPx, type Slack } from './packGlyphRuler';
+import { type FigureWeight, ptToPx, textExactPx, textPx, textPxUnsnapped } from './packFigureWidth';
+import { NEVER_SHORT, runExactPx, runPx, type Slack } from './packGlyphRuler';
 import { PACK_TABLE_COLUMN_LABEL } from './packTableModel';
-import { pieces } from './packLineBreaks';
-import { reasonPx } from './packReasonWidth';
+import { markedPieces, pieces, type Piece } from './packLineBreaks';
+import { reasonExactPx, reasonPx } from './packReasonWidth';
 import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
 import { deltaDirection } from '@/modules/accounting/services/packs/narrative/derivedTileCaptions';
 import type { PackPageBlock, PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
@@ -53,11 +55,16 @@ const NOT_MEANINGFUL = 'n/m';
  * holds a label or an n/m cell with its mark to Chromium.
  */
 const markPx = (text: string, hostPx: number, weight: FigureWeight, slack: Slack = NEVER_SHORT): number => textPxUnsnapped(text, 0.7 * hostPx, weight, slack);
+/**
+ * A row's or KPI tile's footnote mark, its EXACT advance sum (unrounded), to be summed with the rest of its line and
+ * floored once (`packGlyphRuler.fitUnitsPx`): for "does this line fit", never for a width a column is sized by.
+ */
+export const labelMarkExactPx = (number: number | null | undefined, weight: FigureWeight = 400): number => (number === null || number === undefined ? 0 : textExactPx(String(number), 0.7 * 12, weight));
 /** A row's or KPI tile's footnote number after its 9pt label. */
 export const labelMarkPx = (number: number | null | undefined, weight: FigureWeight = 400, slack: Slack = NEVER_SHORT): number => (number === null || number === undefined ? 0 : markPx(String(number), 12, weight, slack));
 
 /** `.pack-table th`: 8pt, weight 500, uppercase, 0.06em letter-spacing (which a superscript inherits as computed). */
-const HEADING_PX = ptToPx(8);
+export const HEADING_PX = ptToPx(8);
 const HEADING_TRACKING_PX = 0.06 * HEADING_PX;
 const headingRunPx = (text: string, fontPx: number, slack: Slack = NEVER_SHORT): number => runPx(text, fontPx, 500,
   (cluster, sizePx) => textPx(cluster, sizePx, 500) + HEADING_TRACKING_PX, HEADING_TRACKING_PX, false, slack);
@@ -72,6 +79,13 @@ export const HEADING_WORD_PX: Readonly<Record<PackTableColumnKey, number>> = Obj
   (Object.entries(PACK_TABLE_COLUMN_LABEL) as Array<[PackTableColumnKey, string]>).map(([col, label]) => [col,
     Math.max(...headingWordsPx(label))]),
 ) as Record<PackTableColumnKey, number>;
+
+/**
+ * A heading line, its exact tracked advance sum, unrounded: floored once as a line (`packGlyphRuler.fitUnitsPx`). Its mark
+ * is a box of its own on the line (`headingMarkPx`, `packLineWrap.linesForText`).
+ */
+export const headingLineExactPx = (text: string): number => runExactPx(text.toUpperCase(), HEADING_PX, 500,
+  (cluster, sizePx) => textPx(cluster, sizePx, 500) + HEADING_TRACKING_PX, HEADING_TRACKING_PX);
 
 /** A line of a column heading, in pixels, as `.pack-table th` sets it (shaped whole, tracked). */
 export const headingLinePx = (text: string, slack: Slack = NEVER_SHORT): number => headingRunPx(text.toUpperCase(), HEADING_PX, slack);
@@ -122,24 +136,55 @@ export function cellPx(cell: FigureCell, fontPx: number, slack: Slack = NEVER_SH
 }
 
 /**
+ * Each piece's width as Chromium's min-content counts it: a break inside a word leaves the kerning across it on the piece
+ * before (a hyphen kerns 10 font units wider before a round letter: "ab-cd" has a min-content of 1178/64px at 12px,
+ * "ab-" alone 1170), so a piece is widened by a kerning that widens, rounded up to the unit (never short;
+ * `packBreakPairs.test.ts` holds the min-content of the census of the faces' characters).
+ */
+function pieceWidths(parts: readonly Piece[], width: (piece: Piece) => number, exact: (text: string) => number): number[] {
+  return parts.map((piece, i) => {
+    const next = parts[i + 1];
+    const w = width(piece);
+    if (next === undefined || next.spaced || next.text === '' || piece.text === '') return w;
+    const a = Array.from(piece.text).pop()!;
+    const b = Array.from(next.text)[0]!;
+    const kern = exact(a + b) - exact(a) - exact(b);
+    return kern > 0 ? w + Math.ceil(kern * 64 - 1e-7) / 64 : w;
+  });
+}
+
+/**
  * The narrowest a 9pt label (a statement row's, a KPI tile's) can be set: its widest piece, with the footnote mark
  * after the LAST piece, not the longest. Chromium never breaks between a word and the `<sup>` after it, so the mark
- * wraps with the last piece (`packLabelMark.test.ts`).
+ * wraps with the last piece (`packLabelMark.test.ts`), unless a space comes between: then the mark is a word of its own
+ * (`packLineBreaks.markedPieces`).
  */
 export function labelWidestPiecePx(label: string, footnote: number | null | undefined, weight: FigureWeight, slack: Slack = NEVER_SHORT): number {
-  const widths = pieces(label).map((piece) => textPx(piece.text, Math.round(ptToPx(TABLE_FIGURE_MAX_PT)), weight, piece.hyphen, slack));
+  const px = Math.round(ptToPx(TABLE_FIGURE_MAX_PT));
+  const widths = pieceWidths(markedPieces(label, footnote !== null && footnote !== undefined), (piece) => textPx(piece.text, px, weight, piece.hyphen, slack), (t) => textExactPx(t, px, weight));
   const mark = labelMarkPx(footnote, weight, slack);
   return Math.max(0, ...widths.map((w, i) => (i === widths.length - 1 ? w + mark : w)));
 }
 
-/** The narrowest a row label can be set: its widest piece and marker (it wraps), its indent, its right padding. */
-function labelMinPx(table: PackTable): number {
+const rulerPiecePx = (row: PackTableRow): number => labelWidestPiecePx(row.label, row.footnote, ROW_WEIGHT[row.role]);
+
+/**
+ * The narrowest a row label can be set: its widest piece and marker (it wraps), its indent, its right padding. A label
+ * printed to break anywhere holds its column open by its floor (`packAnywhereLabel.anywhereFloorPx`); `floorPx` 'ruler'
+ * sets it as if it were not printed so, at its widest piece (the baseline `refusingLabel` judges the floor against).
+ */
+function labelMinPx(table: PackTable, floorPx: number | null | 'ruler'): number {
   return Math.max(0, ...table.rows.map((row) => row.level * INDENT_PX_PER_LEVEL
-    + labelWidestPiecePx(row.label, row.footnote, ROW_WEIGHT[row.role]) + CELL_SIDE_PX));
+    + (!printsAnywhere(row.label) || floorPx === 'ruler' ? rulerPiecePx(row) : floorPx ?? 0) + CELL_SIDE_PX));
+}
+
+/** The floor of `table`'s labels printed to break anywhere (null where none is), as the print sets it on each. */
+export function tableLabelFloorPx(table: PackTable): number | null {
+  return anywhereFloorPx(table.rows.map((row) => ({ label: row.label, weight: ROW_WEIGHT[row.role] })));
 }
 
 /** The total of the columns' min-content widths for a table whose figures are set at `fontPx`. */
-function tableMinPx(table: PackTable, scale: MoneyScale, fontPx: number): number {
+function tableMinPx(table: PackTable, scale: MoneyScale, fontPx: number, floorPx: number | null | 'ruler'): number {
   const columns = table.columns.filter((col) => table.rows.some((row) => row.figures[col] !== undefined));
   const texts = tableColumnCells(table, scale);
   const dataPx = columns.reduce((sum, col, i) => {
@@ -147,15 +192,32 @@ function tableMinPx(table: PackTable, scale: MoneyScale, fontPx: number): number
     const heading = HEADING_WORD_PX[col] + headingMarkPx(table.columnNotes?.find((n) => n.column === col)?.footnote);
     return sum + Math.max(figures, heading) + 2 * CELL_SIDE_PX;
   }, 0);
-  return labelMinPx(table) + dataPx;
+  return labelMinPx(table, floorPx) + dataPx;
 }
 
 export function tableFit(table: PackTable, scale: MoneyScale, orientation: PageOrientation = 'portrait'): FigureFit {
   const { ordinary: ceiling, floor } = FIT_PX.table;
+  // The floor a marked label holds its column open by travels with the fit: the print sets the one the gate counted.
+  const labelFloorPx = tableLabelFloorPx(table);
+  const stamped = (fit: FigureFit): FigureFit => (labelFloorPx === null ? fit : { ...fit, labelFloorPx });
   for (let px = ceiling; px >= floor; px -= 1) {
-    if (tableMinPx(table, scale, px) <= measurePx(orientation)) return { px: px === ceiling ? null : px, fits: true };
+    if (tableMinPx(table, scale, px, labelFloorPx) <= measurePx(orientation)) return stamped({ px: px === ceiling ? null : px, fits: true });
   }
-  return { px: floor, fits: false };
+  return stamped({ px: floor, fits: false });
+}
+
+/**
+ * The label that keeps `table` from fitting, where one does: the label printed to break anywhere whose floor (room for
+ * its widest grapheme, which the print never breaks) is the table's, when the table fits at the floor size with every
+ * such label at its own widest piece (as if it were not printed to break anywhere) and the floor alone breaks it. Null
+ * otherwise: where the figures, or the labels at their own width, do not fit either way, the figures' refusal stands.
+ * The refusal names it (`packFigureFloor`).
+ */
+export function refusingLabel(table: PackTable, scale: MoneyScale, orientation: PageOrientation = 'portrait'): string | null {
+  const floorPx = tableLabelFloorPx(table);
+  if (floorPx === null || tableMinPx(table, scale, FIT_PX.table.floor, 'ruler') > measurePx(orientation)) return null;
+  if (tableMinPx(table, scale, FIT_PX.table.floor, floorPx) <= measurePx(orientation)) return null;
+  return table.rows.find((row) => printsAnywhere(row.label) && anywhereFloorPx([{ label: row.label, weight: ROW_WEIGHT[row.role] }]) === floorPx)?.label ?? null;
 }
 
 export type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
@@ -169,8 +231,8 @@ export function deltaText(tile: KpiTile): string {
 }
 
 /** The longest unbreakable run of `text` (`packLineBreaks.ts`, the one splitter), with the hyphen a soft one sets. */
-function longestRunPx(text: string, fontPx: number, weight: FigureWeight): number {
-  return Math.max(0, ...pieces(text).map((piece) => textPx(piece.text, fontPx, weight, piece.hyphen)));
+function longestRunPx(text: string, fontPx: number, weight: FigureWeight, slack: Slack = NEVER_SHORT): number {
+  return Math.max(0, ...pieceWidths(pieces(text), (piece) => textPx(piece.text, fontPx, weight, piece.hyphen, slack), (t) => textExactPx(t, fontPx, weight)));
 }
 
 /**
@@ -179,24 +241,27 @@ function longestRunPx(text: string, fontPx: number, weight: FigureWeight): numbe
  * the 7pt arrow. A `1fr` grid column is never narrower than any of them, so a short figure under a long word still
  * holds its column open (the adversary's net-debit Debt-to-equity tile: 50px of figure under a 56px label).
  */
-function tileOtherMinPx(tile: KpiTile): number {
-  const labelPx = labelWidestPiecePx(tile.label, tile.trendFootnote, 400);
+function tileOtherMinPx(tile: KpiTile, slack: Slack): number {
+  const labelPx = labelWidestPiecePx(tile.label, tile.trendFootnote, 400, slack);
   const reasonWidth = tile.figure.value === null && tile.figure.unavailable !== undefined && tile.figure.unavailable !== null
-    ? Math.max(0, ...pieces(tile.figure.unavailable).map((piece) => reasonPx(piece.text, piece.hyphen))) : 0;
+    ? Math.max(0, ...pieceWidths(pieces(tile.figure.unavailable), (piece) => reasonPx(piece.text, piece.hyphen, slack), (t) => reasonExactPx(t))) : 0;
   // The arrow cue is a run of its own (`</span>{' '}` after it is a break opportunity): it never holds a column open
   // past the words it precedes.
-  const deltaPx = tile.delta === null ? 0 : Math.max(DELTA_CUE_PX, longestRunPx(deltaText(tile), 12, 400));
+  const deltaPx = tile.delta === null ? 0 : Math.max(deltaCuePx(slack), longestRunPx(deltaText(tile), 12, 400, slack));
   return Math.max(labelPx, reasonWidth, deltaPx);
 }
-/** The arrow cue before a delta, a 7pt glyph: the widest of the three arrows the tile sets. */
-export const DELTA_CUE_PX = Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400)));
+/** The arrow cue before a delta, a 7pt glyph: the widest of the three arrows the tile sets, rounded as `slack` says. */
+export const deltaCuePx = (slack: Slack = NEVER_SHORT): number => Math.max(...['\u2191', '\u2193', '\u2192'].map((arrow) => textPx(arrow, ptToPx(7), 400, false, slack)));
 
-/** The width of each of a KPI row's four columns at `fontPx`: the widest of its figure and its tile's other content. */
-export function kpiColumnMinPx(tiles: readonly KpiTile[], scale: MoneyScale, fontPx: number): number[] {
+/**
+ * The width of each of a KPI row's four columns at `fontPx`: the widest of its figure and its tile's other content,
+ * rounded to the unit as `slack` says (never short for the fit gate; Chromium's narrowest or widest for the layout).
+ */
+export function kpiColumnMinPx(tiles: readonly KpiTile[], scale: MoneyScale, fontPx: number, slack: Slack = NEVER_SHORT): number[] {
   const widest = [0, 0, 0, 0];
   tiles.forEach((tile, i) => {
-    const figure = tile.figure.value === null ? 0 : textPx(formatFigureText(tile.figure, scale), fontPx, 500);
-    widest[i % 4] = Math.max(widest[i % 4]!, figure, tileOtherMinPx(tile));
+    const figure = tile.figure.value === null ? 0 : textPx(formatFigureText(tile.figure, scale), fontPx, 500, false, slack);
+    widest[i % 4] = Math.max(widest[i % 4]!, figure, tileOtherMinPx(tile, slack));
   });
   return widest;
 }

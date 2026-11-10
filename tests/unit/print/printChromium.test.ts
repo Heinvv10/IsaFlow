@@ -8,6 +8,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, firefox, type Browser } from 'playwright';
 import { launchPrintChromium, launchUnhintedControlChromium } from './printChromium';
+import { refusal } from './support/printChromiumGuard';
 
 const DIR = __dirname;
 
@@ -50,8 +51,14 @@ describe('the print tests\' Chromium', () => {
     ['none, then full', () => chromium.launch({ args: ['--font-render-hinting=none', '--font-render-hinting=full'] })],
     ['none and --disable-font-subpixel-positioning', () => chromium.launch({ args: ['--font-render-hinting=none', '--disable-font-subpixel-positioning'] })],
     ['none and --enable-font-antialiasing', () => chromium.launch({ args: ['--font-render-hinting=none', '--enable-font-antialiasing'] })],
+    ['none and --disable-lcd-text', () => chromium.launch({ args: ['--font-render-hinting=none', '--disable-lcd-text'] })],
   ] as const)('at run time, %s (anything but the one flag production passes) is refused', async (unused, launch) => {
     await expect(launch()).rejects.toThrow(/print test/);
+  });
+
+  it('judges a flag by its name: a value that mentions fonts is not a font flag', () => {
+    expect(refusal('chromium', 'launch', ['--font-render-hinting=none', '--disk-cache-dir=/tmp/fonts', '--user-data-dir=/srv/fonts'])).toBeNull();
+    expect(refusal('chromium', 'launch', ['--font-render-hinting=none', '--disable-lcd-text'])).toMatch(/--disable-lcd-text/);
   });
 
   let print: Browser;

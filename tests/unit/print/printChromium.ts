@@ -4,8 +4,14 @@
  * Production prints packs through Gotenberg (`src/lib/pdf/selectTransport.ts`), whose Chromium positions glyphs at
  * FRACTIONAL advances. Playwright's Chromium, launched with no flags, rounds each advance to a whole pixel: the KPI
  * figure "(133 500 000)" is 187.00px in it and 191.94px in Gotenberg, and a fit model measured in it passes rows that
- * overflow in production. With `--font-render-hinting=none` it sets text exactly as Gotenberg does;
+ * overflow in production. With `--font-render-hinting=none` it sets glyphs at Gotenberg's advances;
  * `tests/unit/printParity/packEngineParity.test.ts` holds the two to the same layout, pack by pack.
+ *
+ * NOT ITS LINE BREAKING. This is Playwright's Chromium 145; production's is 151 (Gotenberg 8), and the two break text
+ * differently: after a word-opening hyphen (print breaks, production holds), beside U+2800, and before more (#1235's
+ * fourth-round adversary found 1,088 of 19,188 hyphen strings apart). Where line breaking is concerned the print tests
+ * are a fast first check; the parity of line breaks with production rests on the velo-only image tests
+ * (`printParity/packBreakPairsImage.test.ts`, `printParity/packNumericHoldImage.test.ts`), which ask production's own.
  */
 import { chromium, type Browser } from 'playwright';
 import { PRINT_CHROMIUM_ARGS } from '@/lib/pdf/printChromiumArgs';

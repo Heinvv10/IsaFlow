@@ -19,7 +19,7 @@ import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pag
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { KpiTileWithSparkline } from '@/components/accounting/packs/primitives/KpiTileWithSparkline';
-import { cellPx, DELTA_CUE_PX, deltaText, headingMarkPx, labelMarkPx } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { cellPx, deltaCuePx, deltaText, headingMarkPx, labelMarkPx } from '@/modules/accounting/services/packs/pages/packFigureFit';
 import { reasonPx } from '@/modules/accounting/services/packs/pages/packReasonWidth';
 import { measure, type Probe } from './measureWidths';
 
@@ -154,7 +154,7 @@ describe('a footnote mark, at the size it is set at', () => {
 });
 
 describe('a delta line\'s arrow cue, in the real tile', () => {
-  it('the real tile\'s delta line is the cue, a space and the words: the model\'s DELTA_CUE_PX and deltaText', async () => {
+  it('the real tile\'s delta line is the cue, a space and the words: the model\'s deltaCuePx and deltaText', async () => {
     const tile = {
       label: 'Revenue', figure: { source: 'is.revenue', value: 1000, format: 'money' },
       delta: { value: 12.3, unit: 'percent', basis: 'prior period', favourable: true }, trendFootnote: null, sparklineSvg: null,
@@ -169,7 +169,7 @@ describe('a delta line\'s arrow cue, in the real tile', () => {
     ]);
     // with the cue and without it: the difference is the cue's own run and the space after it, never more than the model.
     const cue = res[0]!.widthPx - res[1]!.widthPx;
-    expect(DELTA_CUE_PX + textPx(' ', 12, 400)).toBeGreaterThanOrEqual(cue - 1e-6);
-    expect(DELTA_CUE_PX + textPx(' ', 12, 400)).toBeLessThanOrEqual(cue + 2 * SLACK + 1e-6);
+    expect(deltaCuePx() + textPx(' ', 12, 400)).toBeGreaterThanOrEqual(cue - 1e-6);
+    expect(deltaCuePx() + textPx(' ', 12, 400)).toBeLessThanOrEqual(cue + 2 * SLACK + 1e-6);
   });
 });

@@ -88,6 +88,6 @@ describe('every statement table of a sample of packs, set landscape', () => {
     expect(out.tables).toBeGreaterThan(150);
     expect(out.wrapped, 'too few wrapped labels on a landscape sheet to test the fill').toBeGreaterThan(20);
     expect(out.widerBy, 'a model column wider than Chromium\'s by more than the landscape guard').toBeLessThanOrEqual(WRAP_GUARD.landscape);
-    expect(out.ties.length, `rows a line taller than Chromium at a near tie: ${out.ties.join('; ')}`).toBeLessThanOrEqual(3);
+    expect(out.ties, 'rows a line taller than Chromium at a near tie').toEqual([]);
   }, 1_200_000);
 });
