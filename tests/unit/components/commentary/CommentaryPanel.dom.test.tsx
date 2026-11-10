@@ -386,10 +386,10 @@ describe('CommentaryPanel approve with edits', () => {
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('applies the ceiling to a board pack too, before costing: one letter under 4,100 marks fits the page but is refused', async () => {
+  it('applies the ceiling to a board pack too, before costing: 130 letters under 31 marks each fit the page but are refused', async () => {
     // The server refuses it (`text_too_long`) whatever it would cost (#1263 round 2, blind L2).
     const box = await openEditor();
-    typeInto(box, `a${'\u0301'.repeat(4_100)}`);
+    typeInto(box, `a${'\u0301'.repeat(31)}`.repeat(130));
     expect(screen.getByRole('status').textContent).toBe('over the 4000-character limit');
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();

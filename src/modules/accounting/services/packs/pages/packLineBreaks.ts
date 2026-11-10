@@ -35,6 +35,7 @@
  */
 import { AFTER, BEFORE, contextOf, pairBreaks, pairClass } from './packBreakPairs';
 import { breaksBetween } from './packBreakRanges';
+import { isDictionaryCluster } from './packDictionaryBreak';
 import { clusters } from './packGraphemes';
 import { heldByNumber } from './packNumericHold';
 import { holdsAfterSoftHyphen, holdsAfterZeroWidthSpace } from './packSoftBreakRanges';
@@ -188,7 +189,10 @@ function wordPieces(word: string, first: boolean, last: boolean): string[] {
     const next = clusters[i + 1];
     if (next === undefined) return;
     const soft = softBreak(cluster, next);
-    if (soft === null ? breaksAfter(clusters, codes, i, first, last) : soft) {
+    // Inside a run of a dictionary-broken script the print breaks anywhere (`packDictionaryBreak`: the `.pack-dictionary`
+    // span), so between two of its clusters; at the run's edges it keeps the rules', which hold a glued word to it.
+    const anywhere = isDictionaryCluster(cluster) && isDictionaryCluster(next);
+    if (anywhere || (soft === null ? breaksAfter(clusters, codes, i, first, last) : soft)) {
       pieces.push(clusters.slice(start, i + 1).join(''));
       start = i + 1;
     }

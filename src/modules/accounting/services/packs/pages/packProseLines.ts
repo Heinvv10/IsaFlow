@@ -21,7 +21,7 @@
 import { textExactPx } from './packFigureWidth';
 import { FALLBACK } from './packFallbackWidthData';
 import { graphemes } from './packGraphemes';
-import { KEPT_CHARS, proseFill, type ProseSegment } from './packProseFill';
+import { KEPT_CHARS, proseFill, SHAPED_CLUSTER, type ProseSegment } from './packProseFill';
 import type { ProseStyle, ProseWeight } from './packProseStyles';
 
 export { PROSE_GUARD_PX, type ProseSegment } from './packProseFill';
@@ -40,12 +40,6 @@ export function keptWidthLongest(): number {
   return longest;
 }
 
-/**
- * A cluster of more code points than this is not shaped (the ruler's shaping of one cluster of many marks takes time
- * that grows with its square: "e" and 40,000 acute accents took 2.4s): it is charged the widest fallback glyph for each
- * of its code points, which no setting of it exceeds.
- */
-const SHAPED_CLUSTER = 32;
 const FALLBACK_STYLE = { 400: 'label400', 500: 'label500', 600: 'label600' } as const;
 const FALLBACK_MEASURED_PX = 12;
 

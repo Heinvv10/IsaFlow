@@ -438,9 +438,9 @@ describe('approveCommentary against the pack budget', () => {
   });
 
   it('refuses an edited board-pack row over the character ceiling before costing it, though it would fit the page', async () => {
-    // One letter under 4,100 stacked marks costs one letter's width, so only the ceiling can refuse it: the cost model
-    // never reads tenant text of unbounded length (#1263 security review).
-    const stacked = `a${'\u0301'.repeat(MAX_UNBUDGETED_CHARS + 100)}`;
+    // 130 letters each under 31 stacked marks (4,160 characters) cost 130 letters' width, so only the ceiling can refuse
+    // it: the cost model never reads tenant text of unbounded length (#1263 security review).
+    const stacked = `a${'\u0301'.repeat(31)}`.repeat(130);
     expect(commentaryCost([stacked])).toBeLessThan(MAX_APPROVED_PACK_EMS);
     sqlMock.mockResolvedValueOnce([BOARD]);
     const result = await approveCommentary(COMPANY, ID, 'approver-9', stacked);
@@ -450,7 +450,7 @@ describe('approveCommentary against the pack budget', () => {
   });
 
   it('refuses a plain approval of a board-pack draft over the character ceiling, before costing it', async () => {
-    sqlMock.mockResolvedValueOnce([{ ...BOARD, draft_text: `a${'\u0301'.repeat(MAX_UNBUDGETED_CHARS + 100)}` }]);
+    sqlMock.mockResolvedValueOnce([{ ...BOARD, draft_text: `a${'\u0301'.repeat(31)}`.repeat(130) }]);
     const result = await approveCommentary(COMPANY, ID, 'approver-9');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe('text_too_long');

@@ -133,6 +133,14 @@ describe('the commentary gate\'s advance table', () => {
     for (const t of texts) for (const mm of [174, 110, 60]) expect(proseLinesBound(t, PROSE.narrativeBody, mm), `${t.slice(0, 20)} at ${mm}mm`).toBeGreaterThanOrEqual(proseLines(t, PROSE.narrativeBody, mm));
   });
 
+  it('nor on clusters past the unshaped length, repeated marks or a mark on a foreign base (#1263 round 3)', () => {
+    const texts = [`${'\u1780'}${'\u17B6'.repeat(32)} `.repeat(20), `${'\u1780'}${'\u17B6'.repeat(31)} `.repeat(20), `${'\u1780'}${'\u17B6'.repeat(3)}`.repeat(200),
+      'm\u102C'.repeat(300), '\u1040\u102D'.repeat(300), '\u0E81\u0ECE'.repeat(300), `e${'\u0301'.repeat(40)} `.repeat(30)];
+    for (const t of texts) for (const mm of [174, 110, 60, 24.4]) {
+      expect(proseLinesBound(t, PROSE.narrativeBody, mm), `${JSON.stringify(t.slice(0, 6))} at ${mm}mm`).toBeGreaterThanOrEqual(proseLines(t, PROSE.narrativeBody, mm));
+    }
+  });
+
   it('and both remember a width at its own size: the same text costs more lines set larger, whichever is asked first', () => {
     // The ruler's and the bound's widths are kept across calls (`packProseLines`, `packProseBound`), keyed by size.
     const t = 'Revenue grew on the Gauteng rollout while costs were held flat at the Pretoria depot. '.repeat(6);

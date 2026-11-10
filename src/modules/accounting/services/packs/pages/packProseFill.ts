@@ -38,6 +38,22 @@ export const KEPT_CHARS = 64;
 export const PROSE_TEXT_CAP = 50_000;
 export const PAST_ANY_PAGE = 10_000;
 
+/**
+ * Prose holding more default-ignorable code points than this (zero-width spaces and joiners, ZWNBSP, bidi and invisible
+ * operators, selectors, the soft hyphen) is charged PAST_ANY_PAGE lines too: they print nothing, so a page made of them
+ * fits, and measuring 50,000 of them in each of a pack's matters held the composer for seconds (#1263 round 3). The
+ * commentary cap is 4,000 characters; no prose a tenant writes holds this many characters that print nothing.
+ */
+export const IGNORABLE_CAP = 4_000;
+const IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu;
+
+/**
+ * A cluster of more code units than this is not shaped (the ruler's shaping of one cluster of many marks takes time
+ * that grows with its square: "e" and 40,000 acute accents took 2.4s): the page model (`packProseLines`) and the gate
+ * (`packProseBound`) both charge it the widest fallback glyph for each of its code points, which no setting exceeds.
+ */
+export const SHAPED_CLUSTER = 32;
+
 const MM_PX = 96 / 25.4;
 const COLLAPSIBLE = /[ \t\n\r]/;
 
@@ -78,6 +94,7 @@ export function proseFill(text: string | readonly ProseSegment[], style: ProseSt
   const segments = typeof text === 'string' ? [{ text, weight: style.weight }] : text;
   const full = segments.map((s) => s.text).join('');
   if (full.length > PROSE_TEXT_CAP) return PAST_ANY_PAGE;
+  if (full.length > IGNORABLE_CAP && (full.match(IGNORABLE)?.length ?? 0) > IGNORABLE_CAP) return PAST_ANY_PAGE;
   const weights = segments.flatMap((s) => Array.from({ length: s.text.length }, () => s.weight));
   const px = (style.pt * 96) / 72;
   const avail = widthMm * MM_PX - PROSE_GUARD_PX;
@@ -114,6 +131,9 @@ export function proseFill(text: string | readonly ProseSegment[], style: ProseSt
       last = [{ text: segment, weight: own[index]! }];
       if (tail.length > 0 && withUnit(last, false) > avail) startLine();
       set(last);
+      // One cluster wider than the line: the print can break even inside it (a run of repeated marks, in a
+      // dictionary-script span), so it is charged the lines its width fills.
+      if (lineWidth > avail) lines += Math.ceil(lineWidth / avail) - 1;
     }
     // A line that ends at its soft hyphen needs the hyphen's room. Where it has none, Chromium carries the piece's last
     // grapheme down to a line of its own with the hyphen (#1263 round 2: the line left empty here read a line short).

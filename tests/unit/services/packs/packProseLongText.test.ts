@@ -12,7 +12,7 @@ import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { graphemes } from '@/modules/accounting/services/packs/pages/packGraphemes';
 import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
-import { PAST_ANY_PAGE, PROSE_TEXT_CAP } from '@/modules/accounting/services/packs/pages/packProseFill';
+import { IGNORABLE_CAP, PAST_ANY_PAGE, PROSE_TEXT_CAP } from '@/modules/accounting/services/packs/pages/packProseFill';
 import { keptLongLines, proseLines } from '@/modules/accounting/services/packs/pages/packProseLines';
 import { PROSE } from '@/modules/accounting/services/packs/pages/packProseStyles';
 import { denseInput } from './fixtures/boardPackInputs';
@@ -55,6 +55,22 @@ describe('tenant text of any length', () => {
     }
   }, 30_000);
 
+  it.each(['\uFEFF', '\u200B', '\u2060', '\u200E', '\u2061', '\u2062', '\u2063', '\u2064', '\u206A', '\u206F', '\u2066', '\u2067', '\u2068', '\u2069', '\u00AD'])(
+    'U+%s, characters that print nothing, at the cap and at IGNORABLE_CAP in every journal: the pack composes in well under a second',
+    (ch) => {
+      const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+      try {
+        for (const n of [PROSE_TEXT_CAP - 160, IGNORABLE_CAP]) {
+          const input = { ...denseInput, matters: denseInput.matters.map((m) => ({ ...m, issue: `Journal JE-2026-00061 (recorded well after its entry date): ${ch.repeat(n)}` })) };
+          expect(elapsed(() => { try { buildBoardPackPages(input); } catch (err) { if (!(err instanceof PackRefusal)) throw err; } }), `${n}`).toBeLessThan(1_000);
+        }
+      } finally {
+        warn.mockRestore();
+      }
+    },
+    30_000,
+  );
+
   it('splits a long run of ideographic spaces before a ZWSP in linear time (the trailing-run regex was quadratic)', () => {
     expect(elapsed(() => pieces(`${'\u3000'.repeat(127_999)}\u200B`))).toBeLessThan(1_000);
   });
@@ -62,8 +78,12 @@ describe('tenant text of any length', () => {
   it('keeps the lines of the long texts it has measured, a bounded few, so the fit\'s attempts do not measure them again', () => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     try {
-      const text = `e${'\u0301'.repeat(30_000)}`;
-      buildBoardPackPages({ ...denseInput, matters: denseInput.matters.map((m) => ({ ...m, issue: `Journal JE-2026-00061 (recorded well after its entry date): ${text}` })) });
+      const text = `Revenue grew on the rollout. ${'x'.repeat(1_200)}`;
+      try {
+        buildBoardPackPages({ ...denseInput, matters: denseInput.matters.map((m) => ({ ...m, issue: `Journal JE-2026-00061 (recorded well after its entry date): ${text}` })) });
+      } catch (err) {
+        if (!(err instanceof PackRefusal)) throw err;
+      }
     } finally {
       warn.mockRestore();
     }

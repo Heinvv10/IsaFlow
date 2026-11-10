@@ -13,7 +13,7 @@ import { fallbackClusterIn } from './packFallbackWidthCore';
 import { graphemes } from './packGraphemes';
 import { PROSE_ADVANCES, PROSE_ADVANCE_UNITS } from './packProseAdvanceData';
 import { PROSE_FACES, PROSE_FALLBACK, PROSE_FALLBACK_RANGES } from './packProseFallbackData';
-import { KEPT_CHARS, proseFill, type ProseSegment } from './packProseFill';
+import { KEPT_CHARS, proseFill, SHAPED_CLUSTER, type ProseSegment } from './packProseFill';
 import type { ProseStyle } from './packProseStyles';
 
 /** The size the fallback tables were measured at (`packFigureWidth`'s label size). */
@@ -46,7 +46,10 @@ export function boundPx(text: string, px: number): number {
   let fallback = 0;
   for (const { segment } of graphemes(text)) {
     const cps = Array.from(segment, (ch) => ch.codePointAt(0)!);
-    if (cps.every((cp) => BOUND.has(cp))) for (const cp of cps) units += BOUND.get(cp)!;
+    // A cluster the page model does not shape (past SHAPED_CLUSTER) it charges the widest fallback glyph a code point:
+    // so does the gate, which is never under the model (#1263 round 3).
+    if (segment.length > SHAPED_CLUSTER) fallback += (cps.length * PROSE_FALLBACK.widest * px) / FALLBACK_MEASURED_PX;
+    else if (cps.every((cp) => BOUND.has(cp))) for (const cp of cps) units += BOUND.get(cp)!;
     else fallback += fallbackClusterIn(PROSE_FALLBACK, PROSE_FALLBACK_RANGES, segment, px, FALLBACK_MEASURED_PX);
   }
   return (units * px) / PROSE_ADVANCE_UNITS + fallback;
