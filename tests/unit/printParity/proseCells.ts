@@ -1,8 +1,10 @@
 /**
  * PROSE SET IN PRODUCTION'S IMAGE, CELL BY CELL, against the page model's lines: the harness of the prose image tests
  * (`packProseLinesImage.test.ts`, `packProseLinksImage.test.ts`). A cell is a text in a style at a measure, in the markup
- * the pack sets it in; production's lines are the distinct tops of its text's line boxes.
+ * the pack sets it in (dictionary-script runs in their spans, as `PackProse` renders them); production's lines are the
+ * distinct tops of its text's line boxes.
  */
+import { dictionaryRuns } from '@/modules/accounting/services/packs/pages/packDictionaryBreak';
 import { proseLines } from '@/modules/accounting/services/packs/pages/packProseLines';
 import { proseLinesBound } from '@/modules/accounting/services/packs/pages/packProseBound';
 import type { ProseStyle } from '@/modules/accounting/services/packs/pages/packProseStyles';
@@ -13,12 +15,15 @@ export interface Cell { text: string; style: ProseStyle; mm: number; html: strin
 
 export const MM_PX = 96 / 25.4;
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+/** `text` as `PackProse.proseText` renders it: each run of a dictionary-broken script in a `.pack-dictionary` span. */
+export const proseHtml = (text: string): string => dictionaryRuns(text)
+  .map((run) => (run.dictionary ? `<span class="pack-dictionary">${esc(run.text)}</span>` : esc(run.text))).join('');
 
 /** In a block of `cls` (`tag`), `widthPx` wide (the measure, or a width the caller chose in pixels). */
 export function inBlock(cls: string, tag = 'div', leading = '') {
   return (text: string, style: ProseStyle, mm: number, widthPx = mm * MM_PX): Cell => ({
     text, style, mm, label: `${cls} ${widthPx.toFixed(3)}px`,
-    html: `<${tag} class="${cls} m" style="display:block;width:${widthPx}px;font-size:${style.pt}pt;${leading}">${esc(text)}</${tag}>`,
+    html: `<${tag} class="${cls} m" style="display:block;width:${widthPx}px;font-size:${style.pt}pt;${leading}">${proseHtml(text)}</${tag}>`,
   });
 }
 
@@ -27,7 +32,7 @@ export function inMattersCell(text: string, style: ProseStyle, mm: number): Cell
   return {
     text, style, mm, label: `matters ${mm.toFixed(1)}mm`,
     html: `<table class="pack-table pack-matters" style="width:${(mm + 4) * MM_PX}px;table-layout:fixed;border-collapse:collapse">`
-      + `<tbody><tr class="pack-matters-row"><td><span class="m">${esc(text)}</span></td></tr></tbody></table>`,
+      + `<tbody><tr class="pack-matters-row"><td><span class="m">${proseHtml(text)}</span></td></tr></tbody></table>`,
   };
 }
 

@@ -49,6 +49,7 @@ import { mattersTableMm } from './packMattersPrinted';
 import type { PackPage, PackPageBlock } from './packPageModel';
 import { PACK_SCALE } from './packScale';
 import { statementTableMm } from './packTableLayout';
+import { keepCompounds } from '@/components/accounting/packs/primitives/keepCompounds';
 
 export { MATTERS_OMITTED_NOTE_MM };
 
@@ -97,7 +98,7 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       let total = 0;
       for (let i = 0; i < block.panels.length; i += 2) {
         const row = block.panels.slice(i, i + 2);
-        const captionLines = Math.max(1, ...row.map((p) => proseLines(p.title, PROSE.panelTitle, measure)));
+        const captionLines = Math.max(1, ...row.map((p) => proseLines(keepCompounds(p.title), PROSE.panelTitle, measure)));
         total += (i === 0 ? 0 : GUTTER_MM)
           + lines(captionLines, PANEL_TITLE_LINE_PT) + CHART_TITLE_GAP_MM
           + Math.max(0, ...row.map((p) => p.heightMm));
@@ -197,7 +198,7 @@ export function pageHeaderMm(page: MeasurablePage, orientation: PageOrientation)
   const titleLead = orientation === 'landscape' ? 16 : 18;
   const margin = orientation === 'landscape' ? 2 : BLOCK_GAP_MM;
   return lines(1, 11) + 0.5
-    + lines(proseLines(page.title, orientation === 'landscape' ? PROSE.titleLandscape : PROSE.title, width), titleLead) + 1.5 + 0.71 + margin;
+    + lines(proseLines(keepCompounds(page.title), orientation === 'landscape' ? PROSE.titleLandscape : PROSE.title, width), titleLead) + 1.5 + 0.71 + margin;
 }
 
 /**

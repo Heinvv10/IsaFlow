@@ -17,17 +17,19 @@ const SPECIAL = [
   '\u200D', '\uFE0F', '\uFE0E', '\u20E3', '\u0301', '\u0308', '\u093F', '\u094D', '\u0915', '\u0937', '\u0E01', '\u0E33', '\u0EB3',
   '\u1100', '\u1161', '\u11A8', '\uAC00', '\uAC01', '\uFF76', '\uFF9E', '\uFF9F', '\u0D4E', '\u0D15', '\u0600', '\u0661', '\r', '\n',
   '\u{1F468}', '\u{1F469}', '\u{1F3FB}', '\u{1F1FF}', '\u{1F1E6}', '\u2764', '\u263A', '\u{E0067}', '\u{1F3F4}', '\u00AD', '\u200B',
-  'a', 'Z', '1', ' ', '-', '\u4E00', '\u30D0',
+  'a', 'Z', '1', ' ', '-', '\u4E00', '\u30D0', '\u{20000}', '\u{1F44D}', '\u{1F3FD}', '\u{1F1FF}', '\u{111C2}', '\u{11A84}', '\uA960', '\uD7B0',
+  '\u0D4E', '\u{E0020}', '\u{E007F}',
 ];
 function randomText(n: number): string {
   let s = '';
   while (s.length < n) {
     const k = r();
     if (k < 0.45) s += SPECIAL[Math.floor(r() * SPECIAL.length)];
-    else if (k < 0.9) {
+    else if (k < 0.8) {
       const cp = Math.floor(r() * 0xffff);
       if (cp < 0xd800 || cp > 0xdfff) s += String.fromCodePoint(cp);
-    } else s += 'abcdefgh'.slice(0, 1 + Math.floor(r() * 8));
+    } else if (k < 0.9) s += String.fromCodePoint(0x10000 + Math.floor(r() * 0x30000));
+    else s += 'abcdefgh'.slice(0, 1 + Math.floor(r() * 8));
   }
   return s;
 }
@@ -49,6 +51,26 @@ describe('packGraphemes', () => {
       `${'ab'.repeat(127)}\u0E01\u0E33${'c'.repeat(500)}`, `${'q'.repeat(255)}\uFF76\uFF9E${'r'.repeat(300)}`, `${'\u{1F468}\u200D'.repeat(200)}z`];
     for (const t of cases) expect(graphemes(t), JSON.stringify(t.slice(250, 262))).toEqual(reference(t));
   });
+
+  it('and on runs with no plain neighbour: astral ideographs, emoji with skin tones, flags, Hangul, one letter\'s marks', () => {
+    for (const unit of ['\u{20000}', '\u{1F44D}\u{1F3FD}', '\u{1F1FF}', '\u{1F1FF}\u{1F1E6}', '\uAC01', '\u1100\u1161\u11A8', 'a\u0301', '\u{1F600}', '\u3000', '\u0915\u094D', '\u{1F468}\u200D']) {
+      for (const n of [255, 256, 257, 600]) {
+        const t = unit.repeat(n);
+        expect(graphemes(t), `${JSON.stringify(unit)} x ${n}`).toEqual(reference(t));
+      }
+    }
+  });
+
+  it('segments every run the round-2 reviews timed, at 64,000 to 128,000 characters, each in well under a second', () => {
+    for (const [unit, n] of [['\u{1F1FF}', 128_000], ['\u{20000}', 128_000], ['\u{1F44D}\u{1F3FD}', 64_000], ['\uAC01', 128_000], ['\uAC00', 128_000],
+      ['\u{1F600}', 64_000], ['a\u0301', 64_000], ['\u3000', 128_000], ['\u0915\u094D', 64_000]] as const) {
+      const t = unit.repeat(n);
+      const start = performance.now();
+      const got = graphemes(t);
+      expect(performance.now() - start, `${JSON.stringify(unit)} x ${n}`).toBeLessThan(800);
+      expect(got.map((g) => g.segment).join('') === t).toBe(true);
+    }
+  }, 60_000);
 
   it('takes time linear in the text: 100,000 characters at most about four times 25,000', () => {
     const ms = (n: number): number => {

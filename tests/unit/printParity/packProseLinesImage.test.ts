@@ -88,6 +88,18 @@ describe.skipIf(unavailable !== null)(`the pack's prose lines in production's im
     expect(short.slice(0, 20), `${short.length} of ${cells.length} settings read short`).toEqual([]);
   }, 1_800_000);
 
+  it('nor on a long word with a soft hyphen in it or at its end, at every measure from 30 to 120mm (#1263 round 2)', async () => {
+    // Filled grapheme by grapheme, such a word ends a line at its soft hyphen, and where the hyphen has no room Chromium
+    // carries the word's last grapheme down with it: the blind review's T0 to T2 and its trailing-hyphen case.
+    const texts = [`${'x'.repeat(180)}\u00AD${'y'.repeat(180)}\u00AD`, `${'x'.repeat(180)}\u00AD${'y'.repeat(180)}`,
+      `Plan ${'x'.repeat(120)}\u00AD${'y'.repeat(120)} done`, `${'m'.repeat(300)}\u00AD`];
+    const cells: Cell[] = texts.flatMap((t) => Array.from({ length: 243 }, (unused, i) => 30 + i * 0.37).flatMap((mm) => [
+      inBlock('pack-narrative-body')(t, PROSE.narrativeBody, mm), inBlock('pack-disclosure-body', 'p')(t, PROSE.disclosureBody, mm),
+    ]));
+    const short = await shortCells(gotenberg!, cells);
+    expect(short.slice(0, 20), `${short.length} of ${cells.length} settings read short`).toEqual([]);
+  }, 1_800_000);
+
   it('at the model\'s own boundary, and half a pixel under it, production sets no more lines than the model reads', async () => {
     // The guard (`PROSE_GUARD_PX`) is not relied on: each setting is printed at the narrowest width, to 1/64px, at which
     // the model still reads its lines, and 0.5px narrower, where the model reads one more (the blind review's L1). On

@@ -11,7 +11,7 @@
  *    glyph Chromium may draw for it), and an emoji presentation (a VS16 sequence, a keycap) at least the widest emoji
  *    presentation: "ℹ" with VS16 (U+2139 U+FE0F) is an 18px emoji, not the 4px letter its first code point is.
  * Whole pixels rounded up, and at a size other than the one measured, scaled and rounded up: an upper bound for a
- * cluster without a mark. NOT for one that carries a mark: a mark, a joiner and a selector are priced at nothing here,
+ * cluster without a mark. NOT for one that carries a mark: a non-spacing mark, a joiner and a selector are priced at nothing here (a spacing mark at its own advance, #1263 round 2),
  * and Chromium may set such a cluster in another face, base and all, and wider ("\u00AE" with U+036B is 9.98px against
  * 7). Nor for a letter that joins (its joined form can be wider than the advance measured alone: round 9). No priced
  * path gives either this table: a row label holding one is printed to break anywhere and priced per code point at the

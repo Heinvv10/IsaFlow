@@ -3,7 +3,7 @@
  * in it is filled grapheme by grapheme, and the server's approval gate costs tenant commentary with it: work that grew
  * with the square of the token (a copy of what was left of it, per grapheme) let one request hold a CPU. Counted here
  * by what the fill asks its width function, and timed at two lengths against each other, so a quadratic step shows as
- * a ratio, whatever the machine's load. The caches beside it keep only short texts (`KEPT_CHARS`).
+ * a ratio, whatever the machine's load (a token past `PROSE_TEXT_CAP` is not measured at all: `packProseLongText.test.ts`). The caches beside it keep only short texts (`KEPT_CHARS`).
  */
 import { describe, expect, it } from 'vitest';
 import { KEPT_CHARS, proseFill } from '@/modules/accounting/services/packs/pages/packProseFill';
@@ -31,9 +31,9 @@ const fillMs = (n: number): number => {
   return best;
 };
 
-describe('a 100,000-character token with no break in it', () => {
+describe('a 40,000-character token with no break in it (under PROSE_TEXT_CAP: past it the fill measures nothing)', () => {
   it('asks for a bounded number of widths, each of a grapheme or two but for the token once', () => {
-    const n = 100_000;
+    const n = 40_000;
     const c = counting();
     const lines = proseFill('x'.repeat(n), PROSE.narrativeBody, 110, c.widthOf);
     expect(lines).toBeGreaterThan(100);
@@ -45,9 +45,9 @@ describe('a 100,000-character token with no break in it', () => {
   });
 
   it('takes time linear in its length: four times the token, at most about four times the work', () => {
-    fillMs(5_000);
-    const quarter = fillMs(25_000);
-    const whole = fillMs(100_000);
+    fillMs(2_500);
+    const quarter = fillMs(10_000);
+    const whole = fillMs(40_000);
     // Linear is 4; a step that copies what is left of the token per grapheme is 16.
     expect(whole / Math.max(quarter, 1)).toBeLessThan(9);
   }, 120_000);

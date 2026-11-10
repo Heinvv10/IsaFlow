@@ -198,7 +198,12 @@ function wordPieces(word: string, first: boolean, last: boolean): string[] {
 }
 
 /** Does a line that ends after `piece` show a hyphen? It ends at a soft hyphen (or one and ideographic spaces). */
-const endsAtSoftHyphen = (piece: string): boolean => piece.replace(new RegExp(`${IDEOGRAPHIC_SPACE}+$`, 'u'), '').endsWith(SOFT_HYPHEN);
+const endsAtSoftHyphen = (piece: string): boolean => {
+  // A loop, not a trailing-run regex: that backtracks over a long run of ideographic spaces (#1263 round 2).
+  let end = piece.length;
+  while (end > 0 && piece[end - 1] === IDEOGRAPHIC_SPACE) end -= 1;
+  return end > 0 && piece[end - 1] === SOFT_HYPHEN;
+};
 
 /**
  * `text` as its pieces, in order. The LAST piece keeps its hyphen too: where the text ends at a soft hyphen (before any

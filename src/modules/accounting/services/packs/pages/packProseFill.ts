@@ -28,6 +28,16 @@ export const PROSE_GUARD_PX = 0.5;
  *  for pieces, graphemes and joins, short texts; a longer one is tenant text of any length, measured and not kept. */
 export const KEPT_CHARS = 64;
 
+/**
+ * Prose longer than this is not measured: it is charged PAST_ANY_PAGE lines, so the page drops it or refuses at once
+ * (#1263 round 2: a journal description of 200,000 characters held the composer for minutes). A page holds under
+ * 20,000 characters even of the narrowest letter ("i i i", 7.5pt across 174mm: about 290 a line, 65 lines), so past the
+ * cap only a text made mostly of characters that print nothing could fit, and it is charged as not fitting. Below the
+ * cap nothing changes.
+ */
+export const PROSE_TEXT_CAP = 50_000;
+export const PAST_ANY_PAGE = 10_000;
+
 const MM_PX = 96 / 25.4;
 const COLLAPSIBLE = /[ \t\n\r]/;
 
@@ -67,6 +77,7 @@ function joined(a: readonly Run[], b: readonly Run[]): Run[] {
 export function proseFill(text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number, widthOf: ProseWidth): number {
   const segments = typeof text === 'string' ? [{ text, weight: style.weight }] : text;
   const full = segments.map((s) => s.text).join('');
+  if (full.length > PROSE_TEXT_CAP) return PAST_ANY_PAGE;
   const weights = segments.flatMap((s) => Array.from({ length: s.text.length }, () => s.weight));
   const px = (style.pt * 96) / 72;
   const avail = widthMm * MM_PX - PROSE_GUARD_PX;
@@ -89,21 +100,24 @@ export function proseFill(text: string | readonly ProseSegment[], style: ProseSt
     while (COLLAPSIBLE.test(full[at] ?? '')) at += 1;
     if (full.slice(at, at + piece.text.length) !== piece.text) throw new Error(`proseFill: piece "${piece.text}" is not the text at ${at}`);
     const own = weights.slice(at, at + piece.text.length);
-    const bare = appended([], piece.text, own);
-    const spaced = piece.spaced && tail.length > 0 ? appended([], ` ${piece.text}`, [weights[at - 1] ?? own[0]!, ...own]) : bare;
+    const spacedAt = weights[at - 1] ?? own[0]!;
     at += piece.text.length;
+    const bare = appended([], piece.text, own);
+    const spaced = piece.spaced && tail.length > 0 ? appended([], ` ${piece.text}`, [spacedAt, ...own]) : bare;
     if (withUnit(spaced, piece.hyphen) <= avail) { set(spaced); continue; }
     if (tail.length > 0) startLine();
     if (widthPx(bare, piece.hyphen) <= avail) { set(bare); continue; }
     // Wider than the measure on its own: grapheme by grapheme, each line as full as it can be. Each grapheme is one run
     // in the weight it starts in (no copy of what is left of the piece: the work stays linear in its length).
+    let last: Run[] = [];
     for (const { segment, index } of graphemes(piece.text)) {
-      const unit: Run[] = [{ text: segment, weight: own[index]! }];
-      if (tail.length > 0 && withUnit(unit, false) > avail) startLine();
-      set(unit);
+      last = [{ text: segment, weight: own[index]! }];
+      if (tail.length > 0 && withUnit(last, false) > avail) startLine();
+      set(last);
     }
-    // Its last line ends at its soft hyphen where nothing follows on it: the hyphen's room too.
-    if (piece.hyphen && withUnit([], true) > avail) startLine();
+    // A line that ends at its soft hyphen needs the hyphen's room. Where it has none, Chromium carries the piece's last
+    // grapheme down to a line of its own with the hyphen (#1263 round 2: the line left empty here read a line short).
+    if (piece.hyphen && withUnit([], true) > avail) { startLine(); set(last); }
   }
   return lines;
 }

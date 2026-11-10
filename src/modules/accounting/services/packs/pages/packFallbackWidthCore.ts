@@ -7,8 +7,12 @@
 import type { FallbackTable } from './packFallbackWidthData';
 
 const BLOCK = 32;
-/** Joiners and selectors add nothing to the glyph they join or select. */
-const ADDS_NOTHING = /^[\p{M}\u200C\u200D\uFE00-\uFE0F\u{E0100}-\u{E01EF}]$/u;
+/**
+ * Joiners, selectors and the marks that do not space (Mn, Me) add nothing to the glyph they join or select. A SPACING
+ * mark (Mc: the Myanmar, Khmer and Indic vowel signs and medials) takes room of its own, and costs its own advance: at
+ * nothing, Burmese prose read 18% narrower than production sets it (#1263 round 2).
+ */
+const ADDS_NOTHING = /^[\p{Mn}\p{Me}\u200C\u200D\uFE00-\uFE0F\u{E0100}-\u{E01EF}]$/u;
 
 function exactIndex(cp: number, ranges: ReadonlyArray<readonly [number, number]>): number {
   let offset = 0;

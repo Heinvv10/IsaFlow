@@ -449,6 +449,14 @@ describe('approveCommentary against the pack budget', () => {
     expect(sqlMock).toHaveBeenCalledTimes(1); // the read only
   });
 
+  it('refuses a plain approval of a board-pack draft over the character ceiling, before costing it', async () => {
+    sqlMock.mockResolvedValueOnce([{ ...BOARD, draft_text: `a${'\u0301'.repeat(MAX_UNBUDGETED_CHARS + 100)}` }]);
+    const result = await approveCommentary(COMPANY, ID, 'approver-9');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('text_too_long');
+    expect(sqlMock).toHaveBeenCalledTimes(1); // the read only
+  });
+
   it('measures the supplied text trimmed, as it is stored', async () => {
     queue([]);
     expect((await approveCommentary(COMPANY, ID, 'approver-9', `  ${'x'.repeat(roomFor('x', []))}  `)).ok).toBe(true);

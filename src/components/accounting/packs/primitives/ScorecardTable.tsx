@@ -25,6 +25,7 @@ import type {
   PackScorecardStatus,
   PackTrendDirection,
 } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { proseText } from './PackProse';
 
 /** Spec §4.A page 9: at most 5 rows in a group, at most 20 rows in the whole
  *  table. The total is checked FIRST — a single group blowing past the
@@ -161,7 +162,7 @@ export function ScorecardTable({ groups, scale, priorFootnote = null }: Scorecar
     <div className="pack-scorecard">
       {groups.map((group) => (
         <table key={group.letter} className="pack-table pack-scorecard-group">
-          <caption className="pack-scorecard-heading">{`${group.letter}. ${group.name}`}</caption>
+          <caption className="pack-scorecard-heading">{proseText(`${group.letter}. ${group.name}`)}</caption>
           {/* ONE GRID ACROSS ALL FIVE BLOCKS.
             * Each lettered group is its own `<table>`, so `table-layout: auto`
             * sized every one of them from its own content: TARGET moved about
