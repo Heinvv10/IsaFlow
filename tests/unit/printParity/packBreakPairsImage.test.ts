@@ -40,6 +40,7 @@ import { paritySkip } from './paritySkip';
 import { adversaryCensus, BREAKS_OF, CENSUS, heldLines, LINES_OF, linesHtml, modelBreaks, randomStrings, readBreaks, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_SEVEN_LABELS, ROUND_SIX_LABELS, ROUND_THREE_LABELS } from '../print/fixtures/breakPairsCensus';
 import { allDifferences, standInCensus } from '../print/fixtures/everyBreakCensus';
 import { ROUND_EIGHT_FITTING, ROUND_EIGHT_LABELS, ROUND_NINE_LABELS } from '../print/fixtures/anywhereFamilies';
+import { ROUND_TEN_LABELS } from '../print/fixtures/fallbackFamilies';
 
 const DATA = path.resolve(__dirname, '../../../src/modules/accounting/services/packs/pages/packBreakPairsData.ts');
 const unavailable = paritySkip();
@@ -101,7 +102,7 @@ describe.skipIf(unavailable !== null)(`the break-pair table of production's imag
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
     let held = 0;
-    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS, ...ROUND_SEVEN_LABELS, ...ROUND_EIGHT_LABELS, ...ROUND_EIGHT_FITTING, ...ROUND_NINE_LABELS];
+    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS, ...ROUND_SEVEN_LABELS, ...ROUND_EIGHT_LABELS, ...ROUND_EIGHT_FITTING, ...ROUND_NINE_LABELS, ...ROUND_TEN_LABELS];
     const refused: string[] = [];
     for (const [label, labelMarker] of labels) {
       for (const digits of [9, 12]) {

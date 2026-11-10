@@ -8,7 +8,8 @@
  *  - A long run the faces set and then a marked grapheme, at every width from the floor to 214px (round 13: a fit bound
  *    loosened by 3px passed every test): never a line more than the model.
  *  - Statement tables whose labels all carry marks, or every other one (blind M1: the label column fell to its
- *    padding): the columns are the model's, the lines and the height never short.
+ *    padding), of text the faces set: the columns are the model's, the lines and the height never short. The tables in
+ *    scripts the faces lack are the image test's.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Browser } from 'playwright';
@@ -21,6 +22,7 @@ import { measureTables } from './measureTables';
 import { ANYWHERE_LINES_OF, anywhereArgs, judgeAnywhere, type AnywhereCase } from './anywhereLines';
 import { anywhereFamilies, footnoteSweep, TAIL_WIDTHS, tailSweep } from './fixtures/anywhereFamilies';
 import { inFaces } from './fixtures/breakPairsCensus';
+import { fallbackFamilies } from './fixtures/fallbackFamilies';
 import { MARKED_TABLES, relabelledStatement } from './fixtures/markedTables';
 
 let browser: Browser;
@@ -47,12 +49,15 @@ async function wrongIn(cases: readonly AnywhereCase[], widths: readonly number[]
 }
 
 describe('a label printed to break anywhere, in Chromium', () => {
-  it('the footnote-mark sweep (the families\' labels the pack\'s faces set), with a footnote mark and without, at seven widths and three weights: never a line more than the model, none past its block', async () => {
+  it('the footnote-mark sweep and the separators and marked hyphens #1235 deferred (the families\' labels the pack\'s faces set), with a footnote mark and without, at seven widths and three weights: never a line more than the model, none past its block', async () => {
     // Only labels the pack's own faces set: how a fallback face sets a glyph is the host's (GitHub's runner sets Syriac's
     // final SADHE wide enough to run 1.078px past its block; production never runs past it), so the fallback families are
     // held to production's image, velo only (`printParity/packAnywhereLabelImage.test.ts`, the same families).
     const texts = anywhereFamilies().map(printedText).filter(printsAnywhere).filter(inFaces);
-    expect(texts, 'the families\' labels the faces set are the footnote-mark sweep, and only it').toEqual(footnoteSweep());
+    // The faces set the separators and the marked hyphens #1235 deferred (27), and the footnote-mark sweep (160).
+    const deferred = fallbackFamilies().map(printedText).filter(printsAnywhere).filter(inFaces);
+    expect(deferred.length).toBe(27);
+    expect(texts, 'the families\' labels the faces set are the deferred separators and marked hyphens and the footnote-mark sweep, and only them').toEqual([...deferred, ...footnoteSweep()]);
     const cases: AnywhereCase[] = texts.flatMap((text) => [null, 1, 12].map((footnote) => ({ text, footnote })));
     expect(await wrongIn(cases, [18, 140, 200, 230, 260, 320, 400])).toEqual([]);
   }, 900_000);
@@ -65,10 +70,13 @@ describe('a label printed to break anywhere, in Chromium', () => {
 });
 
 describe('a statement table whose labels carry marks, in Chromium', () => {
-  it('all marked, every other one marked, footnoted: the columns the model\'s, the lines and the height never short', async () => {
+  it('the tables the faces set, all marked and every other one marked and footnoted: the columns the model\'s, the lines and the height never short', async () => {
     vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const wrong: string[] = [];
-    for (const [name, relabel] of MARKED_TABLES) {
+    // Only the tables the pack's faces set: a fallback face is the host's (the rest are production's image's).
+    const tables = MARKED_TABLES.filter(([name, relabel]) => name !== 'plain' && relabelledStatement(relabel).table.rows.every((row) => inFaces(row.label)));
+    expect(tables.map(([name]) => name)).toEqual(['all with a combining accent', 'every other label with a combining accent, footnoted']);
+    for (const [name, relabel] of tables) {
       const { doc, table, index } = relabelledStatement(relabel);
       expect(table.figureFit?.fits, name).toBe(true);
       const real = (await measureTables(doc, browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;

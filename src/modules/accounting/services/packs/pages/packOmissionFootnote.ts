@@ -91,6 +91,21 @@ export const OMISSION_MARK = 'Not printed on this page';
 export const BUDGET_COLUMNS_DROPPED_NOTE =
   'The Budget and Variance columns are left out of this page because the figures are too wide to fit it.';
 
+const LABEL_DROPPED_LEAD = 'The Budget and Variance columns are left out of this page because the row label ';
+
+/**
+ * The note page 6 prints where it leaves the Budget and Variance columns out: naming the row label where that label,
+ * not the figures, kept the eight columns from fitting (a character the print never splits needs more room than the
+ * figures leave it: `packFigureFit.refusingLabel`).
+ */
+export function budgetColumnsDroppedNote(label?: string): string {
+  return label === undefined ? BUDGET_COLUMNS_DROPPED_NOTE
+    : `${LABEL_DROPPED_LEAD}\u201c${label}\u201d needs more room beside the figures than the sheet leaves with them.`;
+}
+
+/** Is `text` the note that says the Budget and Variance columns are left out (either wording)? */
+export const isBudgetColumnsDroppedNote = (text: string): boolean => text === BUDGET_COLUMNS_DROPPED_NOTE || text.startsWith(LABEL_DROPPED_LEAD);
+
 function omissionText(dropped: Dropped, footnotes: readonly PackFootnote[]): string {
   // The disclosure headings name where NOTES were taken from, so the clause is attached to the note
   // parts and the parts with no heading (footnotes, captions) follow it, set apart by semicolons:
@@ -114,7 +129,7 @@ function omissionText(dropped: Dropped, footnotes: readonly PackFootnote[]): str
   // every figure is printed: "every OTHER figure" is what is true.
   // Said ONCE, and DERIVED from the page rather than flagged: where a footnote of the page already says they are
   // not printed (whichever path put it there), this one does not repeat it.
-  const said = footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE);
+  const said = footnotes.some((f) => isBudgetColumnsDroppedNote(f.text));
   if (dropped.columns.length > 0 && !said) parts.push(`the ${dropped.columns.join(' and ')} columns`);
   return `${OMISSION_MARK}: ${parts.join('; ')}. `
     + `Every ${dropped.columns.length > 0 ? 'other ' : ''}figure, table and chart on the page is complete`

@@ -14,7 +14,7 @@
  * in "Cafe\u0301-2024" and printed the table 666px wide; "Caf\u00E9-2024" breaks as measured).
  */
 
-import { JOINING_FALLBACK } from './packJoiningData';
+import { SELF_HOSTED } from './packFallbackWidthData';
 
 /** U+FE0F after a code point that is not \p{Emoji} (another selector or a mark counts as none). */
 const STRAY_VS16 = /(?<!\p{Emoji})\uFE0F/gu;
@@ -31,12 +31,12 @@ export function printedText(text: string): string {
 /** Does `text` (as printed) hold a combining mark or a variation selector? */
 export const carriesMarks = (text: string): boolean => /\p{M}/u.test(text);
 
-function joins(cp: number): boolean {
+function selfHosted(cp: number): boolean {
   let lo = 0;
-  let hi = JOINING_FALLBACK.length - 1;
+  let hi = SELF_HOSTED.length - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    const [from, to] = JOINING_FALLBACK[mid]!;
+    const [from, to] = SELF_HOSTED[mid]!;
     if (cp < from) hi = mid - 1;
     else if (cp > to) lo = mid + 1;
     else return true;
@@ -44,16 +44,25 @@ function joins(cp: number): boolean {
   return false;
 }
 
+/** Whitespace the fill collapses (`packAnywhereLabel`, `packLineBreaks`) and the faces need not set. */
+const COLLAPSED = new Set([0x09, 0x0a, 0x0d]);
+/** The line and paragraph separators: the faces set them, but production holds a hyphen after one as no rule here reads (#1235 round 4, L1). */
+const SEPARATORS = new Set([0x2028, 0x2029]);
+
 /**
  * Is `text` (as printed) a row label printed to break between any two graphemes (`pack-label-anywhere`) and measured as
- * such (`packAnywhereLabel.ts`)? Where it holds a combining mark or a variation selector (`carriesMarks`), or a letter
- * that joins its neighbours which the pack's faces do not set (`packJoiningData.JOINING_FALLBACK`: Arabic, Syriac,
- * Mongolian, ...). Production sets such a letter in its joined form, which the fallback tables (measured alone) cannot
- * price: Syriac SADHE is 7.52px alone and 410px forty times over (#1235 round 9).
+ * such (`packAnywhereLabel.ts`)? Where it holds a combining mark or a variation selector (`carriesMarks`), a code point
+ * the pack's own faces do not set (`packFallbackWidthData.SELF_HOSTED`) or a line or paragraph separator. Only text the
+ * faces set is read by the pair table: a fallback face's widths and breaks depend on the face Chromium takes, its
+ * kerning and its joined forms, which no table here holds (#1235 round 9: Syriac SADHE 7.52px alone, 410px forty times
+ * over; round 10: kana kerned apart in Noto Sans CJK, a run of math symbols set in its first character's face).
  */
 export function printsAnywhere(text: string): boolean {
   if (carriesMarks(text)) return true;
-  for (const ch of text) if (ch.charCodeAt(0) >= 0x600 && joins(ch.codePointAt(0)!)) return true;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    if (SEPARATORS.has(cp) || (!selfHosted(cp) && !COLLAPSED.has(cp))) return true;
+  }
   return false;
 }
 

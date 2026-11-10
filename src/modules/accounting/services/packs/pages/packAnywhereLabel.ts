@@ -1,11 +1,13 @@
 /**
- * A ROW LABEL THAT CARRIES A MARK OR A JOINING LETTER, AS PRINTED AND AS MEASURED (#1235 rounds 7-9, Hein's decision).
+ * A ROW LABEL THAT CARRIES A MARK OR A CHARACTER THE PACK'S FACES DO NOT SET, AS PRINTED AND AS MEASURED (#1235
+ * rounds 7-9 and its follow-up, Hein's decision: "proven set + safe fallback").
  *
  * Where Chromium breaks beside a combining mark or a variation selector, and how wide it draws a cluster that carries
- * one, depend on the mark, the base and the fallback face Chromium takes for both; and a letter that joins its
- * neighbours (Arabic, Syriac, Mongolian, ...) is set in a joined form the fallback tables, measured alone, cannot price
- * (round 9: Syriac SADHE is 7.52px alone and 410px forty times over). The pair table and the fallback tables cannot
- * say. So such a label (`packPrintedText.printsAnywhere`) is printed in a block of its own that may break between any
+ * one, depend on the mark, the base and the fallback face Chromium takes for both. And any character the pack's faces
+ * do not set is drawn in a fallback face whose widths depend on more than the character: a joined form (round 9: Syriac
+ * SADHE is 7.52px alone and 410px forty times over), the face's kerning (round 10: kana in Noto Sans CJK kerned apart,
+ * "\u30D0\u30F3" 0.61px over), the face Chromium takes for the whole run from its first character (round 10: U+23B0
+ * then U+2350.. 53.6px over). The pair table and the fallback tables cannot say. So such a label (`packPrintedText.printsAnywhere`) is printed in a block of its own that may break between any
  * two graphemes and adds to its column's width only the floor it is set at (`pack-label-anywhere`: `contain:
  * inline-size; line-break: anywhere`, and a `min-width`), and is measured here:
  *  - its column is the other rows', or the label's FLOOR where that is wider: the print gives the block a `min-width`
