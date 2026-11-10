@@ -15,7 +15,8 @@ const company = crypto.randomUUID();
 // Separate companies for a file that is REFUSED and for the directive and non-cash cases, so one does not fail the others.
 const refusing = crypto.randomUUID();
 const directiveCo = crypto.randomUUID();
-const everyCompany = [company, refusing, directiveCo];
+const reversalCo = crypto.randomUUID();
+const everyCompany = [company, refusing, directiveCo, reversalCo];
 const user = crypto.randomUUID();
 
 const item = (code: string, amount: number) => ({ componentId: code, componentName: code, sarsSourceCode: code, amount, isTaxable: true, isUifApplicable: false });
@@ -66,6 +67,15 @@ beforeAll(async () => {
   // A contractor paid only an annual payment.
   const bonusOnly = await employee('Bonusonly');
   await line(3, bonusOnly, 150_000, 0, [item('3605', 150_000)], true);
+  // A directive paid in March and reversed in April on contractor lines: net nil, so 3616 is the 100 000 of fees and nothing is 3601.
+  const reversedId = crypto.randomUUID();
+  const reversed = await employee('Reversed', reversalCo);
+  await pool.query(
+    `INSERT INTO tax_directives (id, company_id, employee_id, employee_name, directive_number, directive_type, amount, tax_rate, effective_date, status)
+     VALUES ($1, $2, $3, 'Test Reversed', '1234567891', 'severance', 50000, 0, '2026-03-01', 'approved')`, [reversedId, reversalCo, reversed]);
+  const dir = (amount: number) => ({ ...item('3901', amount), directive: { id: reversedId, number: '1234567891', paye: 0 } });
+  await line(3, reversed, 150_000, 0, [item('3601', 100_000), dir(50_000)], true, reversalCo);
+  await line(4, reversed, -50_000, 0, [dir(-50_000)], true, reversalCo);
   // A contractor bonus of 30 000 in March and a 10 000 clawback in April: each line is floored at nil, so 30 000 is 3616's, not 20 000.
   const clawback = await employee('Clawback');
   await line(3, clawback, 40_000, 0, [item('3601', 10_000), item('3605', 30_000)], true);
@@ -179,5 +189,13 @@ describe('e@syFile: a contractor is 3616, decided per line', () => {
     const r = recordOf((await exportFile()).body, 'Clawback');
     expect(r).toEqual(expect.arrayContaining(['3616,45000', '4150,03']));
     expect(r.some(l => l.startsWith('3605,') || l.startsWith('3601,'))).toBe(false);
+  });
+
+  it('a directive reversed on a contractor line nets as the lump-sum list nets it (no per-line floor): 3616 is the 100 000, no 3601', async () => {
+    const file = await exportFile(reversalCo);
+    expect(file.status, file.body.slice(0, 300)).toBe(200);
+    const r = recordOf(file.body, 'Reversed');
+    expect(r).toContain('3616,100000');
+    expect(r.some(l => l.startsWith('3601,'))).toBe(false);
   });
 });

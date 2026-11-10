@@ -22,18 +22,21 @@ export function loadCertificateAggregates(
       SUM(prl.sdl)          AS total_sdl,
       -- An independent contractor's months (PAYE_OUTSIDE_TABLES, treatment none) are code 3616, decided per line (easyFileContractor).
       COALESCE(SUM(prl.gross_pay) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_gross,
-      -- Inside those lines, each floored at nil per line: the taxable 3605 (leaves the employee's 3605; it is 3616), the directive lump sums
-      -- (39xx, filed as lump sums, so out of 3616) and the non-cash benefits (outside gross_pay, in 3616 and never 38xx).
+      -- Inside those lines: the taxable 3605 and the non-cash benefits, each floored at nil per line (the 3605 leaves the employee's 3605 and is
+      -- 3616; the benefits are outside gross_pay, in 3616 and never 38xx), and the directive lump sums (39xx, filed as lump sums, out of 3616).
       COALESCE(SUM(GREATEST((
         SELECT COALESCE(SUM((item->>'amount')::numeric), 0)
           FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array' THEN prl.component_breakdown ELSE '[]'::jsonb END) item
          WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605' AND COALESCE((item->>'isTaxable')::boolean, false)
       ), 0)) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_annual,
-      COALESCE(SUM(GREATEST((
+      -- The directive lump sums are netted as listRunLumpSums nets them (a sum per employee, a reversal against its payment, NO per-line floor,
+      -- and only a directive the company has), so what leaves 3616 is exactly what the lump-sum list files.
+      COALESCE(SUM((
         SELECT COALESCE(SUM((item->>'amount')::numeric), 0)
           FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array' THEN prl.component_breakdown ELSE '[]'::jsonb END) item
          WHERE item->'directive' IS NOT NULL
-      ), 0)) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_directive,
+           AND EXISTS (SELECT 1 FROM tax_directives d WHERE d.id = (item->'directive'->>'id')::uuid AND d.company_id = prh.company_id)
+      )) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_directive,
       COALESCE(SUM(GREATEST((
         SELECT COALESCE(SUM((item->>'amount')::numeric), 0)
           FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array' THEN prl.component_breakdown ELSE '[]'::jsonb END) item

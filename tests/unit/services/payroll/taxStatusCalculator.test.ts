@@ -173,6 +173,12 @@ describe('only recurring basic pay counts, not back pay (M4)', () => {
   it('the same R10 000 as recurring basic pay is time worked: flat', () => {
     expect(flat(cost(employee(R300), [earn(5_200), { ...earn(10_000), isRecurring: true }]))).toBe(true);
   });
+  it('an HD-style once-off 3601 priced as quantity x the recorded rate (25 days x R300) is not earned day pay: it would over-withhold', () => {
+    const quantityRow = { ...earn(7_500), isRecurring: false, quantity: 25 };
+    const r = cost(employee(R300), [earn(5_200), quantityRow]);
+    expect(flat(r)).toBe(false); // on the tables (the pay is over the threshold), not the flat 25%
+    expect(r.paye.monthlyPaye).toBeLessThan(0.25 * 12_700);
+  });
   it('once-off overtime (3607) still counts', () => {
     expect(flat(cost(employee(R300), [earn(5_200), { ...earn(10_000, '3607'), isRecurring: false }]))).toBe(true);
   });

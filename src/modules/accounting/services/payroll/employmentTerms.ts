@@ -23,8 +23,9 @@
  *   time worked (timeWorkedEarnings: recurring 3601 basic pay, 3607 overtime, not once-off 3601 back pay; not commission, allowances or non-cash benefits, which are
  *   not pay for a day's work; LOW-MEDIUM confidence, G21 p. 28 says only "earns ... for that day") over the scheduled days
  *   (hours a week / hours a day, x 52 / 12 a month) scaled by the share of the month the employee was employed. With no
- *   recorded rate the earned figure stands in. DAY_PAY_TOLERANCE only governs the warning, never the class. HD's quantity
- *   (days actually worked) is not on master yet; when it lands it replaces the scheduled days.
+ *   recorded rate the earned figure stands in. DAY_PAY_TOLERANCE only governs the warning, never the class. The share of the
+ *   month is in WORKING days (Monday to Friday); public holidays are NOT excluded (no holiday calendar exists in the repo and none is
+ *   hardcoded here: a named limit, which can only make a short month's earned day pay lower, and earnings only raise the day pay).
  * "Less than R394" is strict: exactly R394 a day is not under it (p. 28; the table's "more than" rows leave exactly R394 to
  *   the residual definition, 25%).
  */
@@ -71,8 +72,8 @@ const result = (kind: EmploymentClass, reason: string, hoursNotRecorded = false,
 
 /**
  * The line's earnings that are pay for time worked: recurring basic pay (3601) and overtime (3607), whatever their assignment. A
- * once-off 3601 (back pay, a correction) is not this period's days worked, so it is out; a once-off that carries a quantity (HD's
- * hours for the period) will count when HD lands (no quantity field is on master yet).
+ * once-off 3601 is out, back pay and corrections for other periods and also a once-off priced as quantity x the recorded rate (what
+ * HD adds): that rate already is the day pay, so counting the row would over-withhold (R300 a day for 25 days is not a R750 day).
  */
 export function timeWorkedEarnings(components: ReadonlyArray<{ component: { componentType: string; sarsSourceCode: string }; amount: number; isRecurring?: boolean }>): number {
   return components.reduce((t, c) => {
@@ -111,21 +112,26 @@ function decidingDayPay(terms: WorkTerms, input: DayPayInput): { pay: number | n
 }
 
 /**
- * The share of the period's WORKING days (Monday to Friday, the scheduled days are working days) the employee was employed, start and end
- * dates inclusive; 0 when they were not employed in the month at all (a start after it, an end before it).
+ * The share of the period's WORKING days (Monday to Friday, public holidays not excluded: see the file header) the employee was employed,
+ * start and end dates inclusive; 0 only when they were not employed in the month at all (a start after it, an end before it). A start on
+ * the month's last weekend (or an end on its first) is employed but on no working day: that counts as one working day, never as 0.
  */
 export function employedShareOfMonth(period: { year: number; month: number }, startDate: Date, endDate?: Date): number {
   const days = new Date(period.year, period.month, 0).getDate();
   const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   let all = 0;
   let employed = 0;
+  let employedCalendar = 0;
   for (let d = 1; d <= days; d += 1) {
     const date = new Date(period.year, period.month - 1, d);
+    const isEmployed = date.getTime() >= day(startDate) && (endDate == null || date.getTime() <= day(endDate));
+    if (isEmployed) employedCalendar += 1;
     if (date.getDay() === 0 || date.getDay() === 6) continue;
     all += 1;
-    if (date.getTime() >= day(startDate) && (endDate == null || date.getTime() <= day(endDate))) employed += 1;
+    if (isEmployed) employed += 1;
   }
-  return all === 0 ? 1 : employed / all;
+  if (all === 0) return 1;
+  return employed === 0 && employedCalendar > 0 ? 1 / all : employed / all;
 }
 
 /** What the line pays for time worked, and how much of the month the employee was employed: the day pay's evidence. */

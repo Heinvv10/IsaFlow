@@ -199,6 +199,17 @@ describe('employedShareOfMonth: working days (Monday to Friday)', () => {
   it('a start and leave inside one month count their working days', () => {
     expect(employedShareOfMonth(march, new Date(2026, 2, 10), new Date(2026, 2, 19))).toBeCloseTo(8 / 22, 5);
   });
+  it('a start on the month\'s last weekend (Saturday 31 October 2026) is employed on no working day: one working day, not 0', () => {
+    const oct = { year: 2026, month: 10 }; // 22 working days, the 31st is a Saturday
+    expect(employedShareOfMonth(oct, new Date(2026, 9, 31))).toBeCloseTo(1 / 22, 5);
+    expect(employedShareOfMonth(oct, new Date(2026, 9, 30))).toBeCloseTo(1 / 22, 5); // the Friday: one working day too
+    // classified as employed with no rate: R500 over one working day is a flat-rate day, not "full month" R29
+    const c = classifyEmployment(terms({ hoursPerWeek: 20, hoursPerDay: 5 }), 2027, { earnings: 500, employedShare: employedShareOfMonth(oct, new Date(2026, 9, 31)) });
+    expect(c.kind).toBe('non_standard_flat');
+  });
+  it('LIMIT: public holidays are not excluded (no calendar in the repo, none hardcoded): 14 December 2026 counts 16 December as a working day', () => {
+    expect(employedShareOfMonth({ year: 2026, month: 12 }, new Date(2026, 11, 14))).toBeCloseTo(14 / 23, 5);
+  });
   it('not employed in the month: 0 (an end before it, a start after it)', () => {
     expect(employedShareOfMonth(march, new Date(2020, 0, 1), new Date(2026, 1, 20))).toBe(0);
     expect(employedShareOfMonth(march, new Date(2026, 3, 1))).toBe(0);
