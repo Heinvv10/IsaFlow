@@ -46,6 +46,7 @@ beforeAll(async () => {
   await emp(co.A, cA, 'BF-LEAVER', [['2025-02-10', '2026-11-30']]);
   await emp(co.A, cA, 'BF-TWO', [['2025-02-10', '2026-08-15'], ['2026-08-16', '2026-10-31']]);
   await emp(co.A, cA, 'BF-AUG', [['2025-02-10', '2026-08-31']]);
+  await emp(co.A, cA, 'BF-MID', [['2025-04-03', '2026-09-12']]);
   await emp(co.A, cA, 'BF-LONG', [['2023-01-10', '2024-12-31']]);
   await emp(co.A, cA, 'BF-VOID', [['2026-05-10', '2026-05-01']]);
   await emp(co.A, cA, 'BF-NONE', []);
@@ -95,6 +96,9 @@ describe('migration 970 backfills the gross-up opt-in for every employee who has
   });
   it('an approved (reopenable) August stays cash: a 3810 ending 08-31 has a row ending 08-31', () => {
     expect(rows['BF-AUG']).toEqual(gross('2025-02-01', '2026-08-31'));
+  });
+  it('an assignment ending mid-month (09-12) has a row ending at that month end (09-30)', () => {
+    expect(rows['BF-MID']).toEqual(gross('2025-04-01', '2026-09-30'));
   });
   it('a long-ended assignment gets a row ending at its month end (it changes nothing unless that month is recomputed)', () => {
     expect(rows['BF-LONG']).toEqual(gross('2023-01-01', '2024-12-31'));
