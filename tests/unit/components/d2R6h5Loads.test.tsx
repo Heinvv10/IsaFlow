@@ -65,6 +65,7 @@ describe('ApplyPackageCard', () => {
   it('200 lists the packages', async () => {
     route(() => ok([{ id: 'p1', code: 'PKG1', name: 'D2 Package', isActive: true }]));
     render(<ApplyPackageCard employeeId="e-1" />);
+    fireEvent.click(await screen.findByRole('combobox'));
     expect(await screen.findByText('PKG1 — D2 Package')).toBeTruthy();
   });
 });

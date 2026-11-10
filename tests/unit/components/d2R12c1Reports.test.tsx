@@ -95,6 +95,7 @@ describe('Retry on a failed load', () => {
     render(<ApplyPackageCard employeeId="e1" />);
     expect(await screen.findByText(MSG)).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    fireEvent.click(await screen.findByRole('combobox'));
     expect(await screen.findByText(/D2 Package/)).toBeDefined();
     expect(screen.queryByText(MSG)).toBeNull();
   });

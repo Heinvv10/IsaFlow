@@ -3,6 +3,7 @@
  * the command palette search and the migration wizard say what failed instead of dropping the response.
  * REAL assertOk / apiErrorMessage over a scripted apiFetch.
  */
+import { pickKit } from '../../helpers/kitSelect';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', companyId: 'c1' }) }));
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -49,7 +50,7 @@ describe('ApplyPackageCard apply', () => {
   const run = async (apply: () => Response) => {
     route((u, m) => (m === 'POST' ? apply() : ok([{ id: 'p1', code: 'PKG1', name: 'Pack', isActive: true }])));
     render(<ApplyPackageCard employeeId="e-1" />);
-    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'p1' } });
+    await pickKit(await screen.findByRole('combobox'), /Pack/);
     fireEvent.click(screen.getByRole('button', { name: /apply package/i }));
   };
   it('a 400 shows the server message and no success line', async () => {

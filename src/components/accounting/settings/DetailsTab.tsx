@@ -6,6 +6,7 @@ import {
   INPUT_CLS, LABEL_CLS, SECTION_CLS,
   DOC_TYPE_LABELS, INDUSTRIES,
 } from './settingsTypes';
+import { Select } from '@/components/ui/Select';
 import { ENTITY_TYPES } from '@/lib/entityTypes';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
