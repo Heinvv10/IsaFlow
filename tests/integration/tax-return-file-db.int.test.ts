@@ -8,6 +8,7 @@ import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { inTx, runOn } from './helpers/l1FifoFixture';
+import { insertEfilingEventCommitted } from '../../src/modules/accounting/services/reports/sarsEfilingRepo';
 import { dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
 import { markSubmitted, saveDraftSubmission } from '../../src/modules/accounting/services/reports/sarsComplianceService';
 
@@ -72,7 +73,8 @@ const AMEND = () => `status = 'superseded', amended_by = '${U()}', amend_reason 
 const INVISIBLE = [0x200b, 0x200c, 0xfeff, 0x00a0, 0x2003].map((c) => String.fromCharCode(c)).join(' ');
 /** Ends and middles of every invisible range the guards cover (returnGuards.ts and 971 hold the same set). */
 const INVISIBLE_POINTS = [0xad, 0x85, 0xa0, 0x34f, 0x115f, 0x1160, 0x1680, 0x17b4, 0x17b5, 0x180b, 0x180e, 0x180f, 0x2000, 0x200b, 0x200f,
-  0x2028, 0x202f, 0x205f, 0x2060, 0x206f, 0x2800, 0x3000, 0x3164, 0xfe00, 0xfe0f, 0xfeff, 0xffa0, 0xe0000, 0xe0020, 0xe0fff];
+  0x2028, 0x202f, 0x205f, 0x2060, 0x206f, 0x2800, 0x3000, 0x3164, 0xfe00, 0xfe0f, 0xfeff, 0xffa0, 0xe0000, 0xe0020, 0xe0fff,
+  0x61c, 0xfff9, 0xfffa, 0xfffb, 0x13430, 0x1343f, 0x1bca0, 0x1bca3, 0x1d173, 0x1d17a];
 
 describeIfDb('tax_return_versions filing and amend rules (migration 971)', () => {
   beforeAll(async () => {
@@ -262,6 +264,40 @@ describeIfDb('tax_return_versions filing and amend rules (migration 971)', () =>
       await o.query('ROLLBACK').catch(() => undefined);
       o.release();
     }
+  });
+
+  it('ANY change to a non-draft row of a period that has a version needs the lifecycle flag (the old colour re-marking a submitted row)', async () => {
+    const row = await submission(a, 7, 'submitted'); // unnamed, EMP201 month 7: that period has a (superseded) version
+    const remark = `UPDATE sars_submissions SET submission_reference = 'HIJACK' WHERE id = '${row}'`;
+    const restatus = `UPDATE sars_submissions SET status = 'accepted' WHERE id = '${row}'`;
+    const retime = `UPDATE sars_submissions SET submitted_at = now() WHERE id = '${row}'`;
+    await asAppUser(a, async (c) => {
+      for (const q of [remark, restatus, retime]) expect(await failOf(c, q)).toMatch(/^23514 .*return lifecycle/);
+      expect(await failOf(c, `UPDATE sars_submissions SET notes = 'n' WHERE id = '${row}'`)).toBe('ok'); // other columns stay free
+      await c.query(`SELECT set_config('app.return_lifecycle', 'on', true)`);
+      expect(await failOf(c, remark)).toBe('ok');
+    });
+    const other = await submission(a, 12, 'submitted', 'VAT201'); // a period with no VAT version: untouched
+    await asAppUser(a, async (c) => {
+      expect(await failOf(c, `UPDATE sars_submissions SET submission_reference = 'OK' WHERE id = '${other}'`)).toBe('ok');
+    });
+  });
+
+  it('the ISV intent event commits in a transaction of its own: it survives the request rolling back', async () => {
+    const sub = await submission(a, 12, 'draft', 'VAT201');
+    const c = await a.fx.pool.connect();
+    try {
+      await c.query('BEGIN');
+      await runOn(a.fx, c, () => insertEfilingEventCommitted({
+        companyId: a.fx.companyId, submissionId: sub, eventType: 'submit', efilingStatus: 'sending', message: 'about to send', createdBy: U(),
+      }));
+      await c.query('ROLLBACK'); // the request that was about to send fails
+    } finally {
+      c.release();
+    }
+    const kept = (await sql`SELECT efiling_status FROM sars_efiling_events WHERE submission_id = ${sub}::UUID`) as Row[];
+    expect(kept).toEqual([{ efiling_status: 'sending' }]);
+    await sql`DELETE FROM sars_efiling_events WHERE submission_id = ${sub}::UUID`.catch(() => undefined);
   });
 
   it('the amend stamps change only with the move to superseded', async () => {

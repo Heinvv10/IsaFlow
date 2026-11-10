@@ -25,9 +25,33 @@ export interface FiledReturn {
   submission: SARSSubmission;
 }
 
+export interface FileOptions {
+  /** VAT201: owner/admin override of blocking VAT exceptions, with a reason. */
+  overrideReason?: string;
+  /** The legacy submission this filing corrects (see LEGACY_SUBMISSION_EXISTS), with the reason. */
+  correctsLegacySubmissionId?: string;
+  reason?: string;
+}
+
+interface LegacySubmission { id: string; status: string; reference: string | null }
+
+/** Submissions of the period filed the legacy way (no version names them), newest first, row-locked. */
+async function legacySubmissions(companyId: string, v: ReturnVersion): Promise<LegacySubmission[]> {
+  const rows = (await sql`
+    SELECT s.id, s.status, s.submission_reference FROM sars_submissions s
+    WHERE s.company_id = ${companyId}::UUID AND s.form_type = ${v.formType} AND s.status IN ('submitted', 'accepted')
+      AND s.period_start <= ${v.periodEnd}::DATE AND s.period_end >= ${v.periodStart}::DATE
+      AND NOT EXISTS (SELECT 1 FROM tax_return_versions t WHERE t.sars_submission_id = s.id)
+    ORDER BY s.submitted_at DESC NULLS LAST, s.id DESC
+    FOR UPDATE OF s
+  `) as DbRow[];
+  return rows.map((r) => ({ id: String(r.id), status: String(r.status), reference: r.submission_reference == null ? null : String(r.submission_reference) }));
+}
+
 export async function markReturnFiled(
-  companyId: string, form: ReturnForm, versionId: string, reference: string, actor: ReturnActor, overrideReason?: string,
+  companyId: string, form: ReturnForm, versionId: string, reference: string, actor: ReturnActor, opts: FileOptions = {},
 ): Promise<FiledReturn> {
+  const { overrideReason } = opts;
   await assertNotImpersonating(); // R-032: a filing is refused to a Login-as session
   assertMayActOnReturns(actor.role, 'file');
   const ref = visibleText(reference, 'A filing reference');
@@ -51,6 +75,17 @@ export async function markReturnFiled(
     throw new ReturnRefusal(409,
       `Version ${v.versionNo} no longer matches the ledger or payroll (${what.join(', ')}). Amend it and finalise again before filing.`);
   }
+  const legacy = await legacySubmissions(companyId, v);
+  let correction: string | null = null;
+  if (legacy.length > 0) {
+    const named = legacy.map((l) => `${l.id} (${l.status}, reference ${l.reference ?? 'none'})`).join('; ');
+    if (opts.correctsLegacySubmissionId !== legacy[0]!.id) {
+      throw new ReturnRefusal(409,
+        `This period was already filed the legacy way: ${named}. Filing this version supersedes it: send correctsLegacySubmissionId `
+        + `${legacy[0]!.id} and a reason.`, 'LEGACY_SUBMISSION_EXISTS');
+    }
+    correction = visibleText(opts.reason ?? '', 'A reason for correcting the legacy filing');
+  }
   return withSavepoint('file_return', async () => {
     const draft = await saveDraftSubmission(
       companyId, v.formType, v.periodStart, v.periodEnd,
@@ -66,8 +101,15 @@ export async function markReturnFiled(
         { userId: actor.userId, role: actor.role }, overrideReason,
       );
     }
-    // The lifecycle flag the sars_submissions trigger wants for a draft of a period that has a version (971).
+    // The lifecycle flag the sars_submissions trigger wants for a period that has a version (971).
     await sql`SELECT set_config('app.return_lifecycle', 'on', true)`;
+    if (correction) {
+      for (const l of legacy) {
+        await sql`UPDATE sars_submissions SET status = 'superseded', updated_at = NOW(),
+            notes = COALESCE(notes || E'\n', '') || ${`Superseded by return version ${v.versionNo} (${v.id}): ${correction}`}
+          WHERE id = ${l.id}::UUID AND company_id = ${companyId}::UUID`;
+      }
+    }
     const submission = await markSubmitted(companyId, draft.id, ref, { lifecycle: true });
     await sql`SELECT set_config('app.return_lifecycle', 'off', true)`;
     const version = await markVersionFiled(companyId, v.id, submission.id, ref, actor.userId);
@@ -76,7 +118,10 @@ export async function markReturnFiled(
       entityRef: `${v.formType} ${v.periodStart} to ${v.periodEnd} v${v.versionNo}`,
       changes: {
         fields: [{ field: 'status', old: 'finalised', new: 'filed', label: 'Status' }],
-        metadata: { reference: ref, submissionId: submission.id, ...(overrideReason ? { vatGateOverridden: 'yes' } : {}) },
+        metadata: {
+          reference: ref, submissionId: submission.id, ...(overrideReason ? { vatGateOverridden: 'yes' } : {}),
+          ...(correction ? { supersededLegacySubmissions: legacy.map((l) => l.id).join(','), correctionReason: correction } : {}),
+        },
       },
     });
     return { version, submission };

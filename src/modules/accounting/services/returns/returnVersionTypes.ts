@@ -29,8 +29,11 @@ export interface ReturnVersion {
 /** A finalise, filing or amend the caller can fix or must wait out. Raised before the first write. */
 export class ReturnRefusal extends Error {
   readonly status: 400 | 403 | 404 | 409;
-  constructor(status: 400 | 403 | 404 | 409, message: string) {
+  /** A stable name the caller can act on (LEGACY_SUBMISSION_EXISTS), when the message alone is not enough. */
+  readonly refusalCode: string | null;
+  constructor(status: 400 | 403 | 404 | 409, message: string, refusalCode: string | null = null) {
     super(message);
+    this.refusalCode = refusalCode;
     this.name = 'ReturnRefusal';
     this.status = status;
   }

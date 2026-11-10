@@ -64,6 +64,15 @@ export class SubmissionNotOpenError extends Error {
 }
 
 /**
+ * The (company, form, period) draft key, held until the transaction ends. saveDraftSubmission takes it, and so does
+ * the ISV path before anything goes to SARS: a filing, a draft save and an ISV submit of one period queue.
+ */
+export async function takeDraftPeriodLock(companyId: string, formType: string, periodStart: string, periodEnd: string): Promise<void> {
+  if (!als.getStore()?.client) throw new Error('The draft period lock must be taken inside a request transaction');
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`sars-draft:${companyId}:${formType}:${periodStart}:${periodEnd}`}, 0))`;
+}
+
+/**
  * Saves the company's open draft for the period: updates it when one exists (keepExistingAs stores its previous
  * form_data under that key of the new one, so nothing the page saved is lost), inserts it otherwise. One open draft per company, form and period, held by an advisory lock on that key
  * and a row lock on the draft, not by an index (migration 971 explains why): concurrent saves queue, the second
@@ -79,11 +88,8 @@ export async function saveDraftSubmission(
   opts: { keepExistingAs?: string } = {},
 ): Promise<SARSSubmission> {
   log.info('Saving draft submission', { formType, periodStart, periodEnd }, 'sarsComplianceService');
-  // The advisory lock below is transaction-scoped: outside a request transaction it would release at once and
-  // serialise nothing.
-  if (!als.getStore()?.client) throw new Error('saveDraftSubmission must run inside a request transaction');
 
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`sars-draft:${companyId}:${formType}:${periodStart}:${periodEnd}`}, 0))`;
+  await takeDraftPeriodLock(companyId, formType, periodStart, periodEnd);
   const open = (await sql`
     SELECT * FROM sars_submissions
     WHERE company_id = ${companyId}::UUID AND form_type = ${formType}

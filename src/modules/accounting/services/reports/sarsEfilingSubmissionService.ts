@@ -25,7 +25,9 @@ import {
   markSubmissionSubmitted,
   applyPollResult,
   insertEfilingEvent,
+  insertEfilingEventCommitted,
 } from './sarsEfilingRepo';
+import { takeDraftPeriodLock } from './sarsComplianceService';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 export class EfilingNotConfiguredError extends Error {
@@ -187,6 +189,22 @@ export async function submitVAT201ToSars(
     });
     throw new EfilingBlockedError(reason);
   }
+
+  // Before anything leaves for SARS: queue behind any filing or draft save of this period (the lifecycle's own key),
+  // judge the period and the submission again under it, and record the intent in a transaction of its OWN, committed
+  // now, so a send whose request later rolls back still leaves its trace.
+  await takeDraftPeriodLock(companyId, 'VAT201', submission.periodStart, submission.periodEnd);
+  const again = await getEfilingSubmission(companyId, submissionId);
+  if (!again || again.efilingCorrelationId || again.status !== 'draft') {
+    throw new EfilingAlreadyFiledError(again?.efilingCorrelationId ?? '');
+  }
+  if (await periodHasReturnVersion(companyId, 'VAT201', submission.periodStart, submission.periodEnd)) {
+    throw new EfilingBlockedError('This period has a return version: file through the return lifecycle.');
+  }
+  await insertEfilingEventCommitted({
+    companyId, submissionId, eventType: 'submit', efilingStatus: 'sending', message: 'about to send to SARS',
+    detail: { periodStart: submission.periodStart, periodEnd: submission.periodEnd }, createdBy: userId,
+  });
 
   const taxPeriod = submission.periodStart.replace(/-/g, '').slice(0, 6); // CCYYMM
   const {

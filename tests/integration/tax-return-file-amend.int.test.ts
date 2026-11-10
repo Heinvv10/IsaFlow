@@ -248,6 +248,42 @@ describeIfDb('file and amend a return, against a real ledger', () => {
     expect(((await sql`SELECT status, form_data FROM sars_submissions WHERE id = ${inflight}::UUID`) as Row[])[0]).toEqual({ status: 'draft', form_data: { k: 1 } });
   });
 
+  it('a period already filed the legacy way: 409 LEGACY_SUBMISSION_EXISTS until the filing names it and says why; then it is superseded', async () => {
+    const per = { periodStart: '2026-03-01', periodEnd: '2026-03-31' };
+    const e = versionOf(await callRoute(finalise, c(), rf.admin.token, 'POST', { form: 'emp201' }, per));
+    const legacyRow = await draftRow('EMP201', per.periodStart, per.periodEnd, 'submitted'); // filed the legacy way, before versions
+    const subs = async () => ((await sql`SELECT id, status FROM sars_submissions WHERE company_id = ${c()}::UUID AND form_type = 'EMP201'
+      AND period_start = ${per.periodStart}::DATE ORDER BY status`) as Row[]);
+    const before = await subs();
+    const r = await fileV(String(e.id), { reference: 'EMP-LEG' }, rf.admin.token, 'emp201');
+    expect(r.status).toBe(409);
+    expect(JSON.stringify(r.body)).toMatch(/LEGACY_SUBMISSION_EXISTS/);
+    expect(JSON.stringify(r.body)).toContain(legacyRow);
+    // the wrong id, and the right id with no reason
+    const wrong = await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionId: '00000000-0000-4000-8000-000000000077', reason: 'because' }, rf.admin.token, 'emp201');
+    expect(wrong.status).toBe(409);
+    expect((await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionId: legacyRow }, rf.admin.token, 'emp201')).status).toBe(400);
+    expect((await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionId: legacyRow, reason: INVISIBLE }, rf.admin.token, 'emp201')).status).toBe(400);
+    expect(await subs()).toEqual(before);
+    expect((await row(String(e.id))).status).toBe('finalised');
+    // acknowledged: the legacy row is superseded, ONE live submitted row remains, and the audit names both
+    const ok = await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionId: legacyRow, reason: 'Re-filed through the lifecycle' }, rf.admin.token, 'emp201');
+    expect(ok.status).toBe(200);
+    const after = (await sql`SELECT id, status, notes FROM sars_submissions WHERE company_id = ${c()}::UUID AND form_type = 'EMP201'
+      AND period_start = ${per.periodStart}::DATE`) as Row[];
+    expect(after.filter((x) => x.status === 'submitted')).toHaveLength(1);
+    expect(after.find((x) => x.id === legacyRow)).toMatchObject({ status: 'superseded' });
+    expect(String(after.find((x) => x.id === legacyRow)!.notes)).toMatch(/Re-filed through the lifecycle/);
+    expect(JSON.stringify((await audits(String(e.id)))[0]!.changes)).toContain(legacyRow);
+  });
+
+  it('a NUL character in a reference or a reason is a 400, never a 500', async () => {
+    const nul = String.fromCharCode(0);
+    const id = String(v1.id);
+    expect((await fileV(id, { reference: `REF${nul}1` })).status).toBe(400);
+    expect((await amendV(id, { reason: `why${nul}` })).status).toBe(400);
+  });
+
   it('the ISV channel refuses a period that has a return version, before anything outbound; a free period gets past that check', async () => {
     vi.stubEnv('SARS_EFILING_ENABLED', 'true');
     vi.stubEnv('SARS_EFILING_BASE_URL', 'http://sars-efiling.l1b.invalid');
@@ -265,7 +301,8 @@ describeIfDb('file and amend a return, against a real ledger', () => {
 
   it('every invisible character is a 400 for a reference and for a reason, never a 500', async () => {
     const points = [0xad, 0x85, 0xa0, 0x34f, 0x115f, 0x1160, 0x1680, 0x17b4, 0x17b5, 0x180b, 0x180e, 0x180f, 0x2000, 0x200b, 0x200f,
-      0x2028, 0x202f, 0x205f, 0x2060, 0x206f, 0x2800, 0x3000, 0x3164, 0xfe00, 0xfe0f, 0xfeff, 0xffa0, 0xe0000, 0xe0020, 0xe0fff];
+      0x2028, 0x202f, 0x205f, 0x2060, 0x206f, 0x2800, 0x3000, 0x3164, 0xfe00, 0xfe0f, 0xfeff, 0xffa0, 0xe0000, 0xe0020, 0xe0fff,
+  0x61c, 0xfff9, 0xfffa, 0xfffb, 0x13430, 0x1343f, 0x1bca0, 0x1bca3, 0x1d173, 0x1d17a];
     const id = String(v1.id);
     for (const cp of points) {
       const text = String.fromCodePoint(cp);

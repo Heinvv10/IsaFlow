@@ -20,6 +20,10 @@ const m = vi.hoisted(() => ({
   markSubmissionSubmitted: vi.fn(),
   applyPollResult: vi.fn(),
   insertEfilingEvent: vi.fn(),
+  insertEfilingEventCommitted: vi.fn(),
+  periodHasReturnVersion: vi.fn(),
+  takeDraftPeriodLock: vi.fn(),
+  order: [] as string[],
 }));
 
 // R-032 L5: the Login-as guard runs its own query first; it is covered by
@@ -54,7 +58,11 @@ vi.mock('@/modules/accounting/services/reports/sarsEfilingRepo', () => ({
   markSubmissionSubmitted: m.markSubmissionSubmitted,
   applyPollResult: m.applyPollResult,
   insertEfilingEvent: m.insertEfilingEvent,
+  insertEfilingEventCommitted: m.insertEfilingEventCommitted,
 }));
+// Wave 5 L1b: a period with a return version is the lifecycle's, and the ISV path queues behind the period's draft key.
+vi.mock('@/modules/accounting/services/returns/versionExists', () => ({ periodHasReturnVersion: m.periodHasReturnVersion }));
+vi.mock('@/modules/accounting/services/reports/sarsComplianceService', () => ({ takeDraftPeriodLock: m.takeDraftPeriodLock }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import {
@@ -99,6 +107,11 @@ function tiedRateCheck(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   m.payloadMapped.mockReturnValue(true);
+  m.order.length = 0;
+  m.periodHasReturnVersion.mockResolvedValue(false);
+  m.takeDraftPeriodLock.mockImplementation(async () => { m.order.push('lock'); });
+  m.insertEfilingEventCommitted.mockImplementation(async () => { m.order.push('intent'); });
+  m.authenticate.mockImplementation(async () => { m.order.push('authenticate'); return { token: 'tok' }; });
   m.getEfilingConfig.mockReturnValue({ baseUrl: 'http://x', isvLogin: 'l', activationKey: 'k' });
   m.getEfilingSubmission.mockResolvedValue({
     id: SID, companyId: CID, formType: 'VAT201',
@@ -108,7 +121,6 @@ beforeEach(() => {
   m.getVatExceptions.mockResolvedValue(cleanReport());
   m.getVat201Return.mockResolvedValue({ ...FILED_FIELDS, rateCheck: tiedRateCheck() });
   m.getCompanyVatInfo.mockResolvedValue({ vatNumber: '4123456789', companyName: 'Test Co' });
-  m.authenticate.mockResolvedValue({ token: 'tok' });
   m.submitVAT201.mockResolvedValue({ correlationId: 'CORR-1', status: 'received', httpStatus: 202 });
   m.pollStatus.mockResolvedValue({ status: 'accepted', sarsReference: 'REF-1', errors: [], httpStatus: 200 });
 });
@@ -126,6 +138,42 @@ describe('evaluateEfilingGate (pure)', () => {
     const g = evaluateEfilingGate(cleanReport({ degradedData: true, degradedSources: ['customer_invoices'] }) as never);
     expect(g.allowed).toBe(false);
     expect(g.reason?.toLowerCase()).toContain('incomplete');
+  });
+});
+
+describe('the ISV path before anything leaves for SARS (wave 5 L1b)', () => {
+  it('takes the period draft lock, then commits the intent in its own transaction, then authenticates and sends', async () => {
+    await submitVAT201ToSars(CID, SID, UID);
+    expect(m.order).toEqual(['lock', 'intent', 'authenticate']);
+    expect(m.takeDraftPeriodLock).toHaveBeenCalledWith(CID, 'VAT201', '2026-03-01', '2026-03-31');
+    expect(m.insertEfilingEventCommitted).toHaveBeenCalledWith(expect.objectContaining({ submissionId: SID, eventType: 'submit', efilingStatus: 'sending' }));
+  });
+
+  it('sends nothing when the intent cannot be recorded', async () => {
+    m.insertEfilingEventCommitted.mockRejectedValue(new Error('disk full'));
+    await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toThrow('disk full');
+    expect(m.authenticate).not.toHaveBeenCalled();
+    expect(m.submitVAT201).not.toHaveBeenCalled();
+  });
+
+  it('refuses a submission that was filed while it waited for the lock (re-read under it), before any send', async () => {
+    m.getEfilingSubmission.mockResolvedValueOnce({
+      id: SID, companyId: CID, formType: 'VAT201', periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'draft',
+      efilingCorrelationId: null, efilingLastStatus: null, formData: { ...FILED_FIELDS },
+    }).mockResolvedValueOnce({
+      id: SID, companyId: CID, formType: 'VAT201', periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'submitted',
+      efilingCorrelationId: null, efilingLastStatus: null, formData: { ...FILED_FIELDS },
+    });
+    await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingAlreadyFiledError);
+    expect(m.insertEfilingEventCommitted).not.toHaveBeenCalled();
+    expect(m.submitVAT201).not.toHaveBeenCalled();
+  });
+
+  it('refuses a period that gained a return version while it waited for the lock', async () => {
+    m.periodHasReturnVersion.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingBlockedError);
+    expect(m.insertEfilingEventCommitted).not.toHaveBeenCalled();
+    expect(m.submitVAT201).not.toHaveBeenCalled();
   });
 });
 

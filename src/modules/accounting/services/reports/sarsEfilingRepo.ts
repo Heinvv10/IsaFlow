@@ -4,6 +4,7 @@
  * scoped (multi-tenant). No secrets are ever written to the audit log.
  */
 
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
@@ -104,6 +105,22 @@ export interface EfilingEventInput {
   detail?: Record<string, unknown>;
   message?: string | null;
   createdBy?: string | null;
+}
+
+/**
+ * The same row in a transaction of its OWN (migration_admin pool), committed before this returns: the record that a
+ * submit is about to leave for SARS must survive the request's own rollback.
+ */
+export async function insertEfilingEventCommitted(evt: EfilingEventInput): Promise<void> {
+  await migrationAdminTx('isv-submit-intent', async (client) => {
+    await client.query(
+      `INSERT INTO sars_efiling_events
+         (company_id, submission_id, event_type, efiling_status, http_status, correlation_id, detail, message, created_by)
+       VALUES ($1::UUID, $2::UUID, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+      [evt.companyId, evt.submissionId, evt.eventType, evt.efilingStatus ?? null, evt.httpStatus ?? null,
+        evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],
+    );
+  });
 }
 
 export async function insertEfilingEvent(evt: EfilingEventInput): Promise<void> {
