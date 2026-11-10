@@ -4,12 +4,12 @@
  * R99 000 threshold alike (as 3601 with no tax over the threshold, nilTaxReason would refuse the whole file).
  */
 import { describe, expect, it } from 'vitest';
-import { splitContractorIncome } from '@/modules/accounting/services/payroll/easyFileContractor';
+import { contractorAwareReason, splitContractorIncome } from '@/modules/accounting/services/payroll/easyFileContractor';
 import { buildEmployeeRecord, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { validateCertificateTaxFields } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
 
 describe('splitContractorIncome: decided per line, never from the status today; ALL contractor income is 3616', () => {
-  const z = { contractorAnnual: 0, annualAll: 0 };
+  const z = { contractorAnnual: 0, contractorDirective: 0, contractorNonCash: 0, annualAll: 0 };
   it('no contractor line: all of it is 3601 (directives added), the employee annual payments unchanged', () => {
     expect(splitContractorIncome({ ...z, annualAll: 4_000, totalGross: 60_000, contractorGross: 0, standaloneGross: 5_000 }))
       .toEqual({ salaryGross: 65_000, annualPayments: 4_000, income3616: 0 });
@@ -21,10 +21,23 @@ describe('splitContractorIncome: decided per line, never from the status today; 
     expect(splitContractorIncome({ ...z, totalGross: 132_000, contractorGross: 60_000, standaloneGross: 0 })).toEqual({ salaryGross: 72_000, annualPayments: 0, income3616: 60_000 });
   });
   it('a contractor annual payment is 3616, not 3605: 30 000 of 100 000 in contractor lines, 10 000 more in employee lines', () => {
-    const r = splitContractorIncome({ totalGross: 200_000, contractorGross: 100_000, contractorAnnual: 30_000, annualAll: 40_000, standaloneGross: 0 });
+    const r = splitContractorIncome({ ...z, totalGross: 200_000, contractorGross: 100_000, contractorAnnual: 30_000, annualAll: 40_000, standaloneGross: 0 });
     expect(r).toEqual({ salaryGross: 100_000, annualPayments: 10_000, income3616: 100_000 });
     // 3601 + 3605 + 3616 is the year's total
     expect((r.salaryGross - r.annualPayments) + r.annualPayments + r.income3616).toBe(200_000);
+  });
+  it('contractor fees 100 000 plus a 50 000 directive in the same lines: 3616 is 100 000, the 50 000 stays for the lump-sum split (3901), 3601 is nil', () => {
+    const r = splitContractorIncome({ ...z, totalGross: 150_000, contractorGross: 150_000, contractorDirective: 50_000, standaloneGross: 0 });
+    expect(r.income3616).toBe(100_000);
+    // splitCertificateIncome removes the 50 000 lump sum from this gross: 3601 = 50 000 - 50 000
+    expect(r.salaryGross - 50_000).toBe(0);
+  });
+  it('the mixed year: employee 60 000, contractor 90 000 of which a 30 000 directive: 3616 60 000, 3601 60 000', () => {
+    const r = splitContractorIncome({ ...z, totalGross: 150_000, contractorGross: 90_000, contractorDirective: 30_000, standaloneGross: 0 });
+    expect([r.income3616, r.salaryGross - 30_000]).toEqual([60_000, 60_000]);
+  });
+  it('a contractor non-cash benefit is 3616, outside gross_pay', () => {
+    expect(splitContractorIncome({ ...z, totalGross: 50_000, contractorGross: 50_000, contractorNonCash: 7_000, standaloneGross: 0 }).income3616).toBe(57_000);
   });
   it('an all-contractor year: 3601 is nil', () => {
     expect(splitContractorIncome({ ...z, totalGross: 90_000, contractorGross: 90_000, standaloneGross: 0 }).salaryGross).toBe(0);
@@ -48,7 +61,7 @@ describe('the certificate record, no PAYE', () => {
   });
 
   it('a contractor paid only what the payroll calls an annual payment: the amount is 3616, reason 03, valid', () => {
-    const { income3616, annualPayments } = splitContractorIncome({ totalGross: 150_000, contractorGross: 150_000, contractorAnnual: 150_000, annualAll: 150_000, standaloneGross: 0 });
+    const { income3616, annualPayments } = splitContractorIncome({ totalGross: 150_000, contractorGross: 150_000, contractorAnnual: 150_000, contractorDirective: 0, contractorNonCash: 0, annualAll: 150_000, standaloneGross: 0 });
     const lines = buildEmployeeRecord({ ...base, annualPayments3605: annualPayments, independentContractor3616: income3616 });
     expect(lines).toEqual(expect.arrayContaining(['3616,150000', '4150,03']));
     expect(lines.some(l => l.startsWith('3605,') || l.startsWith('3601,'))).toBe(false);
@@ -57,6 +70,24 @@ describe('the certificate record, no PAYE', () => {
 
   it('the same income as 3601 over the threshold refuses the file (why the contractor is not filed that way)', () => {
     expect(() => buildEmployeeRecord({ ...base, grossSalary3601: 150_000 })).toThrow(/no PAYE was deducted/);
+  });
+});
+
+describe('the reason on a mixed certificate: 03 never hides an employee part over the threshold', () => {
+  it('120 000 of employee income with nil PAYE beside 1 000 of contractor fees is refused', () => {
+    expect(() => buildEmployeeRecord({ ...base, grossSalary3601: 120_000, independentContractor3616: 1_000 })).toThrow(/no PAYE was deducted/);
+    expect(() => contractorAwareReason({ ...base, grossSalary3601: 120_000, independentContractor3616: 1_000 })).toThrow(/no PAYE was deducted/);
+  });
+  it('an employee part under the threshold beside contractor fees is reason 03', () => {
+    const lines = buildEmployeeRecord({ ...base, grossSalary3601: 40_000, independentContractor3616: 150_000 });
+    expect(lines).toEqual(expect.arrayContaining(['3601,40000', '3616,150000', '4150,03']));
+    expect(validateCertificateTaxFields(lines)).toEqual([]);
+  });
+  it('a nil employee part is reason 03 at any contractor amount', () => {
+    expect(contractorAwareReason({ ...base, independentContractor3616: 900_000 })).toBe('03');
+  });
+  it('no contractor income: the employee rule as before', () => {
+    expect(contractorAwareReason({ ...base, grossSalary3601: 60_000 })).toBe('02');
   });
 });
 

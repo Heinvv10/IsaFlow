@@ -11,6 +11,9 @@
  * calls a 3605 annual payment (a contractor has no employee annual payment), so 03 always has its 3616 beside it (coordinator
  * ruling, 2026-11-10). A certificate with PAYE withheld is an IRP5 with 3616 and no 4150.
  */
+import { nilTaxReason } from './easyFileMedicalFields';
+import type { EmployeeInput } from './easyFileExportService';
+
 export interface ContractorSplitInput {
   /** SUM(gross_pay) over the employee's declarable lines of the year (contractor lines included). */
   totalGross: number;
@@ -18,21 +21,43 @@ export interface ContractorSplitInput {
   contractorGross: number;
   /** The taxable 3605 inside those contractor lines: it is 3616, so it leaves the employee's 3605. */
   contractorAnnual: number;
+  /** The directive lump sums (39xx) inside those lines: filed as lump sums, so out of 3616 (and still in the gross the lump-sum split removes). */
+  contractorDirective: number;
+  /** The non-cash benefits inside those lines (outside gross_pay): 3616, never filed as 38xx. */
+  contractorNonCash: number;
   /** The employee's taxable 3605 over ALL the year's lines (what listRunAnnualPayments reads). */
   annualAll: number;
   /** Stand-alone directive payments, which are never a contractor's. */
   standaloneGross: number;
 }
 
-/** What splitCertificateIncome takes (the employee months' gross, directives added, and the employee's own annual payments) and the 3616 income. */
+/**
+ * What splitCertificateIncome takes (the employee months' gross, with the contractor months' directive lump sums and the stand-alone
+ * directives added so the lump-sum split removes each once, and the employee's own annual payments) and the 3616 income.
+ */
 export function splitContractorIncome(i: ContractorSplitInput): { salaryGross: number; annualPayments: number; income3616: number } {
   const contractor = Math.min(Math.max(0, i.contractorGross), i.totalGross);
+  const directive = Math.min(Math.max(0, i.contractorDirective), contractor);
+  const annual = Math.min(Math.max(0, i.contractorAnnual), contractor);
   return {
-    salaryGross: i.totalGross - contractor + i.standaloneGross,
-    annualPayments: Math.max(0, i.annualAll - Math.min(Math.max(0, i.contractorAnnual), contractor)),
-    income3616: contractor,
+    salaryGross: i.totalGross - contractor + directive + i.standaloneGross,
+    annualPayments: Math.max(0, i.annualAll - annual),
+    income3616: contractor - directive + Math.max(0, i.contractorNonCash),
   };
 }
 
 /** 4150 for a certificate with no tax that carries contractor income (BRS V25.3.0 p. 109). */
 export const CONTRACTOR_NON_DEDUCTION_REASON = '03';
+
+/**
+ * The 4150 of a certificate with no tax. Contractor income present: 03, but the employee part (3601, 3605, fringe benefits) is judged
+ * first by nilTaxReason, which throws for pay over the threshold with no tax and returns a reason when it is nil or passes; so 120 000 of
+ * employee pay with nil PAYE beside 1 000 of contractor fees is refused, not hidden behind 03.
+ */
+export function contractorAwareReason(emp: EmployeeInput): string {
+  if ((emp.independentContractor3616 ?? 0) <= 0) return nilTaxReason(emp);
+  const employeeIncome = Math.max(0, emp.grossSalary3601) + Math.max(0, emp.annualPayments3605 ?? 0)
+    + (emp.fringeBenefits ?? []).reduce((t, f) => t + Math.max(0, f.amount), 0);
+  if (employeeIncome > 0) nilTaxReason(emp);
+  return CONTRACTOR_NON_DEDUCTION_REASON;
+}

@@ -7,8 +7,7 @@ import { calculateSDL } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
 import { sdlLeviableToDate } from './sdlLeviableCumulative';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
-import { classifyEmployment, EARNED_TIME_CODES, employedShareOfMonth } from './employmentTerms';
-import { normaliseSarsCode } from './payeAnnualPayment';
+import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
 import type {
@@ -71,8 +70,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // How the employee is taxed (TS-b): the tables, a flat 25% (non-standard), or none (contractor). The class reads what the line pays
   // per day (employmentTerms). A line off the tables is costed as a first period (no year to date), then replaced below; its month
   // stays out of every later table month's base.
-  const timeWorked = components.reduce((t, c) => (c.component.componentType === 'earning'
-    && EARNED_TIME_CODES.includes(normaliseSarsCode(c.component.sarsSourceCode)) ? t + c.amount : t), 0);
+  const timeWorked = timeWorkedEarnings(components);
   const classification = classifyEmployment(employee, taxYear, {
     earnings: timeWorked, employedShare: employedShareOfMonth(period, employee.startDate, employee.endDate),
   });

@@ -20,6 +20,7 @@
  * data and the e@syFile export's warnings. Declarable runs and the tax year as
  * listRunAnnualPayments reads them; codes after the calculator's trim.
  */
+import { contractorLineFlag } from './payrollOutsideTables';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
@@ -43,8 +44,11 @@ export async function listRunNonCashBenefits(
   companyId: string,
   bounds: { start: string; end: string },
   employeeId: string | null = null,
+  opts: { excludeContractorLines?: boolean } = {},
 ): Promise<Map<string, NonCashBenefitFiling[]>> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  // An independent contractor's benefits are 3616 income, never 38xx (easyFileContractor): the e@syFile export leaves those lines out.
+  const excludeContractor = opts.excludeContractorLines === true;
   const rows = (await sql`
     SELECT l.employee_id,
            regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') AS source_code,
@@ -59,6 +63,7 @@ export async function listRunNonCashBenefits(
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND item->>'isNonCash' = 'true'
+      AND NOT (${excludeContractor}::boolean AND COALESCE(l.validation_results @> ${contractorLineFlag}::jsonb, false))
     GROUP BY l.employee_id, regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g')
     ORDER BY l.employee_id, source_code
   `) as DbRow[];

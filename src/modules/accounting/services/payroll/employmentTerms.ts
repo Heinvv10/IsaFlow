@@ -20,7 +20,7 @@
  * Day pay is "remuneration per day" (p. 28: "earns ... for that day"), so it follows what the line pays, but earnings may only
  *   RAISE it. With a recorded rate the day pay is max(recorded rate, earned): a short month (a starter, unpaid leave, fewer
  *   hours than scheduled) lowers the earned figure and must never lower the withholding. Earned = the periodic earnings for
- *   time worked (EARNED_TIME_CODES: 3601 basic pay, 3607 overtime; not commission, allowances or non-cash benefits, which are
+ *   time worked (timeWorkedEarnings: recurring 3601 basic pay, 3607 overtime, not once-off 3601 back pay; not commission, allowances or non-cash benefits, which are
  *   not pay for a day's work; LOW-MEDIUM confidence, G21 p. 28 says only "earns ... for that day") over the scheduled days
  *   (hours a week / hours a day, x 52 / 12 a month) scaled by the share of the month the employee was employed. With no
  *   recorded rate the earned figure stands in. DAY_PAY_TOLERANCE only governs the warning, never the class. HD's quantity
@@ -31,6 +31,7 @@
 import type { PayrollEmployee } from './payrollTypes';
 import { getTaxYearConfig } from './taxTables';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { normaliseSarsCode } from './payeAnnualPayment';
 
 export const STANDARD_HOURS_PER_WEEK = 22;
 export const DEEMED_STANDARD_HOURS_PER_DAY = 5;
@@ -47,6 +48,8 @@ export interface EmploymentClassification {
   hoursNotRecorded: boolean;
   /** Set when the day pay the line earns differs from the recorded rate and decided the class (a warning on the line). */
   dayPayNote?: string;
+  /** The class was decided from the line's earnings alone: no daily or hourly rate is recorded (a warning on the line). */
+  rateNotRecorded?: boolean;
 }
 
 /** The relative gap between the earnings-derived day pay and the recorded rate that counts as a disagreement (rounding of days a month sits near 2%). */
@@ -62,27 +65,41 @@ function dayPay(t: WorkTerms): number | null {
   return null;
 }
 
-const result = (kind: EmploymentClass, reason: string, hoursNotRecorded = false, dayPayNote?: string): EmploymentClassification => ({
-  kind, reason, hoursNotRecorded, ...(dayPayNote ? { dayPayNote } : {}),
+const result = (kind: EmploymentClass, reason: string, hoursNotRecorded = false, dayPayNote?: string, rateNotRecorded = false): EmploymentClassification => ({
+  kind, reason, hoursNotRecorded, ...(dayPayNote ? { dayPayNote } : {}), ...(rateNotRecorded ? { rateNotRecorded } : {}),
 });
 
-/** The earnings that are pay for time worked (SARS codes): 3601 basic pay and 3607 overtime. Commission, allowances and benefits are not. */
-export const EARNED_TIME_CODES: readonly string[] = ['3601', '3607'];
+/**
+ * The line's earnings that are pay for time worked: recurring basic pay (3601) and overtime (3607), whatever their assignment. A
+ * once-off 3601 (back pay, a correction) is not this period's days worked, so it is out; a once-off that carries a quantity (HD's
+ * hours for the period) will count when HD lands (no quantity field is on master yet).
+ */
+export function timeWorkedEarnings(components: ReadonlyArray<{ component: { componentType: string; sarsSourceCode: string }; amount: number; isRecurring?: boolean }>): number {
+  return components.reduce((t, c) => {
+    if (c.component.componentType !== 'earning') return t;
+    const code = normaliseSarsCode(c.component.sarsSourceCode);
+    const counts = code === '3607' || (code === '3601' && c.isRecurring !== false);
+    return counts ? t + c.amount : t;
+  }, 0);
+}
 
 /** What the earnings for time worked pay for a scheduled day: earnings / (hours a week / hours a day x 52 / 12 x share of the month employed); null when the schedule is not known. */
-function earnedDayPay(terms: WorkTerms, input: DayPayInput): number | null {
-  const { earnings, employedShare = 1 } = input;
+function earnedDayPay(terms: WorkTerms, input: DayPayInput, share: number): number | null {
+  const { earnings } = input;
   if (earnings == null || earnings <= 0 || terms.hoursPerWeek == null || terms.hoursPerDay == null || terms.hoursPerDay <= 0) return null;
-  const scheduledDays = (terms.hoursPerWeek / terms.hoursPerDay) * WEEKS_PER_MONTH * Math.min(1, Math.max(0.01, employedShare));
-  return earnings / scheduledDays;
+  return earnings / ((terms.hoursPerWeek / terms.hoursPerDay) * WEEKS_PER_MONTH * Math.min(1, Math.max(0.01, share)));
 }
 
 /** The day pay that decides (earnings may only raise a recorded rate), and the note when they did by more than the tolerance. */
-function decidingDayPay(terms: WorkTerms, input: DayPayInput): { pay: number | null; note?: string } {
+function decidingDayPay(terms: WorkTerms, input: DayPayInput): { pay: number | null; note?: string; rateNotRecorded?: boolean } {
   const recorded = dayPay(terms);
-  const earned = earnedDayPay(terms, input);
+  // Not employed in the period (a leaver paid after leaving, a start after it): the earnings are not for days worked in it, so a
+  // recorded rate decides alone; with none, the earnings stand in over the full month's schedule, as for any line with no rate.
+  const notEmployed = input.employedShare != null && input.employedShare <= 0;
+  if (notEmployed && recorded != null) return { pay: recorded };
+  const earned = earnedDayPay(terms, input, notEmployed ? 1 : input.employedShare ?? 1);
   if (earned == null) return { pay: recorded };
-  if (recorded == null) return { pay: earned };
+  if (recorded == null) return { pay: earned, rateNotRecorded: true };
   const pay = Math.max(recorded, earned);
   if (earned <= recorded * (1 + DAY_PAY_TOLERANCE)) return { pay };
   return {
@@ -93,16 +110,22 @@ function decidingDayPay(terms: WorkTerms, input: DayPayInput): { pay: number | n
   };
 }
 
-/** The share of the period's month the employee was employed (start and end dates, inclusive), 1 when the dates do not touch it. */
+/**
+ * The share of the period's WORKING days (Monday to Friday, the scheduled days are working days) the employee was employed, start and end
+ * dates inclusive; 0 when they were not employed in the month at all (a start after it, an end before it).
+ */
 export function employedShareOfMonth(period: { year: number; month: number }, startDate: Date, endDate?: Date): number {
-  const monthStart = new Date(period.year, period.month - 1, 1).getTime();
   const days = new Date(period.year, period.month, 0).getDate();
-  const day = 86_400_000;
-  const from = Math.max(monthStart, new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime());
-  const monthEnd = monthStart + (days - 1) * day;
-  const to = endDate ? Math.min(monthEnd, new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime()) : monthEnd;
-  const employed = Math.round((to - from) / day) + 1;
-  return employed <= 0 ? 1 : Math.min(1, employed / days);
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  let all = 0;
+  let employed = 0;
+  for (let d = 1; d <= days; d += 1) {
+    const date = new Date(period.year, period.month - 1, d);
+    if (date.getDay() === 0 || date.getDay() === 6) continue;
+    all += 1;
+    if (date.getTime() >= day(startDate) && (endDate == null || date.getTime() <= day(endDate))) employed += 1;
+  }
+  return all === 0 ? 1 : employed / all;
 }
 
 /** What the line pays for time worked, and how much of the month the employee was employed: the day pay's evidence. */
@@ -128,12 +151,12 @@ export function classifyEmployment(terms: WorkTerms, taxYear: number, dayPayInpu
   if (hoursPerDay != null && hoursPerDay < DEEMED_STANDARD_HOURS_PER_DAY) {
     return result('non_standard_flat', `Under ${STANDARD_HOURS_PER_WEEK} hours a week and under ${DEEMED_STANDARD_HOURS_PER_DAY} hours a day: non-standard employment (G21 p. 28).`);
   }
-  const { pay, note } = decidingDayPay(terms, dayPayInput);
+  const { pay, note, rateNotRecorded } = decidingDayPay(terms, dayPayInput);
   if (pay != null && threshold != null && cents(pay) >= cents(threshold)) {
-    return result('non_standard_flat', `Under ${STANDARD_HOURS_PER_WEEK} hours a week and paid ${formatMoney(threshold)} or more a day: non-standard employment (G21 p. 28).`, false, note);
+    return result('non_standard_flat', `Under ${STANDARD_HOURS_PER_WEEK} hours a week and paid ${formatMoney(threshold)} or more a day: non-standard employment (G21 p. 28).`, false, note, rateNotRecorded);
   }
   if (hoursPerDay != null && pay != null && threshold != null) {
-    return result('deemed_standard', `At least ${DEEMED_STANDARD_HOURS_PER_DAY} hours a day and paid under ${formatMoney(threshold)} a day: deemed standard employment (G21 p. 28).`, false, note);
+    return result('deemed_standard', `At least ${DEEMED_STANDARD_HOURS_PER_DAY} hours a day and paid under ${formatMoney(threshold)} a day: deemed standard employment (G21 p. 28).`, false, note, rateNotRecorded);
   }
   const missing = threshold == null
     ? `the daily threshold for tax year ${taxYear} is not verified`

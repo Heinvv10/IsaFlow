@@ -12,26 +12,30 @@ import { assertDisposable, request } from './mfa-impersonation-postgres.helpers'
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const company = crypto.randomUUID();
+// Separate companies for a file that is REFUSED and for the directive and non-cash cases, so one does not fail the others.
+const refusing = crypto.randomUUID();
+const directiveCo = crypto.randomUUID();
+const everyCompany = [company, refusing, directiveCo];
 const user = crypto.randomUUID();
 
 const item = (code: string, amount: number) => ({ componentId: code, componentName: code, sarsSourceCode: code, amount, isTaxable: true, isUifApplicable: false });
 const CONTRACTOR = [{ code: 'PAYE_OUTSIDE_TABLES', severity: 'warning', treatment: 'none', message: 'contractor' }];
 
-async function employee(last: string): Promise<string> {
+async function employee(last: string, of = company): Promise<string> {
   return (await pool.query(
     `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, id_number, tax_number)
-     VALUES ($1, $2, 'Test', $2, '2020-01-01', '1980-01-01', '8001015009087', '0123456789') RETURNING id`, [company, last])).rows[0]!.id;
+     VALUES ($1, $2, 'Test', $2, '2020-01-01', '1980-01-01', '8001015009087', '0123456789') RETURNING id`, [of, last])).rows[0]!.id;
 }
 
 /** One approved run per month; a line of `gross` with `items`, flagged as a contractor's or not. */
-const runs = new Map<number, string>();
-async function line(month: number, employeeId: string, gross: number, paye: number, items: unknown[], contractor: boolean): Promise<void> {
-  let run = runs.get(month);
+const runs = new Map<string, string>();
+async function line(month: number, employeeId: string, gross: number, paye: number, items: unknown[], contractor: boolean, of = company): Promise<void> {
+  let run = runs.get(`${of}:${month}`);
   if (!run) {
     run = (await pool.query(
       `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross) VALUES ($1, $2, 2026, 'approved', 0) RETURNING id`,
-      [company, month])).rows[0]!.id as string;
-    runs.set(month, run);
+      [of, month])).rows[0]!.id as string;
+    runs.set(`${of}:${month}`, run);
   }
   await pool.query(
     `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, component_breakdown, validation_results)
@@ -41,11 +45,13 @@ async function line(month: number, employeeId: string, gross: number, paye: numb
 
 beforeAll(async () => {
   await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)", [user, `${user}@test.local`]);
-  await pool.query(
-    `INSERT INTO companies (id, name, paye_reference_number, sars_contact_first_name, sars_contact_last_name, sars_contact_telephone,
-       physical_address_line1, physical_postal_code, physical_city)
-     VALUES ($1, 'e@syFile contractor', '7123456789', 'Ada', 'Lovelace', '0110000000', '1 Fixture Street', '0001', 'Pretoria')`, [company]);
-  await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'admin')", [company, user]);
+  for (const id of everyCompany) {
+    await pool.query(
+      `INSERT INTO companies (id, name, paye_reference_number, sars_contact_first_name, sars_contact_last_name, sars_contact_telephone,
+         physical_address_line1, physical_postal_code, physical_city)
+       VALUES ($1, 'e@syFile contractor', '7123456789', 'Ada', 'Lovelace', '0110000000', '1 Fixture Street', '0001', 'Pretoria')`, [id]);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'admin')", [id, user]);
+  }
   // Switched to contractor: March as an employee, April as a contractor, no PAYE.
   const toContractor = await employee('Tocontractor');
   await line(3, toContractor, 10_000, 0, [item('3601', 10_000)], false);
@@ -60,25 +66,41 @@ beforeAll(async () => {
   // A contractor paid only an annual payment.
   const bonusOnly = await employee('Bonusonly');
   await line(3, bonusOnly, 150_000, 0, [item('3605', 150_000)], true);
+  // Refused: 120 000 of employee pay with nil PAYE beside 1 000 of contractor fees (the employee part is over the threshold).
+  const mixed = await employee('Mixedrefused', refusing);
+  await line(3, mixed, 120_000, 0, [item('3601', 120_000)], false, refusing);
+  await line(4, mixed, 1_000, 0, [item('3601', 1_000)], true, refusing);
+  // A contractor paid 100 000 of fees and a 50 000 severance directive in the same line, and a 7 000 non-cash benefit.
+  const directiveId = crypto.randomUUID();
+  const withDirective = await employee('Withdirective', directiveCo);
+  await pool.query(
+    `INSERT INTO tax_directives (id, company_id, employee_id, employee_name, directive_number, directive_type, amount, tax_rate, effective_date, status)
+     VALUES ($1, $2, $3, 'Test Withdirective', '1234567890', 'severance', 50000, 0, '2026-03-01', 'approved')`, [directiveId, directiveCo, withDirective]);
+  await line(3, withDirective, 150_000, 0, [
+    item('3601', 100_000),
+    { ...item('3901', 50_000), directive: { id: directiveId, number: '1234567890', paye: 0 } },
+    { ...item('3801', 7_000), isNonCash: true },
+  ], true, directiveCo);
 });
 
 afterAll(async () => {
   try {
-    await pool.query('DELETE FROM payroll_run_lines WHERE run_id IN (SELECT id FROM payroll_run_headers WHERE company_id = $1)', [company]);
-    await pool.query('DELETE FROM payroll_run_headers WHERE company_id = $1', [company]);
-    await pool.query('DELETE FROM payroll_employees WHERE company_id = $1', [company]);
-    await pool.query('DELETE FROM company_users WHERE company_id = $1', [company]);
-    await pool.query('DELETE FROM companies WHERE id = $1', [company]);
+    await pool.query('DELETE FROM payroll_run_lines WHERE run_id IN (SELECT id FROM payroll_run_headers WHERE company_id = ANY($1))', [everyCompany]);
+    await pool.query('DELETE FROM payroll_run_headers WHERE company_id = ANY($1)', [everyCompany]);
+    await pool.query('DELETE FROM tax_directives WHERE company_id = ANY($1)', [everyCompany]);
+    await pool.query('DELETE FROM payroll_employees WHERE company_id = ANY($1)', [everyCompany]);
+    await pool.query('DELETE FROM company_users WHERE company_id = ANY($1)', [everyCompany]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [everyCompany]);
     await pool.query('DELETE FROM users WHERE id = $1', [user]);
   } finally {
     await pool.end();
   }
 });
 
-async function exportFile(): Promise<{ status: number; body: string }> {
+async function exportFile(of = company): Promise<{ status: number; body: string }> {
   const token = await new SignJWT({ sub: user, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
-  const req = request({ 'sb-access-token': token, active_company_id: company }, 'GET') as never as { url: string; query: Record<string, string> };
+  const req = request({ 'sb-access-token': token, active_company_id: of }, 'GET') as never as { url: string; query: Record<string, string> };
   req.url = '/api/payroll/irp5/easyfile-export';
   req.query = { taxYear: '2027' };
   const out = { status: 200, body: '' };
@@ -132,5 +154,20 @@ describe('e@syFile: a contractor is 3616, decided per line', () => {
     const r = recordOf(file.body, 'Bonusonly');
     expect(r).toEqual(expect.arrayContaining(['3616,150000', '4150,03']));
     expect(r.some(l => l.startsWith('3605,') || l.startsWith('3601,'))).toBe(false);
+  });
+
+  it('contractor fees 100 000 plus a 50 000 directive: 3616 100 000, the directive as 3901 lump sum, 3801 benefit as 3616 (107 000 in all), no 3601, no 3801', async () => {
+    const file = await exportFile(directiveCo);
+    expect(file.status, file.body.slice(0, 300)).toBe(200);
+    const r = recordOf(file.body, 'Withdirective');
+    expect(r).toEqual(expect.arrayContaining(['3616,107000', '3901,50000']));
+    expect(r.some(l => l.startsWith('3601,') || l.startsWith('3801,'))).toBe(false);
+  });
+
+  it('120 000 of employee pay with nil PAYE beside 1 000 of contractor fees refuses the file (03 does not hide the employee part)', async () => {
+    const file = await exportFile(refusing);
+    expect(file.status).toBe(422);
+    expect(file.body).toMatch(/Mixedrefused/);
+    expect(file.body).toMatch(/no PAYE was deducted/);
   });
 });

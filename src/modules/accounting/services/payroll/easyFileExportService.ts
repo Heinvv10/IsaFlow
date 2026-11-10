@@ -46,7 +46,7 @@ import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, 
 import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
-import { CONTRACTOR_NON_DEDUCTION_REASON } from './easyFileContractor';
+import { contractorAwareReason } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
 import { retirementFieldLines, withDeductionTotal, type RetirementContributions } from './easyFileRetirementFields';
 
@@ -211,7 +211,9 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // directive beside taxable pay over the threshold is no reason 04 either.
   const it3a = emp.paye4102 <= 0 && paye4115 <= 0;
   // A contractor's certificate with no tax is reason 03 (BRS V25.3.0 p. 109), at any amount: easyFileContractor.
-  const reason = it3a ? ((emp.independentContractor3616 ?? 0) > 0 ? CONTRACTOR_NON_DEDUCTION_REASON : nilTaxReason(emp)) : null;
+  // With contractor income (3616) the reason is 03, valid beside it (BRS V25.3.0 p. 62, 109); the employee part of a mixed certificate is
+  // still judged by nilTaxReason (refused when it is over the threshold with no tax): the reason is never a way round that.
+  const reason = it3a ? contractorAwareReason(emp) : null;
   const medical = medicalFieldLines(emp);
   const retirement = retirementFieldLines(emp.retirementFund);
   const lines: (string | null)[] = [

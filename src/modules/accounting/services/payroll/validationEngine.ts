@@ -139,6 +139,7 @@ export function validateEti(
  * What the employee's terms of work say about how they are taxed (employmentTerms, taxStatusTreatment):
  *  - HOURS_NOT_RECORDED: a monthly employee with no hours is standard employment by default, never silently. Info for a
  *    permanent employee; a WARNING for a contract or casual one, whose hours are the likelier thing to be under 22 a week;
+ *  - DAY_RATE_NOT_RECORDED (warning): the class came from the line's earnings alone, no day or hourly rate is recorded (a limit until HD's quantity lands);
  *  - DAY_PAY_FROM_EARNINGS (warning): the line's earnings per scheduled day differ from the recorded rate and decided the class;
  *  - EMPLOYMENT_UNDETERMINED (error): the guide cannot classify from the terms recorded (G21 p. 28);
  *  - DIRECTOR_STATUS_NOT_SET (error): employment type "director" with tax status "employee": the card asks, nothing
@@ -159,6 +160,12 @@ export function validateEmploymentTerms(
     results.push({
       code: 'HOURS_NOT_RECORDED', severity: likelyPartTime ? 'warning' : 'info', ...link,
       message: `${name}: ${classification.reason}.${likelyPartTime ? ` A ${employee.employmentType} employee may work under 22 hours a week (non-standard employment, 25% PAYE, G21 p. 28): record the hours.` : ''}`,
+    });
+  }
+  if (classification.rateNotRecorded) {
+    results.push({
+      code: 'DAY_RATE_NOT_RECORDED', severity: 'warning', ...link,
+      message: `${name}: no daily or hourly rate is recorded, so the employment class came from this line's earnings alone. Record the daily or hourly rate: a short month can lower the class (G21 p. 28, "earns ... for that day").`,
     });
   }
   if (classification.dayPayNote) {

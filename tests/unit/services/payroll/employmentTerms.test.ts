@@ -146,7 +146,7 @@ describe('earnings may only raise the day pay (a short month never lowers the wi
 
   it('a starter on the 16th, paid half the month: earned day pay is not below the rate, class stays flat, no note', () => {
     const half = employedShareOfMonth({ year: 2026, month: 3 }, new Date(2026, 2, 16));
-    expect(half).toBeCloseTo(16 / 31, 5);
+    expect(half).toBeCloseTo(12 / 22, 5); // working days: 16th (a Monday) to the 31st is 12 of March's 22
     const c = classifyEmployment(R500, 2027, { earnings: 500 * 8.6667 * half, employedShare: half });
     expect([c.kind, c.dayPayNote]).toEqual(['non_standard_flat', undefined]);
   });
@@ -184,12 +184,39 @@ describe('earnings may only raise the day pay (a short month never lowers the wi
   });
 });
 
-describe('employedShareOfMonth', () => {
-  const march = { year: 2026, month: 3 };
-  it('is 1 for a full month, a leaver on the 15th is 15/31, a starter and leaver in one month count their days, an end before the month is 1', () => {
-    expect(employedShareOfMonth(march, new Date(2020, 0, 1))).toBe(1);
-    expect(employedShareOfMonth(march, new Date(2020, 0, 1), new Date(2026, 2, 15))).toBeCloseTo(15 / 31, 5);
-    expect(employedShareOfMonth(march, new Date(2026, 2, 10), new Date(2026, 2, 19))).toBeCloseTo(10 / 31, 5);
-    expect(employedShareOfMonth(march, new Date(2020, 0, 1), new Date(2026, 1, 20))).toBe(1);
+describe('employedShareOfMonth: working days (Monday to Friday)', () => {
+  const march = { year: 2026, month: 3 }; // 22 working days; the 1st is a Sunday, the 31st a Tuesday
+  it('a full month is 1', () => expect(employedShareOfMonth(march, new Date(2020, 0, 1))).toBe(1));
+  it('a leaver on the 15th (a Sunday): 10 of 22 working days', () => {
+    expect(employedShareOfMonth(march, new Date(2020, 0, 1), new Date(2026, 2, 15))).toBeCloseTo(10 / 22, 5);
+  });
+  it('the 31st-day starter is 1 of 22 working days, not 1 of 31', () => {
+    expect(employedShareOfMonth(march, new Date(2026, 2, 31))).toBeCloseTo(1 / 22, 5);
+  });
+  it('a starter on a Saturday (28 February would be) or Sunday loses no working day: a Sunday 1 March start is the whole month', () => {
+    expect(employedShareOfMonth(march, new Date(2026, 2, 1))).toBe(1);
+  });
+  it('a start and leave inside one month count their working days', () => {
+    expect(employedShareOfMonth(march, new Date(2026, 2, 10), new Date(2026, 2, 19))).toBeCloseTo(8 / 22, 5);
+  });
+  it('not employed in the month: 0 (an end before it, a start after it)', () => {
+    expect(employedShareOfMonth(march, new Date(2020, 0, 1), new Date(2026, 1, 20))).toBe(0);
+    expect(employedShareOfMonth(march, new Date(2026, 3, 1))).toBe(0);
+  });
+});
+
+describe('a line for a person not employed in the period (L1) and a line with no rate (M5)', () => {
+  const sched = { hoursPerWeek: 20, hoursPerDay: 5 };
+  it('a leaver paid R10 000 back pay after leaving, rate R300 recorded: the rate decides alone, deemed standard', () => {
+    const c = classifyEmployment(terms({ ...sched, dailyRate: 300 }), 2027, { earnings: 10_000, employedShare: 0 });
+    expect([c.kind, c.dayPayNote, c.rateNotRecorded]).toEqual(['deemed_standard', undefined, undefined]);
+  });
+  it('the same leaver with no rate: earnings over the full month stand in (R577 a day: flat), with the no-rate flag', () => {
+    const c = classifyEmployment(terms(sched), 2027, { earnings: 10_000, employedShare: 0 });
+    expect([c.kind, c.rateNotRecorded]).toEqual(['non_standard_flat', true]);
+  });
+  it('a line classified from earnings alone says so; a line with a recorded rate does not', () => {
+    expect(classifyEmployment(terms(sched), 2027, { earnings: 4_000 }).rateNotRecorded).toBe(true);
+    expect(classifyEmployment(terms({ ...sched, dailyRate: 300 }), 2027, { earnings: 4_000 }).rateNotRecorded).toBeUndefined();
   });
 });

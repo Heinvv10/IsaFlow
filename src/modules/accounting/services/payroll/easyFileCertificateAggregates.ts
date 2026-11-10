@@ -22,12 +22,23 @@ export function loadCertificateAggregates(
       SUM(prl.sdl)          AS total_sdl,
       -- An independent contractor's months (PAYE_OUTSIDE_TABLES, treatment none) are code 3616, decided per line (easyFileContractor).
       COALESCE(SUM(prl.gross_pay) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_gross,
-      -- The taxable 3605 inside those lines stays 3605, not 3616.
-      COALESCE(SUM((
+      -- Inside those lines, each floored at nil per line: the taxable 3605 (leaves the employee's 3605; it is 3616), the directive lump sums
+      -- (39xx, filed as lump sums, so out of 3616) and the non-cash benefits (outside gross_pay, in 3616 and never 38xx).
+      COALESCE(SUM(GREATEST((
         SELECT COALESCE(SUM((item->>'amount')::numeric), 0)
           FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array' THEN prl.component_breakdown ELSE '[]'::jsonb END) item
          WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605' AND COALESCE((item->>'isTaxable')::boolean, false)
-      )) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_annual
+      ), 0)) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_annual,
+      COALESCE(SUM(GREATEST((
+        SELECT COALESCE(SUM((item->>'amount')::numeric), 0)
+          FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array' THEN prl.component_breakdown ELSE '[]'::jsonb END) item
+         WHERE item->'directive' IS NOT NULL
+      ), 0)) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_directive,
+      COALESCE(SUM(GREATEST((
+        SELECT COALESCE(SUM((item->>'amount')::numeric), 0)
+          FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array' THEN prl.component_breakdown ELSE '[]'::jsonb END) item
+         WHERE item->>'isNonCash' = 'true'
+      ), 0)) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_noncash
     FROM payroll_run_lines prl
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     WHERE prh.company_id = ${companyId}::uuid

@@ -164,6 +164,36 @@ describe('earnings for time worked only (M-a): basic pay 3601 and overtime 3607'
   });
 });
 
+describe('only recurring basic pay counts, not back pay (M4)', () => {
+  const R300 = { payBasis: 'daily' as const, hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 300 };
+  const flat = (r: ReturnType<typeof cost>) => r.validationResults.some(v => v.code === 'PAYE_OUTSIDE_TABLES');
+  it('R300 a day (R5 200) plus R10 000 once-off back pay: deemed standard', () => {
+    expect(flat(cost(employee(R300), [earn(5_200), { ...earn(10_000), isRecurring: false }]))).toBe(false);
+  });
+  it('the same R10 000 as recurring basic pay is time worked: flat', () => {
+    expect(flat(cost(employee(R300), [earn(5_200), { ...earn(10_000), isRecurring: true }]))).toBe(true);
+  });
+  it('once-off overtime (3607) still counts', () => {
+    expect(flat(cost(employee(R300), [earn(5_200), { ...earn(10_000, '3607'), isRecurring: false }]))).toBe(true);
+  });
+});
+
+describe('no rate recorded (M5) and not employed in the period (L1), through the calculator', () => {
+  const codes = (r: ReturnType<typeof cost>) => r.validationResults.map(v => v.code);
+  it('earnings alone decide, with a DAY_RATE_NOT_RECORDED warning', () => {
+    const r = cost(employee({ payBasis: 'daily', hoursPerWeek: 20, hoursPerDay: 5 }), [earn(15_000)]);
+    expect(codes(r)).toEqual(expect.arrayContaining(['DAY_RATE_NOT_RECORDED', 'PAYE_OUTSIDE_TABLES']));
+    expect(r.validationResults.find(v => v.code === 'DAY_RATE_NOT_RECORDED')?.severity).toBe('warning');
+  });
+  it('a recorded rate: no such warning', () => {
+    expect(codes(cost(employee({ payBasis: 'daily', hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 300 }), [earn(5_200)]))).not.toContain('DAY_RATE_NOT_RECORDED');
+  });
+  it('a leaver (ended in February) paid R10 000 back pay in March, rate R300: deemed standard, tables', () => {
+    const r = cost(employee({ payBasis: 'daily', hoursPerWeek: 20, hoursPerDay: 5, dailyRate: 300, endDate: new Date(2026, 1, 27) }), [earn(10_000)]);
+    expect(codes(r)).not.toContain('PAYE_OUTSIDE_TABLES');
+  });
+});
+
 describe('a short month never lowers the withholding (H1-new), through the calculator', () => {
   const t = { payBasis: 'daily' as const, hoursPerWeek: 12, hoursPerDay: 6, dailyRate: 500 };
   it('a starter on the 16th paid R2 236.56: flat, 25% = R559.14', () => {
