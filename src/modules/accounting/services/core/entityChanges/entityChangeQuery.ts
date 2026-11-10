@@ -158,16 +158,20 @@ export async function listEntityChanges(companyId: string, opts: ListEntityChang
   };
 }
 
+/**
+ * The work terms (migration 967), the superset of TS-b's and HD's: tax status, pay basis, hours and rates decide how PAYE, UIF, SDL and ETI are
+ * taken (TS-b), and what an hourly or daily line was priced and judged on hangs on them (HD). Any change after calculation counts, for any
+ * employee. The employment type feeds the director check and the hours warning.
+ */
+const WORK_TERMS = ['tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'employment_type'];
 /** The payroll_employees columns whose change after calculation sends a pay run back for recalculation. */
 const PAYROLL_TERMS = [
   'end_date', 'termination_reason', 'termination_notice_period_days', 'termination_served_notice_days',
   'termination_severance_weeks_per_year', 'termination_include_leave_payout', 's18a_receipt_held',
-  // The work terms (migration 967) decide how PAYE, UIF, SDL and ETI are taken (TS-b): a change moves the figures.
-  'tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'employment_type',
+  ...WORK_TERMS,
 ];
 /** The termination details: they count only for an employee whose end date is on or before the run's last day. */
 const TERMINATION_TERMS = PAYROLL_TERMS.filter(t => t.startsWith('termination_'));
-const WORK_TERMS = ['tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'employment_type'];
 
 /**
  * For the payroll approval gate (payrollRunRecalcGate): the employees among `employeeIds` whose end date,
@@ -228,7 +232,8 @@ export async function payrollTermsChangedSinceCalculation(
           AND c.after->>'end_date' IS NOT NULL AND (c.after->>'end_date')::date <= p.last_day)
         -- The s18A receipt tick moves PAYE and SDL for any employee, in either direction.
         OR 's18a_receipt_held' = ANY(c.changed)
-        -- So do the work terms: tax status, pay basis, hours and rates (and the employment type the director check reads).
+        -- The work terms (TS-b: tax status, pay basis, hours and rates; HD: a line's hours, price and ETI hang on them) and the employment type
+        -- the director check and the hours warning read.
         OR c.changed && ${WORK_TERMS}::text[]
       )
   `) as Array<{ entity_id: string }>;
