@@ -76,6 +76,11 @@ beforeAll(async () => {
   const dir = (amount: number) => ({ ...item('3901', amount), directive: { id: reversedId, number: '1234567891', paye: 0 } });
   await line(3, reversed, 150_000, 0, [item('3601', 100_000), dir(50_000)], true, reversalCo);
   await line(4, reversed, -50_000, 0, [dir(-50_000)], true, reversalCo);
+  // An ORPHAN directive item (no tax_directives row): the lump-sum list does not file it, so it must not leave 3616 either.
+  const orphan = await employee('Orphan', reversalCo);
+  await line(3, orphan, 120_000, 0, [
+    item('3601', 100_000), { ...item('3901', 20_000), directive: { id: crypto.randomUUID(), number: '9999999999', paye: 0 } },
+  ], true, reversalCo);
   // A contractor bonus of 30 000 in March and a 10 000 clawback in April: each line is floored at nil, so 30 000 is 3616's, not 20 000.
   const clawback = await employee('Clawback');
   await line(3, clawback, 40_000, 0, [item('3601', 10_000), item('3605', 30_000)], true);
@@ -197,5 +202,11 @@ describe('e@syFile: a contractor is 3616, decided per line', () => {
     const r = recordOf(file.body, 'Reversed');
     expect(r).toContain('3616,100000');
     expect(r.some(l => l.startsWith('3601,'))).toBe(false);
+  });
+
+  it('an orphan directive item (no directive row) stays in 3616: it is filed as no lump sum, so it is not removed from the contractor income', async () => {
+    const r = recordOf((await exportFile(reversalCo)).body, 'Orphan');
+    expect(r).toContain('3616,120000');
+    expect(r.some(l => l.startsWith('3901,') || l.startsWith('3601,'))).toBe(false);
   });
 });
