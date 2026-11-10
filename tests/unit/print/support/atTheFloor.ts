@@ -9,7 +9,7 @@
 import type { FigureFit, StampedPackPagesDocument } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 
-const forced = (fit: FigureFit | undefined): FigureFit | undefined => (fit !== undefined && !fit.fits ? { px: fit.px, fits: true } : fit);
+const forced = (fit: FigureFit | undefined): FigureFit | undefined => (fit !== undefined && !fit.fits ? { ...fit, fits: true } : fit);
 
 export function atTheFloor(doc: PackPagesDocument): StampedPackPagesDocument {
   return {

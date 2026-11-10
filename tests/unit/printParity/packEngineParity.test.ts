@@ -1,5 +1,10 @@
 /**
- * THE PRINT TESTS' CHROMIUM LAYS A PACK OUT EXACTLY AS PRODUCTION'S GOTENBERG DOES.
+ * THE PRINT TESTS' CHROMIUM LAYS A PACK OUT EXACTLY AS PRODUCTION'S GOTENBERG DOES, for the documents compared here.
+ *
+ * That is glyph advances and the boxes and lines of the pack's own documents, not line breaking in general: the print
+ * tests' Chromium (Playwright's 145) and production's (Gotenberg's 151) break some texts differently (a word-opening
+ * hyphen, U+2800, `print/printChromium.ts`). Line-break parity with production rests on the velo-only image tests
+ * (`packBreakPairsImage.test.ts`, `packNumericHoldImage.test.ts`), not on this one.
  *
  * Every pack print test, and every width the fit model was measured from, runs in Playwright's Chromium
  * (`launchPrintChromium`); production prints in Gotenberg's. This sends the same documents to both and fails on any

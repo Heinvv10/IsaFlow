@@ -21,6 +21,9 @@ import { demoWithoutBudget, withWidenedStatement, withWidenedTable } from '../se
 import { measure } from './measureWidths';
 import { measureTables } from './measureTables';
 import { atTheFloor } from './support/atTheFloor';
+import { printedText, printsAnywhere } from '@/modules/accounting/services/packs/pages/packPrintedText';
+import { alike, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_SEVEN_LABELS, ROUND_SIX_LABELS, ROUND_THREE_LABELS } from './fixtures/breakPairsCensus';
+import { ROUND_EIGHT_FITTING, ROUND_EIGHT_LABELS, ROUND_NINE_LABELS } from './fixtures/anywhereFamilies';
 import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 
 let browser: Browser;
@@ -52,8 +55,8 @@ for (const k of [1, 30, 1000, 30000, 300000, 1e6, 3e6]) for (const negative of [
 
 /** How far the model's columns may be from Chromium's (`packLineWrap.ts` sets the guard from it). */
 const COLUMN_ERROR_PX = 0.1;
-/** At most this many label rows a line taller than Chromium's, at a near tie (a piece within the model's error of its line). */
-const TIES_ALLOWED = 6;
+/** Label rows a line taller than Chromium's: none, now a line is fitted as Chromium's line breaker fits it (`fitUnitsPx`). */
+const TIES_ALLOWED = 0;
 
 describe('the layout of every statement table of a stratified sample of packs', () => {
   it(`${SHAPES.length} packs (prior and trend panels on and off, k to 3e6): columns within 0.1px, never a label line too few, heading lines equal, height never short`, async () => {
@@ -143,7 +146,83 @@ describe('a footnote mark sits on the LAST word of a label', () => {
       }
     }
     expect(wrong.slice(0, 10)).toEqual([]);
-    expect(ties, 'the guard may cost a line on a tie, not on many').toBeLessThanOrEqual(4);
+    expect(ties, 'a line too many at a tie').toBe(0);
+  }, 900_000);
+});
+
+describe('a label that ends at a soft hyphen (its last line keeps the hyphen\'s room, and draws none)', () => {
+  // A long word that ends at one is the widest piece with the hyphen's room and the whole label without it, so the
+  // column's min-content is past its max-content; Chromium holds the max at the min (`packTableLayout.layoutAt`).
+  // With a footnote mark, Chromium breaks between the soft hyphen and the <sup>: the mark is a word of its own
+  // (`packLineBreaks.markedPieces`), and the column's min-content the word and its hyphen, without the mark.
+  it('columns within 0.1px of Chromium, never a label line too few, the height never short, for words and phrases that end at one, bare and with a mark', async () => {
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const wrong: string[] = [];
+    const labels = [...[14, 22, 30, 38].map((n) => `${'n'.repeat(n)}\u00AD`), `ab ${'n'.repeat(30)}\u00AD`, 'Intercompany recharges\u00AD', 'Trade and other receiv\u00ADables\u00AD',
+      'Gross margin\u00AD', `${'n'.repeat(30)}-`, `${'n'.repeat(30)}\u2013`, `${'n'.repeat(30)}\u200B`, `${'n'.repeat(30)}\u2026`];
+    for (const label of labels) for (const labelMarker of [false, true]) {
+      for (const digits of [9, 12]) {
+        const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });
+        const real = (await measureTables(atTheFloor(doc), browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;
+        const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
+        const say = `${JSON.stringify(label)}${labelMarker ? '^1' : ''}, ${digits} digits`;
+        model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > COLUMN_ERROR_PX) wrong.push(`${say}: column ${c} model ${px.toFixed(3)} vs ${real.columnsPx[c]!.toFixed(3)}`); });
+        if (model.labelLines.some((l, r) => l < real.labelLines[r]!)) wrong.push(`${say}: lines ${model.labelLines} vs ${real.labelLines}`);
+        const height = statementTableBodyMm(table, doc.numberConvention.scale, 'portrait');
+        if (height < real.heightMm) wrong.push(`${say}: height short, model ${height.toFixed(2)}mm vs Chromium ${real.heightMm.toFixed(2)}`);
+      }
+    }
+    expect(wrong.slice(0, 10)).toEqual([]);
+  }, 900_000);
+});
+
+describe('a label that ends at a space before its footnote mark (a tenant\'s GL name can): the mark is a word of its own', () => {
+  it('columns within 0.1px of Chromium, never a label line too few, the height never short', async () => {
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const wrong: string[] = [];
+    const labels = [...[14, 30, 38].flatMap((n) => [`${'n'.repeat(n)} ab `, `ab ${'n'.repeat(n)} `]), 'Intercompany recharges ', 'Trade and other receivables\t', 'Gross margin\u00AD ', `${'n'.repeat(22)} ab\u00A0`, `\u00A0${'n'.repeat(22)} ab`];
+    for (const label of labels) {
+      for (const digits of [9, 12]) {
+        const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker: true });
+        const real = (await measureTables(atTheFloor(doc), browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;
+        const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
+        const say = `${JSON.stringify(label)}, ${digits} digits`;
+        model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > COLUMN_ERROR_PX) wrong.push(`${say}: column ${c} model ${px.toFixed(3)} vs ${real.columnsPx[c]!.toFixed(3)}`); });
+        if (model.labelLines.some((l, r) => l < real.labelLines[r]!)) wrong.push(`${say}: lines ${model.labelLines} vs ${real.labelLines}`);
+        if (statementTableBodyMm(table, doc.numberConvention.scale, 'portrait') < real.heightMm) wrong.push(`${say}: height short`);
+      }
+    }
+    expect(wrong.slice(0, 10)).toEqual([]);
+  }, 600_000);
+});
+
+describe('labels #1235\'s round-3 reviews found short (a break the splitter missed, a private-use character read as a slash)', () => {
+  // Breaks after a dash, an ellipsis or a question mark whatever stands before them, between an ideograph and a symbol
+  // (the pair table, `packBreakPairs.ts`); a private-use character priced as the fallback glyph Chromium sets.
+  it('never a label line too few, the height never short; the columns within 0.1px of Chromium where the faces set every character', async () => {
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const wrong: string[] = [];
+    // A label the two Chromiums break differently (a word-opening en dash) is held in production's image instead
+    // (`printParity/packBreakPairsImage.test.ts`).
+    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS, ...ROUND_SEVEN_LABELS, ...ROUND_EIGHT_LABELS, ...ROUND_EIGHT_FITTING, ...ROUND_NINE_LABELS].filter(([label]) => alike(label));
+    expect(labels.length).toBe(ROUND_THREE_LABELS.length + ROUND_FOUR_LABELS.length + ROUND_FIVE_LABELS.length + ROUND_SIX_LABELS.length + ROUND_SEVEN_LABELS.length + ROUND_EIGHT_LABELS.length + ROUND_EIGHT_FITTING.length + ROUND_NINE_LABELS.length - 3);
+    for (const [label, labelMarker] of labels) {
+      for (const digits of [9, 12]) {
+        const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });
+        const real = (await measureTables(atTheFloor(doc), browser)).filter((t) => t.page === doc.pages[index]!.number)[0]!;
+        const model = tableLayout(table, doc.numberConvention.scale, 'portrait');
+        const say = `${JSON.stringify(label)}${labelMarker ? '^1' : ''}, ${digits} digits`;
+        // A label holding a mark holds its column at its floor and no more (`packAnywhereLabel.ts`): every column as
+        // Chromium sets it, but where a fallback glyph without a mark is in the label.
+        if (!/[\u4E2D\p{Co}]/u.test(printedText(label)) || printsAnywhere(printedText(label))) {
+          model.columnsPx.forEach((px, c) => { if (Math.abs(px - real.columnsPx[c]!) > COLUMN_ERROR_PX) wrong.push(`${say}: column ${c} model ${px.toFixed(3)} vs ${real.columnsPx[c]!.toFixed(3)}`); });
+        }
+        if (model.labelLines.some((l, r) => l < real.labelLines[r]!)) wrong.push(`${say}: lines ${model.labelLines} vs ${real.labelLines}`);
+        const height = statementTableBodyMm(table, doc.numberConvention.scale, 'portrait');
+        if (height < real.heightMm) wrong.push(`${say}: height short, model ${height.toFixed(2)}mm vs Chromium ${real.heightMm.toFixed(2)}`);
+      }
+    }
+    expect(wrong.slice(0, 10)).toEqual([]);
   }, 900_000);
 });
 
