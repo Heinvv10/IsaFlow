@@ -1,12 +1,12 @@
 /**
- * THE JOINING-LETTER TABLE (`packJoiningData.ts`): in order, apart, none the faces set, and the letters #1235's ninth
+ * THE JOINING-LETTER TABLE (`print/fixtures/joiningLetterData.ts`, the joining sweep's letters): in order, apart, none the faces set, and the letters #1235's ninth
  * round found printed wider joined than alone among them; with JOINING_TYPE_TXT set to Unicode's
  * DerivedJoiningType.txt, written afresh.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { JOINING_FALLBACK } from '@/modules/accounting/services/packs/pages/packJoiningData';
+import { JOINING_FALLBACK } from '../print/fixtures/joiningLetterData';
 import { joiningRuns, joiningSource, parseJoining, selfHosted } from './joiningTypes';
 
 const ROOT = path.resolve(__dirname, '../../..');
@@ -28,9 +28,9 @@ describe('the joining-letter table', () => {
     for (const cp of [0x200d, 0x0041, 0x0301, 0x064e, 0x0730, 0x4e2d]) expect(inTable(cp), cp.toString(16)).toBe(false);
   });
 
-  it.skipIf(process.env.JOINING_TYPE_TXT === undefined)('JOINING_TYPE_TXT: writes packJoiningData.ts, and the committed table is what it writes', () => {
+  it.skipIf(process.env.JOINING_TYPE_TXT === undefined)('JOINING_TYPE_TXT: writes joiningLetterData.ts, and the committed table is what it writes', () => {
     const source = joiningSource(joiningRuns(parseJoining(readFileSync(process.env.JOINING_TYPE_TXT!, 'utf8'))));
-    const file = path.join(ROOT, 'src/modules/accounting/services/packs/pages/packJoiningData.ts');
+    const file = path.join(ROOT, 'tests/unit/print/fixtures/joiningLetterData.ts');
     const before = readFileSync(file, 'utf8');
     writeFileSync(file, source);
     expect(before).toBe(source);

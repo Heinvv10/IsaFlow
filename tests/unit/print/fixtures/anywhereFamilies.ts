@@ -7,7 +7,8 @@
  * a mark after a marked word (their run is priced by the ruler). `packAnywhereLabelImage.test.ts` sets every one in
  * production; `packBreakPairsImage.test.ts` prints `ROUND_EIGHT_LABELS` in a statement table.
  */
-import { JOINING_FALLBACK } from '@/modules/accounting/services/packs/pages/packJoiningData';
+import { JOINING_FALLBACK } from './joiningLetterData';
+import { fallbackFamilies } from './fallbackFamilies';
 
 const cp = (...points: number[]): string => String.fromCodePoint(...points);
 const times = (text: string, n: number): string => Array.from({ length: n }, () => text).join('');
@@ -76,6 +77,7 @@ export function anywhereFamilies(): string[] {
   out.add(`${cp(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467, 0x200d, 0x1f466, 0xfe0f)}`);
   out.add(`Telecommunications ${cp(0x1f441, 0xfe0f, 0x200d, 0x1f5e8, 0xfe0f)}`);
   for (const label of joiningFamilies()) out.add(label);
+  for (const label of fallbackFamilies()) out.add(label);
   for (const label of footnoteSweep()) out.add(label);
   return [...out];
 }
@@ -131,7 +133,7 @@ export const ROUND_NINE_LABELS: ReadonlyArray<readonly [string, boolean]> = [
   ...[12, 16, 20].map((n) => [times(`${times(cp(0x0728), 6)} `, n), false] as const),
 ];
 
-/** Every letter of the joining table (`packJoiningData.JOINING_FALLBACK`), in order. */
+/** Every letter of the joining table (`joiningLetterData.JOINING_FALLBACK`), in order. */
 export const joiningLetters = (): number[] => JOINING_FALLBACK.flatMap(([from, to]) => Array.from({ length: to - from + 1 }, (unused, i) => from + i));
 
 /**
