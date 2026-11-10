@@ -149,8 +149,8 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
         {deductions.length > 0 && <ComponentPicker column="deduction" options={deductions} value={deductionId} onChange={setDeductionId} />}
         {byUnit.length > 0 && !basicId && (
           <p className="pb-2 text-xs text-[var(--ff-text-secondary)]">
-            Hourly and daily staff need an active taxable Basic Salary (3601) component to record hours on.{' '}
-            <Link href="/payroll/components" className="text-teal-700 underline dark:text-teal-300">Add one</Link>
+            {inputs.hours.problem ?? 'Hourly and daily staff need an active taxable Basic Salary (3601) component to record hours on.'}{' '}
+            <Link href="/payroll/components" className="text-teal-700 underline dark:text-teal-300">Payroll components</Link>
           </p>
         )}
         {earnings.length > 0 && !hasOvertimeOrCommission(earnings) && (

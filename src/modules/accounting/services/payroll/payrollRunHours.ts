@@ -6,7 +6,6 @@
  * rewrite what a line was costed at. A missing quantity is never read as nil: the line is flagged HOURS_MISSING
  * and the approval gate refuses it (payrollRunHoursGate). A nil entry (0) is a quantity like any other: stored, amount 0.
  */
-import { normaliseSarsCode } from './payeAnnualPayment';
 import type { EmployeeComponent, PayrollEmployee, QuantityUnit, ValidationResult } from './payrollTypes';
 
 /** The most a month can hold: 31 x 24 hours, 31 days. */
@@ -26,16 +25,19 @@ export function rateOf(employee: Pick<PayrollEmployee, 'payBasis' | 'hourlyRate'
 export const hoursAmountCents = (quantity: number, unitPrice: number): number =>
   Math.round((Math.round(quantity * 100) * Math.round(unitPrice * 100)) / 100);
 
-const isBasic = (c: EmployeeComponent) => c.component.componentType === 'earning' && normaliseSarsCode(c.component.sarsSourceCode) === '3601';
-
-/** Every Basic Salary (3601) row the run reads for this employee, recorded hours or not. */
-const basicRows = (components: EmployeeComponent[]) => components.filter(isBasic);
 const withQuantity = (c: EmployeeComponent) => c.quantity != null && c.quantityUnit != null;
+
+/**
+ * The hours component is identified by ID: the one the quantity rows sit on (setRunHours writes only to the company's one
+ * hours component, payrollRunHoursRead.hoursComponentOf), never by SARS code. 3601 is SARS's general code, so other 3601
+ * earnings (allowances, leave pay, corrections) are ordinary pay and are left alone.
+ */
+const quantityRows = (components: EmployeeComponent[]) => components.filter((c) => c.component.componentType === 'earning' && withQuantity(c));
 
 /** The row that records this employee's hours or days in their own unit: exactly one counts, two are an error (hoursValidation). */
 const recorded = (employee: PayrollEmployee, components: EmployeeComponent[]) => {
   const unit = unitOf(employee);
-  return basicRows(components).filter((c) => unit != null && withQuantity(c) && c.quantityUnit === unit);
+  return quantityRows(components).filter((c) => unit != null && c.quantityUnit === unit);
 };
 
 /**
@@ -61,16 +63,16 @@ const err = (code: string, message: string): ValidationResult => ({ code, severi
  * What is wrong with the hours or days of this employee's line. Errors block approval (payrollRunHoursGate):
  * HOURS_MISSING, HOURS_UNIT_MISMATCH (a quantity row whose unit is not the employee's pay basis any more, e.g. hours left
  * after a move to monthly), HOURS_DUPLICATE (two rows record hours: never summed), HOURS_WITH_OTHER_BASIC (another
- * Basic Salary row beside the hours would pay basic pay twice). HOURS_RATE_CHANGED is a warning.
+ * row on the hours component beside the hours would pay it twice). HOURS_RATE_CHANGED is a warning.
  */
 export function hoursValidation(employee: PayrollEmployee, components: EmployeeComponent[]): ValidationResult[] {
   const unit = unitOf(employee);
   const name = `${employee.firstName} ${employee.lastName}`.trim();
   const results: ValidationResult[] = [];
-  const stale = basicRows(components).filter((c) => withQuantity(c) && c.quantityUnit !== unit);
+  const stale = quantityRows(components).filter((c) => c.quantityUnit !== unit);
   if (stale.length > 0) {
     const held = stale.map((c) => `${c.quantity} ${c.quantityUnit}${c.quantity === 1 ? '' : 's'}`).join(', ');
-    results.push(err('HOURS_UNIT_MISMATCH', `${name} is paid ${unit ? `by the ${unit}` : 'monthly'} but the run still holds ${held} of Basic Salary `
+    results.push(err('HOURS_UNIT_MISMATCH', `${name} is paid ${unit ? `by the ${unit}` : 'monthly'} but the run still holds ${held} of pay `
       + 'recorded for another pay basis. Edit or end that row on the employee page, or enter the hours again, then recalculate.'));
   }
   if (unit == null) return results;
@@ -94,9 +96,10 @@ export function hoursValidation(employee: PayrollEmployee, components: EmployeeC
         + `enter the ${noun} again to price them at the current rate.`,
     });
   }
-  if (basicRows(components).some((c) => !withQuantity(c) && c.amount !== 0)) {
-    results.push(err('HOURS_WITH_OTHER_BASIC', `${name} is paid by the ${unit} and also has another Basic Salary row this month (recurring, or a plain amount), `
-      + 'so basic pay is paid twice. End or remove the other row on the employee page, then recalculate.'));
+  // Another row on THE SAME component (by id) would pay the hours component twice. Other components, 3601 or not, are fine.
+  if (components.some((c) => !withQuantity(c) && c.amount !== 0 && c.component.id === row.component.id)) {
+    results.push(err('HOURS_WITH_OTHER_BASIC', `${name} is paid by the ${unit} and also has another ${row.component.name} row this month (recurring, or a plain amount), `
+      + `so ${row.component.name} is paid twice. End or remove the other row on the employee page, then recalculate.`));
   }
   return results;
 }

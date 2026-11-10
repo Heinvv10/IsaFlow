@@ -8,6 +8,7 @@ import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payr
 import {
   hoursAmountCents, hoursValidation, maxQuantity, runHoursOf, rateOf,
 } from '@/modules/accounting/services/payroll/payrollRunHours';
+import { hoursComponentOf } from '@/modules/accounting/services/payroll/payrollRunHoursRead';
 import type { EmployeeComponent, PayrollComponent, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
 
 const basic: PayrollComponent = {
@@ -78,6 +79,13 @@ describe('validation', () => {
   });
   it('a nil entry counts as entered', () => {
     expect(codes(employee(), [worked(0, 'hour', 0)])).toEqual([]);
+  });
+  it('other earnings, 3601 or not, beside the hours are ordinary pay: a R500 allowance and a -R500 correction on other components', () => {
+    const shift = { ...basic, id: 'c-shift', name: 'Shift allowance' };
+    for (const amount of [500, -500]) {
+      const other: EmployeeComponent = { component: shift, amount, isRecurring: false };
+      expect(codes(employee(), [worked(160, 'hour', 13680), other])).toEqual([]);
+    }
   });
   it('two rows recording hours are an error, not a sum', () => {
     expect(codes(employee(), [worked(80, 'hour', 6840), worked(80, 'hour', 6840)])).toEqual(['HOURS_DUPLICATE']);
@@ -156,5 +164,16 @@ describe('ETI until ET apportions by hours (80 h x R30 case)', () => {
     expect(full.validationResults.map((v) => v.code)).not.toContain('ETI_HOURS_APPORTIONMENT_PENDING');
     const daily = run(young({ payBasis: 'daily', dailyRate: 240, hoursPerDay: null }), [worked(10, 'day', 2400)]);
     expect(daily.eti.monthlyEti).toBe(0);
+  });
+});
+
+describe('the hours component is found by id among the 3601 earnings, never first-matched', () => {
+  const c = (id: string, name: string, code = '3601') => ({ id, name, sarsSourceCode: code, componentType: 'earning' });
+  it('the only one; the one named Basic Salary among several; else a refusal naming them', () => {
+    expect(hoursComponentOf([c('a', 'Pay'), c('o', 'Overtime', '3607')])).toEqual({ component: c('a', 'Pay') });
+    expect(hoursComponentOf([c('s', 'Shift allowance'), c('b', 'Basic Salary')])).toEqual({ component: c('b', 'Basic Salary') });
+    expect(hoursComponentOf([c('x', 'Salary A'), c('y', 'Salary B')])).toMatchObject({ problem: expect.stringContaining('Salary A, Salary B') });
+    expect(hoursComponentOf([c('o', 'Overtime', '3607')])).toMatchObject({ problem: expect.stringContaining('no active taxable Basic Salary') });
+    expect(hoursComponentOf([c('b1', 'Basic Salary'), c('b2', ' basic salary ')])).toMatchObject({ problem: expect.any(String) });
   });
 });

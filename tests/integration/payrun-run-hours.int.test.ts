@@ -77,7 +77,7 @@ describe('hourly: amount = quantity x rate, to the cent, on the server', () => {
     expect(res.body.data!.inputs.amounts).toEqual([
       { employeeId: state.employee, componentId: basic, amount: 14828.38, conflict: false, quantity: 173.33 },
     ]);
-    expect(res.body.data!.inputs.hours).toEqual({ componentId: basic, employees: [{ employeeId: state.employee, unit: 'hour', rate: 85.55 }] });
+    expect(res.body.data!.inputs.hours).toEqual({ componentId: basic, problem: null, employees: [{ employeeId: state.employee, unit: 'hour', rate: 85.55 }] });
   });
 
   it('prices 0.1 x 3 as 30 cents, with no float noise, and rounds a half cent up', async () => {
@@ -286,7 +286,7 @@ describe('approval', () => {
 
   it('a monthly employee is never asked for hours', async () => {
     expect((await line(state.nov)).gross).toBeCloseTo(SALARY, 2);
-    expect((await get(state.nov)).body.data!.inputs.hours).toEqual({ componentId: basic, employees: [] });
+    expect((await get(state.nov)).body.data!.inputs.hours).toEqual({ componentId: basic, problem: null, employees: [] });
     expect((await preview(state.nov)).body.data!.blocker).toBeNull();
   });
 
@@ -383,6 +383,59 @@ describe('another Basic Salary row beside the hours (H3)', () => {
     expect(codesOf(l)).toContain('HOURS_DUPLICATE');
     expect((await preview(state.nov)).body.data!.blocker?.code).toBe('hours_inconsistent');
     expect(await hours(state.nov, 90, 80).then((r) => r.statusCode)).toBe(409);
+  });
+});
+
+describe('other 3601 earnings are ordinary pay, the hours component is found by id (M-1)', () => {
+  it('160 h + a R500 shift allowance on another 3601 component pays R14 180 with no block; a -R500 correction is allowed too', async () => {
+    await makeHourly();
+    const shift = await fx.addComponent(state.coA, 'Shift allowance', '3601', 'earning', true);
+    expect((await hours(state.nov, 160)).statusCode).toBe(200); // two 3601 components: the one named Basic Salary takes the hours
+    expect(await stored()).toEqual([{ amount: 13680, quantity: 160, unit: 'hour' }]);
+    await fx.addRow(shift, 500, '2026-11-01', '2026-11-30');
+    await recalculate(state.nov);
+    const paid = await line(state.nov);
+    expect(paid.gross).toBe(14180);
+    expect(codesOf(paid).filter((c) => c.startsWith('HOURS_'))).toEqual([]);
+    expect((await preview(state.nov)).body.data!.blocker).toBeNull();
+    await pool.query('UPDATE payroll_employee_components SET amount = -500 WHERE employee_id = $1 AND component_id = $2', [state.employee, shift]);
+    await recalculate(state.nov);
+    const corrected = await line(state.nov);
+    expect(corrected.gross).toBe(13180);
+    expect(codesOf(corrected).filter((c) => c.startsWith('HOURS_'))).toEqual([]);
+    // But a second row on the hours component itself is still blocked.
+    await fx.addRow(basic, 100, '2026-11-20', '2026-11-30');
+    await recalculate(state.nov);
+    expect(codesOf(await line(state.nov))).toContain('HOURS_WITH_OTHER_BASIC');
+    expect((await preview(state.nov)).body.data!.blocker?.code).toBe('hours_inconsistent');
+  });
+
+  it('several 3601 earnings and none named Basic Salary: hours are refused 400, not first-matched', async () => {
+    await makeHourly();
+    await pool.query(`UPDATE payroll_components SET name = 'Salary A' WHERE id = $1`, [basic]);
+    await fx.addComponent(state.coA, 'Salary B', '3601', 'earning', true);
+    const res = await hours(state.nov, 160);
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error?.message).toContain('Salary A, Salary B');
+    expect((await get(state.nov)).body.data!.inputs.hours).toMatchObject({ componentId: null });
+    expect(await stored()).toEqual([]);
+  });
+});
+
+describe('a line costed without the hours rules but stamped with the current version (H-1)', () => {
+  it('an hourly line with no quantity and no HOURS_* result must be recalculated, not approved', async () => {
+    await makeHourly();
+    await hours(state.nov, 160);
+    expect((await preview(state.nov)).body.data!.blocker).toBeNull();
+    // What a build without HD would have stored: same version stamp, no quantity on the items, no hours result.
+    await pool.query(
+      `UPDATE payroll_run_lines SET component_breakdown = (SELECT COALESCE(jsonb_agg(i - 'quantity' - 'quantityUnit' - 'rate'), '[]'::jsonb)
+         FROM jsonb_array_elements(component_breakdown) i), validation_results = '[]'::jsonb WHERE run_id = $1`, [state.nov]);
+    const blocked = (await preview(state.nov)).body.data!.blocker;
+    expect(blocked?.code).toBe('recalculate_required');
+    expect(blocked?.detail).toContain('W301-1');
+    await recalculate(state.nov);
+    expect((await preview(state.nov)).body.data!.blocker).toBeNull();
   });
 });
 

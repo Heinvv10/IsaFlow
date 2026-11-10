@@ -57,7 +57,7 @@ import { writeRunRow } from './payrollRunRowWrite';
 import { getTaxYear, getTaxYearConfig, UnsupportedTaxYearError } from './taxTables';
 import { describePayRunApproval } from './payRunApprovalControl';
 import { unitOf } from './payrollRunHours';
-import { basicSalaryOf, hoursInputsOf, type RunInputHours } from './payrollRunHoursRead';
+import { hoursComponentOf, hoursInputsOf, type RunInputHours } from './payrollRunHoursRead';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 const EDITABLE_EARNING_CODES: ReadonlySet<string> = new Set(['3601', '3606', '3607']);
@@ -83,6 +83,11 @@ export function isEditableRunComponent(c: EditableComponentFacts): boolean {
 }
 
 export { PayrollRunInputRefusedError };
+
+const hoursComponentIs = (editable: RunInputComponent[], id: string) => {
+  const found = hoursComponentOf(editable);
+  return 'component' in found && found.component.id === id;
+};
 
 export interface RunInputComponent {
   id: string;
@@ -151,7 +156,10 @@ export async function getRunInputs(companyId: string, runId: string): Promise<Ru
   const employees = await listPayrollRunEmployees(companyId, period);
   const components = await listEditableComponents(companyId);
   const captured = await readAmounts(companyId, period, components.map((c) => c.id), employees.map((e) => e.id));
-  const hours = { componentId: basicSalaryOf(components)?.id ?? null, employees: hoursInputsOf(employees) };
+  const found = hoursComponentOf(components);
+  const hours: RunInputHours = {
+    componentId: 'component' in found ? found.component.id : null, problem: 'problem' in found ? found.problem : null, employees: hoursInputsOf(employees),
+  };
   return { run: { ...run, lines, approval }, inputs: { components, employeeIds: employees.map((e) => e.id), ...captured, hours } };
 }
 
@@ -207,7 +215,8 @@ export async function setRunPeriodAmount(
   await assertRunEditable(companyId, runId, run, period);
   const employees = await listPayrollRunEmployees(companyId, period);
   if (!employees.some((e) => e.id === employeeId)) throw new PayrollRunInputRefusedError(400, 'This employee is not on this run.');
-  const component = (await listEditableComponents(companyId)).find((c) => c.id === componentId);
+  const editable = await listEditableComponents(companyId);
+  const component = editable.find((c) => c.id === componentId);
   if (!component) throw new PayrollRunInputRefusedError(400, 'This component cannot be edited on a pay run: use the employee page.');
 
   // Bounded: a peer editing the employee's components must not pin this request's locks (payrollRunLock.ts).
@@ -217,7 +226,7 @@ export async function setRunPeriodAmount(
   if (centsOf(row ? Number(row.amount) : 0) !== centsOf(expectedAmount)) throw new PayrollRunInputRefusedError(409, CHANGED);
   // Hours and days are priced by the server: a typed amount beside them would leave quantity x rate untrue (HD).
   const unit = unitOf(employees.find((e) => e.id === employeeId)!);
-  if (row?.quantity != null || (unit != null && basicSalaryOf([component]) != null)) {
+  if (row?.quantity != null || (unit != null && hoursComponentIs(editable, componentId))) {
     throw new PayrollRunInputRefusedError(400, unit == null
       ? 'This amount still holds hours or days recorded for another pay basis. Edit or end it on the employee page.'
       : row && row.quantity == null

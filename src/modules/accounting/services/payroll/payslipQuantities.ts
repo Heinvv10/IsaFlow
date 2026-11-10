@@ -4,7 +4,7 @@
  * Read from the line's STORED `component_breakdown` only, never from the employee's live component assignments:
  * a FINAL slip must not change because someone edits or ends an assignment afterwards. An item carries
  * `quantity` and `quantityUnit` ('hour' | 'day') when the run costed it with hours (stamped at calculation time;
- * until the run-hours change stores them, no run has any and every slip prints "Not recorded").
+ * a run without any prints "Not recorded"; an entered 0 prints "0 hours worked").
  *
  * Ordinary hours are summed from SARS 3601 items with one unit, overtime from 3607 items with one unit. Any other
  * code is not read. Hours and days of one code are never summed (that would invent a figure): that code is null.
@@ -31,8 +31,8 @@ function captured(breakdown: unknown): Captured[] {
   for (const item of readBreakdown(breakdown) as unknown as Array<Record<string, unknown>>) {
     const quantity = item.quantity;
     const unit = item.quantityUnit;
-    // A JSON number only: true, "8" or null are not a captured quantity.
-    if ((unit === 'hour' || unit === 'day') && typeof quantity === 'number' && Number.isFinite(quantity) && quantity > 0) {
+    // A JSON number only: true, "8" or null are not a captured quantity. 0 is: an entered nil (HD) was worked as nothing, said on the slip.
+    if ((unit === 'hour' || unit === 'day') && typeof quantity === 'number' && Number.isFinite(quantity) && quantity >= 0) {
       out.push({ code: String(item.sarsSourceCode ?? '').trim(), quantity, unit });
     }
   }

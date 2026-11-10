@@ -13,7 +13,7 @@ import { listPayrollRunEmployees } from './payrollEmployeeService';
 import type { ComponentChangeActor } from './payrollComponentAudit';
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
 import { hoursAmountCents, maxQuantity, rateOf, unitOf } from './payrollRunHours';
-import { basicSalaryOf } from './payrollRunHoursRead';
+import { hoursComponentOf } from './payrollRunHoursRead';
 import { PayrollRunInputRefusedError } from './payrollRunInputRefused';
 import { lockPaidRows } from './payrollRunPeriodInputsRead';
 import {
@@ -50,10 +50,10 @@ export async function setRunHours(
   if (!employee) throw refuse('This employee is not on this run.');
   const name = `${employee.firstName} ${employee.lastName}`.trim();
   const unit = unitOf(employee);
-  const component = basicSalaryOf(await listEditableComponents(companyId));
+  const found = hoursComponentOf(await listEditableComponents(companyId));
+  const component = 'component' in found ? found.component : null;
   if (unit == null && quantity !== null) throw refuse(`${name} is paid monthly: there are no hours or days to enter. Clear any old hours with an empty entry.`);
-  if (!component && quantity !== null) throw refuse('This company has no active taxable Basic Salary (3601) component to record hours or days on.');
-  if (!component) throw refuse('No Basic Salary (3601) component: there is no hours row to clear.');
+  if (!component) throw refuse('problem' in found ? found.problem : 'No hours component.');
   const noun = unit === 'hour' ? 'hours' : 'days';
   let cents = 0;
   if (quantity !== null && unit != null) {
