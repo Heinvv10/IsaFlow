@@ -26,7 +26,9 @@
 -- November) and is open-ended while any assignment is open-ended, else ends on the month end of the last to end (a leaver
 -- ending 11-30 stays cash in November). Existing 3810 users keep today's cash behaviour until a company ends the opt-in;
 -- a 3810 assigned after the row ends defaults to the split. Deterministic and idempotent (never a second row, so a
--- re-run adds nothing); company-matched. It runs before row security is enabled below and as a role that bypasses it
+-- re-run adds nothing); company-matched (the component and the employee must belong to one company). Superseded (cut)
+-- assignments are deliberately included: the conservative reading is that the employee had a cash 3810, so their months stay cash.
+-- Only an earning coded 3810 (after the trim) counts, never a deduction. It runs before row security is enabled below and as a role that bypasses it
 -- (postgres, as the deploy does).
 --
 -- One row per period of use. A row is never deleted (a finalised payslip was

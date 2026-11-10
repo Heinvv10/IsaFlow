@@ -20,6 +20,12 @@ const rows: Record<string, Row[]> = {};
 let foreign = -1;
 let ownCompany = false;
 
+async function component(id: string, code: string, type = 'earning'): Promise<string> {
+  return (await pool.query<{ id: string }>(
+    `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+     VALUES ($1, $4, $2, $3, true) RETURNING id`, [id, code, type, `Medical component ${type} ${code.trim()}${code === code.trim() ? '' : ' padded'}`])).rows[0]!.id;
+}
+
 async function company(id: string): Promise<string> {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [id, `FB backfill ${id.slice(0, 8)}`]);
   return (await pool.query<{ id: string }>(
@@ -50,6 +56,16 @@ beforeAll(async () => {
   await emp(co.A, cA, 'BF-LONG', [['2023-01-10', '2024-12-31']]);
   await emp(co.A, cA, 'BF-VOID', [['2026-05-10', '2026-05-01']]);
   await emp(co.A, cA, 'BF-NONE', []);
+  // A mixed employee: one 3810 ended, a new one open from the next day: open-ended, not closed at the first one's end.
+  await emp(co.A, cA, 'BF-MIXED', [['2025-02-03', '2025-02-28'], ['2025-03-01', null]]);
+  // A superseded (cut) assignment is deliberately included: conservative, it stays cash.
+  await emp(co.A, cA, 'BF-SUPERSEDED', [['2025-01-10', '2026-03-31']]);
+  await pool.query('UPDATE payroll_employee_components SET superseded_at = now() WHERE employee_id = $1', [ids['BF-SUPERSEDED']]);
+  // Only an EARNING coded 3810 counts: a deduction coded 3810 does not; a padded code is read after the trim.
+  await emp(co.A, await component(co.A, '3810', 'deduction'), 'BF-DEDUCTION', [['2025-01-10', null]]);
+  await emp(co.A, await component(co.A, ' 3810 '), 'BF-PADDED', [['2025-01-10', null]]);
+  // A company-B 3810 component assigned to a company-A employee is no 3810 of that employee's company.
+  await emp(co.A, cB, 'BF-CROSS', [['2025-01-10', null]]);
   // Another company's employee gets a row of its own company, never company A's.
   await emp(co.B, cB, 'BF-OTHER', [['2025-06-15', null]]);
 
@@ -102,6 +118,17 @@ describe('migration 970 backfills the gross-up opt-in for every employee who has
   });
   it('a long-ended assignment gets a row ending at its month end (it changes nothing unless that month is recomputed)', () => {
     expect(rows['BF-LONG']).toEqual(gross('2023-01-01', '2024-12-31'));
+  });
+  it('a mixed employee (a 3810 ended 2025-02-28, a new one open from 2025-03-01) is open-ended, from the first one\'s month', () => {
+    expect(rows['BF-MIXED']).toEqual(gross('2025-02-01', null));
+  });
+  it('a superseded (cut) assignment is deliberately included: it stays cash', () => {
+    expect(rows['BF-SUPERSEDED']).toEqual(gross('2025-01-01', '2026-03-31'));
+  });
+  it('a deduction coded 3810 gets none, a \' 3810 \' earning is read after the trim, and another company\'s 3810 component gives none', () => {
+    expect(rows['BF-DEDUCTION']).toEqual([]);
+    expect(rows['BF-PADDED']).toEqual(gross('2025-01-01', null));
+    expect(rows['BF-CROSS']).toEqual([]);
   });
   it('an employee with no 3810, and a voided assignment (ends before it starts), get none', () => {
     expect(rows['BF-NONE']).toEqual([]);
