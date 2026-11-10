@@ -9,9 +9,13 @@ import type { Browser } from 'playwright';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
-import { runPx, type FaceWeight } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
+import { AS_CHROMIUM_SETS, CHROMIUM_LEAST, runPx, scriptRuns, type FaceWeight } from '@/modules/accounting/services/packs/pages/packGlyphRuler';
+import { runNoiseWords } from './fixtures/runNoiseWords';
 import { launchPrintChromium } from './printChromium';
 import { measure } from './measureWidths';
+import { labelWidestPiecePx } from '@/modules/accounting/services/packs/pages/packFigureFit';
+import { textPx } from '@/modules/accounting/services/packs/pages/packFigureWidth';
+import { mulberry32 } from './support/mulberry32';
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
@@ -21,14 +25,13 @@ const face = fontkit.create(readFileSync(path.join(process.cwd(), 'public/fonts/
 const GLYPHS = face.characterSet.filter((c) => c > 0x20 && c !== 0xad && !/[\p{M}\p{C}\p{Z}]/u.test(String.fromCodePoint(c)));
 
 /** A fixed pseudo-random sequence, so a failure names the same strings every run. */
-function* lcg(seed: number): Generator<number> { let s = seed; for (;;) { s = (s * 1103515245 + 12345) % 2147483648; yield s / 2147483648; } }
 
 const SIZES = [6, 8, 9.3333, 10, 10.5757, 12, 13.3333, 14.6667, 16, 22, 29.3333];
 const WEIGHTS: FaceWeight[] = [400, 500, 600];
 const outside = (cluster: string): number => { throw new Error(`not in the face: ${cluster}`); };
 
 it('never short of Chromium, at most 1/32px over', async () => {
-  const random = lcg(7);
+  const random = mulberry32(7);
   const next = (): number => random.next().value as number;
   const texts: string[] = ['(133 500 000)', '9 000 000', 'Telecommunications', 'office', 'ffi', 'AVATAR WAVE', '45.0%', 'R&D', '…', '‰', 'Total equity and liabilities', '–1 234.5'];
   for (let i = 0; i < 600; i += 1) {
@@ -60,3 +63,111 @@ it('the 630-case grid (15 strings x 14 sizes x 3 weights): never short of Chromi
   });
   expect(wrong).toEqual([]);
 }, 300_000);
+
+it('U+2044 FRACTION SLASH makes a fraction only between two digits, as HarfBuzz does (fontkit makes one beside any digit): never short of Chromium, at most 1/32px over', async () => {
+  const fixed = ['a \u20441', 'a 1\u2044', 'a 1\u20442', 'a 12\u2044345', 'a 1\u2044a', 'a a\u20441', 'a \u2044', 'a 1\u20442\u20443', 'a \u2044\u20441',
+    'a 1 \u2044 2', 'a 1\u20442 \u20443', 'a 3\u20444 of 10\u2044', 'a 0\u20440', 'a (1\u20442)', 'a 1\u20442%',
+    // What Chromium sets as nothing still stands between the digit and the slash: no fraction (#1235 round 2, M1).
+    'a 1\u00AD\u20442', 'a 1\u2044\u00AD2', 'a 1\u200B\u20442', 'Loan 3\u00AD\u20444 share', 'a 11\u00AD1\u204422', 'a 1\u00AD2\u20443', 'a 1\u2060\u20442', 'a 1\u2044\u20612'];
+  const random = mulberry32(2044);
+  const next = (): number => random.next().value as number;
+  const tokens = ['1', '23', '\u2044', '\u2044', 'a', 'x', ' ', '0', '(', ')', '%', '\u00BD', '7'];
+  const texts = [...fixed, ...Array.from({ length: 200 }, () => `a ${Array.from({ length: 2 + Math.floor(next() * 6) }, () => tokens[Math.floor(next() * tokens.length)]!).join('')}`)];
+  // Non-vacuous: slashes with a digit on one side only (where the two shapers differ), and true fractions.
+  expect(texts.filter((t) => /(^|[^0-9])\u2044[0-9]|[0-9]\u2044($|[^0-9])/.test(t)).length).toBeGreaterThan(50);
+  expect(texts.filter((t) => /[0-9]\u2044[0-9]/.test(t)).length).toBeGreaterThan(12);
+  const items = texts.flatMap((text, i) => [12, 14.6667, 10.6667, SIZES[i % SIZES.length]!].map((fontPx, j) => ({ text, fontPx, weight: WEIGHTS[(i + j) % 3]! })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'td' as const, ...it, html: `<span style="white-space:pre">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const model = runPx(it.text, it.fontPx, it.weight, outside);
+    return model < res[i]!.widthPx - 1e-6 || model > res[i]!.widthPx + 2 / 64 + 1e-6 ? [`${JSON.stringify(it.text)} at ${it.fontPx}px/${it.weight}: model ${model}, Chromium ${res[i]!.widthPx}`] : [];
+  });
+  expect(wrong).toEqual([]);
+}, 300_000);
+
+it('what Chromium sets as nothing (the soft hyphen, the zero-width space, the word joiner, the invisible operators, the left-to-right controls) is nothing, and kerned across: never short of Chromium, at most 1/32px over', async () => {
+  const invisible = ['\u00AD', '\u200B', '\u200E', '\u202A', '\u202C', '\u2060', '\u2061', '\u2062', '\u2063', '\u2064', '\u2066', '\u2069', '\u206A', '\u206F'];
+  const texts = invisible.flatMap((x) => [`A${x}V`, `a${x}b office`, `Rev${x}enue ${x}${x}T${x}o`, `12${x}345`]);
+  const items = texts.flatMap((text, i) => [12, 14.6667, 10.6667].map((fontPx, j) => ({ text, fontPx, weight: WEIGHTS[(i + j) % 3]! })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'td' as const, ...it, html: `<span style="white-space:pre">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const model = runPx(it.text, it.fontPx, it.weight, outside);
+    return model < res[i]!.widthPx - 1e-6 || model > res[i]!.widthPx + 2 / 64 + 1e-6 ? [`${JSON.stringify(it.text)} at ${it.fontPx}px/${it.weight}: model ${model}, Chromium ${res[i]!.widthPx}`] : [];
+  });
+  expect(wrong).toEqual([]);
+}, 300_000);
+
+it('a word that ends at a soft hyphen: its min-content is the word and the hyphen, each rounded up on its own (a column\'s min as Chromium sets it, within a unit either way)', async () => {
+  const words = ['growth\u00AD', 'margin\u00AD', 'Telecommunications\u00AD', 'Intercompany\u00AD', 'Revenue growth\u00AD', 'ex\u00ADpenses\u00AD', 'office\u00AD', 'AVATAR\u00AD', 'Ty\u00AD', 'Debtors\u00AD\u00AD'];
+  const items = words.flatMap((text) => WEIGHTS.map((weight) => ({ text, weight })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'label' as const, text: it.text, weight: it.weight, html: `<span style="display:inline-block;width:min-content;white-space:normal">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const model = labelWidestPiecePx(it.text, null, it.weight, AS_CHROMIUM_SETS);
+    return Math.abs(model - res[i]!.widthPx) > 1 / 64 + 1e-6 ? [`${JSON.stringify(it.text)}/${it.weight}: model ${model * 64}/64, Chromium ${res[i]!.widthPx * 64}/64`] : [];
+  });
+  expect(wrong).toEqual([]);
+  // The measurement the hyphen's own rounding rests on: "growth\u00AD" at 12px/400 is 2713/64 (the word's 2406 and the
+  // hyphen's 307), where the two summed and rounded once read 2712.
+  expect(res[0]!.widthPx * 64).toBe(2713);
+  expect(labelWidestPiecePx('growth\u00AD', null, 400, AS_CHROMIUM_SETS) * 64).toBe(2713);
+}, 300_000);
+
+it('a private-use character is the fallback glyph Chromium sets (U+E044 is not a slash): never short of Chromium', async () => {
+  // The blind round-3 review's texts (probe/texts2.json and texts3.json), exactly.
+  const n = 'n'.repeat(26);
+  const texts = [
+    'Net\uE044profit', 'Gross \uE044\uE044\uE044 margin', '1\uE0442 share', 'Net profit \uE044', '\uE000\uE001 cost', 'Loan \uF0B7 fees',
+    `${n} \uE044\uE044\uE044 ${n}`, `Gross margin \uE044\uE044\uE044\uE044\uE044\uE044 ${n}`, `${n}\uE044\uE044\uE044\uE044`,
+  ];
+  const items = texts.flatMap((text) => WEIGHTS.map((weight) => ({ text, weight })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'label' as const, text: it.text, weight: it.weight, html: `<span style="white-space:pre">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const model = textPx(it.text, 12, it.weight);
+    return model < res[i]!.widthPx - 1e-6 ? [`${JSON.stringify(it.text)}/${it.weight}: model ${model}, Chromium ${res[i]!.widthPx}`] : [];
+  });
+  expect(wrong).toEqual([]);
+}, 300_000);
+
+it('a character whose Script Extensions leave out the run\'s script starts a new run, and a closing bracket goes with its opener, as Chromium shapes them: never short of Chromium, at most 1/32px over', async () => {
+  // The middle dot (Latin, Greek; not Cyrillic), the modifier apostrophe (Latin, Cyrillic; not Greek), the caron (Latin)
+  // and the narrow no-break space (Latin) between Cyrillic or Greek letters and the superscripts the faces kern with them.
+  // One run kerned "⁵Ј" 33 units under Chromium's width ("ой×·⁵Ј").
+  const texts = ['·⁵Ј', 'ї·⁵Ј', 'ї×·⁵Ј', 'ой×·⁵Ј', 'x·⁵Ј', 'α·⁵Ω', 'о\u202f⁵Ј', 'Ты\u202fТы', 'оʼ⁵Ј', 'αʼ⁵Ω', 'Ав·Ав', 'Тˇ⁵Ј', 'Выручка 1\u202f234',
+    // A closing bracket goes with its opening bracket's run.
+    '(13 of Җ) llll', 'Ж(a) Ж', '(a Ж) l', '(Ж (a) Ж) l', 'Ж)l', '[Ж] l',
+    // The nearest opener of the closer's kind; the opener stays open after its pair closes, so the last ")" here
+    // closes the inner "(" again and is kerned with "Т" (15 units under, were it Latin).
+    'x(Ж(Ж)Т)', 'x[Ж(Ж)Т]', 'x(Ж(Т)Ж)', 'x(Ж[Т)', 'x[Ж(Т]',
+    // Chromium keeps 32 open brackets: the 33rd drops the "(" and the ")" falls in with the Cyrillic run.
+    `x(${'Ж['.repeat(31)}Т)`, `x(${'Ж['.repeat(32)}Т)`];
+  const items = texts.flatMap((text) => WEIGHTS.map((weight) => ({ text, fontPx: 12, weight })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'td' as const, ...it, html: `<span style="white-space:pre">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const model = runPx(it.text, it.fontPx, it.weight, outside);
+    return model < res[i]!.widthPx - 1e-6 || model > res[i]!.widthPx + 2 / 64 + 1e-6 ? [`${JSON.stringify(it.text)} /${it.weight}: model ${model * 64}/64, Chromium ${res[i]!.widthPx * 64}/64`] : [];
+  });
+  expect(wrong).toEqual([]);
+}, 120_000);
+
+it('splits a line of 100 000 brackets in linear time: a closer never searches past the 32 brackets Chromium keeps open', () => {
+  // Table labels carry tenant GL account names. 50 000 openers then 50 000 closers that match none of them: a search
+  // of the whole open stack per closer is 1.25 billion steps; a bounded one is 1.6 million.
+  const hostile = 'Ж('.repeat(25_000) + 'x]'.repeat(25_000);
+  const started = performance.now();
+  const runs = scriptRuns(hostile);
+  const ms = performance.now() - started;
+  expect(runs.join('')).toBe(hostile);
+  expect(ms).toBeLessThan(500); // 20ms here; the unbounded search took 4 000ms
+});
+
+it('one run (#1235 round 7: 8,000 words of 6 to 19 letters, accented among them): the never-short width never under Chromium, the least never over', async () => {
+  const words = runNoiseWords();
+  const items = words.flatMap((text) => WEIGHTS.map((weight) => ({ text, fontPx: 12, weight })));
+  const res = await measure(browser, items.map((it) => ({ probe: 'td' as const, ...it, html: `<span style="white-space:pre">${it.text}</span>` })));
+  const wrong = items.flatMap((it, i) => {
+    const never = textPx(it.text, 12, it.weight);
+    const least = textPx(it.text, 12, it.weight, false, CHROMIUM_LEAST);
+    return never < res[i]!.widthPx - 1e-9 || least > res[i]!.widthPx + 1e-9 ? [`${JSON.stringify(it.text)}/${it.weight}: never short ${never}, least ${least}, Chromium ${res[i]!.widthPx}`] : [];
+  });
+  expect(wrong.slice(0, 20), `${wrong.length} of ${items.length}`).toEqual([]);
+}, 600_000);

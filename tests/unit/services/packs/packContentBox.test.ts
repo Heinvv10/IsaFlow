@@ -7,9 +7,10 @@
  * them to it here: a margin change fails in the unit run, not only in a browser test.
  *  - the widths are A4 less the side margins, rounded up to a whole pixel (174mm is 657.64px, lines break at 658;
  *    261mm is 986.46px, at 987); a container query reads 1/64px more;
- *  - the heights are A4 less the top and bottom margins, plus the 2.04 to 2.22px Chromium's page box adds (255mm is
- *    963.78px, a sheet holds 966; 168mm is 634.96px, it holds 637). No closed form for that was found, so the
- *    margins and the paper they were measured under are pinned with them: change either and re-measure.
+ *  - the heights are A4 less the top and bottom margins, plus what Chromium's page box adds, pinned to the measurement
+ *    (255mm is 963.78px, a sheet holds 966: 2.2205px more; 168mm is 634.96px, it holds 637: 2.0394px more). No closed
+ *    form for that was found, so the margins and the paper they were measured under are pinned with them: change
+ *    either and re-measure.
  */
 import { describe, expect, it } from 'vitest';
 import { PDF_MARGIN_MM } from '@/lib/pdf/pdfTransport';
@@ -34,10 +35,8 @@ describe('the print content box', () => {
     expect(PRINT_CONTAINER_PX[o]).toBe(PRINT_CONTENT_PX[o] + 1 / 64);
   });
 
-  it.each(ORIENTATIONS)('%s: a sheet holds A4 less the top and bottom margins, and the 2-2.25px Chromium adds', (o) => {
+  it.each([['portrait', 2.2205], ['landscape', 2.0394]] as const)('%s: a sheet holds A4 less the top and bottom margins, and the %spx Chromium adds (pinned)', (o, adds) => {
     const height = px(A4_MM[o].height - PDF_MARGIN_MM.top - PDF_MARGIN_MM.bottom);
-    expect(PRINT_CONTENT_HEIGHT_PX[o] - height).toBeGreaterThan(2);
-    expect(PRINT_CONTENT_HEIGHT_PX[o] - height).toBeLessThan(2.25);
-    expect(Number.isInteger(PRINT_CONTENT_HEIGHT_PX[o] * 64)).toBe(true);
+    expect(PRINT_CONTENT_HEIGHT_PX[o] - height).toBeCloseTo(adds, 4);
   });
 });

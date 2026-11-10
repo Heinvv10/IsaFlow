@@ -31,7 +31,6 @@ export function BankTxTable(props: BankTxTableProps) {
   const allRowsPending = transactions.length > 0 && transactions.every(isPendingFeedRow);
   const [openSel, setOpenSel] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [dropUp, setDropUp] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const labels = useMemo(() => rowLabels(transactions), [transactions]);
 
@@ -91,7 +90,7 @@ export function BankTxTable(props: BankTxTableProps) {
                 label={labels.get(tx.id)!}
                 rowProps={kbdEnabled ? getRowProps(index) : {}}
                 table={props}
-                dropdown={{ openSel, search, dropUp, setOpenSel, setSearch, setDropUp }}
+                dropdown={{ openSel, search, setOpenSel, setSearch }}
               />
             ))}
           </tbody>

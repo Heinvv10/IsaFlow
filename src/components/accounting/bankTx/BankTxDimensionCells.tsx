@@ -12,6 +12,7 @@ import { Select, type SelectOption as KitOption } from '@/components/ui/Select';
 import { DimensionValue } from '../bank-transactions/BankTxDimensionValue';
 import { VAT_OPTIONS, type AllocType, type BankTx, type BankTxTableProps, type RowSelection, type SelectOption, type VatCode } from './bankTxTypes';
 import { getOptionsForType } from './bankTxOptions';
+import { useBankTxSelectSize } from './useBankTxSelectSize';
 
 /** The "no dimension" row, stored as ''. */
 const NONE = '__none__';
@@ -56,6 +57,7 @@ interface Props {
 }
 
 export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: Props) {
+  const selectSize = useBankTxSelectSize();
   const { cc1Options, cc2Options, buOptions, showCC, showBU, onRowVatChange, onRowDimensionChange } = table;
   const cc1Kit = useMemo(() => dimensionOptions(cc1Options, true), [cc1Options]);
   const cc2Kit = useMemo(() => dimensionOptions(cc2Options, true), [cc2Options]);
@@ -82,14 +84,14 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
 
   return (
     <>
-      <td className="py-2 px-2">
+      <td className="py-1 px-2">
         {sel?.type === 'supplier' || sel?.type === 'customer' || sel?.type === 'transfer' ? (
           <span className="text-xs text-[var(--ff-text-tertiary)] italic">N/A</span>
         ) : isNew ? (
           <>
             <div data-vat-warn={vatWarn ? 'true' : 'false'} className={vatClass(vatWarn, (sel?.vatCode || 'none') === 'standard')}>
               <Select
-                label={`VAT, ${label}`} labelClassName="sr-only" size="sm"
+                label={`VAT, ${label}`} labelClassName="sr-only" size={selectSize}
                 options={VAT_KIT_OPTIONS} value={sel?.vatCode || 'none'}
                 onChange={v => { if (v) onRowVatChange(tx.id, v as VatCode); }}
                 describedBy={vatWarn || nonSupply ? warnId : undefined}
@@ -130,10 +132,10 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
       </td>
       {/* CC1 */}
       {showCC && (
-      <td className="py-2 px-2">
+      <td className="py-1 px-2">
         {isNew ? (
           <Select
-            label={`Cost centre 1, ${label}`} labelClassName="sr-only" size="sm" searchable
+            label={`Cost centre 1, ${label}`} labelClassName="sr-only" size={selectSize} searchable
             options={cc1Kit} value={toKit(sel?.cc1Id)}
             valueOption={storedOption(sel?.cc1Id, cc1Kit, 'Inactive cost centre', tx.cc1Id, tx.cc1Code, tx.cc1Name)}
             onChange={v => onRowDimensionChange(tx.id, fromKit(v), sel?.cc2Id || '', sel?.buId || '')}
@@ -145,10 +147,10 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
       )}
       {/* CC2 */}
       {showCC && (
-      <td className="py-2 px-2">
+      <td className="py-1 px-2">
         {isNew ? (
           <Select
-            label={`Cost centre 2, ${label}`} labelClassName="sr-only" size="sm" searchable
+            label={`Cost centre 2, ${label}`} labelClassName="sr-only" size={selectSize} searchable
             options={cc2Kit} value={toKit(sel?.cc2Id)}
             valueOption={storedOption(sel?.cc2Id, cc2Kit, 'Inactive cost centre', tx.cc2Id, tx.cc2Code, tx.cc2Name)}
             onChange={v => onRowDimensionChange(tx.id, sel?.cc1Id || '', fromKit(v), sel?.buId || '')}
@@ -160,10 +162,10 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
       )}
       {/* BU */}
       {showBU && (
-      <td className="py-2 px-2">
+      <td className="py-1 px-2">
         {isNew ? (
           <Select
-            label={`Business unit, ${label}`} labelClassName="sr-only" size="sm" searchable
+            label={`Business unit, ${label}`} labelClassName="sr-only" size={selectSize} searchable
             options={buKit} value={toKit(sel?.buId)}
             valueOption={storedOption(sel?.buId, buKit, 'Inactive business unit', tx.buId, undefined, tx.buName)}
             onChange={v => onRowDimensionChange(tx.id, sel?.cc1Id || '', sel?.cc2Id || '', fromKit(v))}

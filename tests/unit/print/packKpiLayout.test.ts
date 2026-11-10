@@ -31,8 +31,11 @@ for (const k of [1, 30, 1000, 30000, 300000, 3e7, 2.7e8]) for (const negative of
 
 /**
  * The blocks of this sample in the one-line band, pinned: a width model that drifts moves the count either way, and
- * the near ties are named in the failure. Portrait: two net-debit packs at k=300,000 ("Gross margin" and its mark,
- * a unit over its column) and two at k=3e7.
+ * the near ties are named in the failure. Four: two at k=3e7 (outside the grid), the tile's delta line "↓ down 9.9%",
+ * exact 4592.656 units in a 4592-unit column, which Chromium fits and the line fit's half-unit noise margin
+ * (`FIT_NOISE_UNITS`, sized to the worst noise seen on long and multi-box lines) wraps; and two at k=3e5, negative,
+ * since the shared column is taken with every held-open column at its never-short width (`kpiColumnBoundsPx`, #1235
+ * round 7: production sets a run up to a unit past its exact sum rounded up). One line over each, never short.
  */
 const IN_BAND = { portrait: 4, landscape: 0 } as const;
 

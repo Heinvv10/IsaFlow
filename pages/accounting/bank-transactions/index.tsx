@@ -26,6 +26,7 @@ import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
 import { CodingMetricsStrip } from '@/components/accounting/bank-transactions/CodingMetricsStrip';
 import { actionableIds } from '@/components/accounting/bank-transactions/pendingFeedRow';
+import { useBankTxOutcome } from '@/components/accounting/bank-transactions/useBankTxOutcome';
 import { BankTxPagination, BankTxReviewBar } from '@/components/accounting/bank-transactions/BankTxPagination';
 import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-transactions/BankTxTabs';
 import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
@@ -92,6 +93,8 @@ export default function BankTransactionsPage() {
   // Modal triggers
   const [splitTxId, setSplitTxId] = useState<string | null>(null);
   const [excludingTxId, setExcludingTxId] = useState<string | null>(null);
+  const splitOutcome = useBankTxOutcome();
+  const excludeOutcome = useBankTxOutcome();
   const [findMatchTxId, setFindMatchTxId] = useState<string | null>(null);
   const [attachmentsTxId, setAttachmentsTxId] = useState<string | null>(null);
   const [queryTx, setQueryTx] = useState<BankTx | null>(null);
@@ -161,7 +164,7 @@ export default function BankTransactionsPage() {
     transactions, glAccounts, bankAccounts, selectedBank, selectedIds, rowSelections, batchType,
     excludingTxId, createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
-    setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts,
+    setRulePrompt, setExcludingTxId, excludeOutcome, loadTransactions, refreshBankAccounts,
     reloadCurrentView: () => { void loadLatest.current(); refreshBankAccounts(); },
     onLlmResidual: pollForLlmResults,
   });
@@ -253,7 +256,7 @@ export default function BankTransactionsPage() {
               onRowTypeChange={actions.handleRowTypeChange} onRowEntityChange={actions.handleRowEntityChange}
               onRowVatChange={actions.handleRowVatChange} onRowDimensionChange={actions.handleRowDimensionChange}
               onAccept={actions.handleAccept} onExclude={actions.handleExclude}
-              onUnmatch={actions.handleUnmatch} onSplit={id => setSplitTxId(id)}
+              onUnmatch={actions.handleUnmatch} onSplit={id => { setSplitTxId(id); return splitOutcome.begin(); }}
               onUpdateNotes={actions.handleUpdateNotes} onFindMatch={id => setFindMatchTxId(id)}
               onReverse={actions.handleReverse} onAttachments={id => setAttachmentsTxId(id)}
               onAskClient={id => setQueryTx(transactions.find(t => t.id === id) ?? null)}
@@ -280,8 +283,8 @@ export default function BankTransactionsPage() {
         createRuleTx={createRuleTx} createEntityTxId={createEntityTxId} createEntityType={createEntityType}
         queryTx={queryTx} linkTx={linkTx}
         onLinkClose={() => setLinkTx(null)} onLinkDone={() => { setLinkTx(null); void loadTransactions(); }}
-        onSplitClose={() => setSplitTxId(null)} onSplitDone={() => { setSplitTxId(null); void loadTransactions(); }}
-        onExcludeClose={() => setExcludingTxId(null)} onExcludeConfirm={actions.handleExcludeConfirm}
+        onSplitClose={() => { splitOutcome.settle(false); setSplitTxId(null); }} onSplitDone={() => { splitOutcome.settle(true); setSplitTxId(null); void loadTransactions(); }}
+        onExcludeClose={actions.handleExcludeClose} onExcludeConfirm={actions.handleExcludeConfirm}
         onFindMatchClose={() => setFindMatchTxId(null)} onFindMatchDone={() => { setFindMatchTxId(null); void loadTransactions(); }}
         onAttachmentsClose={() => setAttachmentsTxId(null)} onCreateRuleClose={() => setCreateRuleTx(null)}
         onAttachmentCount={(id, n) => setTransactions(ts => ts.map(t => (t.id === id ? { ...t, attachmentCount: n } : t)))}
