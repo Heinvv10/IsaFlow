@@ -336,7 +336,9 @@ describe('CommentaryPanel approve with edits', () => {
   });
 
   it('a stale over-budget screen recovers: Refresh re-fetches, re-costs, and Approve is enabled again', async () => {
-    const big: CommentaryRow = { ...ROW, id: 'row-big', rowRef: 'cogs', status: 'approved', approvedText: 'word '.repeat(250).trim() };
+    // 265 words fit alone (740.3 of 760 ems at the prose bound) and the typed sentence tips them over (789.6); 250 no
+    // longer did once the gate costed prose at the faces' widths.
+    const big: CommentaryRow = { ...ROW, id: 'row-big', rowRef: 'cogs', status: 'approved', approvedText: 'word '.repeat(265).trim() };
     const box = await openEditor([ROW, big]);
     typeInto(box, 'A sentence of reasonable length that no longer fits beside the big one.');
     const approve = () => screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement;

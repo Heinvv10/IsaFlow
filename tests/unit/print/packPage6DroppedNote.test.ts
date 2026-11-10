@@ -25,14 +25,15 @@ describe('regression: the dropped-columns footnote must not refuse a pack the ol
     expect(() => assertPackIntegrity(doc)).not.toThrow();
     const p6 = doc.pages.find((p) => p.navLabel === 'Income statement')!;
     // The derived caption goes first now, so at demo scale the page keeps its Budget and Variance columns
-    // (before, it had already thrown away their footnote and left the columns out).
+    // (before, it had already thrown away their footnote and left the columns out). With prose set at its own
+    // widths it keeps the caption too: nothing on the page is given up.
     expect(p6.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'))).toBe(true);
-    expect(p6.blocks.some((b) => b.kind === 'narrative')).toBe(false);
+    expect(p6.blocks.some((b) => b.kind === 'narrative')).toBe(true);
   });
 });
 
-/** Net-debit revenue, three lines below zero and a 5% interest/tax step at demo scale: dropping the caption does not make room for the columns, so page 6 falls back to the old layout. */
-const CROWDED = { k: 1, negative: true, loss: false, plug: 0.05, sg: [1, -1, -1, -1] };
+/** Net-debit revenue, every line below zero and a 20% interest/tax step at demo scale: dropping the caption does not make room for the columns, so page 6 falls back to the old layout. (Three lines and a 5% step make room once prose is set at its own widths.) */
+const CROWDED = { k: 1, negative: true, loss: false, plug: 0.2, sg: [-1, -1, -1, -1] };
 
 describe('a crowded page 6 falls back to the old layout rather than refuse the pack', () => {
   it('drops the columns, prints no dropped-columns note, still builds, and logs the warning', () => {
