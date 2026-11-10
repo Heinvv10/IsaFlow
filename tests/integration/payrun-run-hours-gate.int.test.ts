@@ -208,6 +208,24 @@ describe('hours stay on the component they were entered on (round 3 L1)', () => 
     expect(await rowComponent()).toEqual([]);
   });
 
+  it('two quantity rows on two components: the grid state and the write agree (duplicate, lowest id), the write is 409 and the line is blocked', async () => {
+    await makeHourly();
+    const other = await fx.addComponent(state.coA, 'Wages', '3601', 'earning', true);
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring)
+       VALUES ($1, $2, 6840, 80, 'hour', '2026-11-01', '2026-11-30', FALSE), ($1, $3, 6840, 80, 'hour', '2026-11-01', '2026-11-30', FALSE)`,
+      [state.employee, basicId(), other]);
+    await recalculate(state.nov);
+    const shown = (await get(state.nov)).body.data!.inputs.hours.employees[0];
+    expect(shown).toMatchObject({ duplicate: true, componentId: [basicId(), other].sort()[0] });
+    const refused = await hours(state.nov, 90, 80);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body.error?.message).toContain('more than one row');
+    const l = await line(state.nov);
+    expect(codesOf(l)).toContain('HOURS_DUPLICATE');
+    expect(l.validation_results.find((v: { code: string }) => v.code === 'HOURS_DUPLICATE').message).toContain('Basic Salary and Wages');
+  });
+
   it('a recurring 3601 on another component beside the hours is a warning, not a block (a possible double salary)', async () => {
     await makeHourly();
     const fixed = await fx.addComponent(state.coA, 'Fixed allowance', '3601', 'earning', true);

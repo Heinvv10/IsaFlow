@@ -84,7 +84,7 @@ export function hoursValidation(employee: PayrollEmployee, components: EmployeeC
     return results;
   }
   if (rows.length > 1) {
-    results.push(err('HOURS_DUPLICATE', `${name} has ${rows.length} ${rows[0]!.component.name} rows recording ${noun} this month, so their ${noun} cannot be told. Keep one on the employee page.`));
+    results.push(err('HOURS_DUPLICATE', `${name} has ${rows.length} rows recording ${noun} this month (on ${[...new Set(rows.map((r) => r.component.name))].sort().join(' and ')}), so their ${noun} cannot be told. Keep one on the employee page.`));
     return results;
   }
   const row = rows[0]!;

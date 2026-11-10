@@ -11,7 +11,7 @@ export interface RunInputHours {
   componentId: string | null;
   problem: string | null;
   /** `componentId`: where THIS employee's hours sit this month (the row they already have), else the company's hours component. */
-  employees: Array<{ employeeId: string; unit: QuantityUnit; rate: number | null; componentId: string | null }>;
+  employees: Array<{ employeeId: string; unit: QuantityUnit; rate: number | null; componentId: string | null; duplicate: boolean }>;
 }
 
 /** The name the seeded hours component carries; a company with several 3601 earnings is told apart by it (and refused when still unclear). */
@@ -35,8 +35,18 @@ export function hoursComponentOf<T extends { name: string; sarsSourceCode: strin
 }
 
 /**
- * Who is paid by the hour or day, and the component each one's hours sit on: the component of the quantity row they already
- * have this month (so a company that later adds a second 3601 earning does not move them), else `fallback`.
+ * THE anchor picker, shared by the write path (setRunHours) and the read path (the grid's state): the component the employee's
+ * quantity rows for the month sit on. `rowComponentIds` has one id per quantity row. Several rows are a duplicate (the write
+ * is refused 409, the grid sends the user to the employee page); the id returned is then the lowest, so both readers agree.
+ */
+export function anchorOf(rowComponentIds: string[]): { componentId: string | null; duplicate: boolean } {
+  if (rowComponentIds.length === 0) return { componentId: null, duplicate: false };
+  return { componentId: [...rowComponentIds].sort()[0]!, duplicate: rowComponentIds.length > 1 };
+}
+
+/**
+ * Who is paid by the hour or day, and the component each one's hours sit on: the anchor (anchorOf) of the quantity row they
+ * already have this month (so a company that later adds a second 3601 earning does not move them), else `fallback`.
  */
 export function hoursInputsOf(
   employees: PayrollEmployee[], amounts: Array<{ employeeId: string; componentId: string; quantity: number | null }>, fallback: string | null,
@@ -44,7 +54,7 @@ export function hoursInputsOf(
   return employees.flatMap((e) => {
     const unit = unitOf(e);
     if (unit == null) return [];
-    const anchored = amounts.find((a) => a.employeeId === e.id && a.quantity != null)?.componentId;
-    return [{ employeeId: e.id, unit, rate: rateOf(e), componentId: anchored ?? fallback }];
+    const anchor = anchorOf(amounts.filter((a) => a.employeeId === e.id && a.quantity != null).map((a) => a.componentId));
+    return [{ employeeId: e.id, unit, rate: rateOf(e), componentId: anchor.componentId ?? fallback, duplicate: anchor.duplicate }];
   });
 }

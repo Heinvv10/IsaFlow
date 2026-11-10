@@ -121,6 +121,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
   const hoursHead = units.size > 1 ? 'Hours or days' : units.has('day') ? 'Days' : 'Hours';
   const hoursCell = (l: RunLineAmounts, row: number) => {
     const e = byUnit.find((x) => x.employeeId === l.employeeId);
+    if (e?.duplicate) return <Link href={`/payroll/employees/${l.employeeId}`} className="text-xs text-teal-700 dark:text-teal-300 underline">Edit on the employee page</Link>;
     if (!e || !e.componentId) return <span className="text-[var(--ff-text-tertiary)]">—</span>;
     const captured = inputs.amounts.find((a) => a.employeeId === l.employeeId && a.componentId === e.componentId);
     if (captured?.conflict) {

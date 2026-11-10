@@ -8,7 +8,7 @@ import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payr
 import {
   hoursAmountCents, hoursValidation, maxQuantity, runHoursOf, rateOf,
 } from '@/modules/accounting/services/payroll/payrollRunHours';
-import { hoursComponentOf } from '@/modules/accounting/services/payroll/payrollRunHoursRead';
+import { anchorOf, hoursComponentOf } from '@/modules/accounting/services/payroll/payrollRunHoursRead';
 import type { EmployeeComponent, PayrollComponent, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
 
 const basic: PayrollComponent = {
@@ -99,7 +99,9 @@ describe('validation', () => {
     const wages = { ...basic, name: 'Wages' };
     const two: EmployeeComponent[] = [{ ...worked(80, 'hour', 6840), component: wages }, { ...worked(80, 'hour', 6840), component: wages }];
     expect(codes(employee(), two)).toEqual(['HOURS_DUPLICATE']);
-    expect(hoursValidation(employee(), two)[0]!.message).toContain('2 Wages rows');
+    expect(hoursValidation(employee(), two)[0]!.message).toContain('2 rows recording hours this month (on Wages)');
+    const mixed: EmployeeComponent[] = [{ ...worked(80, 'hour', 6840), component: wages }, worked(80, 'hour', 6840)];
+    expect(hoursValidation(employee(), mixed)[0]!.message).toContain('(on Basic Salary and Wages)');
     expect(codes(employee(), [worked(80, 'hour', 6840), worked(80, 'hour', 6840)])).toEqual(['HOURS_DUPLICATE']);
   });
   it('a rate changed since the hours were entered is a warning, the stored amount stays the pay', () => {
@@ -187,5 +189,15 @@ describe('the hours component is found by id among the 3601 earnings, never firs
     expect(hoursComponentOf([c('x', 'Salary A'), c('y', 'Salary B')])).toMatchObject({ problem: expect.stringContaining('Salary A, Salary B') });
     expect(hoursComponentOf([c('o', 'Overtime', '3607')])).toMatchObject({ problem: expect.stringContaining('no active taxable Basic Salary') });
     expect(hoursComponentOf([c('b1', 'Basic Salary'), c('b2', ' basic salary ')])).toMatchObject({ problem: expect.any(String) });
+  });
+});
+
+describe('the anchor picker both readers share', () => {
+  it('none; one; several: the lowest id, flagged duplicate, in any input order', () => {
+    expect(anchorOf([])).toEqual({ componentId: null, duplicate: false });
+    expect(anchorOf(['b'])).toEqual({ componentId: 'b', duplicate: false });
+    expect(anchorOf(['c', 'a', 'b'])).toEqual({ componentId: 'a', duplicate: true });
+    expect(anchorOf(['b', 'a'])).toEqual(anchorOf(['a', 'b']));
+    expect(anchorOf(['a', 'a'])).toEqual({ componentId: 'a', duplicate: true });
   });
 });

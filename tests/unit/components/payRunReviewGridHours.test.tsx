@@ -21,7 +21,7 @@ const BASIC = 'c-basic';
 const lines = [line('1', 'Riaan Smit'), line('2', 'Thandi Nkosi')];
 const run = runBody({ lines });
 const withHours = (amounts: Array<Record<string, unknown>> = []) => ({
-  hours: { componentId: BASIC, employees: [{ employeeId: 'e-1', unit: 'hour', rate: 85.5, componentId: BASIC }] },
+  hours: { componentId: BASIC, employees: [{ employeeId: 'e-1', unit: 'hour', rate: 85.5, componentId: BASIC, duplicate: false }] },
   amounts,
 });
 const stored = (quantity: number, amount: number) => ({ employeeId: 'e-1', componentId: BASIC, amount, quantity, conflict: false });
@@ -104,7 +104,7 @@ describe('hours cell', () => {
   });
 
   it('with no rate, links to the employee instead of offering a cell', async () => {
-    const inputs = { hours: { componentId: BASIC, employees: [{ employeeId: 'e-1', unit: 'hour', rate: null, componentId: BASIC }] }, amounts: [] };
+    const inputs = { hours: { componentId: BASIC, employees: [{ employeeId: 'e-1', unit: 'hour', rate: null, componentId: BASIC, duplicate: false }] }, amounts: [] };
     serve(() => ok(inputsBody(run)), { run, inputs });
     render(<PayrollRunDetailPage />);
     expect(await screen.findByRole('link', { name: /Set the hourly rate first/ })).toBeTruthy();

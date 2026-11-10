@@ -15,7 +15,7 @@ import { payrollRunReadDate } from './payrollRunReadDate';
 import type { ComponentChangeActor } from './payrollComponentAudit';
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
 import { hoursAmountCents, maxQuantity, rateOf, unitOf } from './payrollRunHours';
-import { hoursComponentOf } from './payrollRunHoursRead';
+import { anchorOf, hoursComponentOf } from './payrollRunHoursRead';
 import { PayrollRunInputRefusedError } from './payrollRunInputRefused';
 import { lockPaidRows } from './payrollRunPeriodInputsRead';
 import {
@@ -56,9 +56,11 @@ export async function setRunHours(
   const editable = await listEditableComponents(companyId);
   // Anchored on the component the employee's existing hours row sits on (so a later second 3601 earning does not move it, and
   // an ambiguous company can still edit and clear what is there); the company's hours component only when there is none.
-  const existing = (await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period)))
-    .find((c) => c.quantity != null && editable.some((e) => e.id === c.component.id));
-  const found = existing ? { component: editable.find((e) => e.id === existing.component.id)! } : hoursComponentOf(editable);
+  const anchorNow = async () => anchorOf((await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period)))
+    .filter((c) => c.quantity != null && editable.some((e) => e.id === c.component.id)).map((c) => c.component.id));
+  const anchor = await anchorNow();
+  if (anchor.duplicate) throw new PayrollRunInputRefusedError(409, `${name} has more than one row recording hours or days this month. Keep one on the employee page.`);
+  const found = anchor.componentId ? { component: editable.find((e) => e.id === anchor.componentId)! } : hoursComponentOf(editable);
   const component = 'component' in found ? found.component : null;
   if (unit == null && quantity !== null) throw refuse(`${name} is paid monthly: there are no hours or days to enter. Clear any old hours with an empty entry.`);
   if (!component) throw refuse('problem' in found ? found.problem : 'No hours component.');
@@ -74,6 +76,10 @@ export async function setRunHours(
   }
 
   const matches = await withBoundedLockWait(runId, (tx) => lockPaidRows(tx, companyId, employeeId, component.id, period));
+  // Re-verified under the locks (the company approval lock and the run header are held since the top, as every writer of these
+  // rows takes them first; the rows of this component are now locked FOR UPDATE): a move of the hours since the anchor was read
+  // cannot redirect this write.
+  if ((await anchorNow()).componentId !== anchor.componentId) throw new PayrollRunInputRefusedError(409, CHANGED);
   const row = matches[0];
   if (matches.length > 1 || (row && row.on_key !== true)) throw new PayrollRunInputRefusedError(409, CONFLICTING_ROWS);
   const plain = row != null && row.quantity == null;
