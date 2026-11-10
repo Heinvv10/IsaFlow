@@ -112,7 +112,7 @@ beforeEach(() => {
   m.periodHasReturnVersion.mockResolvedValue(false);
   m.takeDraftPeriodLock.mockImplementation(async () => { m.order.push('lock'); });
   m.insertEfilingEventCommitted.mockResolvedValue(undefined);
-  m.sendMayHaveReached.mockResolvedValue(false);
+  m.sendMayHaveReached.mockResolvedValue(null);
   // the event connection is opened FIRST (before the draft lock), and every event on it is a committed write
   m.withEventWriter.mockImplementation(async (fn: (w: { write: unknown }) => Promise<unknown>) => {
     m.order.push('connection');

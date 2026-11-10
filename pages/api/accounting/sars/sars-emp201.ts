@@ -16,6 +16,7 @@ import { isValidDate } from '@/lib/validation';
 import {
   generateEMP201,
   saveDraftSubmission,
+  SubmissionNotOpenError,
 } from '@/modules/accounting/services/reports/sarsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -71,6 +72,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.created(res, submission, 'EMP201 draft saved');
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;
+      if (err instanceof SubmissionNotOpenError) return apiResponse.conflict(res, err.message);
       log.error('Failed to save EMP201 draft', { error: err }, 'sars-api');
       return apiResponse.badRequestFromError(res, err, 'Failed to save draft');
     }

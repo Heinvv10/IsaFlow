@@ -183,7 +183,8 @@ export async function submitVAT201ToSars(
       throw new EfilingBlockedError('This period has a return version: file through the return lifecycle.');
     }
     // An earlier send may have reached SARS (judged over ALL the submission's events, see sendMayHaveReached): poll or reconcile first.
-    if (await sendMayHaveReached(companyId, submissionId)) throw new EfilingSendUncertainError(null);
+    const doubt = await sendMayHaveReached(companyId, submissionId);
+    if (doubt) throw new EfilingSendUncertainError(doubt.correlationId);
     await events.write({
       companyId, submissionId, eventType: 'submit', efilingStatus: 'sending', message: 'about to send to SARS',
       detail: { periodStart: submission.periodStart, periodEnd: submission.periodEnd }, createdBy: userId,

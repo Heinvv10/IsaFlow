@@ -93,7 +93,12 @@ export async function markSubmissionSubmitted(
  * that is not an intent, or an `error` event with a 4xx HTTP status (SARS answered and refused: it did not file); a timeout or
  * a transport error with no status is NOT a result, because the request may have been processed.
  */
-export async function sendMayHaveReached(companyId: string, submissionId: string): Promise<boolean> {
+export interface SendDoubt {
+  /** The correlation id SARS returned for the earlier send, when one is on record: the id to reconcile. */
+  correlationId: string | null;
+}
+
+export async function sendMayHaveReached(companyId: string, submissionId: string): Promise<SendDoubt | null> {
   const rows = (await sql`
     SELECT (
       EXISTS (SELECT 1 FROM sars_efiling_events e
@@ -107,9 +112,33 @@ export async function sendMayHaveReached(companyId: string, submissionId: string
                          AND (r.created_at, r.id) > (i.created_at, i.id)
                          AND ((r.event_type = 'submit' AND r.efiling_status IS DISTINCT FROM 'sending')
                               OR (r.event_type = 'error' AND r.http_status BETWEEN 400 AND 499))))
-    ) AS uncertain
+    ) AS uncertain,
+    (SELECT c.correlation_id FROM sars_efiling_events c
+      WHERE c.company_id = ${companyId}::UUID AND c.submission_id = ${submissionId}::UUID AND c.correlation_id IS NOT NULL
+      ORDER BY c.created_at DESC, c.id DESC LIMIT 1) AS correlation_id
   `) as DbRow[];
-  return rows[0]?.uncertain === true;
+  const r = rows[0];
+  return r?.uncertain === true ? { correlationId: r.correlation_id == null ? null : String(r.correlation_id) } : null;
+}
+
+/**
+ * Does an open draft of this company's form and (overlapping) period hold a send that may have reached SARS: a correlation id on
+ * the draft itself, or sendMayHaveReached over its events? The lifecycle (file, finalise) refuses while it does.
+ */
+export async function periodSendUncertain(
+  companyId: string, form: string, periodStart: string, periodEnd: string,
+): Promise<SendDoubt | null> {
+  const drafts = (await sql`
+    SELECT id, efiling_correlation_id FROM sars_submissions
+    WHERE company_id = ${companyId}::UUID AND form_type = ${form} AND status = 'draft'
+      AND period_start <= ${periodEnd}::DATE AND period_end >= ${periodStart}::DATE
+  `) as DbRow[];
+  for (const d of drafts) {
+    if (d.efiling_correlation_id != null) return { correlationId: String(d.efiling_correlation_id) };
+    const doubt = await sendMayHaveReached(companyId, String(d.id));
+    if (doubt) return doubt;
+  }
+  return null;
 }
 
 export async function applyPollResult(
@@ -122,6 +151,14 @@ export async function applyPollResult(
     SET status = ${opts.submissionStatus},
         efiling_last_status = ${opts.efilingStatus},
         submission_reference = COALESCE(${opts.sarsReference}, submission_reference),
+        -- A draft resolved from a persisted correlation id (its send's result was lost) takes the intent's time and actor.
+        efiling_channel = COALESCE(efiling_channel, 'isv'),
+        submitted_at = COALESCE(submitted_at, (SELECT MIN(i.created_at) FROM sars_efiling_events i
+          WHERE i.company_id = sars_submissions.company_id AND i.submission_id = sars_submissions.id
+            AND i.event_type = 'submit' AND i.efiling_status = 'sending')),
+        submitted_by = COALESCE(submitted_by, (SELECT i.created_by::UUID FROM sars_efiling_events i
+          WHERE i.company_id = sars_submissions.company_id AND i.submission_id = sars_submissions.id
+            AND i.event_type = 'submit' AND i.efiling_status = 'sending' ORDER BY i.created_at ASC, i.id ASC LIMIT 1)),
         updated_at = NOW()
     WHERE id = ${submissionId} AND company_id = ${companyId}::UUID
   `;

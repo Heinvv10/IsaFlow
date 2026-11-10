@@ -34,7 +34,8 @@ export class EfilingPayloadUnmappedError extends EfilingBlockedError {
 /** A previous send of this return may have reached SARS (its intent has no result, or its result was lost): poll or reconcile first. */
 export class EfilingSendUncertainError extends Error {
   constructor(readonly correlationId: string | null) {
-    super('A previous send of this VAT201 may have reached SARS: poll or reconcile it before sending again');
+    super('A previous send of this VAT201 may have reached SARS: poll or reconcile it before sending again'
+      + (correlationId ? ` (SARS correlation id ${correlationId})` : ''));
     this.name = 'EfilingSendUncertainError';
   }
 }

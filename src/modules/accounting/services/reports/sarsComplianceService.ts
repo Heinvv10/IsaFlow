@@ -98,6 +98,10 @@ export async function saveDraftSubmission(
     LIMIT 1
     FOR UPDATE
   `) as DbRow[];
+  // The figures SARS received are never overwritten: a draft that holds a correlation id has a send in flight.
+  if (open[0]?.efiling_correlation_id != null) {
+    throw new SubmissionNotOpenError('A send to SARS is in flight for this draft; poll it first.');
+  }
   const rows = (open[0]
     ? await sql`
       UPDATE sars_submissions

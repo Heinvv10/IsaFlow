@@ -200,7 +200,8 @@ ALTER TABLE sars_submissions ENABLE ALWAYS TRIGGER trg_sars_submissions_filed_fr
 -- A submission's status, reference and time change through the return lifecycle once any version exists for its company,
 -- form and overlapping period (whatever the version's status: between an amend and the next finalise nothing is live,
 -- and the period is still the lifecycle's): a draft becoming submitted, and ANY change to a row that is no longer a
--- draft (the old colour re-marking a submitted row, say), except the ISV poll's verdict on a row it submitted. The lifecycle (markReturnFiled) sets the transaction-local flag
+-- draft (the old colour re-marking a submitted row, say), and a draft taking a verdict (a draft with a persisted correlation id
+-- is resolved by the poll only while NO version exists for the period), except the ISV poll's verdict on a row it submitted. The lifecycle (markReturnFiled) sets the transaction-local flag
 -- app.return_lifecycle. Like the claims, the flag is something SQL-capable app_user can set itself: this defends against
 -- application bugs and the old colour of a blue/green deploy (its legacy and ISV paths know nothing of the flag), not
 -- against SQL injection.
@@ -212,7 +213,7 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   IF (NEW.status, NEW.submission_reference, NEW.submitted_at) IS DISTINCT FROM (OLD.status, OLD.submission_reference, OLD.submitted_at)
-     AND (OLD.status <> 'draft' OR NEW.status = 'submitted')
+     AND (OLD.status <> 'draft' OR NEW.status IN ('submitted', 'accepted', 'rejected'))
      -- The ISV poll (applyPollResult) records SARS's verdict on a row it submitted: submitted to submitted, accepted or
      -- rejected, with a correlation id. Nothing else leaves a non-draft row, and nothing leaves 'superseded'.
      AND NOT (OLD.status = 'submitted' AND NEW.status IN ('submitted', 'accepted', 'rejected') AND OLD.efiling_correlation_id IS NOT NULL

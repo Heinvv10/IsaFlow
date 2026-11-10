@@ -32,7 +32,8 @@ async function draft(): Promise<{ id: string; ev: (type: string, status: string 
   };
   return { id, ev };
 }
-const may = (id: string) => inTx(a.fx, () => sendMayHaveReached(a.fx.companyId, id));
+const doubt = (id: string) => inTx(a.fx, () => sendMayHaveReached(a.fx.companyId, id));
+const may = async (id: string) => (await doubt(id)) !== null;
 
 describeIfDb('the ISV send guard and the correlation id', () => {
   beforeAll(async () => {
@@ -74,10 +75,13 @@ describeIfDb('the ISV send guard and the correlation id', () => {
     await d.ev('blocked', null, null, null);
     await d.ev('error', null, 422, null);
     expect(await may(d.id)).toBe(true);
+    expect(await doubt(d.id)).toEqual({ correlationId: 'CORR-9' }); // the id to reconcile
   });
 
   it('a lost result: the failure event\'s correlation id is persisted on the draft, and the existing poll then records the verdict', async () => {
     const d = await draft();
+    const intentAt = (await sql`INSERT INTO sars_efiling_events (company_id, submission_id, event_type, efiling_status, created_by)
+      VALUES (${a.fx.companyId}::UUID, ${d.id}::UUID, 'submit', 'sending', ${a.admin.userId}) RETURNING created_at`) as Row[];
     const c = await a.fx.pool.connect();
     try {
       await c.query('BEGIN');
@@ -92,6 +96,10 @@ describeIfDb('the ISV send guard and the correlation id', () => {
     const row = async () => ((await sql`SELECT status, efiling_correlation_id, submission_reference FROM sars_submissions WHERE id = ${d.id}::UUID`) as Row[])[0]!;
     expect(await row()).toMatchObject({ status: 'draft', efiling_correlation_id: 'CORR-LOST' }); // set once, never overwritten
     await inTx(a.fx, () => applyPollResult(a.fx.companyId, d.id, { submissionStatus: 'accepted', efilingStatus: 'accepted', sarsReference: 'SARS-REF-9' }));
-    expect(await row()).toMatchObject({ status: 'accepted', submission_reference: 'SARS-REF-9' });
+    // the poll resolved a draft that never got its own submit bookkeeping: it takes the intent's time and actor, on the ISV channel
+    const resolved = ((await sql`SELECT status, submission_reference, efiling_channel, submitted_by, submitted_at FROM sars_submissions
+      WHERE id = ${d.id}::UUID`) as Row[])[0]!;
+    expect(resolved).toMatchObject({ status: 'accepted', submission_reference: 'SARS-REF-9', efiling_channel: 'isv', submitted_by: a.admin.userId });
+    expect(new Date(resolved.submitted_at as string).getTime()).toBe(new Date(intentAt[0]!.created_at as string).getTime());
   });
 });

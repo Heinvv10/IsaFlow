@@ -3,6 +3,7 @@ import { withSavepoint } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { reportWindowProblem } from '@/lib/validation';
 import { takeDraftPeriodLock } from '@/modules/accounting/services/reports/sarsComplianceService';
+import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsEfilingRepo';
 import { finaliseVatReturn } from './finaliseVatReturn';
 import { finaliseEmpReturn } from './finaliseEmpReturn';
 import { assertNoLiveOverlap } from './returnVersionStore';
@@ -33,6 +34,12 @@ export async function finaliseReturn(
   // The draft-period key a filing, a draft save and an ISV send of this period hold: a finalise cannot interleave with
   // a send in flight. Taken before the VAT key (computeVatLockFigures) and before any version row.
   await takeDraftPeriodLock(companyId, form, periodStart, periodEnd);
+  // Not while a send to SARS may have reached it: finalising locks the period, and the send's verdict would land in a lifecycle period.
+  const doubt = await periodSendUncertain(companyId, form, periodStart, periodEnd);
+  if (doubt) {
+    throw new ReturnRefusal(409, 'A send to SARS for this period may have reached it'
+      + `${doubt.correlationId ? ` (correlation id ${doubt.correlationId})` : ''}: poll or reconcile it before finalising.`, 'SEND_UNCERTAIN');
+  }
   await assertNoLiveOverlap(companyId, form, periodStart, periodEnd);
 
   try {

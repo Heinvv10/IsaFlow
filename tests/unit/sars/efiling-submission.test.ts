@@ -115,7 +115,7 @@ beforeEach(() => {
   m.periodHasReturnVersion.mockResolvedValue(false);
   m.takeDraftPeriodLock.mockImplementation(async () => { m.order.push('lock'); });
   m.insertEfilingEventCommitted.mockResolvedValue(undefined);
-  m.sendMayHaveReached.mockResolvedValue(false);
+  m.sendMayHaveReached.mockResolvedValue(null);
   // the event connection is opened FIRST (before the draft lock), and every event on it is a committed write
   m.withEventWriter.mockImplementation(async (fn: (w: { write: unknown }) => Promise<unknown>) => {
     m.order.push('connection');
@@ -182,12 +182,20 @@ describe('the ISV path before anything leaves for SARS (wave 5 L1b)', () => {
   });
 
   it('refuses to send when an earlier send may have reached SARS (judged over ALL the submission events by sendMayHaveReached)', async () => {
-    m.sendMayHaveReached.mockResolvedValue(true);
+    m.sendMayHaveReached.mockResolvedValue({ correlationId: null });
     await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingSendUncertainError);
     expect(m.sendMayHaveReached).toHaveBeenCalledWith(CID, SID);
     expect(m.insertEfilingEventCommitted).not.toHaveBeenCalled(); // not even a new intent
     expect(m.authenticate).not.toHaveBeenCalled();
     expect(m.submitVAT201).not.toHaveBeenCalled();
+  });
+
+  it('the refusal carries the correlation id on record, so the user knows which id to reconcile', async () => {
+    m.sendMayHaveReached.mockResolvedValue({ correlationId: 'CORR-9' });
+    const err = await submitVAT201ToSars(CID, SID, UID).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EfilingSendUncertainError);
+    expect((err as EfilingSendUncertainError).correlationId).toBe('CORR-9');
+    expect((err as Error).message).toContain('CORR-9');
   });
 
   it('when the RESULT event cannot be recorded after SARS accepted, the failure event carries the correlation id', async () => {

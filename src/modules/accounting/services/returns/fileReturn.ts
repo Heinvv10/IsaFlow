@@ -15,6 +15,7 @@ import { assertVatGateClear } from '@/modules/accounting/services/reports/vatGat
 import { markSubmitted, saveDraftSubmission, type SARSSubmission } from '@/modules/accounting/services/reports/sarsComplianceService';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsEfilingRepo';
 import { driftOf } from './returnDrift';
 import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
@@ -69,6 +70,12 @@ export async function markReturnFiled(
   // EMP201: the drift check and the commit must see ONE payroll state, so take the approval lock first (as an approval
   // and a reopen do): an approval or reopen in flight finishes before the drift is read, a later one waits for this commit.
   if (v.formType === 'EMP201') await lockCompanyPayrollApprovals(null, companyId);
+  // A send to SARS that may have reached it (a correlation id on the draft, or an intent with no result): never filed over.
+  const doubt = await periodSendUncertain(companyId, v.formType, v.periodStart, v.periodEnd);
+  if (doubt) {
+    throw new ReturnRefusal(409, 'A send to SARS for this period may have reached it'
+      + `${doubt.correlationId ? ` (correlation id ${doubt.correlationId})` : ''}: poll or reconcile it before filing.`, 'SEND_UNCERTAIN');
+  }
   const drift = await driftOf(companyId, v);
   if (drift.drifted) {
     const what = [...drift.fields.map((f) => f.name), ...drift.changed, ...(drift.unfinalRuns > 0 ? ['unfinalRuns'] : [])];
@@ -92,10 +99,6 @@ export async function markReturnFiled(
       companyId, v.formType, v.periodStart, v.periodEnd,
       { ...v.figures, returnVersionId: v.id, versionNo: v.versionNo }, actor.userId, { keepExistingAs: 'pageDraft' },
     );
-    const inFlight = (await sql`SELECT efiling_correlation_id FROM sars_submissions WHERE id = ${draft.id}::UUID`) as DbRow[];
-    if (inFlight[0]?.efiling_correlation_id != null) {
-      throw new ReturnRefusal(409, 'The open draft for this period has an eFiling submission in flight. Let it finish or clear it first.');
-    }
     if (v.formType === 'VAT201') {
       await assertVatGateClear(
         companyId, v.periodStart, v.periodEnd, 'sars_submission', draft.id,
