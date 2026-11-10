@@ -5,6 +5,9 @@
  * now charges a character the faces do not set `FALLBACK_EMS`. Here the whole pack is composed with the first row
  * relabelled at source (the live Brightsphere pack, its prior-period twin and the demo), printed through the pack's
  * stylesheet in production's Chromium, and page 6 must fit its sheet (966px) or the pack be refused. Velo only.
+ * A guard, not the proof: here the old 1em charge also fitted (page 6 at 954px on the live pack, where the review
+ * measured 260.37mm through its own print path), so the fix is held by `packTextEms.test.ts` (U+FDFD charged
+ * `FALLBACK_EMS`, at or over the 7.2em production sets it at).
  */
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
