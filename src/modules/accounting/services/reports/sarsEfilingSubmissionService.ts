@@ -26,7 +26,7 @@ import {
   applyPollResult,
   insertEfilingEvent,
   insertEfilingEventCommitted,
-  latestEfilingEvent,
+  sendMayHaveReached,
   withEventWriter,
 } from './sarsEfilingRepo';
 import { takeDraftPeriodLock } from './sarsComplianceService';
@@ -182,12 +182,8 @@ export async function submitVAT201ToSars(
     if (await periodHasReturnVersion(companyId, 'VAT201', submission.periodStart, submission.periodEnd)) {
       throw new EfilingBlockedError('This period has a return version: file through the return lifecycle.');
     }
-    // The latest event says whether an earlier send is unaccounted for: an intent with no result, or a failure that
-    // carries the correlation id of a send SARS accepted (its result could not be recorded).
-    const last = await latestEfilingEvent(companyId, submissionId);
-    if (last && ((last.eventType === 'submit' && last.efilingStatus === 'sending') || (last.eventType === 'error' && last.correlationId))) {
-      throw new EfilingSendUncertainError(last.correlationId);
-    }
+    // An earlier send may have reached SARS (judged over ALL the submission's events, see sendMayHaveReached): poll or reconcile first.
+    if (await sendMayHaveReached(companyId, submissionId)) throw new EfilingSendUncertainError(null);
     await events.write({
       companyId, submissionId, eventType: 'submit', efilingStatus: 'sending', message: 'about to send to SARS',
       detail: { periodStart: submission.periodStart, periodEnd: submission.periodEnd }, createdBy: userId,

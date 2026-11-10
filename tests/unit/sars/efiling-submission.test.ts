@@ -21,7 +21,7 @@ const m = vi.hoisted(() => ({
   insertEfilingEvent: vi.fn(),
   insertEfilingEventCommitted: vi.fn(),
   withEventWriter: vi.fn(),
-  latestEfilingEvent: vi.fn(),
+  sendMayHaveReached: vi.fn(),
   periodHasReturnVersion: vi.fn(),
   takeDraftPeriodLock: vi.fn(),
   order: [] as string[],
@@ -61,7 +61,7 @@ vi.mock('@/modules/accounting/services/reports/sarsEfilingRepo', () => ({
   insertEfilingEvent: m.insertEfilingEvent,
   insertEfilingEventCommitted: m.insertEfilingEventCommitted,
   withEventWriter: m.withEventWriter,
-  latestEfilingEvent: m.latestEfilingEvent,
+  sendMayHaveReached: m.sendMayHaveReached,
 }));
 // Wave 5 L1b: a period with a return version is the lifecycle's, and the ISV path queues behind the period's draft key.
 vi.mock('@/modules/accounting/services/returns/versionExists', () => ({ periodHasReturnVersion: m.periodHasReturnVersion }));
@@ -115,7 +115,7 @@ beforeEach(() => {
   m.periodHasReturnVersion.mockResolvedValue(false);
   m.takeDraftPeriodLock.mockImplementation(async () => { m.order.push('lock'); });
   m.insertEfilingEventCommitted.mockResolvedValue(undefined);
-  m.latestEfilingEvent.mockResolvedValue(null);
+  m.sendMayHaveReached.mockResolvedValue(false);
   // the event connection is opened FIRST (before the draft lock), and every event on it is a committed write
   m.withEventWriter.mockImplementation(async (fn: (w: { write: unknown }) => Promise<unknown>) => {
     m.order.push('connection');
@@ -181,24 +181,13 @@ describe('the ISV path before anything leaves for SARS (wave 5 L1b)', () => {
     expect(m.submitVAT201).not.toHaveBeenCalled();
   });
 
-  it('refuses to send again when the latest event is an intent with no result (a previous send may have reached SARS)', async () => {
-    m.latestEfilingEvent.mockResolvedValue({ eventType: 'submit', efilingStatus: 'sending', correlationId: null });
+  it('refuses to send when an earlier send may have reached SARS (judged over ALL the submission events by sendMayHaveReached)', async () => {
+    m.sendMayHaveReached.mockResolvedValue(true);
     await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingSendUncertainError);
+    expect(m.sendMayHaveReached).toHaveBeenCalledWith(CID, SID);
+    expect(m.insertEfilingEventCommitted).not.toHaveBeenCalled(); // not even a new intent
     expect(m.authenticate).not.toHaveBeenCalled();
     expect(m.submitVAT201).not.toHaveBeenCalled();
-  });
-
-  it('refuses to send again when the latest event is a failure carrying the correlation id of an accepted send', async () => {
-    m.latestEfilingEvent.mockResolvedValue({ eventType: 'error', efilingStatus: null, correlationId: 'CORR-LOST' });
-    const err = await submitVAT201ToSars(CID, SID, UID).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(EfilingSendUncertainError);
-    expect((err as EfilingSendUncertainError).correlationId).toBe('CORR-LOST');
-    expect(m.submitVAT201).not.toHaveBeenCalled();
-  });
-
-  it('sends again after a failure that never reached SARS (no correlation id)', async () => {
-    m.latestEfilingEvent.mockResolvedValue({ eventType: 'error', efilingStatus: null, correlationId: null });
-    await expect(submitVAT201ToSars(CID, SID, UID)).resolves.toMatchObject({ correlationId: 'CORR-1' });
   });
 
   it('when the RESULT event cannot be recorded after SARS accepted, the failure event carries the correlation id', async () => {

@@ -199,6 +199,30 @@ describeIfDb('sars_submissions, locks and drafts under migration 971', () => {
     }
   });
 
+  it('a lock a live version names cannot be unlocked by any role; once the version is superseded it can', async () => {
+    const P = { s: '2026-10-01', e: '2026-11-30' };
+    const lock = String(((await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax,
+      net_vat, posted_through, locked_by) VALUES (${a.fx.companyId}::UUID, ${P.s}::DATE, ${P.e}::DATE, 0, 0, 0, now(), ${U()})
+      RETURNING id`) as Row[])[0]!.id);
+    const ver = String(((await sql`INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures,
+      posted_through, vat_period_lock_id, finalised_by) VALUES (${a.fx.companyId}::UUID, 'VAT201', ${P.s}::DATE, ${P.e}::DATE, 1, '{}',
+      now(), ${lock}::UUID, ${U()}) RETURNING id`) as Row[])[0]!.id);
+    const unlock = `UPDATE vat_period_locks SET unlocked_at = now(), unlocked_by = '${U()}', unlock_reason = 'r' WHERE id = '${lock}'`;
+    await asAppUser(a, async (c) => {
+      expect(await failOf(c, unlock)).toMatch(/^23514 .*amend the return instead/);
+      expect(await failOf(c, upd(ver, AMEND()))).toBe('ok');
+      expect(await failOf(c, unlock)).toBe('ok');
+    });
+    const o = await a.fx.pool.connect();
+    try {
+      await o.query('BEGIN');
+      expect(await failOf(o, unlock)).toMatch(/^23514 .*amend the return instead/); // the owner too
+    } finally {
+      await o.query('ROLLBACK').catch(() => undefined);
+      o.release();
+    }
+  });
+
   it('saveDraftSubmission updates the open draft, and a period already filed gets a new draft (a correction)', async () => {
     const save = (data: Record<string, unknown>) =>
       inTx(a.fx, () => saveDraftSubmission(a.fx.companyId, 'VAT201', '2026-01-01', '2026-02-28', data, a.admin.userId));

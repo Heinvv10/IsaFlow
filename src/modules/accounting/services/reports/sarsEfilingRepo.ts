@@ -86,21 +86,30 @@ export async function markSubmissionSubmitted(
   if (rows.length === 0) throw new SubmissionNotOpenError(`Submission ${submissionId} is no longer an open draft.`);
 }
 
-/** The newest event recorded for a submission (committed ones included), or null. */
-export async function latestEfilingEvent(
-  companyId: string, submissionId: string,
-): Promise<{ eventType: string; efilingStatus: string | null; correlationId: string | null } | null> {
+/**
+ * May an earlier send of this submission have reached SARS? ONE company-scoped query over ALL its events, never the newest
+ * alone (a later `blocked`, `poll` or unrelated error must not hide an earlier one): true when ANY event carries a
+ * correlation id (SARS answered with one), or when a `submit`/`sending` intent has no LATER result. A result is a `submit` event
+ * that is not an intent, or an `error` event with a 4xx HTTP status (SARS answered and refused: it did not file); a timeout or
+ * a transport error with no status is NOT a result, because the request may have been processed.
+ */
+export async function sendMayHaveReached(companyId: string, submissionId: string): Promise<boolean> {
   const rows = (await sql`
-    SELECT event_type, efiling_status, correlation_id FROM sars_efiling_events
-    WHERE company_id = ${companyId}::UUID AND submission_id = ${submissionId}::UUID
-    ORDER BY created_at DESC, id DESC LIMIT 1
+    SELECT (
+      EXISTS (SELECT 1 FROM sars_efiling_events e
+               WHERE e.company_id = ${companyId}::UUID AND e.submission_id = ${submissionId}::UUID AND e.correlation_id IS NOT NULL)
+      OR EXISTS (SELECT 1 FROM sars_efiling_events i
+                  WHERE i.company_id = ${companyId}::UUID AND i.submission_id = ${submissionId}::UUID
+                    AND i.event_type = 'submit' AND i.efiling_status = 'sending'
+                    AND NOT EXISTS (
+                      SELECT 1 FROM sars_efiling_events r
+                       WHERE r.company_id = i.company_id AND r.submission_id = i.submission_id
+                         AND (r.created_at, r.id) > (i.created_at, i.id)
+                         AND ((r.event_type = 'submit' AND r.efiling_status IS DISTINCT FROM 'sending')
+                              OR (r.event_type = 'error' AND r.http_status BETWEEN 400 AND 499))))
+    ) AS uncertain
   `) as DbRow[];
-  const r = rows[0];
-  return r ? {
-    eventType: String(r.event_type),
-    efilingStatus: r.efiling_status == null ? null : String(r.efiling_status),
-    correlationId: r.correlation_id == null ? null : String(r.correlation_id),
-  } : null;
+  return rows[0]?.uncertain === true;
 }
 
 export async function applyPollResult(
@@ -163,6 +172,16 @@ export async function withEventWriter<T>(fn: (writer: EventWriter) => Promise<T>
         [evt.companyId, evt.submissionId, evt.eventType, evt.efilingStatus ?? null, evt.httpStatus ?? null,
           evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],
       );
+      // SARS returned a correlation id: keep it on the draft in the same committed transaction, so the existing poll can
+      // resolve a send whose result could not be recorded. Only a draft that has none gains one (the lifecycle triggers
+      // watch status, reference and time, not this column).
+      if (evt.correlationId) {
+        await client.query(
+          `UPDATE sars_submissions SET efiling_correlation_id = $3, updated_at = NOW()
+            WHERE id = $2::UUID AND company_id = $1::UUID AND status = 'draft' AND efiling_correlation_id IS NULL`,
+          [evt.companyId, evt.submissionId, evt.correlationId],
+        );
+      }
       await client.query('COMMIT');
     } catch (err) {
       unusable = await rollbackFailed(client, 'isv-event-writer');
