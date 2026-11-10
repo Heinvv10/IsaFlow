@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
+import { als } from '@/lib/als';
 import { inTx, runOn } from './helpers/l1FifoFixture';
 import { insertEfilingEventCommitted } from '../../src/modules/accounting/services/reports/sarsEfilingRepo';
 import { dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
@@ -283,17 +284,27 @@ describeIfDb('tax_return_versions filing and amend rules (migration 971)', () =>
     });
   });
 
-  it('the ISV intent event commits in a transaction of its own: it survives the request rolling back', async () => {
+  it('the ISV intent event commits in an app_user transaction of its own (never a migration credential): it survives the request rolling back', async () => {
     const sub = await submission(a, 12, 'draft', 'VAT201');
     const c = await a.fx.pool.connect();
     try {
       await c.query('BEGIN');
-      await runOn(a.fx, c, () => insertEfilingEventCommitted({
+      await als.run({ client: c, userId: U(), companyId: a.fx.companyId, claims: { sub: U() } } as never, () => insertEfilingEventCommitted({
         companyId: a.fx.companyId, submissionId: sub, eventType: 'submit', efilingStatus: 'sending', message: 'about to send', createdBy: U(),
       }));
       await c.query('ROLLBACK'); // the request that was about to send fails
     } finally {
       c.release();
+    }
+    // scoped by the same RLS as any request: a request of company B cannot write company A's event
+    const x = await a.fx.pool.connect();
+    try {
+      await x.query('BEGIN');
+      await expect(als.run({ client: x, userId: b.admin.userId, companyId: b.fx.companyId, claims: { sub: b.admin.userId } } as never,
+        () => insertEfilingEventCommitted({ companyId: a.fx.companyId, submissionId: sub, eventType: 'submit', createdBy: b.admin.userId }))).rejects.toThrow();
+    } finally {
+      await x.query('ROLLBACK').catch(() => undefined);
+      x.release();
     }
     const kept = (await sql`SELECT efiling_status FROM sars_efiling_events WHERE submission_id = ${sub}::UUID`) as Row[];
     expect(kept).toEqual([{ efiling_status: 'sending' }]);

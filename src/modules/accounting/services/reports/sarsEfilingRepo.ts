@@ -4,7 +4,10 @@
  * scoped (multi-tenant). No secrets are ever written to the audit log.
  */
 
-import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
+import { getAuthPool } from '@/lib/auth/authPool';
+import { connectObserved } from '@/lib/auth/poolTelemetry';
+import { als } from '@/lib/als';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
@@ -108,11 +111,23 @@ export interface EfilingEventInput {
 }
 
 /**
- * The same row in a transaction of its OWN (migration_admin pool), committed before this returns: the record that a
- * submit is about to leave for SARS must survive the request's own rollback.
+ * The same row in a transaction of its OWN, committed before this returns: the record that a submit is about to leave
+ * for SARS must survive the request's own rollback. An ordinary app_user connection from the withAuth pool (never a
+ * migration credential), with the request's verified claims and company as the RLS GUCs, exactly as withAuth sets them.
  */
 export async function insertEfilingEventCommitted(evt: EfilingEventInput): Promise<void> {
-  await migrationAdminTx('isv-submit-intent', async (client) => {
+  const store = als.getStore();
+  const claims = store?.claims ?? {};
+  // The authenticated request's company, as withAuth sets it; the event's own is the fallback outside a request.
+  const companyGuc = store?.companyId ?? evt.companyId;
+  const client = await connectObserved(getAuthPool(), 'isv-submit-intent');
+  let failure: unknown = null;
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL lock_timeout = '5s'`);
+    await client.query('SET LOCAL ROLE app_user');
+    await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
+    await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyGuc]);
     await client.query(
       `INSERT INTO sars_efiling_events
          (company_id, submission_id, event_type, efiling_status, http_status, correlation_id, detail, message, created_by)
@@ -120,7 +135,14 @@ export async function insertEfilingEventCommitted(evt: EfilingEventInput): Promi
       [evt.companyId, evt.submissionId, evt.eventType, evt.efilingStatus ?? null, evt.httpStatus ?? null,
         evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],
     );
-  });
+    await client.query('COMMIT');
+  } catch (err) {
+    failure = err;
+    const unusable = await rollbackFailed(client, 'isv-submit-intent');
+    client.release(unusable !== null);
+    throw err;
+  }
+  if (failure === null) client.release();
 }
 
 export async function insertEfilingEvent(evt: EfilingEventInput): Promise<void> {
