@@ -20,9 +20,8 @@
  * characters of prose.
  */
 import {
-  PAGE_WIDTH_MM, emsPerLine, wrapEms,
+  GUTTER_MM, PAGE_WIDTH_MM, emsPerLine, wrapEms,
 } from '@/modules/accounting/services/packs/pages/packTextMetrics';
-import { GUTTER_MM } from '@/modules/accounting/services/packs/pages/packDisclosureHeight';
 
 /** The budget, in lines x line-ems of page 4's prose (see `commentaryCost`). */
 export const MAX_APPROVED_PACK_EMS = 600;

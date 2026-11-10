@@ -27,7 +27,6 @@ import {
   lines,
   PAGE_BOX_MM,
   PAGE_WIDTH_MM,
-  wrappedLines,
   type PageOrientation,
 } from './packTextMetrics';
 import {
@@ -44,6 +43,8 @@ import {
   DEFINITION_BRIDGE_HEAD_MM,
 } from './packBlockHeights';
 import { kpiBlockMm } from './packKpiLayout';
+import { proseLines } from './packProseLines';
+import { PROSE } from './packProseStyles';
 import { mattersTableMm } from './packMattersPrinted';
 import type { PackPage, PackPageBlock } from './packPageModel';
 import { PACK_SCALE } from './packScale';
@@ -63,10 +64,8 @@ export const BLOCK_GAP_MM = 4.5;
  *  full-width chart's is `chartTitleMm`. */
 const CHART_TITLE_GAP_MM = 1.5;
 
-/** `.pack-small-multiples .pack-chart-title` — 8.5pt on a 12pt line. A page-10
- *  panel's caption is set at the glossary size over an 83mm measure; see the
- *  rule in `packPrint.css` for what the 10pt one cost that page. */
-const PANEL_TITLE_PT = 8.5;
+/* `.pack-small-multiples .pack-chart-title` (`PROSE.panelTitle`) — 8.5pt on a 12pt line. A page-10 panel's caption
+ * is set at the glossary size over an 83mm measure; see the rule in `packPrint.css` for what the 10pt one cost that page. */
 const PANEL_TITLE_LINE_PT = 12;
 
 /**
@@ -98,7 +97,7 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       let total = 0;
       for (let i = 0; i < block.panels.length; i += 2) {
         const row = block.panels.slice(i, i + 2);
-        const captionLines = Math.max(1, ...row.map((p) => wrappedLines(p.title, PANEL_TITLE_PT, measure)));
+        const captionLines = Math.max(1, ...row.map((p) => proseLines(p.title, PROSE.panelTitle, measure)));
         total += (i === 0 ? 0 : GUTTER_MM)
           + lines(captionLines, PANEL_TITLE_LINE_PT) + CHART_TITLE_GAP_MM
           + Math.max(0, ...row.map((p) => p.heightMm));
@@ -111,7 +110,7 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       return statementTableMm(block.table, PACK_SCALE, orientation, width);
     case 'scorecard': {
       const groups = block.groups.reduce((sum, g, i) => sum + (i === 0 ? 0 : 4)
-        + lines(wrappedLines(`${g.letter}. ${g.name}`, 11, width), 15) + 1.5
+        + lines(proseLines(`${g.letter}. ${g.name}`, PROSE.scorecardHeading, width), 15) + 1.5
         + tableMm(g.rows.map((r) => r.metric), [], width, 0.34, SCORECARD_ROW_MM, SCORECARD_HEAD_MM), 0);
       const figures = block.groups.flatMap((g) => g.rows.flatMap((r) => [r.actual, r.prior]));
       return groups + 4 + notMeaningfulNotesMm(figures, width);
@@ -153,8 +152,8 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       // three-row reconciliation table that cannot split.
       const measure = (width - GUTTER_MM) / 2;
       const heights = block.entries.map((e) =>
-        lines(wrappedLines(e.term, 8.5, measure), 12)
-        + lines(wrappedLines(e.definition, 8.5, measure - 4), 12)
+        lines(proseLines(e.term, PROSE.definitionTerm, measure), 12)
+        + lines(proseLines(e.definition, PROSE.definition, measure - 4), 12)
         // AND THE COMPARATIVE COLUMN'S HEADER ROW, where the bridge carries
         // one — a `<thead>` is a row of paper like any other, and page 12
         // fits with about 1.7mm to spare, so an unmeasured row is a sheet.
@@ -174,7 +173,7 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
         // not measured is how a page takes a thirteenth sheet.
         + (e.reconciliationNote === undefined
           ? 0
-          : 1 + lines(wrappedLines(e.reconciliationNote, 7.5, measure - 4), 11)));
+          : 1 + lines(proseLines(e.reconciliationNote, PROSE.bridgeNote, measure - 4), 11)));
       // Chromium balances by finding the smallest height a greedy in-order
       // fill still clears, which with `break-inside: avoid` is the best
       // in-order split — `balancedLines` computes exactly that rather than
@@ -196,10 +195,9 @@ export function pageHeaderMm(page: MeasurablePage, orientation: PageOrientation)
   // line. One line always: two short small-caps labels at either end of the
   // measure.
   const titleLead = orientation === 'landscape' ? 16 : 18;
-  const titlePt = orientation === 'landscape' ? 13 : 15;
   const margin = orientation === 'landscape' ? 2 : BLOCK_GAP_MM;
   return lines(1, 11) + 0.5
-    + lines(wrappedLines(page.title, titlePt, width), titleLead) + 1.5 + 0.71 + margin;
+    + lines(proseLines(page.title, orientation === 'landscape' ? PROSE.titleLandscape : PROSE.title, width), titleLead) + 1.5 + 0.71 + margin;
 }
 
 /**
@@ -216,7 +214,7 @@ export function pageHeaderMm(page: MeasurablePage, orientation: PageOrientation)
 export function footnotesMm(page: MeasurablePage, orientation: PageOrientation): number {
   if (page.footnotes.length === 0) return 0;
   const width = PAGE_WIDTH_MM[orientation];
-  const n = page.footnotes.reduce((sum, f) => sum + wrappedLines(f.text, 7.5, width - 6), 0);
+  const n = page.footnotes.reduce((sum, f) => sum + proseLines(f.text, PROSE.footnote, width - 6), 0);
   return 2 + lines(n, 11);
 }
 

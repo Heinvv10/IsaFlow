@@ -40,6 +40,9 @@
 
 export const PT_MM = 25.4 / 72;
 
+/** `--pack-gutter`. */
+export const GUTTER_MM = 8;
+
 export type PageOrientation = 'portrait' | 'landscape';
 
 /**
