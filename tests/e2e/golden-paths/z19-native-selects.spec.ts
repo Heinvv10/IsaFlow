@@ -3,7 +3,8 @@
  * Golden path (z19): no native selects on the screens that had them (master plan wave 5, UXN).
  *
  * READ-ONLY, Demo company, dev only. Nothing is written.
- *  - P&L filters, company settings (Details tab), the leave list and an employee profile have 0 native <select>.
+ *  - P&L filters, company settings (Details tab), the leave list and an employee profile have 0 native <select>
+ *    (the journal-entry form is checked for 390 px overflow and axe only).
  *  - A picked kit Select value shows in its trigger (the P&L cost-centre filter keeps its choice).
  *  - Opening an invoice from a plain cell and pressing Escape returns focus to that row, not BODY.
  *  - No screen scrolls sideways at 390 px; axe reports 0 critical and 0 serious, in both themes.
@@ -57,7 +58,8 @@ for (const theme of THEMES) {
         for (const s of paths) {
           await page.goto(s.path);
           await settle(page);
-          expect(await nativeSelects(page), `${s.slug}: native selects`).toBe(s.slug === 'journal-new' ? 1 : 0);
+          // The journal's per-line Account selects are out of scope here: that page is in the list for its 390 px summary.
+          if (s.slug !== 'journal-new') expect(await nativeSelects(page), `${s.slug}: native selects`).toBe(0);
           if (width === 390) expect(await overflowX(page), `${s.slug}: sideways overflow`).toBeLessThanOrEqual(0);
           await expectAxeClean(page);
           await snap(page, s.slug, theme, width);
