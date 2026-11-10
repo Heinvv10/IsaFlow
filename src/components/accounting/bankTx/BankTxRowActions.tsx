@@ -25,7 +25,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
   const { onAccept, onExclude, onUnmatch, onSplit, onFindMatch, onReverse, onAttachments, onAskClient, onCreateRule, onLink } = table;
 
   return (
-    <td className="py-2 px-2 text-center">
+    <td className="py-1 px-2 text-center">
       {isExcluded ? (
         /* Excluded tab: show reason badge spanning the actions column */
         <div className="flex items-center gap-1 justify-center">

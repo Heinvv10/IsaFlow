@@ -9,11 +9,14 @@
  */
 import type { MoneyScale } from '@/lib/format/money';
 import { kpiFit, tableFit } from './packFigureFit';
+import { withPrintedText } from './packPrintedText';
 import type { StampedPackPageBlock, StampedPackPagesDocument } from './packFigureFitCss';
 import type { PackPageBlock, PackPagesDocument } from './packPageModel';
 import type { PageOrientation } from './packTextMetrics';
 
-export function stampBlock(block: PackPageBlock, scale: MoneyScale, orientation: PageOrientation): StampedPackPageBlock {
+export function stampBlock(given: PackPageBlock, scale: MoneyScale, orientation: PageOrientation): StampedPackPageBlock {
+  // Measured as printed: a block set after the input was read (a re-stamp) is rewritten as the input is.
+  const block = withPrintedText(given);
   if (block.kind === 'table') return { ...block, table: { ...block.table, figureFit: tableFit(block.table, scale, orientation) } };
   if (block.kind === 'kpiTiles') return { ...block, fit: kpiFit(block.tiles, scale, orientation) };
   return block as StampedPackPageBlock;

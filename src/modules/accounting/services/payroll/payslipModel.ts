@@ -8,11 +8,13 @@
  * Every read is scoped by company: a run of another company is `PayslipNotFound`,
  * as is a cancelled run (the history hides it too) and an employee with no line on it.
  *
- * Occupation (BCEA s33(1)(b)): payroll has no occupation field yet, and the EE level or
- * department is not an occupation, so the slip prints "Occupation not recorded" (wave 5).
+ * Occupation (BCEA s33(1)(b)) and the stored terms of work (hours, rates) come from the employee's profile
+ * (migration 967). The EE level or department is not an occupation: with none captured the slip prints
+ * "Occupation not recorded".
  */
 import { sql } from '@/lib/neon';
 import { getCompanyDetailsFromCompany } from '@/modules/accounting/services/core/pdfShared';
+import { quantitiesFromBreakdown, type WorkedQuantity } from './payslipQuantities';
 import { itemisePayslip, readBreakdown, type PayslipLines } from './payslipItems';
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
 
@@ -32,6 +34,19 @@ export interface Payslip extends PayslipLines {
   /** The active bank account's last four digits; null when none is on file. */
   bankLastFour: string | null;
   bankName: string | null;
+  /** A bank account is on file but too short to mask (fewer than four characters). */
+  bankIncomplete: boolean;
+  /** Hours or days stamped on the line's stored breakdown for basic pay (3601) and overtime (3607); null when none. */
+  workedOrdinary: WorkedQuantity | null;
+  workedOvertime: WorkedQuantity | null;
+  /** BCEA s33(1)(b): the employee's occupation as captured on the profile; null when none. */
+  occupation: string | null;
+  payBasis: string;
+  /** The stored terms of work (contracted hours, rates); null when not captured. */
+  hoursPerWeek: number | null;
+  hoursPerDay: number | null;
+  hourlyRate: number | null;
+  dailyRate: number | null;
   yearToDate: PayslipYearToDate;
 }
 
@@ -56,7 +71,14 @@ interface LineRow {
   tax_number: string | null;
   payment_method: string;
   bank_last_four: string | null;
+  bank_length: string | number | null;
   bank_name: string | null;
+  occupation: string | null;
+  pay_basis: string;
+  hours_per_week: string | number | null;
+  hours_per_day: string | number | null;
+  hourly_rate: string | number | null;
+  daily_rate: string | number | null;
   gross_pay: string | number;
   paye: string | number;
   uif_employee: string | number;
@@ -67,6 +89,14 @@ interface LineRow {
   run_final: boolean;
 }
 
+/** Hours or days stamped on the stored breakdown at calculation time (payslipQuantities). */
+function workedOf(breakdown: unknown): { workedOrdinary: WorkedQuantity | null; workedOvertime: WorkedQuantity | null } {
+  const q = quantitiesFromBreakdown(breakdown);
+  return { workedOrdinary: q.ordinary, workedOvertime: q.overtime };
+}
+
+const numOrNull = (v: string | number | null): number | null => (v == null ? null : Number(v));
+
 const dateOnly = (d: string | Date | null): string | null =>
   d == null ? null : d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
 
@@ -74,7 +104,8 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
   return (await sql`
     SELECT prl.employee_id::text AS employee_id, pe.employee_number, pe.first_name, pe.last_name,
            pe.tax_number, pe.payment_method,
-           RIGHT(bd.account_number, 4) AS bank_last_four, bd.bank_name,
+           pe.occupation, pe.pay_basis, pe.hours_per_week, pe.hours_per_day, pe.hourly_rate, pe.daily_rate,
+           RIGHT(btrim(bd.account_number), 4) AS bank_last_four, char_length(btrim(bd.account_number)) AS bank_length, bd.bank_name,
            prl.gross_pay, prl.paye, prl.uif_employee, prl.uif_employer, prl.sdl, prl.net_pay,
            prl.component_breakdown,
            (prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS run_final
@@ -133,8 +164,17 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
       employeeName: `${l.first_name} ${l.last_name}`.trim(),
       taxNumber: l.tax_number,
       paymentMethod: String(l.payment_method),
-      bankLastFour: l.bank_last_four,
+      // A masked form needs four real characters: a shorter (or blank) number is incomplete, never printed as is.
+      bankLastFour: Number(l.bank_length ?? 0) >= 4 ? l.bank_last_four : null,
+      bankIncomplete: l.bank_length != null && Number(l.bank_length) < 4,
       bankName: l.bank_name,
+      ...workedOf(l.component_breakdown),
+      occupation: l.occupation,
+      payBasis: String(l.pay_basis),
+      hoursPerWeek: numOrNull(l.hours_per_week),
+      hoursPerDay: numOrNull(l.hours_per_day),
+      hourlyRate: numOrNull(l.hourly_rate),
+      dailyRate: numOrNull(l.daily_rate),
       yearToDate: ytd.get(l.employee_id)!,
     })),
   };

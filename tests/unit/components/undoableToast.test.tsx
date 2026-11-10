@@ -18,6 +18,8 @@ function open(onUndo = vi.fn(), opts: { durationMs?: number; message?: string } 
   return onUndo;
 }
 const surface = () => screen.getByTestId('undo-toast');
+/** The page's polite live region; the toast surface is a status of its own too. */
+const announcer = () => screen.getAllByRole('status').find((el) => el.getAttribute('data-testid') !== 'undo-toast')!;
 const gone = () => screen.queryByTestId('undo-toast');
 const undo = () => screen.getByRole('button', { name: 'Undo' });
 const advance = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
@@ -34,29 +36,29 @@ afterEach(() => {
 describe('notify.undoable', () => {
   it('announces through a polite region that was on the page before the toast: one that arrives with its text is not read', () => {
     render(<><UndoAnnouncer /><Toaster /></>);
-    const region = screen.getByRole('status');
+    const region = announcer();
     expect(region.getAttribute('aria-live')).toBe('polite');
     expect(region.textContent).toBe('');
 
     act(() => { notify.undoable('Transaction allocated', { onUndo: vi.fn(), message: 'What was learned is kept.' }); });
 
-    expect(screen.getByRole('status')).toBe(region);
+    expect(announcer()).toBe(region);
     expect(region.textContent).toBe('Transaction allocated. What was learned is kept. Press Control Z to undo.');
   });
 
   it('the same sentence twice is a new announcement, not an unchanged region', () => {
     open();
-    const first = screen.getByRole('status').firstElementChild;
+    const first = announcer().firstElementChild;
     act(() => { notify.undoable('Transaction excluded', { onUndo: vi.fn() }); });
-    expect(screen.getByRole('status').firstElementChild).not.toBe(first);
-    expect(screen.getByRole('status').firstElementChild?.textContent).toBe(first?.textContent);
+    expect(announcer().firstElementChild).not.toBe(first);
+    expect(announcer().firstElementChild?.textContent).toBe(first?.textContent);
   });
 
   it('clears the region when the offer ends: a screen reader that walks there later finds no stale offer', () => {
     open(vi.fn(), { durationMs: 2000 });
-    expect(screen.getByRole('status').textContent).not.toBe('');
+    expect(announcer().textContent).not.toBe('');
     advance(2000);
-    expect(screen.getByRole('status').textContent).toBe('');
+    expect(announcer().textContent).toBe('');
   });
 
   it('an older offer ending leaves a newer one\'s words alone', () => {
@@ -64,13 +66,13 @@ describe('notify.undoable', () => {
     advance(1000);
     act(() => { notify.undoable('Transaction allocated', { onUndo: vi.fn() }); });
     advance(1000);
-    expect(screen.getByRole('status').textContent).toContain('Transaction allocated.');
+    expect(announcer().textContent).toContain('Transaction allocated.');
   });
 
   it('StrictMode\'s second effect run leaves the words in place', () => {
     render(<StrictMode><UndoAnnouncer /><Toaster /></StrictMode>);
     act(() => { notify.undoable('Transaction excluded', { onUndo: vi.fn() }); });
-    expect(screen.getByRole('status').textContent).toContain('Transaction excluded.');
+    expect(announcer().textContent).toContain('Transaction excluded.');
   });
 
   it('does not cut the message off: it may say what undo does not do', () => {
@@ -283,5 +285,24 @@ describe('notify.undoable', () => {
       press(document.body);
       expect(onUndo).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('the toast surface (UXB, wave 5)', () => {
+  /** Live regions on the page whose text holds `text`: role status/alert/log or any aria-live, unless it is "off". */
+  const speaking = (text: string) => Array.from(document.querySelectorAll('[role="status"],[role="alert"],[role="log"],[aria-live]'))
+    .filter((el) => el.getAttribute('aria-live') !== 'off' && (el.textContent ?? '').includes(text));
+
+  it('is a status of its own, and not a second live region', () => {
+    open();
+    expect(surface()).toHaveAttribute('role', 'status');
+    expect(surface()).toHaveAttribute('aria-live', 'off');
+  });
+
+  it('the title is in exactly one live region: the announcer', () => {
+    open();
+    const regions = speaking('Transaction excluded');
+    expect(regions).toHaveLength(1);
+    expect(regions[0]).toBe(announcer());
   });
 });

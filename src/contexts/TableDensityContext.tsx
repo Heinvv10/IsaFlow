@@ -90,3 +90,8 @@ export function useTableDensity(): TableDensityContextType {
   if (!ctx) throw new Error('useTableDensity must be used within TableDensityProvider');
   return ctx;
 }
+
+/** The density, or `comfortable` where no provider is mounted (a grid that must render in isolation). */
+export function useOptionalDensity(): Density {
+  return useContext(TableDensityContext)?.density ?? 'comfortable';
+}
