@@ -113,7 +113,7 @@ export function proseFill(text: string | readonly ProseSegment[], style: ProseSt
   const startLine = (): void => { lines += 1; lineWidth = 0; tail = []; };
 
   let at = 0;
-  for (const piece of pieces(full)) {
+  for (const piece of pieces(full, { dictionarySpans: true })) {
     while (COLLAPSIBLE.test(full[at] ?? '')) at += 1;
     if (full.slice(at, at + piece.text.length) !== piece.text) throw new Error(`proseFill: piece "${piece.text}" is not the text at ${at}`);
     const own = weights.slice(at, at + piece.text.length);

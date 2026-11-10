@@ -180,7 +180,7 @@ function breaksAfter(clusters: readonly string[], codes: readonly number[], i: n
 }
 
 /** The pieces of one word, the text's `first` and `last` or not. */
-function wordPieces(word: string, first: boolean, last: boolean): string[] {
+function wordPieces(word: string, first: boolean, last: boolean, dictionarySpans: boolean): string[] {
   const pieces: string[] = [];
   let start = 0;
   const clusters = wordClusters(word);
@@ -189,9 +189,10 @@ function wordPieces(word: string, first: boolean, last: boolean): string[] {
     const next = clusters[i + 1];
     if (next === undefined) return;
     const soft = softBreak(cluster, next);
-    // Inside a run of a dictionary-broken script the print breaks anywhere (`packDictionaryBreak`: the `.pack-dictionary`
-    // span), so between two of its clusters; at the run's edges it keeps the rules', which hold a glued word to it.
-    const anywhere = isDictionaryCluster(cluster) && isDictionaryCluster(next);
+    // Where the text is printed with its dictionary-script runs in `.pack-dictionary` spans (prose: `PackProse`), the
+    // print breaks anywhere inside a run, so between two of its clusters; at the run's edges it keeps the rules', which
+    // hold a glued word to it. A row label is printed without the spans and keeps the rules throughout.
+    const anywhere = dictionarySpans && isDictionaryCluster(cluster) && isDictionaryCluster(next);
     if (anywhere || (soft === null ? breaksAfter(clusters, codes, i, first, last) : soft)) {
       pieces.push(clusters.slice(start, i + 1).join(''));
       start = i + 1;
@@ -215,9 +216,9 @@ const endsAtSoftHyphen = (piece: string): boolean => {
  * there. Measured: "Revenue growth­" sets on one line at 5876/64px (its words and the hyphen), not at the 5570/64
  * of its words, and "growth­" alone has a min-content of its word and the hyphen (`packLineFit.test.ts`).
  */
-export function pieces(text: string): Piece[] {
+export function pieces(text: string, { dictionarySpans = false }: { dictionarySpans?: boolean } = {}): Piece[] {
   const words = text.split(COLLAPSIBLE).filter((word) => word !== '');
-  return words.flatMap((word, wi) => wordPieces(word, wi === 0, wi === words.length - 1)
+  return words.flatMap((word, wi) => wordPieces(word, wi === 0, wi === words.length - 1, dictionarySpans)
     .map((piece, pi) => ({ text: piece, spaced: wi > 0 && pi === 0, hyphen: endsAtSoftHyphen(piece) })));
 }
 
