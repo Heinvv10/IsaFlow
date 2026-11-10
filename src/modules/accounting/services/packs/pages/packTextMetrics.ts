@@ -214,53 +214,6 @@ function textEms(text: string): number {
  */
 export const WIDTH_SAFETY = 1.12;
 
-/** The ems of `pt`-sized text one `widthMm` line holds. */
-export function emsPerLine(pt: number, widthMm: number): number {
-  return (widthMm / (pt * PT_MM)) / WIDTH_SAFETY;
-}
-
-/**
- * Lines a string takes at `pt` across `widthMm`. At least one — an empty
- * paragraph still occupies its line box.
- *
- * WORD BY WORD, not a division. A character count assumes text breaks
- * anywhere, and the pack's does not: an unbreakable 36-character identifier
- * pushes the line before it short, and the division cannot see it.
- */
-export function wrappedLines(text: string, pt: number, widthMm: number): number {
-  return wrapEms(text, emsPerLine(pt, widthMm));
-}
-
-/**
- * A "WORD" IS WHAT A BROWSER WILL NOT BREAK, WHICH IS NOT WHAT `\s` MATCHES.
- *
- * `formatMoney` separates thousands with U+00A0 so a figure cannot split
- * across a line at its own separator (see `GROUP_SEPARATOR`) — and JavaScript's
- * `\s` matches U+00A0, so a wrap model splitting on `/\s+/` would offer the
- * renderer a break the browser will never take. It would then under-count the
- * lines of any block carrying a figure in prose, which is the number every
- * page's fit is decided on.
- */
-const BREAKABLE = /[^\S\u00a0\u202f]+/;
-
-/** Lines `text` takes on a line of `perLine` ems — `wrappedLines` without the
- *  millimetre conversion, for a caller that already holds the measure in ems. */
-export function wrapEms(text: string, perLine: number): number {
-  let count = 1;
-  let used = 0;
-  for (const word of text.split(BREAKABLE)) {
-    if (word.length === 0) continue;
-    const wordEms = textEms(word);
-    const withWord = used === 0 ? wordEms : used + EM_SPACE + wordEms;
-    if (withWord <= perLine) { used = withWord; continue; }
-    if (used > 0) count += 1;
-    used = wordEms;
-    // A word wider than the measure breaks inside itself.
-    while (used > perLine) { count += 1; used -= perLine; }
-  }
-  return count;
-}
-
 /** Millimetres of `n` lines set at a `lineHeightPt` leading. */
 export function lines(n: number, lineHeightPt: number): number {
   return n * lineHeightPt * PT_MM;

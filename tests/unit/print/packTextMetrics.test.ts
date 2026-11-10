@@ -2,6 +2,12 @@
  * THE RULER IS MEASURED AGAINST THE BROWSER, ON TEXT THE PACK CAN ACTUALLY
  * RECEIVE.
  *
+ * The prose model is now `packProseLines.proseLines` (each word at the faces'
+ * own widths, filled as the print fills a line); this holds it on text the
+ * faces set. Text in a fallback face is held in production's image
+ * (`printParity/packProseLinesImage.test.ts`): this Chromium's fallback faces
+ * are not production's. What follows is the em table's history.
+ *
  * `packTextMetrics` decides how many lines a string takes, and every page
  * budget is built on it. Its em table was fitted to English prose and gave
  * every codepoint outside that table `EM_DEFAULT` — 0.47em — including CJK,
@@ -23,21 +29,19 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Browser } from 'playwright';
 import { launchPrintChromium } from './printChromium';
-import { wrappedLines } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { proseLines } from '@/modules/accounting/services/packs/pages/packProseLines';
+import { PROSE, type ProseStyle } from '@/modules/accounting/services/packs/pages/packProseStyles';
 import { readPackPrintCss } from './packPrintCss';
 
 const ROOT = path.resolve(__dirname, '../../..');
 const HOST = 'http://text.metrics.local/';
 
-/** Strings the pack could carry, one per script the em table has to survive. */
+/** Strings the pack could carry, in the scripts the faces set. */
 const SAMPLES: Array<[string, string]> = [
   ['English prose', 'Targets are the platform defaults; a metric with no target is shown unscored rather than assumed met, and the page says so.'],
   ['digits and identifiers', 'Reversal of JE-2026-00417 against company d27bac33-0000-0000-0000-000000000000 on 2026-01-31, 1 234 567.89'],
   ['capitals', 'VAT CONTROL ACCOUNT RECONCILIATION FOR THE PERIOD ENDED 31 AUGUST 2026 — SARS VAT201 SUBMISSION'],
   ['Afrikaans', 'Die grootboekinskrywing is teruggeskryf omdat die bedrag nie ooreenstem met die staat se saldo nie.'],
-  ['Chinese', '这是一笔来自客户的付款，金额与银行对账单上的余额不符，需要财务部门在本月底之前完成核对。'],
-  ['Japanese', 'この仕訳は銀行明細の残高と一致しないため、月末までに経理部門による照合が必要です。'],
-  ['Korean', '이 분개는 은행 명세서의 잔액과 일치하지 않으므로 월말까지 회계 부서의 확인이 필요합니다.'],
   ['Cyrillic', 'Проводка не соответствует остатку по банковской выписке и требует проверки бухгалтерией.'],
   ['Greek', 'Η εγγραφή δεν συμφωνεί με το υπόλοιπο του τραπεζικού λογαριασμού και απαιτεί έλεγχο.'],
   /**
@@ -58,8 +62,10 @@ const SAMPLES: Array<[string, string]> = [
     + 'revenue and other income of (5\u00a0536).'],
 ];
 
-/** The three measures the pack actually sets prose across. */
-const MEASURES: Array<[number, number]> = [[9.5, 174], [9.5, 116], [7.5, 168], [9, 34]];
+/** Measures the pack sets prose across, each in its style. */
+const MEASURES: Array<[ProseStyle, number]> = [
+  [PROSE.disclosureBody, 174], [PROSE.disclosureBody, 116], [PROSE.footnote, 168], [PROSE.mattersCell, 34], [PROSE.narrativeBody, 110],
+];
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
@@ -71,8 +77,8 @@ describe('the pack text ruler', () => {
     // One paragraph per sample per measure, at the real size, in the real
     // face — a fallback face has different advances and would measure a
     // different document.
-    const cases = MEASURES.flatMap(([pt, widthMm]) =>
-      SAMPLES.map(([name, text]) => ({ name, text, pt, widthMm })));
+    const cases = MEASURES.flatMap(([style, widthMm]) =>
+      SAMPLES.map(([name, text]) => ({ name, text, style, pt: style.pt, widthMm })));
     const html = '<!doctype html><html class="print-mode"><head><meta charset="utf-8"><style>'
       + `body{margin:0;font-family:'IBM Plex Sans',sans-serif}${pack}</style></head><body>`
       + cases.map((c, i) =>
@@ -100,7 +106,7 @@ describe('the pack text ruler', () => {
       }), cases.length);
 
       const short = cases
-        .map((c, i) => ({ ...c, browser: drawn[i]!, model: wrappedLines(c.text, c.pt, c.widthMm) }))
+        .map((c, i) => ({ ...c, browser: drawn[i]!, model: proseLines(c.text, c.style, c.widthMm) }))
         .filter((c) => c.model < c.browser);
       expect(
         short.map((c) => `${c.name} at ${c.pt}pt/${c.widthMm}mm: model ${c.model}, browser ${c.browser}`),
@@ -122,30 +128,26 @@ describe('the pack text ruler', () => {
    * line the browser will leave short. That is the ruler reading SHORT, which
    * is the direction that puts a page on a second sheet.
    *
-   * Asserted against the ruler directly rather than against Chromium: the em
-   * table is conservative enough that a whole paragraph absorbs the
-   * difference, and it is the single wrap decision that has to be right.
+   * Asserted against the ruler directly: it is the single wrap decision that
+   * has to be right, and the sample above holds it only where a paragraph's
+   * fill happens to reach a figure.
    */
   it('does not break a figure at its own thousands separator', () => {
-    const pt = 9.5;
-    const grouped = '111\u00a0111 222\u00a0222';
-    const breakable = grouped.replace(/\u00a0/g, ' ');
-
-    // THE MEASURE IS FOUND, NOT WRITTEN DOWN — the narrowest whole
-    // millimetre at which the same characters fit one line when every space
-    // in them may break. At that width the difference between the two models
-    // is exactly one break, and the em table can be refitted without this
-    // case quietly ceasing to discriminate.
+    const style = PROSE.disclosureBody;
+    // THE MEASURE IS FOUND, NOT WRITTEN DOWN — the narrowest whole millimetre
+    // at which one figure, "111 111", fits a line. There "1 111 111 1" sets
+    // in three lines (the figure cannot share one with either "1"), and a
+    // model that breaks at the separator fits it in two.
     const measureMm = [...Array(120).keys()]
       .map((n) => n + 1)
-      .find((mm) => wrappedLines(breakable, pt, mm) === 1);
+      .find((mm) => proseLines('111 111', style, mm) === 1);
     expect(measureMm, 'no measure fits the sample, so nothing is being tested').toBeDefined();
-
+    expect(proseLines('1 111 111 1', style, measureMm!), 'the measure does not discriminate').toBe(2);
     expect(
-      wrappedLines(grouped, pt, measureMm!),
-      `at ${measureMm}mm the ruler fitted two grouped figures on one line, which it can only do `
-        + 'by breaking one of them at its own thousands separator — a break the browser will '
+      proseLines('1 111\u00a0111 1', style, measureMm!),
+      `at ${measureMm}mm the ruler fitted a grouped figure beside a word, which it can only do `
+        + 'by breaking it at its own thousands separator — a break the browser will '
         + 'never take, so the ruler reads short',
-    ).toBe(2);
+    ).toBe(3);
   });
 });

@@ -113,7 +113,7 @@
  * column for a block only page 4 carries. */
 .pack-narrative-columns.is-single { grid-template-columns: minmax(0, 1fr); }
 .pack-narrative-body { font-size: 10pt; line-height: 15pt; }
-/* A WORD WIDER THAN ITS COLUMN BREAKS INSIDE ITSELF. `wrappedLines` (the page
+/* A WORD WIDER THAN ITS COLUMN BREAKS INSIDE ITSELF. `proseLines` (the page
  * model) assumes exactly that for an unbreakable token, and a person who writes
  * the commentary pastes URLs: a 134-character one kept its min-content width,
  * widened the grid to 920px in a 658px sheet and pushed the action panel off

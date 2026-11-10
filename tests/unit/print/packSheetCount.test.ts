@@ -211,7 +211,7 @@ describe('the printed board pack', () => {
         // count times a row — one line per entry, never seeing the label
         // strings — and a wrapped label makes it UNDER-read, which is the
         // direction that spills a sheet. It is measured through
-        // `wrappedLines` now, and it is held to Chromium here like every
+        // `proseLines` now, and it is held to Chromium here like every
         // other page rather than taken on trust.
         if (page.number === 1) continue;
         const measured = printed.heights[index]!;

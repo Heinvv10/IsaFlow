@@ -1,7 +1,7 @@
 /**
  * A LONG UNBROKEN TOKEN IN APPROVED COMMENTARY STAYS INSIDE ITS COLUMN.
  *
- * A person can now write the commentary, and a person pastes URLs. `wrappedLines`
+ * A person can now write the commentary, and a person pastes URLs. `proseLines`
  * (the page model) breaks a word wider than the measure inside itself, but
  * Chromium does not unless the CSS says so: a 134-character URL kept its
  * min-content width, pushed page 4's two-column grid wider and the action

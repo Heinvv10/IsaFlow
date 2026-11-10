@@ -391,11 +391,11 @@ describe('approveCommentary against the pack budget', () => {
   });
 
   it('costs the row at ITS place in the page order: the same text fits between two rows and not after them', async () => {
-    // Pinned numbers: cost([a, x, b]) = 588 <= 600 < cost([a, b, x]) = 616, because where the
+    // Pinned numbers: cost([a, x, b]) = 753.3 <= 760 < cost([a, b, x]) = 784.7, because where the
     // 20-char words fall against the line ends decides how many lines the paragraph takes.
     const a = 'a'.repeat(10);
     const b = 'b'.repeat(10);
-    const x = Array.from({ length: 42 }, () => 'x'.repeat(20)).join(' ');
+    const x = Array.from({ length: 48 }, () => 'x'.repeat(20)).join(' ');
     expect(commentaryCost([a, x, b])).toBeLessThanOrEqual(MAX_APPROVED_PACK_EMS);
     expect(commentaryCost([a, b, x])).toBeGreaterThan(MAX_APPROVED_PACK_EMS);
     const read = (pack: Array<{ id: string; approved_text: string | null }>) => sqlMock

@@ -60,7 +60,7 @@ const CONTENTS_LABEL_MM = PAGE_WIDTH_MM.portrait - 10;
  * pack with longer ones does not, and a wrapped label makes this formula
  * UNDER-read, which is the one direction that puts a page on a second sheet
  * under an index that says otherwise. It is now measured the way every other
- * block on every other page is measured, through `wrappedLines`, and
+ * block on every other page is measured, through `proseLines`, and
  * `packSheetCount.test.ts` holds page 2 to Chromium's own layout like the
  * ten pages after it.
  */
