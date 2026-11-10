@@ -66,6 +66,10 @@ beforeAll(async () => {
   // A contractor paid only an annual payment.
   const bonusOnly = await employee('Bonusonly');
   await line(3, bonusOnly, 150_000, 0, [item('3605', 150_000)], true);
+  // A contractor bonus of 30 000 in March and a 10 000 clawback in April: each line is floored at nil, so 30 000 is 3616's, not 20 000.
+  const clawback = await employee('Clawback');
+  await line(3, clawback, 40_000, 0, [item('3601', 10_000), item('3605', 30_000)], true);
+  await line(4, clawback, 5_000, 0, [item('3601', 15_000), item('3605', -10_000)], true);
   // Refused: 120 000 of employee pay with nil PAYE beside 1 000 of contractor fees (the employee part is over the threshold).
   const mixed = await employee('Mixedrefused', refusing);
   await line(3, mixed, 120_000, 0, [item('3601', 120_000)], false, refusing);
@@ -169,5 +173,11 @@ describe('e@syFile: a contractor is 3616, decided per line', () => {
     expect(file.status).toBe(422);
     expect(file.body).toMatch(/Mixedrefused/);
     expect(file.body).toMatch(/no PAYE was deducted/);
+  });
+
+  it('a contractor annual payment and its clawback in separate lines: each is floored at nil, so no 3605 is left over for the employee', async () => {
+    const r = recordOf((await exportFile()).body, 'Clawback');
+    expect(r).toEqual(expect.arrayContaining(['3616,45000', '4150,03']));
+    expect(r.some(l => l.startsWith('3605,') || l.startsWith('3601,'))).toBe(false);
   });
 });
