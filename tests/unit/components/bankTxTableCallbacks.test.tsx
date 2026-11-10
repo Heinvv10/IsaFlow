@@ -128,33 +128,37 @@ describe('BankTxTable: keyboard row stream', () => {
     const p = tableProps();
     render(<BankTxTable {...p} />);
     const grid = screen.getByRole('group', { name: /Bank transactions/ });
+    // The grid takes the arrow that enters the stream; every later key is pressed where focus is, on the row.
+    const press = (key: string) => fireEvent.keyDown(document.activeElement!, { key });
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
-    fireEvent.keyDown(grid, { key: 'Enter' });
+    press('Enter');
     expect(p.onAccept).toHaveBeenCalledTimes(1);
     expect(p.onAccept).toHaveBeenCalledWith('a');
-    fireEvent.keyDown(grid, { key: 'ArrowDown' });
-    fireEvent.keyDown(grid, { key: 'ArrowDown' });
-    fireEvent.keyDown(grid, { key: 'ArrowDown' });
-    fireEvent.keyDown(grid, { key: 'Enter' }); // row n: nothing chosen, so Enter edits instead
+    press('ArrowDown');
+    press('ArrowDown');
+    press('ArrowDown');
+    press('Enter'); // row n: nothing chosen, so Enter edits instead
     expect(p.onAccept).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('textbox', { name: 'Search accounts' })).toHaveFocus();
-    fireEvent.keyDown(grid, { key: 'x' }); // typing in the search is not a hotkey
+    press('x'); // typing in the search is not a hotkey
     expect(p.onExclude).not.toHaveBeenCalled();
   });
   it('X excludes and S splits the focused row, once each; E opens the focused row\'s popover', () => {
     const p = tableProps();
     render(<BankTxTable {...p} />);
     const grid = screen.getByRole('group', { name: /Bank transactions/ });
+    // The grid takes the arrow that enters the stream; every later key is pressed where focus is, on the row.
+    const press = (key: string) => fireEvent.keyDown(document.activeElement!, { key });
     fireEvent.keyDown(grid, { key: 'ArrowDown' }); // row a
-    fireEvent.keyDown(grid, { key: 'x' });
+    press('x');
     expect(p.onExclude).toHaveBeenCalledTimes(1);
     expect(p.onExclude).toHaveBeenCalledWith('a');
-    fireEvent.keyDown(grid, { key: 'ArrowDown' });
-    fireEvent.keyDown(grid, { key: 'ArrowDown' }); // row c
-    fireEvent.keyDown(grid, { key: 's' });
+    press('ArrowDown');
+    press('ArrowDown'); // row c
+    press('s');
     expect(p.onSplit).toHaveBeenCalledTimes(1);
     expect(p.onSplit).toHaveBeenCalledWith('c');
-    fireEvent.keyDown(grid, { key: 'e' });
+    press('e');
     expect(screen.getByRole('button', { name: `Acme. Choose customer, ${row('c')}` })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('textbox', { name: 'Search customers' })).toHaveFocus();
     expect(p.onAccept).not.toHaveBeenCalled();

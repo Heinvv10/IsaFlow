@@ -127,10 +127,11 @@ export interface BankTxTableProps {
   onRowEntityChange: (txId: string, entityId: string, label: string) => void;
   onRowVatChange: (txId: string, vatCode: VatCode) => void;
   onRowDimensionChange: (txId: string, cc1Id: string, cc2Id: string, buId: string) => void;
-  onAccept: (txId: string) => void;
-  onExclude: (txId: string) => void;
+  /** A promise resolves true when the row was actually posted / excluded / split (the grid's keyboard stream moves on only then). */
+  onAccept: (txId: string) => void | Promise<boolean>;
+  onExclude: (txId: string) => void | Promise<boolean>;
   onUnmatch: (txId: string) => void;
-  onSplit: (txId: string) => void;
+  onSplit: (txId: string) => void | Promise<boolean>;
   /** Called when the user finishes editing the notes field for a row */
   onUpdateNotes?: (txId: string, notes: string) => void;
   onFindMatch?: (txId: string) => void;
