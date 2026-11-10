@@ -96,10 +96,11 @@ beforeAll(async () => {
   ] as const) {
     const who = await employee(name, splitCo);
     const id = crypto.randomUUID();
+    const number = name === 'Splitone' ? '1234567893' : '1234567894';
     await pool.query(
       `INSERT INTO tax_directives (id, company_id, employee_id, employee_name, directive_number, directive_type, amount, tax_rate, effective_date, status)
-       VALUES ($1, $2, $3, $4, $5, 'severance', $6, 0, '2026-03-01', 'approved')`, [id, splitCo, who, `Test ${name}`, name === 'Splitone' ? '1234567893' : '1234567894', directive]);
-    const dirItem = (amount: number) => ({ ...item('3901', amount), directive: { id, number: '1234567893', paye: 0 } });
+       VALUES ($1, $2, $3, $4, $5, 'severance', $6, 0, '2026-03-01', 'approved')`, [id, splitCo, who, `Test ${name}`, number, directive]);
+    const dirItem = (amount: number) => ({ ...item('3901', amount), directive: { id, number, paye: 0 } });
     await line(3, who, 200_000 + directive, 1_000, [item('3601', 200_000), dirItem(directive)], false, splitCo);
     await line(4, who, contractorGross, 0, [...contractorItems, dirItem(-directive)], true, splitCo);
   }
