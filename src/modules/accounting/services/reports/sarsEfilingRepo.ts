@@ -121,7 +121,7 @@ export async function insertEfilingEventCommitted(evt: EfilingEventInput): Promi
   // The authenticated request's company, as withAuth sets it; the event's own is the fallback outside a request.
   const companyGuc = store?.companyId ?? evt.companyId;
   const client = await connectObserved(getAuthPool(), 'isv-submit-intent');
-  let failure: unknown = null;
+  let unusable = false; // R-176: a ROLLBACK that failed leaves the transaction open; destroy the connection, do not pool it
   try {
     await client.query('BEGIN');
     await client.query(`SET LOCAL lock_timeout = '5s'`);
@@ -137,12 +137,11 @@ export async function insertEfilingEventCommitted(evt: EfilingEventInput): Promi
     );
     await client.query('COMMIT');
   } catch (err) {
-    failure = err;
-    const unusable = await rollbackFailed(client, 'isv-submit-intent');
-    client.release(unusable !== null);
+    unusable = await rollbackFailed(client, 'isv-submit-intent');
     throw err;
+  } finally {
+    client.release(unusable);
   }
-  if (failure === null) client.release();
 }
 
 export async function insertEfilingEvent(evt: EfilingEventInput): Promise<void> {
