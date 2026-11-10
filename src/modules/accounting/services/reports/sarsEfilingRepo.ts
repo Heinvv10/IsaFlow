@@ -7,6 +7,7 @@
 import { getAuthPool } from '@/lib/auth/authPool';
 import { connectObserved } from '@/lib/auth/poolTelemetry';
 import { als } from '@/lib/als';
+import { SubmissionNotOpenError } from './sarsComplianceService';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
@@ -70,7 +71,7 @@ export async function markSubmissionSubmitted(
   efilingStatus: string,
   userId: string,
 ): Promise<void> {
-  await sql`
+  const rows = await sql`
     UPDATE sars_submissions
     SET status = 'submitted',
         efiling_channel = 'isv',
@@ -79,8 +80,27 @@ export async function markSubmissionSubmitted(
         submitted_at = NOW(),
         submitted_by = ${userId},
         updated_at = NOW()
-    WHERE id = ${submissionId} AND company_id = ${companyId}::UUID
-  `;
+    WHERE id = ${submissionId} AND company_id = ${companyId}::UUID AND status = 'draft'
+    RETURNING id
+  ` as DbRow[];
+  if (rows.length === 0) throw new SubmissionNotOpenError(`Submission ${submissionId} is no longer an open draft.`);
+}
+
+/** The newest event recorded for a submission (committed ones included), or null. */
+export async function latestEfilingEvent(
+  companyId: string, submissionId: string,
+): Promise<{ eventType: string; efilingStatus: string | null; correlationId: string | null } | null> {
+  const rows = (await sql`
+    SELECT event_type, efiling_status, correlation_id FROM sars_efiling_events
+    WHERE company_id = ${companyId}::UUID AND submission_id = ${submissionId}::UUID
+    ORDER BY created_at DESC, id DESC LIMIT 1
+  `) as DbRow[];
+  const r = rows[0];
+  return r ? {
+    eventType: String(r.event_type),
+    efilingStatus: r.efiling_status == null ? null : String(r.efiling_status),
+    correlationId: r.correlation_id == null ? null : String(r.correlation_id),
+  } : null;
 }
 
 export async function applyPollResult(

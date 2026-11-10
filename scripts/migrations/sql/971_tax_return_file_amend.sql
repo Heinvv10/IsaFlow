@@ -215,7 +215,8 @@ BEGIN
      AND (OLD.status <> 'draft' OR NEW.status = 'submitted')
      -- The ISV poll (applyPollResult) records SARS's verdict on a row it submitted: submitted to submitted, accepted or
      -- rejected, with a correlation id. Nothing else leaves a non-draft row, and nothing leaves 'superseded'.
-     AND NOT (OLD.status = 'submitted' AND NEW.status IN ('submitted', 'accepted', 'rejected') AND OLD.efiling_correlation_id IS NOT NULL)
+     AND NOT (OLD.status = 'submitted' AND NEW.status IN ('submitted', 'accepted', 'rejected') AND OLD.efiling_correlation_id IS NOT NULL
+          AND NEW.submitted_at IS NOT DISTINCT FROM OLD.submitted_at)
      AND COALESCE(pg_catalog.current_setting('app.return_lifecycle', true), '') <> 'on'
      AND EXISTS (SELECT 1 FROM tax_return_versions v
                   WHERE v.company_id = OLD.company_id AND v.form_type = OLD.form_type

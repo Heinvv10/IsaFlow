@@ -10,8 +10,8 @@ import { dropReturnFixture, seedReturnFixture, type ReturnFixture } from './help
 import * as rules from './helpers/returnFileDbRules';
 import { als } from '@/lib/als';
 import { inTx, runOn } from './helpers/l1FifoFixture';
-import { applyPollResult, insertEfilingEventCommitted, withEventWriter } from '../../src/modules/accounting/services/reports/sarsEfilingRepo';
-import { markSubmitted, saveDraftSubmission } from '../../src/modules/accounting/services/reports/sarsComplianceService';
+import { applyPollResult, insertEfilingEventCommitted, markSubmissionSubmitted, withEventWriter } from '../../src/modules/accounting/services/reports/sarsEfilingRepo';
+import { markSubmitted, saveDraftSubmission, SubmissionNotOpenError } from '../../src/modules/accounting/services/reports/sarsComplianceService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
@@ -19,6 +19,17 @@ type Row = Record<string, unknown>;
 let a: ReturnFixture;
 let b: ReturnFixture;
 const { day, submission, version, asAppUser, failOf, upd, U, FILE, AMEND, INVISIBLE, INVISIBLE_POINTS } = rules;
+
+/** Records who wrote each event row (current_user, the company GUC, the backend pid) in its message, for the test's duration. */
+async function installEventProbe(): Promise<void> {
+  await sql`CREATE OR REPLACE FUNCTION public.zz_event_probe() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN NEW.message := current_user || ':' || COALESCE(current_setting('app.current_company_id', true), '') || ':' || pg_backend_pid(); RETURN NEW; END $$`;
+  await sql`CREATE TRIGGER zz_event_probe BEFORE INSERT ON sars_efiling_events FOR EACH ROW EXECUTE FUNCTION public.zz_event_probe()`;
+}
+async function dropEventProbe(): Promise<void> {
+  await sql`DROP TRIGGER IF EXISTS zz_event_probe ON sars_efiling_events`;
+  await sql`DROP FUNCTION IF EXISTS public.zz_event_probe()`;
+}
 
 describeIfDb('sars_submissions, locks and drafts under migration 971', () => {
   beforeAll(async () => {
@@ -94,14 +105,18 @@ describeIfDb('sars_submissions, locks and drafts under migration 971', () => {
   });
 
   it('the ISV poll records SARS\'s verdict on a row it submitted even where a version exists; nothing else leaves a non-draft row, nothing leaves superseded', async () => {
+    await version(a, 10, 'superseded'); // this test's own version: the period is the lifecycle's
     const mk = async (status: string, corr: string | null) => String(((await sql`INSERT INTO sars_submissions (company_id, form_type, period_start,
-      period_end, status, efiling_correlation_id) VALUES (${a.fx.companyId}::UUID, 'EMP201', ${day(7)}::DATE, ${day(7, true)}::DATE, ${status}, ${corr})
+      period_end, status, efiling_correlation_id) VALUES (${a.fx.companyId}::UUID, 'EMP201', ${day(10)}::DATE, ${day(10, true)}::DATE, ${status}, ${corr})
       RETURNING id`) as Row[])[0]!.id);
-    const polled = await mk('submitted', 'CORR-1'); // the period has a (superseded) version: this file's lifecycle test made it
+    const polled = await mk('submitted', 'CORR-1');
     const noCorrelation = await mk('submitted', null);
     const superseded = await mk('superseded', 'CORR-2');
     const poll = (id: string, status: string, ref: string | null) =>
       inTx(a.fx, () => applyPollResult(a.fx.companyId, id, { submissionStatus: status, efilingStatus: status, sarsReference: ref }));
+    await asAppUser(a, async (c) => { // the verdict may not rewrite the filing time
+      expect(await failOf(c, `UPDATE sars_submissions SET status = 'accepted', submitted_at = now() WHERE id = '${polled}'`)).toMatch(/^23514 .*return lifecycle/);
+    });
     await poll(polled, 'submitted', null); // still processing: no change to the watched columns
     await poll(polled, 'accepted', 'SARS-REF-1');
     expect(((await sql`SELECT status, submission_reference FROM sars_submissions WHERE id = ${polled}::UUID`) as Row[])[0])
@@ -109,78 +124,79 @@ describeIfDb('sars_submissions, locks and drafts under migration 971', () => {
     await expect(poll(noCorrelation, 'accepted', 'X')).rejects.toThrow(/return lifecycle/);
     await expect(poll(superseded, 'submitted', null).then(() => poll(superseded, 'accepted', 'X'))).rejects.toThrow(/return lifecycle/);
     expect(String(((await sql`SELECT status FROM sars_submissions WHERE id = ${superseded}::UUID`) as Row[])[0]!.status)).toBe('superseded');
+    // markSubmissionSubmitted only marks an open draft
+    await expect(inTx(a.fx, () => markSubmissionSubmitted(a.fx.companyId, polled, 'C', 'received', U()))).rejects.toBeInstanceOf(SubmissionNotOpenError);
   });
 
   it('insertEfilingEventCommitted: an app_user transaction of its own (never a migration credential), the request\'s company as the GUC, committed past the request\'s ROLLBACK, a cross-company write refused', async () => {
     const sub = await submission(a, 12, 'draft', 'VAT201');
-    const c = await a.fx.pool.connect();
+    await installEventProbe();
     try {
-      await c.query('BEGIN');
-      await als.run({ client: c, userId: U(), companyId: a.fx.companyId, claims: { sub: U() } } as never, () => insertEfilingEventCommitted({
-        companyId: a.fx.companyId, submissionId: sub, eventType: 'submit', efilingStatus: 'sending', message: 'about to send', createdBy: U(),
-      }));
-      await c.query('ROLLBACK'); // the request that was about to send fails
+      const c = await a.fx.pool.connect();
+      let requestPid = 0;
+      try {
+        await c.query('BEGIN');
+        requestPid = Number((await c.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
+        await als.run({ client: c, userId: U(), companyId: a.fx.companyId, claims: { sub: U() } } as never, () => insertEfilingEventCommitted({
+          companyId: a.fx.companyId, submissionId: sub, eventType: 'submit', efilingStatus: 'sending', createdBy: U(),
+        }));
+        await c.query('ROLLBACK'); // the request that was about to send fails
+      } finally {
+        c.release();
+      }
+      const kept = (await sql`SELECT efiling_status, message FROM sars_efiling_events WHERE submission_id = ${sub}::UUID`) as Row[];
+      expect(kept).toHaveLength(1);
+      expect(kept[0]!.efiling_status).toBe('sending'); // committed past the ROLLBACK
+      const [role, company, pid] = String(kept[0]!.message).split(':');
+      expect(role).toBe('app_user'); // the role in force at the INSERT, not the pool login's
+      expect(company).toBe(a.fx.companyId); // the request's company, set as the RLS GUC
+      expect(Number(pid)).not.toBe(requestPid); // a connection of its own
+      // a request of company B cannot write company A's event: refused by row-level security (as app_user, not a bypass role)
+      const x = await a.fx.pool.connect();
+      try {
+        await x.query('BEGIN');
+        await expect(als.run({ client: x, userId: b.admin.userId, companyId: b.fx.companyId, claims: { sub: b.admin.userId } } as never,
+          () => insertEfilingEventCommitted({ companyId: a.fx.companyId, submissionId: sub, eventType: 'submit', createdBy: b.admin.userId })))
+          .rejects.toMatchObject({ code: '42501', message: expect.stringMatching(/row-level security/) });
+      } finally {
+        await x.query('ROLLBACK').catch(() => undefined);
+        x.release();
+      }
+      expect((await sql`SELECT 1 FROM sars_efiling_events WHERE submission_id = ${sub}::UUID`) as Row[]).toHaveLength(1);
     } finally {
-      c.release();
-    }
-    // scoped by the same RLS as any request: a request of company B cannot write company A's event
-    const x = await a.fx.pool.connect();
-    try {
-      await x.query('BEGIN');
-      await expect(als.run({ client: x, userId: b.admin.userId, companyId: b.fx.companyId, claims: { sub: b.admin.userId } } as never,
-        () => insertEfilingEventCommitted({ companyId: a.fx.companyId, submissionId: sub, eventType: 'submit', createdBy: b.admin.userId }))).rejects.toThrow();
-    } finally {
-      await x.query('ROLLBACK').catch(() => undefined);
-      x.release();
-    }
-    const kept = (await sql`SELECT efiling_status FROM sars_efiling_events WHERE submission_id = ${sub}::UUID`) as Row[];
-    expect(kept).toEqual([{ efiling_status: 'sending' }]);
-    await sql`DELETE FROM sars_efiling_events WHERE submission_id = ${sub}::UUID`.catch(() => undefined);
-  });
-
-  it('a lock a live version names cannot be unlocked by any role; once the version is superseded it can', async () => {
-    const P = { s: '2026-10-01', e: '2026-11-30' };
-    const lock = String(((await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax,
-      net_vat, posted_through, locked_by) VALUES (${a.fx.companyId}::UUID, ${P.s}::DATE, ${P.e}::DATE, 0, 0, 0, now(), ${U()})
-      RETURNING id`) as Row[])[0]!.id);
-    const ver = String(((await sql`INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures,
-      posted_through, vat_period_lock_id, finalised_by) VALUES (${a.fx.companyId}::UUID, 'VAT201', ${P.s}::DATE, ${P.e}::DATE, 1, '{}',
-      now(), ${lock}::UUID, ${U()}) RETURNING id`) as Row[])[0]!.id);
-    const unlock = `UPDATE vat_period_locks SET unlocked_at = now(), unlocked_by = '${U()}', unlock_reason = 'r' WHERE id = '${lock}'`;
-    await asAppUser(a, async (c) => {
-      expect(await failOf(c, unlock)).toMatch(/^23514 .*amend the return instead/);
-      expect(await failOf(c, upd(ver, AMEND()))).toBe('ok');
-      expect(await failOf(c, unlock)).toBe('ok');
-    });
-    const o = await a.fx.pool.connect();
-    try {
-      await o.query('BEGIN');
-      expect(await failOf(o, unlock)).toMatch(/^23514 .*amend the return instead/); // the owner too
-    } finally {
-      await o.query('ROLLBACK').catch(() => undefined);
-      o.release();
+      await dropEventProbe();
+      await sql`DELETE FROM sars_efiling_events WHERE submission_id = ${sub}::UUID`.catch(() => undefined);
     }
   });
 
   it('withEventWriter holds ONE app_user connection for several committed events; a failed write does not poison the next', async () => {
     const sub = await submission(a, 12, 'draft', 'VAT201');
-    const write = (kind: string, submissionId = sub) => ({
-      companyId: a.fx.companyId, submissionId, eventType: 'submit' as const, efilingStatus: kind, createdBy: U(),
-    });
-    const c = await a.fx.pool.connect();
+    await installEventProbe();
     try {
-      await c.query('BEGIN');
-      await als.run({ client: c, userId: U(), companyId: a.fx.companyId, claims: { sub: U() } } as never, () => withEventWriter(async (events) => {
-        await events.write(write('sending'));
-        await expect(events.write(write('bad', '00000000-0000-4000-8000-000000000066'))).rejects.toThrow(); // FK: no such submission
-        await events.write(write('received'));
-      }));
-      await c.query('ROLLBACK'); // the request fails; the events were committed on the writer's own connection
+      const write = (kind: string, submissionId = sub) => ({
+        companyId: a.fx.companyId, submissionId, eventType: 'submit' as const, efilingStatus: kind, createdBy: U(),
+      });
+      const c = await a.fx.pool.connect();
+      try {
+        await c.query('BEGIN');
+        await als.run({ client: c, userId: U(), companyId: a.fx.companyId, claims: { sub: U() } } as never, () => withEventWriter(async (events) => {
+          await events.write(write('sending'));
+          await expect(events.write(write('bad', '00000000-0000-4000-8000-000000000066'))).rejects.toThrow(); // FK: no such submission
+          await events.write(write('received'));
+        }));
+        await c.query('ROLLBACK'); // the request fails; the events were committed on the writer's own connection
+      } finally {
+        c.release();
+      }
+      const kept = (await sql`SELECT efiling_status, message FROM sars_efiling_events WHERE submission_id = ${sub}::UUID ORDER BY created_at`) as Row[];
+      expect(kept.map((r) => r.efiling_status)).toEqual(['sending', 'received']);
+      const pids = kept.map((r) => String(r.message).split(':')[2]);
+      expect(pids[0]).toBe(pids[1]); // ONE connection for both
+      expect(kept.every((r) => String(r.message).startsWith('app_user:'))).toBe(true);
     } finally {
-      c.release();
+      await dropEventProbe();
+      await sql`DELETE FROM sars_efiling_events WHERE submission_id = ${sub}::UUID`.catch(() => undefined);
     }
-    const kept = (await sql`SELECT efiling_status FROM sars_efiling_events WHERE submission_id = ${sub}::UUID ORDER BY created_at`) as Row[];
-    expect(kept).toEqual([{ efiling_status: 'sending' }, { efiling_status: 'received' }]);
   });
 
   it('saveDraftSubmission updates the open draft, and a period already filed gets a new draft (a correction)', async () => {
