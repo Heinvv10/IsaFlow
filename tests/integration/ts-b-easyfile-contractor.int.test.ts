@@ -76,6 +76,13 @@ beforeAll(async () => {
   const dir = (amount: number) => ({ ...item('3901', amount), directive: { id: reversedId, number: '1234567891', paye: 0 } });
   await line(3, reversed, 150_000, 0, [item('3601', 100_000), dir(50_000)], true, reversalCo);
   await line(4, reversed, -50_000, 0, [dir(-50_000)], true, reversalCo);
+  // (a) A cross-year reversal on a pure contractor: this export year sees 100 000 of fees and the -50 000 reversal of a payment made last year.
+  const crossYear = await employee('Crossyear', reversalCo);
+  await line(3, crossYear, 50_000, 0, [item('3601', 100_000), dir(-50_000)], true, reversalCo);
+  // (b) Paid on an employee line (with PAYE), reversed on a contractor line beside 100 000 of fees: 3601 100 000, 3616 100 000.
+  const paidThenReversed = await employee('Paidthenreversed', reversalCo);
+  await line(3, paidThenReversed, 150_000, 1_000, [item('3601', 100_000), dir(50_000)], false, reversalCo);
+  await line(4, paidThenReversed, 50_000, 0, [item('3601', 100_000), dir(-50_000)], true, reversalCo);
   // An ORPHAN directive item (no tax_directives row): the lump-sum list does not file it, so it must not leave 3616 either.
   const orphan = await employee('Orphan', reversalCo);
   await line(3, orphan, 120_000, 0, [
@@ -208,5 +215,16 @@ describe('e@syFile: a contractor is 3616, decided per line', () => {
     const r = recordOf((await exportFile(reversalCo)).body, 'Orphan');
     expect(r).toContain('3616,120000');
     expect(r.some(l => l.startsWith('3901,') || l.startsWith('3601,'))).toBe(false);
+  });
+
+  it('(a) a cross-year reversal on a pure contractor: the directive nets below nil as the lump-sum list nets it, so 3601 is nil and 3616 is the 100 000', async () => {
+    const r = recordOf((await exportFile(reversalCo)).body, 'Crossyear');
+    expect(r).toContain('3616,100000');
+    expect(r.some(l => l.startsWith('3601,'))).toBe(false);
+  });
+
+  it('(b) paid on an employee line and reversed on a contractor line beside 100 000 of fees: 3601 100 000, 3616 100 000', async () => {
+    const r = recordOf((await exportFile(reversalCo)).body, 'Paidthenreversed');
+    expect(r).toEqual(expect.arrayContaining(['3601,100000', '3616,100000']));
   });
 });

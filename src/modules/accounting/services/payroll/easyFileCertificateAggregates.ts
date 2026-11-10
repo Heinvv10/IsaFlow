@@ -44,6 +44,7 @@ export function loadCertificateAggregates(
       ), 0)) FILTER (WHERE COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)), 0) AS contractor_noncash
     FROM payroll_run_lines prl
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
+    JOIN payroll_employees e ON e.id = prl.employee_id AND e.company_id = prh.company_id
     WHERE prh.company_id = ${companyId}::uuid
       AND prh.status = ANY(${declarableStatuses}::text[])
       AND (

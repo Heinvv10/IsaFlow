@@ -37,7 +37,9 @@ export interface ContractorSplitInput {
  */
 export function splitContractorIncome(i: ContractorSplitInput): { salaryGross: number; annualPayments: number; income3616: number } {
   const contractor = Math.min(Math.max(0, i.contractorGross), i.totalGross);
-  const directive = Math.min(Math.max(0, i.contractorDirective), contractor);
+  // No lower floor: a reversal beside the year's fees (or of a payment on an employee line) nets the directive below nil, exactly as the
+  // lump-sum list nets it, and the same figure comes back out of 3616 and the lump-sum split.
+  const directive = Math.min(i.contractorDirective, contractor);
   const annual = Math.min(Math.max(0, i.contractorAnnual), contractor);
   return {
     salaryGross: i.totalGross - contractor + directive + i.standaloneGross,

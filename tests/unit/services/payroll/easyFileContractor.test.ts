@@ -36,6 +36,15 @@ describe('splitContractorIncome: decided per line, never from the status today; 
     const r = splitContractorIncome({ ...z, totalGross: 150_000, contractorGross: 90_000, contractorDirective: 30_000, standaloneGross: 0 });
     expect([r.income3616, r.salaryGross - 30_000]).toEqual([60_000, 60_000]);
   });
+  it('a directive reversal nets below nil (no lower floor): fees 100 000 and a -50 000 reversal give 3616 100 000, 3601 nil', () => {
+    const r = splitContractorIncome({ ...z, totalGross: 50_000, contractorGross: 50_000, contractorDirective: -50_000, standaloneGross: 0 });
+    expect(r.income3616).toBe(100_000);
+    expect(r.salaryGross - (-50_000)).toBe(0); // splitCertificateIncome removes the -50 000 lump sum from this gross
+  });
+  it('paid on an employee line, reversed on a contractor line beside 100 000 of fees: 3616 100 000 and 100 000 left for 3601', () => {
+    const r = splitContractorIncome({ ...z, totalGross: 200_000, contractorGross: 50_000, contractorDirective: -50_000, standaloneGross: 0 });
+    expect([r.income3616, r.salaryGross - 0]).toEqual([100_000, 100_000]); // the lump sum nets to nil across the year
+  });
   it('a contractor non-cash benefit is 3616, outside gross_pay', () => {
     expect(splitContractorIncome({ ...z, totalGross: 50_000, contractorGross: 50_000, contractorNonCash: 7_000, standaloneGross: 0 }).income3616).toBe(57_000);
   });
