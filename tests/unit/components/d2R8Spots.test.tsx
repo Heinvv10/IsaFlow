@@ -3,6 +3,7 @@
 //   a thrown request (network) is reported instead of an unhandled rejection;
 //   capture/settings handleCopy: a refused clipboard is told to the person;
 //   practice/tasks: a failed write's error is not wiped by the reload that follows another action.
+import { pickKit } from '../../helpers/kitSelect';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -33,8 +34,7 @@ describe('CostCentreAssignmentCard saves', () => {
     serve(on('GET', 'cost-centres', () => ok(CC)), on('GET', 'cost-allocations', () => ok([])), on('PATCH', 'cost-centre', write));
     const onChange = vi.fn();
     render(<CostCentreAssignmentCard employeeId="e-1" currentCostCentreId={null} onChange={onChange} />);
-    await waitFor(() => expect(document.body.textContent).toContain('D2 Centre'));
-    fireEvent.change(document.querySelector('select') as HTMLSelectElement, { target: { value: 'cc-1' } });
+    await pickKit(await screen.findByRole('combobox'), /D2 Centre/);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     return onChange;
   };

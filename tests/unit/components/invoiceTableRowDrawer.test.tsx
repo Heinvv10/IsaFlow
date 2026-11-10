@@ -52,7 +52,7 @@ describe('CustomerInvoiceTable Outstanding', () => {
 describe('CustomerInvoiceTable row', () => {
   it('a plain click on a cell opens the drawer', () => {
     fireEvent.click(cell());
-    expect(onOpen).toHaveBeenCalledWith('inv-1');
+    expect(onOpen).toHaveBeenCalledWith('inv-1', expect.any(HTMLElement));
     expect(openTab).not.toHaveBeenCalled();
   });
 

@@ -60,6 +60,7 @@ describe('a failed cost-centre / business-unit list is visible, and a good one i
   ] as const)('%s: lists that load show no notice', async (_n, page) => {
     serve(on('GET', 'cost-centres', () => ok({ items: [{ id: 'cc1', code: 'CC9', name: 'D2 Centre' }] })), on('GET', 'business-units', () => ok([])), on('GET', 'reports-', empty500));
     render(page());
+    if (_n === 'income statement') fireEvent.click(await screen.findByRole('combobox', { name: 'Cost Centre' }));
     await screen.findByText(/CC9/);
     expect(document.querySelector('p[role="alert"].text-amber-500')).toBeNull();
   });

@@ -32,6 +32,9 @@ describe('Bank account selector', () => {
   });
   it('offers the bank accounts on success', async () => {
     script([[SITE, () => okRes([{ id: 'a1', accountCode: '1000', accountName: 'D2 Bank Account' }])]]); show();
+    const box = await screen.findByRole('combobox', { name: 'Bank account' });
+    await waitFor(() => expect(box.getAttribute('aria-disabled')).toBe('false'));
+    fireEvent.click(box);
     expect(await screen.findByRole('option', { name: /D2 Bank Account/ })).toBeTruthy();
   });
 });

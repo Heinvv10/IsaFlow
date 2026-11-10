@@ -107,6 +107,7 @@ describe('Retry on a failed load', () => {
     render(<CostCentreAssignmentCard employeeId="e1" currentCostCentreId={null} onChange={vi.fn()} />);
     expect(await screen.findByText(MSG)).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    fireEvent.click(await screen.findByRole('combobox'));
     expect(await screen.findByText(/D2 Centre/)).toBeDefined();
     expect(screen.queryByText(MSG)).toBeNull();
   });

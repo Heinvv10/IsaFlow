@@ -1,7 +1,7 @@
 // D2 round 7 (k5): RecordNavigation, CostCentreAssignmentCard, InvoicePreviewModal and CompanyProvider
 // must not drop a failed response silently (400 -> server message, empty 500 -> plain sentence, 200 -> completes).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, configure, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, configure, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { empty500, expectNoJargon, MSG, ok, on, refuse, serve } from '../helpers/d2R3a6';
@@ -73,6 +73,7 @@ describe('CostCentreAssignmentCard load', () => {
   it('200: lists the centres, no error', async () => {
     serve(on('GET', 'cost-centres', () => ok(CC)), on('GET', 'cost-allocations', () => ok([])));
     card();
+    fireEvent.click(await screen.findByRole('combobox'));
     await waitFor(() => expect(document.body.textContent).toContain('D2 Centre'));
     expect(screen.queryByText(/could not load/i)).toBeNull();
   });
