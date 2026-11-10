@@ -63,6 +63,8 @@ describe('search box placeholder contrast', () => {
 describe('panel position', () => {
   it('follows the trigger when results arrive and move it', () => {
     let bottom = 100;
+    // jsdom has no layout: the viewport height the panel is placed against.
+    vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(900);
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
       () => ({ bottom, left: 10, width: 200, top: 0, right: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect);
     const { rerender } = render(<Select label="X" options={[]} value={null} onChange={noop} loading />);
