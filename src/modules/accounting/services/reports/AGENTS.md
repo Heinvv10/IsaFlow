@@ -66,7 +66,6 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/reports/*`,
 - `scripts/migrations/sql/329_*` (jl.company_id), `*vat*`, `*consolidation*`, `*custom_report*`.
 
 ## Pre-deploy step: size the VAT-gaps blocking surface
-
 `scripts/vat/size-input-support-blocks.sql` (read-only, not a migration) —
 run it against production BEFORE deploying the input-VAT support check
 (`vatInputSupport.ts`) or the unposted-invoice block (`vatUnpostedInvoices.ts`)

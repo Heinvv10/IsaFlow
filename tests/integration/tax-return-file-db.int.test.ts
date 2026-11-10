@@ -1,87 +1,28 @@
 /**
  * The table's own rules for filing and amending (migration 971), below the services: the column grants, the
- * status-transition guard, the same-company trigger on UPDATE, and the migration's one-open-draft dedupe and index.
- * Row checks run as app_user (SET LOCAL ROLE, withAuth's GUCs) in a transaction that is always rolled back.
+ * status-transition guard, the stamps (session user, clock, visible text, amend stamps) and the same-company trigger on
+ * UPDATE. Row checks run as app_user (SET LOCAL ROLE, withAuth's GUCs) in a transaction that is always rolled back.
+ * The submission, lock and draft rules are in tax-return-file-db-submissions.int.test.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { als } from '@/lib/als';
-import { inTx, runOn } from './helpers/l1FifoFixture';
-import { insertEfilingEventCommitted } from '../../src/modules/accounting/services/reports/sarsEfilingRepo';
 import { dropReturnFixture, seedReturnFixture, type ReturnFixture } from './helpers/returnVersionsFixture';
-import { markSubmitted, saveDraftSubmission } from '../../src/modules/accounting/services/reports/sarsComplianceService';
+import * as rules from './helpers/returnFileDbRules';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
 type Row = Record<string, unknown>;
 let a: ReturnFixture;
 let b: ReturnFixture;
-
-const day = (m: number, last = false) => `2026-${String(m).padStart(2, '0')}-${last ? '28' : '01'}`;
-
-async function submission(f: ReturnFixture, m: number, status = 'submitted', form = 'EMP201'): Promise<string> {
-  return String(((await sql`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, submission_reference)
-    VALUES (${f.fx.companyId}::UUID, ${form}, ${day(m)}::DATE, ${day(m, true)}::DATE, ${status}, 'R') RETURNING id`) as Row[])[0]!.id);
-}
-
-/** An EMP201 version of month m in the given state, inserted as the table owner (the fixture is not under test). */
-async function version(f: ReturnFixture, m: number, state: 'finalised' | 'filed' | 'superseded'): Promise<string> {
-  const sub = state === 'filed' ? await submission(f, m) : null;
-  const rows = (await sql`INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures,
-    posted_through, finalised_by, status, sars_submission_id, filed_reference, filed_by, filed_at, amended_by, amend_reason, amended_at)
-    VALUES (${f.fx.companyId}::UUID, 'EMP201', ${day(m)}::DATE, ${day(m, true)}::DATE, 1, '{}', now(), ${f.admin.userId}, ${state},
-      ${sub}::UUID, ${sub ? 'REF' : null}, ${sub ? 'u' : null}, ${sub ? new Date().toISOString() : null}::TIMESTAMPTZ,
-      ${state === 'superseded' ? 'u' : null}, ${state === 'superseded' ? 'why' : null},
-      ${state === 'superseded' ? new Date().toISOString() : null}::TIMESTAMPTZ) RETURNING id`) as Row[];
-  return String(rows[0]!.id);
-}
-
-async function asAppUser<T>(f: ReturnFixture, fn: (c: PoolClient) => Promise<T>): Promise<T> {
-  const c = await a.fx.pool.connect();
-  try {
-    await c.query('BEGIN');
-    await c.query('SET LOCAL ROLE app_user');
-    await c.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: f.admin.userId })]);
-    await c.query(`SELECT set_config('app.current_company_id', $1, true)`, [f.fx.companyId]);
-    return await fn(c);
-  } finally {
-    await c.query('ROLLBACK').catch(() => undefined);
-    c.release();
-  }
-}
-
-/** 'ok', or `<code> <message>` of one statement, in its own savepoint. */
-async function failOf(c: PoolClient, text: string, params: unknown[] = []): Promise<string> {
-  await c.query('SAVEPOINT f');
-  try {
-    await c.query(text, params);
-    return 'ok';
-  } catch (err) {
-    await c.query('ROLLBACK TO SAVEPOINT f');
-    const e = err as { code: string; message: string };
-    return `${e.code} ${e.message}`;
-  } finally {
-    await c.query('RELEASE SAVEPOINT f').catch(() => undefined);
-  }
-}
-
-const upd = (id: string, set: string) => `UPDATE tax_return_versions SET ${set} WHERE id = '${id}'`;
-const U = () => a.admin.userId; // the session user asAppUser sets: filed_by and amended_by must be this
-const FILE = (sub: string) => `status = 'filed', sars_submission_id = '${sub}', filed_reference = 'R1', filed_by = '${U()}', filed_at = now()`;
-const AMEND = () => `status = 'superseded', amended_by = '${U()}', amend_reason = 'why', amended_at = now()`;
-const INVISIBLE = [0x200b, 0x200c, 0xfeff, 0x00a0, 0x2003].map((c) => String.fromCharCode(c)).join(' ');
-/** Ends and middles of every invisible range the guards cover (returnGuards.ts and 971 hold the same set). */
-const INVISIBLE_POINTS = [0xad, 0x85, 0xa0, 0x34f, 0x115f, 0x1160, 0x1680, 0x17b4, 0x17b5, 0x180b, 0x180e, 0x180f, 0x2000, 0x200b, 0x200f,
-  0x2028, 0x202f, 0x205f, 0x2060, 0x206f, 0x2800, 0x3000, 0x3164, 0xfe00, 0xfe0f, 0xfeff, 0xffa0, 0xe0000, 0xe0020, 0xe0fff,
-  0x61c, 0xfff9, 0xfffa, 0xfffb, 0x13430, 0x1343f, 0x1bca0, 0x1bca3, 0x1d173, 0x1d17a];
+const { day, submission, version, asAppUser, failOf, upd, U, FILE, AMEND, INVISIBLE, INVISIBLE_POINTS } = rules;
 
 describeIfDb('tax_return_versions filing and amend rules (migration 971)', () => {
   beforeAll(async () => {
     assertNotProductionDb('This test seeds companies, submissions and return versions.');
-    a = await seedReturnFixture('RFD', DATABASE_URL!);
-    b = await seedReturnFixture('RFD2', DATABASE_URL!);
+    a = await seedReturnFixture('RFS', DATABASE_URL!);
+    b = await seedReturnFixture('RFS2', DATABASE_URL!);
+    rules.setOwner(a);
   }, 240000);
   afterAll(async () => {
     if (a) await dropReturnFixture(a);
@@ -223,94 +164,6 @@ describeIfDb('tax_return_versions filing and amend rules (migration 971)', () =>
     });
   });
 
-  it('a submission a version names keeps its status, reference and time, for every role; other columns and other rows may change', async () => {
-    await version(a, 12, 'filed');
-    const named = String(((await sql`SELECT sars_submission_id AS id FROM tax_return_versions WHERE company_id = ${a.fx.companyId}::UUID
-      AND period_start = ${day(12)}::DATE`) as Row[])[0]!.id);
-    const free = await submission(a, 12, 'draft', 'VAT201');
-    const set = (id: string, what: string) => `UPDATE sars_submissions SET ${what} WHERE id = '${id}'`;
-    await asAppUser(a, async (c) => {
-      expect(await failOf(c, set(named, `submission_reference = 'CHANGED'`))).toMatch(/^23514 .*return lifecycle/);
-      expect(await failOf(c, set(named, `status = 'draft'`))).toMatch(/^23514 .*return lifecycle/);
-      expect(await failOf(c, set(named, `submitted_at = now()`))).toMatch(/^23514 .*return lifecycle/);
-      expect(await failOf(c, set(named, `notes = 'a note'`))).toBe('ok');
-      expect(await failOf(c, set(free, `status = 'submitted', submission_reference = 'R9', submitted_at = now()`))).toBe('ok');
-    });
-    const o = await a.fx.pool.connect();
-    try {
-      await o.query('BEGIN');
-      expect(await failOf(o, set(named, `submission_reference = 'CHANGED'`))).toMatch(/^23514 .*return lifecycle/); // the owner too
-    } finally {
-      await o.query('ROLLBACK').catch(() => undefined);
-      o.release();
-    }
-  });
-
-  it('a draft becomes submitted only through the lifecycle once ANY version exists for its period (whatever its status)', async () => {
-    await version(a, 7, 'superseded'); // nothing live: the amend gap
-    const gap = await submission(a, 7, 'draft');
-    const free = await submission(a, 7, 'draft', 'VAT201'); // another form: no version
-    const sub = (id: string) => `UPDATE sars_submissions SET status = 'submitted', submission_reference = 'R', submitted_at = now() WHERE id = '${id}'`;
-    await asAppUser(a, async (c) => {
-      expect(await failOf(c, sub(gap))).toMatch(/^23514 .*return lifecycle/);
-      expect(await failOf(c, sub(free))).toBe('ok');
-      await c.query(`SELECT set_config('app.return_lifecycle', 'on', true)`);
-      expect(await failOf(c, sub(gap))).toBe('ok'); // the lifecycle's own flag
-    });
-    const o = await a.fx.pool.connect();
-    try {
-      await o.query('BEGIN');
-      expect(await failOf(o, sub(gap))).toMatch(/^23514 .*return lifecycle/); // the owner too
-    } finally {
-      await o.query('ROLLBACK').catch(() => undefined);
-      o.release();
-    }
-  });
-
-  it('ANY change to a non-draft row of a period that has a version needs the lifecycle flag (the old colour re-marking a submitted row)', async () => {
-    const row = await submission(a, 7, 'submitted'); // unnamed, EMP201 month 7: that period has a (superseded) version
-    const remark = `UPDATE sars_submissions SET submission_reference = 'HIJACK' WHERE id = '${row}'`;
-    const restatus = `UPDATE sars_submissions SET status = 'accepted' WHERE id = '${row}'`;
-    const retime = `UPDATE sars_submissions SET submitted_at = now() WHERE id = '${row}'`;
-    await asAppUser(a, async (c) => {
-      for (const q of [remark, restatus, retime]) expect(await failOf(c, q)).toMatch(/^23514 .*return lifecycle/);
-      expect(await failOf(c, `UPDATE sars_submissions SET notes = 'n' WHERE id = '${row}'`)).toBe('ok'); // other columns stay free
-      await c.query(`SELECT set_config('app.return_lifecycle', 'on', true)`);
-      expect(await failOf(c, remark)).toBe('ok');
-    });
-    const other = await submission(a, 12, 'submitted', 'VAT201'); // a period with no VAT version: untouched
-    await asAppUser(a, async (c) => {
-      expect(await failOf(c, `UPDATE sars_submissions SET submission_reference = 'OK' WHERE id = '${other}'`)).toBe('ok');
-    });
-  });
-
-  it('the ISV intent event commits in an app_user transaction of its own (never a migration credential): it survives the request rolling back', async () => {
-    const sub = await submission(a, 12, 'draft', 'VAT201');
-    const c = await a.fx.pool.connect();
-    try {
-      await c.query('BEGIN');
-      await als.run({ client: c, userId: U(), companyId: a.fx.companyId, claims: { sub: U() } } as never, () => insertEfilingEventCommitted({
-        companyId: a.fx.companyId, submissionId: sub, eventType: 'submit', efilingStatus: 'sending', message: 'about to send', createdBy: U(),
-      }));
-      await c.query('ROLLBACK'); // the request that was about to send fails
-    } finally {
-      c.release();
-    }
-    // scoped by the same RLS as any request: a request of company B cannot write company A's event
-    const x = await a.fx.pool.connect();
-    try {
-      await x.query('BEGIN');
-      await expect(als.run({ client: x, userId: b.admin.userId, companyId: b.fx.companyId, claims: { sub: b.admin.userId } } as never,
-        () => insertEfilingEventCommitted({ companyId: a.fx.companyId, submissionId: sub, eventType: 'submit', createdBy: b.admin.userId }))).rejects.toThrow();
-    } finally {
-      await x.query('ROLLBACK').catch(() => undefined);
-      x.release();
-    }
-    const kept = (await sql`SELECT efiling_status FROM sars_efiling_events WHERE submission_id = ${sub}::UUID`) as Row[];
-    expect(kept).toEqual([{ efiling_status: 'sending' }]);
-    await sql`DELETE FROM sars_efiling_events WHERE submission_id = ${sub}::UUID`.catch(() => undefined);
-  });
-
   it('the amend stamps change only with the move to superseded', async () => {
     const fin = await version(b, 3, 'finalised');
     await asAppUser(b, async (c) => {
@@ -318,76 +171,5 @@ describeIfDb('tax_return_versions filing and amend rules (migration 971)', () =>
       expect(await failOf(c, upd(fin, `amend_reason = 'x'`))).toMatch(/^23514 .*amend stamps change only/);
       expect(await failOf(c, upd(fin, `amended_at = now()`))).toMatch(/^23514 .*amend stamps change only/);
     });
-  });
-
-  it('a lock a live version names cannot be unlocked by any role; once the version is superseded it can', async () => {
-    const P = { s: '2026-10-01', e: '2026-11-30' };
-    const lock = String(((await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax,
-      net_vat, posted_through, locked_by) VALUES (${a.fx.companyId}::UUID, ${P.s}::DATE, ${P.e}::DATE, 0, 0, 0, now(), ${U()})
-      RETURNING id`) as Row[])[0]!.id);
-    const ver = String(((await sql`INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures,
-      posted_through, vat_period_lock_id, finalised_by) VALUES (${a.fx.companyId}::UUID, 'VAT201', ${P.s}::DATE, ${P.e}::DATE, 1, '{}',
-      now(), ${lock}::UUID, ${U()}) RETURNING id`) as Row[])[0]!.id);
-    const unlock = `UPDATE vat_period_locks SET unlocked_at = now(), unlocked_by = '${U()}', unlock_reason = 'r' WHERE id = '${lock}'`;
-    await asAppUser(a, async (c) => {
-      expect(await failOf(c, unlock)).toMatch(/^23514 .*amend the return instead/);
-      expect(await failOf(c, upd(ver, AMEND()))).toBe('ok');
-      expect(await failOf(c, unlock)).toBe('ok');
-    });
-    const o = await a.fx.pool.connect();
-    try {
-      await o.query('BEGIN');
-      expect(await failOf(o, unlock)).toMatch(/^23514 .*amend the return instead/); // the owner too
-    } finally {
-      await o.query('ROLLBACK').catch(() => undefined);
-      o.release();
-    }
-  });
-
-  it('saveDraftSubmission updates the open draft, and a period already filed gets a new draft (a correction)', async () => {
-    const save = (data: Record<string, unknown>) =>
-      inTx(a.fx, () => saveDraftSubmission(a.fx.companyId, 'VAT201', '2026-01-01', '2026-02-28', data, a.admin.userId));
-    const first = await save({ v: 1 });
-    const second = await save({ v: 2 });
-    expect(second.id).toBe(first.id);
-    expect(second.formData).toEqual({ v: 2 });
-    const n = async () => Number(((await sql`SELECT COUNT(*)::INT AS n FROM sars_submissions WHERE company_id = ${a.fx.companyId}::UUID
-      AND form_type = 'VAT201' AND period_start = '2026-01-01'::DATE`) as Row[])[0]!.n);
-    expect(await n()).toBe(1);
-    await inTx(a.fx, () => markSubmitted(a.fx.companyId, first.id, 'FILED-1'));
-    const correction = await save({ v: 3 });
-    expect(correction.id).not.toBe(first.id);
-    expect(await n()).toBe(2);
-    expect(String(((await sql`SELECT status FROM sars_submissions WHERE id = ${first.id}::UUID`) as Row[])[0]!.status)).toBe('submitted');
-  });
-
-  it('saveDraftSubmission refuses to run outside a request transaction (its advisory lock would serialise nothing)', async () => {
-    await expect(saveDraftSubmission(a.fx.companyId, 'EMP201', '2026-08-01', '2026-08-31', {}, a.admin.userId))
-      .rejects.toThrow(/inside a request transaction/);
-  });
-
-  it('a draft save that overlaps another\'s open transaction waits for it and updates its draft: ONE open draft (advisory lock + row lock, no index)', async () => {
-    const save = (v: number) => saveDraftSubmission(a.fx.companyId, 'EMP201', '2026-09-01', '2026-09-30', { v }, a.admin.userId);
-    const c1 = await a.fx.pool.connect();
-    const c2 = await a.fx.pool.connect();
-    try {
-      await c1.query('BEGIN');
-      const first = await runOn(a.fx, c1, () => save(1)); // inserted, not yet committed
-      await c2.query('BEGIN');
-      const second = runOn(a.fx, c2, () => save(2)); // must wait for c1, then see its draft
-      await new Promise((r) => setTimeout(r, 400));
-      await c1.query('COMMIT');
-      const saved = await second;
-      await c2.query('COMMIT');
-      expect(saved.id).toBe(first.id);
-    } finally {
-      await c1.query('ROLLBACK').catch(() => undefined);
-      await c2.query('ROLLBACK').catch(() => undefined);
-      c1.release();
-      c2.release();
-    }
-    const open = (await sql`SELECT COUNT(*)::INT AS n, MAX(form_data ->> 'v') AS v FROM sars_submissions
-      WHERE company_id = ${a.fx.companyId}::UUID AND form_type = 'EMP201' AND period_start = '2026-09-01'::DATE AND status = 'draft'`) as Row[];
-    expect(open[0]).toMatchObject({ n: 1, v: '2' });
   });
 });
