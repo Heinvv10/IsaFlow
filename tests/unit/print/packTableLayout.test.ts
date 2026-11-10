@@ -24,6 +24,7 @@ import { atTheFloor } from './support/atTheFloor';
 import { printedText, printsAnywhere } from '@/modules/accounting/services/packs/pages/packPrintedText';
 import { alike, ROUND_FIVE_LABELS, ROUND_FOUR_LABELS, ROUND_SEVEN_LABELS, ROUND_SIX_LABELS, ROUND_THREE_LABELS } from './fixtures/breakPairsCensus';
 import { ROUND_EIGHT_FITTING, ROUND_EIGHT_LABELS, ROUND_NINE_LABELS } from './fixtures/anywhereFamilies';
+import { KERNED_ACROSS_LABELS } from './fixtures/fallbackFamilies';
 import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 
 let browser: Browser;
@@ -204,8 +205,8 @@ describe('labels #1235\'s round-3 reviews found short (a break the splitter miss
     const wrong: string[] = [];
     // A label the two Chromiums break differently (a word-opening en dash) is held in production's image instead
     // (`printParity/packBreakPairsImage.test.ts`).
-    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS, ...ROUND_SEVEN_LABELS, ...ROUND_EIGHT_LABELS, ...ROUND_EIGHT_FITTING, ...ROUND_NINE_LABELS].filter(([label]) => alike(label));
-    expect(labels.length).toBe(ROUND_THREE_LABELS.length + ROUND_FOUR_LABELS.length + ROUND_FIVE_LABELS.length + ROUND_SIX_LABELS.length + ROUND_SEVEN_LABELS.length + ROUND_EIGHT_LABELS.length + ROUND_EIGHT_FITTING.length + ROUND_NINE_LABELS.length - 3);
+    const labels = [...ROUND_THREE_LABELS, ...ROUND_FOUR_LABELS, ...ROUND_FIVE_LABELS, ...ROUND_SIX_LABELS, ...ROUND_SEVEN_LABELS, ...ROUND_EIGHT_LABELS, ...ROUND_EIGHT_FITTING, ...ROUND_NINE_LABELS, ...KERNED_ACROSS_LABELS].filter(([label]) => alike(label));
+    expect(labels.length).toBe(ROUND_THREE_LABELS.length + ROUND_FOUR_LABELS.length + ROUND_FIVE_LABELS.length + ROUND_SIX_LABELS.length + ROUND_SEVEN_LABELS.length + ROUND_EIGHT_LABELS.length + ROUND_EIGHT_FITTING.length + ROUND_NINE_LABELS.length + KERNED_ACROSS_LABELS.length - 3);
     for (const [label, labelMarker] of labels) {
       for (const digits of [9, 12]) {
         const { doc, table, index } = withWidenedTable(demoWithoutBudget(), digits, label, { labelMarker });

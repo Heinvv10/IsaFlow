@@ -62,6 +62,12 @@ export const MONGOLIAN = [
   '\u182A\u1820\u1836\u1822\u182D\u1824\u182F\u1824\u182F\u182D\u180E\u1820',
 ];
 
+/** Japanese account names (the round-10 adversarial review's, and the pack's own in Japanese). */
+export const JAPANESE_NAMES = [
+  '\u58F2\u4E0A\u9AD8', '\u58F2\u4E0A\u539F\u4FA1', '\u58F2\u4E0A\u7DCF\u5229\u76CA', '\u55B6\u696D\u8CBB\u7528',
+  '\u30D0\u30F3\u30AF\u624B\u6570\u6599', '\u55B6\u696D\u5229\u76CA', '\u30D1\u30F3\u30D5\u30EC\u30C3\u30C8\u5370\u5237\u8CBB', '\u5F53\u671F\u7D14\u5229\u76CA',
+];
+
 export type Relabel = (label: string, i: number) => { label: string; footnote?: number };
 
 /** The relabellings held, by name: `plain` is the table the others are held against. */
@@ -75,6 +81,10 @@ export const MARKED_TABLES: ReadonlyArray<readonly [string, Relabel]> = [
   ['all Syriac', (unused, i) => ({ label: SYRIAC[i % SYRIAC.length]! })],
   ['all Mongolian', (unused, i) => ({ label: MONGOLIAN[i % MONGOLIAN.length]! })],
   ['every other label Arabic', (label, i) => ({ label: i % 2 === 0 ? ARABIC[i % ARABIC.length]! : label })],
+  ['all with a combining accent', (label) => ({ label: `${label} q\u0301` })],
+  ['every other label with a combining accent, footnoted', (label, i) => ({ label: i % 2 === 0 ? `Telecomq\u0301munications ${label}` : label, footnote: 1 + i })],
+  ['all Japanese', (unused, i) => ({ label: JAPANESE_NAMES[i % JAPANESE_NAMES.length]! })],
+  ['all with an emoji', (label) => ({ label: `${label} \u{1F4B0}` })],
 ];
 
 /** The demo's income statement with each row relabelled by `relabel`, stamped. */
