@@ -6,6 +6,7 @@
  * rewrite what a line was costed at. A missing quantity is never read as nil: the line is flagged HOURS_MISSING
  * and the approval gate refuses it (payrollRunHoursGate). A nil entry (0) is a quantity like any other: stored, amount 0.
  */
+import { normaliseSarsCode } from './payeAnnualPayment';
 import type { EmployeeComponent, PayrollEmployee, QuantityUnit, ValidationResult } from './payrollTypes';
 
 /** The most a month can hold: 31 x 24 hours, 31 days. */
@@ -83,7 +84,7 @@ export function hoursValidation(employee: PayrollEmployee, components: EmployeeC
     return results;
   }
   if (rows.length > 1) {
-    results.push(err('HOURS_DUPLICATE', `${name} has ${rows.length} Basic Salary rows recording ${noun} this month, so their ${noun} cannot be told. Keep one on the employee page.`));
+    results.push(err('HOURS_DUPLICATE', `${name} has ${rows.length} ${rows[0]!.component.name} rows recording ${noun} this month, so their ${noun} cannot be told. Keep one on the employee page.`));
     return results;
   }
   const row = rows[0]!;
@@ -100,6 +101,17 @@ export function hoursValidation(employee: PayrollEmployee, components: EmployeeC
   if (components.some((c) => !withQuantity(c) && c.amount !== 0 && c.component.id === row.component.id)) {
     results.push(err('HOURS_WITH_OTHER_BASIC', `${name} is paid by the ${unit} and also has another ${row.component.name} row this month (recurring, or a plain amount), `
       + `so ${row.component.name} is paid twice. End or remove the other row on the employee page, then recalculate.`));
+  }
+  // A recurring 3601 earning on ANOTHER component beside the hours: ordinary pay as a rule (a fixed allowance), but after a switch to
+  // hourly pay it may be the old salary still running. Warned, not blocked.
+  const other = components.find((c) => c.isRecurring === true && c.amount > 0 && c.component.componentType === 'earning'
+    && normaliseSarsCode(c.component.sarsSourceCode) === '3601' && c.component.id !== row.component.id);
+  if (other) {
+    results.push({
+      code: 'HOURS_WITH_RECURRING_3601', severity: 'warning',
+      message: `${name} is paid by the ${unit} and also has a recurring ${other.component.name} (code 3601) of ${other.amount.toFixed(2)}. `
+        + 'If that is the monthly salary from before the change of pay basis, it is paid on top of the hours: end it on the employee page.',
+    });
   }
   return results;
 }

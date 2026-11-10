@@ -87,7 +87,19 @@ describe('validation', () => {
       expect(codes(employee(), [worked(160, 'hour', 13680), other])).toEqual([]);
     }
   });
-  it('two rows recording hours are an error, not a sum', () => {
+  it('a recurring 3601 on another component is a warning only (a possible double salary after a basis switch)', () => {
+    const fixed = { ...basic, id: 'c-fixed', name: 'Fixed allowance' };
+    const found = hoursValidation(employee(), [worked(160, 'hour', 13680), { component: fixed, amount: 1000, isRecurring: true }]);
+    expect(found.map((v) => [v.code, v.severity])).toEqual([['HOURS_WITH_RECURRING_3601', 'warning']]);
+    expect(found[0]!.message).toContain('Fixed allowance');
+    expect(codes(employee(), [worked(160, 'hour', 13680), { component: fixed, amount: 1000, isRecurring: false }])).toEqual([]);
+    expect(codes(employee(), [worked(160, 'hour', 13680), { component: { ...fixed, sarsSourceCode: '3607' }, amount: 1000, isRecurring: true }])).toEqual([]);
+  });
+  it('two rows recording hours are an error naming the component, not a sum', () => {
+    const wages = { ...basic, name: 'Wages' };
+    const two: EmployeeComponent[] = [{ ...worked(80, 'hour', 6840), component: wages }, { ...worked(80, 'hour', 6840), component: wages }];
+    expect(codes(employee(), two)).toEqual(['HOURS_DUPLICATE']);
+    expect(hoursValidation(employee(), two)[0]!.message).toContain('2 Wages rows');
     expect(codes(employee(), [worked(80, 'hour', 6840), worked(80, 'hour', 6840)])).toEqual(['HOURS_DUPLICATE']);
   });
   it('a rate changed since the hours were entered is a warning, the stored amount stays the pay', () => {

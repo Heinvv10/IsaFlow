@@ -158,7 +158,7 @@ export async function getRunInputs(companyId: string, runId: string): Promise<Ru
   const captured = await readAmounts(companyId, period, components.map((c) => c.id), employees.map((e) => e.id));
   const found = hoursComponentOf(components);
   const hours: RunInputHours = {
-    componentId: 'component' in found ? found.component.id : null, problem: 'problem' in found ? found.problem : null, employees: hoursInputsOf(employees),
+    componentId: 'component' in found ? found.component.id : null, problem: 'problem' in found ? found.problem : null, employees: hoursInputsOf(employees, captured.amounts, 'component' in found ? found.component.id : null),
   };
   return { run: { ...run, lines, approval }, inputs: { components, employeeIds: employees.map((e) => e.id), ...captured, hours } };
 }

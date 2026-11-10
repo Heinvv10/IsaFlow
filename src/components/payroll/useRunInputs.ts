@@ -141,7 +141,7 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
    */
   const commitHours = useCallback((employeeId: string, hundredths: number | null) => {
     send(hoursKey(employeeId), () => {
-      const basic = known.current?.hours.componentId;
+      const basic = known.current?.hours.employees.find((e) => e.employeeId === employeeId)?.componentId;
       const held = basic ? amountAt(known.current, cellKey(employeeId, basic)) : undefined;
       return {
         employeeId, quantity: hundredths == null ? null : hundredths / 100, expectedQuantity: held?.quantity ?? null,

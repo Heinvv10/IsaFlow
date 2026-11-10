@@ -12,10 +12,10 @@ import type { PayrollJournalNote } from './payrollJournalBuilder';
 const CODES = ['HOURS_MISSING', 'HOURS_UNIT_MISMATCH', 'HOURS_DUPLICATE', 'HOURS_WITH_OTHER_BASIC'];
 
 /**
- * A line a build WITHOUT the hours rules costed, stamped with today's calculation version all the same (two PRs bumping
- * the version to the same number would do it): an hourly or daily employee, employed in the period, whose line has no
- * quantity on any item and none of the HOURS_* results the calculator always gives such a line. Not producible by this
- * calculator, so the run must be recalculated. Severance-only leavers (ended before the period) are exempt.
+ * Every hourly or daily line (employee employed in the period) carries a quantity on some item or one of the HOURS_* results:
+ * this calculator cannot produce one without. A line with neither was costed by a build without the hours rules, whatever
+ * calculation version it is stamped with (two PRs bumping to the same number), so the run must be recalculated.
+ * Severance-only leavers (ended before the period) are exempt.
  */
 async function lineWithoutHoursRules(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const rows = (await sql`

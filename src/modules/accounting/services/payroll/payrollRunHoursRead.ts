@@ -10,7 +10,8 @@ export interface RunInputHours {
   /** The one component hours are recorded on (hoursComponentOf); null with `problem` saying why none can be. */
   componentId: string | null;
   problem: string | null;
-  employees: Array<{ employeeId: string; unit: QuantityUnit; rate: number | null }>;
+  /** `componentId`: where THIS employee's hours sit this month (the row they already have), else the company's hours component. */
+  employees: Array<{ employeeId: string; unit: QuantityUnit; rate: number | null; componentId: string | null }>;
 }
 
 /** The name the seeded hours component carries; a company with several 3601 earnings is told apart by it (and refused when still unclear). */
@@ -33,9 +34,17 @@ export function hoursComponentOf<T extends { name: string; sarsSourceCode: strin
     + 'so hours or days cannot be recorded: rename or deactivate until exactly one is.' };
 }
 
-export function hoursInputsOf(employees: PayrollEmployee[]): RunInputHours['employees'] {
+/**
+ * Who is paid by the hour or day, and the component each one's hours sit on: the component of the quantity row they already
+ * have this month (so a company that later adds a second 3601 earning does not move them), else `fallback`.
+ */
+export function hoursInputsOf(
+  employees: PayrollEmployee[], amounts: Array<{ employeeId: string; componentId: string; quantity: number | null }>, fallback: string | null,
+): RunInputHours['employees'] {
   return employees.flatMap((e) => {
     const unit = unitOf(e);
-    return unit == null ? [] : [{ employeeId: e.id, unit, rate: rateOf(e) }];
+    if (unit == null) return [];
+    const anchored = amounts.find((a) => a.employeeId === e.id && a.quantity != null)?.componentId;
+    return [{ employeeId: e.id, unit, rate: rateOf(e), componentId: anchored ?? fallback }];
   });
 }

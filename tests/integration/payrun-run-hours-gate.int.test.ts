@@ -174,6 +174,54 @@ describe('other 3601 earnings are ordinary pay, the hours component is found by 
   });
 });
 
+describe('hours stay on the component they were entered on (round 3 L1)', () => {
+  const rowComponent = async () => (await pool.query(
+    'SELECT component_id FROM payroll_employee_components WHERE employee_id = $1 AND quantity IS NOT NULL', [state.employee])).rows.map((r) => r.component_id);
+
+  it('hours on "Wages", then a "Basic Salary" 3601 is added: they stay on Wages, editable and clearable; with none left, new hours go to Basic Salary', async () => {
+    await makeHourly();
+    await pool.query(`UPDATE payroll_components SET name = 'Wages' WHERE id = $1`, [basicId()]);
+    expect((await hours(state.nov, 160)).statusCode).toBe(200);
+    const salary = await fx.addComponent(state.coA, 'Basic Salary', '3601', 'earning', true);
+    const state1 = (await get(state.nov)).body.data!.inputs.hours;
+    expect(state1.componentId).toBe(salary); // the company's hours component is now the one named Basic Salary...
+    expect(state1.employees[0].componentId).toBe(basicId()); // ...but this employee's hours are where they were entered
+    expect((await hours(state.nov, 150, 160)).statusCode).toBe(200);
+    expect(await rowComponent()).toEqual([basicId()]);
+    expect((await hours(state.nov, null, 150)).statusCode).toBe(200);
+    expect(await rowComponent()).toEqual([]);
+    expect((await hours(state.nov, 120)).statusCode).toBe(200);
+    expect(await rowComponent()).toEqual([salary]);
+  });
+
+  it('in an ambiguous company (two 3601 earnings, none named Basic Salary) existing hours can be cleared and edited, and nothing new is entered', async () => {
+    await makeHourly();
+    await pool.query(`UPDATE payroll_components SET name = 'Salary A' WHERE id = $1`, [basicId()]);
+    expect((await hours(state.nov, 160)).statusCode).toBe(200);
+    await fx.addComponent(state.coA, 'Salary B', '3601', 'earning', true);
+    expect((await get(state.nov)).body.data!.inputs.hours).toMatchObject({ componentId: null, employees: [{ componentId: basicId() }] });
+    expect((await hours(state.nov, 100, 160)).statusCode).toBe(200);
+    expect((await hours(state.nov, null, 100)).statusCode).toBe(200);
+    const refused = await hours(state.nov, 50);
+    expect(refused.statusCode).toBe(400);
+    expect(refused.body.error?.message).toContain('Salary A, Salary B');
+    expect(await rowComponent()).toEqual([]);
+  });
+
+  it('a recurring 3601 on another component beside the hours is a warning, not a block (a possible double salary)', async () => {
+    await makeHourly();
+    const fixed = await fx.addComponent(state.coA, 'Fixed allowance', '3601', 'earning', true);
+    await hours(state.nov, 160);
+    await fx.addRow(fixed, 1000, '2020-01-01', null, true);
+    await recalculate(state.nov);
+    const l = await line(state.nov);
+    expect(codesOf(l)).toContain('HOURS_WITH_RECURRING_3601');
+    expect(l.validation_results.find((v: { code: string }) => v.code === 'HOURS_WITH_RECURRING_3601').severity).toBe('warning');
+    expect(l.gross).toBe(14680);
+    expect((await preview(state.nov)).body.data!.blocker).toBeNull();
+  });
+});
+
 describe('a line costed without the hours rules but stamped with the current version (H-1)', () => {
   it('an hourly line with no quantity and no HOURS_* result must be recalculated, not approved', async () => {
     await makeHourly();

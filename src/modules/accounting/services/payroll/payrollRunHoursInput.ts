@@ -10,6 +10,8 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { log } from '@/lib/logger';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
+import { getEmployeeComponents } from './payrollComponentService';
+import { payrollRunReadDate } from './payrollRunReadDate';
 import type { ComponentChangeActor } from './payrollComponentAudit';
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
 import { hoursAmountCents, maxQuantity, rateOf, unitOf } from './payrollRunHours';
@@ -51,7 +53,12 @@ export async function setRunHours(
   if (!employee) throw refuse('This employee is not on this run.');
   const name = `${employee.firstName} ${employee.lastName}`.trim();
   const unit = unitOf(employee);
-  const found = hoursComponentOf(await listEditableComponents(companyId));
+  const editable = await listEditableComponents(companyId);
+  // Anchored on the component the employee's existing hours row sits on (so a later second 3601 earning does not move it, and
+  // an ambiguous company can still edit and clear what is there); the company's hours component only when there is none.
+  const existing = (await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period)))
+    .find((c) => c.quantity != null && editable.some((e) => e.id === c.component.id));
+  const found = existing ? { component: editable.find((e) => e.id === existing.component.id)! } : hoursComponentOf(editable);
   const component = 'component' in found ? found.component : null;
   if (unit == null && quantity !== null) throw refuse(`${name} is paid monthly: there are no hours or days to enter. Clear any old hours with an empty entry.`);
   if (!component) throw refuse('problem' in found ? found.problem : 'No hours component.');

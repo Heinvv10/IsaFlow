@@ -95,7 +95,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
       return <span className="text-[var(--ff-text-tertiary)]">—</span>;
     }
     const captured = inputs.amounts.find((a) => a.employeeId === l.employeeId && a.componentId === componentId);
-    if (componentId === inputs.hours.componentId && inputs.hours.employees.some((e) => e.employeeId === l.employeeId)) {
+    if (inputs.hours.employees.some((e) => e.employeeId === l.employeeId && e.componentId === componentId)) {
       return <span className="text-xs text-[var(--ff-text-secondary)]">Paid by hours or days</span>;
     }
     if (captured?.conflict) {
@@ -116,13 +116,13 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
   };
 
   // HD: a cell per hourly or daily employee on the company's Basic Salary component; a monthly employee has none.
-  const { componentId: basicId, employees: byUnit } = inputs.hours;
+  const byUnit = inputs.hours.employees;
   const units = new Set(byUnit.map((e) => e.unit));
   const hoursHead = units.size > 1 ? 'Hours or days' : units.has('day') ? 'Days' : 'Hours';
   const hoursCell = (l: RunLineAmounts, row: number) => {
     const e = byUnit.find((x) => x.employeeId === l.employeeId);
-    if (!e || !basicId) return <span className="text-[var(--ff-text-tertiary)]">—</span>;
-    const captured = inputs.amounts.find((a) => a.employeeId === l.employeeId && a.componentId === basicId);
+    if (!e || !e.componentId) return <span className="text-[var(--ff-text-tertiary)]">—</span>;
+    const captured = inputs.amounts.find((a) => a.employeeId === l.employeeId && a.componentId === e.componentId);
     if (captured?.conflict) {
       return <Link href={`/payroll/employees/${l.employeeId}`} className="text-xs text-teal-700 dark:text-teal-300 underline">Edit on the employee page</Link>;
     }
@@ -147,7 +147,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
           <p className="text-xs text-[var(--ff-text-secondary)]">No earning can be edited on a pay run. SARS-coded earnings are captured on the employee page.</p>
         )}
         {deductions.length > 0 && <ComponentPicker column="deduction" options={deductions} value={deductionId} onChange={setDeductionId} />}
-        {byUnit.length > 0 && !basicId && (
+        {byUnit.some((e) => !e.componentId) && (
           <p className="pb-2 text-xs text-[var(--ff-text-secondary)]">
             {inputs.hours.problem ?? 'Hourly and daily staff need an active taxable Basic Salary (3601) component to record hours on.'}{' '}
             <Link href="/payroll/components" className="text-teal-700 underline dark:text-teal-300">Payroll components</Link>
@@ -162,7 +162,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
       </div>
       <div className="overflow-x-auto">
         <PayrollRunLinesTable lines={lines} edit={{
-          hours: byUnit.length > 0 && basicId ? { head: hoursHead, cell: hoursCell } : undefined,
+          hours: byUnit.some((e) => e.componentId) ? { head: hoursHead, cell: hoursCell } : undefined,
           earning: { head: COLUMN_LABEL.earning, cell: cell('earning', earningId) },
           deduction: deductions.length > 0 ? { head: COLUMN_LABEL.deduction, cell: cell('deduction', deductionId) } : undefined,
           statusCell: save,

@@ -38,7 +38,7 @@ describe('hourly: amount = quantity x rate, to the cent, on the server', () => {
     expect(res.body.data!.inputs.amounts).toEqual([
       { employeeId: state.employee, componentId: basicId(), amount: 14828.38, conflict: false, quantity: 173.33 },
     ]);
-    expect(res.body.data!.inputs.hours).toEqual({ componentId: basicId(), problem: null, employees: [{ employeeId: state.employee, unit: 'hour', rate: 85.55 }] });
+    expect(res.body.data!.inputs.hours).toEqual({ componentId: basicId(), problem: null, employees: [{ employeeId: state.employee, unit: 'hour', rate: 85.55, componentId: basicId() }] });
   });
 
   it('prices 0.1 x 3 as 30 cents, with no float noise, and rounds a half cent up', async () => {
