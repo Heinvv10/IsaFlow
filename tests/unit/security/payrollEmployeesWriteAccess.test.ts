@@ -26,7 +26,7 @@ vi.mock('@/lib/neon', async (importOriginal) => ({ ...await importOriginal<objec
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
   listPayrollEmployees: vi.fn().mockResolvedValue([]),
   createPayrollEmployee: vi.fn().mockResolvedValue({ id: 'e1' }),
-  getPayrollEmployee: vi.fn().mockResolvedValue({ id: 'e1' }),
+  getPayrollEmployee: vi.fn().mockResolvedValue({ id: 'e1', employmentType: 'permanent' }),
   updatePayrollEmployee: vi.fn().mockResolvedValue({ id: 'e1' }),
 }));
 
