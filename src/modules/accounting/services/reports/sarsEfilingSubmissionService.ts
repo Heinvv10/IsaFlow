@@ -10,6 +10,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { periodHasReturnVersion } from '@/modules/accounting/services/returns/versionExists';
 import { getEfilingConfig } from './sarsEfilingConfig';
 import { getVatExceptions } from './vatExceptionsService';
 import type { VatExceptionsReport } from './vatExceptionsTypes';
@@ -110,6 +111,12 @@ export async function submitVAT201ToSars(
   if (!submission) throw new EfilingSubmissionNotFoundError(submissionId);
   if (submission.formType !== 'VAT201') {
     throw new EfilingBlockedError(`Only VAT201 returns can be filed via the ISV channel (got ${submission.formType})`);
+  }
+
+  // A period with a return version (any status) is filed through the return lifecycle, never the ISV channel: judged
+  // before anything outbound, and backed by the sars_submissions trigger (migration 971).
+  if (await periodHasReturnVersion(companyId, 'VAT201', submission.periodStart, submission.periodEnd)) {
+    throw new EfilingBlockedError('This period has a return version: file through the return lifecycle.');
   }
 
   // Idempotency: never re-file a return already sent to / accepted by SARS —

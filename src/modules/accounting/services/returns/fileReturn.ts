@@ -14,6 +14,7 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertVatGateClear } from '@/modules/accounting/services/reports/vatGateOverrideService';
 import { markSubmitted, saveDraftSubmission, type SARSSubmission } from '@/modules/accounting/services/reports/sarsComplianceService';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { driftOf } from './returnDrift';
 import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
@@ -41,6 +42,9 @@ export async function markReturnFiled(
     throw new ReturnRefusal(409,
       'The VAT period lock of this version was removed outside the return lifecycle. Amend the return, then finalise again.');
   }
+  // EMP201: the drift check and the commit must see ONE payroll state, so take the approval lock first (as an approval
+  // and a reopen do): an approval or reopen in flight finishes before the drift is read, a later one waits for this commit.
+  if (v.formType === 'EMP201') await lockCompanyPayrollApprovals(null, companyId);
   const drift = await driftOf(companyId, v);
   if (drift.drifted) {
     const what = [...drift.fields.map((f) => f.name), ...drift.changed, ...(drift.unfinalRuns > 0 ? ['unfinalRuns'] : [])];
@@ -62,7 +66,10 @@ export async function markReturnFiled(
         { userId: actor.userId, role: actor.role }, overrideReason,
       );
     }
+    // The lifecycle flag the sars_submissions trigger wants for a draft of a period that has a version (971).
+    await sql`SELECT set_config('app.return_lifecycle', 'on', true)`;
     const submission = await markSubmitted(companyId, draft.id, ref, { lifecycle: true });
+    await sql`SELECT set_config('app.return_lifecycle', 'off', true)`;
     const version = await markVersionFiled(companyId, v.id, submission.id, ref, actor.userId);
     await logAuditOrThrow({
       companyId, userId: actor.userId, action: 'update', entityType: 'tax_return_version', entityId: v.id,

@@ -15,6 +15,7 @@ export { getTaxPeriods, getComplianceCalendar } from './sarsTaxPeriodsService';
 import type { ComplianceEvent } from './sarsTaxPeriodsService';
 import type { DbRow } from '@/types/db';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { periodHasReturnVersion } from '@/modules/accounting/services/returns/versionExists';
 
 export interface SARSSubmission {
   id: string;
@@ -137,7 +138,7 @@ export async function getSubmission(companyId: string, id: string): Promise<SARS
 /**
  * Marks an OPEN draft submitted (the legacy manual path). Refused (409) for a submission that is not a draft, for one a
  * return version names (re-filing a filed return), and, unless `lifecycle` (markReturnFiled, which is then the
- * caller), for a period that has a live return version: that is filed through the lifecycle, with its drift check.
+ * caller), for a period that has a return version (any status): that is filed through the lifecycle, with its drift check.
  */
 export async function markSubmitted(companyId: string,
   id: string,
@@ -159,16 +160,9 @@ export async function markSubmitted(companyId: string,
     SELECT 1 FROM tax_return_versions WHERE company_id = ${companyId}::UUID AND sars_submission_id = ${id}::UUID LIMIT 1
   `) as DbRow[];
   if (named.length > 0) throw new SubmissionNotOpenError('This submission belongs to a return version: file through the return lifecycle.');
-  if (!opts.lifecycle) {
-    const live = (await sql`
-      SELECT 1 FROM tax_return_versions
-      WHERE company_id = ${companyId}::UUID AND form_type = ${String(row.form_type)} AND status <> 'superseded'
-        AND period_start <= ${fmtDate(row.period_end)}::DATE AND period_end >= ${fmtDate(row.period_start)}::DATE
-      LIMIT 1
-    `) as DbRow[];
-    if (live.length > 0) {
-      throw new SubmissionNotOpenError('This period has a final return version: file through the return lifecycle.');
-    }
+  if (!opts.lifecycle && await periodHasReturnVersion(companyId, String(row.form_type), fmtDate(row.period_start), fmtDate(row.period_end))) {
+    // Any status: between an amend and the next finalise nothing is live, and the period is still the lifecycle's.
+    throw new SubmissionNotOpenError('This period has a return version: file through the return lifecycle.');
   }
 
   const rows = (await sql`

@@ -5,8 +5,9 @@
 --      sars_submission_id, filed_*, amended_*), and the immutability trigger gains a status-transition guard and
 --      judges who and when (see RULES).
 --   2. The same-company trigger also fires ON UPDATE OF sars_submission_id, amends_version_id, vat_period_lock_id.
---   3. A BEFORE UPDATE trigger on sars_submissions refuses to change status, submission_reference or submitted_at of
---      a submission a return version names: the legacy mark-submitted route cannot re-file a filed return.
+--   3. BEFORE UPDATE triggers on sars_submissions: a submission a return version names keeps its status, reference
+--      and time; and a draft becomes submitted only through the return lifecycle (a transaction-local flag) once any
+--      version exists for its period: the legacy and ISV paths cannot file a lifecycle period.
 --   4. A BEFORE UPDATE trigger on vat_period_locks refuses to unlock a lock a live (non-superseded) version names:
 --      the amend is the only way out, for every role.
 --   NOT in this migration (deliberately, a follow-up after the next deploy): a unique index of one open draft per
@@ -23,8 +24,9 @@
 --   - A move to superseded must carry the amend stamps (amended_by, amend_reason, amended_at); the reason must hold a
 --     visible character.
 --   - filed_by and amended_by must equal the session user (the sub of request.jwt.claims that withAuth sets), and
---     filed_at and amended_at must be within five minutes of the clock: a stamp cannot be forged, and a session with
---     no user (direct SQL) cannot file or supersede.
+--     filed_at and amended_at must be within five minutes of the clock. This is a defence against application bugs
+--     (a service that passes the wrong user or time), not against a SQL-capable app_user, who can set its own
+--     claims: only REVOKE holds there. A session with no user (direct SQL) cannot file or supersede.
 --   - The figures, period, chain, lock and finalised_* stay unchangeable, as 969 made them.
 --
 -- WRITES. UPDATE is granted to app_user on the eight named columns only, never at table level. 969's sweep still
@@ -33,7 +35,7 @@
 --
 -- Rollback: restore the 969 versions of tax_return_versions_immutable() and tax_return_versions_same_company(),
 -- recreate trg_tax_return_versions_same_company as BEFORE INSERT, REVOKE UPDATE on the eight columns from app_user,
--- DROP TRIGGER trg_sars_submissions_filed_frozen ON sars_submissions, DROP TRIGGER trg_vat_period_locks_in_return ON
+-- DROP TRIGGER trg_sars_submissions_filed_frozen and trg_sars_submissions_lifecycle_only ON sars_submissions, DROP TRIGGER trg_vat_period_locks_in_return ON
 -- vat_period_locks, and drop the two functions behind them.
 
 SET LOCAL lock_timeout = '5s';
@@ -100,7 +102,7 @@ DECLARE
   v_by pg_catalog.text;
   v_at pg_catalog.timestamptz;
   -- Anything but whitespace and zero-width or invisible characters (the service strips the same set).
-  v_visible CONSTANT pg_catalog.text := '[^[:space:]\u00A0\u180E\u1680\u2000-\u200F\u2028-\u202F\u205F-\u2064\u3000\uFEFF]';
+  v_visible CONSTANT pg_catalog.text := '[^[:space:]\u00AD\u0085\u00A0\u034F\u115F-\u1160\u1680\u17B4-\u17B5\u180B-\u180F\u2000-\u200F\u2028-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\U000E0000-\U000E0FFF]';
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'tax_return_versions rows are history and are never deleted' USING ERRCODE = '23514';
@@ -141,7 +143,12 @@ BEGIN
   IF NEW.status = 'superseded' AND (NEW.amended_by IS NULL OR NEW.amend_reason IS NULL OR NEW.amended_at IS NULL) THEN
     RAISE EXCEPTION 'a return is superseded only by an amend that records who, when and why' USING ERRCODE = '23514';
   END IF;
-  -- Who and when are the session's, never the caller's say-so.
+  -- The amend stamps change only with the move to superseded (the mirror of the filing stamps above).
+  IF NEW.status <> 'superseded'
+     AND (NEW.amended_by, NEW.amend_reason, NEW.amended_at) IS DISTINCT FROM (OLD.amended_by, OLD.amend_reason, OLD.amended_at) THEN
+    RAISE EXCEPTION 'the amend stamps change only with the move to superseded' USING ERRCODE = '23514';
+  END IF;
+  -- Who and when are the session's, never the caller's say-so (an application-bug guard, see the header).
   IF (NEW.status = 'filed' AND OLD.status = 'finalised') OR (NEW.status = 'superseded') THEN
     v_user := nullif(pg_catalog.current_setting('request.jwt.claims', true), '')::pg_catalog.jsonb ->> 'sub';
     IF NEW.status = 'filed' THEN
@@ -186,6 +193,34 @@ CREATE TRIGGER trg_sars_submissions_filed_frozen
   BEFORE UPDATE OF status, submission_reference, submitted_at ON sars_submissions
   FOR EACH ROW EXECUTE FUNCTION public.sars_submissions_filed_frozen();
 ALTER TABLE sars_submissions ENABLE ALWAYS TRIGGER trg_sars_submissions_filed_frozen;
+
+-- A draft becomes submitted through the return lifecycle once any version exists for its company, form and overlapping
+-- period (whatever the version's status: between an amend and the next finalise nothing is live, and the period is
+-- still the lifecycle's). The lifecycle (markReturnFiled) sets the transaction-local flag app.return_lifecycle. Like the
+-- claims, the flag is something SQL-capable app_user can set itself: this defends against application bugs and the old
+-- colour of a blue/green deploy (its legacy and ISV paths know nothing of the flag), not against SQL injection.
+CREATE OR REPLACE FUNCTION public.sars_submissions_lifecycle_only()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF OLD.status = 'draft' AND NEW.status = 'submitted'
+     AND COALESCE(pg_catalog.current_setting('app.return_lifecycle', true), '') <> 'on'
+     AND EXISTS (SELECT 1 FROM tax_return_versions v
+                  WHERE v.company_id = OLD.company_id AND v.form_type = OLD.form_type
+                    AND v.period_start <= OLD.period_end AND v.period_end >= OLD.period_start) THEN
+    RAISE EXCEPTION 'this period has a return version: file through the return lifecycle' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_sars_submissions_lifecycle_only ON sars_submissions;
+CREATE TRIGGER trg_sars_submissions_lifecycle_only
+  BEFORE UPDATE OF status ON sars_submissions
+  FOR EACH ROW EXECUTE FUNCTION public.sars_submissions_lifecycle_only();
+ALTER TABLE sars_submissions ENABLE ALWAYS TRIGGER trg_sars_submissions_lifecycle_only;
 
 -- A lock a live version names is released by an amend, never directly. The amend supersedes the version first, in
 -- the same transaction, so its own unlock passes. SECURITY INVOKER: a BYPASSRLS role sees every version, app_user

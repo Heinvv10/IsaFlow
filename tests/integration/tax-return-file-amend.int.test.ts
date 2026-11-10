@@ -2,10 +2,11 @@
  * File and amend through the real routes (wave 5 L1b). A 4xx commits the request's writes under withAuth, so each
  * refusal is proved by counting rows AFTER the response: no submission, no override row, no version change.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { seedInvoice } from './helpers/l1FifoFixture';
+import { inTx, seedInvoice } from './helpers/l1FifoFixture';
+import { submitVAT201ToSars } from '../../src/modules/accounting/services/reports/sarsEfilingSubmissionService';
 import {
   callRoute, count, dropReturnFixture, loginAsToken, releaseLockDirectly, seedReturnFixture, type ReturnFixture,
 } from './helpers/returnVersionsFixture';
@@ -202,6 +203,8 @@ describeIfDb('file and amend a return, against a real ledger', () => {
     const live = await draftRow('VAT201', CLEAN.periodStart, CLEAN.periodEnd);
     expect((await legacy(live)).status).toBe(409);
     expect(String(((await sql`SELECT status FROM sars_submissions WHERE id = ${live}::UUID`) as Row[])[0]!.status)).toBe('draft');
+    // (4) the amend gap: the period's only version is superseded, nothing is live, and the legacy route is still refused
+    expect((await legacy(await draftRow('VAT201', SWAPPED.periodStart, SWAPPED.periodEnd))).status).toBe(409);
     // control: a period no version covers still files the legacy way
     const free = await draftRow('EMP201', '2025-03-01', '2025-03-31');
     expect((await legacy(free, 'LEGACY-OK')).status).toBe(200);
@@ -243,6 +246,57 @@ describeIfDb('file and amend a return, against a real ledger', () => {
     expect((await fileV(String(e2.id), { reference: 'EMP-ISV' }, rf.admin.token, 'emp201')).status).toBe(409);
     expect((await row(String(e2.id))).status).toBe('finalised');
     expect(((await sql`SELECT status, form_data FROM sars_submissions WHERE id = ${inflight}::UUID`) as Row[])[0]).toEqual({ status: 'draft', form_data: { k: 1 } });
+  });
+
+  it('the ISV channel refuses a period that has a return version, before anything outbound; a free period gets past that check', async () => {
+    vi.stubEnv('SARS_EFILING_ENABLED', 'true');
+    vi.stubEnv('SARS_EFILING_BASE_URL', 'http://sars-efiling.l1b.invalid');
+    vi.stubEnv('SARS_EFILING_ISV_LOGIN', 'l1b');
+    vi.stubEnv('SARS_EFILING_ISV_KEY', 'l1b');
+    try {
+      const covered = await draftRow('VAT201', CLEAN.periodStart, CLEAN.periodEnd);
+      await expect(inTx(rf.fx, () => submitVAT201ToSars(c(), covered, rf.admin.userId))).rejects.toThrow(/return lifecycle/);
+      const free = await draftRow('VAT201', '2025-05-01', '2025-06-30');
+      await expect(inTx(rf.fx, () => submitVAT201ToSars(c(), free, rf.admin.userId))).rejects.not.toThrow(/return lifecycle/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('every invisible character is a 400 for a reference and for a reason, never a 500', async () => {
+    const points = [0xad, 0x85, 0xa0, 0x34f, 0x115f, 0x1160, 0x1680, 0x17b4, 0x17b5, 0x180b, 0x180e, 0x180f, 0x2000, 0x200b, 0x200f,
+      0x2028, 0x202f, 0x205f, 0x2060, 0x206f, 0x2800, 0x3000, 0x3164, 0xfe00, 0xfe0f, 0xfeff, 0xffa0, 0xe0000, 0xe0020, 0xe0fff];
+    const id = String(v1.id);
+    for (const cp of points) {
+      const text = String.fromCodePoint(cp);
+      expect((await fileV(id, { reference: text })).status, `file U+${cp.toString(16)}`).toBe(400);
+      expect((await amendV(id, { reason: ` ${text} ` })).status, `amend U+${cp.toString(16)}`).toBe(400);
+    }
+  });
+
+  it('an EMP201 filing waits for an approval in flight, so the drift check and the commit see one payroll state', async () => {
+    const period = { periodStart: '2026-07-01', periodEnd: '2026-07-31' };
+    await sql`INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_gross, total_paye, total_uif,
+      total_sdl, total_eti, employee_count, approved_at) VALUES (${c()}::UUID, 2026, 7, 'approved', 50000, 9000, 500, 500, 0, 1,
+      '2026-07-31T10:00:00Z')`;
+    const e = versionOf(await callRoute(finalise, c(), rf.admin.token, 'POST', { form: 'emp201' }, period));
+    const approver = await rf.fx.pool.connect();
+    try {
+      // an approval/reopen in flight: it holds the company's payroll approval lock and has changed the run, uncommitted
+      await approver.query('BEGIN');
+      await approver.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [`payroll_approval:${c()}`]);
+      await approver.query(`UPDATE payroll_run_headers SET total_paye = 9100 WHERE company_id = $1 AND period_month = 7`, [c()]);
+      const filing = fileV(String(e.id), { reference: 'EMP-LOCK' }, rf.admin.token, 'emp201');
+      await new Promise((r) => setTimeout(r, 500));
+      await approver.query('COMMIT');
+      const r = await filing;
+      expect(r.status).toBe(409); // read after the approval committed: the drift is seen
+      expect(JSON.stringify(r.body)).toMatch(/totalPAYE/);
+      expect((await row(String(e.id))).status).toBe('finalised');
+    } finally {
+      await approver.query('ROLLBACK').catch(() => undefined);
+      approver.release();
+    }
   });
 
   it('EMP201: a nil month files with no VAT gate, amends (no lock involved) and v2 files', async () => {

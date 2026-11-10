@@ -70,6 +70,9 @@ const U = () => a.admin.userId; // the session user asAppUser sets: filed_by and
 const FILE = (sub: string) => `status = 'filed', sars_submission_id = '${sub}', filed_reference = 'R1', filed_by = '${U()}', filed_at = now()`;
 const AMEND = () => `status = 'superseded', amended_by = '${U()}', amend_reason = 'why', amended_at = now()`;
 const INVISIBLE = [0x200b, 0x200c, 0xfeff, 0x00a0, 0x2003].map((c) => String.fromCharCode(c)).join(' ');
+/** Ends and middles of every invisible range the guards cover (returnGuards.ts and 971 hold the same set). */
+const INVISIBLE_POINTS = [0xad, 0x85, 0xa0, 0x34f, 0x115f, 0x1160, 0x1680, 0x17b4, 0x17b5, 0x180b, 0x180e, 0x180f, 0x2000, 0x200b, 0x200f,
+  0x2028, 0x202f, 0x205f, 0x2060, 0x206f, 0x2800, 0x3000, 0x3164, 0xfe00, 0xfe0f, 0xfeff, 0xffa0, 0xe0000, 0xe0020, 0xe0fff];
 
 describeIfDb('tax_return_versions filing and amend rules (migration 971)', () => {
   beforeAll(async () => {
@@ -205,6 +208,14 @@ describeIfDb('tax_return_versions filing and amend rules (migration 971)', () =>
         .toMatch(/^23514 .*filing reference must hold a visible character/);
       expect(await failOf(c, `UPDATE tax_return_versions SET ${AMEND().replace("'why'", '$1')} WHERE id = '${fin}'`, [INVISIBLE]))
         .toMatch(/^23514 .*amend reason must hold a visible character/);
+      for (const cp of INVISIBLE_POINTS) {
+        const text = String.fromCodePoint(cp);
+        const where = `U+${cp.toString(16).toUpperCase()}`;
+        expect(await failOf(c, `UPDATE tax_return_versions SET ${FILE(sub).replace("'R1'", '$1')} WHERE id = '${fin}'`, [text]), where)
+          .toMatch(/^23514 .*visible character/);
+        expect(await failOf(c, `UPDATE tax_return_versions SET ${AMEND().replace("'why'", '$1')} WHERE id = '${fin}'`, [text]), where)
+          .toMatch(/^23514 .*visible character/);
+      }
       expect(await failOf(c, `UPDATE tax_return_versions SET ${AMEND().replace("'why'", '$1')} WHERE id = '${fin}'`, [`${INVISIBLE}x`])).toBe('ok');
     });
   });
@@ -230,6 +241,36 @@ describeIfDb('tax_return_versions filing and amend rules (migration 971)', () =>
       await o.query('ROLLBACK').catch(() => undefined);
       o.release();
     }
+  });
+
+  it('a draft becomes submitted only through the lifecycle once ANY version exists for its period (whatever its status)', async () => {
+    await version(a, 7, 'superseded'); // nothing live: the amend gap
+    const gap = await submission(a, 7, 'draft');
+    const free = await submission(a, 7, 'draft', 'VAT201'); // another form: no version
+    const sub = (id: string) => `UPDATE sars_submissions SET status = 'submitted', submission_reference = 'R', submitted_at = now() WHERE id = '${id}'`;
+    await asAppUser(a, async (c) => {
+      expect(await failOf(c, sub(gap))).toMatch(/^23514 .*return lifecycle/);
+      expect(await failOf(c, sub(free))).toBe('ok');
+      await c.query(`SELECT set_config('app.return_lifecycle', 'on', true)`);
+      expect(await failOf(c, sub(gap))).toBe('ok'); // the lifecycle's own flag
+    });
+    const o = await a.fx.pool.connect();
+    try {
+      await o.query('BEGIN');
+      expect(await failOf(o, sub(gap))).toMatch(/^23514 .*return lifecycle/); // the owner too
+    } finally {
+      await o.query('ROLLBACK').catch(() => undefined);
+      o.release();
+    }
+  });
+
+  it('the amend stamps change only with the move to superseded', async () => {
+    const fin = await version(b, 3, 'finalised');
+    await asAppUser(b, async (c) => {
+      expect(await failOf(c, upd(fin, `amended_by = 'x'`))).toMatch(/^23514 .*amend stamps change only with the move to superseded/);
+      expect(await failOf(c, upd(fin, `amend_reason = 'x'`))).toMatch(/^23514 .*amend stamps change only/);
+      expect(await failOf(c, upd(fin, `amended_at = now()`))).toMatch(/^23514 .*amend stamps change only/);
+    });
   });
 
   it('a lock a live version names cannot be unlocked by any role; once the version is superseded it can', async () => {
