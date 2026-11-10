@@ -35,6 +35,7 @@
  */
 import { AFTER, BEFORE, contextOf, pairBreaks, pairClass } from './packBreakPairs';
 import { breaksBetween } from './packBreakRanges';
+import { clusters } from './packGraphemes';
 import { heldByNumber } from './packNumericHold';
 import { holdsAfterSoftHyphen, holdsAfterZeroWidthSpace } from './packSoftBreakRanges';
 
@@ -55,9 +56,8 @@ const BREAK_AFTER_SPACE = /^[\u1680\u205F\u3000]$/u;
 /** The white space CSS collapses: the only separators a break consumes. */
 const COLLAPSIBLE = /[ \t\n\r]+/;
 
-const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
-
-const clustersOf = (word: string): string[] => Array.from(SEGMENTER.segment(word), (part) => part.segment);
+/** A word's grapheme clusters (`packGraphemes`: `Intl.Segmenter`'s, in time linear in the word). */
+const clustersOf = (word: string): string[] => clusters(word);
 
 /**
  * "Wide": an ideograph, a kana, a Hangul syllable, a full-width form or an emoji. Chromium breaks between one of

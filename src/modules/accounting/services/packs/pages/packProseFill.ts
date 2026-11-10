@@ -18,14 +18,18 @@
  * layout units and its float noise; `printParity/packProseLinesImage.test.ts` prints at the model's own boundary).
  * Client-safe: it reads no face.
  */
+import { graphemes } from './packGraphemes';
 import { pieces } from './packLineBreaks';
 import type { ProseStyle, ProseWeight } from './packProseStyles';
 
 export const PROSE_GUARD_PX = 0.5;
 
+/** The longest text a width function keeps the width of across calls (`packProseLines`, `packProseBound`): the fill asks
+ *  for pieces, graphemes and joins, short texts; a longer one is tenant text of any length, measured and not kept. */
+export const KEPT_CHARS = 64;
+
 const MM_PX = 96 / 25.4;
 const COLLAPSIBLE = /[ \t\n\r]/;
-const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
 
 /** A piece of prose in one weight (a note's heading and its body are two). */
 export interface ProseSegment { readonly text: string; readonly weight: ProseWeight }
@@ -91,11 +95,10 @@ export function proseFill(text: string | readonly ProseSegment[], style: ProseSt
     if (withUnit(spaced, piece.hyphen) <= avail) { set(spaced); continue; }
     if (tail.length > 0) startLine();
     if (widthPx(bare, piece.hyphen) <= avail) { set(bare); continue; }
-    // Wider than the measure on its own: grapheme by grapheme, each line as full as it can be.
-    let offset = 0;
-    for (const { segment } of SEGMENTER.segment(piece.text)) {
-      const unit = appended([], segment, own.slice(offset));
-      offset += segment.length;
+    // Wider than the measure on its own: grapheme by grapheme, each line as full as it can be. Each grapheme is one run
+    // in the weight it starts in (no copy of what is left of the piece: the work stays linear in its length).
+    for (const { segment, index } of graphemes(piece.text)) {
+      const unit: Run[] = [{ text: segment, weight: own[index]! }];
       if (tail.length > 0 && withUnit(unit, false) > avail) startLine();
       set(unit);
     }

@@ -437,6 +437,18 @@ describe('approveCommentary against the pack budget', () => {
     expect(sqlMock).toHaveBeenCalledTimes(1); // the read only
   });
 
+  it('refuses an edited board-pack row over the character ceiling before costing it, though it would fit the page', async () => {
+    // One letter under 4,100 stacked marks costs one letter's width, so only the ceiling can refuse it: the cost model
+    // never reads tenant text of unbounded length (#1263 security review).
+    const stacked = `a${'\u0301'.repeat(MAX_UNBUDGETED_CHARS + 100)}`;
+    expect(commentaryCost([stacked])).toBeLessThan(MAX_APPROVED_PACK_EMS);
+    sqlMock.mockResolvedValueOnce([BOARD]);
+    const result = await approveCommentary(COMPANY, ID, 'approver-9', stacked);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('text_too_long');
+    expect(sqlMock).toHaveBeenCalledTimes(1); // the read only
+  });
+
   it('measures the supplied text trimmed, as it is stored', async () => {
     queue([]);
     expect((await approveCommentary(COMPANY, ID, 'approver-9', `  ${'x'.repeat(roomFor('x', []))}  `)).ok).toBe(true);

@@ -10,9 +10,10 @@
  * a token wider than the line included. Client-safe: data and arithmetic only.
  */
 import { fallbackClusterIn } from './packFallbackWidthCore';
+import { graphemes } from './packGraphemes';
 import { PROSE_ADVANCES, PROSE_ADVANCE_UNITS } from './packProseAdvanceData';
 import { PROSE_FACES, PROSE_FALLBACK, PROSE_FALLBACK_RANGES } from './packProseFallbackData';
-import { proseFill, type ProseSegment } from './packProseFill';
+import { KEPT_CHARS, proseFill, type ProseSegment } from './packProseFill';
 import type { ProseStyle } from './packProseStyles';
 
 /** The size the fallback tables were measured at (`packFigureWidth`'s label size). */
@@ -35,7 +36,6 @@ const BOUND = ((): ReadonlyMap<number, number> => {
   return out;
 })();
 
-const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
 
 /**
  * The most `text` can be wide set at `px` in the regular face (the table is the regular's: page 4's commentary is set in
@@ -44,7 +44,7 @@ const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
 export function boundPx(text: string, px: number): number {
   let units = 0;
   let fallback = 0;
-  for (const { segment } of SEGMENTER.segment(text)) {
+  for (const { segment } of graphemes(text)) {
     const cps = Array.from(segment, (ch) => ch.codePointAt(0)!);
     if (cps.every((cp) => BOUND.has(cp))) for (const cp of cps) units += BOUND.get(cp)!;
     else fallback += fallbackClusterIn(PROSE_FALLBACK, PROSE_FALLBACK_RANGES, segment, px, FALLBACK_MEASURED_PX);
@@ -52,11 +52,23 @@ export function boundPx(text: string, px: number): number {
   return (units * px) / PROSE_ADVANCE_UNITS + fallback;
 }
 
-/** The bounds, kept across calls: the editor costs the whole commentary again on every keystroke. */
+/**
+ * The bounds, kept across calls: the editor costs the whole commentary again on every keystroke. Only short texts are
+ * kept (a piece, a grapheme and its neighbour, a join): a key is a text, and tenant text is as long as a tenant makes it,
+ * so a long one is measured and not kept, and the cache stays under BOUNDS_KEPT x KEPT_CHARS characters.
+ */
 const BOUNDS = new Map<string, number>();
 const BOUNDS_KEPT = 100_000;
 
+/** The longest text the bounds are kept for (what `packProseFillLinear.test.ts` holds under KEPT_CHARS). */
+export function keptBoundLongest(): number {
+  let longest = 0;
+  for (const key of BOUNDS.keys()) longest = Math.max(longest, key.length - key.indexOf('|') - 1);
+  return longest;
+}
+
 function keptBoundPx(text: string, px: number): number {
+  if (text.length > KEPT_CHARS) return boundPx(text, px);
   const key = `${px}|${text}`;
   let width = BOUNDS.get(key);
   if (width === undefined) {

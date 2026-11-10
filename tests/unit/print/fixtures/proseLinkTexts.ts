@@ -83,7 +83,7 @@ export function punctuationTexts(): string[] {
   const pick = picker(r);
   const words = 'revenue costs salaries wages rent rates repairs maintenance motor vehicle fuel insurance bank charges depreciation interest Pretoria Gauteng rollout depot fibre installations customers subscriptions variance budget forecast quarter margin overheads accruals provision'.split(' ');
   const out: string[] = [];
-  for (const j of [' / ', ' ; ', ' : ', ' ! ', ' ? ', ' ) ', ' ( ', ', ', ' - ', ' – ', ' … ', ' %', ' ”']) {
+  for (const j of [' / ', ' ; ', ' : ', ' ! ', ' ? ', ' ) ', ' ( ', ', ', ' - ', ' \u2013 ', ' \u2026 ', ' %', ' \u201D']) {
     for (let n = 0; n < 12; n += 1) {
       let s = '';
       const len = 20 + Math.floor(r() * 220);
@@ -105,7 +105,7 @@ export function punctuationTexts(): string[] {
   }
   for (let n = 0; n < 20; n += 1) {
     let s = '';
-    while (s.length < 60 + r() * 200) s += `${pick(words).replace(/(...)/, '$1­')} `;
+    while (s.length < 60 + r() * 200) s += `${pick(words).replace(/(...)/, '$1\u00AD')} `;
     out.push(s.trim());
   }
   for (let n = 0; n < 20; n += 1) {

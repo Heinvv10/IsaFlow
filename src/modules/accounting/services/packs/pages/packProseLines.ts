@@ -18,16 +18,27 @@
  * Server-only: the ruler reads the faces.
  */
 import { textExactPx } from './packFigureWidth';
-import { proseFill, type ProseSegment } from './packProseFill';
+import { KEPT_CHARS, proseFill, type ProseSegment } from './packProseFill';
 import type { ProseStyle, ProseWeight } from './packProseStyles';
 
 export { PROSE_GUARD_PX, type ProseSegment } from './packProseFill';
 
-/** The ruler's widths, kept across calls: a pack sets the same words and joins on every page and every fit attempt. */
+/**
+ * The ruler's widths, kept across calls: a pack sets the same words and joins on every page and every fit attempt. Only
+ * short texts are kept (as `packProseBound` keeps its bounds): tenant text is as long as a tenant makes it.
+ */
 const WIDTHS = new Map<string, number>();
 const WIDTHS_KEPT = 200_000;
 
+/** The longest text the widths are kept for (what `packProseFillLinear.test.ts` holds under KEPT_CHARS). */
+export function keptWidthLongest(): number {
+  let longest = 0;
+  for (const key of WIDTHS.keys()) longest = Math.max(longest, key.length - key.split('|', 3).join('|').length - 1);
+  return longest;
+}
+
 function exactPx(text: string, px: number, weight: ProseWeight, hyphen: boolean): number {
+  if (text.length > KEPT_CHARS) return textExactPx(text, px, weight, hyphen);
   const key = `${weight}|${px}|${hyphen ? 1 : 0}|${text}`;
   let width = WIDTHS.get(key);
   if (width === undefined) {
