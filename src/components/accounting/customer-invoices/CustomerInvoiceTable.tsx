@@ -41,7 +41,7 @@ interface Props {
   total: number;
   onPage: (page: number) => void;
   /** A plain click on a row: the drawer. Ctrl, Cmd, Shift and the middle button keep opening the page. */
-  onOpen: (invoiceId: string) => void;
+  onOpen: (invoiceId: string, row: HTMLElement) => void;
 }
 
 /** An invoice in a foreign currency shows in that currency, never as Rand. */
@@ -55,7 +55,7 @@ const withModifier = (e: MouseEvent) => e.ctrlKey || e.metaKey || e.shiftKey;
 
 export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onOpen }: Props) {
   const onRowClick = (e: MouseEvent, id: string) => {
-    if (!withModifier(e)) onOpen(id);
+    if (!withModifier(e)) onOpen(id, e.currentTarget as HTMLElement);
     else if (!onLink(e) && !e.shiftKey) window.open(invoicePath(id), '_blank', 'noopener'); // on the number, the browser's own
   };
   const onRowAuxClick = (e: MouseEvent, id: string) => {
@@ -84,8 +84,8 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onO
             const bucketLabel = inv.aging_bucket === 'Current' ? 'Current' : (bucketKey ? BUCKET_LABELS[bucketKey] : null);
             const bucketColor = bucketKey ? BUCKET_COLORS[bucketKey] : 'text-teal-500';
             return (
-              <tr key={inv.id} onClick={(e) => onRowClick(e, inv.id)} onAuxClick={(e) => onRowAuxClick(e, inv.id)}
-                className="cursor-pointer border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
+              <tr key={inv.id} tabIndex={-1} onClick={(e) => onRowClick(e, inv.id)} onAuxClick={(e) => onRowAuxClick(e, inv.id)}
+                className="ff-focus-ring cursor-pointer border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                 <td className="py-3 px-4 font-id">
                   <Link href={invoicePath(inv.id)} onClick={(e) => { if (!withModifier(e)) e.preventDefault(); }}
                     className="text-blue-400 hover:text-blue-300">{inv.invoice_number}</Link>

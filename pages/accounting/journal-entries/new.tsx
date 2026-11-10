@@ -127,7 +127,7 @@ export default function NewJournalEntryPage() {
 
         <div className="p-6 xl:p-8">
           <form onSubmit={e => void handleSubmit(e)}>
-            <div className="max-w-6xl mx-auto flex gap-6 items-start">
+            <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 items-stretch lg:items-start">
               <div className="flex-1 min-w-0 space-y-5">
                 {error && (
                   <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2">
@@ -223,7 +223,7 @@ export default function NewJournalEntryPage() {
                 </div>
               </div>
 
-              <div className="w-72 shrink-0">
+              <div className="w-full lg:w-72 shrink-0">
                 <div className="sticky top-6">
                   <div className={`${card} p-5`}>
                     <div className="flex items-center gap-2 mb-5">

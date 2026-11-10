@@ -3,11 +3,12 @@
  * Not exported from the public component library — used only by Select.tsx.
  */
 
-import { type KeyboardEvent, type RefObject } from 'react';
+import { Fragment, type KeyboardEvent, type RefObject } from 'react';
 import { Check, Search } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type { SelectOption } from './Select';
 import type { PanelPlacement } from './panelPlacement';
+import { groupHeadingAt, SelectGroupHeading } from './selectGroups';
 
 interface SelectDropdownProps {
   options: SelectOption[];
@@ -127,9 +128,11 @@ export function SelectDropdown({
         {(showList ? options : []).map((option, i) => {
           const isSelected = selectedValues.includes(option.value);
           const isActive = activeIndex === i;
+          const heading = groupHeadingAt(options, i);
           return (
+            <Fragment key={option.value}>
+            {heading && <SelectGroupHeading label={heading} />}
             <li
-              key={option.value}
               id={selectOptionId(inputId, i)}
               role="option"
               aria-selected={isSelected}
@@ -154,6 +157,7 @@ export function SelectDropdown({
                 />
               )}
             </li>
+            </Fragment>
           );
         })}
       </ul>

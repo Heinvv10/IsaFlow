@@ -16,6 +16,8 @@ export interface SelectOption {
   label: string;
   icon?: ReactNode;
   disabled?: boolean;
+  /** Heading this option sits under (adjacent options with the same group share one heading). */
+  group?: string;
 }
 
 interface SelectBaseProps {
@@ -155,8 +157,9 @@ export function Select(props: SelectProps) {
 
   useEffect(() => {
     if (!listRef.current || activeIndex < 0) return;
-    (listRef.current.children[activeIndex] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
-  }, [activeIndex]);
+    // By id, not child position: group headings are children too.
+    document.getElementById(selectOptionId(inputId, activeIndex))?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, inputId]);
 
   const onOpenChangeRef = useRef(onOpenChange);
   useEffect(() => { onOpenChangeRef.current = onOpenChange; });

@@ -93,17 +93,12 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
           <div><label htmlFor="details-tab-registered-name" className={LABEL_CLS}>Registered Name</label><input id="details-tab-registered-name" className={INPUT_CLS} value={company.registeredName || ''} onChange={e => onChange('registeredName', e.target.value)} /></div>
           <div><label htmlFor="details-tab-registration-number" className={LABEL_CLS}>Registration Number</label><input id="details-tab-registration-number" className={INPUT_CLS} value={company.registrationNumber || ''} onChange={e => onChange('registrationNumber', e.target.value)} /></div>
           <div>
-            <label htmlFor="details-tab-entity-type" className={LABEL_CLS}>Entity Type</label>
-            <select id="details-tab-entity-type" className={INPUT_CLS} value={company.entityType} onChange={e => onChange('entityType', e.target.value)}>
-              {ENTITY_TYPES.map(t => <option key={t.code} value={t.code}>{t.label}</option>)}
-            </select>
+            <Select id="details-tab-entity-type" label="Entity Type" labelClassName={LABEL_CLS} value={company.entityType} onChange={v => onChange('entityType', v ?? '')}
+              options={ENTITY_TYPES.map(t => ({ value: t.code, label: t.label }))} />
           </div>
           <div>
-            <label htmlFor="details-tab-industry" className={LABEL_CLS}>Industry</label>
-            <select id="details-tab-industry" className={INPUT_CLS} value={company.industry || ''} onChange={e => onChange('industry', e.target.value || null)}>
-              <option value="">Select industry...</option>
-              {INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
-            </select>
+            <Select id="details-tab-industry" label="Industry" labelClassName={LABEL_CLS} placeholder="Select industry..." clearable searchable value={company.industry || null} onChange={v => onChange('industry', v || null)}
+              options={INDUSTRIES.map(ind => ({ value: ind, label: ind }))} />
           </div>
           <div><label htmlFor="details-tab-contact-name" className={LABEL_CLS}>Contact Name</label><input id="details-tab-contact-name" className={INPUT_CLS} value={company.contactName || ''} onChange={e => onChange('contactName', e.target.value)} /></div>
           <div><label htmlFor="details-tab-email" className={LABEL_CLS}>Email</label><input id="details-tab-email" type="email" className={INPUT_CLS} value={company.email || ''} onChange={e => onChange('email', e.target.value)} /></div>
@@ -235,14 +230,8 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
           <div><label htmlFor="details-tab-account-number" className={LABEL_CLS}>Account Number</label><input id="details-tab-account-number" className={INPUT_CLS} value={company.bankAccountNumber || ''} onChange={e => onChange('bankAccountNumber', e.target.value)} /></div>
           <div><label htmlFor="details-tab-branch-code" className={LABEL_CLS}>Branch Code</label><input id="details-tab-branch-code" className={INPUT_CLS} value={company.bankBranchCode || ''} onChange={e => onChange('bankBranchCode', e.target.value)} /></div>
           <div>
-            <label htmlFor="details-tab-account-type" className={LABEL_CLS}>Account Type</label>
-            <select id="details-tab-account-type" className={INPUT_CLS} value={company.bankAccountType || ''} onChange={e => onChange('bankAccountType', e.target.value)}>
-              <option value="">Select...</option>
-              <option value="Current">Current</option>
-              <option value="Savings">Savings</option>
-              <option value="Transmission">Transmission</option>
-              <option value="Credit Card">Credit Card</option>
-            </select>
+            <Select id="details-tab-account-type" label="Account Type" labelClassName={LABEL_CLS} placeholder="Select..." clearable value={company.bankAccountType || null} onChange={v => onChange('bankAccountType', v ?? '')}
+              options={['Current', 'Savings', 'Transmission', 'Credit Card'].map(t => ({ value: t, label: t }))} />
           </div>
         </div>
       </section>
@@ -253,10 +242,8 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
         <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">Upload company registration certificates, tax clearance, and other statutory documents.</p>
         <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3 mb-6">
           <div>
-            <label htmlFor="details-tab-document-type" className={LABEL_CLS}>Document Type</label>
-            <select id="details-tab-document-type" className={INPUT_CLS} value={docType} onChange={e => setDocType(e.target.value)}>
-              {Object.entries(DOC_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
+            <Select id="details-tab-document-type" label="Document Type" labelClassName={LABEL_CLS} value={docType} onChange={v => setDocType(v ?? docType)}
+              options={Object.entries(DOC_TYPE_LABELS).map(([k, v]) => ({ value: k, label: v }))} />
           </div>
           <label className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer">
             {uploadingDoc ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Upload Document
