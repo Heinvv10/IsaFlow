@@ -233,6 +233,8 @@ const BREAKABLE = /[^\S\u00a0\u202f]+/;
  * read short, and max(the width model, this one) read none of the stored sweeps short).
  */
 export function wrapEms(text: string, perLine: number): number {
+  // A measure of no width holds nothing: the word loop below would never end (#1264 round 9 adversarial L).
+  if (!(perLine > 0)) throw new RangeError(`wrapEms: a line must hold some ems, got ${perLine}`);
   let count = 1;
   let used = 0;
   for (const word of text.split(BREAKABLE)) {

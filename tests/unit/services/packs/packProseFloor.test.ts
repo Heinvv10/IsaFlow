@@ -114,3 +114,12 @@ describe('the commentary cost carries the floor', () => {
     expect(commentaryCost([`${NARROW}${S(0x4e2d)}`])).toBeGreaterThan(commentaryCost([NARROW]));
   });
 });
+
+describe('the em model refuses a measure of no width (#1264 round 9 adversarial L: it looped forever)', () => {
+  it('throws for a zero, negative or NaN width instead of hanging', () => {
+    expect(() => wrappedLines('中文', 9, 0)).toThrow(RangeError);
+    expect(() => wrappedLines('中文', 9, -5)).toThrow(RangeError);
+    expect(() => wrappedLines('中文', 9, Number.NaN)).toThrow(RangeError);
+    expect(wrappedLines('中文', 9, 50)).toBe(1);
+  });
+});
