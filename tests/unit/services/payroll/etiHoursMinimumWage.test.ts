@@ -5,6 +5,7 @@
  * Schedule 1 (R28.79 from 1 March 2025; R30.23 from 1 March 2026, GN R. 7083, GG 54075).
  */
 import { describe, expect, it } from 'vitest';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { calculateEti } from '@/modules/accounting/services/payroll/etiEngine';
 import { nationalMinimumWageCents } from '@/modules/accounting/services/payroll/etiTables';
 import {
@@ -137,7 +138,7 @@ describe('the calculator tests the ordinary wage, not the month\'s remuneration'
       period: { month: 11, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 'defer',
     });
     expect(line.eti.monthlyEti).toBe(0);
-    expect(line.eti.ineligibilityReason).toMatch(/national minimum wage of R30\.23/);
+    expect(line.eti.ineligibilityReason).toContain(`national minimum wage of ${formatMoney(30.23)} an hour`);
   });
 });
 

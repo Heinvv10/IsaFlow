@@ -52,6 +52,7 @@ import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
 import { payrollLoanInstalmentBlocker } from './payrollLineBlockers';
 import { etiBroughtForwardInto } from '@/modules/accounting/services/reports/emp201EtiCarry';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 type Row = DbRow;
 
@@ -258,7 +259,7 @@ export async function buildPayrollJournalPlan(
   if (broughtForward > 0.005) {
     advisories.push({
       code: 'eti_brought_forward',
-      detail: `R${broughtForward.toFixed(2)} of ETI is brought forward from earlier months of the reconciliation period (ETI Act s9(1)); R${etiUsed.toFixed(2)} of ETI is booked against this run's PAYE, as the EMP201 uses it.`,
+      detail: `${formatMoney(broughtForward)} of ETI is brought forward from earlier months of the reconciliation period (ETI Act s9(1)); ${formatMoney(etiUsed)} of ETI is booked against this run's PAYE, as the EMP201 uses it.`,
     });
   }
   if (eti + broughtForward - etiUsed > 0.005) {

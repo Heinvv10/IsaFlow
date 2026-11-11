@@ -1,4 +1,5 @@
 import { etiForRemuneration, nationalMinimumWageCents, selectEtiTable } from './etiTables';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { getAge } from './payeEngine';
 import { belowMinimumWage, grossUpTo160, hoursShare } from './etiHours';
 import type { EtiInput, EtiMissingInput, EtiResult } from './payrollTypes';
@@ -64,8 +65,8 @@ export function calculateEti(
   if (hours && hours.monthlyHours <= 0) return determined('No hours employed and paid in the month (ETI Act s7(5)): nil.');
   const minimum = hours ? nationalMinimumWageCents(input.periodDate) : null;
   if (hours && minimum != null && belowMinimumWage(hours.ordinaryWageCents, hours.monthlyHours, minimum)) {
-    return determined(`The wage for ${hours.monthlyHours} ordinary hours (R${(hours.ordinaryWageCents / 100).toFixed(2)}) is below the `
-      + `national minimum wage of R${(minimum / 100).toFixed(2)} an hour (ETI Act s4(1)(a)): nil.`);
+    return determined(`The wage for ${hours.monthlyHours} ordinary hours (${formatMoney(hours.ordinaryWageCents / 100)}) is below the `
+      + `national minimum wage of ${formatMoney(minimum / 100)} an hour (ETI Act s4(1)(a)): nil.`);
   }
   const remuneration = hours ? grossUpTo160(input.monthlyRemuneration, hours.monthlyHours) : input.monthlyRemuneration;
   if (remuneration >= table.wageCeiling) {
