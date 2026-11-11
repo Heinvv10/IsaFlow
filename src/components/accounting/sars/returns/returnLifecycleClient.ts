@@ -50,7 +50,7 @@ export async function postReturnAction(
   try { json = JSON.parse(await res.text()) as ErrorBody; } catch { json = null; /* a non-JSON body: the fallback below says so */ }
   const fieldErrors = json?.error?.details && !json.error.details.code && !json.error.details.reason && !json.error.details.counts
     ? Object.values(json.error.details as Record<string, unknown>).flat().filter((m): m is string => typeof m === 'string') : [];
-  const message = json?.error?.message || json?.message || `The server refused this (${res.status}). Try again.`;
+  const message = json?.error?.message || json?.message || 'The return could not be updated. Reload the page and try again.';
   return {
     ok: false,
     refusal: {
