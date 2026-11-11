@@ -96,7 +96,7 @@ describe('packGraphemes', () => {
     }
   }, 60_000);
 
-  it('takes time linear in the text: 100,000 characters at most about four times 25,000', () => {
+  it('takes time linear in the text: 200,000 characters well under the 64 times 25,000 a quadratic walk would take', () => {
     const ms = (n: number): number => {
       const t = 'x'.repeat(n);
       let best = Infinity;
@@ -104,6 +104,7 @@ describe('packGraphemes', () => {
       return best;
     };
     ms(5_000);
-    expect(ms(100_000) / Math.max(ms(25_000), 1)).toBeLessThan(8);
+    // 8x the text: linear is about 8x the time, quadratic 64x. The bound of 24 leaves 3x for CI load noise.
+    expect(ms(200_000) / Math.max(ms(25_000), 1)).toBeLessThan(24);
   }, 120_000);
 });
