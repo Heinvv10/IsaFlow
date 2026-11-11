@@ -8,7 +8,8 @@
  *  - UIF: the component's own is_uif_applicable flag decides, as for any earning
  *    (setup-components creates the 3801 with it off).
  *  - SDL: leviable (SDL Act s3(3): the para 1 remuneration).
- *  - ETI: "monthly remuneration" is the para 1 remuneration, so the benefit counts.
+ *  - ETI: NOT in "monthly remuneration": from 1 March 2022 its proviso disregards non-cash payments
+ *    (ET; SARS Guide to the Employment Tax Incentive, Issue 5, §2.4.1 p. 18).
  *  - Cash: not in gross pay and not paid in net pay.
  */
 import { describe, expect, it } from 'vitest';
@@ -79,11 +80,11 @@ describe('a non-cash 3801 benefit on a pay line [Fourth Schedule para 1; SDL Act
     expect(withBenefit.componentBreakdown.find((i) => i.componentId === 'salary')).not.toHaveProperty('isNonCash');
   });
 
-  it('counts toward ETI monthly remuneration (taper band: R1 500 - 75% x (R6 000 - R5 500) = R1 125)', () => {
+  it('is left out of ETI monthly remuneration (R5 000 cash stays in the flat band: R1 500, not R1 125 on R6 000)', () => {
     const young = { employee: employee({ dateOfBirth: new Date('2001-01-01'), startDate: new Date('2025-01-01') }) };
     const eti = line([salary(5_000), benefit(1_000)], young).eti;
     expect(eti.isEligible).toBe(true);
-    expect(eti.monthlyEti).toBe(1_125);
+    expect(eti.monthlyEti).toBe(1_500);
     expect(line([salary(5_000)], young).eti.monthlyEti).toBe(1_500);
   });
 });

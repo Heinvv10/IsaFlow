@@ -140,3 +140,27 @@ describe('the calculator tests the ordinary wage, not the month\'s remuneration'
     expect(line.eti.ineligibilityReason).toMatch(/national minimum wage of R30\.23/);
   });
 });
+
+describe('non-cash payments are not ETI "monthly remuneration" (guide Issue 5 §2.4.1 p. 18, from 1 March 2022)', () => {
+  const run = async (components: EmployeeComponent[]) => {
+    const { calculatePayrollLine } = await import('@/modules/accounting/services/payroll/payrollCalculator');
+    return calculatePayrollLine({
+      employee: {
+        id: 'e1', companyId: 'co', employeeNumber: 'E1', firstName: 'Test', lastName: 'Employee', employmentType: 'permanent',
+        startDate: new Date(2026, 0, 1), dateOfBirth: new Date(2004, 5, 1), uifExcluded: false, medicalAidMainMember: false,
+        medicalAidDependantsCount: 0, s18aReceiptHeld: false, taxStatus: 'employee', payBasis: 'monthly', hoursPerWeek: null,
+      },
+      components, period: { month: 6, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 'defer',
+    });
+  };
+  it('R4 000 cash plus a R2 000 loan benefit (3801, non-cash): ETI on R4 000 = R1 500, not on R6 000 (R1 125)', async () => {
+    const line = await run([comp('3601', 4_000), comp('3801', 2_000, { isNonCash: true })]);
+    expect(line.eti.monthlyEti).toBe(1_500);
+  });
+  it('a 38xx benefit set up without the non-cash flag (3802 vehicle, 3810 medical) is left out too', async () => {
+    expect((await run([comp('3601', 4_000), comp('3802', 1_500), comp('3810', 500)])).eti.monthlyEti).toBe(1_500);
+  });
+  it('a cash allowance stays in: R4 000 + R2 000 allowance (3713) = R6 000, R1 125', async () => {
+    expect((await run([comp('3601', 4_000), comp('3713', 2_000)])).eti.monthlyEti).toBe(1_125);
+  });
+});

@@ -11,7 +11,7 @@ import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf, unitOf } from './payrollRunHours';
-import { etiHoursOf, ordinaryWageCents } from './etiHours';
+import { etiHoursOf, nonCashEarnings, ordinaryWageCents } from './etiHours';
 import { nationalMinimumWageCents } from './etiTables';
 import type {
   PayrollLineInput,
@@ -138,12 +138,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // Missing dates are reported as indeterminate, never fabricated into a
   // determination of "not eligible" — see resolveEtiForEmployee.
-  // The ETI base stays the whole remuneration, annual payments, lump sums and
-  // non-cash benefits included, unchanged by P3: "monthly remuneration" is the Fourth Schedule paragraph 1
-  // remuneration ("salary, leave pay, wage, overtime pay, bonus, gratuity, ...")
-  // paid or payable in the month (SARS Guide to the Employment Tax Incentive,
-  // Issue 5, §2.4 "Monthly remuneration",
-  // https://www.sars.gov.za/wp-content/uploads/Ops/Guides/LAPD-ETI-G01-Guide-to-the-Employment-Tax-Incentive.pdf).
+  // The ETI base is the Fourth Schedule paragraph 1 remuneration ("salary, leave pay, wage, overtime pay, bonus,
+  // gratuity, ...") paid or payable in the month, annual payments and lump sums included, LESS non-cash payments: from
+  // 1 March 2022 the proviso to "monthly remuneration" disregards anything but cash (ET; SARS Guide to the Employment Tax
+  // Incentive, Issue 5, §2.4 p. 15 and §2.4.1 p. 18; etiHours.nonCashEarnings).
   // ET: the hours employed and paid in the month (run hours for hourly and daily staff; hours a week x 52/12 for monthly
   // staff) apportion ETI under s7(5) and test the ordinary wage against the minimum wage (s4(1)(a)); see etiHours.ts.
   const hours = input.notEmployedInPeriod ? null : runHoursOf(employee, components);
@@ -152,7 +150,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     dateOfBirth: employee.dateOfBirth,
     employmentStartDate: employee.startDate,
     periodDate,
-    monthlyRemuneration: allEarnings,
+    monthlyRemuneration: allEarnings - nonCashEarnings(components),
     isUifExcluded: employee.uifExcluded,
     hours: etiHours == null ? null : { monthlyHours: etiHours, ordinaryWageCents: ordinaryWageCents(components) },
   }, taxYear);

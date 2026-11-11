@@ -60,6 +60,20 @@ export function belowMinimumWage(wageCents: number, hours: number, centsPerHour:
   return wageCents * 100 < centsPerHour * Math.round(hours * 100);
 }
 
+/**
+ * The non-cash earnings left out of ETI "monthly remuneration": every item flagged non-cash and every 38xx fringe benefit
+ * (3801 low-interest loan, 3802 company vehicle, 3810 employer medical contribution, ...). From 1 March 2022 the proviso
+ * to the s1 definition disregards "an amount other than a cash payment to the employee" (ETI guide Issue 5, §2.4.1 p. 18).
+ * Cash allowances stay in (guide §2.4 p. 17: allowances are monthly remuneration; transport allowances at their 80% or
+ * 20% remuneration share).
+ */
+export function nonCashEarnings(components: EmployeeComponent[]): number {
+  return components
+    .filter((c) => c.component.componentType === 'earning'
+      && (c.isNonCash === true || /^38\d\d$/.test(normaliseSarsCode(c.component.sarsSourceCode))))
+    .reduce((t, c) => t + c.amount, 0);
+}
+
 /** s7(5) gross-up: the remuneration as if paid for 160 hours. A full month or more is unchanged. */
 export function grossUpTo160(remuneration: number, hours: number): number {
   return hours >= ETI_FULL_MONTH_HOURS ? remuneration : (remuneration * ETI_FULL_MONTH_HOURS) / hours;
