@@ -1,5 +1,7 @@
 import type { EtiResult } from './payrollTypesEti';
 import type { PayeYearToDate } from './payrollTypesYtd';
+import type { RegularPayDirectiveType } from './taxDirectiveKinds';
+import type { RegularPayDirectiveState } from './directiveRegularPay';
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
@@ -120,8 +122,10 @@ export interface ValidationResult {
   deepLink?: string;
   /** PAYE_LATER_PERIODS_APPROVED only: the later months it names, YYYY-MM. The approval gate matches on this, not the message. */
   periods?: string[];
-  /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment); the year to date leaves such a month out. */
-  treatment?: 'flat_25' | 'none';
+  /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment; 'directive': directiveRegularPay); the year to date leaves such a month out. */
+  treatment?: 'flat_25' | 'none' | 'directive';
+  /** PAYE_OUTSIDE_TABLES with treatment 'directive' only: the IRP3(b)/(c) directive applied (the approval gate compares it). */
+  directive?: { id: string; number: string | null; type: RegularPayDirectiveType; rate: number | null; fixedAmount: number | null };
   /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */
   rawNet?: number;
   /** LOAN_DEDUCTION_MISSING only: the loan numbers whose instalment was not taken. */
@@ -156,6 +160,8 @@ export interface PayrollLineInput {
    * run): no hours employed in the period, so no ETI (see payrollCalculator).
    */
   notEmployedInPeriod?: boolean;
+  /** The employee's IRP3(b)/(c) directive on regular pay for the period (payrollRunRegularDirective); absent = none. */
+  regularPayDirective?: RegularPayDirectiveState;
 }
 
 export interface ComponentBreakdownItem {

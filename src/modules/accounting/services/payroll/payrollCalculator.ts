@@ -11,6 +11,7 @@ import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
 import { etiHoursPending, hoursValidation, runHoursOf } from './payrollRunHours';
+import { directiveEndedResult, regularPayDirectivePaye } from './directiveRegularPay';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -76,7 +77,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     earnings: timeWorked, employedShare: employedShareOfMonth(period, employee.startDate, employee.endDate),
   });
   const treatment = taxStatusTreatment(employee.taxStatus, classification.kind);
-  const onTables = treatment.paye === 'tables';
+  // An IRP3(b)/(c) directive on regular pay decides PAYE over the treatment (directiveRegularPay, G21 p. 15, 28): off the tables too.
+  const directive = input.regularPayDirective?.current ?? null;
+  const onTables = treatment.paye === 'tables' && !directive;
   const ytdForTables = onTables ? input.ytd : undefined;
 
   const medicalBeneficiaries = employee.medicalAidMainMember
@@ -109,10 +112,14 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // line's record can exceed its pay (a catch-up contribution), and taxable_income must not go negative.
   const taxableIncome = regularTaxable + annualTaxable;
   // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
-  const treated = payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, taxableIncome - retirementDeduction);
+  const treated = directive
+    ? regularPayDirectivePaye(directive, { periodicRemuneration, annualPayments: annualTaxable, tablesAnnualPayment: annualPaymentPaye, contractor: treatment.paye === 'none' })
+    : payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, taxableIncome - retirementDeduction);
   const payeSplit = { regular: treated.regular, annualPayment: treated.annualPayment, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
-  if (treatment.paye !== 'tables') warnings.push(...outsideTablesResult(treatment.paye));
+  // A contractor's own result stays beside a directive's: it is what keeps UIF, SDL and the 3616 code off (payrollOutsideTables).
+  if (treatment.paye === 'none' || (treatment.paye === 'flat_25' && !directive)) warnings.push(...outsideTablesResult(treatment.paye));
+  warnings.push(...('results' in treated ? treated.results : []), ...[directiveEndedResult(input.regularPayDirective)].filter(v => v != null));
 
   const uif = employee.uifExcluded || !treatment.uif
     ? { employeeContribution: 0, employerContribution: 0, isCapped: false }

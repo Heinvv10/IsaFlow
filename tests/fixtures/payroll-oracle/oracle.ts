@@ -4,7 +4,8 @@
  *
  * A case's `expected` comes from an outside source (`source`), never from the engine.
  * The tax status and the work terms (`taxStatus`; `unmodelled.ordinaryHoursPerWeek`, `hoursPerDay`, `dayRate`) reach the
- * calculator (buildCaseInput, TS-b). Inputs the engine still has no field for (a fixed-rate directive, ETI hours) stay in
+ * calculator (buildCaseInput, TS-b), and so does a regular-pay directive (`unmodelled.fixedRateDirectivePercent`,
+ * `fixedAmountDirective`; DR). Inputs the engine still has no field for (ETI hours) stay in
  * `unmodelled` so the gap is visible; they are not passed to it (oracleInputs.test.ts names each one's owner).
  */
 import { readdirSync, readFileSync } from 'node:fs';
@@ -125,6 +126,22 @@ export function oracleTaxStatus(label: string): TaxStatus {
 
 const numberOf = (v: unknown): number | null => (typeof v === 'number' ? v : null);
 
+/** An IRP3(b) percentage or IRP3(c) amount from the case, as the run's directive for the period (DR). */
+function oracleDirective(c: OracleCase): Pick<PayrollLineInput, 'regularPayDirective'> {
+  const rate = numberOf(c.input.unmodelled?.fixedRateDirectivePercent);
+  const amount = numberOf(c.input.unmodelled?.fixedAmountDirective);
+  if (rate == null && amount == null) return {};
+  const endsOn = `${c.input.taxYear}-02-28`;
+  return {
+    regularPayDirective: {
+      current: rate != null
+        ? { id: `${c.id}-directive`, number: null, type: 'fixed_percentage', rate: rate / 100, fixedAmount: null, endsOn }
+        : { id: `${c.id}-directive`, number: null, type: 'fixed_amount', rate: null, fixedAmount: amount, endsOn },
+      ended: null,
+    },
+  };
+}
+
 /** The calculator's input for a case, exactly what runCase costs (exported so a test can see what reaches it). */
 export function buildCaseInput(c: OracleCase): PayrollLineInput {
   const { input } = c;
@@ -159,6 +176,7 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
   return {
     employee, components, period: input.period, taxYear: input.taxYear,
     annualPayrollEstimate: input.employerAnnualRemuneration,
+    ...oracleDirective(c),
   };
 }
 
