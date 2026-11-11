@@ -205,6 +205,7 @@ describe.skipIf(unavailable !== null)(`the combining marks' widths in production
     expect(FALLBACK_MARKS.length).toBeGreaterThan(1_500);
     expect(SCRIPT_NAMES.length).toBe(SCRIPT_BASES.length);
     expect(SCRIPT_RANGES.every(([a, b], i) => a <= b && (i === 0 || a > SCRIPT_RANGES[i - 1]![1]))).toBe(true);
+    // The script column is not measured (it comes back as given): `packProseAdvances.test.ts` holds it to Unicode's Scripts.
     // Measured afresh on each script's first letter: the table (the most over all its letters) is never under it, and
     // what a mark adds elsewhere is what it measured.
     const fresh = await measure(gotenberg!, FALLBACK_MARKS.map(([cp, , , idx]) => [cp, idx] as const), SCRIPT_BASES.map((b) => [String.fromCodePoint(b)]));

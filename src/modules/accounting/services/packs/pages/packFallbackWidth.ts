@@ -10,6 +10,8 @@
  *  - a cluster costs the sum of its code points (a family, a skin-toned hand, a flag: at least as wide as the one
  *    glyph Chromium may draw for it), and an emoji presentation (a VS16 sequence, a keycap) at least the widest emoji
  *    presentation: "ℹ" with VS16 (U+2139 U+FE0F) is an 18px emoji, not the 4px letter its first code point is.
+ * In prose and the gate (`marks`), an emoji sequence costs every code point at least an emoji, a keycap or a pictograph
+ * with U+FE0F one emoji (`packFallbackWidthCore.fallbackClusterIn`, #1264 round 7).
  * Whole pixels rounded up, and at a size other than the one measured, scaled and rounded up: an upper bound for a
  * cluster without a mark. NOT for one that carries a mark: a non-spacing mark, a joiner and a selector are priced at nothing here (a spacing mark at its own advance, #1263 round 2),
  * and Chromium may set such a cluster in another face, base and all, and wider ("\u00AE" with U+036B is 9.98px against
