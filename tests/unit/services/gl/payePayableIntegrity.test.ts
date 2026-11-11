@@ -81,6 +81,10 @@ describe('paye_payable_differs_from_emp201', () => {
     expect(loadEtiMonths).toHaveBeenCalledTimes(1);
     expect(vi.mocked(loadEtiMonths).mock.calls[0]!.slice(1)).toEqual([{ year: 2025, month: 9 }, { year: 2026, month: 8 }]);
   });
+  it('coordinator (b): the finding says how a hand-reversed ETI journal is rebooked', async () => {
+    const r = await payePayableDiffersFromEmp201(ctx('2026-06-30'));
+    expect(r.finding).toMatch(/reversed by hand is not rebooked automatically: the month is rebooked by the next approval, reopen, or directive payment or reversal/);
+  });
   it('rev3 L2: one batch read each for runs, ETI journals and directives, whatever the number of months', async () => {
     await payePayableDiffersFromEmp201(ctx('2026-08-31'));
     expect(bookedRunJournalsByMonth).toHaveBeenCalledTimes(1);

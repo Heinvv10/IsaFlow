@@ -24,7 +24,8 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { seedFiscalYears } from './helpers/fiscalYearSeed';
 
 const RUNLESS = randomUUID(), ORDER = randomUUID(), RACE = randomUUID(), M2 = randomUUID(), AUG = randomUUID(), USER = randomUUID();
-const ALL = [RUNLESS, ORDER, RACE, M2, AUG];
+const RUNJUNE = randomUUID(), HAND = randomUUID();
+const ALL = [RUNLESS, ORDER, RACE, M2, AUG, RUNJUNE, HAND];
 const acc: Record<string, { paye: string; labour: string; refund: string }> = Object.fromEntries(
   ALL.map((c) => [c, { paye: randomUUID(), labour: randomUUID(), refund: randomUUID() }]));
 const ids: Record<string, string> = {};
@@ -84,6 +85,13 @@ beforeAll(async () => {
   // RUNLESS: May with ETI; June has only an ETI journal (no run).
   await header(RUNLESS, 2026, 5, 'approved', 300, 500);
   await journal(RUNLESS, '2026-06-30', 'ETI for 2026-06: directive PAYE', 100, 'ETI-2026-06');
+  // RUNJUNE: May with ETI; June's run approved with its journal in force.
+  await header(RUNJUNE, 2026, 5, 'approved', 300, 500);
+  await header(RUNJUNE, 2026, 6, 'approved', 300, 0, await journal(RUNJUNE, '2026-06-30', 'Payroll run 2026-06', 300));
+  // HAND: September's run (PAYE nil, ETI 1 000) in force; an October directive; October's ETI journal books the R1 000 carried.
+  await header(HAND, 2026, 9, 'approved', 0, 1_000, await journal(HAND, '2026-09-30', 'Payroll run 2026-09', 0.01));
+  await directive(HAND, '2026-10-15', 1_500);
+  ids.handEti = (await inTx(HAND, async () => { await lockCompanyPayrollApprovals(null, HAND); return postMonthEtiJournal(HAND, { year: 2026, month: 10 }, '2026-10-15', USER); }))!;
   // ORDER: March calculated (ETI), April approved, May calculated.
   await header(ORDER, 2026, 3, 'calculated', 300, 500);
   await header(ORDER, 2026, 4, 'approved', 300, 0);
@@ -114,9 +122,17 @@ afterAll(async () => {
   }
 });
 
-describe('R-A (round 3): only a later RUN journal blocks', () => {
-  it('June with only an ETI-2026-06 journal does not refuse May: June is rebooked instead', async () => {
+describe('tdd3 H1 as restated (coordinator, round 3): only a later RUN journal in force blocks', () => {
+  it("June's in-force run journal refuses May, naming June", async () => {
+    expect(await inTx(RUNJUNE, () => laterEtiJournalRefusal(RUNJUNE, { year: 2026, month: 5 }))).toMatch(/June 2026 payroll journal is in the ledger/);
+  });
+  it('June with only an ETI-2026-06 journal does not refuse May, and June is rebooked to the EMP201 when May changes', async () => {
     expect(await inTx(RUNLESS, () => laterEtiJournalRefusal(RUNLESS, { year: 2026, month: 5 }))).toBeNull();
+    const june = async () => (await inTx(RUNLESS, () => payePayableDiffersFromEmp201({ companyId: RUNLESS, asAt: '2026-06-30', limit: 20 })))
+      .sample.filter((x) => x.label === '2026-06');
+    expect((await june()).length).toBeGreaterThan(0); // June's ETI journal no longer matches what the EMP201 declares
+    await inTx(RUNLESS, async () => { await lockCompanyPayrollApprovals(null, RUNLESS); return rebookLaterRunlessMonths(RUNLESS, { year: 2026, month: 5 }, USER); });
+    expect(await june()).toEqual([]);
   });
 });
 
@@ -166,5 +182,16 @@ describe('adv3 M2/M3: run-less months are rebooked and the integrity check is gr
     expect(refund[0]!.n).toBe(900);
     const r = await inTx(AUG, () => payePayableDiffersFromEmp201({ companyId: AUG, asAt: '2026-08-31', limit: 20 }));
     expect(r.sample.filter((s) => s.label === '2026-08')).toEqual([]);
+  });
+});
+
+describe('coordinator (b): an ETI journal reversed by hand is not rebooked, and the integrity check goes red', () => {
+  it("October green, then its ETI journal reversed by hand: October is red and the finding says how to rebook it", async () => {
+    const oct = async () => inTx(HAND, () => payePayableDiffersFromEmp201({ companyId: HAND, asAt: '2026-10-31', limit: 20 }));
+    expect((await oct()).sample.filter((x) => x.label === '2026-10')).toEqual([]);
+    await inTx(HAND, () => reverseJournalEntry(HAND, ids.handEti!, USER));
+    const r = await oct();
+    expect(r.sample.filter((x) => x.label === '2026-10')).toHaveLength(1);
+    expect(r.finding).toMatch(/reversed by hand is not rebooked/);
   });
 });
