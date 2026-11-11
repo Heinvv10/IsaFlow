@@ -108,29 +108,30 @@ describe('public/sw.js — the share page is never cached', () => {
     expect(h.cachePuts).toEqual([]);
   });
 
-  it('still caches an ordinary app page, so the exclusion is not a blanket off-switch', async () => {
+  it('still handles an ordinary app page, so the exclusion is not a blanket off-switch', async () => {
     const url = 'https://app.isaflow.co.za/accounting/reports/report-packs';
     expect(dispatch(url).responded).toBe(true);
     await Promise.all(responses);
     expect(h.networkFetches).toContain(url);
-    expect(h.cachePuts).toEqual([url]);
+    // No app page is cached either (audit 11 Nov 2026: authenticated HTML), see serviceWorkerTenantCache.test.ts.
+    expect(h.cachePuts).toEqual([]);
   });
 
-  it('keeps /sharepoint and /shared-with-me cached — the boundary is the path segment', async () => {
+  it('still handles /sharepoint and /shared-with-me: the boundary is the path segment', async () => {
     const a = 'https://app.isaflow.co.za/sharepoint';
     const b = 'https://app.isaflow.co.za/shared-with-me';
-    dispatch(a);
-    dispatch(b);
+    expect(dispatch(a).responded).toBe(true);
+    expect(dispatch(b).responded).toBe(true);
     await Promise.all(responses);
-    expect(h.cachePuts).toEqual([a, b]);
+    expect(h.cachePuts).toEqual([]);
   });
 
   it('does not let a query string smuggle a share path past the check', async () => {
     // The old strategies matched on the URL STRING. The path is what decides.
     const url = 'https://app.isaflow.co.za/accounting/reports?next=/share/abc123';
-    dispatch(url);
+    expect(dispatch(url).responded).toBe(true);
     await Promise.all(responses);
-    expect(h.cachePuts).toEqual([url]);
+    expect(h.cachePuts).toEqual([]);
   });
 });
 
@@ -153,6 +154,6 @@ describe("sw.js's copy of the boundary agrees with src/lib/paths/isSharePath", (
     await Promise.all(responses);
     // Not intercepted at all is exactly what a share path must produce.
     expect(responded).toBe(!isSharePath(pathname));
-    expect(h.cachePuts.includes(url)).toBe(!isSharePath(pathname));
+    expect(h.cachePuts.includes(url)).toBe(false);
   });
 });
