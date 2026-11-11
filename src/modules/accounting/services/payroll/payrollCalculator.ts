@@ -27,11 +27,13 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  *  - PAYE: remuneration (Fourth Schedule para 1 (a) takes in para (i) of "gross income"),
  *    so it is periodic taxable pay like cash. loadLoanComponents takes only a taxable 3801.
  *  - UIF: the component's is_uif_applicable flag, as for every earning; setup-components
- *    creates the 3801 with it off. Whether UIF's "remuneration" takes in a benefit is not
- *    settled here (no SARS/UIF source fetched): the flag is the one switch.
+ *    creates the 3801 with it off. A taxable 3701 / 3802 counts at its PAYE share (80% or 20%),
+ *    as the Fourth Schedule para 1 "remuneration" UIF Contributions Act s1 refers to.
  *  - SDL: leviable when is_sdl_applicable (setup default on; SDL Act s3(3) is para 1
- *    remuneration), and part of the employer's s4(b) threshold basis, `remuneration`.
- *  - ETI: in "monthly remuneration" (the para 1 remuneration), as when it was paid as cash.
+ *    remuneration; a 3701 / 3802 at its PAYE share), and part of the employer's s4(b)
+ *    threshold basis, `remuneration` (which still takes the full amount).
+ *  - ETI: in "monthly remuneration" (the para 1 remuneration), as when it was paid as cash;
+ *    a 3701 / 3802 at its PAYE share.
  *  - Cash: NOT in grossPay, so not in netPay or the journal (DR labour = gross = cash),
  *    though the PAYE on it is withheld from the cash.
  * Stored per line: gross_pay (and the header's total_gross) = cash earnings only;
@@ -52,7 +54,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const rebateAge = employee.dateOfBirth ? getAge(employee.dateOfBirth, taxYearEnd) : 30;
 
   const acc = accumulateComponents(components);
-  const { grossPay, allEarnings, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings } = acc;
+  const { grossPay, allEarnings, levyRemuneration, employerMedicalFees, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings } = acc;
   let { periodicTaxable, annualPayments } = acc;
 
   // A month counts as a periodic-remuneration period when periodic remuneration
@@ -85,11 +87,20 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // Fees deducted for a scheme the employee is not recorded as a member of: no MTC (and, 65+, no
   // additional credit) is given, so PAYE is over-deducted. Warned, not corrected: the membership is data.
-  if (medicalSchemeFees > 0 && medicalBeneficiaries <= 0) {
+  // The employer's medical contribution earns the credits only for a member: with no membership none is given.
+  if (employerMedicalFees > 0 && medicalBeneficiaries <= 0) {
+    warnings.push({
+      code: 'MEDICAL_BENEFIT_WITHOUT_MEMBERSHIP', severity: 'warning',
+      message: `${formatMoney(employerMedicalFees)} of the employer's medical contribution (code 3810) is taxed, but the employee is not marked as a medical aid member `
+        + 'and has no dependants, so no medical tax credit was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
+    });
+  }
+  // A 3810-only employee has no deducted fees to warn about (the employer's contribution is the benefit).
+  if (medicalSchemeFees - employerMedicalFees > 0 && medicalBeneficiaries <= 0) {
     warnings.push({
       code: 'MEDICAL_FEES_WITHOUT_MEMBERSHIP',
       severity: 'warning',
-      message: `R${medicalSchemeFees.toFixed(2)} of medical aid contributions (code 4005) is deducted, but the employee is not marked as a `
+      message: `R${(medicalSchemeFees - employerMedicalFees).toFixed(2)} of medical aid contributions (code 4005) is deducted, but the employee is not marked as a `
         + `medical aid member and has no dependants, so no medical tax credit${rebateAge >= 65 ? ' (nor the 65+ additional credit)' : ''} `
         + 'was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
     });
@@ -136,8 +147,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // Missing dates are reported as indeterminate, never fabricated into a
   // determination of "not eligible" — see resolveEtiForEmployee.
-  // The ETI base stays the whole remuneration, annual payments, lump sums and
-  // non-cash benefits included, unchanged by P3: "monthly remuneration" is the Fourth Schedule paragraph 1
+  // The ETI base is `levyRemuneration`: the whole remuneration, annual payments, lump sums and
+  // non-cash benefits included, except that a taxable 3701 / 3802 counts at its PAYE share (80% or 20%, wave 5 FB), unchanged by P3 otherwise: "monthly remuneration" is the Fourth Schedule paragraph 1
   // remuneration ("salary, leave pay, wage, overtime pay, bonus, gratuity, ...")
   // paid or payable in the month (SARS Guide to the Employment Tax Incentive,
   // Issue 5, §2.4 "Monthly remuneration",
@@ -146,7 +157,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     dateOfBirth: employee.dateOfBirth,
     employmentStartDate: employee.startDate,
     periodDate,
-    monthlyRemuneration: allEarnings,
+    monthlyRemuneration: levyRemuneration,
     isUifExcluded: employee.uifExcluded,
   }, taxYear);
   // A leaver paid after leaving worked no hours in the period, and ETI is
