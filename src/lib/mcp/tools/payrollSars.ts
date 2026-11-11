@@ -107,6 +107,12 @@ export const emp201StatusTool: McpTool = {
       period_end: data.periodEnd,
       paye_withheld: data.totalPAYE,
       eti_claimed: data.totalETI,
+      // ETI Act s9(1), s10 (payroll/etiCarry): paye_payable = paye_withheld - eti_used, where the ETI available is
+      // eti_claimed + eti_brought_forward; what is left is eti_carried_forward, or eti_refund_claimable at August/February.
+      eti_brought_forward: data.etiCarry.broughtForward,
+      eti_used: data.etiCarry.used,
+      eti_carried_forward: data.etiCarry.carriedForward,
+      eti_refund_claimable: data.etiCarry.refundClaimable,
       paye_payable: data.payePayable,
       uif_employee: data.totalUIF_employee,
       uif_employer: data.totalUIF_employer,
