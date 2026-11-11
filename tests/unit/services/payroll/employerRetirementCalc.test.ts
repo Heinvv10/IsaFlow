@@ -109,3 +109,19 @@ describe('markNonCashEmployerBenefits', () => {
     }
   });
 });
+
+describe('an assignment from before RF keeps the cash treatment (migration 975 opt-out): no figure change on deploy', () => {
+  const kept: EmployeeComponent = { component: comp('3817'), amount: 3_000, employerFundAsCash: true };
+  it('is paid as cash, taxed, not deemed, exactly as before RF, and says how to switch', () => {
+    const line = run([salary(20_000), ee('4001', 4_000), kept]);
+    const before = calculatePayrollLine({
+      employee, components: [salary(20_000), ee('4001', 4_000), { component: comp('3817'), amount: 3_000 }],
+      period: { year: 2026, month: 3 }, taxYear: 2027, annualPayrollEstimate: 1_000_000,
+    });
+    expect([line.grossPay, line.netPay, line.paye.monthlyPaye, line.retirementContributions]).toEqual([before.grossPay, before.netPay, before.paye.monthlyPaye, 4_000]);
+    expect(line.grossPay).toBe(23_000);
+    const w = line.validationResults.find((v) => v.code === 'EMPLOYER_FUND_KEPT_AS_CASH');
+    expect(w?.message).toMatch(/end this assignment and assign the component again/);
+    expect(line.validationResults.map((v) => v.code)).not.toContain('EMPLOYER_FUND_BENEFIT_NOT_DEEMED');
+  });
+});

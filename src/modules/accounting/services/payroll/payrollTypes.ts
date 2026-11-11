@@ -87,6 +87,8 @@ export interface EmployeeComponent {
   percentOfRfi?: number | null;
   /** Set by rfi.costPercentOfRfi on a percent_of_rfi row: the RFI its amount was costed on. */
   rfiBase?: number;
+  /** RF opt-out (migration 975 backfill): a 3817 / 3825 / 3828 assignment that existed before RF stays cash, not deemed. */
+  employerFundAsCash?: boolean;
 }
 
 export interface PayrollPeriod {

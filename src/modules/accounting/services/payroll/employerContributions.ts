@@ -24,7 +24,8 @@
  * 4001 / 4003 / 4006, so the cap binds on the total (deemedRetirementContributions; payeCumulative). On the certificate
  * 4472 / 4473 / 4475 equal the benefit and 4001 / 4003 / 4006 include it (BRS p. 55, 101-103; easyFileRetirementFields).
  * UIF and SDL on it follow the component's flags: SDL is on Fourth Schedule remuneration (G21 p. 11), which takes in a
- * fringe benefit; whether UIF does is UNVERIFIED (no UIF source fetched). A defined-benefit fund's benefit is a para
+ * fringe benefit; whether UIF does is UNVERIFIED: G21 p. 13 ("UIF liable amount", UIC Act ss5-6) bases UIF on "remuneration as defined for UIF
+ * purposes" without saying whether this benefit is in it, and the UI Contributions Act s1 definition was not fetched. A defined-benefit fund's benefit is a para
  * 12D(3) fund-member-category value, not the contribution: refused when the component is created (payrollComponentService).
  */
 import { normaliseSarsCode } from './payeAnnualPayment';
@@ -49,8 +50,9 @@ const is3810Earning = (c: EmployeeComponent): boolean =>
  */
 export function markNonCashEmployerBenefits(components: readonly EmployeeComponent[], grossUp = false): EmployeeComponent[] {
   return components.map((c) => {
-    // An employer's fund contribution (3817 / 3825 / 3828) is paid to the fund: always non-cash (RF).
-    if (isFundBenefitEarning(c)) return { ...c, isNonCash: true };
+    // An employer's fund contribution (3817 / 3825 / 3828) is paid to the fund: non-cash (RF), unless the assignment predates
+    // RF (employer_fund_as_cash, migration 975), which keeps the cash treatment it was paid under.
+    if (isFundBenefitEarning(c)) return c.employerFundAsCash === true ? c : { ...c, isNonCash: true };
     if (!is3810Earning(c)) return c;
     return grossUp ? { ...c, medicalGrossUp: true } : { ...c, isNonCash: true };
   });

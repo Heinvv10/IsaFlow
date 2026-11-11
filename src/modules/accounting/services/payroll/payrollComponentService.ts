@@ -53,7 +53,7 @@ export async function getEmployeeComponents(
 ): Promise<EmployeeComponent[]> {
   const rows = (await sql`
     SELECT
-      pec.id AS assignment_id, pec.amount, pec.is_recurring, pec.quantity, pec.quantity_unit, pec.percent_of_rfi,
+      pec.id AS assignment_id, pec.amount, pec.is_recurring, pec.quantity, pec.quantity_unit, pec.percent_of_rfi, pec.employer_fund_as_cash,
       pc.id, pc.name, pc.sars_source_code, pc.component_type,
       pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable, pc.paid_outside_payroll, pc.counts_as_rfi
     FROM payroll_employee_components pec
@@ -112,6 +112,8 @@ export async function getEmployeeComponents(
     quantityUnit: r.quantity_unit == null ? null : (String(r.quantity_unit) as QuantityUnit),
     // A percent row's amount is 0 in the table: the run costs it on the line's RFI (payrollRunComponents.withRfiCosted).
     percentOfRfi: r.percent_of_rfi == null ? null : Number(r.percent_of_rfi),
+    // RF opt-out: an assignment migration 975 found keeps the cash treatment (employerContributions.ts).
+    ...(r.employer_fund_as_cash === true ? { employerFundAsCash: true } : {}),
   }));
 }
 

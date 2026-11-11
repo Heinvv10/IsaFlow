@@ -3,7 +3,7 @@ import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
 import { deemedMedicalFees, deemedRetirementContributions, isEmployerMedicalFringeCode } from './employerContributions';
 import { effectiveInclusionRate, includedInPaye, VEHICLE_CODE } from './fringeBenefits';
 import { notPayeDeductibleWarning } from './payrollLinePaye';
-import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode, retirementBenefitNotTaxableWarning } from './retirementFund';
+import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode, employerFundKeptAsCashWarning, retirementBenefitNotTaxableWarning } from './retirementFund';
 import type { ComponentBreakdownItem, EmployeeComponent, ValidationResult } from './payrollTypes';
 
 /** The running totals of a line's components, by how PAYE, UIF and SDL treat each (moved out of payrollCalculator.ts, unchanged). */
@@ -61,7 +61,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
   const employeeMedical4005 = components.filter((c) => c.component.componentType === 'deduction' && normaliseSarsCode(c.component.sarsSourceCode) === '4005').reduce((n, c) => n + c.amount, 0);
   medicalSchemeFees += employerMedicalFees;
 
-  for (const { component, amount, isNonCash, directive, quantity, quantityUnit, medicalGrossUp, payeInclusionRate: given, percentOfRfi, rfiBase } of components) {
+  for (const { component, amount, isNonCash, directive, quantity, quantityUnit, medicalGrossUp, payeInclusionRate: given, percentOfRfi, rfiBase, employerFundAsCash } of components) {
     // 3701 is 80% remuneration unless a record says business use is at least 80%; one default (fringeBenefits.ts, G21 p. 5).
     const payeInclusionRate = component.componentType === 'earning' && component.isTaxable ? effectiveInclusionRate(component.sarsSourceCode, given) : undefined;
     const included = payeInclusionRate === undefined ? amount : includedInPaye(amount, payeInclusionRate);
@@ -125,7 +125,9 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       // An employer's fund contribution (3817 / 3825 / 3828): deemed above when taxable and non-cash, as a run marks it (RF).
       if (isEmployerFundBenefitCode(component.sarsSourceCode)) {
         if (!component.isTaxable) warnings.push(retirementBenefitNotTaxableWarning(component.name, component.sarsSourceCode, amount));
-        else if (!isNonCash) warnings.push(employerFundBenefitWarning(component.name, component.sarsSourceCode, amount));
+        else if (!isNonCash) {
+          warnings.push((employerFundAsCash ? employerFundKeptAsCashWarning : employerFundBenefitWarning)(component.name, component.sarsSourceCode, amount));
+        }
       }
       const treatment = payeTreatment(component.sarsSourceCode);
       // Any lump-sum earning, taxable flag or not: para 9(3) of the Fourth

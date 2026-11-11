@@ -43,3 +43,13 @@ describe('terminationMonthlySalary', () => {
     expect(await terminationMonthlySalary('co', 'emp', '2026-03-31')).toBe(20_000);
   });
 });
+
+describe('terminationMonthlySalary with a pre-RF cash row (migration 975 opt-out)', () => {
+  it('keeps it in the base, as before RF', async () => {
+    atExit.mockResolvedValueOnce([
+      { component: comp('3601'), amount: 20_000, isRecurring: true },
+      { component: comp('3817'), amount: 3_000, isRecurring: true, employerFundAsCash: true },
+    ]);
+    expect(await terminationMonthlySalary('co', 'emp', '2026-03-31')).toBe(23_000);
+  });
+});

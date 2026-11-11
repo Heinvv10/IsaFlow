@@ -94,6 +94,17 @@ export function employerFundBenefitWarning(name: string, code: string, amount: n
   };
 }
 
+/** A pre-RF 3817 / 3825 / 3828 assignment kept as cash (migration 975's opt-out): taxed, not deemed; how to switch. */
+export function employerFundKeptAsCashWarning(name: string, code: string, amount: number): ValidationResult {
+  return {
+    code: 'EMPLOYER_FUND_KEPT_AS_CASH',
+    severity: 'warning',
+    message: `${name} (code ${normaliseSarsCode(code)}, ${formatMoney(amount)}) was assigned before employer retirement contributions were supported, so it is still paid `
+      + 'as cash and taxed, and not deducted as a contribution deemed paid by the employee (s11F). If the employer pays this to the fund, end this assignment '
+      + 'and assign the component again from the next month: the new assignment is a non-cash benefit deemed paid by the employee (PAYE-GEN-01-G21 (2027) p. 10).',
+  };
+}
+
 /** A 3817 / 3825 / 3828 component not flagged taxable: no benefit is taxed and nothing is deemed (RF). Error: the approval gate refuses it. */
 export function retirementBenefitNotTaxableWarning(name: string, code: string, amount: number): ValidationResult {
   return {

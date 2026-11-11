@@ -14,7 +14,9 @@
 --     service allows it only on a retirement contribution (deduction 4001 / 4003 / 4006) or an employer's fund
 --     contribution (earning 3817 / 3825 / 3828).
 --
--- Both are new columns with constant defaults (no table rewrite); the CHECKs are added NOT VALID then validated, each
+--   payroll_employee_components.employer_fund_as_cash: see OPT-OUT BACKFILL at the end.
+--
+-- The new columns have constant defaults (no table rewrite); the CHECKs are added NOT VALID then validated, each
 -- only when absent, so a re-run is a no-op.
 
 SET LOCAL lock_timeout = '5s';
@@ -46,3 +48,24 @@ BEGIN
     ALTER TABLE payroll_employee_components VALIDATE CONSTRAINT payroll_employee_components_percent_of_rfi;
   END IF;
 END $$;
+
+-- OPT-OUT BACKFILL (no figure change on deploy; as 970 did for 3810). Before this migration an earning coded 3817 / 3825 /
+-- 3828 was paid and taxed as CASH (with a warning), never deemed into s11F. RF makes such an earning the employer's
+-- non-cash contribution, deemed paid by the employee: an existing assignment would move net pay and PAYE. So every
+-- assignment that EXISTS when this runs, of an earning coded 3817 / 3825 / 3828 (after the trim) of the employee's own
+-- company, is marked employer_fund_as_cash = TRUE and keeps the cash treatment; the run warns on it
+-- (EMPLOYER_FUND_KEPT_AS_CASH) and says how to switch: end it and assign the component again. Rows written after this
+-- migration default to FALSE (the RF treatment). Deterministic; a re-run marks nothing new unless a fixed-amount row was
+-- written since (migrations run once; named limit). A percent_of_rfi row cannot exist before this migration and is never marked.
+ALTER TABLE payroll_employee_components ADD COLUMN IF NOT EXISTS employer_fund_as_cash BOOLEAN NOT NULL DEFAULT FALSE;
+
+UPDATE payroll_employee_components pec
+   SET employer_fund_as_cash = TRUE
+  FROM payroll_components pc, payroll_employees pe
+ WHERE pc.id = pec.component_id
+   AND pe.id = pec.employee_id
+   AND pe.company_id = pc.company_id
+   AND pc.component_type = 'earning'
+   AND btrim(pc.sars_source_code, E' \t\r\n') IN ('3817', '3825', '3828')
+   AND pec.percent_of_rfi IS NULL
+   AND pec.employer_fund_as_cash = FALSE;

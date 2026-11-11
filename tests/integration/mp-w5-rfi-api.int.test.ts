@@ -159,3 +159,21 @@ describe('the approval gate sees a counts_as_rfi switch after calculation', () =
     expect((await runLinesRefusal(companyA, runId))?.code).toBe('components_changed_after_calculation');
   });
 });
+
+describe('an assignment from before RF (migration 975 opt-out) keeps its cash treatment and net pay', () => {
+  it('June: a fixed 3817 marked employer_fund_as_cash is cash pay, taxed, not deemed, and warned with how to switch', async () => {
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, employer_fund_as_cash)
+       VALUES ($1, $2, 1000, '2026-06-01', '2026-06-30', true)`, [empA, erComponent]);
+    const runId = await calculatedRun(call, 6);
+    const line = (await pool.query<{ gross_pay: string; retirement_contributions: string; component_breakdown: Array<Record<string, unknown>>; validation_results: Array<{ code: string }> }>(
+      'SELECT gross_pay, retirement_contributions, component_breakdown, validation_results FROM payroll_run_lines WHERE run_id = $1', [runId])).rows[0]!;
+    // 20 000 salary + the 1 000 kept as cash; the % row (3 000) is still the non-cash, deemed one.
+    expect(Number(line.gross_pay)).toBe(21000);
+    expect(Number(line.retirement_contributions)).toBe(7000);
+    const kept = line.component_breakdown.filter((b) => b.sarsSourceCode === '3817' && b.amount === 1000);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]!.isNonCash).toBeUndefined();
+    expect(line.validation_results.map((v) => v.code)).toContain('EMPLOYER_FUND_KEPT_AS_CASH');
+  });
+});
