@@ -14,6 +14,10 @@ import { formatMoney as fmt } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { numberLines } from '@/lib/lineNumbers';
 import { useDateGate } from '@/hooks/useDateGate';
+import { useVatRegistrationOrDefault } from '@/hooks/useVatRegistration';
+import type { TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { QuoteVatFields } from '@/components/accounting/customer-quotes/QuoteVatFields';
+import { initialQuoteTaxMode, quoteLinePayload, quoteLinesForModeChange, quoteLineTotal, quoteTotals } from '@/components/accounting/customer-quotes/quoteVat';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
 interface CustomerOption { id: string; name: string }
@@ -27,7 +31,9 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
   const [lines, setLines] = useState([{ desc: '', qty: 1, price: 0 }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(''); const dates = useDateGate();
-  const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
+  const vat = useVatRegistrationOrDefault(); const [tax, setTax] = useState<{ mode: TaxMode; rate: number }>({ mode: 'exclusive', rate: 15 });
+  const mode: TaxMode = initialQuoteTaxMode(vat) === 'none' ? 'none' : tax.mode; // a non-vendor quotes with no VAT
+  const pickMode = (to: TaxMode) => { setLines(ls => quoteLinesForModeChange(ls, mode, to, tax.rate)); setTax(t => ({ ...t, mode: to })); };
 
   const handleCreate = async () => {
     if (dates.blocked || !form.clientId || lines.every(l => !l.desc)) return;
@@ -36,7 +42,7 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
     try {
       const res = await apiFetch('/api/accounting/customer-quotes', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: form.clientId, customerName: form.customerName, quoteDate: form.quoteDate, expiryDate: form.expiryDate, notes: form.notes, lines: numberLines(lines, l => !!l.desc).map(l => ({ description: l.desc, quantity: l.qty, unitPrice: l.price, taxRate: 15, lineNo: l.lineNo })) }),
+        body: JSON.stringify({ clientId: form.clientId, customerName: form.customerName, quoteDate: form.quoteDate, expiryDate: form.expiryDate, notes: form.notes, lines: numberLines(lines, l => !!l.desc).map(l => ({ description: l.desc, quantity: l.qty, ...quoteLinePayload(l, mode, tax.rate), lineNo: l.lineNo })) }),
       });
       await assertOk(res, 'Could not create the quote - try again');
       onCreated();
@@ -93,20 +99,14 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
                       <td className="px-2 py-2"><input value={l.desc} onChange={e => { const n = [...lines]; n[i] = { ...l, desc: e.target.value }; setLines(n); }} placeholder="Item description" className={inp} /></td>
                       <td className="px-2 py-2"><input type="number" value={l.qty} min={1} onChange={e => { const n = [...lines]; n[i] = { ...l, qty: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
                       <td className="px-2 py-2"><input type="number" value={l.price} min={0} step={0.01} onChange={e => { const n = [...lines]; n[i] = { ...l, price: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
-                      <td className="px-3 py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300">{fmt(l.qty * l.price)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300">{fmt(quoteLineTotal(l, mode, tax.rate))}</td>
                       <td className="px-2 py-2"><button onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} className="p-1 rounded text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {subtotal > 0 && (
-              <div className="mt-3 flex justify-end gap-4 text-sm px-1">
-                <span className="text-slate-500 dark:text-slate-400">Subtotal <span className="tabular-nums text-slate-700 dark:text-slate-200">{fmt(subtotal)}</span></span>
-                <span className="text-slate-500 dark:text-slate-400">VAT 15% <span className="tabular-nums text-slate-700 dark:text-slate-200">{fmt(subtotal * 0.15)}</span></span>
-                <span className="font-bold text-amber-500 tabular-nums">{fmt(subtotal * 1.15)}</span>
-              </div>
-            )}
+            <QuoteVatFields registration={vat} mode={mode} rate={tax.rate} totals={quoteTotals(lines, mode, tax.rate)} onModeChange={pickMode} onRateChange={rate => setTax(t => ({ ...t, rate }))} />
           </div>
         </div>
 

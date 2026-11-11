@@ -17,3 +17,21 @@ export function useVatRegistration(): VatRegistration {
   const { activeCompany, loading } = useCompany();
   return resolveVatRegistration(activeCompany?.vatPeriod, activeCompany?.vatSystemType, loading);
 }
+
+/**
+ * As useVatRegistration, but outside a CompanyProvider it reports a registered vendor (known) instead of throwing, so a
+ * form rendered without one keeps charging VAT. Any other error is re-thrown.
+ */
+export function useVatRegistrationOrDefault(): VatRegistration {
+  let company: ReturnType<typeof useCompany> | null;
+  try {
+    // useCompany calls useContext first on every render and only then throws, so the hook order never changes. Read the
+    // context through useCompany, not CompanyContext directly: page tests mock the module with useCompany alone.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    company = useCompany();
+  } catch (err) {
+    if (!(err instanceof Error && err.message.includes('within a CompanyProvider'))) throw err;
+    company = null;
+  }
+  return resolveVatRegistration(company?.activeCompany?.vatPeriod, company?.activeCompany?.vatSystemType, company?.loading ?? false);
+}
