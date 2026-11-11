@@ -42,9 +42,10 @@ export function CommentaryEditor({ initialText, costWith, onApprove, onCancel, o
   useEffect(() => { box.current?.focus(); }, []);
 
   const trimmed = value.trim();
-  const left = costWith === null ? null : MAX_APPROVED_PACK_EMS - costWith(trimmed);
-  // A pack with no fixed page has no room figure, only a generous ceiling.
-  const tooLong = costWith === null && trimmed.length > MAX_UNBUDGETED_CHARS;
+  // Every pack has the character ceiling the server holds every approval to (a fixed page's too, before it is costed:
+  // the cost model never reads more); a pack with a fixed page also has its room figure.
+  const tooLong = trimmed.length > MAX_UNBUDGETED_CHARS;
+  const left = costWith === null || tooLong ? null : MAX_APPROVED_PACK_EMS - costWith(trimmed);
   const over = (left !== null && left < 0) || tooLong;
   const invalid = trimmed.length === 0 || over;
 

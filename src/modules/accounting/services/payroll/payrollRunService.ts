@@ -6,6 +6,7 @@ import { payrollRunReadDate } from './payrollRunReadDate';
 import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
+import { isContractorLine } from './payrollOutsideTables';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear, getTaxYearConfig } from './taxTables';
 import {
@@ -253,7 +254,8 @@ export async function calculatePayrollRun(
     });
 
     totalGross += line.grossPay;
-    totalRemuneration += line.remuneration;
+    // A contractor's fees are not remuneration for the employer's SDL s4(b) threshold (the history excludes them too).
+    if (!isContractorLine(line.validationResults)) totalRemuneration += line.remuneration;
     totalPaye += line.paye.monthlyPaye;
     totalUifEmployee += line.uif.employeeContribution;
     totalUifEmployer += line.uif.employerContribution;

@@ -19,7 +19,7 @@ const refusal = async (version: number | null) => {
   return (await recalculateRequiredRefusal('11111111-1111-4111-8111-111111111111', '33333333-3333-4333-8333-333333333333'))?.code ?? null;
 };
 
-describe('calculation version 7: fringe benefits (FB) on top of hours and days (5) and which deductions reduce PAYE (4)', () => {
+describe('calculation version 7: fringe benefits (FB) on top of tax status (TS-b, 6), hours and days (HD, 5) and which deductions reduce PAYE (4)', () => {
   it('is the current version', () => {
     expect(PAYROLL_CALCULATION_VERSION).toBe(7);
   });

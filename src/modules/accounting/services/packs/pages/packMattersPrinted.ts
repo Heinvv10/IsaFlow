@@ -25,7 +25,8 @@
  * distinction that made the previous cap not a cap.
  */
 import type { PackMatter } from './packMatters';
-import { wrappedLines } from './packTextMetrics';
+import { proseLines } from './packProseLines';
+import { PROSE } from './packProseStyles';
 import { MATTERS_CELL_PADDING_MM, MATTERS_TABLE_MM, mattersColumnsMm } from './packMattersColumns';
 
 /**
@@ -57,8 +58,6 @@ import { MATTERS_CELL_PADDING_MM, MATTERS_TABLE_MM, mattersColumnsMm } from './p
  * selection stops when the table would outgrow that space.
  */
 
-/** `.pack-table` sets its cells at 9pt over a 13pt leading. */
-const MATTERS_CELL_PT = 9;
 /** `.pack-table th` on this table wraps — a prose column's heading takes two
  *  lines at its own measure — so the header is budgeted at two. Measured at
  *  7.4mm unwrapped and 11.6mm wrapped. */
@@ -128,8 +127,8 @@ export function mattersTableMm(matters: MeasurableMatter[]): number {
   const proseMm = columns.prose - MATTERS_CELL_PADDING_MM;
   const rowMm = (m: MeasurableMatter): number =>
     MATTERS_ROW_PADDING_MM + MATTERS_LINE_MM * Math.max(
-      wrappedLines(m.issue, MATTERS_CELL_PT, issueMm),
-      ...prose.map((key) => wrappedLines(m[key], MATTERS_CELL_PT, proseMm)),
+      proseLines(m.issue, PROSE.mattersCell, issueMm),
+      ...prose.map((key) => proseLines(m[key], PROSE.mattersCell, proseMm)),
     );
   return MATTERS_HEAD_MM + matters.reduce((sum, m) => sum + rowMm(m), 0) + collapsed;
 }
@@ -152,8 +151,10 @@ function collapsedNotesMm(
   const collapsed = PROSE_KEYS.filter((key) => !printed.includes(key));
   if (collapsed.length === 0) return 0;
   const first = matters[0]!;
-  const noteLines = collapsed.reduce((sum, key) => sum + wrappedLines(
-    `${PROSE_LABELS[key]} ${first[key]}${SAME_FOR_EVERY}`, 7.5, MATTERS_TABLE_MM - 6), 0);
+  // Its label is set in the notes' bold (`.pack-table-notes dt`), its text in their regular.
+  const noteLines = collapsed.reduce((sum, key) => sum + proseLines(
+    [{ text: PROSE_LABELS[key], weight: PROSE.tableNoteLabel.weight }, { text: ` ${first[key]}${SAME_FOR_EVERY}`, weight: PROSE.tableNote.weight }],
+    PROSE.tableNote, MATTERS_TABLE_MM - 6), 0);
   return 1.5 + noteLines * 11 * (25.4 / 72);
 }
 

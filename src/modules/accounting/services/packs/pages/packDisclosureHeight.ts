@@ -4,11 +4,13 @@
  * `packBlockHeights.ts` for the 300-line cap; that file re-exports every
  * export here, so each caller still imports it there.
  */
-import { lines, PAGE_WIDTH_MM, wrappedLines, type PageOrientation } from './packTextMetrics';
+import { GUTTER_MM, lines, PAGE_WIDTH_MM, type PageOrientation } from './packTextMetrics';
+import { proseLines } from './packProseLines';
+import { PROSE } from './packProseStyles';
 import type { PackDisclosure } from './packPageModel';
 
-/** `--pack-gutter`. */
-export const GUTTER_MM = 8;
+// Defined with the page geometry (client-safe: the commentary editor reads it), re-exported here as it always was.
+export { GUTTER_MM };
 
 /** The measure a disclosure note is set across — the full page in portrait,
  *  one of two columns in landscape. */
@@ -22,13 +24,15 @@ function noteMeasureMm(orientation: PageOrientation): number {
 
 /** `.pack-disclosure` — a 15pt heading, then one 14pt paragraph per note. */
 export function disclosureMm(disclosure: PackDisclosure, orientation: PageOrientation): number {
-  const heading = lines(wrappedLines(disclosure.heading, 11, PAGE_WIDTH_MM[orientation]), 15);
+  const heading = lines(proseLines(disclosure.heading, PROSE.disclosureHeading, PAGE_WIDTH_MM[orientation]), 15);
   const twoColumn = disclosure.columns === 2 && orientation === 'portrait';
   const measure = twoColumn ? (PAGE_WIDTH_MM.portrait - GUTTER_MM) / 2 : noteMeasureMm(orientation);
   // The list variant is set at the glossary's 8.5pt (see `packPrint.css`); a
   // disclosure that is an ARGUMENT keeps the pack's 9.5pt prose size.
-  const notePt = twoColumn ? 8.5 : 9.5;
-  const noteLines = disclosure.notes.map((n) => wrappedLines(`${n.heading} ${n.body}`, notePt, measure));
+  const body = twoColumn ? PROSE.disclosureBodyTwoColumn : PROSE.disclosureBody;
+  const noteHeading = twoColumn ? PROSE.disclosureNoteHeadingTwoColumn : PROSE.disclosureNoteHeading;
+  // A note opens with its heading in the notes' bold (`.pack-disclosure-note-heading`), then its text.
+  const noteLines = disclosure.notes.map((n) => proseLines([{ text: n.heading, weight: noteHeading.weight }, { text: ` ${n.body}`, weight: body.weight }], body, measure));
   const total = noteLines.reduce((a, b) => a + b, 0);
   if (twoColumn) {
     // Each note is `break-inside: avoid`, so the block is the taller of the

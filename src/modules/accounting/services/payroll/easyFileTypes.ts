@@ -43,6 +43,8 @@ export interface EmployeeInput {
   sdl4142: number;                // 4142 (SDL) — cents kept
   /** Annual payments (3605), NOT included in grossSalary3601. Their PAYE stays in 4102. */
   annualPayments3605?: number;
+  /** An independent contractor's income, code 3616 (G21 p. 26), INSTEAD of 3601 (easyFileContractor.ts). */
+  independentContractor3616?: number;
   /** Non-cash fringe benefits by income code (3801), NOT included in grossSalary3601; cents dropped. */
   fringeBenefits?: { sourceCode: string; amount: number }[];
   /** Cash allowances under their own income code (3701, the travel allowance), NOT included in grossSalary3601; cents dropped. */

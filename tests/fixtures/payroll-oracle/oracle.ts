@@ -3,13 +3,14 @@
  * calculatePayrollLine, and compares to the cent (wave-4 spec §4 O).
  *
  * A case's `expected` comes from an outside source (`source`), never from the engine.
- * Inputs the engine has no field for (Sage tax status, a fixed-rate directive, hours) are kept
- * in the fixture (`taxStatus`, `unmodelled`) so the gap is visible; they are not passed to it.
+ * The tax status and the work terms (`taxStatus`; `unmodelled.ordinaryHoursPerWeek`, `hoursPerDay`, `dayRate`) reach the
+ * calculator (buildCaseInput, TS-b). Inputs the engine still has no field for (a fixed-rate directive, ETI hours) stay in
+ * `unmodelled` so the gap is visible; they are not passed to it (oracleInputs.test.ts names each one's owner).
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
-import type { EmployeeComponent, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
+import type { EmployeeComponent, PayrollEmployee, PayrollLineInput, TaxStatus } from '@/modules/accounting/services/payroll/payrollTypes';
 import { withFringeBenefits } from './fringeInput';
 import { ORACLE_FIELDS, validateCase, type OracleField } from './validate';
 
@@ -50,7 +51,7 @@ export interface OracleCase {
     };
     employerAnnualRemuneration: number;
     components: OracleComponent[];
-    /** Inputs the calculator cannot take today (recorded, not passed). */
+    /** Inputs the calculator takes only in part (the work terms are passed; the rest are recorded, not passed). */
     unmodelled?: Record<string, unknown>;
   };
   /** Only the fields the source gives are asserted. */
@@ -118,21 +119,36 @@ export function gapListProblems(cases: readonly OracleCase[], gaps: readonly Kno
   return problems;
 }
 
-export function runCase(c: OracleCase): Record<OracleField, number> {
+/** A fixture's status label as the engine's tax status: only the two it treats differently; every Sage label is an employee. */
+export function oracleTaxStatus(label: string): TaxStatus {
+  return label === 'independent_contractor' || label === 'director' ? label : 'employee';
+}
+
+const numberOf = (v: unknown): number | null => (typeof v === 'number' ? v : null);
+
+/** The calculator's input for a case, exactly what runCase costs (exported so a test can see what reaches it). */
+export function buildCaseInput(c: OracleCase): PayrollLineInput {
   const { input } = c;
+  const hoursPerWeek = numberOf(input.unmodelled?.ordinaryHoursPerWeek);
+  const dayRate = numberOf(input.unmodelled?.dayRate);
   const employee: PayrollEmployee = {
     id: c.id,
     companyId: 'oracle',
     employeeNumber: c.id,
     firstName: 'Oracle',
     lastName: 'Case',
-    employmentType: 'permanent',
+    employmentType: input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent',
     startDate: parseDate(input.employee.startDate),
     ...(input.employee.dateOfBirth ? { dateOfBirth: parseDate(input.employee.dateOfBirth) } : {}),
     uifExcluded: input.employee.uifExcluded,
     medicalAidMainMember: input.employee.medicalAidMainMember,
     medicalAidDependantsCount: input.employee.medicalAidDependantsCount,
     s18aReceiptHeld: input.employee.s18aReceiptHeld,
+    taxStatus: oracleTaxStatus(input.employee.taxStatus),
+    payBasis: dayRate != null ? 'daily' : 'monthly',
+    hoursPerWeek,
+    hoursPerDay: numberOf(input.unmodelled?.hoursPerDay),
+    dailyRate: dayRate,
   };
   const base: EmployeeComponent[] = input.components.map((x, i) => ({
     component: {
@@ -142,10 +158,14 @@ export function runCase(c: OracleCase): Record<OracleField, number> {
     amount: x.amount,
   }));
   const components = withFringeBenefits(base, input.unmodelled, input.period);
-  const r = calculatePayrollLine({
+  return {
     employee, components, period: input.period, taxYear: input.taxYear,
     annualPayrollEstimate: input.employerAnnualRemuneration,
-  });
+  };
+}
+
+export function runCase(c: OracleCase): Record<OracleField, number> {
+  const r = calculatePayrollLine(buildCaseInput(c));
   return {
     paye: r.paye.monthlyPaye,
     uifEmployee: r.uif.employeeContribution,

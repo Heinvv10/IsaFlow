@@ -41,6 +41,8 @@ import { asDate } from './mcpDates';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 const EMPLOYMENT_TYPES: readonly EmploymentType[] = ['permanent', 'contract', 'casual', 'director'];
+/** What the schemas offer: a director is refused (employeeTermsRefusal), the tax status makes one. */
+const SETTABLE_EMPLOYMENT_TYPES = EMPLOYMENT_TYPES.filter((t) => t !== 'director');
 
 /*
  * The repo's OWN rules, not a local approximation. `isValidSarsTaxNumber` is
@@ -60,7 +62,7 @@ export const createEmployeeTool: McpTool = {
     + 'An employee created here is paid NOTHING until assign_employee_component gives them a salary: '
     + 'the run costs earnings from components, not from the employee record, so a run over '
     + 'component-less employees costs cleanly to R0 rather than failing. '
-    + 'employment_type is recorded for HR: permanent, contract, casual or director. '
+    + 'employment_type is recorded for HR: permanent, contract or casual (director is refused: set the tax status to Director in the app). '
     + 'Tax status, pay basis, hours and rates are set in the app, not through this tool.',
   scope: 'write:payroll',
   requiresWriteRole: true,
@@ -71,7 +73,7 @@ export const createEmployeeTool: McpTool = {
       employee_number: { type: 'string', description: "The company's own employee number" },
       first_name: { type: 'string' },
       last_name: { type: 'string' },
-      employment_type: { type: 'string', enum: [...EMPLOYMENT_TYPES] },
+      employment_type: { type: 'string', enum: [...SETTABLE_EMPLOYMENT_TYPES] },
       start_date: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
       id_number: { type: 'string', description: 'SA ID number, 13 digits' },
       tax_number: { type: 'string', description: 'SARS tax reference, 10 digits' },
@@ -183,7 +185,7 @@ export const updateEmployeeTool: McpTool = {
       employee_id: { type: 'string' },
       first_name: { type: 'string' },
       last_name: { type: 'string' },
-      employment_type: { type: 'string', enum: [...EMPLOYMENT_TYPES] },
+      employment_type: { type: 'string', enum: [...SETTABLE_EMPLOYMENT_TYPES] },
       id_number: { type: 'string' },
       tax_number: { type: 'string' },
       date_of_birth: { type: 'string', format: 'date' },

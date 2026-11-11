@@ -30,6 +30,7 @@ import { groupedCount } from '@/modules/accounting/services/packs/pages/packMatt
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import type { PackMatterFigure } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { proseText } from './PackProse';
 
 export interface MattersTableProps {
   matters: PackMatterFigure[];
@@ -130,7 +131,7 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
         <tbody>
           {matters.map((matter, index) => (
             <tr key={`${matter.issue}-${index}`} className="pack-matters-row">
-              <td>{matter.issue}</td>
+              <td>{proseText(matter.issue)}</td>
               {/* `n/m`, not a dash and not a zero: a filing that is overdue
                 * has no rand amount. "R0" would say the exposure was measured
                 * and found to be nothing, and the dash says exactly that
@@ -143,7 +144,7 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
                   ? <NotMeaningfulCell figure={matter.quantum} reasons={reasons} />
                   : formatStatementFigure(matter.quantum.value, { scale })}
               </td>
-              {columns.map((c) => <td key={c.key}>{matter[c.key]}</td>)}
+              {columns.map((c) => <td key={c.key}>{proseText(matter[c.key])}</td>)}
             </tr>
           ))}
         </tbody>
@@ -185,7 +186,7 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
           {PROSE_COLUMNS.filter((c) => uniform.includes(c.key)).map((c) => (
             <div key={c.key}>
               <dt>{c.label}</dt>
-              <dd>{asSentence(matters[0]![c.key])} The same for every matter listed above.</dd>
+              <dd>{proseText(`${asSentence(matters[0]![c.key])} The same for every matter listed above.`)}</dd>
             </div>
           ))}
         </dl>

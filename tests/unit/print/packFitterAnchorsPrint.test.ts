@@ -21,7 +21,8 @@ import { printBoardPack } from './renderPackPdf';
 const SHAPES: Array<[string, Page6Shape]> = [
   ['demo scale, a profit', { k: 1, negative: false, loss: false, plug: 0.05, sg: [-1, -1, 1, -1] }],
   ['R1m scale, a profit', { k: 1000, negative: false, loss: false, plug: 0.03, sg: [-1, 1, 1, 1] }],
-  ['R300m scale, a loss', { k: 300000, negative: false, loss: true, plug: 0.2, sg: [-1, 1, -1, 1] }],
+  // R300m fits with every footnote once prose is set at its own widths; R3m is among the largest scales that still drops one.
+  ['R3m scale, a loss', { k: 3000, negative: false, loss: true, plug: 0.2, sg: [-1, 1, -1, 1] }],
 ];
 
 let browser: Browser;
