@@ -12,7 +12,10 @@ export interface EtiInput {
 }
 
 export interface EtiHoursInput {
+  /** Hours employed and paid (s7(5)): ordinary plus overtime. */
   monthlyHours: number;
+  /** Ordinary hours paid, the minimum-wage divisor (s4(4)); null: the test is not run (R-B assumed hours). */
+  ordinaryHours: number | null;
   ordinaryWageCents: number;
 }
 

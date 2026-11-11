@@ -23,8 +23,8 @@ function eti(remuneration: number, hours: number | null, ordinaryWage = remunera
     periodDate,
     monthlyRemuneration: remuneration,
     isUifExcluded: false,
-    hours: hours == null ? null : { monthlyHours: hours, ordinaryWageCents: Math.round(ordinaryWage * 100) },
-  }, 2026);
+    hours: hours == null ? null : { monthlyHours: hours, ordinaryHours: hours, ordinaryWageCents: Math.round(ordinaryWage * 100) },
+  });
 }
 
 describe('s7(5): gross up to 160 hours, apply the table, gross down by hours / 160', () => {
@@ -109,18 +109,28 @@ describe('hours employed in the month', () => {
     payBasis: 'monthly', hoursPerWeek: 40, startDate: new Date(2024, 0, 1),
   };
   const june = { year: 2025, month: 6 };
-  it('monthly: hours a week x 52 / 12; unknown is null, never a full month', () => {
-    expect(etiHoursOf(base, june, null)).toBe(173.33);
-    expect(etiHoursOf({ ...base, hoursPerWeek: 20 }, june, null)).toBe(86.67);
-    expect(etiHoursOf({ ...base, hoursPerWeek: null }, june, null)).toBeNull();
-    expect(etiHoursOf({ ...base, hoursPerWeek: 0 }, june, null)).toBeNull();
+  const pay = [comp('3601', 4_000)];
+  it('monthly: hours a week x 52 / 12; unknown for a full month is null, never a full month', () => {
+    expect(etiHoursOf(base, june, null, pay)).toEqual({ hours: 173.33, ordinaryHours: 173.33, assumed: false });
+    expect(etiHoursOf({ ...base, hoursPerWeek: 20 }, june, null, pay).hours).toBe(86.67);
+    expect(etiHoursOf({ ...base, hoursPerWeek: null }, june, null, pay)).toEqual({ hours: null, ordinaryHours: null, assumed: false });
+    expect(etiHoursOf({ ...base, hoursPerWeek: 0 }, june, null, pay).hours).toBeNull();
   });
   it('monthly starter: only the share of the month employed (June 2025 has 21 weekdays; from the 16th, 11)', () => {
-    expect(etiHoursOf({ ...base, startDate: new Date(2025, 5, 16) }, june, null)).toBe(90.79);
+    expect(etiHoursOf({ ...base, startDate: new Date(2025, 5, 16) }, june, null, pay).hours).toBe(90.79);
+  });
+  it('R-B: a monthly starter with no hours a week is taken at 40 a week x the share, for apportionment only', () => {
+    expect(etiHoursOf({ ...base, hoursPerWeek: null, startDate: new Date(2025, 5, 16) }, june, null, pay))
+      .toEqual({ hours: 90.79, ordinaryHours: null, assumed: true });
   });
   it('hourly or daily: the run\'s hours, whatever the hours a week', () => {
-    expect(etiHoursOf({ ...base, payBasis: 'hourly' }, june, 120)).toBe(120);
-    expect(etiHoursOf({ ...base, payBasis: 'daily' }, june, null)).toBeNull();
+    expect(etiHoursOf({ ...base, payBasis: 'hourly' }, june, 120, pay).hours).toBe(120);
+    expect(etiHoursOf({ ...base, payBasis: 'daily' }, june, null, pay).hours).toBeNull();
+  });
+  it('overtime hours paid count for s7(5) (guide §5.3 fn 147), not for the minimum wage: a quantity, else amount / 1.5 x rate', () => {
+    const hourly = { ...base, payBasis: 'hourly' as const };
+    expect(etiHoursOf(hourly, june, 120, [comp('3601', 3_720), comp('3607', 930)])).toEqual({ hours: 140, ordinaryHours: 120, assumed: false });
+    expect(etiHoursOf(hourly, june, 120, [comp('3601', 3_720), comp('3607', 930, { quantity: 15, quantityUnit: 'hour' })]).hours).toBe(135);
   });
 });
 

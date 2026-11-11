@@ -18,18 +18,14 @@ function monthsBetween(start: Date, end: Date): number {
 }
 
 /**
- * The incentive is selected by the pay period (see etiTables), not by
- * `_taxYear`, which is kept so callers do not change.
+ * The incentive is selected by the pay period (see etiTables), not by the tax year.
  *
  * Qualifying age is 18-29 (ETI Act s6(a)). The Special Economic Zone exception
  * (no upper age limit) is NOT applied: nothing in the employee schema records
  * that the employer or employee is in an SEZ, so a SEZ employee aged 30+ is
  * reported ineligible and the claim is forfeited rather than over-claimed.
  */
-export function calculateEti(
-  input: EtiInput,
-  _taxYear: number,
-): EtiResult {
+export function calculateEti(input: EtiInput): EtiResult {
   const table = selectEtiTable(input.periodDate);
   const age = getAge(input.dateOfBirth, input.periodDate);
   const monthsEmployed = monthsBetween(input.employmentStartDate, input.periodDate) + 1;
@@ -63,9 +59,9 @@ export function calculateEti(
     isEligible: false, isDeterminable: true, missingInputs: [], ineligibilityReason, monthsEmployed, employmentYear: null, monthlyEti: 0,
   });
   if (hours && hours.monthlyHours <= 0) return determined('No hours employed and paid in the month (ETI Act s7(5)): nil.');
-  const minimum = hours ? nationalMinimumWageCents(input.periodDate) : null;
-  if (hours && minimum != null && belowMinimumWage(hours.ordinaryWageCents, hours.monthlyHours, minimum)) {
-    return determined(`The wage for ${hours.monthlyHours} ordinary hours (${formatMoney(hours.ordinaryWageCents / 100)}) is below the `
+  const minimum = hours?.ordinaryHours != null ? nationalMinimumWageCents(input.periodDate) : null;
+  if (hours?.ordinaryHours != null && minimum != null && belowMinimumWage(hours.ordinaryWageCents, hours.ordinaryHours, minimum)) {
+    return determined(`The wage for ${hours.ordinaryHours} ordinary hours (${formatMoney(hours.ordinaryWageCents / 100)}) is below the `
       + `national minimum wage of ${formatMoney(minimum / 100)} an hour (ETI Act s4(1)(a)): nil.`);
   }
   const remuneration = hours ? grossUpTo160(input.monthlyRemuneration, hours.monthlyHours) : input.monthlyRemuneration;
@@ -74,7 +70,7 @@ export function calculateEti(
       isEligible: false,
       isDeterminable: true,
       missingInputs: [],
-      ineligibilityReason: `Wage is at or above the ETI wage ceiling of R${table.wageCeiling.toLocaleString()}`,
+      ineligibilityReason: `Wage is at or above the ETI wage ceiling of ${formatMoney(table.wageCeiling)}`,
       monthsEmployed,
       employmentYear: null,
       monthlyEti: 0,
@@ -124,7 +120,6 @@ export function resolveEtiForEmployee(
     dateOfBirth?: Date | null;
     employmentStartDate?: Date | null;
   },
-  taxYear: number,
 ): EtiResult {
   const missingInputs: EtiMissingInput[] = [];
   if (!input.dateOfBirth) missingInputs.push('date_of_birth');
@@ -148,6 +143,5 @@ export function resolveEtiForEmployee(
       dateOfBirth: input.dateOfBirth as Date,
       employmentStartDate: input.employmentStartDate as Date,
     },
-    taxYear,
   );
 }

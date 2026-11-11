@@ -28,10 +28,12 @@
  *
  * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
  * it reduces the 2140 credit, and it is presented net of labour cost. Only the
- * ETI this run's PAYE can absorb is booked — `etiUsed = max(0, min(eti + brought forward, paye))` — which
- * makes CR 2140 equal EMP201's PAYE payable (one run per company per period). ET (wave 5): the ETI brought forward
- * from earlier months of the reconciliation period (ETI Act s9(1); `emp201EtiCarry`) is booked in the month it is
- * used, as the EMP201 uses it. ETI beyond PAYE is carried, not booked; the plan says so in an advisory.
+ * ETI the month's PAYE can absorb is booked: `etiUsed` is the month's ETI used from the ETI ledger (`etiCarry`), which
+ * is what the EMP201 uses: this run's ETI plus any brought forward from earlier months of the reconciliation period
+ * (ETI Act s9(1)), against the month's whole PAYE, stand-alone directive PAYE included (guide §6.1). So the month's net
+ * 2140 credit (this run's PAYE - etiUsed, plus each directive journal's PAYE) equals EMP201's PAYE payable (one run per
+ * company per period). When the ETI used exceeds this run's PAYE (it absorbed directive PAYE) the 2140 line is a debit.
+ * ETI beyond the month's PAYE is carried, not booked; the plan says so in an advisory.
  *
  * A zero line is dropped: the GL rejects a line with neither debit nor credit,
  * and an SDL-exempt run, or one whose PAYE the ETI absorbs, has one.
@@ -51,8 +53,8 @@ import { judgeJournalLines } from './payrollJournalBlockers';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
 import { payrollLoanInstalmentBlocker } from './payrollLineBlockers';
-import { etiBroughtForwardInto } from '@/modules/accounting/services/reports/emp201EtiCarry';
-import { formatMoney } from '@/lib/money/formatMoney';
+import { etiMonthForRun } from './etiCarryRead';
+import { etiAdvisories } from './payrollJournalEti';
 
 type Row = DbRow;
 
@@ -153,8 +155,8 @@ export async function buildPayrollJournalPlan(
 
   // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
   const { employerUif, otherDeductions } = splitRunTotals({ gross, paye, uif, net });
-  const broughtForward = await etiBroughtForwardInto(companyId, { year: periodYear, month: periodMonth });
-  const etiUsed = round2(Math.max(0, Math.min(eti + broughtForward, paye)));
+  const etiMonth = await etiMonthForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti });
+  const etiUsed = round2(etiMonth.used);
   const labourDebit = round2(gross + employerUif + sdl - etiUsed);
 
   const accounts = await resolveAccounts(companyId);
@@ -242,7 +244,11 @@ export async function buildPayrollJournalPlan(
     built.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + statutory employer contributions − ETI'));
   }
 
-  built.push(line('2140', 0, paye - etiUsed, 'PAYE payable, net of ETI'));
+  const payeNet = round2(paye - etiUsed);
+  // A debit only when ETI absorbed this month's directive PAYE; a negative PAYE header stays a (refused) negative credit.
+  built.push(payeNet >= 0 || paye < 0
+    ? line('2140', 0, payeNet, 'PAYE payable, net of ETI')
+    : line('2140', -payeNet, 0, 'ETI used against this month\'s directive PAYE'));
   built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
   built.push(line('2160', 0, sdl, 'SDL payable'));
   built.push(netPayLine(netPayTarget, round2(net)));
@@ -256,18 +262,7 @@ export async function buildPayrollJournalPlan(
   const shared = sharedNetPayAccountBlocker(netPayTarget, lines);
   if (shared) blockers.push(shared);
 
-  if (broughtForward > 0.005) {
-    advisories.push({
-      code: 'eti_brought_forward',
-      detail: `${formatMoney(broughtForward)} of ETI is brought forward from earlier months of the reconciliation period (ETI Act s9(1)); ${formatMoney(etiUsed)} of ETI is booked against this run's PAYE, as the EMP201 uses it.`,
-    });
-  }
-  if (eti + broughtForward - etiUsed > 0.005) {
-    advisories.push({
-      code: 'eti_beyond_paye',
-      detail: `The run has R${(eti + broughtForward).toFixed(2)} of ETI available but its PAYE is R${paye.toFixed(2)}, so only R${etiUsed.toFixed(2)} is booked. The remaining R${(eti + broughtForward - etiUsed).toFixed(2)} is not booked: the EMP201 carries it into the next month, or claims it as a refund at the end of August or February (ETI Act s9(1), s10).`,
-    });
-  }
+  advisories.push(...etiAdvisories(etiMonth, etiUsed));
 
   const entryDate = lastDayOfMonthIso(periodYear, periodMonth);
   const judged = await judgeJournalLines(companyId, lines, entryDate);

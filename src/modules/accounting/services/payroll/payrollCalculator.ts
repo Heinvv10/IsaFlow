@@ -4,15 +4,13 @@ import { accumulateComponents } from './payrollLineAccumulate';
 import { costPayeWithDonations } from './payrollLinePaye';
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
-import { resolveEtiForEmployee } from './etiEngine';
 import { sdlLeviableToDate } from './sdlLeviableCumulative';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
-import { hoursValidation, runHoursOf, unitOf } from './payrollRunHours';
-import { etiHoursOf, nonCashEarnings, ordinaryWageCents } from './etiHours';
-import { nationalMinimumWageCents } from './etiTables';
+import { hoursValidation, runHoursOf } from './payrollRunHours';
+import { costLineEti } from './payrollLineEti';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -136,59 +134,14 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? 0
     : calculateSDL(sdlLeviableAfterDeductions, annualPayrollEstimate, taxYear);
 
-  // Missing dates are reported as indeterminate, never fabricated into a
-  // determination of "not eligible" — see resolveEtiForEmployee.
-  // The ETI base is the Fourth Schedule paragraph 1 remuneration ("salary, leave pay, wage, overtime pay, bonus,
-  // gratuity, ...") paid or payable in the month, annual payments and lump sums included, LESS non-cash payments: from
-  // 1 March 2022 the proviso to "monthly remuneration" disregards anything but cash (ET; SARS Guide to the Employment Tax
-  // Incentive, Issue 5, §2.4 p. 15 and §2.4.1 p. 18; etiHours.nonCashEarnings).
-  // ET: the hours employed and paid in the month (run hours for hourly and daily staff; hours a week x 52/12 for monthly
-  // staff) apportion ETI under s7(5) and test the ordinary wage against the minimum wage (s4(1)(a)); see etiHours.ts.
+  // ETI (wave 5 ET): hours, the minimum wage and the remuneration base are in payrollLineEti / etiHours.
   const hours = input.notEmployedInPeriod ? null : runHoursOf(employee, components);
-  const etiHours = input.notEmployedInPeriod ? null : etiHoursOf(employee, period, hours);
-  const resolved: EtiResult = resolveEtiForEmployee({
-    dateOfBirth: employee.dateOfBirth,
-    employmentStartDate: employee.startDate,
-    periodDate,
-    monthlyRemuneration: allEarnings - nonCashEarnings(components),
-    isUifExcluded: employee.uifExcluded,
-    hours: etiHours == null ? null : { monthlyHours: etiHours, ordinaryWageCents: ordinaryWageCents(components) },
-  }, taxYear);
-  // A leaver paid after leaving worked no hours in the period, and ETI is
-  // apportioned by hours employed and paid for out of 160 (section 7(5); same
-  // guide, §2.4 and §5.3 "Employee employed for part of a month"): nil.
-  const etiRaw: EtiResult = input.notEmployedInPeriod
-    ? {
-      ...resolved, isEligible: false, isDeterminable: true, missingInputs: [], monthlyEti: 0,
-      ineligibilityReason: 'Not employed in this period (paid after leaving): ETI is apportioned by hours employed, none here.',
-    }
-    : !treatment.eti
-      ? { ...resolved, isEligible: false, isDeterminable: true, missingInputs: [], monthlyEti: 0, ineligibilityReason: 'Independent contractor: not an employee, so no ETI.' }
-      : resolved;
-
-  // Hours that cannot be told are never taken as a full month. A monthly employee keeps the figure as before (no
-  // apportionment, no minimum-wage test); an hourly or daily one, whose pay is the hours, claims none (HD's nil).
-  const name = `${employee.firstName} ${employee.lastName}`.trim();
-  const hoursUnknown = !input.notEmployedInPeriod && etiHours == null && etiRaw.monthlyEti > 0;
-  const byTime = unitOf(employee) != null;
-  const eti: EtiResult = hoursUnknown && byTime
-    ? { ...etiRaw, isEligible: false, monthlyEti: 0, ineligibilityReason: 'The hours or days worked cannot be told, so ETI cannot be apportioned by hours: none is claimed.' }
-    : etiRaw;
-  if (hoursUnknown) {
-    warnings.push({
-      code: 'ETI_HOURS_UNKNOWN', severity: 'warning',
-      message: byTime
-        ? `${name}'s hours or days worked this month cannot be told, so no ETI was claimed (ETI Act s7(5) apportions it by hours). Enter them and recalculate.`
-        : `No ordinary hours a week are recorded for ${name}, so ETI of ${formatMoney(etiRaw.monthlyEti)} was claimed as for a full month, without `
-          + 'apportioning it by hours (ETI Act s7(5)) or testing the wage against the national minimum wage (s4(1)(a)). Record the hours a week on the employee and recalculate.',
-    });
-  }
-  if (etiHours != null && eti.monthlyEti > 0 && nationalMinimumWageCents(periodDate) == null) {
-    warnings.push({
-      code: 'ETI_MINIMUM_WAGE_UNKNOWN', severity: 'warning',
-      message: `No national minimum wage is loaded for this period, so ${name}'s wage was not tested against it (ETI Act s4(1)(a)). Check it before claiming the ETI.`,
-    });
-  }
+  const lineEti = costLineEti({
+    employee, components, period, periodDate, runHours: hours,
+    notEmployedInPeriod: input.notEmployedInPeriod === true, etiApplies: treatment.eti,
+  });
+  const eti: EtiResult = lineEti.eti;
+  warnings.push(...lineEti.warnings);
 
   const netPay = Math.round(
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,

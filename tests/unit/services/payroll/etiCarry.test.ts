@@ -14,7 +14,7 @@ import { sql } from '@/lib/neon';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import {
   etiCarryLedger, reconciliationStart, summariseCarry,
-} from '@/modules/accounting/services/reports/emp201EtiCarry';
+} from '@/modules/accounting/services/payroll/etiCarry';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 
 const CO = '11111111-1111-1111-1111-111111111111';
@@ -54,6 +54,21 @@ describe('the ledger, on hand-written headers', () => {
     expect([sep.broughtForward, sep.used]).toEqual([0, 0]);
   });
 
+  it('February: the excess at the end of the September-February period is the refund claimable, and March starts at nil', () => {
+    const l = etiCarryLedger({ year: 2026, month: 1 }, { year: 2026, month: 3 }, [
+      { year: 2025, month: 12, paye: 0, eti: 700 },
+      { year: 2026, month: 1, paye: 200, eti: 500 },
+    ]);
+    const feb = l.find((m) => m.month === 2)!;
+    expect([feb.broughtForward, feb.carriedForward, feb.refundClaimable]).toEqual([1_000, 1_000, 1_000]);
+    expect(l.find((m) => m.month === 3)!.broughtForward).toBe(0);
+  });
+
+  it('a month with negative PAYE (a refund through payroll) uses no ETI and carries it all', () => {
+    const l = etiCarryLedger({ year: 2026, month: 4 }, { year: 2026, month: 4 }, [{ year: 2026, month: 4, paye: -300, eti: 500 }]);
+    expect(l.find((m) => m.month === 4)).toMatchObject({ used: 0, carriedForward: 500 });
+  });
+
   it('the reconciliation period starts in March or September; January and February belong to the previous September', () => {
     expect(reconciliationStart({ year: 2026, month: 1 })).toEqual({ year: 2025, month: 9 });
     expect(reconciliationStart({ year: 2026, month: 2 })).toEqual({ year: 2025, month: 9 });
@@ -74,6 +89,16 @@ describe('the ledger, on hand-written headers', () => {
 
 describe('generateEMP201 uses the carry', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('a month with no run and no directive still shows the carry, and February\'s refund (ledger-breaker C)', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([{ table_name: 'payroll_run_headers' }, { table_name: 'payroll_run_lines' }] as never)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ period_year: 2026, period_month: 1, paye: 0, eti: 1_000 }] as never);
+    const feb = await generateEMP201(CO, '2026-02-01', '2026-02-28');
+    expect(feb.etiCarry).toEqual({ broughtForward: 1_000, used: 0, carriedForward: 1_000, refundClaimable: 1_000 });
+    expect(feb.payePayable).toBe(0);
+  });
 
   it('June: May\'s excess (from earlier headers and a directive) reduces June\'s PAYE payable', async () => {
     vi.mocked(sql)

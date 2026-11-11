@@ -12,7 +12,8 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
-import { etiCarryLedger, loadEarlierEtiMonths, summariseCarry, type EtiCarry, type EtiMonth } from './emp201EtiCarry';
+import { etiCarryLedger, etiMonthsOf, summariseCarry, type EtiCarry } from '@/modules/accounting/services/payroll/etiCarry';
+import { loadEarlierEtiMonths } from '@/modules/accounting/services/payroll/etiCarryRead';
 
 type Row = DbRow;
 
@@ -25,7 +26,7 @@ export interface EMP201Data {
   totalETI: number;
   /**
    * PAYE actually remitted to SARS: totalPAYE less the ETI used, month by month, where the ETI available is the month's
-   * ETI plus any brought forward (ETI Act s9(1); emp201EtiCarry). Never below zero.
+   * ETI plus any brought forward (ETI Act s9(1); payroll/etiCarry). Never below zero.
    */
   payePayable: number;
   /** ETI brought forward into the range, used in it, carried out of it, and claimable as a refund at reconciliation (s10). */
@@ -176,7 +177,16 @@ export async function generateEMP201(
       paymentId: p.paymentId, directiveNumber: p.directiveNumber, paymentDate: p.paymentDate, gross: p.gross, paye: p.paye,
     }));
 
-    if (runs.length === 0 && directivePayments.length === 0) return emptyResult;
+    const from = { year: Number(startDate.slice(0, 4)), month: Number(startDate.slice(5, 7)) };
+    const to = { year: Number(endDate.slice(0, 4)), month: Number(endDate.slice(5, 7)) };
+    const earlier = await loadEarlierEtiMonths(companyId, from);
+    const months = [
+      ...earlier,
+      ...etiMonthsOf(runs.map((r: Row) => ({ period_year: r.period_year, period_month: r.period_month, paye: r.total_paye, eti: r.total_eti })), directivePayments),
+    ];
+    // ETI Act s9(1), s10; payroll/etiCarry: a month with nothing paid still carries the excess on, or shows the refund.
+    const etiCarry = summariseCarry(etiCarryLedger(from, to, months), from);
+    if (runs.length === 0 && directivePayments.length === 0) return { ...emptyResult, etiCarry };
 
     let totalPAYE = directivePayments.reduce((t, p) => t + p.paye, 0);
     let totalETI = 0;
@@ -227,15 +237,7 @@ export async function generateEMP201(
     const uifEmployer = roundCents(totalUIF / 2);
 
     // ETI is an offset against the month's PAYE, never below zero; the excess carries into the next month and is
-    // claimed as a refund at the end of the reconciliation period (ETI Act s9(1), s10; emp201EtiCarry).
-    const from = { year: Number(startDate.slice(0, 4)), month: Number(startDate.slice(5, 7)) };
-    const to = { year: Number(endDate.slice(0, 4)), month: Number(endDate.slice(5, 7)) };
-    const months: EtiMonth[] = [
-      ...await loadEarlierEtiMonths(companyId, from),
-      ...runs.map((r: Row) => ({ year: Number(r.period_year), month: Number(r.period_month), paye: Number(r.total_paye) || 0, eti: Number(r.total_eti) || 0 })),
-      ...directivePayments.map(p => ({ year: Number(p.paymentDate.slice(0, 4)), month: Number(p.paymentDate.slice(5, 7)), paye: p.paye, eti: 0 })),
-    ];
-    const etiCarry = summariseCarry(etiCarryLedger(from, to, months), from);
+    // claimed as a refund at the end of the reconciliation period (ETI Act s9(1), s10; payroll/etiCarry).
     const payePayable = roundCents(Math.max(0, totalPAYE - etiCarry.used));
 
     return {

@@ -1,6 +1,6 @@
 /**
- * ETI brought forward, used and carried forward on the EMP201 (master plan wave 5, ET). Read-only, from the stored run
- * headers and the directives paid outside payroll: the same declarable set generateEMP201 sums.
+ * ETI brought forward, used and carried forward (master plan wave 5, ET): the pure ledger. The EMP201 (reports/emp201Service)
+ * and the payroll journal (payrollJournalBuilder) both read it, through etiCarryRead.ts, so they cannot disagree.
  *
  * Sources (ETI Act 26 of 2013 as amended; SARS Guide to the Employment Tax Incentive, Issue 5, 27 July 2026):
  *  - s9(1): ETI above the month's employees' tax is added to the ETI available in the next month (guide §7 p. 46,
@@ -13,10 +13,6 @@
  * s8) are not modelled: IsaFlow claims every month's ETI it works out and does not know the employer's compliance status.
  * Whether SARS pays the refund (s10(4)-(6)) is not known here: `refundClaimable` is what may be claimed, not what is paid.
  */
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
-import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 
 export interface EtiMonth { year: number; month: number; paye: number; eti: number }
 
@@ -39,7 +35,7 @@ export interface EtiCarry {
 
 export interface YearMonth { year: number; month: number }
 
-const index = (ym: YearMonth): number => ym.year * 12 + (ym.month - 1);
+export const index = (ym: YearMonth): number => ym.year * 12 + (ym.month - 1);
 const fromIndex = (i: number): YearMonth => ({ year: Math.floor(i / 12), month: (i % 12) + 1 });
 const cents = (n: number): number => Math.round(n * 100);
 const rand = (c: number): number => c / 100;
@@ -90,36 +86,13 @@ export function summariseCarry(ledger: EtiCarryMonth[], from: YearMonth): EtiCar
   };
 }
 
-/** PAYE and ETI of the months of `from`'s reconciliation period before `from`; none when `from` starts the period. */
-export async function loadEarlierEtiMonths(companyId: string, from: YearMonth): Promise<EtiMonth[]> {
-  const start = reconciliationStart(from);
-  if (index(start) === index(from)) return [];
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  const startDate = `${start.year}-${pad(start.month)}-01`;
-  const fromDate = `${from.year}-${pad(from.month)}-01`;
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
-  const rows = (await sql`
-    SELECT period_year, period_month, SUM(total_paye) AS paye, SUM(total_eti) AS eti
-      FROM payroll_run_headers
-     WHERE company_id = ${companyId}::uuid
-       AND status = ANY(${declarable}::text[])
-       AND make_date(period_year, period_month, 1) >= ${startDate}::date
-       AND make_date(period_year, period_month, 1) < ${fromDate}::date
-     GROUP BY period_year, period_month
-  `) as DbRow[];
-  const dayBefore = new Date(Date.UTC(from.year, from.month - 1, 0)).toISOString().slice(0, 10);
-  const directives = await listStandaloneDirectivePayments(companyId, { start: startDate, end: dayBefore });
+/** Stored rows (run headers or month sums) and stand-alone directive payments as ledger months: the one mapper. */
+export function etiMonthsOf(
+  runs: Array<Record<string, unknown>>,
+  directives: Array<{ paymentDate: string; paye: number }>,
+): EtiMonth[] {
   return [
-    ...rows.map((r) => ({ year: Number(r.period_year), month: Number(r.period_month), paye: Number(r.paye) || 0, eti: Number(r.eti) || 0 })),
+    ...runs.map((r) => ({ year: Number(r.period_year), month: Number(r.period_month), paye: Number(r.paye) || 0, eti: Number(r.eti) || 0 })),
     ...directives.map((p) => ({ year: Number(p.paymentDate.slice(0, 4)), month: Number(p.paymentDate.slice(5, 7)), paye: p.paye, eti: 0 })),
   ];
-}
-
-/**
- * The ETI brought forward into a month (s9(1)): what the earlier months of its reconciliation period left over. The
- * payroll journal books its use (payrollJournalBuilder), so the run's 2140 credit stays the EMP201 PAYE payable.
- */
-export async function etiBroughtForwardInto(companyId: string, ym: YearMonth): Promise<number> {
-  const earlier = await loadEarlierEtiMonths(companyId, ym);
-  return etiCarryLedger(ym, ym, earlier).find((m) => index(m) === index(ym))?.broughtForward ?? 0;
 }
