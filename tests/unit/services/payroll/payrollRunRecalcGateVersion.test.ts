@@ -19,12 +19,12 @@ const refusal = async (version: number | null) => {
   return (await recalculateRequiredRefusal('11111111-1111-4111-8111-111111111111', '33333333-3333-4333-8333-333333333333'))?.code ?? null;
 };
 
-describe('calculation version 4: which deductions reduce PAYE', () => {
+describe('calculation version 5: hours and days (HD) on top of which deductions reduce PAYE (4)', () => {
   it('is the current version', () => {
-    expect(PAYROLL_CALCULATION_VERSION).toBe(4);
+    expect(PAYROLL_CALCULATION_VERSION).toBe(5);
   });
 
-  it('refuses a run calculated by version 3 or unstamped, approves one calculated by version 4', async () => {
-    expect([await refusal(3), await refusal(null), await refusal(4)]).toEqual(['recalculate_required', 'recalculate_required', null]);
+  it('refuses a run calculated by version 4 or unstamped, approves one calculated by version 5', async () => {
+    expect([await refusal(4), await refusal(null), await refusal(5)]).toEqual(['recalculate_required', 'recalculate_required', null]);
   });
 });

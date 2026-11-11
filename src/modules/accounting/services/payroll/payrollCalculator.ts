@@ -7,6 +7,7 @@ import { calculateSDL } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
 import { sdlLeviableToDate } from './sdlLeviableCumulative';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
+import { etiHoursPending, hoursValidation, runHoursOf } from './payrollRunHours';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -141,6 +142,21 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     }
     : resolved;
 
+  // HD: ETI is apportioned by hours out of 160 and ET (not yet built) will do it from the stored quantity. Until then an
+  // hourly or daily line under a full month's hours, or with hours that cannot be told, claims none.
+  const hours = input.notEmployedInPeriod ? null : runHoursOf(employee, components);
+  const etiPending = !input.notEmployedInPeriod && etiHoursPending(employee, hours) && etiRaw.monthlyEti > 0;
+  const eti: EtiResult = etiPending
+    ? { ...etiRaw, isEligible: false, monthlyEti: 0, ineligibilityReason: 'Hourly or daily pay under 160 hours: ETI apportionment by hours is not built yet, so none is claimed.' }
+    : etiRaw;
+  if (etiPending) {
+    warnings.push({
+      code: 'ETI_HOURS_APPORTIONMENT_PENDING', severity: 'warning',
+      message: `${employee.firstName} ${employee.lastName} is paid by the ${employee.payBasis === 'hourly' ? 'hour' : 'day'} and worked under 160 hours (or the hours cannot be told), `
+        + 'so no ETI was claimed: ETI apportioned by hours is not built yet. Claim it on the EMP201 by hand if due.',
+    });
+  }
+
   const netPay = Math.round(
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,
   ) / 100;
@@ -190,9 +206,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     donationReceipted: donation.receipted,
     donationBase: donation.base,
     donationDeduction: donation.deduction,
-    eti: etiRaw,
+    eti,
     netPay: Math.max(0, netPay),
     componentBreakdown: breakdown,
-    validationResults: warnings,
+    validationResults: [...warnings, ...(input.notEmployedInPeriod ? [] : hoursValidation(employee, components))],
+    hours,
   };
 }

@@ -112,6 +112,16 @@ describe('getPayslips: hours stamped on the stored breakdown (s33(1)(g))', () =>
     expect(text).toContain('Overtime hours: 12.5 hours');
   });
 
+  it('an entered 0 (a nil entry) prints "0 hours worked", never "Not recorded"; a negative quantity is not captured', async () => {
+    open();
+    lineWith([item('c-salary', '3601', { amount: 0, quantity: 0, quantityUnit: 'hour' })]);
+    const run = await getPayslips(CO, RUN);
+    expect(run.payslips[0]).toMatchObject({ workedOrdinary: { quantity: 0, unit: 'hour' } });
+    expect(await pdfText(await buildPayslipPdf(run))).toContain('Ordinary hours: 0 hours worked');
+    lineWith([item('c-salary', '3601', { quantity: -1, quantityUnit: 'hour' })]);
+    expect((await getPayslips(CO, RUN)).payslips[0]).toMatchObject({ workedOrdinary: null });
+  });
+
   it('a breakdown without quantities prints "Not recorded"', async () => {
     open();
     const run = await getPayslips(CO, RUN);

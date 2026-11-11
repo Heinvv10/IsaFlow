@@ -38,6 +38,7 @@ export const HELD_REFUSED = 'An amount in the grid could not be read. Correct or
 export const HELD_FAILED = 'A save failed: see the row. The grid shows what is stored. Review & approve again to go on without it.';
 export const HELD_STALE = 'This run could not be re-read after a failed save. Reload the page before you approve.';
 
+export const hoursKey = (employeeId: string) => `${employeeId}:hours`;
 export const cellKey = (employeeId: string, componentId: string) => `${employeeId}:${componentId}`;
 const amountAt = (inputs: RunInputs | null, key: string) => inputs?.amounts.find((a) => cellKey(a.employeeId, a.componentId) === key);
 
@@ -95,8 +96,8 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
     if (active && runId) void reload(false);
   }, [active, runId, reload, adopt]);
 
-  const commit = useCallback((employeeId: string, componentId: string, cents: number) => {
-    const key = cellKey(employeeId, componentId);
+  /** One cell's commit, queued behind the others: `body` is read when it is sent, so it carries what the cell then held. */
+  const send = useCallback((key: string, body: () => Record<string, unknown>) => {
     refused.current.delete(key);
     setSaves((s) => ({ ...s, [key]: { state: 'saving' } }));
     const turn = lapsed.current.get(key)?.turn ?? 0;
@@ -108,11 +109,7 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
         return;
       }
       try {
-        const held = amountAt(known.current, key);
-        const state = await apiJson(`/api/payroll/runs/${runId}/inputs`, {
-          method: 'PUT',
-          body: JSON.stringify({ employeeId, componentId, amount: cents / 100, expectedAmount: held?.amount ?? 0 }),
-        }, SAVE_FAILED);
+        const state = await apiJson(`/api/payroll/runs/${runId}/inputs`, { method: 'PUT', body: JSON.stringify(body()) }, SAVE_FAILED);
         if (currentRun.current !== runId) return;
         adopt(state.inputs);
         onRun(state.run);
@@ -132,6 +129,26 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
       }
     });
   }, [runId, onRun, reload, adopt]);
+
+  const commit = useCallback((employeeId: string, componentId: string, cents: number) => {
+    const key = cellKey(employeeId, componentId);
+    send(key, () => ({ employeeId, componentId, amount: cents / 100, expectedAmount: amountAt(known.current, key)?.amount ?? 0 }));
+  }, [send]);
+
+  /**
+   * Hours or days (HD): the server prices them from the employee's rate. The cell expects the quantity it last showed (null: none),
+   * and names the plain amount it replaces, if it showed one. `hundredths` null clears the row; 0 is an entered nil.
+   */
+  const commitHours = useCallback((employeeId: string, hundredths: number | null) => {
+    send(hoursKey(employeeId), () => {
+      const basic = known.current?.hours.employees.find((e) => e.employeeId === employeeId)?.componentId;
+      const held = basic ? amountAt(known.current, cellKey(employeeId, basic)) : undefined;
+      return {
+        employeeId, quantity: hundredths == null ? null : hundredths / 100, expectedQuantity: held?.quantity ?? null,
+        ...(held && held.quantity == null && held.amount != null ? { expectedAmount: held.amount } : {}),
+      };
+    });
+  }, [send]);
 
   /** The cell holds text MoneyField refused: nothing was sent, and what is on screen is not what is stored. */
   const refuse = useCallback((employeeId: string, componentId: string) => {
@@ -162,5 +179,5 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
     return null;
   }, [drained]);
 
-  return { inputs, loadError, saves, resets, commit, refuse, forgetRefused, drained, settled };
+  return { inputs, loadError, saves, resets, commit, commitHours, refuse, forgetRefused, drained, settled };
 }

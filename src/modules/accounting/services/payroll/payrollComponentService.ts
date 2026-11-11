@@ -1,7 +1,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { PayrollComponent, EmployeeComponent } from './payrollTypes';
+import type { PayrollComponent, EmployeeComponent, QuantityUnit } from './payrollTypes';
 import { paidOutsidePayrollRefusal } from './retirementFund';
 
 type Row = DbRow;
@@ -51,7 +51,7 @@ export async function getEmployeeComponents(
 ): Promise<EmployeeComponent[]> {
   const rows = (await sql`
     SELECT
-      pec.id AS assignment_id, pec.amount, pec.is_recurring,
+      pec.id AS assignment_id, pec.amount, pec.is_recurring, pec.quantity, pec.quantity_unit,
       pc.id, pc.name, pc.sars_source_code, pc.component_type,
       pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable, pc.paid_outside_payroll
     FROM payroll_employee_components pec
@@ -106,6 +106,8 @@ export async function getEmployeeComponents(
     amount: Number(r.amount),
     isRecurring: r.is_recurring !== false,
     assignmentId: String(r.assignment_id),
+    quantity: r.quantity == null ? null : Number(r.quantity),
+    quantityUnit: r.quantity_unit == null ? null : (String(r.quantity_unit) as QuantityUnit),
   }));
 }
 
