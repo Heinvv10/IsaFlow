@@ -26,7 +26,10 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
   const [impersonating, setImpersonating] = useState(false);
   const versionsButton = useRef<HTMLButtonElement>(null);
   const statusLine = useRef<HTMLParagraphElement>(null);
-  /** The button that opened the dialog: focus goes back to it on close, or to the status line when it is gone. */
+  /**
+   * The button that opened the dialog: Cancel/Escape/Close give focus back to it. Its status-line fallback now serves
+   * only Close after a stale refusal, when the reload has replaced that button; a done action uses finishDialog.
+   */
   const trigger = useRef<HTMLElement | null>(null);
   const open = (a: ReturnAction) => (e: { currentTarget: HTMLElement }) => { trigger.current = e.currentTarget; setDone(''); setAction(a); };
   const closeDialog = () => {
