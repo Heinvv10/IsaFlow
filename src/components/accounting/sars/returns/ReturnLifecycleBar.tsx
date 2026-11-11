@@ -3,7 +3,7 @@
  * when for each step, the actions the role may take, and the warnings the server reports (lock removed outside the
  * lifecycle, the older vat_returns record disagreeing, drift since finalising). The server enforces every rule.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, FileCheck2, History, PencilLine } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -24,13 +24,18 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
   const [drawer, setDrawer] = useState(false);
   const [done, setDone] = useState('');
   const [impersonating, setImpersonating] = useState(false);
+  const versionsButton = useRef<HTMLButtonElement>(null);
   useEffect(() => { setImpersonating(isImpersonating()); }, []);
+  // A new period is a new return: nothing from the last one stays open or announced.
+  useEffect(() => { setAction(null); setDone(''); setDrawer(false); }, [form, periodStart, periodEnd]);
 
   const versions = data?.versions ?? [];
   const live = liveVersion(versions);
   const acts = availableActions(live, role, impersonating);
   const steps = lifecycleSteps(versions);
   const nextNo = versions.reduce((m, v) => Math.max(m, v.versionNo), 0) + 1;
+  // Status and actions only from a settled load: never "Not finalised" for a return that failed to load.
+  const settled = data !== null && !loading && !error;
   const status = live ? (live.status === 'filed' ? `Filed (v${live.versionNo})` : `Finalised (v${live.versionNo}), not filed`)
     : versions.length > 0 ? `Amended: finalise v${nextNo}` : 'Not finalised';
 
@@ -40,10 +45,12 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <h2 id="return-lifecycle-title" className="text-sm font-semibold text-[var(--ff-text-primary)]">Return lifecycle</h2>
-          <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="return-lifecycle-status">{loading ? 'Loading…' : status}</p>
+          <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="return-lifecycle-status">
+            {settled ? status : loading ? 'Loading…' : 'Status unavailable'}
+          </p>
         </div>
         {versions.length > 0 && (
-          <Button variant="secondary" size="sm" leftIcon={History} onClick={() => setDrawer(true)}>
+          <Button ref={versionsButton} variant="secondary" size="sm" leftIcon={History} onClick={() => setDrawer(true)}>
             Versions ({versions.length})
           </Button>
         )}
@@ -70,31 +77,38 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
         </ol>
       )}
 
-      {live && (live.lockRemoved || live.drift?.drifted || data?.vatReturn?.mismatch) && (
+      {settled && live && (live.lockRemoved || live.drift?.drifted || data?.vatReturn?.mismatch) && (
         <div className="flex flex-wrap gap-2">
           {live.lockRemoved && <Badge variant="danger">VAT period lock removed outside the lifecycle</Badge>}
-          {live.drift?.drifted && <Badge variant="warning">Changed since finalised: amend before filing</Badge>}
+          {live.drift?.drifted && (
+            <Badge variant="warning">
+              {live.status === 'filed' ? 'Changed since filed: amend to file a correction' : 'Changed since finalised: amend before filing'}
+            </Badge>
+          )}
           {data?.vatReturn?.mismatch && <Badge variant="warning">Older VAT return record ({data.vatReturn.status}) differs</Badge>}
         </div>
       )}
 
-      {(acts.finalise || acts.file || acts.amend) && (
+      {settled && (acts.finalise || acts.file || acts.amend) && (
         <div className="flex flex-wrap gap-2">
           {acts.finalise && <Button size="sm" onClick={() => { setDone(''); setAction('finalise'); }}>Finalise v{nextNo}</Button>}
           {acts.file && <Button size="sm" onClick={() => { setDone(''); setAction('file'); }}>Mark filed</Button>}
           {acts.amend && <Button size="sm" variant="secondary" onClick={() => { setDone(''); setAction('amend'); }}>Amend</Button>}
         </div>
       )}
-      {acts.note && <p className="text-xs text-[var(--ff-text-secondary)]" data-testid="return-lifecycle-note">{acts.note}</p>}
+      {settled && acts.note && <p className="text-xs text-[var(--ff-text-secondary)]" data-testid="return-lifecycle-note">{acts.note}</p>}
 
       {action && (
-        <ReturnActionDialog form={form} action={action} periodStart={periodStart} periodEnd={periodEnd}
-          version={action === 'finalise' ? null : live} versions={versions} nextVersionNo={nextNo}
+        <ReturnActionDialog key={action} form={form} action={action} periodStart={periodStart} periodEnd={periodEnd}
+          version={action === 'finalise' ? null : live} nextVersionNo={nextNo}
           isOwnerOrAdmin={role === 'owner' || role === 'admin'}
+          // A stale tab: the return moved on elsewhere. Reload it; the dialog then offers Amend (owner/admin) or Close.
+          onStale={reload} canAmendInstead={acts.amend}
+          onAmendInstead={() => setAction('amend')}
           onClose={() => setAction(null)}
           onDone={(m) => { setAction(null); setDone(m); void reload(); }} />
       )}
-      <ReturnVersionsDrawer open={drawer} onClose={() => setDrawer(false)} form={form} versions={versions}
+      <ReturnVersionsDrawer open={drawer} onClose={() => { setDrawer(false); versionsButton.current?.focus(); }} form={form} versions={versions}
         vatReturn={data?.vatReturn ?? null} nameOf={nameOf} />
     </section>
   );

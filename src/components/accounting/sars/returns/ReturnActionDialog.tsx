@@ -1,7 +1,8 @@
 /**
- * Finalise, Mark filed and Amend (wave 5 L2). Every refusal shows the server's own message; the next step it
- * names is offered here: the exceptions override (owner/admin, from the gate's counts), the 15% check force, the
- * vat_returns mismatch reason, and the legacy-filing correction (409 LEGACY_SUBMISSION_EXISTS). The server judges all of it.
+ * Finalise, Mark filed and Amend (wave 5 L2). Every refusal shows the server's own message, and the next step its
+ * code names is offered here: the exceptions override (owner/admin, from the gate's counts), RATE_CHECK_FAILED (force),
+ * VAT_RETURN_MISMATCH (a reason), LEGACY_SUBMISSION_EXISTS (the server's ids, with a reason) and LIVE_VERSION_EXISTS
+ * (a stale tab: the bar reloads, then Amend or Close). The server judges all of it again.
  */
 import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
@@ -10,9 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { apiErrorMessage } from '@/lib/apiFetch';
 import { VatGateOverrideBox } from '../VatGateOverrideBox';
 import { ReturnReasonField } from './ReturnReasonField';
-import {
-  loadLegacySubmissionIds, postReturnAction, type ReturnAction, type ReturnForm, type ReturnRefusalInfo, type ReturnVersionView,
-} from './returnLifecycleClient';
+import { postReturnAction, type ReturnAction, type ReturnForm, type ReturnRefusalInfo, type ReturnVersionView } from './returnLifecycleClient';
 
 interface Props {
   form: ReturnForm;
@@ -21,14 +20,20 @@ interface Props {
   periodEnd: string;
   /** The live version (file, amend) or null (finalise). */
   version: ReturnVersionView | null;
-  versions: ReturnVersionView[];
   nextVersionNo: number;
   isOwnerOrAdmin: boolean;
+  /** Reload the lifecycle after a refusal that says it moved on elsewhere. */
+  onStale: () => Promise<void>;
+  /** Whether Amend is open to this person once the reload shows the live version. */
+  canAmendInstead: boolean;
+  onAmendInstead: () => void;
   onClose: () => void;
   onDone: (message: string) => void;
 }
 
 const has = (s: string) => s.trim() !== '';
+/** The kit's 50% disabled fade fails contrast; a disabled button here is solid and muted instead. */
+const DISABLED = 'disabled:opacity-100 disabled:bg-none disabled:bg-[var(--ff-bg-tertiary)] disabled:text-[var(--ff-text-secondary)] disabled:shadow-none';
 
 function describe(form: ReturnForm, action: ReturnAction, n: number): { title: string; text: string; cta: string } {
   if (action === 'finalise') {
@@ -52,22 +57,25 @@ export function ReturnActionDialog(p: Props) {
   const [overrideReason, setOverrideReason] = useState('');
   const [force, setForce] = useState(false);
   const [mismatchReason, setMismatchReason] = useState('');
-  const [legacyIds, setLegacyIds] = useState<string[] | null>(null);
   const [refusal, setRefusal] = useState<ReturnRefusalInfo | null>(null);
+  const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
   const n = p.version?.versionNo ?? p.nextVersionNo;
   const { title, text, cta } = describe(p.form, p.action, n);
 
+  const code = refusal?.code ?? null;
   const blocked = (refusal?.counts?.totalExceptions ?? 0) > 0;
-  const offerForce = p.action === 'finalise' && (force || (refusal?.message.includes('15% check') ?? false));
-  const offerMismatch = p.action === 'finalise' && (has(mismatchReason) || (refusal?.message.includes('acknowledgeVatReturnMismatch') ?? false));
+  const offerForce = p.action === 'finalise' && (force || code === 'RATE_CHECK_FAILED');
+  const offerMismatch = p.action === 'finalise' && (has(mismatchReason) || code === 'VAT_RETURN_MISMATCH');
+  const [legacyIds, setLegacyIds] = useState<string[] | null>(null);
   const legacy = legacyIds !== null;
-  const ready = !busy
-    && (p.action !== 'file' || has(reference))
-    && (p.action !== 'amend' || has(reason))
-    && (!blocked || (p.isOwnerOrAdmin && has(overrideReason)))
-    && (!offerMismatch || has(mismatchReason))
-    && (!legacy || has(reason));
+  const missing = (p.action === 'file' && !has(reference) && 'Enter the eFiling reference.')
+    || (p.action === 'amend' && !has(reason) && 'A reason is required.')
+    || (blocked && !p.isOwnerOrAdmin && 'Only an owner or admin can override the exceptions.')
+    || (blocked && !has(overrideReason) && 'An override reason is required.')
+    || (offerMismatch && !has(mismatchReason) && 'A reason is required.')
+    || (legacy && !has(reason) && 'A reason is required.')
+    || null;
 
   const body = (): Record<string, unknown> => {
     const override = blocked && has(overrideReason) ? { overrideReason: overrideReason.trim() } : {};
@@ -76,8 +84,7 @@ export function ReturnActionDialog(p: Props) {
         ...(offerMismatch ? { acknowledgeVatReturnMismatch: true, mismatchReason: mismatchReason.trim() } : {}) };
     }
     if (p.action === 'file') {
-      return { versionId: p.version?.id, reference, ...override,
-        ...(legacy ? { correctsLegacySubmissionIds: legacyIds, reason } : {}) };
+      return { versionId: p.version?.id, reference, ...override, ...(legacy ? { correctsLegacySubmissionIds: legacyIds, reason } : {}) };
     }
     return { versionId: p.version?.id, reason };
   };
@@ -88,11 +95,10 @@ export function ReturnActionDialog(p: Props) {
       const out = await postReturnAction(p.form, p.action, body());
       if (out.ok) { p.onDone(`${title}: done.`); return; }
       setRefusal(out.refusal);
-      if (out.refusal.code === 'LEGACY_SUBMISSION_EXISTS') {
-        setLegacyIds(await loadLegacySubmissionIds(p.form, p.periodStart, p.periodEnd, p.versions));
-      }
+      if (out.refusal.code === 'LEGACY_SUBMISSION_EXISTS') setLegacyIds(out.refusal.legacySubmissionIds ?? []);
+      if (out.refusal.code === 'LIVE_VERSION_EXISTS') { setStale(true); await p.onStale(); }
     } catch (err) {
-      setRefusal({ status: 0, message: apiErrorMessage(err, 'Could not reach the server - try again'), code: null, counts: null });
+      setRefusal({ status: 0, message: apiErrorMessage(err, 'Could not reach the server - try again'), code: null, counts: null, legacySubmissionIds: null });
     } finally {
       setBusy(false);
     }
@@ -102,7 +108,7 @@ export function ReturnActionDialog(p: Props) {
     <Modal open onClose={p.onClose} title={title} size="md" disableBackdropClose>
       <Modal.Body className="space-y-4">
         <p className="text-sm text-[var(--ff-text-secondary)]">{text}</p>
-        {p.action === 'file' && (
+        {p.action === 'file' && !stale && (
           <Input label="SARS eFiling reference" value={reference} maxLength={200} onChange={(e) => setReference(e.target.value)} />
         )}
         {p.action === 'amend' && (
@@ -110,7 +116,7 @@ export function ReturnActionDialog(p: Props) {
             hint="Kept on the version and in the audit trail." />
         )}
         {refusal && (
-          <div role="alert" data-testid="return-refusal" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500 dark:text-red-400">
+          <div role="alert" data-testid="return-refusal" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
             {refusal.message}
           </div>
         )}
@@ -125,7 +131,7 @@ export function ReturnActionDialog(p: Props) {
           </label>
         )}
         {offerMismatch && (
-          <ReturnReasonField id="return-mismatch-reason" label="Why finalise although the older VAT return record differs (required)"
+          <ReturnReasonField id="return-mismatch-reason" label="Why finalise although the recorded VAT return differs (required)"
             value={mismatchReason} onChange={setMismatchReason} />
         )}
         {legacy && p.action === 'file' && (
@@ -133,12 +139,23 @@ export function ReturnActionDialog(p: Props) {
             label={`Reason for superseding ${legacyIds.length} earlier filing${legacyIds.length === 1 ? '' : 's'} of this period (required)`}
             value={reason} onChange={setReason} />
         )}
+        {!stale && missing && <p className="text-xs text-[var(--ff-text-secondary)]" data-testid="return-action-missing">{missing}</p>}
       </Modal.Body>
       <Modal.Footer>
-        <Button variant="ghost" onClick={p.onClose}>Cancel</Button>
-        <Button variant={p.action === 'amend' ? 'danger' : 'primary'} loading={busy} disabled={!ready} onClick={() => void submit()}>
-          {blocked && p.isOwnerOrAdmin ? `Override and ${cta.toLowerCase()}` : cta}
-        </Button>
+        {stale ? (
+          <>
+            <Button variant="ghost" onClick={p.onClose}>Close</Button>
+            {p.canAmendInstead && <Button variant="secondary" onClick={p.onAmendInstead}>Amend instead</Button>}
+          </>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={p.onClose}>Cancel</Button>
+            <Button variant={p.action === 'amend' ? 'danger' : 'primary'} className={DISABLED} loading={busy}
+              disabled={busy || missing !== null} onClick={() => void submit()}>
+              {blocked && p.isOwnerOrAdmin ? `Override and ${cta.toLowerCase()}` : cta}
+            </Button>
+          </>
+        )}
       </Modal.Footer>
     </Modal>
   );

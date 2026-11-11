@@ -121,7 +121,9 @@ describeIfDb('EMP201 finalise, against real pay runs', () => {
     expect((v.figures as { runs: Row[] }).runs).toHaveLength(1);
     expect(new Date(String(v.postedThrough)).toISOString()).toBe('2026-03-31T10:00:00.000Z');
     expect(await count('vat_period_locks', c())).toBe(0);
-    expect((await post(rf.admin.token, 3)).status).toBe(409); // already finalised
+    const again = await post(rf.admin.token, 3);
+    expect(again.status).toBe(409); // already finalised
+    expect((again.body as { error: { details?: { code?: string } } }).error.details?.code).toBe('LIVE_VERSION_EXISTS');
   });
 
   it('drift: no drift at first; a changed figure, a changed plan hash and a reopened run each show', async () => {

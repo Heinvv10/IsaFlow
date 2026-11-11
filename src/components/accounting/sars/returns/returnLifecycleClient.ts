@@ -16,8 +16,13 @@ export interface ReturnVersions { versions: ReturnVersionView[]; vatReturn: VatR
 export interface ReturnRefusalInfo {
   status: number;
   message: string;
-  /** SEND_UNCERTAIN, LEGACY_SUBMISSION_EXISTS, IMPERSONATION_FORBIDDEN ..., when the server named one. */
+  /**
+   * The server's refusal code when it named one: SEND_UNCERTAIN, LEGACY_SUBMISSION_EXISTS, RATE_CHECK_FAILED,
+   * VAT_RETURN_MISMATCH, LIVE_VERSION_EXISTS, OVERLAPS_LIVE_VERSION, IMPERSONATION_FORBIDDEN.
+   */
   code: string | null;
+  /** LEGACY_SUBMISSION_EXISTS: exactly the submissions the filing must name, as the server locked them. */
+  legacySubmissionIds: string[] | null;
   /** The VAT exceptions gate's blocking counts (a 400 from finalise or file). */
   counts: VatGateCounts | null;
 }
@@ -36,7 +41,10 @@ export async function loadReturnVersions(form: ReturnForm, periodStart: string, 
 
 interface ErrorBody {
   message?: string;
-  error?: { message?: string; code?: string; details?: { code?: string; reason?: string; counts?: VatGateCounts } };
+  error?: {
+    message?: string; code?: string;
+    details?: { code?: string; reason?: string; counts?: VatGateCounts; legacySubmissionIds?: string[] };
+  };
 }
 
 export async function postReturnAction(
@@ -58,6 +66,7 @@ export async function postReturnAction(
       message: fieldErrors.length > 0 ? `${message}: ${fieldErrors.join('; ')}` : message,
       code: json?.error?.details?.code ?? json?.error?.details?.reason ?? null,
       counts: json?.error?.details?.counts ?? null,
+      legacySubmissionIds: json?.error?.details?.legacySubmissionIds ?? null,
     },
   };
 }
@@ -68,21 +77,4 @@ export async function loadMemberNames(): Promise<Map<string, string>> {
   await assertOk(res, 'Could not load the company members');
   const json = await res.json() as { data: Array<{ userId: string; name: string }> };
   return new Map(json.data.map((u) => [u.userId, u.name]));
-}
-
-/**
- * The period's submissions filed the legacy way (submitted or accepted, overlapping the period, named by no version
- * here): the ids a filing must name to supersede them (409 LEGACY_SUBMISSION_EXISTS). The server re-checks the set.
- */
-export async function loadLegacySubmissionIds(
-  form: ReturnForm, periodStart: string, periodEnd: string, versions: ReturnVersionView[],
-): Promise<string[]> {
-  const res = await apiFetch(`/api/accounting/sars/sars-submissions?type=${form}`, { credentials: 'include' });
-  await assertOk(res, 'Could not load the earlier filings for this period');
-  const json = await res.json() as { data: { items: Array<{ id: string; status: string; periodStart: string; periodEnd: string }> } };
-  const named = new Set(versions.map((v) => v.sarsSubmissionId).filter((id): id is string => id !== null));
-  return json.data.items
-    .filter((s) => (s.status === 'submitted' || s.status === 'accepted') && !named.has(s.id)
-      && s.periodStart <= periodEnd && s.periodEnd >= periodStart)
-    .map((s) => s.id);
 }

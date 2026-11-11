@@ -9,6 +9,7 @@ export function Emp201PageHeader({ canExport, onExport }: { canExport: boolean; 
         <div className="flex items-center gap-3">
           <Link
             href="/accounting/sars"
+            aria-label="Back to SARS compliance"
             className="p-2 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]"
           >
             <ChevronLeft className="h-5 w-5" />

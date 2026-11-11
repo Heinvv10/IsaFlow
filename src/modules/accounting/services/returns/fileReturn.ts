@@ -90,8 +90,8 @@ export async function markReturnFiled(
     const given = new Set(opts.correctsLegacySubmissionIds ?? []);
     if (given.size !== legacy.length || !legacy.every((l) => given.has(l.id))) {
       throw new ReturnRefusal(409,
-        `This period was already filed the legacy way: ${named}. Filing this version supersedes ALL of them: send `
-        + `correctsLegacySubmissionIds [${legacy.map((l) => l.id).join(', ')}] and a reason.`, 'LEGACY_SUBMISSION_EXISTS');
+        `This period was already filed outside the return lifecycle: ${named}. Filing this version supersedes all of `
+        + 'them: confirm and give the reason.', 'LEGACY_SUBMISSION_EXISTS', { legacySubmissionIds: legacy.map((l) => l.id) });
     }
     correction = visibleText(opts.reason ?? '', 'A reason for correcting the legacy filing');
   }

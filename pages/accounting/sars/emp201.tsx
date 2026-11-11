@@ -137,7 +137,7 @@ export default function EMP201Page() {
 
               <Emp201DirectivePayments rows={directivePayments} />
 
-              <ReturnLifecycleBar key={`${data.periodStart}:${data.periodEnd}`} form="EMP201"
+              <ReturnLifecycleBar form="EMP201"
                 periodStart={data.periodStart} periodEnd={data.periodEnd} role={companyRole} />
 
               {/* Actions */}

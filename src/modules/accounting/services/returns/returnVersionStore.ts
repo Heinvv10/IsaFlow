@@ -102,5 +102,6 @@ export async function assertNoLiveOverlap(
   const same = day(r.period_start) === periodStart && day(r.period_end) === periodEnd;
   throw new ReturnRefusal(409, same
     ? `This ${form} is already ${String(r.status)} as version ${Number(r.version_no)}. Amend it before finalising again.`
-    : `This period overlaps the ${form} already ${String(r.status)} for ${day(r.period_start)} to ${day(r.period_end)}.`);
+    : `This period overlaps the ${form} already ${String(r.status)} for ${day(r.period_start)} to ${day(r.period_end)}.`,
+  same ? 'LIVE_VERSION_EXISTS' : 'OVERLAPS_LIVE_VERSION');
 }

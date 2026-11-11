@@ -31,9 +31,13 @@ export class ReturnRefusal extends Error {
   readonly status: 400 | 403 | 404 | 409;
   /** A stable name the caller can act on (LEGACY_SUBMISSION_EXISTS), when the message alone is not enough. */
   readonly refusalCode: string | null;
-  constructor(status: 400 | 403 | 404 | 409, message: string, refusalCode: string | null = null) {
+  /** Data the caller needs to take the next step (LEGACY_SUBMISSION_EXISTS: legacySubmissionIds), sent in error.details. */
+  readonly refusalDetails: Record<string, unknown> | null;
+  constructor(status: 400 | 403 | 404 | 409, message: string, refusalCode: string | null = null,
+    refusalDetails: Record<string, unknown> | null = null) {
     super(message);
     this.refusalCode = refusalCode;
+    this.refusalDetails = refusalDetails;
     this.name = 'ReturnRefusal';
     this.status = status;
   }

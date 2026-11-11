@@ -154,7 +154,7 @@ export default function VAT201Page() {
 
               <VAT201ExceptionsPanel from={data.periodStart} to={data.periodEnd} reloadKey={exceptionsKey} onLoaded={setExceptionsReport} />
 
-              <ReturnLifecycleBar key={`${data.periodStart}:${data.periodEnd}`} form="VAT201"
+              <ReturnLifecycleBar form="VAT201"
                 periodStart={data.periodStart} periodEnd={data.periodEnd} role={companyRole} />
 
               <div className="flex items-center gap-3">
