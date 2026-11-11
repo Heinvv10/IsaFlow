@@ -91,6 +91,12 @@ describe('tenant text of any length', () => {
     expect(keptLongLines()).toBeLessThanOrEqual(32);
   });
 
+  it('keeps no text past PROSE_TEXT_CAP (it is not measured; a million characters were kept five times over)', () => {
+    const before = keptLongLines();
+    for (let i = 0; i < 5; i += 1) expect(proseLines(`${i}${'a'.repeat(PROSE_TEXT_CAP + 1)}`, PROSE.footnote, 100)).toBe(PAST_ANY_PAGE);
+    expect(keptLongLines()).toBe(before);
+  });
+
   it('is measured in full up to PROSE_TEXT_CAP, and past it charged as fitting no page', () => {
     const under = 'i '.repeat(PROSE_TEXT_CAP / 2);
     expect(under.length).toBe(PROSE_TEXT_CAP);

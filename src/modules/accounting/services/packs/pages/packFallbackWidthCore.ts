@@ -4,7 +4,7 @@
  * (`packProseFallbackData`, the regular label table) without loading every style into the editor (#1263 L2).
  * Client-safe: arithmetic and data only.
  */
-import { FALLBACK_MARKS } from './packFallbackMarkData';
+import { FALLBACK_MARKS, SCRIPT_RANGES } from './packFallbackMarkData';
 import type { FallbackTable } from './packFallbackWidthData';
 
 const BLOCK = 32;
@@ -38,31 +38,44 @@ export function fallbackAdvanceIn(table: FallbackTable, ranges: ReadonlyArray<re
   return px === 0 ? table.widest : px;
 }
 
-/** What each mark of the dictionary-broken scripts adds, measured in production's image: [in a word, elsewhere]. */
-const MARKS = new Map<number, readonly [number, number]>(FALLBACK_MARKS.map(([cp, inWord, elsewhere]) => [cp, [inWord, elsewhere]]));
-const SA_SCRIPTS = [/\p{Script=Thai}/u, /\p{Script=Lao}/u, /\p{Script=Myanmar}/u, /\p{Script=Khmer}/u, /\p{Script=Tai_Le}/u,
-  /\p{Script=New_Tai_Lue}/u, /\p{Script=Tai_Tham}/u, /\p{Script=Tai_Viet}/u, /\p{Script=Ahom}/u];
-const scriptOf = (ch: string): number => SA_SCRIPTS.findIndex((re) => re.test(ch));
+/** What each combining mark of a script the faces lack adds, measured in production's image: [in a word, elsewhere]. */
+const MARKS = new Map<number, readonly [number, number, number]>(FALLBACK_MARKS.map(([cp, inWord, elsewhere, script]) => [cp, [inWord, elsewhere, script]]));
+
+/** The script (an index into `packFallbackMarkData.SCRIPT_NAMES`) of `cp`, among those with marks; -1 for any other. */
+function scriptAt(cp: number): number {
+  let lo = 0;
+  let hi = SCRIPT_RANGES.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const [from, to, script] = SCRIPT_RANGES[mid]!;
+    if (cp < from) hi = mid - 1;
+    else if (cp > to) lo = mid + 1;
+    else return script;
+  }
+  return -1;
+}
 
 /**
  * A cluster's cost in `table` at the size it is measured at (`measuredPx`), scaled to `sizePx` and rounded up. A mark of
- * a dictionary-broken script costs what it adds in production's image (`packFallbackMarkData`), not its general
+ * a script the faces lack costs what it adds in production's image (`packFallbackMarkData`), not its general
  * category's guess or its advance alone: after a letter of its own script, what it adds in a word; after itself, what it
  * adds there; after anything else, the widest glyph (#1263 round 3: "m" or a Myanmar digit with a Myanmar vowel sign, a
- * Khmer vowel sign three times over, Lao U+0ECE).
+ * Khmer vowel sign three times over, Lao U+0ECE; and an Indic vowel sign, which alone costs half again what it adds in a
+ * word: Hindi read 16 lines to production's 11). By `marks`, which prose and the gate set: a row label holding a mark is
+ * printed to break anywhere and priced apart (`packAnywhereLabel`), and keeps the tables' reading.
  */
 export function fallbackClusterIn(
-  table: FallbackTable, ranges: ReadonlyArray<readonly [number, number]>, cluster: string, sizePx: number, measuredPx: number,
+  table: FallbackTable, ranges: ReadonlyArray<readonly [number, number]>, cluster: string, sizePx: number, measuredPx: number, marks = false,
 ): number {
   let px = 0;
   const cps = Array.from(cluster);
   // A mark is written on a letter of its own script; on anything else (a Latin letter, a digit) the print sets it on a
   // dotted circle in a face of its own, wider than any table here measures: it costs the widest fallback glyph.
-  const base = cps[0] !== undefined && /^\p{L}$/u.test(cps[0]) ? scriptOf(cps[0]) : -1;
+  const base = cps[0] !== undefined && /^\p{L}$/u.test(cps[0]) ? scriptAt(cps[0].codePointAt(0)!) : -1;
   cps.forEach((ch, i) => {
-    const mark = MARKS.get(ch.codePointAt(0)!);
+    const mark = marks ? MARKS.get(ch.codePointAt(0)!) : undefined;
     if (mark === undefined) { px += fallbackAdvanceIn(table, ranges, ch.codePointAt(0)!); return; }
-    if (i === 0 || base < 0 || base !== scriptOf(ch)) px += table.widest;
+    if (i === 0 || base < 0 || base !== mark[2]) px += table.widest;
     else px += cps[i - 1] === ch ? mark[1] : mark[0];
   });
   if (/[\uFE0F\u20E3]/u.test(cluster)) px = Math.max(px, table.emoji);

@@ -21,9 +21,10 @@ export function graphemes(text: string): Grapheme[] {
   let width = WINDOW;
   while (start < text.length) {
     let end = Math.min(text.length, start + width);
-    // Never inside a surrogate pair: half a character after the last-but-one cluster would be another character.
-    const unit = text.charCodeAt(end);
-    if (end < text.length && unit >= 0xdc00 && unit <= 0xdfff) end -= 1;
+    // Never inside a surrogate pair: half a character after the last-but-one cluster would be another character. The
+    // unit BEFORE the cut decides it (a lone low surrogate after a whole pair is a character of its own).
+    const unit = text.charCodeAt(end - 1);
+    if (end < text.length && unit >= 0xd800 && unit <= 0xdbff) end -= 1;
     const found = Array.from(SEGMENTER.segment(text.slice(start, end)), ({ segment, index }) => ({ segment, index: start + index }));
     if (end === text.length) { out.push(...found); break; }
     if (found.length < 2) { width *= 2; continue; }

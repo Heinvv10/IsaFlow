@@ -28,6 +28,6 @@ export function fallbackAdvancePx(cp: number, style: FallbackStyle): number {
 }
 
 /** A cluster's cost at the size the style is measured at (`measuredPx`), scaled to `sizePx` and rounded up. */
-export function fallbackClusterPx(cluster: string, style: FallbackStyle, sizePx: number, measuredPx: number): number {
-  return fallbackClusterIn(FALLBACK[style], EXACT_RANGES, cluster, sizePx, measuredPx);
+export function fallbackClusterPx(cluster: string, style: FallbackStyle, sizePx: number, measuredPx: number, marks = false): number {
+  return fallbackClusterIn(FALLBACK[style], EXACT_RANGES, cluster, sizePx, measuredPx, marks);
 }

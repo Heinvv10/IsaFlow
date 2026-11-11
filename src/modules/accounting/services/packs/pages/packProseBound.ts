@@ -50,7 +50,7 @@ export function boundPx(text: string, px: number): number {
     // so does the gate, which is never under the model (#1263 round 3).
     if (segment.length > SHAPED_CLUSTER) fallback += (cps.length * PROSE_FALLBACK.widest * px) / FALLBACK_MEASURED_PX;
     else if (cps.every((cp) => BOUND.has(cp))) for (const cp of cps) units += BOUND.get(cp)!;
-    else fallback += fallbackClusterIn(PROSE_FALLBACK, PROSE_FALLBACK_RANGES, segment, px, FALLBACK_MEASURED_PX);
+    else fallback += fallbackClusterIn(PROSE_FALLBACK, PROSE_FALLBACK_RANGES, segment, px, FALLBACK_MEASURED_PX, true);
   }
   return (units * px) / PROSE_ADVANCE_UNITS + fallback;
 }

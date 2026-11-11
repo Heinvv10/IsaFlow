@@ -29,7 +29,8 @@ export const PROSE_GUARD_PX = 0.5;
 export const KEPT_CHARS = 64;
 
 /**
- * Prose longer than this is not measured: it is charged PAST_ANY_PAGE lines, so the page drops it or refuses at once
+ * Prose longer than this is not measured: it is charged PAST_ANY_PAGE lines (more than any page holds, some 70; not a
+ * measure of the text, which can be longer still), so the page drops it or refuses at once
  * (#1263 round 2: a journal description of 200,000 characters held the composer for minutes). A page holds under
  * 20,000 characters even of the narrowest letter ("i i i", 7.5pt across 174mm: about 290 a line, 65 lines), so past the
  * cap only a text made mostly of characters that print nothing could fit, and it is charged as not fitting. Below the

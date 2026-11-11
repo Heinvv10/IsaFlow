@@ -61,6 +61,30 @@ describe('packGraphemes', () => {
     }
   });
 
+  it('and at every window edge: the round-3 review\'s 20,481 cases, lone surrogates included (its 7 were cut in half)', () => {
+  const units = ['\u{1F1FF}\u{1F1E6}', '\u{1F1FF}', '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}', '\u{1F44D}\u{1F3FD}', '\u0915\u094D\u0937', '\u0915\u094D\u200D\u0937',
+    '\u1100\u1161\u11A8', '\uAC00\u11A8', 'e\u0301\u0302', '\r\n', '\u0600a', '\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}', '\u{20000}', '\u{1F600}\uFE0F', '\u0E01\u0E33', '\uFF76\uFF9E', '\u{111C2}\u{11180}', '\uD800', '\uDC00', 'a\uDC00', '\u{1F1E6}\u{1F1E6}\u{1F1E6}'];
+  const fillers = ['x', '\u{1F1FF}', '\u0301', '\uAC00', '\u{20000}', '\u{1F468}\u200D', '\u1100'];
+  const wrong: string[] = [];
+  let n = 0;
+  for (const filler of fillers) for (const u of units) for (let pre = 490; pre <= 530; pre += 1) for (const wlen of [512, 1024, 2048]) {
+    let p = ''; while (p.length < pre + (wlen - 512)) p += filler;
+    p = p.slice(0, pre + (wlen - 512));
+    const t = p + u + u + 'tail' + u;
+    n += 1;
+    const g = graphemes(t); const r = reference(t);
+    if (JSON.stringify(g) !== JSON.stringify(r)) wrong.push(`${JSON.stringify(filler)} pre ${pre + wlen - 512} unit ${JSON.stringify(u)}`);
+  }
+  // random-length RI runs (parity) and long ZWJ chains
+  for (let k = 500; k < 1100; k += 1) {
+    for (const t of ['\u{1F1FF}'.repeat(k), 'a' + '\u{1F1FF}'.repeat(k), '\u{1F468}\u200D'.repeat(k) + '\u{1F468}', 'x'.repeat(k) + '\u{1F468}\u200D'.repeat(300)]) {
+      n += 1;
+      if (JSON.stringify(graphemes(t)) !== JSON.stringify(reference(t))) wrong.push(`k ${k} ${JSON.stringify(t.slice(0, 4))}`);
+    }
+  }
+    expect(wrong.slice(0, 10), `${wrong.length} of ${n}`).toEqual([]);
+  }, 600_000);
+
   it('segments every run the round-2 reviews timed, at 64,000 to 128,000 characters, each in well under a second', () => {
     for (const [unit, n] of [['\u{1F1FF}', 128_000], ['\u{20000}', 128_000], ['\u{1F44D}\u{1F3FD}', 64_000], ['\uAC01', 128_000], ['\uAC00', 128_000],
       ['\u{1F600}', 64_000], ['a\u0301', 64_000], ['\u3000', 128_000], ['\u0915\u094D', 64_000]] as const) {

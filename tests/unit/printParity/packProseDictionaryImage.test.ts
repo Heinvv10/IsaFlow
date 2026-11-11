@@ -19,7 +19,7 @@ import { MAX_APPROVED_PACK_EMS, commentaryCost } from '@/modules/accounting/serv
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { graphemes } from '@/modules/accounting/services/packs/pages/packGraphemes';
 import { PROSE } from '@/modules/accounting/services/packs/pages/packProseStyles';
-import { FALLBACK_MARKS } from '@/modules/accounting/services/packs/pages/packFallbackMarkData';
+import { FALLBACK_MARKS, SCRIPT_BASES } from '@/modules/accounting/services/packs/pages/packFallbackMarkData';
 import { GUTTER_MM, PAGE_WIDTH_MM, PRINT_CONTENT_HEIGHT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { denseInput } from '../services/packs/fixtures/boardPackInputs';
 import * as F from '../services/packs/fixtures/liveDemoBoardPack';
@@ -31,7 +31,6 @@ const PATTERNS = [...DICTIONARY_PATTERNS, ...ROUND3_PATTERNS];
 import { startGotenberg, type Gotenberg } from './gotenbergParity';
 import { inImage } from './inImage';
 import { paritySkip } from './paritySkip';
-import { markBase } from './saMarks';
 import { inBlock, inMattersCell, shortCells, type Cell } from './proseCells';
 
 const W = PAGE_WIDTH_MM.portrait;
@@ -95,10 +94,10 @@ describe.skipIf(unavailable !== null)(`dictionary-broken scripts in production's
     expect(short.slice(0, 20), `${short.length} of ${cells.length} cells read short`).toEqual([]);
   }, 1_800_000);
 
-  it('every mark of the SA scripts, after a letter of its own, after itself and after a Latin letter: no cell short', async () => {
-    const cells: Cell[] = FALLBACK_MARKS.flatMap(([cp]) => {
+  it('every mark the table prices, of every script, after a letter of its own, after itself and after a Latin letter: no cell short', async () => {
+    const cells: Cell[] = FALLBACK_MARKS.flatMap(([cp, , , script]) => {
       const mark = String.fromCodePoint(cp);
-      const base = markBase(mark)!;
+      const base = String.fromCodePoint(SCRIPT_BASES[script]!);
       return [`${base}${mark}`, `${base}${mark}${mark}`, `m${mark}`].flatMap((unit) => {
         const t = unit.repeat(120);
         return [inBlock('pack-narrative-body')(t, PROSE.narrativeBody, 110.7), inBlock('pack-disclosure-body', 'p')(t, PROSE.disclosureBody, 60)];

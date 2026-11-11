@@ -21,7 +21,7 @@
 import { textExactPx } from './packFigureWidth';
 import { FALLBACK } from './packFallbackWidthData';
 import { graphemes } from './packGraphemes';
-import { KEPT_CHARS, proseFill, SHAPED_CLUSTER, type ProseSegment } from './packProseFill';
+import { KEPT_CHARS, PROSE_TEXT_CAP, proseFill, SHAPED_CLUSTER, type ProseSegment } from './packProseFill';
 import type { ProseStyle, ProseWeight } from './packProseStyles';
 
 export { PROSE_GUARD_PX, type ProseSegment } from './packProseFill';
@@ -45,14 +45,14 @@ const FALLBACK_MEASURED_PX = 12;
 
 /** `textExactPx`, with each cluster longer than SHAPED_CLUSTER charged at the widest fallback glyph a code point. */
 function rulerPx(text: string, px: number, weight: ProseWeight, hyphen: boolean): number {
-  if (text.length <= SHAPED_CLUSTER) return textExactPx(text, px, weight, hyphen);
+  if (text.length <= SHAPED_CLUSTER) return textExactPx(text, px, weight, hyphen, true);
   let shaped = '';
   let long = 0;
   for (const { segment } of graphemes(text)) {
     if (segment.length > SHAPED_CLUSTER) long += Array.from(segment).length; else shaped += segment;
   }
-  if (long === 0) return textExactPx(text, px, weight, hyphen);
-  return textExactPx(shaped, px, weight, hyphen) + (long * FALLBACK[FALLBACK_STYLE[weight]].widest * px) / FALLBACK_MEASURED_PX;
+  if (long === 0) return textExactPx(text, px, weight, hyphen, true);
+  return textExactPx(shaped, px, weight, hyphen, true) + (long * FALLBACK[FALLBACK_STYLE[weight]].widest * px) / FALLBACK_MEASURED_PX;
 }
 
 function exactPx(text: string, px: number, weight: ProseWeight, hyphen: boolean): number {
@@ -69,7 +69,8 @@ function exactPx(text: string, px: number, weight: ProseWeight, hyphen: boolean)
 
 /**
  * The lines of the last few LONG texts, kept: a fit tries a page again and again, and a long tenant text (a journal's
- * description) is measured anew each time. Bounded in entries, and each under `PROSE_TEXT_CAP`, so in bytes too.
+ * description) is measured anew each time. Bounded in entries, and only a text within `PROSE_TEXT_CAP` is kept (one past
+ * it is not measured at all), so in bytes too: at most LONG_KEPT x PROSE_TEXT_CAP characters.
  */
 const LONG_LINES = new Map<string, number>();
 const LONG_KEPT = 32;
@@ -80,7 +81,7 @@ export const keptLongLines = (): number => LONG_LINES.size;
 
 /** The lines `text` (or its segments) takes set in `style`, `widthMm` wide. */
 export function proseLines(text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): number {
-  if (typeof text !== 'string' || text.length <= LONG_TEXT) return proseFill(text, style, widthMm, exactPx);
+  if (typeof text !== 'string' || text.length <= LONG_TEXT || text.length > PROSE_TEXT_CAP) return proseFill(text, style, widthMm, exactPx);
   const key = `${style.pt}|${style.weight}|${widthMm}|${text}`;
   let lines = LONG_LINES.get(key);
   if (lines === undefined) {
