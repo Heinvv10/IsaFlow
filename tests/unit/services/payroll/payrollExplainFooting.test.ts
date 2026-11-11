@@ -86,6 +86,15 @@ describe('the lines the review named', () => {
     expectRecomputes(l);
   });
 
+  it('the cap to date binds what comes off the bonus: R5 000 salary, R2 000 000 bonus, R100 000 RA, first month', () => {
+    const l = calculatePayrollLine(mk({ dob: '1990-01-01', components: [earning('3601', 5000), earning('3605', 2_000_000), deduction('4006', 100_000)] }));
+    const m = stepsByKey(l.explanations.paye);
+    const capLeft = m.get('paye.offAnnual.capLeft')!.amount!;
+    expect(capLeft).toBeCloseTo(430_000 / 12 - 5000, 6); // the 2026/27 cap for one period, less the R5 000 off periodic pay
+    expect(-m.get('paye.offAnnual')!.amount!).toBeCloseTo(capLeft, 6);
+    expectRecomputes(l);
+  });
+
   it('a donation beside a bonus: the donation shown is the one allowed (no more than periodic pay), and the bonus foots', () => {
     const l = calculatePayrollLine(mk({ dob: '1990-01-01', receipt: true, components: [earning('3601', 2000), earning('3605', 100000), deduction('4030', 4000)] }));
     expect(amountOf(l, 'paye.donation')).toBe(-l.donationDeduction);
