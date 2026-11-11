@@ -95,7 +95,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         + 'was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
     });
   }
-  const { donation, regularTaxable, annualTaxable, regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit, retirementDeduction, trace } = costPayeWithDonations({
+  const { donation, regularTaxable, annualTaxable, regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit, retirementDeduction, trace, donationOffAnnual } = costPayeWithDonations({
     periodicTaxable, annualPayments, donations,
     receiptHeld: employee.s18aReceiptHeld === true,
     payeInput: {
@@ -109,8 +109,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // Taxable remuneration BEFORE the retirement fund deduction, which is its own figure (retirementDeduction): a
   // line's record can exceed its pay (a catch-up contribution), and taxable_income must not go negative.
   const taxableIncome = regularTaxable + annualTaxable;
+  const balanceOfRemuneration = taxableIncome - retirementDeduction;
   // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
-  const treated = payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, taxableIncome - retirementDeduction);
+  const treated = payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, balanceOfRemuneration);
   const payeSplit = { regular: treated.regular, annualPayment: treated.annualPayment, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
   if (treatment.paye !== 'tables') warnings.push(...outsideTablesResult(treatment.paye));
@@ -207,8 +208,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const explanations = explainPayrollLine({
     taxYear, periodDate,
     paye: {
-      treatment: treatment.paye, classification, periodicBeforeDonation: periodicTaxable, donationDeduction: donation.deduction,
-      trace, balanceOfRemuneration: taxableIncome - retirementDeduction, split: payeSplit, paye: paye.monthlyPaye,
+      treatment: treatment.paye, classification, periodicBeforeDonation: periodicTaxable, annualBeforeDonation: annualPayments,
+      donationDeduction: donation.deduction, donationOffAnnual,
+      trace, retirementRecorded: retirementDeduction, balanceOfRemuneration, split: payeSplit, paye: paye.monthlyPaye,
     },
     uif: {
       uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable,
@@ -220,7 +222,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       charge: annualPayrollEstimate === 'defer' ? 'deferred'
         : { annualRemuneration: annualPayrollEstimate, exempt: isSdlExempt(annualPayrollEstimate, taxYear), sdl },
     },
-    eti: { eti, remuneration: allEarnings },
+    eti: { eti },
   });
 
   return {

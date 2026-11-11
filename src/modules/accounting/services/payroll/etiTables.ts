@@ -100,21 +100,23 @@ export function selectEtiTable(periodDate: Date): EtiTable {
   return idx < APRIL_2025 ? ETI_FROM_MARCH_2022 : ETI_FROM_APRIL_2025;
 }
 
+/** Which row of the table a remuneration falls in (each row's first-year formula is in the header). */
+export type EtiBand = 'low' | 'flat' | 'taper' | 'nil';
+
+/** The table row and its first-year amount, unrounded: what etiForRemuneration applies (exposed for the explanation). */
+export function etiBandOf(remuneration: number, table: EtiTable): { band: EtiBand; yearOne: number } {
+  if (remuneration >= table.wageCeiling) return { band: 'nil', yearOne: 0 };
+  if (remuneration < table.lowBandCeiling) return { band: 'low', yearOne: table.lowBandRate * remuneration };
+  if (remuneration < table.taperStart) return { band: 'flat', yearOne: table.maxMonthlyEti };
+  return { band: 'taper', yearOne: table.maxMonthlyEti - table.taperRate * (remuneration - table.taperStart) };
+}
+
 /** Monthly incentive for an eligible employee; unrounded. */
 export function etiForRemuneration(
   remuneration: number,
   employmentYear: 1 | 2,
   table: EtiTable,
 ): number {
-  let yearOne: number;
-  if (remuneration >= table.wageCeiling) {
-    yearOne = 0;
-  } else if (remuneration < table.lowBandCeiling) {
-    yearOne = table.lowBandRate * remuneration;
-  } else if (remuneration < table.taperStart) {
-    yearOne = table.maxMonthlyEti;
-  } else {
-    yearOne = table.maxMonthlyEti - table.taperRate * (remuneration - table.taperStart);
-  }
+  const { yearOne } = etiBandOf(remuneration, table);
   return Math.max(0, employmentYear === 1 ? yearOne : yearOne / 2);
 }

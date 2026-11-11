@@ -33,8 +33,25 @@ export interface ExplainStep {
   source?: ExplainSource;
   /** 'unverified': the rule has no SARS source confirmed; the figure carries a caution. */
   status?: 'verified' | 'unverified';
+  /** The amount is the sum of the children's (deductions are negative); a "Not below nil" child shows a floor. */
+  total?: true;
   children?: ExplainStep[];
 }
+
+/**
+ * A step that is the sum of its parts. Where the engine floored that sum at nil, the parts add to less than the amount
+ * and a "Not below nil" part says by how much, so every total foots on screen (payrollExplainFooting.test.ts).
+ */
+export function footed(step: Omit<ExplainStep, 'children' | 'total'>, parts: ExplainStep[]): ExplainStep {
+  const sum = parts.reduce((s, c) => s + (c.amount ?? 0), 0);
+  const floor = (step.amount ?? 0) - sum;
+  // Half a cent and less is the engine rounding a total to the cent (stated in the step's formula), not a floor.
+  const children = Math.abs(floor) > 0.005 + 1e-9 ? [...parts, { key: `${step.key}.floor`, label: 'Not below nil', amount: floor }] : parts;
+  return { ...step, total: true, children };
+}
+
+/** A rate as people read it: 0.275 → "27.5%". */
+export const pct = (rate: number): string => `${Math.round(rate * 100_000) / 1000}%`;
 
 export interface FigureExplanation {
   figure: ExplainedFigure;
@@ -75,9 +92,9 @@ export const SOURCES = {
   nonStandard: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 28, non-standard employment', href: G21 },
   contractor: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 26, independent contractors', href: G21 },
   directive: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 26, tax directives', href: G21 },
-  uif: { label: 'SARS Unemployment Insurance Fund (1% each, ceiling R17 712 a month)', href: 'https://www.sars.gov.za/types-of-tax/unemployment-insurance-fund/' },
+  uif: { label: 'SARS Unemployment Insurance Fund (contribution rate and monthly ceiling)', href: 'https://www.sars.gov.za/types-of-tax/unemployment-insurance-fund/' },
   sdl: { label: 'SDL Act s3(3); SARS SDL-GEN-01-G01 Rev 5 s6, leviable amount after para 2(4) deductions' },
-  sdlThreshold: { label: 'SDL Act s4(b): exempt at or under R500 000 a year', href: 'https://www.sars.gov.za/types-of-tax/skills-development-levy/' },
+  sdlThreshold: { label: 'SDL Act s4(b): an employer at or under the annual threshold is exempt', href: 'https://www.sars.gov.za/types-of-tax/skills-development-levy/' },
   eti: {
     label: 'SARS Guide to the Employment Tax Incentive, Issue 5, §2.4; SARS ETI "How much is the incentive"',
     href: 'https://www.sars.gov.za/wp-content/uploads/Ops/Guides/LAPD-ETI-G01-Guide-to-the-Employment-Tax-Incentive.pdf',

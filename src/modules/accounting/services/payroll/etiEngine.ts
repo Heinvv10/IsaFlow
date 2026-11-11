@@ -1,5 +1,6 @@
 import {
   ETI_AFTER_MARCH_2026_POLICY,
+  etiBandOf,
   etiForRemuneration,
   isEtiTableUnconfirmed,
   selectEtiTable,
@@ -105,6 +106,8 @@ export function calculateEti(
     monthsEmployed,
     employmentYear,
     monthlyEti: Math.round(monthlyEti * 100) / 100,
+    // EX-core: the table and the remuneration the figure was taken on, for the explanation (never recomputed there).
+    applied: { table, remuneration: input.monthlyRemuneration, ...etiBandOf(input.monthlyRemuneration, table) },
   };
 }
 

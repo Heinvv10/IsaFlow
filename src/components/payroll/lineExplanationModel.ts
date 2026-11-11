@@ -12,11 +12,16 @@ export const FIGURE_NAME: Record<ExplainedFigure, string> = { paye: 'PAYE', uif:
 
 export const RECALCULATE_TO_EXPLAIN = 'Recalculate the run to see how this was calculated.';
 
-export function notRecordedMessage(final: boolean, recordedFrom: string | null): string {
+/**
+ * A line with no stored explanation. Draft: recalculating records one. Final: costed before this company's lines began
+ * to carry explanations ("before <date>"), or, costed after that by code that did not record one (a rollback), the
+ * date it was costed; with no recorded line at all, said without a date.
+ */
+export function notRecordedMessage(final: boolean, recordedFrom: string | null, costedAt: string | null = null): string {
   if (!final) return RECALCULATE_TO_EXPLAIN;
-  return recordedFrom
-    ? `Not recorded for runs costed before ${formatDate(recordedFrom)}.`
-    : 'Not recorded for runs costed before explanations were kept.';
+  if (recordedFrom && (!costedAt || costedAt < recordedFrom)) return `Not recorded for runs costed before ${formatDate(recordedFrom)}.`;
+  if (recordedFrom && costedAt) return `Not recorded: this run was costed on ${formatDate(costedAt)} by a version of IsaFlow that did not keep explanations.`;
+  return 'Not recorded for runs costed before explanations were kept.';
 }
 
 function valueOf(step: ExplainStep): string {
@@ -50,5 +55,5 @@ export function figureToExplanation(fig: FigureExplanation, who: string): Explan
 /** What the drawer shows for an answer from GET /api/payroll/runs/[id]/explanation. */
 export function readToExplanation(read: LineExplanationRead, figure: ExplainedFigure, who: string): Explanation {
   if (read.state === 'recorded') return figureToExplanation(read.explanations[figure], who);
-  return { title: `How ${FIGURE_NAME[figure]} was calculated for ${who}`, lines: [], caution: notRecordedMessage(read.final, read.recordedFrom) };
+  return { title: `How ${FIGURE_NAME[figure]} was calculated for ${who}`, lines: [], caution: notRecordedMessage(read.final, read.recordedFrom, read.costedAt) };
 }

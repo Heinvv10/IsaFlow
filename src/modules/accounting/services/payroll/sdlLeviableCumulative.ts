@@ -49,22 +49,13 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 const ytdHasEarlierLine = (ytd: PayeYearToDate): boolean =>
   ytd.periods > 0 || (ytd.retirementCapPeriods ?? 0) > 0 || ytd.periodicTaxable !== 0 || ytd.annualPayments !== 0;
 
-/** The steps of sdlLeviableToDate, for the explanation (payrollExplain), which never recomputes them. */
+/** The steps of the leviable amount (`leviable` is the line's), for the explanation (payrollExplain), which never recomputes them. */
 export interface SdlLeviableTrace {
   /** Liable SDL-applicable pay to date (this line's included) and the deduction to date. */
   payToDate: number; deductionToDate: number;
   ytdSdlApplicable: number; ytdSdlRetirementDeduction: number;
   /** clamp(pay - deduction, 0, pay); what earlier liable lines carried; this line's rise, rounded. */
   leviableToDate: number; carried: number; leviable: number;
-}
-
-export function sdlLeviableToDate(
-  employeeId: string,
-  sdlApplicable: number,
-  retirementDeduction: number,
-  ytd: PayeYearToDate | undefined,
-): number {
-  return sdlLeviableTrace(employeeId, sdlApplicable, retirementDeduction, ytd).leviable;
 }
 
 export function sdlLeviableTrace(

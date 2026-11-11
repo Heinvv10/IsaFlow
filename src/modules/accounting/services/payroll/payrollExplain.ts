@@ -21,7 +21,7 @@ export interface LineExplainParts {
     outsideReason: string | null; sdlApplicable: number; deduction: number; retirementDeduction: number; donationDeduction: number;
     trace: SdlLeviableTrace | null; charge: { annualRemuneration: number; exempt: boolean; sdl: number } | 'deferred';
   };
-  eti: { eti: EtiResult; remuneration: number };
+  eti: { eti: EtiResult };
 }
 
 export function explainPayrollLine(parts: LineExplainParts): LineExplanations {

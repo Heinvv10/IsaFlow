@@ -45,11 +45,15 @@ function computeAnnualMedicalCredits(
  * G21 2027 p. 10 only says the credit "must be taken into account to calculate
  * monthly PAYE"; the guide is where the formula is. Hein 2026-10-23.
  */
+/** s6B(3)(a)(i): 33,3% of the fees in excess of three times the MTC. */
+export const ADDITIONAL_MEDICAL_RATE = 0.333;
+export const ADDITIONAL_MEDICAL_MTC_MULTIPLE = 3;
+
 function computeAdditionalMedicalCredit(age: number, monthlyBeneficiaries: number, annualFees: number, medicalCredits: number): number {
   // No scheme membership on the employee (no MTC): 4005 fees with no member to pay them for are a data
   // error, and "fees as exceeds three times the MTC" would otherwise be a third of all of them.
   if (age < 65 || monthlyBeneficiaries <= 0 || annualFees <= 0) return 0;
-  return 0.333 * Math.max(0, annualFees - 3 * medicalCredits);
+  return ADDITIONAL_MEDICAL_RATE * Math.max(0, annualFees - ADDITIONAL_MEDICAL_MTC_MULTIPLE * medicalCredits);
 }
 
 /**
