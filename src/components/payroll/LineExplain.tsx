@@ -6,10 +6,12 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { Info } from 'lucide-react';
 import { ExplainDrawer, type Explanation } from '@/components/ui/ExplainDrawer';
-import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
+import { apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { ExplainedFigure } from '@/modules/accounting/services/payroll/payrollExplainTypes';
 import { FIGURE_NAME, readToExplanation } from './lineExplanationModel';
+
+export const EXPLANATION_LOAD_FAILED = 'Couldn\'t load the explanation. Try again; if it keeps failing, tell your administrator.';
 
 export interface ExplainTarget {
   runId: string;
@@ -43,8 +45,9 @@ export function useLineExplain(): { openExplain: (target: ExplainTarget) => void
           { cache: 'no-store' }, 'Could not load how this was calculated - try again');
         if (request.current === mine) setShown(readToExplanation(read, t.figure, t.employeeName));
       } catch (err) {
-        log.warn('Line explanation load failed', { runId: t.runId, err }, 'LineExplain');
-        if (request.current === mine) setShown({ title, lines: [], caution: apiErrorMessage(err, 'Could not load how this was calculated - try again') });
+        // The detail (a status, a server message, possibly SQL) goes to the log; the person gets one plain sentence.
+        log.warn('Line explanation load failed', { runId: t.runId, figure: t.figure, err }, 'LineExplain');
+        if (request.current === mine) setShown({ title, lines: [], caution: EXPLANATION_LOAD_FAILED });
       }
     })();
   }, []);

@@ -19,6 +19,7 @@ vi.mock('next/router', () => ({ useRouter: () => ({ isReady: true, query: { id: 
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'admin' }) }));
 
 import PayrollRunDetailPage from '@/../pages/payroll/runs/[id]';
+import { EXPLANATION_LOAD_FAILED } from '@/components/payroll/LineExplain';
 
 const EXPLAIN_URL = (employeeId: string) => `/api/payroll/runs/${RUN_ID}/explanation?employeeId=${employeeId}`;
 const explanations = calculatePayrollLine({ ...buildCaseInput(loadCases().find(c => c.id === 'sage-2027-03-kesh-bonus-40000')!) }).explanations;
@@ -99,10 +100,14 @@ describe('the run table', () => {
     expect((await within(drawer).findByRole('note')).textContent).toBe('Recalculate the run to see how this was calculated.');
   });
 
-  it('a refusal shows the server\'s message, not an empty drawer', async () => {
-    serveRun(approved(), () => fail(404, 'Pay run line not found'));
+  it.each([
+    ['a 500 carrying a raw SQL error', () => fail(500, 'column l.explanation does not exist')],
+    ['a 404', () => fail(404, 'Pay run line not found')],
+  ])('%s: a plain "Couldn\'t load the explanation", never the server\'s text', async (_name, answer) => {
+    serveRun(approved(), answer);
     const drawer = await openFrom('Riaan Smit', 'PAYE');
-    await waitFor(() => expect(within(drawer).getByRole('note').textContent).toMatch(/not found/i));
+    await waitFor(() => expect(within(drawer).getByRole('note').textContent).toBe(EXPLANATION_LOAD_FAILED));
+    expect(drawer.textContent).not.toMatch(/column|does not exist|not found/i);
   });
 });
 
