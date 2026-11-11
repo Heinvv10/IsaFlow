@@ -86,6 +86,34 @@ describe('the lines the review named', () => {
     expectRecomputes(l);
   });
 
+  it('the reviewer\'s line: R2 000 salary, R300 000 bonus, R100 000 RA (Feb 2027): the step shows the lesser of the allowed R89 100 and the AE', () => {
+    const l = calculatePayrollLine(mk({ dob: '1990-01-01', month: 2, components: [earning('3601', 2000), earning('3605', 300_000), deduction('4006', 100_000)] }));
+    const m = stepsByKey(l.explanations.paye);
+    expect(m.get('paye.retirement.allowed')!.amount).toBeCloseTo(89_100, 6); // 27.5% of (24 000 + 300 000)
+    expect(m.get('paye.retirement.rateLimit')!.amount).toBeCloseTo(89_100, 6);
+    expect(m.get('paye.retirement')!.amount).toBeCloseTo(24_000, 6); // the annual equivalent binds
+    expect(m.get('paye.retirement.ceiling')!.amount).toBeCloseTo(24_000, 6);
+    expectRecomputes(l);
+  });
+
+  it('a bonus-only month does not count as a period paid, and says so', () => {
+    const l = calculatePayrollLine(mk({ dob: '1990-01-01', components: [earning('3605', 50_000)] }, {
+      periods: 2, retirementCapPeriods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 6_000, medicalCredit: 0,
+      additionalMedicalCredit: 0, medicalSchemeFees: 0, sdlApplicable: 40_000, sdlLeviable: 40_000, sdlRetirementDeduction: 0,
+    }));
+    const periods = stepsByKey(l.explanations.paye).get('paye.periods')!;
+    expect([periods.amount, periods.label]).toEqual([2, 'Periods paid (this period has no periodic pay, so it does not count)']);
+    expectRecomputes(l);
+  });
+
+  it('taxable periodic pay lists each taxable earning, non-cash marked, and a clawback', () => {
+    const l = calculatePayrollLine(mk({ dob: '1990-01-01', components: [earning('3601', 20_000), earning('3606', 1_500), earning('3605', -2_000), { ...earning('3713', 900), taxable: false }] }));
+    const m = stepsByKey(l.explanations.paye);
+    const parts = m.get('paye.periodicBeforeDonation')!.children!.map(c => [c.label, c.amount]);
+    expect(parts).toEqual([['3601 (3601)', 20_000], ['3606 (3606)', 1_500], ['Less a negative annual payment (a bonus clawback)', -2_000]]);
+    expectRecomputes(l);
+  });
+
   it('the cap to date binds what comes off the bonus: R5 000 salary, R2 000 000 bonus, R100 000 RA, first month', () => {
     const l = calculatePayrollLine(mk({ dob: '1990-01-01', components: [earning('3601', 5000), earning('3605', 2_000_000), deduction('4006', 100_000)] }));
     const m = stepsByKey(l.explanations.paye);

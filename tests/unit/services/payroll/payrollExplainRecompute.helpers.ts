@@ -58,10 +58,12 @@ function recomputePaye(fig: FigureExplanation): number {
     expect(r.amt('paye.annualEquivalent')).toBeCloseTo(ae, 6);
     let off = 0;
     if (r.has('paye.retirement')) {
-      const allowed = Math.max(0, Math.min(r.amt('paye.retirement.annualised'), r.amt('paye.retirement.rate') * r.amt('paye.retirement.base'), r.amt('paye.retirement.cap')));
+      const share = r.amt('paye.retirement.rate') * Math.max(0, r.amt('paye.retirement.base'));
+      expect(r.amt('paye.retirement.rateLimit')).toBeCloseTo(share, 6);
+      const allowed = Math.max(0, Math.min(r.amt('paye.retirement.annualised'), share, r.amt('paye.retirement.cap')));
       expect(r.amt('paye.retirement.allowed')).toBeCloseTo(allowed, 6);
       off = r.amt('paye.retirement');
-      expect(off).toBeLessThanOrEqual(allowed + 1e-9);
+      expect(off).toBeCloseTo(Math.min(allowed, r.amt('paye.retirement.ceiling')), 6);
     }
     const taxedAE = Math.max(0, ae - off);
     expect(r.amt('paye.taxedAnnualEquivalent')).toBeCloseTo(taxedAE, 6);
@@ -70,6 +72,9 @@ function recomputePaye(fig: FigureExplanation): number {
     let taxAll = taxAE;
     let taxEarlier = taxAE;
     if (r.has('paye.offAnnual')) {
+      const capToDate = (r.amt('paye.retirement.cap') * r.amt('paye.offAnnual.capPeriods')) / 12;
+      expect(r.amt('paye.offAnnual.capToDate')).toBeCloseTo(capToDate, 6);
+      expect(r.amt('paye.offAnnual.capLeft')).toBeCloseTo(capToDate - r.amt('paye.offAnnual.offPeriodicToDate'), 6);
       const limits = ['deductionLeft', 'annualPayments', 'contributionsLeft', 'capLeft'].map(k => r.amt(`paye.offAnnual.${k}`));
       expect(-r.amt('paye.offAnnual')).toBeCloseTo(Math.max(0, Math.min(...limits)), 6);
     }

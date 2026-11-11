@@ -17,6 +17,8 @@ export interface ComponentAccumulation {
   loanInstalments: number;
   retirementContributions: number;
   donations: number;
+  /** The taxable periodic earnings periodicTaxable adds up (name, code, amount, non-cash), for the explanation. */
+  periodicParts: Array<{ name: string; code: string; amount: number; isNonCash: boolean }>;
   breakdown: ComponentBreakdownItem[];
   warnings: ValidationResult[];
 }
@@ -49,6 +51,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
 
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
+  const periodicParts: ComponentAccumulation['periodicParts'] = [];
 
   for (const { component, amount, isNonCash, directive, quantity, quantityUnit } of components) {
     // Only a retirement contribution can be paid outside payroll (CHECK on payroll_components, migration 948).
@@ -96,6 +99,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
         annualPayments += amount;
       } else {
         periodicTaxable += amount;
+        periodicParts.push({ name: component.name, code: component.sarsSourceCode, amount, isNonCash: isNonCash === true });
       }
     } else if (component.componentType === 'deduction') {
       // Paid by the employee to the fund directly: off the tax, not off the pay (nor the 2175 journal line).
@@ -120,6 +124,6 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
 
   return {
     grossPay, allEarnings, periodicTaxable, annualPayments, directivePaye, uifLeviable, sdlLeviable,
-    totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings,
+    totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, periodicParts, breakdown, warnings,
   };
 }

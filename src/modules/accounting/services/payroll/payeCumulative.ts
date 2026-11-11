@@ -112,7 +112,7 @@
  */
 
 import { annualTaxAfterCredits, calculatePAYE, type AnnualTaxAfterCredits } from './payeEngine';
-import { allowedRetirementDeduction } from './retirementFund';
+import { retirementDeductionLimits } from './retirementFund';
 import { getTaxYearConfig } from './taxTables';
 import type { PayeResult, PayeYearToDate } from './payrollTypes';
 
@@ -164,7 +164,12 @@ export interface CumulativePayeTrace {
   periods: number; ytdPeriodicTaxable: number; regularTaxable: number; periodicToDate: number; annualEquivalent: number;
   contributionsToDate: number; donationsToDate: number; annualisedContributions: number; deductionBase: number;
   /** The s11F deduction on annual figures, the part off the annual equivalent, and the part off the annual payments. */
-  annualDeduction: number; offPeriodic: number; offAnnual: number; donationSpill: number;
+  /** 27.5% × deductionBase (one of the three limits); the deduction allowed a year; and what can come off the annual
+   *  equivalent (it, plus periodic donations a year): offPeriodic is the lesser of the last two. */
+  shareOfRemuneration: number; annualDeduction: number; offPeriodicCeiling: number;
+  offPeriodic: number; offAnnual: number; donationSpill: number;
+  /** This period has periodic pay (it counts in n); the periods the cap to date is for; the cap to date; the deduction off periodic pay to date. */
+  hasPeriodic: boolean; capPeriods: number; capToDate: number; deductionOffPeriodicToDate: number;
   /** offAnnual is the least of these (never below nil): the deduction left, the annual payments, contributions and the cap to date, each less the part off periodic pay to date. */
   offAnnualLimits: { deductionLeft: number; annualPayments: number; contributionsLeft: number; capLeft: number };
   taxedAnnualEquivalent: number; annualBefore: number; annualNow: number; annualAll: number; annualEarlier: number;
@@ -201,7 +206,8 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const donations = Math.max(0, (ytd.donations ?? 0) + (input.donations ?? 0));
   const annualisedContributions = annualise(contributions);
   const deductionBase = annualEquivalent + annualise(donations) + annualBefore + annualNow;
-  const deduction = allowedRetirementDeduction(annualisedContributions, deductionBase, input.taxYear);
+  const limits = retirementDeductionLimits(annualisedContributions, deductionBase, input.taxYear);
+  const deduction = limits.allowed;
   // The part off the annual equivalent is weighted n ÷ 12; the rest comes off the annual payments in full, but
   // never past what was contributed to date (review #891: an unlimited excess deducted more than was paid), nor
   // past the cap × n ÷ 12, "at any time during the year" (G21 (2027) p. 10; review #891 round 2). A period paid
@@ -210,7 +216,9 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // periodic pay to come off than the deduction took, and that part comes off the annual payments (donationSpill).
   // Only donations under the s18A rule (migration 959), which come off periodic pay; an older line's may not have.
   const periodicDonations = Math.max(0, (ytd.donationDeduction ?? 0) + (input.donations ?? 0));
-  const offPeriodic = Math.min(deduction, annualEquivalent + (periods > 0 ? annualise(periodicDonations) : 0));
+  // What can come off the annual equivalent: itself, plus the periodic donations a year the deduction's base added back.
+  const offPeriodicCeiling = annualEquivalent + (periods > 0 ? annualise(periodicDonations) : 0);
+  const offPeriodic = Math.min(deduction, offPeriodicCeiling);
   const periodicToDate = (offPeriodic * periods) / PERIODS_IN_YEAR;
   const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
     + (hasPeriodic || input.annualPaymentRemuneration > 0 ? 1 : 0);
@@ -233,8 +241,9 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const traceOf = (paid: boolean, liability: number, due: number, annualDue: number): CumulativePayeTrace => ({
     paid, periods, ytdPeriodicTaxable: ytd.periodicTaxable, regularTaxable: Math.max(0, input.regularTaxable),
     periodicToDate: periodic, annualEquivalent, contributionsToDate: contributions, donationsToDate: donations,
-    annualisedContributions, deductionBase, annualDeduction: deduction, offPeriodic, offAnnual, donationSpill,
-    offAnnualLimits, taxedAnnualEquivalent: taxedAE,
+    annualisedContributions, deductionBase, shareOfRemuneration: limits.shareOfRemuneration, annualDeduction: deduction, offPeriodicCeiling,
+    offPeriodic, offAnnual, donationSpill, offAnnualLimits, hasPeriodic, capPeriods: Math.max(capPeriods, 1), capToDate, deductionOffPeriodicToDate: periodicToDate,
+    taxedAnnualEquivalent: taxedAE,
     annualBefore, annualNow, annualAll, annualEarlier, atAE, atAll, atEarlier, liability, ytdTablePaye: ytd.tablePaye, due, annualDue,
   });
   const toDate = (used: (c: typeof atAE) => number) =>

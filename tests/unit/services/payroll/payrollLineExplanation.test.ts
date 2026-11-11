@@ -52,6 +52,7 @@ describe('getLineExplanation', () => {
     await expect(getLineExplanation(C, R, E)).rejects.toBeInstanceOf(LineExplanationNotFound);
     expect(st.queries).toHaveLength(1);
     expect(st.queries[0]).toContain("h.status <> 'cancelled'");
+    expect(st.queries[0]).toContain('h.company_id = ?::uuid');
   });
 
   it('a recorded line is returned in one query; approved and paid are final, a calculated run is not', async () => {
@@ -69,6 +70,10 @@ describe('getLineExplanation', () => {
     expect(await getLineExplanation(C, R, E)).toEqual({
       state: 'not_recorded', final: true, costedAt: COSTED.toISOString(), recordedFrom: '2026-11-12T06:00:00.000Z',
     });
+    // Both reads are this company's: the line by its header, the first recorded line likewise.
+    expect(st.queries).toHaveLength(2);
+    for (const q of st.queries) expect(q).toContain('h.company_id = ?::uuid');
+    expect(st.queries[1]).toContain('l.explanation IS NOT NULL');
   });
 
   it('no line of the company has one yet: recordedFrom is null', async () => {

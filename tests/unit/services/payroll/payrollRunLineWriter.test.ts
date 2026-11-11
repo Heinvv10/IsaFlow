@@ -24,7 +24,7 @@ const insert = (over: Partial<LineInsert>): LineInsert => ({
   employeeId: 'e1', grossPay: 21_000, taxableIncome: 20_500, periodicTaxable: 20_400, annualTaxable: 0, paye: 0,
   medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0, retirementContributions: 0, retirementDeduction: 0,
   uifEmployee: 0, uifEmployer: 0, sdl: 0, sdlLeviable: 14_500, sdlApplicable: 20_000, sdlExempt: true, eti: 0, netPay: 20_000,
-  componentBreakdown: '[]', validationResults: '[]', explanation: costed.explanations, ...over,
+  componentBreakdown: '[{"componentId":"c1"}]', validationResults: '[{"code":"W1"}]', explanation: costed.explanations, ...over,
 });
 
 /** Column name -> inserted value for each INSERT INTO payroll_run_lines the writer made. */
@@ -78,6 +78,8 @@ describe('replaceRunLines: the explanation (migration 973)', () => {
     const stored = insertedRows()[0]!.explanation;
     expect(typeof stored).toBe('string');
     expect(JSON.parse(stored as string)).toEqual(line.explanation);
+    // The other JSON columns keep their own values beside it.
+    expect(insertedRows()[0]).toMatchObject({ validation_results: line.validationResults, component_breakdown: line.componentBreakdown });
   });
 
   it('an SDL-exempt run explains a nil levy', () => {

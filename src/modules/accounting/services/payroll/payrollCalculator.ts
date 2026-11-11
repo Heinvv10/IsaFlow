@@ -53,7 +53,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const rebateAge = employee.dateOfBirth ? getAge(employee.dateOfBirth, taxYearEnd) : 30;
 
   const acc = accumulateComponents(components);
-  const { grossPay, allEarnings, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings } = acc;
+  const { grossPay, allEarnings, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings, periodicParts } = acc;
   let { periodicTaxable, annualPayments } = acc;
 
   // A month counts as a periodic-remuneration period when periodic remuneration
@@ -63,6 +63,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // A net negative annual payment (a bonus clawback) reduces regular pay, as it
   // did before the split. Allowed donations come off regular pay first, any
   // excess off the annual payments, so the taxed total is unchanged by the split.
+  const clawback = Math.min(0, annualPayments);
   if (annualPayments < 0) {
     periodicTaxable += annualPayments;
     annualPayments = 0;
@@ -208,7 +209,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const explanations = explainPayrollLine({
     taxYear, periodDate,
     paye: {
-      treatment: treatment.paye, classification, periodicBeforeDonation: periodicTaxable, annualBeforeDonation: annualPayments,
+      treatment: treatment.paye, classification, periodicParts, clawback, periodicBeforeDonation: periodicTaxable, annualBeforeDonation: annualPayments,
       donationDeduction: donation.deduction, donationOffAnnual,
       trace, retirementRecorded: retirementDeduction, balanceOfRemuneration, split: payeSplit, paye: paye.monthlyPaye,
     },

@@ -14,7 +14,14 @@
 -- running code wrote, whatever the deploy's build window or a rollback did; payrollLineExplanation.ts).
 --
 -- Rollback:
+--   DROP INDEX IF EXISTS idx_payroll_run_lines_explained;
 --   ALTER TABLE payroll_run_lines DROP COLUMN IF EXISTS explanation;
 SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE public.payroll_run_lines ADD COLUMN IF NOT EXISTS explanation JSONB;
+
+-- "Recorded from" reads MIN(created_at) of a company's lines that have an explanation, on every read of a line that
+-- has none. Lines are reached through their company's runs (idx_payroll_run_lines_run); this partial index holds only
+-- explained lines, keyed by run then time, so that MIN is one index probe per run, not a scan of every line.
+CREATE INDEX IF NOT EXISTS idx_payroll_run_lines_explained
+  ON public.payroll_run_lines (run_id, created_at) WHERE explanation IS NOT NULL;

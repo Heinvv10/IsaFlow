@@ -18,6 +18,9 @@ export interface PayeExplainInput {
   classification: { kind: EmploymentClass; reason: string };
   /** Periodic taxable pay before the s18A donation came off (the accumulator's, after a clawback; may be negative). */
   periodicBeforeDonation: number;
+  /** The taxable periodic earnings that add up to it, and a negative annual payment moved into it (or 0). */
+  periodicParts: Array<{ name: string; code: string; amount: number; isNonCash: boolean }>;
+  clawback: number;
   /** This period's annual payments before the donation (nil after a clawback took them into periodic pay). */
   annualBeforeDonation: number;
   /** The s18A deduction allowed on this line, and the part of it larger than periodic pay, off the annual payments (payrollLinePaye). */
@@ -83,15 +86,29 @@ function retirementStep(input: PayeExplainInput): ExplainStep {
   const { trace: t, taxYear } = input;
   return {
     key: 'paye.retirement', label: 'Less the retirement fund deduction off the annual equivalent', amount: t.offPeriodic,
-    formula: `the least of: contributions a year, ${pct(RETIREMENT_DEDUCTION_RATE)} of remuneration, the annual cap`,
+    formula: 'the lesser of the deduction allowed a year and the annual equivalent (plus periodic donations a year)',
     source: sourceFor(SOURCES.retirement, taxYear),
     children: [
-      { key: 'paye.retirement.contributionsToDate', label: 'Contributions to date (4001, 4003, 4006)', amount: t.contributionsToDate },
-      { key: 'paye.retirement.annualised', label: 'Contributions a year', amount: t.annualisedContributions, formula: 'to date × 12 ÷ periods' },
-      { key: 'paye.retirement.base', label: 'Remuneration a year before the deduction', amount: t.deductionBase },
-      { key: 'paye.retirement.rate', label: 'Limit: share of remuneration', amount: RETIREMENT_DEDUCTION_RATE, unit: 'percent' },
-      { key: 'paye.retirement.cap', label: 'Limit: annual cap', amount: getTaxYearConfig(taxYear).retirementDeductionCap },
-      { key: 'paye.retirement.allowed', label: 'Deduction allowed a year', amount: t.annualDeduction },
+      {
+        key: 'paye.retirement.allowed', label: 'Deduction allowed a year', amount: t.annualDeduction,
+        formula: `the least of: contributions a year, ${pct(RETIREMENT_DEDUCTION_RATE)} of remuneration, the annual cap`,
+        children: [
+          {
+            key: 'paye.retirement.annualised', label: 'Contributions a year', amount: t.annualisedContributions, formula: 'to date × 12 ÷ periods',
+            children: [{ key: 'paye.retirement.contributionsToDate', label: 'Contributions to date (4001, 4003, 4006)', amount: t.contributionsToDate }],
+          },
+          {
+            key: 'paye.retirement.rateLimit', label: `${pct(RETIREMENT_DEDUCTION_RATE)} of remuneration a year`, amount: t.shareOfRemuneration,
+            formula: `${pct(RETIREMENT_DEDUCTION_RATE)} × ${r(t.deductionBase)}`,
+            children: [
+              { key: 'paye.retirement.base', label: 'Remuneration a year before the deduction (donations added back)', amount: t.deductionBase },
+              { key: 'paye.retirement.rate', label: 'Share', amount: RETIREMENT_DEDUCTION_RATE, unit: 'percent' },
+            ],
+          },
+          { key: 'paye.retirement.cap', label: 'Annual cap', amount: getTaxYearConfig(taxYear).retirementDeductionCap },
+        ],
+      },
+      { key: 'paye.retirement.ceiling', label: 'The annual equivalent, plus periodic donations a year', amount: t.offPeriodicCeiling },
       {
         key: 'paye.retirement.recorded', label: 'Recorded on this line (to date, less what earlier lines recorded)', amount: input.retirementRecorded,
         note: 'The deduction this payslip and the IRP5 carry.',
@@ -118,7 +135,15 @@ function annualPaymentsStep(input: PayeExplainInput): ExplainStep {
         { key: 'paye.offAnnual.deductionLeft', label: 'The deduction a year left after the annual equivalent', amount: t.offAnnualLimits.deductionLeft },
         { key: 'paye.offAnnual.annualPayments', label: 'The annual payments to date', amount: t.offAnnualLimits.annualPayments },
         { key: 'paye.offAnnual.contributionsLeft', label: 'Contributions to date, less the part off periodic pay to date', amount: t.offAnnualLimits.contributionsLeft },
-        { key: 'paye.offAnnual.capLeft', label: 'The cap to date (cap × periods paid ÷ 12), less that part', amount: t.offAnnualLimits.capLeft },
+        {
+          key: 'paye.offAnnual.capLeft', label: 'The cap to date, less that part', amount: t.offAnnualLimits.capLeft,
+          formula: `${r(t.capToDate)} − ${r(t.deductionOffPeriodicToDate)}`,
+          children: [
+            { key: 'paye.offAnnual.capToDate', label: 'Cap to date (the annual cap × periods ÷ 12)', amount: t.capToDate },
+            { key: 'paye.offAnnual.capPeriods', label: 'Periods for the cap (periodic pay or an annual payment)', amount: t.capPeriods, unit: 'count' },
+            { key: 'paye.offAnnual.offPeriodicToDate', label: 'The deduction off periodic pay to date', amount: t.deductionOffPeriodicToDate },
+          ],
+        },
       ],
     });
   }
@@ -138,7 +163,12 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
   }
   const steps: ExplainStep[] = [
     footed({ key: 'paye.regularTaxable', label: 'Taxable pay this period', amount: t.regularTaxable }, [
-      { key: 'paye.periodicBeforeDonation', label: 'Taxable periodic pay', amount: input.periodicBeforeDonation },
+      footed({ key: 'paye.periodicBeforeDonation', label: 'Taxable periodic pay', amount: input.periodicBeforeDonation }, [
+        ...input.periodicParts.map((p, i) => ({
+          key: `paye.periodic.${i}`, label: `${p.name} (${p.code})${p.isNonCash ? ', a non-cash benefit' : ''}`, amount: p.amount,
+        })),
+        ...(input.clawback < 0 ? [{ key: 'paye.periodic.clawback', label: 'Less a negative annual payment (a bonus clawback)', amount: input.clawback }] : []),
+      ]),
       ...(input.donationDeduction > 0 ? [{
         key: 'paye.donation', label: 'Less the s18A donation allowed', amount: -input.donationDeduction, source: sourceFor(SOURCES.donations, taxYear),
       }] : []),
@@ -147,7 +177,10 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
       { key: 'paye.ytdPeriodicTaxable', label: 'Earlier periods', amount: t.ytdPeriodicTaxable },
       { key: 'paye.thisPeriod', label: 'This period', amount: t.regularTaxable },
     ]),
-    { key: 'paye.periods', label: 'Periods paid, this one included', amount: t.periods, unit: 'count' },
+    {
+      key: 'paye.periods', label: t.hasPeriodic ? 'Periods paid, this one included' : 'Periods paid (this period has no periodic pay, so it does not count)',
+      amount: t.periods, unit: 'count',
+    },
     {
       key: 'paye.annualEquivalent', label: 'Annual equivalent', amount: t.annualEquivalent,
       formula: t.periods > 0 ? `${r(t.periodicToDate)} × 12 ÷ ${t.periods}` : 'no periodic pay to date: nil', source: sourceFor(SOURCES.annualEquivalent, taxYear),
