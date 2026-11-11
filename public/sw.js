@@ -1,26 +1,26 @@
 /**
- * IsaFlow Service Worker v2
- * Provides offline support, aggressive caching, and stale-while-revalidate for key APIs.
+ * IsaFlow Service Worker v3
+ * Provides the offline page and cache-first static assets. Nothing that
+ * depends on who is signed in is ever written to Cache Storage: tenant
+ * identity lives in a cookie, and a cache keyed on the URL alone would hand
+ * one user's or company's data to the next person at the browser (audit
+ * 11 Nov 2026). So no API response and no app page is cached.
  */
 
 // IMPORTANT: CACHE_NAME must change on every deploy so stale pages and
 // JS chunks from previous builds get evicted. The deploy script injects
-// the current BUILD_ID automatically via sed (see scripts/deploy.sh).
-const CACHE_NAME = 'isaflow-__BUILD_ID__';
+// the current BUILD_ID automatically via sed (see scripts/deploy/bluegreen.sh).
+// The v3 prefix also differs from every cache an older worker created, and
+// activate deletes them all.
+const CACHE_NAME = 'isaflow-v3-__BUILD_ID__';
 
+// Public, user-independent resources only.
 const STATIC_ASSETS = [
   '/offline',
-  '/accounting/capture',
   '/manifest.json',
 ];
 
-// Read-only API endpoints eligible for stale-while-revalidate
-const SWR_API_PATTERNS = [
-  '/api/accounting/dashboard-stats',
-  '/api/accounting/chart-of-accounts',
-];
-
-// Install — cache shell and offline page
+// Install: cache the offline page and manifest
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
@@ -28,7 +28,8 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate — clean old caches
+// Activate: delete every other cache, including any that hold tenant data
+// written by an older worker.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -37,13 +38,6 @@ self.addEventListener('activate', (event) => {
   );
   self.clients.claim();
 });
-
-/**
- * Check if request URL matches a stale-while-revalidate API pattern.
- */
-function isSWRApi(url) {
-  return SWR_API_PATTERNS.some((pattern) => url.includes(pattern));
-}
 
 /**
  * The public share page (/share/<token>) is never cached, by any strategy.
@@ -76,13 +70,21 @@ function isSharePath(url) {
 }
 
 /**
- * Check if request is for a static asset (CSS, JS, images, fonts).
+ * Check if a PATHNAME is a static asset (CSS, JS, images, fonts). Decided on
+ * the path, never the full URL, so a query string such as `?f=a.js` cannot
+ * turn an app page into a cache-first asset.
  */
-function isStaticAsset(url) {
-  return /\.(css|js|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot)(\?.*)?$/.test(url);
+function isStaticAsset(pathname) {
+  return /\.(css|js|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot)$/.test(pathname);
 }
 
-// Fetch — strategy per request type
+function offlineFallback() {
+  return caches.match('/offline').then((cached) =>
+    cached || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } })
+  );
+}
+
+// Fetch: strategy per request type
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = request.url;
@@ -94,38 +96,18 @@ self.addEventListener('fetch', (event) => {
   // strategy, so no later branch can claim it.
   if (isSharePath(url)) return;
 
-  // Strategy 1: Stale-while-revalidate for key read-only API endpoints
-  if (isSWRApi(url)) {
-    event.respondWith(
-      caches.open(CACHE_NAME).then((cache) =>
-        cache.match(request).then((cached) => {
-          const networkFetch = fetch(request).then((response) => {
-            if (response.ok) {
-              cache.put(request, response.clone());
-            }
-            return response;
-          }).catch(() => {
-            // Network failed — return cached if available
-            if (cached) return cached;
-            return new Response(JSON.stringify({ error: 'Offline' }), {
-              status: 503,
-              headers: { 'Content-Type': 'application/json' },
-            });
-          });
-
-          // Return cached immediately, update in background
-          return cached || networkFetch;
-        })
-      )
-    );
+  let pathname;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
     return;
   }
 
-  // Skip other API calls — let them go to network directly
-  if (url.includes('/api/')) return;
+  // API calls carry tenant data: always the network, never a cache.
+  if (pathname.startsWith('/api/')) return;
 
-  // Strategy 2: Cache-first for static assets (CSS, JS, images, fonts)
-  if (isStaticAsset(url)) {
+  // Cache-first for static assets (CSS, JS, images, fonts)
+  if (isStaticAsset(pathname)) {
     event.respondWith(
       caches.open(CACHE_NAME).then((cache) =>
         cache.match(request).then((cached) => {
@@ -142,25 +124,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Strategy 3: Network-first for HTML pages, offline fallback
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        if (response.ok && response.headers.get('content-type')?.includes('text/html')) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-        }
-        return response;
-      })
-      .catch(() =>
-        caches.match(request).then((cached) => {
-          if (cached) return cached;
-          // Serve offline page as last resort for navigation requests
-          if (request.mode === 'navigate') {
-            return caches.match('/offline');
-          }
-          return new Response('', { status: 503 });
-        })
-      )
-  );
+  // Page navigations: network only; the offline page when the network fails.
+  // The response is NOT cached: an app page is authenticated and carries
+  // tenant data in __NEXT_DATA__.
+  if (request.mode === 'navigate') {
+    event.respondWith(fetch(request).catch(offlineFallback));
+  }
 });

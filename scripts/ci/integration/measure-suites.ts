@@ -1,7 +1,7 @@
 /**
  * measure-suites — rewrites suite-seconds.json, the per-suite durations plan.ts
  * deals shards by, from the per-file lines of real gate logs:
- *   ✓ tests/integration/<file>.int.test.ts (N tests) 12345ms
+ *   ✓ tests/integration/<file>.test.ts (N tests) 12345ms
  *
  * Run after a local gate run (CI_INTEGRATION=1 bun run ci, or
  * bash scripts/ci/integration/run.sh), which copies its shard logs to
@@ -15,7 +15,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
 export const MIN_SECONDS = 3;
-const LINE = /^ *[✓❯×↓] (tests\/integration\/\S+\.int\.test\.ts) .*?(\d+)ms *$/;
+const LINE = /^ *[✓❯×↓] (tests\/integration\/\S+\.test\.ts) .*?(\d+)ms *$/;
 
 /** Every `<file> <ms>` result line in a vitest log. */
 export function parseSuiteTimes(log: string): Array<[string, number]> {

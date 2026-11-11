@@ -34,7 +34,7 @@ export function textPx(text: string, fontPx: number, weight: FigureWeight, hyphe
  */
 export function textExactPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false, marks = false): number {
   if (text === '' && !hyphen) return 0;
-  return runExactPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX, marks), 0, hyphen);
+  return runExactPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX, marks), 0, hyphen, marks);
 }
 
 /**

@@ -19,6 +19,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import { assertNotProductionDb } from '../../helpers/assertNotProductionDb';
+import { IN_INTEGRATION_GATE } from '../../helpers/integrationGate';
 
 const BASE = process.env.TEST_BASE_URL ?? 'http://localhost:3200';
 const PROTECTED_ENDPOINT = '/api/accounting/bank-transactions-action';
@@ -84,7 +85,8 @@ async function serverAvailable(): Promise<boolean> {
   }
 }
 
-describe.skipIf(!HAS_ENV)('CSRF on money-moving endpoints (BL-22)', () => {
+// ci-integration-skip: drives a running dev server over HTTP (TEST_BASE_URL, default localhost:3200); the CI gate starts none. Run it with bun run test:integration beside bun run dev.
+describe.skipIf(!HAS_ENV || IN_INTEGRATION_GATE)('CSRF on money-moving endpoints (BL-22)', () => {
   beforeAll(async () => {
     if (!(await serverAvailable())) {
       throw new Error(

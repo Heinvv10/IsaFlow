@@ -5,6 +5,8 @@
  * - isaflow.co.za: show landing page at /, plus public help, blog, compare and sitemap pages
  * - app.isaflow.co.za: help, blog and sitemap paths redirect to the marketing origin
  * - Redirects /admin/* on non-admin hosts to admin.isaflow.co.za
+ * - admin.isaflow.co.za/login renders the admin console sign-in (pages/console-sign-in.tsx);
+ *   the admin session stays separate, only the page shown changes
  * - Redirects unauthenticated /accounting/* and /payroll/* requests to /login
  */
 
@@ -91,6 +93,9 @@ const ADMIN_PASSTHROUGH = [
   '/sw.js',
 ];
 
+/** Page that renders the admin host's /login (rewritten, so the URL stays /login). */
+const ADMIN_SIGN_IN_PAGE = '/console-sign-in';
+
 /** Public hosts whose Host header a redirect may be built from. */
 const PUBLIC_HOSTS = [...APP_HOSTS, ...ADMIN_HOSTS, 'isaflow.co.za', 'www.isaflow.co.za'];
 
@@ -159,6 +164,15 @@ export async function middleware(request: NextRequest) {
 
   // ── Admin subdomain handling ─────────────────────────────────────────────────
   if (isAdminHost) {
+    // The admin sign-in is its own page: a separate session from the app, so the
+    // marketing sign-in confused admins bounced here from the app (audit P2.5 #7).
+    // Same treatment as the /login passthrough below: no auth gate, no CSRF cookie.
+    if (pathname === '/login') {
+      const signInUrl = request.nextUrl.clone();
+      signInUrl.pathname = ADMIN_SIGN_IN_PAGE;
+      return NextResponse.rewrite(signInUrl);
+    }
+
     // Always passthrough for static assets, login page, and API routes
     // API routes must not be rewritten — they live at /api/*, not /admin/api/*
     if (
@@ -183,6 +197,11 @@ export async function middleware(request: NextRequest) {
     }
 
     return issueCsrfCookie(request, NextResponse.next());
+  }
+
+  // The admin console sign-in only belongs on the admin host.
+  if (pathname === ADMIN_SIGN_IN_PAGE) {
+    return NextResponse.redirect(sameHostUrl('/login', request, host));
   }
 
   // ── Non-admin hosts: redirect /admin/* to admin subdomain ───────────────────
