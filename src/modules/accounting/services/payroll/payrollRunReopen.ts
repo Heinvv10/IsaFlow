@@ -14,7 +14,6 @@ import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 import type { DbRow } from '@/lib/neon';
 import { laterEtiJournalRefusal } from './etiPeriodGuard';
 
-
 /**
  * A refusal raised before reopenPayrollRun writes anything. The route answers
  * only this as a 400; anything else is a 500 and rolls the request back.
@@ -45,9 +44,6 @@ export async function reopenPayrollRun(opts: {
   if (!run) throw new PayrollRunReopenRefusedError('Payroll run not found');
 
   const previousStatus = String(run.status);
-  // Hein ruling R-A (wave 5 ET): a later month of the same ETI period has posted the carry this month feeds.
-  const etiLater = await laterEtiJournalRefusal(opts.companyId, { year: Number(run.period_year), month: Number(run.period_month) });
-  if (etiLater) throw new PayrollRunReopenRefusedError(etiLater);
   if (!REOPENABLE_STATUSES.has(previousStatus)) {
     if (previousStatus === 'paid') {
       throw new PayrollRunReopenRefusedError('Paid runs cannot be reopened — payments have been issued. Reverse via a new run.');
@@ -57,6 +53,9 @@ export async function reopenPayrollRun(opts: {
     }
     throw new PayrollRunReopenRefusedError(`Cannot reopen run in status '${previousStatus}' — only 'approved' is reopenable.`);
   }
+  // Hein ruling R-A (wave 5 ET): a later month of the same ETI period has posted the carry this month feeds.
+  const etiLater = await laterEtiJournalRefusal(opts.companyId, { year: Number(run.period_year), month: Number(run.period_month) });
+  if (etiLater) throw new PayrollRunReopenRefusedError(etiLater);
 
   // Predicated on the status just judged: a run that left 'approved' between
   // the read above and this write (paid, say) must not be reopened by it.

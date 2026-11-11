@@ -51,7 +51,7 @@ function route(earlier: unknown[], directives: (start: unknown) => unknown[] = (
     if (q.includes('je.reference')) return Promise.resolve(etiJournalsBooked);
     if (q.includes('information_schema.tables')) return Promise.resolve([{ table_name: 'payroll_run_headers' }, { table_name: 'payroll_run_lines' }]);
     if (q.includes('tax_directive_payments')) return Promise.resolve(directives(values[1]));
-    if (q.includes('GROUP BY period_year, period_month')) return Promise.resolve(earlier);
+    if (q.includes('total_paye AS paye')) return Promise.resolve((earlier as Array<Record<string, unknown>>).map((r) => ({ status: 'approved', ...r })));
     if (q.includes('payroll_run_headers')) return Promise.resolve([JUNE]);
     if (q.includes('FROM gl_accounts')) return Promise.resolve(ACCOUNTS);
     return Promise.resolve([]);
@@ -114,7 +114,7 @@ describe('the journal books the ETI brought forward, as the EMP201 uses it', () 
     const jun = { ...JUNE, total_paye: 1_000, total_net: 38_600 };
     mockImpl = ((inner) => (strings: TemplateStringsArray, ...v: unknown[]) => {
       const q = strings.join('?');
-      if (q.includes('payroll_run_headers') && !q.includes('GROUP BY') && !q.includes('information_schema')) return Promise.resolve([jun]);
+      if (q.includes('payroll_run_headers') && !q.includes('total_paye AS paye') && !q.includes('information_schema')) return Promise.resolve([jun]);
       return inner(strings, ...v);
     })(mockImpl);
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
@@ -132,7 +132,7 @@ describe('the journal books the ETI brought forward, as the EMP201 uses it', () 
     const aug = { ...JUNE, period_month: 8, total_paye: 500, total_eti: 0, total_net: 39_100 };
     mockImpl = ((inner) => (strings: TemplateStringsArray, ...v: unknown[]) => {
       const q = strings.join('?');
-      if (q.includes('payroll_run_headers') && !q.includes('GROUP BY') && !q.includes('information_schema')) return Promise.resolve([aug]);
+      if (q.includes('payroll_run_headers') && !q.includes('total_paye AS paye') && !q.includes('information_schema')) return Promise.resolve([aug]);
       return inner(strings, ...v);
     })(mockImpl);
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
@@ -151,7 +151,7 @@ describe('the journal books the ETI brought forward, as the EMP201 uses it', () 
     const aug = { ...JUNE, period_month: 8, total_paye: 500, total_eti: 0, total_net: 39_100 };
     mockImpl = ((inner) => (strings: TemplateStringsArray, ...v: unknown[]) => {
       const q = strings.join('?');
-      if (q.includes('payroll_run_headers') && !q.includes('GROUP BY') && !q.includes('information_schema')) return Promise.resolve([aug]);
+      if (q.includes('payroll_run_headers') && !q.includes('total_paye AS paye') && !q.includes('information_schema')) return Promise.resolve([aug]);
       return inner(strings, ...v);
     })(mockImpl);
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
@@ -172,7 +172,7 @@ describe('the journal books the ETI brought forward, as the EMP201 uses it', () 
     route([{ period_year: 2026, period_month: 2, paye: 0, eti: 4_000 }]);
     mockImpl = ((inner) => (strings: TemplateStringsArray, ...v: unknown[]) => {
       const q = strings.join('?');
-      if (q.includes('payroll_run_headers') && !q.includes('GROUP BY') && !q.includes('information_schema')) return Promise.resolve([{ ...JUNE, period_month: 3 }]);
+      if (q.includes('payroll_run_headers') && !q.includes('total_paye AS paye') && !q.includes('information_schema')) return Promise.resolve([{ ...JUNE, period_month: 3 }]);
       return inner(strings, ...v);
     })(mockImpl);
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);

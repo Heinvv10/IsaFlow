@@ -26,7 +26,6 @@ import { recordPreparedApproval } from './payrollRunPrepared';
 import { blockedLoanValidation, judgeLoanApplications } from './payrollRunLoanDecision';
 import { assertNoLaterEtiJournal } from './etiPeriodGuard';
 
-
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
 type Row = DbRow;

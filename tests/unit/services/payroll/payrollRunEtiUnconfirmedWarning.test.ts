@@ -11,6 +11,7 @@ const inserts: unknown[][] = [];
 vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/payroll/etiPeriodGuard')>()),
   laterEtiJournalRefusal: vi.fn(async () => null),
+  earlierUnapprovedRefusal: vi.fn(async () => null),
   assertNoLaterEtiJournal: vi.fn(async () => undefined),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => ({
