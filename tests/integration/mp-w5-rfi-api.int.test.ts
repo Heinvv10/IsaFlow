@@ -136,9 +136,9 @@ describe('a run costs it, the journal books it, the certificate carries it', () 
   });
   it('the journal plan credits 3 000 to 2175 payable to the fund, and balances', async () => {
     const plan = await call(journalPlan as Route, 'GET', `/api/payroll/runs/${runId}/journal-plan`, runId);
-    const lines = plan.body.data!.lines as Array<{ accountCode: string; credit: number; description: string }>;
-    expect(lines.filter((l) => l.accountCode === '2175' && /retirement fund/.test(l.description)).map((l) => l.credit)).toEqual([3000]);
-    expect(plan.body.data!.totalDebit).toBe(plan.body.data!.totalCredit);
+    const built = plan.body.data!.plan as { lines: Array<{ accountCode: string; credit: number; description: string }>; totalDebit: number; totalCredit: number };
+    expect(built.lines.filter((l) => l.accountCode === '2175' && /retirement fund/.test(l.description)).map((l) => l.credit)).toEqual([3000]);
+    expect(built.totalDebit).toBe(built.totalCredit);
   });
   it('approved, the certificate data carries the 3817 as non-cash income', async () => {
     await authorisePayRun(call, runId, approver);
