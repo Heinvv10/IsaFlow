@@ -1,4 +1,4 @@
-import { getTaxYearConfig, computeAnnualTax } from './taxTables';
+import { getTaxYearConfig, bracketFor, computeAnnualTax, type TaxBracket } from './taxTables';
 import type { PayeInput, PayeResult } from './payrollTypes';
 
 export function getAge(dateOfBirth: Date, atDate: Date): number {
@@ -9,11 +9,15 @@ export function getAge(dateOfBirth: Date, atDate: Date): number {
     : years;
 }
 
-function computeRebates(age: number, config: ReturnType<typeof getTaxYearConfig>): number {
-  let rebates = config.primaryRebate;
-  if (age >= 65) rebates += config.secondaryRebate;
-  if (age >= 75) rebates += config.tertiaryRebate;
-  return rebates;
+/** The age rebates (s6(2)): primary for everyone, secondary from 65, tertiary from 75; each part as granted. */
+export interface RebateParts { primary: number; secondary: number; tertiary: number }
+
+function computeRebates(age: number, config: ReturnType<typeof getTaxYearConfig>): RebateParts {
+  return {
+    primary: config.primaryRebate,
+    secondary: age >= 65 ? config.secondaryRebate : 0,
+    tertiary: age >= 75 ? config.tertiaryRebate : 0,
+  };
 }
 
 function computeAnnualMedicalCredits(
@@ -59,15 +63,23 @@ function computeAdditionalMedicalCredit(age: number, monthlyBeneficiaries: numbe
  * the `...Used` figures the part of each this tax took off, which is what the
  * e@syFile 4116 / 4120 record (payeCumulative).
  */
-export function annualTaxAfterCredits(input: PayeInput): {
+export interface AnnualTaxAfterCredits {
   annualTax: number; rebates: number; medicalCredits: number; medicalCreditUsed: number;
   additionalMedicalCredits: number; additionalMedicalCreditUsed: number;
-} {
+  /** The steps, exposed for the explanation (payrollExplain), which never recomputes them. */
+  annualTaxableIncome: number; bracket: TaxBracket; grossAnnualTax: number; rebateParts: RebateParts;
+  annualMedicalSchemeFees: number; monthlyMedicalBeneficiaries: number; ageAtPeriodEnd: number;
+}
+
+export function annualTaxAfterCredits(input: PayeInput): AnnualTaxAfterCredits {
   const config = getTaxYearConfig(input.taxYear);
-  const rebates = computeRebates(input.ageAtPeriodEnd, config);
+  const rebateParts = computeRebates(input.ageAtPeriodEnd, config);
+  const rebates = rebateParts.primary + rebateParts.secondary + rebateParts.tertiary;
   const medicalCredits = computeAnnualMedicalCredits(input.monthlyMedicalBeneficiaries, config);
+  const annualMedicalSchemeFees = input.annualMedicalSchemeFees ?? 0;
   const additionalMedicalCredits = computeAdditionalMedicalCredit(
-    input.ageAtPeriodEnd, input.monthlyMedicalBeneficiaries, input.annualMedicalSchemeFees ?? 0, medicalCredits);
+    input.ageAtPeriodEnd, input.monthlyMedicalBeneficiaries, annualMedicalSchemeFees, medicalCredits);
+  const bracket = bracketFor(input.annualTaxableIncome, config.brackets);
   const grossAnnualTax = computeAnnualTax(input.annualTaxableIncome, config.brackets);
   const taxAfterRebates = Math.max(0, grossAnnualTax - rebates);
   const taxAfterMedicalCredit = Math.max(0, taxAfterRebates - medicalCredits);
@@ -75,6 +87,8 @@ export function annualTaxAfterCredits(input: PayeInput): {
   return {
     annualTax, rebates, medicalCredits, medicalCreditUsed: taxAfterRebates - taxAfterMedicalCredit,
     additionalMedicalCredits, additionalMedicalCreditUsed: taxAfterMedicalCredit - annualTax,
+    annualTaxableIncome: input.annualTaxableIncome, bracket, grossAnnualTax, rebateParts,
+    annualMedicalSchemeFees, monthlyMedicalBeneficiaries: input.monthlyMedicalBeneficiaries, ageAtPeriodEnd: input.ageAtPeriodEnd,
   };
 }
 

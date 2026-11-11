@@ -1,0 +1,177 @@
+/**
+ * The PAYE explanation of a line (wave 5 EX-core): the cumulative method's steps as payeCumulative's trace holds them,
+ * the tax status treatment (TS-b), and a directive's PAYE. Pure; it arranges the engine's figures and computes none.
+ * Formulas are text for a person to follow; the amounts are the engine's.
+ */
+import { formatMoney } from '@/lib/money/formatMoney';
+import type { AnnualTaxAfterCredits } from './payeEngine';
+import type { CumulativePayeTrace } from './payeCumulative';
+import type { EmploymentClass } from './employmentTerms';
+import { RETIREMENT_DEDUCTION_RATE } from './retirementFund';
+import { getTaxYearConfig } from './taxTables';
+import { NON_STANDARD_RATE, type PayeTreatment } from './taxStatusTreatment';
+import { SOURCES, sourceFor, type ExplainStep, type FigureExplanation } from './payrollExplainTypes';
+
+export interface PayeExplainInput {
+  taxYear: number;
+  treatment: PayeTreatment;
+  classification: { kind: EmploymentClass; reason: string };
+  /** Periodic taxable pay before the s18A donation came off (the accumulator's, after a clawback). */
+  periodicBeforeDonation: number;
+  /** The s18A deduction allowed on this line (payrollLinePaye). */
+  donationDeduction: number;
+  /** The final costing's trace (after the donation). */
+  trace: CumulativePayeTrace;
+  /** Taxable income less the retirement deduction: what a flat rate is on. */
+  balanceOfRemuneration: number;
+  split: { regular: number; annualPayment: number; directive: number };
+  paye: number;
+}
+
+const r = (n: number) => formatMoney(n);
+const pct = (n: number) => `${Math.round(n * 10_000) / 100}%`;
+
+/** Tax for a year on one income: the bracket, the rebates and the medical credits, as the engine applied them. */
+function taxBlock(key: string, label: string, t: AnnualTaxAfterCredits, taxYear: number): ExplainStep {
+  const b = t.bracket;
+  const lower = b.from - 1;
+  const children: ExplainStep[] = [
+    { key: `${key}.income`, label: 'Annual income taxed', amount: t.annualTaxableIncome },
+    {
+      key: `${key}.grossTax`, label: `Tax on it: the ${pct(b.rate)} bracket`, amount: t.grossAnnualTax,
+      formula: `${r(b.baseTax)} + ${pct(b.rate)} × (${r(t.annualTaxableIncome)} − ${r(lower)})`,
+      source: sourceFor(SOURCES.rates, taxYear),
+      children: [
+        { key: `${key}.bracket.baseTax`, label: 'Tax on the bracket below', amount: b.baseTax },
+        { key: `${key}.bracket.rate`, label: 'Bracket rate', amount: b.rate, unit: 'percent' },
+        { key: `${key}.bracket.lower`, label: 'Bracket starts above', amount: lower },
+      ],
+    },
+    {
+      key: `${key}.rebates`, label: 'Less the rebates', amount: t.rebates, source: sourceFor(SOURCES.rates, taxYear),
+      note: `Rebate age ${t.ageAtPeriodEnd} at the end of the tax year (65 adds the secondary rebate, 75 the tertiary).`,
+      children: [
+        { key: `${key}.rebates.primary`, label: 'Primary rebate', amount: t.rebateParts.primary },
+        { key: `${key}.rebates.secondary`, label: 'Secondary rebate (65 and older)', amount: t.rebateParts.secondary },
+        { key: `${key}.rebates.tertiary`, label: 'Tertiary rebate (75 and older)', amount: t.rebateParts.tertiary },
+      ],
+    },
+  ];
+  if (t.medicalCredits > 0) {
+    children.push({
+      key: `${key}.medicalCredits`, label: 'Less the medical scheme fees tax credit (a year)', amount: t.medicalCredits,
+      note: `${t.monthlyMedicalBeneficiaries} beneficiar${t.monthlyMedicalBeneficiaries === 1 ? 'y' : 'ies'}, × 12 months; it cannot take the tax below nil.`,
+      source: sourceFor(SOURCES.medicalCredits, taxYear),
+    });
+  }
+  if (t.additionalMedicalCredits > 0) {
+    children.push({
+      key: `${key}.additionalMedicalCredits`, label: 'Less the additional medical expenses tax credit (65 and older)',
+      amount: t.additionalMedicalCredits, formula: `33.3% × (${r(t.annualMedicalSchemeFees)} fees a year − 3 × ${r(t.medicalCredits)})`,
+      source: sourceFor(SOURCES.additionalMedical, taxYear),
+    });
+  }
+  children.push({ key: `${key}.annualTax`, label: 'Tax for the year (never below nil)', amount: t.annualTax });
+  return { key, label, amount: t.annualTax, children };
+}
+
+function retirementStep(t: CumulativePayeTrace, taxYear: number): ExplainStep {
+  return {
+    key: 'paye.retirement', label: 'Less the retirement fund deduction (a year)', amount: t.offPeriodic,
+    formula: 'the least of: contributions a year, 27.5% of remuneration, the annual cap',
+    source: sourceFor(SOURCES.retirement, taxYear),
+    children: [
+      { key: 'paye.retirement.contributionsToDate', label: 'Contributions to date (4001, 4003, 4006)', amount: t.contributionsToDate },
+      { key: 'paye.retirement.annualised', label: 'Contributions a year', amount: t.annualisedContributions, formula: 'to date × 12 ÷ periods' },
+      { key: 'paye.retirement.base', label: 'Remuneration a year before the deduction', amount: t.deductionBase },
+      { key: 'paye.retirement.rate', label: 'Limit: share of remuneration', amount: RETIREMENT_DEDUCTION_RATE, unit: 'percent' },
+      { key: 'paye.retirement.cap', label: 'Limit: annual cap', amount: getTaxYearConfig(taxYear).retirementDeductionCap },
+      { key: 'paye.retirement.allowed', label: 'Deduction allowed a year', amount: t.annualDeduction },
+      { key: 'paye.retirement.offAnnual', label: 'Of which taken off the annual payments', amount: t.offAnnual },
+    ],
+  };
+}
+
+function tablesSteps(input: PayeExplainInput): ExplainStep[] {
+  const { trace: t, taxYear } = input;
+  if (!t.paid) {
+    return [{ key: 'paye.unpaid', label: 'No periodic pay and no annual payment this period', amount: 0, note: 'The tables take nothing in a period with no pay.' }];
+  }
+  const steps: ExplainStep[] = [{
+    key: 'paye.regularTaxable', label: 'Taxable pay this period', amount: t.regularTaxable,
+    children: [
+      { key: 'paye.periodicBeforeDonation', label: 'Taxable periodic pay', amount: input.periodicBeforeDonation },
+      ...(input.donationDeduction > 0 ? [{
+        key: 'paye.donation', label: 'Less the s18A donation allowed', amount: input.donationDeduction, source: sourceFor(SOURCES.donations, taxYear),
+      }] : []),
+    ],
+  }, {
+    key: 'paye.periodicToDate', label: 'Taxable pay to date this tax year', amount: t.periodicToDate,
+    formula: `${r(t.ytdPeriodicTaxable)} earlier + ${r(t.regularTaxable)} now`,
+    children: [
+      { key: 'paye.ytdPeriodicTaxable', label: 'Earlier periods', amount: t.ytdPeriodicTaxable },
+      { key: 'paye.periods', label: 'Periods paid, this one included', amount: t.periods, unit: 'count' },
+    ],
+  }, {
+    key: 'paye.annualEquivalent', label: 'Annual equivalent', amount: t.annualEquivalent,
+    formula: `${r(t.periodicToDate)} × 12 ÷ ${t.periods}`, source: sourceFor(SOURCES.annualEquivalent, taxYear),
+    note: 'IsaFlow taxes the year to date (the cumulative method, a business decision of 2026-10-22): with the same pay every month it equals the SARS tables; a mid-year change is spread over the rest of the year.',
+  }];
+  if (t.annualDeduction > 0 || t.contributionsToDate > 0) steps.push(retirementStep(t, taxYear));
+  steps.push({ key: 'paye.taxedAnnualEquivalent', label: 'Annual equivalent taxed', amount: t.taxedAnnualEquivalent, formula: 'annual equivalent − the deduction (never below nil)' });
+  steps.push(taxBlock('paye.atAE', 'Tax for the year on the annual equivalent', t.atAE, taxYear));
+  if (t.annualAll > 0) {
+    steps.push({
+      key: 'paye.annualPayments', label: 'Annual payments to date (bonus and other 3605)', amount: t.annualAll, source: sourceFor(SOURCES.annualPayment, taxYear),
+      children: [
+        { key: 'paye.annualNow', label: 'This period', amount: t.annualNow },
+        { key: 'paye.annualEarlier', label: 'Earlier periods (after the deduction)', amount: t.annualEarlier },
+      ],
+    });
+    steps.push(taxBlock('paye.atAll', 'Tax for the year with the annual payments', t.atAll, taxYear));
+    if (t.annualEarlier > 0) steps.push(taxBlock('paye.atEarlier', 'Tax for the year with the earlier annual payments only', t.atEarlier, taxYear));
+  }
+  steps.push({
+    key: 'paye.liability', label: 'Tax due for the year to date', amount: t.liability,
+    formula: `${r(t.atAE.annualTax)} × ${t.periods} ÷ 12${t.annualAll > 0 ? ` + (${r(t.atAll.annualTax)} − ${r(t.atAE.annualTax)})` : ''}`,
+  });
+  steps.push({ key: 'paye.ytdTablePaye', label: 'Less PAYE already deducted this tax year (tables)', amount: t.ytdTablePaye });
+  steps.push({ key: 'paye.due', label: 'PAYE this period from the tables', amount: t.due, formula: 'due to date − already deducted, rounded to the cent, never below nil' });
+  if (t.annualAll > 0) {
+    steps.push({ key: 'paye.annualPart', label: 'Of which on the annual payment', amount: input.split.annualPayment, formula: 'the lesser of PAYE this period and the tax the annual payment added' });
+    steps.push({ key: 'paye.regularPart', label: 'Of which on regular pay', amount: input.split.regular });
+  }
+  return steps;
+}
+
+function treatmentStep(input: PayeExplainInput): ExplainStep {
+  const { treatment, classification, taxYear } = input;
+  if (treatment === 'none') {
+    return { key: 'paye.treatment', label: 'Independent contractor: no PAYE', amount: null, note: classification.reason, source: sourceFor(SOURCES.contractor, taxYear) };
+  }
+  if (treatment === 'flat_25') {
+    return { key: 'paye.treatment', label: 'Non-standard employment: a flat rate, not the tables', amount: null, note: classification.reason, source: sourceFor(SOURCES.nonStandard, taxYear) };
+  }
+  return {
+    key: 'paye.treatment', label: 'Taxed on the SARS tables', amount: null, note: classification.reason,
+    ...(classification.kind === 'undetermined' ? { status: 'unverified' as const } : {}),
+  };
+}
+
+export function explainPaye(input: PayeExplainInput): FigureExplanation {
+  const steps: ExplainStep[] = [treatmentStep(input)];
+  if (input.treatment === 'tables') steps.push(...tablesSteps(input));
+  if (input.treatment === 'flat_25') {
+    steps.push({ key: 'paye.balance', label: 'Balance of remuneration (after allowed deductions)', amount: input.balanceOfRemuneration });
+    steps.push({ key: 'paye.flatRate', label: 'Flat rate', amount: NON_STANDARD_RATE, unit: 'percent' });
+    steps.push({ key: 'paye.flat', label: 'PAYE at the flat rate', amount: input.split.regular, formula: `${pct(NON_STANDARD_RATE)} × ${r(input.balanceOfRemuneration)}, rounded to the cent` });
+  }
+  if (input.split.directive !== 0) {
+    steps.push({ key: 'paye.directive', label: 'Plus PAYE on a lump sum as SARS directed', amount: input.split.directive, source: sourceFor(SOURCES.directive, input.taxYear) });
+  }
+  const undetermined = input.classification.kind === 'undetermined';
+  return {
+    figure: 'paye', title: 'How PAYE was calculated', steps, result: input.paye, resultLabel: 'PAYE this period',
+    ...(undetermined ? { caution: `The employment class could not be determined, so the tables were applied: ${input.classification.reason}` } : {}),
+  };
+}

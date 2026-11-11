@@ -49,14 +49,32 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 const ytdHasEarlierLine = (ytd: PayeYearToDate): boolean =>
   ytd.periods > 0 || (ytd.retirementCapPeriods ?? 0) > 0 || ytd.periodicTaxable !== 0 || ytd.annualPayments !== 0;
 
+/** The steps of sdlLeviableToDate, for the explanation (payrollExplain), which never recomputes them. */
+export interface SdlLeviableTrace {
+  /** Liable SDL-applicable pay to date (this line's included) and the deduction to date. */
+  payToDate: number; deductionToDate: number;
+  ytdSdlApplicable: number; ytdSdlRetirementDeduction: number;
+  /** clamp(pay - deduction, 0, pay); what earlier liable lines carried; this line's rise, rounded. */
+  leviableToDate: number; carried: number; leviable: number;
+}
+
 export function sdlLeviableToDate(
+  employeeId: string,
+  sdlApplicable: number,
+  retirementDeduction: number,
+  ytd: PayeYearToDate | undefined,
+): number {
+  return sdlLeviableTrace(employeeId, sdlApplicable, retirementDeduction, ytd).leviable;
+}
+
+export function sdlLeviableTrace(
   employeeId: string,
   /** This line's SDL-applicable earnings (earnings flagged is_sdl_applicable). */
   sdlApplicable: number,
   /** This line's s11F retirement deduction as PAYE recorded it (signed). */
   retirementDeduction: number,
   ytd: PayeYearToDate | undefined,
-): number {
+): SdlLeviableTrace {
   // Absent SDL figures mean "no earlier line"; with an earlier line they would silently over-levy.
   if (ytd && ytdHasEarlierLine(ytd)
     && (ytd.sdlApplicable === undefined || ytd.sdlLeviable === undefined || ytd.sdlRetirementDeduction === undefined)) {
@@ -77,6 +95,10 @@ export function sdlLeviableToDate(
     }
   }
   const pay = figures.ytdSdlApplicable + sdlApplicable;
-  const toDate = Math.min(pay, Math.max(0, pay - (figures.ytdSdlRetirementDeduction + retirementDeduction)));
-  return Math.max(0, round2(toDate - figures.ytdSdlLeviable));
+  const deductionToDate = figures.ytdSdlRetirementDeduction + retirementDeduction;
+  const toDate = Math.min(pay, Math.max(0, pay - deductionToDate));
+  return {
+    payToDate: pay, deductionToDate, ytdSdlApplicable: figures.ytdSdlApplicable, ytdSdlRetirementDeduction: figures.ytdSdlRetirementDeduction,
+    leviableToDate: toDate, carried: figures.ytdSdlLeviable, leviable: Math.max(0, round2(toDate - figures.ytdSdlLeviable)),
+  };
 }

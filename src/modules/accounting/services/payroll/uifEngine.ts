@@ -5,12 +5,16 @@ import type { UifResult } from './payrollTypes';
 export const UIF_RATE = 0.01;
 
 export function calculateUIF(monthlySalary: number, taxYear: number): UifResult {
+  return uifWithLeviable(monthlySalary, taxYear).uif;
+}
+
+/** calculateUIF and the pay its contributions are on (the lesser of the pay and the ceiling), for the explanation. */
+export function uifWithLeviable(monthlySalary: number, taxYear: number): { uif: UifResult; leviable: number } {
   const config = getTaxYearConfig(taxYear);
   const leviable = Math.min(monthlySalary, config.uifCeiling);
   const contribution = Math.round(leviable * UIF_RATE * 100) / 100;
   return {
-    employeeContribution: contribution,
-    employerContribution: contribution,
-    isCapped: monthlySalary > config.uifCeiling,
+    uif: { employeeContribution: contribution, employerContribution: contribution, isCapped: monthlySalary > config.uifCeiling },
+    leviable,
   };
 }

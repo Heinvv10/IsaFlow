@@ -10,5 +10,7 @@
  * 4: only retirement contributions and s18A donations reduce PAYE; any other taxable deduction is warned.
  * 5: an hourly or daily employee with no hours or days on the run is flagged HOURS_MISSING and refused at approval (HD).
  * 6: tax status and employment class decide PAYE, UIF, SDL and ETI (non-standard 25%, independent contractor: none; TS-b).
+ * 10: each line records how PAYE, UIF, SDL and ETI were calculated (payroll_run_lines.explanation, migration 973; EX-core).
+ *     Provisional: the engine PRs open beside it take 7-9; EX-core takes master's value + 1 when it merges.
  */
-export const PAYROLL_CALCULATION_VERSION = 6;
+export const PAYROLL_CALCULATION_VERSION = 10;

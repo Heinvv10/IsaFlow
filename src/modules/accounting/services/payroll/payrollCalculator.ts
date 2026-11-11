@@ -2,10 +2,11 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { getAge } from './payeEngine';
 import { accumulateComponents } from './payrollLineAccumulate';
 import { costPayeWithDonations } from './payrollLinePaye';
-import { calculateUIF } from './uifEngine';
-import { calculateSDL } from './sdlEngine';
+import { uifWithLeviable } from './uifEngine';
+import { calculateSDL, isSdlExempt } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
-import { sdlLeviableToDate } from './sdlLeviableCumulative';
+import { sdlLeviableTrace } from './sdlLeviableCumulative';
+import { explainPayrollLine } from './payrollExplain';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
@@ -94,7 +95,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         + 'was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
     });
   }
-  const { donation, regularTaxable, annualTaxable, regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit, retirementDeduction } = costPayeWithDonations({
+  const { donation, regularTaxable, annualTaxable, regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit, retirementDeduction, trace } = costPayeWithDonations({
     periodicTaxable, annualPayments, donations,
     receiptHeld: employee.s18aReceiptHeld === true,
     payeInput: {
@@ -114,17 +115,17 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
   if (treatment.paye !== 'tables') warnings.push(...outsideTablesResult(treatment.paye));
 
-  const uif = employee.uifExcluded || !treatment.uif
-    ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
-    : calculateUIF(uifLeviable, taxYear);
+  const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifWithLeviable(uifLeviable, taxYear);
+  const uif = uifCosted?.uif ?? { employeeContribution: 0, employerContribution: 0, isCapped: false };
 
   // SDL is levied on SDL-applicable pay less the para 2(4) retirement and donation deductions allowed, over the tax
   // year (sdlLeviableCumulative). No other deduction reduces PAYE or SDL; the s4(b) threshold stays on gross.
   // The pay enters the cumulative maths as the cent figure the line stores (sdl_applicable), so the year to date and
   // this line work from exactly the same numbers.
   const sdlApplicable = treatment.sdl ? round2(sdlLeviable) : 0;
-  const sdlLeviableAfterDeductions = treatment.sdl
-    ? sdlLeviableToDate(employee.id, sdlApplicable, round2(retirementDeduction + donation.sdlDeduction), input.ytd) : 0;
+  const sdlDeduction = round2(retirementDeduction + donation.sdlDeduction);
+  const sdlTrace = treatment.sdl ? sdlLeviableTrace(employee.id, sdlApplicable, sdlDeduction, input.ytd) : null;
+  const sdlLeviableAfterDeductions = sdlTrace?.leviable ?? 0;
 
   // Leviability depends on the employer's twelve-month remuneration, not on
   // this line, so a caller costing a full run defers and applies the threshold
@@ -202,6 +203,26 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     });
   }
 
+  // "How was this calculated?" (EX-core): the figures above, arranged; payrollExplain computes none of them.
+  const explanations = explainPayrollLine({
+    taxYear, periodDate,
+    paye: {
+      treatment: treatment.paye, classification, periodicBeforeDonation: periodicTaxable, donationDeduction: donation.deduction,
+      trace, balanceOfRemuneration: taxableIncome - retirementDeduction, split: payeSplit, paye: paye.monthlyPaye,
+    },
+    uif: {
+      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable,
+      outsideReason: !treatment.uif ? 'Independent contractor: no UIF' : employee.uifExcluded ? 'The employee is excluded from UIF' : null,
+    },
+    sdl: {
+      outsideReason: treatment.sdl ? null : 'Independent contractor: no SDL', sdlApplicable, trace: sdlTrace,
+      deduction: sdlDeduction, retirementDeduction, donationDeduction: donation.sdlDeduction,
+      charge: annualPayrollEstimate === 'defer' ? 'deferred'
+        : { annualRemuneration: annualPayrollEstimate, exempt: isSdlExempt(annualPayrollEstimate, taxYear), sdl },
+    },
+    eti: { eti, remuneration: allEarnings },
+  });
+
   return {
     employeeId: employee.id,
     grossPay: Math.round(grossPay * 100) / 100,
@@ -230,5 +251,6 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     componentBreakdown: breakdown,
     validationResults: [...warnings, ...(input.notEmployedInPeriod ? [] : hoursValidation(employee, components))],
     hours,
+    explanations,
   };
 }
