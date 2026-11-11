@@ -133,7 +133,7 @@ export const irp5DataTool: McpTool = {
     'The SA tax year runs 1 MARCH to 28 or 29 FEBRUARY, so tax_year 2026 means 2025-03-01 to 2026-02-28. Pass the year the tax year ENDS in. ' +
     'It counts only DECLARABLE runs — approved or paid — using the same status list as emp201_status, so a certificate and a monthly declaration cannot disagree about which runs happened. Runs inside the year that were never approved appear in excludedRows as run_not_declarable with the remuneration they carry, because "this employee earned nothing" and "this employee\'s runs were never approved" are different facts. ' +
     'SA identity numbers and SARS tax numbers are MASKED to their last four digits unless you pass reveal_identity_numbers: true. They are personal information under POPIA. ' +
-    'This is the DATA for a certificate, not a certificate. It does not allocate amounts to SARS source codes, does not validate against the IRP5 rules, does not produce an EasyFile export, and does not file anything. gross_salary is CASH pay: a non-cash fringe benefit (the low-interest loan benefit) is not in it but in fringe_benefits, by SARS source code (3801), and is in taxable_income and paye; gross_salary plus fringe_benefits is the remuneration. warnings names each employee whose 3801 items were paid in cash (runs costed before the benefit was non-cash), which are therefore inside gross_salary. It carries no allowance breakdown — that lives in each run line\'s component detail and is not aggregated here.',
+    'This is the DATA for a certificate, not a certificate. It does not allocate amounts to SARS source codes, does not validate against the IRP5 rules, does not produce an EasyFile export, and does not file anything. gross_salary is CASH pay: a non-cash fringe benefit (the low-interest loan benefit) is not in it but in fringe_benefits, by SARS source code (3801), and is in taxable_income and paye; gross_salary plus fringe_benefits is the remuneration. warnings names each employee whose 3801 items were paid in cash (runs costed before the benefit was non-cash), which are therefore inside gross_salary. cash_allowances lists the travel allowance (3701), which is INSIDE gross_salary but certified under its own code; paye_4582 is the part of 3701 + 3802 that PAYE was withheld on (80% or 20%). Other allowances are not aggregated here.',
   scope: 'read:payroll',
   requiresWriteRole: true,
   write: false,
@@ -192,6 +192,8 @@ export const irp5DataTool: McpTool = {
       })),
       // NOT in gross_salary (cash only); on the certificate under their own code.
       fringe_benefits: r.fringeBenefits.map((b) => ({ source_code: b.sourceCode, amount: b.amount })),
+      cash_allowances: r.cashAllowances.map((b) => ({ source_code: b.sourceCode, amount: b.amount })),
+      paye_4582: r.paye4582,
     }));
 
     const envelope = buildEnvelope({

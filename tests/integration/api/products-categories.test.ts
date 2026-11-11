@@ -14,6 +14,7 @@
 
 import { describe, it, expect, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
+import { IN_INTEGRATION_GATE } from '../../helpers/integrationGate';
 
 // Two synthetic company UUIDs used as test tenants — these must already
 // exist in the companies table (created in seed/migration 001).
@@ -25,6 +26,7 @@ const COMPANY_B = '00000000-0000-0000-0000-000000000bb2';
 // IDs of rows we insert during setup — cleaned up in afterAll
 let insertedAId: string | null = null;
 let insertedBId: string | null = null;
+let insertedSharedId: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,6 +38,16 @@ async function ensureTestCompany(id: string, name: string): Promise<void> {
     VALUES (${id}::UUID, ${name}, 'TEST-REG', NOW())
     ON CONFLICT (id) DO NOTHING
   `;
+}
+
+/** A shared (company_id IS NULL) row of this suite's own, so A holds on a schema-only database too. */
+async function insertSharedCategory(code: string): Promise<string> {
+  const rows = await sql`
+    INSERT INTO product_categories (name, code, description, company_id)
+    VALUES (${'Test Category ' + code}, ${code}, 'Integration test row', NULL)
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows[0]!.id;
 }
 
 async function insertCategoryForCompany(companyId: string, code: string): Promise<string> {
@@ -67,6 +79,7 @@ async function setup(): Promise<void> {
 
   insertedAId = await insertCategoryForCompany(COMPANY_A, 'integ_test_cat_a_' + Date.now());
   insertedBId = await insertCategoryForCompany(COMPANY_B, 'integ_test_cat_b_' + Date.now());
+  insertedSharedId = await insertSharedCategory('integ_test_cat_shared_' + Date.now());
 }
 
 afterAll(async () => {
@@ -76,6 +89,9 @@ afterAll(async () => {
   }
   if (insertedBId) {
     await sql`DELETE FROM product_categories WHERE id = ${insertedBId}::UUID`;
+  }
+  if (insertedSharedId) {
+    await sql`DELETE FROM product_categories WHERE id = ${insertedSharedId}::UUID`;
   }
   // Leave the test companies; they are idempotent and harm nothing
 });
@@ -94,9 +110,16 @@ describe('BL-02: product_categories tenant scoping', async () => {
     const seedA = rowsA.filter(r => r.company_id === null);
     const seedB = rowsB.filter(r => r.company_id === null);
 
-    // Both tenants see the same set of seed rows
-    expect(seedA.length).toBeGreaterThanOrEqual(8);
+    // Both tenants see the same set of seed rows, this suite's own among them
+    expect(seedA.some(r => r.id === insertedSharedId)).toBe(true);
+    expect(seedB.some(r => r.id === insertedSharedId)).toBe(true);
     expect(seedB.length).toBe(seedA.length);
+  });
+
+  // ci-integration-skip: A2 counts the 8 categories migration 244b seeds as DATA; the CI gate's baseline is schema-only, so it has none (A still runs there on the suite's own shared row).
+  it.skipIf(IN_INTEGRATION_GATE)('A2: the migration-seeded shared categories (8+) are visible to any tenant', async () => {
+    const seedA = (await fetchCategoriesForCompany(COMPANY_A)).filter(r => r.company_id === null);
+    expect(seedA.length).toBeGreaterThanOrEqual(8);
   });
 
   it('B: Company-A row is visible to A and NOT visible to B', async () => {
