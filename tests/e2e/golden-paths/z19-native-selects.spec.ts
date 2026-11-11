@@ -4,7 +4,6 @@
  *
  * READ-ONLY, Demo company, dev only. Nothing is written.
  *  - P&L filters, company settings (Details tab), the leave list and an employee profile have 0 native <select>
-
  *    (the journal-entry form: its per-line Account selects too).
  *  - A picked kit Select value shows in its trigger (the P&L cost-centre filter keeps its choice).
  *  - Opening an invoice from a plain cell and pressing Escape returns focus to that row, not BODY.
