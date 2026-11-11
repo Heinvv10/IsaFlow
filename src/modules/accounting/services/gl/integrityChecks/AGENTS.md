@@ -74,3 +74,4 @@ INTEGRITY_CHECKS: Record<IntegrityCheckId, IntegrityCheckFn>
 - 2026-09-03: created (13 checks). Twelve mutations of the predicates were run
   against `tests/unit/services/integrityChecks.db.test.ts`; the four that
   survived the first pass drove the false-positive assertions that now exist.
+- 2026-11-11 (wave 5 ET, Hein ruling R-A): added `paye_payable_differs_from_emp201` (`payrollChecks.ts`): for each of the twelve months to `as_at` with a posted run journal, the net 2140 credit of posted `auto_payroll` journals dated in the month against `generateEMP201(month).payePayable` (ETI carry included). A difference means an earlier month in the ETI period changed after a later month booked its carry, or a hand journal. Sixteen checks now. Test: `tests/unit/services/gl/payePayableIntegrity.test.ts`.
