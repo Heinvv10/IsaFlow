@@ -12,9 +12,10 @@ import { CreateTaxDirectiveModal } from '@/components/payroll/TaxDirectiveCompon
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import {
+  STATUS_COLOURS, STATUS_LABELS, TYPE_LABELS, type DirectiveStatus, type DirectiveType,
+} from '@/components/payroll/taxDirectiveLabels';
 
-type DirectiveType = 'lump_sum' | 'retirement' | 'severance' | 'death';
-type DirectiveStatus = 'pending' | 'approved' | 'expired' | 'cancelled';
 type StatusFilter = 'all' | DirectiveStatus;
 
 interface TaxDirective {
@@ -27,27 +28,6 @@ interface TaxDirective {
   effectiveDate: string;
   status: DirectiveStatus;
 }
-
-const TYPE_LABELS: Record<DirectiveType, string> = {
-  lump_sum: 'Lump Sum',
-  retirement: 'Retirement',
-  severance: 'Severance',
-  death: 'Death',
-};
-
-const STATUS_LABELS: Record<DirectiveStatus, string> = {
-  pending: 'Pending',
-  approved: 'Approved',
-  expired: 'Expired',
-  cancelled: 'Cancelled',
-};
-
-const STATUS_COLOURS: Record<DirectiveStatus, string> = {
-  pending: 'bg-yellow-500/20 text-yellow-400',
-  approved: 'bg-teal-500/20 text-teal-400',
-  expired: 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]',
-  cancelled: 'bg-red-500/20 text-red-400',
-};
 
 const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'All Statuses' },
