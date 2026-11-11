@@ -8,6 +8,8 @@ const inserts: unknown[][] = [];
 // The year-to-date for cumulative PAYE (PAYE 4a follow-ups G4) has its own tests (p4fu-cumulative-paye).
 // Both loan components exist: the fail-closed path has its own integration suites.
 // Hein ruling R-A (wave 5 ET) has its own tests (etiPeriodGuard.test.ts): no later month posted here.
+// A rehire's earlier ETI months (etiPriorEmployment) have their own tests (etiEligibility.test.ts).
+vi.mock('@/modules/accounting/services/payroll/etiPriorEmployment', () => ({ withEtiPriorMonths: async (_c: string, e: unknown[]) => e }));
 vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/payroll/etiPeriodGuard')>()),
   laterEtiJournalRefusal: vi.fn(async () => null),

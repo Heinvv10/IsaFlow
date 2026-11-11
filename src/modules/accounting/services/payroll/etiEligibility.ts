@@ -32,6 +32,18 @@ export function isValidSaIdNumber(raw: string | null | undefined): boolean {
   return sum % 10 === 0;
 }
 
+/**
+ * Review round 3 (adv3 L1): a valid SA ID number whose YYMMDD is not the recorded date of birth. One of the two is
+ * wrong, and ETI turns on the age (s6(a)): refused, with a warning naming both. False when either is missing.
+ */
+export function idDateOfBirthMismatch(e: Pick<PayrollEmployee, 'idNumber' | 'dateOfBirth'>): boolean {
+  const id = (e.idNumber ?? '').replace(/\s+/g, '');
+  if (!e.dateOfBirth || !isValidSaIdNumber(id)) return false;
+  const d = e.dateOfBirth;
+  const yymmdd = `${String(d.getFullYear() % 100).padStart(2, '0')}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  return id.slice(0, 6) !== yymmdd;
+}
+
 /** s6(b): a permit or refugee identity document recorded, else a valid SA ID number. */
 export function etiIdDocumentShown(e: Pick<PayrollEmployee, 'idNumber' | 'etiIdDocument'>): boolean {
   if (e.etiIdDocument === 'asylum_seeker_permit' || e.etiIdDocument === 'refugee_id') return true;

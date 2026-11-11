@@ -6,7 +6,7 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import { resolveEtiForEmployee } from './etiEngine';
 import { etiHoursOf, etiRemunerationOf, ordinaryWageCents } from './etiHours';
-import { etiIdDocumentShown } from './etiEligibility';
+import { etiIdDocumentShown, idDateOfBirthMismatch } from './etiEligibility';
 import { nationalMinimumWageCents } from './etiTables';
 import { unitOf } from './payrollRunHours';
 import type { EmployeeComponent, EtiResult, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
@@ -42,7 +42,7 @@ export function costLineEti(input: LineEtiInput): { eti: EtiResult; warnings: Va
     monthlyRemuneration: etiRemunerationOf(components),
     isUifExcluded: employee.uifExcluded,
     hours: h?.hours == null ? null : { monthlyHours: h.hours, ordinaryHours: h.ordinaryHours, ordinaryWageCents: wageCents },
-    idDocumentShown: etiIdDocumentShown(employee),
+    idDocumentShown: etiIdDocumentShown(employee) && !idDateOfBirthMismatch(employee),
     priorMonths: employee.etiPriorMonths ?? 0,
   });
   if (input.notEmployedInPeriod) {
@@ -84,6 +84,14 @@ export function costLineEti(input: LineEtiInput): { eti: EtiResult; warnings: Va
         ? `${name} has no basic pay on SARS code 3601, so the wage for ordinary hours is nil and no ETI was claimed. If basic pay is on another code, move it to 3601 and recalculate.`
         : `${name}'s basic pay (${formatMoney(wageCents / 100)}) is below the national minimum wage for ${h.ordinaryHours} ordinary hours, so no ETI was claimed (ETI Act s4(1)(a)). `
           + 'If the month is short because of unpaid leave, the hours paid were fewer: check the claim by hand.',
+    });
+  }
+  // Round 3 (adv3 L1): the ID number and the date of birth disagree, so the age ETI turns on cannot be trusted.
+  if (idDateOfBirthMismatch(employee) && resolved.missingInputs.includes('id_document')) {
+    warnings.push({
+      code: 'ETI_ID_DOB_MISMATCH', severity: 'warning',
+      message: `${name}'s ID number gives a date of birth of ${(employee.idNumber ?? '').replace(/\s+/g, '').slice(0, 6)} (YYMMDD), but the date of birth recorded is different, `
+        + 'so no ETI was claimed (ETI turns on the age, ETI Act s6(a)). Correct whichever is wrong on the employee and recalculate.',
     });
   }
   // ETI Act s6(c) and s6(d): a connected person (Income Tax Act s1) and a domestic worker (BCEA s1) do not qualify. Neither

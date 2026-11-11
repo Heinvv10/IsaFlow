@@ -9,7 +9,7 @@ import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payr
 import type { EmployeeComponent, PayrollComponent, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
 
 const emp = (over: Partial<PayrollEmployee> = {}): PayrollEmployee => ({
-  id: 'e', companyId: 'c', employeeNumber: 'E1', idNumber: '8001015009087', firstName: 'Young', lastName: 'Worker', employmentType: 'permanent',
+  id: 'e', companyId: 'c', employeeNumber: 'E1', idNumber: '0001015009085', firstName: 'Young', lastName: 'Worker', employmentType: 'permanent',
   startDate: new Date(2026, 0, 1), dateOfBirth: new Date(2000, 0, 1), uifExcluded: false, medicalAidMainMember: false,
   medicalAidDependantsCount: 0, s18aReceiptHeld: false, taxStatus: 'employee', payBasis: 'monthly', hoursPerWeek: 40, ...over,
 });

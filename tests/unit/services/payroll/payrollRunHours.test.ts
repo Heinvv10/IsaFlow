@@ -158,7 +158,7 @@ describe('through the calculator', () => {
 
 describe('ETI by the run\'s hours (ET: s7(5) gross-up and gross-down; ETI guide Issue 5 §5.3)', () => {
   const young = (extra: Partial<PayrollEmployee> = {}) => employee({
-    dateOfBirth: new Date(2004, 5, 1), startDate: new Date(2026, 0, 1), hourlyRate: 35, ...extra,
+    dateOfBirth: new Date(2004, 5, 1), idNumber: '0406015009086', startDate: new Date(2026, 0, 1), hourlyRate: 35, ...extra,
   });
   const run = (e: PayrollEmployee, c: EmployeeComponent[]) => calculatePayrollLine({
     employee: e, components: c, period: { month: 11, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 'defer',

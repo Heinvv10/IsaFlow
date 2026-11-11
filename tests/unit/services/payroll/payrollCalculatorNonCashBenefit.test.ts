@@ -18,7 +18,7 @@ import type { EmployeeComponent, PayrollComponent, PayrollEmployee, PayrollLineI
 
 const employee = (over: Partial<PayrollEmployee> = {}): PayrollEmployee => ({
   id: 'emp-1', companyId: 'co-1', employeeNumber: 'E001', firstName: 'Test', lastName: 'Employee',
-  idNumber: '9001015009086', taxNumber: '1234567890', employmentType: 'permanent', // a valid SA ID (Luhn): ETI Act s6(b)
+  idNumber: '8001015009087', taxNumber: '1234567890', employmentType: 'permanent', // a valid SA ID (Luhn) for the date of birth: ETI Act s6(b)
   startDate: new Date('2020-01-01'), dateOfBirth: new Date('1980-01-01'), uifExcluded: false,
   medicalAidMainMember: false, medicalAidDependantsCount: 0, ...over,
 });
@@ -81,7 +81,7 @@ describe('a non-cash 3801 benefit on a pay line [Fourth Schedule para 1; SDL Act
   });
 
   it('is left out of ETI monthly remuneration (R5 000 cash stays in the flat band: R1 500, not R1 125 on R6 000)', () => {
-    const young = { employee: employee({ dateOfBirth: new Date('2001-01-01'), startDate: new Date('2025-01-01') }) };
+    const young = { employee: employee({ dateOfBirth: new Date('2001-01-01'), idNumber: '0101015009083', startDate: new Date('2025-01-01') }) };
     const eti = line([salary(5_000), benefit(1_000)], young).eti;
     expect(eti.isEligible).toBe(true);
     expect(eti.monthlyEti).toBe(1_500);

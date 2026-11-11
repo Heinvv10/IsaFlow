@@ -10,6 +10,7 @@ export const GROUP_LABEL: Record<string, string> = {
   ETI_HOURS_UNKNOWN: 'Hours worked not recorded — ETI not apportioned by hours (or none claimed for hourly and daily staff)',
   ETI_MINIMUM_WAGE_UNKNOWN: 'No national minimum wage loaded for the period — ETI claimed without the minimum-wage test',
   ETI_MINIMUM_WAGE_FAILED: 'Basic pay below the national minimum wage — no ETI claimed',
+  ETI_ID_DOB_MISMATCH: 'ID number and date of birth disagree — no ETI claimed',
   ETI_CONNECTED_OR_DOMESTIC_UNCHECKED: 'ETI claimed — confirm the employee is not a connected person or a domestic worker (not recorded)',
   // No longer raised (ET: Act 3 of 2026 made the April 2025 table law); kept so a line costed before still reads.
   ETI_TABLE_UNCONFIRMED: 'ETI claimed on a table that was unconfirmed for pay periods after 31 March 2026 (since confirmed by Act 3 of 2026)',

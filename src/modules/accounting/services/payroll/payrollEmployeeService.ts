@@ -160,7 +160,9 @@ export async function updatePayrollEmployee(
   // Terms: a key present (null clears the optional ones) is written; the tax status and pay basis feed the figures
   // from TS-b on, so any touch of the terms waits for the same lock.
   const has = (k: keyof EmployeeTerms) => data[k] !== undefined;
+  // The date of birth and the ID number decide ETI (age, ETI Act s6(a); the document, s6(b); wave 5 ET): they take the lock too.
   const needsCompanyLock = endIso !== null || data.s18aReceiptHeld !== undefined || data.employmentType !== undefined
+    || dobIso !== null || data.idNumber !== undefined
     || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument'] as const).some(has);
   const write = (db: typeof sql, now: Row) => db`
     UPDATE payroll_employees SET
