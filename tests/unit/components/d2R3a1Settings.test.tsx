@@ -64,6 +64,8 @@ describe('accounting settings', () => {
     const select = await screen.findByRole('combobox', { name: 'Reporting Currency' });
     expectKitTrigger(select);
     await waitFor(() => expect(select.textContent).toContain('USD'));
+    // Reporting currency is required: the server refuses an empty value, so the picker offers no way to clear it.
+    expect(screen.queryByRole('button', { name: 'Clear selection' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Reporting Currency updated'));
   });

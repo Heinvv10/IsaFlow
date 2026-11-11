@@ -135,7 +135,6 @@ export default function AccountingSettingsPage() {
                           className="max-w-xs"
                           placeholder="— Select —"
                           searchable
-                          clearable
                           describedBy={`setting-${setting.key}-desc`}
                           value={setting.value || null}
                           onChange={v => updateSetting(setting.key, v ?? '')}

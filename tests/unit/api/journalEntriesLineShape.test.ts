@@ -39,6 +39,25 @@ beforeEach(() => {
   ]);
 });
 
+describe('journal-entries POST: a line with an amount needs an account', () => {
+  it.each([
+    ['missing', { debit: 5, credit: 0 }],
+    ['empty', { glAccountId: '', debit: 0, credit: 5 }],
+    ['blank', { glAccountId: '  ', debit: '5', credit: 0 }],
+    ['not a string', { glAccountId: 7, debit: 5, credit: 0 }],
+  ])('an account that is %s: 400, nothing written', async (_what, line) => {
+    const r = await post([good, line]);
+    expect(r.status).toBe(400);
+    expect(r.body.error?.message).toBe('Choose an account for every line that has an amount');
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('a line with no amount and no account is not refused by this rule', async () => {
+    const r = await post([good, { debit: 0, credit: 0 }]);
+    expect(r.body.error?.message).not.toBe('Choose an account for every line that has an amount');
+  });
+});
+
 describe('journal-entries POST: the shape of `lines`', () => {
   it.each([
     ['null', [good, null], 'lines[1] must be a journal line object'],
