@@ -21,6 +21,7 @@ import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCar
 import { EmployeeReadinessCard } from '@/components/payroll/EmployeeReadinessCard';
 import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
 import { EmployeeFringeBenefitsCard } from '@/components/payroll/EmployeeFringeBenefitsCard';
+import { EmployeeRfiContributionsCard } from '@/components/payroll/EmployeeRfiContributionsCard';
 import { EmployeePayslipsCard } from '@/components/payroll/EmployeePayslipsCard';
 import { NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -132,6 +133,8 @@ export default function EmployeeDetailPage() {
               adding={addingAssignment}
             />
             </div>
+
+            {employeeId && mayWrite && <EmployeeRfiContributionsCard employeeId={employeeId} refreshKey={assignments.length} onChanged={() => void d.reload()} />}
 
             {employeeId && (
               <CostCentreAssignmentCard
