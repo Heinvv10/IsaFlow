@@ -53,7 +53,7 @@ describe('practice/reports/wip-aging (route: data = WipAgingRow[])', () => {
 });
 
 describe('sars/emp201 (route: data = EMP201Data)', () => {
-  const emp = { periodStart: '2026-09-01', periodEnd: '2026-09-30', totalPAYE: 555, totalETI: 55, payePayable: 500, totalUIF_employee: 12, totalUIF_employer: 13,
+  const emp = { periodStart: '2026-09-01', periodEnd: '2026-09-30', totalPAYE: 555, totalETI: 55, payePayable: 500, etiCarry: { broughtForward: 0, used: 55, carriedForward: 0, refundClaimable: 0 }, totalUIF_employee: 12, totalUIF_employer: 13,
     totalUIF: 25, totalSDL: 77, employeeCount: 17, totalTaxableRemuneration: 888, totalDeductions: 602,
     payrollRuns: [{ id: 'r1', runDate: '2026-09-25', employeeCount: 17, grossPay: 999, paye: 555, uif: 25, sdl: 77 }] };
   const rowOf = (label: string) => (screen.getByText(label).parentElement as HTMLElement).textContent ?? '';

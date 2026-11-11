@@ -33,6 +33,8 @@ interface EMP201Data {
   totalPAYE: number;
   totalETI: number;
   payePayable: number;
+  /** ETI Act s9(1), s10 (wave 5 ET): payable = PAYE - used; used draws on this period's ETI and the amount brought forward. */
+  etiCarry: { broughtForward: number; used: number; carriedForward: number; refundClaimable: number };
   totalUIF_employee: number;
   totalUIF_employer: number;
   totalUIF: number;
@@ -145,8 +147,12 @@ export default function EMP201Page() {
     const rows = [
       ['Field', 'Description', 'Amount (ZAR)'],
       ['PAYE', 'Total PAYE withheld', data.totalPAYE.toFixed(2)],
-      ['ETI', 'Employment Tax Incentive claimed', data.totalETI.toFixed(2)],
-      ['PAYE Payable', 'PAYE net of ETI', data.payePayable.toFixed(2)],
+      ['ETI', 'Employment Tax Incentive for the period', data.totalETI.toFixed(2)],
+      ['ETI brought forward', 'Unused ETI from earlier months (ETI Act s9(1))', data.etiCarry.broughtForward.toFixed(2)],
+      ['ETI used', 'ETI set off against PAYE', data.etiCarry.used.toFixed(2)],
+      ['ETI carried forward', 'Unused ETI for the next month', data.etiCarry.carriedForward.toFixed(2)],
+      ['ETI refund claimable', 'Unused ETI at the end of August or February, claimed on the EMP501 (s10)', data.etiCarry.refundClaimable.toFixed(2)],
+      ['PAYE Payable', 'PAYE net of ETI used', data.payePayable.toFixed(2)],
       ['UIF (Employee)', 'UIF employee contribution', data.totalUIF_employee.toFixed(2)],
       ['UIF (Employer)', 'UIF employer contribution', data.totalUIF_employer.toFixed(2)],
       ['UIF Total', 'Total UIF', data.totalUIF.toFixed(2)],
@@ -262,7 +268,11 @@ export default function EMP201Page() {
                     <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Deductions</p>
                   </div>
                   <SummaryRow label="PAYE (Pay As You Earn)" value={fmt(data.totalPAYE)} />
-                  <SummaryRow label="Less: ETI (Employment Tax Incentive)" value={fmt(-data.totalETI)} />
+                  <SummaryRow label="ETI for the period" value={fmt(data.totalETI)} />
+                  {data.etiCarry.broughtForward > 0 && <SummaryRow label="ETI brought forward from earlier months" value={fmt(data.etiCarry.broughtForward)} />}
+                  <SummaryRow label="Less: ETI used (Employment Tax Incentive)" value={fmt(-data.etiCarry.used)} />
+                  {data.etiCarry.carriedForward > 0 && <SummaryRow label="ETI carried forward to next month" value={fmt(data.etiCarry.carriedForward)} />}
+                  {data.etiCarry.refundClaimable > 0 && <SummaryRow label="ETI refund claimable on the EMP501 (s10)" value={fmt(data.etiCarry.refundClaimable)} />}
                   <SummaryRow label="PAYE payable" value={fmt(data.payePayable)} bold />
                   <SummaryRow label="UIF — Employee contribution" value={fmt(data.totalUIF_employee)} />
                   <SummaryRow label="UIF — Employer contribution" value={fmt(data.totalUIF_employer)} />

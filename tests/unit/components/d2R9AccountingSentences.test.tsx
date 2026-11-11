@@ -106,7 +106,7 @@ describe('group eliminations writes', () => {
 });
 
 describe('EMP201', () => {
-  const DATA = { periodStart: '2026-08-01', periodEnd: '2026-08-31', totalPAYE: 1, totalETI: 0, payePayable: 1, totalUIF_employee: 1, totalUIF_employer: 1, totalUIF: 2, totalSDL: 1,
+  const DATA = { periodStart: '2026-08-01', periodEnd: '2026-08-31', totalPAYE: 1, totalETI: 0, payePayable: 1, etiCarry: { broughtForward: 0, used: 0, carriedForward: 0, refundClaimable: 0 }, totalUIF_employee: 1, totalUIF_employer: 1, totalUIF: 2, totalSDL: 1,
     employeeCount: 1, totalTaxableRemuneration: 10, totalDeductions: 1, payrollRuns: [] };
   it('generate, save-draft and submit each say which step failed on an empty 500', async () => {
     serve(on('GET', 'sars-emp201', empty500));
