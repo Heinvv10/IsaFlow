@@ -1,10 +1,12 @@
 /**
  * FB-2: forgiving scope handling at /oauth/authorize.
  *
- *  - no `scope` (or an empty one) offers the read-only default set
+ *  - no `scope` (or an empty one) offers OFFERED_MCP_SCOPES: the read-only
+ *    default set plus every write scope, the writes as UNTICKED checkboxes
  *  - openid / profile / email are dropped, never refused
  *  - any other unknown scope still refuses the whole request
- *  - the default carries no write scope, and write:post stays unticked
+ *  - DEFAULT_MCP_SCOPES (the no-tick baseline) carries no write scope, and
+ *    every offered write scope renders unticked
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -29,11 +31,13 @@ vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn(), apiErrorMessage: vi.fn(), 
 import { getOauthAppByClientId } from '@/lib/auth/oauth';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { ACCESS_COOKIE } from '@/lib/auth/cookies';
-import { DEFAULT_MCP_SCOPES } from '@/lib/auth/oauthScopes';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { DEFAULT_MCP_SCOPES, OAUTH_SCOPES, OFFERED_MCP_SCOPES } from '@/lib/auth/oauthScopes';
 import { resolveAuthorizeScopes } from '@/lib/auth/authorizeScopes';
 import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { UNKNOWN_SCOPE_MESSAGE } from '@/lib/auth/consentRejection';
-import { getServerSideProps } from '../../../pages/oauth/authorize';
+import AuthorizePage, { getServerSideProps } from '../../../pages/oauth/authorize';
 
 const COMPANY = '22222222-2222-2222-2222-222222222222';
 
@@ -80,11 +84,44 @@ describe('DEFAULT_MCP_SCOPES', () => {
   });
 });
 
-describe('resolveAuthorizeScopes', () => {
-  it('absent or empty scope → the default set', () => {
-    for (const s of ['', '   ', ',']) {
-      expect(resolveAuthorizeScopes(s)).toEqual({ ok: true, scopes: [...DEFAULT_MCP_SCOPES], defaulted: true });
+const ALL_WRITE_SCOPES = OAUTH_SCOPES.filter((s) => s.startsWith('write:'));
+
+describe('OFFERED_MCP_SCOPES', () => {
+  it('is the read baseline, every write scope, then offline_access', () => {
+    expect(OFFERED_MCP_SCOPES).toEqual([
+      'read:reports', 'read:invoices', 'read:contacts', 'read:bank-tx',
+      'read:vat', 'read:payroll', 'read:practice',
+      'write:invoices', 'write:bank-tx', 'write:journals', 'write:accounts',
+      'write:contacts', 'write:vat', 'write:practice', 'write:payroll', 'write:post',
+      'offline_access',
+    ]);
+  });
+
+  it('includes the write scopes the Velocity sync needs, and every other write scope', () => {
+    for (const s of ['write:invoices', 'write:bank-tx', 'write:journals', 'write:post']) {
+      expect(OFFERED_MCP_SCOPES).toContain(s);
     }
+    expect(OFFERED_MCP_SCOPES.filter((s) => s.startsWith('write:'))).toEqual(ALL_WRITE_SCOPES);
+  });
+
+  it('auto-grants exactly the read-only baseline: every offered write scope is opt-in', () => {
+    const { autoGranted, optIn } = partitionRequestedScopes([...OFFERED_MCP_SCOPES]);
+    expect(autoGranted).toEqual([...DEFAULT_MCP_SCOPES]);
+    expect(optIn).toEqual(ALL_WRITE_SCOPES);
+  });
+});
+
+describe('resolveAuthorizeScopes', () => {
+  it('absent or empty scope → the offered set (writes opt-in)', () => {
+    for (const s of ['', '   ', ',']) {
+      expect(resolveAuthorizeScopes(s)).toEqual({ ok: true, scopes: [...OFFERED_MCP_SCOPES], defaulted: true });
+    }
+  });
+
+  it('an explicit read-only request is not widened', () => {
+    expect(resolveAuthorizeScopes(DEFAULT_MCP_SCOPES.join(' '))).toEqual({
+      ok: true, scopes: [...DEFAULT_MCP_SCOPES], defaulted: false,
+    });
   });
 
   it('drops openid / profile / email', () => {
@@ -107,10 +144,19 @@ describe('resolveAuthorizeScopes', () => {
 });
 
 describe('/oauth/authorize getServerSideProps — scope handling', () => {
-  it('no scope → consent screen lists the read-only default', async () => {
+  it('no scope → consent screen lists the offered set', async () => {
     const props = await propsFor({});
     expect(props.ok).toBe(true);
-    expect(props.scopes).toEqual([...DEFAULT_MCP_SCOPES]);
+    expect(props.scopes).toEqual([...OFFERED_MCP_SCOPES]);
+  });
+
+  it('the hinted scope set renders every write scope as an UNTICKED checkbox', async () => {
+    const props = await propsFor({ scope: OFFERED_MCP_SCOPES.join(' ') });
+    expect(props.ok).toBe(true);
+    const html = renderToStaticMarkup(createElement(AuthorizePage, props as never));
+    const boxes = html.match(/<input[^>]*type="checkbox"[^>]*>/g) ?? [];
+    expect(boxes).toHaveLength(ALL_WRITE_SCOPES.length);
+    for (const box of boxes) expect(box).not.toMatch(/\bchecked\b/);
   });
 
   it('openid read:reports → read:reports', async () => {

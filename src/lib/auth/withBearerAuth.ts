@@ -12,7 +12,7 @@
 import type { NextApiHandler, NextApiResponse } from 'next';
 import { extractBearerToken } from './captureApiKeyAuth';
 import { runBearerRequest, type BearerHandler } from './bearerPipeline';
-import { DEFAULT_MCP_SCOPES } from './oauthScopes';
+import { OFFERED_MCP_SCOPES } from './oauthScopes';
 import { setMcpCors } from '@/lib/mcp/httpCors';
 
 function appOrigin(): string {
@@ -20,14 +20,16 @@ function appOrigin(): string {
 }
 
 /**
- * `scope` is the read-only default (MCP 2025-11-25: the challenge SHOULD carry
- * one), so a client that would otherwise ask for nothing has a starting set.
+ * `scope` is OFFERED_MCP_SCOPES (MCP 2025-11-25: the challenge SHOULD carry
+ * one): reads, every write scope and offline_access. Clients request exactly
+ * this, so the consent screen can show the write scopes; each is an unticked
+ * checkbox and is granted only if the user ticks it (consent.ts).
  */
 export function bearerChallenge(): string {
   return (
     `Bearer realm="IsaFlow MCP", ` +
     `resource_metadata="${appOrigin()}/.well-known/oauth-protected-resource", ` +
-    `scope="${DEFAULT_MCP_SCOPES.join(' ')}"`
+    `scope="${OFFERED_MCP_SCOPES.join(' ')}"`
   );
 }
 
