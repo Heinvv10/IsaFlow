@@ -15,8 +15,11 @@ import { Emp201PeriodSelector } from '@/components/accounting/sars/emp201/Emp201
 import { Emp201ReturnForm } from '@/components/accounting/sars/emp201/Emp201ReturnForm';
 import { Emp201RunsBreakdown } from '@/components/accounting/sars/emp201/Emp201RunsBreakdown';
 import { Emp201SubmitModal } from '@/components/accounting/sars/emp201/Emp201SubmitModal';
+import { ReturnLifecycleBar } from '@/components/accounting/sars/returns/ReturnLifecycleBar';
+import { useCompany } from '@/contexts/CompanyContext';
 
 export default function EMP201Page() {
+  const { companyRole } = useCompany();
   const defaults = getDefaultPeriod();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
@@ -133,6 +136,9 @@ export default function EMP201Page() {
               {hasPayrollData && <Emp201RunsBreakdown runs={data.payrollRuns} />}
 
               <Emp201DirectivePayments rows={directivePayments} />
+
+              <ReturnLifecycleBar key={`${data.periodStart}:${data.periodEnd}`} form="EMP201"
+                periodStart={data.periodStart} periodEnd={data.periodEnd} role={companyRole} />
 
               {/* Actions */}
               <div className="flex items-center gap-3">

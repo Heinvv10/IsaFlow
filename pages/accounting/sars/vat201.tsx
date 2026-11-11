@@ -17,6 +17,7 @@ import { VAT201SubmitModal } from '@/components/accounting/sars/VAT201SubmitModa
 import { VAT201ExceptionsPanel } from '@/components/accounting/sars/VAT201ExceptionsPanel';
 import { VAT201SarsSubmit } from '@/components/accounting/sars/VAT201SarsSubmit';
 import type { VatGateCounts } from '@/components/accounting/sars/VatGateOverrideBox';
+import { ReturnLifecycleBar } from '@/components/accounting/sars/returns/ReturnLifecycleBar';
 import { useCompany } from '@/contexts/CompanyContext';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
@@ -152,6 +153,9 @@ export default function VAT201Page() {
               <VAT201ReviewNotices warnings={data.warnings} filability={data.filability} />
 
               <VAT201ExceptionsPanel from={data.periodStart} to={data.periodEnd} reloadKey={exceptionsKey} onLoaded={setExceptionsReport} />
+
+              <ReturnLifecycleBar key={`${data.periodStart}:${data.periodEnd}`} form="VAT201"
+                periodStart={data.periodStart} periodEnd={data.periodEnd} role={companyRole} />
 
               <div className="flex items-center gap-3">
                 <button onClick={saveDraft} disabled={saving}
