@@ -18,6 +18,7 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostService';
 import { earlierUnapprovedRefusal, laterEtiJournalRefusal } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 import { postMonthEtiJournal } from '@/modules/accounting/services/payroll/directiveEtiJournal';
+import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { bookEtiForMonthLocked, rebookEtiAfterEvent } from '@/modules/accounting/services/payroll/etiRebook';
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { payePayableDiffersFromEmp201 } from '@/modules/accounting/services/gl/integrityChecks/payrollChecks';
@@ -26,7 +27,9 @@ import { seedFiscalYears, setPeriodsEndingBy } from './helpers/fiscalYearSeed';
 
 const REPRO_A = randomUUID(), ACTION_A = randomUUID(), REPRO_B = randomUUID(), CLOSED = randomUUID(), ONLY_AUG = randomUUID(), APRIL = randomUUID();
 const USER = randomUUID();
-const ALL = [REPRO_A, ACTION_A, REPRO_B, CLOSED, ONLY_AUG, APRIL];
+const NO_OPEN = randomUUID(), AGENT = randomUUID();
+const ALL = [REPRO_A, ACTION_A, REPRO_B, CLOSED, ONLY_AUG, APRIL, NO_OPEN, AGENT];
+const ids: Record<string, string> = {};
 const acc: Record<string, { paye: string; labour: string; refund: string }> = Object.fromEntries(
   ALL.map((c) => [c, { paye: randomUUID(), labour: randomUUID(), refund: randomUUID() }]));
 
@@ -60,12 +63,13 @@ async function header(companyId: string, y: number, m: number, status: string, p
             VALUES (${companyId}::UUID, ${y}, ${m}, ${status}, ${paye}, ${eti}, ${journalId}::UUID, 8)`;
 }
 
-async function directive(companyId: string, date: string, paye: number): Promise<void> {
+async function directive(companyId: string, date: string, paye: number): Promise<string> {
   const dj = await journal(companyId, date, 'SARS directive D1 — Emp', paye);
   const d = (await sql`INSERT INTO tax_directives (company_id, employee_name, directive_type, amount, effective_date, status, directive_number)
                        VALUES (${companyId}::UUID, 'Emp', 'severance', ${paye * 3}, ${date}::date, 'approved', ${'D-' + date}) RETURNING id`) as Array<{ id: string }>;
   await sql`INSERT INTO tax_directive_payments (company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, journal_entry_id)
             VALUES (${companyId}::UUID, ${d[0]!.id}::UUID, ${date}::date, ${paye * 3}, ${paye}, ${paye * 2}, ${dj}::UUID)`;
+  return dj;
 }
 
 const locked = <T>(c: string, fn: () => Promise<T>) => inTx(c, async () => { await lockCompanyPayrollApprovals(null, c); return fn(); });
@@ -94,13 +98,19 @@ beforeAll(async () => {
              (${acc[c]!.refund}::UUID, ${c}::UUID, '1150', 'ETI refund receivable (SARS)', 'asset', 'debit', 3, true, 'eti_refund_receivable', true)`;
   }
   // Repro A (and its action twin): July's run in force (PAYE nil, ETI 900); no August run.
-  for (const c of [REPRO_A, ACTION_A, CLOSED]) await header(c, 2026, 7, 'approved', 0, 900, await journal(c, '2026-07-28', 'Payroll run 2026-07', 0.01));
+  for (const c of [REPRO_A, ACTION_A, CLOSED, NO_OPEN]) await header(c, 2026, 7, 'approved', 0, 900, await journal(c, '2026-07-28', 'Payroll run 2026-07', 0.01));
   // CLOSED: everything to the end of August is closed after July's journal posted; September is open.
   await setPeriodsEndingBy(CLOSED, '2026-08-31', 'closed');
+  // NO_OPEN: every seeded period closed, so nothing is open on or after August's end.
+  await setPeriodsEndingBy(NO_OPEN, '2028-02-28', 'closed');
   // Repro B: October's run (PAYE nil, ETI 1 000) in force; a November directive (PAYE 1 500) whose ETI journal used R1 000.
   await header(REPRO_B, 2026, 10, 'approved', 0, 1_000, await journal(REPRO_B, '2026-10-31', 'Payroll run 2026-10', 0.01));
   await directive(REPRO_B, '2026-11-10', 1_500);
   await locked(REPRO_B, () => postMonthEtiJournal(REPRO_B, { year: 2026, month: 11 }, '2026-11-10', USER));
+  // AGENT: April's run (PAYE nil, ETI 1 000) in force; a May directive (PAYE 1 500) whose ETI journal used R1 000.
+  await header(AGENT, 2026, 4, 'approved', 0, 1_000, await journal(AGENT, '2026-04-30', 'Payroll run 2026-04', 0.01));
+  ids.agentDirective = await directive(AGENT, '2026-05-20', 1_500);
+  await locked(AGENT, () => postMonthEtiJournal(AGENT, { year: 2026, month: 5 }, '2026-05-20', USER));
   // ONLY_AUG: May with ETI; only August has a run journal in force.
   await header(ONLY_AUG, 2026, 5, 'approved', 300, 500);
   await header(ONLY_AUG, 2026, 8, 'approved', 300, 0, await journal(ONLY_AUG, '2026-08-31', 'Payroll run 2026-08', 300));
@@ -165,5 +175,29 @@ describe('the period guards', () => {
   it('tdd L1: April calculated and unapproved refuses May; April\'s own run never refuses April', async () => {
     expect(await inTx(APRIL, () => earlierUnapprovedRefusal(APRIL, { year: 2026, month: 5 }))).toMatch(/April 2026 pay run is calculated but not approved/);
     expect(await inTx(APRIL, () => earlierUnapprovedRefusal(APRIL, { year: 2026, month: 4 }))).toBeNull();
+  });
+});
+
+describe('tdd L1: the action\'s other outcomes', () => {
+  it('no open fiscal period after the month end: skipped (no_open_period), nothing posted, never a ClosedFiscalPeriodError', async () => {
+    const r = await inTx(NO_OPEN, () => bookEtiForMonthLocked(NO_OPEN, { year: 2026, month: 8 }, USER));
+    expect(r).toMatchObject({ status: 'no_open_period', journalEntryId: null });
+    expect(await etiJournals(NO_OPEN, 'ETI-2026-08')).toEqual([]);
+  });
+  it('a month whose run journal is in force: run_journal_in_force, nothing posted (the run books its own ETI)', async () => {
+    const r = await inTx(ACTION_A, () => bookEtiForMonthLocked(ACTION_A, { year: 2026, month: 7 }, USER));
+    expect(r).toMatchObject({ status: 'run_journal_in_force', journalEntryId: null });
+    expect(await etiJournals(ACTION_A, 'ETI-2026-07')).toEqual([]);
+  });
+});
+
+describe('rev L1: a connector\'s directive reversal stamps the ETI it rebooks as the agent\'s', () => {
+  it('reversing the May directive with a posting agent: the negative ETI-2026-05 journal carries that agent', async () => {
+    await inTx(AGENT, () => reverseJournalEntry(AGENT, ids.agentDirective!, USER, { postingAgent: 'mcp:reverse_journal_entry:v1' }));
+    const rows = (await sql`
+      SELECT posting_agent FROM gl_journal_entries
+       WHERE company_id = ${AGENT}::UUID AND reference = 'ETI-2026-05' ORDER BY created_at`) as Array<{ posting_agent: string }>;
+    expect(rows).toHaveLength(2); // the directive's own, then the reversal's difference
+    expect(rows[1]!.posting_agent).toBe('mcp:reverse_journal_entry:v1');
   });
 });

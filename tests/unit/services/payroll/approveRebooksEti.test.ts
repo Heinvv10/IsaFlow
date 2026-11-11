@@ -37,6 +37,11 @@ describe('approvePayrollRun', () => {
   it("posts the run journal, then rebooks the later run-less months of June's ETI period, with lock 1 taken first", async () => {
     await approvePayrollRun('c1', 'r1', 'u1');
     expect(order).toEqual(['lock1', 'post', 'rebook']);
-    expect(rebookEtiAfterEvent).toHaveBeenCalledWith('c1', { year: 2026, month: 6 }, 'u1');
+    expect(rebookEtiAfterEvent).toHaveBeenCalledWith('c1', { year: 2026, month: 6 }, 'u1', undefined, undefined);
+  });
+  it('rev L1: a connector\'s approval passes its posting agent to the rebook (list_agent_postings shows the rebooks)', async () => {
+    order.length = 0;
+    await approvePayrollRun('c1', 'r1', 'u1', { postingAgent: 'mcp:approve_pay_run:v1' });
+    expect(vi.mocked(rebookEtiAfterEvent).mock.calls.at(-1)).toEqual(['c1', { year: 2026, month: 6 }, 'u1', undefined, 'mcp:approve_pay_run:v1']);
   });
 });

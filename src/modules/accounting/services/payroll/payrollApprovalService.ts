@@ -172,7 +172,8 @@ export async function approvePayrollRun(
   // the same reason postPayrollRunJournal takes the stamp at all.
   const journalEntryId = await postPayrollRunJournal(companyId, runId, userId, { postingAgent: opts?.postingAgent, plan });
   // Wave 5 ET (round 3): the later run-less months of the ETI period follow the carry this run changed (under lock 1).
-  await rebookEtiAfterEvent(companyId, { year: plan.periodYear, month: plan.periodMonth }, userId);
+  // rev L1: a connector's approval stamps the rebooks it causes as the agent's (list_agent_postings).
+  await rebookEtiAfterEvent(companyId, { year: plan.periodYear, month: plan.periodMonth }, userId, undefined, opts?.postingAgent);
   await recordPayRunApprovalAudit({
     companyId, runId, actorId: userId, event: 'executed', planHash: gate.planHash,
     metadata: {

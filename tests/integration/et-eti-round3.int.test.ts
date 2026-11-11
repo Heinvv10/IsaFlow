@@ -18,7 +18,7 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { earlierUnapprovedRefusal, laterEtiJournalRefusal } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 import { postMonthEtiJournal } from '@/modules/accounting/services/payroll/directiveEtiJournal';
-import { rebookEtiAfterEvent } from '@/modules/accounting/services/payroll/etiRebook';
+import { bookEtiForMonthLocked, rebookEtiAfterEvent } from '@/modules/accounting/services/payroll/etiRebook';
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { payePayableDiffersFromEmp201 } from '@/modules/accounting/services/gl/integrityChecks/payrollChecks';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -93,6 +93,8 @@ beforeAll(async () => {
   await header(HAND, 2026, 9, 'approved', 0, 1_000, await journal(HAND, '2026-09-30', 'Payroll run 2026-09', 0.01));
   await directive(HAND, '2026-10-15', 1_500);
   ids.handEti = (await inTx(HAND, async () => { await lockCompanyPayrollApprovals(null, HAND); return postMonthEtiJournal(HAND, { year: 2026, month: 10 }, '2026-10-15', USER); }))!;
+  // An ETI journal in a month whose run journal is in force (September).
+  ids.handRunMonthEti = await journal(HAND, '2026-09-30', 'ETI for 2026-09: directive PAYE', 0.01, 'ETI-2026-09');
   // ORDER: March calculated (ETI), April approved, May calculated.
   await header(ORDER, 2026, 3, 'calculated', 300, 500);
   await header(ORDER, 2026, 4, 'approved', 300, 0);
@@ -186,13 +188,24 @@ describe('adv3 M2/M3: run-less months are rebooked and the integrity check is gr
   });
 });
 
-describe('coordinator (b): an ETI journal reversed by hand is not rebooked, and the integrity check goes red', () => {
-  it("October green, then its ETI journal reversed by hand: October is red and the finding says how to rebook it", async () => {
+describe('round 5 ruling: an ETI journal is never reversed by hand; the integrity remedy names only actions that work', () => {
+  const msg = "ETI journals are rebooked automatically; to write off an ETI amount SARS won't pay, post a manual journal";
+  it('a hand reversal of ETI-2026-10 (a run-less month) is refused, and so is ETI-2026-09 (a month whose run journal is in force)', async () => {
+    await expect(inTx(HAND, () => reverseJournalEntry(HAND, ids.handEti!, USER))).rejects.toThrow(msg);
+    await expect(inTx(HAND, () => reverseJournalEntry(HAND, ids.handRunMonthEti!, USER))).rejects.toThrow(msg);
+    const live = (await sql`SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id = ${HAND}::UUID AND reversal_of_id IS NOT NULL`) as Array<{ n: number }>;
+    expect(live[0]!.n).toBe(0);
+  });
+  it('October red after September changes: the finding names "Book ETI for this month", and pressing it turns October green', async () => {
     const oct = async () => inTx(HAND, () => payePayableDiffersFromEmp201({ companyId: HAND, asAt: '2026-10-31', limit: 20 }));
     expect((await oct()).sample.filter((x) => x.label === '2026-10')).toEqual([]);
-    await inTx(HAND, () => reverseJournalEntry(HAND, ids.handEti!, USER));
-    const r = await oct();
-    expect(r.sample.filter((x) => x.label === '2026-10')).toHaveLength(1);
-    expect(r.finding).toMatch(/reversed by hand is not rebooked/);
+    // September re-approved with ETI R400 instead of R1 000 (the header carries what the EMP201 declares).
+    await sql`UPDATE payroll_run_headers SET total_eti = 400 WHERE company_id = ${HAND}::UUID AND period_month = 9`;
+    const red = await oct();
+    expect(red.sample.filter((x) => x.label === '2026-10')).toHaveLength(1);
+    expect(red.finding).toContain('"Book ETI for this month"');
+    expect(red.finding).not.toMatch(/reversed by hand|re-apply/);
+    expect((await inTx(HAND, () => bookEtiForMonthLocked(HAND, { year: 2026, month: 10 }, USER))).status).toBe('booked');
+    expect((await oct()).sample.filter((x) => x.label === '2026-10')).toEqual([]);
   });
 });

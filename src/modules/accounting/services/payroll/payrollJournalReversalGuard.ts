@@ -77,15 +77,19 @@ async function directiveRevival(companyId: string, rootId: string, description: 
 /** The reference a month's ETI journal carries (etiBooking.etiJournalReference): ETI-YYYY-MM. */
 const ETI_REFERENCE = /^ETI-(\d{4})-(\d{2})$/;
 
+/** Review round 5 ruling (adv M1+M2): an ETI journal is never reversed by hand; the rebook keeps it as declared. */
+export const ETI_JOURNAL_REVERSAL_REFUSED =
+  'ETI journals are rebooked automatically; to write off an ETI amount SARS won\'t pay, post a manual journal';
+
 /**
- * Hein ruling R-A (wave 5 ET): a directive payment's journal or an ETI journal feeds its month's ETI carry, so it is not
- * reversed while a LATER month of the same ETI period has a posted run journal (etiPeriodGuard). Null otherwise.
+ * An ETI journal (reference ETI-YYYY-MM) is refused outright (review round 5 ruling: the rebook would only post it
+ * again). Hein ruling R-A (wave 5 ET): a directive payment's journal feeds its month's ETI carry, so it is not reversed
+ * while a LATER month of the same ETI period has a run journal in force (etiPeriodGuard). Null otherwise.
  */
 async function etiPeriodReversalRefusal(
   companyId: string, root: { description: string; entryDate: string; reference?: string | null },
 ): Promise<string | null> {
-  const eti = ETI_REFERENCE.exec(root.reference ?? '');
-  if (eti) return laterEtiJournalRefusal(companyId, { year: Number(eti[1]), month: Number(eti[2]) });
+  if (ETI_REFERENCE.test(root.reference ?? '')) return ETI_JOURNAL_REVERSAL_REFUSED;
   if (!DIRECTIVE_JOURNAL.test(root.description)) return null;
   return laterEtiJournalRefusal(companyId, { year: Number(root.entryDate.slice(0, 4)), month: Number(root.entryDate.slice(5, 7)) });
 }

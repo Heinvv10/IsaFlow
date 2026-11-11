@@ -65,10 +65,12 @@ export function etiCarryLedger(from: YearMonth, to: YearMonth, months: EtiMonth[
     const available = eti + broughtForward;
     const used = Math.min(Math.max(paye, 0), available);
     carried = available - used;
-    const refundClaimable = ym.month === 2 || ym.month === 8 ? carried : 0;
+    // s10(1): at the end of August and February the unused ETI is REFUNDED, not carried (review round 5, browser L2).
+    const periodEnd = ym.month === 2 || ym.month === 8;
+    const refundClaimable = periodEnd ? carried : 0;
     ledger.push({
       ...ym, paye: rand(paye), eti: rand(eti), broughtForward: rand(broughtForward), available: rand(available),
-      used: rand(used), carriedForward: rand(carried), refundClaimable: rand(refundClaimable),
+      used: rand(used), carriedForward: rand(periodEnd ? 0 : carried), refundClaimable: rand(refundClaimable),
     });
   }
   return ledger;

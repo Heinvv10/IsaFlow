@@ -148,12 +148,20 @@ describe('refuseReversalAgainstPayRun (the live path)', () => {
 });
 
 describe('Hein ruling R-A (wave 5 ET): a directive or ETI journal under a posted later ETI month', () => {
-  it.each([['SARS directive D1 — Emp', undefined], ['anything at all', 'ETI-2026-04']])('refuses reversing "%s" (reference %s; dry run and live), naming the month', async (description, reference) => {
+  it('refuses reversing a directive payment\'s journal (dry run and live), naming the month', async () => {
+    const [description, reference] = ['SARS directive D1 — Emp', undefined];
     chain('in_force', { description, reference });
     vi.mocked(laterEtiJournalRefusal).mockResolvedValue('The May 2026 payroll journal is already posted.');
     expect(await payrollReversalRefusal('c1', PAYROLL)).toBe('The May 2026 payroll journal is already posted.');
     await expect(refuseReversalAgainstPayRun('c1', PAYROLL)).rejects.toThrow(/May 2026/);
     expect(laterEtiJournalRefusal).toHaveBeenCalledWith('c1', { year: 2026, month: 4 });
+  });
+  it('round 5 ruling: an ETI journal (ETI-YYYY-MM) is NEVER reversed by hand, later month or not (dry run and live)', async () => {
+    chain('in_force', { description: 'anything at all', reference: 'ETI-2026-04' });
+    vi.mocked(laterEtiJournalRefusal).mockResolvedValue(null);
+    const msg = "ETI journals are rebooked automatically; to write off an ETI amount SARS won't pay, post a manual journal";
+    expect(await payrollReversalRefusal('c1', PAYROLL)).toBe(msg);
+    await expect(refuseReversalAgainstPayRun('c1', PAYROLL)).rejects.toThrow(msg);
   });
   it('is not asked about any other journal (an ETI journal is known by its reference, not its narrative)', async () => {
     chain('in_force', { description: 'ETI for 2026-04: directive PAYE' });

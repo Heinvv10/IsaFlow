@@ -89,8 +89,9 @@ export async function payePayableDiffersFromEmp201(ctx: IntegrityCheckContext): 
     finding: 'Months whose payroll journals credit PAYE payable (2140), or book the ETI refund receivable, by a different amount than the EMP201 declares. '
       + 'Usually an earlier month in the same ETI period changed after a later month was booked (ETI Act s9(1)), a directive payment was '
       + 'undone without its ETI, or an August/February with no payroll journal left the refund (s10(1)) unbooked. '
-      + 'An ETI journal (ETI-YYYY-MM) reversed by hand is not rebooked automatically: use "Book ETI for this month" on the EMP201 page '
-      + '(or the book_eti_for_month connector tool), or the next approval, reopen, or directive payment or reversal in that half-year or the next books it.'
+      + 'A month with no pay run journal in force (a directive-only month, or no pay run): "Book ETI for this month" on its EMP201 '
+      + '(or the book_eti_for_month connector tool) books it once the month has ended. A month whose pay run journal is in force: '
+      + 'reopen that pay run and approve it again.'
       + (preEt.length > 0 ? ` Not counted, calculated before ETI carry-forward was booked (calculation version < ${ETI_CARRY_CALCULATION_VERSION}): ${preEt.join(', ')}.` : ''),
   };
 }

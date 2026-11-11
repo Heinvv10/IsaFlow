@@ -54,6 +54,9 @@ export const bookEtiForMonthTool: McpTool = {
     }
     if (outcome.status === 'not_ended') return toolError(`${outcome.month} has not ended: its ETI is booked after its last day.`);
     if (outcome.status === 'no_open_period') return toolError(`No open fiscal period on or after the end of ${outcome.month}: open one, then try again.`);
-    return ok({ month: outcome.month, status: outcome.status, journal_entry_id: outcome.journalEntryId, entry_date: outcome.entryDate });
+    return ok({
+      month: outcome.month, status: outcome.status, journal_entry_id: outcome.journalEntryId, entry_date: outcome.entryDate,
+      eti_used_booked: outcome.used, eti_refund_booked: outcome.refund,
+    });
   },
 };
