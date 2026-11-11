@@ -74,6 +74,10 @@ describe('the run table', () => {
     expect(within(drawer).getAllByRole('link', { name: /PAYE-GEN-01-G21/ }).length).toBeGreaterThan(0);
     expect(within(drawer).getAllByText('18%').length).toBeGreaterThan(0); // a rate reads as a percentage, not 0.18
     expect(within(drawer).queryByText('0.18')).toBeNull();
+    // HTML's dl content model (axe "dlitem"): every dt and dd sits in a div that is a dl's own child.
+    const terms = [...drawer.querySelectorAll('dt, dd')];
+    expect(terms.length).toBeGreaterThan(10);
+    expect(terms.filter(t => t.parentElement?.tagName !== 'DIV' || t.parentElement.parentElement?.tagName !== 'DL')).toEqual([]);
     const call = fetchMock.mock.calls.find(([u]) => String(u).includes('/explanation?'))!;
     expect(call[0]).toBe(EXPLAIN_URL('e-1'));
     expect((call[1] as RequestInit).cache).toBe('no-store');

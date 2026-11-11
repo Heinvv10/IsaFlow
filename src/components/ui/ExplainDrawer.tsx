@@ -77,36 +77,43 @@ function SourceText({ source }: { source: string | ExplanationSource }) {
   );
 }
 
+/**
+ * One term and its value, as a group of a <dl>: the <div> is the dl's direct child and holds only <dt>/<dd>
+ * (HTML's dl content model; axe "dlitem"), so the formula, note, source and nested steps sit in a second <dd>.
+ */
 function Line({ line, strong }: { line: ExplanationLine; strong?: boolean }) {
+  const hasDetail = !!(line.formula || line.note || line.source || (line.children && line.children.length > 0));
   return (
-    <div className="py-3">
-      <div className="flex items-baseline justify-between gap-4">
-        <dt className="text-sm font-medium text-gray-900 dark:text-gray-100">
-          {line.label}
-          {line.status && (
-            <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-200">
-              {STATUS_TEXT[line.status]}
-            </span>
+    <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-4 py-3">
+      <dt className="text-sm font-medium text-gray-900 dark:text-gray-100">
+        {line.label}
+        {line.status && (
+          <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+            {STATUS_TEXT[line.status]}
+          </span>
+        )}
+      </dt>
+      <dd className={cn('text-right text-sm tabular-nums text-gray-900 dark:text-gray-100', strong ? 'font-bold' : 'font-semibold')}>
+        {line.value}
+        {line.unit && <span className="ml-1 text-xs font-normal text-gray-600 dark:text-gray-400">{line.unit}</span>}
+      </dd>
+      {hasDetail && (
+        <dd className="col-span-2">
+          {line.formula && <p className="mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">{line.formula}</p>}
+          {line.note && <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{line.note}</p>}
+          {line.source && (
+            <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
+              <SourceText source={line.source} />
+            </p>
           )}
-        </dt>
-        <dd className={cn('text-sm tabular-nums text-gray-900 dark:text-gray-100', strong ? 'font-bold' : 'font-semibold')}>
-          {line.value}
-          {line.unit && <span className="ml-1 text-xs font-normal text-gray-600 dark:text-gray-400">{line.unit}</span>}
+          {line.children && line.children.length > 0 && (
+            <dl className="mt-1 divide-y divide-gray-100 border-l-2 border-gray-200 pl-3 dark:divide-white/[0.08] dark:border-gray-700">
+              {line.children.map((child, i) => (
+                <Line key={`${i}-${child.label}`} line={child} />
+              ))}
+            </dl>
+          )}
         </dd>
-      </div>
-      {line.formula && <p className="mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">{line.formula}</p>}
-      {line.note && <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{line.note}</p>}
-      {line.source && (
-        <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
-          <SourceText source={line.source} />
-        </p>
-      )}
-      {line.children && line.children.length > 0 && (
-        <dl className="mt-1 divide-y divide-gray-100 border-l-2 border-gray-200 pl-3 dark:divide-white/[0.08] dark:border-gray-700">
-          {line.children.map((child, i) => (
-            <Line key={`${i}-${child.label}`} line={child} />
-          ))}
-        </dl>
       )}
     </div>
   );
