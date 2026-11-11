@@ -102,3 +102,17 @@ it('a Modal without initialFocusRef still focuses its first control (the default
   render(<Modal open onClose={() => undefined} title="Plain"><Modal.Body><input aria-label="field" /></Modal.Body></Modal>);
   await waitFor(() => expect(focused()).toBe(screen.getByRole('button', { name: 'Close modal' })));
 });
+
+it('ALREADY_AMENDED with a newer version live elsewhere still offers no "Amend instead" from an amend dialog', async () => {
+  h.versions = [V1];
+  h.postReplies = [refusal(409, 'Version 1 was already amended.', { code: 'ALREADY_AMENDED' })];
+  bar(); await ready();
+  fireEvent.click(button(/^Amend$/)!);
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.change(within(dialog).getByLabelText(/Reason for the amendment/), { target: { value: 'x' } });
+  h.versions = [{ ...V1, status: 'superseded', amendedBy: 'u-owner', amendedAt: '2026-09-04T10:00:00Z', amendReason: 'elsewhere' },
+    { ...V1, id: 'v2', versionNo: 2, amendsVersionId: V1.id }];
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Amend$/ }));
+  await waitFor(() => expect(screen.getByTestId('return-lifecycle-status').textContent).toBe('Finalised (v2), not filed'));
+  expect(within(dialog).queryByRole('button', { name: 'Amend instead' })).toBeNull();
+});
