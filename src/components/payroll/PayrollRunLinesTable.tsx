@@ -11,10 +11,13 @@
  * in Gross or Net: it is shown under the Gross figure, so PAYE and SDL on more than Gross read right.
  *
  * `edit` adds the review grid's columns (PayRunReviewGrid); the figures stay these.
+ * `onExplain` adds "How was this calculated?" to each statutory cell (PAYE, UIF, SDL, ETI; wave 5 EX-core).
  */
 import type { ReactNode } from 'react';
 import { formatCurrency } from '@/utils/formatters';
 import { splitRunTotals } from '@/modules/accounting/services/payroll/payrollRunTotalsSplit';
+import type { ExplainedFigure } from '@/modules/accounting/services/payroll/payrollExplainTypes';
+import { ExplainButton } from './LineExplain';
 
 export interface RunLineAmounts {
   employeeId: string;
@@ -119,9 +122,25 @@ function GrossCell({ line: l }: { line: RunLineAmounts }) {
   );
 }
 
+export type OnExplain = (line: RunLineAmounts, figure: ExplainedFigure) => void;
+
+/** A statutory figure, with its "How was this calculated?" button when the table has one. */
+function StatutoryCell({ line, figure, amount, onExplain, className = '' }: {
+  line: RunLineAmounts; figure: ExplainedFigure; amount: number; onExplain?: OnExplain; className?: string;
+}) {
+  return (
+    <td className={`${num} text-[var(--ff-text-secondary)] ${className}`}>
+      <span className="inline-flex items-center justify-end whitespace-nowrap">
+        {formatCurrency(amount)}
+        {onExplain && <ExplainButton figure={figure} who={line.employeeName} onClick={() => onExplain(line, figure)} />}
+      </span>
+    </td>
+  );
+}
+
 /** `onPayslip` adds a last column with a "Payslip" action per row (wave 4 PS). */
-export function PayrollRunLinesTable({ lines, edit, onPayslip }: {
-  lines: RunLineAmounts[]; edit?: RunLinesEdit; onPayslip?: (line: RunLineAmounts) => void;
+export function PayrollRunLinesTable({ lines, edit, onPayslip, onExplain }: {
+  lines: RunLineAmounts[]; edit?: RunLinesEdit; onPayslip?: (line: RunLineAmounts) => void; onExplain?: OnExplain;
 }) {
   const t = sumRunLines(lines);
   return (
@@ -160,17 +179,17 @@ export function PayrollRunLinesTable({ lines, edit, onPayslip }: {
             {edit?.hours && <td className={num}>{edit.hours.cell(l, row)}</td>}
             {edit && <td className={num}>{edit.earning.cell(l, row)}</td>}
             <GrossCell line={l} />
-            <td className={`${num} text-[var(--ff-text-secondary)] border-l border-[var(--ff-border-primary)]`}>{formatCurrency(l.paye)}</td>
-            <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(l.uifEmployee)}</td>
+            <StatutoryCell line={l} figure="paye" amount={l.paye} onExplain={onExplain} className="border-l border-[var(--ff-border-primary)]" />
+            <StatutoryCell line={l} figure="uif" amount={l.uifEmployee} onExplain={onExplain} />
             {edit?.deduction && <td className={num}>{edit.deduction.cell(l, row)}</td>}
             <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(otherDeductions(l))}</td>
             <td className={`${num} text-teal-400 font-medium border-l border-[var(--ff-border-primary)]`}
               title={`${formatCurrency(l.grossPay)} gross − ${formatCurrency(l.paye)} PAYE − ${formatCurrency(l.uifEmployee)} UIF − ${formatCurrency(otherDeductions(l))} other = ${formatCurrency(l.netPay)} net`}>
               {formatCurrency(l.netPay)}
             </td>
-            <td className={`${num} text-[var(--ff-text-secondary)] border-l border-[var(--ff-border-primary)]`}>{formatCurrency(l.uifEmployer)}</td>
-            <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(l.sdl)}</td>
-            <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(l.eti)}</td>
+            <StatutoryCell line={l} figure="uif" amount={l.uifEmployer} onExplain={onExplain} className="border-l border-[var(--ff-border-primary)]" />
+            <StatutoryCell line={l} figure="sdl" amount={l.sdl} onExplain={onExplain} />
+            <StatutoryCell line={l} figure="eti" amount={l.eti} onExplain={onExplain} />
             {onPayslip && (
               <td className="py-2 px-4 border-l border-[var(--ff-border-primary)]">
                 <button type="button" onClick={() => onPayslip(l)} aria-label={`Payslip for ${l.employeeName}`}

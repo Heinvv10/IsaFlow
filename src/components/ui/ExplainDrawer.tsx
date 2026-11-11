@@ -26,6 +26,8 @@ export interface ExplanationSource {
 export interface ExplanationLine {
   label: string;
   formula?: string;
+  /** Words with the line: a reason or an assumption. */
+  note?: string;
   value: string | number;
   /** Shown after the value, e.g. "per month", "%". */
   unit?: string;
@@ -93,6 +95,7 @@ function Line({ line, strong }: { line: ExplanationLine; strong?: boolean }) {
         </dd>
       </div>
       {line.formula && <p className="mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">{line.formula}</p>}
+      {line.note && <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{line.note}</p>}
       {line.source && (
         <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
           <SourceText source={line.source} />
