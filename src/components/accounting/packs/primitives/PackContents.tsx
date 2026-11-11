@@ -10,6 +10,7 @@
  */
 import type { ReactNode } from 'react';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { proseText } from './PackProse';
 
 export interface PackContentsProps {
   pages: Pick<PackPage, 'number' | 'navLabel'>[];
@@ -33,7 +34,7 @@ export function PackContents({ pages, children }: PackContentsProps) {
              *  negative comparative base, so the percentage change is not
              *  meaningful." A director scanning for the balance sheet could
              *  not find it. */}
-            <span className="pack-contents-title">{page.navLabel}</span>
+            <span className="pack-contents-title">{proseText(page.navLabel)}</span>
           </li>
         ))}
       </ol>

@@ -17,6 +17,7 @@
  * as a continuation of the page's own footnotes.
  */
 import type { PackFootnote } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { proseText } from './PackProse';
 
 export interface FootnoteListProps {
   footnotes: PackFootnote[];
@@ -29,7 +30,7 @@ export function FootnoteList({ footnotes }: FootnoteListProps) {
       {footnotes.map((footnote) => (
         <li key={footnote.number}>
           <span className="pack-footnote-number">{footnote.number}</span>
-          <span>{footnote.text}</span>
+          <span>{proseText(footnote.text)}</span>
         </li>
       ))}
     </ol>

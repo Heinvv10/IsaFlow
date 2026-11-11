@@ -81,8 +81,11 @@ describe('a pack whose commentary a human signed', () => {
     const tail = block.boardActionsTail ?? [];
     const columns = narrativeMm(block.narrative, actions, 'portrait', tail, false);
     const stacked = narrativeMm(block.narrative, actions, 'portrait', tail, true);
-    expect(columns, 'the narrow-column layout is not the tall one any more').toBeGreaterThan(180);
     expect(stacked).toBeLessThan(columns);
+    // The page as composed fits; drawn side by side, the same page would not (it is the layout that refused the pack).
+    const page = commentaryPage(liveDemoApprovedCommentaryInput);
+    expect(pageMm(page)).toBeLessThanOrEqual(pageBoxMm(page));
+    expect(pageMm(page) - stacked + columns, 'the narrow-column layout is not the tall one any more').toBeGreaterThan(pageBoxMm(page));
   });
 
   /**
@@ -117,7 +120,7 @@ describe('a pack whose commentary a human signed', () => {
     // The control. A fix that restacked every narrative block would satisfy
     // everything above and change eleven sheets nobody asked it to.
     const before = commentaryPage(liveDemoShortPanelsInput);
-    expect(pageMm(before)).toBeCloseTo(218.2, 1);
+    expect(pageMm(before)).toBeCloseTo(214.4, 1);
     const block = narrativeBlock(before);
     expect(block.narrative.status).toBe('pending');
     // AND IT WAS NEVER RESTACKED, because it never had to be: a pending

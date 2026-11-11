@@ -36,6 +36,9 @@
  *   (yearToDatePeriods). Production had no such line in
  *   tax year 2027 (read-only census 2026-10-26: 0 of 167 lines).
  *
+ * - a line whose PAYE was not taken from the tables (PAYE_OUTSIDE_TABLES: a non-standard employee at a flat 25%, a
+ *   contractor) is no table period: it is left out of every figure above, the medical and retirement records included, so
+ *   a later table month is neither trued up against it nor carries its pay (the SDL lines below keep it);
  * - sdlApplicable / sdlLeviable / sdlRetirementDeduction: the SDL year to date
  *   over the lines the employer was liable for (payrollSdlYearToDate), from the
  *   same lines; the figures each run stored (sdl_applicable, sdl_leviable,
@@ -55,6 +58,7 @@ import { loadMedicalRecord } from './payrollMedicalRecord';
 import { loadRetirementRecord } from './payrollRetirementRecord';
 import { sdlYearToDate, type SdlYearToDateLine } from './payrollSdlYearToDate';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
+import { outsideTablesFlag } from './payrollOutsideTables';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -78,7 +82,9 @@ export async function loadPayeYearToDate(
              b.annual_3605, b.original_taxable, b.donations,
              h.period_year, h.period_month, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,
              l.sdl_applicable AS stored_sdl_applicable, l.sdl_leviable, l.sdl_exempt, b.sdl_applicable AS rebuilt_sdl_applicable,
-             l.donation_receipted, l.donation_base, l.donation_deduction
+             l.donation_receipted, l.donation_base, l.donation_deduction,
+             -- A month whose PAYE was not taken from the tables (a flat 25% or a contractor; taxStatusTreatment) is no table period.
+             NOT COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false) AS on_tables
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (${lineRemunerationBeforeDeductionsSql()}) r
@@ -115,28 +121,28 @@ export async function loadPayeYearToDate(
         AND l.employee_id = ANY(${employeeIds}::uuid[])
     )
     SELECT employee_id,
-           COUNT(*) FILTER (WHERE periodic_before_deductions > 0)::int AS periods,
-           COUNT(*) FILTER (WHERE periodic_before_deductions > 0 OR annual_before_deductions > 0)::int AS retirement_cap_periods,
+           COUNT(*) FILTER (WHERE on_tables AND periodic_before_deductions > 0)::int AS periods,
+           COUNT(*) FILTER (WHERE on_tables AND (periodic_before_deductions > 0 OR annual_before_deductions > 0))::int AS retirement_cap_periods,
            -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
-           jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic_before_deductions <= 0) AS unpaid_lines,
+           jsonb_object_agg(line_id::text, periodic) FILTER (WHERE on_tables AND periodic_before_deductions <= 0) AS unpaid_lines,
            -- Only these lines may need the legacy restoration to add a cap period.
            jsonb_object_agg(line_id::text, true) FILTER (
-             WHERE periodic_before_deductions <= 0 AND annual_before_deductions <= 0
+             WHERE on_tables AND periodic_before_deductions <= 0 AND annual_before_deductions <= 0
            ) AS uncounted_cap_lines,
            jsonb_object_agg(line_id::text, jsonb_build_object(
              'periodic', periodic, 'annual', annual, 'annualGross', annual_3605,
              'originalTaxable', original_taxable
-           )) AS taxable_splits,
-           SUM(periodic)::numeric AS periodic,
-           SUM(annual)::numeric AS annual,
-           SUM(paye - directive_paye)::numeric AS table_paye,
+           )) FILTER (WHERE on_tables) AS taxable_splits,
+           SUM(periodic) FILTER (WHERE on_tables)::numeric AS periodic,
+           SUM(annual) FILTER (WHERE on_tables)::numeric AS annual,
+           SUM(paye - directive_paye) FILTER (WHERE on_tables)::numeric AS table_paye,
            -- SUM skips a line written before migration 926 (NULL: recorded nothing).
-           SUM(medical_credit)::numeric AS medical_credit,
-           SUM(additional_medical_credit)::numeric AS additional_medical_credit,
+           SUM(medical_credit) FILTER (WHERE on_tables)::numeric AS medical_credit,
+           SUM(additional_medical_credit) FILTER (WHERE on_tables)::numeric AS additional_medical_credit,
            -- SUM skips a line written before migration 959: the 5% limit starts after it (s18aDonation).
-           SUM(donation_receipted)::numeric AS donation_receipted,
-           SUM(donation_base)::numeric AS donation_base,
-           SUM(donation_deduction)::numeric AS donation_deduction,
+           SUM(donation_receipted) FILTER (WHERE on_tables)::numeric AS donation_receipted,
+           SUM(donation_base) FILTER (WHERE on_tables)::numeric AS donation_base,
+           SUM(donation_deduction) FILTER (WHERE on_tables)::numeric AS donation_deduction,
            -- The lines in period order, for the SDL year to date (payrollSdlYearToDate).
            jsonb_agg(jsonb_build_object('line', line_id, 'sdl', sdl, 'sdlApplicable', stored_sdl_applicable,
                'rebuiltApplicable', rebuilt_sdl_applicable, 'sdlLeviable', sdl_leviable, 'sdlExempt', sdl_exempt,
@@ -151,8 +157,8 @@ export async function loadPayeYearToDate(
     start: `${taxYear - 1}-03-01`,
     end: period.month === 1 ? `${period.year - 1}-12-01` : `${period.year}-${String(period.month - 1).padStart(2, '0')}-01`,
   };
-  const fees = await loadMedicalRecord(companyId, before, employeeIds);
-  const retirement = await loadRetirementRecord(companyId, before, employeeIds);
+  const fees = await loadMedicalRecord(companyId, before, employeeIds, { tablesOnly: true });
+  const retirement = await loadRetirementRecord(companyId, before, employeeIds, { tablesOnly: true });
   return new Map(rows.map(r => {
     const fund = retirement.get(String(r.employee_id));
     const taxableSplits = (r.taxable_splits ?? {}) as Record<string, unknown>;

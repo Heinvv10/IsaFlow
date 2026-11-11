@@ -44,9 +44,9 @@ describe('loadPayeYearToDate with a pre-948 line reduced to nil', () => {
     const remuneration = String(unsafeMock.mock.calls[0]![0]);
     expect(remuneration).toContain("<> '3605'");
     expect(remuneration).toContain("= '3605'");
-    expect(query).toContain('COUNT(*) FILTER (WHERE periodic_before_deductions > 0)::int AS periods');
+    expect(query).toContain('COUNT(*) FILTER (WHERE on_tables AND periodic_before_deductions > 0)::int AS periods');
     expect(query).toContain('periodic_before_deductions > 0 OR annual_before_deductions > 0');
-    expect(query).toContain('FILTER (WHERE periodic_before_deductions <= 0) AS unpaid_lines');
+    expect(query).toContain('FILTER (WHERE on_tables AND periodic_before_deductions <= 0) AS unpaid_lines');
     expect(query).toContain('AS uncounted_cap_lines');
   });
 

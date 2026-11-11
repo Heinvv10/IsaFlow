@@ -34,7 +34,9 @@ beforeEach(fx.freshCompany);
 afterEach(fx.dropCompany);
 afterAll(fx.tearDown);
 
-const codes = (l: { validation_results: Array<{ code: string }> }) => l.validation_results.map((v) => v.code);
+// TS-b (calculation version 5) stores HOURS_NOT_RECORDED (info) on every hourless monthly line; it is not a loan or pay result, so the
+// loan assertions here leave that one code out and nothing else.
+const codes = (l: { validation_results: Array<{ code: string }> }) => l.validation_results.map((v) => v.code).filter((c) => c !== 'HOURS_NOT_RECORDED');
 
 describe('judged against a fresh calculation, not the stored line', () => {
   it('a line gone stale below nil: an edit that narrows it is allowed', async () => {
@@ -59,7 +61,7 @@ describe('a loan instalment above pay', () => {
     const l = await line(state.nov);
     expect(l.net).toBeGreaterThan(0);
     expect(codes(l)).toEqual(['LOAN_INSTALMENT_EXCEEDS_PAY']);
-    expect(l.validation_results[0]!.message).toContain('Wanda Test');
+    expect(l.validation_results.find((v) => v.code === 'LOAN_INSTALMENT_EXCEEDS_PAY')!.message).toContain('Wanda Test');
     const { blocker, plan, planHash } = (await preview(state.nov)).body.data!;
     expect(blocker).toMatchObject({ code: 'loan_instalment_exceeds_pay' });
     const detail = (blocker.detail as string).replace(/\s/g, ' ');
@@ -260,7 +262,9 @@ describe('a loan instalment above pay', () => {
     const available = (await line(state.nov)).net as number;
     const loan = await addLoan(available);
     await recalculate(state.nov);
-    expect(await line(state.nov)).toMatchObject({ net: 0, validation_results: [] });
+    const paid = await line(state.nov);
+    expect(paid).toMatchObject({ net: 0 });
+    expect(codes(paid)).toEqual([]);
     expect((await pool.query('SELECT principal_paid::float8 AS paid FROM payroll_loan_payments WHERE loan_id = $1', [loan])).rows)
       .toEqual([{ paid: available }]);
   });

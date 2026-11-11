@@ -23,8 +23,8 @@ type Body = Record<string, unknown>;
 /** A route's request-log mask (withErrorHandler maskBodyKeys): the terms are pay detail, never logged. */
 export const EMPLOYEE_TERM_LOG_KEYS: readonly string[] = [...TERM_KEYS];
 
-/** Status and rates decide what an employee costs: only the roles that may redirect net pay may move them. */
-export const PRICED_KEYS = ['taxStatus', 'payBasis', 'hourlyRate', 'dailyRate'] as const;
+/** Status, hours and rates decide what an employee costs and how they are taxed (hours classify the employment, G21 p. 28): only the roles that may redirect net pay may move them. */
+export const PRICED_KEYS = ['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate'] as const;
 
 /** Whether a judged patch changes one of the priced terms from `current` (an unchanged value is no change). */
 export function movesPricedTerm(patch: Partial<EmployeeTerms>, current: EmployeeTerms): boolean {

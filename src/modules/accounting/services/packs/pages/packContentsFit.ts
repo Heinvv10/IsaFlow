@@ -5,7 +5,10 @@
  * `contentsListMm`, so every caller still imports them there.
  */
 import { fitPageToBox } from './packPageFit';
-import { lines, PAGE_WIDTH_MM, PT_MM, wrappedLines } from './packTextMetrics';
+import { lines, PAGE_WIDTH_MM, PT_MM } from './packTextMetrics';
+import { proseLines } from './packProseLines';
+import { PROSE } from './packProseStyles';
+
 import type { UnnumberedPage } from './packUnnumberedPage';
 
 /**
@@ -57,12 +60,12 @@ const CONTENTS_LABEL_MM = PAGE_WIDTH_MM.portrait - 10;
  * pack with longer ones does not, and a wrapped label makes this formula
  * UNDER-read, which is the one direction that puts a page on a second sheet
  * under an index that says otherwise. It is now measured the way every other
- * block on every other page is measured, through `wrappedLines`, and
+ * block on every other page is measured, through `proseLines`, and
  * `packSheetCount.test.ts` holds page 2 to Chromium's own layout like the
  * ten pages after it.
  */
 export function contentsListMm(navLabels: string[]): number {
   const rowLines = navLabels.reduce(
-    (sum, label) => sum + wrappedLines(label, 10, CONTENTS_LABEL_MM), 0);
+    (sum, label) => sum + proseLines(label, PROSE.contents, CONTENTS_LABEL_MM), 0);
   return 4 + lines(rowLines, 16) + navLabels.length * (2 + 0.5 * PT_MM);
 }

@@ -9,5 +9,6 @@
  * 3: s18A donations need a receipt and stop at 5%, off PAYE and SDL (migration 959).
  * 4: only retirement contributions and s18A donations reduce PAYE; any other taxable deduction is warned.
  * 5: an hourly or daily employee with no hours or days on the run is flagged HOURS_MISSING and refused at approval (HD).
+ * 6: tax status and employment class decide PAYE, UIF, SDL and ETI (non-standard 25%, independent contractor: none; TS-b).
  */
-export const PAYROLL_CALCULATION_VERSION = 5;
+export const PAYROLL_CALCULATION_VERSION = 6;
