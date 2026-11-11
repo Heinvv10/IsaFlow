@@ -176,7 +176,7 @@ export async function buildPayrollJournalPlan(
   }
   // Only when a net-pay line survives (zero lines are dropped below): a run paying no one credits no bank.
   if (netPayTarget.blocker && round2(net) !== 0) blockers.push(netPayTarget.blocker);
-  if ((Math.abs(otherDeductions) > 0.005 || medical > 0.005) && !accounts.has('2175')) {
+  if ((Math.abs(otherDeductions) > 0.005 || Math.abs(medical) > 0.005) && !accounts.has('2175')) {
     blockers.push({
       code: 'missing_other_deductions_account',
       detail: `The run carries R${round2(otherDeductions + medical).toFixed(2)} of voluntary deductions, employer medical contributions or reversals but the company has no GL account 2175 (Other Employee Deductions Payable).`,
@@ -257,6 +257,7 @@ export async function buildPayrollJournalPlan(
     built.push(line('2175', Math.abs(otherDeductions), 0, 'Other employee deductions reversal — amount paid back through payroll'));
   }
   if (medical > 0.005) built.push(line('2175', 0, medical, "Employer medical scheme contributions (non-cash 3810), payable to the scheme"));
+  else if (medical < -0.005) built.push(line('2175', -medical, 0, 'Employer medical scheme contributions reversal — claw-back of a non-cash 3810'));
 
   const lines = built.filter((l) => l.debit !== 0 || l.credit !== 0);
   const shared = sharedNetPayAccountBlocker(netPayTarget, lines);
