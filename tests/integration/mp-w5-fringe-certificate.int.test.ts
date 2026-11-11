@@ -53,6 +53,21 @@ beforeAll(async () => {
       item('3601', 30_000), item('3701', 1_000, { isTaxable: false }), item('3802', 2_000),
     ])]);
   runId = run;
+  // MIXED: an employee in March (with a 3701) and a contractor in April (also a 3701, in a contractor line).
+  const flag = [{ code: 'PAYE_OUTSIDE_TABLES', treatment: 'none' }];
+  const run2 = (await pool.query(
+    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross) VALUES ($1, 4, 2026, 'approved', 0) RETURNING id`, [company])).rows[0]!.id;
+  const person = async (n: string) => (await pool.query(
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, id_number, tax_number)
+     VALUES ($1, $2, 'Test', $2, '2020-01-01', '1980-01-01', '8001015009087', '0123456789') RETURNING id`, [company, n])).rows[0]!.id as string;
+  const mixed = await person('Mixed');
+  const only = await person('Only');
+  const line = (r: string, e: string, gross: number, paye: number, items: unknown[], results: unknown[] = []) => pool.query(
+    `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, uif_employee, uif_employer, sdl, component_breakdown, validation_results)
+     VALUES ($1, $2, $3, $3, $4, 0, 0, 0, $5::jsonb, $6::jsonb)`, [r, e, gross, paye, JSON.stringify(items), JSON.stringify(results)]);
+  await line(run, mixed, 35_000, 5_000, [item('3601', 30_000), item('3701', 5_000, { payeInclusionRate: 0.8, payeIncludedAmount: 4_000 })]);
+  await line(run2, mixed, 20_000, 0, [item('3601', 15_000), item('3701', 5_000, { payeInclusionRate: 0.8, payeIncludedAmount: 4_000 })], flag);
+  await line(run2, only, 20_000, 0, [item('3601', 15_000), item('3701', 5_000, { payeInclusionRate: 0.8, payeIncludedAmount: 4_000 })], flag);
 });
 
 afterAll(async () => {
@@ -129,5 +144,22 @@ describe('4582 counts only what the band sum counts', () => {
     const zed = recordOf(file.body, 'Zed');
     expect(zed).toContain('3601,35000');
     expect(zed.some((l) => l.startsWith('3701,') || l.startsWith('4582,'))).toBe(false);
+  });
+});
+
+describe('a contractor\'s 3701 is in 3616, not an allowance (TS-b with FB)', () => {
+  it('a year that is part employee, part contractor keeps the employee month\'s 3701 and 4582, and its 3616', async () => {
+    const file = await exportFile();
+    expect(file.status, file.body).toBe(200);
+    const m = recordOf(file.body, 'Mixed');
+    expect(m).toContain('3701,5000');
+    expect(m).toContain('4582,4000');
+    expect(m.some((l) => l.startsWith('3616,'))).toBe(true);
+  });
+  it('a contractor-only certificate has 3616 and no 3701 or 4582', async () => {
+    const file = await exportFile();
+    const o = recordOf(file.body, 'Only');
+    expect(o.some((l) => l.startsWith('3616,'))).toBe(true);
+    expect(o.some((l) => l.startsWith('3701,') || l.startsWith('4582,'))).toBe(false);
   });
 });

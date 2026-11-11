@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildEmployeeRecord, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
+import { contractorAwareReason } from '@/modules/accounting/services/payroll/easyFileContractor';
 import { allowanceCertificateFields } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
 
 const base: EmployeeInput = {
@@ -79,5 +80,15 @@ describe('the split default on the certificate: R25 000 salary, a 3810 of 2 000 
       medical: { fees: 4_000, credit: 752, additionalCredit: 0, age65OrOlder: false, recorded: true },
     });
     expect(lines.filter((l) => /^(3810|4005|4474|4497),/.test(l))).toEqual(['3810,2000', '4005,4000', '4474,2000', '4497,6000']);
+  });
+});
+
+describe('contractorAwareReason judges the employee part including a cash 3701 (L2)', () => {
+  it('120 000 of employee pay held as a 3701 with nil PAYE beside contractor fees is refused, not hidden behind 03', () => {
+    const emp = { ...base, grossSalary3601: 0, paye4102: 0, independentContractor3616: 1_000, cashAllowances: [{ sourceCode: '3701', amount: 120_000 }], taxThreshold: 95_750 };
+    expect(() => contractorAwareReason(emp)).toThrow(/above the tax threshold/);
+  });
+  it('with no employee income at all it is reason 03', () => {
+    expect(contractorAwareReason({ ...base, grossSalary3601: 0, paye4102: 0, independentContractor3616: 1_000 })).toBe('03');
   });
 });

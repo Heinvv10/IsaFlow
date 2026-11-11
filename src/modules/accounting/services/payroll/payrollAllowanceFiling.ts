@@ -15,6 +15,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { contractorLineFlag } from './payrollOutsideTables';
 
 export interface AllowanceFiling {
   /** Cash 3701 paid in the year: certified under 3701, not in 3601. */
@@ -58,6 +59,8 @@ export async function listRunAllowanceFiling(
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND c.code IN ('3701', '3802')
+      -- An independent contractor's line (PAYE treatment none): its fees, 3701 included, are certified as 3616, not as an allowance.
+      AND NOT COALESCE(l.validation_results @> ${contractorLineFlag}::jsonb, false)
     GROUP BY l.employee_id
   `) as DbRow[];
   return new Map(rows.map((r) => [String(r.employee_id), {

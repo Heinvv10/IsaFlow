@@ -150,8 +150,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       annualPayments, lumpSums: employeeLumpSums,
     });
     const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
-    // A contractor's fees (3616) already hold any 3701 they were paid: the allowance codes are for an employee's certificate only.
-    const allowance = allowanceCertificateFields(income3616 > 0 ? undefined : allowancesByEmployee.get(String(row.id)), who);
+    // Contractor lines are left out of the allowance totals (their fees, 3701 included, are in 3616), so a year that is part employee,
+    // part contractor keeps the employee months' 3701 / 4582.
+    const allowance = allowanceCertificateFields(allowancesByEmployee.get(String(row.id)), who);
     split.grossSalary3601 = Math.round((split.grossSalary3601 - allowance.cashAllowances.reduce((n, a) => n + a.amount, 0)) * 100) / 100;
     warnings.push(...allowance.warnings);
     // The writer's rule (cents dropped, a nil field left out): no income code of R1 or more, no
