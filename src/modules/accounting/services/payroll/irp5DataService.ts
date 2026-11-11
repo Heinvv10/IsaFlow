@@ -29,6 +29,7 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import type { LumpSumFiling } from './payrollLumpSumFiling';
 import { listCertificateLumpSums } from './directivePaymentFiling';
+import { allowanceCertificateFields, listRunAllowanceFiling } from './payrollAllowanceFiling';
 import { listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeWarning, type NonCashBenefitFiling } from './payrollNonCashFiling';
 
 type Row = DbRow;
@@ -65,6 +66,10 @@ export interface Irp5EmployeeTotals {
    * grossSalary + these is the remuneration.
    */
   fringeBenefits: NonCashBenefitFiling[];
+  /** Cash allowances the certificate shows under their own code (3701, whole rand), INSIDE grossSalary (payrollAllowanceFiling). */
+  cashAllowances: NonCashBenefitFiling[];
+  /** 4582: the part of 3701 + 3802 PAYE was withheld on (BRS V25.3.0 p. 105); null when the employee has neither. */
+  paye4582: number | null;
 }
 
 export interface Irp5Exclusion {
@@ -190,6 +195,7 @@ export async function getIrp5EmployeeTotals(
   const { byEmployee: lumpSums, standaloneTotals } = await listCertificateLumpSums(companyId, { start, end }, employeeId);
   const fringeBenefits = await listRunNonCashBenefits(companyId, { start, end }, employeeId);
   const unflagged = await listRunUnflaggedFringe(companyId, { start, end }, employeeId);
+  const allowances = await listRunAllowanceFiling(companyId, { start, end }, employeeId);
   const standaloneIds = [...standaloneTotals.keys()];
   const withRuns = new Set(rows.map(r => String(r.id)));
   const onlyStandalone = standaloneIds.filter(id => !withRuns.has(id));
@@ -225,6 +231,8 @@ export async function getIrp5EmployeeTotals(
       runsIncluded: Number(r.runs_included) || 0,
       lumpSums: lumpSums.get(String(r.id)) ?? [],
       fringeBenefits: fringeBenefits.get(String(r.id)) ?? [],
+      cashAllowances: allowanceCertificateFields(allowances.get(String(r.id))).cashAllowances,
+      paye4582: allowanceCertificateFields(allowances.get(String(r.id))).paye4582 ?? null,
     };
   });
 
