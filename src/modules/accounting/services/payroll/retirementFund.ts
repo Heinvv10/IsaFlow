@@ -39,7 +39,7 @@
 
 import { normaliseSarsCode } from './payeAnnualPayment';
 import { getTaxYearConfig } from './taxTables';
-import { RETIREMENT_CONTRIBUTION_CODES } from './retirementFundCodes';
+import { EMPLOYER_FUND_BENEFIT_CODES, RETIREMENT_CONTRIBUTION_CODES } from './retirementFundCodes';
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { ValidationResult } from './payrollTypes';
 
@@ -48,7 +48,7 @@ export const RETIREMENT_DEDUCTION_RATE = 0.275;
 
 const CONTRIBUTION_CODES = new Set<string>(RETIREMENT_CONTRIBUTION_CODES);
 /** The fringe benefits of an employer's fund contributions (BRS V25.3.0 p. 54: 4472 → 3817, 4473 → 3825, 4475 → 3828). */
-const EMPLOYER_FUND_BENEFIT_CODES = new Set(['3817', '3825', '3828']);
+const FUND_BENEFIT_CODES = new Set<string>(EMPLOYER_FUND_BENEFIT_CODES);
 
 /** A deduction under this code is an employee retirement fund contribution (4001, 4003, 4006). */
 export function isRetirementContributionCode(code: string): boolean {
@@ -57,7 +57,7 @@ export function isRetirementContributionCode(code: string): boolean {
 
 /** An earning under this code is the taxable benefit of an employer's fund contribution (3817, 3825, 3828; PAYE 4b). */
 export function isEmployerFundBenefitCode(code: string): boolean {
-  return EMPLOYER_FUND_BENEFIT_CODES.has(normaliseSarsCode(code));
+  return FUND_BENEFIT_CODES.has(normaliseSarsCode(code));
 }
 
 /**

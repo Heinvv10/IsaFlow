@@ -85,6 +85,7 @@ describe('assignComponentToEmployee', () => {
       effectiveFrom: new Date('2025-01-01'),
       effectiveTo: null,
       isRecurring: true,
+      percentOfRfi: null,
     });
 
     // Verify employee lookup was done

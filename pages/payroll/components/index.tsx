@@ -7,7 +7,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Tags, Loader2, Plus } from 'lucide-react';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
-import { RETIREMENT_CONTRIBUTION_CODES } from '@/modules/accounting/services/payroll/retirementFundCodes';
+import { EMPLOYER_FUND_BENEFIT_CODES, RETIREMENT_CONTRIBUTION_CODES } from '@/modules/accounting/services/payroll/retirementFundCodes';
+import { ComponentRfiSwitch } from '@/components/payroll/ComponentRfiSwitch';
 
 type ComponentType = 'earning' | 'deduction' | 'employer_contribution';
 
@@ -20,10 +21,13 @@ interface Component {
   isUifApplicable: boolean;
   isSdlApplicable: boolean;
   paidOutsidePayroll?: boolean;
+  countsAsRfi?: boolean;
 }
 
 /** Only a retirement fund contribution can be paid outside payroll (PAYE 4c; the route and a CHECK refuse the rest). */
 const RETIREMENT_CODES = new Set<string>(RETIREMENT_CONTRIBUTION_CODES);
+/** An employer's retirement fund contribution (wave 5 RF): a non-cash taxable benefit, defined-contribution funds only. */
+const EMPLOYER_FUND_CODES = new Set<string>(EMPLOYER_FUND_BENEFIT_CODES);
 
 const SARS_HINTS = [
   '3601 — Basic salary',
@@ -35,6 +39,7 @@ const SARS_HINTS = [
   '4003 — Provident fund (deduction)',
   '4006 — Retirement annuity (deduction)',
   '4005 — Medical aid (deduction)',
+  '3817 / 3825 / 3828 — Employer pension / provident / RA contribution (earning, non-cash)',
 ];
 
 export default function PayComponentsPage() {
@@ -52,6 +57,12 @@ export default function PayComponentsPage() {
   const canBePaidOutside = type === 'deduction' && RETIREMENT_CODES.has(sarsCode.trim());
   // A code or type that cannot carry it clears the tick, so it never comes back ticked unseen.
   useEffect(() => { if (!canBePaidOutside) setPaidOutsidePayroll(false); }, [canBePaidOutside]);
+  // RF: an earning can count as retirement-funding income (3601 does by default); an employer fund contribution never does.
+  const employerFund = type === 'earning' && EMPLOYER_FUND_CODES.has(sarsCode.trim());
+  const canCountAsRfi = type === 'earning' && !employerFund;
+  const [countsAsRfi, setCountsAsRfi] = useState(true);
+  const [definedContribution, setDefinedContribution] = useState(false);
+  useEffect(() => { setCountsAsRfi(canCountAsRfi && sarsCode.trim() === '3601'); }, [canCountAsRfi, sarsCode]);
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
@@ -84,11 +95,13 @@ export default function PayComponentsPage() {
           name, sarsSourceCode: sarsCode, componentType: type,
           isTaxable, isUifApplicable, isSdlApplicable,
           paidOutsidePayroll: canBePaidOutside && paidOutsidePayroll,
+          ...(canCountAsRfi ? { countsAsRfi } : {}),
+          ...(employerFund ? { fundType: definedContribution ? 'defined_contribution' : 'defined_benefit' } : {}),
         }),
       });
       await assertOk(res, 'Could not create the component - try again');
       setName(''); setSarsCode('3601'); setType('earning');
-      setIsTaxable(true); setIsUifApplicable(true); setIsSdlApplicable(true); setPaidOutsidePayroll(false);
+      setIsTaxable(true); setIsUifApplicable(true); setIsSdlApplicable(true); setPaidOutsidePayroll(false); setDefinedContribution(false);
       await load();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the component - try again'));
@@ -166,6 +179,20 @@ export default function PayComponentsPage() {
                     Paid outside payroll
                   </label>
                 )}
+                {canCountAsRfi && (
+                  <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
+                    title="The fund's contribution base. A pension, provident or RA contribution set as a % of RFI is costed on the earnings ticked here. It is not a tax limit.">
+                    <input type="checkbox" checked={countsAsRfi} onChange={e => setCountsAsRfi(e.target.checked)} />
+                    Counts as retirement-funding income
+                  </label>
+                )}
+                {employerFund && (
+                  <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
+                    title="Taxed as a non-cash benefit and deemed paid by the employee into the s11F deduction. A defined-benefit fund's benefit is worked out differently and is not supported.">
+                    <input type="checkbox" checked={definedContribution} onChange={e => setDefinedContribution(e.target.checked)} />
+                    Defined-contribution (money purchase) fund
+                  </label>
+                )}
                 <button type="submit" disabled={creating || !name}
                   className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium">
                   {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
@@ -194,6 +221,7 @@ export default function PayComponentsPage() {
                     <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Tax</th>
                     <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">UIF</th>
                     <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">SDL</th>
+                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium" title="Counts as retirement-funding income">RFI</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -208,6 +236,9 @@ export default function PayComponentsPage() {
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isTaxable ? 'Y' : 'N'}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isUifApplicable ? 'Y' : 'N'}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isSdlApplicable ? 'Y' : 'N'}</td>
+                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
+                        <ComponentRfiSwitch component={c} employerFund={EMPLOYER_FUND_CODES.has(c.sarsSourceCode.trim())} onChanged={load} onError={setError} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>

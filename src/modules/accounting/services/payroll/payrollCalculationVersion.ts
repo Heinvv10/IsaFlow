@@ -11,5 +11,6 @@
  * 5: an hourly or daily employee with no hours or days on the run is flagged HOURS_MISSING and refused at approval (HD).
  * 6: tax status and employment class decide PAYE, UIF, SDL and ETI (non-standard 25%, independent contractor: none; TS-b).
  * 7: fringe benefits: 3701 and 3802 are taxed at 80% (20% with business use of at least 80%), SDL / UIF / ETI read the PAYE share, a 3810 earning is non-cash and deemed medical fees (FB).
+ * 8: an employer's 3817 / 3825 / 3828 fund contribution is non-cash and deemed paid into s11F; percent_of_rfi rows are costed on RFI (RF).
  */
-export const PAYROLL_CALCULATION_VERSION = 7;
+export const PAYROLL_CALCULATION_VERSION = 8;
