@@ -4,7 +4,15 @@ import { refuseEmployeeTermArgs } from '@/lib/mcp/tools/employeeTermsRefusal';
 
 describe('refuseEmployeeTermArgs', () => {
   it('passes arguments that carry no work term', () => {
-    expect(refuseEmployeeTermArgs({ first_name: 'A', employment_type: 'director' })).toBeNull();
+    expect(refuseEmployeeTermArgs({ first_name: 'A', employment_type: 'permanent' })).toBeNull();
+  });
+
+  it('refuses employment_type director, in either spelling: the tax status is what makes a director', () => {
+    for (const args of [{ employment_type: 'director' }, { employmentType: 'director' }, { employment_type: 'Director' }, { employment_type: ' DIRECTOR ' }, { employmentType: 'dIrEcToR' }]) {
+      const out = refuseEmployeeTermArgs(args);
+      expect(out?.isError).toBe(true);
+      expect(JSON.stringify(out)).toContain('tax status to Director');
+    }
   });
 
   it('refuses the camelCase spelling too', () => {

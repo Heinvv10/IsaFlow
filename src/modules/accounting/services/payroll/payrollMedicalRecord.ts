@@ -28,6 +28,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
+import { outsideTablesFlag } from './payrollOutsideTables';
 
 export interface MedicalRecord {
   fees: number;
@@ -44,8 +45,11 @@ export async function loadMedicalRecord(
   companyId: string,
   bounds: { start: string; end: string },
   employeeIds: string[] | null = null,
+  opts: { tablesOnly?: boolean } = {},
 ): Promise<Map<string, MedicalRecord>> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  // The cumulative PAYE's year to date leaves out a month whose PAYE was not taken from the tables; the certificate does not.
+  const tablesOnly = opts.tablesOnly === true;
   // This scans each pre-926 line's breakdown again, beside loadPayeYearToDate's scan of the same lines
   // for 3605 and directive PAYE: deliberate, so the 4005 rule lives here alone (the certificate and the
   // year-to-date both read it); the scan only runs for lines whose medical_scheme_fees is NULL.
@@ -70,6 +74,7 @@ export async function loadMedicalRecord(
       AND h.status = ANY(${declarable}::text[])
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeIds}::uuid[] IS NULL OR l.employee_id = ANY(${employeeIds}::uuid[]))
+      AND NOT (${tablesOnly}::boolean AND COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false))
     GROUP BY l.employee_id
   `) as DbRow[];
   return new Map(rows.map(r => [String(r.employee_id), {

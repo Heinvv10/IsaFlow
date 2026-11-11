@@ -3,6 +3,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateSDL, isSdlExempt } from './sdlEngine';
 import type { PayrollPeriod } from './payrollTypes';
+import { contractorLineFlag } from './payrollOutsideTables';
 
 /**
  * Section 4(b) of the Skills Development Levies Act exempts an employer whose
@@ -87,13 +88,18 @@ export async function estimateAnnualRemuneration(
       SELECT prh.period_year * 12 + prh.period_month AS idx,
              -- The breakdown is read only inside the window: an older run counts only for the first
              -- month of history, which its cash gross decides (a run of benefits alone is not one).
-             COALESCE(prh.total_gross, 0) + CASE WHEN prh.period_year * 12 + prh.period_month < ${windowStart} THEN 0 ELSE COALESCE((
+             -- An independent contractor's fees are not remuneration (G21 p. 26): out of the threshold basis (PAYE_OUTSIDE_TABLES, treatment none).
+             COALESCE(prh.total_gross, 0) - COALESCE((
+               SELECT SUM(prl.gross_pay) FROM payroll_run_lines prl
+                WHERE prl.run_id = prh.id AND prl.validation_results @> ${contractorLineFlag}::jsonb
+             ), 0) + CASE WHEN prh.period_year * 12 + prh.period_month < ${windowStart} THEN 0 ELSE COALESCE((
                SELECT SUM((item->>'amount')::numeric)
                  FROM payroll_run_lines prl
                  CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array'
                    THEN prl.component_breakdown ELSE '[]'::jsonb END) item
                 WHERE prl.run_id = prh.id
                   AND item->>'isNonCash' = 'true'
+                  AND NOT COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)
              ), 0) END AS remuneration
         FROM payroll_run_headers prh
        WHERE prh.company_id = ${companyId}::uuid
