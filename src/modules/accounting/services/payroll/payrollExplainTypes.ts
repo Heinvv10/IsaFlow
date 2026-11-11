@@ -51,7 +51,7 @@ export function footed(step: Omit<ExplainStep, 'children' | 'total'>, parts: Exp
 }
 
 /** A rate as people read it: 0.275 → "27.5%". */
-export const pct = (rate: number): string => `${Math.round(rate * 100_000) / 1000}%`;
+export const pct = (share: number): string => `${Math.round(share * 100_000) / 1000}%`;
 
 export interface FigureExplanation {
   figure: ExplainedFigure;
