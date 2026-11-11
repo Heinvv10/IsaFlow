@@ -2,25 +2,21 @@
  * VAT201 Form Page — thin shell
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Save, Send } from 'lucide-react';
 import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { ApiRequestError, apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { VAT201PeriodSelector } from '@/components/accounting/sars/VAT201PeriodSelector';
 import { VAT201PageHeader } from '@/components/accounting/sars/VAT201PageHeader';
-import { VAT201DetailView } from '@/components/accounting/sars/VAT201DetailView';
 import { VAT201ReviewNotices } from '@/components/accounting/sars/VAT201ReviewNotices';
-import { VAT201SummaryForm } from '@/components/accounting/sars/VAT201SummaryForm';
+import { Vat201FieldsSection } from '@/components/accounting/sars/Vat201FieldsSection';
+import { useVat201Settings } from '@/components/accounting/sars/useVat201Settings';
 import { buildVat201Csv } from '@/components/accounting/sars/vat201Csv';
 import { VAT201SubmitModal } from '@/components/accounting/sars/VAT201SubmitModal';
 import { VAT201ExceptionsPanel } from '@/components/accounting/sars/VAT201ExceptionsPanel';
 import { VAT201SarsSubmit } from '@/components/accounting/sars/VAT201SarsSubmit';
 import type { VatGateCounts } from '@/components/accounting/sars/VatGateOverrideBox';
-import {
-  vatQuickPeriods, defaultVatQuickPeriod, normalizeVatAlignment, normalizeVatSetting,
-  type VatQuickPeriod,
-} from '@/modules/bureau/services/vatPeriodHelper';
 import { useCompany } from '@/contexts/CompanyContext';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
@@ -39,26 +35,16 @@ interface VAT201Data { // the API also returns legacy field1..11 storage keys; t
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
 
 export default function VAT201Page() {
-  const { activeCompany, companyRole, loading: companyLoading } = useCompany();
+  const { companyRole } = useCompany();
   const isOwnerOrAdmin = OVERRIDE_ROLES.includes(companyRole ?? '');
   const { isRegistered, known } = useVatRegistration();
-  const [alignment, setAlignment] = useState<'odd' | 'even'>('odd');
-  const [vatPeriod, setVatPeriod] = useState<'monthly' | 'bi-monthly'>('bi-monthly');
-  const [quickPeriods, setQuickPeriods] = useState<VatQuickPeriod[]>([]);
-  // The selector waits for the company's VAT settings. Shown earlier it printed the
-  // bi-monthly default, then flipped its label and grew a row of chips ~90ms later,
-  // pushing Generate down 46px: a click at the first position hit a chip, no request.
-  const [settingsReady, setSettingsReady] = useState(false);
-  const defaults = defaultVatQuickPeriod(vatPeriod, alignment, new Date());
-  const [from, setFrom] = useState(defaults.from);
-  const [to, setTo] = useState(defaults.to);
+  const [error, setError] = useState('');
+  const { alignment, vatPeriod, quickPeriods, settingsReady, from, setFrom, to, setTo } = useVat201Settings(setError);
   const [data, setData] = useState<VAT201Data | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [viewMode, setViewMode] = useState<'summary' | 'detail'>('summary');
   const [sarsRef, setSarsRef] = useState('');
   const [savedId, setSavedId] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -68,50 +54,6 @@ export default function VAT201Page() {
   const [exceptionsReport, setExceptionsReport] = useState<VatExceptionsReport | null>(null);
   const exceptionsReady = exceptionsReport !== null;
   const exceptionsClean = exceptionsReady && exceptionsReport.totalExceptions === 0 && !exceptionsReport.degradedData;
-
-  useEffect(() => {
-    // The list endpoint (/api/accounting/companies) returns slim
-    // { items: CompanyUser[] } rows WITHOUT VAT settings — reading them put
-    // every company on the odd/bi-monthly defaults. Fetch the active
-    // company's full record (?id=) instead, same as the settings page.
-    if (!activeCompany?.id) {
-      // No company to ask: once the context has finished loading, show the
-      // selector on its defaults rather than a placeholder that never ends.
-      if (!companyLoading) setSettingsReady(true);
-      return;
-    }
-    let cancelled = false;
-    setSettingsReady(false);
-    void (async () => {
-      try {
-        const res = await apiFetch(`/api/accounting/companies?id=${activeCompany.id}`, { credentials: 'include' });
-        await assertOk(res, 'Could not load company VAT settings');
-        const json = await res.json();
-        if (cancelled || !json.data) return;
-        const c = json.data as Record<string, unknown>;
-        const a = normalizeVatAlignment((c.vatPeriodAlignment ?? c.vat_period_alignment) as string | undefined);
-        const setting = normalizeVatSetting(
-          (c.vatPeriod ?? c.vat_period) as string | undefined,
-          (c.vatSystemType ?? c.vat_system_type) as string | undefined,
-        );
-        // Non-vendors render the notice instead; leave the period state alone.
-        if (setting === 'none') { setSettingsReady(true); return; }
-        const vp = setting;
-        setAlignment(a); setVatPeriod(vp);
-        setQuickPeriods(vatQuickPeriods(new Date().getFullYear(), vp, a));
-        const def = defaultVatQuickPeriod(vp, a, new Date());
-        setFrom(def.from); setTo(def.to);
-        setSettingsReady(true);
-      } catch {
-        // Silent defaults are exactly the bug class this effect fixes — say so.
-        if (!cancelled) {
-          setError('Could not load company VAT settings — periods shown use the bi-monthly Category A default');
-          setSettingsReady(true);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [activeCompany?.id, companyLoading]);
 
   const generate = useCallback(async () => {
     if (!from || !to) return;
@@ -205,25 +147,7 @@ export default function VAT201Page() {
 
           {known && isRegistered && data && (
             <>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-1">
-                  {(['summary', 'detail'] as const).map(mode => (
-                    <button key={mode} onClick={() => setViewMode(mode)}
-                      className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === mode ? 'bg-brand-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
-                      {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                    </button>
-                  ))}
-                </div>
-                <span className="text-xs text-[var(--ff-text-tertiary)]">
-                  {viewMode === 'summary' ? 'SARS VAT201 box totals' : `${data.outputInvoices.length + data.inputInvoices.length} transactions`}
-                </span>
-              </div>
-
-              {viewMode === 'summary' ? (
-                <VAT201SummaryForm data={data} />
-              ) : (
-                <VAT201DetailView data={data} />
-              )}
+              <Vat201FieldsSection data={data} />
 
               <VAT201ReviewNotices warnings={data.warnings} filability={data.filability} />
 
