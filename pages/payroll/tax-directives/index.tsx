@@ -125,7 +125,7 @@ export default function TaxDirectivesPage() {
               <div className="p-2 rounded-lg bg-teal-500/10"><FileText className="h-5 w-5 text-teal-400" /></div>
               <div>
                 <h1 className="text-lg font-semibold text-[var(--ff-text-primary)]">Tax Directives</h1>
-                <p className="text-xs text-[var(--ff-text-tertiary)]">SARS lump sum, retirement, severance &amp; death directives</p>
+                <p className="text-xs text-[var(--ff-text-tertiary)]">SARS lump sum, retirement, severance &amp; death directives, and fixed-percentage or fixed-amount directives on regular pay</p>
               </div>
             </div>
             <button onClick={() => setShowModal(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors">
