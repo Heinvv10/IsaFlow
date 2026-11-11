@@ -24,6 +24,8 @@ import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
 import { laterPeriodsWarnings, loadPayeYearToDate } from './payrollYearToDate';
 import { recordPreparedApproval } from './payrollRunPrepared';
 import { blockedLoanValidation, judgeLoanApplications } from './payrollRunLoanDecision';
+import { assertNoLaterEtiJournal } from './etiPeriodGuard';
+
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -140,6 +142,8 @@ export async function calculatePayrollRun(
   // deductions and before any line is built. UnsupportedTaxYearError is a
   // refusal with nothing written; the callers answer it as a 4xx.
   getTaxYearConfig(taxYear);
+  // Hein ruling R-A (wave 5 ET): no recalculation while a later month of the ETI period has posted the carry.
+  await assertNoLaterEtiJournal(companyId, period);
   // Components are read as at the period's last day, a plain calendar string (payrollRunReadDate).
   const readDate = payrollRunReadDate(period);
 

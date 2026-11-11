@@ -6,6 +6,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Both loan components exist: the fail-closed path has its own integration suites.
+// Hein ruling R-A (wave 5 ET) has its own tests (etiPeriodGuard.test.ts): no later month posted here.
+vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/payroll/etiPeriodGuard')>()),
+  laterEtiJournalRefusal: vi.fn(async () => null),
+  assertNoLaterEtiJournal: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => ({
   appendLoanComponents: (components: unknown[]) => components,
   loadLoanComponents: async () => ({ deduction: { id: 'loan' }, fringe: { id: 'fringe' } }),

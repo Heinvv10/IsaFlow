@@ -58,6 +58,7 @@ import { hoursMissingBlocker } from './payrollRunHoursGate';
 import { runProRataBlocker } from './payrollRecurringProRata';
 import { recalculateRequiredRefusal, runLinesRefusal } from './payrollRunRecalcGate';
 import { hashOf } from './payrollApprovalHash';
+import { laterEtiJournalRefusal } from './etiPeriodGuard';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -217,6 +218,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     // Before the journal-in-force branch: a re-approval onto a journal in force must meet it too.
     const hoursIssue = await hoursMissingBlocker(companyId, runId);
     if (hoursIssue) return hoursIssue;
+    // A later month of the same ETI period has posted its journal (Hein ruling R-A, wave 5 ET): this month feeds its carry.
+    const etiLater = await laterEtiJournalRefusal(companyId, { year: plan.periodYear, month: plan.periodMonth });
+    if (etiLater) return { code: 'eti_later_month_posted', detail: etiLater };
     if (linkedId && !out) {
       const numbers = chain?.journals.map((j) => j.entryNumber).join(', ');
       if (!chain || !linked || chain.state === 'unclear') {
