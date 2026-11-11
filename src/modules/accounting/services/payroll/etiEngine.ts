@@ -2,10 +2,12 @@ import {
   ETI_AFTER_MARCH_2026_POLICY,
   etiForRemuneration,
   isEtiTableUnconfirmed,
+  nationalMinimumWageCents,
   selectEtiTable,
   type EtiUnconfirmedPolicy,
 } from './etiTables';
 import { getAge } from './payeEngine';
+import { belowMinimumWage, grossUpTo160, hoursShare } from './etiHours';
 import type { EtiInput, EtiMissingInput, EtiResult } from './payrollTypes';
 
 /** ETI Act s6(a) age band, the 24-month window and the first-year length (pinned by taxTableHash.test.ts). */
@@ -72,7 +74,20 @@ export function calculateEti(
       monthlyEti: 0,
     };
   }
-  if (input.monthlyRemuneration >= table.wageCeiling) {
+  // ET: with the hours known, no hours is nil, a wage below the minimum is nil (s4(1)(a)), and under 160 hours the
+  // remuneration is grossed up to 160 hours before the table (s7(5); etiHours.ts). Unknown hours: today's figure.
+  const hours = input.hours ?? null;
+  const determined = (ineligibilityReason: string): EtiResult => ({
+    isEligible: false, isDeterminable: true, missingInputs: [], ineligibilityReason, monthsEmployed, employmentYear: null, monthlyEti: 0,
+  });
+  if (hours && hours.monthlyHours <= 0) return determined('No hours employed and paid in the month (ETI Act s7(5)): nil.');
+  const minimum = hours ? nationalMinimumWageCents(input.periodDate) : null;
+  if (hours && minimum != null && belowMinimumWage(hours.ordinaryWageCents, hours.monthlyHours, minimum)) {
+    return determined(`The wage for ${hours.monthlyHours} ordinary hours (R${(hours.ordinaryWageCents / 100).toFixed(2)}) is below the `
+      + `national minimum wage of R${(minimum / 100).toFixed(2)} an hour (ETI Act s4(1)(a)): nil.`);
+  }
+  const remuneration = hours ? grossUpTo160(input.monthlyRemuneration, hours.monthlyHours) : input.monthlyRemuneration;
+  if (remuneration >= table.wageCeiling) {
     return {
       isEligible: false,
       isDeterminable: true,
@@ -96,7 +111,7 @@ export function calculateEti(
   }
 
   const employmentYear: 1 | 2 = monthsEmployed <= ETI_FIRST_YEAR_MONTHS ? 1 : 2;
-  const monthlyEti = etiForRemuneration(input.monthlyRemuneration, employmentYear, table);
+  const monthlyEti = etiForRemuneration(remuneration, employmentYear, table) * (hours ? hoursShare(hours.monthlyHours) : 1);
 
   return {
     isEligible: true,

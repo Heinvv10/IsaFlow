@@ -118,3 +118,24 @@ export function etiForRemuneration(
   }
   return Math.max(0, employmentYear === 1 ? yearOne : yearOne / 2);
 }
+
+/**
+ * National minimum wage per ordinary hour, in cents, by pay period. ETI Act s4(1)(a): no ETI for a month whose wage is
+ * less than the higher of a wage regulating measure and the amount in s4(1) of the National Minimum Wage Act 9 of 2018
+ * (SARS Guide to the Employment Tax Incentive, Issue 5, 27 July 2026, §4.1 and §4.1.1, pp. 29-31).
+ *  - from 1 March 2025: R28.79 (Minister of Employment and Labour, gov.za media statement 5 Feb 2025; GN R. 5830, GG 52053);
+ *  - from 1 March 2026: R30.23 (NMW Act Schedule 1 item 1, substituted by GN R. 7083, GG 54075, 3 February 2026; the
+ *    guide's Example 9 uses R30,23 for March 2026, p. 32).
+ * NAMED LIMITS: no wage regulating measure (sectoral determination, bargaining council) is recorded, so the NMW is the
+ * floor; an employer exempt under NMW Act s15 (ETI Act s4(1)(b): R2 500 a month, apportioned) and a learner on the
+ * Schedule 2 allowance are not modelled. Before 1 March 2025 no rate is loaded: null, and the test is not run.
+ */
+const NATIONAL_MINIMUM_WAGE: readonly { from: number; centsPerHour: number }[] = [
+  { from: 2026 * 12 + 2, centsPerHour: 3023 },
+  { from: 2025 * 12 + 2, centsPerHour: 2879 },
+];
+
+export function nationalMinimumWageCents(periodDate: Date): number | null {
+  const idx = monthIndex(periodDate);
+  return NATIONAL_MINIMUM_WAGE.find((r) => idx >= r.from)?.centsPerHour ?? null;
+}

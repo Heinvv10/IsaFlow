@@ -126,19 +126,18 @@ describe('the rate is a snapshot', () => {
   });
 });
 
-describe('ETI until ET apportions by hours (M2)', () => {
-  it('80 hours at R30 for a 21-year-old claims no ETI and warns; 160 hours keeps it', async () => {
+describe('ETI by the run\'s hours (ET: ETI Act s7(5); ETI guide Issue 5 §5.3)', () => {
+  it('80 hours at R35 for a 21-year-old claims R712.50 (R5 600 grossed up, R1 425 x 80/160); 160 hours the full R1 425', async () => {
     await pool.query(`UPDATE payroll_employees SET date_of_birth = '2005-03-01', start_date = '2026-06-01', id_number = NULL WHERE id = $1`, [state.employee]);
-    await makeHourly(30);
+    await makeHourly(35);
     await hours(state.nov, 80);
     const part = await line(state.nov);
-    expect(part.gross).toBe(2400);
-    expect(codesOf(part)).toContain('ETI_HOURS_APPORTIONMENT_PENDING');
+    expect(part.gross).toBe(2800);
+    expect(codesOf(part)).not.toContain('ETI_HOURS_UNKNOWN');
     const eti = async () => Number((await pool.query('SELECT eti::float8 AS eti FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [state.nov, state.employee])).rows[0]!.eti);
-    expect(await eti()).toBe(0);
+    expect(await eti()).toBe(712.5);
     await hours(state.nov, 160, 80);
-    expect(await eti()).toBeGreaterThan(0);
-    expect(codesOf(await line(state.nov))).not.toContain('ETI_HOURS_APPORTIONMENT_PENDING');
+    expect(await eti()).toBe(1425);
   });
 });
 

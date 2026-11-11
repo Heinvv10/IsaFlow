@@ -10,5 +10,6 @@
  * 4: only retirement contributions and s18A donations reduce PAYE; any other taxable deduction is warned.
  * 5: an hourly or daily employee with no hours or days on the run is flagged HOURS_MISSING and refused at approval (HD).
  * 6: tax status and employment class decide PAYE, UIF, SDL and ETI (non-standard 25%, independent contractor: none; TS-b).
+ * 9: ETI by hours: under 160 hours grossed up, tabled and grossed down (s7(5)); nil below the national minimum wage (s4(1)(a)) (ET).
  */
-export const PAYROLL_CALCULATION_VERSION = 6;
+export const PAYROLL_CALCULATION_VERSION = 9;

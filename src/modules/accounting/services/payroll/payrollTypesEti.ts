@@ -4,6 +4,16 @@ export interface EtiInput {
   periodDate: Date;
   monthlyRemuneration: number;
   isUifExcluded: boolean;
+  /**
+   * Hours employed and paid in the month and the wage for ordinary hours (ET; etiHours.ts). Null or absent: the hours
+   * cannot be told, so ETI is neither apportioned (s7(5)) nor tested against the minimum wage (s4(1)(a)).
+   */
+  hours?: EtiHoursInput | null;
+}
+
+export interface EtiHoursInput {
+  monthlyHours: number;
+  ordinaryWageCents: number;
 }
 
 /** An employee field the ETI engine needs and may not have. */

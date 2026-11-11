@@ -4,8 +4,10 @@
  *
  * A case's `expected` comes from an outside source (`source`), never from the engine.
  * The tax status and the work terms (`taxStatus`; `unmodelled.ordinaryHoursPerWeek`, `hoursPerDay`, `dayRate`) reach the
- * calculator (buildCaseInput, TS-b). Inputs the engine still has no field for (a fixed-rate directive, ETI hours) stay in
- * `unmodelled` so the gap is visible; they are not passed to it (oracleInputs.test.ts names each one's owner).
+ * calculator (buildCaseInput, TS-b). `monthlyHours` (ET) reaches it as an hourly employee whose Basic Salary (3601) row
+ * records those hours, the way HD stores a run's hours; `ordinaryHoursWage` is what the engine derives from that row.
+ * Inputs the engine still has no field for (a fixed-rate directive, fringe terms) stay in `unmodelled` so the gap is
+ * visible; they are not passed to it (oracleInputs.test.ts names each one's owner).
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -130,6 +132,11 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
   const { input } = c;
   const hoursPerWeek = numberOf(input.unmodelled?.ordinaryHoursPerWeek);
   const dayRate = numberOf(input.unmodelled?.dayRate);
+  const monthlyHours = numberOf(input.unmodelled?.monthlyHours);
+  const basic = input.components.filter(x => x.type === 'earning' && x.code === '3601');
+  if (monthlyHours != null && (dayRate != null || basic.length !== 1)) {
+    throw new Error(`${c.id}: monthlyHours needs exactly one 3601 earning and no dayRate`);
+  }
   const employee: PayrollEmployee = {
     id: c.id,
     companyId: 'oracle',
@@ -144,10 +151,11 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     medicalAidDependantsCount: input.employee.medicalAidDependantsCount,
     s18aReceiptHeld: input.employee.s18aReceiptHeld,
     taxStatus: oracleTaxStatus(input.employee.taxStatus),
-    payBasis: dayRate != null ? 'daily' : 'monthly',
+    payBasis: dayRate != null ? 'daily' : monthlyHours != null ? 'hourly' : 'monthly',
     hoursPerWeek,
     hoursPerDay: numberOf(input.unmodelled?.hoursPerDay),
     dailyRate: dayRate,
+    hourlyRate: monthlyHours != null && monthlyHours > 0 ? basic[0]!.amount / monthlyHours : null,
   };
   const components: EmployeeComponent[] = input.components.map((x, i) => ({
     component: {
@@ -155,6 +163,7 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
       isTaxable: x.taxable, isUifApplicable: x.uif, isSdlApplicable: x.sdl,
     },
     amount: x.amount,
+    ...(monthlyHours != null && x === basic[0] ? { quantity: monthlyHours, quantityUnit: 'hour' as const } : {}),
   }));
   return {
     employee, components, period: input.period, taxYear: input.taxYear,

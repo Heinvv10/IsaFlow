@@ -10,7 +10,9 @@ import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
-import { etiHoursPending, hoursValidation, runHoursOf } from './payrollRunHours';
+import { hoursValidation, runHoursOf, unitOf } from './payrollRunHours';
+import { etiHoursOf, ordinaryWageCents } from './etiHours';
+import { nationalMinimumWageCents } from './etiTables';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -142,12 +144,17 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // paid or payable in the month (SARS Guide to the Employment Tax Incentive,
   // Issue 5, §2.4 "Monthly remuneration",
   // https://www.sars.gov.za/wp-content/uploads/Ops/Guides/LAPD-ETI-G01-Guide-to-the-Employment-Tax-Incentive.pdf).
+  // ET: the hours employed and paid in the month (run hours for hourly and daily staff; hours a week x 52/12 for monthly
+  // staff) apportion ETI under s7(5) and test the ordinary wage against the minimum wage (s4(1)(a)); see etiHours.ts.
+  const hours = input.notEmployedInPeriod ? null : runHoursOf(employee, components);
+  const etiHours = input.notEmployedInPeriod ? null : etiHoursOf(employee, period, hours);
   const resolved: EtiResult = resolveEtiForEmployee({
     dateOfBirth: employee.dateOfBirth,
     employmentStartDate: employee.startDate,
     periodDate,
     monthlyRemuneration: allEarnings,
     isUifExcluded: employee.uifExcluded,
+    hours: etiHours == null ? null : { monthlyHours: etiHours, ordinaryWageCents: ordinaryWageCents(components) },
   }, taxYear);
   // A leaver paid after leaving worked no hours in the period, and ETI is
   // apportioned by hours employed and paid for out of 160 (section 7(5); same
@@ -161,18 +168,27 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       ? { ...resolved, isEligible: false, isDeterminable: true, missingInputs: [], monthlyEti: 0, ineligibilityReason: 'Independent contractor: not an employee, so no ETI.' }
       : resolved;
 
-  // HD: ETI is apportioned by hours out of 160 and ET (not yet built) will do it from the stored quantity. Until then an
-  // hourly or daily line under a full month's hours, or with hours that cannot be told, claims none.
-  const hours = input.notEmployedInPeriod ? null : runHoursOf(employee, components);
-  const etiPending = !input.notEmployedInPeriod && etiHoursPending(employee, hours) && etiRaw.monthlyEti > 0;
-  const eti: EtiResult = etiPending
-    ? { ...etiRaw, isEligible: false, monthlyEti: 0, ineligibilityReason: 'Hourly or daily pay under 160 hours: ETI apportionment by hours is not built yet, so none is claimed.' }
+  // Hours that cannot be told are never taken as a full month. A monthly employee keeps the figure as before (no
+  // apportionment, no minimum-wage test); an hourly or daily one, whose pay is the hours, claims none (HD's nil).
+  const name = `${employee.firstName} ${employee.lastName}`.trim();
+  const hoursUnknown = !input.notEmployedInPeriod && etiHours == null && etiRaw.monthlyEti > 0;
+  const byTime = unitOf(employee) != null;
+  const eti: EtiResult = hoursUnknown && byTime
+    ? { ...etiRaw, isEligible: false, monthlyEti: 0, ineligibilityReason: 'The hours or days worked cannot be told, so ETI cannot be apportioned by hours: none is claimed.' }
     : etiRaw;
-  if (etiPending) {
+  if (hoursUnknown) {
     warnings.push({
-      code: 'ETI_HOURS_APPORTIONMENT_PENDING', severity: 'warning',
-      message: `${employee.firstName} ${employee.lastName} is paid by the ${employee.payBasis === 'hourly' ? 'hour' : 'day'} and worked under 160 hours (or the hours cannot be told), `
-        + 'so no ETI was claimed: ETI apportioned by hours is not built yet. Claim it on the EMP201 by hand if due.',
+      code: 'ETI_HOURS_UNKNOWN', severity: 'warning',
+      message: byTime
+        ? `${name}'s hours or days worked this month cannot be told, so no ETI was claimed (ETI Act s7(5) apportions it by hours). Enter them and recalculate.`
+        : `No ordinary hours a week are recorded for ${name}, so ETI of ${formatMoney(etiRaw.monthlyEti)} was claimed as for a full month, without `
+          + 'apportioning it by hours (ETI Act s7(5)) or testing the wage against the national minimum wage (s4(1)(a)). Record the hours a week on the employee and recalculate.',
+    });
+  }
+  if (etiHours != null && eti.monthlyEti > 0 && nationalMinimumWageCents(periodDate) == null) {
+    warnings.push({
+      code: 'ETI_MINIMUM_WAGE_UNKNOWN', severity: 'warning',
+      message: `No national minimum wage is loaded for this period, so ${name}'s wage was not tested against it (ETI Act s4(1)(a)). Check it before claiming the ETI.`,
     });
   }
 
