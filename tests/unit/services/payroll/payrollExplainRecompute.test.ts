@@ -64,6 +64,8 @@ function recomputePaye(fig: FigureExplanation): number {
     const n = r.amt('paye.periods');
     const toDate = r.amt('paye.ytdPeriodicTaxable') + r.amt('paye.regularTaxable');
     const ae = (toDate * 12) / n;
+    expect(r.amt('paye.periodicToDate')).toBeCloseTo(toDate, 6);
+    expect(r.amt('paye.annualEquivalent')).toBeCloseTo(ae, 6);
     let off = 0;
     if (r.has('paye.retirement')) {
       const allowed = Math.max(0, Math.min(r.amt('paye.retirement.annualised'), r.amt('paye.retirement.rate') * r.amt('paye.retirement.base'), r.amt('paye.retirement.cap')));
@@ -72,6 +74,7 @@ function recomputePaye(fig: FigureExplanation): number {
       expect(off).toBeLessThanOrEqual(allowed + 1e-9);
     }
     const taxedAE = Math.max(0, ae - off);
+    expect(r.amt('paye.taxedAnnualEquivalent')).toBeCloseTo(taxedAE, 6);
     expect(r.amt('paye.atAE.income')).toBeCloseTo(taxedAE, 6);
     const taxAE = taxFromBlock(r, 'paye.atAE');
     let taxAll = taxAE;
@@ -85,7 +88,9 @@ function recomputePaye(fig: FigureExplanation): number {
       }
     }
     const liability = (taxAE * n) / 12 + (taxAll - taxAE);
+    expect(r.amt('paye.liability')).toBeCloseTo(liability, 6);
     const due = Math.max(0, round2(liability - r.amt('paye.ytdTablePaye')));
+    expect(cents(r.amt('paye.due'))).toBe(cents(due));
     annual = round2(Math.min(due, Math.max(0, taxAll - taxEarlier)));
     regular = round2(due - annual);
   }
@@ -96,6 +101,7 @@ function recomputeUif(fig: FigureExplanation): number {
   const r = reader(fig);
   if (r.has('uif.none')) return 0;
   const leviable = Math.min(r.amt('uif.remuneration'), r.amt('uif.ceiling'));
+  expect(r.amt('uif.leviable')).toBeCloseTo(leviable, 9);
   const each = round2(leviable * r.amt('uif.rate'));
   expect(cents(r.amt('uif.employer'))).toBe(cents(each));
   return each;
@@ -108,6 +114,8 @@ function recomputeSdl(fig: FigureExplanation): number {
   const deduction = r.amt('sdl.ytdDeduction') + r.amt('sdl.deduction');
   const toDate = Math.min(pay, Math.max(0, pay - deduction));
   const leviable = Math.max(0, round2(toDate - r.amt('sdl.carried')));
+  expect([r.amt('sdl.payToDate'), r.amt('sdl.deductionToDate'), r.amt('sdl.leviableToDate'), r.amt('sdl.leviable')].map(cents))
+    .toEqual([pay, deduction, toDate, leviable].map(cents));
   const exempt = r.amt('sdl.annualRemuneration') <= r.amt('sdl.threshold');
   return exempt ? 0 : round2(leviable * r.amt('sdl.rate'));
 }
