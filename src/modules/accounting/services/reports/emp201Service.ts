@@ -12,6 +12,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
+import { etiCarryLedger, loadEarlierEtiMonths, summariseCarry, type EtiCarry, type EtiMonth } from './emp201EtiCarry';
 
 type Row = DbRow;
 
@@ -22,8 +23,13 @@ export interface EMP201Data {
   totalPAYE: number;
   /** Employment Tax Incentive claimed for the period — an offset against PAYE. */
   totalETI: number;
-  /** PAYE actually remitted to SARS: totalPAYE − totalETI, floored at zero. */
+  /**
+   * PAYE actually remitted to SARS: totalPAYE less the ETI used, month by month, where the ETI available is the month's
+   * ETI plus any brought forward (ETI Act s9(1); emp201EtiCarry). Never below zero.
+   */
   payePayable: number;
+  /** ETI brought forward into the range, used in it, carried out of it, and claimable as a refund at reconciliation (s10). */
+  etiCarry: EtiCarry;
   totalUIF_employee: number;
   totalUIF_employer: number;
   totalUIF: number;
@@ -95,6 +101,7 @@ export async function generateEMP201(
     totalPAYE: 0,
     totalETI: 0,
     payePayable: 0,
+    etiCarry: { broughtForward: 0, used: 0, carriedForward: 0, refundClaimable: 0 },
     totalUIF_employee: 0,
     totalUIF_employer: 0,
     totalUIF: 0,
@@ -219,9 +226,17 @@ export async function generateEMP201(
     const uifEmployee = roundCents(totalUIF / 2);
     const uifEmployer = roundCents(totalUIF / 2);
 
-    // ETI is an offset against PAYE, never a refund: SARS caps the claim at the
-    // PAYE withheld for the month, so the payable side floors at zero.
-    const payePayable = roundCents(Math.max(0, totalPAYE - totalETI));
+    // ETI is an offset against the month's PAYE, never below zero; the excess carries into the next month and is
+    // claimed as a refund at the end of the reconciliation period (ETI Act s9(1), s10; emp201EtiCarry).
+    const from = { year: Number(startDate.slice(0, 4)), month: Number(startDate.slice(5, 7)) };
+    const to = { year: Number(endDate.slice(0, 4)), month: Number(endDate.slice(5, 7)) };
+    const months: EtiMonth[] = [
+      ...await loadEarlierEtiMonths(companyId, from),
+      ...runs.map((r: Row) => ({ year: Number(r.period_year), month: Number(r.period_month), paye: Number(r.total_paye) || 0, eti: Number(r.total_eti) || 0 })),
+      ...directivePayments.map(p => ({ year: Number(p.paymentDate.slice(0, 4)), month: Number(p.paymentDate.slice(5, 7)), paye: p.paye, eti: 0 })),
+    ];
+    const etiCarry = summariseCarry(etiCarryLedger(from, to, months), from);
+    const payePayable = roundCents(Math.max(0, totalPAYE - etiCarry.used));
 
     return {
       periodStart,
@@ -229,6 +244,7 @@ export async function generateEMP201(
       totalPAYE: roundCents(totalPAYE),
       totalETI: roundCents(totalETI),
       payePayable,
+      etiCarry,
       totalUIF_employee: uifEmployee,
       totalUIF_employer: uifEmployer,
       totalUIF: roundCents(totalUIF),
