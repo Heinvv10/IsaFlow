@@ -18,6 +18,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollTerminationPaidCheck', () 
 vi.mock('@/modules/accounting/services/payroll/payrollRecurringProRata', () => ({ runProRataBlocker: vi.fn(async () => null) }));
 // Hours and days have their own tests (payrun-run-hours.int, payrollRunHours).
 vi.mock('@/modules/accounting/services/payroll/payrollRunHoursGate', () => ({ hoursMissingBlocker: vi.fn(async () => null) }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunRegularDirective', () => ({ regularDirectiveRefusal: vi.fn(async () => null) }));
 // The recalculation gates have their own tests (payroll-approval-recalc-gates.int).
 vi.mock('@/modules/accounting/services/payroll/payrollRunRecalcGate', () => ({
   recalculateRequiredRefusal: vi.fn(async () => null), runLinesRefusal: vi.fn(async () => null),

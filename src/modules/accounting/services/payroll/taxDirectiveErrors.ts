@@ -51,3 +51,16 @@ export class TaxDirectiveAlreadyAppliedError extends Error {
     this.name = 'TaxDirectiveAlreadyAppliedError';
   }
 }
+
+/**
+ * A fixed-percentage or fixed-amount directive (IRP3(b)/(c), taxDirectiveKinds) taxes regular pay in each run: it is
+ * never paid as a lump sum, nor declared as one. Raised before anything is read under lock or written.
+ */
+export class TaxDirectiveNotLumpSumError extends Error {
+  readonly code = 'TAX_DIRECTIVE_NOT_LUMP_SUM';
+  constructor(readonly directiveId: string, readonly directiveType: string) {
+    super(`Tax directive ${directiveId} is a ${directiveType.replace('_', '-')} directive on regular pay: each payroll run applies it to `
+      + 'that period\'s PAYE, so it cannot be paid as a lump sum.');
+    this.name = 'TaxDirectiveNotLumpSumError';
+  }
+}

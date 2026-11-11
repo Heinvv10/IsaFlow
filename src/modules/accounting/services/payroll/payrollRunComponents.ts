@@ -1,5 +1,7 @@
 import { getEmployeeComponents } from './payrollComponentService';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
+import { loadRegularPayDirectives } from './payrollRunRegularDirective';
+import type { RegularPayDirectiveState } from './directiveRegularPay';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
 export type PreparedRunEmployee = {
@@ -7,6 +9,8 @@ export type PreparedRunEmployee = {
   severanceOnly: boolean;
   components: EmployeeComponent[];
   terminationWarnings: ValidationResult[];
+  /** The IRP3(b)/(c) directive in force this period (DR), for every line the run costs (calculation and the loan preview). */
+  regularPayDirective: RegularPayDirectiveState;
 };
 
 /** Each run employee's components for the period, termination and severance included (moved out of payrollRunService.ts, unchanged). */
@@ -19,6 +23,7 @@ export async function prepareRunComponents(args: {
 }): Promise<PreparedRunEmployee[]> {
   const { companyId, runId, period, readDate, population } = args;
   const prepared: PreparedRunEmployee[] = [];
+  const directives = await loadRegularPayDirectives(companyId, population.map(p => p.employee.id), period);
   for (const { employee, severanceOnly: onlySeverance } of population) {
     const terminationWarnings: ValidationResult[] = [];
     const components = onlySeverance
@@ -27,7 +32,11 @@ export async function prepareRunComponents(args: {
         companyId, runId, employee, await getEmployeeComponents(employee.id, companyId, readDate), period, terminationWarnings,
       );
     if (onlySeverance && components.length === 0) continue;
-    prepared.push({ employee, severanceOnly: onlySeverance, components, terminationWarnings });
+    const directive = directives.get(employee.id);
+    prepared.push({
+      employee, severanceOnly: onlySeverance, components, terminationWarnings,
+      regularPayDirective: { current: directive?.current ?? null, ended: directive?.ended ?? null },
+    });
   }
   return prepared;
 }

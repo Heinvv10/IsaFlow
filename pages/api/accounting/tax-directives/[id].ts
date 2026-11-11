@@ -23,6 +23,7 @@ import {
 } from '@/modules/accounting/services/payroll/taxDirectiveService';
 import { isIsoDate } from '@/modules/accounting/services/payroll/taxDirectiveDates';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { TaxDirectiveOverlapError } from '@/modules/accounting/services/payroll/taxDirectiveOverlap';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_STATUSES: DirectiveStatus[] = ['pending', 'approved', 'expired', 'cancelled'];
@@ -72,6 +73,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } catch (err) {
       // Raised before anything is written, so the 409 withAuth commits changes nothing.
       if (err instanceof TaxDirectivePaidError) return apiResponse.conflict(res, err.message);
+      // Approving a second regular-pay directive for the same period: judged under the employee's lock, before the write.
+      if (err instanceof TaxDirectiveOverlapError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
 

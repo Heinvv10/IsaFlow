@@ -23,12 +23,15 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { resolvePaymentBankAccount } from '@/modules/accounting/services/gl/paymentBankAccount';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { directivePaye } from './payrollSeveranceDirective';
-import { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
+import {
+  TaxDirectiveNotApprovedError, TaxDirectiveNotLumpSumError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError,
+} from './taxDirectiveErrors';
+import { isLumpSumDirectiveType } from './taxDirectiveKinds';
 import { releaseReversedStandalonePayment, reversedStandalonePayments } from './taxDirectivePaidGuard';
 import { employeeLabourLines } from './payrollCostCentreTags';
 import { lockDirectiveLabour, postOrRetry, refreshDirectiveLabour } from './taxDirectiveLabour';
 
-export { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError };
+export { TaxDirectiveNotApprovedError, TaxDirectiveNotLumpSumError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError };
 export { TaxDirectiveAlreadyAppliedError } from './taxDirectiveErrors';
 import { TaxDirectiveAlreadyAppliedError } from './taxDirectiveErrors';
 
@@ -139,6 +142,8 @@ export async function applyTaxDirective(
   if (dirRows.length === 0) throw new Error(`Tax directive ${directiveId} not found`);
   const dir = dirRows[0]!;
 
+  // A regular-pay directive (IRP3(b)/(c)) is applied by each run, never paid here (also refused before the lock).
+  if (!isLumpSumDirectiveType(dir.directive_type)) throw new TaxDirectiveNotLumpSumError(directiveId, String(dir.directive_type));
   const currentStatus = String(dir.status);
   if (currentStatus !== 'approved') throw new TaxDirectiveNotApprovedError(directiveId, currentStatus);
   // The payment goes on the employee's tax certificate (directivePaymentFiling):

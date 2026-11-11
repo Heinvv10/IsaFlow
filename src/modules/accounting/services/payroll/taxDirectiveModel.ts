@@ -4,10 +4,12 @@
 
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
+import type { DirectiveKind } from './taxDirectiveKinds';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type DirectiveType = 'lump_sum' | 'retirement' | 'severance' | 'death';
+/** Lump sums (IRP3(a) and the fund forms) and, from wave 5 DR, the regular-pay IRP3(b)/(c) (taxDirectiveKinds). */
+export type DirectiveType = DirectiveKind;
 export type DirectiveStatus = 'pending' | 'approved' | 'expired' | 'cancelled';
 
 export interface TaxDirective {
@@ -42,6 +44,8 @@ export interface TaxDirectiveCreateInput {
   directive_type: DirectiveType;
   amount: number;
   tax_rate?: number;
+  /** fixed_amount only: the PAYE a period it directs (stored in tax_amount). */
+  tax_amount?: number;
   effective_date: string;
   issued_date?: string;
   expiry_date?: string;

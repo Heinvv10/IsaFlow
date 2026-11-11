@@ -22,6 +22,7 @@ vi.mock('@/modules/accounting/services/payroll/taxDirectivePaymentService', () =
   TaxDirectiveNotApprovedError: class extends Error {},
   TaxDirectiveSplitChangedError: class extends Error {},
   TaxDirectiveWithoutEmployeeError: class extends Error {},
+  TaxDirectiveNotLumpSumError: class extends Error {},
 }));
 vi.mock('@/modules/accounting/services/payroll/uifPaymentService', () => ({
   markUifDeclarationPaid: vi.fn(),

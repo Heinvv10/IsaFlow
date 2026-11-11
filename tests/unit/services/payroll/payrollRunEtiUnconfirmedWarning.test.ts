@@ -15,6 +15,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollYearToDate', () => ({
   loadPayeYearToDate: vi.fn(async () => new Map()),
   laterPeriodsWarnings: vi.fn(async () => new Map()),
 }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunRegularDirective', () => ({ loadRegularPayDirectives: vi.fn(async () => new Map()) }));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(),
   withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>

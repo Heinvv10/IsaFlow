@@ -57,6 +57,7 @@ import { lineBlocker } from './payrollLineBlockers';
 import { hoursMissingBlocker } from './payrollRunHoursGate';
 import { runProRataBlocker } from './payrollRecurringProRata';
 import { recalculateRequiredRefusal, runLinesRefusal } from './payrollRunRecalcGate';
+import { regularDirectiveRefusal } from './payrollRunRegularDirective';
 import { hashOf } from './payrollApprovalHash';
 import {
   buildPayrollJournalPlan,
@@ -208,6 +209,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     // Severance lines whose directive another payer took, or that no longer match it (P3).
     const directives = await judgeRunDirectives(companyId, runId);
     if (directives) return directives;
+    // A fixed-percentage or fixed-amount directive approved, cancelled or ended since calculation, or two in force (DR).
+    const regularDirective = await regularDirectiveRefusal(companyId, runId);
+    if (regularDirective) return regularDirective;
     if (yearToDate.blocker) return yearToDate.blocker;
     // Component dates changed since calculation; a leaver with no termination base (payrollRunRecalcGate). Also for a
     // re-approval onto a journal in force.
