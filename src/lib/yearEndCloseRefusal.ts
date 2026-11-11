@@ -39,7 +39,7 @@ export function yearEndCloseRefusal(result: CloseYearError): YearEndCloseRefusal
         kind: 'badRequest',
         message: `More than one account is flagged as the Retained Earnings system account ` +
           `(${result.accountCodes.join(', ')}). Year-end close posts the whole year's ` +
-          `result to one account, so it will not guess — un-flag all but one and try again.`,
+          `result to one account, so it will not guess. Un-flag all but one and try again.`,
       };
     case 'no_fiscal_period':
       return {
@@ -70,7 +70,7 @@ export function yearEndCloseRefusal(result: CloseYearError): YearEndCloseRefusal
         kind: 'conflict',
         message: `Journal ${result.entryId} already carries the entry number this year's closing `
           + `journal needs (${result.entryNumber}). It is a ${result.source} journal in `
-          + `status ${result.status}, not a year-end close, so the year is NOT closed — but `
+          + `status ${result.status}, not a year-end close, so the year is NOT closed, but `
           + `entry numbers are unique per company, so it cannot be closed while that row `
           + `holds the number. Renumber journal ${result.entryId}, then close the year.`,
       };
