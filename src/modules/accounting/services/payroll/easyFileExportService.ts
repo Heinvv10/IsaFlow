@@ -52,6 +52,7 @@ import { retirementFieldLines, withDeductionTotal, type RetirementContributions 
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
+export { buildCertificateNumber } from './easyFileCertificateNumber';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -287,26 +288,4 @@ export function buildIrp5File(input: BuildInput): string {
   // BRS §3 file is newline-delimited. Use CRLF — e@syFile Thin Client accepts
   // both but CRLF is what the reference importer samples produce.
   return lines.join('\r\n');
-}
-
-/**
- * SARS requires the certificate number to be 30 characters:
- *   10 digits PAYE ref + 4 digits transaction year CCYY + 2 digits reconciliation period MM + 14 alphanumeric unique suffix (left-padded with zeros).
- */
-export function buildCertificateNumber(
-  payeRef: string,
-  transactionYear: number,
-  reconciliationMonthMM: 2 | 8,
-  uniqueSuffix: string | number,
-): string {
-  if (!/^\d{10}$/.test(payeRef)) {
-    throw new UsageError('PAYE ref must be 10 digits to build a certificate number');
-  }
-  const yr = String(transactionYear).padStart(4, '0');
-  const mm = String(reconciliationMonthMM).padStart(2, '0');
-  const suffix = String(uniqueSuffix).toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (suffix.length > 14) {
-    throw new UsageError('Unique suffix for certificate number cannot exceed 14 characters');
-  }
-  return `${payeRef}${yr}${mm}${suffix.padStart(14, '0')}`;
 }
