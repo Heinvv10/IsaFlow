@@ -8,7 +8,7 @@ import { sql } from '@/lib/neon';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { seedInvoice } from './helpers/l1FifoFixture';
 import {
-  callRoute, count, dropReturnFixture, loginAsToken, seedReturnFixture, type ReturnFixture,
+  callRoute, count, dropReturnFixture, loginAsToken, releaseLockDirectly, seedReturnFixture, type ReturnFixture,
 } from './helpers/returnVersionsFixture';
 import finalise from '../../pages/api/accounting/sars/returns/[form]/finalise';
 import versions from '../../pages/api/accounting/sars/returns/[form]/versions';
@@ -28,6 +28,8 @@ const post = (token: string, body: Record<string, unknown>) =>
   callRoute(finalise, c(), token, 'POST', { form: 'vat201' }, body);
 const list = (companyId: string, token: string, p: typeof CLEAN) =>
   callRoute(versions, companyId, token, 'GET', { form: 'vat201', ...p });
+const lockIdOf = async (periodStart: string) => String(((await sql`SELECT id FROM vat_period_locks
+  WHERE company_id = ${c()}::UUID AND period_start = ${periodStart}::DATE`) as Row[])[0]!.id);
 const none = async () => {
   expect(await count('tax_return_versions', c())).toBe(0);
   expect(await count('vat_period_locks', c())).toBe(0);
@@ -122,8 +124,7 @@ describeIfDb('VAT201 finalise, against a real ledger', () => {
   });
 
   it('a version whose lock was unlocked outside the lifecycle is reported as such, beside the vat_returns record', async () => {
-    await sql`UPDATE vat_period_locks SET unlocked_at = now(), unlocked_by = ${rf.admin.userId}, unlock_reason = 'direct'
-      WHERE company_id = ${c()}::UUID AND period_start = ${CLEAN.periodStart}::DATE`;
+    await releaseLockDirectly(rf.fx.pool, await lockIdOf(CLEAN.periodStart), rf.admin.userId);
     await sql`INSERT INTO vat_returns (company_id, period_start, period_end, total_output_tax, total_input_tax, net_vat)
       VALUES (${c()}::UUID, ${CLEAN.periodStart}::DATE, ${CLEAN.periodEnd}::DATE, 100, 0, 100)`;
     const r = await list(c(), rf.admin.token, CLEAN);
@@ -199,8 +200,9 @@ describeIfDb('VAT201 finalise, against a real ledger', () => {
   });
 
   it('dead end after an out-of-lifecycle unlock (pinned, L1b amend owns the way out): finalising again is 409, and so is an overlapping period', async () => {
-    await sql`UPDATE vat_period_locks SET unlocked_at = now(), unlocked_by = ${rf.admin.userId}, unlock_reason = 'direct'
-      WHERE company_id = ${c()}::UUID AND period_start = ${CLEAN.periodStart}::DATE AND unlocked_at IS NULL`;
+    const active = (await sql`SELECT id FROM vat_period_locks WHERE company_id = ${c()}::UUID
+      AND period_start = ${CLEAN.periodStart}::DATE AND unlocked_at IS NULL`) as Row[];
+    if (active[0]) await releaseLockDirectly(rf.fx.pool, String(active[0].id), rf.admin.userId);
     const locks = await count('vat_period_locks', c());
     expect((await post(rf.admin.token, CLEAN)).status).toBe(409);
     await sql`UPDATE companies SET vat_period = 'monthly' WHERE id = ${c()}::UUID`;

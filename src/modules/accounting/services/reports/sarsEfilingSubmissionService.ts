@@ -10,6 +10,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { periodHasReturnVersion } from '@/modules/accounting/services/returns/versionExists';
 import { getEfilingConfig } from './sarsEfilingConfig';
 import { getVatExceptions } from './vatExceptionsService';
 import type { VatExceptionsReport } from './vatExceptionsTypes';
@@ -24,49 +25,29 @@ import {
   markSubmissionSubmitted,
   applyPollResult,
   insertEfilingEvent,
+  insertEfilingEventCommitted,
+  sendMayHaveReached,
+  withEventWriter,
 } from './sarsEfilingRepo';
+import { takeDraftPeriodLock } from './sarsComplianceService';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
-export class EfilingNotConfiguredError extends Error {
-  constructor() {
-    super('SARS eFiling is not configured on this server');
-    this.name = 'EfilingNotConfiguredError';
-  }
-}
-export class EfilingSubmissionNotFoundError extends Error {
-  constructor(id: string) {
-    super(`SARS submission ${id} not found`);
-    this.name = 'EfilingSubmissionNotFoundError';
-  }
-}
-/** A deliberate refusal to file — exceptions present, degraded data, bad VAT
- *  number, or nothing to poll. NOT a system error; surfaced to the user as
- *  "do not file". */
-export class EfilingBlockedError extends Error {
-  readonly reason: string;
-  constructor(reason: string) {
-    super(reason);
-    this.name = 'EfilingBlockedError';
-    this.reason = reason;
-  }
-}
-/** The submit path is refused until its payload is in SARS's field numbers (sarsEfilingPayloadGuard). */
-export class EfilingPayloadUnmappedError extends EfilingBlockedError {
-  constructor() {
-    super(ISV_PAYLOAD_UNMAPPED_REASON);
-    this.name = 'EfilingPayloadUnmappedError';
-  }
-}
-/** The VAT201 was already filed to SARS — refuse to file it twice (a double
- *  statutory submission). Carries the existing correlation id for reference. */
-export class EfilingAlreadyFiledError extends Error {
-  readonly correlationId: string;
-  constructor(correlationId: string) {
-    super('This VAT201 has already been filed to SARS');
-    this.name = 'EfilingAlreadyFiledError';
-    this.correlationId = correlationId;
-  }
-}
+import {
+  EfilingNotConfiguredError,
+  EfilingSubmissionNotFoundError,
+  EfilingBlockedError,
+  EfilingPayloadUnmappedError,
+  EfilingSendUncertainError,
+  EfilingAlreadyFiledError,
+} from './sarsEfilingErrors';
+export {
+  EfilingNotConfiguredError,
+  EfilingSubmissionNotFoundError,
+  EfilingBlockedError,
+  EfilingPayloadUnmappedError,
+  EfilingSendUncertainError,
+  EfilingAlreadyFiledError,
+} from './sarsEfilingErrors';
 
 /**
  * Pure decision: may this exceptions report be filed? Clean = zero exceptions
@@ -110,6 +91,12 @@ export async function submitVAT201ToSars(
   if (!submission) throw new EfilingSubmissionNotFoundError(submissionId);
   if (submission.formType !== 'VAT201') {
     throw new EfilingBlockedError(`Only VAT201 returns can be filed via the ISV channel (got ${submission.formType})`);
+  }
+
+  // A period with a return version (any status) is filed through the return lifecycle, never the ISV channel: judged
+  // before anything outbound, and backed by the sars_submissions trigger (migration 971).
+  if (await periodHasReturnVersion(companyId, 'VAT201', submission.periodStart, submission.periodEnd)) {
+    throw new EfilingBlockedError('This period has a return version: file through the return lifecycle.');
   }
 
   // Idempotency: never re-file a return already sent to / accepted by SARS —
@@ -181,34 +168,60 @@ export async function submitVAT201ToSars(
     throw new EfilingBlockedError(reason);
   }
 
-  const taxPeriod = submission.periodStart.replace(/-/g, '').slice(0, 6); // CCYYMM
-  const {
-    degradedSources: _drop, outputInvoices: _o, inputInvoices: _i,
-    periodStart: _ps, periodEnd: _pe, rateCheck: _rc, sarsFields: _sf, warnings: _w, filability: _fb, ...fields
-  } = vat201;
+  // The event connection FIRST, then the lock: submits queued on the period's lock must not each need a second pool
+  // connection while holding the first. Before anything leaves for SARS: queue behind any filing, finalise or draft save of
+  // this period (the lifecycle's own key), judge the period and the submission again under it, and record the intent, the
+  // result and any failure in transactions of their OWN, committed at once, so a send whose request later rolls back
+  // still leaves its trace and its correlation id.
+  return withEventWriter(async (events) => {
+    await takeDraftPeriodLock(companyId, 'VAT201', submission.periodStart, submission.periodEnd);
+    const again = await getEfilingSubmission(companyId, submissionId);
+    if (!again || again.efilingCorrelationId || again.status !== 'draft') {
+      throw new EfilingAlreadyFiledError(again?.efilingCorrelationId ?? '');
+    }
+    if (await periodHasReturnVersion(companyId, 'VAT201', submission.periodStart, submission.periodEnd)) {
+      throw new EfilingBlockedError('This period has a return version: file through the return lifecycle.');
+    }
+    // An earlier send may have reached SARS (judged over ALL the submission's events, see sendMayHaveReached): poll or reconcile first.
+    const doubt = await sendMayHaveReached(companyId, submissionId);
+    if (doubt) throw new EfilingSendUncertainError(doubt.correlationId);
+    await events.write({
+      companyId, submissionId, eventType: 'submit', efilingStatus: 'sending', message: 'about to send to SARS',
+      detail: { periodStart: submission.periodStart, periodEnd: submission.periodEnd }, createdBy: userId,
+    });
 
-  try {
-    const auth = await authenticate(config);
-    const result = await submitVAT201(config, auth.token, {
-      vatNumber, taxPeriod, fields: fields as unknown as Record<string, number>,
-    });
-    await insertEfilingEvent({
-      companyId, submissionId, eventType: 'submit',
-      efilingStatus: result.status, httpStatus: result.httpStatus, correlationId: result.correlationId,
-      detail: { taxPeriod, companyName, netVat: vat201.field11_vatPayableOrRefundable },
-      createdBy: userId,
-    });
-    await markSubmissionSubmitted(companyId, submissionId, result.correlationId, result.status, userId);
-    log.info('VAT201 submitted to SARS', { companyId, submissionId, correlationId: result.correlationId }, 'sarsEfilingSubmissionService');
-    return { submissionId, correlationId: result.correlationId, status: result.status };
-  } catch (err) {
-    const httpStatus = (err as { httpStatus?: number }).httpStatus ?? null;
-    await insertEfilingEvent({
-      companyId, submissionId, eventType: 'error', httpStatus,
-      message: err instanceof Error ? err.message : 'SARS eFiling transport error', createdBy: userId,
-    });
-    throw err;
-  }
+    const taxPeriod = submission.periodStart.replace(/-/g, '').slice(0, 6); // CCYYMM
+    const {
+      degradedSources: _drop, outputInvoices: _o, inputInvoices: _i,
+      periodStart: _ps, periodEnd: _pe, rateCheck: _rc, sarsFields: _sf, warnings: _w, filability: _fb, ...fields
+    } = vat201;
+
+    let sent: { correlationId: string } | null = null;
+    try {
+      const auth = await authenticate(config);
+      const result = await submitVAT201(config, auth.token, {
+        vatNumber, taxPeriod, fields: fields as unknown as Record<string, number>,
+      });
+      sent = result;
+      await events.write({
+        companyId, submissionId, eventType: 'submit',
+        efilingStatus: result.status, httpStatus: result.httpStatus, correlationId: result.correlationId,
+        detail: { taxPeriod, companyName, netVat: vat201.field11_vatPayableOrRefundable },
+        createdBy: userId,
+      });
+      await markSubmissionSubmitted(companyId, submissionId, result.correlationId, result.status, userId);
+      log.info('VAT201 submitted to SARS', { companyId, submissionId, correlationId: result.correlationId }, 'sarsEfilingSubmissionService');
+      return { submissionId, correlationId: result.correlationId, status: result.status };
+    } catch (err) {
+      const httpStatus = (err as { httpStatus?: number }).httpStatus ?? null;
+      await events.write({
+        companyId, submissionId, eventType: 'error', httpStatus, correlationId: sent?.correlationId ?? null,
+        message: err instanceof Error ? err.message : 'SARS eFiling transport error', createdBy: userId,
+      }).catch((writeErr: unknown) => log.warn('Could not record the eFiling error event',
+        { message: writeErr instanceof Error ? writeErr.message : String(writeErr) }, 'sarsEfilingSubmissionService'));
+      throw err;
+    }
+  });
 }
 
 export interface PollOutcome {
@@ -218,11 +231,21 @@ export interface PollOutcome {
   errors: string[];
 }
 
-/** Map a SARS-reported eFiling status to our submission status. */
-function mapSubmissionStatus(efilingStatus: string): string {
+/**
+ * Map a SARS-reported eFiling status to our submission status. `received` and `processing` are SARS still working (the row is
+ * submitted); anything else (`unknown`, a status we do not know) changes nothing and is logged: guessing 'submitted' would
+ * let an unrecognised answer move a draft out of draft.
+ */
+function mapSubmissionStatus(efilingStatus: string, current: string): string {
   if (efilingStatus === 'accepted') return 'accepted';
   if (efilingStatus === 'rejected') return 'rejected';
-  return 'submitted'; // processing / unknown — stay submitted
+  if (efilingStatus === 'received' || efilingStatus === 'processing') {
+    // SARS still working: never regress a verdict already recorded.
+    return current === 'accepted' || current === 'rejected' ? current : 'submitted';
+  }
+  log.warn('SARS returned an eFiling status this service does not know; the submission status is unchanged',
+    { efilingStatus, current }, 'sarsEfilingSubmissionService');
+  return current;
 }
 
 export async function pollVAT201Status(companyId: string, submissionId: string, userId?: string): Promise<PollOutcome> {
@@ -238,10 +261,15 @@ export async function pollVAT201Status(companyId: string, submissionId: string, 
   try {
     const auth = await authenticate(config);
     const result = await pollStatus(config, auth.token, submission.efilingCorrelationId);
-    const submissionStatus = mapSubmissionStatus(result.status);
-    await applyPollResult(companyId, submissionId, {
-      submissionStatus, efilingStatus: result.status, sarsReference: result.sarsReference,
-    });
+    const submissionStatus = mapSubmissionStatus(result.status, submission.status);
+    // A status that changes nothing (an unknown one, or SARS still working on a verdict already recorded) is a full no-op on the
+    // row: no stamping of channel, time or actor on a draft. Only a row that is already 'submitted' still takes the new
+    // efiling_last_status and reference.
+    if (submissionStatus !== submission.status || submission.status === 'submitted') {
+      await applyPollResult(companyId, submissionId, {
+        submissionStatus, efilingStatus: result.status, sarsReference: result.sarsReference,
+      });
+    }
     await insertEfilingEvent({
       companyId, submissionId, eventType: 'poll',
       efilingStatus: result.status, httpStatus: result.httpStatus, correlationId: submission.efilingCorrelationId,
@@ -251,11 +279,13 @@ export async function pollVAT201Status(companyId: string, submissionId: string, 
     return { status: result.status, submissionStatus, sarsReference: result.sarsReference, errors: result.errors };
   } catch (err) {
     const httpStatus = (err as { httpStatus?: number }).httpStatus ?? null;
-    await insertEfilingEvent({
+    // On a connection of its own: the request's transaction may be aborted by the very error being recorded (25P02).
+    await insertEfilingEventCommitted({
       companyId, submissionId, eventType: 'error', httpStatus,
       message: err instanceof Error ? err.message : 'SARS eFiling transport error',
       createdBy: userId ?? null,
-    });
+    }).catch((writeErr: unknown) => log.warn('Could not record the eFiling error event',
+      { message: writeErr instanceof Error ? writeErr.message : String(writeErr) }, 'sarsEfilingSubmissionService'));
     throw err;
   }
 }
