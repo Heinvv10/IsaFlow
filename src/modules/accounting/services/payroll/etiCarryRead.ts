@@ -46,3 +46,21 @@ export async function etiMonthForRun(companyId: string, ym: YearMonth, run: { pa
   const months: EtiMonth[] = [...earlier, ...etiMonthsOf([], directives), { ...ym, ...run }];
   return etiCarryLedger(ym, ym, months).find((m) => index(m) === index(ym))!;
 }
+
+/**
+ * One month's ledger line from what is declared: the earlier months, this month's declarable run headers and its
+ * stand-alone directive payments. What a directive's ETI journal books against (directivePaymentEti).
+ */
+export async function etiMonthLine(companyId: string, ym: YearMonth): Promise<EtiCarryMonth> {
+  const earlier = await loadEarlierEtiMonths(companyId, ym);
+  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  const runs = (await sql`
+    SELECT period_year, period_month, SUM(total_paye) AS paye, SUM(total_eti) AS eti
+      FROM payroll_run_headers
+     WHERE company_id = ${companyId}::uuid AND status = ANY(${declarable}::text[])
+       AND period_year = ${ym.year} AND period_month = ${ym.month}
+     GROUP BY period_year, period_month
+  `) as DbRow[];
+  const directives = await listStandaloneDirectivePayments(companyId, { start: firstOf(ym), end: lastOf(ym) });
+  return etiCarryLedger(ym, ym, [...earlier, ...etiMonthsOf(runs, directives)]).find((m) => index(m) === index(ym))!;
+}

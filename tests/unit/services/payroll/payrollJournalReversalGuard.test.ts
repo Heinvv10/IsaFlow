@@ -23,6 +23,8 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalChain', () => ({
   readJournalChain: vi.fn(),
   lockJournalChain: vi.fn(),
 }));
+// Hein ruling R-A (wave 5 ET): the guard's own SQL is tested in etiPeriodGuard.test.ts.
+vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', () => ({ laterEtiJournalRefusal: vi.fn(async () => null) }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
   lockPayrollRunHeader: vi.fn(async () => ({})),
   withBoundedLockWait: vi.fn(async (_run: string, fn: (tx: unknown) => Promise<unknown>) => fn({})),
@@ -38,6 +40,7 @@ import {
   refuseReversalAgainstPayRun,
 } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import { GRANDFATHERED_PLAN_HASH } from '@/modules/accounting/services/payroll/payRunApprovalAudit';
+import { laterEtiJournalRefusal } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 
 const journal = (id: string, description = 'Payroll run 2026-04') => ({ id, entryNumber: `JE-${id}`, entryDate: '2026-04-30', status: 'posted', description });
 function chain(state: 'in_force' | 'out' | 'unclear', opts: { broken?: boolean; description?: string } = {}) {
@@ -139,5 +142,20 @@ describe('refuseReversalAgainstPayRun (the live path)', () => {
     await expect(refuseReversalAgainstPayRun('c1', PAYROLL)).resolves.toEqual({
       runId: 'run-1', planHash: GRANDFATHERED_PLAN_HASH,
     });
+  });
+});
+
+describe('Hein ruling R-A (wave 5 ET): a directive or ETI journal under a posted later ETI month', () => {
+  it.each([['SARS directive D1 — Emp'], ['ETI for 2026-04: directive PAYE']])('refuses reversing "%s" (dry run and live), naming the month', async (description) => {
+    chain('in_force', { description });
+    vi.mocked(laterEtiJournalRefusal).mockResolvedValue('The May 2026 payroll journal is already posted.');
+    expect(await payrollReversalRefusal('c1', PAYROLL)).toBe('The May 2026 payroll journal is already posted.');
+    await expect(refuseReversalAgainstPayRun('c1', PAYROLL)).rejects.toThrow(/May 2026/);
+    expect(laterEtiJournalRefusal).toHaveBeenCalledWith('c1', { year: 2026, month: 4 });
+  });
+  it('is not asked about any other journal', async () => {
+    chain('in_force', { description: 'UIF declaration 2026-04' });
+    vi.mocked(laterEtiJournalRefusal).mockResolvedValue('posted');
+    expect(await payrollReversalRefusal('c1', PAYROLL)).toBeNull();
   });
 });

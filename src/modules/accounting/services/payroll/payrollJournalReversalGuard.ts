@@ -34,6 +34,7 @@ import { MAX_CHAIN_JOURNALS, findChainRoot, lockJournalChain, readJournalChain }
 import { lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
 import { PayrollLoanLockTimeoutError } from './payrollRunLoanApplication';
 import { GRANDFATHERED_PLAN_HASH } from './payRunApprovalAudit';
+import { laterEtiJournalRefusal } from './etiPeriodGuard';
 
 /** Raised before the reversal writes anything; its message is for the caller. */
 export class PayrollJournalReversalRefusedError extends Error {
@@ -73,6 +74,18 @@ async function directiveRevival(companyId: string, rootId: string, description: 
     + 'to pay the directive again, apply it again.';
 }
 
+/** The description directivePaymentEti gives a month's ETI journal ("ETI for YYYY-MM: directive PAYE"). */
+const ETI_JOURNAL = /^ETI for \d{4}-\d{2}: /;
+
+/**
+ * Hein ruling R-A (wave 5 ET): a directive payment's journal or an ETI journal feeds its month's ETI carry, so it is not
+ * reversed while a LATER month of the same ETI period has a posted run journal (etiPeriodGuard). Null otherwise.
+ */
+async function etiPeriodReversalRefusal(companyId: string, root: { description: string; entryDate: string }): Promise<string | null> {
+  if (!DIRECTIVE_JOURNAL.test(root.description) && !ETI_JOURNAL.test(root.description)) return null;
+  return laterEtiJournalRefusal(companyId, { year: Number(root.entryDate.slice(0, 4)), month: Number(root.entryDate.slice(5, 7)) });
+}
+
 /** The description postPayrollRunJournal gives a run's journal (payrollJournalBuilder). */
 const RUN_JOURNAL = /^Payroll run (\d{4})-(\d{2})$/;
 
@@ -101,7 +114,7 @@ async function judge(companyId: string, rootId: string, db: TxSql): Promise<stri
   const root = chain?.journals[0];
   if (!chain || !root) return null;
   const run = await payRunOf(companyId, rootId, root.description, db);
-  if (!run) return directiveRevival(companyId, rootId, root.description, db);
+  if (!run) return (await directiveRevival(companyId, rootId, root.description, db)) ?? etiPeriodReversalRefusal(companyId, root);
   const numbers = chain.journals.map((j) => j.entryNumber).join(', ');
   if (chain.broken) return brokenChain(numbers);
 
@@ -153,7 +166,7 @@ export async function refuseReversalAgainstPayRun(
   const run = await payRunOf(companyId, rootId, root.description, sql);
   if (!run) {
     // No run lock to take: a directive payment's chain only ever goes from in force to out.
-    const refusal = await directiveRevival(companyId, rootId, root.description, sql);
+    const refusal = (await directiveRevival(companyId, rootId, root.description, sql)) ?? await etiPeriodReversalRefusal(companyId, root);
     if (refusal) throw new PayrollJournalReversalRefusedError(refusal);
     return null;
   }
