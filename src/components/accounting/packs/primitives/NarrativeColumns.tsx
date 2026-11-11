@@ -33,6 +33,7 @@
  * whether or not `packPrint.css` loaded.
  */
 import type { PackNarrative } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { proseText } from './PackProse';
 
 export interface NarrativeColumnsProps {
   narrative: PackNarrative;
@@ -67,7 +68,7 @@ function BoardActionPanel({ actions, tail }: { actions: string[]; tail: string[]
       <span className="pack-narrative-source">{SOURCE_LABEL.derived}</span>
       <ul>
         {actions.map((action, index) => (
-          <li key={index}>{action}</li>
+          <li key={index}>{proseText(action)}</li>
         ))}
       </ul>
       {/* NOT LIST ITEMS. "1 further matter follows on the matters page" is a
@@ -76,7 +77,7 @@ function BoardActionPanel({ actions, tail }: { actions: string[]; tail: string[]
         * things to decide and three of them are decisions. Smaller, outside
         * the list, in the grey the pack's footnotes use. */}
       {tail.length > 0 && (
-        <p className="pack-narrative-actions-tail">{tail.join(' ')}</p>
+        <p className="pack-narrative-actions-tail">{proseText(tail.join(' '))}</p>
       )}
     </div>
   );
@@ -127,13 +128,13 @@ export function NarrativeColumns({
     <div className={`pack-narrative-columns is-${narrative.status}${single ? ' is-single' : ''}${stacked ? ' is-stacked' : ''}`}>
       <div className="pack-narrative-body">
         <span className="pack-narrative-source">{SOURCE_LABEL[narrative.status]}</span>
-        {narrative.body}
+        {proseText(narrative.body)}
         {narrative.actions.length > 0 && (
           // The APPROVER's own action items, under their own prose — not in
           // the derived panel beside it, which they did not write.
           <ul className="pack-narrative-approved-actions">
             {narrative.actions.map((action, index) => (
-              <li key={index}>{action}</li>
+              <li key={index}>{proseText(action)}</li>
             ))}
           </ul>
         )}

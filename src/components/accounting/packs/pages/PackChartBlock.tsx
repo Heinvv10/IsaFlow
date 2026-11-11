@@ -23,6 +23,7 @@
 import type { CSSProperties } from 'react';
 import type { PackChartSpec } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { keepCompounds } from '../primitives/keepCompounds';
+import { proseText } from '../primitives/PackProse';
 
 export interface PackChartBlockProps {
   chart: PackChartSpec;
@@ -48,7 +49,7 @@ export function PackChartBlock({ chart }: PackChartBlockProps) {
     >
       {/* A message, not a category label — same rule as a page title, and it
        *  is the caption a reader reads before the marks. */}
-      <figcaption className="pack-chart-title">{keepCompounds(chart.title)}</figcaption>
+      <figcaption className="pack-chart-title">{proseText(keepCompounds(chart.title))}</figcaption>
       <div className="pack-chart-svg" dangerouslySetInnerHTML={{ __html: chart.svg }} />
     </figure>
   );
@@ -83,7 +84,7 @@ export function PackSmallMultiples({ panels }: PackSmallMultiplesProps) {
           className="pack-chart"
           style={{ '--pack-chart-plot-mm': `${panel.plotMm}mm` } as CSSProperties}
         >
-          <figcaption className="pack-chart-title">{keepCompounds(panel.title)}</figcaption>
+          <figcaption className="pack-chart-title">{proseText(keepCompounds(panel.title))}</figcaption>
           <div className="pack-chart-svg" dangerouslySetInnerHTML={{ __html: panel.svg }} />
         </figure>
       ))}

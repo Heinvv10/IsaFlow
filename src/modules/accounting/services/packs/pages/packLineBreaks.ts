@@ -35,6 +35,8 @@
  */
 import { AFTER, BEFORE, contextOf, pairBreaks, pairClass } from './packBreakPairs';
 import { breaksBetween } from './packBreakRanges';
+import { isDictionaryCluster } from './packDictionaryBreak';
+import { clusters } from './packGraphemes';
 import { heldByNumber } from './packNumericHold';
 import { holdsAfterSoftHyphen, holdsAfterZeroWidthSpace } from './packSoftBreakRanges';
 
@@ -55,9 +57,8 @@ const BREAK_AFTER_SPACE = /^[\u1680\u205F\u3000]$/u;
 /** The white space CSS collapses: the only separators a break consumes. */
 const COLLAPSIBLE = /[ \t\n\r]+/;
 
-const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
-
-const clustersOf = (word: string): string[] => Array.from(SEGMENTER.segment(word), (part) => part.segment);
+/** A word's grapheme clusters (`packGraphemes`: `Intl.Segmenter`'s, in time linear in the word). */
+const clustersOf = (word: string): string[] => clusters(word);
 
 /**
  * "Wide": an ideograph, a kana, a Hangul syllable, a full-width form or an emoji. Chromium breaks between one of
@@ -179,7 +180,7 @@ function breaksAfter(clusters: readonly string[], codes: readonly number[], i: n
 }
 
 /** The pieces of one word, the text's `first` and `last` or not. */
-function wordPieces(word: string, first: boolean, last: boolean): string[] {
+function wordPieces(word: string, first: boolean, last: boolean, dictionarySpans: boolean): string[] {
   const pieces: string[] = [];
   let start = 0;
   const clusters = wordClusters(word);
@@ -188,7 +189,11 @@ function wordPieces(word: string, first: boolean, last: boolean): string[] {
     const next = clusters[i + 1];
     if (next === undefined) return;
     const soft = softBreak(cluster, next);
-    if (soft === null ? breaksAfter(clusters, codes, i, first, last) : soft) {
+    // Where the text is printed with its dictionary-script runs in `.pack-dictionary` spans (prose: `PackProse`), the
+    // print breaks anywhere inside a run, so between two of its clusters; at the run's edges it keeps the rules', which
+    // hold a glued word to it. A row label is printed without the spans and keeps the rules throughout.
+    const anywhere = dictionarySpans && isDictionaryCluster(cluster) && isDictionaryCluster(next);
+    if (anywhere || (soft === null ? breaksAfter(clusters, codes, i, first, last) : soft)) {
       pieces.push(clusters.slice(start, i + 1).join(''));
       start = i + 1;
     }
@@ -198,7 +203,12 @@ function wordPieces(word: string, first: boolean, last: boolean): string[] {
 }
 
 /** Does a line that ends after `piece` show a hyphen? It ends at a soft hyphen (or one and ideographic spaces). */
-const endsAtSoftHyphen = (piece: string): boolean => piece.replace(new RegExp(`${IDEOGRAPHIC_SPACE}+$`, 'u'), '').endsWith(SOFT_HYPHEN);
+const endsAtSoftHyphen = (piece: string): boolean => {
+  // A loop, not a trailing-run regex: that backtracks over a long run of ideographic spaces (#1263 round 2).
+  let end = piece.length;
+  while (end > 0 && piece[end - 1] === IDEOGRAPHIC_SPACE) end -= 1;
+  return end > 0 && piece[end - 1] === SOFT_HYPHEN;
+};
 
 /**
  * `text` as its pieces, in order. The LAST piece keeps its hyphen too: where the text ends at a soft hyphen (before any
@@ -206,9 +216,9 @@ const endsAtSoftHyphen = (piece: string): boolean => piece.replace(new RegExp(`$
  * there. Measured: "Revenue growth­" sets on one line at 5876/64px (its words and the hyphen), not at the 5570/64
  * of its words, and "growth­" alone has a min-content of its word and the hyphen (`packLineFit.test.ts`).
  */
-export function pieces(text: string): Piece[] {
+export function pieces(text: string, { dictionarySpans = false }: { dictionarySpans?: boolean } = {}): Piece[] {
   const words = text.split(COLLAPSIBLE).filter((word) => word !== '');
-  return words.flatMap((word, wi) => wordPieces(word, wi === 0, wi === words.length - 1)
+  return words.flatMap((word, wi) => wordPieces(word, wi === 0, wi === words.length - 1, dictionarySpans)
     .map((piece, pi) => ({ text: piece, spaced: wi > 0 && pi === 0, hyphen: endsAtSoftHyphen(piece) })));
 }
 

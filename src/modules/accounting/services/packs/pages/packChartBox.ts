@@ -29,16 +29,19 @@
  * figure is its caption plus a fixed plot, so it may stand a millimetre off
  * `heightMm` — rather than a scaled-down chart. That is the cheap failure.
  */
-import { lines, wrappedLines } from './packTextMetrics';
+import { lines } from './packTextMetrics';
+import { proseLines } from './packProseLines';
+import { PROSE } from './packProseStyles';
+import { keepCompounds } from '@/components/accounting/packs/primitives/keepCompounds';
 
-/** `.pack-chart-title` — 10pt over 14pt, with 1.5mm under it. */
-const TITLE_PT = 10;
+
+/** `.pack-chart-title` — 10pt (`PROSE.chartTitle`) over 14pt, with 1.5mm under it. */
 const TITLE_LEADING_PT = 14;
 const TITLE_GAP_MM = 1.5;
 
 /** The millimetres a chart's own title takes above its plot. */
 export function chartTitleMm(title: string, widthMm: number): number {
-  return lines(wrappedLines(title, TITLE_PT, widthMm), TITLE_LEADING_PT) + TITLE_GAP_MM;
+  return lines(proseLines(keepCompounds(title), PROSE.chartTitle, widthMm), TITLE_LEADING_PT) + TITLE_GAP_MM;
 }
 
 /**

@@ -3,8 +3,8 @@
  *
  * Page 6 for a company with net-debit revenue AND another line below zero AND a material
  * interest/tax step carries "Lines below zero" (31.5mm) and "How much of this bridge is
- * unexplained" (31.5mm) as two blocks: the page needs 256 to 261mm of 255mm with everything the
- * fitter may take already gone. Under one heading the two notes cost 9.8mm less, verbatim.
+ * unexplained" (31.5mm) as two blocks: the page needed 256 to 261mm of 255mm with everything the
+ * fitter may take already gone (before prose was set at its own widths; now a page crowded further). Under one heading the two notes cost 9.8mm less, verbatim.
  *
  * The merged block is `neverTrim`: `fitPageToBox` step 3 abridges the tail of a required
  * disclosure with more than one note, and the tail here is the unexplained-step sentence the
@@ -12,7 +12,6 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { log } from '@/lib/logger';
-import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { mergedDisclosures } from '@/modules/accounting/services/packs/pages/packIncomeSheet';
@@ -21,6 +20,7 @@ import { fitRelaidPage } from '@/modules/accounting/services/packs/pages/packNar
 import { fitPageReport } from '@/modules/accounting/services/packs/pages/packPageFit';
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import type { PackPage, PackPageBlock } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { crowdedPage6 } from './fixtures/page6Crowded';
 import { page6Input, type Page6Shape } from './fixtures/page6Shapes';
 
 const SENTENCE =
@@ -85,20 +85,19 @@ describe('neverTrim implies required', () => {
   });
 });
 
-const NET_DEBIT_TWO_LINES = (k: number): Page6Shape => ({ k, negative: true, loss: false, plug: 0.2, sg: [-1, 1, -1, -1] });
 const NET_DEBIT_ORDINARY: Page6Shape = { k: 1, negative: true, loss: false, plug: 0.2, sg: [1, 1, 1, 1] };
 const p6Of = (shape: Page6Shape) => buildBoardPackPages(page6Input(shape)).pages.find((p) => p.navLabel === 'Income statement')!;
-const headings = (p: PackPage) => p.blocks.flatMap((b) => (b.kind === 'disclosure' ? [b.disclosure.heading] : []));
+const headings = (p: Pick<PackPage, 'blocks'>) => p.blocks.flatMap((b) => (b.kind === 'disclosure' ? [b.disclosure.heading] : []));
 
 describe('page 6', () => {
-  // Scales 30 and 1,000 fit with both disclosures separate once the table is modelled at its exact height (4.4mm back):
-  // only 300,000, where eight columns of figures wrap the heading and the label, still needs the merge.
-  it.each([300000])('merges the two disclosures when the page would otherwise be refused (scale %i)', (k) => {
+  // Scales 30 and 1,000 fit with both disclosures separate once the table is modelled at its exact height (4.4mm back),
+  // and 300,000 once prose is set at its own widths: no shape of the 2,560 is refused apart now. The page is crowded by
+  // a required footnote instead (`fixtures/page6Crowded`): two sentences of it fit apart, three only merged, five not.
+  it('merges the two disclosures when the page would otherwise be refused, and only then', () => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     try {
-      const doc = buildBoardPackPages(page6Input(NET_DEBIT_TWO_LINES(k)));
-      expect(() => assertPackIntegrity(doc)).not.toThrow();
-      const p6 = doc.pages.find((p) => p.navLabel === 'Income statement')!;
+      expect(headings(crowdedPage6(2, { budget: false }))).toEqual(['Lines below zero', 'How much of this bridge is unexplained']);
+      const p6 = crowdedPage6(3, { budget: false });
       expect(pageMm(p6)).toBeLessThanOrEqual(pageBoxMm(p6));
       expect(headings(p6)).toEqual(['Required disclosures']);
       const merged = p6.blocks.find((b) => b.kind === 'disclosure');
@@ -107,6 +106,7 @@ describe('page 6', () => {
       expect(merged.disclosure.notes.map((n) => n.heading)).toEqual(['What this means', 'Size of the unexplained step']);
       expect(merged.disclosure.notes[0]!.body).toMatch(/is below zero|are below zero/);
       expect(merged.disclosure.notes[1]!.body).toContain("'Other, not separately captured' accounts for");
+      expect(() => crowdedPage6(5, { budget: false })).toThrow(PackRefusal);
     } finally {
       warn.mockRestore();
     }

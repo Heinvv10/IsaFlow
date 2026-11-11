@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
 import { asShaped, shapingInput } from './packGlyphShaping';
+import { clusters } from './packGraphemes';
 
 export type FaceWeight = 400 | 500 | 600;
 
@@ -67,8 +68,8 @@ export function inFace(cluster: string): boolean {
   return Array.from(cluster).every((ch) => f.hasGlyphForCodePoint(ch.codePointAt(0)!));
 }
 
-const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
-export const clustersOf = (text: string): string[] => Array.from(SEGMENTER.segment(text), (s) => s.segment);
+/** A text's grapheme clusters (`packGraphemes`: `Intl.Segmenter`'s, in time linear in the text). */
+export const clustersOf = (text: string): string[] => clusters(text);
 
 const FACE_SCRIPTS = ['Latin', 'Greek', 'Cyrillic'] as const;
 const SCRIPT_SETS = new Map<string, readonly string[] | null>();

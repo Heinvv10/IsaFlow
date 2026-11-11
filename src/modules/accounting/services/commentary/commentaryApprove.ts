@@ -68,6 +68,11 @@ export async function approveCommentary(
     }
   } else {
     const text = edited ?? row.draftText;
+    // A hard ceiling before anything is costed: the cost model reads every character, and no page holds this many
+    // (the budget is about 1,450 characters of prose), however narrow they are or however many marks they stack.
+    if (text.length > MAX_UNBUDGETED_CHARS) {
+      return { ok: false, code: 'text_too_long', reason: `Commentary is limited to ${MAX_UNBUDGETED_CHARS} characters.` };
+    }
     // No pack can hold this much, so it needs no lock to be refused.
     if (commentaryCost([text]) > MAX_APPROVED_PACK_EMS) {
       return { ok: false, code: 'commentary_budget_exceeded', reason: budgetReason(0) };
