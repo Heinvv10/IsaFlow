@@ -4,6 +4,7 @@
 import { Lock, Unlock, RefreshCw, Loader2 } from 'lucide-react';
 import type { FiscalPeriod, FiscalPeriodStatus } from '@/modules/accounting/types/gl.types';
 import { formatDate } from './types';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Props {
   period: FiscalPeriod;
@@ -22,6 +23,8 @@ const STATUS_STYLES: Record<FiscalPeriodStatus, string> = {
 export function PeriodRow({ period, jeCount, loadingId, onAction }: Props) {
   const isLoading = loadingId === period.id;
   const isLocked = period.status === 'locked';
+  // String compare on YYYY-MM-DD, as FiscalPeriodsTab does: a period that has not started cannot be closed here (audit P3.2).
+  const isFuture = String(period.startDate).slice(0, 10) > localISODate();
 
   return (
     <tr className={`border-b border-[var(--ff-border-primary)] text-sm transition-colors ${ isLocked ? 'bg-slate-900/30' : 'hover:bg-[var(--ff-bg-hover)]' }`}>
@@ -44,8 +47,9 @@ export function PeriodRow({ period, jeCount, loadingId, onAction }: Props) {
           ) : (
             <>
               {period.status === 'open' && (
-                <button onClick={() => onAction(period.id, 'close')}
-                  className="px-2 py-1 text-xs rounded bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 transition-colors">
+                <button onClick={() => onAction(period.id, 'close')} disabled={isFuture}
+                  title={isFuture ? 'This period has not started yet' : undefined}
+                  className="px-2 py-1 text-xs rounded bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 transition-colors disabled:opacity-40">
                   Close
                 </button>
               )}

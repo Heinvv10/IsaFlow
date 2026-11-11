@@ -77,7 +77,7 @@ describeIfDb('header refusals answer the right status and leave nothing behind',
         (${sale}::UUID, ${revenue}::UUID, 0, 1000, 'HG sale', ${fx.companyId}::UUID)`;
 
     const before = await countRows(fx);
-    const refused = await callRoute(fx, h.token, yearEnd, { action: 'close', yearLabel: '2025' });
+    const refused = await callRoute(fx, h.token, yearEnd, { action: 'close', yearLabel: '2025', confirm: true });
     expect(refused.statusCode, JSON.stringify(refused.body)).toBe(400);
     expect(JSON.stringify(refused.body)).toContain('HGX-RE ');
     expect(JSON.stringify(refused.body)).toContain(HEADER_TEXT);
