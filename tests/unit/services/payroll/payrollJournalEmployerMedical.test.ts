@@ -102,4 +102,16 @@ describe('buildPayrollJournalPlan — employer medical contribution (non-cash 38
     expect(on(plan, '5200', 'debit')).toBe(20000 + 200 + 200);
     expect(on(plan, '2175', 'credit')).toBe(500);
   });
+
+  it('posts the employer contribution as its OWN 2175 credit, so a 4005 reversal cannot hide it, and totals carry it', async () => {
+    // Net 20 000 - 2 000 - 200 = 17 800 would be no deductions; net 18 300 makes 500 of reversal (the employee was paid back 500).
+    routes({ header: { ...HEADER, total_net: 18300 } });
+    const plan = (await buildPayrollJournalPlan(COMPANY, RUN))!;
+    const l2175 = plan.lines.filter((l) => l.accountCode === '2175');
+    expect(l2175).toHaveLength(2);
+    expect(l2175.find((l) => l.debit === 500)?.description).toMatch(/reversal/);
+    expect(l2175.find((l) => l.credit === 2000)?.description).toMatch(/Employer medical/);
+    expect(plan.totals.employerMedical).toBe(2000);
+    expect(plan.totalDebit).toBe(plan.totalCredit);
+  });
 });

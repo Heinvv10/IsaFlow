@@ -10,13 +10,14 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
 /** Employee id → that employee's non-cash 3810 total on the run, cent-rounded; employees with none are absent. */
-export async function runEmployerMedical(runId: string): Promise<Map<string, number>> {
+export async function runEmployerMedical(companyId: string, runId: string): Promise<Map<string, number>> {
   const rows = (await sql`
     SELECT l.employee_id, COALESCE(SUM((item->>'amount')::numeric), 0) AS employer_medical
       FROM payroll_run_lines l
+      JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(l.component_breakdown) = 'array'
         THEN l.component_breakdown ELSE '[]'::jsonb END) item
-     WHERE l.run_id = ${runId}::uuid
+     WHERE l.run_id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
        AND item->>'isNonCash' = 'true'
        AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3810'
      GROUP BY l.employee_id
