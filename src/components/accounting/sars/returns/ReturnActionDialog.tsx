@@ -96,7 +96,9 @@ export function ReturnActionDialog(p: Props) {
       const out = await postReturnAction(p.form, p.action, body());
       if (out.ok) { p.onDone(`${title}: done.`); return; }
       setRefusal(out.refusal);
-      if (out.refusal.code === 'LEGACY_SUBMISSION_EXISTS') setLegacyIds(out.refusal.legacySubmissionIds ?? []);
+      // Legacy mode needs the server's ids: without them it is an ordinary refusal (the message alone), never an empty correction.
+      const ids = out.refusal.legacySubmissionIds;
+      if (out.refusal.code === 'LEGACY_SUBMISSION_EXISTS' && ids && ids.length > 0) setLegacyIds(ids);
       if (out.refusal.code === 'LIVE_VERSION_EXISTS') { setStale(true); await p.onStale(); }
     } catch (err) {
       setRefusal({ status: 0, message: apiErrorMessage(err, 'Could not reach the server - try again'), code: null, counts: null, legacySubmissionIds: null });

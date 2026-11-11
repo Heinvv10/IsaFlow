@@ -1,6 +1,8 @@
 /**
  * Loads a return's versions (and members' names for who took each step); reload after every action.
- * A new period starts empty; a failed reload of the same period keeps what was shown, with the error beside it.
+ * Everything returned belongs to the CURRENT period: data loaded for another period is never shown, not even for the
+ * one render between a period change and its fetch. A failed reload of the same period keeps what was shown, with the
+ * error beside it.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiErrorMessage } from '@/lib/apiFetch';
@@ -16,23 +18,24 @@ export interface ReturnLifecycleState {
 }
 
 export function useReturnLifecycle(form: ReturnForm, periodStart: string, periodEnd: string): ReturnLifecycleState {
-  const [data, setData] = useState<ReturnVersions | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const key = `${form}:${periodStart}:${periodEnd}`;
+  const current = useRef(key);
+  current.current = key;
+  const [loaded, setLoaded] = useState<{ key: string; data: ReturnVersions } | null>(null);
+  const [failed, setFailed] = useState<{ key: string; message: string } | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
   const [names, setNames] = useState<Map<string, string> | null>(null);
-  const shown = useRef('');
 
   const reload = useCallback(async () => {
-    const key = `${form}:${periodStart}:${periodEnd}`;
-    if (shown.current !== key) { shown.current = key; setData(null); }
-    setLoading(true); setError('');
+    const k = `${form}:${periodStart}:${periodEnd}`;
+    setPending(k); setFailed(null);
     try {
       const next = await loadReturnVersions(form, periodStart, periodEnd);
-      if (shown.current === key) setData(next);
+      if (current.current === k) setLoaded({ key: k, data: next });
     } catch (err) {
-      if (shown.current === key) setError(apiErrorMessage(err, 'Could not load the return versions - try again'));
+      if (current.current === k) setFailed({ key: k, message: apiErrorMessage(err, 'Could not load the return versions - try again') });
     } finally {
-      if (shown.current === key) setLoading(false);
+      setPending((p) => (p === k ? null : p));
     }
   }, [form, periodStart, periodEnd]);
 
@@ -52,5 +55,7 @@ export function useReturnLifecycle(form: ReturnForm, periodStart: string, period
     return names.get(userId) ?? (names.size === 0 ? 'name not loaded' : 'a former member');
   }, [names]);
 
-  return { data, loading, error, nameOf, reload };
+  const data = loaded?.key === key ? loaded.data : null;
+  const error = failed?.key === key ? failed.message : '';
+  return { data, loading: pending === key || (data === null && error === ''), error, nameOf, reload };
 }

@@ -64,6 +64,7 @@ export async function postReturnAction(
     refusal: {
       status: res.status,
       message: fieldErrors.length > 0 ? `${message}: ${fieldErrors.join('; ')}` : message,
+      // Return refusals carry details.code; the Login-as refusal (respondIfImpersonationForbidden) sends IMPERSONATION_FORBIDDEN as details.reason.
       code: json?.error?.details?.code ?? json?.error?.details?.reason ?? null,
       counts: json?.error?.details?.counts ?? null,
       legacySubmissionIds: json?.error?.details?.legacySubmissionIds ?? null,
