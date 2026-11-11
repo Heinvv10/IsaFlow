@@ -201,15 +201,17 @@ describe('migration 967: CHECKs and the director backfill', () => {
     await insert('CK-OK2', 'hours_per_week, hours_per_day|40, 8');
   });
 
-  it('a component quantity needs its unit, and both are above 0 / in hour|day', async () => {
+  it('a component quantity needs its unit; 967 required it above 0, 972 relaxes that to 0 or more (an entered nil); unit in hour|day', async () => {
     const empId = (await pool.query<{ id: string }>("SELECT id FROM payroll_employees WHERE employee_number = 'CK-OK1' AND company_id = $1", [company])).rows[0]!.id;
     const comp = (await pool.query<{ id: string }>("SELECT id FROM payroll_components WHERE company_id = $1 LIMIT 1", [company])).rows[0]!.id;
     const put = (q: string, u: string) => pool.query(
       `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, quantity, quantity_unit) VALUES ($1,$2,1,'2026-01-01',${q},${u})`, [empId, comp]);
     await expect(put('8', 'NULL')).rejects.toMatchObject({ code: '23514' });
     await expect(put('NULL', "'hour'")).rejects.toMatchObject({ code: '23514' });
-    await expect(put('0', "'hour'")).rejects.toMatchObject({ code: '23514' });
+    await expect(put('-1', "'hour'")).rejects.toMatchObject({ code: '23514' });
+    await expect(put('0', 'NULL')).rejects.toMatchObject({ code: '23514' }); // a nil still needs its unit
     await expect(put('8', "'week'")).rejects.toMatchObject({ code: '23514' });
+    await put('0', "'hour'"); // migration 972: an entered nil (0 hours worked) is a quantity
     await put('8', "'hour'");
     await put('NULL', 'NULL');
   });
