@@ -26,6 +26,18 @@ export interface ReturnVersion {
   amendedAt: string | null;
 }
 
+/**
+ * Refusal codes meaning the return moved on elsewhere (another tab or session): the UI reloads the lifecycle on them.
+ * One list for the server's throws and the client's check (ReturnActionDialog); this file imports nothing server-side.
+ */
+export const STALE_RETURN_REFUSAL = {
+  LIVE_VERSION_EXISTS: 'LIVE_VERSION_EXISTS',
+  ALREADY_FILED: 'ALREADY_FILED',
+  VERSION_SUPERSEDED: 'VERSION_SUPERSEDED',
+  ALREADY_AMENDED: 'ALREADY_AMENDED',
+} as const;
+export const STALE_RETURN_REFUSAL_CODES: readonly string[] = Object.values(STALE_RETURN_REFUSAL);
+
 /** A finalise, filing or amend the caller can fix or must wait out. Raised before the first write. */
 export class ReturnRefusal extends Error {
   readonly status: 400 | 403 | 404 | 409;

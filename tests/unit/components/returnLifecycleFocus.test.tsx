@@ -116,3 +116,29 @@ it('ALREADY_AMENDED with a newer version live elsewhere still offers no "Amend i
   await waitFor(() => expect(screen.getByTestId('return-lifecycle-status').textContent).toBe('Finalised (v2), not filed'));
   expect(within(dialog).queryByRole('button', { name: 'Amend instead' })).toBeNull();
 });
+
+it('Close after a stale refusal: the Finalise that opened it is gone, so focus lands on the status line', async () => {
+  h.postReplies = [refusal(409, 'This VAT201 is already finalised as version 1. Amend it before finalising again.', { code: 'LIVE_VERSION_EXISTS' })];
+  bar(); await ready();
+  h.versions = [V1];
+  fireEvent.click(button(/^Finalise v1$/)!);
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Finalise$/ }));
+  await waitFor(() => expect(button(/^Finalise v1$/)).toBeNull());
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close', exact: true }));
+  await waitFor(() => expect(focused()).toBe(screen.getByTestId('return-lifecycle-status')));
+});
+
+it('after a successful action focus lands on the status line, which then says the new state', async () => {
+  bar(); await ready();
+  h.versions = [V1];
+  fireEvent.click(button(/^Finalise v1$/)!);
+  const dialog = await screen.findByRole('dialog');
+  h.hold = true; // the reload is slow: the Finalise button is still on screen when the dialog closes
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Finalise$/ }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  await waitFor(() => expect(focused()).toBe(screen.getByTestId('return-lifecycle-status')));
+  h.hold = false; h.held.splice(0).forEach((go) => go());
+  await waitFor(() => expect(screen.getByTestId('return-lifecycle-status').textContent).toBe('Finalised (v1), not filed'));
+  expect(focused()).toBe(screen.getByTestId('return-lifecycle-status'));
+});

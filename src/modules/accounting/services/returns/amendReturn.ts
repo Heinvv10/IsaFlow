@@ -11,7 +11,7 @@ import { unlockVatPeriod } from '@/modules/accounting/services/reports/vatPeriod
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionSuperseded, peekForm } from './returnVersionWrites';
-import { ReturnRefusal, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
+import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
 
 export async function amendReturn(
   companyId: string, form: ReturnForm, versionId: string, reason: string, actor: ReturnActor,
@@ -23,7 +23,7 @@ export async function amendReturn(
   if (form === 'VAT201' && await peekForm(companyId, versionId) === 'VAT201') await takeVatLockExclusive(companyId);
   const v = await getVersionForUpdate(companyId, versionId);
   if (!v || v.formType !== form) throw new ReturnRefusal(404, 'Return version not found.');
-  if (v.status === 'superseded') throw new ReturnRefusal(409, `Version ${v.versionNo} was already amended.`, 'ALREADY_AMENDED');
+  if (v.status === 'superseded') throw new ReturnRefusal(409, `Version ${v.versionNo} was already amended.`, STALE_RETURN_REFUSAL.ALREADY_AMENDED);
   const lockId = v.formType === 'VAT201' && v.vatPeriodLockId && await isLockActive(companyId, v.vatPeriodLockId)
     ? v.vatPeriodLockId : null;
   return withSavepoint('amend_return', async () => {

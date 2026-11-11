@@ -10,6 +10,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { apiErrorMessage } from '@/lib/apiFetch';
+import { STALE_RETURN_REFUSAL_CODES } from '@/modules/accounting/services/returns/returnVersionTypes';
 import { VatGateOverrideBox } from '../VatGateOverrideBox';
 import { ReturnReasonField } from './ReturnReasonField';
 import { postReturnAction, type ReturnAction, type ReturnForm, type ReturnRefusalInfo, type ReturnVersionView } from './returnLifecycleClient';
@@ -34,7 +35,7 @@ interface Props {
 
 const has = (s: string) => s.trim() !== '';
 /** Refusals that mean the return moved on in another tab or session: reload the bar, then Close (or Amend instead). */
-const STALE = new Set(['LIVE_VERSION_EXISTS', 'ALREADY_FILED', 'VERSION_SUPERSEDED', 'ALREADY_AMENDED']);
+const STALE = new Set(STALE_RETURN_REFUSAL_CODES);
 /** The kit's 50% disabled fade fails contrast; a disabled button here is solid and muted instead. */
 const DISABLED = 'disabled:opacity-100 disabled:bg-none disabled:bg-[var(--ff-bg-tertiary)] disabled:text-[var(--ff-text-secondary)] disabled:shadow-none';
 

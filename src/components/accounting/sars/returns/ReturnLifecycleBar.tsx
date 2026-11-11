@@ -33,6 +33,11 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
     setAction(null);
     requestAnimationFrame(() => (trigger.current?.isConnected ? trigger.current : statusLine.current)?.focus());
   };
+  /** After a done action the button that opened it is about to go (the reload replaces it): focus the status line. */
+  const finishDialog = (message: string) => {
+    setAction(null); setDone(message);
+    requestAnimationFrame(() => statusLine.current?.focus());
+  };
   useEffect(() => { setImpersonating(isImpersonating()); }, []);
   // A new period is a new return: nothing from the last one stays open or announced.
   useEffect(() => { setAction(null); setDone(''); setDrawer(false); }, [form, periodStart, periodEnd]);
@@ -121,7 +126,7 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
           onStale={reload} canAmendInstead={acts.amend}
           onAmendInstead={() => setAction('amend')}
           onClose={closeDialog}
-          onDone={(m) => { closeDialog(); setDone(m); void reload(); }} />
+          onDone={(m) => { finishDialog(m); void reload(); }} />
       )}
       <ReturnVersionsDrawer open={drawer} onClose={() => { setDrawer(false); versionsButton.current?.focus(); }} form={form} versions={versions}
         vatReturn={data?.vatReturn ?? null} nameOf={nameOf} />

@@ -20,7 +20,7 @@ import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsE
 import { driftOf } from './returnDrift';
 import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
-import { ReturnRefusal, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
+import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
 
 export interface FiledReturn {
   version: ReturnVersion;
@@ -63,7 +63,7 @@ export async function markReturnFiled(
     throw new ReturnRefusal(409, v.status === 'filed'
       ? `Version ${v.versionNo} is already filed (${v.filedReference ?? 'no reference'}). Amend it to file a correction.`
       : `Version ${v.versionNo} was superseded by an amend. File the current version.`,
-    v.status === 'filed' ? 'ALREADY_FILED' : 'VERSION_SUPERSEDED');
+    v.status === 'filed' ? STALE_RETURN_REFUSAL.ALREADY_FILED : STALE_RETURN_REFUSAL.VERSION_SUPERSEDED);
   }
   if (v.formType === 'VAT201' && !(v.vatPeriodLockId && await isLockActive(companyId, v.vatPeriodLockId))) {
     throw new ReturnRefusal(409,
