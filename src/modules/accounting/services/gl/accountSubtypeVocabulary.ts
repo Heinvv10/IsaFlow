@@ -16,6 +16,7 @@ export type CanonicalSubtype =
   | 'other_current_asset'
   | 'vat_input'
   | 'vat_input_late_claim' // the late-claim clearing account (migration 701) — NOT a VAT control subtype
+  | 'eti_refund_receivable' // ETI claimed back from SARS at the end of the reconciliation period (migration 974)
   | 'fixed_asset'
   | 'accumulated_depreciation'
   | 'intangible_asset'
@@ -82,6 +83,7 @@ export const SUBTYPE_ALIASES: Record<string, CanonicalSubtype> = {
   other_current_assets: 'other_current_asset',
   vat_input: 'vat_input',
   vat_input_late_claim: 'vat_input_late_claim',
+  eti_refund_receivable: 'eti_refund_receivable',
   fixed_asset: 'fixed_asset',
   fixed_assets: 'fixed_asset',
   property_plant_equipment: 'fixed_asset',

@@ -249,6 +249,8 @@ describe('the role list is the single source of truth', () => {
     }
     // 15 since migration 701 added vat_input_late_claim (the late-claim clearing account).
     expect(SYSTEM_ACCOUNT_KEYS).toContain('vat_input_late_claim');
-    expect(SYSTEM_ACCOUNT_KEYS).toHaveLength(15);
+    // 16 since migration 974 added eti_refund_receivable (wave 5 ET, Hein ruling R-C).
+    expect(SYSTEM_ACCOUNT_KEYS).toContain('eti_refund_receivable');
+    expect(SYSTEM_ACCOUNT_KEYS).toHaveLength(16);
   });
 });

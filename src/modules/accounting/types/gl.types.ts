@@ -16,6 +16,7 @@ export type GLAccountSubtype =
   | 'vat_input'
   | 'vat_output'
   | 'vat_input_late_claim'
+  | 'eti_refund_receivable'
   | 'inventory'
   | 'fixed_asset'
   | 'accumulated_depreciation'
