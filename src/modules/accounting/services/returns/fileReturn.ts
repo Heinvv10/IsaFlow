@@ -62,7 +62,8 @@ export async function markReturnFiled(
   if (v.status !== 'finalised') {
     throw new ReturnRefusal(409, v.status === 'filed'
       ? `Version ${v.versionNo} is already filed (${v.filedReference ?? 'no reference'}). Amend it to file a correction.`
-      : `Version ${v.versionNo} was superseded by an amend. File the current version.`);
+      : `Version ${v.versionNo} was superseded by an amend. File the current version.`,
+    v.status === 'filed' ? 'ALREADY_FILED' : 'VERSION_SUPERSEDED');
   }
   if (v.formType === 'VAT201' && !(v.vatPeriodLockId && await isLockActive(companyId, v.vatPeriodLockId))) {
     throw new ReturnRefusal(409,

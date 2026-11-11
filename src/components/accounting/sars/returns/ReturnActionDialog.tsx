@@ -2,9 +2,10 @@
  * Finalise, Mark filed and Amend (wave 5 L2). Every refusal shows the server's own message, and the next step its
  * code names is offered here: the exceptions override (owner/admin, from the gate's counts), RATE_CHECK_FAILED (force),
  * VAT_RETURN_MISMATCH (a reason), LEGACY_SUBMISSION_EXISTS (the server's ids, with a reason) and LIVE_VERSION_EXISTS
- * (a stale tab: the bar reloads, then Amend or Close). The server judges all of it again.
+ * (a stale tab: the bar reloads, then Amend or Close), as do ALREADY_FILED, VERSION_SUPERSEDED and ALREADY_AMENDED.
+ * The server judges all of it again.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -32,6 +33,8 @@ interface Props {
 }
 
 const has = (s: string) => s.trim() !== '';
+/** Refusals that mean the return moved on in another tab or session: reload the bar, then Close (or Amend instead). */
+const STALE = new Set(['LIVE_VERSION_EXISTS', 'ALREADY_FILED', 'VERSION_SUPERSEDED', 'ALREADY_AMENDED']);
 /** The kit's 50% disabled fade fails contrast; a disabled button here is solid and muted instead. */
 const DISABLED = 'disabled:opacity-100 disabled:bg-none disabled:bg-[var(--ff-bg-tertiary)] disabled:text-[var(--ff-text-secondary)] disabled:shadow-none';
 
@@ -60,6 +63,11 @@ export function ReturnActionDialog(p: Props) {
   const [refusal, setRefusal] = useState<ReturnRefusalInfo | null>(null);
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Focus: the first field on open (finalise has none: its primary action); after a stale refusal the next step.
+  const firstField = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
+  const primary = useRef<HTMLButtonElement>(null);
+  const amendInstead = useRef<HTMLButtonElement>(null);
+  const alertBox = useRef<HTMLDivElement>(null);
   // Fixed at open: a stale-tab reload must not renumber the version this dialog was about.
   const [n] = useState(p.version?.versionNo ?? p.nextVersionNo);
   const { title, text, cta } = describe(p.form, p.action, n);
@@ -99,7 +107,7 @@ export function ReturnActionDialog(p: Props) {
       // Legacy mode needs the server's ids: without them it is an ordinary refusal (the message alone), never an empty correction.
       const ids = out.refusal.legacySubmissionIds;
       if (out.refusal.code === 'LEGACY_SUBMISSION_EXISTS' && ids && ids.length > 0) setLegacyIds(ids);
-      if (out.refusal.code === 'LIVE_VERSION_EXISTS') { setStale(true); await p.onStale(); }
+      if (out.refusal.code && STALE.has(out.refusal.code)) { setStale(true); await p.onStale(); }
     } catch (err) {
       setRefusal({ status: 0, message: apiErrorMessage(err, 'Could not reach the server - try again'), code: null, counts: null, legacySubmissionIds: null });
     } finally {
@@ -107,19 +115,26 @@ export function ReturnActionDialog(p: Props) {
     }
   };
 
+  const offerAmendInstead = stale && p.canAmendInstead && p.action !== 'amend';
+  // The footer swaps under a stale refusal and the focused button unmounts: move focus to the next step, or the alert.
+  useEffect(() => {
+    if (stale) (offerAmendInstead ? amendInstead.current : alertBox.current)?.focus();
+  }, [stale, offerAmendInstead]);
+
   return (
-    <Modal open onClose={p.onClose} title={title} size="md" disableBackdropClose>
+    <Modal open onClose={p.onClose} title={title} size="md" disableBackdropClose
+      initialFocusRef={p.action === 'finalise' ? primary : firstField}>
       <Modal.Body className="space-y-4">
         <p className="text-sm text-[var(--ff-text-secondary)]">{text}</p>
         {p.action === 'file' && !stale && (
-          <Input label="SARS eFiling reference" value={reference} maxLength={200} onChange={(e) => setReference(e.target.value)} />
+          <Input ref={firstField} label="SARS eFiling reference" value={reference} maxLength={200} onChange={(e) => setReference(e.target.value)} />
         )}
         {p.action === 'amend' && (
-          <ReturnReasonField id="return-amend-reason" label="Reason for the amendment (required)" value={reason} onChange={setReason}
+          <ReturnReasonField ref={firstField} id="return-amend-reason" label="Reason for the amendment (required)" value={reason} onChange={setReason}
             hint="Kept on the version and in the audit trail." />
         )}
         {refusal && (
-          <div role="alert" data-testid="return-refusal" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
+          <div ref={alertBox} tabIndex={-1} role="alert" data-testid="return-refusal" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
             {refusal.message}
           </div>
         )}
@@ -148,12 +163,12 @@ export function ReturnActionDialog(p: Props) {
         {stale ? (
           <>
             <Button variant="ghost" onClick={p.onClose}>Close</Button>
-            {p.canAmendInstead && <Button variant="secondary" onClick={p.onAmendInstead}>Amend instead</Button>}
+            {offerAmendInstead && <Button ref={amendInstead} variant="secondary" onClick={p.onAmendInstead}>Amend instead</Button>}
           </>
         ) : (
           <>
             <Button variant="ghost" onClick={p.onClose}>Cancel</Button>
-            <Button variant={p.action === 'amend' ? 'danger' : 'primary'} className={DISABLED} loading={busy}
+            <Button ref={primary} variant={p.action === 'amend' ? 'danger' : 'primary'} className={DISABLED} loading={busy}
               disabled={busy || missing !== null} onClick={() => void submit()}>
               {blocked && p.isOwnerOrAdmin ? `Override and ${cta.toLowerCase()}` : cta}
             </Button>

@@ -25,6 +25,14 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
   const [done, setDone] = useState('');
   const [impersonating, setImpersonating] = useState(false);
   const versionsButton = useRef<HTMLButtonElement>(null);
+  const statusLine = useRef<HTMLParagraphElement>(null);
+  /** The button that opened the dialog: focus goes back to it on close, or to the status line when it is gone. */
+  const trigger = useRef<HTMLElement | null>(null);
+  const open = (a: ReturnAction) => (e: { currentTarget: HTMLElement }) => { trigger.current = e.currentTarget; setDone(''); setAction(a); };
+  const closeDialog = () => {
+    setAction(null);
+    requestAnimationFrame(() => (trigger.current?.isConnected ? trigger.current : statusLine.current)?.focus());
+  };
   useEffect(() => { setImpersonating(isImpersonating()); }, []);
   // A new period is a new return: nothing from the last one stays open or announced.
   useEffect(() => { setAction(null); setDone(''); setDrawer(false); }, [form, periodStart, periodEnd]);
@@ -47,7 +55,7 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <h2 id="return-lifecycle-title" className="text-sm font-semibold text-[var(--ff-text-primary)]">Return lifecycle</h2>
-          <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="return-lifecycle-status">
+          <p ref={statusLine} tabIndex={-1} className="text-sm text-[var(--ff-text-secondary)] outline-none" data-testid="return-lifecycle-status">
             {settled ? status : loading ? 'Loading…' : 'Status unavailable'}
           </p>
         </div>
@@ -98,9 +106,9 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
 
       {settled && (acts.finalise || acts.file || acts.amend) && (
         <div className="flex flex-wrap gap-2">
-          {acts.finalise && <Button size="sm" onClick={() => { setDone(''); setAction('finalise'); }}>Finalise v{nextNo}</Button>}
-          {acts.file && <Button size="sm" onClick={() => { setDone(''); setAction('file'); }}>Mark filed</Button>}
-          {acts.amend && <Button size="sm" variant="secondary" onClick={() => { setDone(''); setAction('amend'); }}>Amend</Button>}
+          {acts.finalise && <Button size="sm" onClick={open('finalise')}>Finalise v{nextNo}</Button>}
+          {acts.file && <Button size="sm" onClick={open('file')}>Mark filed</Button>}
+          {acts.amend && <Button size="sm" variant="secondary" onClick={open('amend')}>Amend</Button>}
         </div>
       )}
       {settled && acts.note && <p className="text-xs text-[var(--ff-text-secondary)]" data-testid="return-lifecycle-note">{acts.note}</p>}
@@ -112,8 +120,8 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
           // A stale tab: the return moved on elsewhere. Reload it; the dialog then offers Amend (owner/admin) or Close.
           onStale={reload} canAmendInstead={acts.amend}
           onAmendInstead={() => setAction('amend')}
-          onClose={() => setAction(null)}
-          onDone={(m) => { setAction(null); setDone(m); void reload(); }} />
+          onClose={closeDialog}
+          onDone={(m) => { closeDialog(); setDone(m); void reload(); }} />
       )}
       <ReturnVersionsDrawer open={drawer} onClose={() => { setDrawer(false); versionsButton.current?.focus(); }} form={form} versions={versions}
         vatReturn={data?.vatReturn ?? null} nameOf={nameOf} />

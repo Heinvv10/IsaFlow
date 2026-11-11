@@ -23,7 +23,7 @@ export async function amendReturn(
   if (form === 'VAT201' && await peekForm(companyId, versionId) === 'VAT201') await takeVatLockExclusive(companyId);
   const v = await getVersionForUpdate(companyId, versionId);
   if (!v || v.formType !== form) throw new ReturnRefusal(404, 'Return version not found.');
-  if (v.status === 'superseded') throw new ReturnRefusal(409, `Version ${v.versionNo} was already amended.`);
+  if (v.status === 'superseded') throw new ReturnRefusal(409, `Version ${v.versionNo} was already amended.`, 'ALREADY_AMENDED');
   const lockId = v.formType === 'VAT201' && v.vatPeriodLockId && await isLockActive(companyId, v.vatPeriodLockId)
     ? v.vatPeriodLockId : null;
   return withSavepoint('amend_return', async () => {
