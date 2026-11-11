@@ -4,15 +4,17 @@
  *
  * READ-ONLY, Demo company, dev only. Nothing is written.
  *  - P&L filters, company settings (Details tab), the leave list and an employee profile have 0 native <select>
- *    (the journal-entry form is checked for 390 px overflow and axe only).
+
+ *    (the journal-entry form: its per-line Account selects too).
  *  - A picked kit Select value shows in its trigger (the P&L cost-centre filter keeps its choice).
  *  - Opening an invoice from a plain cell and pressing Escape returns focus to that row, not BODY.
+ *  - Accounting settings (reporting currency) has 0 native selects; the invoice list is colour-contrast clean at 1280 px.
  *  - No screen scrolls sideways at 390 px; axe reports 0 critical and 0 serious, in both themes.
  *  - UXN_EVIDENCE_DIR=<dir> saves a screenshot per screen, theme and width.
  */
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { axeContrastFailures, seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
 const EVIDENCE_DIR = process.env.UXN_EVIDENCE_DIR;
 /**
@@ -23,7 +25,8 @@ const SCREENS = [
   { slug: 'pnl', path: '/accounting/reports/income-statement', ready: ['Cost Centre', 'Business Unit'] },
   { slug: 'company-settings', path: '/accounting/company-settings?tab=details', ready: ['Entity Type', 'Industry', 'Account Type', 'Document Type'] },
   { slug: 'leave', path: '/payroll/leave', ready: ['Filter by status', 'Filter by month'] },
-  { slug: 'journal-new', path: '/accounting/journal-entries/new', ready: [] },
+  { slug: 'accounting-settings', path: '/accounting/accounting-settings', ready: ['Reporting Currency'] },
+  { slug: 'journal-new', path: '/accounting/journal-entries/new', ready: ['Account, line 1', 'Account, line 2'] },
 ] as const;
 const PROFILE_READY = ['Occupational level', 'Cost centre', 'Component']; // Pay package and Pay scale only render when the company has any
 
@@ -65,8 +68,7 @@ for (const theme of THEMES) {
           await settle(page);
           for (const name of s.ready) await expect(page.getByRole('combobox', { name, exact: true }), `${s.slug}: kit combobox "${name}" rendered`).toBeVisible({ timeout: 30_000 });
           if (s.slug === 'journal-new') await expect(page.getByRole('heading', { name: 'Balance Summary' })).toBeVisible();
-          // The journal's per-line Account selects are out of scope here: that page is in the list for its 390 px summary.
-          if (s.slug !== 'journal-new') expect(await nativeSelects(page), `${s.slug}: native selects`).toBe(0);
+          expect(await nativeSelects(page), `${s.slug}: native selects`).toBe(0);
           if (width === 390) expect(await overflowX(page), `${s.slug}: sideways overflow`).toBeLessThanOrEqual(0);
           await expectAxeClean(page);
           await snap(page, s.slug, theme, width);
@@ -84,6 +86,14 @@ for (const theme of THEMES) {
       const text = (await option.textContent()) ?? '';
       await option.click();
       await expect(box).toContainText(text.trim());
+    });
+
+    test('the invoice list passes axe colour-contrast at 1280px (the 90+ days label)', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto('/accounting/customer-invoices');
+      await settle(page);
+      await expect(page.locator('tbody tr').first()).toBeVisible({ timeout: 30_000 });
+      expect(await axeContrastFailures(page)).toEqual([]);
     });
 
     test('Escape on the invoice drawer returns focus to the row that opened it', async ({ page }) => {
