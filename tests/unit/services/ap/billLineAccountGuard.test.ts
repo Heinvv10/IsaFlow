@@ -24,6 +24,17 @@ const row = (over: Partial<BillLineAccountRow> = {}): BillLineAccountRow => ({
 
 describe('billLineAccountProblem', () => {
   it.each([
+    ['1500', 'fixed_asset'],
+    ['1300', 'inventory'],
+    ['1400', 'prepayment'],
+    ['1410', 'prepaid_expense'],
+    ['400', 'cost_of_sales'],
+    ['A10', 'operating_expense'],
+  ])('accepts %s with subtype %s (no code-range rule)', (account_code, account_subtype) => {
+    expect(billLineAccountProblem(row({ account_code, account_subtype }))).toBeNull();
+  });
+
+  it.each([
     ['payable', /control account/],
     ['accounts_payable', /control account/],
     ['creditors', /control account/],
