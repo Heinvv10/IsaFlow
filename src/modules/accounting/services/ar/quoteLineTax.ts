@@ -38,18 +38,12 @@ export async function withQuoteTaxRates<L extends QuoteLineIn>(companyId: string
 /** The line's ex-VAT amount, as an invoice line of it is priced. */
 export const quoteLineAmount = (l: QuoteLineIn): number => invoiceLineAmount(Number(l.quantity), Number(l.unitPrice));
 
-const toCents = (n: number): number => Math.round(n * 100);
-
-/** Header totals: per rate as invoiceTotals, summed in cents. */
+/** Header totals: per rate as invoiceTotals, the rates' figures summed exactly (invoiceTotals at 0 is an exact cent sum). */
 export function quoteTotals(lines: readonly (QuoteLineIn & { taxRate: number })[]): { subtotal: number; taxAmount: number; total: number } {
   const byRate = new Map<number, number[]>();
   for (const l of lines) byRate.set(l.taxRate, [...(byRate.get(l.taxRate) ?? []), quoteLineAmount(l)]);
-  let subtotal = 0;
-  let tax = 0;
-  for (const [rate, amounts] of byRate) {
-    const t = invoiceTotals(amounts, rate);
-    subtotal += toCents(t.subtotal);
-    tax += toCents(t.tax);
-  }
-  return { subtotal: subtotal / 100, taxAmount: tax / 100, total: (subtotal + tax) / 100 };
+  const perRate = [...byRate].map(([rate, amounts]) => invoiceTotals(amounts, rate));
+  const subtotal = invoiceTotals(perRate.map((t) => t.subtotal), 0).subtotal;
+  const taxAmount = invoiceTotals(perRate.map((t) => t.tax), 0).subtotal;
+  return { subtotal, taxAmount, total: invoiceTotals([subtotal, taxAmount], 0).subtotal };
 }

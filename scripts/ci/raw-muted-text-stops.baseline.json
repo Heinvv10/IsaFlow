@@ -229,7 +229,7 @@
   "pages/accounting/expenses/index.tsx": 6,
   "pages/accounting/expenses/new.tsx": 4,
   "pages/accounting/bank/statements/index.tsx": 1,
-  "pages/accounting/customer-quotes/index.tsx": 19,
+  "pages/accounting/customer-quotes/index.tsx": 17,
   "pages/accounting/practice/reports/service-mix.tsx": 1,
   "pages/accounting/practice/reports/profitability.tsx": 1,
   "pages/accounting/practice/reports/wip-aging.tsx": 1,

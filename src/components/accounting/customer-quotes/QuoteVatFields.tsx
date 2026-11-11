@@ -18,7 +18,7 @@ interface Props {
   onRateChange: (rate: number) => void;
 }
 
-const muted = 'text-slate-500 dark:text-slate-400';
+const muted = 'text-ink-muted';
 const figure = 'tabular-nums text-slate-700 dark:text-slate-200';
 
 export function QuoteVatFields({ registration, mode, rate, totals, onModeChange, onRateChange }: Props) {
