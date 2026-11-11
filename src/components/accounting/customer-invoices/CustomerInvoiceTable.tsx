@@ -82,7 +82,9 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onO
             const outstanding = Number(inv.total_amount) - Number(inv.amount_paid);
             const bucketKey = toBucketKey(inv.aging_bucket);
             const bucketLabel = inv.aging_bucket === 'Current' ? 'Current' : (bucketKey ? BUCKET_LABELS[bucketKey] : null);
-            const bucketColor = bucketKey ? BUCKET_COLORS[bucketKey] : 'text-teal-500';
+            // 90+ days: the shared BUCKET_COLORS red-600 is #dc2626, 3.69:1 on the dark surface. red-400 is theme-mapped (themeContrast.css:
+            // #991b1b on light, #f87171 on dark, both >= 4.5:1); weight keeps it apart from the 60-90 bucket.
+            const bucketColor = bucketKey === 'days90Plus' ? 'text-red-400 font-semibold' : bucketKey ? BUCKET_COLORS[bucketKey] : 'text-teal-500';
             return (
               <tr key={inv.id} data-row-id={inv.id} tabIndex={-1} onClick={(e) => onRowClick(e, inv.id)} onAuxClick={(e) => onRowAuxClick(e, inv.id)}
                 className="ff-focus-ring cursor-pointer border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">

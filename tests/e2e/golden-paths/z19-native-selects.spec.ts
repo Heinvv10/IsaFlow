@@ -15,12 +15,17 @@ import AxeBuilder from '@axe-core/playwright';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
 const EVIDENCE_DIR = process.env.UXN_EVIDENCE_DIR;
+/**
+ * `ready`: kit comboboxes that must be on screen BEFORE the native-select count means anything. Counting zero on a page
+ * that never rendered its controls would pass for the wrong reason, so each screen names the controls it replaced.
+ */
 const SCREENS = [
-  { slug: 'pnl', path: '/accounting/reports/income-statement' },
-  { slug: 'company-settings', path: '/accounting/company-settings?tab=details' },
-  { slug: 'leave', path: '/payroll/leave' },
-  { slug: 'journal-new', path: '/accounting/journal-entries/new' },
+  { slug: 'pnl', path: '/accounting/reports/income-statement', ready: ['Cost Centre', 'Business Unit'] },
+  { slug: 'company-settings', path: '/accounting/company-settings?tab=details', ready: ['Entity Type', 'Industry', 'Account Type', 'Document Type'] },
+  { slug: 'leave', path: '/payroll/leave', ready: ['Filter by status', 'Filter by month'] },
+  { slug: 'journal-new', path: '/accounting/journal-entries/new', ready: [] },
 ] as const;
+const PROFILE_READY = ['Occupational level', 'Cost centre', 'Component']; // Pay package and Pay scale only render when the company has any
 
 test.setTimeout(240_000);
 
@@ -54,10 +59,12 @@ for (const theme of THEMES) {
     for (const width of [1568, 390]) {
       test(`screens at ${width}px: 0 native selects, no sideways scroll, axe clean`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
-        const paths = [...SCREENS.map((s) => ({ slug: s.slug, path: s.path })), { slug: 'employee-profile', path: await profilePath(page) }];
+        const paths = [...SCREENS, { slug: 'employee-profile', path: await profilePath(page), ready: PROFILE_READY }];
         for (const s of paths) {
           await page.goto(s.path);
           await settle(page);
+          for (const name of s.ready) await expect(page.getByRole('combobox', { name, exact: true }), `${s.slug}: kit combobox "${name}" rendered`).toBeVisible({ timeout: 30_000 });
+          if (s.slug === 'journal-new') await expect(page.getByRole('heading', { name: 'Balance Summary' })).toBeVisible();
           // The journal's per-line Account selects are out of scope here: that page is in the list for its 390 px summary.
           if (s.slug !== 'journal-new') expect(await nativeSelects(page), `${s.slug}: native selects`).toBe(0);
           if (width === 390) expect(await overflowX(page), `${s.slug}: sideways overflow`).toBeLessThanOrEqual(0);
@@ -73,7 +80,7 @@ for (const theme of THEMES) {
       const box = page.getByRole('combobox', { name: 'Cost Centre' });
       await box.click();
       const option = page.getByRole('option').first();
-      test.skip(!(await option.isVisible().catch(() => false)), 'Demo has no cost centres');
+      await expect(option, 'the cost-centre list opens with an option').toBeVisible({ timeout: 15_000 });
       const text = (await option.textContent()) ?? '';
       await option.click();
       await expect(box).toContainText(text.trim());

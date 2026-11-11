@@ -1,6 +1,7 @@
 /**
  * New Journal Entry — redesigned with ISAFlow design system
  */
+import { Select } from '@/components/ui/Select';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -83,6 +84,8 @@ export default function NewJournalEntryPage() {
     if (dates.blocked) return;
     setError(null);
     if (!isBalanced) { setError('Journal entry must be balanced (total debits must equal total credits)'); return; }
+    // The kit Select has no browser `required`: a line with an amount and no account is refused here, not silently dropped.
+    if (lines.some(l => !l.accountId && (parseFloat(l.debitAmount) || parseFloat(l.creditAmount)))) { setError('Choose an account for every line that has an amount'); return; }
     const validLines = lines.filter(l => l.accountId && (parseFloat(l.debitAmount) || parseFloat(l.creditAmount)));
     if (validLines.length < 2) { setError('At least 2 lines with amounts are required'); return; }
     setIsSubmitting(true);
@@ -189,12 +192,9 @@ export default function NewJournalEntryPage() {
                         <tr key={line.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">{idx + 1}</td>
                           <td className="px-3 py-2">
-                            <select name="accountId" aria-label="Account" value={line.accountId} onChange={e => updateLine(line.key, 'accountId', e.target.value)} className={inp} required>
-                              <option value="">Select account…</option>
-                              {accounts.map(a => (
-                                <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>
-                              ))}
-                            </select>
+                            <Select label={`Account, line ${idx + 1}`} labelClassName="sr-only" size="sm" placeholder="Select account…" searchable
+                              value={line.accountId || null} onChange={v => updateLine(line.key, 'accountId', v ?? '')}
+                              options={accounts.map(a => ({ value: a.id, label: `${a.accountCode} - ${a.accountName}` }))} />
                           </td>
                           <td className="px-3 py-2">
                             <DescriptionAutocomplete
