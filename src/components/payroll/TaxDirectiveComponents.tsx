@@ -9,13 +9,15 @@ import { X, Loader2, Plus } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
 import type { FieldValidity } from '@/components/ui/useParsedField';
 import { DirectiveEmployeeSelect, useDirectiveEmployees } from './TaxDirectiveEmployeeSelect';
+import { Select } from '@/components/ui/Select';
+import { DIRECTIVE_TYPES, isRegularPayDirectiveType } from '@/modules/accounting/services/payroll/taxDirectiveKinds';
+import { TYPE_LABELS, type DirectiveType } from './taxDirectiveLabels';
 
 export { LumpSumCalculator } from './LumpSumCalculator';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const DIRECTIVE_TYPES = ['lump_sum', 'retirement', 'severance', 'death'] as const;
-type DirectiveType = typeof DIRECTIVE_TYPES[number];
+const TYPE_OPTIONS = DIRECTIVE_TYPES.map(t => ({ value: t, label: TYPE_LABELS[t] }));
 
 const inputCls = 'w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-teal-500';
 const labelCls = 'block text-xs font-medium text-gray-400 mb-1';
@@ -37,6 +39,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
     directive_type: 'retirement' as DirectiveType,
     amount: '',
     tax_rate: '',
+    tax_amount: '',
     effective_date: '',
     issued_date: '',
     expiry_date: '',
@@ -58,6 +61,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
   // The directive is paid to this employee (a run, or /apply): its name and tax number are the employee's, shown
   // read-only and never posted (the server stores the record's, and a posted tax number would only reach the log).
   const picked = employees.find(emp => emp.id === form.employee_id);
+  const regular = isRegularPayDirectiveType(form.directive_type);
   const pickEmployee = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setForm(f => ({ ...f, employee_id: e.target.value }));
   };
@@ -80,10 +84,13 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
     setSaving(true);
     setError('');
     try {
+      // A fixed-percentage or fixed-amount directive (IRP3(b)/(c)) carries a rate or a tax amount a month, no gross.
+      const { tax_amount: taxAmount, ...rest } = form;
       const body = {
-        ...form,
-        amount: parseFloat(form.amount),
-        tax_rate: form.tax_rate ? parseFloat(form.tax_rate) / 100 : undefined,
+        ...rest,
+        amount: regular ? undefined : parseFloat(form.amount),
+        tax_rate: form.tax_rate && form.directive_type !== 'fixed_amount' ? parseFloat(form.tax_rate) / 100 : undefined,
+        tax_amount: form.directive_type === 'fixed_amount' ? parseFloat(taxAmount) : undefined,
         // A blank date input is '', which the DATE columns refuse (expiry_date was a 500 on every create without one).
         issued_date: form.issued_date || undefined,
         expiry_date: form.expiry_date || undefined,
@@ -126,22 +133,38 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
               <label htmlFor="td-tax-number" className={labelCls}>Tax Number</label>
               <input id="td-tax-number" className={inputCls} value={picked?.taxNumber ?? ''} readOnly placeholder="From the employee picked" />
             </div>
-            <div>
-              <label className={labelCls}>Directive Type *</label>
-              <select className={inputCls} value={form.directive_type} onChange={set('directive_type')} required>
-                {DIRECTIVE_TYPES.map(t => (
-                  <option key={t} value={t}>{t.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="td-amount" className={labelCls}>Gross Amount (ZAR) *</label>
-              <input id="td-amount" className={inputCls} type="number" min="0" step="0.01" value={form.amount} onChange={set('amount')} required placeholder="0.00" />
-            </div>
-            <div>
-              <label className={labelCls}>Directive Rate (%) — leave blank for SARS table</label>
-              <input className={inputCls} type="number" min="0" max="100" step="0.01" value={form.tax_rate} onChange={set('tax_rate')} placeholder="e.g. 18.00" />
-            </div>
+            <Select label="Directive Type *" labelClassName={labelCls} options={TYPE_OPTIONS} value={form.directive_type}
+              onChange={v => v && setForm(f => ({ ...f, directive_type: v as DirectiveType }))} />
+            {regular ? (
+              <>
+                {form.directive_type === 'fixed_percentage' ? (
+                  <div>
+                    <label htmlFor="td-rate" className={labelCls}>Directive Rate (%) *</label>
+                    <input id="td-rate" className={inputCls} type="number" min="0" max="100" step="0.01" value={form.tax_rate} onChange={set('tax_rate')} required placeholder="e.g. 20.00" />
+                  </div>
+                ) : (
+                  <div>
+                    <label htmlFor="td-tax-amount" className={labelCls}>PAYE a month (ZAR) *</label>
+                    <input id="td-tax-amount" className={inputCls} type="number" min="0" step="0.01" value={form.tax_amount} onChange={set('tax_amount')} required placeholder="0.00" />
+                  </div>
+                )}
+                <p className="col-span-2 text-xs text-[var(--ff-text-secondary)]">
+                  Every pay run takes PAYE on regular pay from this directive, before retirement fund deductions, while it is in force.
+                  Leave Expiry Date blank for the end of the tax year (SARS PAYE-GEN-01-G21, p. 15).
+                </p>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label htmlFor="td-amount" className={labelCls}>Gross Amount (ZAR) *</label>
+                  <input id="td-amount" className={inputCls} type="number" min="0" step="0.01" value={form.amount} onChange={set('amount')} required placeholder="0.00" />
+                </div>
+                <div>
+                  <label htmlFor="td-lump-rate" className={labelCls}>Directive Rate (%) — leave blank for SARS table</label>
+                  <input id="td-lump-rate" className={inputCls} type="number" min="0" max="100" step="0.01" value={form.tax_rate} onChange={set('tax_rate')} placeholder="e.g. 18.00" />
+                </div>
+              </>
+            )}
             <DateField label="Effective Date" required value={form.effective_date || null} onChange={setDate('effective_date')} />
             <DateField label="Issued Date (by SARS)" value={form.issued_date || null} onChange={setDate('issued_date')} />
             <DateField label="Expiry Date" value={form.expiry_date || null} onChange={setDate('expiry_date')} />

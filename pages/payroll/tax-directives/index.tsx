@@ -1,6 +1,6 @@
 /**
  * Tax Directives Page
- * SARS lump sum, retirement, severance & death directives.
+ * SARS lump sum, retirement, severance & death directives, and fixed-percentage / fixed-amount directives on regular pay.
  * Route: /payroll/tax-directives
  */
 
@@ -25,6 +25,7 @@ interface TaxDirective {
   directiveType: DirectiveType;
   amount: number;
   taxRate: number | null;
+  taxAmount: number | null;
   effectiveDate: string;
   status: DirectiveStatus;
 }
@@ -230,7 +231,8 @@ export default function TaxDirectivesPage() {
                         {formatDisplayDate(d.effectiveDate)}
                       </td>
                       <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">
-                        {fmtCurrency(d.amount)}
+                        {d.directiveType === 'fixed_amount' ? `${fmtCurrency(d.taxAmount ?? 0)} PAYE a month`
+                          : d.directiveType === 'fixed_percentage' ? '—' : fmtCurrency(d.amount)}
                       </td>
                       <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">
                         {d.taxRate != null ? `${(d.taxRate * 100).toFixed(2)}%` : '—'}

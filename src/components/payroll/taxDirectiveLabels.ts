@@ -2,7 +2,9 @@
  * Tax directive type and status labels for /payroll/tax-directives (moved out of the page, unchanged: 300-line cap).
  */
 
-export type DirectiveType = 'lump_sum' | 'retirement' | 'severance' | 'death';
+import type { DirectiveKind } from '@/modules/accounting/services/payroll/taxDirectiveKinds';
+
+export type DirectiveType = DirectiveKind;
 export type DirectiveStatus = 'pending' | 'approved' | 'expired' | 'cancelled';
 
 export const TYPE_LABELS: Record<DirectiveType, string> = {
@@ -10,6 +12,9 @@ export const TYPE_LABELS: Record<DirectiveType, string> = {
   retirement: 'Retirement',
   severance: 'Severance',
   death: 'Death',
+  // Regular pay (wave 5 DR): the SARS form letters, G21 Rev 1 p. 16.
+  fixed_percentage: 'Fixed percentage (IRP3(b))',
+  fixed_amount: 'Fixed amount (IRP3(c))',
 };
 
 export const STATUS_LABELS: Record<DirectiveStatus, string> = {
