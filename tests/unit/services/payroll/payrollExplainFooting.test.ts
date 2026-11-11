@@ -114,6 +114,51 @@ describe('the lines the review named', () => {
     expectRecomputes(l);
   });
 
+  it('a non-cash benefit (3801) is listed and marked as one', () => {
+    const input = mk({ dob: '1990-01-01', components: [earning('3601', 20_000), earning('3801', 750)] });
+    input.components[1] = { ...input.components[1]!, isNonCash: true };
+    const l = calculatePayrollLine(input);
+    const parts = stepsByKey(l.explanations.paye).get('paye.periodicBeforeDonation')!.children!.map(c => c.label);
+    expect(parts).toEqual(['3601 (3601)', '3801 (3801), a non-cash benefit']);
+    expectRecomputes(l);
+  });
+
+  it('the ceiling is the annual equivalent plus periodic donations a year, not the annual equivalent alone', () => {
+    const l = calculatePayrollLine(mk({ dob: '1990-01-01', month: 4, receipt: true, components: [earning('3601', 20_000), deduction('4006', 30_000)] }, {
+      periods: 1, retirementCapPeriods: 1, periodicTaxable: 20_000, annualPayments: 0, tablePaye: 2_000, medicalCredit: 0, additionalMedicalCredit: 0,
+      medicalSchemeFees: 0, retirementContributions: 0, retirementDeduction: 0, donations: 2_000, donationDeduction: 2_000,
+      sdlApplicable: 20_000, sdlLeviable: 20_000, sdlRetirementDeduction: 2_000,
+      donationReceipted: 2_000, donationBase: 22_000, // the earlier donation, receipted
+    }));
+    const m = stepsByKey(l.explanations.paye);
+    const ae = m.get('paye.annualEquivalent')!.amount!;
+    // + the periodic donations to date (the earlier R2 000 and this line's signed deduction) x 12 / 2
+    expect(m.get('paye.retirement.ceiling')!.amount).toBeCloseTo(ae + ((2_000 + l.donationDeduction) * 12) / 2, 6);
+    expect(m.get('paye.retirement.ceiling')!.amount).toBeGreaterThan(ae + 1);
+    expectRecomputes(l);
+  });
+
+  it('an earlier donation the year to date no longer allows is taken back, shown as a plus, and taxable pay foots', () => {
+    const l = calculatePayrollLine(mk({ dob: '1990-01-01', month: 4, receipt: true, components: [earning('3601', 20_000)] }, {
+      periods: 1, retirementCapPeriods: 1, periodicTaxable: 20_000, annualPayments: 0, tablePaye: 2_000, medicalCredit: 0, additionalMedicalCredit: 0,
+      medicalSchemeFees: 0, retirementContributions: 0, retirementDeduction: 0, donations: 2_000, donationDeduction: 2_000,
+      sdlApplicable: 20_000, sdlLeviable: 20_000, sdlRetirementDeduction: 2_000,
+    }));
+    const m = stepsByKey(l.explanations.paye);
+    const back = m.get('paye.donation')!;
+    expect([back.amount, back.label]).toEqual([-l.donationDeduction, 'Plus an earlier s18A donation taken back (no longer allowed to date)']);
+    expect(back.amount).toBeGreaterThan(0);
+    expect(m.has('paye.regularTaxable.floor')).toBe(false);
+    expectRecomputes(l);
+  });
+
+  it('a first period with no periodic pay takes the contributions as they stand, and says so', () => {
+    const l = calculatePayrollLine(mk({ dob: '1990-01-01', components: [earning('3605', 100_000), deduction('4006', 5_000)] }));
+    const step = stepsByKey(l.explanations.paye).get('paye.retirement.annualised')!;
+    expect([step.amount, step.formula]).toEqual([5_000, 'no periodic pay yet: taken as it stands']);
+    expectRecomputes(l);
+  });
+
   it('the cap to date binds what comes off the bonus: R5 000 salary, R2 000 000 bonus, R100 000 RA, first month', () => {
     const l = calculatePayrollLine(mk({ dob: '1990-01-01', components: [earning('3601', 5000), earning('3605', 2_000_000), deduction('4006', 100_000)] }));
     const m = stepsByKey(l.explanations.paye);

@@ -30,8 +30,10 @@ export interface PayeExplainInput {
   trace: CumulativePayeTrace;
   /** The retirement fund deduction this line records (payroll_run_lines.retirement_deduction). */
   retirementRecorded: number;
-  /** Taxable income less the retirement deduction: what a flat rate is on. */
+  /** Taxable income less the retirement deduction: what a flat rate is on; and the two taxable figures it is made of. */
   balanceOfRemuneration: number;
+  regularTaxable: number;
+  annualTaxable: number;
   split: { regular: number; annualPayment: number; directive: number };
   paye: number;
 }
@@ -94,7 +96,8 @@ function retirementStep(input: PayeExplainInput): ExplainStep {
         formula: `the least of: contributions a year, ${pct(RETIREMENT_DEDUCTION_RATE)} of remuneration, the annual cap`,
         children: [
           {
-            key: 'paye.retirement.annualised', label: 'Contributions a year', amount: t.annualisedContributions, formula: 'to date × 12 ÷ periods',
+            key: 'paye.retirement.annualised', label: 'Contributions a year', amount: t.annualisedContributions,
+            formula: t.periods > 0 ? 'to date × 12 ÷ periods' : 'no periodic pay yet: taken as it stands',
             children: [{ key: 'paye.retirement.contributionsToDate', label: 'Contributions to date (4001, 4003, 4006)', amount: t.contributionsToDate }],
           },
           {
@@ -169,8 +172,10 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
         })),
         ...(input.clawback < 0 ? [{ key: 'paye.periodic.clawback', label: 'Less a negative annual payment (a bonus clawback)', amount: input.clawback }] : []),
       ]),
-      ...(input.donationDeduction > 0 ? [{
-        key: 'paye.donation', label: 'Less the s18A donation allowed', amount: -input.donationDeduction, source: sourceFor(SOURCES.donations, taxYear),
+      // Signed: a negative deduction takes back an earlier line's donation the year to date no longer allows (s18aDonation).
+      ...(input.donationDeduction !== 0 ? [{
+        key: 'paye.donation', amount: -input.donationDeduction, source: sourceFor(SOURCES.donations, taxYear),
+        label: input.donationDeduction > 0 ? 'Less the s18A donation allowed' : 'Plus an earlier s18A donation taken back (no longer allowed to date)',
       }] : []),
     ]),
     footed({ key: 'paye.periodicToDate', label: 'Taxable pay to date this tax year', amount: t.periodicToDate }, [
@@ -229,7 +234,11 @@ export function explainPaye(input: PayeExplainInput): FigureExplanation {
   const steps: ExplainStep[] = [treatmentStep(input)];
   if (input.treatment === 'tables') steps.push(...tablesSteps(input));
   if (input.treatment === 'flat_25') {
-    steps.push({ key: 'paye.balance', label: 'Balance of remuneration (after allowed deductions)', amount: input.balanceOfRemuneration });
+    steps.push(footed({ key: 'paye.balance', label: 'Balance of remuneration (after allowed deductions)', amount: input.balanceOfRemuneration }, [
+      { key: 'paye.balance.periodic', label: 'Taxable pay this period (after any s18A donation)', amount: input.regularTaxable },
+      { key: 'paye.balance.annual', label: 'Annual payments this period', amount: input.annualTaxable },
+      { key: 'paye.balance.retirement', label: 'Less the retirement fund deduction recorded on this line', amount: -input.retirementRecorded },
+    ]));
     steps.push({ key: 'paye.flatRate', label: 'Flat rate', amount: NON_STANDARD_RATE, unit: 'percent' });
     steps.push({ key: 'paye.flat', label: 'PAYE at the flat rate', amount: input.split.regular, formula: `${pct(NON_STANDARD_RATE)} × ${r(input.balanceOfRemuneration)}, rounded to the cent, never below nil` });
   }

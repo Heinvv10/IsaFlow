@@ -211,7 +211,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     paye: {
       treatment: treatment.paye, classification, periodicParts, clawback, periodicBeforeDonation: periodicTaxable, annualBeforeDonation: annualPayments,
       donationDeduction: donation.deduction, donationOffAnnual,
-      trace, retirementRecorded: retirementDeduction, balanceOfRemuneration, split: payeSplit, paye: paye.monthlyPaye,
+      trace, retirementRecorded: retirementDeduction, balanceOfRemuneration, regularTaxable, annualTaxable, split: payeSplit, paye: paye.monthlyPaye,
     },
     uif: {
       uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable,
