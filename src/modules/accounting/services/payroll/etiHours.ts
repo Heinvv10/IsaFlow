@@ -14,6 +14,7 @@
  *    constitute amounts paid in respect of ordinary hours" (guide §2.7 p. 21).
  */
 import { normaliseSarsCode } from './payeAnnualPayment';
+import { effectiveInclusionRate, includedInPaye } from './fringeBenefits';
 import { employedShareOfMonth } from './employmentTerms';
 import { unitOf } from './payrollRunHours';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod } from './payrollTypes';
@@ -109,8 +110,8 @@ export function belowMinimumWage(wageCents: number, hours: number, centsPerHour:
  * ETI "monthly remuneration": the Fourth Schedule para 1 remuneration paid in cash (ETI Act s1; guide §2.4 pp. 15-17).
  *  - Only taxable earnings: a reimbursive allowance within the prescribed rate (3703) and other non-taxable payments are not
  *    remuneration (guide §2.4 p. 17-18).
- *  - A fixed travel allowance (3701) at 80%, the share para 1 includes (guide §2.4 p. 17). NAMED LIMIT: the 20% share for
- *    business use above 80% is not recorded until FB, so 80% is used.
+ *  - A fixed travel allowance (3701) at its PAYE share: 80%, or 20% where business use is at least 80% (guide §2.4
+ *    p. 17; FB's effectiveInclusionRate, the same share PAYE, SDL and UIF read).
  *  - No non-cash payment: every item flagged non-cash and every 38xx fringe benefit (3801 loan, 3802 vehicle, 3810
  *    medical) is left out; from 1 March 2022 the proviso disregards "an amount other than a cash payment" (§2.4.1 p. 18).
  */
@@ -118,7 +119,8 @@ export function etiRemunerationOf(components: EmployeeComponent[]): number {
   return components.reduce((t, c) => {
     const code = normaliseSarsCode(c.component.sarsSourceCode);
     if (c.component.componentType !== 'earning' || !c.component.isTaxable || c.isNonCash === true || /^38\d\d$/.test(code)) return t;
-    return t + (code === '3701' ? c.amount * 0.8 : c.amount);
+    const share = effectiveInclusionRate(code, c.payeInclusionRate);
+    return t + (share === undefined ? c.amount : includedInPaye(c.amount, share));
   }, 0);
 }
 

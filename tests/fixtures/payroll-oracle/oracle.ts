@@ -13,6 +13,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
 import type { EmployeeComponent, PayrollEmployee, PayrollLineInput, TaxStatus } from '@/modules/accounting/services/payroll/payrollTypes';
+import { withFringeBenefits } from './fringeInput';
 import { ORACLE_FIELDS, validateCase, type OracleField } from './validate';
 
 export { ORACLE_FIELDS, type OracleField };
@@ -176,7 +177,7 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     dailyRate: dayRate,
     hourlyRate: monthlyHours != null && monthlyHours > 0 ? basic[0]!.amount / monthlyHours : null,
   };
-  const components: EmployeeComponent[] = input.components.map((x, i) => ({
+  const base: EmployeeComponent[] = input.components.map((x, i) => ({
     component: {
       id: `${c.id}-${i}`, name: x.name, sarsSourceCode: x.code, componentType: x.type,
       isTaxable: x.taxable, isUifApplicable: x.uif, isSdlApplicable: x.sdl,
@@ -184,6 +185,7 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     amount: x.amount,
     ...(monthlyHours != null && x === basic[0] ? { quantity: monthlyHours, quantityUnit: 'hour' as const } : {}),
   }));
+  const components = withFringeBenefits(base, input.unmodelled, input.period);
   return {
     employee, components, period: input.period, taxYear: input.taxYear,
     annualPayrollEstimate: input.employerAnnualRemuneration,

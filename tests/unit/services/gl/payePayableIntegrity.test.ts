@@ -35,14 +35,14 @@ describe('paye_payable_differs_from_emp201', () => {
   });
   it('flags a month whose 2140 (run journal by link + directives - ETI journals) differs from the EMP201 payable', async () => {
     vi.mocked(loadEtiMonths).mockResolvedValueOnce([{ ...june, paye: 3_000, eti: 500 }]);
-    vi.mocked(sql).mockResolvedValueOnce([{ period_year: 2026, period_month: 6, calculation_version: 9 }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ period_year: 2026, period_month: 6, calculation_version: 8 }] as never);
     vi.mocked(bookedByRunJournal).mockImplementation(async (_c, ym) => (isJune(ym) ? { used: 500, refund: 0, net2140: 2_500 } : { used: 0, refund: 0, net2140: 0 }));
     const r = await payePayableDiffersFromEmp201(ctx('2026-06-30'));
     // EMP201: 3 000 - 500 = 2 500; booked 2 500: equal.
     expect(r.count).toBe(0);
     vi.mocked(bookedByEtiJournals).mockImplementation(async (_c, ym) => (isJune(ym) ? { used: 300, refund: 0 } : { used: 0, refund: 0 }));
     vi.mocked(loadEtiMonths).mockResolvedValueOnce([{ ...june, paye: 3_000, eti: 500 }]);
-    vi.mocked(sql).mockResolvedValueOnce([{ period_year: 2026, period_month: 6, calculation_version: 9 }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ period_year: 2026, period_month: 6, calculation_version: 8 }] as never);
     const r2 = await payePayableDiffersFromEmp201(ctx('2026-06-30'));
     expect(r2.sample).toEqual([expect.objectContaining({ id: '2026-06', amount: -300 })]);
   });

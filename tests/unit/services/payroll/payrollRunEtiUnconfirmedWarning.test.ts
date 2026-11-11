@@ -14,6 +14,10 @@ vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', async (orig) => 
   earlierUnapprovedRefusal: vi.fn(async () => null),
   assertNoLaterEtiJournal: vi.fn(async () => undefined),
 }));
+vi.mock('@/modules/accounting/services/payroll/fringeBenefitService', () => ({
+  loadFringeBenefitsByEmployee: async () => new Map(),
+  loadVehicleBenefitComponent: async () => null,
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => ({
   appendLoanComponents: (components: unknown[]) => components,
   loadLoanComponents: async () => ({ deduction: { id: 'loan' }, fringe: { id: 'fringe' } }),

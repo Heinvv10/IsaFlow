@@ -67,8 +67,9 @@ export async function etiForRun(companyId: string, ym: YearMonth, run: { paye: n
  * the role.
  */
 export function etiRefundLines(
-  r: RunEti, labour: { id: string | null; name: string; inactive: boolean },
+  r: RunEti, labourAccount: { id: string; name: string; isActive: boolean } | undefined,
 ): { lines: Array<{ glAccountId: string | null; accountCode: string; accountName: string; debit: number; credit: number; description: string; inactiveAccount: boolean; cc1Id: null }>; blocker: EtiJournalNote | null } {
+  const labour = { id: labourAccount?.id ?? null, name: labourAccount?.name ?? '', inactive: labourAccount?.isActive === false };
   if (Math.abs(r.refund) < 0.005) return { lines: [], blocker: null };
   if (!r.refundAccount) {
     return { lines: [], blocker: { code: 'missing_eti_refund_account', detail: `${formatMoney(r.refund)} of ETI is due back from SARS at the end of the ETI period (ETI Act s10(1)), but no account holds the ETI refund receivable role. Add it (migration 974 seeds 1150), then post.` } };

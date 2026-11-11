@@ -12,7 +12,7 @@
  * A difference means an earlier month of the ETI period changed after a later month was booked, a directive was undone
  * without its ETI, or an August/February with no payroll journal left the refund (s10(1)) unbooked.
  * SCOPE: the twelve months to as_at, and only months that have ended by as_at (review M2: a month still being paid is
- * not judged). A month whose run was calculated before ETI carry-forward (calculation version < 9) is listed in the
+ * not judged). A month whose run was calculated before ETI carry-forward (calculation version < 8) is listed in the
  * finding, not counted (review L1).
  */
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -25,7 +25,7 @@ import { listStandaloneDirectivePayments } from '@/modules/accounting/services/p
 import { r2, type IntegrityCheckContext, type IntegrityCheckResult } from './types';
 
 /** The calculation version that first books ETI carry-forward (payrollCalculationVersion; ET). */
-export const ETI_CARRY_CALCULATION_VERSION = 9;
+export const ETI_CARRY_CALCULATION_VERSION = 8;
 const pad = (n: number): string => String(n).padStart(2, '0');
 const at = (n: number): YearMonth => ({ year: Math.floor(n / 12), month: (n % 12) + 1 });
 const lastOf = (ym: YearMonth): string => new Date(Date.UTC(ym.year, ym.month, 0)).toISOString().slice(0, 10);

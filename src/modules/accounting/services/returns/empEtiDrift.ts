@@ -16,7 +16,7 @@ export interface EmpEtiDrift {
 }
 
 export const ETI_CARRY_CALC_NOTE =
-  'This EMP201 was finalised before ETI carry-forward was calculated (calculation version 9, wave 5 ET). The PAYE payable now '
+  'This EMP201 was finalised before ETI carry-forward was calculated (calculation version 8, wave 5 ET). The PAYE payable now '
   + 'uses ETI brought forward from earlier months or used against directive PAYE (ETI Act s9(1)); the pay runs did not change. '
   + 'Amend only if you want the return to claim that ETI.';
 

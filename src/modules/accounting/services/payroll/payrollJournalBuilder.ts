@@ -21,19 +21,17 @@
  * falling back to the bank).
  *
  * Balance formula:
- *   DR 5200 Labour = gross + employer UIF + SDL − ETI used, split by cost centre
+ *   DR 5200 Labour = gross + employer UIF + SDL + employer medical (non-cash 3810) − ETI used, split by cost centre
  *     (the mapping picks the account; the centre is the line's CC1 — payrollJournalParts#buildLabourLines)
  *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
- *   CR 2175 deductions, or DR 2175 for a net reversal   CR net pay: the bank-role account, or the clearing account set
+ *   CR 2175 deductions + employer medical (scheme payable), or DR 2175 for a net reversal   CR net pay: the bank-role account, or the clearing account set
  *
  * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
  * it reduces the 2140 credit, and it is presented net of labour cost. Only the
- * ETI the month's PAYE can absorb is booked: `etiUsed` is the month's ETI used from the ETI ledger (`etiCarry`), which
- * is what the EMP201 uses: this run's ETI plus any brought forward from earlier months of the reconciliation period
- * (ETI Act s9(1)), against the month's whole PAYE, stand-alone directive PAYE included (guide §6.1). So the month's net
- * 2140 credit (this run's PAYE - etiUsed, plus each directive journal's PAYE) equals EMP201's PAYE payable (one run per
- * company per period). When the ETI used exceeds this run's PAYE (it absorbed directive PAYE) the 2140 line is a debit.
- * ETI beyond the month's PAYE is carried, not booked; the plan says so in an advisory.
+ * ETI the month's PAYE can absorb is booked: the month's ETI used from the ETI ledger (`etiCarry`, the EMP201's own: this
+ * run's ETI plus any brought forward, ETI Act s9(1), against the month's whole PAYE, directives included), less what
+ * the month's ETI journals booked (payrollJournalEti.etiForRun). So the month's net 2140 equals EMP201's PAYE payable;
+ * when the ETI used exceeds this run's PAYE the 2140 line is a debit. The rest is carried; an advisory says so.
  *
  * A zero line is dropped: the GL rejects a line with neither debit nor credit,
  * and an SDL-exempt run, or one whose PAYE the ETI absorbs, has one.
@@ -50,6 +48,7 @@ import {
 } from './payrollJournalParts';
 import { netPayLine, resolveNetPayTarget, sharedNetPayAccountBlocker } from './payrollJournalBank';
 import { judgeJournalLines } from './payrollJournalBlockers';
+import { employerMedicalTotal, runEmployerMedical } from './payrollJournalEmployerMedical';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
 import { payrollLoanInstalmentBlocker } from './payrollLineBlockers';
@@ -154,10 +153,13 @@ export async function buildPayrollJournalPlan(
 
   // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
   const { employerUif, otherDeductions } = splitRunTotals({ gross, paye, uif, net });
-  // The month's ETI used and refund, less what the month's ETI journals (directive payments) already booked.
   const runEti = await etiForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti });
   const etiUsed = round2(runEti.etiUsed);
-  const labourDebit = round2(gross + employerUif + sdl - etiUsed);
+  // The employer's medical contribution (non-cash 3810): outside gross, but paid to the scheme (payrollJournalEmployerMedical).
+  const employerMedical = await runEmployerMedical(runId);
+  const medical = employerMedicalTotal(employerMedical);
+  const labourDebit = round2(gross + employerUif + sdl + medical - etiUsed);
+  const payable2175 = round2(otherDeductions + medical);
 
   const accounts = await resolveAccounts(companyId);
   const netPayTarget = await resolveNetPayTarget(companyId);
@@ -175,10 +177,10 @@ export async function buildPayrollJournalPlan(
   }
   // Only when a net-pay line survives (zero lines are dropped below): a run paying no one credits no bank.
   if (netPayTarget.blocker && round2(net) !== 0) blockers.push(netPayTarget.blocker);
-  if (Math.abs(otherDeductions) > 0.005 && !accounts.has('2175')) {
+  if (Math.abs(payable2175) > 0.005 && !accounts.has('2175')) {
     blockers.push({
       code: 'missing_other_deductions_account',
-      detail: `The run carries R${otherDeductions.toFixed(2)} of voluntary deductions or reversals but the company has no GL account 2175 (Other Employee Deductions Payable).`,
+      detail: `The run carries R${payable2175.toFixed(2)} of voluntary deductions, employer medical contributions or reversals but the company has no GL account 2175 (Other Employee Deductions Payable).`,
     });
   }
   if (status !== 'approved') {
@@ -218,7 +220,7 @@ export async function buildPayrollJournalPlan(
   let labourBySourceCentre: LabourSourceBucket[] | undefined;
   const labourAccountId = accounts.get('5200')?.id;
   if (labourAccountId) {
-    const { lines: labour, advisory: untagged, bySource } = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId, etiUsed);
+    const { lines: labour, advisory: untagged, bySource } = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId, etiUsed, employerMedical);
     if (untagged) advisories.push(untagged);
     labourBySourceCentre = bySource;
     // The split can route a share to a cost-centre account other than 5200;
@@ -252,12 +254,14 @@ export async function buildPayrollJournalPlan(
   built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
   built.push(line('2160', 0, sdl, 'SDL payable'));
   built.push(netPayLine(netPayTarget, round2(net)));
-  if (otherDeductions > 0.005) {
-    built.push(line('2175', 0, otherDeductions, 'Other employee deductions (medical aid, pension, RA, etc.)'));
-  } else if (otherDeductions < -0.005) {
-    built.push(line('2175', Math.abs(otherDeductions), 0, 'Other employee deductions reversal — amount paid back through payroll'));
+  if (payable2175 > 0.005) {
+    built.push(line('2175', 0, payable2175, medical > 0
+      ? 'Other employee deductions (medical aid, pension, RA, etc.) and employer medical scheme contributions'
+      : 'Other employee deductions (medical aid, pension, RA, etc.)'));
+  } else if (payable2175 < -0.005) {
+    built.push(line('2175', Math.abs(payable2175), 0, 'Other employee deductions reversal — amount paid back through payroll'));
   }
-  const refund = etiRefundLines(runEti, { id: accounts.get('5200')?.id ?? null, name: accounts.get('5200')?.name ?? '', inactive: accounts.get('5200')?.isActive === false });
+  const refund = etiRefundLines(runEti, accounts.get('5200')); // R-C: the Aug/Feb refund (payrollJournalEti)
   built.push(...refund.lines);
   if (refund.blocker) blockers.push(refund.blocker);
 
