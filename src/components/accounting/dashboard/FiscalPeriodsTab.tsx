@@ -42,7 +42,7 @@ export function FiscalPeriodsTab() {
   };
 
   const { actionLoading, bulkBusy, bulkResult, setBulkResult, runBulk, runSingle } = usePeriodActions({
-    reload: loadPeriods, onError: setLoadError, clearSelection: () => setChecked(new Set()),
+    reload: loadPeriods, showSentence: setLoadError, clearSelection: () => setChecked(new Set()),
   });
 
   const toggleAll = (visiblePeriods: FiscalPeriod[]) => {

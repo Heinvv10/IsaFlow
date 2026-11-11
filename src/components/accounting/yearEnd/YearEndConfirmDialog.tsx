@@ -55,7 +55,7 @@ export function YearEndConfirmDialog({ year, busy, onConfirm, onCancel }: Props)
         if (live) setPreview(json.data ?? null);
       } catch (err) {
         log.error('Year-end preview failed', { error: err, yearLabel: label }, 'accounting-ui');
-        if (live) setPreviewError(apiErrorMessage(err, 'Could not read what the year-end close would do - try again'));
+        if (live) { setPreview(null); setPreviewError(apiErrorMessage(err, 'Could not read what the year-end close would do - try again')); }
       }
     })();
     return () => { live = false; };

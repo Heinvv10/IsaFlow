@@ -15,7 +15,8 @@ export interface BulkResult { ok: number; total: number; failures: Array<{ id: s
 
 interface Deps {
   reload: () => Promise<void>;
-  onError: (message: string) => void;
+  /** Receives the plain sentence (apiErrorMessage), never the raw error. */
+  showSentence: (sentence: string) => void;
   clearSelection: () => void;
 }
 
@@ -28,7 +29,7 @@ function post(body: Record<string, unknown>) {
   });
 }
 
-export function usePeriodActions({ reload, onError, clearSelection }: Deps) {
+export function usePeriodActions({ reload, showSentence, clearSelection }: Deps) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState<BulkAction | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkResult | null>(null);
@@ -71,7 +72,7 @@ export function usePeriodActions({ reload, onError, clearSelection }: Deps) {
       await reload();
     } catch (err) {
       log.error('Fiscal period action failed', { error: err, periodId, action }, 'accounting-ui');
-      onError(apiErrorMessage(err, 'Could not update the fiscal period - try again'));
+      showSentence(apiErrorMessage(err, 'Could not update the fiscal period - try again'));
     } finally { setActionLoading(null); }
   };
 
