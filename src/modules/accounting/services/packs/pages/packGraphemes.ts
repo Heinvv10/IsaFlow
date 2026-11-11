@@ -14,8 +14,16 @@ const WINDOW = 512;
 
 export interface Grapheme { segment: string; index: number }
 
+/**
+ * Text below U+0300 but for CR: each code unit is a cluster of its own (no character there extends or joins another;
+ * only CR LF clusters), so it is not segmented. The pack's wording is almost all of it, and segmenting it made the
+ * composition slow (#1263: the unit suite ran past CI's job cap).
+ */
+const ONE_UNIT_CLUSTERS = /^[\u0000-\u000C\u000E-\u02FF]*$/;
+
 /** `text`'s grapheme clusters with their offsets in it, as `Intl.Segmenter` gives them. */
 export function graphemes(text: string): Grapheme[] {
+  if (ONE_UNIT_CLUSTERS.test(text)) return Array.from(text, (segment, index) => ({ segment, index }));
   const out: Grapheme[] = [];
   let start = 0;
   let width = WINDOW;

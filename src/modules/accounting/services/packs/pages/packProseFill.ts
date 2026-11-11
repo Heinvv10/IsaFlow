@@ -130,8 +130,9 @@ export function proseFill(text: string | readonly ProseSegment[], style: ProseSt
     let last: Run[] = [];
     for (const { segment, index } of graphemes(piece.text)) {
       last = [{ text: segment, weight: own[index]! }];
-      if (tail.length > 0 && withUnit(last, false) > avail) startLine();
-      set(last);
+      // Measured once: set() would measure the same line again (the loop runs once per grapheme of a long token).
+      const width = withUnit(last, false);
+      if (tail.length > 0 && width > avail) { startLine(); set(last); } else { lineWidth = width; tail = last; }
       // One cluster wider than the line: the print can break even inside it (a run of repeated marks, in a
       // dictionary-script span), so it is charged the lines its width fills.
       if (lineWidth > avail) lines += Math.ceil(lineWidth / avail) - 1;

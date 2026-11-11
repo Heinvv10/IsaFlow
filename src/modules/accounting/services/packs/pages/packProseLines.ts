@@ -79,9 +79,32 @@ const LONG_TEXT = 1_000;
 /** How many long texts' lines are kept (`packProseLongText.test.ts`). */
 export const keptLongLines = (): number => LONG_LINES.size;
 
+/**
+ * The lines of SHORT texts (and segments) at a style and width, kept: the composer measures the same captions, notes and
+ * labels again on every fit attempt of every page, and filling them anew made the pack's composition twice as slow
+ * (#1263: the unit suite ran past CI's job cap). Bounded in entries of at most LONG_TEXT characters, cleared when full.
+ */
+const SHORT_LINES = new Map<string, number>();
+const SHORT_KEPT = 20_000;
+
+/** A key naming the text (or its segments, each weight and length with its text: no two inputs share one). */
+const shortKey = (text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): string =>
+  `${style.pt}|${style.weight}|${widthMm}|${typeof text === 'string' ? `|${text}` : text.map((s) => `${s.weight}:${s.text.length}:${s.text}`).join('')}`;
+
 /** The lines `text` (or its segments) takes set in `style`, `widthMm` wide. */
 export function proseLines(text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): number {
-  if (typeof text !== 'string' || text.length <= LONG_TEXT || text.length > PROSE_TEXT_CAP) return proseFill(text, style, widthMm, exactPx);
+  const length = typeof text === 'string' ? text.length : text.reduce((sum, s) => sum + s.text.length, 0);
+  if (length <= LONG_TEXT) {
+    const key = shortKey(text, style, widthMm);
+    let lines = SHORT_LINES.get(key);
+    if (lines === undefined) {
+      lines = proseFill(text, style, widthMm, exactPx);
+      if (SHORT_LINES.size >= SHORT_KEPT) SHORT_LINES.clear();
+      SHORT_LINES.set(key, lines);
+    }
+    return lines;
+  }
+  if (typeof text !== 'string' || text.length > PROSE_TEXT_CAP) return proseFill(text, style, widthMm, exactPx);
   const key = `${style.pt}|${style.weight}|${widthMm}|${text}`;
   let lines = LONG_LINES.get(key);
   if (lines === undefined) {
