@@ -19,8 +19,11 @@ export const PCT = { directive_type: 'fixed_percentage', tax_rate: 0.2, effectiv
 
 export const postDirective = (f: SeveranceFixture, body: Record<string, unknown>) =>
   f.call(directives as Route, 'POST', '/api/accounting/tax-directives', undefined, { body: { employee_id: f.employee, ...body } });
-export const patchDirective = (f: SeveranceFixture, id: string, body: Record<string, unknown>) =>
-  f.call(directive as Route, 'PATCH', `/api/accounting/tax-directives/${id}`, id, { body });
+/** An approval goes through the company's OTHER member (f.approver, the owner): the creator may not approve (four eyes). */
+export const patchDirective = (f: SeveranceFixture, id: string, body: Record<string, unknown>, user?: string) =>
+  f.call(directive as Route, 'PATCH', `/api/accounting/tax-directives/${id}`, id, {
+    body, user: user ?? (body.status === 'approved' ? f.approver : f.admin),
+  });
 export const deleteDirective = (f: SeveranceFixture, id: string) =>
   f.call(directive as Route, 'DELETE', `/api/accounting/tax-directives/${id}`, id);
 
@@ -43,6 +46,23 @@ export const cancelAll = (pool: Pool, f: SeveranceFixture) => pool.query("UPDATE
 export const regularRows = async (pool: Pool, company: string) => Number((await pool.query(
   "SELECT count(*) AS n FROM tax_directives WHERE company_id = $1 AND directive_type IN ('fixed_percentage', 'fixed_amount') AND status <> 'cancelled'",
   [company])).rows[0]!.n);
+
+/** Hold advisory lock `key` while `request` runs; report whether it was seen waiting on it before the lock was let go. */
+export async function whileLockHeld<T>(pool: Pool, key: string, request: () => Promise<T>): Promise<{ result: T; waited: boolean }> {
+  const holder = await pool.connect();
+  try {
+    await holder.query('BEGIN');
+    const pid = Number((await holder.query('SELECT pg_backend_pid() AS pid')).rows[0]!.pid);
+    await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [key]);
+    let settled = false;
+    const pending = request().finally(() => { settled = true; });
+    const waited = await Promise.race([seenWaitingOnAdvisoryLock(pool, pid), pending.then(() => false)]) && !settled;
+    await holder.query('COMMIT');
+    return { result: await pending, waited };
+  } finally {
+    holder.release();
+  }
+}
 
 /** True once a backend other than `except` waits on an advisory lock (polled, up to 15 s). */
 async function seenWaitingOnAdvisoryLock(pool: Pool, except: number): Promise<boolean> {

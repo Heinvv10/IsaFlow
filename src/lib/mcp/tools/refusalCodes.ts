@@ -237,6 +237,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TAX_DIRECTIVE_NOT_APPROVED',
   'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',
+  'TAX_DIRECTIVE_SELF_APPROVAL', // four eyes: the person who captured a directive may not approve it while another member could
   'TAX_DIRECTIVE_NOT_LUMP_SUM', // a regular-pay directive (IRP3(b)/(c)) is applied by each run, never paid as a lump sum
   'TAX_DIRECTIVE_SPLIT_CHANGED', // raised before any write; retrying reads the new cost-centre split
   'TAX_DIRECTIVE_PAID',

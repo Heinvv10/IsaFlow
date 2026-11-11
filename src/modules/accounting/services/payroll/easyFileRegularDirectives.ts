@@ -46,6 +46,9 @@ export async function listRegularDirectiveNumbers(
 /** The certificate's 3230 lines for its regular-pay directives, refused (UsageError) when one cannot be written. */
 export function regularDirectiveFieldLines(numbers: string[] | undefined, lumpSumDirectives: number, who: string): string[] {
   const list = numbers ?? [];
+  // A certificate with lump-sum directives only keeps its pre-DR behaviour (the 5-number limit is not judged there: a
+  // named limit); one that carries a regular-pay directive is judged on all its directive numbers.
+  if (list.length === 0) return [];
   for (const n of list) {
     if (!/^[A-Za-z0-9]{1,15}$/.test(n) || /^0+$/.test(n)) {
       throw new UsageError(`${who} was taxed under a fixed-percentage or fixed-amount directive whose number "${n}" cannot go on the certificate `

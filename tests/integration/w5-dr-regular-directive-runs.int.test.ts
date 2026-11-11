@@ -201,11 +201,11 @@ describe('a directive over a period already approved (retroactive): refused at c
     expect((await approveRun(f, run)).statusCode).toBe(200);
     const approve = await patchDirective(f, pending, { status: 'approved' });
     expect(approve.statusCode).toBe(400);
-    expect(approve.body.error?.message).toMatch(/2026-03 payroll run .*already approved/);
+    expect(approve.body.error?.message).toMatch(/2026-03 payroll run .*has been approved/);
     await patchDirective(f, pending, { status: 'cancelled' });
     const created = await postDirective(f, { ...PCT, directive_number: '8888888' });
     expect(created.statusCode).toBe(400);
-    expect(created.body.error?.message).toMatch(/2026-03 payroll run .*already approved/);
+    expect(created.body.error?.message).toMatch(/2026-03 payroll run .*has been approved/);
     const fromApril = await postDirective(f, { ...PCT, effective_date: '2026-04-01', directive_number: '9999999' });
     expect(fromApril.statusCode, JSON.stringify(fromApril.body)).toBe(201);
   });

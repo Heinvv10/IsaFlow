@@ -14,6 +14,7 @@ import { TaxDirectiveWindowError } from './taxDirectiveOverlap';
 import { regularDirectiveLatestUse } from './payrollRunRegularDirective';
 import { judgeRegularDirectiveChange, judgeRegularDirectiveCreate, lockForRegularChange, regularDirectiveRow } from './taxDirectiveRegularPayChange';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { auditDirectiveApproval, judgeDirectiveApprover } from './taxDirectiveApprover';
 import { mapRow, type DirectiveStatus, type TaxDirective, type TaxDirectiveCreateInput, type ListTaxDirectivesFilter } from './taxDirectiveModel';
 
 export { TaxDirectivePaidError };
@@ -157,7 +158,7 @@ export async function updateTaxDirective(
   if (regular) await lockForRegularChange(companyId, regular);
 
   const locked = await underFlowLockBudget('This tax directive', async () => (await sql`
-    SELECT id, directive_number FROM tax_directives
+    SELECT id, directive_number, status FROM tax_directives
     WHERE company_id = ${companyId} AND id = ${id}
     FOR UPDATE
   `) as DbRow[]);
@@ -170,6 +171,9 @@ export async function updateTaxDirective(
   // Judged on the row as it is under both locks (status and expiry may have moved since the unlocked read).
   const fresh = regular ? await regularDirectiveRow(companyId, id) : null;
   if (fresh) await judgeRegularDirectiveChange(companyId, fresh, change);
+  // Four eyes (Hein, #1266 round 2): judged before the write; the audit row follows it in the same transaction.
+  const approving = change.status === 'approved' && locked[0].status !== 'approved' && approvedByUserId != null;
+  const approval = approving ? await judgeDirectiveApprover(companyId, id, approvedByUserId!) : null;
 
   const setIssued = change.issued_date !== undefined;
   const rows = await sql`
@@ -188,6 +192,7 @@ export async function updateTaxDirective(
     RETURNING *
   `;
 
+  if (approval && rows.length) await auditDirectiveApproval(companyId, id, approvedByUserId!, approval.selfApproval);
   return rows.length ? mapRow(rows[0]!) : null;
 }
 
@@ -204,6 +209,9 @@ export async function deleteTaxDirective(
   id: string,
 ): Promise<boolean> {
   log.info('deleteTaxDirective', { companyId, id });
+  // A regular-pay directive: Login-as refused and the same locks as a cancel (taxDirectiveRegularPayChange), first.
+  const regular = await regularDirectiveRow(companyId, id);
+  if (regular) await lockForRegularChange(companyId, regular);
 
   const locked = await underFlowLockBudget('This tax directive', async () => (await sql`
     SELECT id, directive_number FROM tax_directives

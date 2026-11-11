@@ -11,7 +11,12 @@
  * - Expiry: set or SHORTEN only (never later than the window it has, the tax year's end when none), never before the
  *   judge date of an approved or paid run it taxed, never before its effective date; under the employee's lock.
  *   A shortened window makes the next run DIRECTIVE_ENDED.
- * Every path is refused under Login-as (assertNotImpersonating): each sets an employee's PAYE.
+ * - Never for an independent contractor (Hein, #1266 round 2): create and approve are 400, "change the tax status first".
+ * - "Taxed" and "approved" mean EVER approved: a run approved once and reopened since still counts (payrollRunRegularDirective).
+ * Every path (create, approve, cancel, expiry, delete) is refused under Login-as (assertNotImpersonating): each sets an
+ * employee's PAYE. Lock order: the company's payroll-approval lock (payrollApprovalLockScope, as approve / calculate /
+ * reopen take it first), then the employee's advisory lock, then the directive row: a run approval cannot commit
+ * between the judgement and the write.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -22,6 +27,8 @@ import {
 } from './taxDirectiveOverlap';
 import { declarableRunInWindow, regularDirectiveLatestUse } from './payrollRunRegularDirective';
 import { REGULAR_PAY_DIRECTIVE_TYPES } from './taxDirectiveKinds';
+import { payrollApprovalLockScope } from './payrollRunLock';
+import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 
 export interface RegularDirectiveRow { id: string; employeeId: string; effectiveDate: string; expiryDate: string | null; status: string; number: string | null }
 
@@ -45,25 +52,44 @@ async function assertNoApprovedRunInWindow(companyId: string, employeeId: string
   const period = await declarableRunInWindow(companyId, employeeId, from, to);
   if (period) {
     throw new TaxDirectiveWindowError(
-      `The ${period} payroll run for this employee is already approved, and it falls inside this directive's window (${from} to ${to}). `
+      `The ${period} payroll run for this employee has been approved (reopening it does not undo that), and it falls inside this directive's window (${from} to ${to}). `
       + 'Its PAYE stands: set the effective date to the first period not yet approved.',
     );
   }
 }
 
-/** Create: Login-as refused, the employee's lock, then overlap and approved-run checks. */
-export async function judgeRegularDirectiveCreate(companyId: string, employeeId: string, effectiveDate: string, expiryDate: string | null): Promise<void> {
+/** Login-as refused, then the company approval lock and the employee's (see the header). */
+async function lockFor(companyId: string, employeeId: string): Promise<void> {
   await assertNotImpersonating();
+  await underFlowLockBudget('Payroll for this company', async () => {
+    await sql`SELECT pg_advisory_xact_lock(hashtextextended(${payrollApprovalLockScope(companyId)}, 0))`;
+  });
   await lockEmployeeRegularDirectives(companyId, employeeId);
+}
+
+/** Refuse a regular-pay directive for an independent contractor (Hein, #1266 round 2). */
+async function assertNotContractor(companyId: string, employeeId: string): Promise<void> {
+  const r = ((await sql`
+    SELECT tax_status FROM payroll_employees WHERE company_id = ${companyId}::uuid AND id = ${employeeId}::uuid
+  `) as DbRow[])[0];
+  if (r?.tax_status === 'independent_contractor') {
+    throw new TaxDirectiveWindowError('This employee\'s tax status is independent contractor: a fixed-percentage or fixed-amount directive is for '
+      + 'remuneration, so change the tax status first (employee profile, Work terms).');
+  }
+}
+
+/** Create: Login-as refused, the locks, then contractor, overlap and approved-run checks. */
+export async function judgeRegularDirectiveCreate(companyId: string, employeeId: string, effectiveDate: string, expiryDate: string | null): Promise<void> {
+  await lockFor(companyId, employeeId);
+  await assertNotContractor(companyId, employeeId);
   const endsOn = directiveEndsOn(effectiveDate, expiryDate);
   await assertNoRegularDirectiveOverlap(companyId, employeeId, { effectiveDate, endsOn, statuses: ['pending', 'approved'] });
   await assertNoApprovedRunInWindow(companyId, employeeId, effectiveDate, endsOn);
 }
 
-/** Before the directive's row lock: Login-as and the employee's lock, for any change that judges the window. */
+/** Before the directive's row lock, for any change (approve, cancel, expiry, delete): Login-as and the locks. */
 export async function lockForRegularChange(companyId: string, row: RegularDirectiveRow): Promise<void> {
-  await assertNotImpersonating();
-  await lockEmployeeRegularDirectives(companyId, row.employeeId);
+  await lockFor(companyId, row.employeeId);
 }
 
 /** Under the employee's lock and the row's: refuse the change before the write (see the header). */
@@ -91,6 +117,9 @@ export async function judgeRegularDirectiveChange(
   if ((change.status ?? row.status) === 'approved') {
     await assertNoRegularDirectiveOverlap(companyId, row.employeeId, { effectiveDate: row.effectiveDate, endsOn, excludeId: row.id, statuses: ['approved'] });
     // Approving now: no period already approved may fall in its window (one it already taxed is its own, not a retroactive one).
-    if (change.status === 'approved' && row.status !== 'approved') await assertNoApprovedRunInWindow(companyId, row.employeeId, row.effectiveDate, endsOn);
+    if (change.status === 'approved' && row.status !== 'approved') {
+      await assertNotContractor(companyId, row.employeeId);
+      await assertNoApprovedRunInWindow(companyId, row.employeeId, row.effectiveDate, endsOn);
+    }
   }
 }

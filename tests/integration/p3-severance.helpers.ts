@@ -80,7 +80,7 @@ export async function approvedDirective(
     employee_id: f.employee, employee_name: 'Wanda Test', directive_number: number, directive_type: 'severance',
     amount, tax_rate: taxRate, effective_date: effectiveDate,
   }, f.admin);
-  await updateTaxDirectiveStatus(f.company, d.id, 'approved', f.admin);
+  await updateTaxDirectiveStatus(f.company, d.id, 'approved', f.approver);
   return d.id;
 }
 

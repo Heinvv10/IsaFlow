@@ -1,6 +1,6 @@
 /**
- * Wave 5 DR, #1266 round 1 S-M1: approving a directive (any type), and creating or changing a fixed-percentage /
- * fixed-amount one, sets an employee's PAYE, so a "Login as" session is refused 403 IMPERSONATION_FORBIDDEN with nothing
+ * Wave 5 DR, #1266 round 1 S-M1 and round 2 M2/L2: approving a directive (any type), and creating, changing, cancelling or
+ * deleting a fixed-percentage / fixed-amount one, sets an employee's PAYE, so a "Login as" session is refused 403 IMPERSONATION_FORBIDDEN with nothing
  * written; the target's own session is not refused.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -55,14 +55,24 @@ describe('Login-as is refused on every directive write that sets PAYE', () => {
     ['approve a regular-pay directive', 'fixed_percentage', { status: 'approved' }],
     ['approve a lump-sum directive', 'severance', { status: 'approved' }],
     ['set an expiry date', 'fixed_percentage', { expiry_date: '2026-08-31' }],
+    ['cancel an approved regular-pay directive', 'fixed_percentage', { status: 'cancelled' }],
   ])('%s: 403, nothing written', async (_name, type, body) => {
     const id = type === 'severance'
       ? String((await pool.query(
         `INSERT INTO tax_directives (company_id, employee_id, employee_name, directive_type, amount, tax_rate, effective_date, status)
          VALUES ($1, $2, 'Wanda Test', 'severance', 10000, 0.1, '2026-03-01', 'pending') RETURNING id`, [fx.company, employee])).rows[0]!.id)
-      : await insertDirective(pool, fx.company, employee, { status: 'expiry_date' in body ? 'approved' : 'pending', effective: '2027-03-01' });
+      : await insertDirective(pool, fx.company, employee, { status: 'status' in body && body.status === 'approved' ? 'pending' : 'approved', effective: '2027-03-01' });
     const before = await snapshot();
     const r = await patch(loginAs, id, body);
+    expect(r.state.statusCode, JSON.stringify(r.state.body)).toBe(403);
+    expect(reasonOf(r)).toBe('IMPERSONATION_FORBIDDEN');
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('delete a regular-pay directive: 403, nothing deleted', async () => {
+    const id = await insertDirective(pool, fx.company, employee, { status: 'pending', effective: '2028-03-01' });
+    const before = await snapshot();
+    const r = await fx.call(directive, loginAs, { method: 'DELETE', query: { id } });
     expect(r.state.statusCode, JSON.stringify(r.state.body)).toBe(403);
     expect(reasonOf(r)).toBe('IMPERSONATION_FORBIDDEN');
     expect(await snapshot()).toEqual(before);

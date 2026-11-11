@@ -11,7 +11,7 @@ import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
 import { etiHoursPending, hoursValidation, runHoursOf } from './payrollRunHours';
-import { capDirectivePaye, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
+import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -80,7 +80,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   });
   const treatment = taxStatusTreatment(employee.taxStatus, classification.kind);
   // An IRP3(b)/(c) directive on regular pay decides PAYE over the treatment (directiveRegularPay, G21 p. 15, 28): off the tables too.
-  const directive = input.regularPayDirective?.current ?? null;
+  // Never on an independent contractor (Hein, #1266 round 2): the line errors instead (contractorDirectiveResult).
+  const directiveOnContractor = treatment.paye === 'none' ? input.regularPayDirective?.current ?? null : null;
+  const directive = treatment.paye === 'none' ? null : input.regularPayDirective?.current ?? null;
   const onTables = treatment.paye === 'tables' && !directive;
   const ytdForTables = onTables ? input.ytd : undefined;
 
@@ -128,14 +130,14 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     : calculateUIF(uifLeviable, taxYear);
   // A regular-pay directive's PAYE (directiveRegularPay): on the month's remuneration before deductions, capped at the cash it pays.
   const directed = directive
-    ? regularPayDirectivePaye(directive, { periodic: acc.periodicTaxable, annual: acc.annualPayments, tablesAnnualPayment: annualPaymentPaye, contractor: treatment.paye === 'none' })
+    ? regularPayDirectivePaye(directive, { periodic: acc.periodicTaxable, annual: acc.annualPayments, tablesAnnualPayment: annualPaymentPaye })
     : null;
   const capped = directive && directed ? capDirectivePaye(directed, grossPay - uif.employeeContribution - directivePaye, directive) : null;
   const treated = capped ?? payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, taxableIncome - retirementDeduction);
   const payeSplit = { regular: treated.regular, annualPayment: treated.annualPayment, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
-  // A contractor's own result stays beside a directive's: it is what keeps UIF, SDL and the 3616 code off (payrollOutsideTables).
   if (treatment.paye === 'none' || (treatment.paye === 'flat_25' && !directive)) warnings.push(...outsideTablesResult(treatment.paye));
+  if (directiveOnContractor) warnings.push(contractorDirectiveResult(directiveOnContractor));
   warnings.push(...(directed?.results ?? []), ...(capped?.result ? [capped.result] : []), ...directiveStateResults(input.regularPayDirective));
 
   // SDL is levied on SDL-applicable pay less the para 2(4) retirement and donation deductions allowed, over the tax

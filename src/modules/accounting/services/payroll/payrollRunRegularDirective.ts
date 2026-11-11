@@ -23,7 +23,7 @@ import { withBoundedLockWait } from './payrollRunLock';
 import { PAYE_OUTSIDE_TABLES } from './taxStatusTreatment';
 import { REGULAR_PAY_DIRECTIVE_TYPES } from './taxDirectiveKinds';
 import { directiveEndsOnSql } from './taxDirectiveOverlap';
-import type { RegularPayDirective, RegularPayDirectiveState } from './directiveRegularPay';
+import { DIRECTIVE_FOR_CONTRACTOR, type RegularPayDirective, type RegularPayDirectiveState } from './directiveRegularPay';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 import type { PayrollPeriod } from './payrollTypes';
 
@@ -98,7 +98,8 @@ export async function regularDirectiveRefusal(companyId: string, runId: string):
   const lines = (await sql`
     SELECT l.employee_id, e.employee_number, h.period_year, h.period_month,
            (SELECT v->'directive'->>'id' FROM jsonb_array_elements(COALESCE(l.validation_results, '[]'::jsonb)) v
-             WHERE v->>'code' = ${PAYE_OUTSIDE_TABLES} AND v->>'treatment' = 'directive' LIMIT 1) AS applied
+             WHERE v->>'code' = ${PAYE_OUTSIDE_TABLES} AND v->>'treatment' = 'directive' LIMIT 1) AS applied,
+           COALESCE(l.validation_results @> ${JSON.stringify([{ code: DIRECTIVE_FOR_CONTRACTOR }])}::jsonb, false) AS contractor_directive
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid
     JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
@@ -130,6 +131,14 @@ export async function regularDirectiveRefusal(companyId: string, runId: string):
         + 'Cancel it and capture the directive again, then recalculate.',
     };
   }
+  const contractors = lines.filter(l => l.contractor_directive === true);
+  if (contractors.length > 0) {
+    return {
+      code: 'regular_directive_contractor',
+      detail: `${contractors.map(l => String(l.employee_number)).join(', ')}: an independent contractor has a fixed-percentage or fixed-amount directive. `
+        + 'Change the tax status first (employee profile, Work terms), or cancel the directive, then recalculate.',
+    };
+  }
   const changed = lines.filter(l => (l.applied == null ? null : String(l.applied)) !== (now.get(String(l.employee_id))?.current?.id ?? null));
   if (changed.length === 0) return null;
   return {
@@ -139,7 +148,15 @@ export async function regularDirectiveRefusal(companyId: string, runId: string):
   };
 }
 
-/** The latest approved or paid run whose line was taxed by this directive: its period (YYYY-MM) and judge date, else null. */
+/**
+ * A run that was EVER approved: approved or paid now, or approved once and reopened since (approved_at, reopened_at, a
+ * non-empty approval_history, as the K1 first-entry rule reads it). Reopening a run does not unmake what it declared, so
+ * a reopened run still holds its directive (#1266 round 2 M1). A run never approved (a draft) does not.
+ */
+const everApproved = (declarable: string[]) => sql`(h.status = ANY(${declarable}::text[]) OR h.approved_at IS NOT NULL OR h.reopened_at IS NOT NULL
+  OR (h.approval_history IS NOT NULL AND NOT isempty(h.approval_history)))`;
+
+/** The latest run ever approved whose line was taxed by this directive: its period (YYYY-MM) and judge date, else null. */
 export async function regularDirectiveLatestUse(companyId: string, directiveId: string): Promise<{ period: string; judgeDate: string } | null> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const flag = JSON.stringify([{ code: PAYE_OUTSIDE_TABLES, directive: { id: directiveId } }]);
@@ -148,7 +165,7 @@ export async function regularDirectiveLatestUse(companyId: string, directiveId: 
            COALESCE(h.run_date, (make_date(h.period_year, h.period_month, 1) + INTERVAL '1 month - 1 day')::date)::text AS judge
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id
-    WHERE h.company_id = ${companyId}::uuid AND h.status = ANY(${declarable}::text[])
+    WHERE h.company_id = ${companyId}::uuid AND ${everApproved(declarable)}
       AND l.validation_results @> ${flag}::jsonb
     ORDER BY judge DESC
     LIMIT 1
@@ -157,14 +174,14 @@ export async function regularDirectiveLatestUse(companyId: string, directiveId: 
   return r ? { period: `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`, judgeDate: String(r.judge) } : null;
 }
 
-/** The first approved or paid run (YYYY-MM) this employee was paid in whose judge date falls in [from, to], else null. */
+/** The first run ever approved (YYYY-MM) this employee was paid in whose judge date falls in [from, to], else null. */
 export async function declarableRunInWindow(companyId: string, employeeId: string, from: string, to: string): Promise<string | null> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     SELECT h.period_year, h.period_month
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id
-    WHERE h.company_id = ${companyId}::uuid AND l.employee_id = ${employeeId}::uuid AND h.status = ANY(${declarable}::text[])
+    WHERE h.company_id = ${companyId}::uuid AND l.employee_id = ${employeeId}::uuid AND ${everApproved(declarable)}
       AND COALESCE(h.run_date, (make_date(h.period_year, h.period_month, 1) + INTERVAL '1 month - 1 day')::date) BETWEEN ${from}::date AND ${to}::date
     ORDER BY h.period_year, h.period_month
     LIMIT 1

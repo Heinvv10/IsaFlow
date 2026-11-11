@@ -75,7 +75,6 @@ export function regularPayDirectivePaye(d: RegularPayDirective, line: {
   annual: number;
   /** The tables' PAYE on positive annual payments, costed as a first period (fixed-amount directive only). */
   tablesAnnualPayment: number;
-  contractor: boolean;
 }): { regular: number; annualPayment: number; results: ValidationResult[] } {
   const periodic = Math.max(0, line.periodic);
   // A clawback reduces the month's remuneration: netted into the base, never below nil.
@@ -115,14 +114,17 @@ export function regularPayDirectivePaye(d: RegularPayDirective, line: {
       });
     }
   }
-  if (line.contractor) {
-    results.push({
-      code: 'DIRECTIVE_FOR_CONTRACTOR', severity: 'warning',
-      message: `This employee's tax status is independent contractor, but ${label(d)} directs PAYE, so it was deducted (G21 p. 15). `
-        + 'UIF, SDL and ETI stay off. A directive means SARS treats the payments as remuneration: check the tax status.',
-    });
-  }
   return { regular, annualPayment, results };
+}
+
+/** On an independent contractor's line, a regular-pay directive is not applied (Hein's ruling, #1266 round 2): an error the approval gate refuses. */
+export const DIRECTIVE_FOR_CONTRACTOR = 'DIRECTIVE_FOR_CONTRACTOR';
+export function contractorDirectiveResult(d: RegularPayDirective): ValidationResult {
+  return {
+    code: DIRECTIVE_FOR_CONTRACTOR, severity: 'error',
+    message: `This employee's tax status is independent contractor, but ${label(d)} is approved for them, so it was not applied and the run `
+      + 'cannot be approved. A directive means SARS treats the payments as remuneration: change the tax status first, or cancel the directive.',
+  };
 }
 
 /**

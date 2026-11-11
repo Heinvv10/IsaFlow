@@ -72,11 +72,11 @@ describe('a directive overrides the tax-status treatment (G21 p. 28-29)', () => 
     expect(r.paye.monthlyPaye).toBe(1_000);
     expect(outside(r).map(v => v.treatment)).toEqual(['directive']);
   });
-  it('an independent contractor: PAYE as directed, UIF and SDL still nil, the contractor flag kept and a warning', () => {
+  it('an independent contractor (Hein, round 2): the directive is NOT applied, PAYE/UIF/SDL nil, an error on the line', () => {
     const r = cost(employee({ taxStatus: 'independent_contractor' }), [earn(30_000)], state(pct20));
-    expect([r.paye.monthlyPaye, r.uif.employeeContribution, r.sdl]).toEqual([6_000, 0, 0]);
-    expect(outside(r).map(v => v.treatment).sort()).toEqual(['directive', 'none']);
-    expect(codes(r)).toContain('DIRECTIVE_FOR_CONTRACTOR');
+    expect([r.paye.monthlyPaye, r.uif.employeeContribution, r.sdl]).toEqual([0, 0, 0]);
+    expect(outside(r).map(v => v.treatment)).toEqual(['none']);
+    expect(r.validationResults.find(v => v.code === 'DIRECTIVE_FOR_CONTRACTOR')?.severity).toBe('error');
   });
 });
 

@@ -27,6 +27,7 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { TaxDirectiveWindowError } from '@/modules/accounting/services/payroll/taxDirectiveOverlap';
 import { isCalendarDate } from '@/modules/accounting/services/payroll/taxDirectiveRegularPayBody';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { TaxDirectiveSelfApprovalError } from '@/modules/accounting/services/payroll/taxDirectiveApprover';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_STATUSES: DirectiveStatus[] = ['pending', 'approved', 'expired', 'cancelled'];
@@ -80,6 +81,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } catch (err) {
       // Approving, and any change to a regular-pay directive, is refused under Login-as (403, before any write).
       if (respondIfImpersonationForbidden(res, err)) return;
+      // Four eyes: the person who captured it may not approve it while another member could (403, before any write).
+      if (err instanceof TaxDirectiveSelfApprovalError) return apiResponse.forbidden(res, err.message);
       // Raised before anything is written, so the 409 withAuth commits changes nothing.
       if (err instanceof TaxDirectivePaidError) return apiResponse.conflict(res, err.message);
       // A regular-pay directive's window (overlap, an approved period inside it, an expiry change): judged under the employee's lock, before the write.
@@ -96,6 +99,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       deleted = await deleteTaxDirective(companyId, directiveId);
     } catch (err) {
+      // A regular-pay directive's delete is refused under Login-as, as its cancel is (403, before any write).
+      if (respondIfImpersonationForbidden(res, err)) return;
       // Raised before anything is written (paid or with a payment record).
       if (err instanceof TaxDirectivePaidError) return apiResponse.conflict(res, err.message);
       throw err;
