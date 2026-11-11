@@ -58,14 +58,14 @@ export async function replaceRunLines(runId: string, companyId: string, lineInse
         INSERT INTO payroll_run_lines (
           run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, medical_credit, additional_medical_credit, medical_scheme_fees,
           retirement_contributions, retirement_deduction, uif_employee, uif_employer, sdl, sdl_leviable, sdl_applicable, sdl_exempt, donation_receipted, donation_base, donation_deduction, eti, net_pay,
-          component_breakdown, validation_results, explanation, created_at
+          explanation, component_breakdown, validation_results, created_at
         ) VALUES (
           ${runId}::uuid, ${ins.employeeId}::uuid,
           ${ins.grossPay}, ${ins.taxableIncome}, ${ins.periodicTaxable}, ${ins.annualTaxable}, ${ins.paye}, ${ins.medicalCredit}, ${ins.additionalMedicalCredit}, ${ins.medicalSchemeFees},
           ${ins.retirementContributions}, ${ins.retirementDeduction}, ${ins.uifEmployee}, ${ins.uifEmployer},
           ${ins.sdl}, ${ins.sdlLeviable}, ${ins.sdlApplicable}, ${ins.sdlExempt}, ${ins.donationReceipted}, ${ins.donationBase}, ${ins.donationDeduction}, ${ins.eti}, ${ins.netPay},
-          ${ins.componentBreakdown},
-          ${ins.validationResults}, ${JSON.stringify(ins.explanation)}::jsonb, clock_timestamp()
+          ${JSON.stringify(ins.explanation)}::jsonb, ${ins.componentBreakdown},
+          ${ins.validationResults}, clock_timestamp()
         )
       `;
     }
