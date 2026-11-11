@@ -1,4 +1,3 @@
-import { ETI_TABLE_UNCONFIRMED_MESSAGE, isEtiTableUnconfirmed } from './etiTables';
 import type { EmployeeComponent, EtiMissingInput, EtiResult, PayrollEmployee, ValidationResult } from './payrollTypes';
 import type { EmploymentClassification } from './employmentTerms';
 
@@ -104,18 +103,8 @@ const ETI_MISSING_LABEL: Record<EtiMissingInput, string> = {
  */
 export function validateEti(
   employee: Pick<PayrollEmployee, 'id' | 'firstName' | 'lastName'>,
-  eti: Pick<EtiResult, 'isDeterminable' | 'missingInputs'> & Partial<Pick<EtiResult, 'monthlyEti'>>,
-  periodDate?: Date,
+  eti: Pick<EtiResult, 'isDeterminable' | 'missingInputs'>,
 ): ValidationResult[] {
-  // ETI claimed on a table nobody has confirmed (pay periods from April 2026).
-  if (periodDate && (eti.monthlyEti ?? 0) > 0 && isEtiTableUnconfirmed(periodDate)) {
-    return [{
-      code: 'ETI_TABLE_UNCONFIRMED',
-      severity: 'warning',
-      message: `${employee.firstName} ${employee.lastName}: ${ETI_TABLE_UNCONFIRMED_MESSAGE}`,
-      field: 'eti',
-    }];
-  }
   if (eti.isDeterminable || eti.missingInputs.length === 0) return [];
 
   const fields = eti.missingInputs.map((m) => ETI_MISSING_LABEL[m]);

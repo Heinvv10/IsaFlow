@@ -1,6 +1,6 @@
 /**
- * calculatePayrollRun writes the ETI_TABLE_UNCONFIRMED warning into each line's
- * validation_results for a period from April 2026 with ETI > 0, and not before.
+ * calculatePayrollRun no longer writes ETI_TABLE_UNCONFIRMED (ET, wave 5): the April 2025 table is the law with no end
+ * date (Rates and Monetary Amounts and Amendment of Revenue Laws Act 3 of 2026 s7, GG 54446; ETI guide Issue 5 §5.1.2).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -104,10 +104,10 @@ async function calculate(month: number, year: number) {
 
 beforeEach(() => { inserts.length = 0; });
 
-describe('calculatePayrollRun - unconfirmed ETI table warning', () => {
-  it('writes ETI_TABLE_UNCONFIRMED for June 2026 when ETI is claimed', async () => {
+describe('calculatePayrollRun - the ETI table is confirmed (Act 3 of 2026)', () => {
+  it('writes no ETI_TABLE_UNCONFIRMED for June 2026 when ETI is claimed', async () => {
     await calculate(6, 2026);
-    expect(codesWritten()).toContain('ETI_TABLE_UNCONFIRMED');
+    expect(codesWritten()).not.toContain('ETI_TABLE_UNCONFIRMED');
   });
 
   it('writes nothing of the kind for March 2026', async () => {

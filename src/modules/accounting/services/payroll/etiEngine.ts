@@ -1,11 +1,4 @@
-import {
-  ETI_AFTER_MARCH_2026_POLICY,
-  etiForRemuneration,
-  isEtiTableUnconfirmed,
-  nationalMinimumWageCents,
-  selectEtiTable,
-  type EtiUnconfirmedPolicy,
-} from './etiTables';
+import { etiForRemuneration, nationalMinimumWageCents, selectEtiTable } from './etiTables';
 import { getAge } from './payeEngine';
 import { belowMinimumWage, grossUpTo160, hoursShare } from './etiHours';
 import type { EtiInput, EtiMissingInput, EtiResult } from './payrollTypes';
@@ -35,7 +28,6 @@ function monthsBetween(start: Date, end: Date): number {
 export function calculateEti(
   input: EtiInput,
   _taxYear: number,
-  policy: EtiUnconfirmedPolicy = ETI_AFTER_MARCH_2026_POLICY,
 ): EtiResult {
   const table = selectEtiTable(input.periodDate);
   const age = getAge(input.dateOfBirth, input.periodDate);
@@ -47,17 +39,6 @@ export function calculateEti(
       isDeterminable: true,
       missingInputs: [],
       ineligibilityReason: `Employee age must be ${ETI_MIN_AGE}–${ETI_MAX_AGE}`,
-      monthsEmployed,
-      employmentYear: null,
-      monthlyEti: 0,
-    };
-  }
-  if (policy === 'fail_closed' && isEtiTableUnconfirmed(input.periodDate)) {
-    return {
-      isEligible: false,
-      isDeterminable: true,
-      missingInputs: [],
-      ineligibilityReason: 'ETI table for pay periods after 31 March 2026 is unconfirmed; none claimed',
       monthsEmployed,
       employmentYear: null,
       monthlyEti: 0,

@@ -41,7 +41,6 @@ import {
   runHasLoanWork,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
-import { ETI_TABLE_UNCONFIRMED_MESSAGE, isEtiTableUnconfirmed } from '@/modules/accounting/services/payroll/etiTables';
 import { UnsupportedTaxYearError, unloadedTaxYearMessage } from '@/modules/accounting/services/payroll/taxTables';
 import { withheldLoansReport as withheldLoans } from '@/modules/accounting/services/payroll/payrollLoanWithholding';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
@@ -134,9 +133,6 @@ export const calculatePayRunTool: McpTool = {
       const costed = await calculatePayrollRun(runId, ctx.companyId, ctx.userId);
       return ok({
         ...runPayload(costed),
-        ...(costed.totalEti > 0 && isEtiTableUnconfirmed(new Date(costed.periodYear, costed.periodMonth - 1, 28))
-          ? { warnings: [ETI_TABLE_UNCONFIRMED_MESSAGE] }
-          : {}),
         withheld_loans: await withheldLoans(ctx.companyId, costed), approval_blocker: (await previewPayrollApproval(ctx.companyId, runId))?.blocker ?? null,
         next_step: costed.employeeCount === 0
           ? 'No employees were costed — create_employee and assign_employee_component first.'
