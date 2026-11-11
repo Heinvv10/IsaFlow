@@ -24,8 +24,10 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalChain', () => ({
   lockJournalChain: vi.fn(),
 }));
 // Hein ruling R-A (wave 5 ET): the guard's own SQL is tested in etiPeriodGuard.test.ts.
-vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', () => ({ laterEtiJournalRefusal: vi.fn(async () => null) }));
+vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', () => ({ laterEtiJournalRefusal: vi.fn(async () => { order.push('guard'); return null; }) }));
+const order = vi.hoisted(() => [] as string[]);
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
+  lockCompanyPayrollApprovals: vi.fn(async () => { order.push('lock1'); }),
   lockPayrollRunHeader: vi.fn(async () => ({})),
   withBoundedLockWait: vi.fn(async (_run: string, fn: (tx: unknown) => Promise<unknown>) => fn({})),
 }));
@@ -157,5 +159,20 @@ describe('Hein ruling R-A (wave 5 ET): a directive or ETI journal under a posted
     chain('in_force', { description: 'ETI for 2026-04: directive PAYE' });
     vi.mocked(laterEtiJournalRefusal).mockResolvedValue('posted');
     expect(await payrollReversalRefusal('c1', PAYROLL)).toBeNull();
+  });
+});
+
+describe('round 3: lock 1 first, before the guard and before the claim', () => {
+  it('a directive journal: the company approval lock, then the R-A guard', async () => {
+    order.length = 0;
+    vi.mocked(laterEtiJournalRefusal).mockImplementation(async () => { order.push('guard'); return null; });
+    chain('in_force', { description: 'SARS directive D1 — Emp' });
+    await refuseReversalAgainstPayRun('c1', PAYROLL);
+    expect(order).toEqual(['lock1', 'guard']);
+  });
+  it('not an auto_payroll journal: no lock at all', async () => {
+    order.length = 0;
+    await refuseReversalAgainstPayRun('c1', { id: 'J1', source: 'manual' });
+    expect(order).toEqual([]);
   });
 });

@@ -31,7 +31,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { MAX_CHAIN_JOURNALS, findChainRoot, lockJournalChain, readJournalChain } from './payrollJournalChain';
-import { lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
+import { lockCompanyPayrollApprovals, lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
 import { PayrollLoanLockTimeoutError } from './payrollRunLoanApplication';
 import { GRANDFATHERED_PLAN_HASH } from './payRunApprovalAudit';
 import { laterEtiJournalRefusal } from './etiPeriodGuard';
@@ -162,6 +162,10 @@ export async function refuseReversalAgainstPayRun(
   entry: { id: string; source?: string },
 ): Promise<{ runId: string; planHash: string | null } | null> {
   if (entry.source !== 'auto_payroll') return null;
+  // LOCK ORDER 1 first (payrollRunLock.ts; wave 5 ET review round 3): the R-A guard below and the ETI this reversal
+  // rebooks afterwards (directiveEtiJournal) read the whole ETI period, so they are judged under the company approval
+  // lock that approve, reopen, recalculate and a directive payment take first. Before the claim, so never after a row lock.
+  await lockCompanyPayrollApprovals(null, companyId);
   const rootId = await findChainRoot(companyId, entry.id);
   if (!rootId) throw new PayrollJournalReversalRefusedError(brokenChain(entry.id));
   const chain = await readJournalChain(companyId, rootId);

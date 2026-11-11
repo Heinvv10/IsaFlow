@@ -44,36 +44,45 @@ export async function periodHasEti(companyId: string, ym: YearMonth): Promise<bo
   return rows[0]?.has_eti === true;
 }
 
-/** The latest LATER month of `ym`'s period with a journal in force (its run journal or an ETI journal), or null. */
-export async function laterMonthInForce(companyId: string, ym: YearMonth): Promise<YearMonth | null> {
+/**
+ * The latest LATER month of `ym`'s period whose RUN journal is in force, with the run's status; or null. A later month
+ * with no run journal in force (directive and ETI journals only) does not block (review round 3): its ETI journal is
+ * rebooked under lock 1 after the change (directiveEtiJournal.rebookRunlessMonths).
+ */
+export async function laterMonthInForce(companyId: string, ym: YearMonth): Promise<(YearMonth & { status: string }) | null> {
   const later = monthsBetween(at(index(ym) + 1), reconciliationEnd(ym));
   if (later.length === 0) return null;
   const rows = (await sql`
-    SELECT h.period_year AS y, h.period_month AS m, h.journal_entry_id AS id
+    SELECT h.period_year AS y, h.period_month AS m, h.journal_entry_id AS id, h.status
       FROM payroll_run_headers h
      WHERE h.company_id = ${companyId}::UUID AND h.journal_entry_id IS NOT NULL
        AND make_date(h.period_year, h.period_month, 1) BETWEEN ${first(later[0]!)}::date AND ${first(later[later.length - 1]!)}::date
-    UNION ALL
-    SELECT split_part(je.reference, '-', 2)::int, split_part(je.reference, '-', 3)::int, je.id
-      FROM gl_journal_entries je
-     WHERE je.company_id = ${companyId}::UUID AND je.source = 'auto_payroll' AND je.status = 'posted'
-       AND je.reference = ANY(${later.map(ref)}::text[]) AND je.reversal_of_id IS NULL
      ORDER BY 1 DESC, 2 DESC
   `) as DbRow[];
   for (const r of rows) {
-    if (await payrollJournalInForce(companyId, String(r.id))) return { year: Number(r.y), month: Number(r.m) };
+    if (await payrollJournalInForce(companyId, String(r.id))) return { year: Number(r.y), month: Number(r.m), status: String(r.status) };
   }
   return null;
 }
 
-/** The refusal, or null: in a period with ETI, a later month of the period has a journal in force. */
+/**
+ * The refusal, or null: in a period with ETI, a later month of the period has its run journal in force.
+ * FAIL-CLOSED, deliberately (review round 3, adv3 L4): any later in-force run journal refuses, even one whose ETI the
+ * change would not move. The working remedy is in the message.
+ */
 export async function laterEtiJournalRefusal(companyId: string, ym: YearMonth): Promise<string | null> {
   if (!(await periodHasEti(companyId, ym))) return null;
   const later = await laterMonthInForce(companyId, ym);
   if (!later) return null;
-  return `The ${label(later)} payroll journal is in the ledger, and it booked ETI carried forward from earlier months of the same ETI `
-    + `period (ETI Act s9(1)), so ${label(ym)} cannot change now. To change it: reopen the ${label(later)} pay run and reverse its journal `
-    + `(and reverse any ETI journal of ${label(later)}), latest month first; then change ${label(ym)} and approve the later months again.`;
+  const head = `The ${label(later)} payroll journal is in the ledger, and it booked ETI carried forward from earlier months of the same ETI `
+    + `period (ETI Act s9(1)), so ${label(ym)} cannot change now.`;
+  // adv3 L5: a PAID run cannot be reopened, so "reopen" is no remedy for it.
+  if (later.status === 'paid') {
+    return `${head} The ${label(later)} pay run is paid and cannot be reopened: leave ${label(ym)} as it is and correct it in a later month `
+      + `(a correcting run), or ask your accountant to adjust the ETI on the EMP201 and EMP501.`;
+  }
+  return `${head} To change it: reopen the ${label(later)} pay run and reverse its journal, latest month first; then change `
+    + `${label(ym)} and approve the later months again.`;
 }
 
 /** Review L4: in a period with ETI, an EARLIER month with a calculated, unapproved run must be approved first. */

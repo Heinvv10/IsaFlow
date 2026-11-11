@@ -13,6 +13,7 @@ import { GRANDFATHERED_PLAN_HASH, recordPayRunApprovalAudit } from './payRunAppr
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 import type { DbRow } from '@/lib/neon';
 import { laterEtiJournalRefusal } from './etiPeriodGuard';
+import { rebookLaterRunlessMonths } from './directiveEtiJournal';
 
 /**
  * A refusal raised before reopenPayrollRun writes anything. The route answers
@@ -112,5 +113,7 @@ export async function reopenPayrollRun(opts: {
     'payrollRunReopen',
   );
 
+  // Wave 5 ET (round 3): the run no longer declares; the later run-less months of the ETI period follow (under lock 1).
+  await rebookLaterRunlessMonths(opts.companyId, { year: Number(run.period_year), month: Number(run.period_month) }, opts.userId);
   return { runId: opts.runId, previousStatus, newStatus: 'calculated' };
 }

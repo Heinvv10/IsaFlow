@@ -20,6 +20,8 @@ import { assertPayRunApproved } from './payRunApprovalControl';
 import { readPayRunDecision } from './payRunDecision';
 import { soleApproverAuditMetadata } from '../gl/approvalSelfApproval';
 import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
+import { rebookLaterRunlessMonths } from './directiveEtiJournal';
+
 
 type Row = DbRow;
 
@@ -169,6 +171,8 @@ export async function approvePayrollRun(
   // agent work as the token owner's own and hides it from list_agent_postings —
   // the same reason postPayrollRunJournal takes the stamp at all.
   const journalEntryId = await postPayrollRunJournal(companyId, runId, userId, { postingAgent: opts?.postingAgent, plan });
+  // Wave 5 ET (round 3): the later run-less months of the ETI period follow the carry this run changed (under lock 1).
+  await rebookLaterRunlessMonths(companyId, { year: plan.periodYear, month: plan.periodMonth }, userId);
   await recordPayRunApprovalAudit({
     companyId, runId, actorId: userId, event: 'executed', planHash: gate.planHash,
     metadata: {

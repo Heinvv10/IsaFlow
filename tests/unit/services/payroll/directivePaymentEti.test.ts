@@ -7,7 +7,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const order: string[] = [];
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockCompanyPayrollApprovals: vi.fn(async () => { order.push('lock'); }) }));
 vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', () => ({ assertNoLaterEtiJournal: vi.fn(async () => { order.push('guard'); }) }));
-vi.mock('@/modules/accounting/services/payroll/directiveEtiJournal', () => ({ postMonthEtiJournal: vi.fn(async () => { order.push('eti'); return 'je-eti'; }) }));
+vi.mock('@/modules/accounting/services/payroll/directiveEtiJournal', () => ({
+  postMonthEtiJournal: vi.fn(async () => { order.push('eti'); return 'je-eti'; }),
+  rebookLaterRunlessMonths: vi.fn(async () => { order.push('rebook'); return []; }),
+}));
 vi.mock('@/modules/accounting/services/payroll/taxDirectivePaymentService', () => ({
   applyTaxDirective: vi.fn(async () => { order.push('pay'); return { paymentId: 'p1', journalEntryId: 'je-d', gross: 4_500, paye: 1_500, net: 3_000, status: 'applied', advisories: [] }; }),
 }));
@@ -23,7 +26,7 @@ beforeEach(() => { vi.clearAllMocks(); order.length = 0; });
 describe('applyTaxDirective with ETI', () => {
   it('takes the company payroll lock, then the R-A guard, then pays, then books the month\'s ETI', async () => {
     const r = await applyTaxDirective(CO, 'd1', { paymentDate: '2026-05-20' }, 'u1');
-    expect(order).toEqual(['lock', 'guard', 'pay', 'eti']);
+    expect(order).toEqual(['lock', 'guard', 'pay', 'eti', 'rebook']);
     expect(r.etiJournalEntryId).toBe('je-eti');
     expect(assertNoLaterEtiJournal).toHaveBeenCalledWith(CO, { year: 2026, month: 5 });
     expect(postMonthEtiJournal).toHaveBeenCalledWith(CO, { year: 2026, month: 5 }, '2026-05-20', 'u1');
