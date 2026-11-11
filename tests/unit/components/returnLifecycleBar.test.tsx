@@ -261,6 +261,7 @@ it('a stale tab (LIVE_VERSION_EXISTS): the bar reloads and the dialog offers Ame
   fireEvent.click(within(dialog).getByRole('button', { name: /^Finalise$/ }));
   await waitFor(() => expect(screen.getByTestId('return-lifecycle-status').textContent).toBe('Finalised (v1), not filed'));
   expect(within(dialog).getByTestId('return-refusal').textContent).toMatch(/Amend it before finalising again/);
+  expect(dialog.textContent).toMatch(/Finalise VAT201 v1(?!\d)/); // not renumbered by the reload
   fireEvent.click(await within(dialog).findByRole('button', { name: 'Amend instead' }));
   expect((await screen.findByRole('dialog')).textContent).toMatch(/Amend VAT201 v1/);
 });
