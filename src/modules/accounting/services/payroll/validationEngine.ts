@@ -89,6 +89,7 @@ export function validatePayrollLine(line: {
 const ETI_MISSING_LABEL: Record<EtiMissingInput, string> = {
   date_of_birth: 'date of birth',
   employment_start_date: 'start date',
+  id_document: 'a valid SA ID number, or an asylum seeker permit or refugee identity document recorded (ETI Act s6(b))',
 };
 
 /**

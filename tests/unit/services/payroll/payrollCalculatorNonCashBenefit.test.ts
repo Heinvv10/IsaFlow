@@ -18,7 +18,7 @@ import type { EmployeeComponent, PayrollComponent, PayrollEmployee, PayrollLineI
 
 const employee = (over: Partial<PayrollEmployee> = {}): PayrollEmployee => ({
   id: 'emp-1', companyId: 'co-1', employeeNumber: 'E001', firstName: 'Test', lastName: 'Employee',
-  idNumber: '9001015009087', taxNumber: '1234567890', employmentType: 'permanent',
+  idNumber: '9001015009086', taxNumber: '1234567890', employmentType: 'permanent', // a valid SA ID (Luhn): ETI Act s6(b)
   startDate: new Date('2020-01-01'), dateOfBirth: new Date('1980-01-01'), uifExcluded: false,
   medicalAidMainMember: false, medicalAidDependantsCount: 0, ...over,
 });

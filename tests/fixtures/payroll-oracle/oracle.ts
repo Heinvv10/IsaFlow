@@ -75,6 +75,22 @@ export interface KnownGap {
   closedBy: string;
 }
 
+/** A valid 13-digit SA ID number for a date of birth (YYMMDD 5009 0 8 + the Luhn check digit). */
+export function saIdFor(dob: string): string {
+  const base = `${dob.slice(2, 4)}${dob.slice(5, 7)}${dob.slice(8, 10)}500908`;
+  for (let c = 0; c < 10; c += 1) {
+    const id = base + c;
+    let sum = 0;
+    for (let i = 0; i < 13; i += 1) {
+      let d = Number(id[12 - i]);
+      if (i % 2 === 1) { d *= 2; if (d > 9) d -= 9; }
+      sum += d;
+    }
+    if (sum % 10 === 0) return id;
+  }
+  throw new Error(`no SA ID for ${dob}`);
+}
+
 function parseDate(s: string): Date {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) throw new Error(`bad date ${s}`);
@@ -146,6 +162,9 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     employmentType: input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent',
     startDate: parseDate(input.employee.startDate),
     ...(input.employee.dateOfBirth ? { dateOfBirth: parseDate(input.employee.dateOfBirth) } : {}),
+    // ETI Act s6(b): the oracle's employees hold an ID document (a valid SA ID number for their date of birth); the cases
+    // test the incentive's amount, not the document.
+    ...(input.employee.dateOfBirth ? { idNumber: saIdFor(input.employee.dateOfBirth) } : {}),
     uifExcluded: input.employee.uifExcluded,
     medicalAidMainMember: input.employee.medicalAidMainMember,
     medicalAidDependantsCount: input.employee.medicalAidDependantsCount,

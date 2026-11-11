@@ -92,7 +92,6 @@ export const entries: Array<[string, Category, string?]> = [
   ['gl/integrityChecks/dimensionChecks.ts', 'INTEGRITY'],
   ['gl/integrityChecks/documentChecks.ts', 'INTEGRITY'],
   ['gl/integrityChecks/index.ts', 'INTEGRITY'],
-  ['gl/integrityChecks/payrollChecks.ts', 'SUBLEDGER'], // 2140 and the ETI refund from payroll journals vs the EMP201 (wave 5 ET)
   ['gl/journalEntryListService.ts', 'RAW'],
   ['gl/journalEntryReadService.ts', 'RAW'],
   ['gl/nonControlPostingAccounts.ts', 'SUBLEDGER'],

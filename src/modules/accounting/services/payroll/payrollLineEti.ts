@@ -6,6 +6,7 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import { resolveEtiForEmployee } from './etiEngine';
 import { etiHoursOf, etiRemunerationOf, ordinaryWageCents } from './etiHours';
+import { etiIdDocumentShown } from './etiEligibility';
 import { nationalMinimumWageCents } from './etiTables';
 import { unitOf } from './payrollRunHours';
 import type { EmployeeComponent, EtiResult, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
@@ -41,6 +42,8 @@ export function costLineEti(input: LineEtiInput): { eti: EtiResult; warnings: Va
     monthlyRemuneration: etiRemunerationOf(components),
     isUifExcluded: employee.uifExcluded,
     hours: h?.hours == null ? null : { monthlyHours: h.hours, ordinaryHours: h.ordinaryHours, ordinaryWageCents: wageCents },
+    idDocumentShown: etiIdDocumentShown(employee),
+    priorMonths: employee.etiPriorMonths ?? 0,
   });
   if (input.notEmployedInPeriod) {
     return { eti: nil(resolved, 'Not employed in this period (paid after leaving): ETI is apportioned by hours employed, none here.'), warnings };
@@ -81,6 +84,15 @@ export function costLineEti(input: LineEtiInput): { eti: EtiResult; warnings: Va
         ? `${name} has no basic pay on SARS code 3601, so the wage for ordinary hours is nil and no ETI was claimed. If basic pay is on another code, move it to 3601 and recalculate.`
         : `${name}'s basic pay (${formatMoney(wageCents / 100)}) is below the national minimum wage for ${h.ordinaryHours} ordinary hours, so no ETI was claimed (ETI Act s4(1)(a)). `
           + 'If the month is short because of unpaid leave, the hours paid were fewer: check the claim by hand.',
+    });
+  }
+  // ETI Act s6(c) and s6(d): a connected person (Income Tax Act s1) and a domestic worker (BCEA s1) do not qualify. Neither
+  // is captured yet, so every claim says so at approval (Hein ruling, review round 2): a warning, not a block.
+  if (eti.monthlyEti > 0) {
+    warnings.push({
+      code: 'ETI_CONNECTED_OR_DOMESTIC_UNCHECKED', severity: 'warning',
+      message: `ETI of ${formatMoney(eti.monthlyEti)} is claimed for ${name}. Confirm ${name} is not a connected person in relation to the employer `
+        + '(Income Tax Act s1) and not a domestic worker (BCEA s1): neither qualifies (ETI Act s6(c), s6(d)), and IsaFlow does not record either yet.',
     });
   }
   return { eti, warnings };

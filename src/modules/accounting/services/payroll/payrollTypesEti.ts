@@ -9,6 +9,10 @@ export interface EtiInput {
    * cannot be told, so ETI is neither apportioned (s7(5)) nor tested against the minimum wage (s4(1)(a)).
    */
   hours?: EtiHoursInput | null;
+  /** ETI Act s6(b) (etiEligibility): false when no valid SA ID number or recorded permit shows a document is held. */
+  idDocumentShown?: boolean;
+  /** Months employed by this employer before the current start date (a rehire continues the 24 months; guide §3.3). */
+  priorMonths?: number;
 }
 
 export interface EtiHoursInput {
@@ -20,7 +24,7 @@ export interface EtiHoursInput {
 }
 
 /** An employee field the ETI engine needs and may not have. */
-export type EtiMissingInput = 'date_of_birth' | 'employment_start_date';
+export type EtiMissingInput = 'date_of_birth' | 'employment_start_date' | 'id_document';
 
 export interface EtiResult {
   /**

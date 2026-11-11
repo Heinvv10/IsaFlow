@@ -27,8 +27,12 @@ function monthsBetween(start: Date, end: Date): number {
  */
 export function calculateEti(input: EtiInput): EtiResult {
   const table = selectEtiTable(input.periodDate);
-  const age = getAge(input.dateOfBirth, input.periodDate);
-  const monthsEmployed = monthsBetween(input.employmentStartDate, input.periodDate) + 1;
+  // ETI Act s6(a)(i): 18 to 29 "at the end of any month in respect of which the ETI is claimed" (guide Issue 5 §3.2.1
+  // p. 24): the age on the month's last day, so the month the employee turns 30 is out, the month they turn 18 is in.
+  const monthEnd = new Date(input.periodDate.getFullYear(), input.periodDate.getMonth() + 1, 0);
+  const age = getAge(input.dateOfBirth, monthEnd);
+  // The 24 months need not be consecutive (guide §3.3 p. 28, §5.1 fn 142): a rehire continues the count (priorMonths).
+  const monthsEmployed = monthsBetween(input.employmentStartDate, input.periodDate) + 1 + Math.max(0, input.priorMonths ?? 0);
 
   if (age < ETI_MIN_AGE || age > ETI_MAX_AGE) {
     return {
@@ -137,11 +141,17 @@ export function resolveEtiForEmployee(
     };
   }
 
-  return calculateEti(
+  const result = calculateEti(
     {
       ...input,
       dateOfBirth: input.dateOfBirth as Date,
       employmentStartDate: input.employmentStartDate as Date,
     },
   );
+  // ETI Act s6(b) (etiEligibility): ETI that would be claimed needs a document shown. Not shown is not "ineligible" (the
+  // employee may hold one): it is not determinable, so nothing is claimed and validateEti warns ETI_INDETERMINATE.
+  if (result.monthlyEti > 0 && input.idDocumentShown === false) {
+    return { ...result, isEligible: false, isDeterminable: false, missingInputs: ['id_document'], monthlyEti: 0, ineligibilityReason: undefined };
+  }
+  return result;
 }

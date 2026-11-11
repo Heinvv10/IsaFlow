@@ -18,18 +18,25 @@ const TAX_STATUS = [
   { value: 'director', label: 'Director' },
   { value: 'independent_contractor', label: 'Independent contractor' },
 ];
+/** ETI Act s6(b): an SA ID number (checked), an asylum seeker permit, or a refugee identity document. */
+const ETI_ID_DOCUMENT = [
+  { value: 'sa_id', label: 'SA ID number (on the profile)' },
+  { value: 'asylum_seeker_permit', label: 'Asylum seeker permit' },
+  { value: 'refugee_id', label: 'Refugee identity document' },
+];
 const PAY_BASIS = [
   { value: 'monthly', label: 'Monthly salary' },
   { value: 'hourly', label: 'Hourly' },
   { value: 'daily', label: 'Daily' },
 ];
 
-interface Draft { taxStatus: string; payBasis: string; hoursPerWeek: string; hoursPerDay: string; hourlyRate: string; dailyRate: string; occupation: string }
+interface Draft { taxStatus: string; payBasis: string; hoursPerWeek: string; hoursPerDay: string; hourlyRate: string; dailyRate: string; occupation: string; etiIdDocument: string }
 
 const text = (n: number | null | undefined) => (n == null ? '' : String(n));
 const draftOf = (e: Employee): Draft => ({
   taxStatus: e.taxStatus ?? 'employee', payBasis: e.payBasis ?? 'monthly', hoursPerWeek: text(e.hoursPerWeek),
   hoursPerDay: text(e.hoursPerDay), hourlyRate: text(e.hourlyRate), dailyRate: text(e.dailyRate), occupation: e.occupation ?? '',
+  etiIdDocument: e.etiIdDocument ?? 'sa_id',
 });
 /** Blank clears; anything else goes as a number, and the server judges it. */
 const numberOrNull = (v: string) => (v.trim() === '' ? null : Number(v));
@@ -64,6 +71,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
         taxStatus: draft.taxStatus, payBasis: draft.payBasis, hoursPerWeek: numberOrNull(draft.hoursPerWeek),
         hoursPerDay: numberOrNull(draft.hoursPerDay), hourlyRate: numberOrNull(draft.hourlyRate),
         dailyRate: numberOrNull(draft.dailyRate), occupation: draft.occupation.trim() || null,
+        etiIdDocument: draft.etiIdDocument === 'sa_id' ? null : draft.etiIdDocument,
       };
       // Only what changed: an occupation-only edit must not take the payroll lock or touch the priced terms.
       const saved = draftOf(employee);
@@ -95,6 +103,7 @@ export function EmployeeWorkCard({ employee, onSaved, canEditPriced }: Props) {
         <Input label="Hourly rate (R)" type="number" min={0} step="0.01" disabled={!canEditPriced} value={draft.hourlyRate} onChange={e => set('hourlyRate')(e.target.value)} />
         <Input label="Daily rate (R)" type="number" min={0} step="0.01" disabled={!canEditPriced} value={draft.dailyRate} onChange={e => set('dailyRate')(e.target.value)} />
         <Input label="Occupation" maxLength={100} value={draft.occupation} onChange={e => set('occupation')(e.target.value)} />
+        <Select label="Identity document (ETI)" options={ETI_ID_DOCUMENT} value={draft.etiIdDocument} disabled={!canEditPriced} onChange={v => v && set('etiIdDocument')(v)} />
       </div>
       {!canEditPriced && (
         <p className="mt-3 text-sm text-[var(--ff-text-secondary)]" data-testid="priced-terms-hint">

@@ -25,6 +25,7 @@ import { laterPeriodsWarnings, loadPayeYearToDate } from './payrollYearToDate';
 import { recordPreparedApproval } from './payrollRunPrepared';
 import { blockedLoanValidation, judgeLoanApplications } from './payrollRunLoanDecision';
 import { assertNoLaterEtiJournal } from './etiPeriodGuard';
+import { withEtiPriorMonths } from './etiPriorEmployment';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -146,7 +147,7 @@ export async function calculatePayrollRun(
   // Components are read as at the period's last day, a plain calendar string (payrollRunReadDate).
   const readDate = payrollRunReadDate(period);
 
-  const employees = await listPayrollRunEmployees(companyId, period);
+  const employees = await withEtiPriorMonths(companyId, await listPayrollRunEmployees(companyId, period)); // ET: a rehire continues its ETI months
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;

@@ -16,7 +16,7 @@ const basic: PayrollComponent = {
   isTaxable: true, isUifApplicable: true, isSdlApplicable: true,
 };
 const employee = (extra: Partial<PayrollEmployee> = {}): PayrollEmployee => ({
-  id: 'e1', companyId: 'co', employeeNumber: 'E1', firstName: 'Thandi', lastName: 'Zulu', employmentType: 'permanent',
+  id: 'e1', companyId: 'co', employeeNumber: 'E1', idNumber: '8001015009087', firstName: 'Thandi', lastName: 'Zulu', employmentType: 'permanent',
   startDate: new Date(2025, 0, 1), uifExcluded: false, medicalAidMainMember: false, medicalAidDependantsCount: 0,
   s18aReceiptHeld: false, taxStatus: 'employee', payBasis: 'hourly', hourlyRate: 85.5, dailyRate: null,
   hoursPerWeek: 40, hoursPerDay: 8, ...extra,
