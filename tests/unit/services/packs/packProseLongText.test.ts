@@ -13,7 +13,7 @@ import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/b
 import { graphemes } from '@/modules/accounting/services/packs/pages/packGraphemes';
 import { pieces } from '@/modules/accounting/services/packs/pages/packLineBreaks';
 import { IGNORABLE_CAP, PAST_ANY_PAGE, PROSE_TEXT_CAP } from '@/modules/accounting/services/packs/pages/packProseFill';
-import { keptLongLines, proseLines } from '@/modules/accounting/services/packs/pages/packProseLines';
+import { forgetLongLines, keptLongLines, proseLines } from '@/modules/accounting/services/packs/pages/packProseLines';
 import { PROSE } from '@/modules/accounting/services/packs/pages/packProseStyles';
 import { denseInput } from './fixtures/boardPackInputs';
 
@@ -92,9 +92,10 @@ describe('tenant text of any length', () => {
   });
 
   it('keeps no text past PROSE_TEXT_CAP (it is not measured; a million characters were kept five times over)', () => {
-    const before = keptLongLines();
+    // From an empty cache, so a kept text is counted (a full one would only evict).
+    forgetLongLines();
     for (let i = 0; i < 5; i += 1) expect(proseLines(`${i}${'a'.repeat(PROSE_TEXT_CAP + 1)}`, PROSE.footnote, 100)).toBe(PAST_ANY_PAGE);
-    expect(keptLongLines()).toBe(before);
+    expect(keptLongLines()).toBe(0);
   });
 
   it('is measured in full up to PROSE_TEXT_CAP, and past it charged as fitting no page', () => {

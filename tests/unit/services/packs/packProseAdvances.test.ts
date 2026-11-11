@@ -12,6 +12,9 @@ import { describe, expect, it } from 'vitest';
 import { PROSE_ADVANCES, PROSE_ADVANCE_UNITS } from '@/modules/accounting/services/packs/pages/packProseAdvanceData';
 import { EXACT_RANGES, FALLBACK, SELF_HOSTED } from '@/modules/accounting/services/packs/pages/packFallbackWidthData';
 import { PROSE_FACES, PROSE_FALLBACK, PROSE_FALLBACK_RANGES } from '@/modules/accounting/services/packs/pages/packProseFallbackData';
+import { FALLBACK_MARKS } from '@/modules/accounting/services/packs/pages/packFallbackMarkData';
+import { fallbackAdvancePx, fallbackClusterPx } from '@/modules/accounting/services/packs/pages/packFallbackWidth';
+import { SCRIPT_NAMES, SCRIPT_RANGES } from '@/modules/accounting/services/packs/pages/packFallbackScriptData';
 import { boundPx, FALLBACK_MARK, proseLinesBound } from '@/modules/accounting/services/packs/pages/packProseBound';
 import { proseLines } from '@/modules/accounting/services/packs/pages/packProseLines';
 import { PROSE } from '@/modules/accounting/services/packs/pages/packProseStyles';
@@ -100,6 +103,54 @@ describe('the commentary gate\'s fallback table', () => {
     expect(PROSE_FACES).toEqual(SELF_HOSTED);
     expect(PROSE_FALLBACK_RANGES).toEqual(EXACT_RANGES);
     expect(PROSE_FALLBACK).toEqual(FALLBACK.label400);
+  });
+});
+
+describe('the combining marks\' table (packFallbackMarkData)', () => {
+  it('says whose base a letter is only for the letters of that script (no range spans another script\'s letters)', () => {
+    const wrong: string[] = [];
+    for (const [from, to, idx] of SCRIPT_RANGES) {
+      let script: RegExp;
+      // A script this runtime does not know is held by the regeneration, not here.
+      try { script = new RegExp(`^\\p{Script=${SCRIPT_NAMES[idx]}}$`, 'u'); } catch { continue; }
+      for (let cp = from; cp <= to; cp += 1) if (!script.test(String.fromCodePoint(cp))) wrong.push(`${cp.toString(16)} in ${SCRIPT_NAMES[idx]}`);
+    }
+    expect(wrong.slice(0, 10)).toEqual([]);
+  });
+
+  it('holds every mark this runtime knows but SignWriting\'s (a script with no letters to write them on: they cost the widest glyph)', () => {
+    const held = new Set(FALLBACK_MARKS.map(([cp]) => cp));
+    const missing: string[] = [];
+    for (let cp = 0; cp <= 0x10ffff; cp += 1) {
+      if ((cp < 0xd800 || cp > 0xdfff) && /^\p{M}$/u.test(String.fromCodePoint(cp)) && !held.has(cp) && !(cp >= 0x1da00 && cp <= 0x1daaf)) missing.push(cp.toString(16));
+    }
+    expect(missing.slice(0, 10)).toEqual([]);
+  });
+});
+
+describe('what a mark costs in a cluster (fallbackClusterPx with marks)', () => {
+  const widest = FALLBACK.label400.widest;
+  const cost = (cluster: string): number => fallbackClusterPx(cluster, 'label400', 12, 12, true);
+  const inWord = (cp: number): number => FALLBACK_MARKS.find((row) => row[0] === cp)![1];
+
+  it('prices a Common or Inherited mark as written only on the letters it was measured on; on any other, the widest glyph', () => {
+    // U+20DD on Hebrew alef (a measured base) adds what it measured; on bet (not measured) it may sit on a dotted circle.
+    expect(inWord(0x20dd)).toBeLessThan(widest);
+    expect(cost('\u05D0\u20DD')).toBe(fallbackAdvancePx(0x5d0, 'label400') + inWord(0x20dd));
+    expect(cost('\u05D1\u20DD')).toBe(fallbackAdvancePx(0x5d1, 'label400') + widest);
+  });
+
+  it('prices a mark the table does not hold (SignWriting\'s: no letters to write it on) at the widest glyph', () => {
+    expect(cost('a\u{1DA00}')).toBe(fallbackAdvancePx(0x61, 'label400') + widest);
+  });
+
+  it('prices a mark after another mark of its cluster at least at what it adds elsewhere (an order the shaper may reject)', () => {
+    const elsewhere = (cp: number): number => FALLBACK_MARKS.find((row) => row[0] === cp)![2];
+    // Burmese U typed before I, and Devanagari anusvara before vowel sign I.
+    for (const [base, first, second] of [[0x1000, 0x102f, 0x102d], [0x915, 0x902, 0x93f]] as const) {
+      const cluster = String.fromCodePoint(base, first, second);
+      expect(cost(cluster)).toBeGreaterThanOrEqual(fallbackAdvancePx(base, 'label400') + inWord(first) + Math.max(inWord(second), elsewhere(second)));
+    }
   });
 });
 

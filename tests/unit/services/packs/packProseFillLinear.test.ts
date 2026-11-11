@@ -6,7 +6,7 @@
  * a ratio, whatever the machine's load (a token past `PROSE_TEXT_CAP` is not measured at all: `packProseLongText.test.ts`). The caches beside it keep only short texts (`KEPT_CHARS`).
  */
 import { describe, expect, it } from 'vitest';
-import { KEPT_CHARS, proseFill } from '@/modules/accounting/services/packs/pages/packProseFill';
+import { IGNORABLE_CAP, KEPT_CHARS, PAST_ANY_PAGE, proseFill } from '@/modules/accounting/services/packs/pages/packProseFill';
 import { keptBoundLongest, proseLinesBound } from '@/modules/accounting/services/packs/pages/packProseBound';
 import { keptWidthLongest, proseLines } from '@/modules/accounting/services/packs/pages/packProseLines';
 import { PROSE } from '@/modules/accounting/services/packs/pages/packProseStyles';
@@ -30,6 +30,19 @@ const fillMs = (n: number): number => {
   }
   return best;
 };
+
+describe('prose of characters that print nothing', () => {
+  it('past IGNORABLE_CAP of them is charged PAST_ANY_PAGE without a width asked; at the cap it is measured', () => {
+    for (const ch of ['\uFEFF', '\u200B', '\u2060', '\u00AD']) {
+      const over = counting();
+      expect(proseFill(`x${ch.repeat(IGNORABLE_CAP + 1)}`, PROSE.narrativeBody, 110, over.widthOf)).toBe(PAST_ANY_PAGE);
+      expect(over.calls, `U+${ch.codePointAt(0)!.toString(16)}`).toBe(0);
+      const at = counting();
+      proseFill(`x${ch.repeat(IGNORABLE_CAP)}`, PROSE.narrativeBody, 110, at.widthOf);
+      expect(at.calls).toBeGreaterThan(0);
+    }
+  });
+});
 
 describe('a 40,000-character token with no break in it (under PROSE_TEXT_CAP: past it the fill measures nothing)', () => {
   it('asks for a bounded number of widths, each of a grapheme or two but for the token once', () => {

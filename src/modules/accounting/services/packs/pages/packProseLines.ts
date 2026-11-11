@@ -76,8 +76,9 @@ const LONG_LINES = new Map<string, number>();
 const LONG_KEPT = 32;
 const LONG_TEXT = 1_000;
 
-/** How many long texts' lines are kept (`packProseLongText.test.ts`). */
+/** How many long texts' lines are kept, and forgetting them: for `packProseLongText.test.ts`. */
 export const keptLongLines = (): number => LONG_LINES.size;
+export const forgetLongLines = (): void => { LONG_LINES.clear(); };
 
 /** The lines `text` (or its segments) takes set in `style`, `widthMm` wide. */
 export function proseLines(text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): number {

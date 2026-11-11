@@ -4,7 +4,8 @@
  * (`packProseFallbackData`, the regular label table) without loading every style into the editor (#1263 L2).
  * Client-safe: arithmetic and data only.
  */
-import { FALLBACK_MARKS, SCRIPT_RANGES } from './packFallbackMarkData';
+import { FALLBACK_MARKS } from './packFallbackMarkData';
+import { ANY_BASES, SCRIPT_NAMES, SCRIPT_RANGES } from './packFallbackScriptData';
 import type { FallbackTable } from './packFallbackWidthData';
 
 const BLOCK = 32;
@@ -38,10 +39,15 @@ export function fallbackAdvanceIn(table: FallbackTable, ranges: ReadonlyArray<re
   return px === 0 ? table.widest : px;
 }
 
-/** What each combining mark of a script the faces lack adds, measured in production's image: [in a word, elsewhere]. */
+/** What each combining mark the faces lack adds, measured in production's image: [in a word, elsewhere, script]. */
 const MARKS = new Map<number, readonly [number, number, number]>(FALLBACK_MARKS.map(([cp, inWord, elsewhere, script]) => [cp, [inWord, elsewhere, script]]));
+/** The scripts whose marks go on any letter (Common, Inherited), and the letters they were measured on. */
+const ANY = new Set(SCRIPT_NAMES.flatMap((name, i) => (name === 'Common' || name === 'Inherited' ? [i] : [])));
+const ANY_BASE = new Set(ANY_BASES);
+const MARK = /^\p{M}$/u;
+const SELECTOR = /^[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]$/u;
 
-/** The script (an index into `packFallbackMarkData.SCRIPT_NAMES`) of `cp`, among those with marks; -1 for any other. */
+/** The script (an index into `packFallbackScriptData.SCRIPT_NAMES`) `cp` is a measured base of; -1 for any other. */
 function scriptAt(cp: number): number {
   let lo = 0;
   let hi = SCRIPT_RANGES.length - 1;
@@ -69,14 +75,28 @@ export function fallbackClusterIn(
 ): number {
   let px = 0;
   const cps = Array.from(cluster);
-  // A mark is written on a letter of its own script; on anything else (a Latin letter, a digit) the print sets it on a
-  // dotted circle in a face of its own, wider than any table here measures: it costs the widest fallback glyph.
-  const base = cps[0] !== undefined && /^\p{L}$/u.test(cps[0]) ? scriptAt(cps[0].codePointAt(0)!) : -1;
+  // A mark is priced as written only on a base it was measured on (`packFallbackMarkData`: a consonant of its own
+  // script, or for a Common or Inherited mark the letters of ANY_BASES), and once in its cluster; on anything else, a
+  // second time, or not in the table at all, the print may set it on a dotted circle in a face of its own, wider than
+  // any table here measures: it costs the widest fallback glyph (#1263 rounds 3 and 4). A selector adds what it was
+  // measured to add on any base.
+  const base = cps[0] === undefined ? -1 : cps[0].codePointAt(0)!;
+  const seen = new Set<number>();
   cps.forEach((ch, i) => {
-    const mark = marks ? MARKS.get(ch.codePointAt(0)!) : undefined;
-    if (mark === undefined) { px += fallbackAdvanceIn(table, ranges, ch.codePointAt(0)!); return; }
-    if (i === 0 || base < 0 || base !== mark[2]) px += table.widest;
-    else px += cps[i - 1] === ch ? mark[1] : mark[0];
+    const cp = ch.codePointAt(0)!;
+    const mark = marks ? MARKS.get(cp) : undefined;
+    if (mark === undefined) {
+      px += marks && i > 0 && MARK.test(ch) ? table.widest : fallbackAdvanceIn(table, ranges, cp);
+      return;
+    }
+    const writtenOn = i > 0 && (SELECTOR.test(ch) || (ANY.has(mark[2]) ? ANY_BASE.has(base) : scriptAt(base) === mark[2]));
+    // After another mark (a second sign on one consonant), the order may be one the shaper rejects (Devanagari
+    // anusvara before vowel sign I, Burmese U typed before I), set on a dotted circle: the larger of what it adds in a
+    // word and elsewhere (#1263 round 4).
+    const afterMark = i > 1 && MARK.test(cps[i - 1]!);
+    if (!writtenOn) px += table.widest;
+    else px += seen.has(cp) ? mark[1] : afterMark ? Math.max(mark[0], mark[1]) : mark[0];
+    seen.add(cp);
   });
   if (/[\uFE0F\u20E3]/u.test(cluster)) px = Math.max(px, table.emoji);
   return Math.ceil((px * sizePx) / measuredPx);

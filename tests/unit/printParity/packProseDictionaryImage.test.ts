@@ -19,7 +19,8 @@ import { MAX_APPROVED_PACK_EMS, commentaryCost } from '@/modules/accounting/serv
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { graphemes } from '@/modules/accounting/services/packs/pages/packGraphemes';
 import { PROSE } from '@/modules/accounting/services/packs/pages/packProseStyles';
-import { FALLBACK_MARKS, SCRIPT_BASES } from '@/modules/accounting/services/packs/pages/packFallbackMarkData';
+import { FALLBACK_MARKS } from '@/modules/accounting/services/packs/pages/packFallbackMarkData';
+import { SCRIPT_BASES } from '@/modules/accounting/services/packs/pages/packFallbackScriptData';
 import { GUTTER_MM, PAGE_WIDTH_MM, PRINT_CONTENT_HEIGHT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { denseInput } from '../services/packs/fixtures/boardPackInputs';
 import * as F from '../services/packs/fixtures/liveDemoBoardPack';

@@ -40,6 +40,7 @@ export const PRINT_PARITY_FILES = [
   'tests/unit/printParity/packProseDictionaryImage.test.ts', // the same
   'tests/unit/printParity/packFallbackMarksImage.test.ts', // the same
   'tests/unit/printParity/packProseMixedImage.test.ts', // the same
+  'tests/unit/printParity/packProseMarksR4Image.test.ts', // the same
 ];
 
 export const VELO_MACHINE_FILES = [
