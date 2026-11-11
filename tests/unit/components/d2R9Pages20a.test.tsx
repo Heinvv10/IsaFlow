@@ -70,6 +70,16 @@ describe('sars/emp201 (route: data = EMP201Data)', () => {
     fireEvent.click(screen.getByText(/Payroll Runs \(1\)/));
     expect(await screen.findByText(/999\.00/)).toBeDefined();   // run.grossPay
   });
+  it('shows the ETI carry so PAYE less ETI used is PAYE payable (wave 5 ET; ETI Act s9(1), s10)', async () => {
+    serve(on('GET', 'sars-emp201', () => ok({ ...emp, payePayable: 255, etiCarry: { broughtForward: 245, used: 300, carriedForward: 0, refundClaimable: 0 } })));
+    render(<Emp201Page />);
+    fireEvent.click(screen.getByRole('button', { name: /Generate/ }));
+    await screen.findByText('Number of employees');
+    expect(rowOf('ETI brought forward from earlier months')).toMatch(/245\.00/);
+    expect(rowOf('Less: ETI used (Employment Tax Incentive)')).toMatch(/300\.00/);
+    expect(rowOf('PAYE payable')).toMatch(/255\.00/);
+    expect(screen.queryByText('ETI carried forward to next month')).toBeNull();
+  });
   it('an empty 500 shows a sentence and no figures', async () => {
     serve(on('GET', 'sars-emp201', empty500));
     render(<Emp201Page />);
