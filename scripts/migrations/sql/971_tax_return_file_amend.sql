@@ -224,6 +224,10 @@ BEGIN
                     AND v.period_start <= OLD.period_end AND v.period_end >= OLD.period_start) THEN
     RAISE EXCEPTION 'this period has a return version: file through the return lifecycle' USING ERRCODE = '23514';
   END IF;
+  -- Whatever the period: a verdict only lands on a draft that SARS gave a correlation id.
+  IF OLD.status = 'draft' AND NEW.status IN ('accepted', 'rejected') AND OLD.efiling_correlation_id IS NULL THEN
+    RAISE EXCEPTION 'a draft takes SARS''s verdict only with a correlation id' USING ERRCODE = '23514';
+  END IF;
   RETURN NEW;
 END;
 $$;

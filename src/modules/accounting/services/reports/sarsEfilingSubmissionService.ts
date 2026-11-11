@@ -231,11 +231,18 @@ export interface PollOutcome {
   errors: string[];
 }
 
-/** Map a SARS-reported eFiling status to our submission status. */
-function mapSubmissionStatus(efilingStatus: string): string {
+/**
+ * Map a SARS-reported eFiling status to our submission status. `received` and `processing` are SARS still working (the row is
+ * submitted); anything else (`unknown`, a status we do not know) changes nothing and is logged: guessing 'submitted' would
+ * let an unrecognised answer move a draft out of draft.
+ */
+function mapSubmissionStatus(efilingStatus: string, current: string): string {
   if (efilingStatus === 'accepted') return 'accepted';
   if (efilingStatus === 'rejected') return 'rejected';
-  return 'submitted'; // processing / unknown — stay submitted
+  if (efilingStatus === 'received' || efilingStatus === 'processing') return 'submitted';
+  log.warn('SARS returned an eFiling status this service does not know; the submission status is unchanged',
+    { efilingStatus, current }, 'sarsEfilingSubmissionService');
+  return current;
 }
 
 export async function pollVAT201Status(companyId: string, submissionId: string, userId?: string): Promise<PollOutcome> {
@@ -251,7 +258,7 @@ export async function pollVAT201Status(companyId: string, submissionId: string, 
   try {
     const auth = await authenticate(config);
     const result = await pollStatus(config, auth.token, submission.efilingCorrelationId);
-    const submissionStatus = mapSubmissionStatus(result.status);
+    const submissionStatus = mapSubmissionStatus(result.status, submission.status);
     await applyPollResult(companyId, submissionId, {
       submissionStatus, efilingStatus: result.status, sarsReference: result.sarsReference,
     });

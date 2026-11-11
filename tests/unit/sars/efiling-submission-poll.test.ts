@@ -254,4 +254,21 @@ describe('pollVAT201Status', () => {
     expect(m.insertEfilingEventCommitted).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'error', message: 'trigger refused' }));
     expect(m.insertEfilingEvent).not.toHaveBeenCalledWith(expect.objectContaining({ eventType: 'error' }));
   });
+
+  it('maps received and processing to submitted, and an UNKNOWN SARS status to a no-op with a warning (never to submitted)', async () => {
+    const draftRow = (status: string) => m.getEfilingSubmission.mockResolvedValue({
+      id: SID, companyId: CID, formType: 'VAT201', periodStart: '2026-03-01', periodEnd: '2026-03-31', status,
+      efilingCorrelationId: 'CORR-1', efilingLastStatus: null, formData: { ...FILED_FIELDS },
+    });
+    draftRow('draft');
+    m.applyPollResult.mockResolvedValue(undefined);
+    m.pollStatus.mockResolvedValue({ status: 'processing', sarsReference: null, errors: [], httpStatus: 200 });
+    await pollVAT201Status(CID, SID);
+    expect(m.applyPollResult).toHaveBeenLastCalledWith(CID, SID, expect.objectContaining({ submissionStatus: 'submitted' }));
+    m.pollStatus.mockResolvedValue({ status: 'unknown', sarsReference: null, errors: [], httpStatus: 200 });
+    await pollVAT201Status(CID, SID);
+    expect(m.applyPollResult).toHaveBeenLastCalledWith(CID, SID, expect.objectContaining({ submissionStatus: 'draft' })); // unchanged
+    const { log } = await import('@/lib/logger');
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('does not know'), expect.objectContaining({ efilingStatus: 'unknown' }), expect.any(String));
+  });
 });

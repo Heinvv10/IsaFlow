@@ -79,6 +79,7 @@ describeIfDb('an uncertain send against the return lifecycle', () => {
     await expect(inTx(a.fx, () => applyPollResult(a.fx.companyId, d, { submissionStatus: 'accepted', efilingStatus: 'accepted', sarsReference: 'R' })))
       .rejects.toThrow(/return lifecycle/);
     expect(((await sql`SELECT status FROM sars_submissions WHERE id = ${d}::UUID`) as Row[])[0]!.status).toBe('draft');
-    expect(v.status).toBe('finalised');
+    // re-read from the database after the act, never the object the finalise returned
+    expect(((await sql`SELECT status FROM tax_return_versions WHERE id = ${String(v.id)}::UUID`) as Row[])[0]!.status).toBe('finalised');
   });
 });

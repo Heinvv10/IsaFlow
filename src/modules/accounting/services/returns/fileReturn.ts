@@ -5,8 +5,9 @@
  * withAuth commits a 4xx. Owner/admin only; a version that has drifted from the ledger or payroll is refused (amend it
  * first). The submission is the company's open draft for the period or a new one; its form_data is ALWAYS the version's
  * figures plus returnVersionId/versionNo (a draft the page saved is kept under `pageDraft`), so the filed submission and the
- * filed version agree. A draft with an in-flight ISV submit (efiling_correlation_id) is refused. After it is marked submitted the next filing of the period (an amended
- * version) gets a new row.
+ * filed version agree. A send to SARS that may have reached it is refused (409 SEND_UNCERTAIN, periodSendUncertain: a correlation id on the
+ * draft, or an intent with no result among its events). After it is marked submitted the next filing of the period (an
+ * amended version) gets a new row.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';

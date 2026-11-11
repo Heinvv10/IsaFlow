@@ -102,4 +102,39 @@ describeIfDb('the ISV send guard and the correlation id', () => {
     expect(resolved).toMatchObject({ status: 'accepted', submission_reference: 'SARS-REF-9', efiling_channel: 'isv', submitted_by: a.admin.userId });
     expect(new Date(resolved.submitted_at as string).getTime()).toBe(new Date(intentAt[0]!.created_at as string).getTime());
   });
+
+  it('the poll stamps the intent that PRECEDED the correlation-carrying event (else the latest intent), among several intents', async () => {
+    const at = (iso: string) => new Date(iso);
+    const ev = (id: string, type: string, status: string | null, corr: string | null, when: string) => sql`INSERT INTO sars_efiling_events
+      (company_id, submission_id, event_type, efiling_status, correlation_id, created_by, created_at)
+      VALUES (${a.fx.companyId}::UUID, ${id}::UUID, ${type}, ${status}, ${corr}, ${a.admin.userId}, ${at(when).toISOString()}::TIMESTAMPTZ)`;
+    const poll = (id: string) => inTx(a.fx, () => applyPollResult(a.fx.companyId, id, { submissionStatus: 'accepted', efilingStatus: 'accepted', sarsReference: 'R' }));
+    const submittedAt = async (id: string) => new Date(String(((await sql`SELECT submitted_at FROM sars_submissions WHERE id = ${id}::UUID`) as Row[])[0]!.submitted_at)).toISOString();
+    // intent 1, then SARS's correlation id, then a later intent 2 (a retry that never answered): the id belongs to intent 1
+    const first = await draft();
+    await ev(first.id, 'submit', 'sending', null, '2026-01-01T10:00:00Z');
+    await ev(first.id, 'error', null, 'CORR-A', '2026-01-01T10:00:05Z');
+    await ev(first.id, 'submit', 'sending', null, '2026-01-01T12:00:00Z');
+    await sql`UPDATE sars_submissions SET efiling_correlation_id = 'CORR-A' WHERE id = ${first.id}::UUID`;
+    await poll(first.id);
+    expect(await submittedAt(first.id)).toBe('2026-01-01T10:00:00.000Z');
+    // no event carries the id: the latest intent
+    const second = await draft();
+    await ev(second.id, 'submit', 'sending', null, '2026-02-01T10:00:00Z');
+    await ev(second.id, 'submit', 'sending', null, '2026-02-01T12:00:00Z');
+    await sql`UPDATE sars_submissions SET efiling_correlation_id = 'CORR-B' WHERE id = ${second.id}::UUID`;
+    await poll(second.id);
+    expect(await submittedAt(second.id)).toBe('2026-02-01T12:00:00.000Z');
+  });
+
+  it('a draft takes SARS\'s verdict only with a correlation id, whatever the period', async () => {
+    const noId = await draft();
+    const withId = await draft();
+    await sql`UPDATE sars_submissions SET efiling_correlation_id = 'CORR-V' WHERE id = ${withId.id}::UUID`;
+    const verdict = (id: string, status: string) => sql`UPDATE sars_submissions SET status = ${status} WHERE id = ${id}::UUID`;
+    await expect(verdict(noId.id, 'accepted')).rejects.toThrow(/correlation id/);
+    await expect(verdict(noId.id, 'rejected')).rejects.toThrow(/correlation id/);
+    await verdict(withId.id, 'rejected'); // allowed: no version for this period, and it has an id
+    expect(((await sql`SELECT status FROM sars_submissions WHERE id = ${withId.id}::UUID`) as Row[])[0]!.status).toBe('rejected');
+  });
 });
