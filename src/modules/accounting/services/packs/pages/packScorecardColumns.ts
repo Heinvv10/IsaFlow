@@ -73,10 +73,11 @@ const CELL_PADDING_MM = 3;
 const WIDEST_TARGET = '(1 234.5)%';
 const WIDEST_STATUS = 'NOT MEANINGFUL';
 
-/** Millimetres a string of `pt` text occupies on one line, through the pack's
- *  own ruler and its safety factor — the same arithmetic `wrappedLines`
- *  divides by, so a column this says fits is a column the height model agrees
- *  fits. */
+/** Millimetres a string of `pt` text occupies on one line, through the em
+ *  table and its safety factor. The height model no longer divides by it (it
+ *  sets prose at the faces' own widths, `packProseLines`). For the two strings
+ *  it sizes the em table reads wider than the faces set them (WIDEST_TARGET
+ *  17.2 against 16.2mm, WIDEST_STATUS 29.3 against 24.5mm at 600). */
 export function singleLineMm(text: string, pt: number): number {
   return textWidthEms(text) * pt * PT_MM * WIDTH_SAFETY;
 }

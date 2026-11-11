@@ -19,6 +19,7 @@
  * how a pack starts reading as two documents.
  */
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import { proseText } from './PackProse';
 
 /**
  * The mark for the nth note under a table: a, b, … z, aa, ab.
@@ -81,7 +82,7 @@ export function NotMeaningfulNotes({ reasons }: { reasons: string[] }) {
         <div key={reason}>
           <dt>{noteMark(index)}</dt>
           <dd>
-            <abbr title="not meaningful">n/m</abbr> — {reason}
+            <abbr title="not meaningful">n/m</abbr> — {proseText(reason)}
           </dd>
         </div>
       ))}

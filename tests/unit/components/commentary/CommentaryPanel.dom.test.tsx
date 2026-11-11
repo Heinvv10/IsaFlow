@@ -312,8 +312,10 @@ describe('CommentaryPanel approve with edits', () => {
 
   it('accepts text that exactly fills the room', async () => {
     const box = await openEditor();
+    // The longest run of x the budget holds, by bisection (the cost only grows with the run).
     let n = 0;
-    while (commentaryCost(['x'.repeat(n + 1)]) <= MAX_APPROVED_PACK_EMS) n += 1;
+    let over = 4000;
+    while (over - n > 1) { const mid = Math.floor((n + over) / 2); if (commentaryCost(['x'.repeat(mid)]) <= MAX_APPROVED_PACK_EMS) n = mid; else over = mid; }
     typeInto(box, 'x'.repeat(n));
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(false);
     typeInto(box, 'x'.repeat(n + 1));
@@ -336,7 +338,9 @@ describe('CommentaryPanel approve with edits', () => {
   });
 
   it('a stale over-budget screen recovers: Refresh re-fetches, re-costs, and Approve is enabled again', async () => {
-    const big: CommentaryRow = { ...ROW, id: 'row-big', rowRef: 'cogs', status: 'approved', approvedText: 'word '.repeat(250).trim() };
+    // 265 words fit alone (740.3 of 760 ems at the prose bound) and the typed sentence tips them over (789.6); 250 no
+    // longer did once the gate costed prose at the faces' widths.
+    const big: CommentaryRow = { ...ROW, id: 'row-big', rowRef: 'cogs', status: 'approved', approvedText: 'word '.repeat(265).trim() };
     const box = await openEditor([ROW, big]);
     typeInto(box, 'A sentence of reasonable length that no longer fits beside the big one.');
     const approve = () => screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement;
@@ -380,6 +384,15 @@ describe('CommentaryPanel approve with edits', () => {
     typeInto(box, 'x'.repeat(4001));
     expect(screen.getByRole('status').textContent).toBe('over the 4000-character limit');
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('applies the ceiling to a board pack too, before costing: 130 letters under 31 marks each fit the page but are refused', async () => {
+    // The server refuses it (`text_too_long`) whatever it would cost (#1263 round 2, blind L2).
+    const box = await openEditor();
+    typeInto(box, `a${'\u0301'.repeat(31)}`.repeat(130));
+    expect(screen.getByRole('status').textContent).toBe('over the 4000-character limit');
+    expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
   });
 
   it('keeps the editor and the typed text when the server refuses, and shows why', async () => {

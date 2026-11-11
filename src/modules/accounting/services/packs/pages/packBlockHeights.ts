@@ -8,7 +8,10 @@
  * transcribed from `styles/packPrint.css` and re-measured against Chromium's
  * own layout by `packSheetCount.test.ts`.
  */
-import { lines, PAGE_WIDTH_MM, PT_MM, wrappedLines, type PageOrientation } from './packTextMetrics';
+import { lines, PAGE_WIDTH_MM, PT_MM, type PageOrientation } from './packTextMetrics';
+import { proseLines } from './packProseLines';
+import { PROSE } from './packProseStyles';
+
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { GUTTER_MM } from './packDisclosureHeight';
 import type { PackNarrative } from './packPageModel';
@@ -119,7 +122,7 @@ export function notMeaningfulNotesMm(figures: Array<PackFigure | null | undefine
   }
   if (reasons.length === 0) return 0;
   return 1.5 + lines(
-    reasons.reduce((sum, r) => sum + wrappedLines(r, 7.5, widthMm - 6), 0),
+    reasons.reduce((sum, r) => sum + proseLines(r, PROSE.tableNote, widthMm - 6), 0),
     11,
   );
 }
@@ -160,7 +163,7 @@ export function narrativeMm(
   // is two thirds of the page, and two in the panel, where it is a third.
   const source = lines(1, 11);
   const tailOf = (widthMm: number): number => (boardActionsTail.length === 0 ? 0
-    : 2 + lines(wrappedLines(boardActionsTail.join(' '), 7.5, widthMm), 11));
+    : 2 + lines(proseLines(boardActionsTail.join(' '), PROSE.actionsTail, widthMm), 11));
   const panelOf = (widthMm: number): number => (boardActions.length === 0 ? 0
     : lines(1, 15) + 1 + lines(2, 11) + 1.5 + listMm(boardActions, widthMm - 8) + tailOf(widthMm - 8));
 
@@ -177,7 +180,7 @@ export function narrativeMm(
   const proseOf = (widthMm: number): number => {
     const body = narrative.body === null
       ? lines(1, 15)
-      : source + lines(wrappedLines(narrative.body, 10, widthMm), 15);
+      : source + lines(proseLines(narrative.body, PROSE.narrativeBody, widthMm), 15);
     return body + (narrative.actions.length === 0 ? 0 : 2 + listMm(narrative.actions, widthMm - 4));
   };
 
@@ -197,7 +200,7 @@ export function narrativeMm(
 /** A `<ul>` of prose items, each wrapped to `widthMm`, 1.5mm apart. */
 function listMm(items: string[], widthMm: number): number {
   return items.reduce((sum, item, i) =>
-    sum + (i === 0 ? 0 : 1.5) + lines(wrappedLines(item, 9.5, widthMm), 14), 0);
+    sum + (i === 0 ? 0 : 1.5) + lines(proseLines(item, PROSE.actionItem, widthMm), 14), 0);
 }
 
 /** `.pack-table` — an 8pt header row over 9pt body rows, with the reasons
@@ -211,7 +214,7 @@ export function tableMm(
   headMm: number = TABLE_HEAD_MM,
 ): number {
   const body = rowLabels.reduce(
-    (sum, label) => sum + wrappedLines(label, 9, widthMm * labelShare) * rowMm, 0);
+    (sum, label) => sum + proseLines(label, PROSE.tableLabel, widthMm * labelShare) * rowMm, 0);
   return headMm + body + notMeaningfulNotesMm(figures, widthMm);
 }
 

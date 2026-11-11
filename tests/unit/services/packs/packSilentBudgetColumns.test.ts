@@ -18,6 +18,7 @@ import { BUDGET_COLUMNS_DROPPED_NOTE } from '@/modules/accounting/services/packs
 import { fitRelaidPage } from '@/modules/accounting/services/packs/pages/packNarrativeFit';
 import { relaidNarrative } from '@/modules/accounting/services/packs/pages/packNarrativeLayout';
 import type { PackPage, PackPageBlock } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { crowdedPage6 } from './fixtures/page6Crowded';
 import { input, type Shape } from './fixtures/page6Grid';
 
 const p6 = (shape: Shape): { page: PackPage; warnings: string[] } => {
@@ -29,12 +30,13 @@ const p6 = (shape: Shape): { page: PackPage; warnings: string[] } => {
     warn.mockRestore();
   }
 };
-const hasColumns = (page: PackPage) => page.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'));
+const hasColumns = (page: Pick<PackPage, 'blocks'>) => page.blocks.some((b) => b.kind === 'table' && b.table.columns.includes('budget'));
 
 describe('the omission note on a budget company\'s page 6 that has no budget columns', () => {
   it.each<[string, Shape]>([
-    // (k=1 with sg [-1,1,1,1] no longer drops its columns once the table is modelled at its exact height.)
-    ['net-debit revenue, the #1148 rescue', { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1, plug: 0.05, sg: [-1, 1, -1, -1] }],
+    // (k=1 with sg [-1,1,1,1] no longer drops its columns once the table is modelled at its exact height, nor plug 5%
+    // with sg [-1,1,-1,-1] once prose is set at its own widths: every line below zero and a 20% plug still do.)
+    ['net-debit revenue, the #1148 rescue', { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1, plug: 0.2, sg: [-1, -1, -1, -1] }],
   ])('%s: names the columns, and does not say every figure is complete', (unused, shape) => {
     const { page } = p6(shape);
     expect(hasColumns(page)).toBe(false);
@@ -45,8 +47,16 @@ describe('the omission note on a budget company\'s page 6 that has no budget col
     expect(note).toContain('Every other figure, table and chart on the page is complete');
   });
 
+  // No grid shape is refused apart once prose is set at its own widths (`fixtures/page6Crowded`): four sentences of a
+  // required footnote leave the page only the merge, and without the columns.
   it('merged disclosures, the #1154 rescue: names the columns too', () => {
-    const { page } = p6({ tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 300000, plug: 0.05, sg: [-1, 1, -1, 1] });
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    let page: Pick<PackPage, 'blocks' | 'footnotes'>;
+    try {
+      page = crowdedPage6(4, { budget: true });
+    } finally {
+      warn.mockRestore();
+    }
     expect(hasColumns(page)).toBe(false);
     expect(page.blocks.some((b) => b.kind === 'disclosure' && b.disclosure.heading === 'Required disclosures')).toBe(true);
     const note = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))?.text;
@@ -63,8 +73,9 @@ describe('the omission note on a budget company\'s page 6 that has no budget col
   });
 
   it('a budget company whose columns print keeps the plain wording', () => {
-    // (k=1 needed no omission note once the table was modelled at its exact height, so this shape is the net-debit one.)
-    const { page } = p6({ tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1000, plug: 0, sg: [-1, -1, 1, 1] });
+    // (k=1 needed no omission note once the table was modelled at its exact height, so this shape is the net-debit one;
+    // sg [-1,-1,1,1] needed none once prose was set at its own widths.)
+    const { page } = p6({ tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1000, plug: 0, sg: [-1, -1, -1, 1] });
     expect(hasColumns(page)).toBe(true);
     const note = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK))?.text;
     expect(note).not.toContain('Budget');
@@ -78,8 +89,10 @@ describe('the omission note on a budget company\'s page 6 that has no budget col
 });
 
 describe('a plain fallback that fits untouched still says the columns are not printed (the adversary\'s advSilentBudgetFits)', () => {
-  it('no trend panels, R1.0bn, plug 5%: the dropped-columns footnote prints, the derived caption pays for it', () => {
-    const { page } = p6({ tr: 'none', budget: true, prior: true, negative: false, loss: false, k: 1000, plug: 0.05, sg: [-1, -1, 1, 1] });
+  // (Ordinary revenue keeps its columns at R1.0bn once prose is set at its own widths, and where it loses them, at
+  // R30bn, the page fits with its caption: a net-debit revenue still pays for the note with the caption.)
+  it('net-debit revenue, no trend panels, R1.0bn, plug 5%: the dropped-columns footnote prints, the derived caption pays for it', () => {
+    const { page } = p6({ tr: 'none', budget: true, prior: true, negative: true, loss: false, k: 1000, plug: 0.05, sg: [-1, 1, 1, 1] });
     expect(hasColumns(page)).toBe(false);
     expect(page.footnotes.some((f) => f.text === BUDGET_COLUMNS_DROPPED_NOTE)).toBe(true);
     // The caption went to make room, so an omission note is printed beside the dropped-columns note. It never
@@ -113,7 +126,7 @@ describe('the budget probe and the real body fit are one function', () => {
 
 describe('a dropped caption is logged once, for the page used', () => {
   it.each<[string, Shape]>([
-    ['budget company: the caption pays for the Budget columns', { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1000, plug: 0, sg: [-1, -1, 1, 1] }],
+    ['budget company: the caption pays for the Budget columns', { tr: 'demo', budget: true, prior: true, negative: true, loss: false, k: 1000, plug: 0, sg: [-1, -1, -1, 1] }],
     ['no budget: the caption goes in fitBodyPage', { tr: 'demo', budget: false, prior: true, negative: true, loss: false, k: 1, plug: 0.2, sg: [1, 1, 1, 1] }],
   ])('%s', (unused, shape) => {
     const { page, warnings } = p6(shape);
@@ -129,8 +142,9 @@ describe('the column absence is said once on ANY path that puts the standalone n
     + 'shown as a move from zero where that period carries no value for the measure.';
   const required: PackPageBlock = {
     kind: 'disclosure',
-    disclosure: { heading: 'Lines below zero', required: true, notes: [{ heading: 'What this means', body: SENTENCE.repeat(27) }] },
+    disclosure: { heading: 'Lines below zero', required: true, notes: [{ heading: 'What this means', body: SENTENCE.repeat(28) }] },
   };
+  // (27 repeats fit with every footnote once prose is set at its own widths; 30 is refused.)
   const pageWith = (notes: string[]) => ({
     title: 'Revenue is below zero.', navLabel: 'Income statement', section: 'Financials' as const, orientation: 'portrait' as const, density: 'high' as const,
     blocks: [required], footnotes: notes.map((text, i) => ({ number: i + 1, text, ...(text === BUDGET_COLUMNS_DROPPED_NOTE ? { required: true as const } : {}) })),

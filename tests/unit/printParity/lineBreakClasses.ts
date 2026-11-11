@@ -105,6 +105,20 @@ ${runLines(runs)}
 `;
 }
 
+/** The code points of line-break class SA (Chromium breaks a run of them by dictionary): `packDictionaryBreakData.ts`. */
+export function dictionarySource(classes: ReadonlyMap<number, string>): string {
+  const runs = classRuns(classes, ['SA']);
+  return `/**
+ * GENERATED from Unicode 17.0's LineBreak.txt by \`tests/unit/printParity/lineBreakClasses.test.ts\` (LINE_BREAK_TXT=...):
+ * do not edit by hand. The code points of line-break class SA (Thai, Lao, Myanmar, Khmer, Tai Le, New Tai Lue, Tai Tham,
+ * Tai Viet, Ahom and their marks), which Chromium breaks by dictionary: \`packDictionaryBreak.ts\`. ${runs.length} runs.
+ */
+export const DICTIONARY_BREAK_RANGES: ReadonlyArray<readonly [number, number]> = [
+${runLines(runs).replace(/, 0\]/g, ']')}
+];
+`;
+}
+
 /** The code points emoji-variation-sequences.txt gives an emoji style (a U+FE0F sequence) to. */
 export function variationBases(text: string): number[] {
   return [...new Set([...text.matchAll(/^([0-9A-F]+) FE0F/gm)].map((m) => parseInt(m[1]!, 16)))].sort((a, b) => a - b);
