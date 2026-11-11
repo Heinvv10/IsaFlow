@@ -46,6 +46,8 @@ const ANY = new Set(SCRIPT_NAMES.flatMap((name, i) => (name === 'Common' || name
 const ANY_BASE = new Set(ANY_BASES);
 const MARK = /^\p{M}$/u;
 const SELECTOR = /^[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]$/u;
+/** A joiner, a selector or any other format character: a code point that is nothing a mark was measured after. */
+const IGNORABLE = /^[\p{Cf}\p{Default_Ignorable_Code_Point}]$/u;
 
 /** The script (an index into `packFallbackScriptData.SCRIPT_NAMES`) `cp` is a measured base of; -1 for any other. */
 function scriptAt(cp: number): number {
@@ -82,20 +84,31 @@ export function fallbackClusterIn(
   // measured to add on any base.
   const base = cps[0] === undefined ? -1 : cps[0].codePointAt(0)!;
   const seen = new Set<number>();
+  // The marks (selectors apart) unbroken just before this code point.
+  let run = 0;
   cps.forEach((ch, i) => {
     const cp = ch.codePointAt(0)!;
     const mark = marks ? MARKS.get(cp) : undefined;
+    const prev = i > 0 ? cps[i - 1]! : '';
+    const selector = SELECTOR.test(ch);
+    const inRun = run;
+    run = MARK.test(ch) && !selector ? run + 1 : 0;
     if (mark === undefined) {
       px += marks && i > 0 && MARK.test(ch) ? table.widest : fallbackAdvanceIn(table, ranges, cp);
       return;
     }
-    const writtenOn = i > 0 && (SELECTOR.test(ch) || (ANY.has(mark[2]) ? ANY_BASE.has(base) : scriptAt(base) === mark[2]));
+    // Only the contexts measured are priced as measured (#1263 round 5): a mark right after its base or after one
+    // mark, a selector right after its base. After a joiner, a selector, a format character, or as the third mark of
+    // a run, production sets the sequence on a dotted circle or a stack in a face of its own: the widest glyph.
+    const unmeasured = i > 0 && (selector ? MARK.test(prev) || IGNORABLE.test(prev) : IGNORABLE.test(prev) || inRun >= 2);
+    const writtenOn = i > 0 && !unmeasured && (selector || (ANY.has(mark[2]) ? ANY_BASE.has(base) : scriptAt(base) === mark[2]));
     // After another mark (a second sign on one consonant), the order may be one the shaper rejects (Devanagari
     // anusvara before vowel sign I, Burmese U typed before I), set on a dotted circle: the larger of what it adds in a
-    // word and elsewhere (#1263 round 4).
-    const afterMark = i > 1 && MARK.test(cps[i - 1]!);
-    if (!writtenOn) px += table.widest;
-    else px += seen.has(cp) ? mark[1] : afterMark ? Math.max(mark[0], mark[1]) : mark[0];
+    // word and elsewhere (#1263 round 4), and at least the circle itself, an em (round 5: Lao and Odia pairs the table
+    // reads at nothing print a line in eight wider).
+    let cost = seen.has(cp) ? mark[1] : inRun > 0 ? Math.max(mark[0], mark[1]) : mark[0];
+    if (inRun > 0) cost = Math.max(cost, measuredPx);
+    px += writtenOn ? cost : table.widest;
     seen.add(cp);
   });
   if (/[\uFE0F\u20E3]/u.test(cluster)) px = Math.max(px, table.emoji);

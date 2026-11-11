@@ -83,10 +83,16 @@ export const forgetLongLines = (): void => { LONG_LINES.clear(); };
 /**
  * The lines of SHORT texts (and segments) at a style and width, kept: the composer measures the same captions, notes and
  * labels again on every fit attempt of every page, and filling them anew made the pack's composition twice as slow
- * (#1263: the unit suite ran past CI's job cap). Bounded in entries of at most LONG_TEXT characters, cleared when full.
+ * (#1263: the unit suite ran past CI's job cap). Bounded in entries (SHORT_KEPT) and in key text (SHORT_UNITS), texts of at most LONG_TEXT characters, cleared when full.
  */
 const SHORT_LINES = new Map<string, number>();
 const SHORT_KEPT = 20_000;
+/** And in the key text kept, in code units (about 4 MB): 20,000 entries of 1,000 characters would be tens of MB. */
+const SHORT_UNITS = 2_000_000;
+let shortUnits = 0;
+
+/** What the short-lines cache holds, for `packProseLineCache.test.ts`: entries, and code units of key text. */
+export const keptShortLines = (): { entries: number; units: number } => ({ entries: SHORT_LINES.size, units: shortUnits });
 
 /** A key naming the text (or its segments, each weight and length with its text: no two inputs share one). */
 const shortKey = (text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): string =>
@@ -100,8 +106,12 @@ export function proseLines(text: string | readonly ProseSegment[], style: ProseS
     let lines = SHORT_LINES.get(key);
     if (lines === undefined) {
       lines = proseFill(text, style, widthMm, exactPx);
-      if (SHORT_LINES.size >= SHORT_KEPT) SHORT_LINES.clear();
+      if (SHORT_LINES.size >= SHORT_KEPT || shortUnits + key.length > SHORT_UNITS) {
+        SHORT_LINES.clear();
+        shortUnits = 0;
+      }
       SHORT_LINES.set(key, lines);
+      shortUnits += key.length;
     }
     return lines;
   }
