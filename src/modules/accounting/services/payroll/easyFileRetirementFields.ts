@@ -37,13 +37,23 @@ export function retirementFieldLines(r: RetirementContributions | undefined): { 
 
 const DEDUCTION_CODE = /^4[045]\d\d$/;
 
-/** The record with 4497 (the sum of its emitted 40xx / 44xx / 45xx values) after the last of them; unchanged when none. */
+/**
+ * The record with 4497 (the sum of its emitted 40xx / 44xx / 45xx values) in code order; unchanged when none. BRS V25.3.0
+ * p. 57: 4497 is the "Total of all values specified under 40-deduction, 44-contribution and 45-information codes", so
+ * 4474 (employer's medical contribution) and 4582 (the PAYE portion of 3701 / 3802) are in it.
+ */
 export function withDeductionTotal(record: string[]): string[] {
   let last = -1;
+  let firstAbove = -1;
   let total = 0;
   record.forEach((l, i) => {
     const [code, value] = l.split(',');
-    if (code !== '4497' && DEDUCTION_CODE.test(code ?? '')) { last = i; total += Number(value); }
+    if (code === '4497' || !DEDUCTION_CODE.test(code ?? '')) return;
+    total += Number(value);
+    // After the last code below 4497; with none, before the first above it (4582, an information code).
+    if (Number(code) < 4497) last = i;
+    else if (firstAbove < 0) firstAbove = i;
   });
-  return last < 0 ? record : [...record.slice(0, last + 1), `4497,${Math.floor(total)}`, ...record.slice(last + 1)];
+  const at = last >= 0 ? last + 1 : firstAbove;
+  return at < 0 ? record : [...record.slice(0, at), `4497,${Math.floor(total)}`, ...record.slice(at)];
 }

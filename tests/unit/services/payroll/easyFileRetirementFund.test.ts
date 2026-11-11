@@ -115,7 +115,7 @@ describe('4030 donations and the 4497 total on the certificate', () => {
 describe('withDeductionTotal: which codes count toward 4497 (BRS V25.3.0 p. 57: 40-, 44- and 45- codes)', () => {
   it('counts 40xx, 44xx and 45xx values, not 36xx/38xx income or 41xx tax fields, and goes after the last of them', () => {
     const record = ['3601,500000', '3810,1200', '4001,100', '4472,200', '4582,300', '4102,1000.00', '4141,354.24', '9999,9999'];
-    expect(withDeductionTotal(record)).toEqual(['3601,500000', '3810,1200', '4001,100', '4472,200', '4582,300', '4497,600', '4102,1000.00', '4141,354.24', '9999,9999']);
+    expect(withDeductionTotal(record)).toEqual(['3601,500000', '3810,1200', '4001,100', '4472,200', '4497,600', '4582,300', '4102,1000.00', '4141,354.24', '9999,9999']);
   });
 
   it('leaves a record with no deduction code unchanged', () => {

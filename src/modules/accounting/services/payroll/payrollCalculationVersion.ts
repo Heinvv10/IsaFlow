@@ -10,6 +10,7 @@
  * 4: only retirement contributions and s18A donations reduce PAYE; any other taxable deduction is warned.
  * 5: an hourly or daily employee with no hours or days on the run is flagged HOURS_MISSING and refused at approval (HD).
  * 6: tax status and employment class decide PAYE, UIF, SDL and ETI (non-standard 25%, independent contractor: none; TS-b).
- * 8: an IRP3(b) fixed-percentage or IRP3(c) fixed-amount directive decides PAYE on regular pay (DR; 7 is FB's, open in parallel).
+ * 7: fringe benefits: 3701 and 3802 are taxed at 80% (20% with business use of at least 80%), SDL / UIF / ETI read the PAYE share, a 3810 earning is non-cash and deemed medical fees (FB).
+ * 8: an IRP3(b) fixed-percentage or IRP3(c) fixed-amount directive decides PAYE on regular pay (DR).
  */
 export const PAYROLL_CALCULATION_VERSION = 8;
