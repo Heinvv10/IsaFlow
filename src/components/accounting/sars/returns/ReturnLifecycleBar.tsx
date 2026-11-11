@@ -50,7 +50,7 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
       </div>
 
       {error && <p role="alert" className="text-sm text-red-500 dark:text-red-400">{error}</p>}
-      {done && <p role="status" className="text-sm text-teal-600 dark:text-teal-400">{done}</p>}
+      {done && <p role="status" className="text-sm text-teal-700 dark:text-teal-400">{done}</p>}
 
       {steps.length > 0 && (
         <ol className="flex flex-wrap gap-2" aria-label="Lifecycle steps">

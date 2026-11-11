@@ -20,7 +20,7 @@ const show = (n: number, money: boolean) => (money ? formatMoney(n) : String(n))
 
 function Drift({ form, v }: { form: ReturnForm; v: ReturnVersionView }) {
   if (!v.drift) return null;
-  if (!v.drift.drifted) return <p className="text-xs text-teal-600 dark:text-teal-400">Matches the ledger and payroll now.</p>;
+  if (!v.drift.drifted) return <p className="text-xs text-teal-700 dark:text-teal-400">Matches the ledger and payroll now.</p>;
   return (
     <div className="rounded-md bg-amber-500/10 p-2 text-xs text-[var(--ff-text-primary)]">
       <p className="font-medium">Changed since it was finalised:</p>
@@ -55,7 +55,8 @@ export function ReturnVersionsDrawer({ open, onClose, form, versions, vatReturn,
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">Version {v.versionNo}</h3>
                 <Badge variant={STATUS_VARIANT[v.status]}>{v.status}</Badge>
-                {v.lockRemoved && <Badge variant="danger">Lock removed outside the lifecycle</Badge>}
+                {/* An amend releases its version's lock by design: only a live version's released lock is news. */}
+                {v.status !== 'superseded' && v.lockRemoved && <Badge variant="danger">Lock removed outside the lifecycle</Badge>}
               </div>
               <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
                 <dt className="text-[var(--ff-text-secondary)]">Finalised</dt>

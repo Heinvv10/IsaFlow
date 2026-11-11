@@ -195,3 +195,16 @@ it('the badges say a lock was removed outside the lifecycle and that the return 
   expect(screen.getByText('VAT period lock removed outside the lifecycle')).toBeTruthy();
   expect(screen.getByText(/Changed since finalised/)).toBeTruthy();
 });
+
+it('the drawer lists every version with its figures and amend reason, and flags a released lock on the live one only', async () => {
+  const { ReturnVersionsDrawer } = await import('@/components/accounting/sars/returns/ReturnVersionsDrawer');
+  const v1 = { ...V1, status: 'superseded', lockRemoved: true, drift: null, amendedBy: 'u-owner', amendedAt: '2026-09-04T10:00:00Z', amendReason: 'Missed a bill' };
+  const v2 = { ...V1, id: 'v2', versionNo: 2, lockRemoved: true, figures: { outputTax: 1600, inputTax: 300, netVat: 1300 } };
+  render(<ReturnVersionsDrawer open onClose={() => undefined} form="VAT201" versions={[v1, v2] as never} vatReturn={null} nameOf={() => 'Olive Owner'} />);
+  const one = screen.getByRole('article', { name: 'Version 1' });
+  const two = screen.getByRole('article', { name: 'Version 2' });
+  expect(one.textContent).toMatch(/Amended.*Olive Owner.*Missed a bill/);
+  expect(one.textContent).not.toMatch(/Lock removed/);
+  expect(two.textContent).toMatch(/Lock removed outside the lifecycle/);
+  expect(within(two).getByRole('row', { name: /Net VAT/ }).textContent).toMatch(/1[\s,]?300\.00/);
+});
