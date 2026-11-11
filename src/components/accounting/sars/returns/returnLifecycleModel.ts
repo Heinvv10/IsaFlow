@@ -10,6 +10,7 @@ const ACT_ROLES: readonly string[] = ['owner', 'admin'];
 
 export interface LifecycleStep {
   key: string;
+  versionNo: number;
   label: string;
   /** User id of whoever took the step. */
   by: string;
@@ -22,13 +23,13 @@ export interface LifecycleStep {
 export function lifecycleSteps(versions: ReturnVersionView[]): LifecycleStep[] {
   return [...versions].sort((a, b) => a.versionNo - b.versionNo).flatMap((v) => {
     const steps: LifecycleStep[] = [
-      { key: `${v.id}-f`, label: `v${v.versionNo} finalised`, by: v.finalisedBy, at: v.finalisedAt, detail: null, kind: 'finalised' },
+      { key: `${v.id}-f`, versionNo: v.versionNo, label: `v${v.versionNo} finalised`, by: v.finalisedBy, at: v.finalisedAt, detail: null, kind: 'finalised' },
     ];
     if (v.filedBy && v.filedAt) {
-      steps.push({ key: `${v.id}-s`, label: `v${v.versionNo} filed`, by: v.filedBy, at: v.filedAt, detail: v.filedReference, kind: 'filed' });
+      steps.push({ key: `${v.id}-s`, versionNo: v.versionNo, label: `v${v.versionNo} filed`, by: v.filedBy, at: v.filedAt, detail: v.filedReference, kind: 'filed' });
     }
     if (v.amendedBy && v.amendedAt) {
-      steps.push({ key: `${v.id}-a`, label: `v${v.versionNo} amended`, by: v.amendedBy, at: v.amendedAt, detail: v.amendReason, kind: 'amended' });
+      steps.push({ key: `${v.id}-a`, versionNo: v.versionNo, label: `v${v.versionNo} amended`, by: v.amendedBy, at: v.amendedAt, detail: v.amendReason, kind: 'amended' });
     }
     return steps;
   });

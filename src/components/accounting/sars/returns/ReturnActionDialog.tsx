@@ -60,7 +60,8 @@ export function ReturnActionDialog(p: Props) {
   const [refusal, setRefusal] = useState<ReturnRefusalInfo | null>(null);
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
-  const n = p.version?.versionNo ?? p.nextVersionNo;
+  // Fixed at open: a stale-tab reload must not renumber the version this dialog was about.
+  const [n] = useState(p.version?.versionNo ?? p.nextVersionNo);
   const { title, text, cta } = describe(p.form, p.action, n);
 
   const code = refusal?.code ?? null;

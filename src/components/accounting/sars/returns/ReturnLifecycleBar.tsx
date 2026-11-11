@@ -32,8 +32,10 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
   const versions = data?.versions ?? [];
   const live = liveVersion(versions);
   const acts = availableActions(live, role, impersonating);
-  const steps = lifecycleSteps(versions);
   const nextNo = versions.reduce((m, v) => Math.max(m, v.versionNo), 0) + 1;
+  // The newest two versions' steps; the drawer holds the whole history.
+  const steps = lifecycleSteps(versions).filter((s) => s.versionNo >= nextNo - 2);
+  const earlier = nextNo - 3;
   // Status and actions only from a settled load: never "Not finalised" for a return that failed to load.
   const settled = data !== null && !loading && !error;
   const status = live ? (live.status === 'filed' ? `Filed (v${live.versionNo})` : `Finalised (v${live.versionNo}), not filed`)
@@ -75,6 +77,11 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
             );
           })}
         </ol>
+      )}
+      {earlier > 0 && (
+        <p className="text-xs text-[var(--ff-text-secondary)]">
+          {earlier} earlier version{earlier === 1 ? '' : 's'} in Versions.
+        </p>
       )}
 
       {settled && live && (live.lockRemoved || live.drift?.drifted || data?.vatReturn?.mismatch) && (

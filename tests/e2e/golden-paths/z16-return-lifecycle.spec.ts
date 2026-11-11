@@ -5,7 +5,10 @@
  * Finalise a VAT201 -> mark it filed -> amend it with a reason -> finalise and file the next version, all through the
  * lifecycle bar; the versions drawer then lists both versions with the amend reason. Axe reports 0 critical and 0 serious
  * with the bar and with the drawer open, at 1568 and 390, in both themes, and the bar fits 390 without a page scroll.
- * The EMP201 page's bar is checked the same way, read-only (it offers Finalise; nothing is finalised).
+ * The EMP201 page's bar is checked the same way, read-only (it offers Finalise; nothing is finalised). A stale tab is
+ * driven too: the next version is finalised through the API behind the page, and the page's Finalise is refused, reloads
+ * and offers Amend instead or Close. The file and amend dialogs, the refusal and the drawer pass axe; focus enters the
+ * drawer and returns to the Versions button.
  *
  * Nothing goes to SARS: "Mark filed" records a filing made elsewhere, and the ISV send routes are aborted for the run.
  * The sandbox keeps one VAT period whose chain grows by two versions per run; a live version left by an earlier run is
@@ -46,13 +49,20 @@ async function generate(page: Page, p: { startText: string; endText: string }): 
   await page.getByRole('button', { name: 'Generate' }).click();
 }
 
+/** The modal zooms in over 200 ms; axe mid-animation reads blended colours. */
+async function settled(page: Page): Promise<void> {
+  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+}
+
 const status = (page: Page) => page.getByTestId('return-lifecycle-status');
 
-async function act(page: Page, button: RegExp, fill?: { label: RegExp | string; value: string }): Promise<void> {
+async function act(page: Page, button: RegExp, fill?: { label: RegExp | string; value: string }, axeKey?: string): Promise<void> {
   await page.getByTestId('return-lifecycle').getByRole('button', { name: button }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   if (fill) await dialog.getByLabel(fill.label).fill(fill.value);
+  if (axeKey) await settled(page);
+  if (axeKey) await expectNoSeriousA11yViolations(page, { include: ['[role="dialog"]'], key: axeKey, baseline: NOTHING_EXCUSED });
   await dialog.getByRole('button', { name: button }).click();
   // A refusal stays in the dialog in the server's words: fail with it rather than with a bare timeout.
   try {
@@ -84,11 +94,25 @@ test('finalise, file, amend, finalise v2 and file it (sandbox)', async ({ page, 
 
   await act(page, new RegExp(`^Finalise( v${n})?$`));
   await expect(status(page)).toHaveText(`Finalised (v${n}), not filed`);
-  await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: gpRef('Z16A') });
+  await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: gpRef('Z16A') }, 'z16-file-dialog');
   await expect(status(page)).toHaveText(`Filed (v${n})`);
-  await act(page, /^Amend$/, { label: /Reason for the amendment/, value: 'z16: a supplier bill was missed' });
+  await act(page, /^Amend$/, { label: /Reason for the amendment/, value: 'z16: a supplier bill was missed' }, 'z16-amend-dialog');
   await expect(status(page)).toHaveText(`Amended: finalise v${n + 1}`);
-  await act(page, new RegExp(`^Finalise( v${n + 1})?$`));
+
+  // A stale tab: v(n+1) is finalised elsewhere while this page still offers Finalise. The refusal is shown in the
+  // server's words, the bar reloads to the truth, and the dialog offers Amend instead or Close.
+  await api.post('/api/accounting/sars/returns/vat201/finalise', { periodStart: p.start, periodEnd: p.end });
+  await page.getByTestId('return-lifecycle').getByRole('button', { name: `Finalise v${n + 1}` }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: /^Finalise$/ }).click();
+  await expect(dialog.getByTestId('return-refusal')).toContainText(`already finalised as version ${n + 1}. Amend it before finalising again.`);
+  await expect(status(page)).toHaveText(`Finalised (v${n + 1}), not filed`);
+  await expect(dialog.getByRole('button', { name: 'Amend instead' })).toBeVisible();
+  await settled(page);
+  await expectNoSeriousA11yViolations(page, { include: ['[role="dialog"]'], key: 'z16-stale-refusal', baseline: NOTHING_EXCUSED });
+  if (evidenceDir) await page.screenshot({ path: join(evidenceDir, 'vat201-stale-refusal-1568.png') });
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).toBeHidden();
   await act(page, /^Mark filed$/, { label: 'SARS eFiling reference', value: gpRef('Z16B') });
   await expect(status(page)).toHaveText(`Filed (v${n + 1})`);
 
@@ -114,8 +138,10 @@ test('finalise, file, amend, finalise v2 and file it (sandbox)', async ({ page, 
       await expectNoSeriousA11yViolations(page, { include: ['[data-testid="return-lifecycle"]'], key: 'z16-return-lifecycle', baseline: NOTHING_EXCUSED });
       if (evidenceDir) await bar.screenshot({ path: join(evidenceDir, `vat201-lifecycle-${theme}-${width}.png`) });
 
-      await bar.getByRole('button', { name: /^Versions \(/ }).click();
+      const versionsButton = bar.getByRole('button', { name: /^Versions \(/ });
+      await versionsButton.click();
       const drawer = page.getByTestId('return-versions-drawer');
+      await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest('[role="dialog"]'))), 'focus moves into the drawer').toBe(true);
       await expect(drawer.getByRole('article', { name: `Version ${n}` })).toContainText('z16: a supplier bill was missed');
       await expect(drawer.getByRole('article', { name: `Version ${n}` })).not.toContainText('Lock removed');
       await expect(drawer.getByRole('article', { name: `Version ${n + 1}` })).toContainText('filed');
@@ -123,6 +149,7 @@ test('finalise, file, amend, finalise v2 and file it (sandbox)', async ({ page, 
       if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `vat201-versions-${theme}-${width}.png`) });
       await page.keyboard.press('Escape');
       await expect(drawer).toBeHidden();
+      await expect(versionsButton, 'focus returns to the Versions button').toBeFocused();
 
       // EMP201, read-only: the default (previous) month, never finalised here; the bar offers Finalise.
       await page.goto('/accounting/sars/emp201', { waitUntil: 'domcontentloaded' });

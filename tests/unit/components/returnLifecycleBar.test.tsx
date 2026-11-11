@@ -339,3 +339,14 @@ it('a failed load shows no status and no actions; a failed reload keeps the step
   expect(screen.getByRole('list', { name: 'Lifecycle steps' }).textContent).toMatch(/v1 finalised/);
   expect(button(/^Amend$/)).toBeNull();
 });
+
+it('the bar shows the newest two versions\' steps and points to Versions for the rest', async () => {
+  versions = [1, 2, 3, 4].map((no) => ({ ...V1, id: `v${no}`, versionNo: no, status: no === 4 ? 'finalised' : 'superseded',
+    ...(no < 4 ? { amendedBy: 'u-owner', amendedAt: '2026-09-04T10:00:00Z', amendReason: `r${no}` } : {}) }));
+  bar('owner'); await ready();
+  const text = screen.getByRole('list', { name: 'Lifecycle steps' }).textContent ?? '';
+  expect(text).toMatch(/v3 finalised/);
+  expect(text).toMatch(/v4 finalised/);
+  expect(text).not.toMatch(/v2 /);
+  expect(screen.getByText('2 earlier versions in Versions.')).toBeTruthy();
+});
