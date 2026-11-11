@@ -5,7 +5,7 @@ export default function ErrorPage() {
     <ErrorPageShell
       title="Something went wrong · IsaFlow"
       heading="Something went wrong"
-      message="An unexpected error occurred. Please try again."
+      message="This page could not be loaded because of an unexpected error. Try again, or use a link below."
     />
   );
 }
