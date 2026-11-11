@@ -52,7 +52,9 @@ describe('CustomerInvoiceTable Outstanding', () => {
 describe('CustomerInvoiceTable row', () => {
   it('a plain click on a cell opens the drawer', () => {
     fireEvent.click(cell());
-    expect(onOpen).toHaveBeenCalledWith('inv-1', expect.any(HTMLElement));
+    // The row itself (the click landed on a td): not e.target, which the drawer's focus return could not use.
+    expect(onOpen).toHaveBeenCalledWith('inv-1', cell().closest('tr'));
+    expect(onOpen.mock.calls[0]![1].tagName).toBe('TR');
     expect(openTab).not.toHaveBeenCalled();
   });
 

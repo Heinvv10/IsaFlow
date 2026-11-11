@@ -3,6 +3,7 @@
  * a rate-limited pack reload drops the previous pack; the present deck forgets the previous range's figures
  * when its effect re-runs.
  */
+import { openKit } from '../../helpers/kitSelect';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -54,13 +55,17 @@ describe('a failed cost-centre / business-unit list is visible, and a good one i
     const notice = await screen.findByText(`D2 ${part} are unavailable`);
     expect(notice.getAttribute('role')).toBe('alert');
   });
-  it.each([
-    ['balance sheet', () => <BalanceSheetPage />],
-    ['income statement', () => <IncomeStatementPage />],
-  ] as const)('%s: lists that load show no notice', async (_n, page) => {
-    serve(on('GET', 'cost-centres', () => ok({ items: [{ id: 'cc1', code: 'CC9', name: 'D2 Centre' }] })), on('GET', 'business-units', () => ok([])), on('GET', 'reports-', empty500));
-    render(page());
-    if (_n === 'income statement') fireEvent.click(await screen.findByRole('combobox', { name: 'Cost Centre' }));
+  const lists = () => serve(on('GET', 'cost-centres', () => ok({ items: [{ id: 'cc1', code: 'CC9', name: 'D2 Centre' }] })), on('GET', 'business-units', () => ok([])), on('GET', 'reports-', empty500));
+  it('balance sheet: lists that load show no notice', async () => {
+    lists();
+    render(<BalanceSheetPage />);
+    await screen.findByText(/CC9/);
+    expect(document.querySelector('p[role="alert"].text-amber-500')).toBeNull();
+  });
+  it('income statement: lists that load show no notice (its cost centres are in the kit Select, so open it)', async () => {
+    lists();
+    render(<IncomeStatementPage />);
+    openKit(await screen.findByRole('combobox', { name: 'Cost Centre' }));
     await screen.findByText(/CC9/);
     expect(document.querySelector('p[role="alert"].text-amber-500')).toBeNull();
   });

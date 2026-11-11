@@ -89,19 +89,17 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
 
   return (
     <div className="space-y-1.5">
-      <div className="relative">
-        <Select
-          label="Bank account"
-          labelClassName="mb-0 flex items-center gap-2 text-sm font-medium text-[var(--ff-text-primary)]"
-          options={selectOptions}
-          value={value}
-          onChange={handleChange}
-          placeholder={placeholder}
-          disabled={disabled || loading || options.length === 0}
-          loading={loading}
-          emptyText="No bank accounts found"
-        />
-      </div>
+      <Select
+        label="Bank account"
+        labelClassName="mb-0 flex items-center gap-2 text-sm font-medium text-[var(--ff-text-primary)]"
+        options={selectOptions}
+        value={value}
+        onChange={handleChange}
+        placeholder={placeholder}
+        disabled={disabled || loading || options.length === 0}
+        loading={loading}
+        emptyText="No bank accounts found"
+      />
       {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
       {helpText && !error && <p className="text-xs text-[var(--ff-text-muted)]">{helpText}</p>}
       {!loading && options.length === 0 && !error && (

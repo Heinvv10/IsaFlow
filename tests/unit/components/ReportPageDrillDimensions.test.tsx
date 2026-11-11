@@ -57,8 +57,12 @@ it.each([
   render(<Page />);
   if (kind === 'is') await pickKit(await screen.findByRole('combobox', {name:'Cost Centre'}), 'PROJECT — Project');
   else {
+    // Trial balance and balance sheet keep a NATIVE select (UXN moved the income statement only): assert it, so the day
+    // they move to the kit this branch fails and is converted instead of silently going stale.
     await screen.findByRole('option', {name:'PROJECT — Project'});
-    fireEvent.change(screen.getByDisplayValue('All Cost Centres'), {target:{value:'centre-a'}});
+    const native = screen.getByDisplayValue('All Cost Centres');
+    expect(native.tagName).toBe('SELECT');
+    fireEvent.change(native, {target:{value:'centre-a'}});
   }
   if (kind === 'is') fireEvent.click(await screen.findByRole('button', {name:'5000 Expense'}));
   else {
@@ -136,7 +140,9 @@ it('balance sheet carries a selected business unit through report, exports, link
 
   const startCallIndex = vi.mocked(apiFetch).mock.calls.length;
   render(<BalanceSheetPage />);
+  // The balance sheet keeps a NATIVE business-unit select (see the note on the first test).
   await screen.findByRole('option', {name:'OPS — Operations'});
+  expect(screen.getByDisplayValue('All Business Units').tagName).toBe('SELECT');
   fireEvent.change(screen.getByDisplayValue('All Business Units'), {target:{value:'business-a'}});
   const request = (fragment: string) => vi.mocked(apiFetch).mock.calls
     .slice(startCallIndex).filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];

@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { SelectDropdown, selectOptionId } from './SelectDropdown';
+import { groupHeadingId } from './selectGroups';
 import { useSelectKeyboard } from './useSelectKeyboard';
 import { chooseSide, placePanel, type PanelSide } from './panelPlacement';
 
@@ -158,7 +159,10 @@ export function Select(props: SelectProps) {
   useEffect(() => {
     if (!listRef.current || activeIndex < 0) return;
     // By id, not child position: group headings are children too.
-    document.getElementById(selectOptionId(inputId, activeIndex))?.scrollIntoView({ block: 'nearest' });
+    const id = selectOptionId(inputId, activeIndex);
+    document.getElementById(id)?.scrollIntoView({ block: 'nearest' });
+    // The first option of a group brings its heading into view too, so the reader sees which group they entered.
+    document.getElementById(groupHeadingId(id))?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex, inputId]);
 
   const onOpenChangeRef = useRef(onOpenChange);

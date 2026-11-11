@@ -8,7 +8,7 @@ import { Check, Search } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type { SelectOption } from './Select';
 import type { PanelPlacement } from './panelPlacement';
-import { groupHeadingAt, SelectGroupHeading } from './selectGroups';
+import { groupHeadingAt, groupHeadingId, SelectGroupHeading } from './selectGroups';
 
 interface SelectDropdownProps {
   options: SelectOption[];
@@ -129,34 +129,35 @@ export function SelectDropdown({
           const isSelected = selectedValues.includes(option.value);
           const isActive = activeIndex === i;
           const heading = groupHeadingAt(options, i);
+          const optionId = selectOptionId(inputId, i);
           return (
             <Fragment key={option.value}>
-            {heading && <SelectGroupHeading label={heading} />}
-            <li
-              id={selectOptionId(inputId, i)}
-              role="option"
-              aria-selected={isSelected}
-              aria-disabled={option.disabled}
-              onClick={() => onSelect(option)}
-              onMouseEnter={() => onActiveChange(i)}
-              className={cn(
-                'flex cursor-pointer items-center gap-2 px-3 py-2 text-sm',
-                'text-gray-700 dark:text-gray-300',
-                isActive && 'bg-teal-50 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
-                isSelected && !isActive && 'bg-gray-50 dark:bg-gray-800',
-                option.disabled && 'cursor-not-allowed opacity-50'
-              )}
-            >
-              {option.icon && <span className="shrink-0">{option.icon}</span>}
-              <span className="flex-1">{option.label}</span>
-              {isSelected && (
-                <Check
-                  size={14}
-                  aria-hidden="true"
-                  className="shrink-0 text-teal-600 dark:text-teal-400"
-                />
-              )}
-            </li>
+              {heading && <SelectGroupHeading label={heading} id={groupHeadingId(optionId)} />}
+              <li
+                id={optionId}
+                role="option"
+                aria-selected={isSelected}
+                aria-disabled={option.disabled}
+                onClick={() => onSelect(option)}
+                onMouseEnter={() => onActiveChange(i)}
+                className={cn(
+                  'flex cursor-pointer items-center gap-2 px-3 py-2 text-sm',
+                  'text-gray-700 dark:text-gray-300',
+                  isActive && 'bg-teal-50 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+                  isSelected && !isActive && 'bg-gray-50 dark:bg-gray-800',
+                  option.disabled && 'cursor-not-allowed opacity-50'
+                )}
+              >
+                {option.icon && <span className="shrink-0">{option.icon}</span>}
+                <span className="flex-1">{option.label}</span>
+                {isSelected && (
+                  <Check
+                    size={14}
+                    aria-hidden="true"
+                    className="shrink-0 text-teal-600 dark:text-teal-400"
+                  />
+                )}
+              </li>
             </Fragment>
           );
         })}

@@ -84,7 +84,7 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onO
             const bucketLabel = inv.aging_bucket === 'Current' ? 'Current' : (bucketKey ? BUCKET_LABELS[bucketKey] : null);
             const bucketColor = bucketKey ? BUCKET_COLORS[bucketKey] : 'text-teal-500';
             return (
-              <tr key={inv.id} tabIndex={-1} onClick={(e) => onRowClick(e, inv.id)} onAuxClick={(e) => onRowAuxClick(e, inv.id)}
+              <tr key={inv.id} data-row-id={inv.id} tabIndex={-1} onClick={(e) => onRowClick(e, inv.id)} onAuxClick={(e) => onRowAuxClick(e, inv.id)}
                 className="ff-focus-ring cursor-pointer border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                 <td className="py-3 px-4 font-id">
                   <Link href={invoicePath(inv.id)} onClick={(e) => { if (!withModifier(e)) e.preventDefault(); }}
