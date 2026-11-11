@@ -17,12 +17,11 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
-import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
-import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { bookedByEtiJournals, bookedByRunJournal, etiJournalReference } from './etiBooking';
 import { etiMonthLine } from './etiCarryRead';
 import { assertNoLaterEtiJournal } from './etiPeriodGuard';
+import { refundReceivable } from './payrollJournalEti';
 import type { YearMonth } from './etiCarry';
 import {
   applyTaxDirective as applyTaxDirectivePayment, type ApplyDirectiveInput, type ApplyDirectiveResult,
@@ -43,14 +42,12 @@ async function accountByCode(companyId: string, code: string): Promise<string | 
 /** The lines that bring the month's booked ETI to the EMP201's; empty when it already agrees. */
 export async function directiveEtiLines(companyId: string, ym: YearMonth): Promise<JournalLineInput[]> {
   const month = await etiMonthLine(companyId, ym);
-  const refundAccount = await getSystemAccount('eti_refund_receivable', companyId).catch((err: unknown) => {
-    if (err instanceof MissingSystemAccountError) return null;
-    throw err;
-  });
-  const byEti = await bookedByEtiJournals(companyId, ym, refundAccount?.id ?? null);
-  const byRun = await bookedByRunJournal(companyId, ym, refundAccount?.id ?? null);
+  const byEti = await bookedByEtiJournals(companyId, ym);
+  const byRun = await bookedByRunJournal(companyId, ym);
   const used = r2(month.used - byEti.used - byRun.used);
-  const refund = refundAccount ? r2(month.refundClaimable - byEti.refund - byRun.refund) : 0;
+  const refundDue = r2(month.refundClaimable - byEti.refund - byRun.refund);
+  const refundAccount = Math.abs(refundDue) < 0.005 ? null : await refundReceivable(companyId);
+  const refund = refundAccount ? refundDue : 0;
   if (Math.abs(used) < 0.005 && Math.abs(refund) < 0.005) return [];
   const paye = await accountByCode(companyId, '2140');
   const labour = await accountByCode(companyId, '5200');

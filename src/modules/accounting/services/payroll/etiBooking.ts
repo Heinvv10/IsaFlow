@@ -6,7 +6,8 @@
  *
  * Read from the ledger, so a reversal is counted as what it is:
  *  - ETI journals: reference `ETI-YYYY-MM`, source 'auto_payroll', and every journal reversing one of them (by
- *    reversal_of_id, to any depth). ETI used = their net debit on 2140; refund = their net debit on the receivable.
+ *    reversal_of_id, to any depth). ETI used = their net debit on 2140; refund = their net debit on any account of the
+ *    eti_refund_receivable subtype (migration 974).
  *  - The run's journal, while it is in force: ETI used = the run's PAYE - its net 2140 credit; refund = its net debit
  *    on the receivable.
  */
@@ -22,7 +23,7 @@ export const etiJournalReference = (ym: YearMonth): string => `ETI-${ym.year}-${
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
 /** Booked by the month's ETI journals (and their reversals). */
-export async function bookedByEtiJournals(companyId: string, ym: YearMonth, refundAccountId: string | null): Promise<EtiBooked> {
+export async function bookedByEtiJournals(companyId: string, ym: YearMonth): Promise<EtiBooked> {
   const rows = (await sql`
     WITH RECURSIVE chain(id, depth) AS (
       SELECT je.id, 0 FROM gl_journal_entries je
@@ -33,7 +34,7 @@ export async function bookedByEtiJournals(companyId: string, ym: YearMonth, refu
     )
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_code = '2140' THEN jl.debit - jl.credit ELSE 0 END), 0) AS used,
-      COALESCE(SUM(CASE WHEN jl.gl_account_id = ${refundAccountId}::UUID THEN jl.debit - jl.credit ELSE 0 END), 0) AS refund
+      COALESCE(SUM(CASE WHEN ga.account_subtype = 'eti_refund_receivable' THEN jl.debit - jl.credit ELSE 0 END), 0) AS refund
       FROM chain
       JOIN gl_journal_entries je ON je.id = chain.id AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
       JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id AND jl.company_id = je.company_id
@@ -43,7 +44,7 @@ export async function bookedByEtiJournals(companyId: string, ym: YearMonth, refu
 }
 
 /** Booked by the month's pay-run journal, while it is in force. */
-export async function bookedByRunJournal(companyId: string, ym: YearMonth, refundAccountId: string | null): Promise<EtiBooked> {
+export async function bookedByRunJournal(companyId: string, ym: YearMonth): Promise<EtiBooked> {
   const header = ((await sql`
     SELECT journal_entry_id, total_paye FROM payroll_run_headers
      WHERE company_id = ${companyId}::UUID AND period_year = ${ym.year} AND period_month = ${ym.month}
@@ -53,7 +54,7 @@ export async function bookedByRunJournal(companyId: string, ym: YearMonth, refun
   const rows = (await sql`
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_code = '2140' THEN jl.credit - jl.debit ELSE 0 END), 0) AS paye_net,
-      COALESCE(SUM(CASE WHEN jl.gl_account_id = ${refundAccountId}::UUID THEN jl.debit - jl.credit ELSE 0 END), 0) AS refund
+      COALESCE(SUM(CASE WHEN ga.account_subtype = 'eti_refund_receivable' THEN jl.debit - jl.credit ELSE 0 END), 0) AS refund
       FROM gl_journal_lines jl
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
      WHERE jl.company_id = ${companyId}::UUID AND jl.journal_entry_id = ${String(header.journal_entry_id)}::UUID

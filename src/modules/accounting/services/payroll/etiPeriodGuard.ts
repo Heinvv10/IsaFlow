@@ -15,7 +15,8 @@ export function reconciliationEnd(ym: YearMonth): YearMonth {
   return start.month === 3 ? { year: start.year, month: 8 } : { year: start.year + 1, month: 2 };
 }
 
-const label = (y: number, m: number): string => new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const label = (y: number, m: number): string => `${MONTHS[m - 1]} ${y}`;
 
 /** The refusal, or null: a later month of the same ETI period whose run journal is posted. */
 export async function laterEtiJournalRefusal(companyId: string, ym: YearMonth): Promise<string | null> {

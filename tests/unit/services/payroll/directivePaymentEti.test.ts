@@ -15,8 +15,8 @@ vi.mock('@/modules/accounting/services/payroll/etiBooking', async (orig) => ({
 vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', () => ({
   assertNoLaterEtiJournal: vi.fn(async () => undefined),
 }));
-vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
-  getSystemAccount: vi.fn(async () => ({ id: 'acc-1150', accountCode: '1150', accountName: 'ETI refund receivable (SARS)' })),
+vi.mock('@/modules/accounting/services/payroll/payrollJournalEti', () => ({
+  refundReceivable: vi.fn(async () => ({ id: 'acc-1150', accountCode: '1150', accountName: 'ETI refund receivable (SARS)' })),
 }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn(async () => ({ id: 'je-eti' })) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn(async () => undefined) }));

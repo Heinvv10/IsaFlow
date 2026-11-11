@@ -39,17 +39,25 @@ export interface RunEti {
   refundAccount: { id: string; accountCode: string; accountName: string } | null;
 }
 
-export async function etiForRun(companyId: string, ym: YearMonth, run: { paye: number; eti: number }): Promise<RunEti> {
-  const month = await etiMonthForRun(companyId, ym, run);
-  const refundAccount = await getSystemAccount('eti_refund_receivable', companyId).catch((err: unknown) => {
+/** The ETI refund receivable (system role, migration 974), or null when no account holds it. */
+export async function refundReceivable(companyId: string): Promise<{ id: string; accountCode: string; accountName: string } | null> {
+  try {
+    return await getSystemAccount('eti_refund_receivable', companyId);
+  } catch (err) {
     if (err instanceof MissingSystemAccountError) return null;
     throw err;
-  });
-  const booked = await bookedByEtiJournals(companyId, ym, refundAccount?.id ?? null);
+  }
+}
+
+export async function etiForRun(companyId: string, ym: YearMonth, run: { paye: number; eti: number }): Promise<RunEti> {
+  const month = await etiMonthForRun(companyId, ym, run);
+  const booked = await bookedByEtiJournals(companyId, ym);
+  const refund = Math.round((month.refundClaimable - booked.refund) * 100) / 100;
   return {
-    month, refundAccount,
+    month, refund,
     etiUsed: Math.round((month.used - booked.used) * 100) / 100,
-    refund: Math.round((month.refundClaimable - booked.refund) * 100) / 100,
+    // Resolved only when there is a refund to book: no read of the role otherwise.
+    refundAccount: Math.abs(refund) < 0.005 ? null : await refundReceivable(companyId),
   };
 }
 
