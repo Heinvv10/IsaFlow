@@ -8,11 +8,12 @@
  * and weight), filling lines as the print does (`packProseFill.proseFill`). The style's size and weight come from
  * `packProseStyles`, held to the CSS.
  *
- * A character the faces do not set is priced from the fallback tables (measured alone in production's image), as the
- * em model priced it: a KNOWN LIMIT, unreached by any fixture. A joined script (Syriac, Arabic, Mongolian) can set a run
- * wider joined than its letters alone (Syriac SADHE 7.52px alone, about 10.3px joined), so a long run of one in prose
- * can read a line short. Pricing every fallback glyph at the widest (7.25em) would be never short, but it cut the
- * dense pack's Japanese matters from 12 to 5 of 15 (#1261 round 2), so the tables stay. A run of a script Chromium
+ * A character the faces do not set is priced from the fallback tables (measured alone in production's image). What the
+ * tables cannot see (a joined script set wider joined than alone, a mark or symbol the primary face lacks that makes later
+ * symbols draw in a wider face, ZWNJ between consonants) is held by the FLOOR (`packProseFloor`, #1264 round 9): a text
+ * holding a code point the faces do not set is priced at max(this model, the pre-#1263 em model) in lines. Pricing every
+ * fallback glyph at the widest (7.25em) would be never short too, but it cut the dense pack's Japanese matters from 12 to
+ * 5 of 15 (#1261 round 2), so the tables stay for the width side. A run of a script Chromium
  * breaks by dictionary (Thai, Lao, Myanmar, Khmer) is one piece here and is filled grapheme by grapheme; the markup sets
  * it to break anywhere so Chromium does too (`packDictionaryBreak`), and a spacing mark costs its own advance
  * (`packFallbackWidthCore`).
@@ -22,6 +23,7 @@ import { textExactPx } from './packFigureWidth';
 import { FALLBACK } from './packFallbackWidthData';
 import { graphemes } from './packGraphemes';
 import { KEPT_CHARS, PROSE_TEXT_CAP, proseFill, SHAPED_CLUSTER, type ProseSegment } from './packProseFill';
+import { floored } from './packProseFloor';
 import type { ProseStyle, ProseWeight } from './packProseStyles';
 
 export { PROSE_GUARD_PX, type ProseSegment } from './packProseFill';
@@ -98,6 +100,10 @@ export const keptShortLines = (): { entries: number; units: number } => ({ entri
 const shortKey = (text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): string =>
   `${style.pt}|${style.weight}|${widthMm}|${typeof text === 'string' ? `|${text}` : text.map((s) => `${s.weight}:${s.text.length}:${s.text}`).join('')}`;
 
+/** The width model's lines for `text`, raised to the em model's where the text holds a code point the faces do not set. */
+const filled = (text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): number =>
+  floored(proseFill(text, style, widthMm, exactPx), text, style, widthMm);
+
 /** The lines `text` (or its segments) takes set in `style`, `widthMm` wide. */
 export function proseLines(text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): number {
   const length = typeof text === 'string' ? text.length : text.reduce((sum, s) => sum + s.text.length, 0);
@@ -105,7 +111,7 @@ export function proseLines(text: string | readonly ProseSegment[], style: ProseS
     const key = shortKey(text, style, widthMm);
     let lines = SHORT_LINES.get(key);
     if (lines === undefined) {
-      lines = proseFill(text, style, widthMm, exactPx);
+      lines = filled(text, style, widthMm);
       if (SHORT_LINES.size >= SHORT_KEPT || shortUnits + key.length > SHORT_UNITS) {
         SHORT_LINES.clear();
         shortUnits = 0;
@@ -115,11 +121,11 @@ export function proseLines(text: string | readonly ProseSegment[], style: ProseS
     }
     return lines;
   }
-  if (typeof text !== 'string' || text.length > PROSE_TEXT_CAP) return proseFill(text, style, widthMm, exactPx);
+  if (typeof text !== 'string' || text.length > PROSE_TEXT_CAP) return filled(text, style, widthMm);
   const key = `${style.pt}|${style.weight}|${widthMm}|${text}`;
   let lines = LONG_LINES.get(key);
   if (lines === undefined) {
-    lines = proseFill(text, style, widthMm, exactPx);
+    lines = filled(text, style, widthMm);
     if (LONG_LINES.size >= LONG_KEPT) LONG_LINES.delete(LONG_LINES.keys().next().value!);
     LONG_LINES.set(key, lines);
   }

@@ -120,6 +120,14 @@ describe('any other cluster with a ZWJ, a modifier, a selector, a keycap mark or
     expect(cost(0x1f3f4, 0xe0067, 0xe007f)).toBeGreaterThanOrEqual(sum(0x1f3f4, 0xe0067, 0xe007f));
   });
 
+  it('a tag character lifts its base to an emoji: the class is NOT equivalent to the widest glyph the tag costs alone (blind round 8 L1: 102 against 94)', () => {
+    // "a" + a tag: the tag is the widest glyph (87) and the class lifts "a" from its advance (7) to an emoji (15).
+    expect(cost(0x61, 0xe0067)).toBe(sum(0x61, 0xe0067));
+    expect(cost(0x61, 0xe0067)).toBeGreaterThan(adv(0x61) + adv(0xe0067));
+    expect(cost(0x20, 0xe0067)).toBe(sum(0x20, 0xe0067));
+    expect(cost(0x31, 0xe0067)).toBe(sum(0x31, 0xe0067));
+  });
+
   it('is never less than the cluster\'s own price (Thai: a base, three tone marks and a joiner)', () => {
     expect(cost(0xe01, 0xe48, 0xe49, 0xe4a, ZWJ)).toBeGreaterThan(sum(0xe01, 0xe48, 0xe49, 0xe4a, ZWJ));
     expect(cost(0xe01, 0xe48, 0xe49, 0xe4a, ZWJ)).toBe(cost(0xe01, 0xe48, 0xe49, 0xe4a));
