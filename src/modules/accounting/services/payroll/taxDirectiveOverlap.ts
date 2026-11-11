@@ -70,7 +70,7 @@ export async function assertNoRegularDirectiveOverlap(companyId: string, employe
   const other = clash[0];
   if (!other) return;
   throw new TaxDirectiveOverlapError(
-    `This employee already has a ${String(other.status)} regular-pay directive${other.directive_number ? ` (${String(other.directive_number)})` : ''} `
+    `This employee already has ${other.status === 'approved' ? 'an approved' : 'a pending'} regular-pay directive${other.directive_number ? ` (${String(other.directive_number)})` : ''} `
     + `in force from ${String(other.effective_date)} to ${String(other.ends_on)}, which overlaps ${window.effectiveDate} to ${window.endsOn}. `
     + 'A period can be taxed by only one fixed-percentage or fixed-amount directive: cancel the other one, or give it an expiry date before this one starts.',
   );
