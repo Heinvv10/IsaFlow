@@ -4,6 +4,7 @@
  */
 
 import { withTransaction } from '@/lib/neon';
+import type { LineExplanations } from './payrollExplainTypes';
 
 export interface LineInsert {
   employeeId: string;
@@ -27,6 +28,8 @@ export interface LineInsert {
   donationReceipted: number; donationBase: number; donationDeduction: number;
   eti: number; netPay: number;
   componentBreakdown: string; validationResults: string;
+  /** How PAYE, UIF, SDL and ETI were calculated (migration 973; payrollExplain), its SDL charge completed by applySdlToLines. */
+  explanation: LineExplanations;
 }
 
 export async function replaceRunLines(runId: string, companyId: string, lineInserts: LineInsert[]): Promise<void> {
@@ -55,14 +58,14 @@ export async function replaceRunLines(runId: string, companyId: string, lineInse
         INSERT INTO payroll_run_lines (
           run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, medical_credit, additional_medical_credit, medical_scheme_fees,
           retirement_contributions, retirement_deduction, uif_employee, uif_employer, sdl, sdl_leviable, sdl_applicable, sdl_exempt, donation_receipted, donation_base, donation_deduction, eti, net_pay,
-          component_breakdown, validation_results, created_at
+          component_breakdown, validation_results, explanation, created_at
         ) VALUES (
           ${runId}::uuid, ${ins.employeeId}::uuid,
           ${ins.grossPay}, ${ins.taxableIncome}, ${ins.periodicTaxable}, ${ins.annualTaxable}, ${ins.paye}, ${ins.medicalCredit}, ${ins.additionalMedicalCredit}, ${ins.medicalSchemeFees},
           ${ins.retirementContributions}, ${ins.retirementDeduction}, ${ins.uifEmployee}, ${ins.uifEmployer},
           ${ins.sdl}, ${ins.sdlLeviable}, ${ins.sdlApplicable}, ${ins.sdlExempt}, ${ins.donationReceipted}, ${ins.donationBase}, ${ins.donationDeduction}, ${ins.eti}, ${ins.netPay},
           ${ins.componentBreakdown},
-          ${ins.validationResults}, clock_timestamp()
+          ${ins.validationResults}, ${JSON.stringify(ins.explanation)}::jsonb, clock_timestamp()
         )
       `;
     }
