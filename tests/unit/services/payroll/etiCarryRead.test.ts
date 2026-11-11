@@ -24,7 +24,7 @@ const rows = [
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(sql).mockResolvedValue(rows as never); });
 
 describe('loadEtiMonths', () => {
-  it('declarable: approved and paid only', async () => {
+  it('declarable: approved and paid only; rev3 L1 NAMED LIMIT: an approved run whose journal is NOT in force still counts (the EMP201 declares it)', async () => {
     expect((await loadEtiMonths(CO, may, may)).map((m) => m.paye)).toEqual([100, 200]);
   });
   it('inForceJournal: only the run whose journal is in force', async () => {

@@ -7,6 +7,9 @@ import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface Emp201EtiCarry { broughtForward: number; used: number; carriedForward: number; refundClaimable: number }
 
+/** The EMP201 response's ETI fields (ETI Act s9(1), s10): payable = PAYE - etiCarry.used. */
+export interface Emp201EtiFields { etiCarry: Emp201EtiCarry; etiWarnings?: string[] }
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="px-4 py-3 flex items-center justify-between">
@@ -32,12 +35,14 @@ export function Emp201EtiRows({ totalETI, etiCarry, warnings }: { totalETI: numb
 }
 
 /** The ETI lines of the EMP201 CSV export, in the page's order. */
-export function emp201EtiCsvRows(totalETI: number, etiCarry: Emp201EtiCarry): string[][] {
+/** The CSV's ETI rows and the PAYE payable row (PAYE net of the ETI used). */
+export function emp201EtiCsvRows(totalETI: number, etiCarry: Emp201EtiCarry, payePayable: number): string[][] {
   return [
     ['ETI', 'Employment Tax Incentive for the period', totalETI.toFixed(2)],
     ['ETI brought forward', 'Unused ETI from earlier months (ETI Act s9(1))', etiCarry.broughtForward.toFixed(2)],
     ['ETI used', 'ETI set off against PAYE', etiCarry.used.toFixed(2)],
     ['ETI carried forward', 'Unused ETI for the next month', etiCarry.carriedForward.toFixed(2)],
     ['ETI refund claimable', 'Unused ETI at the end of August or February, claimed on the EMP501 (s10)', etiCarry.refundClaimable.toFixed(2)],
+    ['PAYE Payable', 'PAYE net of ETI used', payePayable.toFixed(2)],
   ];
 }

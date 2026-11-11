@@ -15,8 +15,8 @@ import { formatDate } from '@/utils/formatters';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Emp201DirectivePayments, type Emp201DirectivePaymentRow } from '@/components/payroll/Emp201DirectivePayments';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { DateField } from '@/components/ui/DateField';import { Emp201EtiRows, emp201EtiCsvRows, type Emp201EtiCarry } from '@/components/accounting/sars/Emp201EtiRows';
-
+import { DateField } from '@/components/ui/DateField';
+import { Emp201EtiRows, emp201EtiCsvRows, type Emp201EtiFields } from '@/components/accounting/sars/Emp201EtiRows';
 
 interface EMP201PayrollRun {
   id: string;
@@ -28,15 +28,12 @@ interface EMP201PayrollRun {
   sdl: number;
 }
 
-interface EMP201Data {
+interface EMP201Data extends Emp201EtiFields {
   periodStart: string;
   periodEnd: string;
   totalPAYE: number;
   totalETI: number;
   payePayable: number;
-  /** ETI Act s9(1), s10 (wave 5 ET): payable = PAYE - used; used draws on this period's ETI and the amount brought forward. */
-  etiCarry: Emp201EtiCarry;
-  etiWarnings?: string[];
   totalUIF_employee: number;
   totalUIF_employer: number;
   totalUIF: number;
@@ -149,8 +146,7 @@ export default function EMP201Page() {
     const rows = [
       ['Field', 'Description', 'Amount (ZAR)'],
       ['PAYE', 'Total PAYE withheld', data.totalPAYE.toFixed(2)],
-      ...emp201EtiCsvRows(data.totalETI, data.etiCarry),
-      ['PAYE Payable', 'PAYE net of ETI used', data.payePayable.toFixed(2)],
+      ...emp201EtiCsvRows(data.totalETI, data.etiCarry, data.payePayable),
       ['UIF (Employee)', 'UIF employee contribution', data.totalUIF_employee.toFixed(2)],
       ['UIF (Employer)', 'UIF employer contribution', data.totalUIF_employer.toFixed(2)],
       ['UIF Total', 'Total UIF', data.totalUIF.toFixed(2)],
