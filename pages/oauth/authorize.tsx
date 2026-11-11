@@ -246,7 +246,7 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
   }
   const resource = typeof q.resource === 'string' && q.resource ? q.resource : null;
 
-  // Absent/empty scope → the read-only default; openid/profile/email dropped;
+  // Absent/empty scope -> OFFERED_MCP_SCOPES (writes unticked); openid/profile/email dropped;
   // any other unknown scope refuses (authorizeScopes.ts).
   const resolved = resolveAuthorizeScopes(scopeStr);
   if (!resolved.ok) {
