@@ -45,6 +45,7 @@
 import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber } from './easyFileFields';
 import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
+import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
 import { contractorAwareReason } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
@@ -100,6 +101,8 @@ export interface EmployeeInput {
   fringeBenefits?: { sourceCode: string; amount: number }[];
   /** Lump sums paid under a directive, NOT included in grossSalary3601. */
   lumpSums?: LumpSumInput[];
+  /** IRP3(b)/(c) directive numbers the year's lines were taxed by: 3230 alone each (easyFileRegularDirectives). */
+  regularDirectiveNumbers?: string[];
   /**
    * The employee's tax threshold for the year (by age). An IT3(a) with reason 02
    * ("earn less than the tax threshold") is written only when 3601 + 3605 is at
@@ -238,6 +241,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
       formatField(3232, l.sourceCode, 'N'),
       formatField(3233, l.amount, 'N'),
     ]),
+    ...regularDirectiveFieldLines(emp.regularDirectiveNumbers, lumpSums.length, `${emp.firstNames} ${emp.surname}`.trim()),
     formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
     formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
     formatField(3616, (emp.independentContractor3616 ?? 0) > 0 ? emp.independentContractor3616! : null, 'N'),

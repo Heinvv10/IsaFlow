@@ -132,11 +132,12 @@ function oracleDirective(c: OracleCase): Pick<PayrollLineInput, 'regularPayDirec
   const amount = numberOf(c.input.unmodelled?.fixedAmountDirective);
   if (rate == null && amount == null) return {};
   const endsOn = `${c.input.taxYear}-02-28`;
+  const effectiveDate = `${c.input.taxYear - 1}-03-01`;
   return {
     regularPayDirective: {
       current: rate != null
-        ? { id: `${c.id}-directive`, number: null, type: 'fixed_percentage', rate: rate / 100, fixedAmount: null, endsOn }
-        : { id: `${c.id}-directive`, number: null, type: 'fixed_amount', rate: null, fixedAmount: amount, endsOn },
+        ? { id: `${c.id}-directive`, number: null, type: 'fixed_percentage', rate: rate / 100, fixedAmount: null, endsOn, effectiveDate }
+        : { id: `${c.id}-directive`, number: null, type: 'fixed_amount', rate: null, fixedAmount: amount!, endsOn, effectiveDate },
       ended: null,
     },
   };

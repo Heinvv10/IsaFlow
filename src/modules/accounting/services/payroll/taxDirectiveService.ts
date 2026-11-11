@@ -9,9 +9,11 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 import { directivePaidBy, TaxDirectivePaidError } from './taxDirectivePaidGuard';
-import { isRegularPayDirectiveType, REGULAR_PAY_DIRECTIVE_TYPES } from './taxDirectiveKinds';
-import { assertNoRegularDirectiveOverlap, directiveEndsOn, lockEmployeeRegularDirectives } from './taxDirectiveOverlap';
-import { regularDirectiveUsedBy } from './payrollRunRegularDirective';
+import { isRegularPayDirectiveType } from './taxDirectiveKinds';
+import { TaxDirectiveWindowError } from './taxDirectiveOverlap';
+import { regularDirectiveLatestUse } from './payrollRunRegularDirective';
+import { judgeRegularDirectiveChange, judgeRegularDirectiveCreate, lockForRegularChange, regularDirectiveRow } from './taxDirectiveRegularPayChange';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { mapRow, type DirectiveStatus, type TaxDirective, type TaxDirectiveCreateInput, type ListTaxDirectivesFilter } from './taxDirectiveModel';
 
 export { TaxDirectivePaidError };
@@ -67,15 +69,10 @@ export async function createTaxDirective(
 ): Promise<TaxDirective> {
   log.info('createTaxDirective', { companyId, directive_type: input.directive_type });
 
-  // A regular-pay directive (IRP3(b)/(c)): its fixed amount, or none for a percentage (taxDirectiveKinds); judged for
-  // overlap under the employee's lock before the insert (taxDirectiveOverlap).
+  // A regular-pay directive (IRP3(b)/(c)): Login-as refused, then judged under the employee's lock before the insert
+  // (taxDirectiveRegularPayChange). Its fixed amount, or none for a percentage (taxDirectiveKinds).
   const regular = isRegularPayDirectiveType(input.directive_type);
-  if (regular && input.employee_id) {
-    await lockEmployeeRegularDirectives(companyId, input.employee_id);
-    await assertNoRegularDirectiveOverlap(companyId, input.employee_id, {
-      effectiveDate: input.effective_date, endsOn: directiveEndsOn(input.effective_date, input.expiry_date ?? null), statuses: ['pending', 'approved'],
-    });
-  }
+  if (regular && input.employee_id) await judgeRegularDirectiveCreate(companyId, input.employee_id, input.effective_date, input.expiry_date ?? null);
   const taxAmount = regular
     ? (input.directive_type === 'fixed_amount' ? input.tax_amount ?? null : null)
     : input.tax_rate != null ? Math.round(input.amount * input.tax_rate * 100) / 100 : null;
@@ -113,6 +110,8 @@ export interface TaxDirectiveChange {
   status?: DirectiveStatus;
   /** YYYY-MM-DD, or null to clear. */
   issued_date?: string | null;
+  /** Regular-pay directives only: YYYY-MM-DD, set or shortened (taxDirectiveRegularPayChange). */
+  expiry_date?: string;
 }
 
 export async function updateTaxDirectiveStatus(
@@ -150,13 +149,12 @@ export async function updateTaxDirective(
 ): Promise<TaxDirective | null> {
   log.info('updateTaxDirective', { companyId, id, status: change.status, issuedDate: change.issued_date });
 
-  // Approving a regular-pay directive: the employee's lock first, then this row (taxDirectiveOverlap's order), then the
-  // overlap with the other approved ones, all before the write. Type, employee and dates cannot change (PATCH).
-  const regular = change.status === 'approved' ? ((await sql`
-    SELECT employee_id, effective_date::text AS effective_date, expiry_date::text AS expiry_date FROM tax_directives
-    WHERE company_id = ${companyId} AND id = ${id} AND directive_type = ANY(${[...REGULAR_PAY_DIRECTIVE_TYPES]}::text[])
-  `) as DbRow[])[0] : undefined;
-  if (regular?.employee_id != null) await lockEmployeeRegularDirectives(companyId, String(regular.employee_id));
+  // Approving sets an employee's PAYE: refused under Login-as (all types). A regular-pay directive's change takes the
+  // employee's lock first, then this row (taxDirectiveOverlap's order), and is judged before the write.
+  if (change.status === 'approved') await assertNotImpersonating();
+  const regular = change.status !== undefined || change.expiry_date !== undefined ? await regularDirectiveRow(companyId, id) : null;
+  if (change.expiry_date !== undefined && !regular) throw new TaxDirectiveWindowError('Only a fixed-percentage or fixed-amount directive takes an expiry date change');
+  if (regular) await lockForRegularChange(companyId, regular);
 
   const locked = await underFlowLockBudget('This tax directive', async () => (await sql`
     SELECT id, directive_number FROM tax_directives
@@ -169,12 +167,9 @@ export async function updateTaxDirective(
     const paid = await directivePaidBy(companyId, id, locked[0].directive_number);
     if (paid) throw new TaxDirectivePaidError(id, paid);
   }
-  if (regular?.employee_id != null) {
-    const effectiveDate = String(regular.effective_date);
-    await assertNoRegularDirectiveOverlap(companyId, String(regular.employee_id), {
-      effectiveDate, endsOn: directiveEndsOn(effectiveDate, regular.expiry_date == null ? null : String(regular.expiry_date)), excludeId: id, statuses: ['approved'],
-    });
-  }
+  // Judged on the row as it is under both locks (status and expiry may have moved since the unlocked read).
+  const fresh = regular ? await regularDirectiveRow(companyId, id) : null;
+  if (fresh) await judgeRegularDirectiveChange(companyId, fresh, change);
 
   const setIssued = change.issued_date !== undefined;
   const rows = await sql`
@@ -182,6 +177,7 @@ export async function updateTaxDirective(
     SET
       status = COALESCE(${change.status ?? null}::text, status),
       issued_date = CASE WHEN ${setIssued}::boolean THEN ${change.issued_date ?? null}::date ELSE issued_date END,
+      expiry_date = COALESCE(${change.expiry_date ?? null}::date, expiry_date),
       approved_by = CASE
         WHEN ${approvedByUserId ?? null}::uuid IS NOT NULL THEN ${approvedByUserId ?? null}::uuid
         ELSE approved_by
@@ -227,8 +223,8 @@ export async function deleteTaxDirective(
       + 'claim or a reversed stand-alone payment), so it cannot be deleted. Cancel it instead.');
   }
   // A regular-pay directive an approved or paid run's line was taxed by is that PAYE's record (payrollRunRegularDirective).
-  const taxedRun = await regularDirectiveUsedBy(companyId, id);
-  if (taxedRun) throw new TaxDirectivePaidError(id, `${which} decided PAYE on the ${taxedRun} payroll run, so it cannot be deleted. Cancel it instead.`);
+  const taxedRun = await regularDirectiveLatestUse(companyId, id);
+  if (taxedRun) throw new TaxDirectivePaidError(id, `${which} decided PAYE on the ${taxedRun.period} payroll run, so it cannot be deleted. Set an expiry date instead.`);
 
   const rows = await sql`
     DELETE FROM tax_directives

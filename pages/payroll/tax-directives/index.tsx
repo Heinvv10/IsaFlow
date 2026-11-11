@@ -13,8 +13,10 @@ import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import {
-  STATUS_COLOURS, STATUS_LABELS, TYPE_LABELS, type DirectiveStatus, type DirectiveType,
+  STATUS_COLOURS, STATUS_LABELS, TYPE_LABELS, directiveAmountCell, type DirectiveStatus, type DirectiveType,
 } from '@/components/payroll/taxDirectiveLabels';
+import { DirectiveExpiryAction } from '@/components/payroll/DirectiveExpiryAction';
+import { isRegularPayDirectiveType } from '@/modules/accounting/services/payroll/taxDirectiveKinds';
 
 type StatusFilter = 'all' | DirectiveStatus;
 
@@ -231,8 +233,7 @@ export default function TaxDirectivesPage() {
                         {formatDisplayDate(d.effectiveDate)}
                       </td>
                       <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">
-                        {d.directiveType === 'fixed_amount' ? `${fmtCurrency(d.taxAmount ?? 0)} PAYE a month`
-                          : d.directiveType === 'fixed_percentage' ? '—' : fmtCurrency(d.amount)}
+                        {directiveAmountCell(d)}
                       </td>
                       <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">
                         {d.taxRate != null ? `${(d.taxRate * 100).toFixed(2)}%` : '—'}
@@ -250,6 +251,9 @@ export default function TaxDirectivesPage() {
                             >
                               Approve
                             </button>
+                          )}
+                          {d.status === 'approved' && isRegularPayDirectiveType(d.directiveType) && (
+                            <DirectiveExpiryAction id={d.id} onSaved={() => void loadDirectives()} onError={setActionError} />
                           )}
                           {(d.status === 'pending' || d.status === 'approved') && (
                             <button

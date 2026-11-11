@@ -11,12 +11,11 @@ import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
 import { etiHoursPending, hoursValidation, runHoursOf } from './payrollRunHours';
-import { directiveEndedResult, regularPayDirectivePaye } from './directiveRegularPay';
+import { capDirectivePaye, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
 import type {
   PayrollLineInput,
   PayrollLineResult,
   EtiResult,
-  ValidationResult,
 } from './payrollTypes';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -113,18 +112,20 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // line's record can exceed its pay (a catch-up contribution), and taxable_income must not go negative.
   const taxableIncome = regularTaxable + annualTaxable;
   // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
-  const treated: { regular: number; annualPayment: number; results?: ValidationResult[] } = directive
-    ? regularPayDirectivePaye(directive, { periodicRemuneration, annualPayments: annualTaxable, tablesAnnualPayment: annualPaymentPaye, contractor: treatment.paye === 'none' })
-    : payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, taxableIncome - retirementDeduction);
+  const uif = employee.uifExcluded || !treatment.uif
+    ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
+    : calculateUIF(uifLeviable, taxYear);
+  // A regular-pay directive's PAYE (directiveRegularPay): on the month's remuneration before deductions, capped at the cash it pays.
+  const directed = directive
+    ? regularPayDirectivePaye(directive, { periodic: acc.periodicTaxable, annual: acc.annualPayments, tablesAnnualPayment: annualPaymentPaye, contractor: treatment.paye === 'none' })
+    : null;
+  const capped = directive && directed ? capDirectivePaye(directed, grossPay - uif.employeeContribution - directivePaye, directive) : null;
+  const treated = capped ?? payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, taxableIncome - retirementDeduction);
   const payeSplit = { regular: treated.regular, annualPayment: treated.annualPayment, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
   // A contractor's own result stays beside a directive's: it is what keeps UIF, SDL and the 3616 code off (payrollOutsideTables).
   if (treatment.paye === 'none' || (treatment.paye === 'flat_25' && !directive)) warnings.push(...outsideTablesResult(treatment.paye));
-  warnings.push(...(treated.results ?? []), ...[directiveEndedResult(input.regularPayDirective)].filter(v => v != null));
-
-  const uif = employee.uifExcluded || !treatment.uif
-    ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
-    : calculateUIF(uifLeviable, taxYear);
+  warnings.push(...(directed?.results ?? []), ...(capped?.result ? [capped.result] : []), ...directiveStateResults(input.regularPayDirective));
 
   // SDL is levied on SDL-applicable pay less the para 2(4) retirement and donation deductions allowed, over the tax
   // year (sdlLeviableCumulative). No other deduction reduces PAYE or SDL; the s4(b) threshold stays on gross.

@@ -33,6 +33,7 @@ import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataS
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
+import { listRegularDirectiveNumbers } from '@/modules/accounting/services/payroll/easyFileRegularDirectives';
 import { capWarningsForHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
 import {
   ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthsBetween, taxThresholdFor, toCCYYMMDD,
@@ -68,7 +69,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // follow-ups G1). The stand-alone payments are in no run line, so their
   // gross and PAYE are added to the run totals.
   const bounds = saTaxYearBounds(taxYear);
-  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee, fringeByEmployee, unflaggedFringe] = await Promise.all([
+  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee, fringeByEmployee, unflaggedFringe, regularDirectives] = await Promise.all([
     sql`
       SELECT
         COALESCE(registered_name, name) AS trading_name,
@@ -95,6 +96,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     listRunNonCashBenefits(companyId, bounds, null, { excludeContractorLines: true }),
     // 3801 items paid in cash (no flag): in 3601, and said so below.
     listRunUnflaggedFringe(companyId, bounds),
+    // IRP3(b)/(c) directive numbers the stored lines were taxed by: 3230 alone (BRS V25.3.0 p. 41).
+    listRegularDirectiveNumbers(companyId, bounds),
   ]);
 
   const company = companyRows[0];
@@ -201,6 +204,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         amount: l.amount,
         paye: l.paye,
       })),
+      regularDirectiveNumbers: regularDirectives.get(String(row.id)),
       taxThreshold: taxThresholdFor(taxYear, row.date_of_birth, row.id_number),
       dateOfBirth: localDay(row.date_of_birth),
       medical: medical && {

@@ -3,6 +3,7 @@
  */
 
 import type { DirectiveKind } from '@/modules/accounting/services/payroll/taxDirectiveKinds';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export type DirectiveType = DirectiveKind;
 export type DirectiveStatus = 'pending' | 'approved' | 'expired' | 'cancelled';
@@ -30,3 +31,9 @@ export const STATUS_COLOURS: Record<DirectiveStatus, string> = {
   expired: 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]',
   cancelled: 'bg-red-500/20 text-red-400',
 };
+
+/** The list's Amount cell: a lump sum's gross, a fixed-amount directive's PAYE a month, nothing for a percentage (no gross is stored). */
+export function directiveAmountCell(d: { directiveType: DirectiveType; amount: number; taxAmount: number | null }): string {
+  if (d.directiveType === 'fixed_amount') return `${formatMoney(d.taxAmount ?? 0)} PAYE a month`;
+  return d.directiveType === 'fixed_percentage' ? '—' : formatMoney(d.amount);
+}

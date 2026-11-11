@@ -9,7 +9,7 @@
  * Judged at CREATE (against the employee's pending and approved regular-pay directives) and at APPROVE (against the
  * approved ones), each under `pg_advisory_xact_lock` on (company, employee), taken before any row lock and before any
  * write: two concurrent creates or approves for one employee serialise, and the second sees the first's row. The
- * refusal (TaxDirectiveOverlapError, a 400) is thrown before the request writes anything. A run approval takes no
+ * refusal (TaxDirectiveWindowError, a 400) is thrown before the request writes anything. A run approval takes no
  * advisory lock (it reads the rows FOR SHARE), so no lock cycle with it.
  */
 import { sql } from '@/lib/neon';
@@ -17,10 +17,11 @@ import type { DbRow } from '@/lib/neon';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 import { REGULAR_PAY_DIRECTIVE_TYPES } from './taxDirectiveKinds';
 
-export class TaxDirectiveOverlapError extends Error {
+/** A regular-pay directive's window refused (overlap, an approved period inside it, an expiry change): a 400, nothing written. */
+export class TaxDirectiveWindowError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'TaxDirectiveOverlapError';
+    this.name = 'TaxDirectiveWindowError';
   }
 }
 
@@ -47,7 +48,7 @@ export async function lockEmployeeRegularDirectives(companyId: string, employeeI
 }
 
 /**
- * Throw TaxDirectiveOverlapError when another of the employee's regular-pay directives with one of `statuses` is in force
+ * Throw TaxDirectiveWindowError when another of the employee's regular-pay directives with one of `statuses` is in force
  * on any day of [effectiveDate, endsOn]. Call under lockEmployeeRegularDirectives. Read-only.
  */
 export async function assertNoRegularDirectiveOverlap(companyId: string, employeeId: string, window: {
@@ -69,7 +70,7 @@ export async function assertNoRegularDirectiveOverlap(companyId: string, employe
   `) as DbRow[];
   const other = clash[0];
   if (!other) return;
-  throw new TaxDirectiveOverlapError(
+  throw new TaxDirectiveWindowError(
     `This employee already has ${other.status === 'approved' ? 'an approved' : 'a pending'} regular-pay directive${other.directive_number ? ` (${String(other.directive_number)})` : ''} `
     + `in force from ${String(other.effective_date)} to ${String(other.ends_on)}, which overlaps ${window.effectiveDate} to ${window.endsOn}. `
     + 'A period can be taxed by only one fixed-percentage or fixed-amount directive: cancel the other one, or give it an expiry date before this one starts.',

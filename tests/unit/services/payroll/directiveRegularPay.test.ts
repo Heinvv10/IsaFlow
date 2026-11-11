@@ -20,8 +20,8 @@ const earn = (amount: number, code = '3601'): EmployeeComponent => ({
 const ra = (amount: number): EmployeeComponent => ({
   component: { id: 'd-4006', name: 'RA', sarsSourceCode: '4006', componentType: 'deduction', isTaxable: true, isUifApplicable: false, isSdlApplicable: false }, amount,
 });
-const pct20: RegularPayDirective = { id: 'd-20', number: '1234567', type: 'fixed_percentage', rate: 0.2, fixedAmount: null, endsOn: '2027-02-28' };
-const fixed2500: RegularPayDirective = { id: 'd-fa', number: '7654321', type: 'fixed_amount', rate: null, fixedAmount: 2_500, endsOn: '2027-02-28' };
+const pct20: RegularPayDirective = { id: 'd-20', number: '1234567', type: 'fixed_percentage', rate: 0.2, fixedAmount: null, endsOn: '2027-02-28', effectiveDate: '2026-03-01' };
+const fixed2500: RegularPayDirective = { id: 'd-fa', number: '7654321', type: 'fixed_amount', rate: null, fixedAmount: 2_500, endsOn: '2027-02-28', effectiveDate: '2026-03-01' };
 const state = (current: RegularPayDirective | null, ended: RegularPayDirective | null = null): RegularPayDirectiveState => ({ current, ended });
 const cost = (e: PayrollEmployee, components: EmployeeComponent[], directive?: RegularPayDirectiveState, ytd?: PayeYearToDate) => calculatePayrollLine({
   employee: e, components, period: { year: 2026, month: 3 }, taxYear: 2027, annualPayrollEstimate: 1_000_000, ytd, regularPayDirective: directive,
@@ -46,12 +46,10 @@ describe('IRP3(b) fixed percentage on regular pay (G21 p. 15-16)', () => {
     const r = cost(employee({ medicalAidMainMember: true }), [earn(30_000)], state(pct20), YTD);
     expect([r.paye.monthlyPaye, r.medicalCredit]).toEqual([6_000, 0]);
   });
-  it('a 3605 bonus is taxed by the tables beside it, with an UNVERIFIED warning', () => {
+  it('a 3605 bonus is remuneration and takes the same 20% (G21 p. 15, no deviation): R6 000 + R2 000 = R8 000.00, no tables warning', () => {
     const r = cost(employee(), [earn(30_000), earn(10_000, '3605')], state(pct20));
-    expect(r.payeSplit.regular).toBe(6_000);
-    expect(r.payeSplit.annualPayment).toBeGreaterThan(0);
-    expect(r.paye.monthlyPaye).toBe(6_000 + r.payeSplit.annualPayment);
-    expect(codes(r)).toContain('DIRECTIVE_ANNUAL_PAYMENT_ON_TABLES');
+    expect([r.payeSplit.regular, r.payeSplit.annualPayment, r.paye.monthlyPaye]).toEqual([6_000, 2_000, 8_000]);
+    expect(codes(r)).not.toContain('DIRECTIVE_ANNUAL_PAYMENT_ON_TABLES');
   });
 });
 

@@ -169,8 +169,8 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
             <DateField label="Issued Date (by SARS)" value={form.issued_date || null} onChange={setDate('issued_date')} />
             <DateField label="Expiry Date" value={form.expiry_date || null} onChange={setDate('expiry_date')} />
             <div>
-              <label className={labelCls}>Directive Number</label>
-              <input className={inputCls} value={form.directive_number} onChange={set('directive_number')} placeholder="SARS directive number" />
+              <label htmlFor="td-number" className={labelCls}>Directive Number{regular ? ' *' : ''}</label>
+              <input id="td-number" className={inputCls} value={form.directive_number} onChange={set('directive_number')} required={regular} maxLength={regular ? 15 : 50} placeholder="SARS directive number" />
             </div>
             <div>
               <label className={labelCls}>SARS Reference</label>

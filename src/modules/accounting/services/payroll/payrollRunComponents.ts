@@ -23,7 +23,7 @@ export async function prepareRunComponents(args: {
 }): Promise<PreparedRunEmployee[]> {
   const { companyId, runId, period, readDate, population } = args;
   const prepared: PreparedRunEmployee[] = [];
-  const directives = await loadRegularPayDirectives(companyId, population.map(p => p.employee.id), period);
+  const directives = await loadRegularPayDirectives(companyId, population.map(p => p.employee.id), period, runId);
   for (const { employee, severanceOnly: onlySeverance } of population) {
     const terminationWarnings: ValidationResult[] = [];
     const components = onlySeverance
@@ -32,10 +32,10 @@ export async function prepareRunComponents(args: {
         companyId, runId, employee, await getEmployeeComponents(employee.id, companyId, readDate), period, terminationWarnings,
       );
     if (onlySeverance && components.length === 0) continue;
-    const directive = directives.get(employee.id);
+    // The whole reading (partial month, overlap, unusable row) reaches the line: each is warned there, none dropped.
     prepared.push({
       employee, severanceOnly: onlySeverance, components, terminationWarnings,
-      regularPayDirective: { current: directive?.current ?? null, ended: directive?.ended ?? null },
+      regularPayDirective: directives.get(employee.id) ?? { current: null, ended: null },
     });
   }
   return prepared;
