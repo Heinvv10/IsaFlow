@@ -22,6 +22,11 @@ export interface TaxYearConfig {
   sdlThresholdAnnual: number;
   /** Section 11F(2)(a): the most retirement fund contributions an employee may deduct in the year (retirementFund.ts). */
   retirementDeductionCap: number;
+  /**
+   * The daily remuneration under which at least 5 hours a day is deemed standard employment (G21 p. 28 "Deemed Standard
+   * Employment"; the summary table's R394 line). null = not verified for that year: a case that turns on it is undetermined.
+   */
+  nonStandardDailyThreshold: number | null;
 }
 
 /** Thrown for a tax year with no registered tables; never answered with another year's figures. */
@@ -62,11 +67,16 @@ const TAX_2025: TaxYearConfig = {
   sdlThresholdAnnual: 500_000,
   // R350 000 since the 1 March 2016 retirement reforms: SARS PAYE-GEN-01-G20 (2026 tax year) p. 5.
   retirementDeductionCap: 350_000,
+  // UNVERIFIED for 2025: the G19 guide (PAYE-GEN-01-G19) could not be fetched, so no daily threshold is stated and a case
+  // that turns on it is undetermined (employmentTerms.ts). 2026 is R383 (G20 p. 28).
+  nonStandardDailyThreshold: null,
 };
 
 const TAX_2026: TaxYearConfig = {
   ...TAX_2025,
   year: 2026,
+  // R383 a day: SARS PAYE-GEN-01-G20 (2026 tax year) Rev 0 p. 28, "Deemed Standard Employment" and the summary table.
+  nonStandardDailyThreshold: 383,
 };
 
 // Tax year 2027 = 1 March 2026 to 28 February 2027 (SARS 2026/27).
@@ -102,6 +112,8 @@ const TAX_2027: TaxYearConfig = {
   // R430 000 from 1 March 2026: SARS PAYE-GEN-01-G21 (2027 tax year) Rev 1 p. 5 and p. 10
   // (https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf).
   retirementDeductionCap: 430_000,
+  // R394 a day: SARS PAYE-GEN-01-G21 (2027 tax year) Rev 1 p. 28, "Deemed Standard Employment" and the summary table.
+  nonStandardDailyThreshold: 394,
 };
 
 const TAX_TABLE_REGISTRY: Record<number, TaxYearConfig> = {

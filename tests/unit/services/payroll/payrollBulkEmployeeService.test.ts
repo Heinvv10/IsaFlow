@@ -25,6 +25,7 @@ vi.mock('@/lib/neon', () => ({
 }));
 
 import {
+  BulkEmploymentTypeRefused,
   previewBulkEmployeeUpdate,
   applyBulkEmployeeUpdate,
   EmptyUpdateError,
@@ -210,5 +211,42 @@ describe('applyBulkEmployeeUpdate', () => {
     // regression that writes on a no-match.
     expect(sqlCalls.some(c => c.sql.includes('UPDATE payroll_employees'))).toBe(false);
     expect(sqlCalls.some(c => c.sql.includes('INSERT INTO'))).toBe(false);
+  });
+});
+
+describe('employment type in bulk (TS-b): the enum and the payroll-approval lock', () => {
+  const found = () => {
+    mockImpl = (strings) => Promise.resolve(strings.join('?').includes('FROM payroll_employees') && !strings.join('?').includes('UPDATE')
+      ? [{ id: EMP_A, employee_number: 'E001', first_name: 'J', last_name: 'D', department: 'OPS', cost_centre_id: null, employment_type: 'permanent' }] : []);
+  };
+
+  it.each(['director', 'Director', 'freelance', ''])('refuses %j before any read or write', async (employmentType) => {
+    for (const run of [
+      () => applyBulkEmployeeUpdate(COMPANY_ID, { department: 'OPS' }, { employmentType }, USER_ID),
+      () => previewBulkEmployeeUpdate(COMPANY_ID, { department: 'OPS' }, { employmentType }),
+    ]) {
+      sqlCalls.length = 0;
+      await expect(run()).rejects.toBeInstanceOf(BulkEmploymentTypeRefused);
+      expect(sqlCalls).toHaveLength(0);
+    }
+  });
+
+  it('an employment type change takes the company payroll-approval lock inside the transaction, before the UPDATE', async () => {
+    found();
+    await applyBulkEmployeeUpdate(COMPANY_ID, { department: 'OPS' }, { employmentType: 'casual' }, USER_ID);
+    const lock = sqlCalls.findIndex(c => c.viaTx && c.sql.includes('pg_advisory_xact_lock'));
+    const read = sqlCalls.findIndex(c => c.sql.includes('FROM payroll_employees') && !c.sql.includes('UPDATE'));
+    const update = sqlCalls.findIndex(c => c.sql.includes('UPDATE payroll_employees'));
+    expect(lock).toBeGreaterThanOrEqual(0);
+    // The lock first, then the matching rows are read (inside the same transaction), then they are written.
+    expect(lock).toBeLessThan(read);
+    expect(sqlCalls[read]!.viaTx).toBe(true);
+    expect(read).toBeLessThan(update);
+  });
+
+  it('a department-only update does not take it', async () => {
+    found();
+    await applyBulkEmployeeUpdate(COMPANY_ID, { department: 'OPS' }, { department: 'ADMIN' }, USER_ID);
+    expect(sqlCalls.some(c => c.sql.includes('pg_advisory_xact_lock'))).toBe(false);
   });
 });

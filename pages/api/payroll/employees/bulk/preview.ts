@@ -18,6 +18,7 @@ import {
   previewBulkEmployeeUpdate,
   EmptyUpdateError,
   EmptyFilterError,
+  BULK_EMPLOYMENT_TYPES,
 } from '@/modules/accounting/services/payroll/payrollBulkEmployeeService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
@@ -33,7 +34,7 @@ const Update = z
   .object({
     department: z.string().optional(),
     costCentreId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }).nullable().optional(),
-    employmentType: z.string().optional(),
+    employmentType: z.enum(BULK_EMPLOYMENT_TYPES).optional(),
   })
   .strict();
 

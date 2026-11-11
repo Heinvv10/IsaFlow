@@ -46,6 +46,7 @@ import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, 
 import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
+import { contractorAwareReason } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
 import { retirementFieldLines, withDeductionTotal, type RetirementContributions } from './easyFileRetirementFields';
 
@@ -92,6 +93,8 @@ export interface EmployeeInput {
   sdl4142: number;                // 4142 (SDL) — cents kept
   /** Annual payments (3605), NOT included in grossSalary3601. Their PAYE stays in 4102. */
   annualPayments3605?: number;
+  /** An independent contractor's income, code 3616 (G21 p. 26), INSTEAD of 3601 (easyFileContractor.ts). */
+  independentContractor3616?: number;
   /** Non-cash fringe benefits by income code (3801), NOT included in grossSalary3601; cents dropped. */
   fringeBenefits?: { sourceCode: string; amount: number }[];
   /** Lump sums paid under a directive, NOT included in grossSalary3601. */
@@ -207,7 +210,10 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // (medical credits) above it. Lump sums are outside 3601/3605: a nil
   // directive beside taxable pay over the threshold is no reason 04 either.
   const it3a = emp.paye4102 <= 0 && paye4115 <= 0;
-  const reason = it3a ? nilTaxReason(emp) : null;
+  // A contractor's certificate with no tax is reason 03 (BRS V25.3.0 p. 109), at any amount: easyFileContractor.
+  // With contractor income (3616) the reason is 03, valid beside it (BRS V25.3.0 p. 62, 109); the employee part of a mixed certificate is
+  // still judged by nilTaxReason (refused when it is over the threshold with no tax): the reason is never a way round that.
+  const reason = it3a ? contractorAwareReason(emp) : null;
   const medical = medicalFieldLines(emp);
   const retirement = retirementFieldLines(emp.retirementFund);
   const lines: (string | null)[] = [
@@ -233,6 +239,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     ]),
     formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
     formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
+    formatField(3616, (emp.independentContractor3616 ?? 0) > 0 ? emp.independentContractor3616! : null, 'N'),
     // Income codes in code order, as the BRS file layout lists them: 36xx, 38xx, then 39xx.
     ...[...(emp.fringeBenefits ?? [])].sort((a, b) => a.sourceCode.localeCompare(b.sourceCode)).map(f => formatField(Number(f.sourceCode), f.amount >= 1 ? f.amount : null, 'N')),
     ...lumpIncome(lumpSums),

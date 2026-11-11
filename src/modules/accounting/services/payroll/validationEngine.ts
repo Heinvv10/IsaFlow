@@ -1,5 +1,9 @@
 import { ETI_TABLE_UNCONFIRMED_MESSAGE, isEtiTableUnconfirmed } from './etiTables';
-import type { EtiMissingInput, EtiResult, PayrollEmployee, ValidationResult } from './payrollTypes';
+import type { EmployeeComponent, EtiMissingInput, EtiResult, PayrollEmployee, ValidationResult } from './payrollTypes';
+import type { EmploymentClassification } from './employmentTerms';
+
+/** Error results that refuse approval of the run (payrollRunRecalcGate.employmentTermsRefusal). */
+export const EMPLOYMENT_TERMS_BLOCKING_CODES = ['EMPLOYMENT_UNDETERMINED', 'DIRECTOR_STATUS_NOT_SET'] as const;
 
 const MONTHLY_THRESHOLD = 95_750 / 12;
 
@@ -129,4 +133,63 @@ export function validateEti(
     field: eti.missingInputs[0] === 'date_of_birth' ? 'dateOfBirth' : 'startDate',
     deepLink: `/payroll/employees/${employee.id}#${eti.missingInputs[0]!.replace(/_/g, '-')}`,
   }];
+}
+
+/**
+ * What the employee's terms of work say about how they are taxed (employmentTerms, taxStatusTreatment):
+ *  - HOURS_NOT_RECORDED: a monthly employee with no hours is standard employment by default, never silently. Info for a
+ *    permanent employee; a WARNING for a contract or casual one, whose hours are the likelier thing to be under 22 a week;
+ *  - DAY_RATE_NOT_RECORDED (warning): the class came from the line's earnings alone, no day or hourly rate is recorded (a limit until HD's quantity lands);
+ *  - DAY_PAY_FROM_EARNINGS (warning): the line's earnings per scheduled day differ from the recorded rate and decided the class;
+ *  - EMPLOYMENT_UNDETERMINED (error): the guide cannot classify from the terms recorded (G21 p. 28);
+ *  - DIRECTOR_STATUS_NOT_SET (error): employment type "director" with tax status "employee": the card asks, nothing
+ *    changes silently (grill 24), so the run stops until someone sets one;
+ *  - CONTRACTOR_UIF_SDL_IGNORED (warning): a contractor's earnings carry UIF or SDL flags, which are set aside (no UIF or SDL
+ *    is taken from a contractor), so the figures are right and the flags are only noise.
+ */
+export function validateEmploymentTerms(
+  employee: Pick<PayrollEmployee, 'id' | 'firstName' | 'lastName' | 'employeeNumber' | 'employmentType' | 'taxStatus'>,
+  classification: EmploymentClassification,
+  components: readonly EmployeeComponent[],
+): ValidationResult[] {
+  const name = `${employee.firstName} ${employee.lastName}`.trim();
+  const link = { field: 'workTerms', deepLink: `/payroll/employees/${employee.id}#work-terms` };
+  const results: ValidationResult[] = [];
+  if (classification.hoursNotRecorded) {
+    const likelyPartTime = employee.employmentType === 'contract' || employee.employmentType === 'casual';
+    results.push({
+      code: 'HOURS_NOT_RECORDED', severity: likelyPartTime ? 'warning' : 'info', ...link,
+      message: `${name}: ${classification.reason}.${likelyPartTime ? ` A ${employee.employmentType} employee may work under 22 hours a week (non-standard employment, 25% PAYE, G21 p. 28): record the hours.` : ''}`,
+    });
+  }
+  if (classification.rateNotRecorded) {
+    results.push({
+      code: 'DAY_RATE_NOT_RECORDED', severity: 'warning', ...link,
+      message: `${name}: no daily or hourly rate is recorded, so the employment class came from this line's earnings alone. Record the daily or hourly rate: a short month can lower the class (G21 p. 28, "earns ... for that day").`,
+    });
+  }
+  if (classification.dayPayNote) {
+    results.push({ code: 'DAY_PAY_FROM_EARNINGS', severity: 'warning', message: `${name}: ${classification.dayPayNote}`, ...link });
+  }
+  if (classification.kind === 'undetermined') {
+    results.push({ code: 'EMPLOYMENT_UNDETERMINED', severity: 'error', message: `${name}: ${classification.reason} Record the terms of work, then recalculate.`, ...link });
+  }
+  if (employee.employmentType === 'director' && employee.taxStatus === 'employee') {
+    results.push({
+      code: 'DIRECTOR_STATUS_NOT_SET', severity: 'error',
+      message: `${name} (employee ${employee.employeeNumber}) has employment type Director but tax status Employee, so this run cannot be approved. `
+        + 'Fix: open the employee profile, go to Work terms, set Tax status to Director, save, then recalculate the run. '
+        + 'If the person is not a director, change the employment type instead.',
+      ...link,
+    });
+  }
+  const flagged = employee.taxStatus === 'independent_contractor'
+    && components.some(c => c.component.componentType === 'earning' && (c.component.isUifApplicable || c.component.isSdlApplicable));
+  if (flagged) {
+    results.push({
+      code: 'CONTRACTOR_UIF_SDL_IGNORED', severity: 'warning',
+      message: `${name} is an independent contractor: UIF and SDL are not taken, whatever the earnings' UIF and SDL flags say.`, ...link,
+    });
+  }
+  return results;
 }

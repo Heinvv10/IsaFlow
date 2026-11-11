@@ -15,10 +15,12 @@ import {
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
+import { canSetPayrollNetPay } from '@/lib/auth/writeRoles';
 import {
   applyBulkEmployeeUpdate,
   EmptyUpdateError,
   EmptyFilterError,
+  BULK_EMPLOYMENT_TYPES,
 } from '@/modules/accounting/services/payroll/payrollBulkEmployeeService';
 
 const Filter = z
@@ -33,7 +35,7 @@ const Update = z
   .object({
     department: z.string().optional(),
     costCentreId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }).nullable().optional(),
-    employmentType: z.string().optional(),
+    employmentType: z.enum(BULK_EMPLOYMENT_TYPES).optional(),
   })
   .strict();
 
@@ -48,9 +50,13 @@ const Body = z
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
-  const { companyId, user } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   const parsed = Body.safeParse(req.body);
   if (!parsed.success) return apiResponse.badRequest(res, parsed.error.issues[0]?.message ?? 'Invalid body');
+  // The employment type feeds the run's figures: only the roles that may change pay terms may change it in bulk (as the profile does).
+  if (parsed.data.update.employmentType !== undefined && !canSetPayrollNetPay(companyRole)) {
+    return apiResponse.forbidden(res, 'Your role cannot change employment types.');
+  }
 
   try {
     const opts: { effectiveFrom?: string; changeReason?: string } = {};

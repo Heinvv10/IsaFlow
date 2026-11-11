@@ -61,7 +61,11 @@ async function linesOf(runId: string): Promise<Record<string, unknown>> {
   const { rows } = await pool.query(
     `SELECT employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, medical_credit,
             additional_medical_credit, medical_scheme_fees, uif_employee, uif_employer, sdl, eti, net_pay,
-            component_breakdown::text AS component_breakdown, validation_results::text AS validation_results
+            component_breakdown::text AS component_breakdown,
+            -- TS-b (calculation version 5) stores one info result on every hourless monthly line, HOURS_NOT_RECORDED, which master's
+            -- output does not have. It is the ONLY code left out of the comparison; every other result stays byte-identical.
+            (SELECT COALESCE(jsonb_agg(v), '[]'::jsonb) FROM jsonb_array_elements(validation_results) v
+              WHERE v->>'code' <> 'HOURS_NOT_RECORDED')::text AS validation_results
        FROM payroll_run_lines WHERE run_id=$1`,
     [runId],
   );
