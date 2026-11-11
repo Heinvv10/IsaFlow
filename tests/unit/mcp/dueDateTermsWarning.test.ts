@@ -69,6 +69,13 @@ describe('dueDateTermsWarnings', () => {
     ])).toHaveLength(1);
   });
 
+  it('still warns when the bill\'s own terms are statement wording ("Net 90 EOM" is not a netNN)', async () => {
+    vi.mocked(contactTerms).mockResolvedValue(terms(3, 'statement_months'));
+    expect(await dueDateTermsWarnings(COMPANY, [
+      { supplierId: CFS, invoiceDate: '2026-11-09', dueDate: '2027-02-07', paymentTerms: 'Net 90 EOM', label: '' },
+    ])).toHaveLength(1);
+  });
+
   it('is silent for an invoice date the terms cannot date (dueDateFromTerms gives null)', async () => {
     vi.mocked(contactTerms).mockResolvedValue(terms(3, 'statement_months'));
     expect(await dueDateTermsWarnings(COMPANY, [
