@@ -46,6 +46,7 @@ const ANY = new Set(SCRIPT_NAMES.flatMap((name, i) => (name === 'Common' || name
 const ANY_BASE = new Set(ANY_BASES);
 const MARK = /^\p{M}$/u;
 const SELECTOR = /^[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]$/u;
+const PICTOGRAPH = /^\p{Extended_Pictographic}$/u;
 /** A joiner, a selector or any other format character: a code point that is nothing a mark was measured after. */
 const IGNORABLE = /^[\p{Cf}\p{Default_Ignorable_Code_Point}]$/u;
 
@@ -98,10 +99,12 @@ export function fallbackClusterIn(
       return;
     }
     // Only the contexts measured are priced as measured (#1263 round 5): a mark right after its base or after one
-    // mark, a selector right after its base. After a joiner, a selector, a format character, or as the third mark of
-    // a run, production sets the sequence on a dotted circle or a stack in a face of its own: the widest glyph.
+    // mark. After a joiner, a selector, a format character, or as the third mark of a run, production sets the
+    // sequence on a dotted circle or a stack in a face of its own: the widest glyph. A selector is a mark of Common
+    // or Inherited script, measured on the letters of ANY_BASES only (#1264 round 6: after a base the faces lack, such
+    // as U+022E or a Myanmar digit, production sets base and selector wider): on any other base, the widest glyph.
     const unmeasured = i > 0 && (selector ? MARK.test(prev) || IGNORABLE.test(prev) : IGNORABLE.test(prev) || inRun >= 2);
-    const writtenOn = i > 0 && !unmeasured && (selector || (ANY.has(mark[2]) ? ANY_BASE.has(base) : scriptAt(base) === mark[2]));
+    const writtenOn = i > 0 && !unmeasured && (ANY.has(mark[2]) ? ANY_BASE.has(base) : scriptAt(base) === mark[2]);
     // After another mark (a second sign on one consonant), the order may be one the shaper rejects (Devanagari
     // anusvara before vowel sign I, Burmese U typed before I), set on a dotted circle: the larger of what it adds in a
     // word and elsewhere (#1263 round 4), and at least the circle itself, an em (round 5: Lao and Odia pairs the table
@@ -111,6 +114,13 @@ export function fallbackClusterIn(
     px += writtenOn ? cost : table.widest;
     seen.add(cp);
   });
+  // Joined pictographs (#1264 round 6): production draws a ZWJ sequence as one glyph only if it is one it has a glyph
+  // for, and as its components, each an emoji, otherwise (a heart joined to a heart, a face to a sign). Which it
+  // draws is not known here: the sum of the components' emoji widths, never less than the cluster's own price.
+  if (marks && cps.includes('\u200D')) {
+    const parts = cps.filter((ch) => PICTOGRAPH.test(ch));
+    if (parts.length >= 2) px = Math.max(px, parts.reduce((sum, ch) => sum + Math.max(fallbackAdvanceIn(table, ranges, ch.codePointAt(0)!), table.emoji), 0));
+  }
   if (/[\uFE0F\u20E3]/u.test(cluster)) px = Math.max(px, table.emoji);
   return Math.ceil((px * sizePx) / measuredPx);
 }

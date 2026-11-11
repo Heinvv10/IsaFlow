@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
-import { asShaped, shapingInput } from './packGlyphShaping';
+import { asShaped, shapingInput, withGaps } from './packGlyphShaping';
 import { clusters } from './packGraphemes';
 
 export type FaceWeight = 400 | 500 | 600;
@@ -228,10 +228,13 @@ export function runExactPx(
   };
   // What Chromium sets as nothing (a soft hyphen, a zero-width space, a word joiner, ...) out, kerned across; a line or
   // paragraph separator as a space; a fraction slash decided on the text as given (`packGlyphShaping.asShaped`).
-  for (const cluster of clustersOf(asShaped(text))) {
+  const gaps = new Set<number>();
+  let at = 0;
+  for (const cluster of clustersOf(asShaped(text, gaps))) {
     px += letterSpacingPx;
     if (inFace(cluster)) inside += cluster;
-    else { flush(); px += fallbackPx(cluster, size); }
+    else { flush(); px += fallbackPx(gaps.size === 0 ? cluster : withGaps(cluster, at, gaps), size); }
+    if (gaps.size > 0) at += Array.from(cluster).length;
   }
   flush();
   if (hyphen) px += Math.ceil(hyphenExactPx(fontPx, weight) * UNIT - 1e-7) / UNIT;

@@ -66,11 +66,13 @@ describe('a selector is measured only right after its base (M2, L3)', () => {
     }
   });
 
-  it('leaves the emoji sequences as they were: a keycap, a heart on fire, an eye in a speech bubble', () => {
+  it('never prices an emoji sequence below what it cost (a keycap, a heart on fire, an eye in a speech bubble)', () => {
+    // Round 6 (#1264): the selector of a pictograph or a digit is no longer free (it is measured on ANY_BASES only), and a
+    // joined pictograph costs the sum of its components: both only raise these prices. `packMarkContextsR6.test.ts`.
     const emoji = FALLBACK.label400.emoji;
-    expect(cost(0x31, VS16, 0x20e3)).toBe(Math.max(emoji, adv(0x31) + inWord(VS16) + widest));
-    expect(cost(0x2764, VS16, ZWJ, 0x1f525)).toBe(Math.max(emoji, adv(0x2764) + inWord(VS16) + adv(0x1f525)));
-    expect(cost(0x1f441, VS16, ZWJ, 0x1f5e8, VS16)).toBe(Math.max(emoji, adv(0x1f441) + inWord(VS16) + adv(0x1f5e8) + inWord(VS16)));
+    expect(cost(0x31, VS16, 0x20e3)).toBeGreaterThanOrEqual(Math.max(emoji, adv(0x31) + inWord(VS16) + widest));
+    expect(cost(0x2764, VS16, ZWJ, 0x1f525)).toBeGreaterThanOrEqual(Math.max(emoji, adv(0x2764) + inWord(VS16) + adv(0x1f525)));
+    expect(cost(0x1f441, VS16, ZWJ, 0x1f5e8, VS16)).toBeGreaterThanOrEqual(Math.max(emoji, adv(0x1f441) + inWord(VS16) + adv(0x1f5e8) + inWord(VS16)));
   });
 });
 
