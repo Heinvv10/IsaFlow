@@ -12,50 +12,39 @@
  * against a database: the defect is in the arithmetic two SQL statements perform
  * on a real row, and a mocked sql tag asserts nothing about it.
  *
- * Deliberately a DIFFERENT company from creditNoteMcpTools.test.ts. Journal
- * entry numbering is not concurrency-safe — two files posting journals for the
- * same company in parallel collide on uq_gl_je_company_entry_number — so the
- * files are kept on separate tenants rather than serialised.
+ * A company of its own (l1FifoFixture), never shared with another file:
+ * journal entry numbering is not concurrency-safe across files posting for
+ * the same company.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { Pool } from 'pg';
-import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import { createCreditNote, approveCreditNote, applyCreditNoteToInvoice, cancelCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import { dropFixture, inTx as fxTx, seedFixture, type Fixture } from '../helpers/l1FifoFixture';
 
-const COMPANY = '00000000-0000-0000-0000-000000000001';
-const USER = '00000000-0000-0000-e2e0-000000000001';
-const TAG = `PART-${Date.now()}`;
-let pool: Pool; let customer: string; let invoice: string;
+// A company of this suite's own (chart of accounts, open 2026 period), so it
+// runs on a schema-only database too; it used to borrow dev's Demo company.
+let fx: Fixture; let COMPANY: string; let USER: string;
+let customer: string; let invoice: string;
 
-async function inTx<T>(fn: () => Promise<T>): Promise<T> {
-  const c = await pool.connect();
-  try { await c.query('BEGIN');
-    const o = await als.run({ client: c, userId: USER, companyId: COMPANY, claims: {} } as never, fn);
-    await c.query('COMMIT'); return o;
-  } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
-}
+const inTx = <T>(fn: () => Promise<T>): Promise<T> => fxTx(fx, fn);
 
 beforeAll(async () => {
-  pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
-  customer = (await sql`INSERT INTO customers (name, company_id) VALUES (${'PART ' + TAG}, ${COMPANY}::UUID) RETURNING id` as {id:string}[])[0]!.id;
+  fx = await seedFixture('CNPART', process.env.DATABASE_URL!);
+  COMPANY = fx.companyId; USER = fx.userId; customer = fx.customerId;
+  // approve posts DR revenue / CR receivable; the shared fixture has no revenue account.
+  await sql`
+    INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active, is_system_account)
+    VALUES (${COMPANY}::UUID, '4000', ${'Revenue ' + fx.tag}, 'revenue', 'default_revenue', 'credit', true, true)`;
   // total 1000, customer already paid 950 in CASH -> outstanding 50
   invoice = (await sql`INSERT INTO customer_invoices (company_id, client_id, customer_id, created_by, invoice_number, invoice_date, total_amount, amount_paid, status, subtotal)
-    VALUES (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${USER}::UUID, ${TAG}, '2026-06-01', 1000, 950, 'partially_paid', 1000) RETURNING id` as {id:string}[])[0]!.id;
-});
+    VALUES (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${USER}::UUID, ${fx.tag}, '2026-06-01', 1000, 950, 'partially_paid', 1000) RETURNING id` as {id:string}[])[0]!.id;
+}, 60_000);
 afterAll(async () => {
-  const je = (await sql`SELECT gl_journal_entry_id AS id FROM credit_notes WHERE client_id=${customer}::UUID AND gl_journal_entry_id IS NOT NULL` as {id:string}[]).map(r=>r.id);
-  await sql`DELETE FROM credit_notes WHERE client_id = ${customer}::UUID`;
-  if (je.length) {
-    const all = (await sql`SELECT id FROM gl_journal_entries WHERE id = ANY(${je}::UUID[]) OR reversal_of_id = ANY(${je}::UUID[])` as {id:string}[]).map(r=>r.id);
-    await sql`DELETE FROM gl_journal_lines WHERE journal_entry_id = ANY(${all}::UUID[])`;
-    await sql`DELETE FROM gl_journal_entries WHERE reversal_of_id = ANY(${je}::UUID[])`;
-    await sql`DELETE FROM gl_journal_entries WHERE id = ANY(${je}::UUID[])`;
-  }
-  await sql`DELETE FROM customer_invoices WHERE id = ${invoice}::UUID`;
-  await sql`DELETE FROM customers WHERE id = ${customer}::UUID`;
-  await pool.end();
-});
+  if (!fx) return;
+  await sql`DELETE FROM credit_note_allocations WHERE company_id = ${COMPANY}::UUID`;
+  await sql`DELETE FROM credit_notes WHERE company_id = ${COMPANY}::UUID`;
+  await dropFixture(fx);
+}, 60_000);
 
 describe('partial application then cancel', () => {
   it('must not erase more than was applied', async () => {
