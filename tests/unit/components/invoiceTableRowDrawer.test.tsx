@@ -96,3 +96,13 @@ describe('CustomerInvoiceTable row', () => {
     expect(openTab).not.toHaveBeenCalled();
   });
 });
+
+describe('CustomerInvoiceTable 90+ bucket contrast', () => {
+  it('the 90+ days label uses the theme-mapped red-400 (readable on dark), not the unmapped red-600 (3.69:1 on #0f172a)', () => {
+    cleanup();
+    render(<CustomerInvoiceTable invoices={[{ ...INV, status: 'overdue', aging_bucket: '90+' }]} page={1} limit={25} total={1} onPage={vi.fn()} onOpen={onOpen} />);
+    const label = screen.getByText('90+ days');
+    expect(label.className).toContain('text-red-400');
+    expect(label.className).not.toContain('text-red-600');
+  });
+});
