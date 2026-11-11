@@ -8,7 +8,7 @@
  * terms set gets no warning: the company default is not the supplier's terms.
  */
 import { contactTerms } from '@/modules/accounting/services/core/paymentTermsResolver';
-import { dueDateFromTerms, readTerms } from '@/modules/accounting/services/shared/paymentTerms';
+import { dueDateFromTerms } from '@/modules/accounting/services/shared/paymentTerms';
 
 export interface DueDateCheck {
   supplierId: string;
@@ -29,7 +29,7 @@ export async function dueDateTermsWarnings(companyId: string, checks: DueDateChe
       t = await contactTerms(companyId, 'supplier', c.supplierId);
       cache.set(c.supplierId, t);
     }
-    if (!readTerms(t.days, t.type)) continue;
+    // Null when the supplier has no terms set: the company default is not its terms, so no warning.
     const termsDate = dueDateFromTerms(c.invoiceDate, t.days, t.type);
     if (termsDate === null || termsDate === c.dueDate) continue;
     warnings.push(
